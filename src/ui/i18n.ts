@@ -93,6 +93,9 @@ export interface Strings {
     reload: string
     variants: string
     jumps: string
+    /** A jump whose moment is not recorded yet: the worker is being asked for it. */
+    searching: string
+    /** …and the only way a jump can still fail: that moment never happens. */
     notFound: string
     observe: string
     tryThis: string
@@ -786,7 +789,13 @@ export const STRINGS: Strings = {
     reload: '↻ 重新开始仿真',
     variants: '场景变体',
     jumps: '跳转到',
-    notFound: '当前仿真窗口内尚未出现——让仿真再运行一会儿',
+    searching: '正在把仿真跑到那一刻……',
+    // It used to read 「当前仿真窗口内尚未出现——让仿真再运行一会儿」, and that was
+    // advice the reader could not act on: at the default 1 000 倍 slowdown
+    // 「一会儿」 was three minutes for `queues` 的那一跳、七分半 for `capstone` 的。
+    // 现在仿真会自己往后跑，所以这句话只剩下一种意思：往后 3 秒的仿真里真的没有这一刻
+    // （`amp-slots` 有两跳只在它的场景变体里出现，就是这种情形）。
+    notFound: '往后 3 秒的仿真里没有出现这一刻——换一个场景变体试试',
     observe: '👀 观察要点',
     tryThis: '🧪 动手实验',
     quiz: '✅ 自测',

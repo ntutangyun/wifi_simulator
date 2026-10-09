@@ -24,16 +24,20 @@
  * rendered" is this file's whole claim, and it is weaker than "the reader can
  * see it" — a batch of 160 rows is some 2 000 px tall in a panel ~511 px high.
  * The viewport half is pinned in a real browser by
- * `tests/e2e/narrow-width.spec.ts` ("a jump puts its own row in front of the
- * reader"), and neither check is sufficient alone. This separation is
- * deliberate and is not an excuse: a file that claimed the viewport from node
- * would be the weak check pretending to be the strong one.
+ * `tests/e2e/narrow-width.spec.ts` — "a jump puts its own row in front of the
+ * reader" for a jump, and "the reader can see where the playhead is after
+ * moving it" for the playhead's own row — and neither check is sufficient
+ * alone. This separation is deliberate and is not an excuse: a file that
+ * claimed the viewport from node would be the weak check pretending to be the
+ * strong one. The same split applies to the last test below: it holds the
+ * arithmetic of the jump search and not the arrival.
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation, type Batch } from '../../src/engine/simulation'
 import { TimelineStore } from '../../src/player/timelineStore'
 import { LESSONS } from '../../src/course/lessons'
 import { LOG_ROWS, pickLogRows, windowedRecords } from '../../src/ui/eventLogWindow'
+import { JUMP_SEARCH_NS, LOOKAHEAD_NS } from '../../src/player/player'
 import type { Lesson } from '../../src/course/lessonKit'
 import type { TLRecord } from '../../src/model/records'
 
@@ -47,19 +51,18 @@ const MS = 1_000_000
 const LADDER = [30 * MS, 100 * MS, 400 * MS, 1_000 * MS, 6_000 * MS]
 
 /**
- * A store holding a lesson's recording, filled the way the worker fills it.
+ * A store holding a lesson's recording.
  *
- * In pieces, and that is not cosmetic: `TimelineStore.ingest` is
- * `records.push(...batch)`, and one batch of a 6-second AMP run overflows the
- * call stack. The browser never sees that because the worker streams.
+ * It used to shred the batch into 2 000-record pieces here, because
+ * `TimelineStore.ingest` was `records.push(...batch)` and one batch of a
+ * 6-second AMP run overflowed the call stack. That limit is gone
+ * (`tests/player/timelineStore.test.ts` is where it is now pinned), so this is
+ * one call again — and this file is the second place a revert of it shows up
+ * red, from the direction the limit was found from.
  */
 function storeOf(b: Batch): TimelineStore {
   const st = new TimelineStore()
-  const N = 2_000
-  for (let i = 0; i < b.records.length; i += N) {
-    st.ingest({ records: b.records.slice(i, i + N), snapshots: [], frontierNs: b.frontierNs })
-  }
-  st.ingest({ records: [], snapshots: b.snapshots, frontierNs: b.frontierNs })
+  st.ingest(b)
   return st
 }
 
@@ -162,6 +165,40 @@ describe('the event log renders the row a jump landed on', () => {
       return pickLogRows(win, c.target.t, c.target.seq).markerSeq === null
     }).map((c) => `${c.lesson}#${c.idx}`)
     expect(unmarked).toEqual([])
+  })
+
+  /**
+   * The arithmetic premise of `Player.seekFirstAhead`, and the ratchet on the
+   * constant it is bounded by.
+   *
+   * `Player.load` records `LOOKAHEAD_NS` = 2 s ahead of a playhead that starts
+   * at 0, so a jump clicked on a freshly loaded lesson can only reach a record
+   * inside the first two seconds. Two of these 293 cannot, which is why the
+   * player holds a jump and asks the worker for more recording — bounded by
+   * `JUMP_SEARCH_NS`, because an unbounded search on `mumimo` would be 165 MiB
+   * of records for one click.
+   *
+   * This is the half a pure function can hold: that the bound is wide enough
+   * for every jump the course has, and that the margin is a measured number
+   * rather than a hope. It does NOT show that a reader who clicks once arrives
+   * — that is `tests/e2e/narrow-width.spec.ts`, "a jump reaches past the
+   * recording, without the reader playing it", and neither check is sufficient
+   * alone.
+   */
+  it('keeps every jump target inside the recording a jump may ask for', () => {
+    const beyond = CASES.filter((c) => c.target.t > JUMP_SEARCH_NS)
+      .map((c) => `${c.lesson}#${c.idx} ${c.label} @ ${c.target.t}`)
+    expect(beyond).toEqual([])
+    // The two that are past the LOOKAHEAD, named: they are the reason the
+    // search exists, and if a lesson edit adds a third the list says so.
+    const pastLookahead = CASES.filter((c) => c.target.t > LOOKAHEAD_NS).map((c) => `${c.lesson}#${c.idx}`)
+    expect(pastLookahead).toEqual(['queues#2', 'capstone#1'])
+    // The debt, measured, and its margin — the same shape `tests/course`'s
+    // ratchets use. 2.453 384 778 s is `capstone#1`, the furthest jump in the
+    // course; 546 615 222 ns is what is left of the 3 s horizon above it.
+    const furthest = Math.max(...CASES.map((c) => c.target.t))
+    expect(furthest).toBe(2_453_384_778)
+    expect(JUMP_SEARCH_NS - furthest).toBe(546_615_222)
   })
 
   it('lets go of a stale anchor by itself, with nothing to clear', () => {

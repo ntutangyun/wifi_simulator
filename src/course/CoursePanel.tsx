@@ -353,14 +353,29 @@ export function CoursePanel() {
    *
    * `r !== null` and never `if (r)`: `seq` starts at 0, and the first record of
    * a recording is a legitimate jump target.
+   *
+   * `seekFirstAhead` and not `seekFirst`, because "the recording has not got
+   * there yet" was never an answer to what the reader asked. Two of the
+   * course's jumps point past the 2 s the lookahead buffers — `queues`
+   * 「AP 第一次因生存期丢帧」 at 2.182 806 360 s and `capstone` 「第一个触发帧」 at
+   * 2.453 384 778 s — so on a freshly loaded lesson those two printed a
+   * sentence and did nothing, and the reader's way out was to wait three or
+   * seven minutes at the default slowdown. The player now asks the worker to
+   * record further and lands when it has (`src/player/player.ts`), so `done`
+   * fires straight away for the other 291 and a few hundred milliseconds later
+   * for these two. `searching` is what fills that gap; it is replaced by
+   * whichever outcome arrives, and a jump that resolves synchronously never
+   * paints it (React batches both writes into one render).
    */
   const jump = (find: Lesson['jumps'][0]['find'], label: string) => {
-    const r = player.seekFirst(find)
-    setJumpMsg(r !== null ? '' : `${label}: ${L.notFound}`)
-    if (r !== null) {
-      markJump(r.seq)
-      requestView()
-    }
+    setJumpMsg(`${label}: ${L.searching}`)
+    player.seekFirstAhead(find, (r) => {
+      setJumpMsg(r !== null ? '' : `${label}: ${L.notFound}`)
+      if (r !== null) {
+        markJump(r.seq)
+        requestView()
+      }
+    })
   }
 
   /**
