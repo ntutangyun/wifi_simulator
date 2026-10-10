@@ -75,11 +75,23 @@ export const GEN_LABEL: Record<Generation, string> = {
  * Which features a generation may implement.
  *
  * `uhr` carries EHT's list and nothing more. The draft's basis for each: SFD r19 names the UHR
- * MU PPDU and the UHR TB PPDU (so `ofdma` / `mumimo`), Motion #200 includes 4096-QAM in UHR
- * (so `qam4k`), and the PAR requires backward compatibility with EHT MAC/PHY operation (so the
- * EDCA/A-MPDU/TXOP/MLO set carries over). **Nothing NEW of 11bn's is switched on here** — MAPC,
- * NPCA, co-BF and the rest are a different slice's problem and most of their SFD sections are
- * still `TBD`.
+ * MU PPDU and the UHR TB PPDU (so `ofdma` / `mumimo`), and the PAR requires backward
+ * compatibility with EHT MAC/PHY operation (so the EDCA/A-MPDU/TXOP/MLO set carries over).
+ * `qam4k` rides on that same compatibility and on Motion #419, which keeps the UHR TB PPDU's
+ * constellation-error requirement for MCS0-15 at EHT's definitions: the 4096-QAM pair is EHT's
+ * MCS 12 and 13 and it keeps those two draft numbers, which is why `UHR_SFD_MCS` ends `12, 13`
+ * while the four MCSs 11bn actually adds are 17 / 19 / 20 / 23.
+ *
+ * **Motion #200 is NOT that basis, and this comment cited it as one until 2026-10-10.** The
+ * motion's whole text is `Include 4096-QAM in UHR UEQM` (tables/sfd_full.md:569), and it sits in
+ * the unequal-modulation subsection between #199 `Exclude BPSK from UHR UEQM` and #216's
+ * mandatory-MCS list. So it rules on which constellations UEQM may mix ACROSS SPATIAL STREAMS
+ * — a feature this engine does not model at all, since every mode here is one stream and equal
+ * modulation. It presupposes the rung rather than granting it, and quoting it for the general
+ * proposition read more into it than it says.
+ *
+ * **Nothing NEW of 11bn's is switched on here** — MAPC, NPCA, co-BF and the rest are a
+ * different slice's problem and most of their SFD sections are still `TBD`.
  */
 export const GEN_FEATURES: Record<Generation, FeatureFlag[]> = {
   nonht: [],

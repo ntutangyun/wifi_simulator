@@ -1,13 +1,34 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   BAND_LABEL, FEATURE_LABEL, GENERATIONS, GEN_FEATURES, GEN_LABEL, GEN_RANK, LINK_ORDER, MAX_WIDTH,
   linkOfVirtual, linkPlanFor, minGen, negotiatedNss, negotiatedWidth, nodeLinks, nssOf, virtualId,
   widthOf,
 } from '../../src/model/caps'
 import { STRINGS } from '../../src/ui/i18n'
-import { PHY_MODES, PHY_MODE_ORDER } from '../../src/engine/phy'
+import { PHY_MODES, PHY_MODE_ORDER, UHR_SFD_MCS } from '../../src/engine/phy'
 import { ScenarioSchema, defaultScenario, type NodeCfg } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
+
+const CAPS_SRC = readFileSync(new URL('../../src/model/caps.ts', import.meta.url), 'utf8')
+
+/**
+ * The jsdoc block immediately above `decl`, with its `*` margin stripped and folded to one line.
+ *
+ * Folded because a claim in a comment wraps wherever the line length puts it, so a check that
+ * reads the raw text is really a check on where somebody pressed Enter.
+ */
+function docblockOf(src: string, decl: string): string {
+  const at = src.indexOf(decl)
+  if (at < 0) throw new Error(`no ${decl} in this source`)
+  const open = src.lastIndexOf('/**', at)
+  const close = src.indexOf('*/', open)
+  if (open < 0 || close > at) throw new Error(`no docblock immediately above ${decl}`)
+  return src.slice(open + 3, close).split(/[\r\n]+/).map((l) => l.replace(/^\s*\* ?/, '').trim()).join(' ')
+}
+
+/** Sentences, so a check can ask whether ONE sentence makes two claims at once. */
+const sentences = (s: string): string[] => s.split(/(?<=[.!?])\s+/).filter((x) => x.trim() !== '')
 
 /**
  * **`GENERATIONS` is the one list in this repo a new generation cannot be left out of, and this
@@ -111,6 +132,42 @@ describe('the feature labels say nothing that is only true of one generation', (
           .toBe(false)
       }
     }
+  })
+
+  /**
+   * **A source comment is an evidence claim, and this one over-read its motion.**
+   *
+   * `GEN_FEATURES`'s docblock used to say 「Motion #200 includes 4096-QAM in UHR (so `qam4k`)」.
+   * The motion's whole text is `Include 4096-QAM in UHR UEQM` and it sits in the
+   * unequal-modulation subsection of the SFD, between #199 `Exclude BPSK from UHR UEQM` and
+   * #216's mandatory-MCS list, so it rules on what UEQM may mix across spatial streams — a
+   * feature this engine has no model of — rather than granting UHR the rung. The rung itself
+   * comes over with EHT, and the engine says so in numbers: the two 4096-QAM rungs keep EHT's
+   * own draft numbers 12 and 13, while the four MCSs 11bn adds are 17 / 19 / 20 / 23.
+   *
+   * So this checks the numbers first and the sentence second. Nobody reads the sentence, which
+   * is exactly why nothing but this would notice it drifting back.
+   */
+  it("the 4096-QAM pair is EHT's MCS 12/13 carried over, which is the basis the docblock may cite", () => {
+    // the engine's own statement of the inheritance: same N_DBPS, same draft MCS numbers
+    expect(PHY_MODES.uhr.ndbps.slice(PHY_MODES.uhr.qam4kFromMcs!))
+      .toEqual(PHY_MODES.eht.ndbps.slice(PHY_MODES.eht.qam4kFromMcs!))
+    expect(UHR_SFD_MCS.slice(PHY_MODES.uhr.qam4kFromMcs!), "UHR keeps EHT's own two numbers here")
+      .toEqual([12, 13])
+    // anti-vacuity: the four rungs 11bn really adds are elsewhere in the ladder and are not these
+    expect(UHR_SFD_MCS.filter((m) => m > 13).sort((a, b) => a - b)).toEqual([17, 19, 20, 23])
+
+    const doc = docblockOf(CAPS_SRC, 'export const GEN_FEATURES')
+    // the quotation has to be the motion's own words, not a paraphrase of a wider claim
+    expect(doc, "#200's whole text").toContain('Include 4096-QAM in UHR UEQM')
+    // and no sentence may offer #200 as the reason the flag is on — the regression this guards
+    for (const s of sentences(doc)) {
+      expect(/Motion #200/.test(s) && /`qam4k`/.test(s),
+        `the docblock offers Motion #200 as the basis for \`qam4k\` again: 「${s.trim()}」`).toBe(false)
+    }
+    // the positive half, so a docblock that simply drops the citation does not pass either
+    expect(sentences(doc).some((s) => /Motion #419/.test(s) && /MCS0-15/.test(s)),
+      'the docblock still has to say which motion DOES carry the rung').toBe(true)
   })
 
   it('and the two tables label the same seven switches', () => {
