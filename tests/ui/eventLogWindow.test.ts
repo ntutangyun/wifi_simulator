@@ -84,12 +84,46 @@ interface JumpCase {
   target: TLRecord
 }
 
+/**
+ * What one click costs the reader, by where the record is at the moment they
+ * click it on a **freshly loaded lesson** — which is the only question the
+ * cost of {@link JUMP_SEARCH_NS} is about.
+ *
+ *  - `immediate` — the record is inside the 2 s `Player.load` already recorded,
+ *    so `done` fires synchronously and nothing is simulated.
+ *  - `extend` — the record exists on this lesson's own scene but past that 2 s,
+ *    so the worker is asked for more and the reader waits for it.
+ *  - `miss` — the predicate does not fire on the loaded scene at all. The
+ *    search runs the whole `JUMP_SEARCH_NS` horizon and then answers 「没有」.
+ *    This is the worst case, and it is the one the test below bounds.
+ *
+ * `cls` is read off the BASE batch, not off {@link JumpCase}'s: `JumpCase`
+ * deliberately falls back to a variant scene so that every jump has a target to
+ * check a rendered row against, and a variant is not what a reader has loaded
+ * when they press the button under the lesson's own 「载入」.
+ */
+interface JumpCost {
+  lesson: string
+  idx: number
+  label: string
+  cls: 'immediate' | 'extend' | 'miss'
+  /** Where it is on the base scene; null for a `miss`. */
+  baseT: number | null
+}
+
+const COSTS: JumpCost[] = []
+
 const CASES: JumpCase[] = (() => {
   const out: JumpCase[] = []
   for (const l of LESSONS) {
     const base = runUntilAllFire(l.scenario, l.jumps.map((j) => j.find))
     const variants = new Map<number, ReturnType<typeof runUntilAllFire>>()
     l.jumps.forEach((j, idx) => {
+      const onBase = base.batch.records.find(j.find)
+      COSTS.push({
+        lesson: l.id, idx, label: j.label, baseT: onBase?.t ?? null,
+        cls: onBase === undefined ? 'miss' : onBase.t > LOOKAHEAD_NS ? 'extend' : 'immediate',
+      })
       let hit = base
       if (!hit.batch.records.some(j.find)) {
         // `amp-slots` declares two jumps on purpose that only its variants fire;
@@ -199,6 +233,76 @@ describe('the event log renders the row a jump landed on', () => {
     const furthest = Math.max(...CASES.map((c) => c.target.t))
     expect(furthest).toBe(2_453_384_778)
     expect(JUMP_SEARCH_NS - furthest).toBe(546_615_222)
+  })
+
+  /**
+   * **The other side of the bound: what the worst click actually costs.**
+   *
+   * On-demand extension was taken with one cost declared and nothing measuring
+   * it: 「the worst case is one click buying three seconds of simulation and a
+   * hundred-odd megabytes」, triggered by a reader pressing one of `amp-slots`'
+   * two variant-only jumps on its base scene — where the old code said 「尚未
+   * 出现」 at once and the new one answers after the search. Measured, the first
+   * half of that sentence is about SIM time and not the reader's, and the
+   * second half is wrong by a factor of twenty:
+   *
+   * | base scene, 0…3 s | records | resident | sim time |
+   * | --- | --- | --- | --- |
+   * | `amp-slots` — the scene both misses live on | 30 718 | 6.5 MiB | 125 ms |
+   * | `amp-slots`, the 2→3 s part a click adds | +10 221 | +1.7 MiB | +41 ms |
+   * | `mumimo` — the densest scene in the course | 967 082 | 122.8 MiB | 2 740 ms |
+   *
+   * (`node --expose-gc`, heapUsed either side of one run, ~221 B/record.) The
+   * two misses are on the course's SPARSEST kind of scene: six AMP tags in one
+   * room. 「上百兆」 is `mumimo`'s number, and `mumimo` has no jump that misses.
+   *
+   * So the two things this pins are the census and the budget, and they fail for
+   * different reasons. The census: exactly which jumps are in which class, which
+   * is the sentence `Player.seekFirstAhead` and `CoursePanel` both state in
+   * prose. The budget: the full-horizon recording of every scene a `miss` can
+   * be clicked from stays small — put a never-firing jump on `mumimo` and this
+   * goes red at 967 082 against a 50 000 budget, which is exactly the regression
+   * the declaration feared and the one place it could actually happen.
+   *
+   * What it does NOT hold is the reader's wall clock: `setTimeout`-chunked
+   * worker pumping and `postMessage` are not in this process, and 3 s of SIM
+   * time is not 3 s of the reader's. Browser-measured on 2026-10-10, the click
+   * prints its answer 0.37–0.50 s later at 939×511 and 0.17–0.23 s at 470×511,
+   * with the clock still at zero — not three seconds. Keeping those numbers out
+   * of a node test is the same split the file's head docblock describes.
+   */
+  it('bounds what the worst click can cost, on the scene the reader clicks it from', () => {
+    // A `miss` is read off the base batch, so the ladder's top rung must reach
+    // past the horizon or 「never fires」 would mean 「not yet in this batch」.
+    expect(LADDER[LADDER.length - 1]).toBeGreaterThanOrEqual(JUMP_SEARCH_NS)
+    expect(COSTS.length).toBe(CASES.length)
+
+    const named = (cls: JumpCost['cls']) =>
+      COSTS.filter((c) => c.cls === cls).map((c) => `${c.lesson}#${c.idx} ${c.label}`)
+    // 289, not the 291 the first draft of this said: the two `amp-slots` misses
+    // were counted as synchronous AND as the 「没有」 case, in one breath.
+    expect(named('immediate').length).toBe(289)
+    expect(named('extend')).toEqual([
+      'queues#2 AP 第一次因生存期丢帧',
+      'capstone#1 第一个触发帧',
+    ])
+    expect(named('miss')).toEqual([
+      'amp-slots#3 第一次空转（ACWE 3 变体）',
+      'amp-slots#4 第一帧调度型触发帧（两阶段变体）',
+    ])
+
+    // The budget, and the measurement under it. One run per scene a miss can be
+    // clicked from, to the horizon the search would reach — what the worker is
+    // asked for, counted the way the worker would end up holding it.
+    const MISS_RECORD_BUDGET = 50_000
+    const scenes = [...new Set(COSTS.filter((c) => c.cls === 'miss').map((c) => c.lesson))]
+    expect(scenes).toEqual(['amp-slots'])
+    const horizon = scenes.map((id) => {
+      const l = LESSONS.find((x) => x.id === id)!
+      return new Simulation(l.scenario()).runUntil(JUMP_SEARCH_NS).records.length
+    })
+    for (const [i, n] of horizon.entries()) expect(n, scenes[i]).toBeLessThan(MISS_RECORD_BUDGET)
+    expect(horizon).toEqual([30_718])
   })
 
   it('lets go of a stale anchor by itself, with nothing to clear', () => {

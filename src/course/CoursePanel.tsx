@@ -362,8 +362,12 @@ export function CoursePanel() {
    * sentence and did nothing, and the reader's way out was to wait three or
    * seven minutes at the default slowdown. The player now asks the worker to
    * record further and lands when it has (`src/player/player.ts`), so `done`
-   * fires straight away for the other 291 and a few hundred milliseconds later
-   * for these two. `searching` is what fills that gap; it is replaced by
+   * fires straight away for 289 of the 293 and a few hundred milliseconds later
+   * for these two — and for the last two, `amp-slots`' variant-only pair, it
+   * runs the whole search and then says so. That census and the cost of that
+   * worst case are measured in `tests/ui/eventLogWindow.test.ts`; the two are
+   * still listed here, because the label names the variant they belong to and
+   * `observe` sends the reader to load it. `searching` is what fills that gap; it is replaced by
    * whichever outcome arrives, and a jump that resolves synchronously never
    * paints it (React batches both writes into one render).
    */

@@ -237,13 +237,28 @@ export class Player {
    * Pause and seek to the first record matching pred, **simulating further if
    * the recording has not reached it yet**, and hand that record to `done`.
    *
-   * `done` is called synchronously when the record is already recorded, which
-   * is 291 of the course's 293 jumps; for the other two it is called when the
-   * worker has caught up, a few hundred milliseconds later. `null` means the
-   * record did not occur in the first {@link JUMP_SEARCH_NS} past the playhead,
-   * which is the only case left where a jump can fail — and it is a real one:
-   * `amp-slots` declares two jumps on purpose that fire only in its variants,
-   * so a reader clicking those on the base scene gets this answer.
+   * On a freshly loaded lesson the course's 293 jumps split **289 / 2 / 2**, and
+   * `tests/ui/eventLogWindow.test.ts` names each side of that split:
+   *
+   *  - **289** are already recorded, so `done` is called synchronously and
+   *    nothing is simulated;
+   *  - **2** sit on this lesson's own scene but past the 2 s lookahead
+   *    (`queues#2`, `capstone#1`), so `done` is called when the worker has
+   *    caught up, a few hundred milliseconds later;
+   *  - **2** never fire on the scene that is loaded — `amp-slots` declares two
+   *    jumps on purpose that fire only in its variants — so the search runs the
+   *    whole {@link JUMP_SEARCH_NS} horizon and `done` gets `null`. That is the
+   *    only case left where a jump can fail, and the worst case of the
+   *    extension. Measured, it is +10 221 records, +1.7 MiB and +41 ms of
+   *    simulation on `amp-slots`: both misses are on the sparsest kind of scene
+   *    the course has, and the test above holds the budget a dense one would
+   *    blow. 「三秒」 is SIM time and not the reader's: the extra second of
+   *    `amp-slots` is 20 chunks of `CHUNK_NS` in the worker, and browser-measured
+   *    on 2026-10-10 the click answers 0.37–0.50 s after it was pressed at
+   *    939×511 and 0.17–0.23 s at 470×511, clock untouched at zero.
+   *
+   * (This docblock said 291 synchronous until 2026-10-10, which counted the two
+   * `amp-slots` misses both as synchronous and as the `null` case.)
    *
    * The extension reuses the mechanism playback already uses and adds none of
    * its own: the worker's `run` raises `targetNs` and restarts its pump
