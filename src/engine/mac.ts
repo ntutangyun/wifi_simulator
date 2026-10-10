@@ -27,8 +27,8 @@ import {
   EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
   RTS_BYTES, SHORT_RETRY_LIMIT,
   GI_MODES, TGI_NS,
-  aifsNs, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, multiStaBaBytes, preambleNsFor,
-  symNsFor, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
+  aifsNs, ctrlRespRateFor, ctrlRespRateForMode, lowestMode, mcsInMode, mcsRateMbps,
+  multiStaBaBytes, preambleNsFor, symNsFor, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode, type PhyTiming, type TxTimeOpts,
 } from './phy'
 import { Rng } from './rng'
@@ -941,9 +941,12 @@ export class WifiMac implements PhyListener {
   /**
    * Build the members of a DL MU PPDU. OFDMA: each member gets 1/n of the
    * channel. MU-MIMO: each gets the full width at its own stream count.
-   * 802.11be: the PPDU is EHT only if every member is EHT; otherwise it is an
-   * HE MU PPDU, where EHT members are served at HE-MCS (≤ 11) — 4096-QAM does
-   * not exist in HE. Members are filled up to the duration cap.
+   * 802.11be: the PPDU runs the OLDEST format any member's link runs (`lowestMode`), and a
+   * member whose own link is denser is re-expressed in that format by required SINR
+   * (`mcsInMode`) rather than clamped to a literal index. For an all-HE-or-EHT round that is
+   * the old rule word for word — EHT only if every member is EHT, otherwise HE with EHT members
+   * at HE-MCS ≤ 11, because 4096-QAM does not exist in HE. Members are filled up to the
+   * duration cap.
    */
   private buildMuParts(ei: number, dsts: string[], mumimo: boolean, durCap: Ns, ac: number): {
     parts: MuPart[]; claims: { peer: string; msdus: Msdu[] }[]; ppduDur: Ns; modeAll: PhyMode; width: number
@@ -951,13 +954,13 @@ export class WifiMac implements PhyListener {
     const parts: MuPart[] = []
     const claims: { peer: string; msdus: Msdu[] }[] = []
     const frac = mumimo ? 1 : 1 / dsts.length
-    const modeAll: PhyMode = dsts.every((d) => this.cfg.modeForPeer(d) === 'eht') ? 'eht' : 'he'
+    const modeAll: PhyMode = lowestMode(dsts.map((d) => this.cfg.modeForPeer(d)))
     // The DL MU PPDU spans the whole operating channel: it runs at the
     // narrowest width any member negotiated. Stream count stays per member.
     const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
     let ppduDur = 0
     for (const peer of dsts) {
-      const mcs = modeAll === 'he' ? Math.min(11, this.cfg.mcsForPeer(peer)) : this.cfg.mcsForPeer(peer)
+      const mcs = mcsInMode(this.cfg.modeForPeer(peer), this.cfg.mcsForPeer(peer), modeAll)
       const nss = this.cfg.nssForPeer(peer)
       const opts = mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
       const airtime = (bytes: number[]) => this.airModeNs(modeAll, psduPlan(bytes, { mu: true }).psduBytes, mcs, opts)
@@ -1031,11 +1034,13 @@ export class WifiMac implements PhyListener {
     // narrowest width any invited user negotiated; Nss stays per user.
     const ulWidth = Math.min(...users.map((u) => this.cfg.widthForPeer(u.peer)))
     // One PPDU format for the whole triggered round, exactly as for a DL MU
-    // PPDU: EHT only if every invited user is EHT, otherwise HE with each
-    // user's MCS capped at 11 (HE has no 4096-QAM).
-    const mode: PhyMode = users.every((u) => this.cfg.modeForPeer(u.peer) === 'eht') ? 'eht' : 'he'
+    // PPDU: the oldest format any invited user's link runs, with each user's
+    // rung re-expressed in it by required SINR. For an all-HE-or-EHT round that
+    // is the old rule unchanged — EHT only if every user is EHT, otherwise HE
+    // with each user's MCS at 11 or below (HE has no 4096-QAM).
+    const mode: PhyMode = lowestMode(users.map((u) => this.cfg.modeForPeer(u.peer)))
     const parts: MuPart[] = users.map((u) => {
-      const mcs = mode === 'he' ? Math.min(11, this.cfg.mcsForPeer(u.peer)) : this.cfg.mcsForPeer(u.peer)
+      const mcs = mcsInMode(this.cfg.modeForPeer(u.peer), this.cfg.mcsForPeer(u.peer), mode)
       const nss = this.cfg.nssForPeer(u.peer)
       const need = this.airModeNs(
         mode,

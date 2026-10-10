@@ -10,7 +10,8 @@
  * `ricianKdB`, so `selectivity: {}` is the *only* legal non-empty shape this section ever takes.
  */
 import { describe, it, expect } from 'vitest'
-import { minGen } from '../../src/model/caps'
+import { GENERATIONS as ALL_GENERATIONS, minGen } from '../../src/model/caps'
+import { selBinnableGen } from '../../src/engine/selectivity'
 import {
   DEFAULT_UWB_SESSION, ScenarioSchema, defaultScenario, type NodeCfg, type Scenario,
 } from '../../src/model/scenario'
@@ -29,8 +30,21 @@ const nonOfdmWithFading = (): Scenario => ({
   fading: { smallScale: 'rayleigh' },
 } as Scenario)
 
-/** Every generation, so a matrix over them is a matrix and not a sample. */
-const GENERATIONS: Generation[] = ['nonht', 'vht', 'he', 'eht']
+/**
+ * Every generation, so a matrix over them is a matrix and not a sample — **imported, because a
+ * local list is the one thing the compiler cannot check.** `['nonht', 'vht', 'he', 'eht']` stayed
+ * a well-typed `Generation[]` when `'uhr'` was added, so this matrix would have gone on
+ * measuring sixteen pairs while its own `it` titles promised all of them.
+ */
+const GENERATIONS: readonly Generation[] = ALL_GENERATIONS
+
+/**
+ * Which link generations resolve a 26-tone RU, asked of the engine's own predicate rather than
+ * restated here. It used to be the literal `linkGen === 'he' || linkGen === 'eht'`, which is a
+ * second model of the rule — and the one that drifts is the test. `'uhr'` is the proof: the
+ * schema started accepting it and this file would have gone on expecting a refusal.
+ */
+const binnableLink = (g: Generation): boolean => selBinnableGen(g)
 
 /**
  * A two-node scene: one AP at `apGen`, one station at `staGen`, fading on, selectivity on.
@@ -196,15 +210,15 @@ describe('Scenario.selectivity refusals (design doc §6 upper table)', () => {
  * predicate used to ask `nodes.some(...)`, which accepted all eight mixed pairs: checkbox lit,
  * no red line, and a record stream field-for-field identical to the feature switched off.
  *
- * This matrix is the whole 4 × 4, and its expectation is computed from `minGen` rather than
- * listed — a table of sixteen hand-written verdicts is a second model of the rule, and the one
- * that drifts is the test.
+ * This matrix is the whole 5 × 5, and its expectation is computed from `minGen` and from the
+ * engine's own `selBinnableGen` rather than listed — a table of hand-written verdicts is a
+ * second model of the rule, and the one that drifts is the test.
  */
 describe('the third refusal asks about a link, not about a device', () => {
   for (const apGen of GENERATIONS) {
     for (const staGen of GENERATIONS) {
       const linkGen = minGen(apGen, staGen)
-      const binnable = linkGen === 'he' || linkGen === 'eht'
+      const binnable = binnableLink(linkGen)
       it(`${apGen} AP + ${staGen} STA is a ${linkGen} link, so selectivity is ${binnable ? 'accepted' : 'refused'}`, () => {
         const issues = selIssues(pair(apGen, staGen))
         expect(issues.length, issues.join(' | ')).toBe(binnable ? 0 : 1)
@@ -213,12 +227,19 @@ describe('the third refusal asks about a link, not about a device', () => {
     }
   }
 
-  it('refuses all eight mixed pairs, and accepts all four that are he/eht at both ends', () => {
+  it('accepts exactly the pairs whose weaker end resolves a 26-tone RU, and refuses the rest', () => {
     // The same claim counted rather than per-case, so the matrix above cannot pass by being
-    // empty: eight mixed, four low-low, four binnable.
+    // empty. With five generations of which three are binnable that is 3 × 3 = 9 accepted out
+    // of 25 — and the two counts are DERIVED here rather than written, because a sixth
+    // generation must move them without a human remembering to.
     const verdicts = GENERATIONS.flatMap((a) => GENERATIONS.map((b) => selIssues(pair(a, b)).length === 0))
-    expect(verdicts.filter((ok) => ok).length).toBe(4)
-    expect(verdicts.filter((ok) => !ok).length).toBe(12)
+    const binnable = GENERATIONS.filter(binnableLink).length
+    expect(binnable, 'he, eht and uhr').toBe(3)
+    expect(verdicts.filter((ok) => ok).length).toBe(binnable * binnable)
+    expect(verdicts.filter((ok) => !ok).length).toBe(GENERATIONS.length ** 2 - binnable * binnable)
+    // Anti-vacuity: the matrix really does split, and it is not all of one side.
+    expect(verdicts.filter((ok) => ok).length).toBe(9)
+    expect(verdicts.filter((ok) => !ok).length).toBe(16)
   })
 
   it('counts only the station end, not any station: one binnable peer is enough', () => {

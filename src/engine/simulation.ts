@@ -30,7 +30,7 @@ import { Channel, type BsGeometry, type ChannelSpectrum } from './channel'
 import { EventQueue } from './events'
 import { hashStr } from './hash'
 import { WifiMac } from './mac'
-import { ERP_2G, mcsForRssi, OFDM_5G, TGI_NS, type PhyTiming } from './phy'
+import { ERP_2G, mcsForRssi, OFDM_5G, PHY_MODES, TGI_NS, type PhyTiming } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
@@ -281,7 +281,12 @@ export class Simulation {
                 const rssi = table.get(n.id)?.get(peer) ?? -200
                 const mode = modeFor(n, peer)
                 const peerCfg = other(n, peer)
-                const cap = mode === 'eht' && !negotiated(n, peerCfg, 'qam4k') ? 11 : undefined
+                // The `qam4k` ceiling is "everything below this mode's lowest 4096-QAM rung",
+                // an index that differs per mode — 12 in eht, 16 in uhr, because uhr interleaves
+                // four new rungs below them. The literal 11 that used to be here was eht's
+                // index minus one, written when eht was the only mode with such a rung.
+                const qam4k = PHY_MODES[mode].qam4kFromMcs
+                const cap = qam4k !== undefined && !negotiated(n, peerCfg, 'qam4k') ? qam4k - 1 : undefined
                 const ceiling = mcsForRssi(mode, rssi, cap, negotiatedWidth(n, peerCfg, link))
                 return rate.mcsFor(peer, ceiling)
               },

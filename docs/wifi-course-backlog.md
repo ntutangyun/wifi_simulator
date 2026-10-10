@@ -648,7 +648,7 @@ The engine switches to a seeded PER draw here, and every lesson is re-baselined.
 - **它属于 M7（QoS 与效率）**，模块已存在，所以**不碰 `TIERS`，不碰 UWB 的 `module` 索引**——
   和 W5 一样便宜在结构上。
 
-**为什么排在后面：** 它是 C 项的一条，而 C 项的开场动作是拆 `mac.ts`（1772 行）。
+**为什么排在后面：** 它是 C 项的一条，而 C 项的开场动作是拆 `mac.ts`（1777 行）。
 **不拆也做得出来**（A-MSDU 不需要 BA 协商），但在 `mac.ts` 里再加一层聚合会让下一次拆更难。
 **这一条要在规格里正面回答：是先拆还是先建。**
 

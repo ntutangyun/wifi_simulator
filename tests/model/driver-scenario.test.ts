@@ -28,9 +28,8 @@ import {
   ScenarioSchema, TAMPER_KINDS, TAMPER_PRESETS, defaultScenario, driverRefusals, driverRefusalsFor,
   tamperReadableFields, tamperSetFields, type NodeCfg, type Scenario, type TamperKind,
 } from '../../src/model/scenario'
+import { GENERATIONS } from '../../src/model/caps'
 import type { Generation } from '../../src/model/types'
-
-const GENERATIONS: Generation[] = ['nonht', 'vht', 'he', 'eht']
 
 /** One AP and one station at the given generations, each with every flag its generation allows. */
 function pair(apGen: Generation, staGen: Generation, cheat?: TamperKind): Scenario {
@@ -75,12 +74,18 @@ describe('the tampered driver and the game switch · what the three rules refuse
   })
 
   /**
-   * The third rule, over the whole (AP × station) × preset matrix: 4 × 4 × 7 = 112 plans, every
+   * The third rule, over the whole (AP × station) × preset matrix: 5 × 5 × 7 = 175 plans, every
    * one of them judged by the same two rulers that decide the refusal — which fields the preset
    * sets, and which of them this link can read.
    *
    * The assertion is an EQUIVALENCE rather than a list of ids, so a preset added to
    * `TAMPER_KINDS` later lands on the correct side with nothing to edit here.
+   *
+   * **And `GENERATIONS` is imported rather than written out here, which is what let the matrix
+   * grow from 112 plans to 175 with nothing to edit when `'uhr'` went in.** A local
+   * `['nonht', 'vht', 'he', 'eht']` is still a well-typed `Generation[]` after a fifth member
+   * appears, so `tsc` would not have said a word — the matrix would simply have gone on
+   * measuring four generations under a title that claims it walks every pair.
    */
   it('refuses a preset exactly when this link can read none of its fields', () => {
     let refused = 0

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { BAND_EXTRA_LOSS_DB, linkBudget, mcsLadder, widthsFor } from '../../src/course/widgetModel'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { mcsForRssi, noiseDbm, PHY_MODES, reqSinrDb, type PhyMode } from '../../src/engine/phy'
+import { mcsForRssi, noiseDbm, PHY_MODES, PHY_MODE_ORDER, reqSinrDb, type PhyMode } from '../../src/engine/phy'
 import { Simulation } from '../../src/engine/simulation'
 import type { Material, NodeCfg, Scenario, Wall } from '../../src/model/scenario'
 
@@ -27,7 +27,13 @@ const CASES: { d: number; walls: Material[]; tx: number }[] = [
   { d: 17, walls: ['drywall', 'drywall', 'brick'], tx: 23 },
   { d: 35, walls: ['glass', 'brick', 'brick'], tx: 30 },
 ]
-const MODES: PhyMode[] = ['nonht', 'vht', 'he', 'eht']
+/**
+ * Every PHY mode, imported rather than written out — including `'uhr'`, which `MODE_OPTIONS`
+ * (src/course/widgets/common.tsx) deliberately does NOT offer yet. `mcsLadder` is a pure
+ * function of `PHY_MODES`, so it answers for `'uhr'` today whether or not a dropdown shows it,
+ * and that answer is worth pinning before the widget starts asking for it.
+ */
+const MODES: readonly PhyMode[] = PHY_MODE_ORDER
 
 describe('linkBudget', () => {
   it('RSSI equals the engine link table for the same geometry', () => {

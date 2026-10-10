@@ -1,6 +1,7 @@
 /**
  * Wi-Fi generation / feature capability model and STA↔AP negotiation.
- * Generations: nonht (802.11a baseline), vht (Wi-Fi 5), he (Wi-Fi 6), eht (Wi-Fi 7).
+ * Generations: nonht (802.11a baseline), vht (Wi-Fi 5), he (Wi-Fi 6), eht (Wi-Fi 7),
+ * uhr (Wi-Fi 8 / P802.11bn — a DRAFT; see `PHY_MODES.uhr` in src/engine/phy.ts).
  */
 import type { Generation } from './types'
 import type { NodeCfg } from './scenario'
@@ -13,9 +14,15 @@ export const BAND_LABEL: Record<LinkId, string> = { '2g': '2.4G', '5g': '5G', '6
 export type ChannelWidth = 20 | 40 | 80 | 160 | 320
 export type Nss = 1 | 2 | 3 | 4
 
-/** Widest channel each generation can operate. Non-HT is 20 MHz only. */
+/**
+ * Widest channel each generation can operate. Non-HT is 20 MHz only.
+ *
+ * `uhr`'s 320 comes from the draft rather than from EHT by analogy: TGbn SFD r19's own receiver
+ * minimum-sensitivity table (Motion #417) publishes a 320 MHz PPDU column, and its RU allocation
+ * list names the 320 MHz PPDU explicitly.
+ */
 export const MAX_WIDTH: Record<Generation, ChannelWidth> = {
-  nonht: 20, vht: 160, he: 160, eht: 320,
+  nonht: 20, vht: 160, he: 160, eht: 320, uhr: 320,
 }
 
 /** Operating width, defaulted to 20 MHz and clamped to the generation's maximum; 2.4 GHz caps everything at 40 MHz. */
@@ -40,21 +47,46 @@ export function negotiatedNss(a: NodeCfg, b: NodeCfg): Nss {
   return Math.min(nssOf(a), nssOf(b)) as Nss
 }
 
-export const GEN_RANK: Record<Generation, number> = { nonht: 0, vht: 1, he: 2, eht: 3 }
+export const GEN_RANK: Record<Generation, number> = { nonht: 0, vht: 1, he: 2, eht: 3, uhr: 4 }
+
+/**
+ * Every generation, lowest first.
+ *
+ * **It exists because the compiler cannot see a test's own list.** `Generation` gained a fifth
+ * member and `tsc -b` named seven `Record<Generation, …>` literals — and NOT ONE of the six
+ * generation matrices in `tests/`, because `['nonht', 'vht', 'he', 'eht']` stays a perfectly
+ * well-typed `Generation[]` when a fifth member appears. Those matrices would simply have gone
+ * on measuring four generations under a title claiming they walk every pair. So the lists live
+ * here, derived from `GEN_RANK` and welded to it by `tests/model/caps.test.ts`, and a seventh
+ * generation grows every matrix with nothing to edit.
+ */
+export const GENERATIONS: readonly Generation[] =
+  (Object.keys(GEN_RANK) as Generation[]).sort((a, b) => GEN_RANK[a] - GEN_RANK[b])
 
 export const GEN_LABEL: Record<Generation, string> = {
   nonht: '802.11a (legacy)',
   vht: 'Wi-Fi 5 (VHT)',
   he: 'Wi-Fi 6 (HE)',
   eht: 'Wi-Fi 7 (EHT)',
+  uhr: 'Wi-Fi 8 (UHR, draft)',
 }
 
-/** Which features a generation may implement. */
+/**
+ * Which features a generation may implement.
+ *
+ * `uhr` carries EHT's list and nothing more. The draft's basis for each: SFD r19 names the UHR
+ * MU PPDU and the UHR TB PPDU (so `ofdma` / `mumimo`), Motion #200 includes 4096-QAM in UHR
+ * (so `qam4k`), and the PAR requires backward compatibility with EHT MAC/PHY operation (so the
+ * EDCA/A-MPDU/TXOP/MLO set carries over). **Nothing NEW of 11bn's is switched on here** — MAPC,
+ * NPCA, co-BF and the rest are a different slice's problem and most of their SFD sections are
+ * still `TBD`.
+ */
 export const GEN_FEATURES: Record<Generation, FeatureFlag[]> = {
   nonht: [],
   vht: ['edca', 'ampdu', 'txop'],
   he: ['edca', 'ampdu', 'txop', 'ofdma', 'mumimo'],
   eht: ['edca', 'ampdu', 'txop', 'ofdma', 'mumimo', 'mlo', 'qam4k'],
+  uhr: ['edca', 'ampdu', 'txop', 'ofdma', 'mumimo', 'mlo', 'qam4k'],
 }
 
 export const FEATURE_LABEL: Record<FeatureFlag, string> = {
@@ -96,7 +128,10 @@ export function nodeLinks(n: NodeCfg, apMlo: boolean): LinkId[] {
   if (hasFeature(n, 'mlo') && (n.kind === 'ap' || apMlo)) return ['5g', '6g']
   const g = n.caps.generation
   if (n.kind !== 'ap' && n.linkId === '2g' && g !== 'vht') return ['2g']
-  if (n.kind !== 'ap' && (g === 'he' || g === 'eht') && n.linkId === '6g') return ['6g']
+  // 6 GHz: HE and later. `uhr` is in because the TGbn PAR puts 11bn between 1 and 7.25 GHz and
+  // requires coexistence in the 2.4, 5 and 6 GHz unlicensed bands; leaving it out would make a
+  // Wi-Fi 8 station the only modern radio in this engine that cannot reach 6 GHz.
+  if (n.kind !== 'ap' && (g === 'he' || g === 'eht' || g === 'uhr') && n.linkId === '6g') return ['6g']
   return ['5g']
 }
 

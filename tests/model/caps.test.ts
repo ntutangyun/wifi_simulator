@@ -1,10 +1,75 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BAND_LABEL, LINK_ORDER, MAX_WIDTH, linkOfVirtual, linkPlanFor, negotiatedNss, negotiatedWidth,
-  nodeLinks, nssOf, virtualId, widthOf,
+  BAND_LABEL, GENERATIONS, GEN_FEATURES, GEN_LABEL, GEN_RANK, LINK_ORDER, MAX_WIDTH, linkOfVirtual,
+  linkPlanFor, minGen, negotiatedNss, negotiatedWidth, nodeLinks, nssOf, virtualId, widthOf,
 } from '../../src/model/caps'
-import type { NodeCfg } from '../../src/model/scenario'
+import { PHY_MODES, PHY_MODE_ORDER } from '../../src/engine/phy'
+import { ScenarioSchema, defaultScenario, type NodeCfg } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
+
+/**
+ * **`GENERATIONS` is the one list in this repo a new generation cannot be left out of, and this
+ * block is why.**
+ *
+ * `Generation` gained `'uhr'` on 2026-10-10. `tsc -b --force` named seven places — every
+ * `Record<Generation, …>` literal — and **not one of the six generation matrices in `tests/`**,
+ * because `['nonht', 'vht', 'he', 'eht']` is still a perfectly well-typed `Generation[]` when a
+ * fifth member exists. Three of those six are pairing loops whose titles promise every pair.
+ * So the lists moved into `src/` (`GENERATIONS`, `PHY_MODE_ORDER`), the matrices import them,
+ * and these welds are what stop the lists themselves from going stale: each one is derived from
+ * an exhaustive `Record` the compiler DOES check.
+ */
+describe('one list of generations, and nothing may fall out of it', () => {
+  it('GENERATIONS is exactly the keys of the exhaustive records, lowest rank first', () => {
+    expect([...GENERATIONS].sort()).toEqual(Object.keys(GEN_RANK).sort())
+    expect([...GENERATIONS].sort()).toEqual(Object.keys(MAX_WIDTH).sort())
+    expect([...GENERATIONS].sort()).toEqual(Object.keys(GEN_LABEL).sort())
+    expect([...GENERATIONS].sort()).toEqual(Object.keys(GEN_FEATURES).sort())
+    const ranks = GENERATIONS.map((g) => GEN_RANK[g])
+    expect(ranks).toEqual([...ranks].sort((x, y) => x - y))
+    expect(GENERATIONS.length).toBe(5)
+  })
+
+  it('PhyMode and Generation really are the same union, member for member', () => {
+    // `selBinnableGen` is one predicate serving both questions (src/engine/selectivity.ts) and
+    // `modeFor` hands a `Generation` straight into a `PhyMode` slot (src/engine/simulation.ts).
+    // Both are only sound while these two lists agree.
+    expect([...PHY_MODE_ORDER].sort()).toEqual([...GENERATIONS].sort())
+    expect([...PHY_MODE_ORDER].sort()).toEqual(Object.keys(PHY_MODES).sort())
+  })
+
+  it('the zod enum accepts every generation — a runtime list tsc cannot check', () => {
+    // This is the catcher for `ScenarioSchema`'s `z.enum([...])`, which is a VALUE: adding a
+    // member to `Generation` without adding it there leaves a legal plan the loader rejects.
+    const base = defaultScenario()
+    for (const g of GENERATIONS) {
+      const nodes = [
+        { ...base.nodes[0]!, caps: { generation: g, features: {} } },
+        { ...base.nodes[1]!, linkId: undefined, caps: { generation: g, features: {} } },
+      ]
+      const r = ScenarioSchema.safeParse({ ...base, nodes })
+      const enumIssue = r.success ? [] : r.error.issues.filter((i) => i.path.join('.').includes('generation'))
+      expect(enumIssue, `the schema's generation enum rejects '${g}'`).toEqual([])
+    }
+  })
+
+  it('and a generation the union does not have is still refused', () => {
+    // Anti-vacuity for the check above: it must be able to fail.
+    const base = defaultScenario()
+    const nodes = [{ ...base.nodes[0]!, caps: { generation: 'wifi9', features: {} } }, base.nodes[1]!]
+    expect(ScenarioSchema.safeParse({ ...base, nodes }).success).toBe(false)
+  })
+
+  it('minGen is a total order over the whole list, so every pair has one answer', () => {
+    for (const a of GENERATIONS) {
+      for (const b of GENERATIONS) {
+        const m = minGen(a, b)
+        expect(GEN_RANK[m]).toBe(Math.min(GEN_RANK[a], GEN_RANK[b]))
+        expect(minGen(b, a)).toBe(m)
+      }
+    }
+  })
+})
 
 function node(gen: Generation, widthMhz?: number, nss?: number): NodeCfg {
   return {
@@ -32,7 +97,7 @@ describe('channel width and spatial streams', () => {
   })
 })
 
-const mk = (id: string, kind: 'ap' | 'sta', generation: 'nonht' | 'vht' | 'he' | 'eht', extra: Partial<NodeCfg> = {}): NodeCfg => ({
+const mk = (id: string, kind: 'ap' | 'sta', generation: Generation, extra: Partial<NodeCfg> = {}): NodeCfg => ({
   id, kind, name: id, pos: { x: 0, y: 0, z: 1 }, txPowerDbm: 15, profiles: ['idle'],
   caps: { generation, features: {} }, ...extra,
 })

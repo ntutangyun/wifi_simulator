@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
-import { GEN_FEATURES, physicalId, type LinkId } from '../model/caps'
+import { GEN_FEATURES, GEN_RANK, physicalId, type LinkId } from '../model/caps'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, driverRefusalsFor, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
@@ -924,7 +924,7 @@ export function FloorPlanEditor() {
                           {E.link}{' '}
                           <select value={selNode.linkId ?? '5g'} onChange={(e) => updateNode(selNode.id, { linkId: e.target.value as LinkId })}>
                             {(['2g', '5g', '6g'] as LinkId[])
-                              .filter((l) => l !== '6g' || selNode.caps.generation === 'he' || selNode.caps.generation === 'eht')
+                              .filter((l) => l !== '6g' || GEN_RANK[selNode.caps.generation] >= GEN_RANK.he)
                               .map((l) => <option key={l} value={l}>{E.bands[l]}</option>)}
                           </select>
                         </label>
@@ -1494,7 +1494,7 @@ function AmpEpcInput({ epc, onCommit }: { epc: string | undefined; onCommit: (ep
 }
 
 function genShort(g: Generation): string {
-  return { nonht: '11a', vht: 'WF5', he: 'WF6', eht: 'WF7' }[g]
+  return { nonht: '11a', vht: 'WF5', he: 'WF6', eht: 'WF7', uhr: 'WF8' }[g]
 }
 
 /** Node colour by kind, shared by the canvas and the object list. */

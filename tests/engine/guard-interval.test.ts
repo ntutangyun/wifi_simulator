@@ -5,7 +5,7 @@
  * The three things these tests exist to hold down:
  *
  *  1. **`PHY_MODES[*].symNs` becomes an alias rather than an independent fact.**
- *     `symNsFor(mode, TGI_NS.base)` has to equal it for all four modes, so that every line of
+ *     `symNsFor(mode, TGI_NS.base)` has to equal it for every mode, so that every line of
  *     today's code that reads `symNs` keeps reading the same number and the new paths that need
  *     a guard interval go through `symNsFor` instead.
  *  2. **The figures are computed, not typed.** 13.6 µs is T_DFT,EHT + T_GI1,Data, and the
@@ -17,16 +17,22 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  GI_MODES, PHY_MODES, TDFT_EHT_NS, TGI_NS, TLTF_2X_NS, TLTF_4X_NS,
+  GI_MODES, PHY_MODES, PHY_MODE_ORDER, TDFT_EHT_NS, TGI_NS, TLTF_2X_NS, TLTF_4X_NS,
   ltfExtraNs, mcsRateMbps, preambleNsFor, reqSinrDb, symNsFor, txTimeModeNs, type PhyMode,
 } from '../../src/engine/phy'
 
-const ALL_MODES: PhyMode[] = ['nonht', 'vht', 'he', 'eht']
+/**
+ * Every PHY mode — **imported, not written out.** A local `['nonht', 'vht', 'he', 'eht']` is
+ * still a well-typed `PhyMode[]` after a fifth mode joins the union, so `tsc` would not have
+ * named this line when `'uhr'` went in and these welds would have gone on covering four modes
+ * under titles promising all of them.
+ */
+const ALL_MODES: readonly PhyMode[] = PHY_MODE_ORDER
 const GI_KEYS = ['base', 'double', 'quad'] as const
 
 describe('guard interval · symbol durations', () => {
   // (a) The weld. standard §27.3.9 Table 27-13 / standard be §36.3.10 Table 36-18.
-  it('symNsFor at the base GI is exactly PHY_MODES[*].symNs, for all four modes', () => {
+  it('symNsFor at the base GI is exactly PHY_MODES[*].symNs, for every mode', () => {
     for (const m of ALL_MODES) {
       expect(symNsFor(m, TGI_NS.base)).toBe(PHY_MODES[m].symNs)
       // The default argument is the base GI, so the one-argument call is the same alias.
@@ -101,7 +107,7 @@ describe('guard interval · the 8.8 µs the 4x LTF costs', () => {
 describe('guard interval · the standard publishes three rate columns', () => {
   // (e) §0.4, §8 item 2. Table 27-86 / Table 36-76's rate column is three columns, and
   // `PHY_MODES[*].mbps` is the first of them — which nothing in the repo said until now.
-  it('every rate is N_DBPS over the symbol duration, for four modes x three GIs', () => {
+  it('every rate is N_DBPS over the symbol duration, for every mode x three GIs', () => {
     const bad: string[] = []
     for (const m of ALL_MODES) {
       PHY_MODES[m].ndbps.forEach((ndbps, mcs) => {
@@ -116,7 +122,7 @@ describe('guard interval · the standard publishes three rate columns', () => {
   })
 
   it('the base column is the literal table already shipped, item for item', () => {
-    // Measured: all four modes agree item for item, including nonht's literal rate table and
+    // Measured: every mode agrees item for item, including nonht's literal rate table and
     // vht's `n / 4`. That is what lets `mcsRateMbps` keep serving the lookup at the base GI
     // (so a published lesson's rate column cannot move by one float) while the other two
     // columns are computed.
@@ -136,7 +142,7 @@ describe('guard interval · the standard publishes three rate columns', () => {
    * comment.** `mcsRateMbps`'s own doc comment says not to simplify the base branch into the
    * one-line expression, because the lookup *guarantees* a published lesson's rate column
    * cannot move while the expression only happens to agree. But the two agree item for item on
-   * all four modes — so swapping one for the other changes no value, passes every other
+   * every mode — so swapping one for the other changes no value, passes every other
    * assertion in this file, and leaves the comment as the only thing standing in the way.
    * **A protection that provably changes nothing is the shape §5 of the design hunts, and this
    * one guards the implementation rather than a configuration.**

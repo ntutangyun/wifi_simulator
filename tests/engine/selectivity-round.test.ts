@@ -48,10 +48,10 @@ import { mumimoScenario, ruDiversityScenario, widthScenario } from '../../src/co
 import { LESSONS } from '../../src/course/lessons'
 import { node } from '../../src/course/lessonKit'
 import { selRowDecoded, selRows, type SelRow } from './selectivity-pairing'
-import { selBinStart, selBins, selEffSinrDb, selMemberBins } from '../../src/engine/selectivity'
+import { selBinStart, selBinnableGen, selBins, selEffSinrDb, selMemberBins } from '../../src/engine/selectivity'
 import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import { noiseDbm } from '../../src/engine/phy'
-import { minGen } from '../../src/model/caps'
+import { GENERATIONS as ALL_GENERATIONS, minGen } from '../../src/model/caps'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
 import { smallScaleDb } from '../../src/engine/fading'
@@ -513,11 +513,17 @@ describe('selectivity only bins a PPDU format that has a 26-tone RU', () => {
  *
  *   **the plan is refused, or the run bins something.** Never neither.
  *
- * The expectation comes from `minGen`, not from a written-out table of sixteen verdicts: a
- * second model of the rule is the thing that drifts.
+ * The expectation comes from `minGen` and from the engine's own `selBinnableGen`, not from a
+ * written-out table of verdicts: a second model of the rule is the thing that drifts.
+ *
+ * **Both lists are imported for the same reason.** A local `['nonht', 'vht', 'he', 'eht']` and a
+ * local `linkGen === 'he' || linkGen === 'eht'` each stayed perfectly well-typed when `'uhr'`
+ * joined the union and became binnable, so this file would have kept running sixteen pairs and
+ * kept expecting a refusal for the nine new ones — the exact "legal and inert" blindness the
+ * file exists to close, reintroduced in the instrument instead of in the feature.
  */
-describe('selectivity is never legal-and-inert, over all sixteen generation pairs', () => {
-  const GENERATIONS: Generation[] = ['nonht', 'vht', 'he', 'eht']
+describe('selectivity is never legal-and-inert, over all twenty-five generation pairs', () => {
+  const GENERATIONS: readonly Generation[] = ALL_GENERATIONS
 
   /** One AP, one station, fading on, selectivity on; features and `linkId` stripped (see below). */
   const pairScene = (apGen: Generation, staGen: Generation): Scenario => {
@@ -542,7 +548,7 @@ describe('selectivity is never legal-and-inert, over all sixteen generation pair
   for (const apGen of GENERATIONS) {
     for (const staGen of GENERATIONS) {
       const linkGen = minGen(apGen, staGen)
-      const binnable = linkGen === 'he' || linkGen === 'eht'
+      const binnable = selBinnableGen(linkGen)
       it(`${apGen} AP + ${staGen} STA (a ${linkGen} link) is ${binnable ? 'binned' : 'refused outright'}`, () => {
         const sc = pairScene(apGen, staGen)
         const accepted = ScenarioSchema.safeParse(sc).success

@@ -156,12 +156,13 @@ export function sinrThreshDb(mbps: number): number {
 // ---------------------------------------------------------------------------
 // Multi-generation PHY modes (20 MHz, Nss = 1)
 // nonht: clause 17 · vht: clause 21 (Wi-Fi 5) · he: clause 27 (Wi-Fi 6) ·
-// eht: clause 36 via 802.11be-2024 (Wi-Fi 7, adds 4096-QAM MCS 12/13).
+// eht: clause 36 via 802.11be-2024 (Wi-Fi 7, adds 4096-QAM MCS 12/13) ·
+// uhr: P802.11bn SFD r19 (Wi-Fi 8, DRAFT — see `UHR_*` below).
 // Preambles are representative SU values; HE/EHT packet extension ignored.
 // `symNs` is NOT a representative value — see its own comment on each entry.
 // ---------------------------------------------------------------------------
 
-export type PhyMode = 'nonht' | 'vht' | 'he' | 'eht'
+export type PhyMode = 'nonht' | 'vht' | 'he' | 'eht' | 'uhr'
 
 export interface PhyModeInfo {
   /**
@@ -184,6 +185,23 @@ export interface PhyModeInfo {
   /** minimum sensitivity per MCS index (dBm, 20 MHz) */
   sensDbm: number[]
   mbps: number[]
+  /**
+   * Lowest MCS index of this mode that is 4096-QAM, or `undefined` if the mode has none.
+   *
+   * It exists because the `qam4k` capability flag is negotiated per link and the ceiling it
+   * imposes is "everything below 4096-QAM" — an index, and NOT the same index in every mode:
+   * 12 in `eht`, 16 in `uhr`, because `uhr` interleaves four new rungs below them. The literal
+   * 11 that used to live in `src/engine/simulation.ts` was that index minus one, written once
+   * for the only mode that then had a 4096-QAM rung.
+   */
+  qam4kFromMcs?: number
+  /**
+   * Clause-17 reference rate per MCS index, Mb/s — the column `ctrlRespRateForMode` reads.
+   *
+   * Per mode rather than one shared array because `uhr`'s indices do not mean what the other
+   * modes' indices mean: `uhr` index 3 is QPSK 3/4 where `he` index 3 is 16-QAM 1/2.
+   */
+  nonhtRefMbps: number[]
 }
 
 const VHT_NDBPS = [26, 52, 78, 104, 156, 208, 234, 260, 312]
@@ -192,6 +210,73 @@ const EHT_NDBPS = [...HE_NDBPS, 2106, 2340]
 const VHT_SENS = [-82, -79, -77, -74, -70, -66, -65, -64, -59]
 const HE_SENS = [-82, -79, -77, -74, -70, -66, -65, -64, -59, -57, -54, -52]
 const EHT_SENS = [...HE_SENS, -49, -46]
+
+// ---------------------------------------------------------------------------
+// UHR (P802.11bn / Wi-Fi 8) — **a draft, and the only four numbers this mode
+// claims from it are the four new rungs' sensitivities.**
+//
+// TGbn SFD r19, document `11-24/0209r19`:
+//  - Motion #42 adds the modulation/code-rate combinations {QPSK, 16-QAM,
+//    256-QAM} at R = 2/3 and 16-QAM at R = 5/6; Motion #216 makes those four
+//    mandatory to support (with 256-QAM 2/3 OPTIONAL on a 20 MHz-only device,
+//    which this 20 MHz engine therefore models as the optimistic end).
+//  - Motion #417 publishes the receiver minimum input sensitivity column for
+//    them: SFD MCS 17 / 19 / 20 / 23 at −78 / −71 / −69 / −60 dBm for a 20 MHz
+//    PPDU. That is the SAME column `sensDbm` already stores, and its seven rows
+//    for existing MCSs (1, 2, 3, 4, 5, 7, 8 at −79 / −77 / −74 / −70 / −66 /
+//    −64 / −59) agree with `HE_SENS` and `EHT_SENS` row for row, 7 of 7.
+//  - N_DBPS is not read out of the draft at all: it is 234 data tones × bits
+//    per tone × code rate, an identity that holds for all fourteen existing
+//    rungs (14/14, pinned in tests/engine/uhr-ladder.test.ts), so the four new
+//    ones are 312 / 624 / 780 / 1248 — integers, nothing rounded.
+//
+// **Everything else about this mode is EHT's published value, reused and said
+// so.** SFD r19 publishes no UHR preamble field lengths, no UHR T_DFT and no
+// UHR guard-interval enumeration, so `preambleNs`, `muExtraPreambleNs` and
+// `symNs` below are EHT's 48 000 / 4 000 / 13 600 by reuse — not a Wi-Fi 8
+// figure, and not a figure this slice made up. The consequence is the point:
+// a `uhr` link and an `eht` link differ in their RATE LADDER AND IN NOTHING
+// ELSE, which is what makes an A/B between them a measurement of the ladder.
+//
+// **Why the ladder is interleaved and not appended.** `mcsForRssi` returns the
+// HIGHEST INDEX whose required SINR fits, so the array has to rise in
+// sensitivity with the index or that loop silently picks a slower rung. Sorted
+// by sensitivity, the merged eighteen rungs rise STRICTLY in sensitivity AND
+// strictly in N_DBPS — no inversion anywhere — which is what makes the
+// interleave safe. The price is that a `uhr` index is not the SFD's MCS number:
+// `UHR_SFD_MCS` below is that translation, and it is data, never arithmetic.
+// ---------------------------------------------------------------------------
+
+/** SFD r19's own MCS number per `uhr` index. Draft numbering; see the block above. */
+export const UHR_SFD_MCS = [0, 1, 17, 2, 3, 19, 4, 20, 5, 6, 7, 23, 8, 9, 10, 11, 12, 13]
+const UHR_NDBPS = [117, 234, 312, 351, 468, 624, 702, 780, 936, 1053, 1170, 1248, 1404, 1560, 1755, 1950, 2106, 2340]
+const UHR_SENS = [-82, -79, -78, -77, -74, -71, -70, -69, -66, -65, -64, -60, -59, -57, -54, -52, -49, -46]
+
+/**
+ * Non-HT reference rate per VHT/HE/EHT MCS: the clause-17 rate with the same
+ * constellation and code rate; 64-QAM 5/6 and every denser constellation map
+ * to 54 Mbps. Same mapping as ns-3's Ht/Vht/HePhy::CalculateNonHtReferenceRate.
+ */
+export const NONHT_REF_MBPS = [6, 12, 18, 24, 36, 48, 54, 54, 54, 54, 54, 54, 54, 54]
+
+/**
+ * The same column for `uhr`'s eighteen interleaved indices.
+ *
+ * **SFD r19 publishes no non-HT reference rate for the four new MCSs, and this slice invents
+ * none.** The rule above is restated once, unchanged, and applied: *the clause-17 rate using the
+ * same constellation whose code rate does not exceed this rung's*. QPSK 2/3 → 12 (QPSK 1/2),
+ * 16-QAM 2/3 → 24 (16-QAM 1/2), 16-QAM 5/6 → 36 (16-QAM 3/4), 256-QAM 2/3 → 54 (denser than
+ * clause 17 goes). That rule reproduces all fourteen existing entries of `NONHT_REF_MBPS` item
+ * for item, so it is the repo's own rule and not a second one.
+ *
+ * **And the choice is not observable anyway, which is the reason this is allowed to be a
+ * derivation at all.** The only consumer is `ctrlRespRateForMode`, which floors the value onto
+ * `MANDATORY_MBPS = [6, 12, 24]`. Each new rung's plausible bracket — 12…18 for QPSK 2/3,
+ * 24…36 for 16-QAM 2/3, 36…48 for 16-QAM 5/6 — floors to one and the same control-response rate
+ * at BOTH ends. tests/engine/uhr-ladder.test.ts walks every candidate in every bracket and
+ * pins that the answer never moves, so no number here is doing load-bearing work.
+ */
+const UHR_NONHT_REF_MBPS = [6, 12, 12, 18, 24, 24, 36, 36, 48, 54, 54, 54, 54, 54, 54, 54, 54, 54]
 
 export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
   nonht: {
@@ -204,6 +289,9 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
     ndbps: RATES.map((r) => r.ndbps),
     sensDbm: RATES.map((r) => r.sensDbm),
     mbps: RATES.map((r) => r.mbps),
+    // A clause-17 rate IS its own non-HT reference rate; `ctrlRespRateForMode` short-circuits
+    // this mode and reads the frame's own `mbps` instead, so this column is the identity.
+    nonhtRefMbps: RATES.map((r) => r.mbps),
   },
   vht: {
     // symNs: T_DFT,Pre (3.2 µs) + the 800 ns long GI. standard §21.3.6 Table 21-5. Same note
@@ -211,6 +299,7 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
     preambleNs: 40_000, muExtraPreambleNs: 0, symNs: 4_000,
     ndbps: VHT_NDBPS, sensDbm: VHT_SENS,
     mbps: VHT_NDBPS.map((n) => n / 4), // 6.5 … 78
+    nonhtRefMbps: NONHT_REF_MBPS,
   },
   he: {
     // symNs: T_SYM1 of Table 27-13 — T_DFT,HE + T_GI1,Data = 12.8 + 0.8 µs, which is a sum the
@@ -222,6 +311,7 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
     // This is Table 27-86's FIRST rate column (0.8 µs GI); the table has three. See
     // `mcsRateMbps`, which serves the other two.
     mbps: HE_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // 8.6 … 143.4
+    nonhtRefMbps: NONHT_REF_MBPS,
   },
   eht: {
     // symNs: T_SYM1 of Table 36-18, the same sum as `he` above (12.8 + 0.8 µs).
@@ -229,6 +319,19 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
     ndbps: EHT_NDBPS, sensDbm: EHT_SENS,
     // Table 36-76's first rate column (0.8 µs GI), as above.
     mbps: EHT_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // … 172.1
+    nonhtRefMbps: NONHT_REF_MBPS, qam4kFromMcs: 12,
+  },
+  uhr: {
+    // **Draft mode.** preambleNs / muExtraPreambleNs / symNs are EHT's figures REUSED, because
+    // SFD r19 publishes no UHR preamble field lengths and no UHR T_DFT — see the UHR_* block
+    // above. Reusing a published number and saying so is not the same as inventing one, and
+    // tests/engine/uhr-ladder.test.ts welds these three to `eht`'s so they cannot drift into
+    // looking like Wi-Fi 8 measurements.
+    preambleNs: 48_000, muExtraPreambleNs: 4_000, symNs: 13_600,
+    ndbps: UHR_NDBPS, sensDbm: UHR_SENS,
+    // Same arithmetic as `he` / `eht`'s first rate column: N_DBPS over the 13.6 µs symbol.
+    mbps: UHR_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // 8.6 … 172.1
+    nonhtRefMbps: UHR_NONHT_REF_MBPS, qam4kFromMcs: 16,
   },
 }
 
@@ -271,6 +374,14 @@ export const TLTF_4X_NS: Ns = 12_800
  * 26-tone RU. This asks whether the TXVECTOR even carries a `GI_TYPE` parameter. Folding them
  * into one list would tell the next person that changing one place is enough, and it is not:
  * either question could move without the other.
+ *
+ * **`'uhr'` is deliberately NOT here, and that is criterion 2 and not an oversight.** These six
+ * constants each carry a table number; TGbn SFD r19 publishes no UHR guard-interval enumeration,
+ * no UHR T_DFT and no statement that the UHR data field reuses EHT's numerology. Putting `uhr`
+ * in this list would mean asserting T_DFT,UHR = 12.8 µs from nothing, which is exactly the kind
+ * of constant `docs/wifi-course-backlog.md` keeps out of the engine. So a `uhr`-only scene that
+ * sets `guardInterval` is refused — see `guardIntervalRefusals` (src/model/scenario.ts), whose
+ * message names this reason rather than pretending `uhr` is too old to have one.
  */
 export const GI_MODES: readonly PhyMode[] = ['he', 'eht']
 
@@ -284,7 +395,9 @@ export const GI_MODES: readonly PhyMode[] = ['he', 'eht']
  * in hand (design §3.1).
  *
  * `nonht` and `vht` return their 4 µs unconditionally: clause 19's and clause 21's `GI_TYPE`
- * is the `LONG_GI` / `SHORT_GI` enumeration, not these three values at all.
+ * is the `LONG_GI` / `SHORT_GI` enumeration, not these three values at all. `uhr` returns its
+ * stored 13.6 µs unconditionally too, for the opposite reason — no published UHR enumeration to
+ * read; see `GI_MODES`.
  */
 export function symNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base): Ns {
   if (!GI_MODES.includes(mode)) return PHY_MODES[mode].symNs
@@ -417,15 +530,59 @@ export function reqSinrDb(mode: PhyMode, mcs: number): number {
 
 
 /**
- * Non-HT reference rate per VHT/HE/EHT MCS: the clause-17 rate with the same
- * constellation and code rate; 64-QAM 5/6 and every denser constellation map
- * to 54 Mbps. Same mapping as ns-3's Ht/Vht/HePhy::CalculateNonHtReferenceRate.
+ * Control response rate: highest mandatory rate ≤ the eliciting PPDU's non-HT reference rate.
+ *
+ * The column is per mode (`PhyModeInfo.nonhtRefMbps`) and not one shared array, because `uhr`'s
+ * indices do not mean what the other modes' indices mean — see `UHR_NONHT_REF_MBPS`.
  */
-export const NONHT_REF_MBPS = [6, 12, 18, 24, 36, 48, 54, 54, 54, 54, 54, 54, 54, 54]
-
-/** Control response rate: highest mandatory rate ≤ the eliciting PPDU's non-HT reference rate. */
 export function ctrlRespRateForMode(mode: PhyMode, mcs: number, mbps: number): number {
-  return ctrlRespRateFor(mode === 'nonht' ? mbps : modeEntry(NONHT_REF_MBPS, mode, mcs))
+  return ctrlRespRateFor(mode === 'nonht' ? mbps : modeEntry(PHY_MODES[mode].nonhtRefMbps, mode, mcs))
+}
+
+/**
+ * Every PHY mode, oldest first. `PhyMode` and `Generation` are deliberately two unions with the
+ * same members (see `PhyMode` above), so this is the PHY-side counterpart of `GENERATIONS`
+ * (src/model/caps.ts) and `tests/engine/uhr-ladder.test.ts` welds it to `PHY_MODES`' own keys.
+ */
+export const PHY_MODE_ORDER: readonly PhyMode[] = ['nonht', 'vht', 'he', 'eht', 'uhr']
+
+/**
+ * The oldest of these modes — the one format a multi-user round can run for all of them.
+ *
+ * It replaces `every(m => m === 'eht') ? 'eht' : 'he'`, which answered the same question while
+ * only two modes could be in the set, and which would have quietly served an all-Wi-Fi-8 round
+ * as an HE MU PPDU with every member's rate clamped to 11: legal, lit, and with the four new
+ * rungs unreachable. For any set of `he` / `eht` members this returns exactly what the old
+ * expression did (pinned in tests/engine/uhr-ladder.test.ts), which is why nothing recorded moves.
+ */
+export function lowestMode(modes: readonly PhyMode[]): PhyMode {
+  let best = modes[0]!
+  for (const m of modes) if (PHY_MODE_ORDER.indexOf(m) < PHY_MODE_ORDER.indexOf(best)) best = m
+  return best
+}
+
+/**
+ * The rung of `to` that asks no more of the link than `from`/`mcs` does.
+ *
+ * **Why a translation and not a clamp.** A DL MU PPDU or a triggered round runs ONE format for
+ * every member (`buildMuParts` / the Trigger path in src/engine/mac.ts), so a member whose own
+ * link format is denser has to be re-expressed in the PPDU's format. `Math.min(11, mcs)` did
+ * that for the only case that existed — an `eht` member inside an `he` MU PPDU — and it worked
+ * because `eht` indices 0…11 ARE `he` indices 0…11. That coincidence does not survive `uhr`,
+ * whose index 11 is 256-QAM 2/3 while `eht`'s index 11 is 1024-QAM 5/6: clamping would hand the
+ * member a rung four steps above what its RSSI supports.
+ *
+ * So the rule is stated on the thing that actually constrains it, the required SINR, and the
+ * old literal falls out of it: for every `eht` index this returns exactly `Math.min(11, mcs)`
+ * (pinned in tests/engine/uhr-ladder.test.ts), which is why no recorded lesson moves.
+ */
+export function mcsInMode(from: PhyMode, mcs: number, to: PhyMode): number {
+  if (from === to) return mcs
+  const want = modeEntry(PHY_MODES[from].sensDbm, from, mcs)
+  const sens = PHY_MODES[to].sensDbm
+  let best = 0
+  for (let i = 0; i < sens.length; i++) if (sens[i]! <= want) best = i
+  return best
 }
 
 // EDCA defaults — 802.11-2024 Table 9-194, clause-17/19/21/27 PHY column.

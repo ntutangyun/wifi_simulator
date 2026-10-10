@@ -76,6 +76,11 @@ const DEVICE_RADIO: Record<Generation, { widthMhz: ChannelWidth; nss: Nss }> = {
   vht: { widthMhz: 80, nss: 2 },
   he: { widthMhz: 80, nss: 2 },
   eht: { widthMhz: 160, nss: 2 },
+  // No household declares `uhr`: there is no shipping Wi-Fi 8 device to model in 2026, and
+  // inventing one would put a draft radio in a scene a reader reads as "my flat". The entry
+  // exists because `Record<Generation, …>` is exhaustive, and the fact that nothing reaches it
+  // is pinned rather than left to be noticed (tests/engine/uhr-ladder.test.ts).
+  uhr: { widthMhz: 160, nss: 2 },
 }
 
 function device(id: string, name: string, x: number, y: number, gen: Generation, profiles: ProfileId[], z = 1.0): NodeCfg {

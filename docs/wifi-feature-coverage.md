@@ -665,7 +665,7 @@ Read/Write），**而第 5 条没收掉**——那一课只放反向散射标签
 | --- | --- | --- |
 | **A** 正确性（A1–A19） | 有 | **已完成**，19 项全部在引擎里（本表第一、二、三、七节逐项引了 A1–A17） |
 | **B** PHY 保真 | 没有 | **五项里四项已交付，但是交在另一个程序的名下。** A 的「Out of scope for B」原文列的是「width penalty on the noise floor, noise figure, PER tables, preamble SNR detection, CCA after own TX」。其中带宽噪声惩罚（`noiseDbm(W)`）、噪声系数（`NOISE_FIGURE_DB` = 7）、前导码信噪比检测（`PREAMBLE_DETECT_SINR_DB` = 4）都在，而且**是零到一百那份设计的 S1 这一刀交的**——S1 的交付清单里逐字写着这几项。**没交的是 PER 表**（本表第六节最后一行），而「CCA after own TX」查不到对应标识符（`grep -rn 'own TX\|ownTx' src/engine` 零命中），**存疑**。 |
-| **C** MAC 数据路径 | 没有 | **开始了一步，而那一步不是拆文件。** 它的开场动作原定是拆 `mac.ts`，而 `mac.ts` 今天 1772 行，一行没拆；W8a（2026-10-07）做的是另一件：把「把队列里的 MSDU 装成一个 PSDU」这个散在五处的决定收成了一个函数（`model/frames.ts#psduPlan`），于是下一层聚合从改五处变成改一处。**而这个行数现在由 `tests/engine/psdu-plan.test.ts` 读出来再和这一行比，不再是一句写在文档里的数。**清单里只有「queue limits and lifetime」落地了（又是 S1 交的）；BA 协商、位图与部分重传、A-MSDU、PIFS 恢复全部没有（本表第三节四行「未偿的债」）。 |
+| **C** MAC 数据路径 | 没有 | **开始了一步，而那一步不是拆文件。** 它的开场动作原定是拆 `mac.ts`，而 `mac.ts` 今天 1777 行，一行没拆；W8a（2026-10-07）做的是另一件：把「把队列里的 MSDU 装成一个 PSDU」这个散在五处的决定收成了一个函数（`model/frames.ts#psduPlan`），于是下一层聚合从改五处变成改一处。**而这个行数现在由 `tests/engine/psdu-plan.test.ts` 读出来再和这一行比，不再是一句写在文档里的数。**清单里只有「queue limits and lifetime」落地了（又是 S1 交的）；BA 协商、位图与部分重传、A-MSDU、PIFS 恢复全部没有（本表第三节四行「未偿的债」）。 |
 | **D** 传统 PHY 与频段 | 没有 | **建了一半，教了四分之一。** 2.4 GHz 的 ERP 时序、频段损耗差、40 MHz 上限全部建好并有专门测试，**而且那是为 AMP 那一刀建的**（AMP 标签只活在 2.4 GHz 上）；DSSS 与混合 BSS 的保护没建。课程这一侧：SIFS/时隙/信号扩展被两门 AMP 课教了，别的没有。**它是这张表里投入产出比最高的那一刀。** |
 | **E** 管理与省电 | 没有 | **没开始。** 信标、关联、安全、漫游、省电、TWT 一个也没有（本表第十二节六行）。 |
 | **F** HE/EHT 进阶 | 没有 | **零碎地推进了，没有一次是以 F 的名义。** 「real RU sizes」= UWB backlog 的切片 4d，**已立案且建议不批**；26 音调的分格单位已经为频率选择性建了（`engine/selectivity.ts`）。per-stream LTF、触发式 MU 确认、VHT MU-MIMO、MU EDCA、intra-BSS NAV 全部没有。 |

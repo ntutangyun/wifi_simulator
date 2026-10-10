@@ -824,7 +824,10 @@ const NodeCfgSchema = z.preprocess(
     txPowerDbm: z.number(),
     profiles: z.array(ProfileSchema).transform(normalizeProfiles),
     caps: z.object({
-      generation: z.enum(['nonht', 'vht', 'he', 'eht']),
+      // Kept in step with `Generation` (src/model/types.ts) by hand — a zod enum is a runtime
+      // value, so `tsc` does not name this line when the union grows. `tests/model/caps.test.ts`
+      // walks `GENERATIONS` through this schema so that a missing member fails instead.
+      generation: z.enum(['nonht', 'vht', 'he', 'eht', 'uhr']),
       features: z.record(z.boolean()),
       widthMhz: z.union([z.literal(20), z.literal(40), z.literal(80), z.literal(160), z.literal(320)]).optional(),
       nss: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
@@ -1336,7 +1339,7 @@ export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): str
     out.push('频率选择性（selectivity）需要 fading.smallScale 不是 none：逐格偏差靠这个分布抽出来，而 smallScale 为 none 时 smallScaleDb 直接返回 0，于是每一格仍然是同一个数，这是最容易无意中写出来的空配置。请把 smallScale 改成 rayleigh 或 rician，或者把 selectivity 去掉')
   }
   if (!hasBinnableLink(sc.nodes)) {
-    out.push('频率选择性（selectivity）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 nonht 链路，一格也分不出来。26 音调资源单元是第 27／36 章的分格单位，只在 HE／EHT 的 78.125 kHz 子载波间隔下成立，而 nonht 与 vht 的间隔是 312.5 kHz——同样 20 MHz，HE／EHT 有 234 根数据子载波，vht 只有 52 根。拒绝好过悄悄按一个错误的子载波间隔算出格宽，更好过一声不响地什么也不做。请让接入点和至少一台终端都到 he 或 eht，或者把 selectivity 去掉')
+    out.push('频率选择性（selectivity）需要场景里至少有一条 eht 或 he 链路，Wi-Fi 8 的 uhr 链路同样算（P802.11bn SFD r19 的分布式音调资源单元就是以 26 音调资源单元为基本块搭的）——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 nonht 链路，一格也分不出来。26 音调资源单元是第 27／36 章的分格单位，只在 HE／EHT 的 78.125 kHz 子载波间隔下成立，而 nonht 与 vht 的间隔是 312.5 kHz——同样 20 MHz，HE／EHT 有 234 根数据子载波，vht 只有 52 根。拒绝好过悄悄按一个错误的子载波间隔算出格宽，更好过一声不响地什么也不做。请让接入点和至少一台终端都到 he、eht 或 uhr，或者把 selectivity 去掉')
   }
   return out
 }
@@ -1353,6 +1356,12 @@ export function selectivityRefusals(sc: Pick<Scenario, 'fading' | 'nodes'>): str
  * this asks whether the PPDU format has a `GI_TYPE` in its TXVECTOR at all (Table 27-1 /
  * Table 36-1). The two happen to hold the same two entries today on different evidence, and
  * `GI_MODES`'s own comment in src/engine/phy.ts says why folding them into one would mislead.
+ *
+ * **That prediction came true on 2026-10-10 and the two lists now differ.** `'uhr'`
+ * (P802.11bn / Wi-Fi 8) is binnable — SFD r19 builds its distributed-tone RUs out of 26-tone
+ * RUs — and is NOT a `GI_MODES` member, because the same SFD publishes no UHR guard-interval
+ * enumeration and no UHR T_DFT for this engine to read. So a `uhr` AP with a `uhr` station is
+ * the one pair in the 5 x 5 matrix that takes `selectivity` and refuses `guardInterval`.
  */
 function hasGiLink(nodes: Scenario['nodes']): boolean {
   const apGen = nodes.find((n) => n.kind === 'ap')?.caps.generation
@@ -1373,7 +1382,7 @@ function hasGiLink(nodes: Scenario['nodes']): boolean {
  */
 export function guardIntervalRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
   if (hasGiLink(sc.nodes)) return []
-  return ['保护间隔（guard interval）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 vht 链路。TXVECTOR 的 GI_TYPE 只在 FORMAT 为 HE／EHT 的那几种格式下才在场（Table 27-1 / Table 36-1），而 nonht 与 vht 的符号固定 4 µs（Table 19-6 / Table 21-5），它们那 400 ns 的短保护间隔是另一组枚举、而且标准写明收发都是可选的，本仿真器不建。请让接入点和至少一台终端都到 he 或 eht，或者把 guardInterval 去掉']
+  return ['保护间隔（guard interval）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 vht 链路。TXVECTOR 的 GI_TYPE 只在 FORMAT 为 HE／EHT 的那几种格式下才在场（Table 27-1 / Table 36-1），而 nonht 与 vht 的符号固定 4 µs（Table 19-6 / Table 21-5），它们那 400 ns 的短保护间隔是另一组枚举、而且标准写明收发都是可选的，本仿真器不建。Wi-Fi 8（uhr）链路同样不行，但理由相反：P802.11bn SFD r19 根本没有发布 UHR 的保护间隔枚举、也没有发布 UHR 的离散傅里叶变换周期，而这六个常数每一个都带着它的表号——照着 EHT 的 12.8 µs 填一个进来就是发明一个标准没给的常数。频率选择性那一节接受 uhr，因为那一节有依据（SFD 的分布式音调资源单元就是按 26 音调资源单元搭的）；这一节没有。请让接入点和至少一台终端都到 he 或 eht，或者把 guardInterval 去掉']
 }
 
 /**

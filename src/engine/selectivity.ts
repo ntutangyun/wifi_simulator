@@ -77,11 +77,20 @@ export const DF_EHT_KHZ = 78.125
  *     ends, which is the format that link's PPDUs actually take (src/model/scenario.ts);
  *   - `Channel`'s `isOfdmWifiPpdu` asks it of **one PPDU** — `FrameDesc.mode`, so that a
  *     non-HT ACK between two EHT radios is not binned either (src/engine/channel.ts).
- * `Generation` and `PhyMode` are the same four-member union, which is what lets one predicate
+ * `Generation` and `PhyMode` are the same five-member union, which is what lets one predicate
  * serve both; a second copy of the list is how the two would drift apart.
+ *
+ * **`'uhr'` is in, and the draft says so rather than EHT-by-analogy.** TGbn SFD r19's
+ * distributed-tone RU section builds its DRU tone plans on 26-tone RUs ("26-tone RU based DRU
+ * method", with dRU26 / dRU52 / dRU106 / dRU242 named at 20 and 40 MHz), so the 26-tone RU is a
+ * UHR unit and not only a clause 27 / 36 one. Leaving `uhr` out would have been the failure this
+ * predicate was rewritten to stop: a scene with a Wi-Fi 8 access point and a Wi-Fi 8 station,
+ * `selectivity` switched on, checkbox lit, and a record stream byte-identical to the feature
+ * being off — because the schema would have refused it instead, which is the other half of the
+ * same mistake read from the other side.
  */
 export function selBinnableGen(gen: Generation | undefined): boolean {
-  return gen === 'he' || gen === 'eht'
+  return gen === 'he' || gen === 'eht' || gen === 'uhr'
 }
 
 /** Width of one 26-tone RU bin, MHz. Computed, not written as 2.03125. standard be §9.4.1.75 / standard be Table 36-18 */

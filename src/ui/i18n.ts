@@ -1270,6 +1270,7 @@ export const STRINGS: Strings = {
   serverKinds: { video: '视频（流媒体）', web: '网页 / 云', call: '通话', game: '游戏' },
   generations: {
     nonht: '802.11a（传统）', vht: 'Wi-Fi 5 (VHT)', he: 'Wi-Fi 6 (HE)', eht: 'Wi-Fi 7 (EHT)',
+    uhr: 'Wi-Fi 8 (UHR，草案)',
   },
   features: {
     edca: 'EDCA（QoS 接入类别）', ampdu: 'A-MPDU 聚合 + BlockAck', txop: 'TXOP 突发',
