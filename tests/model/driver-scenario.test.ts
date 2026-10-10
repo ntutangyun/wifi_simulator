@@ -211,12 +211,19 @@ describe('the three rules refuse nothing this repository ships', () => {
  * avoid, and nothing else in the repository would notice the file being renamed or deleted.
  * Same shape as `tests/course/limits.test.ts`'s "leave a ruler in your own test file" check.
  *
- * **Four places since slice 3d, not three**, and the number is the count of exported rule functions
- * plus one: `ancillaryRequestRefusals` is the third such function (standard §10.35.2.1's Request
- * field), and it carries its own pointer for the same reason the other two do. The `superRefine`
- * site that reads it does **not** carry a second one — the `superRefine` already has its line, and
- * a path repeated once per rule inside it would make this count grow with the rules rather than
- * with the entry points.
+ * The number is the count of exported rule functions plus one for the `superRefine`. The
+ * `superRefine` site that reads a rule does **not** carry a second line — it already has its own
+ * — and a path repeated once per rule inside it would make this count grow with the rules rather
+ * than with the entry points.
+ *
+ * **Six since 2026-10-10, and two of those six are the same day's correction.** It was four, and
+ * its reason said "one per exported rule function plus one" while `guardIntervalRefusals` had
+ * been a fifth exported rule function with no pointer since the day it was written — so the
+ * count held and its justification did not. `ampApRefusals` (the sixth) was the entry point that
+ * surfaced it: adding the line this contract asks for made this assertion red at five, and the
+ * honest repair was the missing line on `guardIntervalRefusals` rather than the number alone.
+ * The list below is checked name by name for exactly that reason: a bare count cannot tell five
+ * right pointers from four right ones and a wrong one.
  */
 describe('the refuse-or-pin criterion is in the repository and the code points at it', () => {
   const DOC = 'docs/inert-config-contract.md'
@@ -230,18 +237,34 @@ describe('the refuse-or-pin criterion is in the repository and the code points a
     expect(doc).toContain('钉住现状')
   })
 
-  it('is pointed at from all four places a new refusal passes through', () => {
+  it('is pointed at from all six places a new refusal passes through', () => {
     const scenario = read('src/model/scenario.ts')
-    // one line in each of the three exported rule functions, and one in the superRefine itself
+    // one line in each of the five exported rule functions, and one in the superRefine itself
     const hits = scenario.split(DOC).length - 1
-    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says four — one per`
-      + ' exported rule function, plus the superRefine itself').toBe(4)
-    // and each one is actually inside the thing it is meant to introduce
-    const at = (needle: string): number => scenario.indexOf(needle)
-    expect(at('export function selectivityRefusals')).toBeGreaterThan(-1)
-    expect(at('export function driverRefusalsFor')).toBeGreaterThan(-1)
-    expect(at('export function ancillaryRequestRefusals')).toBeGreaterThan(-1)
-    expect(at('.superRefine((sc, ctx)')).toBeGreaterThan(-1)
+    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says six — one per`
+      + ' exported rule function, plus the superRefine itself').toBe(6)
+    // and each one is actually inside the thing it is meant to introduce. Named rather than
+    // counted: a count alone cannot tell six right pointers from five and one in the wrong place.
+    const FNS = [
+      'selectivityRefusals', 'guardIntervalRefusals', 'driverRefusalsFor',
+      'ancillaryRequestRefusals', 'ampApRefusals',
+    ]
+    for (const fn of FNS) {
+      const at = scenario.indexOf(`export function ${fn}`)
+      expect(at, `${fn} is not exported from scenario.ts`).toBeGreaterThan(-1)
+      const open = scenario.lastIndexOf('/**', at)
+      expect(scenario.slice(open, at).includes(DOC),
+        `${fn}'s docblock does not point at ${DOC}`).toBe(true)
+    }
+    // and the list is not allowed to fall behind the file: every exported `…Refusals…` function
+    // has to be in it, which is the weld that makes the count above mean something
+    // `driverRefusals` is the only exception and it is one on purpose: it holds no rule and no
+    // wording, just `nodes.flatMap(driverRefusalsFor)`, so a pointer in it would be a fifth copy
+    // of a line rather than a sixth entry point.
+    const exported = [...scenario.matchAll(/^export function (\w*Refusals\w*)\(/gm)].map((m) => m[1]!)
+    expect(exported.slice().sort(), 'FNS has fallen behind scenario.ts')
+      .toEqual([...FNS, 'driverRefusals'].sort())
+    expect(scenario.indexOf('.superRefine((sc, ctx)')).toBeGreaterThan(-1)
   })
 
   /** The renderer owns the one caveat the criterion could not fix, so it says so too. */

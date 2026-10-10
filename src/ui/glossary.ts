@@ -351,7 +351,7 @@ export const GLOSSARY: GlossaryGroup[] = [
       {
         term: 'AMP AP',
         alt: '运行 AMP 轮询功能的 AP',
-        def: '同时轮询 AMP 标签的普通 AP，使用它的 AC_BK 竞争实体。仿真器要求它是 Wi-Fi 7（EHT）AP，因为 AMP 下行 PPDU 携带 U-SIG 字段。',
+        def: '同时轮询 AMP 标签的普通 AP，使用它的 AC_BK 竞争实体。仿真器要求它是 Wi-Fi 7（EHT）AP：P802.11bp 把下行 AMP PPDU 定义成 U-SIG 里物理层版本号为 0 的帧，而 0 这个值就是 EHT。不是「带不带 U-SIG」——Wi-Fi 8 的 UHR PPDU 同样带，只是版本号写成 1，而草案还没给版本号 1 的 AMP 下行格式。',
       },
       {
         term: 'Active Tx non-AP AMP STA',

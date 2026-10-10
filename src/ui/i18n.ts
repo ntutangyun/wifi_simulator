@@ -197,7 +197,6 @@ export interface Strings {
     ampDl: string; ampDlHint: string; ampUl: string; ampUlHint: string
     ampProt: Record<'ctsSelf' | 'none', string>; ampProtLabel: string
     ampRead: Record<'inline' | 'twoPhase', string>; ampReadLabel: string
-    ampNeedsEht: string
     ampSens: string; ampSensHint: string
     /** A tag's answer mode (mode is a property; the ⚡ tool always places an Active Tx tag). */
     ampMode: string; ampModeHint: string; ampModes: Record<AmpTagMode, string>
@@ -964,7 +963,6 @@ export const STRINGS: Strings = {
     ampUl: '上行速率', ampUlHint: '触发帧为标签的上行应答指定的数据速率',
     ampProt: { ctsSelf: '轮询前先发 CTS-to-self', none: '不做保护' }, ampProtLabel: '保护',
     ampRead: { inline: '在随机接入应答中直接读取', twoPhase: '先读 id，再做一次预约读取' }, ampReadLabel: '读取方式',
-    ampNeedsEht: 'AMP 轮询需要 Wi-Fi 7 的 AP（AMP 下行 PPDU 携带 U-SIG）',
     ampSens: '下行灵敏度', ampSensHint: '该标签包络检波器能解出的最弱 AMP 下行 PPDU（模型默认 −72 dBm）',
     ampMode: '模式', ampModeHint: '该标签如何应答：自带发射机，还是反射阅读器的载波',
     ampModes: { active: '主动发射（Active Tx）', backscatter: '反向散射（Backscatter）' },

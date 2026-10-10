@@ -782,7 +782,17 @@ export function sixGhzNbOverlaps(sc: Scenario, centerMhz: number): boolean {
  * Besides the capability flags, this drops whatever the new generation cannot
  * carry, so the editor can never build a node the schema rejects on run or on
  * reload: the link (VHT is 5 GHz only, 802.11a/g has no 6 GHz) and the AMP
- * polling config (an AMP DL PPDU carries U-SIG, so only an EHT AP may poll).
+ * polling config (a DL AMP PPDU is identified by PHY version 0 in its U-SIG, which is EHT's
+ * value, so only an EHT AP may poll — `ampApRefusals`, src/model/scenario.ts, holds the reason).
+ *
+ * **This drop is silent, and that is a debt rather than a design.** Switching the polling access
+ * point to any other generation discards its `pollIntervalMs`, `slots`, `acwe`, rates,
+ * protection, read mode and whole `backscatter` section with nothing said, and switching back
+ * does not bring them back (`tests/editor/planOps.test.ts` pins both halves). It has been that
+ * way since the AMP panel was built and it is reachable from four of the five generations in the
+ * dropdown; 2026-10-10 added the fifth, `'uhr'`, so it is now reachable from the one a reader is
+ * most likely to try. Repairing it means parking the dropped section somewhere the undo stack
+ * can reach, which is a different slice.
  */
 export function generationPatch(n: NodeCfg, gen: Generation): Partial<NodeCfg> {
   const features: Partial<Record<FeatureFlag, boolean>> = {}

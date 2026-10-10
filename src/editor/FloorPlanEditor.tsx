@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, GEN_RANK, physicalId, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, driverRefusalsFor, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, ampApRefusals, driverRefusalsFor, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -1053,7 +1053,22 @@ export function FloorPlanEditor() {
                     <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
                       <div style={{ color: 'var(--dim)', marginBottom: 4 }}>{E.amp}</div>
                       {selNode.caps.generation !== 'eht' ? (
-                        <div style={{ fontSize: 11, color: 'var(--dim)' }}>{E.ampNeedsEht}</div>
+                        /* The schema's own sentence, asked hypothetically — `ampApRefusals`
+                           (src/model/scenario.ts) holds the single copy, so this line and
+                           `ScenarioSchema`'s refusal can never explain the same rule
+                           differently. There was a second Chinese wording of it here
+                           (`STRINGS.ampNeedsEht`) until 2026-10-10, and it had already drifted:
+                           it said 「携带 U-SIG」, which a UHR PPDU also does.
+
+                           Dim rather than `issueStyle`: this node has no `ampAp`, so nothing is
+                           being refused yet. It is the panel saying first what the schema would
+                           say — which is what `fadingOffHint`'s precedent asks for — and a red
+                           line on a `he` access point whose owner has done nothing wrong would
+                           be crying wolf. The red belongs to the state where the section IS
+                           present, and `scenarioLoadIssues` prints it there. */
+                        <div style={{ fontSize: 11, color: 'var(--dim)' }}>
+                          {ampApRefusals({ ...selNode, ampAp: DEFAULT_AMP_AP }).join(' ')}
+                        </div>
                       ) : (
                         <>
                           <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }}>

@@ -117,17 +117,26 @@
 
 ---
 
-## 4. 这份文件在代码里的三处入口
+## 4. 这份文件在代码里的六处入口
 
 这条判据是给**写下一条拒绝的人**看的，所以它在那个人的必经之路上各留了一行：
 
 - `src/model/scenario.ts` · `ScenarioSchema` 的 `superRefine`；
 - `src/model/scenario.ts` · `selectivityRefusals` 的 docblock；
+- `src/model/scenario.ts` · `guardIntervalRefusals` 的 docblock；
 - `src/model/scenario.ts` · `driverRefusalsFor` 的 docblock；
-- `src/model/scenario.ts` · `ancillaryRequestRefusals` 的 docblock（2026-10-05 切片 3d 加的第三个导出函数）。
+- `src/model/scenario.ts` · `ancillaryRequestRefusals` 的 docblock（2026-10-05 切片 3d 加的第三个导出函数）；
+- `src/model/scenario.ts` · `ampApRefusals` 的 docblock（2026-10-10 W12c：`ampAp` 要 EHT 接入点那一条，
+  原先是 `superRefine` 里的一行加编辑器里的第二句中文）。
 
 入口数跟着**导出函数**长，不跟着规则条数长：`superRefine` 里每读一条规则就再写一次这个路径，
 会把那个计数变成一个没有意义的数（`tests/model/driver-scenario.test.ts` 把这一条钉住了）。
+
+**这张单子自己也走过一次形**：2026-10-10 之前它写着「三处」而列了四项，而代码里的
+`guardIntervalRefusals` 是第五个导出函数、一行指针都没有——那条判据的计数 4 当时是对的，
+它给自己写的理由（「一个导出函数一处」）已经错了一处。W12c 加第六个入口时它当场红，
+补的是漏掉的那一行，不是那个数。现在那条判据按**名字**逐个核，并要求
+`scenario.ts` 里每一个导出的 `…Refusals…` 函数都在单子上。
 
 `.superpowers/sdd/LESSONS.md` 里只留一行指过来，**不留第二份正文**：
 两份正文会分叉，而分叉的那一天没人知道哪份是真的。

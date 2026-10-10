@@ -891,8 +891,8 @@ const NodeCfgSchema = z.preprocess(
     if (n.kind === 'amp' && n.linkId !== undefined && n.linkId !== '2g') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP 标签只落在 2.4 GHz 链路上' })
     }
-    if (n.ampAp && !(n.kind === 'ap' && n.caps.generation === 'eht')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AMP 轮询需要一个 Wi-Fi 7 的 AP：AMP 下行 PPDU 携带的是 U-SIG' })
+    for (const why of ampApRefusals(n as Pick<NodeCfg, 'kind' | 'caps' | 'ampAp'>)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: why })
     }
     if (n.ampTag && n.kind !== 'amp') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: '只有 AMP 标签节点才带 AMP 标签设置：这个节点不是 AMP 标签' })
@@ -1379,10 +1379,82 @@ function hasGiLink(nodes: Scenario['nodes']): boolean {
  * guard interval acts on the time axis and never reaches the fading draw, so a `fading`
  * precondition would be a dependency the mechanism does not have. And `gi: 'base'` needs no
  * rule here because the `z.enum` has no such value (§3.3).
+ *
+ * **Adding a refusal of your own? `docs/inert-config-contract.md`.** This function had no such
+ * line until 2026-10-10, which made the count in `tests/model/driver-scenario.test.ts` hold at
+ * four while its stated reason — one per exported rule function plus the `superRefine` — was
+ * already false by one. This is the class `ampApRefusals` cites: refusing not because the field
+ * is unreadable but because the draft has published no constant to read.
  */
 export function guardIntervalRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
   if (hasGiLink(sc.nodes)) return []
   return ['保护间隔（guard interval）需要场景里至少有一条 eht 或 he 链路——注意是链路，不是设备：一条链路实际用的 PPDU 格式是两端世代里较低的那一个（minGen），所以「旧路由器 + 新笔记本」这样的配对跑出来是 vht 链路。TXVECTOR 的 GI_TYPE 只在 FORMAT 为 HE／EHT 的那几种格式下才在场（Table 27-1 / Table 36-1），而 nonht 与 vht 的符号固定 4 µs（Table 19-6 / Table 21-5），它们那 400 ns 的短保护间隔是另一组枚举、而且标准写明收发都是可选的，本仿真器不建。Wi-Fi 8（uhr）链路同样不行，但理由相反：P802.11bn SFD r19 根本没有发布 UHR 的保护间隔枚举、也没有发布 UHR 的离散傅里叶变换周期，而这六个常数每一个都带着它的表号——照着 EHT 的 12.8 µs 填一个进来就是发明一个标准没给的常数。频率选择性那一节接受 uhr，因为那一节有依据（SFD 的分布式音调资源单元就是按 26 音调资源单元搭的）；这一节没有。请让接入点和至少一台终端都到 he 或 eht，或者把 guardInterval 去掉']
+}
+
+/**
+ * Why this node may not carry an `ampAp` section — one string per reason, empty when it may.
+ *
+ * **The single copy of the predicate and its wording**, read by `superRefine` above and by the
+ * editor's AMP panel (`FloorPlanEditor.tsx`), exactly as `selectivityRefusals` and
+ * `guardIntervalRefusals` are. It was two separate Chinese sentences until 2026-10-10 — this
+ * one and `STRINGS.ampNeedsEht` — which is the defect `selectivityRefusals` was lifted in here
+ * to remove, and which `planOps.ts`'s own docblock already named as a defect while this pair
+ * went on being an example of it.
+ *
+ * ## The verdict, run through docs/inert-config-contract.md
+ *
+ * **Step 1 — is a lesson demonstrating it?** Measured across all 284 shipped scenes (every
+ * `LESSONS` scenario and variant, `HOUSEHOLDS`, `defaultScenario`): sixteen carry `ampAp`, all
+ * sixteen on a `kind: 'ap'` node whose generation is `eht`, and they belong to the five AMP
+ * lessons. **Not one would be deleted by this refusal**, and five of them teach the rule in
+ * prose. `tests/model/amp-ap-refusal.test.ts` holds that census so it is a measurement rather
+ * than this sentence.
+ *
+ * **Step 3 — this is NOT the wiring class, and saying so matters.** The contract's threshold for
+ * refusing is "the field cannot be read at all on this path". That is not the case here: nothing
+ * in `src/engine/amp*.ts` reads `caps.generation`, so a `uhr` AP with this section WOULD poll,
+ * and the round would appear on the timeline. This refusal belongs to the class
+ * `guardIntervalRefusals` opened instead — **the draft has published no mapping, so running it
+ * would mean inventing a constant the standard has not given** — and it is listed as such.
+ *
+ * **Step 4 — the evidence from the still-legal side.** `AMP_LEGACY_PREAMBLE_NS` (src/engine/amp.ts)
+ * is 32 µs, assembled as L-STF 8 + L-LTF 8 + L-SIG 4 + RL-SIG 4 + **U-SIG 8**, and every AMP
+ * airtime the five lessons print is built on it. Accept `uhr` and that same 8 µs becomes the
+ * U-SIG of a PPDU whose preamble P802.11bn has not published — the `guardInterval` argument
+ * verbatim, on a different constant.
+ *
+ * ## Why the reason had to be rewritten, not just pinned
+ *
+ * The old sentence was 「AMP 下行 PPDU 携带的是 U-SIG」, and W12a's report defended it against
+ * `uhr` on the grounds that the UHR MU PPDU signals in **UHR-SIG** rather than U-SIG. **That is
+ * not what the SFD says.** TGbn Motion #182 (`wifi8_tgbn/tables/sfd_full.md:1033`) keeps every
+ * field of U-SIG for the UHR MU PPDU exactly as in the EHT MU PPDU; UHR-SIG replaces **EHT-SIG**,
+ * not U-SIG. So a UHR PPDU carries a U-SIG too, and the old reason did not discriminate at all.
+ *
+ * What discriminates is one subfield of it:
+ *  - 802.11be-2024 §9 (Special User Info field): 「The PHY Version Identifier subfield is set to
+ *    0 for EHT. The values from 1 to 7 are reserved.」
+ *  - TGbp SFD PM-37 and PM-54 (`amp_tgbp/tables/sfd_full.md:589-595`): a DL AMP PPDU in 2.4 GHz
+ *    is identified in its U-SIG by 「PHY version value set to 0」 plus a PPDU-type setting.
+ *  - TGbn SFD Motion #22 (`wifi8_tgbn/tables/sfd_full.md:155`): 「"PHY Version Identifier" is set
+ *    to 1 in U-SIG field for UHR PPDUs.」
+ *
+ * 0 is how the tag's radio knows the frame is for it; 1 is what a UHR PPDU carries. The TGbp SFD
+ * does not mention 11bn or UHR anywhere, so there is no published AMP mapping for version 1.
+ *
+ * **What would turn this from a refusal into a gap**: TGbp publishing an AMP downlink format for
+ * PHY version 1 — then this becomes a missing feature, the preamble constant gets a second value
+ * with its own citation, and the fixtures of five lessons come into it.
+ */
+export function ampApRefusals(n: Pick<NodeCfg, 'kind' | 'caps' | 'ampAp'>): string[] {
+  if (n.ampAp === undefined) return []
+  if (n.kind !== 'ap') {
+    return ['AMP 轮询只贴在接入点上：引擎读的是接入点那一侧的 ampAp（engine/ampAp.ts），其他节点上的这一节一个字节也进不了仿真。请把它移到接入点上，或者把 ampAp 去掉']
+  }
+  if (n.caps.generation !== 'eht') {
+    return ['AMP 轮询需要一个 Wi-Fi 7（EHT）的接入点：P802.11bp 规范框架把 2.4 GHz 下行 AMP PPDU 定义成「U-SIG 里的物理层版本号为 0」的帧（PM-37、PM-54），而 0 这个值在 802.11be-2024 里就是 EHT——标签的射频正是靠它认出这一帧是发给自己的。注意不是「带不带 U-SIG」：P802.11bn 的 UHR MU PPDU 同样带 U-SIG，它只是把版本号写成 1（SFD 的 Motion #22），而 UHR-SIG 替换的是 EHT-SIG 而不是 U-SIG。所以 Wi-Fi 8（uhr）接入点在这里不行的理由和保护间隔那一节相同：P802.11bp 至今没有发布版本号为 1 的 AMP 下行格式，照着 EHT 的 32 µs 前导码跑一轮，就是替标准发明一个它没给的常数。请把接入点改回 Wi-Fi 7，或者把 ampAp 去掉']
+  }
+  return []
 }
 
 /**
