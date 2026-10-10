@@ -89,6 +89,24 @@ export const GEN_FEATURES: Record<Generation, FeatureFlag[]> = {
   uhr: ['edca', 'ampdu', 'txop', 'ofdma', 'mumimo', 'mlo', 'qam4k'],
 }
 
+/**
+ * **Beware: nothing renders this.** The labels a reader actually sees are `features` in
+ * `src/ui/i18n.ts`, which the editor's checkbox list reads (`FloorPlanEditor.tsx`); this table
+ * has had no consumer since it was written. It is kept because it is the English-side wording of
+ * the same seven switches, and `tests/model/caps.test.ts` now welds the two together so that an
+ * edit to one cannot leave the other saying something else — which is exactly what happened to
+ * `qam4k` below.
+ *
+ * `qam4k` used to read 「4096-QAM (MCS 12/13)」 in both places. Those two rung numbers are EHT's:
+ * `uhr` interleaves four new rungs underneath, so its 4096-QAM pair is index 16/17 and the
+ * sentence became false the moment the generation dropdown gained Wi-Fi 8 — a label printed
+ * beside a checkbox a `uhr` node can tick today. What is true of BOTH, and is asserted rather
+ * than narrated, is the position: `PHY_MODES[m].qam4kFromMcs === PHY_MODES[m].ndbps.length - 2`
+ * for every mode that has a 4096-QAM rung at all, so the pair is the top two rungs of whichever
+ * ladder the node is on. One wording for both generations was the cheaper of the two fixes the
+ * ruling allowed: the alternative — a label per generation — would have turned this `Record` and
+ * i18n's into functions of `Generation` and touched the editor's render as well.
+ */
 export const FEATURE_LABEL: Record<FeatureFlag, string> = {
   edca: 'EDCA (QoS access categories)',
   ampdu: 'A-MPDU aggregation + BlockAck',
@@ -96,7 +114,7 @@ export const FEATURE_LABEL: Record<FeatureFlag, string> = {
   ofdma: 'OFDMA (MU scheduling)',
   mumimo: 'MU-MIMO (multi-user by space)',
   mlo: 'Multi-Link Operation',
-  qam4k: '4096-QAM (MCS 12/13)',
+  qam4k: '4096-QAM (the top two rungs of the ladder)',
 }
 
 /** Default: everything the generation allows is on. */

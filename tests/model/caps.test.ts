@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  BAND_LABEL, GENERATIONS, GEN_FEATURES, GEN_LABEL, GEN_RANK, LINK_ORDER, MAX_WIDTH, linkOfVirtual,
-  linkPlanFor, minGen, negotiatedNss, negotiatedWidth, nodeLinks, nssOf, virtualId, widthOf,
+  BAND_LABEL, FEATURE_LABEL, GENERATIONS, GEN_FEATURES, GEN_LABEL, GEN_RANK, LINK_ORDER, MAX_WIDTH,
+  linkOfVirtual, linkPlanFor, minGen, negotiatedNss, negotiatedWidth, nodeLinks, nssOf, virtualId,
+  widthOf,
 } from '../../src/model/caps'
+import { STRINGS } from '../../src/ui/i18n'
 import { PHY_MODES, PHY_MODE_ORDER } from '../../src/engine/phy'
 import { ScenarioSchema, defaultScenario, type NodeCfg } from '../../src/model/scenario'
 import type { Generation } from '../../src/model/types'
@@ -68,6 +70,54 @@ describe('one list of generations, and nothing may fall out of it', () => {
         expect(minGen(b, a)).toBe(m)
       }
     }
+  })
+})
+
+/**
+ * **The `qam4k` switch is labelled twice and rendered once, and the rendered one went false.**
+ *
+ * Both labels read 「4096-QAM (MCS 12/13)」 until 2026-10-10. Those two rung numbers are EHT's:
+ * `uhr` interleaves four new rungs below them, so its 4096-QAM pair is index 16/17. The
+ * generation dropdown has offered Wi-Fi 8 since `'uhr'` landed, and the feature checkboxes
+ * underneath it are rendered from `STRINGS.features` — so a `uhr` node could be ticking a box
+ * whose caption named a rung it does not have.
+ *
+ * Three welds, because the defect had three halves. The wording has to be true of every mode
+ * with a 4096-QAM rung at all (so it is positional, and the position is MEASURED off
+ * `PHY_MODES`); the two tables have to agree on which switches exist; and neither may go back to
+ * naming a number, which is what a bare 「no rung index in either label」 assertion forbids.
+ */
+describe('the feature labels say nothing that is only true of one generation', () => {
+  it('4096-QAM really is the top two rungs of every ladder that has it, which is what both labels now say', () => {
+    const withQam = PHY_MODE_ORDER.filter((m) => PHY_MODES[m].qam4kFromMcs !== undefined)
+    // Anti-vacuity: two modes have the rung, and the positional claim is about both of them.
+    expect(withQam, 'the modes with a 4096-QAM rung').toEqual(['eht', 'uhr'])
+    for (const m of withQam) {
+      const p = PHY_MODES[m]
+      expect(p.qam4kFromMcs, `${m}: the lowest 4096-QAM index is the ladder's length minus two`)
+        .toBe(p.ndbps.length - 2)
+    }
+    // And the indices really are different, which is the whole reason one wording had to replace
+    // the other rather than the number being corrected.
+    expect(PHY_MODES.eht.qam4kFromMcs).toBe(12)
+    expect(PHY_MODES.uhr.qam4kFromMcs).toBe(16)
+  })
+
+  it('neither label names a rung index, in any generation', () => {
+    for (const [where, table] of [['FEATURE_LABEL', FEATURE_LABEL], ['STRINGS.features', STRINGS.features]] as const) {
+      for (const [flag, label] of Object.entries(table)) {
+        expect(/MCS\s*\d/.test(label), `${where}.${flag} = 「${label}」 names an MCS index, and an`
+          + ' index means a different modulation in each generation (eht 12/13 against uhr 16/17)')
+          .toBe(false)
+      }
+    }
+  })
+
+  it('and the two tables label the same seven switches', () => {
+    // The English table has no consumer — the editor renders the i18n one — so nothing but this
+    // would notice the two drifting apart. See FEATURE_LABEL's docblock.
+    expect(Object.keys(FEATURE_LABEL).sort()).toEqual(Object.keys(STRINGS.features).sort())
+    expect(Object.keys(FEATURE_LABEL).sort()).toEqual([...new Set(GENERATIONS.flatMap((g) => GEN_FEATURES[g]))].sort())
   })
 })
 
