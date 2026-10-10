@@ -62,7 +62,7 @@ export const uhrRateLadder: Lesson = {
     { term: 'log-normal shadowing', plain: '对数正态阴影：本仿真器给整条链路加减的一个正态随机分贝数，在一段相干时间里保持不变。它是起伏里慢的那一层，快的那一层是按每一帧单独抽的瑞利衰落' },
   ],
   picture: [
-    { heading: '十四档变十八档，而四个新档只能插在中间', text: '草案给这条阶梯添了四个调制与编码方式（modulation and coding scheme, MCS）是 QPSK（quadrature phase-shift keying）2/3、16-QAM（quadrature amplitude modulation）2/3、16-QAM 5/6 和 256-QAM 2/3——每一档就是一种调制（modulation）配一个码率。它们不是四个更快的档，而是落在已有十四档中间的四个空隙里。为什么不能直接追加到数组末尾：本仿真器挑档的办法是「取所需信噪比（signal-to-noise ratio, SNR）容得下的最高索引」，所以这条数组必须随索引单调上升，否则信号一好它反而会挑一个更慢的档。于是十八档按灵敏度（sensitivity）交错排开，而排完之后灵敏度与每符号数据比特数双双严格递增，一处倒挂也没有。代价是本引擎的索引不再等于草案的档号。',
+    { heading: '十四档变十八档，而四个新档只能插在中间', text: '草案给这条阶梯添的四个调制与编码方式（modulation and coding scheme, MCS）是 QPSK（quadrature phase-shift keying）2/3、16-QAM（quadrature amplitude modulation）2/3、16-QAM 5/6 和 256-QAM 2/3——每一档就是一种调制（modulation）配一个码率。它们不是四个更快的档，而是落在已有十四档中间的四个空隙里。为什么不能直接追加到数组末尾：本仿真器挑档的办法是「取所需信噪比（signal-to-noise ratio, SNR）容得下的最高索引」，所以这条数组必须随索引单调上升，否则信号一好它反而会挑一个更慢的档。于是十八档按灵敏度（sensitivity）交错排开，而排完之后灵敏度与每符号数据比特数双双严格递增，一处倒挂也没有。代价是本引擎的索引不再等于草案的档号。',
     },
     { heading: '一个窗口在地板上有多宽', text: '所谓「窗口」是指：接收电平落在哪一段时，细阶梯选得到的那一档粗阶梯选不到。四个新档里有三个只给自己留了 1 分贝的灵敏度间隔，只有 16-QAM 5/6 占了 3 分贝。而这门课把这件事换成了读者能走过去的距离：本仿真器的路径损耗（path loss）指数是 3.0，所以同样的 1 分贝在三米处是 0.25 米，在八米处是 0.60 米——端着笔记本挪一步就走出去了。',
     },
