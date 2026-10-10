@@ -87,12 +87,13 @@ export const ofType = <K extends TLRecord['type']>(rs: TLRecord[], type: K): Ext
 // ---------------------------------------------------------------------------
 
 /**
- * The switch itself moved to `./limitsDebt` on 2026-10-09, next to the MIGRATING list it filters,
- * so that module is a leaf (no `vitest` import) and can be measured by a plain `vite-node` probe.
- * Re-exported here because this is where the docblock above sends a reader, and because
- * `tests/course/kit.test.ts` tests it through this name.
+ * The switch itself moved out of here on 2026-10-09, next to the MIGRATING list it filters, so
+ * that module is a leaf (no `vitest` import) and can be measured by a plain `vite-node` probe.
+ * It is `./corpus` since 2026-10-10 (it was `./limitsDebt`, a name that had stopped describing
+ * what the file held). Re-exported here because this is where the docblock above sends a reader,
+ * and because `tests/course/kit.test.ts` tests it through this name.
  */
-export { effectiveMigrating, includedIds } from './limitsDebt'
+export { effectiveMigrating, includedIds } from './corpus'
 
 // ---------------------------------------------------------------------------
 // the shape suite

@@ -54,7 +54,8 @@ import {
   symbolCitationOccurrences, symbolCitations, tableHeads, tableRows, unresolved, zhNumeral,
   type SymbolCitation,
 } from './coverage'
-import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet, orderedLessons } from './limitsDebt'
+import { orderedLessons } from './corpus'
+import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet } from './coverageNumbers'
 
 const DOC = 'docs/wifi-feature-coverage.md'
 const doc = readDoc(DOC)
@@ -389,7 +390,7 @@ const ordered = orderedLessons()
  * four pairs back without lowering the ceiling — which slice 3d did, 296 → 292 — and that 0 is
  * silently false while both pieces of text still match each other.
  *
- * So the debt is measured now, by {@link limitsRatchet} in `tests/course/limitsDebt.ts`, which is
+ * So the debt is measured now, by {@link limitsRatchet} in `tests/course/coverageNumbers.ts`, which is
  * the same call the ratchet assertion itself makes; the ceiling is `LIMITS_DEBT_CEILING` in that
  * module, cited by both the assertion's title and this document's 断言在哪 cell; and the 余量 is
  * `ceiling − debt`. The regex over a test file's source is gone.
@@ -464,7 +465,7 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
     const cited = /≤ (\d+)/.exec(row![2])
     expect(cited, 'the 断言在哪 cell no longer cites the ceiling as 「≤ N」').not.toBeNull()
     expect(Number(cited![1]), 'the ceiling §17 cites, against LIMITS_DEBT_CEILING in'
-      + ' tests/course/limitsDebt.ts. Raising the ceiling needs a human to agree to it, and'
+      + ' tests/course/coverageNumbers.ts. Raising the ceiling needs a human to agree to it, and'
       + ' nothing may raise it to make a build green — so the two statements of it are compared')
       .toBe(LIMITS_DEBT_CEILING)
 
@@ -540,7 +541,7 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       .not.toBeNull()
     const [floor, ceiling] = band!.slice(1).map((x) => Number(x.replaceAll(' ', '')))
     expect([floor, ceiling], 'the band §17 states, against MAIN_PATH_BAND in'
-      + ' tests/course/limitsDebt.ts — the constant readability.test.ts asserts lesson by lesson')
+      + ' tests/course/coverageNumbers.ts — the constant readability.test.ts asserts lesson by lesson')
       .toEqual([MAIN_PATH_BAND.floor, MAIN_PATH_BAND.ceiling])
 
     const m = /逐课最紧的是 `@([a-z0-9-]+)` (\d[\d ]*)（距上沿 (\d[\d ]*)）/.exec(row![3])

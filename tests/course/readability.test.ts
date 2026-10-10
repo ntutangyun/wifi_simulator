@@ -33,15 +33,16 @@ import {
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
 } from '../../src/course/readability'
 import {
-  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, MIGRATING, MIGRATING_NOW, limitsRatchet, migratedLessons,
-  names, orderedLessons, owed, zhMainText, zhTermsFor,
-} from './limitsDebt'
+  MIGRATING, MIGRATING_NOW, migratedLessons, names, orderedLessons, zhMainText, zhTermsFor,
+} from './corpus'
+import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet, owed } from './coverageNumbers'
 
 /**
- * MIGRATING, the lesson lists and the one ruler now live in `tests/course/limitsDebt.ts`
- * (imported above), because `tests/course/wifi-coverage.test.ts` measures the same `limits` debt
- * over the same migrated set and used to do it by reading this file's text with a regex. The
- * definitions are unchanged; see that module for why they moved.
+ * MIGRATING, the lesson lists and the one ruler live in `tests/course/corpus.ts`, and the
+ * ceiling, the band and the measured debt in `tests/course/coverageNumbers.ts` (both imported
+ * above), because `tests/course/wifi-coverage.test.ts` measures the same `limits` debt over the
+ * same migrated set and used to do it by reading this file's text with a regex. The definitions
+ * are unchanged; see those modules for why they moved, and why they are two files.
  */
 const byId = new Map(LESSONS.map((l) => [l.id, l]))
 const ordered = orderedLessons()
@@ -182,7 +183,7 @@ describe('readability · a rule is carried as a procedure', () => {
  * `body` is walked too, in the slot `picture` and `numbers` occupy in the new
  * shape, so an old-shape lesson's prose is graded rather than silently replaced.
  *
- * `zhMainText` (imported from `./limitsDebt`) is `gradedProseTexts(l).join(' ')`; the assertion
+ * `zhMainText` (imported from `./corpus`) is `gradedProseTexts(l).join(' ')`; the assertion
  * below is the one place that needs the strings unjoined, and it calls the selector directly.
  */
 
@@ -222,7 +223,7 @@ describe('readability · the graded-prose selector is the walk it replaced', () 
 /*
  * `zhTermsFor` — the glossary rows graded in one lesson: all of them, minus the three whose
  * Chinese word means something else in the other track (`ZhTerm.track` says which, and why each
- * one is there) — is imported from `./limitsDebt`, together with `zhMainText` and `names`. One
+ * one is there) — is imported from `./corpus`, together with `zhMainText` and `names`. One
  * definition of the ruler, used by this file's bracket rule and by the `limits` debt the coverage
  * table states.
  */
@@ -712,7 +713,7 @@ describe('readability · a name that arrives early says where it is taught', () 
 describe('readability · a term in the chrome has somewhere to have been learned', () => {
   const lessonsById = new Map(LESSONS.map((l) => [l.id, l]))
 
-  /** One ruler for both sides of every comparison below — `names` comes from `./limitsDebt`. */
+  /** One ruler for both sides of every comparison below — `names` comes from `./corpus`. */
   const taught = (text: string, t: ZhTerm): boolean => bracketedAtFirstZhUse(text, t) === true
   const wanted = (t: ZhTerm): string => (t.zh
     ? `${t.zh}${t.abbr ? `（${t.en}, ${t.abbr}）` : `（${t.en}）`}`
@@ -914,13 +915,14 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * is the ruler here, and it is the same call on both sides.
  */
 describe('readability · the limits debt is pinned, and the 297th entry is refused', () => {
-  // `names`, `owed` (criterion Q for one field of one lesson), `limitsOf`, the ceiling and the
-  // measured ratchet all come from `./limitsDebt`, unchanged. They moved there on 2026-10-09 so
+  // `names` comes from `./corpus`; `owed` (criterion Q for one field of one lesson), `limitsOf`,
+  // the ceiling and the measured ratchet from `./coverageNumbers`, unchanged. They moved out of
+  // this file on 2026-10-09 so
   // that §17 of docs/wifi-feature-coverage.md — which states this debt AND its 余量 to a reader —
   // compares against the MEASURED debt instead of against this `it`'s title text.
 
   /**
-   * **The number itself is `LIMITS_DEBT_CEILING` in `./limitsDebt`**, so this `it`'s title, the
+   * **The number itself is `LIMITS_DEBT_CEILING` in `./coverageNumbers`**, so this `it`'s title, the
    * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
    *
    * **This number is the ceiling AND the current value: the debt stands at exactly 292.** There

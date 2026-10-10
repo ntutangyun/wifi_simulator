@@ -8,8 +8,8 @@
  * what came out. Importing the component is not an option either — `./store`
  * constructs a `Player` at module scope. A leaf that imports only the store
  * type can be called by the UI and by a test through the SAME code path, which
- * is the only way a check on this can prove what its name says. (`limitsDebt`
- * in `tests/course` was split out for the same reason.)
+ * is the only way a check on this can prove what its name says. (`corpus` and
+ * `coverageNumbers` in `tests/course` were split out for the same reason.)
  *
  * ## What was wrong with "the last 160"
  *
