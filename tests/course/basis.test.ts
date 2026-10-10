@@ -179,6 +179,30 @@ describe('citedBases reads the prose it is given', () => {
     expect(of('见 P802.11bn 草案')).toEqual(['p802-11bn'])
   })
 
+  /**
+   * **A ruling, not a defect.** `802.11be` IS read as `ieee-802-11`, and that is deliberate:
+   * amendment be was rolled into IEEE Std 802.11-2024, so the eleven lessons citing
+   * `802.11be-2024` really are citing published standard text. The probe's answer is true today,
+   * and `BASES` has no `p802-11be` for it to give instead.
+   *
+   * It is pinned because the SHAPE is the one slice W11 had just repaired for `802.11bn`: a
+   * longer amendment name whose prefix the catch-all `/802\.11/` probe matches. What tells the
+   * two apart is a fact about the world and not anything in the code — `bn` is an open draft
+   * with its own basis, `be` is published text — so the next reader cannot see the difference by
+   * reading `citedBases`.
+   *
+   * **The day a lesson needs to separate a be-draft-era number from the published text, change
+   * the probe first.** That means a `p802-11be` entry in `BASES` and a probe for it ABOVE
+   * `ieee-802-11`, exactly as `p802-11bp` and `p802-11bn` sit; not a new wording rule, and not a
+   * declaration edit on the eleven modules. The second line below is where that day starts: a
+   * draft-era citation of be reads as published standard today, which is the only answer the
+   * basis registry can currently give and the one thing here that would then be a lie.
+   */
+  it('deliberately reads 802.11be as the published standard, having no draft basis for it', () => {
+    expect(of('见 IEEE Std 802.11be-2024 §36.3.22')).toEqual(['ieee-802-11'])
+    expect(of('见 P802.11be 草案')).toEqual(['ieee-802-11'])
+  })
+
   it('does not read 802.11 out of a bare 802.15.4 citation', () => {
     expect(of('见 IEEE Std 802.15.4-2024')).toEqual(['ieee-802-15-4-2024'])
   })
