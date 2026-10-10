@@ -22,6 +22,9 @@
  *    use — the reader's own requirement, with its anti-vacuity guards.
  */
 import { describe, it, expect } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { LESSONS } from '../../src/course/lessons'
 import {
   CHARS_PER_MINUTE, COURSE_ORDER, MAX_MINUTES, MODULES, OBSERVE_MINUTES, TRY_MINUTES,
@@ -1139,6 +1142,100 @@ describe('readability · the stated minutes, and the characters behind them', ()
     .map(([id, raw, next, prev]) => `  @${id} raw ${raw.toFixed(2)} → ${lessonMinutes(byId.get(id)!)}`
       + ` min, ${next.toFixed(0)} characters to the next bucket, ${prev.toFixed(0)} past the last`)
     .join('\n')
+
+  /**
+   * **A lesson close to a bucket boundary says so in its own file, and the figure is checked.**
+   *
+   * The `toBe(1_925)` equality below is the only thing in the suite that notices a lesson
+   * crossing a five-minute bucket, and it notices AFTER the fact: the next person to add a
+   * sentence to `@rate` gets `expected 1930 to be 1925` on a file they did not open. Slice W13's
+   * report asked for a header note and did not write one; slice W12c's wording contract already
+   * recorded four of them, and those four said neither which assertion goes red nor what to do
+   * about it.
+   *
+   * **The threshold is 50 Chinese characters, and it is the course's own sentence length.**
+   * Measured over the 11 546 sentences of the 90 lessons (split on 。！？, Han characters only):
+   * median 22, mean 26.1, p75 36, p90 52 — **88.5 % of this course's sentences are shorter than
+   * 50 characters**. So "under 50 left" means "almost any sentence anybody adds flips the
+   * bucket", which is exactly the population that owes a warning. It separates cleanly today: ten
+   * lessons are under it, the eleventh (`@uwb-aoa`) is at 58, and the median lesson has 457.
+   *
+   * **What is checked is the three figures and the two pointers, not the prose.** The note's
+   * character count, the bucket it is in and the bucket it would land in are recomputed here, so
+   * a note cannot rot the way the six §17 figures and the `@link-2g` margin did — both of which
+   * were hand-written numbers in comments that nothing read. The rest of the note is for a person
+   * and is left alone, except that it must name the file that goes red and must not offer editing
+   * the equality as a way out.
+   *
+   * It is a two-way rule on purpose: a lesson that moves AWAY from a boundary must lose its note,
+   * because a warning about a danger that has passed is the thing that teaches readers to ignore
+   * warnings.
+   */
+  describe('a lesson within 50 characters of a bucket says so in its own file', () => {
+    const TIGHT_CHARS = 50
+    /** The flattened leading docblock of a lesson's source file, by lesson id. */
+    const docblocks = new Map<string, string>()
+    const COURSE_SRC = fileURLToPath(new URL('../../src/course', import.meta.url))
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) { walk(p); continue }
+        if (!e.name.endsWith('.ts')) continue
+        const text = readFileSync(p, 'utf8')
+        if (!text.startsWith('/**')) continue
+        const block = text.slice(0, text.indexOf('\n */') + 4).replace(/\s*\n\s*\*\s?/g, ' ')
+        for (const m of text.matchAll(/^\s*id: '([a-z0-9-]+)',$/gm)) docblocks.set(m[1], block)
+      }
+    }
+    walk(COURSE_SRC)
+
+    const NOTE = /CAUTION — (\d+) Chinese characters? from `lessonMinutes` rounding this lesson up from (\d+) to (\d+) minutes\./
+
+    it('found a docblock for every lesson, so the rules below are not vacuous', () => {
+      const missing = ordered.map((l) => l.id).filter((id) => !docblocks.has(id))
+      expect(missing, 'no leading docblock found for these lesson ids').toEqual([])
+    })
+
+    const tight = ordered.filter((l) => Math.round(toNextBucket(l)) < TIGHT_CHARS)
+    const roomy = ordered.filter((l) => Math.round(toNextBucket(l)) >= TIGHT_CHARS)
+
+    it('has something to warn about, and something not to', () => {
+      // If every lesson were tight the threshold would be meaningless, and if none were the
+      // per-lesson rule below would assert nothing at all.
+      expect(tight.length).toBeGreaterThan(0)
+      expect(roomy.length).toBeGreaterThan(tight.length)
+    })
+
+    it.each(tight)('$id carries the note, with the right three figures', (l) => {
+      const want = Math.round(toNextBucket(l))
+      const at = lessonMinutes(l)
+      const expected = `CAUTION — ${want} Chinese character${want === 1 ? '' : 's'} from`
+        + ` \`lessonMinutes\` rounding this lesson up from ${at} to ${at + 5} minutes.`
+      const block = docblocks.get(l.id) ?? ''
+      const found = NOTE.exec(block)
+      expect(found, `@${l.id} has ${want} characters left before ${at} becomes ${at + 5} minutes`
+        + ' and its file says nothing. Add this to the end of its leading docblock, then the rest'
+        + ` of the note the other nine carry:\n  ${expected}`).not.toBeNull()
+      expect([found![1], found![2], found![3]].join('/'),
+        `@${l.id}'s note has gone stale. It should read:\n  ${expected}`)
+        .toBe(`${want}/${at}/${at + 5}`)
+      // The two things the four notes of 2026-10-01 were missing, and the reason this slice
+      // rewrote them: which assertion turns red, and that editing it is not the answer.
+      expect(block, `@${l.id}'s note must name the file that goes red`)
+        .toContain('tests/course/readability.test.ts')
+      expect(block, `@${l.id}'s note must say what to do instead of widening the sum`)
+        .toContain('re-pace or split, never the equality')
+    })
+
+    it('and no lesson with room to spare carries one', () => {
+      // A stale warning is worse than none: the next reader learns that these notes are noise.
+      // The 30-minute ceiling notes on `@ru-diversity`, `@amp-slots` and `@amp-coexist` are a
+      // different sentence about a different limit and are deliberately not matched.
+      const stale = roomy.filter((l) => NOTE.test(docblocks.get(l.id) ?? ''))
+        .map((l) => `@${l.id} (${Math.round(toNextBucket(l))} characters of room)`)
+      expect(stale, 'these lessons moved away from a boundary and kept the warning').toEqual([])
+    })
+  })
 
   it('has the lessons and the modules it says it has', () => {
     // The two structural counts, exact, each naming what moved. A lesson or a module arriving or

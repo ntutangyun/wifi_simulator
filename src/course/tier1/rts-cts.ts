@@ -25,6 +25,15 @@
  * picture, so the paragraph keeps only the reason the answer is what matters.
  *
  * Every number quoted below is pinned in tests/course/rts-cts.test.ts.
+ *
+ * CAUTION — 11 Chinese characters from `lessonMinutes` rounding this lesson up from 10 to 15
+ * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
+ * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
+ * wrong once and read a 484-character margin where there were four. What goes red is the
+ * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
+ * test; the answer there is to re-pace or split, never the equality, because that sum is the only
+ * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
+ * this note are checked rather than hand-written — the same file recomputes them.
  */
 import type { SequenceSpec } from '../diagram'
 import { type Lesson, firstCollision, J } from '../lessonKit'

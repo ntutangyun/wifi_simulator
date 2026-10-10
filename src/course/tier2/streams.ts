@@ -21,6 +21,15 @@
  * The scenario builder and the five variants are unchanged, so the recorded
  * timeline hashes in tests/fixtures/lesson-hashes.json stay byte-identical.
  * Every number quoted below is pinned in tests/course/streams.test.ts.
+ *
+ * CAUTION — 25 Chinese characters from `lessonMinutes` rounding this lesson up from 25 to 30
+ * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
+ * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
+ * wrong once and read a 484-character margin where there were four. What goes red is the
+ * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
+ * test; the answer there is to re-pace or split, never the equality, because that sum is the only
+ * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
+ * this note are checked rather than hand-written — the same file recomputes them.
  */
 import type { StackSpec } from '../diagram'
 import { type Lesson, firstData, firstAck, J } from '../lessonKit'
