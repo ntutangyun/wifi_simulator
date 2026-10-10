@@ -454,6 +454,37 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       .toBe(FIGURES.get(label)!())
   })
 
+  it('states the exact assertion behind a figure, and THAT copy is measured too', () => {
+    // **Found by slice W13, and it is the defect this whole `describe` exists for, one column
+    // to the right.** The 实测 column has been read out and compared since 2026-10-09; the
+    // 断言在哪 column quotes the assertion itself, and two of its cells carry a literal
+    // ——「同文件，`toBe(89)`，**精确**」——which nothing read. W13 took the course to 90 and
+    // changed `readability.test.ts` accordingly; the 实测 cell went red and was corrected, and
+    // this cell stayed at 89, true-looking and false. A number stated in two places with nothing
+    // comparing them is this document's standing defect, and the ceiling row below is the same
+    // lesson learned a slice earlier.
+    //
+    // So every `toBe(N)` quoted in that column is compared against the thing that measures the
+    // row. Rows whose assertion is not an equality (「等式」, 「≤ 292」, a band) quote no
+    // `toBe(N)` and are answered by the two `it`s below; the count is asserted so that a cell
+    // dropping its quotation cannot make this vacuous.
+    const quoting = dataRows(doc, FIG_HEAD)
+      .map((r) => ({ label: r[0].replaceAll('*', '').trim(), m: /`toBe\((\d+)\)`/.exec(r[2]) }))
+      .filter((x) => x.m !== null)
+    expect(quoting.map((x) => x.label), 'which §17 rows quote an exact assertion')
+      .toEqual(['课数', '模块数'])
+    for (const { label, m } of quoting) {
+      const measure = FIGURES.get(label)
+      expect(measure, `§17 quotes \`toBe(${m![1]})\` on 「${label}」, which FIGURES does not measure`)
+        .toBeDefined()
+      expect(Number(m![1]), `§17 says the assertion behind 「${label}」 is \`toBe(${m![1]})\`, and`
+        + ' the measured value is different. The 实测 cell of this row is compared by the `it.each`'
+        + ' above, so a slice that corrects that one and leaves this one behind produces a row'
+        + ' that is half checked and reads as whole — which is exactly what happened on W13.')
+        .toBe(measure!())
+    }
+  })
+
   it('states the ratchet ceiling and the slack left under it, and both are measured', () => {
     // The 实测 column of this row is covered by the `it.each` above (it is now the measured debt,
     // not a regex over a test file's title). The other two numbers in the row are this one's: the
