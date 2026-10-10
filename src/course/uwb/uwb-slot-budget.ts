@@ -67,7 +67,7 @@ export function uwbSlotBudgetTiming(): TimingSpec {
 
 export const uwbSlotBudget: Lesson = {
   id: 'uwb-slot-budget',
-  module: 15,
+  module: 16,
   title: '时隙该多长',
   why: '上一课读完了时间表，却没说表上一行该有多长。这个场景里一个测距时隙（ranging slot）是 2 ms，真正发出去的那一帧只占其中一成出头，余下全是留白。这一课讲这条长度的下限是谁定的、那份留白是留给什么的，以及把时隙缩短能改善什么、不能改善什么。',
   outcomes: [

@@ -101,6 +101,7 @@ import { rateFallback } from './tier2/rate-fallback'
 import { rateCost } from './tier2/rate-cost'
 import { fading } from './tier2/fading'
 import { link2g } from './tier3/link-2g'
+import { uhrRateLadder } from './tier4/uhr-rate-ladder'
 export type { Block, JumpTarget, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -208,6 +209,9 @@ const AUTHORED: Lesson[] = [
 
   // ======================= MODULE 12 · tier 2 =======================
   link2g,
+
+  // ======================= MODULE 13 · tier 3 =======================
+  uhrRateLadder,
 ]
 
 /** Every course lesson, in reading order (see curriculum.ts). */

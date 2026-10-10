@@ -224,7 +224,7 @@ export function uwbRcmValidityTiming(): TimingSpec {
 
 export const uwbRcmValidity: Lesson = {
   id: 'uwb-rcm-validity',
-  module: 20,
+  module: 21,
   title: '一个零内容的信息单元，不是一条空消息',
   why: '前面每一课里，标签（tag）每开一个测距轮（ranging round）都先发一帧轮询帧：这一帧既告诉各个锚点（anchor）本轮谁在哪个测距时隙（ranging slot）作答，又打下本轮计时用的第一个时间戳。两件事合在一帧里，于是同一张时隙表每一轮都要重发一遍。标准允许不这样做：控制消息里有一个字段，说明它管的不止本轮，后面几轮的开场只剩一帧很短的启动消息。这一课要算清这样省下多少，而更要先想清楚它带来的那个新状态——一个锚点手里的配置还有效，却没收到本轮的启动消息，它该做什么。',
   outcomes: [

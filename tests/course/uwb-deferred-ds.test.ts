@@ -43,7 +43,7 @@ const txOf = (rs: TLRecord[], kind: string) =>
 
 describe('uwb-deferred-ds · where it sits in the course', () => {
   it('is the second reply-time lesson of the two-clocks module, published standard only', () => {
-    expect(uwbDeferredDs.module).toBe(14)
+    expect(uwbDeferredDs.module).toBe(15)
     expect(MODULES[uwbDeferredDs.module].title).toBe('两只钟')
     expect(basisOf(uwbDeferredDs.module)).toEqual(['ieee-802-15-4-2024'])
     expect(uwbDeferredDs.needs).toEqual(['uwb-dstwr', 'uwb-reply-time'])

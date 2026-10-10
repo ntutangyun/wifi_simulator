@@ -52,6 +52,14 @@ export const BASES: Record<StandardBasis, BasisNote> = {
   'ieee-802-15-4-2024': { label: 'IEEE Std 802.15.4-2024', status: '已发布，含 802.15.4z', draft: false },
   'p802-15-4ab': { label: 'P802.15.4ab', status: '草案，SA 投票复审中', draft: true },
   'p802-11bp': { label: 'P802.11bp', status: '草案', draft: true },
+  // Bare 「草案」, deliberately, and the corpus evidence for a stronger phrasing is recorded
+  // here rather than used: TGbn's own timeline (`tables/tgbn_status.md` in the TGbn corpus) has
+  // D2.0's 30-day working-group letter ballot completed July 2026, D3.0 scheduled January 2027
+  // and the initial SA ballot on D4.0 May 2027 — two stages EARLIER than `p802-15-4ab`, whose
+  // status says 「SA 投票复审中」. So a more specific status would be true today and stale in
+  // January; 「草案」 is the one phrasing that cannot go stale between drafts, it is what
+  // `p802-11bp` says, and the amber basis line plus the per-lesson 「草案，内容可能变动」 already
+  // carry the warning a reader needs. Revisit when this draft reaches SA ballot, not before.
   'p802-11bn': { label: 'P802.11bn', status: '草案', draft: true },
 }
 
@@ -106,9 +114,19 @@ export const TIERS: Tier[] = [
   // §5 still files that row as 未建模 · 未偿的债, and item D of the standard-alignment programme
   // is still open), and SNR→PER would re-baseline every lesson in the course that quotes a
   // figure. So a reader who opens this tier and finds one lesson is seeing it as designed. The
-  // fourth tier below still has no module and is still invisible for that reason.
+  // fourth tier below got its own first module on slice W12b, 2026-10-10 — see its comment.
   { track: 'wifi', label: '第三阶段 · 频段与物理层保真度', basis: ['ieee-802-11'] },
-  { track: 'wifi', label: '第四阶段 · 研究', basis: ['ieee-802-11'] },
+  // **2026-10-10 (slice W12b): this tier is on the panel for the first time**, and it is the
+  // first tier of the Wi-Fi track to declare a draft. `p802-11bn` is written out HERE rather
+  // than left to the one module below it, and that is not a style choice: `teachesDraft` reads
+  // `basisOf(mi)`, which is the DECLARED list and never `citedBases`, so a lesson that quotes a
+  // TGbn contribution under a tier declaring only `ieee-802-11` would print no draft warning at
+  // all. Slice W11 landed the probe that makes `802.11bn` readable out of prose, and a negated
+  // test saying that probe must not read `802.11` out of it; this is the slice that first needs
+  // either. The visible consequences, both in `CoursePanel.tsx`: the basis line under this
+  // tier's heading goes AMBER (`tier.basis.some((b) => BASES[b].draft)`) and every lesson under
+  // it carries 「草案，内容可能变动」.
+  { track: 'wifi', label: '第四阶段 · 研究', basis: ['ieee-802-11', 'p802-11bn'] },
   { track: 'uwb', label: 'UWB 第一阶段 · 测距基础', basis: ['ieee-802-15-4-2024'] },
   { track: 'uwb', label: 'UWB 第二阶段 · 真实环境中的会话', basis: ['ieee-802-15-4-2024'] },
   { track: 'uwb', label: 'UWB 第三阶段 · 下一步的草案', basis: ['ieee-802-15-4-2024', 'p802-15-4ab'] },
@@ -154,6 +172,18 @@ export const MODULES: CourseModule[] = [
   // module parked after the UWB track would make 「next」 jump out of the UWB track at its last
   // lesson. Every lesson of the modules below moved up by one index with it.
   { tier: 2, title: '2.4 GHz 这条链路' },
+  // Tier 3's first module, and — like tier 2's above — designed to be its only one. §6.1 of
+  // docs/superpowers/specs/2026-10-10-tier4-design.md assessed the six slices this tier was
+  // sketched with: two are already delivered elsewhere, one is recommended folded into
+  // `@bianchi-vs-sim`, one is recommended against, and the two left are this lesson and a second
+  // one planned under this same module. **So a reader who opens 「第四阶段 · 研究」 and
+  // finds one module with one lesson in it is seeing the tier as intended.** Taking one module
+  // for the whole tier is also what keeps that second lesson's index cost at zero: it joins this
+  // module instead of opening another, and every module inserted above the UWB track moves 33
+  // `module` fields with it (measured again on this slice: 58 edits across 38 files).
+  // Inserted at 13 rather than appended, for the reason the tier-2 and tier-5 modules give:
+  // COURSE_ORDER's own order IS the 「next lesson」 button.
+  { tier: 3, title: '草案里的 Wi-Fi 8' },
   { tier: 4, title: '飞行时间' },
   { tier: 4, title: '两只钟' },
   { tier: 4, title: '会话网格' },
@@ -252,34 +282,36 @@ export const COURSE_ORDER: string[] = [
   'wan-rtt', 'capstone',
   // M12 · tier 2 · 2.4 GHz 这条链路
   'link-2g',
-  // M13 · tier 4 · 飞行时间
+  // M13 · tier 3 · 草案里的 Wi-Fi 8
+  'uhr-rate-ladder',
+  // M14 · tier 4 · 飞行时间
   'uwb-intro', 'uwb-frame', 'uwb-sts',
-  // M14 · tier 4 · 两只钟
+  // M15 · tier 4 · 两只钟
   'uwb-sstwr', 'uwb-dstwr', 'uwb-reply-time', 'uwb-deferred-ds',
-  // M15 · tier 4 · 会话网格
+  // M16 · tier 4 · 会话网格
   'uwb-blocks', 'uwb-slot-budget',
-  // M16 · tier 4 · 定位
+  // M17 · tier 4 · 定位
   'uwb-position', 'uwb-geometry',
-  // M17 · tier 5 · 共存
+  // M18 · tier 5 · 共存
   'uwb-coexist',
-  // M18 · tier 5 · 竞争式测距
+  // M19 · tier 5 · 竞争式测距
   'uwb-contention',
-  // M19 · tier 5 · 多对多测距
+  // M20 · tier 5 · 多对多测距
   //    one transmission that is both halves of an exchange
   'uwb-m2m',
-  // M20 · tier 5 · 控制消息的有效期
+  // M21 · tier 5 · 控制消息的有效期
   //    one control message for several rounds, and the frame that takes the place of
   //    silence when this round’s initiation message never arrived
   'uwb-rcm-validity',
-  // M21 · tier 5 · 多消息收妥确认
+  // M22 · tier 5 · 多消息收妥确认
   //    the one frame that tells a device who heard it, and the request bit that costs
   //    nothing to ask with
   'uwb-receipt',
-  // M22 · tier 5 · SP3 分组测距
+  // M23 · tier 5 · SP3 分组测距
   //    the shortest ranging frame the standard has, and the round it does not make the
   //    shortest: something has to announce the slot table, and an SP3 packet announces nothing
   'uwb-sp3',
-  // M23 · tier 5 · 测距辅助信息
+  // M24 · tier 5 · 测距辅助信息
   //    one message that does not fit in one frame: the count every frame carries, so the
   //    receiver learns of a gap at the next arrival instead of at a deadline
   'uwb-ancillary',
@@ -288,20 +320,20 @@ export const COURSE_ORDER: string[] = [
   //    is the next message's frame count. The first lesson of the course in which the slot grid is
   //    not settled before the session starts.
   'uwb-ancillary-request',
-  // M24 · tier 5 · 单向测距
+  // M25 · tier 5 · 单向测距
   'uwb-dl-tdoa', 'uwb-ul-tdoa',
-  // M25 · tier 5 · 角度
+  // M26 · tier 5 · 角度
   'uwb-aoa',
-  // M26 · tier 5 · 感知
+  // M27 · tier 5 · 感知
   //    the things in the room that never answer
   'uwb-sensing', 'uwb-sensing-resolution',
-  // M27 · tier 6 · 多毫秒片段
+  // M28 · tier 6 · 多毫秒片段
   'uwb-mms', 'uwb-mms-numbers',
-  // M28 · tier 6 · 窄带控制面
+  // M29 · tier 6 · 窄带控制面
   'uwb-nba', 'uwb-nba-coexist', 'uwb-ssbd',
-  // M29 · tier 6 · 另一种控制面与子轮
+  // M30 · tier 6 · 另一种控制面与子轮
   'uwb-uwbd', 'uwb-acquisition', 'uwb-subrounds',
-  // M30 · tier 6 · 测距综合实践
+  // M31 · tier 6 · 测距综合实践
   'uwb-capstone',
 ]
 
@@ -400,7 +432,7 @@ export function teachesDraft(mi: number): boolean {
  * that is a prefix of it is looked for.
  */
 /**
- * Every TG4ab contribution this course models, and what each one provides.
+ * Every draft contribution this course models — TG4ab, TGbp and TGbn — and what each gives.
  *
  * A draft lesson's honesty rests on naming the document behind each number, and
  * a bare `15-22/0381r5` tells a reader nothing. The registry turns the number
@@ -444,16 +476,23 @@ export const CONTRIBUTIONS: Record<string, string> = {
   '11-25/0061r0': '反向散射清点轮：单一下行速率、一轮跨多次传输机会的「延续」',
   '11-25/0307r0': '两档激励功率 PEX_C（充电）与 PEX_B（回应）',
   '11-26/0120r0': 'T2 转向时间，以及 Write 的 T3 ≥ 2 ms',
+  // P802.11bn (TGbn), the Wi-Fi 8 draft. One entry, because the whole of what this course reads
+  // off TGbn today is in that group's specification framework.
+  '11-24/0209r19': 'TGbn 规范框架：四个添加的调制与码率组合（Motion #42）、它们的必选资格及 20 MHz 设备的例外（#216）、编号 17/19/20/23 与发射星座误差（#313）、四个新档的接收灵敏度表（#417）',
 }
 
 /**
- * The TG4ab contributions a lesson's `sources` name, deduplicated and sorted.
+ * The draft contributions a lesson's `sources` name, deduplicated and sorted.
  *
  * A lesson may rest on several and usually does — the four MMS documents split
  * by layer, not by lesson — so this is a list and the panel prints all of it.
  */
 export function citedDocs(l: Lesson): string[] {
-  // Both drafts' numbering: 15-YY/NNNNrR for TG4ab, 11-YY/NNNNrR for TGbp.
+  // All three drafts' numbering: 15-YY/NNNNrR for TG4ab, 11-YY/NNNNrR for TGbp AND for TGbn —
+  // the 802.11 working group numbers both of its drafts' contributions the same way, so one
+  // pattern covers them, and which group a number belongs to is not readable off the number at
+  // all. `CONTRIBUTIONS` is where that is written down, which is a second reason that registry
+  // exists. (This comment read 「Both drafts' numbering」 until the TGbn entry landed 2026-10-10.)
   const ids = (l.sources ?? []).join('\n').match(/1[15]-2\d\/\d{4}r\d+/g) ?? []
   return [...new Set(ids)].sort()
 }

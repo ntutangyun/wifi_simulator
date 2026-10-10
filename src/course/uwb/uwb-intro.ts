@@ -95,7 +95,7 @@ export function uwbIntroTiming(): TimingSpec {
 
 export const uwbIntro: Lesson = {
   id: 'uwb-intro',
-  module: 13,
+  module: 14,
   title: '一台测量时间的射频',
   why: '手机其实早就能估出自己离路由器有多远——靠的是接收信号的电平有多高。问题就出在这个“估”字上：一堵墙、一只挡住天线（antenna）的手，造成的衰减比十米空气还大。射频还能问的另一个问题是：信号是什么时候到的；这就是超宽带（ultra-wideband, UWB）——而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（anchor，也就是固定在墙上的那台射频）、一部手机、四个时间戳，换来一个距离。',
   outcomes: [

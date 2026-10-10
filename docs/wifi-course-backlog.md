@@ -759,16 +759,18 @@ Wi-Fi 侧的散射体与感知（802.11bf-2025）、802.11bk 与 802.11bh。
 
 **两条要单独说明，因为它们听起来像漏了：**
 
-- **802.11bn（Wi-Fi 8）不在这张表里，但它不是范围决定。** 它是第四阶段的第一项，
-  而**它的前提是成立的**：TGbn 语料库有 2761 份文稿
-  （`D:/ai_patent_experiments/.claude/skills/wifi_patent_skill/references/wifi8_tgbn/`，
-  `text/` 与 `toc/` 各 2761 个文件，另有 `catalog.json`、`inverted_index.json`、
-  `key_documents.json` 与七张抽出的表）。
-  **它不进这张表的理由只有一个：这张表管的是「引擎已建或够得上一刀」，
-  而 Wi-Fi 8 是一个阶段的量，不是一刀的量。** 它要自己的程序，和 UWB 的 4ab 那一侧对等。
+- **802.11bn（Wi-Fi 8）不在这张表里，而它不是范围决定。** 它是第四阶段的第一项，
+  **而 2026-10-10 它落地了第一刀**：切片 W12a 把第五个代次 `'uhr'` 与十八档阶梯做进引擎，
+  W12b 落了第四阶段的第一个模块与第一门课 `@uhr-rate-ladder`，
+  并给 `TIERS[3].basis` 加上 `p802-11bn`——所以这个阶段现在对读者可见，带一条琥珀色依据行。
+  **它仍不进这张表的理由未变**：这张表管的是「引擎已建或够得上一刀」，
+  而 Wi-Fi 8 是一个阶段的量；已落地的那一刀只是速率阶梯这一件，
+  多接入点协同、非主信道接入、协同波束成形等那一批一件没动，
+  而它们在 SFD r19 里大半还是 `TBD`。TGbn 语料库有 2761 份文稿
+  （`D:/ai_patent_experiments/.claude/skills/wifi_patent_skill/references/wifi8_tgbn/`）。
 - **「读标准与工作组过程」这一条第四阶段原定的内容，建议正式移到 UWB 轨名下。**
   已发布标准没有工作组过程可以读，而 UWB 第三阶段的九门课加 `BASES` 的 `draft` 标志、
-  `CONTRIBUTIONS` 那 22 个文稿号，做的就是这件事。
+  `CONTRIBUTIONS` 里的文稿号（4ab 那 18 条），做的就是这件事。
   **在 Wi-Fi 第四阶段再排一遍，排出来的会是一门讲 UWB 的 Wi-Fi 课。**
 
 ---

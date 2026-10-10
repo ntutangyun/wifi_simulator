@@ -567,3 +567,60 @@ export function link2gScenario(
   if (wide) { ap.caps.widthMhz = 160; sta.caps.widthMhz = 160 }
   return sc(oneRoom(), [ap, sta].map(pin), extra)
 }
+
+/**
+ * The `uhr-rate-ladder` scenes: one flat, one saturated laptop, and the SAME scene with every
+ * radio flipped `eht` -> `uhr`.
+ *
+ * **Why this is an A/B over the generation and nothing else.** `PHY_MODES.uhr`'s preamble
+ * (48 000 ns), MU extra preamble (4 000 ns) and symbol duration (13 600 ns) ARE `eht`'s values,
+ * welded onto `PHY_MODES.eht` and pinned by `tests/engine/uhr-ladder.test.ts` — the TGbn SFD has
+ * published none of the three. So airtime per symbol and per preamble is identical in the two
+ * arms and any goodput difference can only come from N_DBPS, which is the ladder. The flat is
+ * `longApartment`, which `@width` already uses, so nothing about the geometry is new either.
+ *
+ * `spot` picks where the laptop stands, and the three windows are MEASURED off the link table
+ * rather than aimed at: `mcsForRssi` was swept at 5 cm steps from x = 5 to x = 15.9 and these
+ * are the intervals where the two ladders select rungs with DIFFERENT N_DBPS.
+ *
+ *  - `'desk'` — x = 5, 1 m from the router at −36.22 dBm. Both ladders run their top rung
+ *    (eht 13, uhr 17) and both rungs are 4096-QAM 5/6 at 2 340 N_DBPS. **This spot is the
+ *    counterweight the lesson needs and it is asserted, not asserted-about**: 20 122 records in
+ *    each arm, every timestamp, record type and byte count equal, and exactly two fields ever
+ *    differ — `frame.mode` and `frame.mcs`. A Wi-Fi 8 radio on the desk is a renamed Wi-Fi 7
+ *    radio.
+ *  - `'near'` — x = 7.2, −59.46 dBm. The SFD MCS23 window (256-QAM 2/3, engine index 11
+ *    against eht's 7), **0.25 m wide on the floor**: the narrowest of the three, and the one
+ *    whose paper gain is smallest (1 248 / 1 170 = +6.7 %).
+ *  - `'mid'` — x = 10, −67.22 dBm. The SFD MCS20 window (16-QAM 5/6, index 7 against 4), the
+ *    only one of the four new rungs with 3 dB of sensitivity to itself, and so **1.45 m wide**.
+ *    +11.1 % on paper.
+ *  - `'far'` — x = 11.75, −70.49 dBm. The SFD MCS19 window (16-QAM 2/3, index 5 against 3),
+ *    0.60 m wide, and the biggest paper gain of the three at 624 / 468 = +33.3 %.
+ *
+ * `fade` is the whole point of the lesson and the reason the scene has it at all: `'off'` is the
+ * fixed position where the gain IS the N_DBPS ratio, `'shadow'` turns on the slow layer alone
+ * (σ = 4 dB, 100 ms coherence) because that is what 「let the SNR wander」 means in this engine —
+ * the small-scale draw is keyed per FRAME and `coherenceMs` keys only the shadow — and `'both'`
+ * adds per-frame Rayleigh. The lesson's figures are means over the twenty seeds
+ * `tests/course/uhr-rate-ladder.test.ts` lists, never one run: at the `'far'` spot with both
+ * layers on the per-seed spread runs from −6 % to +57 %.
+ */
+export function uhrLadderScenario(
+  gen: 'eht' | 'uhr', spot: 'desk' | 'near' | 'mid' | 'far' = 'mid',
+  fade: 'off' | 'shadow' | 'both' = 'off', opts: { seed?: number } = {},
+): Scenario {
+  const x = { desk: 5, near: 7.2, mid: 10, far: 11.75 }[spot]
+  const feats = { edca: true, ampdu: true, txop: true, qam4k: true }
+  const ap = node('ap', 'Router', 'ap', 4, 4, gen, 'idle', feats)
+  const sta = node('sta-1', 'Laptop', 'sta', x, 4, gen, 'saturated', feats)
+  const extra: Partial<Scenario> = {}
+  if (opts.seed !== undefined) extra.seed = opts.seed
+  if (fade !== 'off') {
+    extra.fading = {
+      shadowSigmaDb: 4, coherenceMs: 100,
+      smallScale: fade === 'both' ? 'rayleigh' : 'none',
+    }
+  }
+  return sc(longApartment(), [ap, sta], extra)
+}

@@ -1144,6 +1144,10 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // The two structural counts, exact, each naming what moved. A lesson or a module arriving or
     // leaving is a deliberate act and owes one line of diff here; neither can be inferred from a
     // corpus total, which is what the retired band tried to do.
+    // 88 → 89 on slice W12b, and the module count DID move with it: `uhr-rate-ladder` is the
+    // first lesson of a new M13 under tier 3 (「第四阶段 · 研究」), inserted at index 13 rather than
+    // appended, so 33 UWB lessons' `module` index shifted up by one in the same commit — 58 edits
+    // across 38 files, the same bill tier 2's module paid on W3.
     // 87 → 88 on slice W3, and the module count DID move with it: `link-2g` is the first lesson
     // of a new M12 under tier 2, inserted at index 12 rather than appended, so 33 UWB lessons'
     // `module` index shifted up by one in the same commit. The contrast with W5 below is what
@@ -1151,9 +1155,9 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // 86 → 87 on slice W5, and the module count did NOT move with it: `amp-backscatter` is the
     // fifth lesson of the existing M10, so `MODULES.length` was still 30 and no UWB lesson's
     // `module` index shifted. Separating the two counts is what this `it` is for.
-    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(88)
+    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(89)
     expect(MODULES.length, 'modules — THIS is 「a module added or removed」, asserted directly')
-      .toBe(31)
+      .toBe(32)
   })
 
   it('keeps every lesson\'s main path between a third of a lesson and two lessons', () => {
@@ -1190,8 +1194,17 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(300_000)
   })
 
-  it('states 1 875 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 875 since slice W3: `link-2g` is 2 496 main-path characters, three things to observe and
+  it('states 1 900 minutes across the whole course, and no earlier lesson moved', () => {
+    // 1 900 since slice W12b: `uhr-rate-ladder` is 2 809 main-path characters, three things to
+    // observe and two experiments — raw 26.7682, which the formula rounds to 25. **Measured after
+    // the prose was final, not budgeted**, and it was trimmed twice to get there: the first
+    // complete draft was 3 255 characters, raw 28.17, which rounds to 30 and would have put a new
+    // lesson on the course's `MAX_MINUTES` ceiling. It now sits 161 characters clear of the 27.5
+    // boundary above and 939 clear of the 22.5 one below. No earlier lesson moved: that slice
+    // added one lesson, one scene builder and one `MODULES` entry, and edited no other lesson's
+    // prose — the 33 UWB edits in the same commit are `module` indices, which
+    // `MAIN_PATH_SECTIONS` does not count.
+    // 1 875 before it, since slice W3: `link-2g` is 2 496 main-path characters, three things to observe and
     // two experiments — raw 25.3455, which the formula rounds to 25. **Measured after the prose
     // was final, not budgeted**, and it sits 626 characters clear of the 22.5 boundary below and
     // 474 clear of the 27.5 one above, so it does not appear near the top of the census.
@@ -1221,7 +1234,7 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // for `@uwb-m2m` and `@rts-cts` were each one character out on the day it was written.
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
       'the sum of every stated minute figure a reader can see. ±5 means one lesson crossed a'
-      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_875)
+      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_900)
     // the two lessons of the built-but-untaught slice, measured after their prose was
     // final rather than copied from its design document (which budgeted 25 and 30 and
     // happened to be right, while its character budgets were not)

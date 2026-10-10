@@ -295,16 +295,18 @@ describe('module 4 lessons', () => {
     expect(TIERS).toHaveLength(7)
     expect(TIERS.map((t) => t.track)).toEqual(['wifi', 'wifi', 'wifi', 'wifi', 'uwb', 'uwb', 'uwb'])
     // The whole module list, in order: seven modules of Tier 1, five of Tier 2, ONE of Tier 3,
-    // then the UWB tiers. Tier 3 got its first and only module on slice W3 (`link-2g`), and the
-    // backlog's assessment of the other two slices sketched for that tier recommended against
-    // both, so one module there is the design and not a gap. Tier 4 (research) still has none —
-    // a module arrives with its first lesson, so an index is never a promise about a lesson that
-    // is not written.
+    // ONE of Tier 4, then the UWB tiers. Tier 3 got its first and only module on slice W3
+    // (`link-2g`) and Tier 4 got its first on slice W12b (`uhr-rate-ladder`); in both cases the
+    // other slices sketched for the tier were assessed and either recommended against or
+    // delivered elsewhere, so one module there is the design and not a gap. A module still
+    // arrives only with its first lesson, so an index is never a promise about a lesson that is
+    // not written — which is why W12b had to land the module and the lesson in one commit.
     // This is the pin a batch trips over when it adds a module under the wrong tier.
     expect(MODULES.map((m) => m.tier)).toEqual([
       0, 0, 0, 0, 0, 0, 0,
       1, 1, 1, 1, 1,
       2,
+      3,
       4, 4, 4, 4,
       5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
       6, 6, 6, 6,
@@ -315,6 +317,7 @@ describe('module 4 lessons', () => {
       'QoS 与效率', '容量旋钮与速率控制', '被调度的 Wi-Fi 6/7',
       '环境能量物联网（802.11bp）', '真实应用',
       '2.4 GHz 这条链路',
+      '草案里的 Wi-Fi 8',
       '飞行时间', '两只钟', '会话网格', '定位',
       '共存', '竞争式测距', '多对多测距', '控制消息的有效期', '多消息收妥确认', 'SP3 分组测距',
       '测距辅助信息', '单向测距', '角度', '感知',
@@ -557,6 +560,7 @@ describe("a lesson's track", () => {
     "uwb-subrounds":            "uwb",
     "uwb-capstone":             "uwb",
     "link-2g":                  "wifi",
+    "uhr-rate-ladder":          "wifi",
   }
 
   it('every lesson reads the track pinned for it', () => {

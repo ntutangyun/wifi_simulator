@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { link2g } from '../../src/course/tier3/link-2g'
-import { MODULES, lessonMinutes, trackOf } from '../../src/course/curriculum'
+import { MODULES, TIERS, lessonMinutes, trackOf } from '../../src/course/curriculum'
 import { LESSONS, lessonIndex } from '../../src/course/lessons'
 import { link2gScenario, longApartment, sc } from '../../src/course/wifiScenes'
 import { brick, node } from '../../src/course/lessonKit'
@@ -84,9 +84,21 @@ describe('link-2g · where it sits in the course', () => {
       expect(at, `@${id} must exist`).toBeGreaterThanOrEqual(0)
       expect(at, `@${id} must come before @link-2g`).toBeLessThan(mine)
     }
-    // and it is the last lesson of the Wi-Fi track, so 「next」 leaves Wi-Fi rather than re-entering it
+    // It was the last lesson of the Wi-Fi track until slice W12b put `@uhr-rate-ladder` under
+    // tier 4 behind it. What the claim was FOR survives the change and is what is asserted now:
+    // the Wi-Fi run is unbroken and ends immediately before the UWB track, so 「next」 leaves
+    // Wi-Fi once and never re-enters it. This lesson is still the last of tier 2 and still the
+    // second-to-last Wi-Fi lesson.
     const wifi = LESSONS.filter((l) => trackOf(l) === 'wifi')
-    expect(wifi[wifi.length - 1].id).toBe('link-2g')
+    expect(wifi[wifi.length - 1].id).toBe('uhr-rate-ladder')
+    expect(wifi[wifi.length - 2].id).toBe('link-2g')
+    // Measured over the TIERS rather than over `trackOf`, because the five AMP lessons teach
+    // their own radio from inside the Wi-Fi tiers and so legitimately interrupt a `trackOf` run.
+    const onWifiTier = LESSONS.map((l) => TIERS[MODULES[l.module].tier].track === 'wifi')
+    expect(onWifiTier.lastIndexOf(true) - onWifiTier.indexOf(true) + 1,
+      'the Wi-Fi tiers hold one unbroken run of lessons in COURSE_ORDER')
+      .toBe(onWifiTier.filter(Boolean).length)
+    expect(LESSONS[onWifiTier.lastIndexOf(true)].id).toBe('uhr-rate-ladder')
   })
 
   it('states 25 minutes', () => {

@@ -69,7 +69,7 @@ export function uwbFrameFields(): FieldsSpec {
 
 export const uwbFrame: Lesson = {
   id: 'uwb-frame',
-  module: 13,
+  module: 14,
   title: '一帧测距帧由什么组成',
   why: '一帧测距帧几乎不携带数据，却很长——比一个 Wi-Fi 的确认帧（ACK）长得多。它的每一段都有自己存在的理由：有的段让接收端先完成同步，有一段规定了时间戳该打在哪一刻，还有一段让这个时刻无法被伪造。把这些段认全了，你也就知道 RMARKER（ranging marker）在哪儿、为什么在那儿。',
   outcomes: [

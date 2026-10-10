@@ -33,6 +33,7 @@ import { GENERATIONS, GEN_FEATURES, MAX_WIDTH } from '../../src/model/caps'
 import { selBinnableGen } from '../../src/engine/selectivity'
 import { MODE_OPTIONS } from '../../src/course/widgets/common'
 import { LESSONS } from '../../src/course/lessons'
+import { teachesDraft } from '../../src/course/curriculum'
 import { HOUSEHOLDS } from '../../src/model/households'
 import { STATION_PRESETS } from '../../src/model/presets'
 import { defaultScenario, guardIntervalRefusals, selectivityRefusals } from '../../src/model/scenario'
@@ -367,38 +368,66 @@ describe('zero recalibration: the two generalised helpers return what the litera
   })
 })
 
-describe('uhr exists in the engine and in nothing that ships yet', () => {
+describe('uhr exists in the engine, and reaches a reader through exactly one lesson', () => {
   /**
-   * The other half of the zero-diff guarantee, and the thing that makes the `Record<Generation, …>`
-   * entries this slice had to fill (`DEVICE_RADIO.uhr` above all) honestly inert rather than
-   * accidentally reachable: **no lesson scene, no lesson variant, no household and no device
-   * preset declares `'uhr'`.** `docs/inert-config-contract.md` step 1 asks for exactly this scan,
-   * and asks for it as a precondition rather than as a discovery.
+   * **This `it` used to read 「no shipped scenario, variant, household or preset declares
+   * `'uhr'`」, and that was the other half of W12a's zero-diff guarantee.** Slice W12b retired the
+   * first clause on purpose: `@uhr-rate-ladder` is the lesson the engine half was built for, and
+   * `uhr` would be a legal-and-inert generation forever if nothing shipped declared it.
+   *
+   * What the scan asserts now is the narrower and more useful fact — `'uhr'` reaches a reader
+   * through ONE lesson and through nothing else. The household list, `defaultScenario()` and the
+   * station presets are each still clean, which is what keeps the editor's own starting points
+   * from quietly handing somebody a draft radio; and no other lesson declares it, which is what
+   * keeps the amber draft line and 「草案，内容可能变动」 in front of every reader who meets it.
+   * `docs/inert-config-contract.md` step 1 asks for this scan either way.
    */
-  it('no shipped scenario, variant, household or preset declares it', () => {
-    const gens: Generation[] = []
+  it('exactly one lesson declares it, and no household, default scene or device preset does', () => {
+    const byLesson: string[] = []
     for (const l of LESSONS) {
-      gens.push(...l.scenario().nodes.map((n) => n.caps.generation))
-      l.variants?.forEach((v) => gens.push(...v.scenario().nodes.map((n) => n.caps.generation)))
+      const gens = [
+        ...l.scenario().nodes.map((n) => n.caps.generation),
+        ...(l.variants ?? []).flatMap((v) => v.scenario().nodes.map((n) => n.caps.generation)),
+      ]
+      if (gens.includes('uhr')) byLesson.push(l.id)
     }
-    for (const h of HOUSEHOLDS) gens.push(...h.scenario().nodes.map((n) => n.caps.generation))
-    gens.push(...defaultScenario().nodes.map((n) => n.caps.generation))
-    gens.push(...STATION_PRESETS.map((p) => p.generation))
-    expect(gens.filter((g) => g === 'uhr')).toEqual([])
-    // non-vacuous: the scan really did look at thousands of nodes and really does see generations
-    expect(gens.length).toBeGreaterThan(500)
-    expect(new Set(gens).size).toBeGreaterThan(1)
+    expect(byLesson, 'lessons whose scene or variants put a uhr radio on the air')
+      .toEqual(['uhr-rate-ladder'])
+
+    const elsewhere: Generation[] = []
+    for (const h of HOUSEHOLDS) elsewhere.push(...h.scenario().nodes.map((n) => n.caps.generation))
+    elsewhere.push(...defaultScenario().nodes.map((n) => n.caps.generation))
+    elsewhere.push(...STATION_PRESETS.map((p) => p.generation))
+    expect(elsewhere.filter((g) => g === 'uhr'),
+      'a household, the default scene or a device preset would hand a reader a draft radio with'
+      + ' no lesson and no amber line around it').toEqual([])
+    // non-vacuous: the scan really did look at dozens of nodes and really does see generations
+    // (58 on 2026-10-10 — the households, the default scene's two nodes and the station presets)
+    expect(elsewhere.length).toBeGreaterThan(40)
+    expect(new Set(elsewhere).size).toBeGreaterThan(1)
+    // and the one lesson that declares it is checked against the draft, which is the whole point
+    expect(teachesDraft(LESSONS.find((l) => l.id === 'uhr-rate-ladder')!.module)).toBe(true)
   })
 
-  it('MODE_OPTIONS does not offer it yet, and that is a deferral rather than an omission', () => {
-    // The two widgets that read `MODE_OPTIONS` (`McsLadder`, `LinkBudget`) sit inside published
-    // lessons, so offering `uhr` there puts a draft rate ladder in front of a reader with no
-    // lesson explaining it and no amber draft line beside it. That is W12b's to switch on,
-    // together with the lesson. `mcsLadder('uhr')` already answers correctly either way —
-    // tests/course/widgetModel.test.ts walks `PHY_MODE_ORDER`, not this list.
+  it('MODE_OPTIONS still does not offer it, and W12b decided that rather than deferring it', () => {
+    // W12a deferred this to W12b 「together with the lesson」. **W12b looked and declined.** The two
+    // widgets that read `MODE_OPTIONS` (`McsLadder`, `LinkBudget`) are embedded in `@mcs-ladder`
+    // and `@link-2g`, which are tier-1 and tier-2 lessons checked against the published revision:
+    // a UHR button there puts a draft ladder in front of a reader with no amber basis line and no
+    // 「草案，内容可能变动」 anywhere on the page. `@uhr-rate-ladder` does not need the button either
+    // — what it has to show is the two ladders SIDE BY SIDE, which this widget cannot do at all
+    // (it renders one mode), so it embeds the widget on `'eht'` and prints the comparison as its
+    // own table. `mcsLadder('uhr')` answers correctly regardless — tests/course/widgetModel.test.ts
+    // walks `PHY_MODE_ORDER`, not this list — so nothing here is unreachable code.
     expect(MODE_OPTIONS).toEqual(['nonht', 'vht', 'he', 'eht'])
     expect(MODE_OPTIONS).not.toContain('uhr')
     expect(PHY_MODE_ORDER.filter((m) => !MODE_OPTIONS.includes(m))).toEqual(['uhr'])
+    // and the lesson really does ask the widget for the OLD ladder, which is what makes the
+    // paragraph above a description of this course rather than an intention about it
+    const w = LESSONS.find((l) => l.id === 'uhr-rate-ladder')!.numbers!
+      .filter((b) => b.kind === 'widget')
+    expect(w.length).toBe(1)
+    expect(w[0]!.kind === 'widget' && w[0].params?.mode).toBe('eht')
   })
 
   it('it is a full member everywhere the compiler could not have asked', () => {

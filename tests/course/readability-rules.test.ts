@@ -278,15 +278,18 @@ describe('lessonTexts · the census over the whole course', () => {
   // ask for; keeping the helper would leave the next author the one tool this change removed.
   const sum = (f: (l: Lesson) => number): number => ordered.reduce((n, l) => n + f(l), 0)
 
-  it('walks all 88 lessons and nothing else', () => {
+  it('walks all 89 lessons and nothing else', () => {
     expect(ordered.length).toBe(LESSONS.length)
-    // 88 since slice W3 added `link-2g`, the first lesson of tier 3 and the first to put a Wi-Fi
+    // 89 since slice W12b added `uhr-rate-ladder`, the first lesson of tier 4 and the first Wi-Fi
+    // lesson checked against a draft — the eighteen-rung `'uhr'` ladder that slice W12a had put
+    // in the engine and in nothing that shipped.
+    // 88 before that, when slice W3 added `link-2g`, the first lesson of tier 3 and the first to put a Wi-Fi
     // station on the 2.4 GHz link — a link the engine has had since the per-link PHY slice, and
     // which until then only the AMP tag scenes reached.
     // 87 before that, when slice W5 added `amp-backscatter`, the backscatter tier of M10 — 878
     // lines of engine that produced none of its five record types in any of the 251 course
     // scenarios before it. 86 before that, when slice 3d added `uwb-ancillary-request`.
-    expect(ordered.length).toBe(88)
+    expect(ordered.length).toBe(89)
   })
 
   it('sees every section, which a walk that stopped seeing a block kind would not', () => {
@@ -682,6 +685,7 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'wan-rtt':                 [3, 2, 2, 3, 3, 4, 4, 3],
     'capstone':                [2, 3, 2, 4, 2, 3, 5, 4],
     'link-2g':                 [3, 2, 2, 3, 3, 4, 4, 4],
+    'uhr-rate-ladder':         [3, 2, 2, 3, 3, 4, 5, 4],
     'uwb-intro':               [3, 1, 2, 3, 4, 4, 4, 4],
     'uwb-frame':               [2, 1, 3, 3, 6, 3, 4, 2],
     'uwb-sts':                 [3, 2, 3, 3, 3, 4, 5, 4],
@@ -749,7 +753,7 @@ describe('lessonTexts · how many items each lesson holds', () => {
       + ' entries, not characters — so a red here is an entry added or removed. If that was on'
       + ` purpose, edit that lesson's row and say which entry in the commit message; a reader's`
       + ` experiment is not free.\n${offenders.join('\n')}`).toEqual([])
-    // Anti-vacuity: 88 lessons × 8 sections = 704 pairs. A floor rather than the figure, because
+    // Anti-vacuity: 89 lessons × 8 sections = 712 pairs. A floor rather than the figure, because
     // the figure is a product of two counts that both move — layer 1 states one for the same
     // reason.
     expect(graded, 'the item census graded almost nothing').toBeGreaterThan(600)

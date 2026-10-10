@@ -135,7 +135,7 @@ function twoPaths(): TopologySpec {
 
 export const uwbSensing: Lesson = {
   id: 'uwb-sensing',
-  module: 26,
+  module: 27,
   title: '不回话的物体留下的回波',
   why: '到这里为止，每一次测量都靠「问一句、答一句」：标签（tag）发出 Poll，锚点（anchor）回话，两边的时间戳凑出一个距离。可房间里绝大多数东西是不会回话的——柜子、门板、站在那里的人。它们不发射也不接收，却把信号弹回来，于是同一次发送在同一个接收端多出第二个到达。这一课就读这第二个到达：它走了哪条路，为什么不可能比直达路径更早，以及为什么测距从头到尾看不见它。',
   outcomes: [

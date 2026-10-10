@@ -432,16 +432,25 @@ describe('fading · legal and provably inert: four configurations that change no
 })
 
 /**
- * **The slow layer has still never produced a non-zero value in a shipped scene, and this is a
- * census that says so out loud rather than a claim that it now has.**
+ * **The slow layer runs in a shipped scene for the first time since 2026-10-10, and this census
+ * is the record of which claim that retired.**
  *
- * The design note for this slice expected this lesson to be the first scene to run the slow
- * layer; the decision in its §4.1 — three variants, shadow as a `tryThis` — means it is not.
- * Both statements can be true and only one of them can be in a test, so here is the measured
- * one: **every shipped scene that writes a `fading` section sets `shadowSigmaDb: 0`**, and
- * `shadowDb` returns before it has read `coherenceMs`. So `coherenceMs: 100` and
- * `RICIAN_K_DEFAULT_DB` remain fields that are written and never read in the shipped course,
- * with this lesson's `tryThis` and the gates above as the only places the slow layer runs at all.
+ * It used to read: 「every shipped scene that writes a `fading` section sets `shadowSigmaDb: 0`,
+ * so `coherenceMs: 100` and `RICIAN_K_DEFAULT_DB` are fields written and never read in the
+ * shipped course」. The first half of that is now false. Slice W12b's `@uhr-rate-ladder` ships
+ * four faded variants at `shadowSigmaDb: 4, coherenceMs: 100` — two with the fast layer off and
+ * two with it on — because the thing that lesson measures only exists when the level WANDERS:
+ * a finer rate ladder wins exactly its N_DBPS ratio at a fixed position, keeps most of it under
+ * shadowing alone, and keeps none of it at its narrowest window once per-frame Rayleigh is added
+ * too. `coherenceMs` is read inside `shadowDb` past the `sigma === 0` return, so those four
+ * scenes are the first shipped scenes in which that field decides anything.
+ *
+ * **Two more sentences moved with it, and they moved in opposite directions.** `FADING_DEFAULTS`
+ * — what the editor's fading checkbox writes — was matched by no shipped scene at all; two of
+ * W12b's four match all three of its graded fields, so ticking that box in the editor now
+ * configures something a lesson also ships. What is STILL inert is the Rician K factor: exactly
+ * one shipped scene asks for `smallScale: 'rician'` and it takes the default rather than naming
+ * a value, so `RICIAN_K_DEFAULT_DB` remains a number nothing shipped chooses.
  *
  * Taken off `LESSONS`, never off the file text: the count is what a reader of the panel would
  * find. When it changes, somebody has to read this message.
@@ -452,30 +461,53 @@ describe('fading · the census of every shipped scene that turns fading on', () 
     ...(l.variants ?? []).map((v, i) => ({ id: `${l.id}#${i}`, sc: v.scenario() })),
   ]).filter((x) => x.sc.fading !== undefined)
 
-  it('is exactly these twelve scenes', () => {
+  it('is exactly these sixteen scenes', () => {
     expect(faded.map((x) => x.id).sort()).toEqual([
       'fading', 'fading#1', 'fading#2',
       'ru-diversity', 'ru-diversity#0', 'ru-diversity#1',
       'selectivity', 'selectivity#0', 'selectivity#1', 'selectivity#2', 'selectivity#3', 'selectivity#4',
+      'uhr-rate-ladder#10', 'uhr-rate-ladder#7', 'uhr-rate-ladder#8', 'uhr-rate-ladder#9',
     ])
   })
 
-  it('and not one of them gives the slow layer a sigma to draw with', () => {
-    for (const { id, sc } of faded) {
+  it('and exactly four of them give the slow layer a sigma to draw with', () => {
+    // The partition, by id, so that a new scene cannot join either side silently. The twelve
+    // fast-layer-only scenes still set sigma 0 and `shadowDb` still returns before it reads
+    // `coherenceMs` for them; W12b's four are the ones that changed the sentence above.
+    const slow = faded.filter((x) => x.sc.fading!.shadowSigmaDb > 0)
+    expect(slow.map((x) => x.id).sort())
+      .toEqual(['uhr-rate-ladder#10', 'uhr-rate-ladder#7', 'uhr-rate-ladder#8', 'uhr-rate-ladder#9'])
+    for (const { id, sc } of slow) {
+      expect(sc.fading!.shadowSigmaDb, `${id}`).toBe(4)
+      expect(sc.fading!.coherenceMs, `${id}`).toBe(100)
+    }
+    // two with the fast layer off and two with it on: that pairing IS what the lesson compares
+    expect(slow.filter((x) => x.sc.fading!.smallScale === 'none').length).toBe(2)
+    expect(slow.filter((x) => x.sc.fading!.smallScale === 'rayleigh').length).toBe(2)
+    for (const { id, sc } of faded.filter((x) => !slow.includes(x))) {
       expect(sc.fading!.shadowSigmaDb, `${id} now runs the slow layer — read this test's docblock`).toBe(0)
     }
   })
 
-  it('so `coherenceMs` and the default K factor are shipped fields nothing reads', () => {
-    // `coherenceMs` is read only inside `shadowDb`, past the `sigma === 0` return; the K factor
-    // is read only for `smallScale: 'rician'`, which exactly one of the twelve is.
+  it('so `coherenceMs` is read at last, and the editor’s own default is reachable from a lesson', () => {
+    // `coherenceMs` is read only inside `shadowDb`, past the `sigma === 0` return — which four of
+    // the sixteen now get past.
     expect(new Set(faded.map((x) => x.sc.fading!.coherenceMs))).toEqual(new Set([100]))
+    // **`FADING_DEFAULTS` — what the editor's fading checkbox writes — used to be matched by no
+    // shipped scene at all.** Two of W12b's four match all three of its graded fields, so a
+    // reader who ticks that box in the editor is now configuring something a lesson also ships.
+    expect(FADING_DEFAULTS.shadowSigmaDb).toBe(4)
+    const exact = faded.filter((x) => x.sc.fading!.shadowSigmaDb === FADING_DEFAULTS.shadowSigmaDb
+      && x.sc.fading!.coherenceMs === FADING_DEFAULTS.coherenceMs
+      && x.sc.fading!.smallScale === FADING_DEFAULTS.smallScale)
+    expect(exact.map((x) => x.id).sort()).toEqual(['uhr-rate-ladder#10', 'uhr-rate-ladder#9'])
+    // The one field of it still nothing shipped chooses: the K factor. It is read only for
+    // `smallScale: 'rician'`, exactly one of the sixteen is that, and that one takes the default
+    // rather than naming a value — so `RICIAN_K_DEFAULT_DB` is the inert half that remains.
     const rician = faded.filter((x) => x.sc.fading!.smallScale === 'rician')
     expect(rician.map((x) => x.id)).toEqual(['fading#2'])
     expect(rician[0].sc.fading!.ricianKdB).toBe(RICIAN_K_DEFAULT_DB)
-    // and `FADING_DEFAULTS` — the editor's checkbox — is used by no shipped scene at all
-    expect(FADING_DEFAULTS.shadowSigmaDb).toBe(4)
-    expect(faded.filter((x) => x.sc.fading!.shadowSigmaDb === FADING_DEFAULTS.shadowSigmaDb)).toEqual([])
+    expect(faded.filter((x) => x.sc.fading!.ricianKdB !== undefined).map((x) => x.id)).toEqual(['fading#2'])
   })
 })
 

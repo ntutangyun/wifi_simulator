@@ -228,7 +228,7 @@ const WINDOW_FAR = fixedWindowRstu(200, SESSION.slotRstu)
 
 export const uwbReplyTime: Lesson = {
   id: 'uwb-reply-time',
-  module: 14,
+  module: 15,
   title: '你不能把一个数放进它自己测量的那一帧',
   why: '上两课都把回复时延（reply time）当成 Response 帧里现成的一个数：锚点（anchor）填进去，标签（tag）减掉。可这个数量的是「从收到 Poll 到发出这一帧」——而「发出这一帧」就是这一帧自己的发送时刻。要把它写进去，锚点必须在还没发之前就知道自己会在什么时候发。不是每块射频都做得到，于是标准为同一个距离列了三条不同的走法。',
   outcomes: [

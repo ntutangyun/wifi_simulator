@@ -112,7 +112,7 @@ export function uwbDeferredDsFields(): FieldsSpec {
 
 export const uwbDeferredDs: Lesson = {
   id: 'uwb-deferred-ds',
-  module: 14,
+  module: 15,
   title: '延后之后，锚点就只是一个应答器',
   why: '上一课把单边双向测距（single-sided two-way ranging, SS-TWR）的三条走法走完了。双边双向测距（double-sided two-way ranging, DS-TWR）面对同一个问题的另一半：Final 这一帧要不要携带标签（tag）自己量的那两个时间。这不只是几十个字节的事——Final 是全轮最长的一帧，由它决定的锚点（anchor）上限、由它决定的最短时隙都跟着它走；而让它不带时间还有一项代价，落在锚点身上。',
   outcomes: [

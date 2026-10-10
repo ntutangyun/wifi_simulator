@@ -52,7 +52,7 @@ const txOf = (rs: TLRecord[], kind: string) =>
 
 describe('uwb-reply-time · where it sits in the course', () => {
   it('is the reply-time lesson of the two-clocks module, checked against the published standard alone', () => {
-    expect(uwbReplyTime.module).toBe(14)
+    expect(uwbReplyTime.module).toBe(15)
     expect(MODULES[uwbReplyTime.module].title).toBe('两只钟')
     // 「这一课完全不依赖任何草案」 — the module's basis is the published revision and nothing else.
     expect(basisOf(uwbReplyTime.module)).toEqual(['ieee-802-15-4-2024'])
