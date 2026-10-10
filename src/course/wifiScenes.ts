@@ -605,10 +605,22 @@ export function link2gScenario(
  * adds per-frame Rayleigh. The lesson's figures are means over the twenty seeds
  * `tests/course/uhr-rate-ladder.test.ts` lists, never one run: at the `'far'` spot with both
  * layers on the per-seed spread runs from −6 % to +57 %.
+ *
+ * **`sigmaDb` and `coherenceMs` override the slow layer's two figures, and they exist for one
+ * reason: `@claim-to-contribution` ships a PAIR of scenes that differ only in `coherenceMs` and
+ * replay to the same timeline hash.** `shadowDb` returns 0 before it reads `coherenceMs` when
+ * sigma is 0 (`src/engine/fading.ts`), so at `sigmaDb: 0` the coherence time is a field the
+ * schema accepts, the engine reads and nothing downstream can observe — and that lesson's second
+ * gate is 「check the instrument before the claim」, with this as the instrument that reads
+ * nothing. Per §1 step 2 of `docs/inert-config-contract.md` this is the case that gets PINNED
+ * rather than refused: the configuration is a lesson's teaching aid AND its doing nothing is the
+ * fact being taught, which are that step's two grounds. Both default to the figures W12b shipped,
+ * so every `@uhr-rate-ladder` scene is byte-for-byte what it was.
  */
 export function uhrLadderScenario(
   gen: 'eht' | 'uhr', spot: 'desk' | 'near' | 'mid' | 'far' = 'mid',
-  fade: 'off' | 'shadow' | 'both' = 'off', opts: { seed?: number } = {},
+  fade: 'off' | 'shadow' | 'both' = 'off',
+  opts: { seed?: number; sigmaDb?: number; coherenceMs?: number } = {},
 ): Scenario {
   const x = { desk: 5, near: 7.2, mid: 10, far: 11.75 }[spot]
   const feats = { edca: true, ampdu: true, txop: true, qam4k: true }
@@ -618,7 +630,7 @@ export function uhrLadderScenario(
   if (opts.seed !== undefined) extra.seed = opts.seed
   if (fade !== 'off') {
     extra.fading = {
-      shadowSigmaDb: 4, coherenceMs: 100,
+      shadowSigmaDb: opts.sigmaDb ?? 4, coherenceMs: opts.coherenceMs ?? 100,
       smallScale: fade === 'both' ? 'rayleigh' : 'none',
     }
   }

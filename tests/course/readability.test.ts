@@ -1155,7 +1155,11 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // 86 → 87 on slice W5, and the module count did NOT move with it: `amp-backscatter` is the
     // fifth lesson of the existing M10, so `MODULES.length` was still 30 and no UWB lesson's
     // `module` index shifted. Separating the two counts is what this `it` is for.
-    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(89)
+    // 89 → 90 on slice W13, and the module count did NOT move with it either: `claim-to-contribution`
+    // is the SECOND lesson of the existing M13, which is what §6.0 of the tier-4 design predicted
+    // and what tier 4 was given one module for — measured on that slice, the index migration cost
+    // was 0 files and 0 sites, against the 58-across-38 that W12b paid to open M13.
+    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(90)
     expect(MODULES.length, 'modules — THIS is 「a module added or removed」, asserted directly')
       .toBe(32)
   })
@@ -1194,8 +1198,15 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(300_000)
   })
 
-  it('states 1 900 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 900 since slice W12b: `uhr-rate-ladder` is 2 809 main-path characters, three things to
+  it('states 1 925 minutes across the whole course, and no earlier lesson moved', () => {
+    // 1 925 since slice W13: `claim-to-contribution` is 2 791 main-path characters, three things to
+    // observe and two experiments — raw 26.6864, which the formula rounds to 25. **Measured after
+    // the prose was final, not budgeted**, and trimmed once to get there: the first complete draft
+    // was 2 870 characters, raw 27.0455, which left only 100 characters before the 27.5 boundary —
+    // and M13's other lesson already sits 71 from its own. It now sits 178 clear above and 921
+    // clear below. No earlier lesson moved: that slice added one lesson, two optional parameters to
+    // an existing scene builder and six `CONTRIBUTIONS` entries, and edited no other lesson's prose.
+    // 1 900 before it, since slice W12b: `uhr-rate-ladder` is 2 809 main-path characters, three things to
     // observe and two experiments — raw 26.7682, which the formula rounds to 25. **Measured after
     // the prose was final, not budgeted**, and it was trimmed twice to get there: the first
     // complete draft was 3 255 characters, raw 28.17, which rounds to 30 and would have put a new
@@ -1234,7 +1245,7 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // for `@uwb-m2m` and `@rts-cts` were each one character out on the day it was written.
     expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
       'the sum of every stated minute figure a reader can see. ±5 means one lesson crossed a'
-      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_900)
+      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_925)
     // the two lessons of the built-but-untaught slice, measured after their prose was
     // final rather than copied from its design document (which budgeted 25 and 30 and
     // happened to be right, while its character budgets were not)

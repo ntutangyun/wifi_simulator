@@ -368,7 +368,7 @@ describe('zero recalibration: the two generalised helpers return what the litera
   })
 })
 
-describe('uhr exists in the engine, and reaches a reader through exactly one lesson', () => {
+describe('uhr exists in the engine, and reaches a reader only through M13', () => {
   /**
    * **This `it` used to read 「no shipped scenario, variant, household or preset declares
    * `'uhr'`」, and that was the other half of W12a's zero-diff guarantee.** Slice W12b retired the
@@ -381,8 +381,17 @@ describe('uhr exists in the engine, and reaches a reader through exactly one les
    * from quietly handing somebody a draft radio; and no other lesson declares it, which is what
    * keeps the amber draft line and 「草案，内容可能变动」 in front of every reader who meets it.
    * `docs/inert-config-contract.md` step 1 asks for this scan either way.
+   *
+   * **Slice W13 widened the first clause from one lesson to two, and narrowed it at the same
+   * time.** `@claim-to-contribution` rides `uhrLadderScenario` to grade the other lesson's
+   * number, so it necessarily puts a uhr radio on the air; a list of two ids would rot on the
+   * next lesson added under M13 the way 「the last Wi-Fi lesson is `@uhr-rate-ladder`」 rotted in
+   * `tests/course/link-2g.test.ts` one slice after it was written. So what is asserted is the
+   * PROPERTY the id list was standing in for: every lesson that declares `'uhr'` sits under the
+   * module that declares the draft. A lesson anywhere else still fails, which is the whole point,
+   * and the module itself is still pinned to M13 by name.
    */
-  it('exactly one lesson declares it, and no household, default scene or device preset does', () => {
+  it('only lessons under the draft module declare it, and no household, default scene or device preset does', () => {
     const byLesson: string[] = []
     for (const l of LESSONS) {
       const gens = [
@@ -392,7 +401,13 @@ describe('uhr exists in the engine, and reaches a reader through exactly one les
       if (gens.includes('uhr')) byLesson.push(l.id)
     }
     expect(byLesson, 'lessons whose scene or variants put a uhr radio on the air')
-      .toEqual(['uhr-rate-ladder'])
+      .toEqual(['uhr-rate-ladder', 'claim-to-contribution'])
+    // and the property that list stands for, which does not rot when M13 gains a third lesson:
+    // every one of them is under a module checked against the draft, so the amber basis line and
+    // 「草案，内容可能变动」 are in front of every reader who meets a uhr radio.
+    const modules = byLesson.map((id) => LESSONS.find((l) => l.id === id)!.module)
+    expect([...new Set(modules)], 'the modules that declare uhr').toEqual([13])
+    for (const mi of modules) expect(teachesDraft(mi), `module ${mi}`).toBe(true)
 
     const elsewhere: Generation[] = []
     for (const h of HOUSEHOLDS) elsewhere.push(...h.scenario().nodes.map((n) => n.caps.generation))
@@ -405,8 +420,9 @@ describe('uhr exists in the engine, and reaches a reader through exactly one les
     // (58 on 2026-10-10 — the households, the default scene's two nodes and the station presets)
     expect(elsewhere.length).toBeGreaterThan(40)
     expect(new Set(elsewhere).size).toBeGreaterThan(1)
-    // and the one lesson that declares it is checked against the draft, which is the whole point
-    expect(teachesDraft(LESSONS.find((l) => l.id === 'uhr-rate-ladder')!.module)).toBe(true)
+    // non-vacuous the other way: the draft check above is only worth anything if a module that
+    // does NOT teach a draft exists to fail it, so name one.
+    expect(teachesDraft(LESSONS.find((l) => l.id === 'link-2g')!.module)).toBe(false)
   })
 
   it('MODE_OPTIONS still does not offer it, and W12b decided that rather than deferring it', () => {

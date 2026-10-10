@@ -561,6 +561,7 @@ describe("a lesson's track", () => {
     "uwb-capstone":             "uwb",
     "link-2g":                  "wifi",
     "uhr-rate-ladder":          "wifi",
+    "claim-to-contribution":    "wifi",
   }
 
   it('every lesson reads the track pinned for it', () => {

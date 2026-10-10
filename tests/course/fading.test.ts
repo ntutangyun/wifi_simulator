@@ -461,8 +461,15 @@ describe('fading · the census of every shipped scene that turns fading on', () 
     ...(l.variants ?? []).map((v, i) => ({ id: `${l.id}#${i}`, sc: v.scenario() })),
   ]).filter((x) => x.sc.fading !== undefined)
 
-  it('is exactly these sixteen scenes', () => {
+  it('is exactly these twenty-four scenes', () => {
+    // Sixteen until slice W13, which added `@claim-to-contribution` — a base scene and seven
+    // faded variants, all of them `uhrLadderScenario` at the 'far' spot. Six of the eight give
+    // the slow layer a sigma; the last two are the sigma-0 PAIR that lesson ships on purpose, and
+    // the partition below is where that pair is pinned.
     expect(faded.map((x) => x.id).sort()).toEqual([
+      'claim-to-contribution', 'claim-to-contribution#0', 'claim-to-contribution#1',
+      'claim-to-contribution#2', 'claim-to-contribution#3', 'claim-to-contribution#4',
+      'claim-to-contribution#5', 'claim-to-contribution#6',
       'fading', 'fading#1', 'fading#2',
       'ru-diversity', 'ru-diversity#0', 'ru-diversity#1',
       'selectivity', 'selectivity#0', 'selectivity#1', 'selectivity#2', 'selectivity#3', 'selectivity#4',
@@ -470,37 +477,63 @@ describe('fading · the census of every shipped scene that turns fading on', () 
     ])
   })
 
-  it('and exactly four of them give the slow layer a sigma to draw with', () => {
-    // The partition, by id, so that a new scene cannot join either side silently. The twelve
+  it('and exactly ten of them give the slow layer a sigma to draw with', () => {
+    // The partition, by id, so that a new scene cannot join either side silently. The fourteen
     // fast-layer-only scenes still set sigma 0 and `shadowDb` still returns before it reads
-    // `coherenceMs` for them; W12b's four are the ones that changed the sentence above.
+    // `coherenceMs` for them; W12b's four are the ones that changed the sentence above, and
+    // W13's six joined them.
     const slow = faded.filter((x) => x.sc.fading!.shadowSigmaDb > 0)
-    expect(slow.map((x) => x.id).sort())
-      .toEqual(['uhr-rate-ladder#10', 'uhr-rate-ladder#7', 'uhr-rate-ladder#8', 'uhr-rate-ladder#9'])
+    expect(slow.map((x) => x.id).sort()).toEqual([
+      'claim-to-contribution', 'claim-to-contribution#0', 'claim-to-contribution#1',
+      'claim-to-contribution#2', 'claim-to-contribution#3', 'claim-to-contribution#4',
+      'uhr-rate-ladder#10', 'uhr-rate-ladder#7', 'uhr-rate-ladder#8', 'uhr-rate-ladder#9',
+    ])
     for (const { id, sc } of slow) {
       expect(sc.fading!.shadowSigmaDb, `${id}`).toBe(4)
       expect(sc.fading!.coherenceMs, `${id}`).toBe(100)
     }
-    // two with the fast layer off and two with it on: that pairing IS what the lesson compares
-    expect(slow.filter((x) => x.sc.fading!.smallScale === 'none').length).toBe(2)
-    expect(slow.filter((x) => x.sc.fading!.smallScale === 'rayleigh').length).toBe(2)
+    // W12b's four are two with the fast layer off and two with it on: that pairing IS what
+    // `@uhr-rate-ladder` compares. W13's six are all `'both'` — that lesson's subject is the
+    // two-layer figure, so the one-layer arm is a column of its table rather than a variant.
+    expect(slow.filter((x) => x.sc.fading!.smallScale === 'none').map((x) => x.id).sort())
+      .toEqual(['uhr-rate-ladder#7', 'uhr-rate-ladder#8'])
+    expect(slow.filter((x) => x.sc.fading!.smallScale === 'rayleigh').length).toBe(8)
     for (const { id, sc } of faded.filter((x) => !slow.includes(x))) {
       expect(sc.fading!.shadowSigmaDb, `${id} now runs the slow layer — read this test's docblock`).toBe(0)
     }
   })
 
-  it('so `coherenceMs` is read at last, and the editor’s own default is reachable from a lesson', () => {
-    // `coherenceMs` is read only inside `shadowDb`, past the `sigma === 0` return — which four of
-    // the sixteen now get past.
-    expect(new Set(faded.map((x) => x.sc.fading!.coherenceMs))).toEqual(new Set([100]))
+  it('so `coherenceMs` is read at last — and one lesson ships the pair where it is not', () => {
+    // `coherenceMs` is read only inside `shadowDb`, past the `sigma === 0` return — which ten of
+    // the twenty-four now get past, all of them at 100 ms.
+    //
+    // **The other two values exist because a lesson teaches that they change nothing.** W13's
+    // `@claim-to-contribution` ships `#5` and `#6`, identical but for `coherenceMs` 5 against 500,
+    // at sigma 0 — so the field is written, reached by the engine and unobservable. That is the
+    // 「pin it」case of `docs/inert-config-contract.md` §1 step 2 on both of its grounds (the
+    // configuration is a lesson's teaching aid, AND its doing nothing is the fact being taught),
+    // and the pin has two halves: the partition here, and `tests/fixtures/lesson-hashes.json`
+    // recording ONE hash for the two, which `tests/course/claim-to-contribution.test.ts` asserts
+    // off the fixture file itself.
+    expect(new Set(faded.map((x) => x.sc.fading!.coherenceMs))).toEqual(new Set([100, 5, 500]))
+    const offDefault = faded.filter((x) => x.sc.fading!.coherenceMs !== 100)
+    expect(offDefault.map((x) => `${x.id}:${x.sc.fading!.coherenceMs}`).sort())
+      .toEqual(['claim-to-contribution#5:5', 'claim-to-contribution#6:500'])
+    for (const { id, sc } of offDefault) {
+      expect(sc.fading!.shadowSigmaDb, `${id} would make coherenceMs observable`).toBe(0)
+    }
     // **`FADING_DEFAULTS` — what the editor's fading checkbox writes — used to be matched by no
-    // shipped scene at all.** Two of W12b's four match all three of its graded fields, so a
-    // reader who ticks that box in the editor is now configuring something a lesson also ships.
+    // shipped scene at all.** Eight scenes match all three of its graded fields now, so a reader
+    // who ticks that box in the editor is configuring something two lessons also ship.
     expect(FADING_DEFAULTS.shadowSigmaDb).toBe(4)
     const exact = faded.filter((x) => x.sc.fading!.shadowSigmaDb === FADING_DEFAULTS.shadowSigmaDb
       && x.sc.fading!.coherenceMs === FADING_DEFAULTS.coherenceMs
       && x.sc.fading!.smallScale === FADING_DEFAULTS.smallScale)
-    expect(exact.map((x) => x.id).sort()).toEqual(['uhr-rate-ladder#10', 'uhr-rate-ladder#9'])
+    expect(exact.map((x) => x.id).sort()).toEqual([
+      'claim-to-contribution', 'claim-to-contribution#0', 'claim-to-contribution#1',
+      'claim-to-contribution#2', 'claim-to-contribution#3', 'claim-to-contribution#4',
+      'uhr-rate-ladder#10', 'uhr-rate-ladder#9',
+    ])
     // The one field of it still nothing shipped chooses: the K factor. It is read only for
     // `smallScale: 'rician'`, exactly one of the sixteen is that, and that one takes the default
     // rather than naming a value — so `RICIAN_K_DEFAULT_DB` is the inert half that remains.

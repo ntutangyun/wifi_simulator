@@ -283,7 +283,7 @@ export const COURSE_ORDER: string[] = [
   // M12 · tier 2 · 2.4 GHz 这条链路
   'link-2g',
   // M13 · tier 3 · 草案里的 Wi-Fi 8
-  'uhr-rate-ladder',
+  'uhr-rate-ladder', 'claim-to-contribution',
   // M14 · tier 4 · 飞行时间
   'uwb-intro', 'uwb-frame', 'uwb-sts',
   // M15 · tier 4 · 两只钟
@@ -476,9 +476,19 @@ export const CONTRIBUTIONS: Record<string, string> = {
   '11-25/0061r0': '反向散射清点轮：单一下行速率、一轮跨多次传输机会的「延续」',
   '11-25/0307r0': '两档激励功率 PEX_C（充电）与 PEX_B（回应）',
   '11-26/0120r0': 'T2 转向时间，以及 Write 的 T3 ≥ 2 ms',
-  // P802.11bn (TGbn), the Wi-Fi 8 draft. One entry, because the whole of what this course reads
-  // off TGbn today is in that group's specification framework.
+  // P802.11bn (TGbn), the Wi-Fi 8 draft. The framework was the single entry until slice W13:
+  // `@claim-to-contribution` walks the four rungs' own path through the record, so the documents
+  // BEHIND the motions are cited too. Which `[N]` resolves to which document is positional in the
+  // framework's reference list, and that mapping is verified rather than assumed — `[1]` and
+  // `[264]` are the two motions-list parts every motion cites first, and each of the five below
+  // matches its motion's subject (see .superpowers/sdd/w13-report.md §1).
   '11-24/0209r19': 'TGbn 规范框架：四个添加的调制与码率组合（Motion #42）、它们的必选资格及 20 MHz 设备的例外（#216）、编号 17/19/20/23 与发射星座误差（#313）、四个新档的接收灵敏度表（#417）',
+  '11-24/0469r0': '四个新调制与码率组合的最初提案，Motion #216 引的两份之一',
+  '11-24/0753r1': '另一家公司对同一组新档位的仿真结果，Motion #216 引的两份之二',
+  '11-24/1186r1': '新档位提案的续篇，Motion #42 据它把四个组合写进规范框架',
+  '11-25/0721r3': '新档位的收发规范续篇，Motion #417 的接收灵敏度表出自它',
+  '11-25/1772r16': 'P802.11bn D1.0 的 LB291 意见表：8 523 条意见落在 618 个条款上',
+  '11-26/1613r0': 'P802.11bn D2.0 的 LB296 意见表：7 874 条意见落在 712 个条款上',
 }
 
 /**

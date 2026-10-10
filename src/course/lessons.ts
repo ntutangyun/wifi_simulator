@@ -102,6 +102,7 @@ import { rateCost } from './tier2/rate-cost'
 import { fading } from './tier2/fading'
 import { link2g } from './tier3/link-2g'
 import { uhrRateLadder } from './tier4/uhr-rate-ladder'
+import { claimToContribution } from './tier4/claim-to-contribution'
 export type { Block, JumpTarget, Lesson, LessonVariant, Quiz, Term } from './lessonKit'
 export { isMigrated } from './lessonKit'
 
@@ -212,6 +213,7 @@ const AUTHORED: Lesson[] = [
 
   // ======================= MODULE 13 · tier 3 =======================
   uhrRateLadder,
+  claimToContribution,
 ]
 
 /** Every course lesson, in reading order (see curriculum.ts). */
