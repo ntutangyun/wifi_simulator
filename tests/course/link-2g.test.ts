@@ -87,18 +87,27 @@ describe('link-2g · where it sits in the course', () => {
     // It was the last lesson of the Wi-Fi track until slice W12b put `@uhr-rate-ladder` under
     // tier 4 behind it. What the claim was FOR survives the change and is what is asserted now:
     // the Wi-Fi run is unbroken and ends immediately before the UWB track, so 「next」 leaves
-    // Wi-Fi once and never re-enters it. This lesson is still the last of tier 2 and still the
-    // second-to-last Wi-Fi lesson.
+    // Wi-Fi once and never re-enters it.
+    //
+    // **W12b's rewrite named the lesson that happened to be last (`@uhr-rate-ladder`) and that
+    // half went red on the very next slice**, when W13 appended `@claim-to-contribution` under the
+    // same module — a true sentence about an incidental fact, which is the shape this file keeps
+    // finding. So the position claims are now about THIS lesson, whose position is the thing the
+    // `it` is named for, plus the unbrokenness of the run; which lesson is last is not asserted,
+    // because appending a Wi-Fi lesson is not a defect and must not read like one.
     const wifi = LESSONS.filter((l) => trackOf(l) === 'wifi')
-    expect(wifi[wifi.length - 1].id).toBe('uhr-rate-ladder')
-    expect(wifi[wifi.length - 2].id).toBe('link-2g')
+    expect(wifi.map((l) => l.id)).toContain('link-2g')
     // Measured over the TIERS rather than over `trackOf`, because the five AMP lessons teach
     // their own radio from inside the Wi-Fi tiers and so legitimately interrupt a `trackOf` run.
     const onWifiTier = LESSONS.map((l) => TIERS[MODULES[l.module].tier].track === 'wifi')
     expect(onWifiTier.lastIndexOf(true) - onWifiTier.indexOf(true) + 1,
       'the Wi-Fi tiers hold one unbroken run of lessons in COURSE_ORDER')
       .toBe(onWifiTier.filter(Boolean).length)
-    expect(LESSONS[onWifiTier.lastIndexOf(true)].id).toBe('uhr-rate-ladder')
+    // and the run really does end before the UWB track rather than at the end of the course
+    expect(TIERS[MODULES[LESSONS[onWifiTier.lastIndexOf(true) + 1].module].tier].track).toBe('uwb')
+    // This lesson is still the last of tier 2, which is the claim about its own position.
+    const tier2 = LESSONS.filter((l) => MODULES[l.module].tier === 2)
+    expect(tier2.map((l) => l.id)).toEqual(['link-2g'])
   })
 
   it('states 25 minutes', () => {
