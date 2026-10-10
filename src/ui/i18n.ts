@@ -123,6 +123,13 @@ export interface Strings {
     draftMark: string
     /** Heading over the list of contributions a draft lesson models. */
     contributions: string
+    /**
+     * Introduces the lesson's id, printed beside the title because the NUMBER beside
+     * the title is a position and drifts whenever a lesson is inserted in front of it.
+     * The id is the handle that does not move; `CoursePanel.tsx` says why it is printed
+     * there and nowhere else.
+     */
+    lessonRef: string
   }
   transport: {
     play: string; pause: string; speed: string; simulating: string
@@ -836,6 +843,10 @@ export const STRINGS: Strings = {
     basis: (docs) => `依据：${docs}`,
     draftMark: '草案，内容可能变动',
     contributions: '本课依据的提案文稿：',
+    // 「id」 and not 「编号」: 编号 is what the number beside the title already is, and this
+    // string exists to tell the two apart. The parenthesis is the whole reason for printing
+    // it — a reader who does not know the number moves has no reason to prefer the id.
+    lessonRef: '本课 id（引用本课用它，不随插课变动）：',
   },
   transport: {
     play: '▶ 播放', pause: '❚❚ 暂停', speed: '速度', simulating: '⏳ 仿真中…',

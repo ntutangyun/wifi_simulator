@@ -60,6 +60,14 @@ import { expect, test, type Page } from '@playwright/test'
 const LESSON_WITH_JUMP = 'airtime'
 
 /**
+ * The longest lesson id in the course, which is the worst case for the stable handle the
+ * lesson header prints beside the title. 22 characters, so `@` plus the id is 23 — and
+ * `tests/ui/lessonHandle.test.ts` is what keeps it the longest, with the bound stated as a
+ * ceiling so this constant does not silently stop being the worst case.
+ */
+const LESSON_LONGEST_ID = 'uwb-sensing-resolution'
+
+/**
  * The 3-D scene's canvas, and not just any canvas in `main`: the timeline draws
  * into one of its own, so a bare `main canvas` matches two elements and the one
  * that must survive a jump is three.js's.
@@ -298,6 +306,69 @@ test.describe('nothing falls off the side of the screen', () => {
     await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
     await page.locator(SCENE_CANVAS).waitFor()
     expectNothingOffScreen(await survey(page), 'course · lesson, loaded')
+  })
+
+  /**
+   * The viewport half of the reader's stable handle on a lesson.
+   *
+   * `tests/ui/lessonHandle.test.ts` pins that the panel prints `@<id>` beside the title,
+   * that every id is ASCII and that none is longer than 22 characters. None of that is a
+   * measurement of the screen: a unit test in `environment: 'node'` cannot tell whether
+   * the handle is readable, and the one thing the 470 px column has repeatedly done to new
+   * text is push it off the side — the real bound at 470 px is total content width, not a
+   * column count, and a five-column table measured 525 px against 445 doing exactly this.
+   *
+   * So this asks of the worst case, at every viewport, the two questions that matter for a
+   * string a reader is meant to COPY: is the whole box on the screen, and is the whole of
+   * its text inside its own box. The second is the one `expectNothingOffScreen` would miss
+   * on its own if an ancestor ever declared a sideways scroll — the handle is useless
+   * half-read, so it is asked about this element directly rather than inherited from the
+   * page sweep.
+   */
+  test('course mode, the stable lesson handle, at its longest', async ({ page }) => {
+    await open(page, 'course', LESSON_LONGEST_ID)
+    const handle = page.locator('main code', { hasText: `@${LESSON_LONGEST_ID}` }).first()
+    await expect(handle).toBeVisible()
+
+    const m = await handle.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const row = el.parentElement as HTMLElement
+      return {
+        text: (el.textContent ?? '').trim(),
+        left: r.left, right: r.right, width: r.width,
+        // The LINE, not the `<code>`: see below for why the obvious element is the wrong one.
+        rowScrollWidth: row.scrollWidth, rowClientWidth: row.clientWidth, rowHeight: row.getBoundingClientRect().height,
+        vw: window.innerWidth,
+      }
+    })
+
+    // The whole id, not a prefix of it: a handle the reader retypes from the screen is
+    // wrong if one character is missing, and that is not something `toBeVisible` asks.
+    expect(m.text, 'the handle prints the whole id').toBe(`@${LESSON_LONGEST_ID}`)
+    expect(m.width, 'the handle has a box at all').toBeGreaterThan(0)
+    expect(m.left, `handle left edge at ${m.vw} px`).toBeGreaterThanOrEqual(-EPS)
+    expect(m.right, `handle right edge at ${m.vw} px, viewport ${m.vw}`).toBeLessThanOrEqual(m.vw + EPS)
+
+    /*
+     * ===== the overflow question is asked of the LINE, and the reason is a ruler that lied =====
+     *
+     * The obvious form of this assertion is `code.scrollWidth <= code.clientWidth`. It is
+     * worthless: `<code>` is an inline box, and an inline box reports `scrollWidth 0` and
+     * `clientWidth 0` whatever it contains — measured here, at both viewports, on the
+     * longest id in the course. So the obvious assertion reads `0 <= 0` and passes for a
+     * handle that has been cut in half. This file's own page sweep already carries the same
+     * warning about SVG text (`scrollWidth 62` against `clientWidth 2`); the lesson is the
+     * repository's, and it got one more instance.
+     *
+     * The containing `div` is a block, so its numbers mean something: measured 445/445 at
+     * 470 px and 523/523 at 939 px, one line of 15.2 px at both.
+     */
+    expect(m.rowClientWidth, 'the line is a block box, or this question is vacuous').toBeGreaterThan(0)
+    expect(m.rowScrollWidth, `handle line: ${m.rowScrollWidth} px of content in a ${m.rowClientWidth} px box`)
+      .toBeLessThanOrEqual(m.rowClientWidth + EPS)
+
+    // …and the page as a whole still answers the four questions with this line on it.
+    expectNothingOffScreen(await survey(page), 'course · lesson with the handle')
   })
 
   test('course mode, with the side drawer open', async ({ page }) => {

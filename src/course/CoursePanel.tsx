@@ -456,7 +456,38 @@ export function CoursePanel() {
           ))}
         </div>
       )}
-      <h3 style={{ margin: '4px 0 8px', fontSize: 14 }}>{idx + 1} · {lesson.title}</h3>
+      <h3 style={{ margin: '4px 0 2px', fontSize: 14 }}>{idx + 1} · {lesson.title}</h3>
+      {/*
+        The lesson's id, and it is here BECAUSE the number beside the title drifts.
+        `idx + 1` is a position in `LESSONS`, so inserting one lesson renumbers every
+        lesson after it — twice in two days a reader quoted a number («UWB 第 60 课»,
+        then «第 61 课»), was right both times, and was stale by one by the time it was
+        answered, because a lesson had landed in front of theirs in between. Today those
+        two are 61 and 62: the same pair has drifted again since.
+
+        Not fixed by freezing the number — the number IS the reading order and is worth
+        printing. Fixed by giving the reader a second handle that an insertion cannot
+        move. `@uwb-dstwr` is already how this repository's own documents cite a lesson
+        (hundreds of times under docs/), and until now it was the one thing about a
+        lesson the reader could not read off the screen.
+
+        Here, and not in the catalogue row: the row is the narrowest content in the
+        panel and already carries four items, an id would cost all 90 rows the width of
+        its longest member (`@uwb-sensing-resolution`, 23 characters) to be useful on
+        one, and the reader quotes a lesson from inside it, not from the list. Not
+        beside 「再深一层」 either, for a measured reason: 15 of the 90 lessons have no
+        `deeper` section at all — `@edca-tamper` and `@amp-slots` among them — so the
+        handle would be missing from exactly the lessons, and it is a `<details>` shut
+        by default, so on the other 75 it would be hidden until opened.
+
+        `tests/ui/lessonHandle.test.ts` holds the half of this a unit test can see.
+      */}
+      <div style={{ ...dim, fontSize: 10.5, margin: '0 0 8px', lineHeight: 1.45 }}>
+        {L.lessonRef}
+        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', whiteSpace: 'nowrap' }}>
+          @{lesson.id}
+        </code>
+      </div>
 
       {!isMigrated(lesson) && blocks(lessonBlocks(lesson), 'body')}
 
