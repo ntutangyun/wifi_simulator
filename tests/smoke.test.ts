@@ -168,3 +168,60 @@ describe('source encoding', () => {
     expect(found).toEqual([])
   })
 })
+
+/**
+ * **A measurement written in one file about the cost of two others, kept from going stale.**
+ *
+ * `tests/simCost.ts` bounds the suite's SIMULATED work (`EVENT_CEILING`). On 2026-10-10 the
+ * other half — the 98 files that execute no engine events at all — was measured rather than
+ * argued about, by truncating the lesson corpus to 90, 45 and 23 lessons and timing the same
+ * files three times. Most of that half tracks the corpus and is therefore already bounded by
+ * the corpus clamps; the section "THE OTHER HALF" in that file's header has the table.
+ *
+ * Two files are the exception, and they are the reason this check exists. Their cost is flat
+ * across a four-fold change in corpus because it is a loop count somebody typed: `TRIALS` in
+ * `tests/engine/selectivity.test.ts` and `N` in `tests/engine/fading-stats.test.ts`. Nothing
+ * in the repository bounds either, deliberately — a wall-clock assertion is the wrong
+ * instrument (the argument is at the top of `tests/simCost.ts`) and there is no deterministic
+ * count of non-engine work to put a ceiling on.
+ *
+ * **So this is a citation check and NOT a second budget, and the difference matters.** It
+ * does not say the numbers are right or that they may not grow. It says the written
+ * measurement must still describe the files it is about. Raising one of those constants is
+ * allowed; raising it while `simCost.ts` still quotes the old figure is not, because the next
+ * person to read that section would be reading a measurement of a suite that no longer
+ * exists. Both figures are read out of the files themselves, so nothing here is hard-coded —
+ * the same shape as the `statedCounts` and `statedFigures` rulers over the course.
+ */
+describe("the cost ceiling's written measurement", () => {
+  const read = (p: string): string => readFileSync(join(ROOT, p), 'utf8')
+  const constant = (file: string, name: string): string => {
+    const m = new RegExp(`const ${name} = ([0-9_]+)`).exec(read(file))
+    expect(m, `${file} no longer declares \`const ${name} = <number>\``).not.toBeNull()
+    return m![1]
+  }
+
+  it('still quotes the two unbounded loop counts as those two files declare them', () => {
+    const cost = read('tests/simCost.ts')
+    for (const [file, name] of [
+      ['tests/engine/selectivity.test.ts', 'TRIALS'],
+      ['tests/engine/fading-stats.test.ts', 'N'],
+    ] as const) {
+      const value = constant(file, name)
+      expect(cost, `tests/simCost.ts quotes ${name} for ${file}, but that file now says`
+        + ` ${name} = ${value}. Raising a loop count is allowed and nothing here bounds it —`
+        + ' what is not allowed is leaving the measurement in `simCost.ts` describing a suite'
+        + ' that no longer exists. Update the figure, and the seconds beside it, in the'
+        + ' section "THE OTHER HALF".')
+        .toContain(`${name} = ${value}`)
+    }
+  })
+
+  it('and the two files it names are still there to be measured', () => {
+    const cost = read('tests/simCost.ts')
+    for (const file of ['tests/engine/selectivity.test.ts', 'tests/engine/fading-stats.test.ts']) {
+      expect(cost, 'the measurement must name the file it measured').toContain(file)
+      expect(() => read(file), `${file} is cited by tests/simCost.ts and is gone`).not.toThrow()
+    }
+  })
+})
