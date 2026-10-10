@@ -18,7 +18,8 @@ import { canRedo, canUndo } from './history'
 import { UwbNodeFields } from '../uwb/ui/UwbNodeFields'
 import { UwbSessionFields } from '../uwb/ui/UwbSessionFields'
 import {
-  addOpening, alongWall, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz, fadingFieldsLive,
+  addOpening, alongWall, ampApDiscarded, ampTagIssue, canDeleteNode, clampField, clampSixGhzCenterMhz,
+  fadingFieldsLive,
   fadingSmallScalePatch, fadingToggle, generationPatch, guardIntervalSwitch, guardIntervalTiers,
   guardIntervalToggle, hasAp,
   hitTestNode, hitTestScatterer, hitTestWall, moveScatterer, newAnchor, newAp, newScatterer, newTag,
@@ -358,7 +359,31 @@ export function FloorPlanEditor() {
     commit({ ...scenario, nodes: scenario.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) })
   }
 
+  /**
+   * The generation dropdown's commit, plus the one thing it must not do quietly.
+   *
+   * `generationPatch` drops whatever the new generation cannot carry, and for a polling access
+   * point that is the whole `ampAp` section the reader configured by hand. Before 2026-10-10 it
+   * went with nothing said: the panel simply replaced the block with `ampApRefusals`' grey
+   * paragraph about why a UHR access point may not poll, which reads as an explanation rather
+   * than a receipt. `ampApDiscarded` (planOps.ts) answers whether this particular change threw a
+   * configured section away — by asking the patch, so it cannot disagree with it — and
+   * `E.ampDropped` is the only copy of what the row then says.
+   *
+   * The row, not a dialog: it is the channel a failed load or import already prints into, it is
+   * the one thing in this editor measured to lay out at 470 px, and a modal on a phone over a
+   * dropdown change would be worse than the silence it replaces. The line takes the refusal
+   * colour (`ok: false`) because the reader lost something, not because the edit failed — the
+   * edit is legitimate and goes through either way.
+   *
+   * One property inherited from the row and not introduced here: it is sticky, so the line stays
+   * until the next message replaces it, exactly as 「已保存」 does. Measured at 470 px — switch a
+   * polling access point to Wi-Fi 6, then switch it again to Wi-Fi 5, and the first line is still
+   * on screen although the second change dropped nothing. Giving this one line a dismissal the
+   * other messages do not have would be a second behaviour for one row.
+   */
   const setGeneration = (n: NodeCfg, gen: Generation) => {
+    if (ampApDiscarded(n, gen)) setIoMsg({ ok: false, lines: [E.ampDropped] })
     updateNode(n.id, generationPatch(n, gen))
   }
 

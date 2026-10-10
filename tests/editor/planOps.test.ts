@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addOpening, ampTagIssue, clampField, generationPatch, guardIntervalSwitch, guardIntervalToggle,
+  addOpening, ampApDiscarded, ampTagIssue, clampField, generationPatch, guardIntervalSwitch,
+  guardIntervalToggle,
   guardIntervalTiers, hitTestNode, hitTestWall, newTag, roomsToWalls,
   scenarioFromJson, scenarioToJson, spawnRandomStas, withGuardInterval,
 } from '../../src/editor/planOps'
 import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, defaultScenario, guardIntervalRefusals, ScenarioSchema, type Room, type Scenario, type Wall } from '../../src/model/scenario'
 import { Rng } from '../../src/engine/rng'
+import { GENERATIONS } from '../../src/model/caps'
+import { STRINGS } from '../../src/ui/i18n'
+import { readFileSync } from 'node:fs'
 
 const rooms: Room[] = [
   { x: 0, y: 0, w: 4, h: 4, name: 'A' },
@@ -123,6 +127,61 @@ describe('generationPatch', () => {
     // and it comes back when the AP is Wi-Fi 7 again — but only if it still has one
     expect(generationPatch(ap, 'eht').ampAp).toBeUndefined()
     expect(generationPatch(sc.nodes[0], 'eht').ampAp).toEqual(DEFAULT_AMP_AP)
+  })
+
+  /**
+   * **The drop is announced**, which until 2026-10-10 it was not.
+   *
+   * Measured in the browser at 939x511 before the line existed: with the access point on Wi-Fi 7,
+   * polling on, interval 250 ms, 8 slots, ACWE 3 and the RFID inventory switched on, moving the
+   * generation dropdown to Wi-Fi 8 replaced the whole AMP block with `ampApRefusals`' dim grey
+   * paragraph about U-SIG version numbers — an explanation of the rule, with not one word about
+   * the six fields that had just been thrown away. Moving the dropdown back to Wi-Fi 7 showed the
+   * enable box unchecked. Two presses of the undo button restored every field.
+   *
+   * So the repair is a sentence, and these are the two halves of it: a predicate that cannot
+   * disagree with the patch, and a wording that exists once. The third half — that the editor
+   * wires them together — is asserted from the source, because a unit test cannot see a viewport
+   * and asserting a React render here would be a weaker check wearing a stronger one's clothes.
+   */
+  describe('the drop is announced', () => {
+    const polling = () => ({ ...ampLab().nodes[0] })
+
+    it('is true for every generation that drops a configured section, and false otherwise', () => {
+      const n = polling()
+      const dropped = GENERATIONS.filter((g) => ampApDiscarded(n, g))
+      expect(dropped.sort(), 'every generation but EHT discards it').toEqual(
+        GENERATIONS.filter((g) => g !== 'eht').sort(),
+      )
+      // and the one that keeps it says nothing, so the line never cries wolf
+      expect(ampApDiscarded(n, 'eht')).toBe(false)
+    })
+
+    it('says nothing about an access point that never configured one', () => {
+      // The defect a naive «is the new generation EHT?» check would have: a line about losing a
+      // section on a node that has none. This is why the predicate asks the patch.
+      const bare = { ...polling(), ampAp: undefined }
+      for (const g of GENERATIONS) {
+        expect(ampApDiscarded(bare, g), `${g} on a node with no ampAp`).toBe(false)
+      }
+    })
+
+    it('and the editor prints the one wording, in the row it already has', () => {
+      const src = readFileSync(new URL('../../src/editor/FloorPlanEditor.tsx', import.meta.url), 'utf8')
+      expect(src, 'setGeneration must ask the predicate and print the shared string')
+        .toContain('if (ampApDiscarded(n, gen)) setIoMsg({ ok: false, lines: [E.ampDropped] })')
+      // The wording is one copy, and it must carry the thing the measurement found: the undo
+      // stack already has the section back. A line that only says "it is gone" leaves the reader
+      // with nothing to do, and this panel has already shipped one second Chinese wording of one
+      // rule (`STRINGS.ampNeedsEht`) that drifted before it was deleted.
+      const line = STRINGS.editor.ampDropped
+      expect(line, 'names the section it is about').toContain('AMP 轮询（802.11bp）')
+      expect(line, 'names the way back, which is undo and not the dropdown').toContain('撤销')
+      expect(line, 'and says the dropdown is not the way back').toContain('切回 Wi-Fi 7 不会')
+      // one call site, so the line cannot be printed from two places that then disagree about
+      // when (the docblock above it mentions the name too, hence the narrower pattern)
+      expect(src.match(/lines: \[E\.ampDropped\]/g) ?? []).toHaveLength(1)
+    })
   })
 
   it('drops a link the new generation cannot use, and keeps the flags it can', () => {

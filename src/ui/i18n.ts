@@ -204,6 +204,17 @@ export interface Strings {
     ampEpc: string; ampEpcHint: string; ampEpcBad: string
     /** Shown under the Mode select when this tag is `ampTagIssue`'s "will not pass" case. */
     ampBsNeedsReader: string
+    /**
+     * The one line the message row prints when a generation change throws this whole section
+     * away (`ampApDiscarded`, src/editor/planOps.ts, decides when; this says what).
+     *
+     * It names the fields rather than saying "your settings", because the row sits at the top of
+     * the editor and the panel it is about has just emptied — a reader who cannot see what went
+     * cannot tell whether it mattered. And it names undo, because undo genuinely restores it:
+     * `setGeneration` commits, so the section comes back field for field. Saying only "it was
+     * discarded" would be true and would leave the reader with nothing to do about it.
+     */
+    ampDropped: string
     /** The AP's mono-static reader: an EPC Gen2-style inventory tunnelled in AMP RFID frames. */
     ampBs: string; ampBsEnable: string; ampBsEnableHint: string
     ampBsQ: string; ampBsQHint: string
@@ -969,6 +980,7 @@ export const STRINGS: Strings = {
     ampEpc: 'EPC', ampEpcHint: '96 位电子产品编码，24 个十六进制字符；留空则由节点 id 派生',
     ampEpcBad: 'EPC 必须是 24 个十六进制字符（96 位），或留空',
     ampBsNeedsReader: '该标签所在的场景里没有任何 AP 打开 RFID 盘点——请到 AP 自己的属性里打开它，否则场景无法通过校验',
+    ampDropped: '接入点换了世代，它那一整节 AMP 轮询（802.11bp）已经被丢掉了：轮询间隔、时隙数、ACWE、上下行速率、保护、读取方式，以及整个 RFID 盘点小节。只有 Wi-Fi 7（EHT）的接入点能轮询，理由就写在那一节腾空之后留下的那段说明里。把下拉框切回 Wi-Fi 7 不会把这些数找回来，↶ 撤销（Ctrl+Z）可以。',
     ampBs: 'RFID 盘点', ampBsEnable: '运行 EPC Gen2 盘点（单站式反向散射）',
     ampBsEnableHint: 'AP 自己辐射载波并聆听标签反射回来的信号——关闭时不会有任何反向散射标签应答',
     ampBsQ: 'Q', ampBsQHint: 'Query(Q)：每个标签从 [0, 2^Q − 1] 中抽取一个时隙计数器；Q = 2 即四个时隙。草案自身的 Q 自适应未建模',

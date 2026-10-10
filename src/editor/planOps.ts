@@ -785,14 +785,27 @@ export function sixGhzNbOverlaps(sc: Scenario, centerMhz: number): boolean {
  * polling config (a DL AMP PPDU is identified by PHY version 0 in its U-SIG, which is EHT's
  * value, so only an EHT AP may poll — `ampApRefusals`, src/model/scenario.ts, holds the reason).
  *
- * **This drop is silent, and that is a debt rather than a design.** Switching the polling access
- * point to any other generation discards its `pollIntervalMs`, `slots`, `acwe`, rates,
- * protection, read mode and whole `backscatter` section with nothing said, and switching back
- * does not bring them back (`tests/editor/planOps.test.ts` pins both halves). It has been that
- * way since the AMP panel was built and it is reachable from four of the five generations in the
+ * **The drop is one-way through the dropdown, and as of 2026-10-10 it is announced.** Switching
+ * the polling access point to any other generation discards its `pollIntervalMs`, `slots`,
+ * `acwe`, rates, protection, read mode and whole `backscatter` section, and switching back does
+ * not bring them back (`tests/editor/planOps.test.ts` pins both halves). It has been that way
+ * since the AMP panel was built and it is reachable from four of the five generations in the
  * dropdown; 2026-10-10 added the fifth, `'uhr'`, so it is now reachable from the one a reader is
- * most likely to try. Repairing it means parking the dropped section somewhere the undo stack
- * can reach, which is a different slice.
+ * most likely to try.
+ *
+ * Until that date it was also **silent**, which is what {@link ampApDiscarded} repairs: the panel
+ * now prints one line when a configured section goes. Measured in the browser before the line
+ * existed, at 939x511: the whole AMP block — the enable box, the five fields the reader had just
+ * set, and the entire RFID-inventory subsection — was replaced by the dim grey `ampApRefusals`
+ * paragraph, which explains why a UHR access point may not poll and says nothing whatever about
+ * something having been thrown away.
+ *
+ * **The same measurement found the recovery already built: the undo stack has it.**
+ * `setGeneration` commits through `history.ts`, so the section comes back field for field —
+ * verified in the browser by two presses of the undo button, which restored `eht` together with
+ * the 250 ms interval, 8 slots, ACWE 3 and the RFID inventory left on. So the repair owed here
+ * was never "park the dropped section somewhere the undo stack can reach"; it already reaches
+ * it. What was owed was telling the reader so, which is a sentence and not a stack.
  */
 export function generationPatch(n: NodeCfg, gen: Generation): Partial<NodeCfg> {
   const features: Partial<Record<FeatureFlag, boolean>> = {}
@@ -803,6 +816,25 @@ export function generationPatch(n: NodeCfg, gen: Generation): Partial<NodeCfg> {
     linkId: keepsLink ? n.linkId : undefined,
     ampAp: gen === 'eht' ? n.ampAp : undefined,
   }
+}
+
+/**
+ * Does switching `n` to `gen` throw away a polling section the reader configured?
+ *
+ * **It asks `generationPatch` rather than restating its rule.** A second copy of «only EHT may
+ * poll» would be a second thing to update, and this very panel has already paid for one of
+ * those: `STRINGS.ampNeedsEht` was a second Chinese wording of the same rule, it drifted to
+ * 「携带 U-SIG」 (which a UHR PPDU also carries), and it was deleted on 2026-10-10. So the
+ * question asked here is not "which generation is this" but "did the patch drop a section that
+ * was there" — which stays correct if the rule ever widens to another generation, and stays
+ * false for a node that never configured one.
+ *
+ * The editor turns a `true` into one line in its own message row, worded once in
+ * `STRINGS.editor.ampDropped`. That row is the one a failed load or import already prints into,
+ * and the only place in this panel measured to lay out at 470 px.
+ */
+export function ampApDiscarded(n: NodeCfg, gen: Generation): boolean {
+  return n.ampAp !== undefined && generationPatch(n, gen).ampAp === undefined
 }
 
 export function scenarioToJson(sc: Scenario): string {

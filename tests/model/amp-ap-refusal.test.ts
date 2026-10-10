@@ -178,13 +178,14 @@ describe('the editor cannot build a plan the schema would reject', () => {
     expect(generationPatch(polling, 'eht').ampAp, 'and eht keeps it').toEqual(DEFAULT_AMP_AP)
   })
 
-  it('and the drop is one-way, which is the debt planOps’ docblock now states', () => {
-    // Not a promise that this is right — a statement of what the reader loses. Switching back
-    // does not restore the section, and nothing on screen says it was discarded.
+  it('and the drop is one-way through the dropdown, which planOps’ docblock states', () => {
+    // Not a promise that this is right — a statement of what the reader loses. Switching the
+    // dropdown back does not restore the section; as of 2026-10-10 the editor says so, and the
+    // undo stack is where it comes back from. `tests/editor/planOps.test.ts` holds the notice.
     const dropped = { ...ap('eht'), ...generationPatch(ap('eht'), 'uhr') }
     expect(dropped.ampAp).toBeUndefined()
     expect(generationPatch(dropped, 'eht').ampAp, 'gone for good').toBeUndefined()
     expect(SRC('src/editor/planOps.ts'), 'and it is written down where the function is')
-      .toContain('**This drop is silent, and that is a debt rather than a design.**')
+      .toContain('**The drop is one-way through the dropdown, and as of 2026-10-10 it is announced.**')
   })
 })
