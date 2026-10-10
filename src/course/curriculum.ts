@@ -26,7 +26,12 @@ export type LessonTrack = Track | 'amp'
  * an unratified draft, and the course panel says which out loud rather than
  * leaving it buried in each lesson's sources.
  */
-export type StandardBasis = 'ieee-802-11' | 'ieee-802-15-4-2024' | 'p802-15-4ab' | 'p802-11bp'
+export type StandardBasis =
+  | 'ieee-802-11'
+  | 'ieee-802-15-4-2024'
+  | 'p802-15-4ab'
+  | 'p802-11bp'
+  | 'p802-11bn'
 
 export interface BasisNote {
   /** The document, as the panel names it. */
@@ -47,6 +52,7 @@ export const BASES: Record<StandardBasis, BasisNote> = {
   'ieee-802-15-4-2024': { label: 'IEEE Std 802.15.4-2024', status: '已发布，含 802.15.4z', draft: false },
   'p802-15-4ab': { label: 'P802.15.4ab', status: '草案，SA 投票复审中', draft: true },
   'p802-11bp': { label: 'P802.11bp', status: '草案', draft: true },
+  'p802-11bn': { label: 'P802.11bn', status: '草案', draft: true },
 }
 
 export const TRACKS: Record<Track, string> = {
@@ -388,8 +394,8 @@ export function teachesDraft(mi: number): boolean {
  * defect in this repository is stated-versus-actual drift; provenance drifts
  * the same way prose does.
  *
- * Order matters, and each probe strips what it matched: `802.11bp` contains
- * `802.11`, and `802.15.4-2024` contains neither but sits beside contribution
+ * Order matters, and each probe strips what it matched: `802.11bp` and
+ * `802.11bn` both contain `802.11`, and `802.15.4-2024` contains neither but sits beside contribution
  * numbers that do, so a longer name is matched and removed before a shorter one
  * that is a prefix of it is looked for.
  */
@@ -457,6 +463,7 @@ export function citedBases(l: Lesson): StandardBasis[] {
   const found = new Set<StandardBasis>()
   const probes: [StandardBasis, RegExp][] = [
     ['p802-11bp', /802\.11bp/g],
+    ['p802-11bn', /802\.11bn/g],
     ['p802-15-4ab', /802\.15\.4ab|15-2\d\/\d{4}r\d+/g],
     ['ieee-802-15-4-2024', /802\.15\.4-2024/g],
     ['ieee-802-11', /802\.11/g],

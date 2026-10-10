@@ -71,9 +71,10 @@ describe('the basis table itself', () => {
     for (const b of used) expect(BASES[b], `no BASES entry for ${b}`).toBeTruthy()
   })
 
-  it('marks the two unratified drafts as drafts, and the two published standards as not', () => {
+  it('marks the three unratified drafts as drafts, and the two published standards as not', () => {
     expect(BASES['p802-15-4ab'].draft).toBe(true)
     expect(BASES['p802-11bp'].draft).toBe(true)
+    expect(BASES['p802-11bn'].draft).toBe(true)
     expect(BASES['ieee-802-15-4-2024'].draft).toBe(false)
     expect(BASES['ieee-802-11'].draft).toBe(false)
   })
@@ -172,6 +173,10 @@ describe('citedBases reads the prose it is given', () => {
 
   it('does not read 802.11 out of 802.11bp', () => {
     expect(of('见 P802.11bp 草案')).toEqual(['p802-11bp'])
+  })
+
+  it('does not read 802.11 out of 802.11bn', () => {
+    expect(of('见 P802.11bn 草案')).toEqual(['p802-11bn'])
   })
 
   it('does not read 802.11 out of a bare 802.15.4 citation', () => {
