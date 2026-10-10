@@ -92,10 +92,12 @@ function sources(dir: string, out: string[] = []): string[] {
 /**
  * **No shipped source file carries double-encoded UTF-8.**
  *
- * `src/player/player.ts` did, in the two commits before this one: something
- * read it as cp1252 and wrote it back as UTF-8, so every non-ASCII character
- * already in the file turned into the Latin-1 reading of its own bytes — 17
- * runs of them, and **four of those runs were the reader's own error banners**.
+ * `src/player/player.ts` did: `0732f01` left it read as cp1252 and written back
+ * as UTF-8, so every non-ASCII character already in the file turned into the
+ * Latin-1 reading of its own bytes — 17 runs of them, and **four of those runs
+ * were the reader's own error banners**. `055e734` decoded them back and added
+ * this check. (The commits are named rather than counted: this said "the two
+ * commits before this one" until 2026-10-10, by which point it was fifteen.)
  * The one for 「仿真进程没有启动，时间无法推进。请刷新页面重试」 shipped as eleven
  * lines of Latin-1 rubble. Nothing noticed: nothing tests the text of a banner
  * that only appears when the worker fails to start, and the rest of the damage
@@ -112,9 +114,43 @@ function sources(dir: string, out: string[] = []): string[] {
  * `src/` and `tests/` and not the whole tree on purpose: those are the files
  * that ship and the files that pin, and `docs/` is written by hand in parallel
  * with the code.
+ *
+ * **This is a net, not a hand check, and `docs/course-wording-contract.md` §9
+ * says why both are owed.** That section holds the rule this check cannot carry
+ * — after writing a file that contains Chinese, read it back out of git once the
+ * commit exists — together with the three things this check does not see: it
+ * fires only on a run that reaches this file, it walks neither `docs/` nor
+ * `.superpowers/` (almost entirely Chinese), and double encoding is the only
+ * damage it knows. The incident above is written up there as the worked example.
  */
+const ENCODING_TEST = 'has no double-encoded UTF-8 anywhere under src/ or tests/'
+
 describe('source encoding', () => {
-  it('has no double-encoded UTF-8 anywhere under src/ or tests/', () => {
+  /**
+   * The two pointers of §9 name each other, and neither may be dropped alone.
+   *
+   * A rule that lives in one place only is a rule that will be lost: this one lived in the
+   * controller's per-slice brief until 2026-10-10, where a new session simply would not have
+   * found it. It now lives in the contract, and the contract and this check indict each other —
+   * the section names this test by its exact title, the docblock above names the section. Delete
+   * either half and this goes red, which is the point: a check with no written-down rule beside
+   * it reads as arbitrary, and a written-down rule with no check beside it goes stale.
+   *
+   * It asserts the pointers, not the prose. §9's advice is for a person to read, and asserting
+   * sentences of it here would be the second-copy defect this repository keeps paying for.
+   */
+  it('and §9 of the wording contract and this file point at each other', () => {
+    const doc = readFileSync(join(ROOT, 'docs/course-wording-contract.md'), 'utf8')
+    const self = readFileSync(join(ROOT, 'tests/smoke.test.ts'), 'utf8')
+    expect(doc, 'docs/course-wording-contract.md has lost its §9 heading')
+      .toContain('## 9. 写完含中文的文件，提交后要从 git 里读回来')
+    expect(doc, `§9 must name this test by title, and the title is now "${ENCODING_TEST}"`)
+      .toContain(ENCODING_TEST)
+    expect(self, 'this file must name the section that holds the rule it cannot enforce')
+      .toContain('docs/course-wording-contract.md` §9')
+  })
+
+  it(ENCODING_TEST, () => {
     const files = [...sources(join(ROOT, 'src')), ...sources(join(ROOT, 'tests'))]
     // The census the claim rests on: if the walk stopped finding files it would
     // pass by looking at nothing.
