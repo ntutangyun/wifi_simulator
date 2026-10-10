@@ -434,6 +434,89 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
   }, 900_000)
 
   /**
+   * **The printed means are a function of the seed LIST and not only of its length, and after
+   * W12c the lesson says so with numbers instead of a reassurance.**
+   *
+   * It used to end that paragraph with 「阈值又在六十个种子上复核过」, which is true of the
+   * thresholds in this file and reads, to somebody looking at the table, as 「the figures held up
+   * at sixty」. They did not. Measured on the lesson's own scenes:
+   *
+   * ```
+   *   spot / layers        n=20 (printed)   60 = 1 + 59 primes   60 = 1…60        120 = 1 + 119 primes
+   *   墙后一步 / shadow      −0.04 % (8/20)   +2.10 % (36/60)      +1.77 % (31/60)  +1.97 % (67/120)
+   *   墙后一步 / both        −0.03 % (10/20)  −1.60 % (26/60)      −0.74 % (24/60)  −1.60 % (51/120)
+   *   客厅中段 / shadow      +8.18 % (19/20)  +9.19 % (59/60)      +8.19 % (57/60)  +9.43 % (118/120)
+   *   客厅中段 / both        +6.73 % (15/20)  +7.84 % (44/60)      +7.20 % (45/60)  +7.88 % (95/120)
+   *   客厅深处 / shadow     +20.12 % (19/20)  +24.05 % (57/60)     +23.57 % (59/60) +23.46 % (115/120)
+   *   客厅深处 / both       +11.78 % (14/20)  +7.40 % (43/60)      +8.65 % (46/60)  +6.60 % (81/120)
+   * ```
+   *
+   * **Two things in that table are worth more than the individual numbers.** First: the printed
+   * +11.78 % at 客厅深处 is the HIGHEST of the four samples — the three larger ones land between
+   * +6.6 % and +8.7 % — so it is the one printed figure a reader would most over-read. Second:
+   * the two different sixties disagree with each other (+7.40 against +8.65, +2.10 against
+   * +1.77), so 「n = 60」 is not one quantity. W12b's report quoted only the prime list's column,
+   * which is why the disagreement had not been seen.
+   *
+   * **Why the cells still print n = 20 rather than a range.** They are what a reader reproduces:
+   * the two faded variants the lesson ships run seed 2, the `tryThis` runs seed 17, and the
+   * twenty are the batch the test above compares cell by cell. A range in the cell would be a
+   * figure nobody can check from the page. So the point values stay and the prose carries the
+   * spread — which is the 「print the instrument in the same cell」 rule paid with words rather
+   * than with table cells, the `all.length` budget being the tighter of the two.
+   */
+  it('the three larger-sample figures the prose quotes are measured, and the two sixties disagree', () => {
+    const primes = (n: number): number[] => {
+      const out: number[] = []
+      for (let k = 2; out.length < n; k++) if (out.every((p) => k % p !== 0)) out.push(k)
+      return out
+    }
+    /** The lesson's twenty are 1 plus the first nineteen primes, so this is their continuation. */
+    const PRIME60 = [1, ...primes(59)]
+    const INT60 = Array.from({ length: 60 }, (_, i) => i + 1)
+    expect(SEEDS, 'the twenty really are the head of the prime list').toEqual(PRIME60.slice(0, 20))
+    expect(PRIME60).not.toEqual(INT60)
+
+    const gainOver = (spot: Spot, fade: Fade, seeds: number[]): number => {
+      const E: number[] = [], U: number[] = []
+      for (const seed of seeds) {
+        E.push(goodputMbps(recs(scene('eht', spot, fade, seed), RUN_NS), RUN_NS))
+        U.push(goodputMbps(recs(scene('uhr', spot, fade, seed), RUN_NS), RUN_NS))
+      }
+      const m = (a: number[]): number => a.reduce((x, y) => x + y, 0) / a.length
+      return (m(U) / m(E) - 1) * 100
+    }
+
+    // read the two sixty-seed figures back out of the prose rather than restating them here
+    const spread = uhrRateLadder.numbers!.find((b) => b.heading === '为什么这两列都不能只跑一次')!
+    const quoted = /两批不同的六十个给出 \+([\d.]+) % 与 \+([\d.]+) %/.exec((spread as { text: string }).text)
+    expect(quoted, 'the prose no longer names two sixty-seed figures').not.toBeNull()
+    const farPrime = gainOver('far', 'both', PRIME60)
+    const farInt = gainOver('far', 'both', INT60)
+    expect(Number(quoted![1]), '客厅深处, 1 + 59 primes').toBeCloseTo(farPrime, 1)
+    expect(Number(quoted![2]), '客厅深处, seeds 1…60').toBeCloseTo(farInt, 1)
+    // the claim the sentence makes about them: both under the printed cell, and not equal to
+    // each other — which is the whole reason the paragraph exists
+    const printed = num(table('打开起伏之后').rows[2]![4]!)
+    expect(farPrime, 'under the printed n=20 cell').toBeLessThan(printed)
+    expect(farInt, 'so is the other sixty').toBeLessThan(printed)
+    expect(Math.abs(farPrime - farInt), 'two sixties that agreed would make the paragraph false')
+      .toBeGreaterThan(0.5)
+
+    // and the near row's own sentence: the zero there cannot even be given a sign
+    const zero = uhrRateLadder.numbers!.find((b) => b.heading === '这张表里最该读的是第一行那个零')!
+    const near = /换六十个种子它是 \+([\d.]+) %/.exec((zero as { text: string }).text)
+    expect(near, 'the near row no longer claims a direction').not.toBeNull()
+    const nearPrime = gainOver('near', 'shadow', PRIME60)
+    expect(Number(near![1]), '墙后一步 only-shadow, 1 + 59 primes').toBeCloseTo(nearPrime, 1)
+    // the sign flip is the point: the printed cell is negative and this one is positive
+    expect(Math.sign(num(table('打开起伏之后').rows[0]![3]!)), 'printed cell is negative').toBe(-1)
+    expect(Math.sign(nearPrime), 'and the larger sample is positive').toBe(1)
+    // while both are still a nothing, which is what the lesson actually claims there
+    expect(Math.abs(nearPrime), 'and both are still worth nothing').toBeLessThan(5)
+  }, 900_000)
+
+  /**
    * The two runs a reader can actually do, which is what `observe` and `tryThis` promise. Seeds
    * 2 and 17 at the same spot with the same ladders: one wins 6.9 % and the other loses 9.7 %.
    * Exact, because these are single named runs rather than means.
