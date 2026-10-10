@@ -477,7 +477,7 @@ export function CoursePanel() {
         one, and the reader quotes a lesson from inside it, not from the list. Not
         beside 「再深一层」 either, for a measured reason: 15 of the 90 lessons have no
         `deeper` section at all — `@edca-tamper` and `@amp-slots` among them — so the
-        handle would be missing from exactly the lessons, and it is a `<details>` shut
+        handle would be missing from exactly those fifteen, and it is a `<details>` shut
         by default, so on the other 75 it would be hidden until opened.
 
         `tests/ui/lessonHandle.test.ts` holds the half of this a unit test can see.

@@ -51,16 +51,35 @@ export default defineConfig({
   reporter: process.env.CI ? [['line']] : [['list']],
   use: { baseURL },
   projects: [
+    /*
+     * Runs first, and everything below depends on it: `reuseExistingServer` means this suite
+     * trusts whatever is already answering on `PORT`, and until 2026-10-10 the only thing
+     * checking that it was this working tree's code was a person remembering to `curl` it.
+     * The reuse stays — owning the server brings back the teardown documented at the foot of
+     * this file — so the identity is verified instead, by writing a nonce into this tree and
+     * asking the server for it. `tests/e2e/server-identity.setup.ts` says what that does and
+     * does not prove, and why the body is read rather than the status code.
+     *
+     * `testMatch` is needed only here: Playwright's default matches `*.spec.ts` and
+     * `*.test.ts`, so the three projects below do not pick a `*.setup.ts` up.
+     */
+    {
+      name: 'server-identity',
+      testMatch: /server-identity\.setup\.ts$/,
+    },
     {
       name: 'foldable-shut',
+      dependencies: ['server-identity'],
       use: { ...devices['Desktop Chrome'], viewport: VIEWPORTS['foldable-shut'], hasTouch: true },
     },
     {
       name: 'foldable-open',
+      dependencies: ['server-identity'],
       use: { ...devices['Desktop Chrome'], viewport: VIEWPORTS['foldable-open'], hasTouch: true },
     },
     {
       name: 'desktop',
+      dependencies: ['server-identity'],
       use: { ...devices['Desktop Chrome'], viewport: VIEWPORTS.desktop },
     },
   ],
