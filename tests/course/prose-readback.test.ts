@@ -11,7 +11,9 @@
  * Nobody had measured how far that had got. On 2026-10-12: **73 of 91 lessons**, with 18 holding
  * none — and the slice that measured it gave `@edca-tamper` one in the same breath, so the list
  * below is 17 and the count is 74. The slice after it did the same for
- * `@wan-rtt`, so the list is 16 and the count is 75 — the ratchet turning, which is its job.  followed in the next slice: 16 and 75. That is the ratchet this file is: a new lesson whose test never touches its own
+ * `@wan-rtt`, and the one after that for `@amp-coexist` — the lesson with the most hand-typed
+ * figures in the course, 111 of them with none interpolated. The list is 15 and the count is
+ * 76: the ratchet turning, which is its job.  followed in the next slice: 16 and 75. That is the ratchet this file is: a new lesson whose test never touches its own
  * prose has to be added here deliberately, and a lesson that gains a read-back has to be taken
  * off in the same edit.
  *
@@ -59,7 +61,7 @@ const PROSE_FIELDS = [
  */
 const NO_READBACK: readonly string[] = [
   'mcs-ladder', 'ifs', 'nav', 'hidden', 'ampdu', 'txop', 'txop-protect', 'rate',
-  'mumimo', 'mlo', 'amp-ppdu', 'amp-slots', 'amp-coexist', 'amp-backscatter',
+  'mumimo', 'mlo', 'amp-ppdu', 'amp-slots', 'amp-backscatter',
   'uwb-uwbd', 'uwb-subrounds',
 ]
 
