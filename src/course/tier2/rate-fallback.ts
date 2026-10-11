@@ -82,7 +82,7 @@ export const rateFallback: Lesson = {
   ],
   terms: [
     { term: 'ARF', plain: '自动速率回退：本仿真器遵循的那条朴素规则——连续两次失败降一级，连续十次成功升一级' },
-    { term: 'excursion', plain: '一段跑在上限之下的帧，从降级那一刻起，到爬回上限为止' },
+    { term: 'excursion', plain: '跌落：一段跑在上限之下的帧，从降级那一刻起，到爬回上限为止' },
   ],
   needs: ['rate', 'anomaly'],
   picture: [

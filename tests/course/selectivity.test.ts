@@ -362,6 +362,43 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
   })
 
   /**
+   * **余量 carries a premise in this lesson's `why`, and the course spells it three ways.**
+   *
+   * A reader of the course asked, on this lesson, what 余量 meant here. It is load-bearing —
+   * 「在余量可比的前提下」 is the condition the whole result hangs on, and the `outcomes` line
+   * repeats it — and it was not glossed anywhere a reader of THIS lesson could reach:
+   * `ZH_TERMS_EXCLUDED` (src/course/readability.ts) carries 余量 with the reason 「three
+   * different simulator quantities under one word」, so the first-use bracket rule is switched
+   * off for it by design, and nothing replaced that rule with a gloss. The only gloss the
+   * `needs` closure offered was `decode-thresholds`' 速率余量 — a DIFFERENT quantity (the
+   * transmitter's fixed 3 dB, chosen before the frame exists) with a DIFFERENT number from this
+   * lesson's 3.62 dB. 「闭包里有」 was true by concept and false by word form and by value.
+   *
+   * So the lesson glosses it itself, and this pins the gloss rather than its presence:
+   *  - it must separate the two quantities by NAME (速率余量) and by NUMBER (3 dB), because
+   *    naming one of the two without the other is how the reader lands back on 3 dB;
+   *  - the figure inside the gloss, the figure in the table's own heading and the margin
+   *    `sweep()` measures are compared here. They were two typed strings; a third typed copy
+   *    with nothing comparing them is this repository's standing defect, so the test reads all
+   *    three. `sweep()` is memoised above, so this costs no engine events.
+   */
+  it('glosses 余量 itself, with the other quantity named, and the figure read from the run', () => {
+    const row = lesson.terms!.find((t) => t.plain.startsWith('余量：'))
+    expect(row, '「余量」 carries a premise in `why`; this lesson owes the gloss').toBeDefined()
+    // the other quantity, by name and by value — the one the closure would otherwise supply
+    expect(row!.plain).toContain('速率余量')
+    expect(row!.plain).toContain('3 dB')
+    const dbs = (s: string): number[] => [...s.matchAll(/(\d+\.\d+) dB/g)].map((m) => Number(m[1]))
+    const table = lesson.numbers!.find(
+      (b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table' && !!b.heading?.includes('掉帧率'),
+    )
+    expect(table, 'the pooled drop-rate table').toBeDefined()
+    expect(dbs(row!.plain)).toEqual(dbs(table!.heading!))
+    expect(dbs(row!.plain)).toHaveLength(1)
+    for (const v of dbs(row!.plain)) expect(v).toBeCloseTo(sweep()[1].marginDb, 1)
+  })
+
+  /**
    * All five of this scene's own rates and counts, exactly — they are integers over integers in
    * a deterministic run, so there is nothing to round. This is what the doc comment above used
    * to be and an ordering cannot replace: the engine change that moved them (`9604fbc`) moved

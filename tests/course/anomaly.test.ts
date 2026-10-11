@@ -43,6 +43,7 @@ import { ACK_BYTES, CW_MIN, DIFS_NS, SIFS_NS, SLOT_NS, sinrThreshDb } from '../.
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { lessonStrings } from '../../src/course/readability'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 
@@ -75,6 +76,30 @@ describe('anomaly · the lesson’s own scene', () => {
     // Whole-track review M3: one name for the loop of src/engine/rate.ts. `rate adaptation`
     // was a third name beside `rate control` (bianchi-vs-sim, and the title of `rate`).
     expect(anomaly.terms!.map((t) => t.term)).toEqual(['airtime share', 'performance anomaly', 'rate control'])
+  })
+
+  /**
+   * **The glossary row and the prose have to use the same word.**
+   *
+   * This lesson's `outcomes` line says 「把一台站点的轮次和它的空口占比放在一起比」, and three
+   * later lessons (`tier1-project`, `tier1-project-review`, `capstone`) use 空口占比 on their
+   * main path on the strength of this one being in their `needs` closure. The row that explains
+   * the quantity was headed `airtime share` and its Chinese line never wrote 空口占比, so the
+   * reader had to bridge an English heading to a Chinese word themselves — and the first-use
+   * bracket rule cannot help, because `ZH_TERMS_EXCLUDED` carries 空口占比 as a model choice
+   * ("the simulator's own counter") and switches that rule off for it.
+   *
+   * Pinned on both sides so the pair cannot come apart again: whichever word the lesson's own
+   * main path uses, the row that explains it has to contain it.
+   */
+  it('names 空口占比 in the row that explains it, in the word the prose uses', () => {
+    const main = lessonStrings({
+      why: anomaly.why, outcomes: anomaly.outcomes, picture: anomaly.picture,
+      numbers: anomaly.numbers, observe: anomaly.observe, tryThis: anomaly.tryThis, quiz: anomaly.quiz,
+    }).join('\n')
+    expect(main, 'the prose side of the pair').toContain('空口占比')
+    const row = anomaly.terms!.find((t) => t.term === 'airtime share')!
+    expect(row.plain).toContain('空口占比')
   })
 
   it('the scenario is unchanged: a near station and a far one across the apartment', () => {

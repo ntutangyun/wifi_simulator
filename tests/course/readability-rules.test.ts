@@ -667,7 +667,8 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'protect-policies':        [2, 1, 2, 3, 2, 4, 4, 2],
     'edca-tamper':             [3, 2, 3, 3, 3, 4, 4, 3],
     'width':                   [2, 2, 2, 3, 4, 3, 6, 2],
-    'selectivity':             [2, 2, 2, 4, 4, 4, 4, 3],
+    // terms 4 → 5 on 2026-10-11: the `margin` row, for the 余量 a reader asked about.
+    'selectivity':             [2, 2, 2, 4, 5, 4, 4, 3],
     'streams':                 [3, 2, 2, 3, 2, 4, 4, 2],
     'rate':                    [3, 2, 2, 4, 2, 3, 4, 3],
     'rate-fallback':           [3, 2, 2, 3, 2, 3, 4, 3],

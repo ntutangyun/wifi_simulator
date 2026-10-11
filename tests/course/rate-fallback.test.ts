@@ -34,6 +34,7 @@ import { ACK_TIMEOUT_NS } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
+import { lessonStrings } from '../../src/course/readability'
 import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
 
 const MS = 1_000_000
@@ -84,6 +85,28 @@ describe('rate-fallback · the lesson’s own scene', () => {
     expect(MODULES[rateFallback.module].title).toBe('容量旋钮与速率控制')
     expect(rateFallback.needs).toEqual(['rate', 'anomaly'])
     expect(rateFallback.terms!.map((t) => t.term)).toEqual(['ARF', 'excursion'])
+  })
+
+  /**
+   * **The glossary row and the prose have to use the same word.**
+   *
+   * 跌落 is this lesson's word for an excursion — it is the heading of the first `numbers`
+   * block, it is in the diagram's own heading, and the NEXT lesson (`rate-cost`) opens its
+   * `why` with it on the strength of this one being in its `needs`. The row that explains the
+   * thing was headed `excursion` and its Chinese line never wrote 跌落, so neither lesson
+   * glossed the word a reader actually meets. The bracket rule cannot catch it:
+   * `ZH_TERMS_EXCLUDED` carries 跌落 as a model choice ("the simulator's word for an
+   * excursion"), which switches that rule off for it by design.
+   */
+  it('names 跌落 in the row that explains it, in the word the prose uses', () => {
+    const main = lessonStrings({
+      why: rateFallback.why, outcomes: rateFallback.outcomes, picture: rateFallback.picture,
+      numbers: rateFallback.numbers, observe: rateFallback.observe,
+      tryThis: rateFallback.tryThis, quiz: rateFallback.quiz,
+    }).join('\n')
+    expect(main, 'the prose side of the pair').toContain('跌落')
+    const row = rateFallback.terms!.find((t) => t.term === 'excursion')!
+    expect(row.plain).toContain('跌落')
   })
 
   it('reuses `rate`’s builder with no variant of its own', () => {

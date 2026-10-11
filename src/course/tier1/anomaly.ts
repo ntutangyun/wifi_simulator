@@ -78,7 +78,7 @@ export const anomaly: Lesson = {
   ],
   needs: ['airtime', 'collisions-cw'],
   terms: [
-    { term: 'airtime share', plain: '整段时间里被某一台站点自己的发送占掉的那一部分' },
+    { term: 'airtime share', plain: '空口占比：整段时间里被某一台站点自己的发送占掉的那一部分' },
     { term: 'performance anomaly', plain: '一台站点只能慢慢发，于是所有站点的吞吐量都掉下来' },
     { term: 'rate control', plain: '帧接连失败之后，发送方退到更慢、更稳健的编码上去' },
   ],

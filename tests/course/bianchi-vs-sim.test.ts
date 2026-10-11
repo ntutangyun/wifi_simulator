@@ -290,6 +290,19 @@ describe('lesson contract', () => {
     // Whole-track review M3: `rate control` is anomaly's term; this lesson points back to it
     // rather than introducing the same word again.
     expect(bianchiVsSim.terms!.map((t) => t.term)).toEqual(['capture', 'residual'])
+    /**
+     * **估计量 is named where it is used, not three lessons later.**
+     *
+     * The second `outcomes` line used to read 「核对你的估计量，是不是模型真正定义的那个量」 —
+     * and 估计量 is glossed nowhere this lesson or its `needs` closure can reach. The lesson
+     * that does gloss it, `tier1-project-review` (「先把你正在数的那样东西点名，这就是估计量」),
+     * comes three lessons LATER, so the gloss arrives after the line that leans on it. The
+     * bracket rule is switched off for the word: `ZH_TERMS_EXCLUDED` carries 估计量 as
+     * statistics vocabulary, which is why nothing caught this. The line now names it in place,
+     * in the later lesson's own words, and this pins the naming frame rather than the word —
+     * the word alone would pass on the sentence that was wrong.
+     */
+    expect(bianchiVsSim.outcomes!.join('\n')).toContain('这就是估计量')
     // Re-pacing 2026-09-25: the third observation went with the close-in prose to
     // `rate-vs-model`, which loads this same scene and these same variants.
     expect(bianchiVsSim.observe.length).toBe(2)
