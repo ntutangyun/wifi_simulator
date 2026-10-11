@@ -38,7 +38,7 @@ import {
 import {
   MIGRATING, MIGRATING_NOW, migratedLessons, names, orderedLessons, zhMainText, zhTermsFor,
 } from './corpus'
-import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet, owed } from './coverageNumbers'
+import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet, sideDebts } from './coverageNumbers'
 
 /**
  * MIGRATING, the lesson lists and the one ruler live in `tests/course/corpus.ts`, and the
@@ -874,14 +874,25 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * The measurement that says so: run the bracket rule's own ruler over the terms
  * `limits` names, and compare field by field against the two fields that rule
  * EXCLUDES on purpose. `limits` is not an oversight in the same league as them —
- * it is worse than both put together:
+ * **it is the biggest of the three by this ruler, and that is the claim this
+ * ratchet is pinned on**:
  *
  * ```
  *                 criterion Q (re-measured 2026-10-11)  criterion P (2026-10-05, never re-measured)
- *   limits        289 pairs / 76 lessons                296 = 291 bracket + 5 aka
+ *   limits        287 pairs / 75 lessons                296 = 291 bracket + 5 aka
  *   sources       195 pairs / 75 lessons                176 = 172 bracket + 4 aka
  *   deeper         91 pairs / 40 lessons                 76 =  75 bracket + 1 aka
  * ```
+ *
+ * **「Bigger than either」 is what the ratchet rests on; 「bigger than both put together」 was a
+ * second, stronger sentence standing beside it, and W17 took that one off the rulers.** It was
+ * true of criterion P with 31 to spare (292 against 180 + 81, which is what the chrome rule's own
+ * docblock above cites at `:627`, and that citation stands — P is frozen history, nothing can
+ * drift it). On criterion Q, the criterion this ratchet actually uses, the filing design document
+ * recorded it as 「289 和两者之和 279 基本持平（多 10）」 and drew its conclusion from the density
+ * tier instead: `limits` is written like `sources`, only more so. The Q-side sum comparison is now
+ * a MEASURED figure in §17 of `docs/wifi-feature-coverage.md` — three sides and their margins,
+ * read out and compared — rather than an assertion that reddens on a field it does not govern.
  *
  * **The Q column is measured — `owed` in `./coverageNumbers` — and the P column is a record of
  * 2026-10-05 that nothing in this repository computes today.** Slice W16 tried to reproduce it
@@ -900,7 +911,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
  *    named in the field and never named on that lesson's graded main path.
  *
- * **This ratchet is criterion Q, and the number is 289.** It is NOT the same
+ * **This ratchet is criterion Q, and the number is 287.** It is NOT the same
  * criterion as P, even though the two coincided at 296 before slice 3d — and the
  * fact that they coincide here is precisely why the distinction is spelled out
  * rather than assumed. They are measurably different criteria: on `sources` Q is
@@ -911,8 +922,8 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *
  * ### What this assertion does and does not ask for
  *
- * It does not ask anyone to fix 289 sites. It makes the debt visible and forbids
- * the 290th: a new `limits` entry that names an official term the lesson's own
+ * It does not ask anyone to fix 287 sites. It makes the debt visible and forbids
+ * the 288th: a new `limits` entry that names an official term the lesson's own
  * main path never names turns this red, and the fix is one sentence on the main
  * path. Paying the debt itself means splitting six lessons — adding `limits` to
  * `mainPathChars` moves 50 lessons' stated minutes and puts six of them over the
@@ -925,9 +936,9 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * side used a bare `includes`, which excused ten pairs. `bracketedAtFirstZhUse`
  * is the ruler here, and it is the same call on both sides.
  */
-describe('readability · the limits debt is pinned, and the 290th entry is refused', () => {
-  // `names` comes from `./corpus`; `owed` (criterion Q for one field of one lesson), `limitsOf`,
-  // the ceiling and the measured ratchet from `./coverageNumbers`, unchanged. They moved out of
+describe('readability · the limits debt is pinned, and the 288th entry is refused', () => {
+  // `names` comes from `./corpus`; the ceiling, the measured ratchet and `sideDebts` (criterion Q
+  // over all three fields) from `./coverageNumbers`. They moved out of
   // this file on 2026-10-09 so
   // that §17 of docs/wifi-feature-coverage.md — which states this debt AND its 余量 to a reader —
   // compares against the MEASURED debt instead of against this `it`'s title text.
@@ -936,7 +947,7 @@ describe('readability · the limits debt is pinned, and the 290th entry is refus
    * **The number itself is `LIMITS_DEBT_CEILING` in `./coverageNumbers`**, so this `it`'s title, the
    * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
    *
-   * **This number is the ceiling AND the current value: the debt stands at exactly 289.** There
+   * **This number is the ceiling AND the current value: the debt stands at exactly 287.** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
    * adds a `limits` entry:
@@ -945,10 +956,11 @@ describe('readability · the limits debt is pinned, and the 290th entry is refus
    *    no warning shot;
    *  - the fix is one sentence on the main path, bracketing the term at its first use — not a
    *    bigger number here;
-   *  - if that sentence will not fit, the other legal move is to pay one of the existing 289
-   *    back, which is the same work on a different lesson — but read the `it` below first: the
-   *    comparison there has 3 of margin, and a repayment that does not ALSO pay the same (lesson,
-   *    term) pair on the `sources`/`deeper` side spends one unit of it;
+   *  - if that sentence will not fit, the other legal move is to pay one of the existing 287
+   *    back, which is the same work on a different lesson — and since W17 it costs nothing else:
+   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 92
+   *    and 196), so a repayment that does not also pay the same (lesson, term) pair on the other
+   *    side no longer spends anybody's margin;
    *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
    *    build is red.
    *
@@ -965,15 +977,24 @@ describe('readability · the limits debt is pinned, and the 290th entry is refus
    * pairs `@fading` carries — 灵敏度, 符号, 波束成形, 载波侦听, 隐藏节点 — and paid three: 符号 and
    * 波束成形 are now named on that lesson's own main path (which paid the same two pairs on the
    * `sources` side as well), and 灵敏度 gave way to the 门限 the lesson's own prose already uses.
-   * **The two that stayed, 载波侦听 and 隐藏节点, are not unpayable prose** — one reworded clause or
-   * one main-path sentence does either — **they are blocked by the `it` below**, whose margin is 3
-   * and whose left side is this debt: paying both takes `limits` to 287 against a `sources` +
-   * `deeper` of 286, and paying them the other way costs the same margin, because neither term is
-   * owed in this lesson's `sources` or `deeper`. Taking that comparison from 3 of margin down to
-   * 1 in order to pay two pairs is a trade a human owns, not a test.
+   * It stopped at three: the other two are not unpayable prose, but paying them would have taken
+   * the `it` below from 3 of margin to 1, and W16 refused to spend a ruler's margin on a
+   * repayment without a human saying so.
    * `@fading` landed 2026-10-05 (`7c1c3a8`, 00:12) — six hours BEFORE this ratchet was filed
    * (`2514723`, 06:06), so its five were inside the original 296 and it is grandfathered exactly
    * the way `@uwb-sp3` is; it never broke the 「新课贡献 0 笔」 rule.
+   *
+   * **289 → 287 on 2026-10-11, same day, and the ratchet came down with it a third time.** Slice
+   * W17 re-aimed the `it` below (the sum comparison became a measured figure in §17 instead of a
+   * gate), which removed the cost W16 had refused to pay, and then paid the last two of
+   * `@fading`'s five: 载波侦听（carrier sense） and 隐藏节点（hidden station） are now bracketed on
+   * its own main path, in the sentence that already says the scene holds one station and one
+   * access point — no second device means carrier sense always hears idle and the hidden-station
+   * situation cannot be assembled, which is why that scene's collision column is a zero rather
+   * than good luck. Neither term is owed in this lesson's `sources` or `deeper`, so this
+   * repayment moved the left side only: 289 → 287 against a sum side that stayed at 286.
+   * **Measured, not subtracted** — `limitsRatchet().debt` after the edit — and the lessons
+   * carrying the debt went 76 → 75, because `@fading` now carries none of it.
    *
    * The earlier precedent, so the instruction is not merely an instruction: the slice that added
    * `wan-rtt` and `edca-tamper` (2026-10-05) ran this up to 302 — six terms in the new lessons'
@@ -1011,48 +1032,76 @@ describe('readability · the limits debt is pinned, and the 290th entry is refus
    * Asserted as an ordering rather than as three literals, so an ordinary prose
    * edit does not touch it while the claim itself stays pinned.
    *
-   * **That last sentence was true with 28 of margin and is not true today.** The margin is the
-   * number to read this `it` by, and it has drifted: at the filing commit (`2514723`,
-   * 2026-10-05) the sides were 296 against 182 + 86 = 268, a margin of **28**; on 2026-10-11 they
-   * are 289 against 195 + 91 = 286, a margin of **3**. Nobody chose 3 — the sum side grew while
-   * the left side was paid down. Measured decomposition of the 21 pairs the sum side gained: the
-   * eight lessons added since the filing carry 20 of them today (`link-2g` 6,
+   * ### W17 re-aimed this, and it is a LOOSENING — here is the whole argument
+   *
+   * Until 2026-10-11 this compared `limits` against `sources` **+** `deeper`, and that version
+   * ran out of road. At the filing commit (`2514723`, 2026-10-05) the sides were 296 against
+   * 182 + 86 = 268, a margin of **28**; by 2026-10-11 they were 289 against 195 + 91 = 286, a
+   * margin of **3** — and the comparison is strict, so the next median lesson of this course (the
+   * mean lesson owes 3.14 sum-side pairs, 51 of 91 owe three or more) would have made it 289
+   * against 289 and reddened it: on a file that lesson did not open, for a claim it did not
+   * weaken. **Nobody chose 3.** Measured decomposition of the +18 the sum side gained since the
+   * filing: the eight lessons added since then carry **20** of it today (`link-2g` 6,
    * `claim-to-contribution` 5, `uhr-rate-ladder` 3, `wan-rtt` 2, `uwb-ancillary-request` 2,
-   * `edca-tamper` 1, `amp-backscatter` 1, `uwb-ancillary-loss` 0), and the mean lesson of this
-   * course carries 3.18 of this debt with 52 of 91 lessons at three or more.
+   * `edca-tamper` 1, `amp-backscatter` 1, `uwb-ancillary-loss` 0) and the 83 lessons that
+   * predate it went DOWN 2, which is exactly the pair W16 paid on `@fading`'s `sources` side.
+   * Both figures measured 2026-10-11 — the 「21」 a previous slice relayed is off by three, and the
+   * mean it relayed (3.18, 52 lessons) was read before its own repayment landed.
    *
-   * **So the next new lesson can redden this, and the number is THREE, not four.** The comparison
-   * is strict, so a lesson that owes three `sources`/`deeper` pairs and the mandatory zero
-   * `limits` pairs makes it 289 against 289 and fails — on a file it did not open, for a claim it
-   * did not weaken. That is the median lesson of this course, not an unlucky one.
+   * **So it now asserts two orderings — `limits` > `sources` and `limits` > `deeper` — and that
+   * is the claim the ratchet was always pinned on.** The reason `limits` is ratcheted rather than
+   * graded is that it is THE BIGGEST of the three by this ruler while being rendered open on the
+   * main path and timed at zero. 「Bigger than both put together」 was a second sentence standing
+   * beside that one: true of criterion P with 31 to spare (292 against 180 + 81, cited at `:627`
+   * and frozen, since nothing recomputes P), and on criterion Q — the criterion this `it` uses —
+   * recorded by the filing design document itself as 「289 和两者之和 279 基本持平（多 10）」.
+   * A margin of 10 on the day of filing was never load-bearing; what the document concluded from
+   * it was the density tier, not the sum.
    *
-   * **It is still true and still named correctly, which is why W16 did not touch its strength.**
-   * What it no longer is, is insensitive to ordinary editing. Loosening it to 「more than either
-   * field alone」, re-pinning it as a dated record of the ordering, or accepting that it reddens
-   * on the next lesson are all somebody's call to make; none of them is a thing to do because a
-   * build went red.
+   * **The sum comparison did not disappear: it moved to where drift is visible instead of fatal.**
+   * §17 of `docs/wifi-feature-coverage.md` now states all three sides, their lesson counts and
+   * both margins, every figure read out and compared by
+   * `tests/course/wifi-coverage.test.ts` — so the day the sum side passes `limits` a reader sees
+   * a negative margin in a table, and nothing is red on a file nobody touched.
+   *
+   * ### What the right side's growth actually is, and why §17 is the right home for it
+   *
+   * A pair on the sum side is a reader meeting an official term in `sources` or `deeper` that
+   * this lesson's own main path never names — **the same species of debt as
+   * `docs/course-wording-contract.md` §10 (the 25 exempted words nobody checks), in a different
+   * field.** §10's own criterion explicitly scopes those two fields OUT (「`deeper` 与 `sources`
+   * 里的裸用。那两处是深度与出处，读者不走」), so until W17 the only thing watching them was the
+   * right-hand side of this comparison — where growth read as this ruler losing margin rather
+   * than as a debt growing. That is why §17 states it: it is a ledger entry, not a gate.
    */
-  it('carries more of this debt than `sources` and `deeper` put together', () => {
-    const inSources = migrated.flatMap((l) => owed(l, (l.sources ?? []).join(' ')))
-    const inDeeper = migrated.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' ')))
-    const inLimits = limitsRatchet().pairs
-    // 195 and 91 on 2026-10-11, against `limits`' 289 — margin 3. The comment that stood here
-    // recorded 188 and 92 「on 2026-10-09」 against 292, and the docblock above this describe
-    // recorded 182 and 86; both were stale by the time W16 read them (`sources` measured 185
-    // before slice 3d, 186 after it, 188 on 2026-10-09, 197 on 2026-10-11 before this slice paid
-    // two of them, 195 after). The assertions are floors and an ordering, so none of the three
-    // ever reddened — which is exactly how 28 of margin became 3 with nothing to read it by.
+  it('carries more of this debt than `sources`, and more than `deeper` — each on its own', () => {
+    // All three sides from `sideDebts` in `./coverageNumbers`, which is the same definition §17 of
+    // docs/wifi-feature-coverage.md is compared against — the module exists so that this `it` and
+    // that table cannot fork by one being re-measured and the other re-typed.
+    const { limits: inLimits, sources: inSources, deeper: inDeeper } = sideDebts()
+    expect(inLimits.length, 'the `limits` side of this comparison, against the debt the ratchet'
+      + ' above asserts on').toBe(limitsRatchet().debt)
+    // 287 / 195 / 91 on 2026-10-11 after W17 paid `@fading`'s last two — margins 92 and 196, and
+    // a sum-side margin of 1, which is now §17's figure rather than this `it`'s. The comments that
+    // stood here recorded 195 and 91 against 289 (margin 3), 188 and 92 against 292, and the
+    // docblock above this describe recorded 182 and 86; every one of them was stale within days
+    // (`sources` measured 185 before slice 3d, 186 after it, 188 on 2026-10-09, 197 on 2026-10-11
+    // before W16 paid two of them, 195 since). The assertions are floors and an ordering, so none
+    // of the three ever reddened — which is exactly how 28 of margin became 3 with nothing to read
+    // it by, and why the number a reader is asked to watch now lives in a table that is measured.
     expect(inSources.length).toBeGreaterThan(100)
     expect(inDeeper.length).toBeGreaterThan(50)
-    expect(inLimits.length, '`limits` is rendered open by default, written at the density of'
-      + ' collapsed depth, and timed at zero — this is the number that says so.'
-      + ` Margin today: ${inLimits.length} − (${inSources.length} + ${inDeeper.length}) =`
-      + ` ${inLimits.length - inSources.length - inDeeper.length}, against 28 at the filing`
-      + ' commit. If you got here by ADDING a lesson, it owes three or more (lesson, term) pairs'
-      + ' in its `sources`/`deeper` and this comparison has run out of margin — read its'
-      + ' docblock, do not widen it. If you got here by PAYING `limits` debt down, that same'
-      + ' docblock says why this is the other way to spend the margin.')
-      .toBeGreaterThan(inSources.length + inDeeper.length)
+    const why = '`limits` is rendered open by default, written at the density of collapsed depth,'
+      + ' and timed at zero — that it is the BIGGEST of the three by this ruler is the number that'
+      + ' says so, and it is what the ratchet above is pinned on.'
+      + ` Today: limits ${inLimits.length}, sources ${inSources.length}, deeper`
+      + ` ${inDeeper.length}; margins ${inLimits.length - inSources.length} and`
+      + ` ${inLimits.length - inDeeper.length}. If you got here by PAYING \`limits\` debt down,`
+      + ' you have paid it below one of the other two fields, and the claim this ratchet rests on'
+      + ' is the thing to re-argue — read the docblock, do not widen this. §17 of'
+      + ' docs/wifi-feature-coverage.md states all three sides and is compared against them.'
+    expect(inLimits.length, why).toBeGreaterThan(inSources.length)
+    expect(inLimits.length, why).toBeGreaterThan(inDeeper.length)
   })
 })
 

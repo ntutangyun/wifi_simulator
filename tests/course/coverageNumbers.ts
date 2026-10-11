@@ -1,12 +1,13 @@
 /**
- * **The two figures §17 of `docs/wifi-feature-coverage.md` states to a reader, and the one
- * measurement behind them.**
+ * **The figures §17 of `docs/wifi-feature-coverage.md` states to a reader, and the measurements
+ * behind them.**
  *
  * A number stated in two places with nothing comparing them is this repository's standing defect,
- * and §17 states both of these: the `limits` debt with its 余量, and the per-lesson main-path
- * band with the tightest lesson's distance from its upper end. So each lives here once and every
- * side calls it — the prose check in `tests/course/wifi-coverage.test.ts` and the contract
- * assertions in `tests/course/readability.test.ts`.
+ * and §17 states all of these: the `limits` debt with its 余量, the per-lesson main-path band with
+ * the tightest lesson's distance from its upper end, and (since 2026-10-11) the three sides of the
+ * comparison that debt is read by, with their margins. So each lives here once and every side
+ * calls it — the prose check in `tests/course/wifi-coverage.test.ts` and the contract assertions
+ * in `tests/course/readability.test.ts`.
  *
  * **Why the debt is measured here rather than asserted twice.** It used to be asserted in two
  * places that agreed by coincidence:
@@ -30,6 +31,7 @@
  * docblock says why they are two now.
  */
 import type { Lesson } from '../../src/course/lessonKit'
+import { gradedProseTexts } from '../../src/course/readability'
 import { migratedLessons, names, zhMainText, zhTermsFor } from './corpus'
 
 /**
@@ -53,12 +55,12 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
 /**
  * **The ceiling, and the one number here a human owns.**
  *
- * It is the ceiling AND (today) the current value: the debt stands at exactly 289, with no slack
+ * It is the ceiling AND (today) the current value: the debt stands at exactly 287, with no slack
  * in it, and that is deliberate rather than an accident of when it was measured — a ratchet with
  * room left in it is not a ratchet. Paying debt down is never a human's call; **raising this is**,
  * and it is not a thing to do because the build is red. See the ratchet's own docblock in
- * `readability.test.ts` for the history of the number (292 → 289 on 2026-10-11, 296 → 292 on
- * 2026-10-05, and 302 → 292 before that).
+ * `readability.test.ts` for the history of the number (292 → 289 and 289 → 287 both on
+ * 2026-10-11, 296 → 292 on 2026-10-05, and 302 → 292 before that).
  *
  * **Why it comes down in the same slice that pays the debt, with nobody asked.** The two
  * sentences above are the rule: the ceiling is the current value, slack in it is the defect, and
@@ -67,9 +69,14 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
  * argument is that it has none」, in the ratchet's docblock — and §17 of
  * `docs/wifi-feature-coverage.md` states 余量 = `ceiling − debt` to a reader, so a debt paid down
  * with this number held still does not read as generosity: it reads as a 余量 nobody chose. W16
- * paid three of `@fading`'s pairs and lowered this by three in the same commit.
+ * paid three of `@fading`'s pairs and lowered this by three in the same commit, and W17 paid its
+ * last two — 载波侦听 and 隐藏节点, onto that lesson's own main path — and lowered this by two in
+ * the same commit. W16 had declined that step because it cost the margin of a SECOND ruler (the
+ * 「more than `sources` + `deeper`」 comparison, down to 3); W17 re-aimed that ruler onto each
+ * field alone and moved the sum comparison into §17 as a measured figure, which is what made the
+ * repayment cost nothing but prose.
  */
-export const LIMITS_DEBT_CEILING = 289
+export const LIMITS_DEBT_CEILING = 287
 
 /**
  * The per-lesson main-path band the lesson contract enforces: about a third of the mean lesson,
@@ -108,3 +115,37 @@ export function limitsRatchet(): { pairs: string[]; debt: number; slack: number 
   memo = { pairs, debt: pairs.length, slack: LIMITS_DEBT_CEILING - pairs.length }
   return memo
 }
+
+/**
+ * **The three sides of the comparison, measured with one ruler and defined once.**
+ *
+ * Criterion Q over `limits`, over `sources` and over `deeper` — the field the lesson contract
+ * ratchets, and the two fields the bracket rule excludes on purpose. The ratchet is pinned on
+ * `limits` because it is the BIGGEST of these three while being rendered open on the main path and
+ * timed at zero, and `readability.test.ts` asserts exactly that, as two strict orderings.
+ *
+ * **Why all three live here rather than in the assertion that uses them.** Until 2026-10-11 the
+ * assertion compared `limits` against `sources` **+** `deeper`, and the margin of that comparison
+ * — 28 at its filing commit (`2514723`), 3 by the time anybody re-read it — was a number nobody
+ * chose and nothing stated. Slice W17 re-aimed the assertion onto each field alone and moved the
+ * sum comparison into §17 of `docs/wifi-feature-coverage.md` as a STATED figure: three sides,
+ * their lesson counts and both margins. So the two sides have to read one definition, which is
+ * what this module is for. A pair on the `sources`/`deeper` side is its own debt — a reader meets
+ * an official term in a field this lesson's main path never names — of the same species as
+ * `docs/course-wording-contract.md` §10, whose criterion scopes those two fields out.
+ *
+ * Not memoised, unlike {@link limitsRatchet}: see that function's warning. A caller measuring a
+ * mutated corpus gets an honest answer from this one.
+ */
+export const sideDebts = (): Record<'limits' | 'sources' | 'deeper', string[]> => {
+  const ls = migratedLessons()
+  return {
+    limits: ls.flatMap((l) => owed(l, limitsOf(l))),
+    sources: ls.flatMap((l) => owed(l, (l.sources ?? []).join(' '))),
+    deeper: ls.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' '))),
+  }
+}
+
+/** The lessons a side's pairs are spread over — the 涉及课数 column of §17's table. */
+export const lessonsOwing = (pairs: readonly string[]): number =>
+  new Set(pairs.map((p) => p.split('|')[0])).size

@@ -55,7 +55,9 @@ import {
   type SymbolCitation,
 } from './coverage'
 import { orderedLessons } from './corpus'
-import { LIMITS_DEBT_CEILING, MAIN_PATH_BAND, limitsRatchet } from './coverageNumbers'
+import {
+  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, lessonsOwing, limitsRatchet, sideDebts,
+} from './coverageNumbers'
 
 const DOC = 'docs/wifi-feature-coverage.md'
 const doc = readDoc(DOC)
@@ -373,6 +375,12 @@ const FIG_HEAD = ['量', '实测', '断言在哪', '余量']
 /** The header of §14's 「引擎建了，无课」 summary table. */
 const BUILT_HEAD = ['#', '它是什么', '引擎', '这张表的哪一节']
 
+/**
+ * The header of §17's three-sides table — the criterion Q debt of `limits`, `sources` and
+ * `deeper`, their lesson counts, and the margins between them.
+ */
+const SIDE_HEAD = ['字段', '实测（课，术语）对', '涉及课数', '与 `limits` 比的余量']
+
 const ordered = orderedLessons()
 
 /**
@@ -628,7 +636,9 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
   })
 
   it('states how many figures that table holds, in the prose above it', () => {
-    const m = /是下面那张表里的\*\*(.+?)\*\*个数/.exec(doc)
+    // 「下面那张汇总表」 since 2026-10-11: §17 holds a second measured table now (the three
+    // sides of the limits comparison), so 「下面那张表」 stopped naming one table.
+    const m = /是下面那张汇总表里的\*\*(.+?)\*\*个数/.exec(doc)
     expect(m, '§17 no longer says how many figures its table holds').not.toBeNull()
     expect(zhNumeral(m![1]), `§17 says 「${m![1]}个数」`).toBe(figures.size)
   })
@@ -682,6 +692,107 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
 })
 
 /**
+ * **§17's three-sides table: the figure that used to be an assertion.**
+ *
+ * Until 2026-10-11 `readability.test.ts` asserted that the `limits` debt exceeded `sources` and
+ * `deeper` PUT TOGETHER. That comparison ran out of road: its margin was 28 at its filing commit
+ * (`2514723`, measured again at that commit by the slice that re-aimed it) and 3 by the time
+ * anybody re-read it, and nobody chose 3 — the sum side grew by 18 while the left side was paid
+ * down, and 20 of what it gained is carried by the eight lessons added since the filing. One more
+ * median lesson of this course would have reddened it, on a file that lesson did not open. Slice
+ * W17 re-aimed the assertion onto each field ALONE — which is the claim the ratchet is actually
+ * pinned on, `limits` being the biggest of the three — and the sum comparison became this table.
+ *
+ * **A figure stated to a reader and nothing comparing it is this document's standing defect**, so
+ * it arrives with its check rather than four slices later, which is what §17's summary table above
+ * got only on 2026-10-09. Every figure here comes from `sideDebts` in
+ * `tests/course/coverageNumbers.ts` — the same definition the re-aimed assertion reads, so the
+ * table and the assertion cannot fork by one being re-measured and the other re-typed.
+ *
+ * The sum row is deliberately NOT an assertion anywhere: if the sum side passes `limits`, a reader
+ * sees a negative number in the 余量 column of a table, and nothing is red on a file nobody
+ * touched. That is the whole point of moving it here.
+ */
+describe(`${DOC}'s §17 three-sides table is measured, margins and all`, () => {
+  const sides = sideDebts()
+  const SUM_LABEL = '`sources` ＋ `deeper`'
+  const MEASURED: ReadonlyMap<string, readonly string[]> = new Map([
+    ['`limits[].text`', sides.limits],
+    ['`sources`', sides.sources],
+    ['`deeper`', sides.deeper],
+  ])
+  const rows = dataRows(doc, SIDE_HEAD)
+  const bare = (cell: string): number | null =>
+    /^-?\d+$/.test(cell.replaceAll('*', '').trim()) ? Number(cell.replaceAll('*', '').trim()) : null
+
+  it('states exactly the three sides and their sum, in that order', () => {
+    expect(rows.length, 'the §17 three-sides table is gone, or its header changed — dataRows'
+      + ` selects on the exact header ${SIDE_HEAD.join(' | ')}`).toBeGreaterThan(0)
+    expect(rows.map((r) => r[0].replaceAll('*', '').trim()), 'a row added to or removed from the'
+      + ' three-sides table owes a line here saying what measures it')
+      .toEqual([...MEASURED.keys(), SUM_LABEL])
+    expect(statedFigures(doc, SIDE_HEAD).size, 'every row of this table has to OPEN its 实测 cell'
+      + ' with its figure; a cell that does not yields nothing, and a figure that yields nothing is'
+      + ' a figure nobody checks').toBe(rows.length)
+  })
+
+  it.each([...MEASURED.keys()])('%s states its measured pair count and lesson count', (label) => {
+    const row = rows.find((r) => r[0].replaceAll('*', '').trim() === label)!
+    const pairs = MEASURED.get(label)!
+    expect(statedFigures(doc, SIDE_HEAD).get(label), `§17 states ${label} owes this many (lesson,`
+      + ' term) pairs by criterion Q').toBe(pairs.length)
+    expect(bare(row[2]), `§17 states ${label}'s debt is spread over this many lessons`)
+      .toBe(lessonsOwing(pairs))
+  })
+
+  it('states the margin against `limits` for each of the two excluded fields', () => {
+    // These two margins are the ones the assertion in readability.test.ts holds, as two strict
+    // orderings. A negative one here means that assertion is red too — and it means the claim the
+    // ratchet rests on (`limits` is the biggest of the three) has stopped being true, which is a
+    // thing to re-argue rather than to widen.
+    for (const label of ['`sources`', '`deeper`']) {
+      const row = rows.find((r) => r[0].replaceAll('*', '').trim() === label)!
+      expect(bare(row[3]), `§17 states the margin between \`limits\` and ${label}`)
+        .toBe(sides.limits.length - MEASURED.get(label)!.length)
+    }
+    const limitsRow = rows.find((r) => r[0].replaceAll('*', '').trim() === '`limits[].text`')!
+    expect(bare(limitsRow[3]), 'the `limits` row has no margin against itself, and a number there'
+      + ' would be a figure nobody can measure').toBeNull()
+  })
+
+  it('and §10 of the wording contract point at each other, because it is one debt', () => {
+    // A pair on the sum side is a reader meeting an official term in a field this lesson's main
+    // path never names — the same species as the 25 exempted words §10 of the wording contract
+    // keeps a ledger for, and §10's own criterion scopes these two fields OUT (「`deeper` 与
+    // `sources` 里的裸用。那两处是深度与出处，读者不走」). Two ledgers for one species have to
+    // name each other, or the next reader audits one and believes the other does not exist. The
+    // same shape §10 already has with `tests/course/glossing-debt.test.ts`.
+    const contract = 'docs/course-wording-contract.md'
+    expect(doc, `§17 must name ${contract} §10, the other ledger of this species`)
+      .toContain(`${contract}\` §10`)
+    expect(readDoc(contract), '§10 must name the table that measures the two fields its own'
+      + ' criterion excludes').toContain(`${DOC}\` §17`)
+  })
+
+  it('states the sum and its margin as a record, with no lesson count behind it', () => {
+    const row = rows.find((r) => r[0].replaceAll('*', '').trim() === SUM_LABEL)!
+    expect(statedFigures(doc, SIDE_HEAD).get(SUM_LABEL), 'the sum of the two fields the bracket'
+      + ' rule excludes on purpose — stated, and compared, but asserted nowhere')
+      .toBe(sides.sources.length + sides.deeper.length)
+    expect(bare(row[3]), 'the margin that used to be an assertion. It may go to zero or negative'
+      + ' without anything being red: that is what moving it out of readability.test.ts bought,'
+      + ' and this comparison is what keeps it from going quietly stale instead')
+      .toBe(sides.limits.length - sides.sources.length - sides.deeper.length)
+    // and the one cell that must NOT be a figure: `sources` and `deeper` owe their pairs over
+    // OVERLAPPING lesson sets, so 75 + 40 is the lesson count of nothing. A reader who fills this
+    // cell by adding the column above it writes a number that is false by construction.
+    expect(bare(row[2]), 'the sum row states a lesson count. The two fields overlap — their pair'
+      + ' counts add, their lesson sets do not — so this cell is deliberately blank')
+      .toBeNull()
+  })
+})
+
+/**
  * §14's summary table counts itself twice — once in the section heading (「的五条」) and once in its
  * own `#` column — and neither copy was checked. That heading has read 十三条, 九条 and 五条 within
  * four days of slices, which is the rate at which a hand-written count goes wrong here.
@@ -726,6 +837,8 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
   [['A–G', '零到一百的阶段/刀', '谁实际交的'], '§16 — prose cells, no figures'],
   [FIG_HEAD, '§17 — statedFigures, all six against the course; plus the 余量 column: the two'
     + ' bare zeros by kind (structural vs measured) and the tightest-lesson distance'],
+  [SIDE_HEAD, '§17 three sides — `sideDebts`: each pair count, each lesson count, both margins,'
+    + ' and the sum row, whose 涉及课数 must stay blank because the lesson sets overlap'],
   [['课', 'raw 分钟', '到下一档还剩', '后果'],
     '§17 bucket margins — NOT pinned row by row (re-measured 2026-10-09: all six exact); its one'
     + ' prose figure, the minute sum, IS pinned above'],
