@@ -20,6 +20,7 @@ import { rssiOn } from './rssi'
 import { decodeFrame } from '../../src/model/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
+import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
 const US = 1_000
@@ -549,5 +550,171 @@ describe('amp-slots · what the UI shows', () => {
     const c = slotCensus(recs(ACWE3), 4)
     expect(((c.empty / c.slots) * 100).toFixed(1)).toBe('42.5')
     expect(((c.collision / c.slots) * 100).toFixed(1)).toBe('14.2')
+  })
+})
+
+/**
+ * **Both tables, read back out of the lesson.**
+ *
+ * This file is the most thorough in the AMP set: all eighteen cells of the model table have an
+ * assertion, the per-slot walk has one, and the deviation claim is checked down to 4.87 points.
+ * Every one of them compares the engine with a literal written HERE, with the lesson's row quoted
+ * in a comment above it — and one even does arithmetic on the lesson's printed cells by hand
+ * (`expect((43.3 - 38.5).toFixed(1)).toBe('4.8')`). A comment is not a comparison, and that
+ * subtraction is two more figures typed on this side.
+ *
+ * `@amp-slots` prints 84 hand-typed figures into its graded prose and was on the list of lessons
+ * whose test never touched it (`tests/course/prose-readback.test.ts`). The cells were all exact;
+ * what follows is the other half of each assertion above, with no figure on this side.
+ */
+describe('amp-slots · both printed tables are read back out of the lesson', () => {
+  const tableWith = (fragment: string): string[][] => {
+    const b = ampSlots.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+  const prose = (): string => JSON.stringify(ampSlots.numbers)
+  /** The figure a cell OPENS with: 「688 µs」 → 688, 「1556 µs 被确认」 → 1556, 「1.6 %」 → 1.6. */
+  const num = (s: string): number => Number(/^[\d.]+/.exec(s.trim())?.[0] ?? NaN)
+
+  it('the slot-by-slot walk of the first round: start, who drew it, and when it closed', () => {
+    const rows = tableWith('第一轮，逐时隙展开')
+    const rs = recs()
+    const slots = ofType(rs, 'AMP_SLOT').slice(0, rows.length)
+    expect(slots, 'the lesson walks one row per slot of the first round').toHaveLength(rows.length)
+    for (const [i, row] of rows.entries()) {
+      expect(Number(row[0]), `row ${i}: the slot index, one-based as the lesson numbers them`)
+        .toBe(i + 1)
+      expect(num(row[1]), `row ${i}: when the slot opens`).toBe(slots[i].t / US)
+      // who drew it: every tag the row names must have responded inside that slot, and no other
+      // 「Tag 2」 but also 「Tag 3、5、6」 — one 「Tag 」 and then a 、-separated list
+      const named = [...row[2].matchAll(/Tag ([\d、]+)/g)]
+        .flatMap((m) => m[1].split('、'))
+        .map((d) => `tag-${d}#2g`).sort()
+      const inSlot = ofType(rs, 'TX_START')
+        .filter((r) => TAGS.includes(r.node) && r.t >= slots[i].t && r.t < slots[i].untilNs)
+        .map((r) => r.node).sort()
+      expect(named, `row ${i}: the tags the lesson says drew this slot`).toEqual(inSlot)
+      // and the ABOC the row prints is the draw that armed the slot
+      const aboc = [...row[2].matchAll(/ABOC (\d)/g)].map((m) => Number(m[1]))
+      expect(new Set(aboc).size, `row ${i}: one ABOC value per row`).toBe(1)
+      expect(aboc[0], `row ${i}: ABOC ${aboc[0]} arms slot ${i + 1}`).toBe(i)
+      // The result column takes one of two shapes, and which one is itself the claim: a time plus
+      // 「被确认」 for a slot one tag had to itself, or 「碰撞」 with no time at all for the one three
+      // tags drew. So the absence of a figure is read as a claim rather than skipped.
+      const acks = ofType(rs, 'TX_END').filter((r) => r.frame.kind === 'ampAck')
+      if (row[3].includes('碰撞')) {
+        expect(/^[\d.]/.test(row[3]), `row ${i} says 「碰撞」, so it states no closing time`).toBe(false)
+        expect(inSlot.length, `row ${i}: more than one tag answered in it`).toBeGreaterThan(1)
+        // and the Ack that closes it names the router itself, which is the rest of the cell
+        const closing = acks.find((r) => r.t >= slots[i].t && r.t < slots[i].untilNs + 1_000_000)
+        expect(closing, `row ${i}: no ampAck closes the collided slot`).toBeDefined()
+        expect(closing!.frame.dst, `row ${i}: 「Ack 点名的是路由器自己」`).toBe(closing!.frame.src)
+      } else {
+        const t = num(row[3])
+        expect(Number.isNaN(t), `row ${i}: an acknowledged slot states the time it closed`).toBe(false)
+        const closing = acks.find((r) => Math.abs(r.t / US - t) < 1)
+        expect(closing, `row ${i}: no ampAck ends at ${t} µs`).toBeDefined()
+        expect(inSlot, `row ${i} says it was acknowledged, so exactly one tag answered`).toHaveLength(1)
+        // frame addresses are bare ids; node ids carry the link suffix
+        expect(closing!.frame.dst, `row ${i}: and the Ack names that tag`)
+          .toBe(inSlot[0].replace(/#.*$/, ''))
+      }
+    }
+  })
+
+  it('the model table: both halves of all nine cells, and the reachable-slot column', () => {
+    const rows = tableWith('模型 / 三十轮实测')
+    expect(rows, 'three ACWE values').toHaveLength(3)
+    const header = /M = (\d+)，N = (\d+)/.exec(
+      (ampSlots.numbers!.find((x) => x.kind === 'table'
+        && (x.heading ?? '').includes('模型 / 三十轮实测')) as { heading: string }).heading,
+    )
+    expect(header, 'the heading no longer states M and N').not.toBeNull()
+    const M = Number(header![1])
+    const N = Number(header![2])
+    expect([M, N], 'six tags and four slots, as the scene is built').toEqual([TAGS.length, 4])
+    const byAcwe: Record<number, number | undefined> = { 1: ACWE1, 2: undefined, 3: ACWE3 }
+    for (const row of rows) {
+      const label = /^(\d+) \(ACW (\d+)\)$/.exec(row[0])
+      expect(label, `the ACWE cell 「${row[0]}」 is not in the shape 「n (ACW m)」`).not.toBeNull()
+      const acwe = Number(label![1])
+      const acw = Number(label![2])
+      // ACW = 2^ACWE − 1, which the lesson prints in the same cell
+      expect(acw, `ACWE ${acwe}: the ACW it prints beside it`).toBe(2 ** acwe - 1)
+      const m = model(M, acw, N)
+      const reach = /^(\d+) of (\d+)$/.exec(row[1])
+      expect(reach, `ACWE ${acwe}: the reachable cell is not 「a of b」`).not.toBeNull()
+      expect([Number(reach![1]), Number(reach![2])], `ACWE ${acwe}: reachable of offered`)
+        .toEqual([m.reachable, N])
+      const c = slotCensus(recs(byAcwe[acwe]), m.reachable)
+      const keys = ['empty', 'success', 'collision'] as const
+      keys.forEach((k, j) => {
+        const pair = /^([\d.]+) % \/ ([\d.]+) %$/.exec(row[2 + j])
+        expect(pair, `ACWE ${acwe} ${k}: the cell is not 「model % / measured %」`).not.toBeNull()
+        expect(Number(pair![1]), `ACWE ${acwe} ${k}: the model half`)
+          .toBe(Number((m[k] * 100).toFixed(1)))
+        expect(Number(pair![2]), `ACWE ${acwe} ${k}: the measured half`)
+          .toBe(Number(((c[k] / c.slots) * 100).toFixed(1)))
+      })
+      // each row's three measured fractions are a partition of its reachable slots
+      expect(c.empty + c.success + c.collision, `ACWE ${acwe}: the census covers every slot`)
+        .toBe(c.slots)
+    }
+  })
+
+  it('the deviation sentence, including the gap it takes between its own two cells', () => {
+    const m = /实测比例与公式的偏差却都不超过 ([\d.]+)，也就是([一二三四五六七八九十]+)个百分点；全表最大的一处偏差是 ACWE (\d) 的“(..)”一列，([\d.]+) 个百分点（四舍五入后的表格单元格相差 ([\d.]+)）/
+      .exec(prose())
+    expect(m, 'the deviation sentence is gone, or its shape changed').not.toBeNull()
+    expect(Number(m![1]), 'the tolerance the lesson claims, against TOL here').toBe(TOL)
+    expect(zhNumeral(m![2]), 'the same tolerance stated in percentage points')
+      .toBe(Number((TOL * 100).toFixed(0)))
+    const byAcwe: Record<number, number | undefined> = { 1: ACWE1, 2: undefined, 3: ACWE3 }
+    let worst = 0
+    let worstAt = ''
+    for (const acwe of [1, 2, 3]) {
+      const mm = model(TAGS.length, 2 ** acwe - 1, 4)
+      const c = slotCensus(recs(byAcwe[acwe]), mm.reachable)
+      for (const k of ['empty', 'success', 'collision'] as const) {
+        const d = Math.abs(c[k] / c.slots - mm[k])
+        if (d > worst) { worst = d; worstAt = `${acwe}|${k}` }
+      }
+    }
+    const COLUMN: Record<string, string> = { 空: 'empty', 成功: 'success', 碰撞: 'collision' }
+    expect(`${m![3]}|${COLUMN[m![4]] ?? m![4]}`, 'the row and column the lesson says the worst gap is in')
+      .toBe(worstAt)
+    expect(Number(m![5]), 'the worst gap in percentage points').toBe(Number((worst * 100).toFixed(2)))
+    // 「四舍五入后的表格单元格相差 4.8」: taken from the table's OWN two cells, not retyped
+    const row = tableWith('模型 / 三十轮实测').find((r) => r[0].startsWith(`${m![3]} `))!
+    const col = ['空', '成功', '碰撞'].indexOf(m![4]) + 2
+    const pair = /^([\d.]+) % \/ ([\d.]+) %$/.exec(row[col])!
+    expect(Number(m![6]), 'the gap between the two halves of that very cell')
+      .toBe(Number(Math.abs(Number(pair![2]) - Number(pair![1])).toFixed(1)))
+  })
+
+  it('the sit-out sentence: the draws, the sit-outs and the rate', () => {
+    const m = /实测 (\d+) 次中空转 (\d+) 次，([\d.]+) %/.exec(prose())
+    expect(m, 'the sit-out sentence is gone, or its shape changed').not.toBeNull()
+    const rs = recs(ACWE3)
+    const draws = ofType(rs, 'AMP_ABOC')
+    expect(Number(m![1]), 'draws over the thirty rounds').toBe(draws.length)
+    expect(Number(m![1]), 'which is one per tag per round').toBe(TAGS.length * ROUNDS)
+    const sat = draws.filter((d) => d.slot === null).length
+    expect(Number(m![2]), 'draws that sat out').toBe(sat)
+    expect(Number(m![3]), 'and the rate').toBe(Number(((100 * sat) / draws.length).toFixed(1)))
+  })
+
+  it('the Ack census: a hundred and twenty Acks, and who each of them named', () => {
+    const m = /(.+?)轮下来，(\d+) 帧 Ack 里 (\d+) 帧点名了某个标签，(\d+) 帧写的是路由器自己/.exec(prose())
+    expect(m, 'the Ack census sentence is gone, or its shape changed').not.toBeNull()
+    const rs = recs()
+    const acks = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ampAck')
+    expect(Number(m![2]), 'Acks in the run').toBe(acks.length)
+    expect(Number(m![2]), 'which is one per slot of every round').toBe(4 * ROUNDS)
+    // 「点名了某个标签」 vs 「写的是路由器自己」: the self-addressed Ack is the collided-slot one
+    const toTag = acks.filter((r) => r.frame.dst !== r.frame.src).length
+    expect(Number(m![3]), 'Acks that named a tag').toBe(toTag)
+    expect(Number(m![4]), 'and Acks that named the router itself').toBe(acks.length - toTag)
   })
 })
