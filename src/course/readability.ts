@@ -640,7 +640,11 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '隐藏节点', en: 'hidden station' },
   { zh: '请求发送', en: 'request to send', abbr: 'RTS' },
   { zh: '允许发送', en: 'clear to send', abbr: 'CTS' },
-  { zh: 'RTS 门限', en: 'RTS threshold' },
+  // `预约门限` was `@small-frames`' own name for this one quantity (`Scenario.rtsThresholdBytes`)
+  // for eight lessons before `@rts-cts` named it — and `@rts-cts` is not in its `needs` closure, so
+  // nothing told the reader the two were the same number. Filed in §10.6 of
+  // `docs/course-wording-contract.md` and paid on 2026-10-12; this row is what keeps it paid.
+  { zh: 'RTS 门限', en: 'RTS threshold', aka: ['预约门限'] },
   { zh: '分布式协调功能', en: 'distributed coordination function', abbr: 'DCF' },
   { zh: '增强型分布式信道接入', en: 'enhanced distributed channel access', abbr: 'EDCA' },
   { zh: '内部碰撞', en: 'internal collision' },
