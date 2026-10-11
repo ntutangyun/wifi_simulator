@@ -53,14 +53,23 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
 /**
  * **The ceiling, and the one number here a human owns.**
  *
- * It is the ceiling AND (today) the current value: the debt stands at exactly 292, with no slack
+ * It is the ceiling AND (today) the current value: the debt stands at exactly 289, with no slack
  * in it, and that is deliberate rather than an accident of when it was measured — a ratchet with
  * room left in it is not a ratchet. Paying debt down is never a human's call; **raising this is**,
  * and it is not a thing to do because the build is red. See the ratchet's own docblock in
- * `readability.test.ts` for the history of the number (296 → 292 on 2026-10-05, and 302 → 292
- * before that).
+ * `readability.test.ts` for the history of the number (292 → 289 on 2026-10-11, 296 → 292 on
+ * 2026-10-05, and 302 → 292 before that).
+ *
+ * **Why it comes down in the same slice that pays the debt, with nobody asked.** The two
+ * sentences above are the rule: the ceiling is the current value, slack in it is the defect, and
+ * only RAISING it is a human's call. The 296 → 292 step wrote the same thing down as a precedent
+ * — 「leaving the number at 296 would have left four characters of slack in a ratchet whose whole
+ * argument is that it has none」, in the ratchet's docblock — and §17 of
+ * `docs/wifi-feature-coverage.md` states 余量 = `ceiling − debt` to a reader, so a debt paid down
+ * with this number held still does not read as generosity: it reads as a 余量 nobody chose. W16
+ * paid three of `@fading`'s pairs and lowered this by three in the same commit.
  */
-export const LIMITS_DEBT_CEILING = 292
+export const LIMITS_DEBT_CEILING = 289
 
 /**
  * The per-lesson main-path band the lesson contract enforces: about a third of the mean lesson,

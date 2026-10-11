@@ -877,11 +877,18 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * it is worse than both put together:
  *
  * ```
- *                 criterion Q            criterion P
- *   limits        292 pairs / 76 lessons  (296 before slice 3d paid four back)
- *   sources       182 pairs / 68 lessons  176 = 172 bracket + 4 aka
- *   deeper         86 pairs / 39 lessons   76 =  75 bracket + 1 aka
+ *                 criterion Q (re-measured 2026-10-11)  criterion P (2026-10-05, never re-measured)
+ *   limits        289 pairs / 76 lessons                296 = 291 bracket + 5 aka
+ *   sources       195 pairs / 75 lessons                176 = 172 bracket + 4 aka
+ *   deeper         91 pairs / 40 lessons                 76 =  75 bracket + 1 aka
  * ```
+ *
+ * **The Q column is measured — `owed` in `./coverageNumbers` — and the P column is a record of
+ * 2026-10-05 that nothing in this repository computes today.** Slice W16 tried to reproduce it
+ * from two readings of its own definition and got 646 / 598 / 326 (every unbracketed first use
+ * inside the field) and 289 / 187 / 81 (the same, restricted to the Q pairs); neither is the
+ * recorded 296 / 176 / 76. So the P column is quotable history, not a figure to compare a
+ * measurement against — and a later slice that wants P back has to write the measurement first.
  *
  * ### The two criteria, and why this assertion has to name which one it uses
  *
@@ -893,18 +900,19 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
  *    named in the field and never named on that lesson's graded main path.
  *
- * **This ratchet is criterion Q, and the number is 292.** It is NOT the same
+ * **This ratchet is criterion Q, and the number is 289.** It is NOT the same
  * criterion as P, even though the two coincided at 296 before slice 3d — and the
  * fact that they coincide here is precisely why the distinction is spelled out
  * rather than assumed. They are measurably different criteria: on `sources` Q is
- * 182 and P is 176, on `deeper` Q is 86 and P is 76. If a later reader finds
+ * 195 today (182 when this was written) and P was 176, on `deeper` Q is 91 today (86 then) and
+ * P was 76. If a later reader finds
  * these two numbers equal again, that is a coincidence of this corpus, not a
  * definition.
  *
  * ### What this assertion does and does not ask for
  *
- * It does not ask anyone to fix 292 sites. It makes the debt visible and forbids
- * the 297th: a new `limits` entry that names an official term the lesson's own
+ * It does not ask anyone to fix 289 sites. It makes the debt visible and forbids
+ * the 290th: a new `limits` entry that names an official term the lesson's own
  * main path never names turns this red, and the fix is one sentence on the main
  * path. Paying the debt itself means splitting six lessons — adding `limits` to
  * `mainPathChars` moves 50 lessons' stated minutes and puts six of them over the
@@ -917,7 +925,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * side used a bare `includes`, which excused ten pairs. `bracketedAtFirstZhUse`
  * is the ruler here, and it is the same call on both sides.
  */
-describe('readability · the limits debt is pinned, and the 297th entry is refused', () => {
+describe('readability · the limits debt is pinned, and the 290th entry is refused', () => {
   // `names` comes from `./corpus`; `owed` (criterion Q for one field of one lesson), `limitsOf`,
   // the ceiling and the measured ratchet from `./coverageNumbers`, unchanged. They moved out of
   // this file on 2026-10-09 so
@@ -928,7 +936,7 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    * **The number itself is `LIMITS_DEBT_CEILING` in `./coverageNumbers`**, so this `it`'s title, the
    * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
    *
-   * **This number is the ceiling AND the current value: the debt stands at exactly 292.** There
+   * **This number is the ceiling AND the current value: the debt stands at exactly 289.** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
    * adds a `limits` entry:
@@ -937,8 +945,10 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    *    no warning shot;
    *  - the fix is one sentence on the main path, bracketing the term at its first use — not a
    *    bigger number here;
-   *  - if that sentence will not fit, the other legal move is to pay one of the existing 292
-   *    back, which is the same work on a different lesson;
+   *  - if that sentence will not fit, the other legal move is to pay one of the existing 289
+   *    back, which is the same work on a different lesson — but read the `it` below first: the
+   *    comparison there has 3 of margin, and a repayment that does not ALSO pay the same (lesson,
+   *    term) pair on the `sources`/`deeper` side spends one unit of it;
    *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
    *    build is red.
    *
@@ -950,6 +960,20 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    * left four characters of slack in a ratchet whose whole argument is that it has none. The new
    * lesson of that slice added **zero**: its three `limits` name one official term
    * (媒体访问控制) and that term is bracketed on its own main path.
+   *
+   * **292 → 289 on 2026-10-11, and the ratchet came down with it again.** Slice W16 read the five
+   * pairs `@fading` carries — 灵敏度, 符号, 波束成形, 载波侦听, 隐藏节点 — and paid three: 符号 and
+   * 波束成形 are now named on that lesson's own main path (which paid the same two pairs on the
+   * `sources` side as well), and 灵敏度 gave way to the 门限 the lesson's own prose already uses.
+   * **The two that stayed, 载波侦听 and 隐藏节点, are not unpayable prose** — one reworded clause or
+   * one main-path sentence does either — **they are blocked by the `it` below**, whose margin is 3
+   * and whose left side is this debt: paying both takes `limits` to 287 against a `sources` +
+   * `deeper` of 286, and paying them the other way costs the same margin, because neither term is
+   * owed in this lesson's `sources` or `deeper`. Taking that comparison from 3 of margin down to
+   * 1 in order to pay two pairs is a trade a human owns, not a test.
+   * `@fading` landed 2026-10-05 (`7c1c3a8`, 00:12) — six hours BEFORE this ratchet was filed
+   * (`2514723`, 06:06), so its five were inside the original 296 and it is grandfathered exactly
+   * the way `@uwb-sp3` is; it never broke the 「新课贡献 0 笔」 rule.
    *
    * The earlier precedent, so the instruction is not merely an instruction: the slice that added
    * `wan-rtt` and `edca-tamper` (2026-10-05) ran this up to 302 — six terms in the new lessons'
@@ -984,21 +1008,50 @@ describe('readability · the limits debt is pinned, and the 297th entry is refus
    * The comparison that makes the number mean something: `limits` is held to a
    * ratchet rather than graded, and the reason is that by this ruler it behaves
    * like the two fields the rule deliberately does not grade — only more so.
-   * Asserted as an ordering rather than as three literals, so ordinary prose
-   * edits do not touch it while the claim itself stays pinned.
+   * Asserted as an ordering rather than as three literals, so an ordinary prose
+   * edit does not touch it while the claim itself stays pinned.
+   *
+   * **That last sentence was true with 28 of margin and is not true today.** The margin is the
+   * number to read this `it` by, and it has drifted: at the filing commit (`2514723`,
+   * 2026-10-05) the sides were 296 against 182 + 86 = 268, a margin of **28**; on 2026-10-11 they
+   * are 289 against 195 + 91 = 286, a margin of **3**. Nobody chose 3 — the sum side grew while
+   * the left side was paid down. Measured decomposition of the 21 pairs the sum side gained: the
+   * eight lessons added since the filing carry 20 of them today (`link-2g` 6,
+   * `claim-to-contribution` 5, `uhr-rate-ladder` 3, `wan-rtt` 2, `uwb-ancillary-request` 2,
+   * `edca-tamper` 1, `amp-backscatter` 1, `uwb-ancillary-loss` 0), and the mean lesson of this
+   * course carries 3.18 of this debt with 52 of 91 lessons at three or more.
+   *
+   * **So the next new lesson can redden this, and the number is THREE, not four.** The comparison
+   * is strict, so a lesson that owes three `sources`/`deeper` pairs and the mandatory zero
+   * `limits` pairs makes it 289 against 289 and fails — on a file it did not open, for a claim it
+   * did not weaken. That is the median lesson of this course, not an unlucky one.
+   *
+   * **It is still true and still named correctly, which is why W16 did not touch its strength.**
+   * What it no longer is, is insensitive to ordinary editing. Loosening it to 「more than either
+   * field alone」, re-pinning it as a dated record of the ordering, or accepting that it reddens
+   * on the next lesson are all somebody's call to make; none of them is a thing to do because a
+   * build went red.
    */
   it('carries more of this debt than `sources` and `deeper` put together', () => {
     const inSources = migrated.flatMap((l) => owed(l, (l.sources ?? []).join(' ')))
     const inDeeper = migrated.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' ')))
     const inLimits = limitsRatchet().pairs
-    // 188 and 92 on 2026-10-09, against `limits`' 292 — the docblock above this describe once
-    // recorded `sources` as 182, which was already stale when it was written (measured 185 before
-    // slice 3d, 186 after it, 188 today). The assertions are floors and an ordering, so none of
-    // the three moved.
+    // 195 and 91 on 2026-10-11, against `limits`' 289 — margin 3. The comment that stood here
+    // recorded 188 and 92 「on 2026-10-09」 against 292, and the docblock above this describe
+    // recorded 182 and 86; both were stale by the time W16 read them (`sources` measured 185
+    // before slice 3d, 186 after it, 188 on 2026-10-09, 197 on 2026-10-11 before this slice paid
+    // two of them, 195 after). The assertions are floors and an ordering, so none of the three
+    // ever reddened — which is exactly how 28 of margin became 3 with nothing to read it by.
     expect(inSources.length).toBeGreaterThan(100)
     expect(inDeeper.length).toBeGreaterThan(50)
     expect(inLimits.length, '`limits` is rendered open by default, written at the density of'
-      + ' collapsed depth, and timed at zero — this is the number that says so')
+      + ' collapsed depth, and timed at zero — this is the number that says so.'
+      + ` Margin today: ${inLimits.length} − (${inSources.length} + ${inDeeper.length}) =`
+      + ` ${inLimits.length - inSources.length - inDeeper.length}, against 28 at the filing`
+      + ' commit. If you got here by ADDING a lesson, it owes three or more (lesson, term) pairs'
+      + ' in its `sources`/`deeper` and this comparison has run out of margin — read its'
+      + ' docblock, do not widen it. If you got here by PAYING `limits` debt down, that same'
+      + ' docblock says why this is the other way to spend the margin.')
       .toBeGreaterThan(inSources.length + inDeeper.length)
   })
 })
