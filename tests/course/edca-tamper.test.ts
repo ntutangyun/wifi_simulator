@@ -43,14 +43,29 @@ lessonShapeSuite(edcaTamper)
 
 const run = (s: Scenario, ns: number = RUN_NS): TLRecord[] => [...new Simulation(s).runUntil(ns).records]
 
+interface Round { tx: number[]; share: number; coll: number }
+
+/**
+ * Memoised on (cheat, seed), because two describes in this file now ask for the same forty rounds:
+ * the five-seed ladder and the read-back of the bands the lesson prints from it. Measured when the
+ * read-back landed — eighty two-second rounds against forty, 30 s of wall clock — and the scenario
+ * builder is deterministic, so a shared answer is the same answer.
+ */
+const rounds = new Map<string, Round>()
+
 /** The three stations' delivered frames, and the first one's share of the total. */
-function round(cheat: TamperKind | undefined, seed?: number): { tx: number[]; share: number; coll: number } {
+function round(cheat: TamperKind | undefined, seed?: number): Round {
+  const key = `${cheat ?? 'base'}|${seed ?? 'own'}`
+  const hit = rounds.get(key)
+  if (hit) return hit
   const sc = tamperScenario(cheat, seed === undefined ? {} : { seed })
   const recs = run(sc)
   const vs = initViewState(sc)
   for (const r of recs) applyRecord(vs, r)
   const tx = ['sta-1', 'sta-2', 'sta-3'].map((id) => vs.nodes[id].stats.txOk)
-  return { tx, share: tx[0] / tx.reduce((a, b) => a + b, 0), coll: ofType(recs, 'COLLISION').length }
+  const out: Round = { tx, share: tx[0] / tx.reduce((a, b) => a + b, 0), coll: ofType(recs, 'COLLISION').length }
+  rounds.set(key, out)
+  return out
 }
 
 describe('edca-tamper · the lesson as data', () => {
@@ -247,5 +262,83 @@ describe('edca-tamper · the variant where a cheat does nothing', () => {
       return [ofType(recs, 'COLLISION').length, vs.nodes['sta-1'].stats.txOk, vs.nodes['sta-1'].stats.appRtt.sumNs]
     }
     expect(stats(hogSc)).toEqual(stats(cleanSc))
+  })
+})
+
+/**
+ * **The lesson's own tables and sentences, read back out of the lesson.**
+ *
+ * This file measured the engine thoroughly and compared it to literals written HERE — including an
+ * `it` titled 「prints the eight figures the lesson prints」 whose eight figures were this file's
+ * own copies of them. That catches an engine change and misses a prose change: editing 63.6 to
+ * 63.7 in the lesson shipped green. On 2026-10-12 a sweep found this lesson among the eighteen
+ * whose test never touched its prose at all (`tests/course/prose-readback.test.ts`), and among the
+ * twelve carrying hand-typed figures with no numerically-equal literal anywhere in tests/ — the
+ * four maxima of the five-seed bands below.
+ *
+ * Both are read out of the lesson now, so the eight figures and the ten band ends have no copy on
+ * this side to drift from. The figures were all exact; this is wiring, not a correction.
+ */
+describe('edca-tamper · the figures the lesson prints are read back out of it', () => {
+  /** The label each row of the lesson's table carries, against the cheat it names. */
+  const BY_LABEL: Record<string, TamperKind | undefined> = {
+    不作弊: undefined, 窗口不翻倍: 'noDouble', 缩短静默: 'aifs', 霸占信道: 'txopHog',
+    提升优先级: 'escalate', 虚报时长: 'navInflate', 窗口坍缩: 'cw', 四种合在一起: 'greedy',
+  }
+
+  const tableOf = (fragment: string): string[][] => {
+    const b = edcaTamper.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+  /** 「7 343」 → 7343; 「31.4 %」 → 31.4. */
+  const cell = (s: string): number => Number(s.replace(/[\s%]/g, ''))
+
+  it('the per-configuration table: share, both compliant counts and the collisions, cell by cell', () => {
+    const rows = tableOf('七种改法各跑两秒')
+    expect(rows, 'the lesson prints one row per configuration plus the honest one').toHaveLength(8)
+    for (const row of rows) {
+      const kind = BY_LABEL[row[0]]
+      expect(row[0] in BY_LABEL, `the table names 「${row[0]}」, which this test cannot map to a cheat`)
+        .toBe(true)
+      const r = round(kind)
+      expect(cell(row[1]), `${row[0]}: the cheater’s share`).toBe(Number((100 * r.share).toFixed(1)))
+      expect(cell(row[2]), `${row[0]}: compliant A`).toBe(r.tx[1])
+      expect(cell(row[3]), `${row[0]}: compliant B`).toBe(r.tx[2])
+      expect(cell(row[4]), `${row[0]}: collisions in the round`).toBe(r.coll)
+    }
+    // the table's order is the ladder the lesson's argument climbs, so it is the order too
+    expect(rows.map((r) => cell(r[1])), 'the printed shares, in the printed order, ascending')
+      .toEqual([...rows.map((r) => cell(r[1]))].sort((a, b) => a - b))
+  })
+
+  it('the five-seed bands: every one of the ten ends is the measured min or max', () => {
+    const text = JSON.stringify(edcaTamper.numbers)
+    const m = /五个种子（([\d、]+)）一起看[^]*?不作弊 ([\d.]+) 到 ([\d.]+) %、窗口不翻倍 ([\d.]+) 到 ([\d.]+) %、缩短静默 ([\d.]+) 到 ([\d.]+) %、霸占信道 ([\d.]+) 到 ([\d.]+) %、提升优先级 ([\d.]+) 到 ([\d.]+) %。而最后三种全部落在 ([\d.]+) 到 ([\d.]+) % 之间/
+      .exec(text)
+    expect(m, 'the five-seed sentence is gone from `numbers`, or its shape changed').not.toBeNull()
+    expect(m![1].split('、').map(Number), 'the seeds the sentence names, against SEEDS here')
+      .toEqual([...SEEDS])
+    const band = (kind: TamperKind | undefined): [number, number] => {
+      const xs = SEEDS.map((sd) => 100 * round(kind, sd === 7 ? undefined : sd).share)
+      return [Number(Math.min(...xs).toFixed(1)), Number(Math.max(...xs).toFixed(1))]
+    }
+    const rungs: (TamperKind | undefined)[] = [undefined, 'noDouble', 'aifs', 'txopHog', 'escalate']
+    rungs.forEach((kind, i) => {
+      const [lo, hi] = band(kind)
+      expect([Number(m![2 + 2 * i]), Number(m![3 + 2 * i])], `the band the lesson prints for`
+        + ` ${String(kind)} — measured ${lo} to ${hi}`).toEqual([lo, hi])
+    })
+    // the ceiling group is printed as ONE band over three cheats and five seeds
+    const ceiling = (['navInflate', 'cw', 'greedy'] as const)
+      .flatMap((k) => SEEDS.map((sd) => 100 * round(k, sd === 7 ? undefined : sd).share))
+    expect([Number(m![12]), Number(m![13])], 'the band the lesson gives the last three together')
+      .toEqual([Number(Math.min(...ceiling).toFixed(1)), Number(Math.max(...ceiling).toFixed(1))])
+    // and the claim the sentence is built on: the five bands do not overlap
+    const bands = rungs.map(band)
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i][0], `${String(rungs[i])}’s floor over ${String(rungs[i - 1])}’s ceiling`)
+        .toBeGreaterThan(bands[i - 1][1])
+    }
   })
 })
