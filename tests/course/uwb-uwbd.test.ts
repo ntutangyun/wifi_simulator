@@ -20,6 +20,7 @@ import {
 import { UWB_TX_POWER_DBM, uwbPathLossDb, uwbPl0Db } from '../../src/uwb/phy'
 import { UWB_RX_SENS_DBM } from '../../src/uwb/units'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
 /** One 200 ms ranging block, and nothing of the next: every count below is per block. */
@@ -248,5 +249,147 @@ describe('uwb-uwbd · the packet figure comes from the engine', () => {
     expect(sizes).toEqual([s.sync / 1000, s.sfd / 1000, s.phr / 1000, s.psdu / 1000, rsfNs(40, 64) / 1000])
     expect(sizes.slice(0, 4).reduce((a, b) => a + b, 0)).toBeCloseTo(MMS_SP0_NS / 1000, 6)
     expect(MMS_SP0_NS).toBe(117_600)
+  })
+})
+
+/**
+ * **The lesson's three figure tables and its 14.54 dB formula, read back out of the lesson.**
+ *
+ * Every assertion above measures the engine and compares it with a literal written here, with the
+ * lesson's row quoted in a comment. `@uwb-uwbd` prints 54 hand-typed figures into its graded prose
+ * and was on the list of lessons whose test never touched it
+ * (`tests/course/prose-readback.test.ts`). The figures were all exact; this is the other half.
+ */
+describe('uwb-uwbd · the printed tables and the formula are read back out of the lesson', () => {
+  const rowsOf = (fragment: string): string[][] => {
+    const b = uwbUwbd.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+  /** The figure a cell opens with, full-width minus included: 「−73.95 dBm」 → −73.95. */
+  const num = (s: string): number =>
+    Number(/^[−-]?[\d.]+/.exec(s.trim().replace(/−/g, '-'))?.[0] ?? NaN)
+  const PHY = (over: Partial<MmsPhy> = {}): MmsPhy => ({
+    rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS, ...over,
+  })
+  /** Each control-plane row of the lesson against the phy override that builds it. */
+  const PLANES: readonly (readonly [string, Partial<MmsPhy>, number | undefined])[] = [
+    ['窄带辅助（Config 2）', { control: 'nba' }, NBA],
+    ['UWB 驱动 + SP0', { control: 'uwbd', uwbdControl: 'sp0' }, undefined],
+    ['UWB 驱动 + 零长', { control: 'uwbd', uwbdControl: 'none' }, NONE],
+  ]
+
+  it('the slot table: window, control, report and the round, in slots and in milliseconds', () => {
+    const rows = rowsOf('同一轮，三种控制面')
+    expect(rows.map((r) => r[0]), 'the three control planes the lesson tabulates')
+      .toEqual(PLANES.map(([label]) => label))
+    for (const [i, [label, over]] of PLANES.entries()) {
+      const l = mmsLayout(PHY(over), 1)
+      const row = rows[i]
+      expect(num(row[1]), `${label}: the window in slots`).toBe(l.windowSlots)
+      expect(num(row[2]), `${label}: the control phase`).toBe(l.controlSlots)
+      expect(num(row[3]), `${label}: the report phase`).toBe(l.reportSlots)
+      const round = /^(\d+) 时隙 · (\d+) ms$/.exec(row[4])
+      expect(round, `${label}: the round cell is not 「n 时隙 · m ms」`).not.toBeNull()
+      expect(Number(round![1]), `${label}: the round in slots`).toBe(l.slots)
+      expect(Number(round![2]), `${label}: and the same round in milliseconds`)
+        .toBe(l.slots * PHY(over).gapMs / 2)
+      // the paragraph under the table: the report phase never goes to zero, however the control
+      // phase is configured — 「把控制那一对置零，并不说明报告那一对也是零」
+      expect(l.reportSlots, `${label}: the report phase is never zero`).toBeGreaterThan(0)
+    }
+    // the round shrinks monotonically down the table, which is what it is a table of
+    const slots = rows.map((r) => Number(/^(\d+) 时隙/.exec(r[4])![1]))
+    expect(slots, 'the three rounds, in the printed order').toEqual([...slots].sort((a, b) => b - a))
+  })
+
+  it('the 14.54 dB formula: both differences, and the sum its note takes', () => {
+    const f = uwbUwbd.numbers!.find((x) => x.kind === 'formula'
+      && (x.heading ?? '').includes('十四个多分贝')) as { text: string; note?: string } | undefined
+    expect(f, 'the 14.54 dB formula is gone from `numbers`').toBeDefined()
+    const m = /片段 10·log10\((\d+) nJ \/ ([\d.]+) µs\) = [−-]([\d.]+) dBm\s*\nSP0 发射功率 = [−-]([\d.]+) dBm\s*→\s*相差 ([\d.]+) dB\s*\n门限：片段 [−-](\d+) dBm，SP0 [−-](\d+) dBm\s*→\s*再差 (\d+) dB/
+      .exec(f!.text)
+    expect(m, 'the formula no longer states its terms in the shape this reads').not.toBeNull()
+    const FRAG_NS = rsfNs(40, 64)
+    expect(Number(m![2]), 'the fragment duration the formula divides by').toBe(FRAG_NS / 1000)
+    expect(-Number(m![3]), 'the fragment’s own transmit level')
+      .toBe(Number(mmsFragmentDbm(FRAG_NS).toFixed(2)))
+    expect(-Number(m![4]), 'the SP0 transmit power').toBe(UWB_TX_POWER_DBM)
+    expect(Number(m![5]), 'and the transmit-side difference')
+      .toBe(Number((mmsFragmentDbm(FRAG_NS) - UWB_TX_POWER_DBM).toFixed(2)))
+    expect(-Number(m![6]), 'the fragment threshold').toBe(UWB_RX_SENS_DBM)
+    expect(-Number(m![7]), 'the SP0 threshold').toBe(MMS_SP0_RX_SENS_DBM)
+    expect(Number(m![8]), 'and the receive-side difference').toBe(MMS_SP0_PENALTY_DB)
+    const note = /两者相加 ([\d.]+) dB/.exec(f!.note ?? '')
+    expect(note, 'the note no longer states the sum').not.toBeNull()
+    expect(Number(note![1]), 'the sum of the lesson’s own two differences')
+      .toBeCloseTo(Number(m![5]) + Number(m![8]), 6)
+  })
+
+  it('the level ledger: five rows, two anchors, every level from the channel law', () => {
+    const rows = rowsOf('这条走廊上的两个锚点')
+    expect(rows, 'the lesson prints five quantities').toHaveLength(5)
+    const pl0 = uwbPl0Db(9)
+    const FRAG_NS = rsfNs(40, 64)
+    const frag = mmsFragmentDbm(FRAG_NS)
+    // the two columns are the two anchors; their distances come from the heading of the scene,
+    // not from this file — 「十米处那个」/「二十米处那个」
+    const heads = (uwbUwbd.numbers!.find((x) => x.kind === 'table'
+      && (x.heading ?? '').includes('这条走廊上的两个锚点')) as { head: string[] }).head
+    const dists = heads.slice(1).map((h) => {
+      const zh = /^([一二三四五六七八九十]+)米处/.exec(h.trim())
+      expect(zh, `the column heading 「${h}」 does not name a distance in Chinese numerals`)
+        .not.toBeNull()
+      return zhNumeral(zh![1])!
+    })
+    expect(dists, 'the two anchor distances the headings name').toEqual([10, 20])
+    for (const [j, d] of dists.entries()) {
+      const L = uwbPathLossDb(pl0, d, 0)
+      expect(num(rows[0][1 + j]), `${d} m: path loss`).toBe(Number(L.toFixed(2)))
+      expect(num(rows[1][1 + j]), `${d} m: one fragment on arrival`).toBe(Number((frag - L).toFixed(2)))
+      expect(num(rows[2][1 + j]), `${d} m: all eight combined`)
+        .toBe(Number((frag - L + combineGainDb(8)).toFixed(2)))
+      expect(num(rows[3][1 + j]), `${d} m: the SP0 packet on arrival`)
+        .toBe(Number((UWB_TX_POWER_DBM - L).toFixed(2)))
+      // the last row states a SIGNED relation in words, and the sign is the lesson
+      const margin = UWB_TX_POWER_DBM - L - MMS_SP0_RX_SENS_DBM
+      const cell = rows[4][1 + j]
+      const rel = /^(高出|低了) ([\d.]+) dB$/.exec(cell)
+      expect(rel, `${d} m: the margin cell 「${cell}」 is not 「高出 x dB」 or 「低了 x dB」`).not.toBeNull()
+      expect(rel![1], `${d} m: which side of the threshold it falls on`)
+        .toBe(margin > 0 ? '高出' : '低了')
+      expect(Number(rel![2]), `${d} m: and by how much`).toBe(Number(Math.abs(margin).toFixed(2)))
+    }
+    // the threshold the last row names is the SP0 one, stated in its own label
+    expect(num(rows[4][0].replace('SP0 的门限 ', '')), 'the threshold the row names')
+      .toBe(MMS_SP0_RX_SENS_DBM)
+    // and the sign really does change between the two columns — the whole lesson
+    expect(rows[4][1].startsWith('高出') && rows[4][2].startsWith('低了'),
+      'the near anchor clears the threshold and the far one does not').toBe(true)
+  })
+
+  it('the outcome table: what each control plane measured, and how many distances', () => {
+    const rows = rowsOf('三种控制面，各测出了什么')
+    expect(rows.map((r) => r[0]), 'the same three planes, in the same order')
+      .toEqual(PLANES.map(([label]) => label))
+    for (const [i, [label, , variant]] of PLANES.entries()) {
+      const rs = runOf(uwbUwbd, variant, BLOCK_NS)
+      const fixes = ofType(rs, 'UWB_RANGE')
+      const row = rows[i]
+      expect(num(row[3]), `${label}: distances per block`).toBe(fixes.length)
+      // the near anchor is measured in every plane; the far one only under Config 2
+      const far = fixes.filter((r) => r.peer.includes('far') || r.trueDistM > 15)
+      expect(row[1], `${label}: the near column says 「测得」`).toBe('测得')
+      expect(fixes.length - far.length, `${label}: and the near anchor really was measured`)
+        .toBeGreaterThan(0)
+      if (row[2] === '测得') {
+        expect(far.length, `${label}: the far column says 「测得」 too`).toBeGreaterThan(0)
+      } else {
+        expect(far.length, `${label}: the far column says 「${row[2]}」, so no distance came back`)
+          .toBe(0)
+      }
+    }
+    // exactly one plane measures both anchors, which is why the lesson is about the other two
+    expect(rows.filter((r) => r[2] === '测得'), 'only Config 2 reaches the far anchor').toHaveLength(1)
   })
 })

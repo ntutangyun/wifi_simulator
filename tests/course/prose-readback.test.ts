@@ -14,7 +14,8 @@
  * `@wan-rtt`, and the one after that for `@amp-coexist` — the lesson with the most hand-typed
  * figures in the course, 111 of them with none interpolated. The list is 15 and the count is
  * 76 — and `@amp-backscatter`, second on the same ranking with 86, took it to 14 and 77: the
- * ratchet turning, which is its job. `@amp-slots` (84, third on the ranking) followed: 13 and 78.  followed in the next slice: 16 and 75. That is the ratchet this file is: a new lesson whose test never touches its own
+ * ratchet turning, which is its job. `@amp-slots` (84, third on the ranking) followed: 13 and 78,
+ * then `@uwb-uwbd` (54, four tables): 12 and 79.  followed in the next slice: 16 and 75. That is the ratchet this file is: a new lesson whose test never touches its own
  * prose has to be added here deliberately, and a lesson that gains a read-back has to be taken
  * off in the same edit.
  *
@@ -63,7 +64,7 @@ const PROSE_FIELDS = [
 const NO_READBACK: readonly string[] = [
   'mcs-ladder', 'ifs', 'nav', 'hidden', 'ampdu', 'txop', 'txop-protect', 'rate',
   'mumimo', 'mlo', 'amp-ppdu',
-  'uwb-uwbd', 'uwb-subrounds',
+  'uwb-subrounds',
 ]
 
 const touchesProse = (id: string): boolean => {
