@@ -15,9 +15,10 @@
  * figures in the course, 111 of them with none interpolated. The list is 15 and the count is
  * 76 — and `@amp-backscatter`, second on the same ranking with 86, took it to 14 and 77: the
  * ratchet turning, which is its job. `@amp-slots` (84, third on the ranking) followed: 13 and 78,
- * then `@uwb-uwbd` (54, four tables) and `@uwb-subrounds` (43): 11 and 80.  followed in the next slice: 16 and 75. That is the ratchet this file is: a new lesson whose test never touches its own
- * prose has to be added here deliberately, and a lesson that gains a read-back has to be taken
- * off in the same edit.
+ * then `@uwb-uwbd` (54, four tables) and `@uwb-subrounds` (43): 11 and 80, and `@txop-protect`
+ * — 40 figures, the most of the eleven still owing — 10 and 81. That is the ratchet this file
+ * is: a new lesson whose test never touches its own prose has to be added here deliberately,
+ * and a lesson that gains a read-back has to be taken off in the same edit.
  *
  * **What this detects, said plainly, because it is weaker than its title suggests.** It is a
  * SYNTACTIC check: does the test file mention the lesson object's prose fields at all
@@ -57,12 +58,13 @@ const PROSE_FIELDS = [
  */
 
 /**
- * **The 18 lessons whose test never touches their prose**, measured 2026-10-12 and pinned as a
+ * **The lessons whose test never touches their prose** — 18 of them when this was first
+ * measured, on 2026-10-12, and the slices since have paid eight of those down. Pinned as a
  * SET rather than as a count — the same choice `readability.test.ts` makes for the raw-minutes
  * ceiling, and for the same reason: a count can stay right while the membership rots.
  */
 const NO_READBACK: readonly string[] = [
-  'mcs-ladder', 'ifs', 'nav', 'hidden', 'ampdu', 'txop', 'txop-protect', 'rate',
+  'mcs-ladder', 'ifs', 'nav', 'hidden', 'ampdu', 'txop', 'rate',
   'mumimo', 'mlo', 'amp-ppdu',
 ]
 
