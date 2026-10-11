@@ -52,6 +52,38 @@ export const symbolCitationOccurrences = (doc: string): number =>
   [...doc.matchAll(/`([A-Za-z0-9._/-]+\.tsx?)#([A-Za-z_$][A-Za-z0-9_$]*)`/g)].length
 
 /**
+ * Every backticked **bare file path** a document cites — a token holding a `/` and ending in one
+ * of this repository's source or document extensions, with no `#symbol` after it.
+ *
+ * The `#symbol` half of a document's citations has been validated since the coverage pair was
+ * written ({@link symbolCitations} plus {@link unresolved}, which reports both 「does not exist」
+ * and 「not exported」). The bare half was validated by nothing, and it has gone dead for real
+ * once: `src/course/curriculum.ts`'s docblock named `tests/course/curriculum.test.ts` as the test
+ * that parses its grouping comments, and no such file ever existed — found by hand, recorded as
+ * defect 5 of §13 in `docs/wifi-feature-coverage.md`, fixed 2026-10-05.
+ *
+ * Tokens carrying a `#` are excluded here rather than resolved twice: they belong to the symbol
+ * reader, which checks strictly more about them.
+ */
+export const filePathCitations = (doc: string): string[] => [
+  ...new Set([...doc.matchAll(/`([A-Za-z0-9_.][A-Za-z0-9_./-]*\/[A-Za-z0-9_./-]+\.(?:ts|tsx|md|json|txt))`/g)]
+    .map((m) => m[1])),
+]
+
+/**
+ * Where a cited path resolves, or `null`. The three bases are the convention the documents already
+ * use and {@link unresolved} already honours: a repo-root path, a `src/`-relative one (「
+ * `engine/phy.ts` 」 means `src/engine/phy.ts`), or a `tests/`-relative one.
+ */
+export const citedPathAt = (p: string): string | null => {
+  for (const base of ['', 'src', 'tests']) {
+    const q = base === '' ? p : `${base}/${p}`
+    if (existsSync(resolve(ROOT, q))) return q
+  }
+  return null
+}
+
+/**
  * Every `` `@lesson-id` `` citation, deduplicated. The character class is ASCII on purpose: it is
  * what a lesson id is, and it is what keeps a label like `` `@课号` `` in a legend out of the list.
  */
