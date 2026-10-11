@@ -49,8 +49,9 @@
  *
  * **This lesson has 15 characters of main path left, and the wall is `MAX_MINUTES`, not
  * the five-minute bucket.** Measured 2026-10-11, after the 余量 glossary row was added:
- * 3 945 characters + 2 observe + 1 tryThis = raw 29.9318 minutes, against the 30 the user
- * asked for (`MAX_MINUTES` in `src/course/curriculum.ts`). The assertion that goes red is
+ * 3 945 characters / 220 + 2 observe × 2 min + 2 tryThis × 4 min = raw 29.9318 minutes,
+ * against the 30 the user asked for (`MAX_MINUTES` in `src/course/curriculum.ts`), so the
+ * character budget at raw 30 is (30 − 12) × 220 = 3 960. The assertion that goes red is
  * `readability.test.ts`'s 「names the lessons already past the 30-minute ceiling in raw
  * terms」, whose frozen list is `['ru-diversity', 'uwb-ancillary']` — adding 16 characters
  * anywhere on this lesson's main path makes it a third entrant, and the right answer then
