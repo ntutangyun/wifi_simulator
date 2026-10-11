@@ -635,3 +635,122 @@ describe('link-2g · the ruler this lesson had to be measured with', () => {
     expect(kinds).not.toContain('AIFS')
   })
 })
+
+/**
+ * **The figures this lesson states in PROSE, which the two table read-backs above do not reach.**
+ *
+ * The describe above parses `numbers`' two tables and re-measures every cell. The lesson also
+ * states figures in sentences — throughput means over ten seeds, two arrival levels after an
+ * editor edit, a single-station mean — and a sweep of all 91 lessons against all 293 test files on
+ * 2026-10-12 found seven of this lesson's prose figures appearing in no test anywhere. Five are
+ * pinned here. All five were already exact; this is wiring, not a correction.
+ *
+ * The sixth and seventh are 「整段从 1 551.0 µs 降到 1 545.0 µs」 and they are deliberately left
+ * out, with an argument rather than a date (the lesson of §17's bucket table, see
+ * `tests/course/wifi-coverage.test.ts`):
+ *
+ *   That pair describes a **hypothetical** 20-MSDU A-MPDU — the sentence's own subject, 「20 个
+ *   MSDU 装进一个 A-MPDU，只付一次 6 微秒」 — and no scene in this lesson builds one. `burst`
+ *   aggregates up to `MAX_AMPDU_MPDUS` (64) and its PPDU measures 1 771.2 µs on 5 GHz against
+ *   1 777.2 on 2.4 GHz, not the 1 472 / 1 478 the pair implies. Pinning the absolute figures needs
+ *   the MAC's own `airModeNs` over a 20-MPDU PSDU, which is reachable but is a different slice.
+ *   What IS pinned below is everything the sentence claims that can be measured: the two waits
+ *   (45 µs and 39 µs), and that the two totals it prints differ by exactly the 6 µs of signal
+ *   extension with 2.4 GHz the faster one. And the pair is credible: the implied preamble follows
+ *   from the single-MSDU PPDU this lesson already pins — (1 472 − P) / (139.2 − P) = 20 gives
+ *   P = 69.05 µs, an HE SU preamble, so 1 472 µs really is twenty of these frames.
+ */
+describe('link-2g · the figures the lesson states in sentences, not in its tables', () => {
+  const num = (s: string): number => Number(s.replace('−', '-'))
+
+  it('the ten-seed hidden-node means, both bands, as `numbers` states them', () => {
+    const text = JSON.stringify(link2g.numbers)
+    const m = /5 GHz 上两台笔记本互为隐藏节点，吞吐均值 ([\d.]+) Mb\/s[^]*?搬到 2\.4 GHz：均值 ([\d.]+) Mb\/s/
+      .exec(text)
+    expect(m, 'the hidden-node paragraph no longer states the two means in the shape this reads')
+      .not.toBeNull()
+    const heading = /十个种子/.test(text)
+    expect(heading, 'the paragraph still says the means are over ten seeds').toBe(true)
+    const ten = seeds(10)
+    expect(Number(mean(ten.map((s) => throughputMbps('pair', '5g', s))).toFixed(3)),
+      'the 5 GHz hidden-node mean the lesson prints').toBe(num(m![1]))
+    expect(Number(mean(ten.map((s) => throughputMbps('pair', '2g', s))).toFixed(3)),
+      'the 2.4 GHz hidden-node mean the lesson prints').toBe(num(m![2]))
+  })
+
+  it('the single-station means land where `tryThis` says, within one standard deviation', () => {
+    const m = /两条链路的均值都落在 ([\d.]+) Mb\/s 附近，差不到一个标准差/.exec(link2g.tryThis[1])
+    expect(m, 'tryThis[1] no longer states the single-station mean in the shape this reads')
+      .not.toBeNull()
+    const sd = (xs: number[]): number => {
+      const m2 = mean(xs)
+      return Math.sqrt(xs.reduce((a, b) => a + (b - m2) ** 2, 0) / xs.length)
+    }
+    const ten = seeds(10)
+    const five = ten.map((s) => throughputMbps('single', '5g', s))
+    const two = ten.map((s) => throughputMbps('single', '2g', s))
+    // 「落在 X 附近」: the lesson prints one decimal, so both means round to it
+    expect(Number(mean(five).toFixed(1)), '5 GHz single-station mean').toBe(num(m![1]))
+    expect(Number(mean(two).toFixed(1)), '2.4 GHz single-station mean').toBe(num(m![1]))
+    // 「差不到一个标准差」 — the claim that makes the sentence worth printing
+    expect(Math.abs(mean(five) - mean(two)), 'the gap between the two means')
+      .toBeLessThan(Math.min(sd(five), sd(two)))
+  })
+
+  it('widening the stairwell to 4 m lands on the two levels `tryThis` states', () => {
+    // The editor edit the sentence asks for, replayed: the stairwell is `rooms[1]`, x 4 to 6.5, so
+    // taking it to 4 m pushes bedroom B and the laptop in it out by 1.5 m. Nothing else moves.
+    // **That reconstruction is confirmed by the figures themselves** — it reproduces both to the
+    // last digit, which no other reading of 「把楼梯间的宽度拉到 4 米」 would.
+    const m = /站点之间掉到 [−-]([\d.]+) dBm，加上 6\.5 分贝是 [−-]([\d.]+)/.exec(link2g.tryThis[0])
+    expect(m, 'tryThis[0] no longer states the two levels in the shape this reads').not.toBeNull()
+    const base = link2gScenario('pair', '5g')
+    const shift = 1.5
+    const widened = {
+      nodes: base.nodes.map((n) => (n.id === 'sta-2'
+        ? { ...n, pos: { ...n.pos, x: n.pos.x + shift } } : n)),
+      walls: base.walls.map((w) => ({
+        ...w,
+        x1: w.x1 >= 6.5 ? w.x1 + shift : w.x1,
+        x2: w.x2 >= 6.5 ? w.x2 + shift : w.x2,
+      })),
+    }
+    const between = buildLinkTable(widened.nodes, widened.walls).get('sta-1')!.get('sta-2')!
+    expect(Number(between.toFixed(2)), 'the station-to-station level after the widening')
+      .toBe(-num(m![1]))
+    expect(Number((between - LINK_EXTRA_LOSS_DB['2g']).toFixed(2)), 'and the same level on 2.4 GHz')
+      .toBe(-num(m![2]))
+    // the sentence's point: still above the threshold, so the EIFS column survives the edit
+    expect(between - LINK_EXTRA_LOSS_DB['2g']).toBeGreaterThan(CCA_PD_DBM)
+  })
+
+  it('the failed exchange: both waits measured, and the 6 µs the printed pair differs by', () => {
+    const m = /5 GHz 等 (\d+) 微秒而 2\.4 GHz 等 (\d+) 微秒，整段从 ([\d\s.]+) µs 降到 ([\d\s.]+) µs，2\.4 GHz 反而快 (\d+) 微秒/
+      .exec(JSON.stringify(link2g.numbers))
+    expect(m, 'the failed-exchange sentence is gone from `numbers`').not.toBeNull()
+    const wait = (band: Band): number => {
+      const rs = recordsOf('pair', band, 7)
+      const sta = vid(band, 'sta-1')
+      const to = ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === sta)[0]
+      const end = ofType(rs, 'TX_END').filter((r) => r.node === sta && r.t <= to.t).pop()!
+      return (to.t - end.t) / 1000
+    }
+    expect(wait('5g'), 'the 5 GHz wait the lesson states').toBe(Number(m![1]))
+    expect(wait('2g'), 'the 2.4 GHz wait the lesson states').toBe(Number(m![2]))
+    // the two totals are arithmetic over a hypothetical 20-MSDU aggregate (see this describe's
+    // docblock); what the engine settles is the DIFFERENCE, which is one signal extension.
+    const five = Number(m![3].replace(/\s/g, ''))
+    const two = Number(m![4].replace(/\s/g, ''))
+    expect(five - two, 'the printed pair differs by the gap the same sentence names')
+      .toBeCloseTo(Number(m![5]), 6)
+    expect(two, 'and 2.4 GHz is the faster one, which is the sentence’s point').toBeLessThan(five)
+    // that 6 µs is the signal extension, measured where it is visible: one PPDU, two bands
+    const ppdu = (band: Band): number => {
+      const rs = recordsOf('burst', band, 7)
+      const sta = vid(band, 'sta-1')
+      return ofType(rs, 'TX_START').find((r) => r.node === sta && r.frame.kind === 'data')!.frame.txTimeNs
+    }
+    expect((ppdu('2g') - ppdu('5g')) / 1000, 'one PPDU costs 6 µs more on 2.4 GHz')
+      .toBe(Number(m![5]))
+  })
+})
