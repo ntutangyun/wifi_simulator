@@ -203,6 +203,24 @@ const tables = (doc: string): { head: string[]; rows: string[][] }[] => {
  * Measured: the identical row SET to the old pair of filters on both documents the day it landed —
  * 123 for Wi-Fi and 109 for UWB, each still equal to the total the document states about itself,
  * with zero rows on either side of the difference.
+ *
+ * **The 23 above is a dated observation, not a re-measurable claim — do not audit against it.**
+ * The same walk over the Wi-Fi document on 2026-10-12 finds **22** four-column rows that are not
+ * data, across **four** tables: §14's 「引擎建了，无课」 (5 rows) and §17's 量/实测 summary (6),
+ * raw-minutes table (6) and 取整 table (1), plus those four tables' own header rows. Two things
+ * follow, and the second is why the number is quoted here with a date rather than trusted:
+ *
+ *  - **§17's three-sides table contributes zero.** It went from four columns to six on 2026-10-11
+ *    (one column per criterion, so a relabel is findable), and `tableRows` only ever sees
+ *    four-cell rows. A reader who counts 「§17's three tables」 by hand today will find a fourth
+ *    table there that this walk cannot see at all — the hazard runs the other way round from the
+ *    one the paragraphs above describe.
+ *  - **23 cannot be reproduced, because the convention behind it was never written down.** It does
+ *    not say whether the summary tables' own header rows were counted, and the two readings differ
+ *    by four today (22 with them, 18 without). So the figure is what somebody saw on 2026-10-08,
+ *    and nothing compares it to anything. What the argument above actually rests on — 「four cells
+ *    plus a vocabulary hit let non-data rows in」 — does not depend on it, and that part is
+ *    measured: the header selection below admits 123 rows and the 22 stay out by construction.
  */
 export const dataRows = (doc: string, head: readonly string[]): string[][] =>
   tables(doc)
