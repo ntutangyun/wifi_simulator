@@ -1066,6 +1066,28 @@ describe(`${DOC}'s §17 bucket-margin table states figures and a set, both measu
     }
   })
 
+  it('states a DISTANCE and not the room: the boundary character is already red', () => {
+    // The column is headed 「到下一档还剩」, which reads as 「how many I may still add」. It is not:
+    // `lessonMinutes` rounds with `Math.round`, `.5` rounds UP, so the character that lands exactly
+    // on the boundary has already flipped the bucket. §17 draws the same distinction for the
+    // per-lesson ceiling (「「距上沿 370」是距离，还能加的字是 369」) because the bound there is a
+    // strict `<`; here the cause is the rounding, and the consequence is identical. Pinned as
+    // arithmetic on `lessonMinutes`' own formula, per row, so the distinction cannot be lost to a
+    // reader skipping the prose — and so that nobody "fixes" the figures by subtracting one.
+    const bucket = (raw: number): number => Math.max(5, Math.round(raw / 5) * 5)
+    for (const r of rows) {
+      const id = idOf(r[0])
+      const l = ordered.find((x) => x.id === id)!
+      const d = charsToNextBucket(l)
+      const raw = rawMinutes(l)
+      expect(bucket(raw + (d - 1) / CHARS_PER_MINUTE), `§17 says @${id} has ${d} characters to the`
+        + ` next bucket; ${d - 1} of them must leave the stated minutes alone`).toBe(lessonMinutes(l))
+      expect(bucket(raw + d / CHARS_PER_MINUTE), `and the ${d}th must flip it — if it does not, the`
+        + ' column has stopped being a distance and the note under the table is wrong')
+        .not.toBe(lessonMinutes(l))
+    }
+  })
+
   it('those two checks can fail: a wrong margin and a missing row are both caught', () => {
     // Planted, because a check only ever run against a passing document has not been shown able to
     // fail — and this table passed for four days while being wrong in both ways at once.
