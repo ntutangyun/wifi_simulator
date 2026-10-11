@@ -271,3 +271,93 @@ describe('wan-rtt · what the reader is told to try', () => {
     expect(vs.nodes['sta-1'].stats.appRtt.n).toBeGreaterThan(0)
   })
 })
+
+/**
+ * **The five-row table, read back out of the lesson.**
+ *
+ * This file measured the phone's two latency accumulators and compared them to literals written
+ * HERE — `toBeCloseTo(44.483, 3)` and friends — which catches an engine change and misses a prose
+ * change. `@wan-rtt` was one of the eighteen lessons whose test never touched its own prose
+ * (`tests/course/prose-readback.test.ts`), and two of the table's cells (129.324 and 13.057) had
+ * no numerically-equal literal anywhere in tests/.
+ *
+ * All twenty cells were exact; this is wiring. What it buys is that the lesson's own copy of each
+ * figure is now the thing under test — including the last row, whose two round-trip cells say
+ * 「量不出来」 and 「—」 rather than a number, and that claim is checked as a claim: with no server
+ * in the scene there is no application round trip to measure.
+ */
+describe('wan-rtt · the five-row table is read back out of the lesson', () => {
+  /** Each row label against the variant it names; `undefined` is the lesson's own scene. */
+  const BY_LABEL: readonly (readonly [string, number | undefined])[] = [
+    ['只有手机（本课）', undefined],
+    ['加两台笔记本上传', BUSY],
+    ['同上 + 游戏模式', ACCEL],
+    ['海外服务器', OVERSEAS],
+    ['没有服务器', NO_SERVERS],
+  ]
+
+  const rows = (): string[][] => {
+    const b = wanRtt.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes('五种配置'))
+    expect(b, 'the five-configuration table is gone from `numbers`').toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+  /** 「44.483 ms」 → 44.483. */
+  const ms = (cell: string): number => Number(cell.replace(/\s*ms$/, ''))
+
+  it('has one row per variant, in the order the lesson prints them', () => {
+    expect(rows().map((r) => r[0]), 'the row labels the lesson prints')
+      .toEqual(BY_LABEL.map(([label]) => label))
+    // the five configurations are the scene plus its four variants, and no more
+    expect(wanRtt.variants, 'four variants behind the four non-base rows').toHaveLength(4)
+  })
+
+  it('every numeric cell is the measured one, to the three decimals the lesson prints', () => {
+    const table = rows()
+    for (const [i, [label, variant]] of BY_LABEL.entries()) {
+      const s = phoneStats(variant)
+      const row = table[i]
+      expect(row[0], `row ${i} is ${label}`).toBe(label)
+      if (label !== '没有服务器') {
+        expect(ms(row[1]), `${label}: mean application round trip`)
+          .toBe(Number(meanMs(s.appRtt).toFixed(3)))
+        expect(ms(row[2]), `${label}: worst application round trip`)
+          .toBe(Number(maxMs(s.appRtt).toFixed(3)))
+      }
+      expect(ms(row[3]), `${label}: mean enqueue-to-ack`).toBe(Number(meanMs(s.txLatency).toFixed(3)))
+      expect(ms(row[4]), `${label}: worst enqueue-to-ack`).toBe(Number(maxMs(s.txLatency).toFixed(3)))
+    }
+  })
+
+  it('the last row says 「量不出来」, and that is a claim about the scene, not a gap', () => {
+    const row = rows()[4]
+    expect([row[1], row[2]], 'the two round-trip cells of the server-less row')
+      .toEqual(['量不出来', '—'])
+    // there is nothing to measure: no server, so no reply to tie a round trip to
+    expect(phoneStats(NO_SERVERS).appRtt.n, 'application round trips recorded with no server')
+      .toBe(0)
+    // while the air half of the row IS measurable, which is why those two cells carry figures
+    expect(phoneStats(NO_SERVERS).txLatency.n).toBeGreaterThan(0)
+  })
+
+  it('the hand-check under the table adds up, and its two measured numbers are the table’s', () => {
+    const f = wanRtt.numbers!.find((x) => x.kind === 'formula'
+      && (x.heading ?? '').includes('可以当场验算')) as { text: string; note?: string } | undefined
+    expect(f, 'the verify-it-yourself formula is gone from `numbers`').toBeDefined()
+    const sum = /(\d+)（广域网往返）\+ (\d+)（服务器处理）\+ ([\d.]+)（抖动的期望[^）]*）= ([\d.]+) ms/.exec(f!.text)
+    expect(sum, 'the formula no longer states its three terms and their total').not.toBeNull()
+    expect(Number(sum![1]) + Number(sum![2]) + Number(sum![3]), 'the arithmetic the lesson shows')
+      .toBeCloseTo(Number(sum![4]), 6)
+    const note = /实测 ([\d.]+) 毫秒，比算出来的多 ([\d.]+)[^]*?= (\d+)，实测 ([\d.]+)/.exec(f!.note ?? '')
+    expect(note, 'the note no longer states the two measurements in the shape this reads').not.toBeNull()
+    const base = Number(meanMs(phoneStats(undefined).appRtt).toFixed(3))
+    const overseas = Number(meanMs(phoneStats(OVERSEAS).appRtt).toFixed(3))
+    expect(Number(note![1]), 'the measured base round trip the note quotes').toBe(base)
+    expect(Number(note![4]), 'the measured overseas round trip the note quotes').toBe(overseas)
+    // 「比算出来的多 0.188」 — the gap the note names, against its own two numbers
+    expect(Number(note![2]), 'the gap between hand-check and measurement')
+      .toBeCloseTo(base - Number(sum![4]), 3)
+    // and both quoted measurements are the same figures the table prints
+    expect(ms(rows()[0][1]), 'the base row of the table').toBe(base)
+    expect(ms(rows()[3][1]), 'the overseas row of the table').toBe(overseas)
+  })
+})
