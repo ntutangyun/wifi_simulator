@@ -176,8 +176,15 @@ export type Arms = { bracket: number; aka: number }
 /** `291 ＝ 286 ＋ 5` — the total §17 states, and the only way the two arms are ever added. */
 export const armsTotal = (a: Arms): number => a.bracket + a.aka
 
-/** Both arms of the bracket rule over one string, for the terms one lesson is graded on. */
-const failuresOn = (l: Lesson, text: string): Arms => {
+/**
+ * Both arms of the bracket rule over one string, for the terms one lesson is graded on.
+ *
+ * Exported for one reason: it is the 「without the subtraction」 half of {@link criterionP}, and
+ * `coverageNumbers.test.ts` pins the subtraction by comparing the two on a synthetic lesson whose
+ * main path already fails. A measuring function whose own arithmetic nothing checks is the species
+ * this module keeps finding in the figures it measures.
+ */
+export const failuresOn = (l: Lesson, text: string): Arms => {
   let bracket = 0
   let aka = 0
   for (const t of zhTermsFor(l)) {
@@ -195,9 +202,13 @@ const failuresOn = (l: Lesson, text: string): Arms => {
  * decoration; {@link criterionP} does not assume it either — it subtracts, so a day with a
  * non-zero baseline gets an honest P rather than a quietly inflated one. It is exported so a
  * reader can see for themselves that 「newly emitted」 and 「emitted」 coincide today.
+ *
+ * Takes a lesson list so the instrument can be aimed at a synthetic corpus — see
+ * {@link criterionP}'s parameter, and `coverageNumbers.test.ts`, which needs a lesson whose
+ * baseline is NOT zero and cannot get one out of the real course.
  */
-export const gradedWalkFailures = (): Arms =>
-  migratedLessons().reduce<Arms>((a, l) => {
+export const gradedWalkFailures = (ls: readonly Lesson[] = migratedLessons()): Arms =>
+  ls.reduce<Arms>((a, l) => {
     const f = failuresOn(l, zhMainText(l))
     return { bracket: a.bracket + f.bracket, aka: a.aka + f.aka }
   }, { bracket: 0, aka: 0 })
@@ -230,11 +241,23 @@ export const gradedWalkFailures = (): Arms =>
  * WIDER ruler than {@link SIDE_TEXT}: the design document's `deeper` 81 = 80 + 1 comes out only if
  * `deeper` is appended as every string it holds (formula bodies and non-Chinese cells too), while
  * the prose walk the criterion names gives 78 = 77 + 1 there.
+ *
+ * **The subtraction is the one part of this that is provably inert today, and it is pinned rather
+ * than removed.** `base(l)` is zero on every lesson of the real course, so deleting the two
+ * `- before.*` terms would change no figure anybody reads — which is precisely the shape
+ * `docs/inert-config-contract.md` says to refuse or pin. It is refused: 「newly emit」 is the
+ * definition, not an implementation detail, and a corpus with a non-zero baseline is one bad
+ * lesson away. So it is pinned, and what is pinned is **the instrument, not the course** — the
+ * `ls` parameter exists for that test. `coverageNumbers.test.ts` feeds a synthetic lesson whose
+ * main path ALREADY fails the bracket rule and asserts that the same `limits` text scores 1 on a
+ * clean main path and 0 on that one, so the subtraction is the only thing that can explain the
+ * difference. The assertion that is NOT written is 「the baseline is zero」: it can only redden
+ * when `readability.test.ts` is already red, which makes it decoration.
  */
-export const criterionP = (): Record<Side, Arms> => {
+export const criterionP = (ls: readonly Lesson[] = migratedLessons()): Record<Side, Arms> => {
   const base = (l: Lesson): Arms => failuresOn(l, zhMainText(l))
   const side = (get: (l: Lesson) => string): Arms =>
-    migratedLessons().reduce<Arms>((a, l) => {
+    ls.reduce<Arms>((a, l) => {
       const before = base(l)
       const after = failuresOn(l, `${zhMainText(l)} ${get(l)}`)
       return {
