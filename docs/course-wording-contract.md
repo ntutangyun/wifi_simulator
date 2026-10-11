@@ -462,7 +462,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 它在五个文件里删 1 078 行、加 253 行（净 −825），**`QUANTITIES` 与 `SHORTHAND` 两条都在被删之列**
 （`readability.test.ts` 的文件头把它们列在「Gone」一栏）。裁定的正文当天下午写进
 `docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md`（`90386a7`，13:38:26）的
-「What the tests are for」一节，Delete 一栏最后一条是：
+「What the tests are for」一节，Delete 一栏最后一条是（原文英文，这里译意）：
 
 > 任何失败信息讲的是**一句话怎么写**、而不是**仿真器做了什么**的断言。
 
