@@ -181,10 +181,36 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
   })
 
   it('Rayleigh drops 1.11 % to 4.73 %, Rician K = 6 dB drops 9.98 % to 12.09 %', () => {
-    expect(Math.min(...ray.map((r) => r.dropPct))).toBeCloseTo(1.11, 1)
-    expect(Math.max(...ray.map((r) => r.dropPct))).toBeCloseTo(4.73, 1)
-    expect(Math.min(...ric.map((r) => r.dropPct))).toBeCloseTo(9.98, 1)
-    expect(Math.max(...ric.map((r) => r.dropPct))).toBeCloseTo(12.09, 1)
+    // Two decimals, exactly, because that is what the lesson prints and because the engine is
+    // deterministic: `toBeCloseTo(x, 1)` stood here and admitted anything within 0.05, which is
+    // half an order of magnitude looser than the figure it was guarding. A tolerance is for a
+    // quantity that can wobble; a seeded run cannot. Measured: 1.1125 / 4.7348 / 9.9814 / 12.0893
+    // — and 4.7348 sat 0.0048 from 4.73, so even a two-decimal `toBeCloseTo` would have been one
+    // rounding away from brittle.
+    const to2 = (x: number): number => Number(x.toFixed(2))
+    expect(to2(Math.min(...ray.map((r) => r.dropPct)))).toBe(1.11)
+    expect(to2(Math.max(...ray.map((r) => r.dropPct)))).toBe(4.73)
+    expect(to2(Math.min(...ric.map((r) => r.dropPct)))).toBe(9.98)
+    expect(to2(Math.max(...ric.map((r) => r.dropPct)))).toBe(12.09)
+  })
+
+  it('the two figures `observe` puts in front of the reader are the measured ones', () => {
+    // **The lesson's whole counterintuitive claim is carried by this pair**, and until 2026-10-12
+    // nothing in the repository compared them: the ranges above are over five seeds, while
+    // `observe[0]` names the seed-7 pair. 「2.71」 and 「10.31」 appeared nowhere in tests/.
+    // Read out of the lesson rather than retyped, so there is no figure on this side to drift.
+    const text = fading.observe[0]
+    const m = /掉帧率反而从 ([\d.]+)% 涨到 ([\d.]+)%（种子 (\d+)）/.exec(text)
+    expect(m, 'observe[0] no longer names the two drop rates in the shape this reads').not.toBeNull()
+    const seed = Number(m![3])
+    const to2 = (x: number): number => Number(x.toFixed(2))
+    expect(Number(m![1]), `the lesson says Rayleigh drops ${m![1]} % at seed ${seed}`)
+      .toBe(to2(rates(run(scene(RAYLEIGH, seed)).recs).dropPct))
+    expect(Number(m![2]), `the lesson says Rician drops ${m![2]} % at seed ${seed}`)
+      .toBe(to2(rates(run(scene(RICIAN, seed)).recs).dropPct))
+    // and the direction the sentence is built on — gentler channel, more loss — on that one seed
+    expect(Number(m![2]), 'the sentence says 「反而」; if this flips, the lesson is wrong')
+      .toBeGreaterThan(Number(m![1]))
   })
 
   it('THE GATE: every Rician seed is strictly above every Rayleigh seed', () => {
