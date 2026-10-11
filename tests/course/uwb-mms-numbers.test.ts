@@ -19,6 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { uwbMmsNumbers } from '../../src/course/uwb/uwb-mms-numbers'
+import { LESSONS } from '../../src/course/lessons'
 import { MMS_ANCHORS, TAG_POS, ANCHOR_Z, TAG_Z, uwbMms, uwbMmsScenario, type UwbMmsVariant } from '../../src/course/uwb/uwb-mms'
 import { DEFAULT_UWB_SESSION } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -101,6 +102,35 @@ describe('uwb-mms-numbers · the second half of the split', () => {
     expect(uwbMmsNumbers.tryThis).toHaveLength(2)
     expect(uwbMmsNumbers.quiz).toHaveLength(3)
     for (const q of uwbMmsNumbers.quiz) expect(q.options[q.answer]).toBeDefined()
+  })
+
+  /**
+   * **突发 is live on both tracks, and it means opposite shapes on each.**
+   *
+   * On the Wi-Fi track a 突发 is a TXOP burst: several frames sent back to back, which is read
+   * out of `@txop-protect`'s own title below rather than asserted from memory. Here it is the
+   * other shape entirely — ONE transmission with a millisecond's energy squeezed into a short
+   * time, which is why its power goes UP. A reader who came down the Wi-Fi track first meets
+   * the word in this lesson's very first `picture` block, before 片段 has been used for the
+   * thing, and reads 「把它倒进一小段突发里」 as a string of frames — the opposite of the point.
+   *
+   * Nothing in the wording nets reaches this: 突发 is not a `ZH_TERMS` entry, so no bracket
+   * rule applies, and the cross-track collision is not a property any per-lesson rule can see.
+   * The qualification uses only words already in this lesson (片段 is glossed in `why`) and in
+   * that same sentence (帧, from 一帧长帧).
+   */
+  it('qualifies 突发 where a reader first meets it, against the Wi-Fi track that owns the word', () => {
+    const wifiBurst = LESSONS.find((l) => l.id === 'txop-protect')!
+    expect(wifiBurst.title, 'the Wi-Fi track still carries the same word for frames in a row')
+      .toContain('突发')
+    const first = uwbMmsNumbers.picture![0]
+    expect('text' in first && first.text, 'the first block the reader reads').toBeTruthy()
+    const text = ('text' in first ? first.text : '') as string
+    expect(text, 'this is the block that introduces the word').toContain('突发')
+    expect(text, 'and it says which shape of 突发 this is — one short fragment')
+      .toContain('短片段')
+    expect(text, 'and which one it is not — the Wi-Fi track\'s string of frames')
+      .toContain('不是一串帧')
   })
 
   it('cites every document its numbers come from, by identifier', () => {

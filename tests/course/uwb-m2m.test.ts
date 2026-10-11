@@ -100,6 +100,41 @@ describe('uwb-m2m · where it sits in the course', () => {
     expect(COURSE_ORDER.indexOf('uwb-m2m')).toBe(COURSE_ORDER.indexOf('uwb-contention') + 1)
   })
 
+  /**
+   * **The cap is named in `outcomes` the way the rest of this lesson names it.**
+   *
+   * 上限 is one of the 25 words `ZH_TERMS_EXCLUDED` switches the bracket rule off for, and the
+   * reason recorded against it there is the diagnosis for this line:
+   * `'three different simulator quantities under one word'`. Inside this repository the bare
+   * word also means the `limits` debt ratchet's ceiling and `all.length`'s string ceiling, and
+   * on the Wi-Fi track it means a rate cap. The third `outcomes` line used to read 「以及上限由
+   * 谁决定」 — and `outcomes` is where a reader meets this lesson before any of its numbers, so
+   * the bare word arrived first and the qualified one eleven blocks later.
+   *
+   * This is not a new coinage and the check does not accept one: 参与者上限 is already this
+   * lesson's own wording, in a `numbers` heading and in the question of the `quiz` item about
+   * it, and all three sites are read out and compared rather than one of them being retyped
+   * here. (The `explain` under that question then says a bare 上限, and that one is left alone:
+   * it is an anaphor one line under the qualified noun, which is the same exemption
+   * `probes.local/shapeA5.ts` applied within a lesson.) The last expectation is the
+   * load-bearing half — it allows no bare 上限 anywhere in `outcomes`, so a fourth outcome that
+   * leans on the unqualified word goes red.
+   */
+  it('names the cap in `outcomes` the way its own numbers and quiz name it: 参与者上限', () => {
+    const CAP = '参与者上限'
+    const headings = uwbM2m.numbers!.flatMap((b) => ('heading' in b && b.heading ? [b.heading] : []))
+    expect(headings.filter((h) => h.includes(CAP)), 'the `numbers` heading that defines it')
+      .toHaveLength(1)
+    expect(uwbM2m.quiz.filter((q) => q.q.includes(CAP)), 'the quiz question that asks about it')
+      .toHaveLength(1)
+    const outcomes = uwbM2m.outcomes!.join('\n')
+    expect(outcomes, `${CAP} is the lesson's own wording for it`).toContain(CAP)
+    expect(outcomes.match(/上限/g)?.length, 'every 上限 in `outcomes` says WHICH cap it is:'
+      + ' the word carries three different simulator quantities in this repository, and'
+      + ' `outcomes` is read before the heading that would have disambiguated it')
+      .toBe(outcomes.match(new RegExp(CAP, 'g'))?.length)
+  })
+
   it('writes no cap as a literal: every count in the lesson is computed', () => {
     // 「代码里不许出现字面量作为上限」 — the cap, the frame lengths and the slot counts all come
     // from `phy.ts`/`session.ts`, so neither 27 nor 127 may appear as a number in the lesson's

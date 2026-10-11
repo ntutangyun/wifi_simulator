@@ -33,7 +33,7 @@
  * `uwbMaxParticipants`, `rstuNs` — never typed as a literal.
  * `npx tsx scripts/lesson-dump.ts uwb-m2m` prints it with its length.
  *
- * CAUTION — 5 Chinese characters from `lessonMinutes` rounding this lesson up from 25 to 30
+ * CAUTION — 2 Chinese characters from `lessonMinutes` rounding this lesson up from 25 to 30
  * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
  * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
  * wrong once and read a 484-character margin where there were four. What goes red is the
@@ -244,7 +244,7 @@ export const uwbM2m: Lesson = {
   outcomes: [
     '说清一次发送凭什么同时是问和答，并由此算出「N 对 N²」这个整数倍',
     '指出一对距离为什么只有排在前面的那个算得出来，并数对每人手里有几条',
-    '说出全轮最长的一帧为什么属于什么都算不到的那个，以及上限由谁决定',
+    '说出全轮最长的一帧为什么属于什么都算不到的那个，以及参与者上限由谁决定',
     '读出一台设备没被人听见时，丢掉的是哪几条距离',
   ],
   needs: ['uwb-sstwr', 'uwb-dstwr'],

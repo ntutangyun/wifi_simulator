@@ -17,7 +17,7 @@
  *
  * Every number quoted below is pinned in tests/course/uwb-mms-numbers.test.ts.
  *
- * CAUTION — 38 Chinese characters from `lessonMinutes` rounding this lesson up from 20 to 25
+ * CAUTION — 22 Chinese characters from `lessonMinutes` rounding this lesson up from 20 to 25
  * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
  * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
  * wrong once and read a 484-character margin where there were four. What goes red is the
@@ -46,7 +46,7 @@ export const uwbMmsNumbers: Lesson = {
     { term: 'parameter set', plain: '一组起好名字的现成取值：片段多长、一串多少个，两端用一个名字就能说定' },
   ],
   picture: [
-    { heading: '是能量额度，不是功率上限', text: '发射机头上的那条规矩，是在每一毫秒上取的平均，所以它是一份能量额度，而不是一条功率上限。这一毫秒之内怎么花，由你决定。把它倒进一小段突发里，这段突发的功率就更高；摊在一帧长帧上，功率就更低。能量一样多，功率却不同。' },
+    { heading: '是能量额度，不是功率上限', text: '发射机头上的那条规矩，是在每一毫秒上取的平均，所以它是一份能量额度，而不是一条功率上限。这一毫秒之内怎么花，由你决定。把它倒进一小段突发里（这里的突发是一个短片段，不是一串帧），这段突发的功率就更高；摊在一帧长帧上，功率就更低。能量一样多，功率却不同。' },
     { kind: 'watch', jump: 1, heading: '看那笔加法被算出来', text: '载入仿真，跳到对第一串片段的判定。那一行把整笔加法念了出来：收到几个片段、每个的电平是多少、合成增益（combining gain）加了多少、余下多少作为余量，以及——只有余量为正时才有的——那个时钟比值（clock ratio）。' },
     { heading: '用分贝相加', text: '等功率的片段，按等量相加的规矩累加：数量翻倍，累加量也翻倍，换成分贝就是多三个。四个片段比一个高六分贝，八个高九分贝，十六个高十二分贝。而余量，不过是把接收机自己的门限从这个和里减掉以后剩下的东西；余量为正，就算检出。' },
     { heading: '检出与未检出之间的三个分贝', text: '把一串砍成一半，房间里别的什么都没变。每个片段和先前一样响，而且一个不落地都收到了；变小的只有那个和，正好小三个分贝，于是它落到了门限之下。三个原本每块都测距的锚点（anchor），如今一次也测不出，每一轮都以超时收场。' },
