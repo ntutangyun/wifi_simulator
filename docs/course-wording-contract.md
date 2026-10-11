@@ -459,7 +459,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 
 **决定二 —— `41ef7e0`，2026-09-25 12:18:37 +0800**
 （`refactor(course): the contract tests the software, not the prose`）。
-它在五个文件里净删 1 078 行、加 253 行，**`QUANTITIES` 与 `SHORTHAND` 两条都在被删之列**
+它在五个文件里删 1 078 行、加 253 行（净 −825），**`QUANTITIES` 与 `SHORTHAND` 两条都在被删之列**
 （`readability.test.ts` 的文件头把它们列在「Gone」一栏）。裁定的正文当天下午写进
 `docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md`（`90386a7`，13:38:26）的
 「What the tests are for」一节，Delete 一栏最后一条是：
@@ -469,7 +469,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 **这个决定也是对的**，而且 `SHORTHAND` 的失败信息（「name the margin and its size instead」）
 就是那条判据描述的东西本身。
 
-**缺口是这两个决定之间的 48 小时 51 分造成的**，而不是任何一个决定的错：
+**缺口是这两个决定之间的 48 小时 50 分 41 秒造成的**（11:27:56 → 12:18:37），而不是任何一个决定的错：
 第一条立了要求、把它写成了全仓措辞规则；第二条删掉的是**那种规则**，
 而不是「量词要被解释」这件事——可是这件事当时**只存在于那条规则里**，
 于是它随规则一起消失了。**这就是本节存在的理由：要求还在，执行者没了，没有人记下这笔债。**
