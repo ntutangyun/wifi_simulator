@@ -42,6 +42,19 @@
  * It walks the main path only (`deeper`, `sources` and `limits` are not the reader's way through
  * a lesson), and it is the ledger's whole scope: a word in NEITHER table — bare 门限 — is
  * invisible to it, which is why §10.5 ends by measuring that case too.
+ *
+ * **§10.6's third reopen condition — widen the scope to words in neither table — was judged on
+ * 2026-10-11 (W17) and refused, and the figures that decide it are measured here.** The question
+ * is not whether 门限 is in neither table (it is, and 22 lessons use it bare) but whether being in
+ * neither table is an ANOMALY. It is the default: `ZH_TERMS` is the inventory's §2.1–2.5 glossary
+ * and `ZH_TERMS_EXCLUDED` is a guard list for its §2.6 rows, so between them they cover the words
+ * someone might bracket or re-add in good faith — not every Chinese noun the course writes. The
+ * mechanical size of that position is {@link headNouns}: a Chinese suffix of a `ZH_TERMS` row that
+ * is in neither table and is used bare on the main path. Several of them reach MORE lessons than
+ * 门限 does — 时间 inside 空口时间, 发送 inside 请求发送, 设备 inside 多链路设备 — each an ordinary
+ * noun heading a compound term, so widening the ledger to that class is a rule about Chinese
+ * compounding, which is what the 2026-09-25 ruling deleted. **The two counts live in §10.7**, read
+ * back by the last `it` here like every other figure in that table.
  */
 import { describe, it, expect } from 'vitest'
 import { needsClosure } from '../../src/course/curriculum'
@@ -68,6 +81,59 @@ const mask = (s: string, w: string): string => {
   let out = s
   for (const v of longer(w)) out = out.split(v).join('·')
   return out
+}
+
+/**
+ * **Every rendering either table knows** — the glossary's names, abbreviations and `aka`
+ * renderings, plus the 25 exempt words. A word this list does not hold is in NEITHER table, which
+ * is the position §10.6's third condition is about.
+ */
+const POOL: readonly string[] = [...new Set([
+  ...ZH_TERMS.flatMap((t) => [t.zh, t.abbr, ...(t.aka ?? [])]),
+  ...words,
+])].filter((s): s is string => Boolean(s))
+
+/**
+ * `text` with every name in either table that strictly contains `w` blanked, so what is left of
+ * `w` is a BARE use. This is the same masking the ledger's {@link mask} does, over the wider pool:
+ * 门限 is bare only where it is not part of `RTS 门限` or `能量检测门限`.
+ */
+const maskPool = (text: string, w: string): string => {
+  let out = text
+  for (const n of POOL) if (n.length > w.length && n.includes(w)) out = out.split(n).join('·')
+  return out
+}
+
+/** The lessons whose main path uses `w` bare. */
+const bareLessons = (w: string): Lesson[] =>
+  ordered.filter((l) => main(l).some((t) => maskPool(t.text, w).includes(w)))
+/** The main-path strings — one site per walked string — in which `w` is used bare. */
+const bareSites = (w: string): number =>
+  ordered.reduce((n, l) => n + main(l).filter((t) => maskPool(t.text, w).includes(w)).length, 0)
+
+const CJK_ONLY = /^[㐀-䶿一-鿿]+$/
+/**
+ * **The size of the position 门限 is in, measured rather than imagined.** A head noun is a Chinese
+ * suffix of at least two characters of some `ZH_TERMS` row that is itself in NEITHER table — 门限
+ * inside `RTS 门限`, 窗口 inside 最小竞争窗口, 时间 inside 空口时间.
+ *
+ * The criterion is deliberately mechanical and keeps the suffixes that are not words (向测距,
+ * 位差, 间间隔): no hand list decides which of them count, and the ones that are plainly ordinary
+ * nouns are the ones that carry the verdict anyway. Chinese compounds are head-final, so this is
+ * the whole generative rule — which is the point: being in neither table is not an oversight about
+ * one word, it is what Chinese compounding does to every glossary row.
+ */
+const headNouns = (): string[] => {
+  const out = new Set<string>()
+  for (const t of ZH_TERMS) {
+    const z = t.zh
+    if (!z) continue
+    for (let i = 1; i + 2 <= z.length; i++) {
+      const s = z.slice(i)
+      if (CJK_ONLY.test(s) && !POOL.includes(s)) out.add(s)
+    }
+  }
+  return [...out]
 }
 
 /** The naming frames a Chinese sentence explains a word with. */
@@ -220,11 +286,11 @@ describe('the glossing debt §10 of the wording contract writes down', () => {
     // Bare 门限: the word the 2026-09-23 amendment named that is in NEITHER table, so the ledger
     // above cannot see it. Measured here because §10.5 states the figure.
     const compounds = ZH_TERMS.map((t) => t.zh).filter((z): z is string => Boolean(z)).filter((z) => z !== '门限' && z.includes('门限'))
-    const menxian = ordered.filter((l) => main(l).some((t) => {
-      let s = t.text
-      for (const v of compounds) s = s.split(v).join('·')
-      return s.includes('门限')
-    }))
+    const menxian = bareLessons('门限')
+    // §10.6's third condition, judged: the class 门限 belongs to, and how much of it is bigger than
+    // 门限. A failure here is a figure in §10.6/§10.7 to re-measure, never a lesson to edit — and
+    // the second and third figures are what the refusal rests on, so they are not allowed to rot.
+    const heads = headNouns().map((h) => bareLessons(h).length).filter((n) => n > 0)
     const expected: [string, number][] = [
       ['豁免词', ZH_TERMS_EXCLUDED.length],
       ['主路径存量债（课，词）', pairs.length],
@@ -234,6 +300,9 @@ describe('the glossing debt §10 of the wording contract writes down', () => {
       ['落在 `尝试` 与 `上限` 两个词上的债', noisy.length],
       ['这两个词的债里落在前段的', noisy.filter((p) => p.front).length],
       ['主路径裸用 `门限` 的课（两张表都不在）', menxian.length],
+      ['主路径裸用 `门限` 的处数', bareSites('门限')],
+      ['同处境的中心词（两张表都不在、主路径裸用）', heads.length],
+      ['其中涉及课数多于 `门限` 的', heads.filter((n) => n > menxian.length).length],
     ]
     for (const [label, value] of expected) {
       expect(figures.get(label), `§10.7 states no figure for 「${label}」`).toBeDefined()
