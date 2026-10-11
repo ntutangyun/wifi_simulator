@@ -357,3 +357,337 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 「读者看得见的中文里，哪些没人管」，并点名了 `i18n.ts`、`Guide.tsx`、校验消息。
 播放器那四条横幅就是同一族里的一员，而「写完中文要读回来」是这一族唯一的通用防线。
 所以它是本文件的第九节。
+---
+
+## 10. 25 个豁免词关掉的那条要求，没有谁接手（2026-10-11，W16）
+
+**一句话：** `src/course/readability.ts` 的 `ZH_TERMS_EXCLUDED` 列着 25 个词，它们的作用是
+**把 §3 最后一条**（官方术语首次出现要带标准英文名与缩写）**对这些词关掉**——
+而关掉之后，**没有任何东西接手「这个词在课文里有没有被解释过」**。
+今天的存量是 **53 对（课，词）**，分在 43 门课、12 个词上，其中 **14 对**落在读者必读的前段。
+
+**这一节是那笔债的台账，不是一条新规则。** 规则本身已经立案并建议不批，理由在 §10.6；
+台账里每个数都有一条断言读出来跟实测比，位置与判据在 §10.7。
+
+### 10.1 关掉的是哪一条要求，关掉之后谁在看
+
+§3 最后一条把「官方术语首次出现要带标准英文名」交给 `ZH_TERMS` 管，执行它的是
+`tests/course/readability.test.ts` 的逐课断言
+`<id> brackets every official term at its first Chinese use`。
+那条断言**只看 `ZH_TERMS` 的行**：一个词不在 `ZH_TERMS` 里，它就从来没被看过一眼。
+所以 `ZH_TERMS_EXCLUDED` 不是一个开关，它是一份**不许把这些词加进 `ZH_TERMS` 的名单**，
+而效果等于把那条要求对这 25 个词永久关掉。
+
+**这张表是对的，§10.6 没有要推翻它。** 它自己的文件头已经论证过：要求课文写出
+`余量（margin）` 只会产生噪声，而噪声会训练作者无视规则。
+
+**今天在看这张表的只有三件事**，都在同一个文件的
+`demands nothing for the words that are not IEEE terms` 里：
+
+1. 这 25 个词**没有被重新加回** `ZH_TERMS`（两张表不相交）；
+2. 表的长度**不少于 24**；
+3. 每条的理由**属于五类之一**（模型取值／文献／统计／工程／法规）。
+
+**没有一条在看「这个词被解释过没有」。** 第 2 条还值得单记一笔：
+**名单有 25 行，而那个下界写的是 24**——少掉一行它仍然是绿的。
+§10.7 那条断言按**整个集合**核而不是按长度核，这个缺口顺手补上了。
+
+`ZH_TERMS_EXCLUDED` 另有第二个、真正在运行的作用：`firstUseIndex` 拿这 25 个词当**遮罩**，
+好让 `链路预算` 里的 `链路` 不被当成 `链路` 这个术语的裸用。
+那一条和本节无关，**不要为了本节去动它**。
+
+### 10.2 那 25 个词，各自的理由与各自的债
+
+「主路径债」是 §10.5 判据下这个词今天欠的（课，词）对数，「前段」是其中落在
+`why`／`outcomes`／`picture[0..1]` 的那些。
+
+| 词 | 类 | 为什么不是术语 | 主路径债 | 前段 | 写这个词的 `terms` 行 |
+| --- | --- | --- | --- | --- | --- |
+| 速率余量 | 模型取值 | 仿真器自己定的那 3 dB，`sources` 已把它声明为模型取值 | 0 | 0 | `@decode-thresholds` · `rate margin`；`@selectivity` · `margin` |
+| 空口占比 | 模型取值 | 仿真器自己的计数器 | 0 | 0 | `@anomaly` · `airtime share` |
+| 性能异常 | 文献 | Heusse 等人 2003 年那篇论文的题目 | 0 | 0 | — |
+| 速率控制 | 模型取值 | 选哪一级速率，标准留给实现者，这里是本仿真器的做法 | 2 | 0 | — |
+| 自动速率回退 | 文献 | Kamerman 与 Monteban 1997 年的算法名，IEEE 没有定义它 | 0 | 0 | `@rate-fallback` · `ARF` |
+| 上限 | 模型取值 | 仿真器用它指「一条链路能扛到的最高那一级」 | 14 | 4 | `@backoff` · `CW`；`@collisions-cw` · `CW`；`@txop` · `TXOP limit`；`@edca-tamper` · `TXOP limit`；`@rate-fallback` · `excursion` |
+| 尝试 | 模型取值 | 仿真器的一个计数单位（第几次尝试） | 17 | 5 | `@collisions-cw` · `retry`；`@bianchi` · `collision probability`；`@uwb-contention` · `RCMA` |
+| 跌落 | 模型取值 | 仿真器用它指一次偏离 | 0 | 0 | `@rate-fallback` · `excursion` |
+| 饱和 | 文献 | Bianchi 模型的前提假设 | 5 | 2 | — |
+| 发送概率 | 文献 | Bianchi 模型的未知量 τ | 1 | 0 | — |
+| 碰撞概率 | 文献 | Bianchi 模型的未知量 p | 0 | 0 | — |
+| 捕获 | 工程 | 接收机行为；`sources` 写明不是标准规定的 | 1 | 0 | `@uwb-uwbd` · `acquisition` |
+| 捕获效应 | 工程 | 接收机行为，没有任何标准定义它 | 0 | 0 | `@bianchi-vs-sim` · `capture` |
+| 残差 | 统计 | 最小二乘的统计词 | 1 | 0 | — |
+| 估计量 | 统计 | 测量统计词 | 0 | 0 | — |
+| 链路预算 | 工程 | 射频工程词，不属于 802.11 | 1 | 0 | — |
+| 余量 | 模型取值 | 一个词底下压着三个不同的仿真器量（词表清单 §3.10） | 6 | 1 | `@tier1-project` · `margin`；`@selectivity` · `margin`；`@uwb-slot-budget` · `margin`；`@uwb-mms` · `margin`；`@uwb-ssbd` · `slack` |
+| 队头阻塞 | 工程 | 计算机科学词 | 0 | 0 | — |
+| 突发 | 模型取值 | 课程用它指一次 TXOP 里的那几帧 | 3 | 2 | — |
+| 瓶颈 | 工程 | 普通工程词 | 1 | 0 | — |
+| 空过 | 模型取值 | 模型自己那个反馈环 | 1 | 0 | — |
+| 中继攻击 | 文献 | 安全文献词，而且课文里本来就带括号 | 0 | 0 | — |
+| 三边定位 | 工程 | 卫星定位词汇；`sources` 写明标准对此沉默 | 0 | 0 | — |
+| 器件噪声系数 | 工程 | 射频工程词 | 0 | 0 | — |
+| 占空比限值 | 法规 | ETSI EN 303 687 与 FCC 的 −41.3 dBm/MHz，是一条限值而不是术语 | 0 | 0 | — |
+
+**读这张表的三件事：**
+
+- **13 个词今天一分债都没有**，债集中在 12 个词上，而其中两个词占了 31 对（§10.5）。
+- **`余量` 有五条词表行，分在五门课，顶着三个不同的英文名**（`margin` 四条、`slack` 一条），
+  而这正是它被豁免的理由——一个词底下压着三个不同的仿真器量。
+  **词表里看得见这个歧义，课文里看不见**：中间缺的就是被删掉的那条规则。
+- **最后一栏不是修法，是证据。** 它说明英文名**早就在仓库里**，
+  缺的只是把课文里那个裸用和它接起来的那一步。
+
+### 10.3 来历：两个各自正确的决定，和它们之间的 48 小时
+
+**决定一 —— `c395e14`，2026-09-23 11:27:56 +0800**
+（`feat(course): mechanism before metaphor — contract amendment and the pilot lesson`）。
+它给 `docs/superpowers/specs/2026-09-21-course-readability-design.md` 加了「What changes」一节，
+其中两条正是本节这笔债的接班规则，并且同一刀把它们写成了测试：
+
+- **`QUANTITIES`**——「量词要像缩写一样被解释」：主路径要读者使用的一个量
+  （点名四个：`margin`／余量、`sensitivity`／灵敏度、`threshold`／门限、`noise floor`／噪声地板），
+  必须出现在**本课或更早一课**的 `terms` 里，术语名或白话都算，两种语言都算。
+  断言名 `%s glosses every quantity it asks the reader to use`。
+- **`SHORTHAND`**——指代短语黑名单：四条正则，`留在手里`／`这笔账`／`不含余量的那个要求`／`之类`，
+  失败信息直接写「该怎么改这句话」（`name the margin and its size instead`）。
+  断言名 `%s points at no quantity it has not named`。
+
+**这个决定是对的**：它的起因是真实读者在课文里撞上了四个从未被定义的量，
+而三条原因（天花板为比喻买了单、中文照着英文从句写会继承英文的指代、
+**没有任何东西要求一个量被定义过**）都写在那份规格里。
+
+**决定二 —— `41ef7e0`，2026-09-25 12:18:37 +0800**
+（`refactor(course): the contract tests the software, not the prose`）。
+它在五个文件里净删 1 078 行、加 253 行，**`QUANTITIES` 与 `SHORTHAND` 两条都在被删之列**
+（`readability.test.ts` 的文件头把它们列在「Gone」一栏）。裁定的正文当天下午写进
+`docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md`（`90386a7`，13:38:26）的
+「What the tests are for」一节，Delete 一栏最后一条是：
+
+> 任何失败信息讲的是**一句话怎么写**、而不是**仿真器做了什么**的断言。
+
+**这个决定也是对的**，而且 `SHORTHAND` 的失败信息（「name the margin and its size instead」）
+就是那条判据描述的东西本身。
+
+**缺口是这两个决定之间的 48 小时 51 分造成的**，而不是任何一个决定的错：
+第一条立了要求、把它写成了全仓措辞规则；第二条删掉的是**那种规则**，
+而不是「量词要被解释」这件事——可是这件事当时**只存在于那条规则里**，
+于是它随规则一起消失了。**这就是本节存在的理由：要求还在，执行者没了，没有人记下这笔债。**
+
+**两处可以自己核的更正，都在上面这条链上：**
+
+1. `readability.test.ts` 的文件头写「`721984e` is the last commit that held them」。
+   按 `git log -S"QUANTITIES" -- tests/course/readability.test.ts` 实测，
+   这两条只在 `c395e14` 出现、在 `41ef7e0` 消失，
+   **最后一个还带着它们的提交是 `f2c172b`（2026-09-25 11:50:59）**，
+   `721984e`（2026-09-23 21:55:22）是 09-23 那一轮铺开的最后一刀。
+   **那句话不改**（它的文件由另一刀在动），差别记在这里。
+2. **就算那条规则原样回来，它也接不住今天这笔债。** `QUANTITIES` 点名的四个量里，
+   `噪声地板` 与 `灵敏度` 今天已经是 `ZH_TERMS` 的行，由活着的那条术语规则管；
+   只有 `余量` 落在豁免表里（6 对债）。而它的判法是「`/margins?|余量/` 在
+   本课或更早一课的 `terms` 文本里能匹配上」——
+   **`速率余量` 这条行就能让它通过**，而那是另一个量、另一个数（3 dB 对 3.62 dB），
+   正是 2026-10-11 那次读者审计在 `@selectivity` 上报出来的那一处。
+   所以 §10.5 的判据**跨课按词形核**，这不是收紧，这是那条旧规则量不到自己的起因。
+
+### 10.4 台账：今天的 53 对
+
+列的是**首次裸用**的位置；「本课稍后」说这门课后面有没有一处解释它
+（有，但在裸用之后，所以仍然欠）。
+课用 id 而不用课号：**课号是 `idx + 1` 算出来的，写下来就会到期。**
+
+| 课 | 词 | 首次裸用 | 本课稍后 |
+| --- | --- | --- | --- |
+| `@decode-thresholds` | 上限 | `observe[1]` | 从未 |
+| `@mcs-ladder` | 余量 | `numbers[2].caption` | numbers |
+| `@small-frames` | 突发 | `outcomes[2]` | observe |
+| `@ifs` | 尝试 | `numbers[2].items[0]` | 从未 |
+| `@backoff` | 上限 | `terms[1].plain` | 从未 |
+| `@collisions-cw` | 上限 | `terms[2].plain` | 从未 |
+| `@collisions-cw` | 尝试 | `terms[1].plain` | 从未 |
+| `@nav` | 尝试 | `numbers[3].items[4]` | 从未 |
+| `@hidden` | 上限 | `quiz[0].options[0]` | 从未 |
+| `@retries-queues` | 速率控制 | `numbers[1].items[3]` | 从未 |
+| `@retries-queues` | 尝试 | `outcomes[1]` | 从未 |
+| `@queues` | 尝试 | `why` | 从未 |
+| `@bianchi` | 尝试 | `outcomes[2]` | 从未 |
+| `@bianchi` | 饱和 | `outcomes[0]` | picture |
+| `@bianchi` | 捕获 | `observe[2]` | 从未 |
+| `@bianchi-vs-sim` | 尝试 | `numbers[0].items[1]` | 从未 |
+| `@rate-vs-model` | 尝试 | `picture[2].text` | 从未 |
+| `@tier1-project` | 尝试 | `numbers[5].rows[0][0]` | 从未 |
+| `@tier1-project-review` | 尝试 | `numbers[0].rows[2][2]` | 从未 |
+| `@ampdu` | 尝试 | `numbers[6].items[5]` | 从未 |
+| `@txop` | 饱和 | `tryThis[1]` | 从未 |
+| `@txop-protect` | 尝试 | `observe[0]` | 从未 |
+| `@edca-tamper` | 饱和 | `picture[1].text` | 从未 |
+| `@selectivity` | 速率控制 | `numbers[8].text` | 从未 |
+| `@rate` | 尝试 | `picture[3].text` | 从未 |
+| `@rate-fallback` | 尝试 | `picture[0].items[0]` | 从未 |
+| `@fading` | 余量 | `numbers[4].text` | 从未 |
+| `@amp-intro` | 余量 | `quiz[1].explain` | 从未 |
+| `@amp-slots` | 发送概率 | `numbers[4].text` | 从未 |
+| `@amp-slots` | 余量 | `picture[0].text` | 从未 |
+| `@amp-coexist` | 尝试 | `numbers[2].text` | 从未 |
+| `@amp-backscatter` | 余量 | `picture[3].note` | numbers |
+| `@capstone` | 瓶颈 | `picture[5].heading` | picture |
+| `@link-2g` | 上限 | `picture[4].text` | 从未 |
+| `@link-2g` | 链路预算 | `picture[4].text` | 从未 |
+| `@uwb-frame` | 上限 | `quiz[2].options[2]` | 从未 |
+| `@uwb-sts` | 空过 | `picture[7].text` | 从未 |
+| `@uwb-reply-time` | 上限 | `numbers[3].heading` | 从未 |
+| `@uwb-reply-time` | 余量 | `numbers[10].note` | 从未 |
+| `@uwb-deferred-ds` | 上限 | `why` | 从未 |
+| `@uwb-coexist` | 饱和 | `numbers[4].rows[3][0]` | 从未 |
+| `@uwb-contention` | 尝试 | `terms[2].plain` | 从未 |
+| `@uwb-m2m` | 上限 | `outcomes[2]` | 从未 |
+| `@uwb-m2m` | 残差 | `numbers[7].text` | 从未 |
+| `@uwb-receipt` | 上限 | `numbers[2].note` | 从未 |
+| `@uwb-ancillary` | 上限 | `why` | 从未 |
+| `@uwb-ul-tdoa` | 上限 | `numbers[0].rows[3][0]` | 从未 |
+| `@uwb-sensing-resolution` | 饱和 | `quiz[0].options[0]` | 从未 |
+| `@uwb-mms-numbers` | 上限 | `picture[0].heading` | 从未 |
+| `@uwb-mms-numbers` | 突发 | `picture[0].text` | 从未 |
+| `@uwb-ssbd` | 上限 | `numbers[8].items[4]` | 从未 |
+| `@uwb-ssbd` | 尝试 | `picture[1].heading` | 从未 |
+| `@uwb-uwbd` | 突发 | `picture[4].caption` | 从未 |
+
+**43 门课、12 个词。** 按节分：`numbers` 19、`picture` 14、`outcomes` 5、`terms` 4、
+`quiz` 4、`observe` 3、`why` 3、`tryThis` 1。
+
+**除了下面这四对已经还掉的，台账里这 53 对没有任何断言在看**
+（四对还法都是逐课钉住，也就是 2026-09-25 裁定 Keep 那一栏的形状，
+这也是将来还债该用的形状）：
+
+| 课 | 词 | 钉在哪 |
+| --- | --- | --- |
+| `@selectivity` | 余量 | `tests/course/selectivity.test.ts` › `glosses 余量 itself, with the other quantity named, and the figure read from the run` |
+| `@anomaly` | 空口占比 | `tests/course/anomaly.test.ts` › `names 空口占比 in the row that explains it, in the word the prose uses` |
+| `@rate-fallback` | 跌落 | `tests/course/rate-fallback.test.ts` › `names 跌落 in the row that explains it, in the word the prose uses` |
+| `@bianchi-vs-sim` | 估计量 | `tests/course/bianchi-vs-sim.test.ts`（断言 `outcomes` 里出现命名框 `这就是估计量`） |
+
+### 10.5 判据：什么算这一类缺陷，什么不算
+
+**算**，四个条件同时成立：
+
+1. 这个词在 `ZH_TERMS_EXCLUDED` 里（所以术语规则对它是关着的）；**并且**
+2. 它出现在**主路径**的某一处（`why`／`outcomes`／`terms`／`body`／`picture`／`numbers`／
+   `observe`／`tryThis`／`quiz`；`deeper`、`sources`、`limits` 不算——那三处不是读者的必经之路）；**并且**
+3. 这一课在**这处之前**没有解释过它：没有命名框（`就是……`／`叫作……`／`所谓……`／
+   `……指的是`／`词：`／`（词）`／`词（English`），也没有把一个更长的同族复合词写全；**并且**
+4. 它的 `needs` 闭包里也没有哪一课解释过它，**而闭包里的解释必须按词形核**。
+
+**不算：**
+
+- **同一课内的回指。** `@decode-thresholds` 自己定义了 `速率余量`，后文写 `含余量` 指的就是它。
+  不豁免这一类，凡是自己定义了更长复合词的课都会变成假阳。
+- **词表不计出场顺序。** `terms` 是读者随时可查的表，
+  2026-09-23 修正案的原文也只要求「出现在本课或更早一课的 `terms` 里」，没有顺序要求。
+- **句子自己兜住了。** `@uwb-ancillary` 的 `why` 写「一帧的载荷（payload）有上限」——
+  是什么的上限，这句话自己说了。这是判据的**假阳**，不是债。
+- **普通中文和仿真器的计数单位同形。** 这是最大的一类假阳，见下。
+- **`deeper` 与 `sources` 里的裸用。** 那两处是深度与出处，读者不走。
+
+**判据不能只看词形，这是量出来的，不是担心出来的：**
+
+- **53 对里有 31 对落在 `尝试` 与 `上限` 两个词上**（前段 14 对里有 9 对），
+  而这两个词绝大多数用法是**普通中文**——「第一次尝试」里的尝试是动词，
+  「一帧的载荷有上限」里的上限是普通名词。
+  它们进豁免表的理由恰恰是**仿真器另有**一个同名的计数单位与同名的上界。
+- 上一刀（2026-10-11 的读者审计，`.superpowers/sdd/learner-audit-report.md` §7）
+  **逐条读过修之前的 20 条前段命中：9 条真、11 条假，约 45 %**。
+  这是一次人读的记录，钉在那一刀的语料上（基线 `95b0898` 加 `ed4c6dc`／`f64b0ac`），
+  **它不会漂，因为它是关于那一次快照的事实**；今天可复算的同向代用量是上面那两个数（31／53、9／14），
+  它们有断言看着。
+- **所以这类缺陷只能当分诊清单用，不能当绿灯。** 一处要算成债，必须有人读过那一句，
+  确认「读者在这里会停下来问是什么」。
+
+**台账自己的边界，也量过：它只走那 25 个词。** 2026-09-23 修正案点名的四个量里，
+`门限` 既不在 `ZH_TERMS`（那里只有 `RTS 门限` 与 `能量检测门限` 两条复合行），
+也不在豁免表里——**22 门课在主路径上裸用它，而本节的台账看不见这 22 门课**。
+这不是漏记，是台账的口径；要不要把它收进来，是 §10.6 重新考虑条件的一部分。
+
+### 10.6 这笔债什么时候该重新考虑建规则 —— **立案，建议不批**
+
+**这不是一条新立的案。** 它就是 2026-10-11 读者审计 §8 那一条
+（仓库里「立案并建议不批」的第九条，先例十条：`docs/wifi-course-backlog.md` 的
+W2／W4／W6／W7／W8b／W10 六条、`docs/superpowers/specs/2026-10-10-tier4-design.md` 的
+W14／W15 两条、这一条，以及 `docs/superpowers/specs/2026-10-11-no-room-design.md` §6.3），
+**第一次写进 `docs/`**——在此之前它只活在一份 `.superpowers/` 下的报告里。
+
+**要建什么：** 一条全仓规则，对 `ZH_TERMS_EXCLUDED` 的 25 个词执行 §10.5 的判据，
+逐课报出「这门课用了这个词，而没有谁解释过它」。
+
+**为什么建议不批，三条理由，每条都独立成立：**
+
+1. **它正是 2026-09-25 裁定点名要删的那一种。** 失败信息讲的是**一句话怎么写**
+   （「这里要点名这个量」），不是仿真器做了什么。要让它绿还得给 `尝试`、`上限` 开豁免——
+   **一条带着两条豁免、顶着 53 对存量债、失败信息讲行文的规则**，
+   就是「绿着却证明不了它名字说的那件事」。
+2. **它今天的前段精度约 45 %**（§10.5），而噪声集中在两个词上。
+   按一条量出 45 % 精度的规则去改课文，是拿噪声当工单。
+3. **已经有一个产出更高的办法在用，而它不是仪器。** 这笔债的四处已还，
+   起因是**真实读者问的五个问题里有四个正中真缺陷**。本节的台账是给那个办法配的账本：
+   第 54 处报上来的时候，有地方落、有判据判、有先例照。
+
+**什么时候该重新考虑，三个可检验的条件，任一成立即重开：**
+
+1. **判据的前段精度量到 80 % 以上**——做法是先把 `尝试` 与 `上限` 从判据的词表里拿掉
+   （它们今天占 53 对里的 31 对），对剩下的 22 对逐条读过并记下真假。
+   **这个条件可以今天就验，不需要等任何别的东西。**
+2. **这一族的缺陷再被真实读者报上来一次。** 已经有一次：2026-10-11，读者在
+   `@selectivity` 上的原话是「这里余量是啥」。第二次意味着「靠人读」这个办法的漏检率
+   不再可接受，而那时该批的**不是**本节这条全仓措辞规则，而是把判据覆盖的词收窄到
+   「读者问过的那几个」，并照 §10.4 那四对的形状逐课钉住。
+3. **台账的口径被判为太窄**——也就是决定把 `门限` 这类「两张表都不在」的词收进来（§10.5 末）。
+   那是一个口径决定，要人批；批之前本节的 53 对不许改口径，否则这一节自己就成了漂移源。
+
+### 10.7 为什么写在这份文件里，以及那条断言落在哪
+
+**为什么是本文件的第十节，而不是新开一份：**
+
+1. **§3 最后一条就是被关掉的那条要求。** 它把「官方术语首次出现要带标准英文名」
+   交给 `ZH_TERMS` 管，而这笔债是那次委托留下的洞——**记录该紧挨着产生它的那次委托**。
+2. **§7 已经是「读者看得见的中文里，谁在管／没人管」的账本。** 本节是那张账本的一行，
+   连细目一起写开：`ZH_TERMS_EXCLUDED` 的 25 个词 → **没人管**。
+3. **§9 立下的形状是「一条没有判据的规矩住在契约里，而判据在测试里指回这一节」。**
+   本节照同一个形状，连互指的断言一起（见下）。
+4. `docs/inert-config-contract.md` 管的是另一族：schema 收得下、打开之后记录流不变的配置，
+   口径是「拒绝还是钉住现状」。这里没有配置可拒，也没有记录流可比，
+   它那条六步判据的第一步在这里问不出来。
+
+**那条断言：`tests/course/glossing-debt.test.ts`**，四条：
+
+- `§10 of the wording contract and this file point at each other`
+- `§10.2 lists exactly the 25 words ZH_TERMS_EXCLUDED holds, with each word's own debt`
+- `§10.4 lists exactly the (lesson, word) pairs the criterion finds today`
+- `§10.7 states the figures the criterion measures`
+
+**为什么它落在 Keep 一栏，而不是被 2026-09-25 的裁定删掉：**
+
+1. **它的失败信息讲的是一个数或一个名单对不上，不是一句话该怎么写。**
+   修法永远是**改这一节**（重新量，更新台账），而不是改课文。
+   它对课文的任何一次改动都不设方向：债多了、债少了都合法，**只要台账跟着走**。
+2. **仓库里已经有同形的先例，而且是在那次裁定之后加的**：
+   `tests/smoke.test.ts` › `the cost ceiling's written measurement`（一份文件里写的测量，
+   两边都从文件里读出来比），以及 `tests/course/limits.test.ts` 读 `docs/uwb-modellable-backlog.md`。
+   这就是仓库的 `statedFigures`／`statedCounts` 那把尺。
+3. **留一个会陈旧的数，正好是这一节在讲的那种事故。** 本节讲的是
+   「一条规则被删之后没人接手」；它自己要是留一个没人核的 53，就是同一个毛病再犯一次。
+4. **它不会空转**：台账里有 53 行非空的数据，判据要是哪天量不到东西（正则失配、
+   循环体没跑），它返回空集，而这一节的 53 行**立刻把它顶红**。
+   文档在这里是判据的反空转保护。
+
+**不放到 `tests/course/readability.test.ts`**：那个文件是术语规则与课程契约的所在，
+而这一条断言核的是**一份文档**，不是一门课。
+
+| 量 | 实测 | 怎么量 |
+| --- | --- | --- |
+| 豁免词 | 25 | `ZH_TERMS_EXCLUDED` 的行数 |
+| 主路径存量债（课，词） | 53 | §10.5 的判据 |
+| 其中落在前段 | 14 | 同上 |
+| 债涉及的课 | 43 | 同上 |
+| 债涉及的词 | 12 | 同上 |
+| 落在 `尝试` 与 `上限` 两个词上的债 | 31 | 同上 |
+| 这两个词的债里落在前段的 | 9 | 同上 |
+| 主路径裸用 `门限` 的课（两张表都不在） | 22 | §10.5 末，遮掉两条复合行之后 |
