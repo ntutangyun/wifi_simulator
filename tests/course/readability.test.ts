@@ -894,12 +894,36 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * a MEASURED figure in §17 of `docs/wifi-feature-coverage.md` — three sides and their margins,
  * read out and compared — rather than an assertion that reddens on a field it does not govern.
  *
- * **The Q column is measured — `owed` in `./coverageNumbers` — and the P column is a record of
- * 2026-10-05 that nothing in this repository computes today.** Slice W16 tried to reproduce it
- * from two readings of its own definition and got 646 / 598 / 326 (every unbracketed first use
- * inside the field) and 289 / 187 / 81 (the same, restricted to the Q pairs); neither is the
- * recorded 296 / 176 / 76. So the P column is quotable history, not a figure to compare a
- * measurement against — and a later slice that wants P back has to write the measurement first.
+ * **The Q column is measured — `owed` in `./coverageNumbers`. Nothing in this suite computes the
+ * P column, but it is no longer unrecomputable: it was re-measured on 2026-10-11 and came back
+ * 296 = 291 + 5, 176 = 172 + 4, 76 = 75 + 1, arm by arm.**
+ *
+ * **How, so that the next reader need not rediscover it.** P is the failure messages the bracket
+ * rule would NEWLY emit, so it is measured by appending the field's text to that lesson's graded
+ * walk — one string, `zhMainText(l)` then the field — and running both arms over the result; the
+ * baseline is zero failures (it is, at both commits checked), so the new failures are all of
+ * them. It has to be run with the CODE AND CORPUS OF THE COMMIT THAT MEASURED IT: check that
+ * commit's `src` out on its own and import from there (`probes.local/w17-old/probeP.ts` does it
+ * for `2514723`, reusing the tree W17 extracted; `probes.local/w18-old-cdf6396/` for the design
+ * document's own commit).
+ *
+ * **Why W16's two attempts missed** (646 / 598 / 326 and 289 / 187 / 81): both ran the rule over
+ * the field's text ALONE. That is a different question — every unbracketed use inside the field,
+ * including terms the lesson's main path introduces perfectly well two paragraphs earlier.
+ * Appending is the whole content of 「would newly emit」, and it is also what makes P nearly
+ * coincide with Q instead of dwarfing it.
+ *
+ * **The design document's own P table (292 / 180 / 81) is the same criterion 4 h 24 min 47 s
+ * earlier**, at `cdf6396` (2026-10-05 01:42:00 against 06:06:47, with 13 commits between them,
+ * six of which edited a lesson file). Re-measured there: `limits` 292 = 287 + 5 and `sources` 180 = 176 + 4
+ * exactly, and its three chrome rows (1 / 6 / 25) exactly. Its `deeper` row is the one figure in
+ * the three records that does not reproduce from the criterion as written: 81 = 80 + 1 comes out
+ * only if `deeper` is appended as EVERY STRING it holds (`lessonStrings` — formula bodies and
+ * non-Chinese cells too), while the prose walk the criterion names gives 78 = 77 + 1. §3.4 of
+ * `docs/superpowers/specs/2026-10-05-wording-reach-design.md` now carries that annotation.
+ * So the two records never contradicted each other — they are one quantity at two commits — and
+ * this column is quotable AND recomputable history. It is still asserted nowhere, because nothing
+ * in the suite grades these fields; a slice that wants P watched has to say so first.
  *
  * ### The two criteria, and why this assertion has to name which one it uses
  *
@@ -1052,8 +1076,10 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    * is the claim the ratchet was always pinned on.** The reason `limits` is ratcheted rather than
    * graded is that it is THE BIGGEST of the three by this ruler while being rendered open on the
    * main path and timed at zero. 「Bigger than both put together」 was a second sentence standing
-   * beside that one: true of criterion P with 31 to spare (292 against 180 + 81, cited at `:627`
-   * and frozen, since nothing recomputes P), and on criterion Q — the criterion this `it` uses —
+   * beside that one: true of criterion P with 31 to spare (292 against 180 + 81, cited at `:627`;
+   * recomputed at that citation's own commit on 2026-10-11 — see the ratchet's docblock, where the
+   * `deeper` 81 is 78 by the walk the criterion names, which leaves the sentence true with 34 to
+   * spare rather than 31), and on criterion Q — the criterion this `it` uses —
    * recorded by the filing design document itself as 「289 和两者之和 279 基本持平（多 10）」.
    * A margin of 10 on the day of filing was never load-bearing; what the document concluded from
    * it was the density tier, not the sum.
@@ -1061,8 +1087,14 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    * **The sum comparison did not disappear: it moved to where drift is visible instead of fatal.**
    * §17 of `docs/wifi-feature-coverage.md` now states all three sides, their lesson counts and
    * both margins, every figure read out and compared by
-   * `tests/course/wifi-coverage.test.ts` — so the day the sum side passes `limits` a reader sees
-   * a negative margin in a table, and nothing is red on a file nobody touched.
+   * `tests/course/wifi-coverage.test.ts` — so the day the sum side passes `limits`, no lesson is
+   * refused and no ruler has to be widened. **That last cell states WHICH side leads rather than a
+   * signed margin** (2026-10-11, later the same day): a bare `-3` there would be a true cell — a stated
+   * number equal to the measured one — that nobody has any reason to look at, and the figure most
+   * worth noticing in that table is precisely the one that can turn into its own opposite while
+   * staying 「correct」. A direction is a sentence, so the flip makes the document FALSE — red,
+   * and the fix is a person writing the new true sentence — while still forbidding neither
+   * direction and constraining neither side's size.
    *
    * ### What the right side's growth actually is, and why §17 is the right home for it
    *

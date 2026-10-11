@@ -149,3 +149,35 @@ export const sideDebts = (): Record<'limits' | 'sources' | 'deeper', string[]> =
 /** The lessons a side's pairs are spread over — the 涉及课数 column of §17's table. */
 export const lessonsOwing = (pairs: readonly string[]): number =>
   new Set(pairs.map((p) => p.split('|')[0])).size
+
+/**
+ * **Which way round the comparison runs, and by how much — the DIRECTION, not the margin.**
+ *
+ * The last row of §17's three-sides table compares the `limits` debt with `sources` ＋ `deeper`
+ * put together. That comparison used to be an assertion in `readability.test.ts`, and W17 took it
+ * off the rulers because it reddened on a quantity nobody governs: the sum side grows whenever a
+ * lesson is added, and a strict ordering against it is a gate on writing lessons.
+ *
+ * **But the figure that replaced it can go wrong in a way no figure-to-figure comparison catches.**
+ * §17 stated the margin as a bare `1`. The margin going to zero and then negative is legal — that
+ * is the whole point of moving it here — yet a cell reading `-3` is a true cell: a stated number
+ * equal to the measured number, with nothing about it to make anybody look. A number that can turn
+ * into its own opposite while staying 「correct」 is the defect this repository keeps finding.
+ *
+ * So the cell states **which side leads**, in words, and this function is the measured answer to
+ * compare it with. Re-aiming it that way constrains nothing — both directions are legal, and so is
+ * a tie — while making the flip impossible to pass unread: the day the sum side takes the lead, the
+ * sentence written in §17 is false, `wifi-coverage.test.ts` says so, and the only way out is for a
+ * person to write the new true one. That is the same bargain as every other stated figure in §17,
+ * and it costs a lesson author nothing extra: that row's `286` is already compared, so the row is
+ * already theirs to update.
+ *
+ * `by` is a magnitude and never negative; `leader` carries the sign. A sign convention is one more
+ * thing a reader can get backwards, and this cell exists to stop exactly that.
+ */
+export const sumRelation = (
+  sides: Record<'limits' | 'sources' | 'deeper', readonly string[]> = sideDebts(),
+): { leader: 'limits' | 'sum' | 'tie'; by: number } => {
+  const diff = sides.limits.length - sides.sources.length - sides.deeper.length
+  return { leader: diff > 0 ? 'limits' : diff < 0 ? 'sum' : 'tie', by: Math.abs(diff) }
+}

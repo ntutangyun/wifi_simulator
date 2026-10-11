@@ -56,7 +56,7 @@ import {
 } from './coverage'
 import { orderedLessons } from './corpus'
 import {
-  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, lessonsOwing, limitsRatchet, sideDebts,
+  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, lessonsOwing, limitsRatchet, sideDebts, sumRelation,
 } from './coverageNumbers'
 
 const DOC = 'docs/wifi-feature-coverage.md'
@@ -774,15 +774,38 @@ describe(`${DOC}'s §17 three-sides table is measured, margins and all`, () => {
       + ' criterion excludes').toContain(`${DOC}\` §17`)
   })
 
-  it('states the sum and its margin as a record, with no lesson count behind it', () => {
+  it('states WHICH side leads, and that sentence is compared with the measurement', () => {
     const row = rows.find((r) => r[0].replaceAll('*', '').trim() === SUM_LABEL)!
     expect(statedFigures(doc, SIDE_HEAD).get(SUM_LABEL), 'the sum of the two fields the bracket'
       + ' rule excludes on purpose — stated, and compared, but asserted nowhere')
       .toBe(sides.sources.length + sides.deeper.length)
-    expect(bare(row[3]), 'the margin that used to be an assertion. It may go to zero or negative'
-      + ' without anything being red: that is what moving it out of readability.test.ts bought,'
-      + ' and this comparison is what keeps it from going quietly stale instead')
-      .toBe(sides.limits.length - sides.sources.length - sides.deeper.length)
+    // **The cell that replaced the bare margin.** It read 「**1**」 until 2026-10-11, and a bare
+    // margin is the one figure in this table that can turn into its own opposite while staying
+    // true: a cell reading `-3` is a stated number equal to the measured number, and nothing about
+    // it makes anybody look. The DIRECTION is a sentence instead, so the day it flips the document
+    // is wrong rather than merely surprising, and the only fix is a person writing the new true
+    // one. It gates nothing — all three forms below are legal, and so is any margin.
+    const cell = row[3].replaceAll('*', '').trim()
+    const LEADS = new Map<string, string>([['`limits[].text`', 'limits'], [SUM_LABEL, 'sum']])
+    const m = /^(.+?) 多 (\d+)$/.exec(cell)
+    expect(cell === '持平' || (m !== null && LEADS.has(m[1])), `§17's sum row states its relation`
+      + ` as 「${cell}」, which is none of the three legal forms: 「<哪一行> 多 **<数>**」 naming this`
+      + " table's `limits[].text` row or its `sources` ＋ `deeper` row, or 「持平」 when the two are"
+      + ' equal').toBe(true)
+    const rel = sumRelation(sides)
+    const spelt = rel.leader === 'tie' ? '持平'
+      : [...LEADS].find(([, k]) => k === rel.leader)![0]
+    expect(cell === '持平' ? '持平' : m![1], '§17 says which of the two sides carries more of'
+      + ` this debt, and the measurement says the other one. Stated: 「${cell}」. Measured: \`limits\``
+      + ` ${sides.limits.length} against \`sources\` ＋ \`deeper\``
+      + ` ${sides.sources.length + sides.deeper.length}, so 「${spelt}${rel.leader === 'tie' ? '' : ` 多 ${rel.by}`}」.`
+      + ' Neither direction is forbidden and this is not a gate — the comparison exists so that the'
+      + ' flip cannot happen unread. Write the true sentence into that cell, and then read the prose'
+      + ' under the table: it is the thing that has to be re-argued, not this number').toBe(spelt)
+    if (rel.leader !== 'tie') expect(Number(m![2]), 'the sum row states by how much the side it'
+      + ' names leads. That is a magnitude — `leader` in `sumRelation` carries the sign, because a'
+      + ' sign convention in a 余量 column is one more thing a reader can get backwards')
+      .toBe(rel.by)
     // and the one cell that must NOT be a figure: `sources` and `deeper` owe their pairs over
     // OVERLAPPING lesson sets, so 75 + 40 is the lesson count of nothing. A reader who fills this
     // cell by adding the column above it writes a number that is false by construction.
@@ -838,7 +861,8 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
   [FIG_HEAD, '§17 — statedFigures, all six against the course; plus the 余量 column: the two'
     + ' bare zeros by kind (structural vs measured) and the tightest-lesson distance'],
   [SIDE_HEAD, '§17 three sides — `sideDebts`: each pair count, each lesson count, both margins,'
-    + ' and the sum row, whose 涉及课数 must stay blank because the lesson sets overlap'],
+    + ' and the sum row — whose 涉及课数 must stay blank because the lesson sets overlap, and whose'
+    + ' 余量 cell names WHICH side leads, compared against `sumRelation`'],
   [['课', 'raw 分钟', '到下一档还剩', '后果'],
     '§17 bucket margins — NOT pinned row by row (re-measured 2026-10-09: all six exact); its one'
     + ' prose figure, the minute sum, IS pinned above'],
