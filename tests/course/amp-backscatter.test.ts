@@ -25,6 +25,7 @@ import {
   AMP_BS_WUP_MIN_NS, activationReachM, ampBsDlPpduNs, bsReplyNs, bstNs, freeSpacePl0Db,
   monoReachM, FREQ_24G_MHZ,
 } from '../../src/engine/ampBs'
+import { ERP_2G } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { fmtRecord } from '../../src/ui/format'
@@ -408,5 +409,182 @@ describe('amp-backscatter · the tags have no transmitter and no contention', ()
     // the reflections carry no power of their own: the tag's own txPowerDbm is 0 dBm and the
     // level the reader sees comes from the excitation, not from it
     expect(ampBackscatter.scenario().nodes[1].txPowerDbm).toBe(0)
+  })
+})
+
+/**
+ * **The lesson's own copies, read back out of the lesson.**
+ *
+ * Everything above is thorough about the ENGINE: every figure the lesson prints has an assertion,
+ * and each one quotes the lesson's sentence in a comment next to the literal it checks. That is
+ * the arrangement this repository keeps finding the hole in — it catches an engine change and
+ * misses a prose change. The comment 「// table: "−13.72 dBm"」 is not a comparison with the table.
+ *
+ * `@amp-backscatter` carries 86 hand-typed figures in its graded prose with **none** interpolated,
+ * second only to `@amp-coexist`, and it was on the list of lessons whose test never touched their
+ * own prose (`tests/course/prose-readback.test.ts`). So this describe reads the table and the
+ * figure-bearing sentences out of the lesson and compares them with the same quantities the
+ * assertions above measure. Nothing here is a new measurement; it is the other half of each one.
+ */
+describe('amp-backscatter · the printed table and sentences are read back out of the lesson', () => {
+  const rs = recs()
+  const prose = (): string => JSON.stringify(ampBackscatter.numbers)
+  const boot = (node: string) => ofType(rs, 'AMP_BS_BOOT').filter((r) => r.node === node)
+  const reply = (node: string) => ofType(rs, 'AMP_BS_REPLY').find((r) => r.node === node)
+  /** 「−13.72 dBm」 → −13.72; 「16.57 dB」 → 16.57; 「15 cm」 → 15. Full-width minus included. */
+  const val = (cell: string): number =>
+    Number(cell.replace(/−/g, '-').replace(/[^\d.-]/g, ''))
+
+  const sixTags = (): string[][] => {
+    const b = ampBackscatter.numbers!.find((x) => x.kind === 'table'
+      && (x.heading ?? '').includes('六张标签'))
+    expect(b, 'the six-tag table is gone from `numbers`').toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+
+  it('the six-tag table: distance, incident power, return, margin and the reads per second', () => {
+    const rows = sixTags()
+    expect(rows, 'the lesson prints three rows: the ring of four, the middle one, the dead one')
+      .toHaveLength(3)
+    // row 0 is the four tags at the same radius, row 1 is Tag 5, row 2 is Tag 6
+    const representative = [TAGS[0], TAGS[4], TAGS[5]]
+    for (const [i, row] of rows.entries()) {
+      const node = representative[i]
+      const cm = val(row[1])
+      // the distance is the scene's, and it is what both reaches are compared against
+      expect(cm, `row ${i}: the lesson prints a distance in centimetres`).toBeGreaterThan(0)
+      const incident = DEFAULT_AMP_BS.chargeDbm
+        - (freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(cm / 100))
+      expect(val(row[2]), `row ${i}: the incident power at ${cm} cm, from the law`)
+        .toBe(Number(incident.toFixed(2)))
+      const b = boot(node)[0]
+      if (b) {
+        // and for a tag that actually woke, the same figure out of its own record
+        expect(val(row[2]), `row ${i}: and from ${node}'s own AMP_BS_BOOT record`)
+          .toBe(Number(b.incidentDbm.toFixed(2)))
+      }
+      const r = reply(node)
+      if (row[3] === '（没醒过）') {
+        expect(b, `row ${i} says the tag never woke, so it may leave no boot record`).toBeUndefined()
+        expect(r, 'and no reply either').toBeUndefined()
+        expect(row[4], 'so its margin cell is a dash, not a number').toBe('—')
+        expect(incident, 'and the law agrees it is under the activation floor')
+          .toBeLessThan(AMP_BS_ACTIVATION_DBM)
+      } else {
+        expect(val(row[3]), `row ${i}: what comes back at the reader`)
+          .toBe(Number(r!.rxDbmAtAp.toFixed(2)))
+        expect(val(row[4]), `row ${i}: and with how much margin`).toBe(Number(r!.snrDb.toFixed(2)))
+      }
+      // the reads-per-second cell: one count per tag the row covers
+      const counts = row[5].replace(/\s*次$/, '').split('、').map(Number)
+      const nodes = i === 0 ? TAGS.slice(0, 4) : [node]
+      expect(counts, `row ${i}: one reading count per tag the row covers`).toHaveLength(nodes.length)
+      expect(counts, `row ${i}: the readings each tag yielded in the second`)
+        .toEqual(nodes.map((t) => epcCount(rs, t)))
+    }
+    // the three rows account for all six tags, which is what 「六张标签的下场」 claims
+    const covered = sixTags().reduce((n, _row, i) => n + (i === 0 ? 4 : 1), 0)
+    expect(covered, 'the table covers every tag in the scene').toBe(TAGS.length)
+  })
+
+  it('the 20 dBm variant: one reach moves, the other does not, and the total goes DOWN', () => {
+    const m = /把激励抬了 (\d+) dB。上电那条线随之推到 ([\d.]+) m[^]*?抽了 (\d+) 次计数、反射了 (\d+) 次 RN16。读得到那条线一动不动，还是 ([\d.]+) m[^]*?余量是 [−-]([\d.]+) dB[^]*?从 (\d+) 降到 (\d+)/
+      .exec(prose())
+    expect(m, 'the 20 dBm paragraph is gone, or its shape changed').not.toBeNull()
+    const lift = Number(m![1])
+    const base = DEFAULT_AMP_BS.chargeDbm
+    const strong = base + lift
+    expect(Number(m![2]), 'the activation reach at the raised excitation')
+      .toBe(Number(activationReachM(strong).toFixed(3)))
+    expect(Number(m![5]), 'and the decode reach, which does not move')
+      .toBe(Number(monoReachM(base, 250).toFixed(3)))
+    // **「一动不动」 is a claim about the physics, so it is asserted as one.** `monoReachM` returns
+    // the same reach at EVERY excitation — the reader's own leakage sets its noise floor, so the
+    // budget cancels. That makes its first argument provably inert in the output, which is the
+    // shape `docs/inert-config-contract.md` says to refuse or pin; here it is neither a bug nor a
+    // dead parameter but the lesson's whole sentence, so it is pinned over a wide band. (The
+    // assertion above this describe passes `bsDbm` = 0 where the scene excites at 10 and still
+    // gets 0.328 — true, and only because of this.)
+    for (const dbm of [-20, 0, base, strong, 100]) {
+      expect(Number(monoReachM(dbm, 250).toFixed(3)), `the decode reach at ${dbm} dBm excitation`)
+        .toBe(Number(m![5]))
+    }
+    expect(activationReachM(strong), 'while the activation reach really does grow')
+      .toBeGreaterThan(activationReachM(base))
+    // the far tag wakes and answers, and still is never decoded
+    const loud = recs(0)
+    const far = ofType(loud, 'AMP_BS_REPLY').filter((r) => r.node === TAGS[5])
+    expect(far.length, 'RN16 reflections from the 40 cm tag once it wakes').toBe(Number(m![4]))
+    expect(ofType(loud, 'AMP_BS_COUNTER').filter((r) => r.node === TAGS[5]).length,
+      'and the counts it drew').toBe(Number(m![3]))
+    expect(-Number(m![6]), 'its margin at the reader, which is negative')
+      .toBe(Number(far[0].snrDb.toFixed(2)))
+    expect(epcCount(loud, TAGS[5]), 'so it is never once decoded').toBe(0)
+    // 「反而少读到一次」: the whole point of the paragraph
+    expect(Number(m![7]), 'readings in the second at the normal excitation').toBe(tally(rs).read)
+    expect(Number(m![8]), 'and at the raised one').toBe(tally(loud).read)
+    expect(Number(m![8]), 'which is fewer, not more').toBeLessThan(Number(m![7]))
+  })
+
+  it('the slot formula adds up, and each term is one PPDU of the slot', () => {
+    const f = ampBackscatter.numbers!.find((x) => x.kind === 'formula') as
+      { text: string; note?: string } | undefined
+    expect(f, 'the slot formula is gone from `numbers`').toBeDefined()
+    const m = /Query (\d+) \+ (\d+) \+ ACK (\d+) \+ (\d+) \+ Read (\d+) \+ (\d+) = (\d+) µs/.exec(f!.text)
+    expect(m, 'the formula no longer states its six terms and the total').not.toBeNull()
+    const n = m!.slice(1).map(Number)
+    expect(n[0] + n[1] + n[2] + n[3] + n[4] + n[5], 'the lesson’s own arithmetic').toBe(n[6])
+    // the three gaps the lesson writes as 16 are the engine's T2, not a typed constant
+    expect([n[1], n[3], n[5]], 'the three inter-frame gaps').toEqual([
+      AMP_BS_T2_NS / 1_000, AMP_BS_T2_NS / 1_000, AMP_BS_T2_NS / 1_000,
+    ])
+    // and the reserve the note names, which is why a second slot does not fit
+    const note = /为可能到来的 RN16 预留 (\d+) \+ (\d+) µs/.exec(f!.note ?? '')
+    expect(note, 'the note no longer states the reserve').not.toBeNull()
+    expect(Number(note![1]), 'the gap before the reserved reply').toBe(AMP_BS_T2_NS / 1_000)
+    expect(Number(note![2]), 'and the reply itself, the same length as the ACK above').toBe(n[2])
+  })
+
+  it('the airtime sentence: the command count, the milliseconds and the share', () => {
+    const m = /一秒钟 (\d+) 帧命令占掉 ([\d.]+) ms，也就是 ([\d.]+) %/.exec(prose())
+    expect(m, 'the airtime sentence is gone, or its shape changed').not.toBeNull()
+    expect(Number(m![1]), 'command PPDUs in the second').toBe(ofType(rs, 'AMP_RFID').length)
+    expect(Number(m![2]), 'the milliseconds they occupy')
+      .toBe(Number((rfidAirtimeNs(rs) / MS).toFixed(1)))
+    expect(Number(m![3]), 'and their share of the second')
+      .toBe(Number(((100 * rfidAirtimeNs(rs)) / RUN_NS).toFixed(1)))
+  })
+
+  it('the collisions sentence: fifty answers, twenty-three readings, nine collisions', () => {
+    const m = /一秒钟 (\d+) 次 RN16 只换来 (\d+) 次读到，而 collisions 只有 (\d+)/.exec(prose())
+    expect(m, 'the collisions sentence is gone, or its shape changed').not.toBeNull()
+    const t = tally(rs)
+    expect(Number(m![1]), 'RN16 reflections in the second').toBe(replies(rs, 'rn16').length)
+    expect(Number(m![2]), 'readings').toBe(t.read)
+    expect(Number(m![3]), 'collided slots').toBe(t.col)
+    // the sentence's argument: the collisions are far fewer than the lost answers, because the
+    // reader resolved most pairs by capture rather than losing both
+    expect(Number(m![3]), 'collisions are the minority of the lost answers')
+      .toBeLessThan(Number(m![1]) - Number(m![2]))
+    const gap = /近的那张高出 ([\d.]+) dB/.exec(prose())
+    expect(gap, 'the capture-margin sentence is gone').not.toBeNull()
+    const near = reply(TAGS[0])!
+    const far = reply(TAGS[4])!
+    expect(Number(gap![1]), 'the margin between the near pair and the far one')
+      .toBe(Number((near.snrDb - far.snrDb).toFixed(1)))
+  })
+
+  it('the Read and Write airtimes the last paragraph prints', () => {
+    const m = /Read 的回应是 (\d+) 个字节的存储内容，(\d+) µs[^]*?标签要 (\d+) ms 才答得出来[^]*?长 (\d+) µs/
+      .exec(prose())
+    expect(m, 'the Read/Write paragraph is gone, or its shape changed').not.toBeNull()
+    expect(Number(m![2]), 'the Read reply airtime').toBe(bsReplyNs('read', 250) / 1_000)
+    expect(Number(m![3]) * MS, 'the Write turnaround the tag needs').toBe(AMP_BS_WRITE_T3_NS)
+    // The scene is 2.4 GHz, so the signal extension comes from `ERP_2G` rather than being typed —
+    // the assertions above this describe write `const sigExt = 6_000` by hand.
+    const sigExt = ERP_2G.signalExtNs
+    expect(sigExt, 'the 2.4 GHz signal extension, from the timing table').toBe(6_000)
+    expect(Number(m![4]), 'and the downlink PPDU a Write therefore becomes')
+      .toBe(Math.round(ampBsDlPpduNs('write', 0, bstNs('write', 250, AMP_BS_WRITE_T3_NS), sigExt) / 1_000))
   })
 })
