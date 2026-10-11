@@ -631,7 +631,11 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 六处全绿。
 
 **为什么是设计：** 词表清单（`.superpowers/sdd/2026-09-23-mechanism-before-metaphor/`
-`zh-term-inventory.md`）§2.1–2.5 那 190 条官方术语里**没有一条是裸的 `门限`**，
+`zh-term-inventory.md`）§2.1–2.5 那 **196** 条官方术语里**没有一条是裸的 `门限`**
+（196 是那份清单 §0 自己的表头数，逐节数过：34 ＋ 34 ＋ 29 ＋ 30 ＋ 69。
+**顺手更正一处**：`1dcfe1c` 的提交信息写「ZH_TERMS holds the 190 official …
+terms of sections 2.1–2.5」，把两个数等同了——190 是那天 `ZH_TERMS` 的行数，
+清单 §2.1–2.5 是 196 行，差六行。**那条提交信息改不了，差别记在这里。**），
 而带门限的那两条行连英文名都是**限定过的**——§2.3 那一行原文写
 `RTS threshold (dot11RTSThreshold)`，§2.5 那一行是 `energy detection threshold`。
 **这一刀没有去读标准正文核「threshold 自己是不是一条定义术语」**，
