@@ -22,6 +22,7 @@ import {
 import { roundPlan, rstuNs } from '../../src/uwb/session'
 import { rctuToMetres } from '../../src/uwb/ranging'
 import { Simulation } from '../../src/engine/simulation'
+import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -202,5 +203,150 @@ describe('uwb-subrounds · the figure is the layout', () => {
     const last = Math.max(...spec.lanes.flatMap((l) => l.spans.map((s) => s.toUs)))
     expect(spec.axis.toUs).toBeGreaterThanOrEqual(last)
     expect(spec.axis.fromUs).toBe(0)
+  })
+})
+
+/**
+ * **The lesson's two comparison tables, read back out of the lesson.**
+ *
+ * Everything above compares the engine with a literal written here, the lesson's row quoted in a
+ * comment. `@uwb-subrounds` prints 43 hand-typed figures into its graded prose and was on the list
+ * of lessons whose test never touched it (`tests/course/prose-readback.test.ts`). The figures were
+ * all exact; this is the other half of each assertion.
+ *
+ * Two cells here are not numbers at all — 「都测得出」 twice in the last row of the second table —
+ * and that is a claim about both ends ranging, which the option exists to preserve. It is read as
+ * one rather than skipped, the same way `@amp-slots`' collided slot states no closing time.
+ */
+describe('uwb-subrounds · the two comparison tables are read back out of the lesson', () => {
+  const rowsOf = (fragment: string): string[][] => {
+    const b = uwbSubrounds.numbers!.find((x) => x.kind === 'table'
+      && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+  const byLabel = (fragment: string, label: string): string[] => {
+    const row = rowsOf(fragment).find((r) => r[0] === label)
+    expect(row, `no row labelled 「${label}」 in the 「${fragment}」 table`).toBeDefined()
+    return row!
+  }
+  const slotNs = rstuNs(SUBROUND_SLOT_RSTU)
+
+  it('the two-shapes table: sub-rounds, both phases, the round, the gap and the span', () => {
+    const inter = planOf('interleaved').mms!.layout
+    const non = planOf('base').mms!.layout
+    // column 1 is the interleaved shape, column 2 the non-interleaved one
+    expect(Number(byLabel('两种排法', '子轮数')[1]), 'interleaved sub-rounds').toBe(inter.subRounds)
+    expect(Number(byLabel('两种排法', '子轮数')[2]), 'non-interleaved sub-rounds').toBe(non.subRounds)
+
+    const rp = byLabel('两种排法', '测距阶段')
+    expect(Number(/^(\d+) 时隙$/.exec(rp[1])![1]), 'the interleaved ranging phase').toBe(inter.rpSlots)
+    expect(Number(/^每子轮 (\d+) 时隙$/.exec(rp[2])![1]), 'and the non-interleaved one, per sub-round')
+      .toBe(non.rpSlots)
+
+    const rep = byLabel('两种排法', '报告阶段')
+    expect([Number(/^(\d+)/.exec(rep[1])![1]), Number(/^(\d+)/.exec(rep[2])![1])],
+      'the report phase, which the shape does not change').toEqual([inter.reportSlots, non.reportSlots])
+
+    // 「38 时隙 · 19 ms」: both halves, and the second really is the first in milliseconds
+    for (const [j, l] of [inter, non].entries()) {
+      const cell = byLabel('两种排法', '一轮')[1 + j]
+      const m = /^(\d+) 时隙 · (\d+) ms$/.exec(cell)
+      expect(m, `the round cell 「${cell}」 is not 「n 时隙 · m ms」`).not.toBeNull()
+      expect(Number(m![1]), 'the round in slots').toBe(l.slots)
+      expect(Number(m![2]) * MS, 'and the same round in nanoseconds').toBe(l.slots * slotNs)
+    }
+
+    for (const [j, l] of [inter, non].entries()) {
+      const cell = byLabel('两种排法', '相邻片段的间隔')[1 + j]
+      const m = /^(\d+) 时隙 · (\d+) ms$/.exec(cell)
+      expect(m, `the gap cell 「${cell}」 is not 「n 时隙 · m ms」`).not.toBeNull()
+      expect(Number(m![1]), 'the fragment gap in slots').toBe(l.fragGapSlots)
+      expect(Number(m![2]) * MS, 'and in nanoseconds').toBe(l.fragGapSlots * slotNs)
+    }
+
+    // the span of one column of eight, measured on the air rather than from the layout
+    const gaps = (variant?: number): number[] => {
+      const ts = runOf(uwbSubrounds, variant, BLOCK_NS)
+        .filter((r) => r.type === 'TX_START' && r.frame.kind === 'uwbRsf' && r.node === 'tag-1')
+        .map((r) => r.t).slice(0, 8)
+      return ts.slice(1).map((t, i) => t - ts[i])
+    }
+    const span = byLabel('两种排法', '一列八个片段的跨度')
+    expect(Number(/^(\d+) ms$/.exec(span[1])![1]) * MS, 'the interleaved span of eight')
+      .toBe(gaps(INTERLEAVED).reduce((a, b) => a + b, 0))
+    expect(Number(/^(\d+) ms$/.exec(span[2])![1]) * MS, 'and the non-interleaved one')
+      .toBe(gaps().reduce((a, b) => a + b, 0))
+    // the table's point: interleaving doubles the gap and doubles the span
+    expect(Number(/^(\d+)/.exec(span[1])![1]), 'interleaved spans twice as long')
+      .toBe(2 * Number(/^(\d+)/.exec(span[2])![1]))
+  })
+
+  it('the fixed-reply table: the RSTU it names, both ranges, and both corrected figures', () => {
+    const head = (uwbSubrounds.numbers!.find((x) => x.kind === 'table'
+      && (x.heading ?? '').includes('固定回复时间')) as { head: string[] }).head
+    const rstu = /（(\d+) RSTU）/.exec(head[2])
+    expect(rstu, 'the on-column heading no longer names the fixed reply time').not.toBeNull()
+    const sc = uwbSubroundsScenario('fixed')
+    expect(Number(rstu![1]), 'the RSTU the heading names, against the scene that sets it')
+      .toBe(sc.uwb!.mms!.fixedReplyRstu)
+
+    // **The 「off」 column is NOT the lesson's own scene.** It is this same pairwise scene with the
+    // option switched off — four sub-rounds in the base scene would put the initiator's range at
+    // 40.118 ms, not the 20.118 the table prints — so the comparison is built the way the
+    // assertions above build it, from `fixed` with `fixedReplyRstu: null`.
+    const offRecs = (): TLRecord[] => {
+      const off = ScenarioSchema.parse({
+        ...sc, uwb: { ...sc.uwb!, mms: { ...sc.uwb!.mms, fixedReplyRstu: null } },
+      })
+      return [...new Simulation(off).runUntil(BLOCK_NS).records]
+    }
+    const onRecs = (): TLRecord[] => runOf(uwbSubrounds, FIXED, BLOCK_NS)
+    const sp0In = (rs: TLRecord[]): number =>
+      rs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'uwbSp0').length
+    const perRound = byLabel('固定回复时间', '一轮里的 SP0 包')
+    const rounds = 3
+    expect(Number(/^(\d+)/.exec(perRound[1])![1]) * rounds, 'SP0 packets with the option off')
+      .toBe(sp0In(offRecs()))
+    expect(Number(/^(\d+)/.exec(perRound[2])![1]) * rounds, 'and with it on').toBe(sp0In(onRecs()))
+
+    const when = byLabel('固定回复时间', '发起方何时得出距离')
+    const mine = (rs: TLRecord[]) => ofType(rs, 'UWB_RANGE')
+      .filter((r) => r.node === 'tag-1' && r.peer === 'anchor-1')[0]
+    const off0 = mine(offRecs())
+    const on0 = mine(onRecs())
+    // three decimals of a millisecond, which is what the lesson prints
+    const asMs = (t: number): number => Number((t / MS).toFixed(3))
+    expect(Number(/^([\d.]+) ms$/.exec(when[1])![1]), 'when the initiator ranges with it off')
+      .toBe(asMs(off0.t))
+    expect(Number(/^([\d.]+) ms$/.exec(when[2])![1]), 'and with it on').toBe(asMs(on0.t))
+    // the option's point: the range comes out earlier
+    expect(on0.t, 'earlier with the option on').toBeLessThan(off0.t)
+
+    const raw = byLabel('固定回复时间', '没修正过的那个距离')
+    expect(Number(/^([\d.]+) m$/.exec(raw[1])![1]), 'the uncorrected figure with it off')
+      .toBe(Number(rctuToMetres(off0.tofRawRctu!).toFixed(2)))
+    expect(Number(/^([\d.]+) m$/.exec(raw[2])![1]), 'and with it on')
+      .toBe(Number(rctuToMetres(on0.tofRawRctu!).toFixed(2)))
+
+    const fixedRow = rowsOf('固定回复时间').find((r) => r[0].startsWith('修正后的距离'))!
+    const truth = /真值 ([\d.]+) m/.exec(fixedRow[0])
+    expect(truth, 'the corrected row no longer names the true distance in its label').not.toBeNull()
+    expect(Number(truth![1]), 'the true distance the label names').toBe(off0.trueDistM)
+    expect(Number(/^([\d.]+) m$/.exec(fixedRow[1])![1]), 'the corrected figure with it off')
+      .toBe(Number(off0.distM.toFixed(2)))
+    expect(Number(/^([\d.]+) m$/.exec(fixedRow[2])![1]), 'and with it on')
+      .toBe(Number(on0.distM.toFixed(2)))
+
+    // the last row is two words, not two numbers, and it is the claim the option rests on
+    const both = byLabel('固定回复时间', '两端都测得出吗')
+    expect([both[1], both[2]], 'the lesson says both ends range either way')
+      .toEqual(['都测得出', '都测得出'])
+    for (const [name, rs] of [['off', offRecs()], ['on', onRecs()]] as [string, TLRecord[]][]) {
+      const ends = new Set(ofType(rs, 'UWB_RANGE')
+        .filter((r) => r.peer === 'anchor-1' || r.node === 'anchor-1').map((r) => r.node))
+      expect([...ends].sort(), `both ends really do range with the option ${name}`)
+        .toEqual(['anchor-1', 'tag-1'])
+    }
   })
 })
