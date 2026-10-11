@@ -45,7 +45,10 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { COURSE_ORDER, MODULES, lessonMinutes } from '../../src/course/curriculum'
+import {
+  CHARS_PER_MINUTE, COURSE_ORDER, MODULES, OBSERVE_MINUTES, TRY_MINUTES,
+  lessonChars, lessonMinutes,
+} from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
 import { mainPathChars } from '../../src/course/readability'
 import { HOUSEHOLDS } from '../../src/model/households'
@@ -974,6 +977,112 @@ describe(`${DOC}'s §14 summary table counts itself correctly`, () => {
   })
 })
 
+const BUCKET_HEAD = ['课', 'raw 分钟', '到下一档还剩', '后果']
+
+/** The cap §17 states for its bucket-margin table: every lesson at or under it owes a row. */
+const BUCKET_CAP = 30
+
+/**
+ * A lesson's RAW minutes — the quantity `lessonMinutes` rounds to five. Written out rather than
+ * imported because `curriculum.ts` exports the rounded answer and the parts, never this; the same
+ * expression lives in `tests/course/kit.ts`'s 「fits one sitting」 and in `readability.test.ts`'s
+ * raw ceiling, each named after the quantity it watches.
+ */
+const rawMinutes = (l: (typeof ordered)[number]): number =>
+  lessonChars(l) / CHARS_PER_MINUTE
+  + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+
+/**
+ * The characters a lesson may still gain before `lessonMinutes` rounds it into the next bucket.
+ *
+ * **The rounding convention is part of the figure, so it is written down here and in §17.** The
+ * next boundary is `5·(k + ½)` with `k = Math.round(raw / 5)`, and the result is `Math.round`ed —
+ * the instrument the slice that wrote §17's table used (`probes.local/bucket-margins.ts`).
+ * `Math.floor` would call `@rate`'s margin 0 rather than 1. A figure whose convention nobody wrote
+ * down cannot be re-measured, which is the lesson `dataRows`' docblock in `coverage.ts` carries
+ * from the same day.
+ */
+const charsToNextBucket = (l: (typeof ordered)[number]): number => {
+  const raw = rawMinutes(l)
+  return Math.round((Math.round(raw / 5) * 5 + 2.5 - raw) * CHARS_PER_MINUTE)
+}
+
+/**
+ * **§17's bucket-margin table, pinned — and until 2026-10-12 it was the one table of this document
+ * the census exempted on a dated re-measurement rather than on an argument.**
+ *
+ * The census line read 「NOT pinned row by row (re-measured 2026-10-09: all six exact)」. Four days
+ * later one row was wrong and three lessons were missing: `@uwb-m2m`'s margin had gone 5 → 2, and
+ * `@edca` (16), `@uwb-mms-numbers` (22) and `@uwb-sensing` (25) all sat tighter than the loosest
+ * row the table listed (`@streams`, 25) without ever appearing in it. A dated re-measurement is
+ * not a comparison: it ages into a figure nobody is told to re-read.
+ *
+ * Two claims are checked, because the table makes two. The figures are the obvious one. The SET is
+ * the one that was silently false: a list whose job is to warn an author which lessons are nearly
+ * over a bucket boundary fails at that job for every lesson it leaves out, and nothing about a
+ * per-row figure check would have noticed.
+ */
+describe(`${DOC}'s §17 bucket-margin table states figures and a set, both measured`, () => {
+  const rows = dataRows(doc, BUCKET_HEAD)
+  const idOf = (cell: string): string => cell.replaceAll('*', '').replaceAll('`', '').replace('@', '').trim()
+  const numOf = (cell: string): number => Number(cell.replaceAll('*', '').replace(/[^\d.]/g, ''))
+
+  it('is still there, with a row per lesson and no other shape', () => {
+    expect(rows.length, 'the §17 bucket-margin table is gone, or its header changed — every'
+      + ' assertion below selects on that header').toBeGreaterThan(0)
+    for (const r of rows) {
+      const l = ordered.find((x) => x.id === idOf(r[0]))
+      expect(l, `§17's bucket table names @${idOf(r[0])}, which is not a lesson of the course`)
+        .toBeDefined()
+    }
+  })
+
+  it('states the cap it claims to be complete up to', () => {
+    const m = /余量不超过 (\d+) 字的每一门课/.exec(doc)
+    expect(m, '§17 no longer states the rule its bucket table follows, so nothing below knows how'
+      + ' far the set is supposed to reach').not.toBeNull()
+    expect(Number(m![1]), 'the cap §17 states, against BUCKET_CAP here').toBe(BUCKET_CAP)
+  })
+
+  it('states every lesson at or under the cap — the claim that was silently false', () => {
+    const owed = ordered.filter((l) => charsToNextBucket(l) <= BUCKET_CAP)
+      .sort((a, b) => charsToNextBucket(a) - charsToNextBucket(b))
+      .map((l) => l.id)
+    expect(rows.map((r) => idOf(r[0])), 'the lessons §17 lists against the lessons within'
+      + ` ${BUCKET_CAP} characters of the next five-minute bucket, tightest first. A lesson missing`
+      + ' here is a lesson this table claims to warn about and does not:\n'
+      + owed.map((id) => `  @${id} — ${charsToNextBucket(ordered.find((l) => l.id === id)!)} 字`)
+        .join('\n')).toEqual(owed)
+  })
+
+  it("states each row's raw minutes and its remaining characters, both measured", () => {
+    for (const r of rows) {
+      const id = idOf(r[0])
+      const l = ordered.find((x) => x.id === id)!
+      expect(numOf(r[1]), `§17 says @${id} has raw ${r[1]} minutes; measured`
+        + ` ${rawMinutes(l).toFixed(4)}`).toBe(Number(rawMinutes(l).toFixed(2)))
+      expect(numOf(r[2]), `§17 says @${id} has ${r[2]} before the next bucket; measured`
+        + ` ${charsToNextBucket(l)}`).toBe(charsToNextBucket(l))
+    }
+  })
+
+  it('those two checks can fail: a wrong margin and a missing row are both caught', () => {
+    // Planted, because a check only ever run against a passing document has not been shown able to
+    // fail — and this table passed for four days while being wrong in both ways at once.
+    const head = `| ${BUCKET_HEAD.join(' | ')} |`
+    const sep = '| --- | --- | --- | --- |'
+    const tightest = ordered.reduce((a, b) => (charsToNextBucket(b) < charsToNextBucket(a) ? b : a))
+    const wrong = [head, sep, `| \`@${tightest.id}\` | 22.50 | 999 字 | — |`].join('\n')
+    const r = dataRows(wrong, BUCKET_HEAD)[0]
+    expect(numOf(r[2]), 'the planted margin is read').toBe(999)
+    expect(numOf(r[2]) === charsToNextBucket(tightest), 'and it is not the measured one').toBe(false)
+    // and the set check: a table holding only the tightest lesson is short every other one
+    expect(dataRows(wrong, BUCKET_HEAD).map((x) => idOf(x[0])), 'a one-row table cannot equal the'
+      + ' owed set, which today holds nine lessons')
+      .not.toEqual(ordered.filter((l) => charsToNextBucket(l) <= BUCKET_CAP).map((l) => l.id))
+  })
+})
+
 /**
  * **Who checks each table's numbers, as an assertion.** Every table of this document is listed here
  * with the answer; a table that is not listed is a table whose figures nobody reads, and that is
@@ -1002,13 +1111,19 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
     + ' both margins, the baseline from `gradedWalkFailures`, and the three P−Q differences §17'
     + ' states in prose); plus the sum row — whose 涉及课数 must stay blank because the lesson sets'
     + ' overlap, and whose two 余量 cells each name WHICH side leads, compared against `leadOf`'],
-  [['课', 'raw 分钟', '到下一档还剩', '后果'],
-    '§17 bucket margins — NOT pinned row by row (re-measured 2026-10-09: all six exact); its one'
-    + ' prose figure, the minute sum, IS pinned above'],
+  [BUCKET_HEAD,
+    "§17 bucket margins — pinned since 2026-10-12: every row's raw minutes and remaining"
+    + ' characters against `rawMinutes`/`charsToNextBucket`, AND the set against the cap §17 states'
+    + ' about itself. It used to be exempt on a dated re-measurement (「2026-10-09: all six exact」)'
+    + ' and four days later held one wrong margin and was missing three lessons tighter than its'
+    + ' own loosest row'],
   [['课', 'raw', '取整', '到 35 还剩'],
-    '§17 raw > 30 — NOT pinned row by row (re-measured 2026-10-09: 31.12/30 and 30.32/30 exact;'
-    + ' the 到 35 margins 303 and 479 are a floor of the 303.6 and 479.6 the formula gives, so'
-    + ' pinning them would pin a rounding convention rather than a fact)'],
+    '§17 raw > 30 — the SET is pinned, in readability.test.ts, by the assertion named after the raw'
+    + " quantity; the row's own two margins are NOT, and here the reason is an argument rather"
+    + ' than a date: 303 and 479 were computed from the TWO-DECIMAL raw this table prints'
+    + ' ((32.5 − 30.32) × 220 = 479.6), not from the raw itself (480.04), so pinning them would'
+    + ' pin that display convention rather than a fact. The figure they come from, raw, is pinned'
+    + ' by the row above'],
 ]
 
 describe(`${DOC}'s table census is pinned, so a new summary table cannot go unchecked`, () => {
