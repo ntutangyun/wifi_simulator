@@ -31,8 +31,11 @@
  * docblock says why they are two now.
  */
 import type { Lesson } from '../../src/course/lessonKit'
-import { gradedProseTexts } from '../../src/course/readability'
+import { gradedProseTexts, zhAkaViolations, zhTermFailure } from '../../src/course/readability'
 import { migratedLessons, names, zhMainText, zhTermsFor } from './corpus'
+
+/** The three fields the two criteria are measured over: the ratcheted one and the two excluded. */
+export type Side = 'limits' | 'sources' | 'deeper'
 
 /**
  * Criterion Q, for one field of one lesson: the (lesson, term) pairs where the term is named in
@@ -137,18 +140,114 @@ export function limitsRatchet(): { pairs: string[]; debt: number; slack: number 
  * Not memoised, unlike {@link limitsRatchet}: see that function's warning. A caller measuring a
  * mutated corpus gets an honest answer from this one.
  */
-export const sideDebts = (): Record<'limits' | 'sources' | 'deeper', string[]> => {
+export const sideDebts = (): Record<Side, string[]> => {
   const ls = migratedLessons()
   return {
-    limits: ls.flatMap((l) => owed(l, limitsOf(l))),
-    sources: ls.flatMap((l) => owed(l, (l.sources ?? []).join(' '))),
-    deeper: ls.flatMap((l) => owed(l, gradedProseTexts({ picture: l.deeper }).join(' '))),
+    limits: ls.flatMap((l) => owed(l, SIDE_TEXT.limits(l))),
+    sources: ls.flatMap((l) => owed(l, SIDE_TEXT.sources(l))),
+    deeper: ls.flatMap((l) => owed(l, SIDE_TEXT.deeper(l))),
   }
+}
+
+/**
+ * **What a reader is shown in each of the three fields — one definition, read by BOTH criteria.**
+ *
+ * Criterion Q ({@link sideDebts}) and criterion P ({@link criterionP}) are two different rules; if
+ * they also read two different strings out of a lesson, then nothing about their two numbers is
+ * comparable and the difference between them stops meaning anything. They are rules over the same
+ * text, and this is that text. `deeper` is taken by the **prose walk the criterion names**
+ * (`gradedProseTexts`, the same walk the bracket rule itself grades), not as every string the
+ * field holds — see the `deeper` note in `criterionP`'s docblock, which is the one cell of the
+ * three historical records that needs a wider ruler than this to reproduce.
+ */
+export const SIDE_TEXT: Record<Side, (l: Lesson) => string> = {
+  limits: (l) => limitsOf(l),
+  sources: (l) => (l.sources ?? []).join(' '),
+  deeper: (l) => gradedProseTexts({ picture: l.deeper }).join(' '),
 }
 
 /** The lessons a side's pairs are spread over — the 涉及课数 column of §17's table. */
 export const lessonsOwing = (pairs: readonly string[]): number =>
   new Set(pairs.map((p) => p.split('|')[0])).size
+
+/** Criterion P's two arms, counted separately because they are two different rules. */
+export type Arms = { bracket: number; aka: number }
+
+/** `291 ＝ 286 ＋ 5` — the total §17 states, and the only way the two arms are ever added. */
+export const armsTotal = (a: Arms): number => a.bracket + a.aka
+
+/** Both arms of the bracket rule over one string, for the terms one lesson is graded on. */
+const failuresOn = (l: Lesson, text: string): Arms => {
+  let bracket = 0
+  let aka = 0
+  for (const t of zhTermsFor(l)) {
+    if (zhTermFailure(text, t) !== null) bracket += 1
+    aka += zhAkaViolations(text, t).length
+  }
+  return { bracket, aka }
+}
+
+/**
+ * **The bracket rule's failures on the graded main path alone — criterion P's baseline.**
+ *
+ * Zero, and `readability.test.ts`'s own per-lesson assertion is what keeps it zero. It is not
+ * asserted here, because an assertion that can only redden when another one is already red is
+ * decoration; {@link criterionP} does not assume it either — it subtracts, so a day with a
+ * non-zero baseline gets an honest P rather than a quietly inflated one. It is exported so a
+ * reader can see for themselves that 「newly emitted」 and 「emitted」 coincide today.
+ */
+export const gradedWalkFailures = (): Arms =>
+  migratedLessons().reduce<Arms>((a, l) => {
+    const f = failuresOn(l, zhMainText(l))
+    return { bracket: a.bracket + f.bracket, aka: a.aka + f.aka }
+  }, { bracket: 0, aka: 0 })
+
+/**
+ * **Criterion P, measured: how many failure messages the bracket rule would NEWLY emit if each
+ * field joined the walk it grades.** A message per lesson per term, in two arms — the bracket arm
+ * and the `aka` arm.
+ *
+ * **This is not criterion Q** ({@link owed} / {@link sideDebts}), which counts (lesson, term)
+ * PAIRS. The two are easy to confuse, the filing design document was written wrong once by
+ * confusing them (the ratchet typed as 279 when `limits` stood at 292), and today they disagree in
+ * opposite directions on the same corpus — P is above Q on `limits` and below it on both excluded
+ * fields. §17 of `docs/wifi-feature-coverage.md` prints them in one table, one column each, with
+ * the criterion named in both headers, for exactly that reason.
+ *
+ * **The walk, which is the whole content of 「newly emit」.** The field's text is appended to that
+ * lesson's own graded main path — one string, `zhMainText(l)` then the field — and both arms run
+ * over the result; P is that minus the baseline ({@link gradedWalkFailures}, zero today). Running
+ * the rule over the **field's text alone** answers a different question — every unbracketed use
+ * inside the field, including terms the lesson's prose introduces perfectly well two paragraphs
+ * earlier — and that is why two earlier attempts to reproduce the historical figures came back
+ * 646 / 598 / 326 and 289 / 187 / 81 and were read as proof that P could not be recomputed.
+ *
+ * **Reproducing the three historical records needs the code and corpus of the commit that measured
+ * them**, which means checking that commit's `src` out on its own and importing from there; the
+ * scripts are in `probes.local/` and the two commits and their readings are recorded in the
+ * ratchet's docblock in `readability.test.ts` and in §3.4 of
+ * `docs/superpowers/specs/2026-10-05-wording-reach-design.md`. One cell of those records needs a
+ * WIDER ruler than {@link SIDE_TEXT}: the design document's `deeper` 81 = 80 + 1 comes out only if
+ * `deeper` is appended as every string it holds (formula bodies and non-Chinese cells too), while
+ * the prose walk the criterion names gives 78 = 77 + 1 there.
+ */
+export const criterionP = (): Record<Side, Arms> => {
+  const base = (l: Lesson): Arms => failuresOn(l, zhMainText(l))
+  const side = (get: (l: Lesson) => string): Arms =>
+    migratedLessons().reduce<Arms>((a, l) => {
+      const before = base(l)
+      const after = failuresOn(l, `${zhMainText(l)} ${get(l)}`)
+      return {
+        bracket: a.bracket + after.bracket - before.bracket,
+        aka: a.aka + after.aka - before.aka,
+      }
+    }, { bracket: 0, aka: 0 })
+  return {
+    limits: side(SIDE_TEXT.limits),
+    sources: side(SIDE_TEXT.sources),
+    deeper: side(SIDE_TEXT.deeper),
+  }
+}
 
 /**
  * **Which way round the comparison runs, and by how much — the DIRECTION, not the margin.**
@@ -176,8 +275,21 @@ export const lessonsOwing = (pairs: readonly string[]): number =>
  * thing a reader can get backwards, and this cell exists to stop exactly that.
  */
 export const sumRelation = (
-  sides: Record<'limits' | 'sources' | 'deeper', readonly string[]> = sideDebts(),
-): { leader: 'limits' | 'sum' | 'tie'; by: number } => {
-  const diff = sides.limits.length - sides.sources.length - sides.deeper.length
+  sides: Record<Side, readonly string[]> = sideDebts(),
+): Lead => leadOf(sides.limits.length, sides.sources.length + sides.deeper.length)
+
+/** Which side of the sum comparison leads, and by how much; `by` is never negative. */
+export type Lead = { leader: 'limits' | 'sum' | 'tie'; by: number }
+
+/**
+ * **The direction, for either criterion — one definition, because one vocabulary.**
+ *
+ * §17's three-sides table states this sentence twice, once per criterion, and the three legal
+ * forms it may take are the same both times. Two columns stating a direction in two vocabularies
+ * would be the P/Q confusion with a second way in; `wifi-coverage.test.ts` checks both cells
+ * through one parser and compares both against this.
+ */
+export const leadOf = (limits: number, sum: number): Lead => {
+  const diff = limits - sum
   return { leader: diff > 0 ? 'limits' : diff < 0 ? 'sum' : 'tie', by: Math.abs(diff) }
 }

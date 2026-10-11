@@ -626,7 +626,18 @@ describe('readability · a name that arrives early says where it is taught', () 
  * Running the bracket rule itself over those four is the wrong fix and that was
  * measured: it reddens 317 sites, of which 292 are in `limits[].text` alone —
  * more than `sources` (180) and `deeper` (81) together, the two fields the rule
- * EXCLUDES on purpose. The honest question is not "is this string graded" but
+ * EXCLUDES on purpose.
+ *
+ * **Those three figures are criterion P at `cdf6396` (2026-10-05), and they are a reading rather
+ * than a law.** They were reproduced at that commit on 2026-10-11, arm by arm, except that its
+ * `deeper` 81 needs a wider ruler than the criterion names (78 by the prose walk — see the
+ * ratchet's docblock below and §3.4 of the design document). The quantity is measured in this
+ * repository now, by `criterionP` in `tests/course/coverageNumbers.ts`, and §17 of
+ * `docs/wifi-feature-coverage.md` states today's three sides beside the criterion-Q ones. The
+ * sentence this paragraph rests on — `limits` alone outweighing the two excluded fields together —
+ * holds today as well: 291 against 190 + 82. It is stated and compared there, not asserted here.
+ *
+ * The honest question is not "is this string graded" but
  * "may this string lean on a lesson the reader has already been told to read",
  * and the answer depends on WHERE THE STRING IS RENDERED. Hence two rules, not
  * one, and not three.
@@ -878,7 +889,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * ratchet is pinned on**:
  *
  * ```
- *                 criterion Q (re-measured 2026-10-11)  criterion P (2026-10-05, never re-measured)
+ *                 criterion Q (re-measured 2026-10-11)  criterion P at `2514723`, 2026-10-05
  *   limits        287 pairs / 75 lessons                296 = 291 bracket + 5 aka
  *   sources       195 pairs / 75 lessons                176 = 172 bracket + 4 aka
  *   deeper         91 pairs / 40 lessons                 76 =  75 bracket + 1 aka
@@ -887,25 +898,39 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * **「Bigger than either」 is what the ratchet rests on; 「bigger than both put together」 was a
  * second, stronger sentence standing beside it, and W17 took that one off the rulers.** It was
  * true of criterion P with 31 to spare (292 against 180 + 81, which is what the chrome rule's own
- * docblock above cites at `:627`, and that citation stands — P is frozen history, nothing can
- * drift it). On criterion Q, the criterion this ratchet actually uses, the filing design document
+ * docblock above cites at `:627`, and that citation stands as a reading at ITS OWN commit; the
+ * same sentence is true today with 19 to spare, 291 against 190 + 82, and §17 states that
+ * direction and compares it). On criterion Q, the criterion this ratchet actually uses, the filing design document
  * recorded it as 「289 和两者之和 279 基本持平（多 10）」 and drew its conclusion from the density
  * tier instead: `limits` is written like `sources`, only more so. The Q-side sum comparison is now
  * a MEASURED figure in §17 of `docs/wifi-feature-coverage.md` — three sides and their margins,
  * read out and compared — rather than an assertion that reddens on a field it does not govern.
  *
- * **The Q column is measured — `owed` in `./coverageNumbers`. Nothing in this suite computes the
- * P column, but it is no longer unrecomputable: it was re-measured on 2026-10-11 and came back
- * 296 = 291 + 5, 176 = 172 + 4, 76 = 75 + 1, arm by arm.**
+ * **Both columns are measured today — `owed` and `criterionP`, both in `./coverageNumbers`.** The
+ * Q column has been since the ratchet existed. The P column was 「quotable history」 through three
+ * slices, two of which concluded it could not be recomputed at all; it was recomputed on
+ * 2026-10-11 (296 = 291 + 5, 176 = 172 + 4, 76 = 75 + 1, arm by arm, at the commit that measured
+ * it) and the measurement moved into this repository the same day.
+ *
+ * **The figures in the table above are that commit's readings and are NOT updated.** Today's are
+ * 291 = 286 + 5, 190 = 185 + 5 and 82 = 81 + 1 — stated in §17 of
+ * `docs/wifi-feature-coverage.md`, in the same three-sides table as the Q column, and compared
+ * there against `criterionP` by `tests/course/wifi-coverage.test.ts`. Recomputing the history was
+ * never about replacing it: it was about turning a number three documents stated and nothing
+ * measured into one a reader can check. The two columns are what makes the distinction below
+ * concrete — P is 4 ABOVE Q on `limits` today and 5 and 9 BELOW it on the other two, so neither
+ * column is a usable approximation of the other.
  *
  * **How, so that the next reader need not rediscover it.** P is the failure messages the bracket
  * rule would NEWLY emit, so it is measured by appending the field's text to that lesson's graded
  * walk — one string, `zhMainText(l)` then the field — and running both arms over the result; the
- * baseline is zero failures (it is, at both commits checked), so the new failures are all of
- * them. It has to be run with the CODE AND CORPUS OF THE COMMIT THAT MEASURED IT: check that
- * commit's `src` out on its own and import from there (`probes.local/w17-old/probeP.ts` does it
- * for `2514723`, reusing the tree W17 extracted; `probes.local/w18-old-cdf6396/` for the design
- * document's own commit).
+ * baseline is zero failures (it is, at both commits checked, and `criterionP` subtracts it rather
+ * than assuming it), so the new failures are all of them. **That walk is `criterionP` in
+ * `./coverageNumbers` now**, reading the same `SIDE_TEXT` the Q side reads, so the two criteria
+ * differ by their rule and by nothing else. To reproduce one of the HISTORICAL readings it has to
+ * be run with the CODE AND CORPUS OF THE COMMIT THAT MEASURED IT: check that commit's `src` out on
+ * its own and import from there (`probes.local/w17-old/probeP.ts` does it for `2514723`, reusing
+ * the tree W17 extracted; `probes.local/w18-old-cdf6396/` for the design document's own commit).
  *
  * **Why W16's two attempts missed** (646 / 598 / 326 and 289 / 187 / 81): both ran the rule over
  * the field's text ALONE. That is a different question — every unbracketed use inside the field,
@@ -920,10 +945,18 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * the three records that does not reproduce from the criterion as written: 81 = 80 + 1 comes out
  * only if `deeper` is appended as EVERY STRING it holds (`lessonStrings` — formula bodies and
  * non-Chinese cells too), while the prose walk the criterion names gives 78 = 77 + 1. §3.4 of
- * `docs/superpowers/specs/2026-10-05-wording-reach-design.md` now carries that annotation.
- * So the two records never contradicted each other — they are one quantity at two commits — and
- * this column is quotable AND recomputable history. It is still asserted nowhere, because nothing
- * in the suite grades these fields; a slice that wants P watched has to say so first.
+ * `docs/superpowers/specs/2026-10-05-wording-reach-design.md` now carries that annotation, and
+ * `SIDE_TEXT` in `./coverageNumbers` is the narrow (prose) ruler — the wide one is not in the
+ * repository, because the criterion does not name it.
+ * So the two records never contradicted each other — they are one quantity at two commits.
+ *
+ * **What P is and is not held to.** Its three sides are STATED in §17 and compared against
+ * `criterionP`, including the sentence saying which side of `limits` vs `sources` ＋ `deeper`
+ * leads — the one claim about P's three sides that carries weight anywhere, since the bracket
+ * rule's own docblock argues from it at `:627`. It is deliberately NOT an ordering assertion:
+ * a strict ordering against the sum side reddens when a lesson is added, which is the gate W17
+ * removed from the Q side, and the same objection applies here. A slice that wants P GRADED has
+ * to answer that objection first.
  *
  * ### The two criteria, and why this assertion has to name which one it uses
  *
@@ -1079,7 +1112,8 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    * beside that one: true of criterion P with 31 to spare (292 against 180 + 81, cited at `:627`;
    * recomputed at that citation's own commit on 2026-10-11 — see the ratchet's docblock, where the
    * `deeper` 81 is 78 by the walk the criterion names, which leaves the sentence true with 34 to
-   * spare rather than 31), and on criterion Q — the criterion this `it` uses —
+   * spare rather than 31; and true today with 19 to spare, 291 against 190 + 82, which §17 now
+   * states and compares rather than leaving to a docblock), and on criterion Q — the criterion this `it` uses —
    * recorded by the filing design document itself as 「289 和两者之和 279 基本持平（多 10）」.
    * A margin of 10 on the day of filing was never load-bearing; what the document concluded from
    * it was the density tier, not the sum.

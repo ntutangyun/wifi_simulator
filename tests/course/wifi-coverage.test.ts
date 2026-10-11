@@ -56,7 +56,8 @@ import {
 } from './coverage'
 import { orderedLessons } from './corpus'
 import {
-  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, lessonsOwing, limitsRatchet, sideDebts, sumRelation,
+  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, armsTotal, criterionP, gradedWalkFailures, leadOf,
+  lessonsOwing, limitsRatchet, sideDebts, sumRelation, type Arms, type Lead,
 } from './coverageNumbers'
 
 const DOC = 'docs/wifi-feature-coverage.md'
@@ -377,9 +378,17 @@ const BUILT_HEAD = ['#', '它是什么', '引擎', '这张表的哪一节']
 
 /**
  * The header of §17's three-sides table — the criterion Q debt of `limits`, `sources` and
- * `deeper`, their lesson counts, and the margins between them.
+ * `deeper`, their lesson counts, the margins between them, and (since 2026-10-11) the same three
+ * sides under criterion P with its own margin column.
+ *
+ * **Both column pairs name their criterion, and the header is what the table is SELECTED on.**
+ * P and Q are two different rules over the same text, their figures are close enough to be taken
+ * for each other, and the filing design document was written wrong once by taking one for the
+ * other. So a header that stops saying 「判据 Q：」 or 「判据 P：」 does not quietly re-label a
+ * column: the table stops being found at all, and the failure prints this array.
  */
-const SIDE_HEAD = ['字段', '实测（课，术语）对', '涉及课数', '与 `limits` 比的余量']
+const SIDE_HEAD = ['字段', '判据 Q：实测（课，术语）对', '涉及课数', '判据 Q：与 `limits` 比的余量',
+  '判据 P：括号臂 ＋ aka 臂 ＝ 合计', '判据 P：与 `limits` 比']
 
 const ordered = orderedLessons()
 
@@ -724,6 +733,61 @@ describe(`${DOC}'s §17 three-sides table is measured, margins and all`, () => {
   const rows = dataRows(doc, SIDE_HEAD)
   const bare = (cell: string): number | null =>
     /^-?\d+$/.test(cell.replaceAll('*', '').trim()) ? Number(cell.replaceAll('*', '').trim()) : null
+  const plain = (c: string): string => c.replaceAll('*', '').trim()
+  const rowOf = (label: string): string[] => rows.find((r) => plain(r[0]) === label)!
+
+  /**
+   * Criterion P, the other rule over the same three fields — 2026-10-11, and the whole point of
+   * this slice. The figure existed in three places in this repository and nothing recomputed it;
+   * two attempts read it as unrecomputable because they ran the rule over each field's text ALONE
+   * instead of appending the field to the lesson's own graded walk, which is the whole content of
+   * 「would NEWLY emit」. `criterionP` in `./coverageNumbers` is that walk, defined once, reading
+   * the same `SIDE_TEXT` criterion Q reads.
+   */
+  const pSides = criterionP()
+  const P_ARMS: ReadonlyMap<string, Arms> = new Map([
+    ['`limits[].text`', pSides.limits],
+    ['`sources`', pSides.sources],
+    ['`deeper`', pSides.deeper],
+    [SUM_LABEL, {
+      bracket: pSides.sources.bracket + pSides.deeper.bracket,
+      aka: pSides.sources.aka + pSides.deeper.aka,
+    }],
+  ])
+
+  /** The two rows a 「which side leads」 cell may name, in both of the columns that hold one. */
+  const LEADS: ReadonlyMap<string, Lead['leader']> = new Map([
+    ['`limits[].text`', 'limits'], [SUM_LABEL, 'sum'],
+  ])
+
+  /**
+   * **The direction cell, parsed and compared — one function, because one vocabulary.**
+   *
+   * Both the Q column and the P column end in this cell, and two columns stating a direction in
+   * two slightly different phrasings would be the P/Q confusion with a second way in. Three legal
+   * forms, the same three in both columns, and `by` is always a magnitude: `leader` carries the
+   * sign, because a sign convention in a 余量 column is one more thing a reader can get backwards.
+   */
+  const checkLead = (raw: string, rel: Lead, which: string, measured: string): void => {
+    const c = plain(raw)
+    const m = /^(.+?) 多 (\d+)$/.exec(c)
+    expect(c === '持平' || (m !== null && LEADS.has(m[1])), `§17's sum row states its ${which}`
+      + ` relation as 「${c}」, which is none of the three legal forms: 「<哪一行> 多 **<数>**」`
+      + " naming this table's `limits[].text` row or its `sources` ＋ `deeper` row, or 「持平」 when"
+      + ' the two are equal').toBe(true)
+    const spelt = rel.leader === 'tie' ? '持平'
+      : [...LEADS].find(([, k]) => k === rel.leader)![0]
+    expect(c === '持平' ? '持平' : m![1], `§17 says which of the two sides carries more of this`
+      + ` debt under ${which}, and the measurement says the other one. Stated: 「${c}」.`
+      + ` Measured: ${measured}, so 「${spelt}${rel.leader === 'tie' ? '' : ` 多 ${rel.by}`}」.`
+      + ' Neither direction is forbidden and this is not a gate — the comparison exists so that the'
+      + ' flip cannot happen unread. Write the true sentence into that cell, and then read the prose'
+      + ' under the table: it is the thing that has to be re-argued, not this number').toBe(spelt)
+    if (rel.leader !== 'tie') expect(Number(m![2]), `the sum row states by how much the side it`
+      + ` names leads under ${which}. That is a magnitude — \`leader\` in \`leadOf\` carries the`
+      + ' sign, because a sign convention in a 余量 column is one more thing a reader can get'
+      + ' backwards').toBe(rel.by)
+  }
 
   it('states exactly the three sides and their sum, in that order', () => {
     expect(rows.length, 'the §17 three-sides table is gone, or its header changed — dataRows'
@@ -785,33 +849,106 @@ describe(`${DOC}'s §17 three-sides table is measured, margins and all`, () => {
     // it makes anybody look. The DIRECTION is a sentence instead, so the day it flips the document
     // is wrong rather than merely surprising, and the only fix is a person writing the new true
     // one. It gates nothing — all three forms below are legal, and so is any margin.
-    const cell = row[3].replaceAll('*', '').trim()
-    const LEADS = new Map<string, string>([['`limits[].text`', 'limits'], [SUM_LABEL, 'sum']])
-    const m = /^(.+?) 多 (\d+)$/.exec(cell)
-    expect(cell === '持平' || (m !== null && LEADS.has(m[1])), `§17's sum row states its relation`
-      + ` as 「${cell}」, which is none of the three legal forms: 「<哪一行> 多 **<数>**」 naming this`
-      + " table's `limits[].text` row or its `sources` ＋ `deeper` row, or 「持平」 when the two are"
-      + ' equal').toBe(true)
-    const rel = sumRelation(sides)
-    const spelt = rel.leader === 'tie' ? '持平'
-      : [...LEADS].find(([, k]) => k === rel.leader)![0]
-    expect(cell === '持平' ? '持平' : m![1], '§17 says which of the two sides carries more of'
-      + ` this debt, and the measurement says the other one. Stated: 「${cell}」. Measured: \`limits\``
-      + ` ${sides.limits.length} against \`sources\` ＋ \`deeper\``
-      + ` ${sides.sources.length + sides.deeper.length}, so 「${spelt}${rel.leader === 'tie' ? '' : ` 多 ${rel.by}`}」.`
-      + ' Neither direction is forbidden and this is not a gate — the comparison exists so that the'
-      + ' flip cannot happen unread. Write the true sentence into that cell, and then read the prose'
-      + ' under the table: it is the thing that has to be re-argued, not this number').toBe(spelt)
-    if (rel.leader !== 'tie') expect(Number(m![2]), 'the sum row states by how much the side it'
-      + ' names leads. That is a magnitude — `leader` in `sumRelation` carries the sign, because a'
-      + ' sign convention in a 余量 column is one more thing a reader can get backwards')
-      .toBe(rel.by)
+    checkLead(row[3], sumRelation(sides), '判据 Q', `\`limits\` ${sides.limits.length} against`
+      + ` \`sources\` ＋ \`deeper\` ${sides.sources.length + sides.deeper.length}`)
     // and the one cell that must NOT be a figure: `sources` and `deeper` owe their pairs over
     // OVERLAPPING lesson sets, so 75 + 40 is the lesson count of nothing. A reader who fills this
     // cell by adding the column above it writes a number that is false by construction.
     expect(bare(row[2]), 'the sum row states a lesson count. The two fields overlap — their pair'
       + ' counts add, their lesson sets do not — so this cell is deliberately blank')
       .toBeNull()
+  })
+
+  /**
+   * **Criterion P's column, both arms, every row — 2026-10-11.**
+   *
+   * Three places in this repository stated P and nothing recomputed it, which is this document's
+   * standing defect in its purest form: the ratchet's docblock had it as 296 / 176 / 76, the
+   * bracket rule's own docblock cites 292 / 180 / 81, and the filing design document's §3.4 holds
+   * that same table. Two slices read the figure as unrecomputable — 「quotable history」 — and a
+   * verdict was then filed on top of that. It was wrong, and the error was in the ruler.
+   *
+   * **The arms are printed and compared, not just the total.** The three records were confirmed
+   * ARM BY ARM (296 = 291 + 5, 292 = 287 + 5, 176 = 172 + 4 …), and that is the only thing that
+   * separates a real reproduction from a total that lands nearby by luck: the attempt that came
+   * back 289 / 187 / 81 had one cell equal to a recorded figure while measuring something else
+   * entirely. A total alone would have thrown that away.
+   */
+  it.each([...P_ARMS.keys()])('%s states its criterion-P total and both arms', (label) => {
+    const arms = P_ARMS.get(label)!
+    const c = plain(rowOf(label)[4])
+    const m = /^(\d+) ＝ (\d+) ＋ (\d+)$/.exec(c)
+    expect(m, `§17 states ${label}'s criterion P as 「${c}」. The form is 「<合计> ＝ <括号臂> ＋`
+      + ' <aka 臂>」 — the arms are two different rules and the decomposition is what made the'
+      + ' three historical records verifiable, so the cell prints all three and all three are'
+      + ` compared. Measured: ${armsTotal(arms)} ＝ ${arms.bracket} ＋ ${arms.aka}`).not.toBeNull()
+    expect([Number(m![1]), Number(m![2]), Number(m![3])], `§17 states ${label}'s criterion P`
+      + ' (total, bracket arm, aka arm). A total that does not equal its own two arms is caught'
+      + ' here too, which is why all three are compared rather than just the one the row opens'
+      + ' with').toEqual([armsTotal(arms), arms.bracket, arms.aka])
+  })
+
+  it('states the criterion-P margin against `limits` for each of the two excluded fields', () => {
+    // Recorded, asserted nowhere — unlike the two criterion-Q margins beside them, which ARE the
+    // two strict orderings in readability.test.ts. P grades nothing in this repository; a slice
+    // that wants it graded has to argue for it, and the argument has to survive the objection W17
+    // raised against the Q-side sum comparison: the right side grows whenever a lesson is added.
+    for (const label of ['`sources`', '`deeper`']) {
+      expect(bare(rowOf(label)[5]), `§17 states the criterion-P margin between \`limits\` and`
+        + ` ${label}`).toBe(armsTotal(pSides.limits) - armsTotal(P_ARMS.get(label)!))
+    }
+    expect(bare(rowOf('`limits[].text`')[5]), 'the `limits` row has no criterion-P margin against'
+      + ' itself either, and a number there would be a figure nobody can measure').toBeNull()
+  })
+
+  /**
+   * **The one sentence about P's three sides that carries weight, and it is now compared.**
+   *
+   * 「`limits` alone is bigger than `sources` and `deeper` put together」 is what the bracket
+   * rule's own docblock argues from (`readability.test.ts`, 「317 sites, of which 292 are in
+   * `limits[].text` alone」) to conclude that running the rule over the four chrome places is the
+   * wrong fix: the mass is a course-content debt, not a hole in the net. So it earns a cell —
+   * and NOT an assertion. W17 took exactly this comparison off the rulers on the Q side because a
+   * strict ordering there reddens on the sum side growing, which is a gate on writing lessons. The
+   * same objection applies here, so this cell is the same bargain as the Q one: both directions
+   * legal, a tie legal, and a flip impossible to pass unread.
+   */
+  it('states WHICH side leads under criterion P too, in the same vocabulary', () => {
+    const row = rowOf(SUM_LABEL)
+    const [lim, sum] = [armsTotal(pSides.limits), armsTotal(P_ARMS.get(SUM_LABEL)!)]
+    checkLead(row[5], leadOf(lim, sum), '判据 P',
+      `criterion P: \`limits\` ${lim} against \`sources\` ＋ \`deeper\` ${sum}`)
+  })
+
+  /**
+   * **And the two criteria are not interchangeable, which is the whole reason both columns name
+   * theirs.** Stated in §17's prose as a measured fact rather than asserted as an ordering: the
+   * day P and Q coincide on a field is a fact about this corpus, not a definition, and a strict
+   * assertion about their difference would be one more gate on writing lessons. What IS pinned is
+   * that the document's three stated differences are the measured ones — so the sentence saying
+   * 「they lean opposite ways」 cannot quietly stop being true.
+   */
+  it('states how far criterion P sits from criterion Q on each side, and those are measured', () => {
+    const m = /`limits` 上 P 比 Q 多 (\d+)[^（]*（`sources` 少 (\d+)、`deeper` 少 (\d+)）/.exec(doc)
+    expect(m, '§17 no longer spells out how the two criteria differ on the three sides, in the'
+      + ' shape this reads. That sentence is the document telling a reader not to use one column'
+      + ' as an approximation of the other, and the three numbers in it are measured')
+      .not.toBeNull()
+    expect(m!.slice(1).map(Number), '§17 states P − Q on `limits` and Q − P on the two excluded'
+      + ' fields. If these have flipped sign, the sentence around them is the thing to rewrite —'
+      + ' the two criteria leaning opposite ways is a measurement, not a law')
+      .toEqual([armsTotal(pSides.limits) - sides.limits.length,
+        sides.sources.length - armsTotal(pSides.sources),
+        sides.deeper.length - armsTotal(pSides.deeper)])
+    // And the baseline the word 「新增」 rests on. `criterionP` SUBTRACTS it rather than assuming
+    // it is zero, so this is not a gate dressed up as a figure — it is §17 stating a number, read
+    // out and compared like the rest of them.
+    const b = /基线（主路径自己报几条）今天是 \*\*(\d+) ＋ (\d+)\*\*/.exec(doc)
+    expect(b, '§17 no longer states the baseline criterion P is 「newly emitted」 against, in the'
+      + ' shape this reads').not.toBeNull()
+    expect({ bracket: Number(b![1]), aka: Number(b![2]) }, 'the baseline §17 states: the bracket'
+      + " rule's two arms over the graded main path alone, with no field appended")
+      .toEqual(gradedWalkFailures())
   })
 })
 
@@ -860,9 +997,11 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
   [['A–G', '零到一百的阶段/刀', '谁实际交的'], '§16 — prose cells, no figures'],
   [FIG_HEAD, '§17 — statedFigures, all six against the course; plus the 余量 column: the two'
     + ' bare zeros by kind (structural vs measured) and the tightest-lesson distance'],
-  [SIDE_HEAD, '§17 three sides — `sideDebts`: each pair count, each lesson count, both margins,'
-    + ' and the sum row — whose 涉及课数 must stay blank because the lesson sets overlap, and whose'
-    + ' 余量 cell names WHICH side leads, compared against `sumRelation`'],
+  [SIDE_HEAD, '§17 three sides, both criteria — criterion Q from `sideDebts` (each pair count,'
+    + ' each lesson count, both margins) and criterion P from `criterionP` (total AND both arms,'
+    + ' both margins, the baseline from `gradedWalkFailures`, and the three P−Q differences §17'
+    + ' states in prose); plus the sum row — whose 涉及课数 must stay blank because the lesson sets'
+    + ' overlap, and whose two 余量 cells each name WHICH side leads, compared against `leadOf`'],
   [['课', 'raw 分钟', '到下一档还剩', '后果'],
     '§17 bucket margins — NOT pinned row by row (re-measured 2026-10-09: all six exact); its one'
     + ' prose figure, the minute sum, IS pinned above'],
