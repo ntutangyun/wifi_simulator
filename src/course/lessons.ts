@@ -53,6 +53,7 @@ import { uwbRcmValidity } from './uwb/uwb-rcm-validity'
 import { uwbReceipt } from './uwb/uwb-receipt'
 import { uwbSp3 } from './uwb/uwb-sp3'
 import { uwbAncillary } from './uwb/uwb-ancillary'
+import { uwbAncillaryLoss } from './uwb/uwb-ancillary-loss'
 import { uwbAncillaryRequest } from './uwb/uwb-ancillary-request'
 import { uwbDlTdoa } from './uwb/uwb-dl-tdoa'
 import { uwbUlTdoa } from './uwb/uwb-ul-tdoa'
@@ -153,6 +154,7 @@ const AUTHORED: Lesson[] = [
   uwbReceipt,
   uwbSp3,
   uwbAncillary,
+  uwbAncillaryLoss,
   uwbAncillaryRequest,
   uwbDlTdoa,
   uwbUlTdoa,

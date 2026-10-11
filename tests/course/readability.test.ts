@@ -1256,7 +1256,12 @@ describe('readability · the stated minutes, and the characters behind them', ()
     // is the SECOND lesson of the existing M13, which is what §6.0 of the tier-4 design predicted
     // and what tier 4 was given one module for — measured on that slice, the index migration cost
     // was 0 files and 0 sites, against the 58-across-38 that W12b paid to open M13.
-    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(90)
+    // 90 → 91 on 2026-10-11, and the module count did NOT move with it either — for a third
+    // reason again: `uwb-ancillary-loss` is not a new subject but the second half of
+    // `uwb-ancillary`, split along the seam its own `outcomes` already drew 2 + 2
+    // (docs/superpowers/specs/2026-10-11-no-room-design.md §2.1). M24 already held two lessons,
+    // so the index migration cost was 0 files and 0 sites here as well.
+    expect(ordered.length, 'lessons in COURSE_ORDER with authored prose behind them').toBe(91)
     expect(MODULES.length, 'modules — THIS is 「a module added or removed」, asserted directly')
       .toBe(32)
   })
@@ -1395,6 +1400,13 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(over, 'lessons whose unrounded minutes exceed MAX_MINUTES. A new entrant here is a'
       + ' lesson teaching two topics (curriculum.ts, lessonMinutes) and the answer is to split'
       + ` it. Every lesson's margin, tightest first:\n${margins()}`)
-      .toEqual(['ru-diversity', 'uwb-ancillary'])
+      // `uwb-ancillary` left this list on 2026-10-11 by being SPLIT rather than compressed,
+      // which is what `curriculum.ts` says the answer is: its two halves are 16.82 and 16.66 raw
+      // minutes. `ru-diversity` is still here on purpose — the case for splitting it is open and
+      // declined, with its own re-opening conditions, in §2.2 and §6.3 of
+      // docs/superpowers/specs/2026-10-11-no-room-design.md. A single-element roster is a hard
+      // assertion to read, and keeping it is the recommendation that spec makes in §6.3: the
+      // shape of the criterion needs a human, and W2's record is on this line.
+      .toEqual(['ru-diversity'])
   })
 })

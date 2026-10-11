@@ -315,6 +315,11 @@ export const COURSE_ORDER: string[] = [
   //    one message that does not fit in one frame: the count every frame carries, so the
   //    receiver learns of a gap at the next arrival instead of at a deadline
   'uwb-ancillary',
+  //    …and what the count in every frame buys, split out of the lesson above on 2026-10-11
+  //    (docs/superpowers/specs/2026-10-11-no-room-design.md §2.1): a lost frame is named at the
+  //    next arrival rather than at a deadline, and that is a claim about an instant, measured
+  //    three ways — a middle frame, the last frame, and the first frame, which it cannot name
+  'uwb-ancillary-loss',
   //    …and the other half of the same clause, in the same module: the Request bit, where a
   //    ranging RESPONDER asks the controller for the next exchange's slots and the granted count
   //    is the next message's frame count. The first lesson of the course in which the slot grid is

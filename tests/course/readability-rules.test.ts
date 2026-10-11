@@ -278,7 +278,7 @@ describe('lessonTexts · the census over the whole course', () => {
   // ask for; keeping the helper would leave the next author the one tool this change removed.
   const sum = (f: (l: Lesson) => number): number => ordered.reduce((n, l) => n + f(l), 0)
 
-  it('walks all 90 lessons and nothing else', () => {
+  it('walks all 91 lessons and nothing else', () => {
     expect(ordered.length).toBe(LESSONS.length)
     // 90 since slice W13 added `claim-to-contribution`, the second lesson of tier 4 and the first
     // lesson of the course whose SUBJECT is another lesson's number: it rides
@@ -292,7 +292,12 @@ describe('lessonTexts · the census over the whole course', () => {
     // 87 before that, when slice W5 added `amp-backscatter`, the backscatter tier of M10 — 878
     // lines of engine that produced none of its five record types in any of the 251 course
     // scenarios before it. 86 before that, when slice 3d added `uwb-ancillary-request`.
-    expect(ordered.length).toBe(90)
+    // 91 since 2026-10-11, when `uwb-ancillary` was SPLIT in two and `uwb-ancillary-loss` became
+    // the third lesson of the existing M24 — the only entry in this history that is not a new
+    // subject but an old one cut along its own seam
+    // (docs/superpowers/specs/2026-10-11-no-room-design.md §2.1 and §5.2). Its arrival is the
+    // reason the raw-minute roster in `readability.test.ts` is down to one name.
+    expect(ordered.length).toBe(91)
   })
 
   it('sees every section, which a walk that stopped seeing a block kind would not', () => {
@@ -708,7 +713,12 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'uwb-rcm-validity':        [3, 2, 4, 4, 4, 3, 5, 4],
     'uwb-receipt':             [3, 2, 4, 4, 4, 3, 5, 5],
     'uwb-sp3':                 [3, 2, 4, 4, 5, 3, 5, 6],
-    'uwb-ancillary':           [3, 2, 4, 4, 5, 3, 4, 4],
+    // SPLIT 2026-10-11: was [3, 2, 4, 4, 5, 3, 4, 4] as one 31.12-raw-minute lesson. The halves
+    // keep all three `observe` and both `tryThis` entries between them (2+1 and 1+1), which is
+    // why the minute sum did not move; the fifth glossary row and three of the four quiz
+    // questions went with the half below.
+    'uwb-ancillary':           [2, 1, 2, 2, 4, 3, 4, 3],
+    'uwb-ancillary-loss':      [1, 1, 3, 2, 2, 2, 2, 3],
     'uwb-ancillary-request':   [2, 2, 3, 4, 4, 3, 3, 4],
     'uwb-dl-tdoa':             [3, 2, 3, 3, 4, 3, 4, 6],
     'uwb-ul-tdoa':             [3, 2, 3, 3, 4, 3, 4, 5],
