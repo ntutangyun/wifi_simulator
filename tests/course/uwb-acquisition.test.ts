@@ -368,3 +368,115 @@ describe('uwb-acquisition · the edge, where the attribute loses a round it woul
     expect(ofType(runOf(uwbAcquisition, undefined, RUN_NS), 'UWB_RANGE').length).toBeGreaterThan(0)
   })
 })
+
+/**
+ * **The lesson quotes the event log, and until 2026-10-12 nothing compared the quotes.**
+ *
+ * A sweep of all 91 lessons' graded prose against all 293 test files (figures carrying a decimal
+ * point, or three or more digits) left 61 figures that appear in no test anywhere. Eight of them
+ * were this lesson's — it quotes more log rows verbatim than any other, because its whole method is
+ * 「go to this millisecond and read this row」. Two of the eight were wrong:
+ *
+ *  - `tryThis` said 「收到的还是 5/8，**余量还是 26.7 dB**，结论变成检出」, framing the SFD run as a
+ *    controlled comparison in which only the verdict moves. The margin moves too — 26.7 → 26.5,
+ *    exactly the 0.188 dB of peak power the SFD costs, which is this lesson's own mechanism two
+ *    sections earlier. **And `numbers` already said so**: 「它不再是严格的受控对比」. One lesson, two
+ *    sections, opposite claims. The corrected sentence carries the point better: less margin, and
+ *    the verdict still flips, so the verdict was never about level.
+ *  - `numbers` said the SFD lane arrives at **−73.47 dBm**. It arrives at −73.4648, which renders
+ *    −73.46. The figure had been computed as (−73.28) − 0.188 — arithmetic on two numbers that were
+ *    already rounded, the same mistake as §17's 479 characters computed from a displayed 30.32
+ *    (`tests/course/wifi-coverage.test.ts`, the census line for that table).
+ *
+ * Everything else the quotes claim was exact: 1.131 ms / −30.2 dB / −43.1 dBm, the 7.500 and
+ * 8.000 ms pair with 5/8 and 6/8 at 26.7 and 27.5 dB, 10.118 ms → 8.99 m, 207.500 ms, and the
+ * seven dropped trains inside their 22.7–27.5 dB band. Every figure below is read out of the
+ * lesson rather than retyped, so there is none on this side to drift.
+ */
+describe('uwb-acquisition · every figure the lesson quotes out of the log is the logged one', () => {
+  const num = (s: string): number => Number(s.replace('−', '-'))
+  interface Train { t: number; node: string; heard: number; rxDbm: number; marginDb: number; detected?: boolean }
+  const trainsOf = (variant?: number): Train[] =>
+    ofType(runOf(uwbAcquisition, variant, RUN_NS), 'UWB_MMS_TRAIN') as unknown as Train[]
+  const at = (variant: number | undefined, ms: number): Train => {
+    const hit = trainsOf(variant).find((t) => Math.abs(t.t - ms * MS) < MS / 2)
+    expect(hit, `no UWB_MMS_TRAIN at ${ms} ms in variant ${String(variant)}`).toBeDefined()
+    return hit!
+  }
+  const numbersText = JSON.stringify(uwbAcquisition.numbers)
+
+  it('the interference line: its millisecond, its SIR and the intruder level', () => {
+    const m = /^([\d.]+) ms 处写着[^]*?SIR [−-]([\d.]+) dB \(foreign [−-]([\d.]+) dBm\)/
+      .exec(uwbAcquisition.observe[0])
+    expect(m, 'observe[0] no longer quotes the interference line in the shape this reads').not.toBeNull()
+    const first = ofType(runOf(uwbAcquisition, undefined, RUN_NS), 'UWB_INTERFERED')[0] as unknown as
+      { t: number; sirDb: number; foreignDbm: number }
+    expect(num(m![1]), 'the millisecond the lesson sends the reader to')
+      .toBe(Number((first.t / MS).toFixed(3)))
+    expect(-num(m![2]), 'the SIR the lesson quotes').toBe(Number(first.sirDb.toFixed(1)))
+    expect(-num(m![3]), 'the intruder level the lesson quotes').toBe(Number(first.foreignDbm.toFixed(1)))
+  })
+
+  it('the first round: two verdicts, their counts, their margins, and the fix in metres', () => {
+    const m = /([\d.]+) ms 与 ([\d.]+) ms 两条判定都检出了，(\d)\/8 与 (\d)\/8，余量 ([\d.]+) dB 与 ([\d.]+) dB，([\d.]+) ms 标签得出 ([\d.]+) m/
+      .exec(uwbAcquisition.observe[1])
+    expect(m, 'observe[1] no longer walks the first round in the shape this reads').not.toBeNull()
+    const a = at(undefined, num(m![1]))
+    const b = at(undefined, num(m![2]))
+    expect([a.heard, b.heard], 'the two fragment counts').toEqual([Number(m![3]), Number(m![4])])
+    expect([Number(a.marginDb.toFixed(1)), Number(b.marginDb.toFixed(1))], 'the two margins')
+      .toEqual([num(m![5]), num(m![6])])
+    expect([a.detected, b.detected], 'the lesson says both were detected').toEqual([true, true])
+    const fix = ofType(runOf(uwbAcquisition, undefined, RUN_NS), 'UWB_RANGE')
+      .find((r) => Math.abs(r.t - num(m![7]) * MS) < MS / 2) as unknown as { distM: number } | undefined
+    expect(fix, `no UWB_RANGE at ${m![7]} ms`).toBeDefined()
+    expect(num(m![8]), 'the distance the lesson quotes').toBe(Number(fix!.distM.toFixed(2)))
+  })
+
+  it('the discarded train: same count, that margin, and the verdict that makes the lesson', () => {
+    const m = /跳到第一列作废的片段：([\d.]+) ms，“(\d)\/8 heard, margin ([\d.]+) dB → lost”/
+      .exec(uwbAcquisition.observe[2])
+    expect(m, 'observe[2] no longer quotes the discarded train in the shape this reads').not.toBeNull()
+    const t = at(undefined, num(m![1]))
+    expect(t.heard, 'the count in the quoted row').toBe(Number(m![2]))
+    expect(Number(t.marginDb.toFixed(1)), 'the margin in the quoted row').toBe(num(m![3]))
+    expect(t.detected, 'the row says 「lost」, so the train must not be detected').toBe(false)
+  })
+
+  it('the SFD run is NOT a controlled comparison, and `tryThis` states the measured margins', () => {
+    // The sentence this pins is the one that was wrong: it claimed the margin was unchanged.
+    const m = /再回到 ([\d.]+) ms 那一行：收到的还是 (\d)\/8，而余量反倒低了 ([\d.]+) dB（([\d.]+) dB，不是 ([\d.]+) dB/
+      .exec(uwbAcquisition.tryThis[0])
+    expect(m, 'tryThis[0] no longer states the SFD run in the shape this reads').not.toBeNull()
+    const ms = num(m![1])
+    const base = at(undefined, ms)
+    const sfd = at(SFD, ms)
+    expect(sfd.heard, 'the lesson says the same number of fragments was heard').toBe(Number(m![2]))
+    expect(sfd.heard, 'and that it is the same as the base run').toBe(base.heard)
+    expect(Number(sfd.marginDb.toFixed(1)), 'the SFD margin the lesson states').toBe(num(m![4]))
+    expect(Number(base.marginDb.toFixed(1)), 'the base margin it is compared against').toBe(num(m![5]))
+    expect(Number((base.marginDb - sfd.marginDb).toFixed(2)), 'the drop the lesson states, which is'
+      + ' the SFD peak-power cost it computes two sections earlier').toBe(num(m![3]))
+    // and the verdict flips although the margin went DOWN, which is the whole point
+    expect([base.detected, sfd.detected], 'lost without the SFD, detected with it').toEqual([false, true])
+  })
+
+  it('the SFD lane arrives lower, and `numbers` states both measured levels', () => {
+    const m = /到达电平是 [−-]([\d.]+) dBm 而不是 [−-]([\d.]+) dBm/.exec(numbersText)
+    expect(m, 'the arrival-level sentence is gone from `numbers`').not.toBeNull()
+    expect(-num(m![1]), 'the SFD lane level').toBe(Number(at(SFD, 207.5).rxDbm.toFixed(2)))
+    expect(-num(m![2]), 'the base lane level').toBe(Number(at(undefined, 207.5).rxDbm.toFixed(2)))
+  })
+
+  it('the seven discarded trains, and the band the lesson gives for them', () => {
+    const m = /被丢掉的那([一二三四五六七八九十]+)组，累加起来的余量在 ([\d.]+) 到 ([\d.]+) dB 之间/
+      .exec(numbersText)
+    expect(m, 'the dropped-train sentence is gone from `numbers`').not.toBeNull()
+    const dropped = trainsOf(undefined).filter((t) => t.detected === false)
+    expect(m![1], 'the lesson counts the dropped trains in Chinese numerals').toBe('七')
+    expect(dropped).toHaveLength(7)
+    const margins = dropped.map((t) => t.marginDb)
+    expect(Number(Math.min(...margins).toFixed(1)), 'the bottom of the band').toBe(num(m![2]))
+    expect(Number(Math.max(...margins).toFixed(1)), 'the top of the band').toBe(num(m![3]))
+  })
+})
