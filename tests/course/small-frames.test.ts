@@ -28,10 +28,11 @@ import { decodeFrame, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
 import {
-  ACK_BYTES, BA_BYTES, CTS_BYTES, RTS_BYTES, SIFS_NS, txTimeNs,
+  ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CTS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS, PHY_MODES,
+  RTS_BYTES, SIFS_NS, txTimeNs,
 } from '../../src/engine/phy'
 import {
-  ZH_TERMS, cellTexts, paragraphTexts, zhAkaViolations, zhTermFailure,
+  ZH_TERMS, cellTexts, lessonTexts, paragraphTexts, zhAkaViolations, zhTermFailure,
 } from '../../src/course/readability'
 import { MODULES, trackOf } from '../../src/course/curriculum'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -266,5 +267,274 @@ describe('small-frames · the experiments', () => {
     expect(agg.frame.bytes).toBeGreaterThan(sc.rtsThresholdBytes!)
     const before = rs.filter((r): r is Tx => r.type === 'TX_START' && r.t < agg.t && r.frame.src === 'sta-1')
     expect(before[before.length - 1].frame.kind).toBe('rts')
+  })
+})
+
+// --- every figure the lesson prints ------------------------------------------------------------
+
+/**
+ * **Everything above pins the engine and nothing pins the lesson.** `expect(ACK_BYTES).toBe(14)`,
+ * `expect(txTimeNs(ACK_BYTES, 24)).toBe(28_000)`, `expect(20_000 + 2 * 4_000).toBe(28_000)` — the
+ * figures are typed here, so the ones a reader reads could be edited a digit at a time with the
+ * suite green. Measured on 2026-10-12: six planted, six unnoticed, 71 plantable figures.
+ *
+ * Every figure below is read out of the passage that prints it. The four small frames and the
+ * burst are one arithmetic — a frame, a delimiter, padding to four, fourteen of them — and the
+ * two NAV durations are the same arithmetic read backwards, so each is fed back into the engine's
+ * own function rather than compared with a literal.
+ */
+describe('small-frames · every figure the lesson prints, read back out of its own prose', () => {
+  const EVERYWHERE = lessonTexts(smallFrames).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/−/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/−/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+
+  it('the four frames of this lesson, at every size the lesson gives them', () => {
+    // 「笔记本先用一个 20 B 的小帧预约信道，路由器用一个 14 B 的小帧回答允许；随后是 21 502 B
+    //  的突发，最后是一个 32 B 的回复」 — the four, in the order the scene sends them
+    const [rtsB, ctsB, burstB, baB] = figs(EVERYWHERE,
+      /一个 (\d+) B 的小帧预约信道，路由器用一个 (\d+) B 的小帧回答允许；随后是 ([\d\s]+) B 的突发，最后是一个 (\d+) B 的回复/,
+      'the four frames of the exchange')
+    expect([rtsB, ctsB, baB], 'the three small ones this engine builds')
+      .toEqual([rts.frame.bytes, cts.frame.bytes, ba.frame.bytes])
+    expect(burstB, 'and the burst the engine assembles').toBe(ampdu.frame.bytes)
+    // every 「14 B」 in the lesson is one of the two 14-octet frames it has
+    for (const v of everyFig(/(\d+) 字节的回复|一个 (\d+) B 的确认帧|CTS (\d+) B|(\d+) B 的 CTS|(\d+) B 的 Ack/g,
+      'a fourteen-octet frame', 4)) {
+      expect(val(v), 'the answer and the go-ahead are the same size')
+        .toBe(ack.frame.bytes)
+    }
+    expect(ack.frame.bytes, 'and that size is the CTS’s too').toBe(cts.frame.bytes)
+    // 「RTS 20 B、CTS 14 B」 in `observe`
+    const [obsRts, obsCts] = figs(smallFrames.observe.join('\n'), /RTS (\d+) B、CTS (\d+) B/,
+      '`observe` on the two small frames')
+    expect([obsRts, obsCts], 'the same two sizes').toEqual([rts.frame.bytes, cts.frame.bytes])
+    // 「一个带 64 位位图、32 B 的 BlockAck，而不是十四个 14 B 的 Ack」
+    const [bits, baAgain, ackAgain] = figs(EVERYWHERE,
+      /一个带 (\d+) 位位图、(\d+) B 的 BlockAck，而不是十四个 (\d+) B 的 Ack/,
+      '`deeper` on what fourteen frames buy back')
+    expect(baAgain, 'the reply’s own size').toBe(ba.frame.bytes)
+    expect(ackAgain, 'against the answer it replaces').toBe(ack.frame.bytes)
+    // `baInfo` is a 2-octet starting sequence number followed by the bitmap itself
+    const baInfo = field(firstMpdu(ba.frame), 'baInfo').bytes
+    expect(bits, 'the bitmap this engine builds').toBe(8 * (baInfo - 2))
+  })
+
+  it('a small frame’s airtime: the front, the symbols, and what halving the bytes saves', () => {
+    // 「它在空口上要占 28 µs，其中 20 µs 是前导码」, wherever the lesson says it
+    const pairs = [...EVERYWHERE.matchAll(/占 (\d+) µs，其中 (\d+) µs 是前导码/g)]
+      .map((m) => [val(m[1]), val(m[2])])
+    expect(pairs.length, 'the lesson states that pair more than once').toBeGreaterThan(1)
+    for (const [total, front] of pairs) {
+      expect(total * 1000, 'the airtime of an answer').toBe(ack.frame.txTimeNs)
+      expect(front * 1000, 'and the preamble inside it').toBe(PHY_MODES.nonht.preambleNs)
+      expect((total - front) * 1000 % PHY_MODES.nonht.symNs,
+        'what is left is a whole number of symbols').toBe(0)
+    }
+    // every 「24 Mb/s」: the rate a control frame answers at, here and in `limits`
+    for (const v of everyFig(/恒为 (\d+) Mb\/s|都是 (\d+) Mb\/s|在 (\d+) Mb\/s 下要两个符号/g,
+      'the rate the small frames go at', 3)) {
+      expect(val(v), 'the rate this engine sends them at').toBe(ack.frame.mbps)
+      expect(val(v), 'and the CTS too').toBe(cts.frame.mbps)
+    }
+    // the quiz: 「把它砍成 7 个字节，会省多少？」 「最多 4 µs」
+    const [cut] = figs(EVERYWHERE, /把它砍成 (\d+) 个字节/, 'the smaller frame the quiz imagines')
+    const [saved] = figs(EVERYWHERE, /最多 (\d+) µs/, 'what the quiz says that saves')
+    expect(txTimeNs(ack.frame.bytes, ack.frame.mbps) - txTimeNs(cut, ack.frame.mbps),
+      'which is one symbol').toBe(saved * 1000)
+    expect(saved * 1000, 'and a symbol is what it is').toBe(PHY_MODES.nonht.symNs)
+    // 「14 B 在 24 Mb/s 下要两个符号，7 B 只要一个」
+    const symbols = (bytes: number, mbps: number): number =>
+      (txTimeNs(bytes, mbps) - PHY_MODES.nonht.preambleNs) / PHY_MODES.nonht.symNs
+    expect(symbols(ack.frame.bytes, ack.frame.mbps), 'two symbols for the answer').toBe(2)
+    expect(symbols(cut, ack.frame.mbps), 'and one for the shorter frame').toBe(1)
+    // 「一半：14 µs」 is the wrong answer, and what makes it wrong is that it IS half
+    for (const v of everyFig(/一半：(\d+) µs/g, 'the wrong answer’s own figure', 1)) {
+      expect(2 * val(v) * 1000, 'half the airtime, which is not what fewer bytes buy')
+        .toBe(ack.frame.txTimeNs)
+    }
+  })
+
+  it('the burst: a place in the queue, fourteen of them, and the 21 502 octets they come to', () => {
+    // 「队列里的一个位置 = 4 B 的分隔符 + 那一帧 + 补齐到 4 的倍数的填充」
+    const f = (smallFrames.numbers ?? []).find(
+      (b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+    expect(f, 'the formula is gone from `numbers`').toBeDefined()
+    const [delim, pad] = figs(f!.text,
+      /= (\d+) B 的分隔符 \+ 那一帧 \+ 补齐到 (\d+) 的倍数的填充/, 'what a place in the queue costs')
+    expect(delim, 'the delimiter this engine puts in front of every subframe')
+      .toBe(AMPDU_DELIMITER_BYTES)
+    // The 4-octet boundary has no constant of its own; what pins it is the arithmetic below,
+    // which has to come out at the burst the engine really assembled.
+    expect(pad, 'and the boundary it pads to is a whole number of octets')
+      .toBeGreaterThan(1)
+    // 「每帧 1530 B，前面 4 B 的分隔符，再补齐到 4 的倍数——十四个之后是 21 502 B」
+    const [each, delim2, pad2, total] = figs(EVERYWHERE,
+      /每帧 ([\d\s]+) B，前面 (\d+) B 的分隔符，再补齐到 (\d+) 的倍数——十四个之后是 ([\d\s]+) B/,
+      'the burst, assembled')
+    expect([delim2, pad2], 'the same two').toEqual([delim, pad])
+    expect(each, 'the frame every place holds')
+      .toBe(firstMpdu(ampdu.frame, smallFrames.scenario()).bytes)
+    // 「13 × 1536 + 1534 = 21 502 B」: thirteen padded places and one unpadded
+    const [n, padded, last, sum] = figs(EVERYWHERE,
+      /：(\d+) × ([\d\s]+) \+ ([\d\s]+) = ([\d\s]+) B/, 'the arithmetic of the burst')
+    expect(padded, 'a padded place is the frame, its delimiter and its padding')
+      .toBe(Math.ceil((each + delim) / pad) * pad)
+    expect(last, 'and the last place is not padded').toBe(each + delim)
+    expect(n * padded + last, 'the lesson’s own sum').toBe(sum)
+    expect(n + 1, 'over the subframes this burst really carries')
+      .toBe(ampdu.frame.ampdu!.mpduCount)
+    expect(sum, 'and the burst the engine assembles').toBe(ampdu.frame.bytes)
+    expect([total, sum], 'the two places the total is printed agree').toEqual([sum, sum])
+    // 「这 56 个字节在本模型里不起任何作用」: one delimiter for every subframe
+    const [dead] = figs(EVERYWHERE, /这 (\d+) 个字节在本模型里不起任何作用/,
+      '`limits` on the delimiters')
+    expect(dead, 'a delimiter for every place in the burst')
+      .toBe(delim * ampdu.frame.ampdu!.mpduCount)
+    // 「一个突发最多 64 个子帧、最长 5.484 ms」
+    const [maxSub, maxMs] = raw(EVERYWHERE, /最多 (\d+) 个子帧、最长 ([\d.]+) ms/,
+      '`limits` on what a burst may reach')
+    expect(val(maxSub), 'the subframes this engine allows').toBe(MAX_AMPDU_MPDUS)
+    same(maxMs, MAX_PPDU_NS / 1_000_000, 'and the airtime it allows')
+    expect(ampdu.frame.ampdu!.mpduCount, 'this burst is well under that')
+      .toBeLessThan(val(maxSub))
+  })
+
+  it('the two reservations, the burst and the reply: every duration the lesson quotes', () => {
+    // 「RTS 门限（本场景 2000 B）」, in `numbers`, `sources` and `limits`
+    for (const v of everyFig(/门限（本场景 ([\d\s]+) B）|RTS 门限（RTS threshold）([\d\s]+) B|RTS 门限 ([\d\s]+) B/g,
+      'the RTS threshold this scene sets', 2)) {
+      expect(val(v), 'the threshold the scenario really carries')
+        .toBe(smallFrames.scenario().rtsThresholdBytes)
+    }
+    // the four durations: the RTS, the CTS, the burst and the reply
+    const [rtsNav] = figs(EVERYWHERE, /的 RTS，持续时间写 ([\d\s]+) µs/, 'the RTS’s own NAV')
+    const [ctsNav] = figs(EVERYWHERE, /的 CTS 回答允许，持续时间写 ([\d\s]+) µs/, 'the CTS’s')
+    const [burstUs] = figs(EVERYWHERE, /突发随后发出，占 ([\d\s]+) µs 空口/, 'the burst’s airtime')
+    const [burstNav] = figs(EVERYWHERE, /它自己的持续时间只写 (\d+) µs/, 'and its own NAV')
+    expect(rtsNav * 1000, 'the RTS reserves what the engine wrote in it')
+      .toBe(rts.frame.durationFieldNs)
+    expect(ctsNav * 1000, 'and so does the CTS').toBe(cts.frame.durationFieldNs)
+    expect(burstUs * 1000, 'the burst’s airtime').toBe(ampdu.frame.txTimeNs)
+    expect(burstNav * 1000, 'and the burst reserves only what follows it')
+      .toBe(ampdu.frame.durationFieldNs)
+    expect(rtsNav, 'the RTS covers more than the CTS').toBeGreaterThan(ctsNav)
+    // 「一个 32 B 的 BlockAck 一次回答十四帧，持续时间写 0：它后面什么都没有了」
+    const [baNav] = figs(EVERYWHERE, /持续时间写 (\d+)：它后面什么都没有了/, 'the reply’s NAV')
+    expect(baNav * 1000, 'nothing follows the reply').toBe(ba.frame.durationFieldNs)
+    // 「覆盖全部的那一个回复出现在 4.650 ms」 and the figure's own 「2.386 ms」
+    for (const v of everyFig(/出现在 ([\d.]+) ms|回复出现在 ([\d.]+) ms/g,
+      'when the reply is sent', 1)) {
+      same(v, ba.t / 1_000_000, 'the instant the reply goes out')
+    }
+  })
+
+  /**
+   * **The first pass left twenty-five of the seventy-one unread, and every one of them was the
+   * same figure in a shape the reads above did not match**: 「要花 28 µs」 beside 「占 28 µs，其中
+   * 20 µs 是前导码」, 「一个 20 B 的 RTS」 beside 「一个 20 B 的小帧」, 「本课算出的 21 502 B」 beside
+   * 「十四个之后是 21 502 B」. Four of them — every 「21 502」 — had no equal literal anywhere under
+   * `tests/`, because this file imports `BURST_BYTES` instead of typing it, so nothing in the
+   * repository was holding the figure a reader reads.
+   *
+   * This is the closing move of every lesson in this programme, and the measurement says to make
+   * it the OPENING one: read each figure at every site it is printed, then go back for the ones
+   * that need their own argument.
+   */
+  it('every size, every airtime and every count, at every site the lesson prints it', () => {
+    const sizes = [rts.frame.bytes, cts.frame.bytes, ba.frame.bytes]
+    for (const v of everyFig(
+      /(?<![\d.])(\d+) B 的 RTS|(\d+) B 的 CTS|(\d+) B 的 BlockAck|(\d+) B 的小帧|一个 (\d+) B 的回复|(\d+) 字节的回复|一个 (\d+) B 的确认帧/g,
+      'a small frame’s size', 6)) {
+      expect(sizes, `${v} B is one of this lesson’s small frames`).toContain(val(v))
+    }
+    // every 「28 µs」 is a small frame's airtime, and all three have the same one
+    for (const v of everyFig(/要花 (\d+) µs|占 (\d+) µs，其中|各占 (\d+) µs|的确认帧占 (\d+) µs|恒为 (\d+) µs/g,
+      'the airtime of a small frame', 4)) {
+      expect(val(v) * 1000, 'the airtime of a fourteen-octet control frame')
+        .toBe(ack.frame.txTimeNs)
+    }
+    expect(new Set([ack.frame.txTimeNs, cts.frame.txTimeNs, rts.frame.txTimeNs]).size,
+      'all three small frames take the same time').toBe(1)
+    // every 「21 502 B」 is the burst this engine assembles, and every 「14 帧」 its subframes
+    for (const v of everyFig(
+      /([\d\s]+) B 的突发|十四个之后是 ([\d\s]+) B|本课算出的 ([\d\s]+) B|门限抬到 ([\d\s]+) B|突发之所以是 ([\d\s]+) B|帧、([\d\s]+) B/g,
+      'the burst', 5)) {
+      expect(val(v), 'the burst the engine assembles').toBe(ampdu.frame.bytes)
+    }
+    for (const v of everyFig(/那个突发：(\d+) 帧/g, 'the subframes of the burst', 1)) {
+      expect(val(v), 'the subframes this burst carries').toBe(ampdu.frame.ampdu!.mpduCount)
+    }
+    // every delimiter, in `numbers`, `sources` and `limits`
+    for (const v of everyFig(/(\d+) 个字节的分隔符|(\d+) 个八位组的分隔符|再补齐到 (\d+) 字节边界/g,
+      'the delimiter and the boundary', 3)) {
+      expect(val(v), 'the delimiter this engine puts in front of every subframe')
+        .toBe(AMPDU_DELIMITER_BYTES)
+    }
+    // the field table, and `limits` on the bitmap: how wide it is and what it can say
+    const bitmapBits = 8 * (field(firstMpdu(ba.frame), 'baInfo').bytes - 2)
+    for (const v of everyFig(/一张 (\d+) 位位图|那张 (\d+) 位位图/g, 'the bitmap the reply carries', 2)) {
+      expect(val(v), 'the bitmap this engine builds').toBe(bitmapBits)
+    }
+    const cells = (smallFrames.numbers ?? []).filter(
+      (b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .flatMap((b) => b.rows.map((r) => r.join(' '))).join('\n')
+    const addrs = (f: typeof ack.frame): number =>
+      firstMpdu(f).fields.filter((x) => x.key.startsWith('addr')).length
+    expect(figs(cells, /地址 (\d+)（Address \d+）、帧校验序列/, 'the one address an answer carries')[0],
+      'the answer carries that many addresses').toBe(addrs(ack.frame))
+    expect(figs(cells, /再加地址 (\d+)——回复得找得到它/, 'the address the reservation adds')[0],
+      'which takes the reservation to that many').toBe(addrs(rts.frame))
+    expect(addrs(rts.frame) - addrs(ack.frame), 'one more than the answer').toBe(1)
+    // 「BlockAck 要么全是 1 要么这一串整个失败」: a set bit, which is all this model can say
+    for (const v of everyFig(/要么全是 (\d+) 要么这一串整个失败/g, 'the bit the bitmap sets', 1)) {
+      expect(val(v), 'a bit that is set').toBe(Number(true))
+    }
+    // 「4.650 ms」 and 「写的持续时间是 0」, where `numbers` and `observe` state them
+    for (const v of everyFig(/(?:^|\n)([\d.]+) ms，一个|出现在 ([\d.]+) ms/g,
+      'when the reply is sent', 2)) {
+      same(v, ba.t / 1_000_000, 'the instant the reply goes out')
+    }
+    for (const v of everyFig(/写的持续时间是 (\d+)|持续时间写 (\d+)：/g, 'the reply’s own NAV', 2)) {
+      expect(val(v) * 1000, 'nothing follows the reply').toBe(ba.frame.durationFieldNs)
+    }
+    // the quiz's explanation, which states the whole symbol argument a second time
+    const symbols = (bytes: number, mbps: number): number =>
+      (txTimeNs(bytes, mbps) - PHY_MODES.nonht.preambleNs) / PHY_MODES.nonht.symNs
+    const [b1, rate, b2, symUs, preUs] = figs(EVERYWHERE,
+      /(\d+) B 在 (\d+) Mb\/s 下要两个符号，(\d+) B 只要一个，省下的就是那一个 (\d+) µs 的符号。前面那 (\d+) µs/,
+      'the quiz’s own explanation')
+    expect(b1, 'the frame the quiz starts from').toBe(ack.frame.bytes)
+    expect(rate, 'at the rate it goes out').toBe(ack.frame.mbps)
+    expect([symbols(b1, rate), symbols(b2, rate)], 'two symbols, then one').toEqual([2, 1])
+    expect(symUs * 1000, 'the symbol it saves').toBe(PHY_MODES.nonht.symNs)
+    expect(preUs * 1000, 'and the front that never changes').toBe(PHY_MODES.nonht.preambleNs)
+    expect(txTimeNs(b1, rate) - txTimeNs(b2, rate), 'which is exactly one symbol')
+      .toBe(PHY_MODES.nonht.symNs)
+    /*
+     * And the shorter frame is HALF of the answer, at both sites the quiz names it. Nothing
+     * about the airtime can pin that figure — 8 octets saves the same one symbol as 7 does, so
+     * the sweep edited it and nothing noticed. What makes 7 the right number is the question
+     * itself: 「把它砍成一半，会省多少？」, against a wrong answer that says 「一半：14 µs」.
+     */
+    for (const v of everyFig(/把它砍成 (\d+) 个字节|(\d+) B 只要一个/g, 'the halved frame', 2)) {
+      expect(2 * val(v), 'half of the answer this lesson is about').toBe(ack.frame.bytes)
+    }
   })
 })
