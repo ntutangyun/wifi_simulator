@@ -537,7 +537,27 @@ export function FloorPlanEditor() {
         <span style={menuDivider} />
         <label style={{ display: 'flex', gap: 4, alignItems: 'center' }} title={E.rtsHint}>
           {E.rts}
-          <input type="number" step={100} value={scenario.rtsThresholdBytes} style={{ width: 62 }}
+          {/*
+            * Sized in `ch`, not pixels, and this is the one field that proved why.
+            *
+            * `index.css` asks for `"Segoe UI", system-ui, sans-serif`, and Segoe UI exists on
+            * Windows and nowhere else — so on Linux, and on the Android foldable this app is
+            * read on, every digit here is drawn in a wider fallback. At `width: 62` that box
+            * holds 「3000」 with 5 px to spare in Segoe UI and overflows by 2 px (desktop) to
+            * 6 px (touch, whose padding is 10 px a side rather than 8) in the fallback. It was
+            * the first defect `.github/workflows/ui-narrow.yml` ever found: `div>div>div>label>
+            * input 62>60`, in CI, in the six edit-mode checks, on 2026-10-12.
+            *
+            * `7ch` is seven zeroes OF THE FONT IN USE, so the box grows exactly where the glyphs
+            * do, and `+ 20px` is the wider of the two horizontal paddings (the touch one). In
+            * Segoe UI that comes to 63 px against today's 62; in a font 12 % wider, 72 px.
+            * **The rule for the next numeric field here: say how many characters, not how many
+            * pixels.** The sibling fields (44, 56, 74 px) have slack in the runner's fallback
+            * today, which is a measurement, not a guarantee — and the sweep re-measures it on
+            * every push.
+            */}
+          <input type="number" step={100} value={scenario.rtsThresholdBytes}
+            style={{ width: 'calc(7ch + 20px)' }}
             onChange={(e) => commit({ ...scenario, rtsThresholdBytes: Number(e.target.value) })} /> B
         </label>
         <label style={{ display: 'flex', gap: 4, alignItems: 'center' }} title={E.seedHint}>
@@ -1105,7 +1125,10 @@ export function FloorPlanEditor() {
                             <>
                               <label style={{ display: 'block', marginBottom: 4 }} title={E.ampIntervalHint}>
                                 {E.ampInterval}{' '}
-                                <input type="number" min={10} max={10_000} value={selNode.ampAp.pollIntervalMs} style={{ width: 62 }}
+                                {/* `ch`, for the reason the RTS field above carries in full — and
+                                  * this one takes five digits (10 000 ms), where that one takes four. */}
+                                <input type="number" min={10} max={10_000} value={selNode.ampAp.pollIntervalMs}
+                                  style={{ width: 'calc(7ch + 20px)' }}
                                   onChange={(e) => updateNode(selNode.id, { ampAp: { ...selNode.ampAp!, pollIntervalMs: clampField(e.target.value, 10, 10_000) } })} /> ms
                               </label>
                               <label style={{ display: 'block', marginBottom: 4 }} title={E.ampSlotsHint}>
