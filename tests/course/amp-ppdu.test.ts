@@ -16,10 +16,11 @@ import { ampIntroScenario } from '../../src/course/amp/amp-intro'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 import {
   AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_LEGACY_PREAMBLE_NS, AMP_PADDING_NS,
   AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS, ampBitsNs, ampDlPpduNs,
-  ampRespBytes, ampTriggerBytes, ampUlPpduNs,
+  ampRespBytes, ampTriggerBytes, ampUlPpduNs, type AmpDlKbps,
 } from '../../src/engine/amp'
 import { ACK_TX_TIME_6M_NS, CTS_BYTES, ERP_2G, txTimeNs } from '../../src/engine/phy'
 import { decodeFrame, ppduLayout } from '../../src/model/frameFields'
@@ -250,5 +251,255 @@ describe('amp-ppdu · the 1 Mb/s experiment', () => {
     const baseLast = ends(base, 'ampAck').filter((r) => r.t <= 5 * MS).pop()!
     expect(baseLast.t - txs(base, 'cts')[0].t).toBe(4190 * US)
     expect(((4190 / 100_000) * 100).toFixed(2)).toBe('4.19')
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * Everything above measures the engine and compares it with a literal written in THIS file, the
+ * lesson's row or formula quoted in a comment beside it. Two of them go further and do the
+ * lesson's arithmetic here: `expect(32 + 80 + 64 + 416 + 20 + 6).toBe(618)` and
+ * `expect(16 + 4 + 12).toBe(32)` are the formula's terms typed on the test side, and they would
+ * hold if every figure in the lesson changed.
+ *
+ * `@amp-ppdu` hand-types 26 figures into its graded prose, across four formulas and four tables
+ * — and it is the one lesson on the ratchet's list whose `limits` is empty, so nothing else here
+ * carries its figures either. What follows is the other half of each assertion above, with no
+ * figure on this side: the strip table read against the PPDU the simulator actually draws, in
+ * order, segment for segment; the three-frame table in both rate columns; the padding table; the
+ * three formulas, each of whose sums is checked from its own terms; and the two fraction claims
+ * (「四分之一」, 「不到六分之一」), which live nowhere but the prose.
+ *
+ * **The reader column of the strip table is not read, and that is deliberate.** 「每一台 Wi-Fi
+ * 射频」 / 「标签」 / 「没人：它换来的是标签的处理时间」 is an argument about who decodes what, and
+ * an assertion over it would fail about how a sentence is written — the class the 2026-09-25
+ * ruling deletes. The boundary it draws IS graded, as a figure: the rows above the AMP half sum
+ * to the formula's own 32 µs.
+ */
+describe('amp-ppdu · every printed figure is read back out of the lesson', () => {
+  const rs = recs()
+  const trig = txs(rs, 'ampTrigger')[0]
+  const ack = txs(rs, 'ampAck')[0]
+  const resp = txs(rs, 'ampResp')[0]
+  const CTX = { apId: 'ap', isEdca: false }
+  const tableWith = (fragment: string): { heading: string; head: string[]; rows: string[][] } => {
+    const b = ampPpdu.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { heading: string; head: string[]; rows: string[][] }
+  }
+  const formulaWith = (fragment: string): { text: string; note?: string } => {
+    const b = ampPpdu.numbers!.find((x) => x.kind === 'formula' && (x.heading ?? '').includes(fragment))
+    expect(b, `no formula whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { text: string; note?: string }
+  }
+  /** 「618 µs」 → 618; 「1.67 %」 → 1.67. */
+  const val = (s: string): number => Number(s.replace(/[^\d.]/g, ''))
+  /** A printed figure against a measurement, rounded to the decimals the figure itself carries. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zhCount = (s: string): number | null => zhNumeral(s.replace(/两/g, '二'))
+  /**
+   * A rate the lesson names, as the engine's own type. The membership test is the point: the
+   * union is `AmpDlKbps`, so a bare cast would silence exactly the case worth catching — a
+   * lesson that prints a rate this engine cannot produce a PPDU for.
+   */
+  const kbps = (n: number): AmpDlKbps => {
+    expect(Object.keys(AMP_UL_CHIP_NS).map(Number), `${n} kb/s is not a rate this engine has`)
+      .toContain(n)
+    return n as AmpDlKbps
+  }
+
+  it('the strip table: eight rows against the eight segments the simulator draws, in order', () => {
+    const t = tableWith('这条带子由什么组成')
+    const strip = decodeFrame(trig.frame, CTX).ppdu
+    expect(t.rows, 'one row per segment of the PPDU, and no more').toHaveLength(strip.length)
+    t.rows.forEach((row, i) => {
+      same(row[1].replace(' µs', ''), strip[i].durNs / US, `row ${i} (「${row[0]}」): its duration`)
+    })
+    // the head cell names the rate the middle column is at, and it is the rate the frame used
+    const rate = /^(\d+) kb\/s$/.exec(t.head[1])
+    expect(rate, `「${t.head[1]}」 does not name a rate`).not.toBeNull()
+    expect(Number(rate![1]), 'the rate this column is measured at').toBe(trig.frame.amp!.kbps)
+    // two labels carry figures of their own: 「AMP-SIG，2 个字节」 and 「帧体，13 个字节」
+    const sig = /AMP-SIG，(\d+) 个字节/.exec(t.rows.map((r) => r[0]).join('\n'))
+    expect(sig, 'no row names the AMP-SIG’s octets').not.toBeNull()
+    expect(Number(sig![1]), 'the AMP-SIG’s octets').toBe(AMP_DL_SIG_BYTES)
+    const body = /帧体（Frame Body），(\d+) 个字节/.exec(t.rows.map((r) => r[0]).join('\n'))
+    expect(body, 'no row names the trigger body’s octets').not.toBeNull()
+    expect(Number(body![1]), 'the trigger body’s octets').toBe(ampTriggerBytes(0))
+    // and the whole strip is the frame
+    expect(t.rows.reduce((s, r) => s + val(r[1]), 0) * US, 'the rows add up to the frame')
+      .toBe(trig.frame.txTimeNs)
+  })
+
+  it('the 618 µs formula: six terms, the sum it states, and the 32 µs boundary', () => {
+    const f = formulaWith('618 µs 由什么组成')
+    const m = /^AMP Trigger @ (\d+) kb\/s = (\d+) \+ (\d+) \+ (\d+) \+ (\d+) \+ (\d+) \+ (\d+) = (\d+) µs$/
+      .exec(f.text)
+    expect(m, 'the formula no longer states its six terms and their sum').not.toBeNull()
+    expect(Number(m![1]), 'the rate the formula is at').toBe(trig.frame.amp!.kbps)
+    const terms = [2, 3, 4, 5, 6, 7].map((i) => Number(m![i]))
+    expect(terms.reduce((a, b) => a + b, 0), 'the lesson’s own addition').toBe(Number(m![8]))
+    same(m![8], trig.frame.txTimeNs / US, 'and the frame it adds up to')
+    // the six terms are the strip with its legacy three folded into one, which is what the note
+    // says: 「开头的 32 µs 是普通 Wi-Fi，其后的一切都是发给标签的」
+    const strip = decodeFrame(trig.frame, CTX).ppdu
+    const legacy = /开头的 (\d+) µs 是普通 Wi-Fi/.exec(f.note ?? '')
+    expect(legacy, 'the note no longer names the Wi-Fi opening').not.toBeNull()
+    same(legacy![1], AMP_LEGACY_PREAMBLE_NS / US, 'the Wi-Fi opening')
+    const folded = strip.length - terms.length + 1
+    expect(strip.slice(0, folded).reduce((s, x) => s + x.durNs, 0),
+      'the segments the formula folds into that opening').toBe(AMP_LEGACY_PREAMBLE_NS)
+    expect(terms[0] * US, 'which is the formula’s first term').toBe(AMP_LEGACY_PREAMBLE_NS)
+    // 「AMP-SIG 在 1 Mb/s 下是 16 µs」: the one term the note follows up the ladder
+    const faster = /AMP-SIG 在 (\d+) Mb\/s 下是 (\d+) µs/.exec(f.note ?? '')
+    expect(faster, 'the note no longer states the AMP-SIG at the higher rate').not.toBeNull()
+    same(faster![2], ampBitsNs(AMP_DL_SIG_BYTES * 8, Number(faster![1]) * 1000) / US,
+      `the AMP-SIG at ${faster![1]} Mb/s`)
+  })
+
+  it('the three-frame table: octets and both rate columns, nine cells and the headings', () => {
+    const t = tableWith('三种 AMP 帧')
+    const rates = t.head.slice(2).map((h) => {
+      const m = /^(\d+) (kb|Mb)\/s$/.exec(h)
+      expect(m, `「${h}」 does not name a rate`).not.toBeNull()
+      return kbps(Number(m![1]) * (m![2] === 'Mb' ? 1000 : 1))
+    })
+    expect(rates, 'the two rate columns the table compares').toEqual([250, 1000])
+    const ext = ERP_2G.signalExtNs
+    const ROWS: readonly (readonly [RegExp, number, (k: AmpDlKbps) => number])[] = [
+      [/^AMP Trigger（下行）$/, ampTriggerBytes(0), (k) => ampDlPpduNs(k, ampTriggerBytes(0), ext)],
+      [/^AMP Ack（下行）$/, AMP_ACK_BYTES, (k) => ampDlPpduNs(k, AMP_ACK_BYTES, ext)],
+      [/^带读数的作答（上行）$/, ampRespBytes(true), (k) => ampUlPpduNs(k, ampRespBytes(true))],
+    ]
+    expect(t.rows, 'the table states exactly the frames this reads').toHaveLength(ROWS.length)
+    t.rows.forEach((row, i) => {
+      const [re, bytes, airtime] = ROWS[i]
+      expect(re.exec(row[0]), `row ${i}: 「${row[0]}」 is not the frame this reads`).not.toBeNull()
+      expect(Number(row[1]), `row ${i}: its octets`).toBe(bytes)
+      rates.forEach((kbps, j) => {
+        same(row[2 + j].replace(' µs', ''), airtime(kbps) / US, `row ${i} at ${kbps} kb/s`)
+      })
+    })
+    // the three frames of this run really are those three airtimes at the scene's own rate
+    for (const [tx, i] of [[trig, 0], [ack, 1], [resp, 2]] as const) {
+      same(t.rows[i][2].replace(' µs', ''), tx.frame.txTimeNs / US,
+        `row ${i}: and the frame the run sends`)
+    }
+    // 「只报自己身份的作答是 7 个字节 … 这里的作答把读数直接带在里面，所以是 15 个字节」
+    const p = (ampPpdu.numbers! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+    const two = /只报自己身份的作答是 (\d+) 个字节[^]*?所以是 (\d+) 个字节/.exec(p)
+    expect(two, 'the paragraph no longer contrasts the two answer sizes').not.toBeNull()
+    expect([Number(two![1]), Number(two![2])], 'the bare answer and the one carrying a reading')
+      .toEqual([ampRespBytes(false), ampRespBytes(true)])
+  })
+
+  it('the rate paragraph: the four-fold step, the quarter, and the 138 µs no rate touches', () => {
+    const p = (ampPpdu.numbers! as { heading?: string; text?: string }[])
+      .filter((x) => (x.heading ?? '').includes('提高速率省下了什么')).map((x) => x.text ?? '')[0]
+    expect(p, 'the rate paragraph is gone').toBeDefined()
+    const m = /速率提高([一二三四五六七八九十]+)倍，作答占用的空口时间就真的只剩([一二三四五六七八九十]+)分之一：(\d+) µs 变成 (\d+) µs[^]*?(\d+) µs 任凭速率怎么变都省不掉，所以它只能降到 (\d+) µs/
+      .exec(p!)
+    expect(m, 'the rate paragraph is no longer in the shape this reads').not.toBeNull()
+    const ext = ERP_2G.signalExtNs
+    const [slow, fast] = [kbps(trig.frame.amp!.kbps), kbps(trig.frame.amp!.kbps * zhCount(m![1])!)]
+    const resp250 = ampUlPpduNs(slow, ampRespBytes(true))
+    const respFast = ampUlPpduNs(fast, ampRespBytes(true))
+    same(m![3], resp250 / US, 'the answer at the scene’s rate')
+    same(m![4], respFast / US, `and at ${fast} kb/s`)
+    // 「只剩四分之一」: the answer is pure payload, so the step is exact — not approximate
+    expect(resp250 / respFast, `the answer really is a ${m![2]}-fold step`).toBe(zhCount(m![2]))
+    // 「138 µs 任凭速率怎么变都省不掉」: the four fixed fields, from the engine's own constants
+    const fixed = AMP_LEGACY_PREAMBLE_NS + AMP_DL_SYNC_NS + AMP_PADDING_NS + ext
+    same(m![5], fixed / US, 'the part of a downlink frame no rate can shrink')
+    same(m![6], ampDlPpduNs(fast, ampTriggerBytes(0), ext) / US, 'so the trigger falls only this far')
+    // and the claim that makes the paragraph: everything but the fixed part did scale
+    expect(ampDlPpduNs(slow, ampTriggerBytes(0), ext) - fixed,
+      'the rest of the trigger scales exactly')
+      .toBe(zhCount(m![1])! * (ampDlPpduNs(fast, ampTriggerBytes(0), ext) - fixed))
+  })
+
+  it('the padding table: both values, and which one every frame in this scene carries', () => {
+    const t = tableWith('填充有多少')
+    expect(t.rows, 'the table states exactly two kinds of downlink frame').toHaveLength(2)
+    same(t.rows[0][1].replace(' µs', ''), AMP_PADDING_NS / US, 'the unprotected padding')
+    same(t.rows[1][1].replace(' µs', ''), AMP_PADDING_PROTECTED_NS / US, 'and the protected one')
+    // 「非保护帧——本场景里的每一帧」 is a claim about the run, and it is checkable
+    expect(t.rows[0][0], 'the first row is the one that says 「every frame in this scene」')
+      .toContain('本场景里的每一帧')
+    const dl = ofType(rs, 'TX_START').filter((r) => r.frame.amp?.dir === 'dl')
+    expect(dl.length, 'and there are downlink frames to check').toBeGreaterThan(0)
+    expect(new Set(dl.map((r) => r.frame.amp!.padNs)), 'all of them carry that padding')
+      .toEqual(new Set([val(t.rows[0][1]) * US]))
+  })
+
+  it('the Ack formula: the octets, the wrapper, and the CTS it is compared with', () => {
+    const f = formulaWith('330 µs 花在哪儿')
+    const m = /^(\d+) kb\/s 下的 (\d+) 个字节 = (\d+) µs \+ (\d+) µs 的外壳 = (\d+) µs$/.exec(f.text)
+    expect(m, 'the Ack formula is no longer in the shape this reads').not.toBeNull()
+    expect(Number(m![1]), 'the rate').toBe(ack.frame.amp!.kbps)
+    expect(Number(m![2]), 'the octets an Ack carries').toBe(AMP_ACK_BYTES)
+    const strip = decodeFrame(ack.frame, CTX).ppdu
+    const data = strip.find((s) => s.key === 'ampData')!
+    same(m![3], data.durNs / US, 'the octets’ own airtime')
+    same(m![5], ack.frame.txTimeNs / US, 'the frame')
+    // the wrapper is the sum minus the data, which the formula states as its own second term
+    same(m![4], (ack.frame.txTimeNs - data.durNs) / US, 'and the wrapper around it')
+    expect(Number(m![3]) + Number(m![4]), 'the lesson’s own addition').toBe(Number(m![5]))
+    // the note's CTS: fourteen octets of ordinary Wi-Fi at 6 Mb/s, plus the band's extension
+    const n = /([两一二三四五六七八九十]+)个字节的普通 Wi-Fi，(\d+) Mb\/s 下 (\d+) µs，再加本频段的 (\d+) µs/
+      .exec(f.note ?? '')
+    expect(n, 'the note no longer prices the CTS').not.toBeNull()
+    expect(zhCount(n![1]), 'the CTS’s octets').toBe(CTS_BYTES)
+    same(n![3], txTimeNs(CTS_BYTES, Number(n![2])) / US, `a CTS at ${n![2]} Mb/s`)
+    same(n![4], ERP_2G.signalExtNs / US, 'the band’s own extension')
+    const cts = txs(rs, 'cts')[0]
+    expect(cts.frame.txTimeNs, 'which together are the CTS this run sends')
+      .toBe((Number(n![3]) + Number(n![4])) * US)
+    // 「内容是三倍半，空口时间却不到六分之一」: both ratios, each with its own direction
+    const r = /内容是([一二三四五六七八九十]+)倍半，空口时间却不到([一二三四五六七八九十]+)分之一/
+      .exec(f.note ?? '')
+    expect(r, 'the note no longer states the two ratios').not.toBeNull()
+    expect(CTS_BYTES / AMP_ACK_BYTES, `the content ratio, 「${r![1]}倍半」`)
+      .toBe(zhCount(r![1])! + 0.5)
+    expect(cts.frame.txTimeNs * zhCount(r![2])!, 'and the airtime, under a sixth')
+      .toBeLessThan(ack.frame.txTimeNs)
+  })
+
+  it('the 1 Mb/s round: every term of the sum, the share, and both instants in the note', () => {
+    const f = formulaWith('换成 1 Mb/s')
+    const m = /^(\d+) \+ (\d+) \+ (\d+) \+ (\d+) × \((\d+) \+ (\d+) \+ (\d+) \+ (\d+)\) = (\d+) µs = (\d+) ms 的 ([\d.]+) %$/
+      .exec(f.text)
+    expect(m, 'the 1 Mb/s formula is no longer in the shape this reads').not.toBeNull()
+    const n = (i: number) => Number(m![i])
+    // the lesson's own arithmetic first
+    expect(n(1) + n(2) + n(3) + n(4) * (n(5) + n(6) + n(7) + n(8)), 'the sum it states').toBe(n(9))
+    const fast = recs(0)
+    const cts = txs(fast, 'cts')[0]
+    const slots = ofType(fast, 'AMP_SLOT')
+    // each term against the run: the CTS, the gap, the trigger, and the four slots
+    same(`${n(1)}`, cts.frame.txTimeNs / US, 'the CTS that opens the round')
+    same(`${n(2)}`, AMP_SIFS_NS / US, 'the gap after it')
+    same(`${n(3)}`, txs(fast, 'ampTrigger')[0].frame.txTimeNs / US, 'the trigger')
+    expect(n(4), 'the slots the round holds').toBe(slots.filter((s) => s.t < 5 * MS).length)
+    same(`${n(6)}`, txs(fast, 'ampResp')[0].frame.txTimeNs / US, 'an answer')
+    same(`${n(8)}`, txs(fast, 'ampAck')[0].frame.txTimeNs / US, 'and its Ack')
+    // the round it adds up to, measured from the CTS to the last Ack of the round
+    const lastAck = ends(fast, 'ampAck').filter((r) => r.t <= 5 * MS).pop()!
+    same(`${n(9)}`, (lastAck.t - cts.t) / US, 'the round the terms add up to')
+    // and the share, to the decimals the lesson prints
+    same(m![11], (100 * (lastAck.t - cts.t)) / (n(10) * MS), `its share of ${n(10)} ms`)
+    // the note: 「触发帧现在在 318 µs 结束，时隙 1 在 328 µs 打开；CTS Duration 是 1620 µs」
+    const note = /触发帧现在在 (\d+) µs 结束，时隙 (\d+) 在 (\d+) µs 打开；覆盖这一轮的 CTS Duration 是 (\d+) µs/
+      .exec(f.note ?? '')
+    expect(note, 'the note no longer states the two instants and the Duration').not.toBeNull()
+    same(note![1], ends(fast, 'ampTrigger')[0].t / US, 'when the trigger ends')
+    same(note![3], slots[Number(note![2]) - 1].t / US, `when slot ${note![2]} opens`)
+    same(note![4], cts.frame.durationFieldNs / US, 'and the Duration covering the round')
   })
 })
