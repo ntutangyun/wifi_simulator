@@ -103,11 +103,37 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: VIEWPORTS.desktop },
     },
   ],
+  /*
+   * **The address is named, because the command that did not name it is why this suite has never
+   * run in CI.** With the `github` reporter in place (above), the first legible failure said:
+   * `Error: Timed out waiting 120000ms from config.webServer.` — the server process stayed up for
+   * the full two minutes and `http://127.0.0.1:5317` never answered, so not one test ran. That is
+   * every one of this workflow's 51 failures, and it explains the companion annotation
+   * 「No files were found with the provided path: playwright-report/」: the run dies before any
+   * test, so there is nothing to report.
+   *
+   * `vite` with no `--host` binds to whatever `localhost` resolves to, and this poll asks for
+   * `127.0.0.1`. On a host where `localhost` resolves to `::1` first — which GitHub's Ubuntu
+   * images do, `/etc/hosts` carrying both — those are two different sockets, and a server
+   * listening on one while a poller knocks on the other is exactly a live process and a dead URL.
+   * Naming the address removes the question instead of proving it was the cause; the next CI run
+   * is the test, and the piped output below is what it will say if something else is wrong.
+   *
+   * **Why no local run caught it: `reuseExistingServer` is true here, so this command had never
+   * executed on this machine either.** The one thing checked locally is the command itself —
+   * `npx vite --port 5399 --strictPort --host 127.0.0.1` answered 200 on 127.0.0.1 in about a
+   * second, and `netstat` showed it bound there rather than on `localhost` (2026-10-12, probe
+   * killed by PID afterwards).
+   */
   webServer: {
-    command: `npx vite --port ${PORT} --strictPort`,
+    command: `npx vite --port ${PORT} --strictPort --host 127.0.0.1`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // The server's own lines, in the log. Playwright hides them by default, which is how a
+    // two-minute silence came back as a bare timeout 51 times.
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
   // ===== teardown on a Windows dev machine: one clean completion, one long silence, and a confounder =====
   //
