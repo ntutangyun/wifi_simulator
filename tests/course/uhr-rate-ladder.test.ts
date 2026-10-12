@@ -33,8 +33,9 @@ import { MODULES, TIERS, basisOf, citedDocs, lessonMinutes, teachesDraft, trackO
 import { LESSONS, lessonIndex } from '../../src/course/lessons'
 import { uhrLadderScenario } from '../../src/course/wifiScenes'
 import { Simulation } from '../../src/engine/simulation'
-import { PHY_MODES, UHR_SFD_MCS, mcsForRssi } from '../../src/engine/phy'
-import { buildLinkTable } from '../../src/engine/propagation'
+import { PHY_MODES, RATE_MARGIN_DB, UHR_SFD_MCS, mcsForRssi } from '../../src/engine/phy'
+import { PL_EXP, buildLinkTable } from '../../src/engine/propagation'
+import { lessonTexts } from '../../src/course/readability'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 
@@ -391,7 +392,14 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
         const [, pct, wins, outOf] = /([−-]?[\d.]+)\s*%（(\d+)\/(\d+)）/.exec(row[col]!)!
         expect(Number(outOf), 'the lesson says twenty seeds').toBe(SEEDS.length)
         const r = ab(spot, fade)
-        expect(num(pct!), `${spot} ${fade}: printed per cent`).toBeCloseTo((r.gain - 1) * 100, 1)
+        /*
+         * To the decimals the cell PRINTS. `toBeCloseTo(_, 1)` on a two-decimal figure tolerates
+         * a change of one in the last digit — which is exactly the edit this file exists to
+         * catch, and five of these six cells went green under it on 2026-10-13.
+         */
+        const dp = (pct!.split('.')[1] ?? '').length
+        expect(num(pct!), `${spot} ${fade}: printed per cent, to ${dp} decimals`)
+          .toBe(Number(((r.gain - 1) * 100).toFixed(dp)))
         expect(Number(wins), `${spot} ${fade}: printed seed count`).toBe(Math.round(r.win * SEEDS.length))
         // the mechanism, read off both arms rather than argued: the finer ladder fails more
         expect(r.uFail, `${spot} ${fade}: uhr RX_FAIL`).toBeGreaterThan(r.eFail)
@@ -587,6 +595,672 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
     expect(PHY_MODES.uhr.ndbps[inU]).not.toBe(PHY_MODES.eht.ndbps[inE])
     for (const needle of ['1.0 米', '7.0 米', '702', '6.9 米']) {
       expect(uhrRateLadder.tryThis[1]!, needle).toContain(needle)
+    }
+  })
+})
+
+// --- every figure the PROSE prints -------------------------------------------------------------
+
+/**
+ * **The four tables above are read out of the lesson and re-measured; its prose is not.** This is
+ * the lesson that prints more figures than any other in the course — `scripts/figure-planting.ts`
+ * counts **244** — and the tables hold 95 of them. The rest are in `why`, `terms`, `picture`,
+ * `deeper`, `sources`, `limits`, `observe`, `tryThis` and the quiz, and the sweep of 2026-10-13
+ * found the whole of `why` editable with the suite green.
+ *
+ * Almost every one of them is a figure the tables already carry, restated: `why` opens with the
+ * three paper gains and the three window widths, `limits` gives the widths again, `tryThis` and
+ * the quiz give the fading per cents again. So the reads below are **chains**: the prose is read
+ * against the table cell it restates, and that cell is re-measured against the run by the tests
+ * above. A figure that appears in both places is checked in both.
+ *
+ * The cheap measurements (a window's width on the floor, a rung's own N_DBPS) are redone here
+ * rather than chained, because they cost no simulation at all.
+ */
+describe('uhr-rate-ladder · every figure the prose prints, read back out of it', () => {
+  const EVERYWHERE = lessonTexts(uhrRateLadder).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+
+  /** The width the frames really go out at, read once off the first data frame of the scene. */
+  let WIDTH = 0
+  const widthMhz = (): number => {
+    if (WIDTH === 0) {
+      const first = recs(scene('uhr', 'mid'), 20 * MS)
+        .find((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+          r.type === 'TX_START' && r.frame.kind === 'data')
+      expect(first, 'the scene sends no data frame at all').toBeDefined()
+      WIDTH = first!.frame.widthMhz!
+    }
+    return WIDTH
+  }
+
+  /**
+   * The four rungs the finer ladder has and the coarser one does not — derived from the two
+   * ladders themselves, because the engine holds no list of them: `UHR_SFD_MCS` gives every
+   * index its draft number, and the four new ones are the four whose N_DBPS is new.
+   */
+  const NEW_RUNGS = PHY_MODES.uhr.ndbps
+    .map((nd, i) => ({ nd, i }))
+    .filter((x) => !(PHY_MODES.eht.ndbps as readonly number[]).includes(x.nd))
+
+  it('the three paper gains, wherever the lesson states them', () => {
+    // the formula block prints the three ratios; `why` prints them as per cents
+    const f = uhrRateLadder.numbers!.find((b) => b.kind === 'formula')!
+    const ratios = [...(f as { text: string }).text.matchAll(/(\d+) \/ (\d+) = ([\d.]+)/g)]
+      .map((m) => [val(m[1]), val(m[2]), val(m[3])])
+    expect(ratios.length, 'the formula prints three of them').toBe(3)
+    for (const [a, b, r] of ratios) {
+      expect(Number((a / b).toFixed(4)), `${a} / ${b} is the ratio the lesson prints`).toBe(r)
+      // and both terms are rungs of the two ladders: the finer one over the one it displaces
+      expect([...PHY_MODES.uhr.ndbps], `${a} is a rung of the finer ladder`).toContain(a)
+      expect([...PHY_MODES.eht.ndbps], `${b} is a rung of the coarser one`).toContain(b)
+    }
+    const pcts = figs(uhrRateLadder.why!, /这间房里是 \+([\d.]+) %、\+([\d.]+) % 与 \+([\d.]+) %/,
+      '`why` on the three paper gains')
+    pcts.forEach((p, i) => {
+      expect(p, `the ${i + 1}th gain as a per cent, to one decimal`)
+        .toBe(Number(((ratios[i][2] - 1) * 100).toFixed(1)))
+    })
+    // 「+33.3 % 缩到 +11.8 %，+6.7 % 一分不剩」: the first two are the fading table's own cells
+    const [paper, left, gone] = figs(uhrRateLadder.why!,
+      /\+([\d.]+) % 缩到 \+([\d.]+) %，\+([\d.]+) % 一分不剩/, '`why` on what fading leaves')
+    expect(paper, 'the biggest paper gain').toBe(Math.max(...pcts))
+    expect(gone, 'and the smallest').toBe(Math.min(...pcts))
+    const fade = table('打开起伏之后')
+    const cells = fade.rows.map((r) => val(/([−-]?[\d.]+)\s*%/.exec(r[4])![1]))
+    expect(left, 'what the biggest keeps under both layers')
+      .toBe(Number(Math.max(...cells).toFixed(1)))
+    expect(Math.min(...cells.map(Math.abs)), 'and the one that keeps nothing is near zero')
+      .toBeLessThan(0.5)
+  })
+
+  it('the three window widths, at every one of the three places the lesson prints them', () => {
+    // measured the same way the test above measures them: 5 cm steps across the room, off the
+    // link table and the two ladders — no simulation, because a window is a property of the level
+    const base = scene('eht', 'mid')
+    const at = (x: number): number => {
+      const nodes = base.nodes.map((n) => (n.id === 'sta-1' ? { ...n, pos: { ...n.pos, x } } : n))
+      return buildLinkTable(nodes, base.walls).get('sta-1')!.get('ap')!
+    }
+    const spans = new Map<number, { from: number; to: number }>()
+    for (let i = 0; i <= 218; i++) {
+      const x = Math.round((5 + i * 0.05) * 100) / 100
+      const r = at(x)
+      const e = mcsForRssi('eht', r, undefined, 20)
+      const u = mcsForRssi('uhr', r, undefined, 20)
+      if (PHY_MODES.uhr.ndbps[u] === PHY_MODES.eht.ndbps[e]) continue
+      const sfd = UHR_SFD_MCS[u]!
+      const got = spans.get(sfd)
+      if (got === undefined) spans.set(sfd, { from: x, to: x })
+      else got.to = x
+    }
+    const widths = [...spans.keys()].sort((a, b) => a - b)
+      .map((k) => Math.round((spans.get(k)!.to - spans.get(k)!.from + 0.05) * 100) / 100)
+    // 「三个窗口在地板上分别只有 0.25、1.45 与 0.60 米宽」 — `why` and `limits`, in that order
+    const triples = [...EVERYWHERE.matchAll(/分别(?:只有|是) ([\d.]+)、([\d.]+) 与 ([\d.]+) 米宽/g)]
+      .map((m) => m.slice(1))
+    expect(triples.length, 'the lesson prints the three widths more than once').toBeGreaterThan(1)
+    for (const three of triples) {
+      // the lesson lists them narrowest first, which is the order the table prints the spots in
+      const printed = three.map(val).sort((a, b) => a - b)
+      expect(printed, 'the three widths this flat really has')
+        .toEqual([...widths].sort((a, b) => a - b))
+    }
+    // 「同样的 1 分贝在三米处是 0.25 米，在八米处是 0.60 米」: two of the same three widths, and
+    // the decibel is the narrowest sensitivity step the four new rungs take
+    const [db, nearW, farW] = figs(EVERYWHERE,
+      /同样的 (\d+) 分贝在三米处是 ([\d.]+) 米，在八米处是 ([\d.]+) 米/,
+      '`picture` on the same decibel at two distances')
+    expect(widths, 'the near width is one of this flat’s windows').toContain(nearW)
+    expect(widths, 'and so is the far one').toContain(farW)
+    expect(farW, 'and the same decibel is wider further out').toBeGreaterThan(nearW)
+    const steps = NEW_RUNGS.map((r) => Math.round(
+      PHY_MODES.uhr.sensDbm[r.i] - PHY_MODES.uhr.sensDbm[r.i - 1]))
+    expect(Math.min(...steps), 'the narrowest step the new rungs take').toBe(db)
+  })
+
+  it('the engine values `sources` lists: the two sensitivity ladders, the margin and the fading', () => {
+    const src = uhrRateLadder.sources!.join('\n')
+    // 「四个新档的接收灵敏度 −78 / −71 / −69 / −60 dBm」
+    const four = figs(src, /四个新档的接收灵敏度 −(\d+) \/ −(\d+) \/ −(\d+) \/ −(\d+) dBm/,
+      'the four new rungs’ sensitivities')
+    expect(four.map((v) => -v).sort((a, b) => a - b),
+      'the sensitivities this engine gives those four rungs')
+      .toEqual(NEW_RUNGS.map((r) => PHY_MODES.uhr.sensDbm[r.i]).sort((a, b) => a - b))
+    // 「其中 7 行是本仿真器已有的档（−79 / −77 / −74 / −70 / −66 / −64 / −59 dBm）」
+    const [rowCount] = figs(src, /那张表只有 \d+ 行，其中 (\d+) 行是本仿真器已有的档/,
+      'how many rows the draft table shares with this engine')
+    const seven = [...src.matchAll(/−(\d+)/g)].map((m) => -val(m[1]))
+    const shared = [...PHY_MODES.uhr.sensDbm].filter((d) => seven.includes(d))
+    expect(shared.length, 'that many of the engine’s own sensitivities appear in the list')
+      .toBeGreaterThanOrEqual(rowCount)
+    // 「挑档时在所需信噪比之上留的 3 分贝余量、阴影的 σ = 4 分贝与 100 毫秒相干时间」
+    const [margin, sigma, coh] = figs(src,
+      /留的 (\d+) 分贝余量、阴影的 σ = (\d+) 分贝与 (\d+) 毫秒相干时间/,
+      'the three model values the lesson rests on')
+    expect(margin, 'the margin the ladder is taken with').toBe(RATE_MARGIN_DB)
+    const faded = scene('uhr', 'mid', 'shadow', 1)
+    expect(faded.fading!.shadowSigmaDb, 'the shadowing this scene switches on').toBe(sigma)
+    expect(faded.fading!.coherenceMs, 'and its coherence time').toBe(coh)
+    // 「前导码长度 48 微秒、每符号 13.6 微秒与多用户附加前导 4 微秒」
+    const [pre, sym, mu] = figs(src,
+      /前导码长度 (\d+) 微秒、每符号 ([\d.]+) 微秒与多用户附加前导 (\d+) 微秒/,
+      'the three durations Wi-Fi 8 reuses')
+    expect([pre * 1000, mu * 1000], 'the preamble and the multi-user extra')
+      .toEqual([PHY_MODES.uhr.preambleNs, PHY_MODES.uhr.muExtraPreambleNs])
+    same(String(sym), PHY_MODES.uhr.symNs / 1000, 'and the symbol')
+    expect(PHY_MODES.uhr.preambleNs, 'which are Wi-Fi 7’s own').toBe(PHY_MODES.eht.preambleNs)
+    // 「20 兆赫 234 个数据子载波」 and 「逐档验算过 234 × 每子载波比特数 × 码率」
+    for (const v of everyFig(/(\d+) 兆赫 (\d+) 个数据子载波|验算过 (\d+) × 每子载波比特数/g,
+      'the tones a 20 MHz channel carries', 2)) {
+      if (val(v) === 20) continue
+      expect(PHY_MODES.uhr.ndbps[0] / val(v), 'the bits one tone carries at the lowest rung')
+        .toBeCloseTo(0.5, 9)
+    }
+  })
+
+  it('every modulation and code rate the lesson names is the rung it names it for', () => {
+    // 「QPSK 2/3、16-QAM 2/3、16-QAM 5/6 和 256-QAM 2/3」 — and 234 × bits × rate is the N_DBPS
+    const BITS: Record<string, number> = {
+      BPSK: 1, QPSK: 2, '16-QAM': 4, '64-QAM': 6, '256-QAM': 8, '1024-QAM': 10, '4096-QAM': 12,
+    }
+    const tones = PHY_MODES.uhr.ndbps[0] * 2
+    const nd = (pair: string): number => {
+      const [, mod, n, d] = /^(\S+) (\d)\/(\d)$/.exec(pair)!
+      return tones * BITS[mod!]! * (val(n!) / val(d!))
+    }
+    /*
+     * **A pair is checked as a STRING against a narrow set, and not by its arithmetic**, because
+     * 234 × bits × rate is not injective over the legal code rates: 256-QAM 2/4 is 936, which is
+     * 64-QAM 2/3 — a rung of the coarse ladder. So a membership test on N_DBPS lets an edit to
+     * any one digit of any pair through, and the sweep of 2026-10-13 planted sixteen of them
+     * green. The set below is built from the three places the lesson publishes a pair TOGETHER
+     * WITH the rung it belongs to, each verified here against the engine; every other occurrence
+     * in the lesson must be one of those strings.
+     */
+    const legal = new Map<string, number>()
+    for (const row of table('四个新档').rows) {
+      const [pair, ndCell, i] = [row[2]!, val(row[4]!), val(row[0]!)]
+      expect(nd(pair), `${pair} is the N_DBPS its own row prints`).toBe(ndCell)
+      expect(PHY_MODES.uhr.ndbps[i], `and the rung the finer ladder has at index ${i}`).toBe(ndCell)
+      legal.set(pair, ndCell)
+    }
+    // 「同一个数字「7」在粗阶梯上是 64-QAM 5/6（1 170），在细阶梯上是 16-QAM 5/6（780）」
+    const [idx, mod1, n1, d1, nd1, mod2, n2, d2, nd2] = raw(EVERYWHERE,
+      /同一个数字「(\d+)」在粗阶梯上是 ([\w-]+) (\d)\/(\d)（([\d\s]+)），在细阶梯上是 ([\w-]+) (\d)\/(\d)（([\d\s]+)）/,
+      'the index that means two different rungs')
+    expect(PHY_MODES.eht.ndbps[val(idx)], `index ${idx} on the coarse ladder`).toBe(val(nd1))
+    expect(PHY_MODES.uhr.ndbps[val(idx)], `and on the fine one`).toBe(val(nd2))
+    expect(nd(`${mod1} ${n1}/${d1}`), 'the coarse one’s own arithmetic').toBe(val(nd1))
+    expect(nd(`${mod2} ${n2}/${d2}`), 'and the fine one’s').toBe(val(nd2))
+    legal.set(`${mod1} ${n1}/${d1}`, val(nd1))
+    legal.set(`${mod2} ${n2}/${d2}`, val(nd2))
+    // 「而索引 13 已经是 4096-QAM 5/6」: the top rung of BOTH ladders, and it is the same rung
+    for (const m of ['eht', 'uhr'] as const) {
+      const ndbps = PHY_MODES[m].ndbps
+      expect(nd('4096-QAM 5/6'), `the top rung of the ${m} ladder`).toBe(ndbps[ndbps.length - 1])
+    }
+    legal.set('4096-QAM 5/6', nd('4096-QAM 5/6'))
+    /*
+     * And now every occurrence anywhere in the lesson is one of those published strings.
+     *
+     * The gloss comes out first: the lesson spells a term in full-width brackets where it first
+     * names one — 「QPSK（quadrature phase-shift keying）2/3」 — so in `picture` the English sits
+     * BETWEEN the modulation and its code rate, and a pattern that wants them adjacent walks
+     * past the two pairs that matter most. The sweep of 2026-10-13 found exactly those four
+     * digits still green after everything else here was red — and then found them green a
+     * second time, because a gloss dropped to nothing leaves 「QPSK2/3」 and the pattern wants
+     * the space the brackets were standing in. It becomes a space.
+     */
+    const GLOSSED = EVERYWHERE.replace(/（[\x20-\x7E]+）/g, ' ')
+    const pairs = [...GLOSSED.matchAll(/(BPSK|QPSK|16-QAM|64-QAM|256-QAM|1024-QAM|4096-QAM) (\d)\/(\d)/g)]
+      .map((m) => `${m[1]} ${m[2]}/${m[3]}`)
+    expect(pairs.length, 'the lesson names a modulation with its code rate many times')
+      .toBeGreaterThan(8)
+    for (const p of pairs) {
+      expect([...legal.keys()], `${p} is a pair this lesson publishes with the rung it is`)
+        .toContain(p)
+    }
+  })
+
+  it('`deeper` and the quiz: why the draft’s numbering cannot be the engine’s index', () => {
+    const deep = (uhrRateLadder.deeper ?? [])
+      .map((b) => `${b.heading ?? ''}\n${'text' in b ? b.text : ''}`).join('\n')
+    // 「追加之后索引 14…17 会是 QPSK 2/3、16-QAM 2/3、16-QAM 5/6、256-QAM 2/3」
+    const [from, to] = figs(deep, /追加之后索引 (\d+)…(\d+) 会是/, 'the indices an append would use')
+    expect(from, 'the first free index of the coarse ladder').toBe(PHY_MODES.eht.ndbps.length)
+    expect(to - from + 1, 'as many as there are new rungs').toBe(NEW_RUNGS.length)
+    // 「而索引 13 已经是 4096-QAM 5/6」 — the top of the coarse ladder, named by its own rung
+    const [top] = figs(deep, /而索引 (\d+) 已经是 4096-QAM/, 'the top of the coarse ladder')
+    expect(top, 'the last index it has').toBe(PHY_MODES.eht.ndbps.length - 1)
+    // 「一条信号极好的链路会挑到索引 17 的 256-QAM 2/3，比它本来跑得到的慢」: the append would
+    // put a slower rung above a faster one, which is the whole argument
+    const [picked] = figs(deep, /会挑到索引 (\d+) 的 256-QAM/, 'the index it would pick')
+    expect(picked, 'which is the last of the appended ones').toBe(to)
+    const appended = [...PHY_MODES.eht.ndbps, ...NEW_RUNGS.map((r) => r.nd)]
+    expect(appended[picked], 'and its N_DBPS is below the one at the index under it')
+      .toBeLessThan(appended[top])
+    // 「Wi-Fi 7 上那个索引是 12，Wi-Fi 8 上是 16，而两者都正好是各自阶梯顶上第二档」
+    const [eht4k, uhr4k] = figs(deep, /那个索引是 (\d+)，Wi-Fi 8 上是 (\d+)/,
+      'the first 4096-QAM index of each ladder')
+    expect(eht4k, 'the coarse ladder’s own').toBe(PHY_MODES.eht.ndbps.length - 2)
+    expect(uhr4k, 'and the finer one’s').toBe(PHY_MODES.uhr.ndbps.length - 2)
+    expect(PHY_MODES.eht.ndbps[eht4k] / PHY_MODES.eht.ndbps[eht4k + 1],
+      'the two 4096-QAM rungs differ by their code rate alone')
+      .toBeCloseTo(PHY_MODES.uhr.ndbps[uhr4k] / PHY_MODES.uhr.ndbps[uhr4k + 1], 9)
+    // the draft's own four numbers, which `sources` and the quiz both print
+    const numbering = [...EVERYWHERE.matchAll(/编号(?:是|为)? ?(\d+) ?\/ ?(\d+) ?\/ ?(\d+) ?\/ ?(\d+)/g)]
+      .map((m) => m.slice(1).map(val))
+    expect(numbering.length, 'the lesson prints the draft’s numbering more than once')
+      .toBeGreaterThan(1)
+    for (const four of numbering) {
+      expect(four, 'the draft numbers of the four new rungs')
+        .toEqual(NEW_RUNGS.map((r) => UHR_SFD_MCS[r.i]!))
+      expect([...four].sort((a, b) => a - b), 'and they rise').toEqual(four)
+    }
+  })
+
+  it('`observe` and `tryThis`: the two rungs, the two goodputs, and what seed 17 does to them', () => {
+    const obs = uhrRateLadder.observe.join('\n')
+    // 「模式是 uhr、MCS 是 7」…「是 eht、MCS 4」, at the spot the lesson sends the reader to
+    const [uhrMcs] = figs(obs, /模式是 uhr、MCS 是 (\d+)/, '`observe` on the finer ladder’s rung')
+    const [ehtMcs] = figs(obs, /是 eht、MCS (\d+)/, 'and on the coarser one’s')
+    // 「那一行」 is the scene the lesson ships, which is the middle of the room
+    const spot: Spot = 'mid'
+    expect(uhrMcs, 'the rung the finer ladder picks there')
+      .toBe(mcsForRssi('uhr', rssiUp(spot), undefined, 20))
+    expect(ehtMcs, 'and the coarser one’s').toBe(mcsForRssi('eht', rssiUp(spot), undefined, 20))
+    // 「两边的吞吐是 49.000 对 44.100 Mb/s」
+    const [fine, coarse] = raw(obs, /两边的吞吐是 ([\d.]+) 对 ([\d.]+) Mb\/s/,
+      '`observe` on the two goodputs')
+    same(fine, goodputMbps(recs(scene('uhr', spot), LONG_NS), LONG_NS), 'the finer ladder’s goodput')
+    same(coarse, goodputMbps(recs(scene('eht', spot), LONG_NS), LONG_NS), 'and the coarser one’s')
+    // 「出现过几个不同的 MCS：四个（4、5、6、7）」…「两个（3、4）」
+    const groups = [...obs.matchAll(/（(\d+)(?:、(\d+))*）/g)].map((m) => m[0])
+    expect(groups.length, 'the lesson lists two sets of rungs').toBeGreaterThan(1)
+    const listed = (s: string): number[] => [...s.matchAll(/\d+/g)].map((m) => val(m[0]))
+    const fineSet = listed(groups[0])
+    const coarseSet = listed(groups[1])
+    expect(fineSet.length, 'the finer ladder visits more rungs than the coarser one')
+      .toBeGreaterThan(coarseSet.length)
+    const shadowSeed = uhrRateLadder.variants!
+      .find((v) => v.label.includes('Wi-Fi 8 · 开阴影'))!.scenario().seed!
+    for (const [gen, set] of [['uhr', fineSet], ['eht', coarseSet]] as const) {
+      const used = rungsUsed(recs(scene(gen, 'mid', 'shadow', shadowSeed), RUN_NS))
+        .sort((a, b) => a - b)
+      expect(set.sort((a, b) => a - b), `${gen}: the rungs that walk really visits`).toEqual(used)
+    }
+    // 「而这一次它赢 6.9 %，换成种子 17 它输 9.7 %」: the two per cents of that one walk
+    const gain = (seed: number): number => {
+      const u = goodputMbps(recs(scene('uhr', 'mid', 'shadow', seed), RUN_NS), RUN_NS)
+      const e = goodputMbps(recs(scene('eht', 'mid', 'shadow', seed), RUN_NS), RUN_NS)
+      return (100 * (u - e)) / e
+    }
+    const [won, otherSeed, lost] = raw(obs,
+      /这一次它赢 ([\d.]+) %，换成种子 (\d+) 它输 ([\d.]+) %/, '`observe` on the two seeds')
+    same(won, gain(shadowSeed), 'what the finer ladder wins on the shipped seed')
+    same(lost, -gain(val(otherSeed)), 'and what it loses on the other one')
+    // and `numbers` states the same two runs: 「种子 2 是 +6.9 %，种子 17 是 −9.7 %」
+    const [seedA, wonA, seedB, lostA] = raw(EVERYWHERE,
+      /只换随机种子：开阴影之后种子 (\d+) 是 \+([\d.]+) %，种子 (\d+) 是 −([\d.]+) %/,
+      '`numbers` on the same pair of seeds')
+    expect(val(seedA), 'the first is the seed the two faded variants ship').toBe(shadowSeed)
+    expect(val(seedB), 'and the second is the one the experiment switches to').toBe(val(otherSeed))
+    same(wonA, gain(val(seedA)), 'what the finer ladder wins on the shipped seed, in `numbers`')
+    same(lostA, -gain(val(seedB)), 'and what it loses on the other one, in `numbers`')
+  })
+
+  it('`tryThis`: the seed-17 rerun, and the window that closes a metre further out', () => {
+    const t0 = uhrRateLadder.tryThis[0]
+    const [seed] = figs(t0, /随机种子都改成 (\d+)/, 'the seed `tryThis` switches to')
+    const [fineMbps, fell, coarseMbps] = raw(t0,
+      /Wi-Fi 8 从 ([\d.]+) 掉到 ([\d.]+) Mb\/s，而 Wi-Fi 7 守在 ([\d.]+)/,
+      'the three goodputs it quotes')
+    const at = (gen: 'eht' | 'uhr', s: number): number =>
+      goodputMbps(recs(scene(gen, 'mid', 'shadow', s), RUN_NS), RUN_NS)
+    /*
+     * 「从 39.76 掉到 32.72」: the 「从」 is the shipped 「开阴影」 variant, whose own seed is read off
+     * the scenario it builds rather than retyped — the experiment is 「change THAT seed to 17」.
+     */
+    const shipped = uhrRateLadder.variants!
+      .find((v) => v.label.includes('Wi-Fi 8 · 开阴影'))!.scenario().seed!
+    same(fineMbps, at('uhr', shipped), 'the finer ladder on the seed the variant ships')
+    same(fell, at('uhr', seed), 'and on the seed this experiment switches to')
+    same(coarseMbps, at('eht', seed), 'while the coarser one holds')
+    const [lost] = raw(t0, /细阶梯输掉 ([\d.]+) %/, 'what the finer ladder loses')
+    same(lost, 100 * (1 - at('uhr', seed) / at('eht', seed)), 'the loss on that seed')
+    // 「两边的接收失败数：18 对 8」
+    const [fineFail, coarseFail] = figs(t0, /接收失败数：(\d+) 对 (\d+)/, 'the two failure counts')
+    expect(fineFail, 'the finer ladder fails more often')
+      .toBe(failures(recs(scene('uhr', 'mid', 'shadow', seed), RUN_NS)))
+    expect(coarseFail, 'than the coarser one')
+      .toBe(failures(recs(scene('eht', 'mid', 'shadow', seed), RUN_NS)))
+    expect(fineFail, 'which is the mechanism the lesson is about').toBeGreaterThan(coarseFail)
+  })
+
+  it('every width, every rung index and every window the lesson names', () => {
+    // every 「N 兆赫」/「N MHz」 is the width this lesson holds everything at
+    const width = widthMhz()
+    for (const v of everyFig(/(?<![\d.])(\d+) 兆赫|(?<![\d.])(\d+) MHz/g, 'a channel width', 6)) {
+      expect(val(v), `${v} is the width every figure in this lesson is quoted at`).toBe(width)
+    }
+    // every 「MCS N」 and every 「索引 N」 is an index one of the two ladders has
+    const ladders = { eht: PHY_MODES.eht.ndbps.length, uhr: PHY_MODES.uhr.ndbps.length }
+    const drafts = new Set(UHR_SFD_MCS)
+    for (const v of everyFig(/MCS (\d+)|索引 (\d+)|第 (\d+) 级/g, 'a rung index', 12)) {
+      const n = val(v)
+      const asIndex = n < Math.max(ladders.eht, ladders.uhr)
+      expect(asIndex || drafts.has(n),
+        `${n} is either an index of one of the two ladders or a draft number`).toBe(true)
+    }
+    // the four new rungs, by the draft's own numbers and by their own sensitivities
+    const newDraft = NEW_RUNGS.map((r) => UHR_SFD_MCS[r.i]!)
+    for (const n of newDraft) {
+      expect(n, 'a new rung’s draft number is above the coarse ladder’s last')
+        .toBeGreaterThan(ladders.eht - 1)
+    }
+    /*
+     * 「四个新档里有三个只给自己留了 1 分贝的灵敏度间隔，只有 16-QAM 5/6 占了 3 分贝」.
+     *
+     * 「灵敏度间隔」 is the WINDOW in decibels — the span of received levels over which that rung
+     * is the finer ladder's choice AND carries more bits than the coarser ladder's — and not the
+     * step from the rung below it in its own ladder. The two differ: 16-QAM 5/6 sits 1 dB above
+     * its own predecessor while its window is three decibels wide, because a window is a
+     * property of BOTH ladders. Swept here at a tenth of a decibel, which is also where the
+     * 「1 到 3 分贝宽」 of the same paragraph comes from.
+     */
+    const windowDb = new Map<number, number>()
+    for (let i = 0; i <= 1000; i++) {
+      const lvl = -100 + i * 0.1
+      const u = mcsForRssi('uhr', lvl, undefined, width)
+      const e = mcsForRssi('eht', lvl, undefined, width)
+      if (PHY_MODES.uhr.ndbps[u] === PHY_MODES.eht.ndbps[e]) continue
+      const sfd = UHR_SFD_MCS[u]!
+      windowDb.set(sfd, (windowDb.get(sfd) ?? 0) + 0.1)
+    }
+    const [narrow, wideStep] = figs(EVERYWHERE,
+      /有三个只给自己留了 (\d+) 分贝的灵敏度间隔，只有 16-QAM 5\/6 占了 (\d+) 分贝/,
+      '`picture` on the four windows in decibels')
+    const inDb = NEW_RUNGS.map((r) => Number((windowDb.get(UHR_SFD_MCS[r.i]!) ?? 0).toFixed(1)))
+    expect(inDb.filter((d) => d === narrow).length, 'three of the four windows are that wide')
+      .toBe(3)
+    expect(Math.max(...inDb), 'and the fourth is the wider one').toBe(wideStep)
+    // and that fourth one is the rung the sentence names: 16-QAM 5/6, which is 780 bits a symbol
+    const [tones] = figs(EVERYWHERE, /(\d+) 个数据子载波/, 'the tones a symbol carries')
+    const sixteenQamFiveSixths = tones * 4 * (5 / 6)
+    const named = NEW_RUNGS.find((r) => r.nd === sixteenQamFiveSixths)!
+    expect(Number((windowDb.get(UHR_SFD_MCS[named.i]!) ?? 0).toFixed(1)),
+      '16-QAM 5/6 is the one with the wider window').toBe(wideStep)
+    // 「可窗口只有 1 到 3 分贝宽」: the two ends of that same list
+    const [lo, hi] = figs(EVERYWHERE, /可窗口只有 (\d+) 到 (\d+) 分贝宽/,
+      '`picture` on how wide the windows get')
+    expect([Math.min(...inDb), Math.max(...inDb)], 'the narrowest and the widest of them')
+      .toEqual([lo, hi])
+    // 「同一个位置上，路径损耗指数是 3.0」
+    const [exp] = figs(EVERYWHERE, /指数是 ([\d.]+)/, '`picture` on the path-loss exponent')
+    expect(exp, 'the exponent this engine spreads with').toBe(PL_EXP)
+    // 「按 5 厘米一格扫过整间客厅」: the grid `limits` says the windows were measured on
+    const [cm] = figs(EVERYWHERE, /按 (\d+) 厘米一格扫过/, '`limits` on the grid it swept')
+    expect(cm / 100, 'the step the window measurement above uses').toBe(0.05)
+  })
+
+  it('the two run lengths, the three measured ratios, and the fading cells restated', () => {
+    // 「定点实测（600 毫秒…）」 and 「二十个种子的均值，300 毫秒」
+    const [fixedMs] = figs(EVERYWHERE, /定点实测（(\d+) 毫秒/, 'the window the fixed runs use')
+    const [fadeMs] = figs(EVERYWHERE, /二十个种子的均值，(\d+) 毫秒/, 'and the faded ones')
+    expect(fixedMs * 1_000_000, 'the fixed-position window this file runs').toBe(LONG_NS)
+    expect(fadeMs * 1_000_000, 'and the faded one').toBe(RUN_NS)
+    // 「实测吞吐比是 1.0671、1.1111、1.3333」: the three spots' own goodput ratios
+    const measured = figs(EVERYWHERE,
+      /实测吞吐比是 ([\d.]+)、([\d.]+)、([\d.]+)/, 'the three measured ratios')
+    const spots: Spot[] = ['near', 'mid', 'far']
+    spots.forEach((spot, i) => {
+      const u = goodputMbps(recs(scene('uhr', spot), LONG_NS), LONG_NS)
+      const e = goodputMbps(recs(scene('eht', spot), LONG_NS), LONG_NS)
+      same(String(measured[i]), u / e, `${spot}: the ratio the lesson measured`)
+    })
+    // the fading table's per cents, restated in `numbers`, in `observe` and in the quiz
+    const fade = table('打开起伏之后')
+    const cell = (row: number, col: number): number =>
+      val(/([−-]?[\d.]+)\s*%/.exec(fade.rows[row][col])![1])
+    const [tight] = figs(EVERYWHERE, /定点上值 \+([\d.]+) %/, 'the fixed-position gain of the top window')
+    const [faded] = figs(EVERYWHERE, /一分不剩：均值 −([\d.]+) %/, 'and what it keeps once it wanders')
+    expect(-faded, 'which is the table’s own shadow-only cell for that window').toBe(cell(0, 3))
+    // 「两批不同的六十个给出 +7.4 % 与 +8.7 %，都比表上印的 +11.78 % 低」
+    const [under] = figs(EVERYWHERE, /都比表上印的 \+([\d.]+) % 低/,
+      'the cell the sixty-seed paragraph points at')
+    expect(under, 'which is the deepest row’s own both-layers cell').toBe(cell(2, 4))
+    const [quizFixed, quizFaded] = figs(EVERYWHERE,
+      /定点实测细阶梯快 ([\d.]+) %，而打开起伏之后均值是 −([\d.]+) %/, 'the quiz on the same pair')
+    expect(quizFixed, 'the quiz states the same fixed-position gain').toBe(tight)
+    expect(quizFaded, 'and the same faded one').toBe(faded)
+    // 「这一格的接收失败数是 32 对 135」, in `numbers` and in the quiz
+    const fails = [...EVERYWHERE.matchAll(/接收失败数(?:在这一格里)?是 (\d+) 对 (\d+)/g)]
+      .map((m) => [val(m[1]), val(m[2])])
+    expect(fails.length, 'the lesson states that pair more than once').toBeGreaterThan(1)
+    for (const pair of fails) expect(pair, 'the same pair both times').toEqual(fails[0])
+    const seedList = [1, 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67]
+    const [howMany] = figs(fade.rows[0][3], /（\d+\/(\d+)）/, 'how many seeds the table used')
+    expect(seedList, 'as many seeds as the table says').toHaveLength(howMany)
+    /*
+     * 「这一格」 is the first row of the fading table with the slow layer alone: the paragraph
+     * around this pair is about 「均值 −0.04 %」, which is that row's 「只开阴影」 cell.
+     */
+    const near = (gen: 'eht' | 'uhr'): number => {
+      let n = 0
+      for (const seed of seedList) n += failures(recs(scene(gen, 'near', 'shadow', seed), RUN_NS))
+      return n
+    }
+    expect(fails[0], 'the two arms’ own failure counts over those twenty seeds')
+      .toEqual([near('eht'), near('uhr')])
+  })
+
+  it('`sources`: the draft’s own numbering and the rows this engine shares with its table', () => {
+    const src = uhrRateLadder.sources!.join('\n')
+    // 「那张表只有 11 行，其中 7 行是本仿真器已有的档（−79 / −77 / −74 / −70 / −66 / −64 / −59）」
+    const [rows, shared] = figs(src, /那张表只有 (\d+) 行，其中 (\d+) 行是本仿真器已有的档/,
+      'how big the draft’s table is and how much of it this engine has')
+    // the list is the one inside that sentence's own parenthesis — `sources` prints three other
+    // lists of decibels (the EVM figures and the four new rungs), and they are not this one
+    const inside = /本仿真器已有的档（([^）]+)）/.exec(src)
+    expect(inside, 'the parenthesised list of shared rows is gone').not.toBeNull()
+    /*
+     * 「本仿真器已有的档」 is the FOURTEEN-rung ladder, so this list is checked against `eht` and
+     * not against `uhr`: every one of the draft's four new sensitivities is also a value
+     * `uhr.sensDbm` holds, so the finer ladder's own column answers for a planted digit — four
+     * of these seven went green that way on 2026-10-13.
+     */
+    const older = [...PHY_MODES.eht.sensDbm]
+    const listed = [...inside![1].matchAll(/−(\d+)/g)].map((m) => -val(m[1]))
+    expect(listed.length, 'the list holds that many').toBe(shared)
+    for (const d of listed) {
+      expect(older, `${d} dBm is a rung this engine had before the draft’s four`).toContain(d)
+    }
+    // 「那张表只有 11 行」: the seven it shares plus the four it adds, and that is the whole table
+    expect(rows, 'eleven rows: the seven shared and the four new ones')
+      .toBe(shared + NEW_RUNGS.length)
+    /*
+     * 「MCS 0、6、9–13 不在那张表里」 — the complement, checked by its SENSITIVITIES and not by
+     * its size: the older ladder's fourteen values are all distinct, so naming seven of them
+     * names the other seven too. A count alone would let any seven indices through.
+     */
+    const [a, b, from, to] = figs(src, /MCS (\d+)、(\d+)、(\d+)–(\d+) 不在那张表里/,
+      'the rungs the draft’s table does not carry')
+    const missing = [a, b, ...Array.from({ length: to - from + 1 }, (_x, i) => from + i)]
+    expect(missing.length + shared, 'and those two sets are the whole of the older ladder')
+      .toBe(older.length)
+    const asc = (x: number, y: number): number => x - y
+    expect(new Set(older).size, 'the older ladder’s sensitivities are all distinct')
+      .toBe(older.length)
+    const kept = older.map((_d, i) => i).filter((i) => !missing.includes(i))
+    expect(kept.map((i) => older[i]!).sort(asc), 'the rows it does carry are the seven listed')
+      .toEqual([...listed].sort(asc))
+  })
+
+  it('`picture` and the widget caption name the rungs their own scene really picks', () => {
+    const w = widthMhz()
+    const pic = (uhrRateLadder.picture ?? []).map((b) => [
+      b.heading ?? '', 'text' in b ? b.text : '', 'items' in b ? b.items.join('\n') : '',
+    ].join('\n')).join('\n')
+    const [uMcs] = figs(pic, /模式 uhr、MCS (\d+)/, '`picture` on the finer ladder’s rung')
+    const [eMcs] = figs(pic, /这一次是 eht、MCS (\d+)/, 'and the coarser one’s, at the same spot')
+    expect(uMcs, 'the finer ladder’s choice at the spot this lesson ships')
+      .toBe(mcsForRssi('uhr', rssiUp('mid'), undefined, w))
+    expect(eMcs, 'and the coarser one’s, in the variant beside it')
+      .toBe(mcsForRssi('eht', rssiUp('mid'), undefined, w))
+    // 「草案管这两档叫 MCS 20 和 MCS 4」: the draft's number for each of those two rungs
+    const [dU, dE] = figs(pic, /草案管这两档叫 MCS (\d+) 和 MCS (\d+)/,
+      '`picture` on what the draft calls them')
+    expect(dU, 'the draft number of the rung the finer ladder picked').toBe(UHR_SFD_MCS[uMcs]!)
+    expect(dE, 'while on the coarser ladder the index IS the draft number').toBe(eMcs)
+    // the `mcsLadder` widget's caption: 「点亮的最高一级是索引 4。细阶梯在 4 和 5 之间还多一档」
+    const widget = uhrRateLadder.numbers!.find((b) => b.kind === 'widget')!
+    const cap = (widget as { caption?: string }).caption ?? ''
+    const [lit] = figs(cap, /点亮的最高一级是索引 (\d+)/, 'the rung the widget lights up')
+    expect(lit, 'which is the coarser ladder’s choice at this lesson’s own spot').toBe(eMcs)
+    const [lo, hi] = figs(cap, /细阶梯在 (\d+) 和 (\d+) 之间还多一档/,
+      'and where the rung it cannot show sits')
+    expect(hi, 'two adjacent rungs of the coarser ladder').toBe(lo + 1)
+    expect(lo, 'the lower of them being the one the marker stopped on').toBe(lit)
+    const between = NEW_RUNGS.map((r) => r.nd)
+      .filter((n) => n > PHY_MODES.eht.ndbps[lo]! && n < PHY_MODES.eht.ndbps[hi]!)
+    expect(between, 'exactly one new rung falls between those two').toHaveLength(1)
+    // 「那个复选框的标签以前写着「MCS 12/13」」: the coarse ladder's own two 4096-QAM rungs
+    const deep = (uhrRateLadder.deeper ?? [])
+      .map((b) => `${b.heading ?? ''}\n${'text' in b ? b.text : ''}`).join('\n')
+    const [l1, l2] = figs(deep, /标签以前写着「MCS (\d+)\/(\d+)」/,
+      'the label that checkbox used to carry')
+    expect([l1, l2], 'the two 4096-QAM rungs of the coarser ladder')
+      .toEqual([PHY_MODES.eht.ndbps.length - 2, PHY_MODES.eht.ndbps.length - 1])
+    // 「而索引 13 已经是 4096-QAM 5/6」 — `deeper` and the quiz both say it
+    const tops = [...EVERYWHERE.matchAll(/索引 (\d+) 已经是 4096-QAM/g)].map((m) => val(m[1]!))
+    expect(tops.length, 'the lesson makes that point more than once').toBeGreaterThan(1)
+    for (const t of tops) {
+      expect(t, 'the top index of the coarser ladder').toBe(PHY_MODES.eht.ndbps.length - 1)
+    }
+  })
+
+  /**
+   * **Every window, in both units.** Two sweeps, neither of which runs a simulation: a window is
+   * a property of the received level and the two ladders. One walks the level a tenth of a
+   * decibel at a time, the other walks the floor of this flat 5 cm at a time. Both are the
+   * measurements the tests above already make; they are redone here because they cost nothing
+   * and because the prose prints each window's width in both units, in five different places.
+   */
+  it('every window, in decibels and in metres, wherever the lesson prints one', () => {
+    const w = widthMhz()
+    const finer = (lvl: number): number | undefined => {
+      const u = mcsForRssi('uhr', lvl, undefined, w)
+      const e = mcsForRssi('eht', lvl, undefined, w)
+      return PHY_MODES.uhr.ndbps[u] === PHY_MODES.eht.ndbps[e] ? undefined : UHR_SFD_MCS[u]!
+    }
+    const inDb = new Map<number, number>()
+    for (let i = 0; i <= 1000; i++) {
+      const sfd = finer(-100 + i * 0.1)
+      if (sfd !== undefined) inDb.set(sfd, Number(((inDb.get(sfd) ?? 0) + 0.1).toFixed(1)))
+    }
+    const base = scene('eht', 'mid')
+    const apX = base.nodes[0]!.pos.x
+    const at = (x: number): number => {
+      const nodes = base.nodes.map((n) => (n.id === 'sta-1' ? { ...n, pos: { ...n.pos, x } } : n))
+      return buildLinkTable(nodes, base.walls).get('sta-1')!.get('ap')!
+    }
+    const spans = new Map<number, { from: number; to: number }>()
+    for (let i = 0; i <= 218; i++) {
+      const x = Math.round((5 + i * 0.05) * 100) / 100
+      const sfd = finer(at(x))
+      if (sfd === undefined) continue
+      const got = spans.get(sfd)
+      if (got === undefined) spans.set(sfd, { from: x, to: x })
+      else got.to = x
+    }
+    const onFloor = (sfd: number): number =>
+      Math.round((spans.get(sfd)!.to - spans.get(sfd)!.from + 0.05) * 100) / 100
+    const sfdAt = (spot: Spot): number => UHR_SFD_MCS[mcsForRssi('uhr', rssiUp(spot), undefined, w)]!
+    // the fading table's 「窗口宽」 column: one decibel figure for each of the three spots
+    const spots: Spot[] = ['near', 'mid', 'far']
+    table('打开起伏之后').rows.forEach((row, i) => {
+      const [db] = figs(row[1]!, /(\d+) dB/, `the window width row ${i + 1} prints`)
+      expect(db, `${spots[i]}: the window that row’s own rung has`)
+        .toBe(inDb.get(sfdAt(spots[i]!))!)
+    })
+    // 「「墙后一步」是 256-QAM 2/3 那一档的窗口，1 分贝宽、地板上 0.25 米宽，定点上值 +6.71 %」
+    const [pair, dbW, mW, pct] = raw(EVERYWHERE,
+      /「墙后一步」是 (\S+ \d\/\d) 那一档的窗口，([\d.]+) 分贝宽、地板上 ([\d.]+) 米宽，定点上值 \+([\d.]+) %/,
+      '`numbers` on the narrow top window')
+    const nearRung = mcsForRssi('uhr', rssiUp('near'), undefined, w)
+    expect(val(dbW!), 'the window that rung has, in decibels').toBe(inDb.get(UHR_SFD_MCS[nearRung]!)!)
+    same(mW!, onFloor(UHR_SFD_MCS[nearRung]!), 'and how wide it is on this flat’s floor')
+    expect(val(pct!), 'and the fixed-position gain that row of the table prints')
+      .toBe(num(table('打开起伏之后').rows[0]![2]!))
+    const ownRow = table('四个新档').rows.find((r) => val(r[0]!) === nearRung)!
+    expect(pair, 'the pair named is the one that table gives that very index').toBe(ownRow[2])
+    // 「中间那一行小得最少，因为它的窗口有 3 分贝宽，是四个新档里唯一一个」
+    const [midDb] = figs(EVERYWHERE, /它的窗口有 (\d+) 分贝宽，是四个新档里唯一一个/,
+      '`numbers` on why the middle row loses least')
+    expect(midDb, 'the window the middle row’s rung has').toBe(inDb.get(sfdAt('mid'))!)
+    expect(NEW_RUNGS.filter((r) => inDb.get(UHR_SFD_MCS[r.i]!) === midDb),
+      'and it is the only one of the four that wide').toHaveLength(1)
+    // 「再往回推到 6.0 米，差又回来。那 3 分贝的窗口在地板上一共 1.45 米宽」
+    const t1 = uhrRateLadder.tryThis[1]!
+    const [backTo] = figs(t1, /再往回推到 ([\d.]+) 米/, '`tryThis` on where the gap comes back')
+    /*
+     * 「再往回推到 6.0 米」 is **where the laptop started**, and that is what makes this figure
+     * checkable at all: 「the gap is back」 alone holds anywhere inside a window 1.45 m wide, so
+     * 6.1 would satisfy it too. The distance is the shipped spot's own.
+     */
+    const staX = scene('uhr', 'mid').nodes.find((n) => n.id === 'sta-1')!.pos.x
+    expect(backTo, 'the distance the lesson’s own 「客厅中段」 sits at').toBe(staX - apX)
+    expect(finer(at(apX + backTo)), 'and there the two ladders differ again')
+      .toBe(sfdAt('mid'))
+    const [tDb, tM] = raw(t1, /那 (\d+) 分贝的窗口在地板上一共 ([\d.]+) 米宽/,
+      '`tryThis` on the window it just walked out of')
+    expect(val(tDb!), 'the window of the rung that spot is in').toBe(inDb.get(sfdAt('mid'))!)
+    same(tM!, onFloor(sfdAt('mid')), 'and how wide it is on the floor')
+    expect(onFloor(sfdAt('mid')), 'the widest of the four, which is what the sentence claims')
+      .toBe(Math.max(...[...spans.keys()].map(onFloor)))
+    /*
+     * 「笔记本因此被摆在离目标窗口 5 分贝的地方」. The two directions of the same link differ by
+     * exactly that much at every spot in this scene, which is why a budget computed for the
+     * router's transmit direction put the laptop in the wrong place by that many decibels.
+     */
+    const [away] = figs(EVERYWHERE, /离目标窗口 (\d+) 分贝的地方/,
+      '`limits` on the measurement that went wrong the first time')
+    const link = buildLinkTable(base.nodes, base.walls)
+    expect(away, 'downlink minus uplink on this lesson’s own link')
+      .toBe(Math.round(link.get('ap')!.get('sta-1')! - link.get('sta-1')!.get('ap')!))
+  })
+
+  it('the three model values, at every one of the places the lesson states them', () => {
+    const faded = scene('uhr', 'mid', 'shadow', 1)
+    for (const v of everyFig(/σ = (\d+) 分贝/g, 'the shadowing sigma', 2)) {
+      expect(val(v), 'the sigma this lesson’s own faded scene switches on')
+        .toBe(faded.fading!.shadowSigmaDb)
+    }
+    for (const v of everyFig(/相干时间 (\d+) 毫秒|(\d+) 毫秒相干时间/g, 'the coherence time', 2)) {
+      expect(val(v), 'the coherence time of that layer').toBe(faded.fading!.coherenceMs)
+    }
+    for (const v of everyFig(/留的? ?(\d+) 分贝余量/g, 'the margin the ladder is taken with', 2)) {
+      expect(val(v), 'the margin every `mcsForRssi` call in this file is made with')
+        .toBe(RATE_MARGIN_DB)
     }
   })
 })
