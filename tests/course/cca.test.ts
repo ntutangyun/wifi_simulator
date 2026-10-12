@@ -24,7 +24,11 @@ import { cca, ccaTiming, CCA_NEIGHBOUR_DBM } from '../../src/course/tier1/cca'
 import { backoff } from '../../src/course/tier1/backoff'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { buildLinkTable } from '../../src/engine/propagation'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { hidden } from '../../src/course/tier1/hidden'
+import { buildLinkTable, wallsCrossed } from '../../src/engine/propagation'
+import { ROOT, zhNumeral } from './coverage'
 import { CCA_ED_DBM, CCA_PD_DBM } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES, trackOf } from '../../src/course/curriculum'
@@ -261,5 +265,342 @@ describe('cca · every official term carries its English name', () => {
 
   it('had its terminology actually graded', () => {
     expect(rows.filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * `scripts/figure-planting.ts` measured this lesson on 2026-10-12: **53 of its 55 printed
+ * figures were editable with this file green.** Everything above is a strong engine test — the
+ * two constants, the −46.01 dBm neighbour, the 1587/1164/423 census, the two RX_MISS at zero —
+ * and every one of those numbers is a literal on the test's own side, so the lesson could print
+ * any neighbouring value and nothing would notice. This lesson is where that matters most: it
+ * prints −82 eight times and −62 seven, in `why`, `picture`, the table, two steps, `limits`,
+ * `sources` and both quiz questions, and a reader who finds one of them edited has no way to
+ * tell which is right.
+ *
+ * So each site is read here. Three of them are claims about scenes that are not this one, and
+ * they are checked against those scenes rather than waved at:
+ *
+ *  - 「等到两台站点隔着两堵砖墙、到达电平掉到 −82 dBm 以下」 is `@hidden`'s house, so the wall
+ *    count and the level come from `@hidden`'s own scenario.
+ *  - 「一帧到达你这里是 −70 dBm」 is the first quiz's hypothesis: the figure's whole job is to
+ *    sit between the two lines, and that is what is asserted.
+ *  - 「一台超宽带设备的信号落进了 Wi-Fi 的工作信道」 has no figure, and the engine does have the
+ *    cross-technology path the answer depends on (`channel.ts`'s spectrum branch, which
+ *    `limits` cites).
+ *
+ * **Two figures stay unread, with their reason.** 「最多 4 µs 内报告」 is the standard's bound on
+ * a radio, and 「真实设备在 80 MHz 上会因为某个副信道忙而退回 20 MHz」 is about devices this
+ * engine does not model — the first is unverifiable here for the same reason as `@ifs`'s copy of
+ * it, and the second is the limit's whole point. What IS checked beside them is the zero this
+ * engine has, and that every frame in this scene is 20 MHz wide.
+ */
+describe('cca · every printed figure is read back out of the lesson', () => {
+  const rs = recs()
+  const sc = cca.scenario()
+  const links = buildLinkTable(sc.nodes, sc.walls)
+  const neighbour = rssiOn('5g', links, 'sta-2', 'sta-1')
+  const mine = busy().filter((r) => r.node === 'sta-1')
+
+  const table = cca.numbers!.find((x) => x.kind === 'table') as
+    { heading: string; head: string[]; rows: string[][] }
+  const steps = (cca.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+  const caption = (cca.numbers!.find((x) => x.kind === 'diagram') as { caption: string }).caption
+  const prose = (fragment: string): string => {
+    const b = cca.numbers!.find((x) => (x as { heading?: string }).heading?.includes(fragment)) as
+      { text?: string } | undefined
+    expect(b?.text, `no block of \`numbers\` headed 「${fragment}」`).toBeDefined()
+    return b!.text!
+  }
+  const pictureText = (cca.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+  const deeperText = (cca.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+  const limitText = cca.limits.map((x) => x.text).join('\n')
+  const sourcesText = cca.sources!.join('\n')
+  const quizText = cca.quiz!.flatMap((q) => [q.q, ...q.options, q.explain ?? '']).join('\n')
+
+  /** The captures of `re`, as printed. A full-width minus is part of the figure. */
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(text)
+    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] =>
+    raw(text, re, what).map((x) => Number(x.replace(/[\s,]/g, '').replace(/−/g, '-')))
+  /** A printed figure against a measurement, rounded to the decimals the figure itself carries. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/−/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zhCount = (s: string): number => {
+    const n = zhNumeral(s.replace(/两/g, '二'))
+    expect(n, `「${s}」 is not a number this reads`).not.toBeNull()
+    return n!
+  }
+  const counted = (text: string, re: RegExp, what: string): number => zhCount(raw(text, re, what)[0])
+  const ZH = '[〇一二三四五六七八九十两]+'
+  /**
+   * `zhNumeral` reads 〇–九十九, and this lesson's 「一百倍的功率」 is the one figure in it past
+   * that. Handled here rather than by widening the shared reader, which the course-wide rules
+   * depend on.
+   */
+  const ZH_BIG = '[〇一二三四五六七八九十百两]+'
+  const countedBig = (text: string, re: RegExp, what: string): number => {
+    const s = raw(text, re, what)[0]
+    return s === '一百' ? 100 : zhCount(s)
+  }
+  /** Every site in the lesson that prints a dBm figure, so none of them can be missed. */
+  const everyDbm = (text: string): number[] =>
+    [...text.matchAll(/−([\d.]+) dBm/g)].map((m) => -Number(m[1]))
+
+  it('`why`: the two lines, their gap in decibels, and what that is in power', () => {
+    const why = cca.why!
+    const [pd, ed] = figs(why, /一条 (−[\d.]+) dBm，一条 (−[\d.]+) dBm/, '`why` on the two lines')
+    const gap = counted(why, new RegExp(`中间差(${ZH})分贝`), '`why` on the gap')
+    const times = countedBig(why, new RegExp(`也就是(${ZH_BIG})倍的功率`), '`why` on that in power')
+    expect(pd).toBe(CCA_PD_DBM)
+    expect(ed).toBe(CCA_ED_DBM)
+    expect(ed - pd).toBe(gap)
+    expect(Math.pow(10, gap / 10)).toBeCloseTo(times, 9)
+  })
+
+  it('`picture`: the lower line, the higher one, the gap again, and the two instants it points at', () => {
+    const [pd] = figs(pictureText, /不低于 (−[\d.]+) dBm，那就是忙/, '`picture` on preamble detection')
+    const [ed] = figs(pictureText, /跟 (−[\d.]+) dBm 比/, '`picture` on energy detection')
+    const gap = counted(pictureText, new RegExp(`比前一条线高出整整(${ZH})分贝`), '`picture` on the gap')
+    expect(pd).toBe(CCA_PD_DBM)
+    expect(ed).toBe(CCA_ED_DBM)
+    expect(ed - pd).toBe(gap)
+    // every dBm figure in `picture` is one of the two lines, and nothing else
+    for (const v of everyDbm(pictureText)) expect([CCA_PD_DBM, CCA_ED_DBM]).toContain(v)
+
+    // 「邻居的数据帧在 498 µs 开始发送，STA-1 的侦听同刻翻成「忙」，理由写的是前导码」
+    const [at] = figs(pictureText, /在 (\d+) µs 开始发送/, '`picture` on when the neighbour starts')
+    const tx = ofType(rs, 'TX_START').find((r) => r.node === 'sta-2' && r.t === at * 1_000)
+    expect(tx, `nothing starts on the air at ${at} µs`).toBeDefined()
+    const b = mine.find((r) => r.t === at * 1_000)
+    expect(b, `STA-1 does not turn busy at ${at} µs`).toBeDefined()
+    expect(b!.cause, 'and the reason it writes').toBe('preamble')
+
+    // 「跳到 0 µs：两台站点同时开始发送，它们各自的侦听也在那一刻报忙，可理由写的是能量」
+    const [zero] = figs(pictureText, /跳到 (\d+) µs/, '`picture` on the second jump')
+    const together = counted(pictureText, new RegExp(`(${ZH})台站点同时开始发送`), 'the stations it counts')
+    const starts = ofType(rs, 'TX_START').filter((r) => r.t === zero * 1_000)
+    expect(starts.map((r) => r.node).sort()).toHaveLength(together)
+    for (const s of starts) {
+      const own = busy().find((r) => r.node === s.node && r.t === zero * 1_000)
+      expect(own, `${s.node} does not turn busy at ${zero} µs`).toBeDefined()
+      expect(own!.cause, `${s.node}’s reason at ${zero} µs`).toBe('energy')
+    }
+  })
+
+  it('the table: two lines, their difference, and the one clause both of them come from', () => {
+    const rows = table.rows
+    expect(rows, 'the table states exactly the three rows this reads').toHaveLength(3)
+    same(raw(rows[0][1], /^(−[\d.]+) dBm$/, 'the preamble-detection line')[0], CCA_PD_DBM,
+      'the preamble-detection threshold')
+    same(raw(rows[1][1], /^(−[\d.]+) dBm$/, 'the energy-detection line')[0], CCA_ED_DBM,
+      'the energy-detection threshold')
+    const [gap] = figs(rows[2][1], /^(\d+) dB$/, 'the difference row')
+    expect(CCA_ED_DBM - CCA_PD_DBM).toBe(gap)
+    // 「一百倍的功率」 in the third column, and 「—」 where a clause would go
+    const times = countedBig(rows[2][2], new RegExp(`(${ZH_BIG})倍的功率`), 'the difference in power')
+    expect(Math.pow(10, gap / 10)).toBeCloseTo(times, 9)
+    expect(rows[2][3]).toBe('—')
+    // both thresholds are cited to the same clause, and `sources` names it too
+    expect(rows[0][3]).toBe(rows[1][3])
+    expect(sourcesText, `\`sources\` does not name ${rows[0][3]}`).toContain(rows[0][3])
+  })
+
+  it('the caption: the neighbour’s level, and how far it clears each line', () => {
+    const [level] = figs(caption, /是 (−[\d.]+) dBm/, 'the caption on the neighbour’s level')
+    const [pd, above] = figs(caption, /比 (−[\d.]+) dBm 高 (\d+) dB/, 'the caption on the lower line')
+    const [ed, over] = figs(caption, /dB，比 (−[\d.]+) dBm 高 (\d+) dB/, 'the caption on the higher one')
+    same(raw(caption, /是 (−[\d.]+) dBm/, 'the neighbour’s level')[0], neighbour,
+      'the neighbour’s level in dBm')
+    expect(level).toBe(CCA_NEIGHBOUR_DBM)
+    expect(pd).toBe(CCA_PD_DBM)
+    expect(ed).toBe(CCA_ED_DBM)
+    expect(Math.round(neighbour - CCA_PD_DBM)).toBe(above)
+    expect(Math.round(neighbour - CCA_ED_DBM)).toBe(over)
+    // 「746 到 762 µs 那 16 µs 里空口真的空着，两条线也一起回到空闲」
+    const [from, to, span] = figs(caption, /(\d+) 到 (\d+) µs 那 (\d+) µs/, 'the caption on the quiet gap')
+    expect(to - from).toBe(span)
+    expect(ofType(rs, 'CCA_IDLE').filter((r) => r.t === from * 1_000).map((r) => r.node).sort())
+      .toEqual(sc.nodes.map((n) => n.id).sort())
+    expect(ofType(rs, 'TX_START').some((r) => r.t > from * 1_000 && r.t < to * 1_000)).toBe(false)
+    expect(busy().some((r) => r.t === to * 1_000)).toBe(true)
+  })
+
+  it('the figure’s two lane labels carry the two margins, and they are the caption’s', () => {
+    const [above] = figs(lane('前导检测').spans[0].label!, /高出 (\d+) dB/, 'the preamble lane’s label')
+    const [over] = figs(lane('能量检测').spans[0].label!, /高出 (\d+) dB/, 'the energy lane’s label')
+    expect(Math.round(neighbour - CCA_PD_DBM)).toBe(above)
+    expect(Math.round(neighbour - CCA_ED_DBM)).toBe(over)
+    expect(above - over, 'the two margins differ by the gap between the lines')
+      .toBe(CCA_ED_DBM - CCA_PD_DBM)
+  })
+
+  it('the procedure: steps 3 and 4 state the two lines the engine compares against', () => {
+    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
+    const [pd] = figs(steps[2], /不低于 (−[\d.]+) dBm/, 'step 3’s threshold')
+    const [ed] = figs(steps[3], /不低于 (−[\d.]+) dBm/, 'step 4’s threshold')
+    expect(pd).toBe(CCA_PD_DBM)
+    expect(ed).toBe(CCA_ED_DBM)
+    // and every dBm figure in the whole procedure is one of those two
+    for (const v of everyDbm(steps.join('\n'))) expect([CCA_PD_DBM, CCA_ED_DBM]).toContain(v)
+  })
+
+  it('「本轮仿真里，每一次判忙是哪一种」: the window, the total, and the two reasons', () => {
+    const text = prose('每一次判忙是哪一种')
+    const [ms] = figs(text, /(\d+) ms 里/, 'the window it counts over')
+    const [total] = figs(text, /共 (\d+) 次/, 'the busies it counts')
+    const [pd, ed] = figs(text, /(\d+) 次前导检测，(\d+) 次能量检测/, 'the two reasons')
+    const [again] = figs(text, /而那 (\d+) 次没有一次是邻居造成的/, 'the energy busies restated')
+    expect(ms * MS).toBe(RUN_NS)
+    expect(mine.length).toBe(total)
+    expect(mine.filter((r) => r.cause === 'preamble').length).toBe(pd)
+    expect(mine.filter((r) => r.cause === 'energy').length).toBe(ed)
+    expect(pd + ed, 'the two reasons against the total').toBe(total)
+    expect(again).toBe(ed)
+    // 「每一次都是它自己正在发送」, and 「凡是别人造成的忙，都是抓到开头判出来的」
+    for (const e of mine.filter((r) => r.cause === 'energy')) {
+      expect(transmittingAt(e.node, e.t), `STA-1 at ${e.t}`).toBe(true)
+    }
+    for (const p of mine.filter((r) => !transmittingAt(r.node, r.t))) {
+      expect(p.cause, `a busy STA-1 did not cause itself, at ${p.t}`).toBe('preamble')
+    }
+  })
+
+  it('「为什么这里看不出两条线的差别」: this room, and the house where it does show', () => {
+    const text = prose('为什么这里看不出两条线的差别')
+    const [level] = figs(text, /邻居到达 (−[\d.]+) dBm/, 'the neighbour’s level restated')
+    same(raw(text, /邻居到达 (−[\d.]+) dBm/, 'the level')[0], neighbour, 'the neighbour’s level')
+    expect(level).toBe(CCA_NEIGHBOUR_DBM)
+    // 「等到两台站点隔着两堵砖墙、到达电平掉到 −82 dBm 以下」: that is `@hidden`'s house, so
+    // the wall count and the level are read off `@hidden`'s own scene
+    const walls = counted(text, new RegExp(`隔着(${ZH})堵砖墙`), 'the walls it points at')
+    const [floor] = figs(text, /到达电平掉到 (−[\d.]+) dBm 以下/, 'the level it points at')
+    expect(floor).toBe(CCA_PD_DBM)
+    const h = hidden.scenario()
+    const pos = (id: string) => h.nodes.find((n) => n.id === id)!.pos
+    const crossed = wallsCrossed(pos('sta-1'), pos('sta-2'), h.walls)
+    expect(crossed, 'the walls between `@hidden`’s two stations').toHaveLength(walls)
+    expect(new Set(crossed)).toEqual(new Set(['brick']))
+    expect(rssiOn('5g', buildLinkTable(h.nodes, h.walls), 'sta-1', 'sta-2')).toBeLessThan(floor)
+  })
+
+  it('`deeper`: two frames at zero, two misses, and the default reason', () => {
+    const frames = counted(deeperText, new RegExp(`本轮开头(${ZH})帧同时开始`), '`deeper` on the two frames')
+    const misses = counted(deeperText, new RegExp(`记录里是(${ZH})条 RX_MISS`), '`deeper` on the misses')
+    const [zero] = figs(deeperText, /侦听在 (\d+) µs 就报了忙/, '`deeper` on when it reported busy')
+    const [own] = figs(deeperText, /本机自己发送时的那 (\d+) 次/, '`deeper` on the energy busies')
+    expect(ofType(rs, 'TX_START').filter((r) => r.t === zero * 1_000)).toHaveLength(frames)
+    const apMisses = ofType(rs, 'RX_MISS').filter((r) => r.node === 'ap' && r.t === zero * 1_000)
+    expect(apMisses).toHaveLength(misses)
+    const ap = busy().find((r) => r.node === 'ap')!
+    expect([ap.t / 1_000, ap.cause]).toEqual([zero, 'preamble'])
+    expect(mine.filter((r) => r.cause === 'energy').length).toBe(own)
+  })
+
+  it('`limits`: no detection delay, one width, and the 423 that are not a measurement', () => {
+    // 「判忙没有检测时延：一路发射开始的那一纳秒，所有听得见它的电台就同时翻成忙」 — the
+    // standard's 「最多 4 µs 内报告」 is a bound on a radio and this repository holds no clause
+    // text for it, so what is asserted is the zero this engine has.
+    const starts = new Set(ofType(rs, 'TX_START').map((r) => r.t))
+    expect(busy().length).toBeGreaterThan(1000)
+    for (const b of busy()) expect(starts.has(b.t), `a busy at ${b.t}, between transmissions`).toBe(true)
+    // 「宽信道要求的「每 20 MHz 各判一次」也不存在」: every frame of this scene is that wide,
+    // which is why the lesson can speak of one verdict per radio
+    const [per] = figs(limitText, /每 (\d+) MHz 各判一次/, '`limits` on the per-subchannel rule')
+    const dataFrames = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data')
+    expect(new Set(dataFrames.map((r) => r.frame.widthMhz))).toEqual(new Set([per]))
+    const [ed] = figs(limitText, /而 (−[\d.]+) dBm 这条线/, '`limits` on the higher line')
+    expect(ed).toBe(CCA_ED_DBM)
+    // 「那 423 次不是一次测量」, twice in the same entry and once in the next
+    for (const n of figs(limitText, /那 (\d+) 次不是一次测量[\s\S]*?这里的 (\d+) 条记录/,
+      '`limits` on the energy busies')) {
+      expect(mine.filter((r) => r.cause === 'energy').length).toBe(n)
+    }
+    const [level] = figs(limitText, /邻居到达 (−[\d.]+) dBm 是几何位置/, '`limits` on the level')
+    expect(level).toBe(CCA_NEIGHBOUR_DBM)
+    // 「默认没有衰落」: this scene really does not switch it on, which is what makes the level a
+    // constant in the first place
+    expect(sc.fading).toBeUndefined()
+  })
+
+  it('`sources`: both thresholds, both counts, the frame, and the code they live in', () => {
+    const [pd, ed] = figs(sourcesText, /按 (−[\d.]+) dBm，其余任何能量按 (−[\d.]+) dBm/,
+      '`sources` on the two thresholds')
+    expect(pd).toBe(CCA_PD_DBM)
+    expect(ed).toBe(CCA_ED_DBM)
+    const [level] = figs(sourcesText, /(−[\d.]+) dBm 这个电平/, '`sources` on the neighbour’s level')
+    expect(level).toBe(CCA_NEIGHBOUR_DBM)
+    const [pdCount, edCount] = figs(sourcesText, /以及 (\d+)\/(\d+) 这两个计数/, '`sources` on the counts')
+    expect(mine.filter((r) => r.cause === 'preamble').length).toBe(pdCount)
+    expect(mine.filter((r) => r.cause === 'energy').length).toBe(edCount)
+    const [bytes] = figs(sourcesText, /([\d,]+) 字节的帧/, '`sources` on the frame')
+    const data = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data')
+    expect(new Set(data.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
+    const stations = counted(sourcesText, new RegExp(`(${ZH})台饱和站点`), '`sources` on the stations')
+    expect(sc.nodes.filter((n) => n.profiles?.includes('saturated'))).toHaveLength(stations)
+
+    // every identifier `sources` names is declared in a file `sources` names
+    const named = [...sourcesText.matchAll(/\b((?:src\/[a-z/]+\/)?[a-z][a-z0-9]*\.ts)\b/g)]
+      .map((m) => m[1].replace(/^src\//, ''))
+    const src = [...new Set(named)].map((f) => {
+      const p = ['', 'src/engine', 'src/model', 'src/course']
+        .map((d) => resolve(ROOT, d === '' ? `src/${f}` : `${d}/${f.split('/').pop()}`))
+        .find(existsSync)
+      expect(p, `${f} is not a file of this repository`).toBeDefined()
+      return readFileSync(p!, 'utf8')
+    }).join('\n')
+    const syms = [...sourcesText.matchAll(/\b([A-Za-z][A-Za-z0-9]*(?:_[A-Z0-9]+)+|[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)\b/g)]
+      .map((m) => m[1])
+    expect(syms.length, 'the identifiers `sources` names').toBeGreaterThan(2)
+    for (const s of syms) {
+      expect(src.includes(s), `\`${s}\` is named here, and by none of the files named with it`)
+        .toBe(true)
+    }
+  })
+
+  it('`observe`: the busy at 498, the freeze that lasts to 824, and the quiet 16 µs', () => {
+    const [at] = figs(cca.observe[0], /在 (\d+) µs 报忙/, '`observe` on the busy')
+    const [until] = figs(cca.observe[0], /一直停到 (\d+) µs/, '`observe` on how long the count stops')
+    const b = mine.find((r) => r.t === at * 1_000)
+    expect(b, `STA-1 does not turn busy at ${at} µs`).toBeDefined()
+    expect(b!.cause).toBe('preamble')
+    const freeze = ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === at * 1_000)
+    expect(freeze, `nothing freezes STA-1’s count at ${at} µs`).toBeDefined()
+    const resume = ofType(rs, 'BACKOFF_RESUME').find((r) => r.node === 'sta-1' && r.t > freeze!.t)!
+    expect(resume.t / 1_000, 'when the count moves again').toBe(until)
+    expect(resume.value, 'and it carries on from where it stopped').toBe(freeze!.value)
+
+    const [pause] = figs(cca.observe[1], /在 (\d+) µs 处暂停/, '`observe` on where to pause')
+    const [span] = figs(cca.observe[1], /可这 (\d+) µs 里没有任何人发送/, '`observe` on the quiet span')
+    expect(ofType(rs, 'CCA_IDLE').some((r) => r.node === 'sta-1' && r.t === pause * 1_000)).toBe(true)
+    const next = ofType(rs, 'TX_START').find((r) => r.t > pause * 1_000)!
+    expect(next.t / 1_000 - pause, 'the quiet span before the next transmission').toBe(span)
+  })
+
+  it('the quiz: a level between the two lines, and the technology that can only be energy', () => {
+    const [level] = figs(quizText, /到达你这里是 (−[\d.]+) dBm/, 'the quiz’s hypothetical level')
+    // the whole point of that figure: above the lower line, below the higher one
+    expect(level).toBeGreaterThan(CCA_PD_DBM)
+    expect(level).toBeLessThan(CCA_ED_DBM)
+    // and the options say exactly that, each naming the line it compares with
+    const [high] = figs(quizText, /高于 (−[\d.]+) dBm 的前导检测门限/, 'the option that reads it as busy')
+    const [low] = figs(quizText, /低于 (−[\d.]+) dBm/, 'the option that reads it as idle')
+    expect(high).toBe(CCA_PD_DBM)
+    expect(low).toBe(CCA_ED_DBM)
+    // every dBm figure in the quiz is one of those three
+    for (const v of everyDbm(quizText)) expect([CCA_PD_DBM, CCA_ED_DBM, level]).toContain(v)
+    // the second question's answer depends on a path the engine has: another technology's
+    // energy counts, and it can never be a preamble detection
+    expect(readFileSync(resolve(ROOT, 'src/engine/channel.ts'), 'utf8')).toContain('spectrum')
+    expect(quizText).toContain('超宽带')
   })
 })
