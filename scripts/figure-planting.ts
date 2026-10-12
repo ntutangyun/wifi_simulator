@@ -121,7 +121,9 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
         fig: m[0],
         section: t.section,
         role: t.role,
-        cite: CITE.test(before) || CITE_AFTER.test(after)
+        // `802.11` is the standard's own name wherever it appears, including as the whole
+        // figure (「真实的 802.11 承载 IP 时」), which neither context test can see.
+        cite: CITE.test(before) || CITE_AFTER.test(after) || m[0].startsWith('802.11')
           || NAME_BEFORE.test(before) || NAME_AFTER.test(after),
         ctx: `${before}⟦${m[0]}⟧${after}`.replace(/\s+/g, ' '),
       })
