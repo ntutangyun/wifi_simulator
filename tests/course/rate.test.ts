@@ -475,8 +475,12 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     }
     const [ceiling] = figs(text, /在上限 MCS (\d+) 上/, '`observe` on the ceiling')
     expect(Math.max(...rungsUsed)).toBe(ceiling)
+    // 「一次也没有发到 MCS 2 以上」: the rung it names must BE the ceiling, not merely above
+    // it — 「MCS 3 以上」 would also be true of this run, and `scripts/figure-planting.ts` found
+    // all four sites that say it editable for exactly that reason.
     const [never] = figs(text, /一次也没有发到 MCS (\d+) 以上/, '`observe` on what it never exceeds')
     expect(far.filter((r) => r.frame.mcs! > never)).toHaveLength(0)
+    expect(Math.max(...rungsUsed), 'and that rung is the ceiling itself').toBe(never)
     const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒 [\d,]+ 帧/, '`observe`’s own window')
     const [frames, rung] = figs(text, /秒 ([\d,]+) 帧，全部在 MCS (\d+) 上/,
       '`observe` on the near station')
@@ -512,6 +516,11 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     const twenty = counted(quizText, /连着成功了([〇一二三四五六七八九十两]+)次/,
       'the streak the quiz asks about')
     const [ceiling] = figs(quizText, /MCS (\d+) 是那个角落的信号定下的上限/, 'the quiz on the ceiling')
+    expect(Math.max(...rungsUsed), 'the quiz names the ceiling itself').toBe(ceiling)
+    // the question and the explanation say it twice more, and each has to be that same rung
+    for (const m of quizText.matchAll(/MCS (\d+) 以上/g)) {
+      expect(Number(m[1]), `「${m[0]}」 in the quiz`).toBe(ceiling)
+    }
     // an attempt failed iff its own deadline fired: one ACK timeout, one frame end plus the
     // timeout, which is how `@hidden` pins the same rule
     const timeouts = new Set(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2').map((r) => r.t))

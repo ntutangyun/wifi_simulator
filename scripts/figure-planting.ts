@@ -99,7 +99,10 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
     const at = mod.src.indexOf(t.text)
     // Not in the file as written (interpolated), or written twice (the offset would be a guess).
     if (at === -1 || mod.src.indexOf(t.text, at + 1) !== -1) { skipped++; continue }
-    for (const m of t.text.matchAll(/\d+(?:[.,]\d+)*/g)) {
+    // A space is a thousands separator in this course's prose (「1 536 B」, 「250 250 字节」), so
+    // the grouped form is matched first — otherwise 「1 536」 counts as two figures and planting
+    // its leading digit asks a question nobody wrote.
+    for (const m of t.text.matchAll(/\d{1,3}(?: \d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)*/g)) {
       const before = t.text.slice(Math.max(0, m.index - 16), m.index)
       const after = t.text.slice(m.index + m[0].length, m.index + m[0].length + 12)
       figures.push({

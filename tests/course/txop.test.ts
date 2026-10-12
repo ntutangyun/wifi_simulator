@@ -715,5 +715,75 @@ describe('txop · every printed figure is read back out of the lesson', () => {
     const pause = /那 (\d+) µs 的停顿在这里是一个精确常数/.exec(ls.join('\n'))
     expect(pause, '`limits` no longer names the pause it calls exact').not.toBeNull()
     figure(`${pause![1]} µs`, OFDM_5G.sifsNs, 'the pause the fourth limit is about')
+    // 「不少型号把尽力而为那一类设成 0——那等于每次竞争成功只发一帧」: the figure is about real
+    // access points, and what IS checkable is the equivalence it claims — a zero limit is this
+    // lesson's own 「关掉这个功能」 variant, whose bursts carry one frame each.
+    const off = /设成 (\d+)——那等于每次竞争成功只发一帧/.exec(ls.join('\n'))
+    expect(off, '`limits` no longer says what a zero limit amounts to').not.toBeNull()
+    // and the figure is exactly the value that turns the feature off: the MAC gates a burst on
+    // `txopLimitNs > 0`, so 0 means one frame per win and 1 would not. (The 「不少型号」 is a
+    // claim about real access points, and this table has no zero in it — every AC of
+    // `EDCA_PARAMS` carries a limit — which is why the lesson calls it something models do.)
+    expect(Number(off![1]) > 0, 'a limit of that value would still open a burst').toBe(false)
+    expect(readFileSync(resolve(ROOT, 'src/engine/mac.ts'), 'utf8'),
+      'the MAC no longer gates a burst on a positive limit').toContain('txopLimitNs > 0')
+    expect(Math.min(...EDCA_PARAMS.map((p) => p.txopLimitNs)),
+      'and no access class in this engine’s own table carries that value').toBeGreaterThan(0)
+  })
+
+  /**
+   * **The six sites `scripts/figure-planting.ts` found this file still not reading**, on
+   * 2026-10-12: the figure's own two labels, the run table's header, `sources`' restatement of
+   * the frame's airtime, and `tryThis`'s 706. The axis unit is the odd one — 「µs（0 是本轮开
+   * 始）」 puts a figure inside a unit, and it is the only place the lesson tells the reader what
+   * the zero of its own time axis means.
+   */
+  it('the figure’s labels, the table’s window, and the two counts restated elsewhere', () => {
+    const rs2 = recs()
+    const spec = txopBurstTiming()
+    // this figure is drawn in the burst's own time, which is what its axis unit says
+    const t0 = ofType(rs2, 'TXOP_START').filter((r) => r.node === 'ap')[0]
+    const end = ofType(rs2, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
+    const frames = txs(rs2, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end.t)
+    // 「两帧视频，各 188 µs」: the burst it labels holds that many frames, each that long
+    const first = spec.lanes[0].spans[0]
+    const m = /([一二三四五六七八九十两]+)帧视频，各 (\d+) µs/.exec(first.label ?? '')
+    expect(m, 'the first span no longer says how many frames it holds').not.toBeNull()
+    expect(zhCount(m![1]), 'the frames in the burst it draws').toBe(frames.length)
+    figure(`${m![2]} µs`, frames[0].frame.txTimeNs, 'each frame of it')
+    expect(new Set(frames.map((r) => r.frame.txTimeNs)).size, 'and they are all that long').toBe(1)
+    // 「µs（0 是本轮开始）」: the axis's zero is the burst's start, not the run's — which is the
+    // only place the lesson tells the reader what its own zero means
+    const zero = /（(\d+) 是本轮开始）/.exec(spec.axis.unit ?? '')
+    expect(zero, 'the axis no longer says what its zero is').not.toBeNull()
+    expect(spec.axis.fromUs, 'the axis starts there').toBe(Number(zero![1]))
+    expect(first.fromUs, 'and the first frame of the burst sits on it').toBe(Number(zero![1]))
+    expect((frames[0].t - t0.t) / US, 'which is where that frame really is, in the burst’s time')
+      .toBe(Number(zero![1]))
+    expect(t0.t, 'while the burst itself starts well after the run does').toBeGreaterThan(0)
+    // 「300 ms 之内」: the window the run table counts over
+    const head = (txop.numbers!.find((x) => x.kind === 'table'
+      && ((x as { head: string[] }).head[0] ?? '').includes('ms')) as { head: string[] }).head
+    const win = /(\d+) ms 之内/.exec(head[0])
+    expect(win, 'the run table no longer names its window').not.toBeNull()
+    expect(Number(win![1]) * MS, 'which is the window these counts are taken over').toBe(RUN_NS)
+    // `sources`: 「正是它把这里一帧视频的时长定在 188 µs」
+    const src = /一帧视频的时长定在 (\d+) µs/.exec(txop.sources!.join('\n'))
+    expect(src, '`sources` no longer states the frame’s airtime').not.toBeNull()
+    figure(`${src![1]} µs`, frames[0].frame.txTimeNs, 'the airtime `sources` quotes')
+    // `tryThis`: 「同样的帧数要付 706 次代价」
+    const t = /同样的帧数要付 (\d+) 次代价/.exec(txop.tryThis.join('\n'))
+    expect(t, '`tryThis` no longer counts the draws the feature saves').not.toBeNull()
+    // the same off-scene the experiment above builds: this lesson has no variant for it, the
+    // reader switches the feature off in the editor
+    const offScene = txop.scenario()
+    const theAp = offScene.nodes.find((n) => n.id === 'ap')!
+    theAp.caps.features = { ...theAp.caps.features, txop: false }
+    const offRuns = runSc(offScene)
+    expect(ofType(offRuns, 'BACKOFF_DRAW').filter((r) => r.node === 'ap'),
+      'the draws the access point makes with the feature off').toHaveLength(Number(t![1]))
+    // 「一帧发完一次」: that count really is one per frame, give or take the window's edge
+    expect(Math.abs(txs(offRuns, 'data').length - Number(t![1])),
+      'and it is one draw per frame').toBeLessThanOrEqual(1)
   })
 })

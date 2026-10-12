@@ -126,10 +126,16 @@ describe('ampdu · the subframe figure', () => {
     expect(sum).toBe(1_536)
     // "the fixed part of a subframe is 36 bytes against 1 500 of payload"
     expect(sum - 1_500).toBe(36)
-    // and the total line is the batch this run really sends
-    expect(f.total).toContain('21 502')
-    expect(ampduPsduBytes(Array(14).fill(1_500))).toBe(21_502)
-    expect(txs(agg(), 'data')[0].frame.bytes).toBe(21_502)
+    // and the total line is the batch this run really sends — read out of the line itself,
+    // both figures, because `scripts/figure-planting.ts` found the first one editable
+    const tot = /一个子帧 ([\d ]+) B；十([一二三四五六七八九十]+)个首尾相接是 ([\d ]+) B/.exec(f.total ?? '')
+    expect(tot, 'the figure’s total line no longer states the subframe and the batch').not.toBeNull()
+    const num = (x: string): number => Number(x.replace(/ /g, ''))
+    expect(num(tot![1]), 'the subframe’s own bytes').toBe(sum)
+    const count = zhNumeral(`十${tot![2]}`)!
+    expect(count, 'the subframes it adds up').toBe(txs(agg(), 'data')[0].frame.ampdu!.mpduCount)
+    expect(num(tot![3]), 'and the batch they make').toBe(ampduPsduBytes(Array(count).fill(1_500)))
+    expect(txs(agg(), 'data')[0].frame.bytes).toBe(num(tot![3]))
   })
 
   it('lays out inside the viewBox, legibly, with no two labels touching', () => {
@@ -484,10 +490,16 @@ describe('ampdu · every printed figure is read back out of the lesson', () => {
     expect(count, 'the subframes the batch carries').toBe(batch.frame.ampdu!.mpduCount)
     same(m![5], ampduPsduBytes(Array(count).fill(payload)), 'and the batch they add up to')
     same(m![5], batch.frame.bytes, 'which is the batch this run sends')
-    // 「不是 14 × 1 530」: the product it is NOT, and that it really is not
+    // 「不是 14 × 1 530」: the product it is NOT. **A negative assertion does not pin the
+    // figure** — 1 531 would satisfy it too, which is how `scripts/figure-planting.ts` found
+    // this site. What 1 530 is, is the frame this payload makes WITHOUT aggregation, which the
+    // lesson's own second variant sends, so that is what it is read against.
     expect(Number(m![6]), 'the count in the product it denies').toBe(count)
-    expect(val(m![7]) * count, 'which really is not the batch')
-      .not.toBe(batch.frame.bytes)
+    expect(val(m![7]), 'the unaggregated frame that product multiplies')
+      .toBe(txs(plain(), 'data')[0].frame.bytes)
+    expect(val(m![7]) * count, 'which really is not the batch').not.toBe(batch.frame.bytes)
+    expect(val(m![7]) * count, 'and the batch is the larger of the two')
+      .toBeLessThan(batch.frame.bytes)
   })
 
   it('the steps: both ceilings, the five segments of a subframe, and the BlockAck', () => {
@@ -616,6 +628,10 @@ describe('ampdu · every printed figure is read back out of the lesson', () => {
     expect(bytes, '`limits` no longer spells out the byte arithmetic').not.toBeNull()
     expect([Number(bytes![1]), Number(bytes![2]), Number(bytes![3])], 'the three fixed parts')
       .toEqual([AMPDU_DELIMITER_BYTES, QOS_HDR_BYTES, FCS_BYTES])
+    // and the delimiter again, in the entry that says the engine does nothing with it
+    const delim = /每个子帧前面那 (\d+) 字节定界符/.exec(ls)
+    expect(delim, '`limits` no longer says what the delimiter is worth here').not.toBeNull()
+    expect(Number(delim![1]), 'the delimiter, restated').toBe(AMPDU_DELIMITER_BYTES)
     const fixed = /自带 (\d+) 字节的非载荷字节/.exec(ls)
     expect(fixed, '`limits` no longer totals them').not.toBeNull()
     same(fixed![1], ampduSubframeBytes(1_500) - 1_500, 'the non-payload bytes a subframe carries')
@@ -627,5 +643,57 @@ describe('ampdu · every printed figure is read back out of the lesson', () => {
     // and every 「file.ts 的 symbol」 in `limits` is a claim about this repository
     cite(ls, '`limits`')
     expect([...ls.matchAll(/（?([a-z]+\.ts) 的 (\w+)/g)].length, 'it cites three of them').toBe(3)
+  })
+
+  /**
+   * **The fourteen sites `scripts/figure-planting.ts` found this file still not reading**, on
+   * 2026-10-12. Four figures account for all of them, each printed in two or three places: the
+   * window every count is taken over, the 64-subframe cap, the 1 500-byte payload, and the 14
+   * frames one win clears. The cap is the interesting one — the lesson says it twice and
+   * `sources` a third time, and this scene never reaches it, so the only thing that can pin it
+   * is the engine's own constant.
+   */
+  it('the window, the cap, the payload and the batch, wherever the lesson states them', () => {
+    const everywhere = [
+      ...(ampdu.numbers ?? []).map((b) => JSON.stringify(b)),
+      ...ampdu.limits.map((l) => l.text),
+      ...(ampdu.sources ?? []),
+      ...ampdu.tryThis,
+      ...ampdu.observe,
+    ].join('\n')
+    // 「200 ms」: every mention is the window this lesson's runs are measured over
+    // the lookbehind keeps 「5.484 ms」 (MAX_PPDU_NS, which another assertion owns) out of this
+    const windows = [...everywhere.matchAll(/(?<![\d.])(\d+) ms/g)].map((m) => Number(m[1]))
+    expect(windows.length, 'the lesson states the window more than once').toBeGreaterThan(2)
+    for (const w of windows) expect(w * MS, `a window of ${w} ms`).toBe(RUN_NS)
+    // 「64 个子帧上限」: the engine's constant, and this scene stays under it
+    const caps = [...everywhere.matchAll(/(\d+) 这个上限|远小于 (\d+)|(\d+) 个子帧上限|上限是 (\d+) 帧/g)]
+      .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
+    expect(caps.length, 'the lesson states the cap more than once').toBeGreaterThan(2)
+    for (const c of caps) expect(c, `a cap of ${c}`).toBe(MAX_AMPDU_MPDUS)
+    expect(batch.frame.ampdu!.mpduCount, 'and this scene never reaches it')
+      .toBeLessThan(MAX_AMPDU_MPDUS)
+    // 「1500 字节载荷」: the payload every frame of this scene carries
+    // this lesson writes the same payload both ways — 「1 500 字节载荷」 and 「1500 字节载荷」 —
+    // so the space is stripped rather than treated as a boundary
+    const loads = [...everywhere.matchAll(/(\d[\d ]*) 字节载荷|(\d[\d ]*) 字节的帧/g)]
+      .flatMap((m) => m.slice(1).filter(Boolean).map((x) => Number(x.replace(/ /g, ''))))
+    expect(loads.length, 'the lesson states the payload more than once').toBeGreaterThan(1)
+    const msdu = ofType(agg(), 'ARRIVAL')[0]
+    for (const l of loads) expect(l, `a payload of ${l} B`).toBe(msdu.bytes)
+    // `tryThis`: 「每赢一次信道就清掉 14 帧，而不是 1 帧」
+    const t = /清掉 (\d+) 帧，而不是 (\d+) 帧。(\d+) 是/.exec(ampdu.tryThis.join('\n'))
+    expect(t, '`tryThis` no longer contrasts the batch with one frame').not.toBeNull()
+    expect(Number(t![1]), 'the frames one win clears').toBe(batch.frame.ampdu!.mpduCount)
+    expect(Number(t![2]), 'and what it would be without aggregation')
+      .toBe(txs(plain(), 'data')[0].frame.ampdu?.mpduCount ?? 1)
+    expect(Number(t![3]), 'the same batch restated').toBe(Number(t![1]))
+    // 「拿 83 轮去除 738 帧会得到 8.9，而不是 1——那个 1 属于上面那张表」: the 1 it contrasts
+    // with is the plain variant's own frames-per-transmission
+    const one = /会得到 ([\d.]+)，而不是 (\d+)——那个 (\d+)/.exec(everywhere)
+    expect(one, '`numbers` no longer contrasts the two ratios').not.toBeNull()
+    expect(Number(one![2]), 'the frames one transmission carries without aggregation')
+      .toBe(txs(plain(), 'data')[0].frame.ampdu?.mpduCount ?? 1)
+    expect(Number(one![3]), 'the same figure restated').toBe(Number(one![2]))
   })
 })
