@@ -78,7 +78,7 @@ const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|\s?年|\s?月|\.\d\s*(将|于|发布))/
  */
 // `#` for a link id written as a suffix (`sta-1#6g`, where the 6 is a band and not a count).
 // `D` for a draft version (`D1.0`, `D05`): the figure is part of the document's name.
-const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D)$/
+const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot)$/
 // `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
 // `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
