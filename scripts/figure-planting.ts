@@ -70,7 +70,9 @@ const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa)/
  * output has to be read past is a sweep nobody reads.
  */
 const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-)$/
-const NAME_AFTER = /^(-QAM|QAM|-FSK|-PSK|ac\b|ax\b|be\b|bn\b|bp\b|az\b|z\b)/
+// `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
+// multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
+const NAME_AFTER = /^(-QAM|QAM|-FSK|-PSK|ac\b|ax\b|be\b|bn\b|bp\b|az\b|z\b|-20\d\d|\s?×\s?LTF)/
 
 function allFiles(dir: string, out: string[] = []): string[] {
   for (const n of readdirSync(dir)) {
@@ -124,6 +126,13 @@ const migrated = LESSONS.filter(isMigrated)
  * figure whose value appears as a literal NOWHERE in `tests/`, at any of the scales a unit
  * change could put it (µs printed, ns asserted), is pinned by nothing at all. The converse is
  * not evidence — an equal literal may be a coincidence — so the column is named for what it is.
+ *
+ * **And the first real defect this script found was in the 「maybe」 column, which is why that
+ * column is never the stopping point.** `@airtime`'s `limits` said 「本轮 254 个回答一个不差」;
+ * the scene answers 116 times in the window the lesson counts everything else over, and 254 is
+ * `@ifs`'s saturated uploader. The sweep marked it 「maybe」 because 254 does appear in `tests/`
+ * — as `@rate-fallback`'s ACK timeouts, an unrelated quantity in an unrelated lesson. Read the
+ * whole list, not the last column.
  */
 function testLiterals(): Set<number> {
   const out = new Set<number>()
