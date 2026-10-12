@@ -215,15 +215,28 @@ async function survey(page: Page): Promise<Survey> {
   })
 }
 
+/**
+ * One offender as one short line.
+ *
+ * **Why the message's shape matters here.** This suite's verdict is read in two places: a terminal
+ * on this machine, and — for anyone without a token — the check-run annotations of a CI job, which
+ * carry a few hundred characters of the failure and then stop. Asserting the offender OBJECTS puts
+ * a four-line JSON block per offender into that budget: the first CI run that ever reached these
+ * tests reported eight of them and the annotation showed one, so seven defects arrived unreadable.
+ * The condition is unchanged — an empty list — and `a>b` is the pair the question asks about.
+ */
+const offender = (o: Offender): string =>
+  `${o.path} ${o.a}>${o.b}${o.text === '' ? '' : ` 「${o.text}」`}`
+
 /** The four questions, asserted together so one page yields one verdict. */
 function expectNothingOffScreen(s: Survey, where: string): void {
   // 1.
   expect(s.pageScroll.scrollWidth, `${where}: the page scrolls sideways`)
     .toBeLessThanOrEqual(s.pageScroll.clientWidth + EPS)
   // 2.
-  expect(s.overflowing, `${where}: content wider than its own box`).toEqual([])
+  expect(s.overflowing.map(offender), `${where}: content wider than its own box`).toEqual([])
   // 3.
-  expect(s.outside, `${where}: a box past the edge of the screen`).toEqual([])
+  expect(s.outside.map(offender), `${where}: a box past the edge of the screen`).toEqual([])
   // 4.
   expect(s.headerControls.filter((c) => !c.inside), `${where}: a top-bar control off screen`).toEqual([])
   // …and the top bar must have controls at all, or question 4 is vacuous.
