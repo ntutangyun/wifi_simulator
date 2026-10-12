@@ -19,17 +19,21 @@
  * pins; both read `l.scenario()` only, never prose.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { Simulation } from '../../src/engine/simulation'
 import { mlo, mloStack, LANE_FRAMES } from '../../src/course/tier2/mlo'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { AcQueues } from '../../src/engine/queues'
-import { MAX_AMPDU_MPDUS, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
+import { EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import type { Msdu } from '../../src/engine/traffic'
 import { lessonShapeSuite, runOf } from './kit'
+import { ROOT, zhNumeral } from './coverage'
 import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
+const US = 1_000
 /** The 300 ms every number in this lesson is measured over — and the window the jumps need. */
 const RUN_NS = 300 * MS
 
@@ -246,3 +250,248 @@ describe('mlo · the worked example: MSDU 66 through those steps', () => {
 // a claim about how a sentence is written, and the course-wide companion to it in
 // tests/course/lessons.test.ts has gone the same way (2026-09-25). What the simulator does
 // with a single-radio multi-link station is pinned above, against the run.
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * Everything above measures the engine and compares it with a literal written in THIS file: the
+ * worked example has one `it` per row of the lesson's table, each named after the row — and each
+ * one types that row's figures here rather than reading them. `expect(arrival.t / MS).toBe(4.424)`
+ * is the row's instant on the test side; the row itself is in a title.
+ *
+ * `@mlo` hand-types 27 figures into its graded prose. What follows is the other half of each
+ * assertion above, with no figure on this side: the stack figure's caption and total, the two
+ * ceilings and the retry limit in the steps, all five rows of the table — including the **record
+ * column**, which names a record type and a lane and is as checkable as the instants beside it —
+ * the drop-branch note, both experiments, and the prose the graded walk never reads (`limits`,
+ * with its two file-and-function citations).
+ */
+describe('mlo · every printed figure is read back out of the lesson', () => {
+  const rs = runOf(mlo, undefined, RUN_NS)
+  const on5 = data(rs, 'sta-1').length
+  const on6 = data(rs, 'sta-1#6g').length
+  const tableWith = (fragment: string): { heading: string; head: string[]; rows: string[][] } => {
+    const b = mlo.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { heading: string; head: string[]; rows: string[][] }
+  }
+  /** 「30,718 字节」 → 30718; 「4.424 ms」 → 4.424. */
+  const val = (s: string): number => Number(s.replace(/[^\d.]/g, ''))
+  /** A printed figure against a measurement, rounded to the decimals the figure itself carries. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zhCount = (s: string): number | null => zhNumeral(s.replace(/两/g, '二'))
+  /** Every 「file.ts 的 symbol」 in a passage, against the file that declares it. */
+  const cite = (text: string, what: string): number => {
+    const found = [...text.matchAll(/([a-z]+\.ts) 的 (\w+)/g)]
+    for (const m of found) {
+      const path = ['src/engine', 'src/model', 'src/course']
+        .map((d) => resolve(ROOT, `${d}/${m[1]}`)).find(existsSync)
+      expect(path, `${what}: ${m[1]} is not a file of this repository`).toBeDefined()
+      expect(readFileSync(path!, 'utf8').includes(m[2]), `${what}: ${m[1]} declares ${m[2]}`)
+        .toBe(true)
+    }
+    return found.length
+  }
+  /** The first batch of the 6 GHz lane, which most of the lesson's figures are about. */
+  const batch = data(rs, 'sta-1#6g')[0]
+  const ids = batch.frame.ampdu!.msduIds!
+
+  it('the stack figure: both lanes, the total, and the fraction its caption states', () => {
+    const blk = mlo.numbers === undefined
+      ? undefined
+      : (mlo.picture!.find((x) => x.kind === 'diagram') as
+        { spec: { layers: { note?: string }[]; total?: string }; caption?: string } | undefined)
+    expect(blk, 'the stack figure is gone from `picture`').toBeDefined()
+    expect(blk!.spec, 'the figure the reader sees is `mloStack()`').toEqual(mloStack())
+    // each layer's note counts that lane's frames
+    const notes = blk!.spec.layers.map((l) => l.note ?? '')
+    expect(notes, 'one note per lane').toHaveLength(2)
+    same(notes[0].replace(' 帧', ''), on5, 'the 5 GHz lane’s frames')
+    same(notes[1].replace(' 帧', ''), on6, 'the 6 GHz lane’s frames')
+    // 「同一组待发的帧，300 ms 里共 307 个数据帧」: the window and the sum
+    const t = /([\d\s]+) ms 里共 ([\d\s]+) 个数据帧/.exec(blk!.spec.total ?? '')
+    expect(t, 'the figure’s closing line no longer states the window and the sum').not.toBeNull()
+    same(t![1], RUN_NS / MS, 'the window the figure is drawn over')
+    same(t![2], on5 + on6, 'and the frames in it')
+    // 「每五帧里有四帧是从 6 GHz 那条链路出去的」: a fraction, and the only place it is stated
+    const f = /每([一二三四五六七八九十]+)帧里有([一二三四五六七八九十]+)帧是从 6 GHz/.exec(blk!.caption ?? '')
+    expect(f, 'the caption no longer states the share as a fraction').not.toBeNull()
+    const [den, num] = [zhCount(f![1])!, zhCount(f![2])!]
+    const share = on6 / (on5 + on6)
+    expect(Math.abs(share / (num / den) - 1),
+      `「每${f![1]}帧里有${f![2]}帧」 against the measured ${(100 * share).toFixed(1)} %`)
+      .toBeLessThan(0.05)
+    // and the caption's point: the lean is towards the empty band, not away from it
+    expect(on6, '6 GHz carries more of them').toBeGreaterThan(on5)
+  })
+
+  it('the steps: the four queues, both claim ceilings, the batch and the retry limit', () => {
+    const items = (mlo.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+    expect(items, 'the lesson walks the procedure in exactly the steps this reads').toHaveLength(6)
+    // step 1: 「每台设备只有一套四条接入类别（AC）队列」
+    const q = /一套([一二三四五六七八九十]+)条接入类别/.exec(items[0])
+    expect(q, 'step 1 no longer counts the queues a device has').not.toBeNull()
+    expect(zhCount(q![1]), 'the access categories the engine queues per device')
+      .toBe(EDCA_PARAMS.length)
+    // step 4: 「64 帧、5.484 ms 的数据」, and 「这里领走的是 20 帧」
+    const caps = /(\d+) 帧、([\d.]+) ms 的数据/.exec(items[3])
+    expect(caps, 'step 4 no longer states the two ceilings it claims under').not.toBeNull()
+    expect(Number(caps![1]), 'the aggregation ceiling').toBe(MAX_AMPDU_MPDUS)
+    same(caps![2], MAX_PPDU_NS / MS, 'the longest transmission')
+    const took = /这里领走的是 (\d+) 帧/.exec(items[3])
+    expect(took, 'step 4 no longer says how many this scene claims').not.toBeNull()
+    expect(Number(took![1]), 'the frames the first claim really took').toBe(ids.length)
+    expect(Number(took![1]), 'which is under the ceiling, as the step says')
+      .toBeLessThan(MAX_AMPDU_MPDUS)
+    // step 6: 「加到 7 的那一帧被丢弃」
+    const limit = /加到 (\d+) 的那一帧被丢弃/.exec(items[5])
+    expect(limit, 'step 6 no longer states the retry limit').not.toBeNull()
+    expect(Number(limit![1]), 'the engine’s retry limit').toBe(SHORT_RETRY_LIMIT)
+  })
+
+  it('the worked table: five rows, and the record column is read as a claim too', () => {
+    const t = tableWith('MSDU 66')
+    // the heading names the frame the whole table follows
+    const h = /MSDU (\d+)/.exec(t.heading)
+    expect(h, 'the heading no longer names the frame').not.toBeNull()
+    const first = Number(h![1])
+    expect(first, 'which is the first frame of the batch').toBe(ids[0])
+
+    /** 「20 × DEQUEUE · sta-1#6g」 / 「ARRIVAL + ENQUEUE · sta-1」: count, types, lane. */
+    const parseRecord = (cell: string): { n: number; types: string[]; node: string } => {
+      const m = /^(?:(\d+) × )?([A-Z_]+(?: \+ [A-Z_]+)*) · (\S+)$/.exec(cell)
+      expect(m, `「${cell}」 is not 「[n ×] TYPE[ + TYPE] · lane」`).not.toBeNull()
+      return { n: m![1] ? Number(m![1]) : 1, types: m![2].split(' + '), node: m![3] }
+    }
+    const at = (ms: number) => Math.round(ms * MS)
+    expect(t.rows, 'the table walks exactly the rows this reads').toHaveLength(5)
+    for (const row of t.rows) {
+      const when = at(val(row[0]))
+      const { n, types, node } = parseRecord(row[1])
+      for (const type of types) {
+        const hit = rs.filter((r) => r.type === type && r.t === when
+          && (r as { node?: string }).node === node)
+        // A cell that states a count claims that number; a bare one claims that such a record is
+        // there at all. Twenty frames arrive in the same nanosecond in this scene, so reading
+        // 「ARRIVAL + ENQUEUE」 as 「one of them」 would be this file inventing a claim — the row
+        // is about the one frame the table follows, and that frame is checked by id below.
+        if (/^\d+ × /.test(row[1])) {
+          expect(hit.length, `${row[0]}: ${type} records on ${node} at that instant`).toBe(n)
+        } else {
+          expect(hit.length, `${row[0]}: at least one ${type} on ${node} at that instant`)
+            .toBeGreaterThan(0)
+        }
+      }
+    }
+
+    // row 1: 「第 66 帧，1500 字节，进入尽力而为队列，深度 1」
+    const r1 = /第 (\d+) 帧，([\d\s]+) 字节，进入尽力而为队列，深度 (\d+)/.exec(t.rows[0][2])
+    expect(r1, 'row 1 no longer describes the frame it enqueues').not.toBeNull()
+    type Enqueue = Extract<TLRecord, { type: 'ENQUEUE' }>
+    const enq = rs.find((r): r is Enqueue => r.type === 'ENQUEUE' && r.msduId === Number(r1![1]))!
+    expect(Number(r1![1]), 'the frame the row names').toBe(first)
+    same(r1![2], enq.bytes, 'its bytes')
+    expect(Number(r1![3]), 'and the depth it leaves behind').toBe(enq.depth)
+    expect(enq.ac, 'best effort is the queue it enters').toBe(1)
+    // 「记在 5 GHz 那条泳道上，而送它出去的并不是这条泳道」
+    expect(enq.node, 'the lane it is recorded on').toBe(parseRecord(t.rows[0][1]).node)
+    expect(batch.node, 'and the lane that sends it, which is the other one')
+      .not.toBe(enq.node)
+
+    // row 2: 「一次领走 20 帧，编号 66–85，30,718 字节，用 MCS 的第 13 级发出」
+    const r2 = /一次领走 (\d+) 帧，编号 (\d+)–(\d+)，([\d,\s]+) 字节，用调制与编码方式（modulation and coding scheme, MCS）的第 (\d+) 级发出/
+      .exec(t.rows[1][2])
+    expect(r2, 'row 2 no longer describes the claim').not.toBeNull()
+    expect(Number(r2![1]), 'the frames claimed').toBe(ids.length)
+    expect([Number(r2![2]), Number(r2![3])], 'the ids, first and last')
+      .toEqual([ids[0], ids[ids.length - 1]])
+    expect(ids, 'and they really are consecutive')
+      .toEqual([...Array(Number(r2![1]))].map((_x, i) => Number(r2![2]) + i))
+    same(r2![4], batch.frame.bytes, 'the bytes that went out')
+    expect(Number(r2![5]), 'and the rung').toBe(batch.frame.mcs)
+
+    // row 3: 「5 GHz 的倒数停在 2：它只是晚了 88 µs」
+    const r3 = /倒数停在 (\d+)：它只是晚了 (\d+) µs/.exec(t.rows[2][2])
+    expect(r3, 'row 3 no longer states the countdown and the gap').not.toBeNull()
+    type Dec = Extract<TLRecord, { type: 'BACKOFF_DEC' }>
+    const dec = rs.filter((r): r is Dec => r.type === 'BACKOFF_DEC' && r.node === 'sta-1'
+      && r.t === at(val(t.rows[2][0])))
+    expect(dec.map((r) => r.value), 'where the other lane’s countdown stood').toEqual([Number(r3![1])])
+    same(r3![2], (at(val(t.rows[1][0])) - at(val(t.rows[0][0]))) / US,
+      'the gap between the arrival and the claim')
+
+    // row 4: 「32 字节，一次性回答这 20 帧」
+    const r4 = /(\d+) 字节，一次性回答这 (\d+) 帧/.exec(t.rows[3][2])
+    expect(r4, 'row 4 no longer describes the BlockAck').not.toBeNull()
+    type Tx2 = Extract<TLRecord, { type: 'TX_START' }>
+    const ba = rs.find((r): r is Tx2 => r.type === 'TX_START' && r.frame.kind === 'ba'
+      && r.t === at(val(t.rows[3][0])))!
+    same(r4![1], ba.frame.bytes, 'the BlockAck’s bytes')
+    expect(Number(r4![2]), 'and the frames it answers').toBe(ids.length)
+
+    // row 5: 「这 20 帧全部离开共享队列——而编号 66–85 中没有任何一个在 5 GHz 的发送里出现过」
+    const r5 = /这 (\d+) 帧全部离开共享队列——而编号 (\d+)–(\d+) 中没有任何一个在 5 GHz 的发送里出现过/
+      .exec(t.rows[4][2])
+    expect(r5, 'row 5 no longer states the dequeue and the claim about the other lane').not.toBeNull()
+    type Deq = Extract<TLRecord, { type: 'DEQUEUE' }>
+    const deq = rs.filter((r): r is Deq => r.type === 'DEQUEUE' && r.t === at(val(t.rows[4][0]))
+      && r.node === batch.node)
+    expect(deq.map((r) => r.msduId).sort((a, b) => a - b), 'the ids that left the queue')
+      .toEqual([...ids].sort((a, b) => a - b))
+    expect(Number(r5![1]), 'and how many the row says there were').toBe(deq.length)
+    const sent5 = new Set(data(rs, 'sta-1')
+      .flatMap((r) => r.frame.ampdu?.msduIds ?? [r.frame.msduId!]))
+    const range = [...Array(Number(r5![3]) - Number(r5![2]) + 1)].map((_x, i) => Number(r5![2]) + i)
+    expect(range.filter((id) => sent5.has(id)), 'none of that range went out on the other lane')
+      .toEqual([])
+  })
+
+  it('the drop-branch note, both observe lines and the experiment', () => {
+    // 「这段 300 ms 里一次丢弃也没有发生 … 没有哪一帧被试到第七次」
+    const note = (mlo.numbers! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+    const m = /这段 ([\d\s]+) ms 里一次丢弃也没有发生[^]*?没有哪一帧被试到第([一二三四五六七八九十]+)次/
+      .exec(note)
+    expect(m, 'the drop-branch note is gone, or its shape changed').not.toBeNull()
+    same(m![1], RUN_NS / MS, 'the window the note is about')
+    expect(zhCount(m![2]), 'the attempt that would drop a frame').toBe(SHORT_RETRY_LIMIT)
+    expect(rs.filter((r) => r.type === 'DROP'), 'and nothing is dropped in it').toHaveLength(0)
+    // 「七次分落在两条泳道上」: the synthetic scene the note says it is pinned against
+    const synth = /同一帧被试满([一二三四五六七八九十]+)次、([一二三四五六七八九十]+)次分落在([两一二三四五六七八九十]+)条泳道上/
+      .exec(note)
+    expect(synth, 'the note no longer says what the synthetic scene shows').not.toBeNull()
+    expect([zhCount(synth![1]), zhCount(synth![2])], 'the attempts, stated twice')
+      .toEqual([SHORT_RETRY_LIMIT, SHORT_RETRY_LIMIT])
+    expect(zhCount(synth![3]), 'and the lanes they fall across')
+      .toBe(new Set(data(rs, 'sta-1').concat(data(rs, 'sta-1#6g')).map((r) => r.node)).size)
+    // tryThis: 「6 GHz 上的第一批（20 帧，编号 66–85）」
+    const e = /第一批（(\d+) 帧，编号 (\d+)–(\d+)）/.exec(mlo.tryThis![0])
+    expect(e, 'the experiment no longer names the batch it sends the reader to').not.toBeNull()
+    expect([Number(e![1]), Number(e![2]), Number(e![3])], 'the batch, as the experiment states it')
+      .toEqual([ids.length, ids[0], ids[ids.length - 1]])
+    // observe[0]: 「第二条标着 ·6G」, and that the lane really is named that way
+    expect(mlo.observe![0], 'observe[0] no longer names the lane suffix').toContain('·6G')
+    expect(batch.node.endsWith('#6g'), 'and the 6 GHz lane is the suffixed one').toBe(true)
+  })
+
+  it('`limits`: the skew it calls a product of one rule, and its two citations', () => {
+    const ls = mlo.limits.map((l) => l.text).join('\n')
+    // 「本课那 67 比 240 的偏斜」
+    const m = /那 (\d+) 比 (\d+) 的偏斜/.exec(ls)
+    expect(m, '`limits` no longer names the skew').not.toBeNull()
+    expect([Number(m![1]), Number(m![2])], 'the two lanes’ frames, as the limit restates them')
+      .toEqual([on5, on6])
+    expect(Number(m![1]) + Number(m![2]), 'which is the figure’s own total').toBe(on5 + on6)
+    // 「开了 MLO 的节点永远是 5 GHz 加 6 GHz 两条，不多不少」
+    const two = /永远是 5 GHz 加 6 GHz ([一二三四五六七八九十两]+)条，不多不少/.exec(ls)
+    expect(two, '`limits` no longer states how many links a node gets').not.toBeNull()
+    expect(zhCount(two![1]), 'the links an MLO node has')
+      .toBe(new Set([...data(rs, 'sta-1'), ...data(rs, 'sta-1#6g')].map((r) => r.node)).size)
+    // and both citations are claims about this repository
+    expect(cite(ls, '`limits`'), 'it cites two of them').toBe(2)
+  })
+})

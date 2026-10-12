@@ -17,7 +17,8 @@
  * ratchet turning, which is its job. `@amp-slots` (84, third on the ranking) followed: 13 and 78,
  * then `@uwb-uwbd` (54, four tables) and `@uwb-subrounds` (43): 11 and 80, and `@txop-protect`
  * — 40 figures, the most of the eleven still owing — 10 and 81. `@txop` (38, the next on that
- * ranking) took it to 9 and 82, `@mcs-ladder` (37) to 8 and 83, and `@ampdu` (35) to 7 and 84
+ * ranking) took it to 9 and 82, `@mcs-ladder` (37) to 8 and 83, `@ampdu` (35) to 7 and 84 and
+ * `@mlo` (27) to 6 and 85
  * — that one found a real one: the subframe caption called the three fixed parts 36 bytes
  * when they are 34, the 36 being the total WITH the padding the same sentence then adds.
  * That is the ratchet this
@@ -76,7 +77,7 @@ const PROSE_FIELDS = [
  * ceiling, and for the same reason: a count can stay right while the membership rots.
  */
 const NO_READBACK: readonly string[] = [
-  'ifs', 'nav', 'hidden', 'rate', 'mumimo', 'mlo', 'amp-ppdu',
+  'ifs', 'nav', 'hidden', 'rate', 'mumimo', 'amp-ppdu',
 ]
 
 /**
