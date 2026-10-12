@@ -25,7 +25,10 @@ import { backoff, backoffTiming } from '../../src/course/tier1/backoff'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { CW_MIN, DIFS_NS, SLOT_NS } from '../../src/engine/phy'
+import { ROOT, zhNumeral } from './coverage'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
 import { lessonStrings } from '../../src/course/readability'
@@ -299,5 +302,248 @@ describe('backoff · the one-frame-per-win limit, and the lesson that lifts it',
     expect(text).toContain('一次竞争成功不再只换来一次交互')
     expect(text).toContain('一串')
     expect(COURSE_ORDER.indexOf('txop')).toBeGreaterThan(COURSE_ORDER.indexOf('backoff'))
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * `scripts/figure-planting.ts` measured this lesson on 2026-10-12: **42 of its 47 printed
+ * figures were editable with this file green.** Everything above pins the engine against
+ * literals written here — `CW_MIN`, the 770 draws, the mean 7.15, the freeze at 498 with value
+ * 3 — and the figure's own spans are already read out of `backoffTiming()`, which is why five
+ * were pinned. What was not read is the prose that restates them: the caption walks seven
+ * instants and three counter values in one sentence, `picture` names two of them again, the
+ * draw paragraph prints 770 / 7.15 / 9 / 64 a second time, `limits` prints 770 and 7.15 a
+ * third, `sources` a fourth, and the quiz's frozen 7 is a hypothesis nothing checked.
+ *
+ * So each site is read here, including the two the figure labels carry (「5 4 3」 and
+ * 「3 2 1 0」, which are the decrements either side of the freeze) and 「冻住在 3」. The one
+ * figure that is a claim about another lesson — 「CW 为 15 时共十六个可能值」 — is checked
+ * against the engine's own draw range rather than against the sentence next to it.
+ */
+describe('backoff · every printed figure is read back out of the lesson', () => {
+  const rs = recs()
+  const decs = ofType(rs, 'BACKOFF_DEC')
+  const freezes = ofType(rs, 'BACKOFF_FREEZE')
+  const resumes = ofType(rs, 'BACKOFF_RESUME')
+  const txs = ofType(rs, 'TX_START')
+
+  const caption = (backoff.numbers!.find((x) => x.kind === 'diagram') as { caption: string }).caption
+  const drawProse = (backoff.numbers!.find((x) => (x as { heading?: string }).heading === '本轮抽出来的数') as
+    { text: string }).text
+  const steps = (backoff.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+  const pictureText = (backoff.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+  const limitText = backoff.limits.map((x) => x.text).join('\n')
+  const sourcesText = backoff.sources!.join('\n')
+  const quizText = backoff.quiz!.flatMap((q) => [q.q, ...q.options, q.explain ?? '']).join('\n')
+
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(text)
+    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] =>
+    raw(text, re, what).map((x) => Number(x.replace(/[\s,]/g, '')))
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zhCount = (s: string): number => {
+    const n = zhNumeral(s.replace(/两/g, '二'))
+    expect(n, `「${s}」 is not a number this reads`).not.toBeNull()
+    return n!
+  }
+  const counted = (text: string, re: RegExp, what: string): number => zhCount(raw(text, re, what)[0])
+  const ZH = '[〇一二三四五六七八九十两]+'
+  const lane = (label: string): TimingLane => backoffTiming().lanes.find((l) => l.label === label)!
+
+  it('`picture`: the draw’s range, and the two instants the watch call-out names', () => {
+    const [from] = figs(pictureText, /抽的范围是 (\d+) 到竞争窗口/, '`picture` on the draw’s floor')
+    expect(from).toBe(0)
+    expect(Math.min(...draws().map((r) => r.value)), 'the smallest number this run ever drew')
+      .toBe(from)
+    // 「两端都算」: the top of the range is the window itself, and this run reaches it. From
+    // the FLOOR window — the run's largest draw is 57, out of a window that doubled after a
+    // collision, which is `collisions-cw`'s subject and not this lesson's.
+    expect(Math.max(...draws().filter((r) => r.cw === CW_MIN).map((r) => r.value))).toBe(CW_MIN)
+
+    // 「邻居的数据帧在 498 µs 开始发送，STA-1 的计数器正好数到 3，就停在那里不动……824 µs 才继续」
+    const [at] = figs(pictureText, /在 (\d+) µs 开始发送/, '`picture` on when the neighbour starts')
+    const [value] = figs(pictureText, /计数器正好数到 (\d+)/, '`picture` on the frozen value')
+    const [until] = figs(pictureText, /(\d+) µs 才继续/, '`picture` on when it carries on')
+    const freeze = freezes.find((r) => r.node === 'sta-1' && r.t === at * 1_000)
+    expect(freeze, `nothing freezes STA-1 at ${at} µs`).toBeDefined()
+    expect(freeze!.value, 'the value it freezes at').toBe(value)
+    expect(txs.some((r) => r.node === 'sta-2' && r.t === at * 1_000),
+      `the neighbour does not start at ${at} µs`).toBe(true)
+    const resume = resumes.find((r) => r.node === 'sta-1' && r.t > freeze!.t)!
+    expect(resume.t / 1_000, 'when it carries on').toBe(until)
+    expect(resume.value, 'and the value it carries on from').toBe(value)
+  })
+
+  it('the caption: three decrements, the freeze, the answer, the gap, and the frame at 851', () => {
+    const [a, five, b, four, c, three] = figs(caption,
+      /在 (\d+) µs 数到 (\d+)、(\d+) µs 数到 (\d+)、(\d+) µs 数到 (\d+)/,
+      'the caption’s three decrements')
+    const mine = decs.filter((r) => r.node === 'sta-1')
+    for (const [t, v] of [[a, five], [b, four], [c, three]] as const) {
+      const d = mine.find((r) => r.t === t * 1_000)
+      expect(d, `STA-1 does not count down at ${t} µs`).toBeDefined()
+      expect(d!.value, `the value STA-1 counts to at ${t} µs`).toBe(v)
+    }
+    // 「邻居恰在 498 µs 开始发送，于是它停在 3」
+    const [at, held] = figs(caption, /邻居恰在 (\d+) µs 开始发送，于是它停在 (\d+)/,
+      'the caption on the freeze')
+    expect(at).toBe(c)
+    expect(held).toBe(three)
+    const freeze = freezes.find((r) => r.node === 'sta-1' && r.t === at * 1_000)!
+    expect(freeze.value).toBe(held)
+    // 「邻居的帧到 746 µs 结束，确认帧到 790 µs 结束，一个 DIFS 走到 824 µs」
+    const [frameEnd] = figs(caption, /邻居的帧到 (\d+) µs 结束/, 'the caption on the frame’s end')
+    const [ackEnd] = figs(caption, /确认帧到 (\d+) µs 结束/, 'the caption on the answer’s end')
+    const [difsEnd] = figs(caption, /一个 DIFS 走到 (\d+) µs/, 'the caption on the gap’s end')
+    expect(ofType(rs, 'TX_END').some((r) => r.node === 'sta-2' && r.t === frameEnd * 1_000)).toBe(true)
+    const ack = txs.find((r) => r.frame.kind === 'ack' && r.t > frameEnd * 1_000)!
+    expect((ack.t + ack.frame.txTimeNs) / 1_000, 'when the answer ends').toBe(ackEnd)
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'sta-1' && r.t === ackEnd * 1_000)!
+    expect(ifs.kind).toBe('DIFS')
+    expect(ifs.untilNs / 1_000, 'when the gap ends').toBe(difsEnd)
+    expect(ifs.untilNs - ifs.t).toBe(DIFS_NS)
+    // 「它才从同一个 3 继续，并在 851 µs 发出自己的帧」
+    const [again] = figs(caption, /从同一个 (\d+) 继续/, 'the caption on the value it resumes from')
+    const [sends] = figs(caption, /在 (\d+) µs 发出自己的帧/, 'the caption on when it sends')
+    const resume = resumes.find((r) => r.node === 'sta-1' && r.t === difsEnd * 1_000)!
+    expect(resume.value).toBe(again)
+    expect(again).toBe(held)
+    const tx = txs.find((r) => r.node === 'sta-1' && r.t > resume.t)!
+    expect(tx.t / 1_000, 'when STA-1 sends').toBe(sends)
+    expect(tx.t - resume.t, 'and the counted slots in between').toBe(again * SLOT_NS)
+  })
+
+  it('the figure’s counter labels are the decrements either side of the freeze', () => {
+    const spans = lane('STA-1 计数').spans
+    expect(spans, 'the counter lane states exactly the three spans this reads').toHaveLength(3)
+    const mine = decs.filter((r) => r.node === 'sta-1')
+    // 「5 4 3」 and 「3 2 1 0」: every number is a value the counter SHOWS inside that span —
+    // which for the second one includes the value it resumes at, not only its decrements.
+    const shown = (fromUs: number, toUs: number): number[] => rs
+      .filter((r) => (r.type === 'BACKOFF_DEC' || r.type === 'BACKOFF_RESUME')
+        && r.node === 'sta-1' && r.t >= fromUs * 1_000 && r.t <= toUs * 1_000)
+      .map((r) => (r as { value: number }).value)
+    for (const s of [spans[0], spans[2]]) {
+      expect(shown(s.fromUs, s.toUs), `the counter inside ${s.fromUs}–${s.toUs} µs`)
+        .toEqual(s.label!.split(' ').map(Number))
+    }
+    // 「冻住在 3」
+    const [held] = figs(spans[1].label!, /冻住在 (\d+)/, 'the frozen label')
+    const freeze = freezes.find((r) => r.node === 'sta-1' && r.t === spans[1].fromUs * 1_000)!
+    expect(freeze.value).toBe(held)
+    expect(mine.some((r) => r.t > spans[1].fromUs * 1_000 && r.t < spans[1].toUs * 1_000),
+      'the counter moved inside the span the figure calls frozen').toBe(false)
+  })
+
+  it('「本轮抽出来的数」: the window, the draws, the mean, the slot and the wait', () => {
+    const [ms] = figs(drawProse, /(\d+) ms 里/, 'the window it counts over')
+    const [cw] = figs(drawProse, /下限窗口 CW = (\d+)/, 'the window it draws from')
+    const [count] = figs(drawProse, /抽了 (\d+) 次/, 'the draws it counts')
+    const [mean] = figs(drawProse, /平均抽到 ([\d.]+) 个时隙/, 'the mean it reports')
+    const [slot] = figs(drawProse, /每个时隙是 (\d+) µs/, 'the slot')
+    const [wait] = figs(drawProse, /平均等待约 (\d+) µs/, 'the mean wait')
+    expect(ms * MS).toBe(RUN_NS)
+    expect(cw).toBe(CW_MIN)
+    expect(draws().filter((r) => r.cw === cw)).toHaveLength(count)
+    same(raw(drawProse, /平均抽到 ([\d.]+) 个时隙/, 'the mean')[0], meanOf(cw), 'the mean draw')
+    expect(slot * 1_000).toBe(SLOT_NS)
+    // 「于是平均等待约 64 µs」: 「约」 is one significant figure, so it rounds to the ten
+    expect(Math.round((mean * slot) / 10) * 10).toBe(Math.round(wait / 10) * 10)
+    // 「比一个 DIFS 还长一点」
+    expect(wait * 1_000).toBeGreaterThan(DIFS_NS)
+    expect(wait * 1_000, 'and 「一点」 is not 「twice」').toBeLessThan(2 * DIFS_NS)
+  })
+
+  it('the procedure: the floor, the sixteen values it allows, and the slot it counts in', () => {
+    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
+    const [floor] = figs(steps[0], /从下限 (\d+) 起步/, 'step 1’s floor')
+    const [low] = figs(steps[1], /站点在 (\d+) 与 CW 之间/, 'step 2’s lower end')
+    const [cw] = figs(steps[1], /CW 为 (\d+) 时共/, 'step 2’s window')
+    expect(Math.min(...draws().map((r) => r.value)), 'the smallest number this run drew').toBe(low)
+    const values = counted(steps[1], new RegExp(`时共(${ZH})个可能值`), 'step 2’s value count')
+    const [slot] = figs(steps[2], /每空闲满一个 (\d+) µs 的时隙/, 'step 3’s slot')
+    expect(floor).toBe(CW_MIN)
+    expect(cw).toBe(CW_MIN)
+    // 「0 与 CW 之间均匀地抽一个整数，两端都算在内」 — so the window allows CW + 1 values,
+    // and this run really does draw every one of them
+    expect(cw + 1).toBe(values)
+    expect(new Set(draws().filter((r) => r.cw === cw).map((r) => r.value)).size).toBe(values)
+    expect(slot * 1_000).toBe(SLOT_NS)
+  })
+
+  it('`limits`: the draws and the mean are the same two figures, and the wait is DCF’s own', () => {
+    const [count, mean] = figs(limitText, /(\d+) 次抽取、平均 ([\d.]+) 个时隙/,
+      '`limits` on the draws it calls reproducible')
+    expect(draws().filter((r) => r.cw === CW_MIN)).toHaveLength(count)
+    same(raw(limitText, /平均 ([\d.]+) 个时隙/, 'the mean')[0], meanOf(CW_MIN), 'the mean draw')
+    const [wait] = figs(limitText, /「平均等待约 (\d+) µs」/, '`limits` on the wait it scopes')
+    expect(Math.round((mean * (SLOT_NS / 1_000)) / 10) * 10).toBe(Math.round(wait / 10) * 10)
+    // 「每个节点一条 splitmix32 子流」: the generator the figures come from, by name
+    const [bits] = figs(limitText, /splitmix(\d+) 子流/, '`limits` on the generator')
+    expect(readFileSync(resolve(ROOT, 'src/engine/rng.ts'), 'utf8'),
+      `src/engine/rng.ts does not mention splitmix${bits}`).toMatch(new RegExp(`splitmix${bits}`, 'i'))
+    // and 「这个场景里一次成功只换来一帧」, which is what makes that wait DCF's own
+    for (const n of ['sta-1', 'sta-2']) {
+      const mineTx = txs.filter((r) => r.node === n && r.frame.kind === 'data')
+      const myDraws = draws().filter((r) => r.node === n)
+      expect(myDraws.length, `${n}: a draw for every frame`).toBeGreaterThanOrEqual(mineTx.length - 1)
+    }
+  })
+
+  it('`sources` and `observe`: the same floor, slot, draws and frame', () => {
+    const [cwMin, slot] = figs(sourcesText, /aCWmin (\d+) 与 aSlotTime (\d+) µs/,
+      '`sources` on the two constants')
+    expect(cwMin).toBe(CW_MIN)
+    expect(slot * 1_000).toBe(SLOT_NS)
+    const [groups] = figs(sourcesText, /(\d+) 这个组数/, '`sources` on the pairs')
+    const [bytes] = figs(sourcesText, /([\d,]+) 字节的帧/, '`sources` on the frame')
+    const stations = counted(sourcesText, new RegExp(`(${ZH})台饱和站点`), '`sources` on the stations')
+    const data = txs.filter((r) => r.frame.kind === 'data')
+    expect(new Set(data.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
+    expect(backoff.scenario().nodes.filter((n) => n.profiles?.includes('saturated')))
+      .toHaveLength(stations)
+
+    // 「本轮共 770 组冻结与恢复，没有一组丢掉过一个时隙」
+    const [pairs] = figs(backoff.observe[0], /本轮共 (\d+) 组冻结与恢复/, '`observe` on the pairs')
+    expect(pairs).toBe(groups)
+    const held = new Map<string, number>()
+    let matched = 0
+    for (const r of rs) {
+      if (r.type === 'BACKOFF_FREEZE') { held.set(r.node, r.value); continue }
+      if (r.type !== 'BACKOFF_RESUME') continue
+      const was = held.get(r.node)
+      if (was === undefined) continue
+      expect(r.value, `${r.node} resumed at ${r.t}`).toBe(was)
+      held.delete(r.node)
+      matched++
+    }
+    expect(matched, 'freeze-and-resume pairs that kept their value').toBe(pairs)
+  })
+
+  it('the quiz: a counter frozen at seven resumes at seven', () => {
+    const [frozen] = figs(quizText, /冻结在 (\d+)/, 'the quiz’s frozen value')
+    const [answer] = figs(quizText, /^(\d+)——正是它停下的那个数/m, 'the option that keeps it')
+    expect(answer).toBe(frozen)
+    // the hypothesis is one this run really produces, and every one of them resumes there
+    const seven = freezes.filter((r) => r.value === frozen)
+    expect(seven.length, `no counter in this run ever freezes at ${frozen}`).toBeGreaterThan(0)
+    for (const f of seven) {
+      const back = resumes.find((r) => r.node === f.node && r.t > f.t)
+      if (back) expect(back.value, `${f.node} frozen at ${f.t}`).toBe(frozen)
+    }
+    // and the option 「0，因为等待已经结束了」 is wrong because a resume at zero would mean a
+    // station that never counted the rest of its wait
+    const [zero] = figs(quizText, /(\d+)，因为等待已经结束了/, 'the option that zeroes it')
+    expect(resumes.filter((r) => r.value === zero), 'a counter resumed at zero').toHaveLength(0)
   })
 })
