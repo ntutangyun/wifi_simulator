@@ -84,7 +84,10 @@ const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|\.\d\s*(将|�
 // it means SP0 would be wrong about a word, not about a quantity. No word boundary on it: the
 // same name is inside the identifiers that lesson cites (`MMS_SP0_NS`, `makeSp0Poll`), where a
 // `\b` after `_` or after a lower-case letter does not hold.
-const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot|TG|[Ss][Pp])$/
+// `Gen` for `EPC Gen2`, the name of the air interface `@amp-backscatter` inventories with, and
+// `RN` for `RN16`, the draft's name for the tag's random number — the lesson prints 「16 位随机数
+// RN16」, where the first 16 is a width (a figure, and read as one) and the second is the name.
+const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot|TG|[Ss][Pp]|Gen|RN)$/
 // `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
 // `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
