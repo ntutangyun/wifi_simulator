@@ -28,6 +28,9 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 import {
   ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
 } from '../../src/engine/phy'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { ROOT, zhNumeral } from './coverage'
 import { MODULES, trackOf } from '../../src/course/curriculum'
 import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 import {
@@ -297,5 +300,279 @@ describe('collisions-cw · every official term carries its English name', () => 
 
   it('had its terminology actually graded', () => {
     expect(rows.filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * Everything above pins the engine against literals written here — 45 µs, 293, 327, 22/19/3,
+ * the 770/89/5 ladder, 864 frames and 47 collisions — and `scripts/figure-planting.ts` sampled
+ * this lesson on 2026-10-12: **six of six sampled figures were editable with this file green.**
+ * They would be: the deadline is stated four times (a table row, a step, `sources`, the figure's
+ * own label), the window ladder three times, and the two censuses twice each.
+ *
+ * So each site is read here. Three things in this lesson are claims about documents rather than
+ * about the engine, and they are read as what they are: the deadline table's 出处 column cites
+ * the same clause three times for three figures `sources` derives from one formula, and the
+ * capture margin's 「取自 ns-3 的默认值」 is a statement about another simulator — what is
+ * checked is that this engine's constant is the figure the limit prints.
+ */
+describe('collisions-cw · every printed figure is read back out of the lesson', () => {
+  const rs = recs()
+  const d = data()
+  const cols = ofType(rs, 'COLLISION')
+  const timeouts = ofType(rs, 'ACK_TIMEOUT')
+
+  const tableWith = (fragment: string): { heading: string; head: string[]; rows: string[][] } => {
+    const b = collisionsCw.numbers!.find((x) => x.kind === 'table'
+      && ((x as { heading?: string }).heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { heading: string; head: string[]; rows: string[][] }
+  }
+  const steps = (collisionsCw.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+  const caption = (collisionsCw.numbers!.find((x) => x.kind === 'diagram') as
+    { caption: string }).caption
+  const rateProse = (collisionsCw.numbers!.find((x) => (x as { heading?: string }).heading === '出错的频率') as
+    { text: string }).text
+  const pictureText = (collisionsCw.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+  const deeperText = (collisionsCw.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+  const limitText = collisionsCw.limits.map((x) => x.text).join('\n')
+  const sourcesText = collisionsCw.sources!.join('\n')
+
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(text)
+    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] =>
+    raw(text, re, what).map((x) => Number(x.replace(/[\s,]/g, '')))
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zhCount = (s: string): number => {
+    const n = zhNumeral(s.replace(/两/g, '二'))
+    expect(n, `「${s}」 is not a number this reads`).not.toBeNull()
+    return n!
+  }
+  const counted = (text: string, re: RegExp, what: string): number => zhCount(raw(text, re, what)[0])
+  const ZH = '[〇一二三四五六七八九十两]+'
+  const lane = (label: string): TimingLane => collisionTiming().lanes.find((l) => l.label === label)!
+  /** The first collision's deadline, which most of this lesson's figures are about. */
+  const firstTimeout = timeouts[0]
+
+  it('the deadline table: its three parts, their sum, and the one clause they come from', () => {
+    // `outcomes` states the deadline too — 「把 45 µs 的期限拆成三段」 — and the three parts it
+    // promises are the three rows below, which is the one figure in this lesson's own outcomes
+    const out = collisionsCw.outcomes!.join('\n')
+    const [promised] = figs(out, /把 (\d+) µs 的期限拆成/, '`outcomes` on the deadline')
+    const parts = counted(out, new RegExp(`拆成(${ZH})段`), '`outcomes` on how many parts')
+    expect(promised * 1_000).toBe(ACK_TIMEOUT_NS)
+    const rows = tableWith('那个期限为什么落在这里').rows
+    expect(rows.length - 1, 'the parts the table breaks it into').toBe(parts)
+    expect(rows, 'the table states exactly the four rows this reads').toHaveLength(4)
+    const [sifs, slot, delay, total] = rows.map((r) => Number(r[1]))
+    expect(sifs * 1_000).toBe(SIFS_NS)
+    expect(slot * 1_000).toBe(SLOT_NS)
+    expect(delay * 1_000).toBe(RX_START_DELAY_NS)
+    expect(total * 1_000).toBe(ACK_TIMEOUT_NS)
+    expect(sifs + slot + delay, 'the table’s own three parts against its own total').toBe(total)
+    // the first three cite one clause and the total another, and `sources` names both
+    expect(new Set(rows.slice(0, 3).map((r) => r[3])).size, 'one clause for the three parts').toBe(1)
+    for (const r of rows) {
+      expect(sourcesText, `the table cites ${r[3]} and \`sources\` never names it`).toContain(r[3])
+    }
+    // and the deadline really is that long, every time it fires in this run
+    expect(timeouts.length).toBeGreaterThan(40)
+    for (const t of timeouts) {
+      const mine = d.filter((x) => x.node === t.node && x.t + x.frame.txTimeNs <= t.t).pop()!
+      expect(t.t - (mine.t + mine.frame.txTimeNs), `the deadline at ${t.t}`).toBe(total * 1_000)
+    }
+  })
+
+  it('the caption: the deadline, the doubling, the redraw, and the two draws it compares', () => {
+    const [deadline, at] = figs(caption, /(\d+) µs 的期限在 (\d+) µs 到期/, 'the caption on the deadline')
+    const [cw] = figs(caption, /两边的窗口在同一刻翻倍到 (\d+)/, 'the caption on the new window')
+    const [redraw] = figs(caption, /各走一个 DIFS 到 (\d+) µs 才重新抽/, 'the caption on the redraw')
+    const [a, b] = figs(caption, /STA-1 抽到 (\d+)、STA-2 抽到 (\d+)/, 'the caption on the two draws')
+    const [opens] = figs(caption, /STA-2 在 (\d+) µs 先发送/, 'the caption on who opens')
+    const [held] = figs(caption, /正好冻在两者之差 (\d+) 上/, 'the caption on the frozen value')
+
+    expect(deadline * 1_000).toBe(ACK_TIMEOUT_NS)
+    expect(firstTimeout.t / 1_000, 'when the deadline fires').toBe(at)
+    const doubles = ofType(rs, 'CW_CHANGE').filter((r) => r.t === firstTimeout.t)
+    expect(doubles.length, 'both stations double at that instant').toBe(2)
+    for (const c of doubles) expect(c.cw, `${c.node}’s new window`).toBe(cw)
+    const draw = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.t === redraw * 1_000)
+    expect(draw.length, `two draws at ${redraw} µs`).toBe(2)
+    expect(draw.find((r) => r.node === 'sta-1')!.value, 'STA-1’s draw').toBe(a)
+    expect(draw.find((r) => r.node === 'sta-2')!.value, 'STA-2’s draw').toBe(b)
+    const next = ofType(rs, 'TX_START').find((r) => r.t > redraw * 1_000)!
+    expect(next.node, 'who opens').toBe('sta-2')
+    expect(next.t / 1_000, 'and when').toBe(opens)
+    expect(Math.abs(a - b), 'the difference the caption calls the frozen value').toBe(held)
+    const freeze = ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === next.t)!
+    expect(freeze.value, 'which is what STA-1 really freezes at').toBe(held)
+  })
+
+  it('the figure’s four lanes carry the frame, the deadline and the gap', () => {
+    const [from, to] = [lane('STA-1').spans[0], lane('STA-2').spans[0]]
+      .map((s) => [s.fromUs, s.toUs]) as [number[], number[]]
+    expect(from, 'the two lanes are identical, which is the lesson’s point').toEqual(to)
+    const zero = d.filter((r) => r.t === 0)
+    expect(zero.length, 'the two frames the figure draws').toBe(2)
+    for (const f of zero) {
+      expect([0, f.frame.txTimeNs / 1_000], `${f.node}’s frame`).toEqual(from)
+    }
+    const wait = lane('等回答').spans[0]
+    same(raw(wait.label ?? '', /^(\d+) µs$/, 'the deadline lane’s label')[0],
+      ACK_TIMEOUT_NS / 1_000, 'the deadline the figure draws')
+    expect((wait.toUs - wait.fromUs) * 1_000, 'and the span it labels').toBe(ACK_TIMEOUT_NS)
+    expect(wait.fromUs, 'which starts where the frames end').toBe(from[1])
+    const difs = lane('重来').spans[0]
+    expect(difs.label).toBe('DIFS')
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.t === firstTimeout.t)!
+    expect([difs.fromUs, difs.toUs], 'the gap the figure draws')
+      .toEqual([ifs.t / 1_000, ifs.untilNs / 1_000])
+  })
+
+  it('the steps: the deadline’s arithmetic, the ladder, and the retry limit', () => {
+    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
+    const [a, b, c, sum] = figs(steps[0], /期限是 (\d+) \+ (\d+) \+ (\d+) = (\d+) µs/,
+      'step 1’s arithmetic')
+    expect([a, b, c].map((x) => x * 1_000)).toEqual([SIFS_NS, SLOT_NS, RX_START_DELAY_NS])
+    expect((a + b + c) * 1_000, 'step 1’s own sum').toBe(ACK_TIMEOUT_NS)
+    expect(sum * 1_000).toBe(ACK_TIMEOUT_NS)
+    // step 3: 「CW 的两倍再加一」, the ceiling, and the ladder it prints
+    const [ceil] = figs(steps[2], /上限是 (\d+)/, 'step 3’s ceiling')
+    const ladder = figs(steps[2], /于是 (\d+)、(\d+)、(\d+)/, 'step 3’s first three rungs')
+    expect(ceil).toBe(CW_MAX)
+    expect(ladder[0]).toBe(CW_MIN)
+    for (let i = 1; i < ladder.length; i++) {
+      expect(ladder[i], `rung ${i}`).toBe(Math.min(2 * ladder[i - 1] + 1, CW_MAX))
+    }
+    // and the run uses exactly those rungs: it climbs to the widest the lesson prints and
+    // comes back to the floor, which is the whole ladder and nothing above it
+    expect([...new Set(ofType(rs, 'CW_CHANGE').map((r) => r.cw))].sort((x, y) => x - y))
+      .toEqual(ladder)
+    // step 5: 「连续失败到第七次」
+    const seventh = counted(steps[4], new RegExp(`连续失败到第(${ZH})次`), 'step 5’s retry limit')
+    expect(seventh).toBe(SHORT_RETRY_LIMIT)
+  })
+
+  it('the doubling table and 「出错的频率」: the same three windows and the same two censuses', () => {
+    const rows = tableWith('翻倍在本轮里管用吗').rows
+    expect(rows, 'the table states exactly the three rows this reads').toHaveLength(3)
+    const [ms] = figs(tableWith('翻倍在本轮里管用吗').head[1], /(\d+) ms/, 'the window it counts over')
+    expect(ms * MS).toBe(RUN_NS)
+    for (const r of rows) {
+      const [cw] = figs(r[0], /CW = (\d+)/, `the window 「${r[0]}」 names`)
+      const mine = draws().filter((x) => x.cw === cw)
+      expect(mine.length, `draws from CW = ${cw}`).toBe(Number(r[1]))
+      same(r[2], meanOf(cw), `the mean draw from CW = ${cw}`)
+    }
+    // 「300 ms 里这两台站点一共发出 864 帧，碰撞 47 次——大约二十次里错一次」
+    const [window2] = figs(rateProse, /(\d+) ms 里/, 'the window the census is over')
+    const [frames, hits] = figs(rateProse, /一共发出 (\d+) 帧，碰撞 (\d+) 次/, 'the census')
+    const inTwenty = counted(rateProse, new RegExp(`大约(${ZH})次里错一次`), 'the rate it rounds to')
+    expect(window2 * MS).toBe(RUN_NS)
+    expect(d.length).toBe(frames)
+    expect(cols.length).toBe(hits)
+    // 「大约」: one significant figure, so the rate rounds to that many attempts per collision
+    expect(Math.round(frames / hits / 10) * 10, `${frames} frames, ${hits} collisions`)
+      .toBe(inTwenty)
+    // 「整轮下来只有五次抽取来自宽达 63 的窗口，一次也没走到 127」
+    const five = counted(rateProse, new RegExp(`只有(${ZH})次抽取来自宽达 (\\d+) 的窗口`),
+      'the draws from the widest window')
+    const [widest] = figs(rateProse, /宽达 (\d+) 的窗口/, 'the widest window used')
+    const [never] = figs(rateProse, /一次也没走到 (\d+)/, 'the window never reached')
+    expect(draws().filter((r) => r.cw === widest).length).toBe(five)
+    expect(draws().filter((r) => r.cw >= never), `draws from CW = ${never} or wider`).toHaveLength(0)
+    expect(never, 'which is the next rung above the widest one used').toBe(2 * widest + 1)
+    // 「从 31 抽出来的平均等待是 16.07 个时隙，比从下限抽的 7.15 个多了一倍有余」
+    const [mid, midMean, floorMean] = figs(rateProse,
+      /从 (\d+) 抽出来的平均等待是 ([\d.]+) 个时隙，比从下限抽的 ([\d.]+) 个/, 'the two means')
+    same(String(midMean), meanOf(mid), `the mean draw from CW = ${mid}`)
+    same(String(floorMean), meanOf(CW_MIN), 'the mean draw from the floor')
+    expect(midMean / floorMean, '「多了一倍有余」').toBeGreaterThan(2)
+  })
+
+  it('`picture`, `deeper`, `observe` and `tryThis`: the same instants, read where they are printed', () => {
+    // 「两个数据帧在 0 µs 同时开始、248 µs 同时结束」
+    const [start, end] = figs(pictureText, /在 (\d+) µs 同时开始、(\d+) µs 同时结束/,
+      '`picture` on the two frames')
+    const zero = d.filter((r) => r.t === start * 1_000)
+    expect(zero.length, `frames starting at ${start} µs`).toBe(2)
+    for (const f of zero) {
+      expect((f.t + f.frame.txTimeNs) / 1_000, `${f.node}’s frame ends`).toBe(end)
+    }
+    // 「检视器里两台站点的竞争窗口都已经是 31」
+    const [cw] = figs(pictureText, /竞争窗口都已经是 (\d+)/, '`picture` on the window at the retry')
+    const retry = ofType(rs, 'TX_START').find((r) => r.frame.retryFlag)!
+    for (const n of BOTH) {
+      const last = ofType(rs, 'CW_CHANGE').filter((r) => r.node === n && r.t <= retry.t).pop()!
+      expect(last.cw, `${n}’s window at the first retry`).toBe(cw)
+    }
+    // `deeper`: 「重传前的 DIFS 是从 293 µs 超时结束那一刻起算的，而不是从 248 µs 碰撞帧结束」
+    const [from, notFrom] = figs(deeperText, /从 (\d+) µs 超时结束那一刻起算的，而不是从 (\d+) µs/,
+      '`deeper` on where the gap starts')
+    expect(firstTimeout.t / 1_000).toBe(from)
+    expect(zero[0].t + zero[0].frame.txTimeNs, 'and the frames really end at the other one')
+      .toBe(notFrom * 1_000)
+    const ifs = ofType(rs, 'IFS_START').find((r) => r.t === from * 1_000)
+    expect(ifs, `no gap starts at ${from} µs`).toBeDefined()
+    // 「整轮仿真里一个 EIFS 都没有启动过」
+    expect(ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS'), 'EIFS gaps').toHaveLength(0)
+    // `observe`: 「之后两台站点的 CW 都变成 31」 and 「约 8.1 ms 处的第二次碰撞」
+    const [obsCw] = figs(collisionsCw.observe.join('\n'), /CW 都变成 (\d+)/, '`observe` on the window')
+    expect(obsCw).toBe(cw)
+    const [second] = figs(collisionsCw.observe.join('\n'), /约 ([\d.]+) ms 处的第二次碰撞/,
+      '`observe` on the second collision')
+    same(String(second), cols[1].t / MS, 'when the second collision happens')
+    // `tryThis`: 「一步步走到 293 µs。空口上什么也没有发生」
+    const [until] = figs(collisionsCw.tryThis.join('\n'), /一步步走到 (\d+) µs/,
+      '`tryThis` on where to walk')
+    expect(until).toBe(from)
+    expect(ofType(rs, 'TX_START').some((r) => r.t > notFrom * 1_000 && r.t < until * 1_000),
+      'something is on the air in the silence the reader is asked to walk').toBe(false)
+  })
+
+  it('`limits` and `sources`: the capture margin, the ladder, and the retry limit', () => {
+    // 「捕获余量是一个固定的 5 dB」 and 「（channel.ts 的 CAPTURE_MARGIN_DB 与 captureWindowNs）」
+    const [margin] = figs(limitText, /固定的 (\d+) dB/, '`limits` on the capture margin')
+    // `CAPTURE_MARGIN_DB` is not exported, and the limit cites it by file and by name — so the
+    // figure is read out of the file the citation points at, which checks both at once.
+    const cited = /（([a-z]+\.ts) 的 (CAPTURE_MARGIN_DB) 与 (\w+)）/.exec(limitText)
+    expect(cited, '`limits` no longer cites the margin and the window').not.toBeNull()
+    const chan = readFileSync(resolve(ROOT, `src/engine/${cited![1]}`), 'utf8')
+    expect(chan, `${cited![1]} declares ${cited![3]}`).toContain(cited![3])
+    const decl = new RegExp(`${cited![2]} = (\\d+)`).exec(chan)
+    expect(decl, `${cited![1]} declares ${cited![2]}`).not.toBeNull()
+    expect(Number(decl![1]), 'the margin the engine really uses').toBe(margin)
+    const [again] = figs(limitText, /必须比正在接收的那一帧强 (\d+) dB/, '`limits` restating it')
+    expect(again).toBe(margin)
+    const [deadline] = figs(limitText, /(\d+) µs 的期限精确到纳秒/, '`limits` on the deadline')
+    expect(deadline * 1_000).toBe(ACK_TIMEOUT_NS)
+    // `sources`: the deadline's three parts again, and the ladder's ends
+    const parts = figs(sourcesText, /就是 (\d+) \+ (\d+) \+ (\d+) µs/, '`sources` on the deadline')
+    expect(parts.map((x) => x * 1_000)).toEqual([SIFS_NS, SLOT_NS, RX_START_DELAY_NS])
+    const [floor, ceil, limit] = figs(sourcesText,
+      /aCWmin (\d+)、aCWmax (\d+) 与 dot11ShortRetryLimit (\d+)/, '`sources` on the three constants')
+    expect([floor, ceil, limit]).toEqual([CW_MIN, CW_MAX, SHORT_RETRY_LIMIT])
+    const rungs = figs(sourcesText, /(\d+) → (\d+) → (\d+) → … → (\d+)/, '`sources` on the ladder')
+    expect(rungs[0]).toBe(CW_MIN)
+    expect(rungs[rungs.length - 1]).toBe(CW_MAX)
+    for (let i = 1; i < rungs.length - 1; i++) {
+      expect(rungs[i], `rung ${i}`).toBe(2 * rungs[i - 1] + 1)
+    }
+    // 「两台饱和站点与 1528 字节的帧」
+    const stations = counted(sourcesText, new RegExp(`(${ZH})台饱和站点`), '`sources` on the stations')
+    const [bytes] = figs(sourcesText, /([\d,]+) 字节的帧/, '`sources` on the frame')
+    expect(collisionsCw.scenario().nodes.filter((n) => n.profiles?.includes('saturated')))
+      .toHaveLength(stations)
+    expect(new Set(d.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
   })
 })
