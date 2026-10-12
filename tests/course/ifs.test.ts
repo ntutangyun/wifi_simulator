@@ -238,6 +238,9 @@ describe('ifs · the timing figure is the run', () => {
  *    509 `RX_START`s — which is the other half of the same entry, 「传播时延在这台引擎里是零」.
  *    The standard's own 「最多 4 µs 内报告」 is a figure about radios, and this repository holds
  *    no clause text to check it against; what is checked is the zero the engine actually has.
+ *    `scripts/figure-planting.ts` therefore reports that 4 as unpinned, correctly: of the 26
+ *    figures this lesson prints it is one of two that nothing here can check, the other being
+ *    `tryThis`'s 「约 200 µs」 window. Both carry their argument where they are asserted.
  *  - 「全场所有站点共用同一个时基」. The Wi-Fi node schema has no clock-offset field to carry:
  *    `ppm` exists on `uwb` only. 「几十 ppm」 is a property of real crystals and stays unchecked
  *    for the same reason as the 4 µs — stated here rather than asserted weakly.
@@ -402,6 +405,12 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
     // and the ruler `tryThis` hands the reader is the engine's slot, at a span the strip can show
     const [ruler] = figs(ifs.tryThis!.join('\n'), /拿 (\d+) µs 的时隙刻度/, '`tryThis`’s ruler')
     expect(ruler * US).toBe(SLOT_NS)
+    // **The window is pinned to a range and not to a figure, and that is the whole of what can
+    // be pinned.** `scripts/figure-planting.ts` reports it as unpinned — 「约 200 µs」 edited to
+    // 201, or to 300, leaves every assertion below true. It should: 「约」 is one significant
+    // figure, and there is no quantity in this simulator equal to 200 µs. What a reader needs of
+    // this window is that the strip can show it, that it is wider than the gap it is for and
+    // narrower than the whole turn, and those are the three claims asserted.
     const [span] = figs(ifs.tryThis!.join('\n'), /缩放到约 (\d+) µs 的跨度/, 'the window to zoom to')
     expect(clampSpan(span * US), 'the strip cannot show the window this asks for').toBe(span * US)
     expect(span * US, 'the window is narrower than the gap it is for').toBeGreaterThan(DIFS_NS)
@@ -456,6 +465,12 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
     const scoped = ifs.limits.find((x) => x.kind === 'out-of-scope')!
     const [long] = figs(scoped.text, /^(\d+) µs 这个数/, '`limits` on the figure that is DCF’s own')
     expect(long * US).toBe(DIFS_NS)
+    // The entry states it twice (「根本不会有两台都等 34 µs」), and `scripts/figure-planting.ts`
+    // found the second occurrence editable on its own: every µs figure in this entry is the
+    // same wait, so every one of them is read.
+    const all = [...scoped.text.matchAll(/(\d+) µs/g)].map((m) => Number(m[1]))
+    expect(all.length, 'the entry states the long wait more than once').toBeGreaterThan(1)
+    for (const n of all) expect(n * US, `「${n} µs」 in the out-of-scope entry`).toBe(DIFS_NS)
     // every gap in this scene really is that one figure, which is what makes the limit a limit
     expect(new Set(gaps.filter((g) => g.untilNs > g.t).map((g) => g.untilNs - g.t)))
       .toEqual(new Set([long * US]))
