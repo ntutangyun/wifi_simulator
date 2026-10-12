@@ -26,9 +26,10 @@ import { mlo, mloStack, LANE_FRAMES } from '../../src/course/tier2/mlo'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { AcQueues } from '../../src/engine/queues'
+import { BAND_LABEL, nodeLinks, type LinkId } from '../../src/model/caps'
 import { EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import type { Msdu } from '../../src/engine/traffic'
-import { lessonShapeSuite, runOf } from './kit'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 import { ROOT, zhNumeral } from './coverage'
 import { MODULES } from '../../src/course/curriculum'
 
@@ -313,6 +314,18 @@ describe('mlo · every printed figure is read back out of the lesson', () => {
     expect(notes, 'one note per lane').toHaveLength(2)
     same(notes[0].replace(' 帧', ''), on5, 'the 5 GHz lane’s frames')
     same(notes[1].replace(' 帧', ''), on6, 'the 6 GHz lane’s frames')
+    // **Each column's own label names the band whose frames it counts.** The layer labels are
+    // the lesson's only figure-side naming of the two bands, and `scripts/figure-planting.ts`
+    // found both editable: a stack whose taller column said 「5 GHz」 would invert the whole
+    // point of the figure. The band comes off the label and the lane comes off the engine.
+    const LANE_OF: Record<string, number> = { 5: on5, 6: on6 }
+    const labels = (blk!.spec as { layers: { label?: string }[] }).layers.map((l) => l.label ?? '')
+    for (const [i, lab] of labels.entries()) {
+      const band = /^([\d.]+) GHz/.exec(lab)
+      expect(band, `layer ${i}’s label 「${lab}」 no longer names a band`).not.toBeNull()
+      expect(LANE_OF[band![1]], `「${lab}」 is not one of this scene’s two bands`).toBeDefined()
+      same(notes[i].replace(' 帧', ''), LANE_OF[band![1]], `the frames 「${lab}」 counts`)
+    }
     // 「同一组待发的帧，300 ms 里共 307 个数据帧」: the window and the sum
     const t = /([\d\s]+) ms 里共 ([\d\s]+) 个数据帧/.exec(blk!.spec.total ?? '')
     expect(t, 'the figure’s closing line no longer states the window and the sum').not.toBeNull()
@@ -493,5 +506,135 @@ describe('mlo · every printed figure is read back out of the lesson', () => {
       .toBe(new Set([...data(rs, 'sta-1'), ...data(rs, 'sta-1#6g')].map((r) => r.node)).size)
     // and both citations are claims about this repository
     expect(cite(ls, '`limits`'), 'it cites two of them').toBe(2)
+  })
+
+  /**
+   * **The twenty-seven sites `scripts/figure-planting.ts` found this file still not reading**,
+   * on 2026-10-12. Most of them are a band — 「5 GHz」, 「6 GHz」, 「2.4 + 5 GHz」, 「·6G」 — and a
+   * band read as a figure looks like a false positive until you ask what 「6 GHz 先数到零」
+   * would mean if this scene's second link were 2.4 GHz. **It is a claim about the scene**, and
+   * the scene answers it: `nodeLinks` gives this access point exactly the two links the lesson
+   * names, and `BAND_LABEL` is where the course's own 「·6G」 comes from.
+   *
+   * The rest are the figures the walk-through prints a second time: the window the stack figure
+   * is drawn over, the queue depth the first row states, and the batch's 66–85 restated in
+   * `tryThis`.
+   */
+  it('every band this lesson names is a link this scene has, and the lane tag is the engine’s', () => {
+    const everywhere = [
+      mlo.why ?? '', ...(mlo.outcomes ?? []), ...mlo.observe, ...mlo.tryThis,
+      ...(mlo.picture ?? []).map((b) => `${(b as { text?: string }).text ?? ''}
+        ${(b as { caption?: string }).caption ?? ''} ${(b as { heading?: string }).heading ?? ''}`),
+      ...(mlo.numbers ?? []).map((b) => JSON.stringify(b)),
+      ...(mlo.deeper ?? []).map((b) => (b as { text?: string }).text ?? ''),
+      ...mlo.limits.map((l) => l.text),
+      ...(mlo.sources ?? []),
+    ].join('\n')
+    const bands = [...new Set([...everywhere.matchAll(/([\d.]+)(?: \+ [\d.]+)? GHz/g)]
+      .flatMap((m) => m[0].replace(' GHz', '').split(' + ')))]
+    expect(bands.length, 'the bands this lesson names').toBeGreaterThan(1)
+    // every band named is a band the model has an id for, and the two this scene runs on are
+    // exactly the ones `nodeLinks` gives an MLO access point
+    const NAMED: Record<string, LinkId> = { '2.4': '2g', '5': '5g', '6': '6g' }
+    for (const b of bands) {
+      expect(NAMED[b], `「${b} GHz」 is not a band this model has an id for`).toBeDefined()
+    }
+    const sc = mlo.scenario()
+    const ap = sc.nodes.find((n) => n.id === 'ap')!
+    const mine = nodeLinks(ap, true)
+    const running = new Set([...data(rs, 'sta-1'), ...data(rs, 'sta-1#6g')]
+      .map((r) => (r.node.includes('#') ? r.node.split('#')[1] : '5g')))
+    expect([...running].sort(), 'the links the laptop really sends on').toEqual([...mine].sort())
+    // 「那个 ·6G 标记」: the tag the timeline draws is `BAND_LABEL`'s, not a string of this lesson's
+    const tag = /那个 ·(\w+) 标记/.exec(mlo.picture!.map((b) => (b as { text?: string }).text ?? '').join('\n'))
+    expect(tag, '`picture` no longer names the lane tag').not.toBeNull()
+    expect(Object.values(BAND_LABEL), `「·${tag![1]}」 is not a band label this engine prints`)
+      .toContain(tag![1])
+    expect(BAND_LABEL['6g'], 'and it is the second link’s own label').toBe(tag![1])
+  })
+
+  it('the stack figure’s window, the first row’s queue depth, and `tryThis`’s batch', () => {
+    // 「最初 300 ms 里，笔记本每五帧里有四帧是从 6 GHz 那条链路出去的」
+    // the stack figure lives in `picture`, not in `numbers`
+    const caption = (mlo.picture!.find((x) => x.kind === 'diagram') as { caption: string }).caption
+    const [ms] = [Number(/最初 (\d+) ms 里/.exec(caption)![1])]
+    expect(ms * MS, 'the window the stack figure is drawn over').toBe(RUN_NS)
+    const [of_, over] = [/每([一二三四五六七八九十两]+)帧里有([一二三四五六七八九十两]+)帧/.exec(caption)!]
+      .flatMap((m) => [zhCount(m[1])!, zhCount(m[2])!])
+    expect(Math.round((on6 / (on5 + on6)) * of_), `${on6} of ${on5 + on6} frames`).toBe(over)
+
+    // 「进入尽力而为队列，深度 1」: the depth the queue really reports when that frame arrives
+    const row = tableWith('MSDU 66').rows[0]
+    const [depth] = [Number(/深度 (\d+)/.exec(row[2])![1])]
+    const enq = ofType(rs, 'ENQUEUE').find((r) => r.msduId === ids[0])
+    expect(enq, 'the first frame of the batch is never enqueued').toBeDefined()
+    expect(enq!.depth, 'the depth the record carries').toBe(depth)
+
+    // `tryThis`: 「6 GHz 上的第一批（20 帧，编号 66–85），再去 5 GHz 的那些发送里找这 20 个编号」
+    const t = mlo.tryThis.join('\n')
+    const m = /第一批（(\d+) 帧，编号 (\d+)–(\d+)）.*?找这 (\d+) 个编号/.exec(t)
+    expect(m, '`tryThis` no longer states the batch it asks the reader to open').not.toBeNull()
+    expect(ids.length, 'the frames in that batch').toBe(Number(m![1]))
+    expect([Math.min(...ids), Math.max(...ids)], 'the ids it spans')
+      .toEqual([Number(m![2]), Number(m![3])])
+    expect(Number(m![4]), 'and the same count restated').toBe(ids.length)
+    // and the experiment's answer, on the lane the sentence names rather than one this file
+    // picked: 「再去 5 GHz 的那些发送里找这 20 个编号中的任何一个」
+    const where = /再去 ([\d.]+) GHz 的那些发送里/.exec(t)
+    expect(where, '`tryThis` no longer says which lane to look on').not.toBeNull()
+    const lane = where![1] === '6' ? 'sta-1#6g' : 'sta-1'
+    const others = data(rs, lane).flatMap((r) => r.frame.ampdu?.msduIds ?? [])
+    expect(ids.filter((i) => others.includes(i)),
+      `ids that also went out on the ${where![1]} GHz lane`).toEqual([])
+    expect(lane, 'and that lane is not the one the batch went out on').not.toBe(batch.node)
+  })
+
+  /**
+   * **The band a sentence names is the lane that sentence is about**, and that is the half of
+   * the band mentions this file can check per site: the walk-through's own cells and the first
+   * `observe` line all say which lane a record sits on, and a record has a lane. The mentions
+   * left over after this are of two kinds, and neither has a measurement here: the ones in
+   * `deeper` and `limits` are about real hardware (「便宜的硬件上 2.4 + 5 GHz 很常见」, a
+   * receiver's own noise floor), and the ones in the stack figure's axis labels are the figure's
+   * two column names, which the test above checks as a SET. `scripts/figure-planting.ts` will
+   * keep reporting those, correctly.
+   */
+  it('the walk-through and `observe` put every record on the lane they name', () => {
+    const LANE: Record<string, string> = { '5': 'sta-1', '6': 'sta-1#6g' }
+    const rows = tableWith('MSDU 66').rows
+    // row 1: 「记在 5 GHz 那条泳道上」 — the arrival and the enqueue of the batch's first frame
+    const [first] = [/记在 ([\d.]+) GHz 那条泳道上/.exec(rows[0][2])!]
+    const enq = ofType(rs, 'ENQUEUE').find((r) => r.msduId === ids[0])!
+    expect(enq.node, `row 1 says the enqueue is on the ${first[1]} GHz lane`).toBe(LANE[first[1]])
+    // row 2: 「6 GHz 先数到零」 and 「同一瞬间，5 GHz 的倒数停在 2」
+    const [won] = [/([\d.]+) GHz 先数到零/.exec(rows[1][2])!]
+    expect(rows[1][1], `row 2 says the ${won[1]} GHz lane transmits`).toContain(LANE[won[1]])
+    // row 3: 「同一瞬间，5 GHz 的倒数停在 2」 — a decrement on the other lane, same instant
+    const held = /同一瞬间，([\d.]+) GHz 的倒数停在 (\d+)/.exec(rows[2][2])!
+    const dec = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === LANE[held[1]] && r.t === batch.t)
+    expect(dec.length, `row 3 says the ${held[1]} GHz lane counts down at that instant`).toBe(1)
+    expect(dec[0].value, 'and the value it counts to').toBe(Number(held[2]))
+    expect(rows[2][1], 'which is the record that row names').toContain(LANE[held[1]])
+    // row 5: 「编号 66–85 中没有任何一个在 5 GHz 的发送里」
+    const last = /编号 (\d+)–(\d+) 中没有任何一个在 ([\d.]+) GHz/.exec(rows[4][2])!
+    expect([Number(last[1]), Number(last[2])], 'the ids row 5 restates')
+      .toEqual([Math.min(...ids), Math.max(...ids)])
+    const other = data(rs, LANE[last[3]]).flatMap((r) => r.frame.ampdu?.msduIds ?? [])
+    expect(ids.filter((i) => other.includes(i)), `ids that also went out on ${last[3]} GHz`)
+      .toEqual([])
+    // `observe`: 「到达记录和入队记录却全都记在 5 GHz 那条泳道上」 — every one of them, not one
+    const obs = /全都记在 ([\d.]+) GHz 那条泳道上/.exec(mlo.observe[0])!
+    for (const r of [...ofType(rs, 'ARRIVAL'), ...ofType(rs, 'ENQUEUE')]) {
+      if (!r.node.startsWith('sta-1')) continue
+      expect(r.node, `a ${r.type} at ${r.t}`).toBe(LANE[obs[1]])
+    }
+    // `deeper`: 「一台 5 GHz 链路被邻居长时间占满的设备」 — and the neighbour of THIS scene
+    // transmits on that band and no other, which is what makes the sentence about this scene
+    const d = (mlo.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+    const neighbour = /一台 ([\d.]+) GHz 链路被邻居长时间占满/.exec(d)
+    expect(neighbour, '`deeper` no longer names the band the neighbour fills').not.toBeNull()
+    const theirs = new Set(data(rs, 'sta-2').map((r) => r.node))
+    expect([...theirs], `the lanes the neighbour sends on`).toEqual(['sta-2'])
+    expect(LANE[neighbour![1]], 'and that band is the laptop’s own first lane').toBe('sta-1')
   })
 })

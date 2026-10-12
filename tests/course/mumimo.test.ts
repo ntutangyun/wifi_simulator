@@ -92,6 +92,12 @@ describe('mumimo · the figure is the run’s own first send by space', () => {
       expect([n.x, n.y], n.id).toEqual([src.pos.x, src.pos.y])
       expect(n.role, n.id).toBe(src.kind === 'ap' ? 'ap' : 'sta')
       expect(n.label.trim(), n.id).not.toBe('')
+      // 「手机 1」/「手机 2」/「手机 3」: a numbered label must be the number of the node it
+      // draws. `scripts/figure-planting.ts` found the 1 of 「手机 1」 editable on 2026-10-12 —
+      // a figure a reader reads off the figure itself, and the only one in this lesson that
+      // could point at the wrong phone.
+      const digit = /(\d+)$/.exec(n.label)
+      if (digit) expect(n.id, `the label 「${n.label}」 names the node it draws`).toBe(`sta-${digit[1]}`)
     }
     // every link starts at the router: this is one send, not a topology of peers
     for (const l of spec.links) expect(l.from).toBe('ap')
@@ -494,5 +500,25 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     const [a] = figs(texts, /([\d,]+) 字节的门槛/, '`sources` on the threshold')
     const [b] = figs(steps[1], /至少 ([\d,]+) 字节/, 'the steps on the threshold')
     expect(a).toBe(b)
+
+    // 「本仿真器只为 Wi-Fi 6 和 7 模拟多用户发送」. The two generations are names, and the
+    // claim under them is about this engine: every member of every multi-user send in either
+    // variant is on one of those two, and a station on an older generation is never in one.
+    // `scripts/figure-planting.ts` found the 7 editable on 2026-10-12 — 「Wi-Fi 6 和 8」 would
+    // have read as a statement about this simulator, and nothing would have objected.
+    const gens = figs(texts, /只为 Wi-Fi (\d) 和 (\d) 模拟多用户发送/,
+      '`sources` on the generations with multi-user sends')
+    const MODE_OF: Record<number, string> = { 6: 'he', 7: 'eht' }
+    const modes = gens.map((g) => {
+      expect(MODE_OF[g], `Wi-Fi ${g} is a generation this engine has a mode for`).toBeDefined()
+      return MODE_OF[g]
+    })
+    for (const v of [0, 1]) {
+      const sends = muSends(runOf(mumimo, v, RUN_NS))
+      expect(sends.length, `variant ${v} has multi-user sends to grade`).toBeGreaterThan(50)
+      for (const r of sends) {
+        expect(modes, `the send at ${r.t} in variant ${v}`).toContain(r.frame.mode)
+      }
+    }
   })
 })

@@ -647,4 +647,45 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
     figure(`${exp![6]} ms`, Math.max(...txs(bare, (r) => r.frame.kind === 'data').map((r) => r.frame.txTimeNs)),
       'the slowest frame left unprotected')
   })
+
+  /**
+   * **The five sites `scripts/figure-planting.ts` found this file still not reading**, on
+   * 2026-10-12: the instant in two headings, the window in two table headers, and the two
+   * byte thresholds `deeper` names. The last one is instructive — 「把它调到 3000」 was read
+   * (the experiment is run at that threshold) and planting it still stayed green, because
+   * 3001 builds the same scene: any threshold above every frame makes the same claim. So what
+   * is pinned here is the claim 「高过这里的每一帧」 rather than the digit.
+   */
+  it('the two headings, the two window headers, and both byte thresholds', () => {
+    const rs = boundary()
+    const burst = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1')[2]
+    // 「0.736 ms 那一串」 and 「从 0.736 ms 开始的那一串」: both headings name the same burst
+    const headings = [...txopProtect.numbers!].map((b) => (b as { heading?: string }).heading ?? '')
+      .filter((h) => /ms/.test(h))
+    expect(headings.length, 'the headings that name an instant').toBeGreaterThan(1)
+    for (const h of headings) {
+      const m = /([\d.]+) ms/.exec(h)!
+      figure(`${m[1]} ms`, burst.t, `the burst 「${h}」 is about`)
+    }
+    // 「300 ms 内的统计」 and 「每 300 ms」: the window every count in those tables is over
+    const cells = (txopProtect.numbers!.filter((x) => x.kind === 'table') as { head: string[] }[])
+      .flatMap((t) => t.head).filter((c) => /ms/.test(c))
+    expect(cells.length, 'the table headers that name the window').toBe(2)
+    for (const c of cells) {
+      const m = /(\d+) ms/.exec(c)!
+      expect(Number(m[1]) * MS, `the window 「${c}」 names`).toBe(RUN_NS)
+    }
+    // `deeper`: the threshold this scene sets, and the one the experiment raises it to
+    const d = (txopProtect.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+    const set = /门限设成 (\d+) 字节的原因/.exec(d)
+    expect(set, '`deeper` no longer says what this scene sets the threshold to').not.toBeNull()
+    expect(txopProtect.scenario().rtsThresholdBytes).toBe(Number(set![1]))
+    const raised = /把它调到 (\d+)、高过这里的每一帧/.exec(d)
+    expect(raised, '`deeper` no longer states the threshold it raises to, and why').not.toBeNull()
+    const biggest = Math.max(...txs(rs, (r) => r.frame.kind === 'data').map((r) => r.frame.bytes))
+    expect(Number(raised![1]), `「高过这里的每一帧」, the largest of which is ${biggest} B`)
+      .toBeGreaterThan(biggest)
+    // and the threshold this scene sets is below it, which is why anything is protected at all
+    expect(Number(set![1])).toBeLessThan(biggest)
+  })
 })

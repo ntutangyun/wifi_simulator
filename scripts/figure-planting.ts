@@ -69,10 +69,13 @@ const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa)/
  * sweeps: `@nav`'s only two 「unpinned」 figures were both the 6 of Wi-Fi 6, and a sweep whose
  * output has to be read past is a sweep nobody reads.
  */
-const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-)$/
+// `#` for a link id written as a suffix (`sta-1#6g`, where the 6 is a band and not a count).
+const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#)$/
 // `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
-const NAME_AFTER = /^(-QAM|QAM|-FSK|-PSK|ac\b|ax\b|be\b|bn\b|bp\b|az\b|z\b|-20\d\d|\s?×\s?LTF)/
+// `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
+// lesson that wrote 「4D 视图」 would be wrong about a word, not about a quantity.
+const NAME_AFTER = /^(-QAM|QAM|-FSK|-PSK|ac\b|ax\b|be\b|bn\b|bp\b|az\b|z\b|-20\d\d|\s?×\s?LTF|D\b)/
 
 function allFiles(dir: string, out: string[] = []): string[] {
   for (const n of readdirSync(dir)) {

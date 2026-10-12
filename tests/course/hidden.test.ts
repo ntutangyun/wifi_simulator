@@ -29,6 +29,7 @@ import { hidden, hiddenTopology } from '../../src/course/tier1/hidden'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { WALL_LOSS_DB, buildLinkTable, wallsCrossed } from '../../src/engine/propagation'
+import { FADING_DEFAULTS } from '../../src/engine/fading'
 import { ACK_TIMEOUT_NS, CCA_ED_DBM, CCA_PD_DBM, DIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -488,5 +489,50 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
     expect(sym, '`limits` no longer names the function that computes the level').not.toBeNull()
     expect(readFileSync(resolve(ROOT, bare![1]), 'utf8').includes(`function ${sym![1]}`),
       `${bare![1]} declares ${sym![1]}`).toBe(true)
+  })
+
+  /**
+   * **The five sites `scripts/figure-planting.ts` found this file still not reading**, on
+   * 2026-10-12, after the hand-planted read-back above: the shadow sigma that would make the
+   * hidden pair flicker, the 1.4 dB margin restated beside it, both thresholds restated in
+   * `sources`, and the variant's own label. Four of the five are figures the lesson prints
+   * twice and this file read once — the same shape as `@ifs`'s doubled 34 µs.
+   */
+  it('`limits`: the shadow sigma that would cross this margin is the editor’s own default', () => {
+    const l = hidden.limits.find((x) => x.text.includes('阴影标准差'))!.text
+    const m = /默认 ([\d.]+) dB 的阴影标准差足以让这 ([\d.]+) dB 的余量被反复跨过/.exec(l)
+    expect(m, '`limits` no longer states the sigma and the margin it would cross').not.toBeNull()
+    // the sigma is the one a scenario gets the moment it switches fading on, and the margin is
+    // the same one the first limit states — so the sentence's 「足以」 is arithmetic, not a feeling
+    expect(Number(m![1]), 'the shadow sigma a `fading` section defaults to')
+      .toBe(FADING_DEFAULTS.shadowSigmaDb)
+    same(m![2], CCA_PD_DBM - links.get('sta-1')!.get('sta-2')!, 'the margin it would cross')
+    expect(FADING_DEFAULTS.shadowSigmaDb, 'and 「足以」: the sigma is larger than the margin')
+      .toBeGreaterThan(CCA_PD_DBM - links.get('sta-1')!.get('sta-2')!)
+    // 「默认没有衰落」: this scene really has none, which is what makes the level a constant
+    expect(hidden.scenario().fading).toBeUndefined()
+  })
+
+  it('`sources` and the variant label restate the thresholds and the RTS threshold', () => {
+    const src = hidden.sources!.join('\n')
+    const m = /([−\d.]+) dBm 的前导检测门限、([−\d.]+) dBm 的能量检测门限/.exec(src)
+    expect(m, '`sources` no longer states the two thresholds').not.toBeNull()
+    same(m![1], CCA_PD_DBM, 'the preamble threshold, as `sources` states it')
+    same(m![2], CCA_ED_DBM, 'and the energy one')
+    // 「两堵砖墙及其损耗」 — and 「两」 is the form a quantified noun takes, which `zhNumeral`
+    // does not read: the third time this session that omission cost an assertion.
+    const walls = zhCount(/([〇一二三四五六七八九十两]+)堵砖墙/.exec(src)![1])
+    const sc = hidden.scenario()
+    const pos = (id: string) => sc.nodes.find((n) => n.id === id)!.pos
+    expect(wallsCrossed(pos('sta-1'), pos('sta-2'), sc.walls), '`sources` on the walls between them')
+      .toHaveLength(walls!)
+
+    // 「开启 RTS/CTS（门限 500 B）」: the label is the only place that figure appears to a reader
+    const label = hidden.variants![0].label
+    const [bytes] = [Number(/门限 (\d+) B/.exec(label)![1])]
+    expect(hidden.variants![0].scenario().rtsThresholdBytes, 'the threshold the label names')
+      .toBe(bytes)
+    // and the base scene's own threshold is above every frame, which is why the variant exists
+    expect(hidden.scenario().rtsThresholdBytes).toBeGreaterThan(bytes)
   })
 })
