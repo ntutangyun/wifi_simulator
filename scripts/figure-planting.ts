@@ -79,7 +79,12 @@ const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|\.\d\s*(将|�
  */
 // `#` for a link id written as a suffix (`sta-1#6g`, where the 6 is a band and not a count).
 // `D` for a draft version (`D1.0`, `D05`): the figure is part of the document's name.
-const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot|TG)$/
+// `SP` / `sp` for the 4ab draft's packet types: **42 of the 157 figures `@uwb-uwbd` appeared to
+// print were the 0 in 「SP0」** — a quarter of that lesson — and a lesson that wrote 「SP1」 where
+// it means SP0 would be wrong about a word, not about a quantity. No word boundary on it: the
+// same name is inside the identifiers that lesson cites (`MMS_SP0_NS`, `makeSp0Poll`), where a
+// `\b` after `_` or after a lower-case letter does not hold.
+const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot|TG|[Ss][Pp])$/
 // `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
 // `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
