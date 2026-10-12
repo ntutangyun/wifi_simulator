@@ -217,6 +217,21 @@ for (const t of tests) {
 
 const { figures } = figuresOf(lesson)
 let mine = figures.filter((f) => plantCites || !f.cite)
+/**
+ * `--sample N` plants N evenly spaced figures instead of all of them: the sweep of one lesson
+ * costs a run per figure, so ranking 91 lessons by what they leave unread costs a day. A sample
+ * of six ranks them in minutes and says what it is — an estimate of the rate, not a clean bill.
+ * Evenly spaced rather than random, so two runs of the same lesson plant the same figures and
+ * the ledger they write is reproducible.
+ */
+const sampleArg = process.argv.find((a) => a.startsWith('--sample'))
+if (sampleArg) {
+  const k = Number(sampleArg.split('=')[1] ?? process.argv[process.argv.indexOf(sampleArg) + 1] ?? 6)
+  if (Number.isFinite(k) && k > 0 && k < mine.length) {
+    const step = mine.length / k
+    mine = Array.from({ length: k }, (_, i) => mine[Math.floor(i * step)])
+  }
+}
 // `--saved` re-plants only what a previous run reported, which is how a cheap first pass
 // (`--own`) is followed by an expensive one over its candidates alone.
 if (process.argv.includes('--saved')) {

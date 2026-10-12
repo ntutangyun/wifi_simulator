@@ -46,15 +46,16 @@
  * nonetheless right about the FIGURES: those four reads are the widget's `params` and four
  * `toContain` checks over `limits`, and not one of the 37 the lesson prints.
  *
- * **The sufficient condition is a measurement, not a check, and it now has a tool.**
+ * **The sufficient condition is a measurement, not a check, and it now has a tool and a ledger.**
  * `scripts/figure-planting.ts` plants one edit per printed figure in a lesson and records which
- * plantings the tests do not notice. First results, 2026-10-12: `@nav` 0 of 31 unpinned,
- * `@ifs` 2 of 26 (both documented in its own test as having nothing here to check them against),
- * and **`@airtime` 74 of 86 unpinned by its own test** — a lesson this file counts as having a
- * read-back, because its test does read `.observe` and `.numbers`, while reading twelve of its
- * eighty-six figures. That gap is exactly what this file's title cannot see, and the whole
- * course is 8 522 plantable figures across 91 lessons (plus 1 702 citations and names, which
- * nothing in this repository can check).
+ * plantings the tests do not notice; `docs/course-figure-pinning.md` is the account of what it
+ * has measured. First results, 2026-10-12: `@nav` 0 of 31 unpinned, `@backoff` 0 of 47,
+ * `@airtime` 0 of 82 after a slice that found **74 of 86** unpinned, `@ifs` 2 of 26 and `@cca`
+ * 3 of 55 (every one of those five documented in its own test as having nothing here to check it
+ * against). A six-figure sample of the rest of the course says **most lessons notice none of
+ * their six** — so this file's green says what it says and no more: 91 of 91 tests look at their
+ * lesson's words. The whole course is 8 512 plantable figures across 91 lessons (plus 1 712
+ * citations and names, which nothing in this repository can check).
  *
  * **What this detects, said plainly, because it is weaker than its title suggests.** It is a
  * SYNTACTIC check: does the test file mention the lesson object's prose fields at all

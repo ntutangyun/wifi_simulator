@@ -42,12 +42,17 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ROOT, citedPathAt, filePathCitations, readDoc, trackedFiles } from './coverage'
 
-/** The four documents that argue by citation. */
+/**
+ * The documents that argue by citation. `docs/course-figure-pinning.md` joined them on
+ * 2026-10-12: it is the ledger of which printed figures the suite would notice an edit to, and
+ * it argues by naming the instrument and the ratchet, so its paths are graded like any other's.
+ */
 const DOCS = [
   'docs/wifi-feature-coverage.md',
   'docs/uwb-feature-coverage.md',
   'docs/course-wording-contract.md',
   'docs/inert-config-contract.md',
+  'docs/course-figure-pinning.md',
 ] as const
 
 /**
@@ -101,7 +106,7 @@ describe('the contract documents cite file paths that resolve', () => {
 
   it('grades enough citations that passing means something', () => {
     const all = DOCS.flatMap((rel) => filePathCitations(readDoc(rel)))
-    expect(all.length, 'bare file-path citations found across the four documents. If this has'
+    expect(all.length, 'bare file-path citations found across these documents. If this has'
       + ' collapsed, the reader stopped matching and every assertion above is grading air')
       .toBeGreaterThan(MIN_CITATIONS)
   })
