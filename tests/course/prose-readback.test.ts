@@ -27,9 +27,16 @@
  * refuses it by name. `@ifs` (18) took it to 2 and 89, and its `limits` turned out to hold
  * the two claims in the course that are about the engine having NO delay — zero CCA
  * detection, zero propagation — which 1018 `CCA_BUSY` and 509 `RX_START` records, every one
- * of them on the same nanosecond as a `TX_START`, now say out loud. That is the ratchet this
- * file is: a new lesson whose test never touches its own prose has to be added here
- * deliberately, and a lesson that gains a read-back has to be taken off in the same edit.
+ * of them on the same nanosecond as a `TX_START`, now say out loud. `@rate` (18) and
+ * `@mumimo` (12) closed it: **`NO_READBACK` is empty and the count is 91 of 91.**
+ *
+ * **An empty list changes what this file guards, and the count test says how.** The rule
+ * stays exactly as strict — a new lesson whose test never touches its own prose has to be
+ * added to the list deliberately, which is the moment to ask for a read-back instead, and a
+ * lesson that gains one has to be taken off in the same edit. What had to move is the
+ * non-vacuity argument: 「the list is not empty」 was evidence that the detector was not
+ * matching everything, and it cannot be made by a finished course. The planted probe at the
+ * bottom makes it instead, which is why the probe now runs the production rule.
  *
  * **The detector itself was wrong about one lesson, and the slice that paid that lesson down
  * is how it was found.** `@mcs-ladder`'s test imports the lesson under an alias, and the
@@ -45,8 +52,12 @@
  * helper the read-back describes use. That is a **necessary** condition for a read-back and not a
  * sufficient one — a test could touch `.observe` and compare nothing. No syntactic check can tell
  * 「compared」 from 「mentioned」, and a check that claimed to would be the defect this programme
- * keeps deleting. So the claim here is exactly: these 18 tests never so much as look at the words
- * their lesson prints, and the other 73 at least do.
+ * keeps deleting. So the claim here is exactly: the tests on the list never so much as look at
+ * the words their lesson prints, and the rest at least do. The list is empty today, which makes
+ * that claim 「all 91 do」 — and no stronger than it was: it still says they look, not that they
+ * compare. What they compare is each lesson test's own business, and each of the twelve slices
+ * that emptied this list verified its own by planting one edit per printed figure and requiring
+ * a red for each.
  *
  * The companion measurement, from the same sweep and kept in `probes.local/w27-figs4.ts`: of the
  * figures a lesson hand-types into its graded prose (as opposed to interpolating from a computed
@@ -82,9 +93,7 @@ const PROSE_FIELDS = [
  * SET rather than as a count — the same choice `readability.test.ts` makes for the raw-minutes
  * ceiling, and for the same reason: a count can stay right while the membership rots.
  */
-const NO_READBACK: readonly string[] = [
-  'rate', 'mumimo',
-]
+const NO_READBACK: readonly string[] = []
 
 /**
  * **The names a test file can be holding its lesson under.** `camel(id)` is the convention, and
@@ -103,14 +112,22 @@ const bindings = (text: string, id: string): string[] => {
   return [...out]
 }
 
-const touchesProse = (id: string): boolean => {
-  const f = resolve(ROOT, `tests/course/${id}.test.ts`)
-  if (!existsSync(f)) return false
-  const t = readFileSync(f, 'utf8')
+/**
+ * The whole rule, over a test file's text — so that the planted probe at the bottom of this
+ * file exercises the production path rather than a copy of it. That matters more than it did:
+ * with `NO_READBACK` empty, this probe IS the non-vacuity guard (see the count test).
+ */
+const touchesProseIn = (t: string, id: string): boolean => {
   const names = bindings(t, id)
   return names.some((v) => PROSE_FIELDS.some((fld) => t.includes(`${v}.${fld}`)))
     || names.some((v) => t.includes(`JSON.stringify(${v}`))
     || t.includes('tableOf(')
+}
+
+const touchesProse = (id: string): boolean => {
+  const f = resolve(ROOT, `tests/course/${id}.test.ts`)
+  if (!existsSync(f)) return false
+  return touchesProseIn(readFileSync(f, 'utf8'), id)
 }
 
 describe('every lesson test either reads its lesson’s prose, or is listed as not doing so', () => {
@@ -142,19 +159,23 @@ describe('every lesson test either reads its lesson’s prose, or is listed as n
     const with_ = migrated.filter((l) => touchesProse(l.id)).length
     expect(with_, 'lessons whose test touches their prose').toBe(migrated.length - NO_READBACK.length)
     expect(with_).toBeGreaterThan(migrated.length / 2)
-    expect(NO_READBACK.length, 'and the list is not empty, which would mean the detector matches'
-      + ' everything rather than that the course is finished').toBeGreaterThan(0)
+    // **Until 2026-10-12 the other end was `NO_READBACK.length > 0`**, on the argument that an
+    // empty list would more likely mean a detector matching everything than a finished course.
+    // The course is now finished, so that assertion could only be satisfied by owing a
+    // read-back — and the argument it was making still has to be made. It is made by the
+    // planted probe below, which runs the production rule (`touchesProseIn`) against a body
+    // that reads no prose: if the detector matched everything, that is where it goes red, and
+    // the count above would be meaningless without it. Asserted here too, so this test is not
+    // the one that passes vacuously.
+    expect(touchesProseIn('expect(runOf(fading).length).toBeGreaterThan(0)', 'fading'),
+      'the detector matches a test that never names its lesson, so the count above means nothing')
+      .toBe(false)
   })
 
   it('the detector can fail: a test body that never names its lesson is caught', () => {
     // Planted, because a detector only ever run against the real tree has not been shown able to
     // separate the two answers.
-    const probe = (body: string): boolean => {
-      const names = bindings(body, 'fading')
-      return names.some((v) => PROSE_FIELDS.some((fld) => body.includes(`${v}.${fld}`)))
-        || names.some((v) => body.includes(`JSON.stringify(${v}`))
-        || body.includes('tableOf(')
-    }
+    const probe = (body: string): boolean => touchesProseIn(body, 'fading')
     expect(probe('expect(runOf(fading).length).toBeGreaterThan(0)'), 'a run-only test').toBe(false)
     expect(probe('const m = /x/.exec(fading.observe[0])'), 'a read-back').toBe(true)
     expect(probe('const t = tableOf(「x」)'), 'the table helper counts too').toBe(true)
