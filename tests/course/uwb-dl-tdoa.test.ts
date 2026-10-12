@@ -41,6 +41,7 @@ import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { uwbFixRow, uwbTdoaRows } from '../../src/uwb/ui/rows'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { lessonTexts } from '../../src/course/readability'
 
 const MS = 1_000_000
 /** Seven blocks, the window `uwb-position` measures over: block 6 starts at 1.200 s and its
@@ -789,5 +790,367 @@ describe('uwb-dl-tdoa · the procedure, step by step', () => {
     expect(wcell(8, 1)).toBe(`${td.trueDtNs.toFixed(2)} ns · ${(td.trueDtNs * C_M_PER_NS).toFixed(2)} m`)
     // and it is the line the log prints, to the two digits the lesson quotes
     expect(cell(4, 1, 1)).toContain(`${td.dtNs.toFixed(2)} ns (true ${td.trueDtNs.toFixed(2)} ns)`)
+  })
+})
+
+// --- every figure the PROSE prints -------------------------------------------------------------
+
+/**
+ * **The tables above are read cell by cell; the sentences around them were not.**
+ * `scripts/figure-planting.ts` swept this lesson on 2026-10-13: **98 of its 189 printed figures
+ * could be edited with the suite green** — the worst first measurement of this programme, and in
+ * a file whose assertions are otherwise as tight as any. The reason is visible in the sweep's
+ * own list: every one of the 98 is a figure the tables already hold, restated in prose. The
+ * ladder of the round is in `numbers`' table AND in the sentence under it; the three drawn
+ * crystals are in `deeper`'s paragraph; 「0.19、0.44 与 0.51 m」 appears in a table column, in a
+ * `deeper` sentence about pinning the reference, and again in the three-scene table.
+ *
+ * So the figures below are read where the reader reads them. Nothing here re-measures anything:
+ * every assertion compares the prose with the same helper the tests above use, which keeps this
+ * block free of new simulation.
+ */
+describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', () => {
+  const EVERYWHERE = lessonTexts(uwbDlTdoa).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const rd = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => rd(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  const base = recs('base')
+  const SLOT_NS_UWB = rstuNs(DEFAULT_UWB_SESSION.slotRstu)
+
+  it('the round: five slots, who answers in which, and the reply each one waits', () => {
+    // 「五个 2 ms 的时隙，每块一次」
+    const [slotMs] = figs(EVERYWHERE, /个 ([\d.]+) ms 的时隙/, 'the length of one slot')
+    same(String(slotMs), SLOT_NS_UWB / MS, 'the slot this session runs at')
+    // 「时隙 0。anchor-1 广播」…「时隙 1 至 3。其余三个依次作答」…「时隙 4。anchor-1 发出」
+    const [poll] = figs(EVERYWHERE, /时隙 (\d+)。anchor-1 广播/, 'the slot the Poll goes out in')
+    const [from, to] = figs(EVERYWHERE, /时隙 (\d+) 至 (\d+)。其余三个依次作答/,
+      'the slots the responders answer in')
+    const [final] = figs(EVERYWHERE, /时隙 (\d+)。anchor-1 发出/, 'the slot the Final goes out in')
+    expect(poll, 'the reference anchor opens the round').toBe(0)
+    expect([from, to], 'the responders take the slots after it').toEqual([poll + 1, RESPONDERS.length])
+    expect(final, 'and the Final is the slot after the last of them').toBe(to + 1)
+    expect(final + 1, 'which makes the round as many slots as this session plans')
+      .toBe(roundPlan(uwbDlTdoaScenario('base').uwb!, DL_ANCHORS.length).slots)
+    // the table's own 「1–3」 cell, which is the same range the sentence under it states
+    const [cellFrom, cellTo] = figs(cell(1, 1, 0) + ' ' + cell(1, 1, 1) + ' ' + cell(1, 2, 0),
+      /(\d+)–(\d+)/, 'the slot range the table prints')
+    expect([cellFrom, cellTo], 'the responders answer in those slots').toEqual([from, to])
+    // 「它的 1σ 由两项合成：√2·c·σ_ts」 — the sigma and the root, where `numbers` states them
+    const [oneSigma, root] = figs(EVERYWHERE, /它的 (\d)σ 由两项合成：√(\d)·c·σ_ts/,
+      '`numbers` on how the sigma is built')
+    expect([oneSigma, root], 'one sigma, and two differences sharing one reference stamp')
+      .toEqual([1, 2])
+    // 「它等了，偏差 +2.330 ppm」 and 「再加 9.00 m 基线」: the correction walk-through, cell by cell
+    const [offsetPpm] = rd(EVERYWHERE, /它等了，偏差 \+([\d.]+) ppm/,
+      'the offset the correction reads')
+    // the second DL frame of the run is the first responder's Response, and its own clock-offset
+    // IE is what the correction uses — the same frame the worked example above walks through
+    const resp2 = ofType(base, 'TX_START')
+      .filter((r) => r.frame.uwb?.dl !== undefined)[1].frame.uwb!.dl!
+    same(offsetPpm, resp2.coffs! * 1e6, 'the offset that responder reported')
+    const [baseline] = rd(EVERYWHERE, /再加 ([\d.]+) m 基线/, 'the baseline the walk adds')
+    same(baseline, anchorGapM(REF, RESPONDERS[0]), 'the distance between the two anchors')
+    // 「anchor-2/3/4」 — the responders, in the order they answer
+    const [a, b, c] = figs(EVERYWHERE, /anchor-(\d)\/(\d)\/(\d)/, 'the three responders')
+    expect([a, b, c].map((n) => `anchor-${n}`), 'the responders of this scene').toEqual(RESPONDERS)
+    // 「最后一个应答锚点在 Poll 之后整整 6 ms 才作答」 and 「应答时延 2、4、6 ms」
+    const [lastMs] = figs(EVERYWHERE, /整整 ([\d.]+) ms 才作答/, 'how long the last one waits')
+    same(String(lastMs), (RESPONDERS.length * SLOT_NS_UWB) / MS, 'its reply time')
+    const replies = figs(EVERYWHERE, /应答时延 ([\d.]+)、([\d.]+)、([\d.]+) ms/, 'the three reply times')
+    expect(replies, 'one slot each, in the order they answer')
+      .toEqual(RESPONDERS.map((_p, i) => ((i + 1) * SLOT_NS_UWB) / MS))
+  })
+
+  it('the ppm story: the tolerance, the bias it buys, and the residual that is left', () => {
+    // 「胸牌的晶振最多可以偏到 20 ppm」 and `sources`' 「±20 ppm 的晶振容差」
+    for (const v of everyFig(/最多可以偏到 (\d+) ppm|±(\d+) ppm 的晶振容差/g,
+      'the crystal tolerance', 2)) {
+      expect(val(v), 'the tolerance this engine draws inside').toBe(UWB_PPM_MAX)
+    }
+    // 「这么大的偏差乘上这么长的间隔，是 120 ns，折合 36 m」
+    const [ns, m] = figs(EVERYWHERE, /是 (\d+) ns，折合 (\d+) m/, 'the bias the tolerance buys')
+    const worst = UWB_PPM_MAX * 1e-6 * RESPONDERS.length * SLOT_NS_UWB
+    same(String(ns), worst, 'the tolerance times the longest reply')
+    same(String(m), worst * C_M_PER_NS, 'and the same thing as a distance')
+    // 「0.2 ppm」 at every site, and 「每个时隙 0.12 m」
+    for (const v of everyFig(/的 ([\d.]+) ppm——|再加 ([\d.]+) ppm 的白噪声|这个 ([\d.]+) ppm 是模型取值|偏差上 ([\d.]+) ppm 的剩余误差|T_reply,i·([\d.]+) ppm/g,
+      'the residual the correction leaves', 4)) {
+      expect(val(v), 'the engine’s own clock-offset noise').toBe(DEFAULT_UWB_SESSION.cfoNoisePpm)
+    }
+    const [perSlot] = rd(EVERYWHERE, /每个时隙 ([\d.]+) m/, 'what that residual is worth per slot')
+    same(perSlot, slotSigmaM(1), 'one slot of it')
+    // 「剩余误差的 3σ」, and the 63 differences and 21 fixes, wherever the lesson counts them
+    for (const v of everyFig(/剩余误差的 (\d+)σ/g, 'how many sigmas the column holds', 1)) {
+      expect(val(v), 'three of them').toBe(3)
+    }
+    for (const v of everyFig(/(\d+) 个时间差/g, 'the differences one run produces', 3)) {
+      expect(val(v), 'seven blocks of three badges against three responders')
+        .toBe(ofType(base, 'UWB_TDOA').length)
+    }
+    for (const v of everyFig(/修正后，(\d+) 次里最差|依然是 (\d+) 次定位|而不是 (\d+) 个/g,
+      'the fixes one run produces', 3)) {
+      expect(val(v), 'one per badge per block').toBe(ofType(base, 'UWB_POSITION').length)
+    }
+    // 「63 个时间差，0 次定位」: the uncorrected scene's own count, which is none
+    for (const v of everyFig(/个时间差，(\d+) 次定位/g, 'the fixes the uncorrected scene makes', 1)) {
+      expect(val(v), 'no hyperbola holds those differences')
+        .toBe(ofType(recs('raw'), 'UWB_POSITION').length)
+    }
+  })
+
+  it('`deeper`: the four drawn crystals and the three gaps they make', () => {
+    const [ref, b1, b2, b3] = rd(EVERYWHERE,
+      /anchor-1 抽到 −([\d.]+) ppm，三个胸牌抽到 ([\d.]+)、([\d.]+) 与 ([\d.]+)/,
+      '`deeper` on the four crystals the seed drew')
+    same(`-${ref}`, drawnPpm(REF), 'the reference anchor’s own crystal')
+    BADGES.forEach((id, i) => same([b1, b2, b3][i], drawnPpm(id), `${id}’s crystal`))
+    const gaps = rd(EVERYWHERE, /与参考锚点相差 ([\d.]+)、([\d.]+) 与 ([\d.]+) ppm/,
+      'the three gaps to the reference')
+    BADGES.forEach((id, i) => {
+      same(gaps[i], drawnPpm(id) - drawnPpm(REF), `${id}’s gap to the reference`)
+    })
+    // 「正是这个胸牌与参考晶振之间 36.69 ppm 的差距」 — the same gap, named again
+    for (const v of everyFig(/之间 ([\d.]+) ppm 的差距/g, 'the gap the bias column comes from', 1)) {
+      same(v, drawnPpm('badge-2') - drawnPpm(REF), 'badge 2’s gap to the reference')
+    }
+  })
+
+  it('`deeper`: pinning the crystals changes neither the maxima nor the count of fixes', () => {
+    for (const v of everyFig(/设为 \+(\d+) ppm——相对原值/g, 'the value the reference is pinned at', 1)) {
+      expect(val(v), 'the tolerance itself').toBe(UWB_PPM_MAX)
+    }
+    const [swing] = figs(EVERYWHERE, /相对原值摆动了 (\d+) ppm/, 'the swing the pin is')
+    expect(swing, 'twenty less what the reference was drawn at')
+      .toBe(Math.round(UWB_PPM_MAX - drawnPpm(REF)))
+    const off = runExtra('ref20', () => pinned({ [REF]: UWB_PPM_MAX }))
+    const pinnedMax = rd(EVERYWHERE, /运行结果仍是 ([\d.]+)、([\d.]+) 与 ([\d.]+) m，分毫不差/,
+      'the maxima after pinning the reference')
+    RESPONDERS.forEach((p, i) => {
+      same(pinnedMax[i], Math.max(...diffErrM(off, p)), `${p}: the worst difference`)
+    })
+    const both = runExtra('both20', () => pinned({
+      [REF]: UWB_PPM_MAX, 'badge-1': UWB_PPM_MAX, 'badge-2': -UWB_PPM_MAX, 'badge-3': 0,
+    }))
+    const [p1, p2, p3] = figs(EVERYWHERE, /再把三个胸牌设为 \+(\d+)、−(\d+) 与 (\d+) ppm/,
+      'the three the badges are pinned at')
+    expect([p1, p2, p3], 'the tolerance, its negative, and nothing')
+      .toEqual([UWB_PPM_MAX, UWB_PPM_MAX, 0])
+    const bothMax = rd(EVERYWHERE, /最大值是 ([\d.]+)、([\d.]+) 与 ([\d.]+) m/,
+      'the maxima with the badges pinned too')
+    RESPONDERS.forEach((p, i) => {
+      same(bothMax[i], Math.max(...diffErrM(both, p)), `${p}: the worst difference, pinned`)
+    })
+    // 「关掉修正时，…65.60、139.29 与 201.83 ns，而真值是 −8.14、−6.07 与 −18.17 ns」
+    const first = ofType(recs('raw'), 'UWB_TDOA').filter((r) => r.node === 'badge-2' && r.block === 0)
+    const read = rd(EVERYWHERE,
+      /([\d.]+)、([\d.]+) 与 ([\d.]+) ns，而真值是 −([\d.]+)、−([\d.]+) 与 −([\d.]+) ns/,
+      '`deeper` on the uncorrected readings and the truth beside them')
+    first.forEach((r, i) => {
+      same(read[i], r.dtNs, `the ${i + 1}th uncorrected reading`)
+      same(`-${read[i + 3]}`, r.trueDtNs, `and the truth under it`)
+    })
+  })
+
+  it('`deeper`: the geometry floor, the ellipse, and the two lessons it compares with', () => {
+    // 「锚点正方形中心处它的下限是 √(2/3) = 0.82，而三边定位的下限是 1.00」
+    const [num, den, floor, tri] = figs(EVERYWHERE,
+      /下限是 √\((\d)\/(\d)\) = ([\d.]+)，而三边定位的下限是 ([\d.]+)/,
+      '`deeper` on the two floors')
+    same(String(floor), Math.sqrt(num / den), 'the square root the lesson prints')
+    /*
+     * That floor is the one a SQUARE of anchors has. This room is 10 × 8 m, so its own centre
+     * does a little worse — 0.86 against 0.82 — and the lesson is careful to say 「正方形中心处」.
+     * What is checkable here is the arithmetic above and this relation: no place in this room
+     * beats the square's floor.
+     */
+    const centre = trueGdopAt(5, 4)
+    expect(centre, 'the solver reports a GDOP at the centre of this room').not.toBeNull()
+    expect(centre!, 'and this rectangle is a little worse than the square’s floor')
+      .toBeGreaterThan(Number(floor))
+    expect(tri, 'while trilateration’s own floor is one').toBe(1)
+    expect(Number(floor), 'which the hyperbolic floor is below').toBeLessThan(tri)
+    // 「0.5 到 3.3 cm；这里则是 11 到 36 cm」: the two spans, and this lesson's is its own fixes
+    // 「双向定位误差，保持在 0.5 到 3.3 cm」 and 「而那一课是 1.7 cm」: the two-way scene's own run
+    const twr = runExtra('twr', () => uwbPositionScenario())
+    const twrErr = fixErrM(twr).map((e) => e * 100)
+    const [twrLo, twrHi] = rd(EVERYWHERE, /双向定位误差，保持在 ([\d.]+) 到 ([\d.]+) cm/,
+      'the span of the two-way lesson’s fixes')
+    same(twrLo, Math.min(...twrErr), 'the best two-way fix, in centimetres')
+    same(twrHi, Math.max(...twrErr), 'and the worst')
+    same(rd(EVERYWHERE, /而那一课是 ([\d.]+) cm/, 'its semi-major axis')[0],
+      ofType(twr, 'UWB_POSITION')[0].ellipse.a * 100, 'the two-way ellipse')
+    const [lo, hi] = figs(EVERYWHERE, /这里则是 (\d+) 到 (\d+) cm/, 'the span of this lesson’s fixes')
+    // the lesson prints both ends rounded, which is how the three-scene table prints them too
+    const errs = fixErrM(base).map((e) => e * 100)
+    expect(Math.round(Math.min(...errs)), 'the best fix, in whole centimetres').toBe(lo)
+    expect(Math.round(Math.max(...errs)), 'and the worst').toBe(hi)
+    // 「长半轴在 18.6 到 23.0 cm 之间」 and 「其中只有 4 cm 来自时间戳噪声」
+    const semi = ofType(base, 'UWB_POSITION').map((f) => f.ellipse.a * 100)
+    const [sLo, sHi] = rd(EVERYWHERE, /长半轴在 ([\d.]+) 到 ([\d.]+) cm 之间/, 'the semi-major axes')
+    same(sLo, Math.min(...semi), 'the smallest semi-major axis')
+    same(sHi, Math.max(...semi), 'and the largest')
+    const [tsOnly] = figs(EVERYWHERE, /只有 (\d+) cm 来自时间戳噪声/, 'what the timestamp noise alone is')
+    const [sqrt2] = figs(EVERYWHERE, /它由 √\(\(√(\d)·c·σ_ts\)²/, 'the two in the formula')
+    expect(sqrt2, 'two differences share one reference timestamp').toBe(2)
+    expect(Math.round(Math.sqrt(sqrt2) * C_M_PER_NS * (DEFAULT_UWB_SESSION.tsNoisePs / 1000) * 100),
+      'which is the timestamp term of that formula, in centimetres').toBe(tsOnly)
+    // 「每一次定位都落在 1.6 个长半轴之内」
+    /*
+     * 「每一次定位都落在 1.6 个长半轴之内」. Read as 「every fix is inside it」 this is an
+     * inequality and 1.7 says the same thing, so the figure is read as the TIGHTEST bound of
+     * that shape: the worst ratio, rounded up to the decimal the lesson prints.
+     */
+    const [inside] = rd(EVERYWHERE, /落在 ([\d.]+) 个长半轴之内/, 'how many semi-axes the fixes land in')
+    const ratios = ofType(base, 'UWB_POSITION')
+      .map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY) / f.ellipse.a)
+    for (const r of ratios) expect(r, 'inside that many semi-axes').toBeLessThan(val(inside))
+    expect(Math.ceil(Math.max(...ratios) * 10) / 10, 'and no tighter bound of that shape holds')
+      .toBe(val(inside))
+    // 「而不是 68 % 置信区间」: a figure about what the ellipse is NOT, and the engine has no such
+    // interval at all — what is checkable is that the lesson's own bound is not a one-sigma one.
+    /*
+     * 「而不是 68 % 置信区间」 stays unread, with its argument: 68 % is the mass inside one sigma
+     * of a normal distribution, a statistical convention this engine holds nowhere — it draws no
+     * confidence interval at all, which is exactly what the sentence is warning the reader about.
+     * What IS checkable is the warning: the lesson's own bound is wider than one semi-axis.
+     */
+    const [conf] = figs(EVERYWHERE, /而不是 (\d+) % 置信区间/, 'the confidence it is not')
+    expect(conf, 'the figure a one-sigma ellipse would carry').toBeGreaterThan(50)
+    expect(val(inside), 'and the lesson’s own bound is wider than one').toBeGreaterThan(1)
+  })
+
+  it('`deeper`: the four places badge 1 was dragged to, and the air the anchors spend', () => {
+    // the table's four position cells, against the scenes the lesson says it ran
+    /*
+     * The four position cells, which the test above does not read — it types the three moved
+     * places into its own `cases`. Each cell is read here and the run it names is built from the
+     * cell, so the two cannot drift; the GDOP column of the moved rows is pinned there, and the
+     * baseline row's is pinned here against the base run's own fix.
+     */
+    const badge1 = (rs: TLRecord[]) =>
+      ofType(rs, 'UWB_POSITION').filter((f) => f.node === 'badge-1')
+    expect(tablesOf(uwbDlTdoa.deeper!)[0].rows, 'the table still has its four rows').toHaveLength(4)
+    tablesOf(uwbDlTdoa.deeper!)[0].rows.forEach((row, i) => {
+      const [px, py] = figs(row[0], /\(([\d.]+), ([\d.]+)\)/, `row ${i}: the place`)
+      const run = i === 0 ? base : runExtra(`moved-${px}-${py}`, () => moved('badge-1', px, py))
+      const fixes = badge1(run)
+      expect(fixes.length, `row ${i}: the badge is fixed in every block`).toBe(BLOCKS)
+      same(row[1], fixes[0].gdop, `row ${i}: the GDOP the run reports there`)
+      /*
+       * Each row's label makes a claim about WHERE that place is, and the claim is what pins the
+       * coordinate — the GDOP alone does not, because it moves by less than a hundredth over ten
+       * centimetres (the sweep edited (5, 0.5) to (5, 0.6) and the printed 1.06 still held).
+       */
+      if (i === 0) {
+        expect([px, py], 'the baseline is where the scene starts the badge')
+          .toEqual([TAG_SPOTS[0].x, TAG_SPOTS[0].y])
+      }
+      const a = ANCHOR_POS[0]
+      const b = ANCHOR_POS[1]
+      const alongTo = (x: number, y: number): number =>
+        ((x - a.x) * (b.x - a.x) + (y - a.y) * (b.y - a.y)) / ((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
+      const offLine = (x: number, y: number): number =>
+        Math.abs((b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x))
+        / Math.hypot(b.x - a.x, b.y - a.y)
+      // the error column, measured on the run this cell's own coordinates build
+      const errs = fixErrM(run, 'badge-1').map((e) => e * 100)
+      const span = row[3].startsWith('worst')
+        ? `worst ${Math.max(...errs) >= 100
+          ? `${(Math.max(...errs) / 100).toFixed(2)} m` : `${Math.max(...errs).toFixed(0)} cm`}`
+        : `${Math.min(...errs).toFixed(0)}–${Math.max(...errs).toFixed(0)} cm`
+      expect(span, `row ${i}: the errors that place really produces`).toBe(row[3])
+      /*
+       * 「anchor-1 与 anchor-2 的连线上」 is exact here, and that is what pins the pair: those two
+       * anchors share a y, so a place on their line has that y, and this one is at their midpoint.
+       */
+      if (row[0].includes('连线上')) {
+        expect(py, 'the two anchors share a y, and that place is on it').toBe(a.y)
+        expect(px, 'at the midpoint of the two').toBe((a.x + b.x) / 2)
+      }
+      if (row[0].includes('末端')) {
+        expect(alongTo(px, py), 'that place is past the far end of the line').toBeGreaterThan(1)
+        expect(offLine(px, py), 'and not far off it').toBeLessThan(0.5)
+      }
+      /*
+       * 「全屋最好的位置」 is a PLATEAU, not a point: on a 0.1 m grid of noise-free differences
+       * twenty-five places sit within a thousandth of the floor, and the argmin is (2.9, 4.8)
+       * rather than the (3.0, 4.8) the lesson prints. So the pair is not determined by the claim
+       * — the claim is that it is on that plateau, and that is what is checked. (The error column
+       * above is read for this row too, which is the figure a reader would actually compare.)
+       */
+      if (row[0].includes('最好的位置')) {
+        let floor = Infinity
+        for (let ix = 1; ix <= 99; ix++) {
+          for (let iy = 1; iy <= 79; iy++) {
+            const g = trueGdopAt(ix / 10, iy / 10)
+            if (g !== null && g < floor) floor = g
+          }
+        }
+        expect(trueGdopAt(px, py)!, 'and that place is on the room’s own floor')
+          .toBeLessThan(floor + 0.001)
+      }
+    })
+    // 「三个场景里锚点都发出 35 帧、7.074 935 ms 的空口时间，占比 0.505 %」
+    const [frames, msA, msB, pct] = rd(EVERYWHERE,
+      /锚点都发出 (\d+) 帧、([\d.]+) (\d+) ms 的空口时间，占比 ([\d.]+) %/,
+      '`deeper` on what the anchors spend')
+    const air = ofType(base, 'TX_START').filter((r) => r.node.startsWith('anchor'))
+    expect(val(frames), 'the frames the anchors send').toBe(air.length)
+    const airNs = air.reduce((n, r) => n + r.frame.txTimeNs, 0)
+    same(`${msA}${msB}`, airNs / MS, 'the air they occupy')
+    // 「占比 0.505 %」 is ONE round's air inside ONE block, not the whole window's share — the
+    // sentence is about what a round costs a block, which is what a listener would budget.
+    same(pct, (100 * (airNs / BLOCKS)) / rstuNs(DEFAULT_UWB_SESSION.blockRstu),
+      'and the share of a block one round of it is')
+    // 「200 ms 的块里装得下十个 20 ms 的轮次…代价是每块 100 帧，而本轮只要 5 帧」
+    const [blockMs, roundMs] = figs(EVERYWHERE, /(\d+) ms 的块里装得下十个 (\d+) ms 的轮次/,
+      'the block and the two-way round it compares with')
+    expect(blockMs / roundMs, 'ten of them in a block').toBe(10)
+    const [perBlock, mine] = figs(EVERYWHERE, /代价是每块 (\d+) 帧，而本轮只要 (\d+) 帧/,
+      'the frames each costs')
+    const twrPlan = roundPlan({ ...uwbDlTdoaScenario('base').uwb!, mode: 'twr' }, DL_ANCHORS.length)
+    expect(perBlock, 'one frame a slot, for every round a block holds')
+      .toBe(twrPlan.roundsPerBlock * twrPlan.slots)
+    expect(twrPlan.roundsPerBlock, 'which is as many rounds as the block fits')
+      .toBe(blockMs / roundMs)
+    expect(mine, 'and this round is one slot per anchor plus the Final')
+      .toBe(roundPlan(uwbDlTdoaScenario('base').uwb!, DL_ANCHORS.length).slots)
+  })
+
+  it('`limits` and `sources`: the two model values and the solver’s own floor', () => {
+    // 「(this.clock.ppm) × 1e−6 加上一次高斯抽样乘 cfoNoisePpm」
+    const [one, six] = figs(EVERYWHERE, /× (\d)e−(\d)/, '`limits` on how the offset is formed')
+    expect([one, six], 'parts per million').toEqual([1, 6])
+    // 「时间戳的噪声会按 1/√SNR 放大最多十倍」
+    const [overRoot] = figs(EVERYWHERE, /按 (\d)\/√SNR 放大/, 'how the timestamp noise scales')
+    expect(overRoot, 'one over the root').toBe(1)
+    // 「行列式掉到 MIN_DET（1e−9）以下才交出 null」
+    const [detOne, detNine] = figs(EVERYWHERE, /MIN_DET（(\d)e−(\d)）/, 'the solver’s own floor')
+    expect(detOne * 10 ** -detNine, 'the determinant floor `solveTdoa` uses').toBe(1e-9)
+    // 「每个接收时间戳上 100 ps 的 1σ 噪声」
+    const [ps, sigma] = figs(EVERYWHERE, /时间戳上 (\d+) ps 的 (\d)σ 噪声/,
+      '`sources` on the timestamp noise')
+    expect(ps, 'the noise this engine adds to every stamp').toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    expect(sigma, 'as one sigma').toBe(1)
+    // 「2 ms 的测距时隙」
+    for (const v of everyFig(/([\d.]+) ms 的测距时隙/g, 'the slot `sources` names', 1)) {
+      same(v, SLOT_NS_UWB / MS, 'the slot this session runs at')
+    }
   })
 })
