@@ -20,20 +20,27 @@
  * comment that pointed at the missing file had itself been written five days earlier *in order to*
  * make a grouping comment checkable. Nothing has watched for the next one since.
  *
- * **What this file does NOT assert, and why it is worth saying.** 「The path resolves on this
- * machine」 is not 「a reader can follow it」: three citations resolve here while living in
- * `.superpowers/sdd/`, a directory that is git-ignored in its entirety and that `git clean -fdx`
- * destroys. Each of the three was read on 2026-10-12 and none is load-bearing — the wording
- * contract cites a human-read audit and immediately states the re-computable proxies that DO have
- * assertions (31/53 and 9/14), the inert contract cites `LESSONS.md` to say that file holds only a
- * pointer back and deliberately no second copy of the body, and the UWB document cites the clause
- * list as the provenance of clause numbers, which is the one thing the standards rule lets this
- * repository carry anyway. Writing it down is the point: the next person who wants to make one of
- * them measurable must not do it by committing the file, and the next person who wants to lean an
- * argument on one must notice that a reader cannot open it.
+ * **「Resolves on this machine」 was the wrong question, and CI said so for seven hours.** The
+ * first version of this file asked the filesystem, noted in this very docblock that three
+ * citations 「resolve here while living in `.superpowers/sdd/`」 — and asserted that they resolve.
+ * They do not resolve in a checkout: that directory holds a `.gitignore` whose only line is `*`,
+ * so `npm test` went red in CI on the push that added this file (`c9c5a37`, 2026-10-11 17:17Z)
+ * and stayed red through three more pushes, taking the Pages deploy down with it, while every
+ * local run was green. The reasoning about those three paths was right and the assertion did not
+ * follow it.
+ *
+ * So resolution is now against `git ls-files` ({@link trackedFiles}), and the three paths are on
+ * the allow-list with that argument. `docs/` is the one part of this repository written for
+ * somebody who cloned it; an instrument that answers differently on two machines cannot grade it.
+ *
+ * **What this still does not assert**: that the file says what the citation claims it says, and
+ * that a path tracked today is tracked when the reader arrives. The `#symbol` half is unaffected
+ * — {@link unresolved} resolves under `src/`, where nothing is ignored.
  */
 import { describe, it, expect } from 'vitest'
-import { citedPathAt, filePathCitations, readDoc } from './coverage'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { ROOT, citedPathAt, filePathCitations, readDoc, trackedFiles } from './coverage'
 
 /** The four documents that argue by citation. */
 const DOCS = [
@@ -59,11 +66,24 @@ const ALLOWED: Record<string, string> = {
   // and names where the check really lives. Resolving this one would mean the defect record had
   // been quietly rewritten.
   'tests/course/curriculum.test.ts': 'quoted inside the §13 record of its own deadness',
+  // The three working notes under `.superpowers/sdd/`. That directory holds a `.gitignore` whose
+  // only line is `*` — the subagent-driven-development skill writes it, so everything a plan's
+  // run leaves behind is ignored by construction and no clone has any of it. Each was read on
+  // 2026-10-12 and none is load-bearing: the wording contract cites the human-read audit and
+  // then states the re-computable proxies that DO have assertions (31/53 and 9/14), the inert
+  // contract cites `LESSONS.md` to say that file holds a pointer back and deliberately no second
+  // copy of the body, and the UWB document cites the clause list as the provenance of clause
+  // numbers, which is the one thing the standards rule lets this repository carry anyway.
+  '.superpowers/sdd/learner-audit-report.md': 'a run’s working note under a directory that'
+    + ' ignores itself (`*`), so it is in no clone; the contract states its measurable proxies',
+  '.superpowers/sdd/LESSONS.md': 'the same, and cited precisely to say the body is NOT copied there',
+  '.superpowers/sdd/uwb-clause-list.txt': 'the same; it is the provenance of clause numbers, which'
+    + ' is all the standards rule lets this repository carry',
 }
 
 /**
  * The floor. 144 occurrences / 92 distinct paths across the four documents on 2026-10-12, and the
- * allow-list holds two — so a rule that graded nothing would have to lose two orders of magnitude
+ * allow-list holds five — so a rule that graded nothing would have to lose two orders of magnitude
  * to still look green. Three rules in this programme have reported success while grading nothing
  * (`readability.test.ts`'s structural floor among them), which is why this is here rather than
  * assumed.
@@ -98,6 +118,23 @@ describe('the contract documents cite file paths that resolve', () => {
         + ' and if it resolves because somebody committed it, read that reason again first')
         .toBeNull()
     }
+  })
+
+  it('resolution is the repository, not this machine: a file on disk only is still dead', () => {
+    // The instrument itself. A floor first, because a `git ls-files` that came back empty would
+    // make all 92 citations dead at once — loud, but the message would be about the documents
+    // rather than about the ruler, and that misdirection is what cost seven hours of red CI.
+    const tracked = trackedFiles()
+    expect(tracked.size, 'files `git ls-files` reports for this repository').toBeGreaterThan(200)
+    expect(tracked.has('tests/course/doc-citations.test.ts'), 'this very file is one of them')
+      .toBe(true)
+    // And the discriminating case, which no conditional guards: a path that is certainly on disk
+    // whenever this suite runs and is in no checkout of this repository. Under the old instrument
+    // it resolved; under this one it must not, which is the whole of the fix.
+    const onDiskNeverCloned = 'node_modules/vitest/package.json'
+    expect(existsSync(resolve(ROOT, onDiskNeverCloned)), 'the probe path is on disk here').toBe(true)
+    expect(citedPathAt(onDiskNeverCloned), 'and a citation of it would still be reported dead,'
+      + ' because `.gitignore` keeps it out of every clone').toBeNull()
   })
 
   it('can fail: a path that resolves nowhere is reported', () => {

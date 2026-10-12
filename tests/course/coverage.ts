@@ -20,6 +20,7 @@
  * `engine/mac.ts#buildMuParts` — a citation this resolver cannot check would look checked and
  * would not be. That is not a gap in this file; it is the reason the rule exists.
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -71,14 +72,50 @@ export const filePathCitations = (doc: string): string[] => [
 ]
 
 /**
- * Where a cited path resolves, or `null`. The three bases are the convention the documents already
- * use and {@link unresolved} already honours: a repo-root path, a `src/`-relative one (「
- * `engine/phy.ts` 」 means `src/engine/phy.ts`), or a `tests/`-relative one.
+ * **The files a clone of this repository has**, read once from `git ls-files`.
+ *
+ * `citedPathAt` below used to ask the filesystem, and that is a different question. On
+ * 2026-10-12 `npm test` had been red in CI for seven hours and three pushes, while every local
+ * run was green: three citations into `.superpowers/sdd/` resolve on this machine and do not
+ * exist in a checkout, because the subagent-driven-development skill writes a `.gitignore`
+ * holding `*` into that directory. `docs/` is the one place in this repository whose audience is
+ * someone who cloned it, so 「resolves」 has to mean 「is in the clone」 — the filesystem answer
+ * cannot be the same on two machines, and the one machine it was measured on was never the one
+ * the citation is written for.
+ *
+ * `git ls-files` is the index, which after a clone or an `actions/checkout` is exactly the
+ * working tree. What it does NOT answer: whether the file says what the citation claims, and
+ * whether a path that is tracked today will still be tracked when the reader arrives.
+ *
+ * If `git` is not on PATH this throws, which makes the suite red rather than green. That is the
+ * right direction for this particular check: the weaker version of it passed here and failed in
+ * CI, and a check that silently falls back to the filesystem would be that same bug again.
+ */
+let trackedCache: Set<string> | null = null
+export const trackedFiles = (): Set<string> => {
+  if (trackedCache === null) {
+    const out = execFileSync('git', ['ls-files', '-z'], {
+      cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26,
+    })
+    trackedCache = new Set(out.split('\0').filter(Boolean))
+  }
+  return trackedCache
+}
+
+/**
+ * Where a cited path resolves **in the repository**, or `null`. The three bases are the convention
+ * the documents already use and {@link unresolved} already honours: a repo-root path, a
+ * `src/`-relative one (「 `engine/phy.ts` 」 means `src/engine/phy.ts`), or a `tests/`-relative one.
+ *
+ * Resolution is against {@link trackedFiles}, not the filesystem — see the finding recorded
+ * there. A consequence worth stating: a citation of a directory can no longer resolve, and none
+ * is possible anyway, because {@link filePathCitations} requires one of five file extensions.
  */
 export const citedPathAt = (p: string): string | null => {
+  const tracked = trackedFiles()
   for (const base of ['', 'src', 'tests']) {
     const q = base === '' ? p : `${base}/${p}`
-    if (existsSync(resolve(ROOT, q))) return q
+    if (tracked.has(q)) return q
   }
   return null
 }
