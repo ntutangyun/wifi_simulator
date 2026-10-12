@@ -15,6 +15,7 @@
  * rather than refused, because it is scenario-dependent (10 ms of TXOP and the Writes appear,
  * asserted below) and because the lesson now teaches that fact.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { ampBackscatter, ampBackscatterScenario } from '../../src/course/amp/amp-backscatter'
 import { Simulation } from '../../src/engine/simulation'
@@ -22,15 +23,18 @@ import { DEFAULT_AMP_BS, ScenarioSchema, type Scenario } from '../../src/model/s
 import {
   AMP_BS_ACTIVATION_DBM, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB, AMP_BS_READER_DR_DB,
   AMP_BS_REQ_SNR_DB, AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_UL_SYNC_CHIPS, AMP_BS_WRITE_T3_NS,
-  AMP_BS_WUP_MIN_NS, activationReachM, ampBsDlPpduNs, bsReplyNs, bstNs, freeSpacePl0Db,
-  monoReachM, FREQ_24G_MHZ,
+  AMP_BS_BST_MIN_NS, AMP_BS_WUP_MIN_NS, GEN2_REPLY_BYTES, activationReachM, ampBsDlPpduNs,
+  bsPathLossDb, bsReplyDbm, bsReplyNs, bstNs, freeSpacePl0Db, monoLeakDbm, monoReachM,
+  readerFloorDbm, FREQ_24G_MHZ,
 } from '../../src/engine/ampBs'
 import { ERP_2G } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
+import { lessonTexts } from '../../src/course/readability'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
 const RUN_NS = 1000 * MS
@@ -586,5 +590,572 @@ describe('amp-backscatter · the printed table and sentences are read back out o
     expect(sigExt, 'the 2.4 GHz signal extension, from the timing table').toBe(6_000)
     expect(Number(m![4]), 'and the downlink PPDU a Write therefore becomes')
       .toBe(Math.round(ampBsDlPpduNs('write', 0, bstNs('write', 250, AMP_BS_WRITE_T3_NS), sigExt) / 1_000))
+  })
+})
+
+// --- every figure the PROSE prints ------------------------------------------------------------
+
+/**
+ * **`numbers` is read back out of the lesson above; the rest of its prose is not.** The sweep of
+ * 2026-10-13 plants one edit per printed figure and runs this file: of the 170 figures this
+ * lesson prints, PLACEHOLDER could be edited with the suite green. `picture`, `terms`, the steps,
+ * `limits`, `sources`, `observe`, `tryThis` and the quiz were the whole of the remainder.
+ *
+ * Nothing new is measured here: every assertion calls the same `recs`, `inv`, `replies`,
+ * `activationReachM`, `monoReachM`, `bsReplyNs` the tests above call, and the figure comes out of
+ * the prose instead of out of this file. Where one figure is printed in five places — the 6 dB of
+ * reflection loss is in `picture`, in the formula, in `limits`, in `sources` and in a quiz
+ * explanation — every occurrence is read.
+ */
+describe('amp-backscatter · every figure the prose prints, read back out of it', () => {
+  const EVERYWHERE = lessonTexts(ampBackscatter).map((t) => t.text).join('\n')
+  const num = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(num)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  const blockText = (b: unknown): string => {
+    const o = b as { heading?: string; text?: string; items?: string[]; note?: string; caption?: string }
+    return [o.heading ?? '', o.text ?? '', (o.items ?? []).join('\n'), o.note ?? '', o.caption ?? '']
+      .join('\n')
+  }
+  const pic = (ampBackscatter.picture ?? []).map(blockText).join('\n')
+  const terms = (ampBackscatter.terms ?? []).map((t) => `${t.term}：${t.plain}`).join('\n')
+  const limitsText = (ampBackscatter.limits ?? []).map((l) => l.text).join('\n')
+  const srcText = (ampBackscatter.sources ?? []).join('\n')
+  const obs = ampBackscatter.observe.join('\n')
+  const trys = ampBackscatter.tryThis.join('\n')
+  const quizText = ampBackscatter.quiz!.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
+
+  const CFG = DEFAULT_AMP_BS
+  const SCENE = ampBackscatterScenario()
+  const READER = SCENE.nodes.find((n) => n.kind === 'ap')!
+  /** Each tag's distance from the reader, in centimetres, as the scene places it. */
+  const CM = SCENE.nodes.filter((n) => n.kind !== 'ap').map((n) => Math.round(
+    Math.hypot(n.pos.x - READER.pos.x, n.pos.y - READER.pos.y, (n.pos.z ?? 0) - (READER.pos.z ?? 0)) * 100,
+  ))
+
+  it('`picture`: the three radii, the one height, and the loss a reflection takes', () => {
+    // 「四张在 15 cm 上，一张在 28 cm，一张在 40 cm」
+    const [near, mid, far] = figs(pic, /四张在 (\d+) cm 上，一张在 (\d+) cm，一张在 (\d+) cm/,
+      '`picture` on where the six tags are')
+    const got = [...CM].sort((a, b) => a - b)
+    expect(got.filter((c) => c === near).length, 'four tags at the first radius').toBe(4)
+    expect([near, mid, far], 'the three radii this scene really has')
+      .toEqual([...new Set(got)])
+    // 「读写器和标签同在 1 m 高度上」 — and the claim that follows it: the link is shorter than
+    // the way to the ceiling, which is what makes 「差一米就什么也不剩了」 a statement about this room
+    const [h] = figs(pic, /同在 (\d+) m 高度上/, '`picture` on the height they share')
+    expect(READER.pos.z, 'the reader’s own height').toBe(h)
+    for (const n of SCENE.nodes) expect(n.pos.z, `${n.id} is at that height too`).toBe(h)
+    expect(Math.max(...CM) / 100, 'and the longest link is shorter than a metre').toBeLessThan(1)
+    // 「反射本身比入射低 6 dB」 — `picture`, the formula, `limits`, `sources`, the quiz
+    for (const v of everyFig(/低 (\d+) dB|路损 − (\d+)\b|(\d+) dB 的反射损耗|(\d+) dB 取自/g,
+      'the reflection loss', 3)) {
+      expect(num(v), 'the loss `ampBs.ts` charges a reflection').toBe(AMP_BS_LOSS_DB)
+    }
+  })
+
+  it('the margin identity, in the formula and in the quiz that restates it', () => {
+    const lifted = ampBackscatter.variants!
+      .map((v) => v.scenario().nodes[0]!.ampAp!.backscatter!.chargeDbm!)
+    const f = ampBackscatter.picture!.find(
+      (b): b is Extract<typeof b, { kind: 'formula' }> => b.kind === 'formula')!
+    // 「回到读写器 = 激励 − 2 × 路损 − 6」 and 「读写器的本机干扰 = 激励 − 20（天线隔离）−50（接收动态范围）」
+    const [twice, loss, iso, dr] = figs(f.text,
+      /回到读写器 = 激励 − (\d) × 路损 − (\d+)\s*\n读写器的本机干扰 = 激励 − (\d+)（天线隔离）−(\d+)（接收动态范围）/,
+      'the formula block’s two lines')
+    expect(loss, 'the reflection loss').toBe(AMP_BS_LOSS_DB)
+    expect(iso, 'the antenna isolation').toBe(AMP_BS_ISOLATION_DB)
+    expect(dr, 'the receiver’s dynamic range').toBe(AMP_BS_READER_DR_DB)
+    // the two lines, as the engine computes them, at one of the scene's own distances
+    const d = CM[0]! / 100
+    const pl = freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(d)
+    expect(CFG.chargeDbm - twice! * pl - loss!, 'the return the formula’s first line gives')
+      .toBeCloseTo(bsReplyDbm(CFG.chargeDbm, pl), 9)
+    expect(CFG.chargeDbm - iso! - dr!, 'and the floor its second line gives')
+      .toBeCloseTo(readerFloorDbm(monoLeakDbm(CFG.chargeDbm)), 9)
+    // 「余量恒等于 20 + 50 − 6 − 2 × 路损 = 64 − 2 × 路损」 — the note's own subtraction
+    const [a, b, c, twice2, sum, twice3] = figs(f.note!,
+      /余量恒等于 (\d+) \+ (\d+) − (\d+) − (\d) × 路损 = (\d+) − (\d) × 路损/,
+      'the note’s identity')
+    expect([a, b, c], 'the three constants it adds up').toEqual([iso, dr, loss])
+    expect(a! + b! - c!, 'and their sum is the constant it prints').toBe(sum)
+    expect([twice2, twice3], 'both sides carry the same multiple of the path loss')
+      .toEqual([twice, twice])
+    // and the identity really is independent of the excitation, which is the whole sentence
+    for (const excite of [CFG.chargeDbm, CFG.chargeDbm + 10, CFG.chargeDbm - 7]) {
+      const margin = bsReplyDbm(excite, pl) - readerFloorDbm(monoLeakDbm(excite))
+      expect(margin, `at ${excite} dBm the margin is the lesson’s own identity`)
+        .toBeCloseTo(sum! - twice! * pl, 9)
+    }
+    /*
+     * 「把激励抬高 10 dB，它要在上面分辨回应的那个底也抬高 10 dB」, which the quiz says twice more
+     * (once in a distractor: 「反射损耗也跟着涨了 10 dB」).
+     *
+     * **The first version of this read asserted an identity in the figure itself** — that the
+     * floor rises by exactly the lift — which is true of EVERY lift, so planting 10 → 11 stayed
+     * green. What makes 10 the figure is the variant: it is the lift that variant really applies.
+     */
+    const lift = Math.max(...lifted) - CFG.chargeDbm
+    for (const v of everyFig(
+      /抬高 (\d+) dB|抬了 (\d+) dB|跟着激励一起抬了 (\d+) dB|跟着涨了 (\d+) dB/g,
+      'the lift the sentence and the quiz talk about', 4)) {
+      expect(num(v), 'the lift the 「激励 20 dBm」 variant really applies').toBe(lift)
+    }
+    // and the two things that do and do not move with it, which is what the quiz asks
+    expect(readerFloorDbm(monoLeakDbm(CFG.chargeDbm + lift))
+      - readerFloorDbm(monoLeakDbm(CFG.chargeDbm)),
+    'the floor rises with the excitation').toBeCloseTo(lift, 9)
+    expect(AMP_BS_LOSS_DB, 'while the reflection loss is a constant, as the distractor is not')
+      .toBe(AMP_BS_LOSS_DB)
+    // the quiz restates the identity verbatim
+    const [qSum, qTwice] = figs(quizText, /余量恒等于 (\d+) − (\d) × 路损/,
+      'the quiz on the same identity')
+    expect([qSum, qTwice], 'the same two numbers the note prints').toEqual([sum, twice])
+  })
+
+  it('the steps of a slot: the draw, the random number, the bytes and the gap', () => {
+    const steps = (ampBackscatter.picture ?? []).flatMap(
+      (b) => ('items' in b ? b.items : []),
+    ).join('\n')
+    // 「每张醒着的标签在 0 到 2^Q − 1 之间抽一个计数」 and 「抽到 0 的那些立刻……」
+    const [lo, base, off] = figs(steps, /在 (\d) 到 (\d)\^Q − (\d) 之间抽一个计数/,
+      'the steps on the range a tag draws from')
+    const counters = ofType(recs(), 'AMP_BS_COUNTER')
+    expect(counters.length, 'the run really draws counters').toBeGreaterThan(0)
+    expect(Math.min(...counters.map((r) => r.counter)), 'the smallest counter drawn').toBe(lo)
+    // an EQUALITY, not a bound: a round over a second draws the top of the range too, so
+    // 「0 到 2^Q − 1」 is checkable as the largest counter and not merely as a ceiling
+    expect(Math.max(...counters.map((r) => r.counter)),
+      `the largest counter drawn is ${base}^Q − ${off}`).toBe(base! ** CFG.q - off!)
+    expect([...new Set(counters.map((r) => r.counter))].sort((a, b) => a - b),
+      'and every value in between is drawn').toEqual(
+      Array.from({ length: base! ** CFG.q }, (_x, i) => lo! + i))
+    const [fires] = figs(steps, /抽到 (\d) 的那些立刻/, 'the steps on which draw answers at once')
+    expect(fires, 'the counter that answers in this very frame').toBe(lo)
+    // 「反射一个 16 位随机数 RN16」 — and the engine's own RN16 is that wide
+    const [rnBits] = figs(steps, /反射一个 (\d+) 位随机数 RN\d+/, 'the steps on the random number')
+    const rnName = raw(steps, /随机数 (RN\d+)/, 'the name the steps give it')[0]!
+    expect(rnName, 'the name carries its own width').toBe(`RN${rnBits}`)
+    expect(rnBits! / 8, 'and that many octets is what a bare RN16 reply is')
+      .toBe(GEN2_REPLY_BYTES.rn16)
+    expect(replies(recs(), 'rn16').length, 'and the run reflects them').toBeGreaterThan(0)
+    // 「标签把 9 个字节的存储内容反射回来」 — against the reply the run really makes
+    const [readBytes] = figs(steps, /把 (\d+) 个字节的存储内容反射回来/,
+      'the steps on what a Read brings back')
+    expect(replies(recs(), 'read').length, 'the scene really reads').toBeGreaterThan(0)
+    // the data is what the reply carries beside its header, its RN16 and its CRC — the five
+    // octets `GEN2_REPLY_BYTES`' own comment accounts for
+    expect(readBytes! + 1 + 2 + 2, 'the whole Read reply those bytes sit in')
+      .toBe(GEN2_REPLY_BYTES.read)
+    // 「每两帧命令之间只隔 16 µs，而标签能在这 16 µs 里活下来」 — twice in one sentence
+    const gaps = figs(steps, /只隔 (\d+) µs，而标签能在这 (\d+) µs 里活下来/,
+      'the steps on the gap between two commands')
+    expect(gaps[0], 'the gap `ampBs.ts` leaves').toBe(AMP_BS_T1_NS / 1000)
+    expect(gaps[1], 'and the same gap, restated in the same sentence').toBe(gaps[0])
+  })
+
+  it('`terms`: the EPC’s own width and the slots a Q announces', () => {
+    // 「标签身上那 96 位的货品编号」
+    const [epcBits] = figs(terms, /那 (\d+) 位的货品编号/, '`terms` on the EPC’s width')
+    expect(replies(recs(), 'epc').length, 'the run really reads an EPC').toBeGreaterThan(0)
+    // the EPC reply is the code plus PC 2 and CRC-16 2, which is what its width is made of
+    expect(epcBits! / 8 + 2 + 2, 'the whole EPC reply that code sits in')
+      .toBe(GEN2_REPLY_BYTES.epc)
+    // 「本轮一共开出 2^Q 个槽」 — and the run offers exactly that many
+    const [slotBase] = figs(terms, /本轮一共开出 (\d)\^Q 个槽/, '`terms` on how many slots a round has')
+    const rounds = inv(recs())
+    expect(rounds.length, 'the run really runs inventory rounds').toBeGreaterThan(0)
+    // one AMP_INVENTORY per transmit opportunity, and a 4 ms one holds a single slot — so the
+    // round's own slot count is the sum over the opportunities of one session
+    const bySession = new Map<number, number>()
+    for (const r of rounds) bySession.set(r.session, (bySession.get(r.session) ?? 0) + r.slotsOffered)
+    const complete = rounds.filter((r) => r.complete).map((r) => r.session)
+    expect(complete.length, 'the second holds sessions that finished').toBeGreaterThan(0)
+    for (const session of complete) {
+      expect(bySession.get(session), `a Q = ${CFG.q} session offers that many slots in all`)
+        .toBe(slotBase! ** CFG.q)
+    }
+    // 「一次传输机会的头一帧前面那段载波」 and 「命令发完之后读写器继续点着的那段载波」 — no
+    // figures of their own, but the WUP's minimum is printed in `numbers` and in `sources`
+    for (const v of everyFig(/(\d) ms 的 WUP-Excitation|(\d) ms 的 WUP 最短长度/g,
+      'the WUP length', 2)) {
+      expect(num(v) * MS, 'the minimum `ampBs.ts` holds a WUP to').toBe(AMP_BS_WUP_MIN_NS)
+    }
+  })
+
+  it('the two reaches and the activation floor, at every place the lesson prints them', () => {
+    // 「入射功率不到 −20 dBm，它醒不过来；按 10 dBm 的激励算，这条线落在 0.309 m」
+    for (const v of everyFig(/−(\d+) dBm[，。]|到 −(\d+) dBm 标签就工作|−(\d+) dBm 的上电门限/g,
+      'the activation floor', 3)) {
+      expect(-num(v), 'the floor `ampBs.ts` wakes a tag at').toBe(AMP_BS_ACTIVATION_DBM)
+    }
+    for (const v of everyFig(/按 (\d+) dBm 的激励算|(\d+) dBm 的充电激励/g, 'the charge excitation', 2)) {
+      expect(num(v), 'the excitation this scene charges with').toBe(CFG.chargeDbm)
+    }
+    // the two reaches, wherever they appear: the activation one and the decode one
+    for (const v of everyFig(/这条线落在 ([\d.]+) m|推到 ([\d.]+) m/g, 'the activation reach', 2)) {
+      const m = num(v)
+      const lifted = [CFG.chargeDbm, CFG.chargeDbm + 10]
+        .map((e) => Number(activationReachM(e).toFixed(3)))
+      expect(lifted, `${m} m is the activation reach at one of the two excitations`).toContain(m)
+    }
+    for (const v of everyFig(/对应 ([\d.]+) m|还是 ([\d.]+) m|跟着它们变|收到 ([\d.]+) m/g,
+      'the decode reach', 2)) {
+      if (!/[\d.]/.test(v)) continue
+      const m = num(v)
+      const both = [250, 1000].map((k) => Number(monoReachM(CFG.chargeDbm, k as 250 | 1000).toFixed(3)))
+      expect(both, `${m} m is the decode reach at one of the two uplink rates`).toContain(m)
+    }
+    // 「250 kb/s 的回应要 3 dB 信噪比」 — and the other rate's requirement, in `tryThis`
+    const [kbps, snr] = figs(EVERYWHERE, /(\d+) kb\/s 的回应要 (\d) dB 信噪比/,
+      'the SNR the slower uplink needs')
+    expect(kbps, 'the uplink rate this scene answers at').toBe(CFG.ulKbps)
+    expect(snr, 'and the SNR `ampBs.ts` asks of it').toBe(AMP_BS_REQ_SNR_DB[CFG.ulKbps])
+    // 「差 0.1 dB 就一条记录也不留」 — `limits` on how hard the threshold is
+    const [eps] = figs(limitsText, /差 ([\d.]+) dB 就一条记录也不留/,
+      '`limits` on how sharp the activation floor is')
+    const dead = CM[CM.length - 1]! / 100
+    const incident = CFG.chargeDbm - (freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(dead))
+    expect(incident, 'and the tag past it really is under the floor')
+      .toBeLessThan(AMP_BS_ACTIVATION_DBM)
+    expect(eps, 'an epsilon, so what is checked is that the floor is a hard line')
+      .toBeGreaterThan(0)
+  })
+
+  it('`sources` and `limits`: every model value they own, against the export each names', () => {
+    // 「T1 = 16 µs 与响应窗口的 ±20 % 余量」, 「1 ms 的 WUP 最短长度」, 「[S, S, S] 共 24 个码片」
+    const [t1] = figs(srcText, /T1 = (\d+) µs/, '`sources` on T1')
+    expect(t1! * 1000, 'the immediate-response time').toBe(AMP_BS_T1_NS)
+    const [chips] = figs(srcText, /共 (\d+) 个码片的上行同步/, '`sources` on the uplink sync')
+    expect(chips, 'the chips an uplink sync spends').toBe(AMP_BS_UL_SYNC_CHIPS)
+    const [slow, fast] = figs(srcText, /(\d+) kb\/s 与 (\d+) Mb\/s 两档上行速率/,
+      '`sources` on the two uplink rates')
+    expect([slow, fast! * 1000], 'the two rates `ampBs.ts` has a chip time for')
+      .toEqual(Object.keys(AMP_BS_REQ_SNR_DB).map(Number))
+    // 「10 dBm 的充电激励与 0 dBm 的回应激励」
+    const [charge, reply] = figs(srcText, /(\d+) dBm 的充电激励与 (\d+) dBm 的回应激励/,
+      '`sources` on the two excitations')
+    expect([charge, reply], 'the two the scene ships').toEqual([CFG.chargeDbm, CFG.bsDbm])
+    // 「T2 = 16 µs 与 Write 的 T3 = 2 ms」
+    const [t2, t3] = figs(srcText, /T2 = (\d+) µs 与 Write 的 T3 = (\d) ms/,
+      '`sources` on the two turnarounds')
+    expect(t2! * 1000, 'the AP turnaround').toBe(AMP_BS_T2_NS)
+    expect(t3! * MS, 'and what a Write waits').toBe(AMP_BS_WRITE_T3_NS)
+    // 「2.4 GHz 自由空间第一米的 40.2 dB 用的是 Friis 公式」
+    const [pl0] = figs(srcText, /第一米的 ([\d.]+) dB/, '`sources` on the first metre')
+    same(String(pl0), freeSpacePl0Db(FREQ_24G_MHZ), 'the free-space loss of the first metre')
+    // 「4 ms 的传输机会预算」 — `numbers`, `limits` and `sources`, and 「改到 10 ms」
+    for (const v of everyFig(/(\d) ms 的传输机会|是 (\d) ms。一个槽|从 (\d) ms 改成/g,
+      'the TXOP budget', 2)) {
+      expect(num(v), 'the budget this scene gives a round').toBe(CFG.txopMs)
+    }
+    // 「6 dB 的反射损耗、20 dB 的天线隔离、50 dB 的接收动态范围这三个数，决定了……那个 64」
+    const [l, i, d, sum] = figs(limitsText,
+      /(\d+) dB 的反射损耗、(\d+) dB 的天线隔离、(\d+) dB 的接收动态范围这三个数，决定了[^]*?那个 (\d+)/,
+      '`limits` on the three constants and the one they decide')
+    expect([l, i, d], 'the three `ampBs.ts` exports').toEqual([
+      AMP_BS_LOSS_DB, AMP_BS_ISOLATION_DB, AMP_BS_READER_DR_DB,
+    ])
+    expect(i! + d! - l!, 'and the constant they add up to').toBe(sum)
+    // 「0.328 m 这个距离跟着它们变」 — the decode reach, and it really moves with them
+    const [reach] = figs(limitsText, /([\d.]+) m 这个距离跟着它们变/,
+      '`limits` on which distance those three decide')
+    same(String(reach), monoReachM(CFG.chargeDbm, CFG.ulKbps), 'the decode reach')
+    // 「标签那 96 位的编号」 and 「把它改到 10 ms，一轮清点就从四次传输机会缩到两次」
+    const [bits] = figs(limitsText, /标签那 (\d+) 位的编号/, '`limits` on the EPC width')
+    expect(bits! / 8 + 2 + 2, 'the same width `terms` gives, in the same reply')
+      .toBe(GEN2_REPLY_BYTES.epc)
+  })
+
+  it('`observe`: the two incident levels, Tag 5’s own second, and the Q = 0 run', () => {
+    const rs = recs()
+    // 「15 cm 是 −13.72 dBm，28 cm 是 −19.14 dBm」
+    const [cm1, p1, cm2, p2] = raw(obs,
+      /(\d+) cm 是 (−[\d.]+) dBm，(\d+) cm 是 (−[\d.]+) dBm/,
+      '`observe` on the two incident powers')
+    const bootAt = (cm: number): number => {
+      const i = CM.findIndex((c) => c === cm)
+      expect(i, `a tag at ${cm} cm`).toBeGreaterThanOrEqual(0)
+      const node = SCENE.nodes.filter((n) => n.kind !== 'ap')[i]!.id
+      const b = ofType(rs, 'AMP_BS_BOOT').find((r) => r.node.startsWith(node))
+      expect(b, `${node} woke up`).toBeDefined()
+      return b!.incidentDbm
+    }
+    same(p1!, bootAt(num(cm1!)), `the incident power at ${cm1} cm`)
+    same(p2!, bootAt(num(cm2!)), `and at ${cm2} cm`)
+    // 「再去看 40 cm 上那一张，整整一秒钟它一条记录也没有」
+    const [deadCm] = figs(obs, /再去看 (\d+) cm 上那一张/, '`observe` on the tag that never woke')
+    expect(Math.max(...CM), 'which is the furthest tag of the scene').toBe(deadCm)
+    const deadIdx = CM.findIndex((c) => c === deadCm)
+    const deadNode = SCENE.nodes.filter((n) => n.kind !== 'ap')[deadIdx]!.id
+    expect(rs.filter((r) => 'node' in r && r.node.startsWith(deadNode)),
+      'and it leaves no record at all').toHaveLength(0)
+    // 「选中 Tag 5（28 cm）……只剩 5.72 dB 余量……一秒钟它只被读到 2 次」
+    const [tagNo, tagCm, margin, reads] = raw(obs,
+      /选中 Tag (\d)（(\d+) cm）[^]*?只剩 ([\d.]+) dB 余量[^]*?一秒钟它只被读到 (\d) 次/,
+      '`observe` on the middle tag’s second')
+    const node = `tag-${tagNo}#2g`
+    expect(TAGS, `Tag ${tagNo} is a tag of this scene`).toContain(node)
+    const idx = SCENE.nodes.filter((n) => n.kind !== 'ap').findIndex((n) => node.startsWith(n.id))
+    expect(CM[idx], 'and it is the one at that distance').toBe(num(tagCm!))
+    const r5 = ofType(rs, 'AMP_BS_REPLY').find((r) => r.node === node)!
+    same(margin!, r5.snrDb, 'the margin its reflection comes back with')
+    expect(num(reads!), 'and the readings it yielded in the second').toBe(epcCount(rs, node))
+    // 「载入「Q = 0：只开一个槽」变体：五张醒着的标签全部抽到 0……一秒钟读到 0 张，十个槽十次读不出」
+    const [q, drew, read, slots, cols] = figs(obs,
+      /「Q = (\d)：只开一个槽」变体：五张醒着的标签全部抽到 (\d)[^]*?一秒钟读到 (\d) 张，(十)?个槽(十)?次读不出/,
+      '`observe` on the Q = 0 variant') as (number | undefined)[]
+    const qZero = ampBackscatter.variants!.findIndex((v) => v.label.includes(`Q = ${q}`))
+    expect(qZero, 'the variant that label names').toBeGreaterThanOrEqual(0)
+    const zr = recs(qZero)
+    expect(ampBackscatter.variants![qZero]!.scenario().nodes[0]!.ampAp!.backscatter!.q,
+      'and that variant really ships that Q').toBe(q)
+    expect([...new Set(ofType(zr, 'AMP_BS_COUNTER').map((r) => r.counter))],
+      'every tag draws the same counter when there is one slot').toEqual([drew])
+    const t = tally(zr)
+    expect(t.read, 'nothing is read in that run').toBe(read)
+    expect(t.col, 'and every slot it offered collided').toBe(t.off)
+    expect(slots ?? cols, 'the slot count is written in Chinese, so it is not a figure here')
+      .toBeNaN()
+  })
+
+  it('`tryThis`: the two knobs, both turned the better way, both reading less', () => {
+    // 「前者把上电距离从 0.309 m 推到 0.978 m，读到的次数从 23 降到 22」
+    const [was, now, from, to] = raw(trys,
+      /把上电距离从 ([\d.]+) m 推到 ([\d.]+) m，读到的次数从 (\d+) 降到 (\d+)/,
+      '`tryThis` on the 20 dBm variant')
+    const strong = ampBackscatter.variants!.findIndex((v) => v.label.includes('20 dBm'))
+    expect(strong, 'the variant it names').toBeGreaterThanOrEqual(0)
+    const lifted = ampBackscatter.variants![strong]!.scenario()
+      .nodes[0]!.ampAp!.backscatter!.chargeDbm!
+    same(was!, activationReachM(CFG.chargeDbm), 'the activation reach the scene ships')
+    same(now!, activationReachM(lifted), 'and the one the variant lifts it to')
+    expect(num(from!), 'the readings the shipped scene yields').toBe(tally(recs()).read)
+    expect(num(to!), 'and the readings the stronger one yields').toBe(tally(recs(strong)).read)
+    expect(num(to!), 'which is fewer, and that is the point').toBeLessThan(num(from!))
+    // 「后者把读得到的距离从 0.328 m 收到 0.232 m……次数降到 21，而命令占掉的空口时间从 82.8 ms 降到 57.1 ms」
+    const [dWas, dNow, dReads, aWas, aNow] = raw(trys,
+      /把读得到的距离从 ([\d.]+) m 收到 ([\d.]+) m[^]*?次数降到 (\d+)，而命令占掉的空口时间从 ([\d.]+) ms 降到 ([\d.]+) ms/,
+      '`tryThis` on the 1 Mb/s variant')
+    const fast = ampBackscatter.variants!.findIndex((v) => v.label.includes('1 Mb/s'))
+    expect(fast, 'the variant it names').toBeGreaterThanOrEqual(0)
+    const fastKbps = ampBackscatter.variants![fast]!.scenario()
+      .nodes[0]!.ampAp!.backscatter!.ulKbps!
+    same(dWas!, monoReachM(CFG.chargeDbm, CFG.ulKbps), 'the decode reach at the slower rate')
+    same(dNow!, monoReachM(CFG.chargeDbm, fastKbps), 'and at the faster one')
+    expect(num(dReads!), 'the readings the faster rate yields').toBe(tally(recs(fast)).read)
+    same(aWas!, rfidAirtimeNs(recs()) / MS, 'the air the commands of the shipped scene take')
+    same(aNow!, rfidAirtimeNs(recs(fast)) / MS, 'and the air the faster rate takes')
+    // 「一轮清点从四次传输机会缩到两次」 — Chinese numerals, read with the course's own reader
+    const [four, two] = raw(trys, /一轮清点从(.)次传输机会缩到(.)次/,
+      '`tryThis` on what a 10 ms TXOP buys')
+    const txops = (ms: number): number => {
+      const s = ampBackscatterScenario()
+      const cfg = s.nodes[0]!.ampAp!.backscatter!
+      const scene: Scenario = {
+        ...s,
+        nodes: s.nodes.map((n, i) => (i === 0
+          ? { ...n, ampAp: { ...n.ampAp!, backscatter: { ...cfg, txopMs: ms, write: true } } }
+          : n)),
+      }
+      const rounds = ofType(run(scene), 'AMP_INVENTORY')
+      return rounds.filter((r) => r.session === rounds[0]!.session).length
+    }
+    expect(zhNumeral(four!.replace(/两/g, '二')), 'the TXOPs a round takes at the shipped budget')
+      .toBe(txops(CFG.txopMs))
+    expect(zhNumeral(two!.replace(/两/g, '二')), 'and at the budget this experiment sets')
+      .toBe(txops(10))
+  })
+
+  /*
+   * **Every one of these figures is printed a SECOND time**, and a second printing is its own
+   * site: the three radii come back in `numbers`, `limits`, `observe`, `tryThis` and the quiz;
+   * the two excitations and the two TXOP budgets come back in all five; and the quiz restates
+   * both the margin identity and the whole slot budget. 「It is read somewhere else」 is not read.
+   */
+  it('every distance, every excitation and every budget, at every place the lesson prints one', () => {
+    const radii = [...new Set(CM)].sort((a, b) => a - b)
+    // 「两条距离，差不到 2 cm」 — the heading's own claim about the two reaches
+    const [gapCm] = figs(EVERYWHERE, /两条距离，差不到 (\d+) cm/, 'the heading on the two reaches')
+    const gap = (monoReachM(CFG.chargeDbm, CFG.ulKbps) - activationReachM(CFG.chargeDbm)) * 100
+    expect(Math.ceil(gap), 'the gap between them, to the centimetre the heading rounds to')
+      .toBe(gapCm)
+    /*
+     * 「5 cm 处的下限是模型取值」 — measured rather than read off a constant, because the clamp is
+     * a literal inside `bsPathLossDb`: under it the loss stops falling, over it it still does.
+     */
+    const [clampCm] = figs(EVERYWHERE, /(\d+) cm 处的下限是模型取值/, '`sources` on the near clamp')
+    const at = (m: number): number => bsPathLossDb(FREQ_24G_MHZ, m, 0)
+    expect(at(clampCm! / 200), 'half that distance gives the same loss').toBe(at(clampCm! / 100))
+    expect(at(clampCm! / 100 + 0.01), 'and a centimetre further does not')
+      .toBeGreaterThan(at(clampCm! / 100))
+    // every 「N cm」 in the lesson is one of the scene's radii, or one of those two
+    for (const v of everyFig(/(?<![\d.−-])(\d+) cm/g, 'a distance in centimetres', 10)) {
+      expect([...radii, gapCm, clampCm], `${v} cm is a radius of this scene, or one of the two
+        distances the prose derives`).toContain(num(v))
+    }
+    // every 「N dBm」 is one of the two excitations this lesson runs
+    const lifted = ampBackscatter.variants!
+      .map((v) => v.scenario().nodes[0]!.ampAp!.backscatter!.chargeDbm!)
+        // the lookbehind keeps the 72 of 「−13.72 dBm」 out of it: a decimal's tail is not a figure
+    for (const v of everyFig(/(?<![\d.−-])(\d+) dBm/g, 'an excitation', 5)) {
+      expect([CFG.chargeDbm, CFG.bsDbm, ...lifted], `${v} dBm is an excitation this lesson uses`)
+        .toContain(num(v))
+    }
+    // every 「N ms」 is a budget, a turnaround or a session the engine really has
+    const session = (() => {
+      const rounds = inv(recs())
+      const first = rounds.filter((r) => r.session === rounds[0]!.session)
+      const last = first[first.length - 1]!
+      return (last.t + last.txopNs - rounds[0]!.t) / MS
+    })()
+    for (const v of everyFig(/(?<![\d.−-])([\d.]+) ms/g, 'a duration in milliseconds', 6)) {
+      const ms = num(v)
+      const airs = [undefined, ...ampBackscatter.variants!.map((_v, i) => i)]
+        .map((variant) => Number((rfidAirtimeNs(recs(variant)) / MS).toFixed(1)))
+      expect([
+        CFG.txopMs, 10, AMP_BS_WUP_MIN_NS / MS, AMP_BS_WRITE_T3_NS / MS,
+        Number(session.toFixed(1)), RUN_NS / MS, ...airs,
+      ], `${ms} ms is a duration this lesson measures`).toContain(ms)
+    }
+    // 「于是 Q = 2 的一轮要四次传输机会、14.9 ms 才清点完」
+    const [q, ms] = raw(EVERYWHERE, /于是 Q = (\d) 的一轮要四次传输机会、([\d.]+) ms 才清点完/,
+      '`numbers` on what a round costs')
+    expect(num(q!), 'the Q this scene ships').toBe(CFG.q)
+    same(ms!, session, 'and how long one of its sessions takes')
+    // 「Tag 1…4」 — the row that covers the ring of four
+    const row0 = (ampBackscatter.numbers!.find((x) => x.kind === 'table'
+      && (x.heading ?? '').includes('六张标签')) as { rows: string[][] }).rows[0]!
+    const [from, to] = figs(row0[0]!, /Tag (\d)…(\d)/, 'the first row’s own label')
+    expect(to! - from! + 1, 'the tags that row covers are the ones at the first radius')
+      .toBe(CM.filter((c) => c === radii[0]).length)
+    for (let i = from!; i <= to!; i++) {
+      expect(TAGS, `Tag ${i} is a tag of this scene`).toContain(`tag-${i}#2g`)
+    }
+    // 「Read 的回应是 8 个字节的存储内容」 — `numbers` says it as well as the steps
+    for (const v of everyFig(/是 (\d+) 个字节的存储内容|把 (\d+) 个字节的存储内容/g,
+      'the octets a Read brings back', 2)) {
+      expect(num(v) + 1 + 2 + 2, 'the whole Read reply they sit in').toBe(GEN2_REPLY_BYTES.read)
+    }
+    /*
+     * 「T1 = 16 µs 与响应窗口的 ±20 % 余量是 PM-75 与 PM-74」. `BST_T1_MARGIN` is file-local to
+     * `ampBs.ts`, so the margin is read out of the file the window is built in — the same way
+     * `@collisions-cw` reads `CAPTURE_MARGIN_DB`.
+     */
+    const [pct] = figs(srcText, /响应窗口的 ±(\d+) % 余量/, '`sources` on the response window')
+    const amp = readFileSync('src/engine/ampBs.ts', 'utf8')
+    const decl = /BST_T1_MARGIN = ([\d.]+)/.exec(amp)
+    expect(decl, '`ampBs.ts` no longer declares BST_T1_MARGIN').not.toBeNull()
+    expect(Number(decl![1]), 'the margin it builds the window with').toBe(1 + pct! / 100)
+    expect(bstNs(null, CFG.ulKbps), 'and the window a command with no reply still holds open')
+      .toBe(Math.max(AMP_BS_BST_MIN_NS, Math.round((1 + pct! / 100) * AMP_BS_T1_NS)))
+  })
+
+  it('the four figures the prose prints one more time than this file had read', () => {
+    // 「决定了「余量 = 64 − 2 × 路损」里的那个 64」 — the quoted formula is its own site
+    const [quoted, twice] = figs(limitsText, /「余量 = (\d+) − (\d) × 路损」/,
+      '`limits` on the identity it quotes')
+    expect(quoted, 'the constant the three it names add up to')
+      .toBe(AMP_BS_ISOLATION_DB + AMP_BS_READER_DR_DB - AMP_BS_LOSS_DB)
+    const d = CM[0]! / 100
+    const pl = freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(d)
+    expect(quoted! - twice! * pl, 'and the margin that identity gives at one of the scene’s radii')
+      .toBeCloseTo(bsReplyDbm(CFG.chargeDbm, pl) - readerFloorDbm(monoLeakDbm(CFG.chargeDbm)), 9)
+    // 「2.4 GHz 自由空间第一米的 40.2 dB」 — a band name (the fourth exemption class), but the
+    // band the engine computes this link in has to be the one the sentence names
+    const [ghz] = figs(srcText, /([\d.]+) GHz 自由空间第一米/, '`sources` on which band')
+    expect(FREQ_24G_MHZ, 'the mid-band frequency `ampBs.ts` uses is in that band')
+      .toBeGreaterThanOrEqual(ghz! * 1000)
+    expect(FREQ_24G_MHZ, 'and not in the next one').toBeLessThan((ghz! + 0.1) * 1000)
+    // every 「N Mb/s」 is the faster uplink rate, which one variant ships
+    const rates = ampBackscatter.variants!
+      .map((v) => v.scenario().nodes[0]!.ampAp!.backscatter!.ulKbps!)
+    for (const v of everyFig(/([\d.]+) Mb\/s/g, 'the faster uplink rate', 2)) {
+      expect([...rates, CFG.ulKbps], `${v} Mb/s is a rate this lesson runs`)
+        .toContain(num(v) * 1000)
+    }
+    // every 「N^Q」 — `terms`, the steps and `sources` — is the base the slots really come in
+    const sessions = new Map<number, number>()
+    for (const r of inv(recs())) sessions.set(r.session, (sessions.get(r.session) ?? 0) + r.slotsOffered)
+    const whole = inv(recs()).filter((r) => r.complete).map((r) => r.session)
+    for (const v of everyFig(/(\d)\^Q/g, 'the base the slot count is a power of', 3)) {
+      for (const session of whole) {
+        expect(sessions.get(session), `a Q = ${CFG.q} session offers ${v}^Q slots`)
+          .toBe(num(v) ** CFG.q)
+      }
+    }
+    // every 「Q = N」 is a Q this lesson runs
+    const qs = [CFG.q, ...ampBackscatter.variants!
+      .map((v) => v.scenario().nodes[0]!.ampAp!.backscatter!.q!)]
+    for (const v of everyFig(/Q = (\d)/g, 'a Q the prose names', 3)) {
+      expect(qs, `Q = ${v} is one this lesson runs`).toContain(num(v))
+    }
+  })
+
+  it('the quiz restates the identity and the whole slot budget, and both are read', () => {
+    // 「回到读写器的功率是「激励 − 2 × 路损 − 6」，本机干扰是「激励 − 20 − 50」」
+    const [twice, loss, iso, dr] = figs(quizText,
+      /激励 − (\d) × 路损 − (\d+)」，本机干扰是「激励 − (\d+) − (\d+)」/,
+      'the quiz on the two lines of the identity')
+    expect([loss, iso, dr], 'the three constants `ampBs.ts` exports')
+      .toEqual([AMP_BS_LOSS_DB, AMP_BS_ISOLATION_DB, AMP_BS_READER_DR_DB])
+    const d = CM[0]! / 100
+    const pl = freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(d)
+    expect(CFG.chargeDbm - twice! * pl - loss!, 'and the return those terms give')
+      .toBeCloseTo(bsReplyDbm(CFG.chargeDbm, pl), 9)
+    // 「把单站读写器的激励从 10 dBm 抬到 20 dBm」 — the two the question names are the two it runs
+    const [was, now] = figs(quizText, /激励从 (\d+) dBm 抬到 (\d+) dBm/,
+      'the quiz on the two excitations')
+    expect(was, 'the one the scene ships').toBe(CFG.chargeDbm)
+    expect(ampBackscatter.variants!.map(
+      (v) => v.scenario().nodes[0]!.ampAp!.backscatter!.chargeDbm!,
+    ), 'and the one a variant lifts it to').toContain(now)
+    // 「两者到读写器相差 10.8 dB，捕获效应让它解出了近的那张」
+    const [diff] = raw(quizText, /两者到读写器相差 ([\d.]+) dB/, 'the quiz on the two levels')
+    const rxOf = (cm: number): number => {
+      const i = CM.findIndex((c) => c === cm)
+      const node = `tag-${i + 1}#2g`
+      const r = ofType(recs(), 'AMP_BS_REPLY').find((x) => x.node === node)
+      expect(r, `${node} answers at all`).toBeDefined()
+      return r!.rxDbmAtAp
+    }
+    const [nearCm, farCm] = figs(quizText, /同一个槽里 (\d+) cm 和 (\d+) cm 两张标签一起反射/,
+      'the quiz on which two tags collide')
+    same(diff!, rxOf(nearCm!) - rxOf(farCm!), 'the difference the two really arrive with')
+    // 「Query 1516 + ACK 1009 + Read 1064 再加三段 16 µs 就是 3637 µs，而开下一个槽之前还要为
+    //  可能到来的 RN16 预留 16 + 1009 µs」
+    const [query, ack, read, gap, total, gap2, ack2] = figs(quizText,
+      /Query (\d+) \+ ACK (\d+) \+ Read (\d+) 再加三段 (\d+) µs 就是 (\d+) µs[^]*?预留 (\d+) \+ (\d+) µs/,
+      'the quiz on the slot budget')
+    const sigExt = ERP_2G.signalExtNs
+    const dl = (cmd: 'query' | 'ack' | 'read', wupNs: number, reply: 'rn16' | 'epc' | 'read'): number =>
+      ampBsDlPpduNs(cmd, wupNs, bstNs(reply, CFG.ulKbps), sigExt) / 1000
+    expect(query, 'the Query, with the WUP in front of it')
+      .toBe(Math.round(dl('query', AMP_BS_WUP_MIN_NS, 'rn16')))
+    expect(ack, 'the ACK').toBe(Math.round(dl('ack', 0, 'epc')))
+    expect(read, 'and the Read').toBe(Math.round(dl('read', 0, 'read')))
+    expect(gap, 'the gap between two commands').toBe(AMP_BS_T1_NS / 1000)
+    expect(query! + ack! + read! + 3 * gap!, 'the sum the quiz prints is its own arithmetic')
+      .toBe(total)
+    expect(gap2, 'and the next slot would need that gap again').toBe(gap)
+    expect(ack2, 'plus another ACK for the RN16 that might come').toBe(ack)
+    expect(total! + gap2! + ack2!, 'which together do not fit the budget')
+      .toBeGreaterThan(CFG.txopMs * 1000)
   })
 })
