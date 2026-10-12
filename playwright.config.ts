@@ -48,7 +48,27 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  reporter: process.env.CI ? [['line']] : [['list']],
+  /*
+   * **In CI the failure has to be legible to somebody without log access, and for 51 runs it was
+   * not.** `.github/workflows/ui-narrow.yml` has never once passed since it was added on
+   * 2026-10-05 — 51 failures, 0 successes, checked against the Actions API on 2026-10-12 — and
+   * what that API hands out for a failed run without a token is the check-run annotations: step
+   * names, `Process completed with exit code 1`, and not one word about which test failed. So the
+   * red was unreadable from here, and 51 of them went unread.
+   *
+   * The `line` reporter writes no annotations and no report directory, which also means the
+   * `upload-artifact` step at the foot of that workflow has uploaded nothing every single time:
+   * 「No files were found with the provided path: playwright-report/」 is in the annotations of
+   * every run, next to the failure it was supposed to explain. Two instruments, both silent.
+   *
+   * `github` is Playwright's own reporter for this and emits one annotation per failure; `html`
+   * writes the directory that step collects. `line` stays, because it is what a person tailing
+   * the log reads. This does not fix the failure — nobody here knows yet what it is — it makes
+   * the next run say so.
+   */
+  reporter: process.env.CI
+    ? [['github'], ['line'], ['html', { open: 'never' }]]
+    : [['list']],
   use: { baseURL },
   projects: [
     /*

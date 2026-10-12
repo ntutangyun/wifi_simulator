@@ -98,9 +98,20 @@ jobs:
         run: npx playwright install-deps chromium
 
       - run: npm run test:ui
+
+      # The report, and a hard failure if there is no report.
+      #
+      # This step has run on every one of this workflow's failures and uploaded nothing on every
+      # one of them: the CI reporter was `line`, which writes no `playwright-report/`, so the
+      # annotations of each run carry 「No files were found with the provided path」 beside the
+      # failure it was meant to explain. `playwright.config.ts` now adds the `html` and `github`
+      # reporters under CI, and `if-no-files-found: error` is here so that a silent miss cannot
+      # come back: the job is already red when this runs, so the only thing this flag can do is
+      # say out loud that the explanation is missing.
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-report
           path: playwright-report/
+          if-no-files-found: error
           retention-days: 7
