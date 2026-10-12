@@ -18,9 +18,10 @@ import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { zhNumeral } from './coverage'
 import {
-  AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_LEGACY_PREAMBLE_NS, AMP_PADDING_NS,
-  AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS, ampBitsNs, ampDlPpduNs,
-  ampRespBytes, ampTriggerBytes, ampUlPpduNs, type AmpDlKbps,
+  AMP_ACK_BYTES, AMP_DL_REQ_SINR_DB, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_LEGACY_PREAMBLE_NS,
+  AMP_PADDING_NS, AMP_PADDING_PROTECTED_NS, AMP_SIFS_NS, AMP_TRIGGER_BODY_BYTES,
+  AMP_UL_CHIP_NS, AMP_UL_REQ_SINR_DB, AMP_UL_SYNC_CHIPS, ampBitsNs, ampDlPpduNs, ampRespBytes,
+  ampTriggerBytes, ampUlPpduNs, type AmpDlKbps, type AmpUlKbps,
 } from '../../src/engine/amp'
 import { ACK_TX_TIME_6M_NS, CTS_BYTES, ERP_2G, txTimeNs } from '../../src/engine/phy'
 import { decodeFrame, ppduLayout } from '../../src/model/frameFields'
@@ -277,6 +278,9 @@ describe('amp-ppdu · the 1 Mb/s experiment', () => {
  * ruling deletes. The boundary it draws IS graded, as a figure: the rows above the AMP half sum
  * to the formula's own 32 µs.
  */
+/** The access point's own AMP section: where this lesson's two rates live. */
+const apCfg = (sc = ampPpdu.scenario()) => sc.nodes.find((n) => n.kind === 'ap')!.ampAp!
+
 describe('amp-ppdu · every printed figure is read back out of the lesson', () => {
   const rs = recs()
   const trig = txs(rs, 'ampTrigger')[0]
@@ -501,5 +505,135 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
     same(note![1], ends(fast, 'ampTrigger')[0].t / US, 'when the trigger ends')
     same(note![3], slots[Number(note![2]) - 1].t / US, `when slot ${note![2]} opens`)
     same(note![4], cts.frame.durationFieldNs / US, 'and the Duration covering the round')
+  })
+
+  /**
+   * **The twenty-nine sites `scripts/figure-planting.ts` found this file still not reading**, on
+   * 2026-10-12, after everything above. All of them are outside `numbers`: this lesson's prose
+   * lives in `sources`, `observe`, `tryThis`, the variant's own label and the quiz, and those
+   * five restate almost every figure the tables establish — the two padding values, the two
+   * SINR thresholds, the legacy wrapper's three pieces, the Ack's 330 µs and its split, the
+   * rate of the variant, and two instants from the run.
+   *
+   * `limits` is empty here on purpose (the AMP track is paused and `limits.test.ts` names this
+   * lesson), so there is nothing to read there.
+   */
+  it('`sources`: the padding pair, the two thresholds, and the legacy wrapper’s three pieces', () => {
+    const src = ampPpdu.sources!.join('\n')
+    // 「非保护帧 20 µs、受保护帧 36 µs」
+    const pad = /非保护帧 (\d+) µs、受保护帧 (\d+) µs/.exec(src)
+    expect(pad, '`sources` no longer states the two padding values').not.toBeNull()
+    same(pad![1], AMP_PADDING_NS / US, 'the padding of an unprotected round')
+    same(pad![2], AMP_PADDING_PROTECTED_NS / US, 'and of a protected one')
+    // 「OOK SINR 门限（下行 8 dB，250 kb/s 上行 10 dB）」
+    const sinr = /下行 (\d+) dB，(\d+) kb\/s 上行 (\d+) dB/.exec(src)
+    expect(sinr, '`sources` no longer states the two thresholds').not.toBeNull()
+    expect(Number(sinr![1]), 'the downlink threshold').toBe(AMP_DL_REQ_SINR_DB)
+    const ulKbps = Number(sinr![2])
+    expect(AMP_UL_REQ_SINR_DB[ulKbps as AmpUlKbps], `the uplink threshold at ${ulKbps} kb/s`)
+      .toBe(Number(sinr![3]))
+    expect(ulKbps, 'which is the rate this scene’s uplink runs at').toBe(apCfg().ulKbps)
+    // 「32 µs 的传统开头、6 µs 的信号扩展，以及 6 Mb/s 下 44 µs 的 CTS」
+    const wrap = /(\d+) µs 的传统开头、(\d+) µs 的信号扩展，以及 (\d+) Mb\/s 下 (\d+) µs 的 CTS/.exec(src)
+    expect(wrap, '`sources` no longer states the legacy wrapper').not.toBeNull()
+    same(wrap![1], AMP_LEGACY_PREAMBLE_NS / US, 'the legacy preamble')
+    same(wrap![2], ERP_2G.signalExtNs / US, 'the signal extension')
+    same(wrap![4], txTimeNs(CTS_BYTES, Number(wrap![3])) / US,
+      `a CTS at ${wrap![3]} Mb/s`)
+    const cts = txs(recs(), 'cts')[0]
+    // the sentence lists the three pieces separately, and the CTS this round opens with is the
+    // third plus the second: 44 µs of frame and the 6 µs extension that follows every 2.4 GHz one
+    expect(cts.frame.txTimeNs, 'the CTS this round really opens with')
+      .toBe(Number(wrap![4]) * US + ERP_2G.signalExtNs)
+    expect(cts.frame.mbps, 'at that rate').toBe(Number(wrap![3]))
+    // 「物理层版本号为 0 的帧，而 0 这个值就是 Wi-Fi 7 的那一版」: the version the router's
+    // own generation carries, stated three times in one sentence
+    const vers = [...src.matchAll(/版本号(?:为|不是) (\d+)|而 (\d+) 这个值/g)]
+      .flatMap((m2) => m2.slice(1).filter(Boolean).map(Number))
+    expect(vers.length, '`sources` states the version number three times').toBe(3)
+    for (const v of vers) expect(v, 'the version number it names').toBe(0)
+    expect(ampPpdu.scenario().nodes.find((n) => n.kind === 'ap')!.caps.generation,
+      'and the router really is the generation whose version that is').toBe('eht')
+    // 「都是 2.4 GHz Wi-Fi 原本就有的东西」: the band this scene's own link runs in
+    const band = /([\d.]+) GHz Wi-Fi 原本就有/.exec(src)
+    expect(band, '`sources` no longer names the band those three come from').not.toBeNull()
+    const BAND_OF: Record<string, string> = { '2.4': '2g', '5': '5g', '6': '6g' }
+    expect(BAND_OF[band![1]], `「${band![1]} GHz」 is not a band this model has an id for`)
+      .toBeDefined()
+    const ap = ampPpdu.scenario().nodes.find((n) => n.kind === 'ap')!
+    expect(ap.linkId ?? '2g', 'and the router’s own link is on it').toBe(BAND_OF[band![1]])
+  })
+
+  it('`observe`, `tryThis` and the variant label: two instants, the body, and the rate', () => {
+    const rs = recs()
+    const obs = ampPpdu.observe.join('\n')
+    // 「打开 1226 µs 那帧 Ack：ID 字段两个字节，点名的是 Door tag」
+    const named = /打开 (\d+) µs 那帧 Ack/.exec(obs)
+    expect(named, '`observe` no longer names the Ack it asks the reader to open').not.toBeNull()
+    const first = txs(rs, 'ampAck').find((r) => r.t === Number(named![1]) * US)
+    expect(first, `no Ack at ${named![1]} µs`).toBeDefined()
+    expect(first!.frame.dst, 'and that one names a tag').not.toBe(first!.frame.src)
+    // 「再打开 2982 µs 那一帧，它收尾的是一个空时隙——同样 330 µs、同样四个字节」
+    const empty = /打开 (\d+) µs 那一帧[^]*?同样 (\d+) µs、同样([一二三四五六七八九十两]+)个字节/.exec(obs)
+    expect(empty, '`observe` no longer names the empty-slot Ack').not.toBeNull()
+    const second = txs(rs, 'ampAck').find((r) => r.t === Number(empty![1]) * US)
+    expect(second, `no Ack at ${empty![1]} µs`).toBeDefined()
+    expect(second!.frame.dst, 'which closes an empty slot, so it names the router itself')
+      .toBe(second!.frame.src)
+    same(empty![2], second!.frame.txTimeNs / US, 'and it is as long as the first one')
+    expect(second!.frame.txTimeNs, 'the two Acks are the same length').toBe(first!.frame.txTimeNs)
+    expect(zhNumeral(empty![3]), 'the octets both of them carry').toBe(AMP_ACK_BYTES)
+    // 「再打开它 6 个字节的帧体：会话号、窗口、时隙数与时隙长度」
+    const body = /它 (\d+) 个字节的帧体/.exec(obs)
+    expect(body, '`observe` no longer states the trigger’s body').not.toBeNull()
+    const trig = txs(rs, 'ampTrigger')[0]
+    expect(Number(body![1]), 'the body the engine builds into a trigger')
+      .toBe(AMP_TRIGGER_BODY_BYTES)
+    expect(Number(body![1]), 'and it is part of the trigger, not all of it')
+      .toBeLessThan(trig.frame.bytes)
+    // `tryThis` and the variant's label: 「载入 1 Mb/s 变体」 / 「上下行都用 1 Mb/s」
+    const asked = /载入 (\d+) Mb\/s 变体/.exec(ampPpdu.tryThis.join('\n'))
+    expect(asked, '`tryThis` no longer names the variant it asks for').not.toBeNull()
+    const label = /上下行都用 (\d+) Mb\/s/.exec(ampPpdu.variants![0].label)
+    expect(label, 'the variant’s label no longer states its rate').not.toBeNull()
+    expect(Number(label![1]), 'the two agree').toBe(Number(asked![1]))
+    const v = apCfg(ampPpdu.variants![0].scenario())
+    expect([v.dlKbps, v.ulKbps], 'and the scene really runs at that rate in both directions')
+      .toEqual([Number(label![1]) * 1_000, Number(label![1]) * 1_000])
+    // 「速率提高到四倍」: the variant's rate against the base scene's
+    const times = zhNumeral(/速率提高到([一二三四五六七八九十两]+)倍/.exec(ampPpdu.tryThis.join('\n'))![1])
+    expect(v.dlKbps / apCfg().dlKbps, 'the rate step the variant takes').toBe(times)
+  })
+
+  it('the quiz: the padding’s 20 µs, the 10 µs gap it buys, and where an Ack’s 330 µs goes', () => {
+    const quiz = ampPpdu.quiz.flatMap((q) => [q.q, ...q.options, q.explain ?? '']).join('\n')
+    const rs = recs()
+    // 「触发帧末尾那 20 µs 的填充字段」 and 「一个 10 µs 的间隔内完成解调」, twice
+    const pad = /末尾那 (\d+) µs 的填充字段/.exec(quiz)
+    expect(pad, 'the quiz no longer names the padding').not.toBeNull()
+    same(pad![1], AMP_PADDING_NS / US, 'the padding this scene’s trigger carries')
+    const gaps = [...quiz.matchAll(/(\d+) µs 的间隔|也就是 (\d+) µs/g)]
+      .flatMap((m2) => m2.slice(1).filter(Boolean).map(Number))
+    expect(gaps.length, 'the quiz states the gap more than once').toBeGreaterThan(1)
+    for (const g of gaps) same(`${g}`, AMP_SIFS_NS / US, 'the gap before an answer')
+    // 「AMP Ack 只有四个字节，在 250 kb/s 下却要 330 µs」, and the split 「128 + 202」
+    const ack = /只有([一二三四五六七八九十两]+)个字节，在 (\d+) kb\/s 下却要 (\d+) µs/.exec(quiz)
+    expect(ack, 'the quiz no longer states the Ack’s octets, rate and airtime').not.toBeNull()
+    expect(zhNumeral(ack![1]), 'the octets').toBe(AMP_ACK_BYTES)
+    expect(Number(ack![2]), 'the rate it is quoted at').toBe(apCfg().dlKbps)
+    same(ack![3], txs(rs, 'ampAck')[0].frame.txTimeNs / US, 'and the airtime')
+    const split = /([一二三四五六七八九十两]+)个字节占 (\d+) µs；其余 (\d+) µs/.exec(quiz)
+    expect(split, 'the quiz no longer splits that airtime').not.toBeNull()
+    expect(zhNumeral(split![1]), 'the octets again').toBe(AMP_ACK_BYTES)
+    same(split![2], ampBitsNs(AMP_ACK_BYTES * 8, Number(ack![2]) as AmpDlKbps) / US,
+      'the part that is the octets themselves')
+    expect(Number(split![2]) + Number(split![3]), 'the split against the whole')
+      .toBe(Number(ack![3]))
+    // and the option the quiz calls wrong restates the same rate and the same airtime — a
+    // wrong option is still a claim, and 「确实就要」 is what makes this one wrong
+    const also = /([一二三四五六七八九十两]+)个字节在 (\d+) kb\/s 下确实就要 (\d+) µs/.exec(quiz)
+    expect(also, 'the quiz no longer offers that option').not.toBeNull()
+    expect([zhNumeral(also![1]), Number(also![2]), Number(also![3])], 'the same three figures')
+      .toEqual([AMP_ACK_BYTES, apCfg().dlKbps, Number(ack![3])])
   })
 })

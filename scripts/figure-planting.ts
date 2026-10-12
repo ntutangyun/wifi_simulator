@@ -61,6 +61,13 @@ interface Figure {
 
 /** A clause, a chapter, a document number: nothing here can check one. */
 const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa)/
+/**
+ * The same, judged by what FOLLOWS the figure: a working-document number (`11-24/1613r20`,
+ * `15-24/0123r4`), a draft version (`D1.0`) and a date (「2026 年」, 「5 月」). All three are
+ * claims about documents outside this repository, and a sweep that plants them asks a question
+ * nothing here can answer.
+ */
+const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|\s?年|\s?月|\.\d\s*(将|于|发布))/
 
 /**
  * **A digit inside a name is not a figure.** 「Wi-Fi 6」, 「4096-QAM」, 「802.11ac」 and
@@ -70,7 +77,8 @@ const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa)/
  * output has to be read past is a sweep nobody reads.
  */
 // `#` for a link id written as a suffix (`sta-1#6g`, where the 6 is a band and not a count).
-const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#)$/
+// `D` for a draft version (`D1.0`, `D05`): the figure is part of the document's name.
+const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D)$/
 // `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
 // `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
@@ -113,7 +121,8 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
         fig: m[0],
         section: t.section,
         role: t.role,
-        cite: CITE.test(before) || NAME_BEFORE.test(before) || NAME_AFTER.test(after),
+        cite: CITE.test(before) || CITE_AFTER.test(after)
+          || NAME_BEFORE.test(before) || NAME_AFTER.test(after),
         ctx: `${before}⟦${m[0]}⟧${after}`.replace(/\s+/g, ' '),
       })
     }
