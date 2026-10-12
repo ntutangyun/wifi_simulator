@@ -27,7 +27,7 @@ import {
   ZH_TERMS, cellTexts, paragraphTexts, zhAkaViolations, zhTermFailure,
 } from '../../src/course/readability'
 import { linkBudget, mcsLadder } from '../../src/course/widgetModel'
-import { PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb, txTimeModeNs } from '../../src/engine/phy'
+import { PHY_MODES, RATE_MARGIN_DB, TGI_NS, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, txTimeModeNs } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
@@ -721,5 +721,108 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     expect(cite, '`limits` no longer cites where the sender reads the level').not.toBeNull()
     const src = readFileSync(resolve(ROOT, `src/engine/${cite![1]}`), 'utf8')
     expect(src.includes(cite![2]), `${cite![1]} declares ${cite![2]}`).toBe(true)
+  })
+
+  /**
+   * **The nineteen sites `scripts/figure-planting.ts` found this file still not reading**, on
+   * 2026-10-12. Three figures account for most of them — the 1 530-byte frame, the 3 dB margin
+   * and the 20 MHz width, each printed in three or four places — and the interesting one is
+   * `deeper`'s 「1/2、3/4、5/6」: three code rates, printed as notation, and checkable because
+   * the rung table beside them prints both the modulation and the bits per sub-carrier. A code
+   * rate is the one of the three that cannot be read off the engine directly, and it does not
+   * have to be: log2(order) × rate is the bits column, and the bits column is `ndbps / 234`.
+   */
+  it('the code rates `deeper` names are the ones the rung table’s own arithmetic implies', () => {
+    const d = (L.deeper! as { heading?: string; text?: string }[])
+      .map((x) => `${x.heading ?? ''}\n${x.text ?? ''}`).join('\n')
+    const printed = /那个分数——([\d/]+)、([\d/]+)、([\d/]+)——/.exec(d)
+    expect(printed, '`deeper` no longer names the three code rates').not.toBeNull()
+    const rates = printed!.slice(1).map((x) => {
+      const [a, b] = x.split('/').map(Number)
+      return a / b
+    })
+    // every rung the table prints carries one of those rates, and the rate is what makes its
+    // bits-per-sub-carrier column come out: log2(order) × rate = ndbps / 234
+    const rows = (L.numbers!.find((x) => x.kind === 'table') as { rows: string[][] }).rows
+    const seen = new Set<number>()
+    for (const r of rows) {
+      const mcs = Number(r[0])
+      const mod = /^(?:(\d+)-QAM|(BPSK|QPSK)) (\d+)\/(\d+)$/.exec(r[1])
+      expect(mod, `the rung 「${r[1]}」 is not 「modulation rate」`).not.toBeNull()
+      const order = mod![1] !== undefined ? Number(mod![1]) : (mod![2] === 'BPSK' ? 2 : 4)
+      const rate = Number(mod![3]) / Number(mod![4])
+      expect(rates, `MCS ${mcs} uses a code rate 「${mod![3]}/${mod![4]}」 that \`deeper\` never names`)
+        .toContain(rate)
+      seen.add(rate)
+      expect(Math.log2(order) * rate, `MCS ${mcs}: bits per sub-carrier`)
+        .toBeCloseTo(PHY_MODES.eht.ndbps[mcs] / 234, 9)
+    }
+    expect([...seen].sort(), 'and every rate `deeper` names is used by a rung of the table')
+      .toEqual([...rates].sort())
+  })
+
+  it('the frame, the margin and the width, wherever this lesson states them', () => {
+    const everywhere = [
+      L.why ?? '', ...(L.outcomes ?? []),
+      ...(L.picture ?? []).map((b) => JSON.stringify(b)),
+      ...(L.numbers ?? []).map((b) => JSON.stringify(b)),
+      ...(L.deeper ?? []).map((b) => JSON.stringify(b)),
+      ...L.limits.map((l) => l.text), ...(L.sources ?? []),
+      ...L.observe, ...L.tryThis,
+      ...L.quiz.flatMap((q) => [q.q, ...q.options, q.explain ?? '']),
+    ].join('\n')
+    // 「1530 个字节」/「1530 字节帧」: the frame every variant of this scene sends
+    const frames = [...everywhere.matchAll(/(\d[\d ]*) 个?字节/g)]
+      .map((m) => Number(m[1].replace(/ /g, '')))
+      .filter((n) => n > 100)
+    expect(frames.length, 'the lesson states the frame size more than once').toBeGreaterThan(1)
+    const sent = new Set(variantRecs(0).filter((r) => r.type === 'TX_START' && r.frame.kind === 'data')
+      .map((r) => (r as Extract<TLRecord, { type: 'TX_START' }>).frame.bytes))
+    for (const f of frames) expect(sent, `a frame of ${f} B`).toContain(f)
+    // 「3 dB 余量」: the engine's own margin, wherever the lesson names it
+    const margins = [...everywhere.matchAll(/(\d+) dB 余量|留 (\d+) dB|这 (\d+) dB 就是/g)]
+      .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
+    expect(margins.length, 'the lesson states the margin more than once').toBeGreaterThan(2)
+    for (const g of margins) expect(g, `a margin of ${g} dB`).toBe(RATE_MARGIN_DB)
+    // 「20 MHz」: the width every rate in this lesson is quoted at
+    // the lookbehind keeps 「2.03125 MHz」 (the selectivity bin, which `limits` owns) out
+    const widths = [...everywhere.matchAll(/(?<![\d.])(\d+) MHz/g)].map((m) => Number(m[1]))
+    expect(widths.length, 'the lesson states the width more than once').toBeGreaterThan(1)
+    for (const w of widths) expect(w, `a width of ${w} MHz`).toBe(20)
+  })
+
+  /**
+   * **One figure of this lesson stays unread, with its reason.** `limits` names the standard's
+   * own feedback granularity — 「逐 26 音调资源单元的平均信噪比」, cited to §9.4.1.65 — and that
+   * is a figure about a document this repository does not contain. The engine has no 26-tone
+   * resource unit to compare it with either: nothing in it reports per-RU signal-to-noise, which
+   * is what the limit is saying. `scripts/figure-planting.ts` reports it and should.
+   */
+  it('`sources`’ guard interval, and the rung the quiz’s wrong option reaches for', () => {
+    // 「本课的 Mb/s 是 20 MHz、单空间流、0.8 µs 保护间隔下的数值」: the tier every rate in the
+    // rung table is quoted at
+    const [gi] = [/([\d.]+) µs 保护间隔/.exec(L.sources!.join('\n'))!]
+    same(gi[1], TGI_NS.base / 1_000, '`sources` on the guard interval the rates are quoted at')
+    const rows = (L.numbers!.find((x) => x.kind === 'table') as { rows: string[][] }).rows
+    for (const r of rows) {
+      same(r[3], mcsRateMbps('eht', Number(r[0]), TGI_NS.base), `MCS ${r[0]}: the rate at that tier`)
+    }
+    // the quiz's wrong option: 「MCS 4：离 −70 dBm 只差 3 dB，余量正好补上」 — the sensitivity
+    // it names is that rung's own, and the shortcut's answer is the rung below it
+    const q = L.quiz.find((x) => x.q.includes('−73 dBm'))!
+    const wrong = q.options.find((o) => o.includes('余量正好补上'))!
+    const m = /MCS (\d+)：离 (−[\d.]+) dBm 只差 (\d+) dB/.exec(wrong)
+    expect(m, 'the quiz no longer offers that option').not.toBeNull()
+    same(m![2], PHY_MODES.eht.sensDbm[Number(m![1])], `MCS ${m![1]}: its own sensitivity`)
+    expect(Number(m![3]), 'the margin it wants to add').toBe(RATE_MARGIN_DB)
+    const [level] = [Number(/到达电平是 (−[\d.]+) dBm/.exec(q.q)![1].replace('−', '-'))]
+    expect(PHY_MODES.eht.sensDbm[Number(m![1])], 'which is indeed above the level in the question')
+      .toBeGreaterThan(level)
+    // and the right answer is the rung below it, whose sensitivity is not above that level
+    const right = /MCS (\d+)：灵敏度 (−[\d.]+) dBm/.exec(q.options[q.answer])
+    expect(right, 'the quiz no longer states the rung it calls correct').not.toBeNull()
+    expect(Number(right![1]), 'the rung the shortcut lands on').toBe(Number(m![1]) - 1)
+    expect(PHY_MODES.eht.sensDbm[Number(right![1])], 'whose sensitivity is at or under the level')
+      .toBeLessThanOrEqual(level)
   })
 })

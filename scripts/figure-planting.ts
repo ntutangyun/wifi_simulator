@@ -75,7 +75,8 @@ const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#)$/
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
 // `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
 // lesson that wrote 「4D 视图」 would be wrong about a word, not about a quantity.
-const NAME_AFTER = /^(-QAM|QAM|-FSK|-PSK|ac\b|ax\b|be\b|bn\b|bp\b|az\b|z\b|-20\d\d|\s?×\s?LTF|D\b)/
+const NAME_AFTER =
+  /^(-QAM|QAM|-FSK|-PSK|ac\b|ax\b|be\b|bn\b|bp\b|az\b|z\b|n\b|-20\d\d|\s?×\s?LTF|D\b)/
 
 function allFiles(dir: string, out: string[] = []): string[] {
   for (const n of readdirSync(dir)) {
