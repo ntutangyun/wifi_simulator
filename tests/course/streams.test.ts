@@ -19,10 +19,14 @@ import { streams, streamsNegotiationStack } from '../../src/course/tier2/streams
 import type { Block } from '../../src/course/lessonKit'
 import { width } from '../../src/course/tier2/width'
 import { widthScenario } from '../../src/course/wifiScenes'
-import { ScenarioSchema } from '../../src/model/scenario'
+import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { negotiatedNss, nssOf } from '../../src/model/caps'
-import { PHY_MODES, mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs } from '../../src/engine/phy'
+import {
+  FCS_BYTES, PHY_MODES, QOS_HDR_BYTES, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, toneRatio,
+  txTimeModeNs,
+} from '../../src/engine/phy'
+import { lessonTexts } from '../../src/course/readability'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -351,5 +355,333 @@ describe('streams · the one-station limit, and the lesson that changes the room
     const extra = [...flags('mumimo')].filter((f) => !flags('streams').has(f)).sort()
     expect(extra).toEqual(['ampdu', 'ofdma', 'txop'])
     for (const f of extra) expect(lim!.text, `the limit never mentions ${f}`).not.toContain(f)
+  })
+})
+
+// --- every figure the lesson prints ------------------------------------------------------------
+
+/**
+ * **Every figure above is typed on this side.** `expect(PHY_MODES.eht.ndbps[13]).toBe(2340)`,
+ * `expect([2340 * 4, 2340 * 2]).toEqual([9360, 4680])`, `expect(48 * US + 13_600 * 2)` — the
+ * engine is pinned hard and the three tables a reader actually reads are free. Measured on
+ * 2026-10-12: six figures planted in this lesson, six plantings unnoticed, 83 plantable figures.
+ *
+ * So each one is read out of the cell or the sentence it is printed in. The lesson's own
+ * arithmetic makes most of it a chain: the subcarrier count, the bits a tone carries and the
+ * code rate multiply out to the bits a symbol carries, which divides the frame into symbols,
+ * which times the symbol plus the preamble is the airtime — and every link of that chain is
+ * printed somewhere in the lesson, so every link is read.
+ */
+describe('streams · every figure the lesson prints, read back out of its own prose', () => {
+  const EVERYWHERE = lessonTexts(streams).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/−/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/−/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  type Tbl = { kind: 'table'; heading?: string; head: string[]; rows: string[][] }
+  const tableOf = (by: string): Tbl => {
+    const t = (streams.numbers ?? []).filter((b): b is Tbl => b.kind === 'table')
+      .find((b) => (b.heading ?? '').includes(by))
+    expect(t, `the table 「${by}」 is gone`).toBeDefined()
+    return t!
+  }
+  const rowOf = (by: string, starts: string): string[] => {
+    const r = tableOf(by).rows.find((x) => x[0].startsWith(starts))
+    expect(r, `the row 「${starts}」 is gone from 「${by}」`).toBeDefined()
+    return r!
+  }
+
+  it('the heading of the main table is the frame, the width and the rung the run really uses', () => {
+    const t = tableOf('同一个')
+    const [msdu, octets, width, mcs] = figs(t.heading!,
+      /同一个 (\d+) 字节的帧（空口上 (\d+) 字节），(\d+) MHz，MCS (\d+)/, 'what the table holds fixed')
+    expect(octets, 'the frame on the air is the payload plus a QoS header and the check')
+      .toBe(msdu + QOS_HDR_BYTES + FCS_BYTES)
+    const sent = bigData(runOf(streams, undefined, RUN_NS))
+    expect(one(sent.map((r) => r.frame.bytes)), 'and it is the frame this scene sends').toBe(octets)
+    expect(one(sent.map((r) => r.frame.mcs)), 'at the rung the heading names').toBe(mcs)
+    for (const n of streams.scenario().nodes) {
+      expect(n.caps.widthMhz, 'every radio at the width it names').toBe(width)
+    }
+  })
+
+  it('the main table: one, two and four streams, cell for cell', () => {
+    const t = tableOf('同一个')
+    const [, octets, width, mcs] = figs(t.heading!,
+      /同一个 (\d+) 字节的帧（空口上 (\d+) 字节），(\d+) MHz，MCS (\d+)/, 'what the table holds fixed')
+    const perStream = PHY_MODES.eht.ndbps[mcs] * toneRatio('eht', width)
+    for (const r of t.rows) {
+      const nss = val(r[0])
+      expect(val(r[1]), `${nss} streams: the bits a symbol carries`).toBe(perStream * nss)
+      const nsym = val(r[2])
+      expect(Math.ceil((16 + 8 * octets + 6) / (perStream * nss)),
+        `${nss} streams: the symbols that frame needs`).toBe(nsym)
+      same(r[3], txTimeModeNs('eht', octets, mcs, { nss, widthMhz: width }) / 1000,
+        `${nss} streams: the airtime`)
+      expect(PHY_MODES.eht.preambleNs + nsym * PHY_MODES.eht.symNs,
+        `${nss} streams: which is the preamble plus its symbols`)
+        .toBe(txTimeModeNs('eht', octets, mcs, { nss, widthMhz: width }))
+    }
+    // 「符号数」 stops falling before 「空口时间」 does: the 4-stream row is one symbol over two
+    const syms = t.rows.map((r) => val(r[2]))
+    expect(syms[0] / syms[1], 'two streams halve the symbols of one').toBe(2)
+    expect(syms[1] - syms[2], 'and four take only one more off').toBe(1)
+  })
+
+  it('the symbol, the tones, the bits and the code rate: the chain that produces 2340', () => {
+    // 「T_SYM = T_DFT + T_GI … 这里是 13.6 µs」, and every other statement of the symbol
+    for (const v of everyFig(/这里是 ([\d.]+) µs|而是 ([\d.]+) µs 里|每个符号 ([\d.]+) µs|÷ ([\d.]+) µs/g,
+      'the symbol interval', 3)) {
+      same(v, PHY_MODES.eht.symNs / 1000, 'the symbol of this generation')
+    }
+    // 「20 MHz 上有 234 根数据子载波」, 「每根子载波一次携带 12 个比特」, 「五分之六是数据」
+    const [width, tones] = figs(EVERYWHERE, /(\d+) MHz 上有 (\d+) 根数据子载波/,
+      'the tones a 20 MHz channel carries')
+    const [bits] = figs(EVERYWHERE, /每根子载波一次携带 (\d+) 个比特/, 'the bits a tone carries')
+    const [tones2, bits2, five, six, perStream] = figs(EVERYWHERE,
+      /一条流一个符号装 (\d+) × (\d+) × (\d+)\/(\d+) = (\d+) 个数据比特/, 'the chain, multiplied out')
+    expect([tones2, bits2], 'the same tones and the same bits').toEqual([tones, bits])
+    expect(tones * bits * (five / six), 'the lesson’s own arithmetic').toBe(perStream)
+    expect(perStream, 'and that is what this engine says a symbol carries')
+      .toBe(PHY_MODES.eht.ndbps[13] * toneRatio('eht', width))
+    // 「234 × 4 = 936 个并排的星座点，每个带 12 个原始比特，六分之五是数据，合起来 9360」
+    const [t3, nss, points, bits3, total] = figs(EVERYWHERE,
+      /(\d+) × (\d+) = (\d+) 个并排的星座点，每个带 (\d+) 个原始比特，六分之五是数据，合起来 (\d+)/,
+      'the constellation points of four streams')
+    expect([t3, bits3], 'the same tones and bits again').toEqual([tones, bits])
+    expect(t3 * nss, 'the points a symbol holds').toBe(points)
+    expect(points * bits3 * (five / six), 'and the data bits they come to').toBe(total)
+    expect(total, 'which is the engine’s own figure for that many streams')
+      .toBe(PHY_MODES.eht.ndbps[13] * toneRatio('eht', width) * nss)
+    // 「9360 ÷ 13.6 µs = 688.2 Mb/s」, and 「一条流那一行正好是 172.1 Mb/s」
+    const [bits4, us, mbps] = raw(EVERYWHERE,
+      /就是 (\d+) ÷ ([\d.]+) µs = ([\d.]+) Mb\/s/, 'the rate four streams reach')
+    expect(val(bits4), 'the same bits a symbol carries').toBe(total)
+    same(us, PHY_MODES.eht.symNs / 1000, 'over one symbol')
+    same(mbps, val(bits4) / (PHY_MODES.eht.symNs / 1000), 'is that rate')
+    same(raw(EVERYWHERE, /正好是第三十三课反复出现的那个 ([\d.]+) Mb\/s/,
+      'the single-stream rate the width lesson prints')[0], mcsRateMbps('eht', 13),
+      'the rate of one stream at this rung')
+  })
+
+  it('the two mixed variants, and the figure that says which end decides', () => {
+    const t = tableOf('两个混合变体')
+    for (const [starts, v] of [['路由器 4', 3], ['160 MHz', 4]] as const) {
+      const r = t.rows.find((x) => x[0].startsWith(starts))!
+      const sc = streams.variants![v].scenario()
+      const ap = sc.nodes.find((n) => n.id === 'ap')!
+      const sta = sc.nodes.find((n) => n.id === 'sta-1')!
+      expect(val(r[1]), `${starts}: the streams the link runs`).toBe(negotiatedNss(ap, sta))
+      const airtimeNs = one(bigData(runOf(streams, v, RUN_NS)).map((r) => r.frame.txTimeNs))
+      same(r[2].replace(' µs', ''), airtimeNs / 1000, `${starts}: its airtime`)
+      // the variant's own label names the two ends, and the label is where the reader reads them
+      const [a, b] = figs(streams.variants![v].label, /(\d+)[^\d]+(\d+)/, `${starts}: the label`)
+      if (starts === '路由器 4') {
+        expect([a, b], 'the antennas the two ends have').toEqual([nssOf(ap), nssOf(sta)])
+      } else {
+        expect([a, b], 'the width and the streams the label names')
+          .toEqual([ap.caps.widthMhz, negotiatedNss(ap, sta)])
+      }
+    }
+    // 「落在两流的 88.8 µs 上，而不是四流的 75.2 µs」, in the caption
+    const [two, four] = raw(EVERYWHERE,
+      /落在两流的 ([\d.]+) µs 上，而不是四流的 ([\d.]+) µs/, 'the two airtimes the caption compares')
+    const octets = one(bigData(runOf(streams, 3, RUN_NS)).map((r) => r.frame.bytes))
+    same(two, txTimeModeNs('eht', octets, 13, { nss: 2 }) / 1000, 'two streams')
+    same(four, txTimeModeNs('eht', octets, 13, { nss: 4 }) / 1000, 'and four')
+    // the figure's own labels: the antennas, the streams, the bits and the airtime
+    const spec = streamsNegotiationStack()
+    const labels = JSON.stringify(spec)
+    const [apAnt] = figs(labels, /路由器 (\d+) 根天线/, 'the router’s antennas')
+    const [staAnt] = figs(labels, /手机 (\d+) 根天线/, 'the phone’s')
+    const sc = streams.variants![3].scenario()
+    expect([apAnt, staAnt], 'what the two ends really have').toEqual([
+      nssOf(sc.nodes.find((n) => n.id === 'ap')!), nssOf(sc.nodes.find((n) => n.id === 'sta-1')!),
+    ])
+    const [runs] = figs(labels, /链路跑 (\d+) 条流/, 'what the link runs')
+    expect(runs, 'the smaller of the two').toBe(Math.min(apAnt, staAnt))
+    const [perSym] = figs(labels, /每符号 (\d+) 比特/, 'the bits a symbol carries there')
+    expect(perSym, 'that many streams of this rung').toBe(PHY_MODES.eht.ndbps[13] * runs)
+    same(raw(labels, /一帧 ([\d.]+) µs/, 'and the airtime it ends on')[0],
+      txTimeModeNs('eht', octets, 13, { nss: runs }) / 1000, 'the frame')
+  })
+
+  it('the five steps, and the worked table that walks them', () => {
+    const steps = (streams.numbers ?? []).find(
+      (b): b is { kind: 'steps'; items: string[] } => b.kind === 'steps')!
+    const [width] = figs(steps.items.join('\n'), /该级在 (\d+) MHz 下的每符号比特数/,
+      'the width the steps start from')
+    const [pre, sym] = figs(steps.items.join('\n'),
+      /= (\d+) µs 的前导码（preamble），加上每个符号 ([\d.]+) µs/, 'the airtime the steps end on')
+    expect(pre * 1000, 'the preamble of this generation').toBe(PHY_MODES.eht.preambleNs)
+    expect(sym * 1000, 'and its symbol').toBe(PHY_MODES.eht.symNs)
+    // the worked table: the two ends, the streams, the rung, the bits, the symbols, the airtime
+    const ends = rowOf('照着步骤走一遍', '两端各能跑几条')
+    const runs = rowOf('照着步骤走一遍', '于是链路跑')
+    const rung = rowOf('照着步骤走一遍', '级别')
+    const perSym = rowOf('照着步骤走一遍', '每符号比特数')
+    const nsym = rowOf('照着步骤走一遍', '符号数')
+    const airtime = rowOf('照着步骤走一遍', '空口时间')
+    const [bitsLabel] = figs(nsym[0], /⌈(\d+) ÷ 它⌉/, 'the bits the frame becomes')
+    for (const [col, v] of [[1, 2], [2, 3]] as const) {
+      const sc = streams.variants![v].scenario()
+      const ap = sc.nodes.find((n) => n.id === 'ap')!
+      const sta = sc.nodes.find((n) => n.id === 'sta-1')!
+      const [a, b] = figs(ends[col], /(\d+) 和 (\d+)/, `column ${col}: what the two ends can run`)
+      expect([a, b], `column ${col}: the antennas they have`).toEqual([nssOf(ap), nssOf(sta)])
+      const nss = val(runs[col])
+      expect(nss, `column ${col}: the streams the link runs`).toBe(negotiatedNss(ap, sta))
+      expect(nss, 'which is the smaller of the two').toBe(Math.min(a, b))
+      const [mcs] = figs(rung[col], /MCS (\d+)/, `column ${col}: the rung`)
+      expect(mcs, `column ${col}: the rung the run uses`)
+        .toBe(one(bigData(runOf(streams, v, RUN_NS)).map((r) => r.frame.mcs)))
+      const [one20, times, product] = figs(perSym[col], /(\d+) × (\d+) = (\d+)/,
+        `column ${col}: the bits a symbol carries`)
+      expect(one20, 'the bits one stream carries at this width')
+        .toBe(PHY_MODES.eht.ndbps[mcs] * toneRatio('eht', width))
+      expect(times, 'times the streams').toBe(nss)
+      expect(one20 * times, 'is that many bits').toBe(product)
+      const octets = one(bigData(runOf(streams, v, RUN_NS)).map((r) => r.frame.bytes))
+      expect(bitsLabel, 'the bits this frame becomes').toBe(16 + 8 * octets + 6)
+      expect(Math.ceil(bitsLabel / product), `column ${col}: the symbols`).toBe(val(nsym[col]))
+      same(airtime[col].replace(' µs', ''),
+        txTimeModeNs('eht', octets, mcs, { nss, widthMhz: width }) / 1000,
+        `column ${col}: the airtime`)
+    }
+    // 「空口时间：48 + 13.6 × 符号数」 — the row label carries the same two constants
+    const [pre2, sym2] = figs(airtime[0], /(\d+) \+ ([\d.]+) × 符号数/, 'the label of the last row')
+    expect([pre2 * 1000, sym2 * 1000], 'the preamble and the symbol again')
+      .toEqual([PHY_MODES.eht.preambleNs, PHY_MODES.eht.symNs])
+  })
+
+  /**
+   * **The first pass left thirty-eight of the eighty-three unread** — the worst first pass of
+   * this programme, and for one reason: it followed the lesson's chain of arithmetic and the
+   * lesson states every link of that chain again in `observe`, in `tryThis`, in the quiz and in
+   * the variant labels. 「88.8 µs」 appears four times, 「2 条流」 six, 「20 MHz」 five, 「3 dB」
+   * three. The reads below take each quantity at every site, which is where every lesson in this
+   * programme has ended up: **do this first, then go back for the figures that need an argument
+   * of their own.**
+   *
+   * One exemption: `sources` says the draft's EHT-LTF counts are 「1、2、4、4」 for one, two,
+   * three and four streams. This engine has no LTF count at all — the preamble is one constant —
+   * so the four figures have nothing here to be checked against, and the sentence exists to say
+   * that the airtime a reader computes from this lesson is not the whole PPDU.
+   */
+  it('the widths, the stream counts, the airtimes and the three decibels, at every site', () => {
+    const scenes = [streams.scenario(), ...streams.variants!.map((v) => v.scenario())]
+    // 「和上一课的 40 MHz 变体比一比」: the width lesson's scenes count too, and this file
+    // already loads them for the comparison that sentence asks the reader to make.
+    const widths = new Set<number>()
+    for (const sc of [...scenes, width.scenario(), ...(width.variants ?? []).map((v) => v.scenario())]) {
+      for (const n of sc.nodes) if (n.caps.widthMhz) widths.add(n.caps.widthMhz)
+    }
+    const octets = one(bigData(runOf(streams, undefined, RUN_NS)).map((r) => r.frame.bytes))
+    const mcs = one(bigData(runOf(streams, undefined, RUN_NS)).map((r) => r.frame.mcs))!
+    const perStream = PHY_MODES.eht.ndbps[mcs] * toneRatio('eht', 20)
+    const nssOfScene = (sc: Scenario): number => negotiatedNss(
+      sc.nodes.find((n) => n.id === 'ap')!, sc.nodes.find((n) => n.id === 'sta-1')!)
+    // every 「N MHz」 is a width one of this lesson's own scenes runs at
+    for (const v of everyFig(/(?<![\d.])(\d+) MHz/g, 'a channel width', 6)) {
+      expect([...widths], `${v} MHz is a width one of this lesson’s scenes runs at`)
+        .toContain(val(v))
+    }
+    // every 「N 条流」 is a stream count one of them negotiates
+    const counts = new Set(scenes.map(nssOfScene))
+    for (const v of everyFig(/(?<![\d.])(\d+) 条流/g, 'a stream count', 6)) {
+      expect([...counts], `${v} streams is what one of these scenes negotiates`)
+        .toContain(val(v))
+    }
+    /*
+     * And every variant LABEL that names a stream count names its own scene's. The membership
+     * read above cannot do this one: 「1 条流」 edited to 「2 条流」 is still a count some scene
+     * of this lesson negotiates, so the set contains it and the planting passes.
+     */
+    for (const [i, variant] of streams.variants!.entries()) {
+      const m = /(\d+) 条流/.exec(variant.label)
+      if (m) {
+        expect(val(m[1]), `variant ${i + 1}: its label names its own stream count`)
+          .toBe(nssOfScene(variant.scenario()))
+      }
+    }
+    // every 「路由器 4 · 手机 2」 names the two ends of the mixed scene
+    const mixed = streams.variants![3].scenario()
+    const ends = [nssOf(mixed.nodes.find((n) => n.id === 'ap')!),
+      nssOf(mixed.nodes.find((n) => n.id === 'sta-1')!)]
+    const pairs = [...EVERYWHERE.matchAll(/路由器 (\d+) · 手机 (\d+)/g)]
+      .map((m) => [val(m[1]), val(m[2])])
+    expect(pairs.length, 'the lesson names that pair more than twice').toBeGreaterThan(2)
+    for (const pair of pairs) expect(pair, 'the antennas of the two ends').toEqual(ends)
+    // every airtime: 88.8 µs and 75.2 µs are the two the lesson compares, at two and four streams
+    const airtimeAt = (nss: number): number => txTimeModeNs('eht', octets, mcs, { nss }) / 1000
+    for (const v of everyFig(/同样是 ([\d.]+) µs|同样的 ([\d.]+) µs|帧要 ([\d.]+) µs|不是四流的 ([\d.]+) µs/g,
+      'an airtime the lesson compares', 4)) {
+      const dp = (v.split('.')[1] ?? '').length
+      expect([...counts].map((n) => Number(airtimeAt(n).toFixed(dp))),
+        `${v} µs is the airtime of one of these stream counts`).toContain(val(v))
+    }
+    // 「81.6 µs 变 40.8 µs。从两条到四条本该再减半到 20.4 µs，但帧只能按整数个符号发出去，所以
+    //  停在 27.2 µs」: the data part at one, two and four streams, and the halving that is not one
+    const dataUs = (nss: number): number =>
+      (txTimeModeNs('eht', octets, mcs, { nss }) - PHY_MODES.eht.preambleNs) / 1000
+    const [one1, two1, halfOfTwo, four1] = raw(streams.observe.join('\n'),
+      /正好减半，([\d.]+) µs 变 ([\d.]+) µs。从两条到四条本该再减半到 ([\d.]+) µs[^]*?所以停在 ([\d.]+) µs/,
+      '`observe` on the data part')
+    same(one1, dataUs(1), 'the data part of one stream')
+    same(two1, dataUs(2), 'and of two')
+    same(halfOfTwo, dataUs(2) / 2, 'half of the two-stream part, which no frame can be')
+    same(four1, dataUs(4), 'and what four streams really stop at')
+    expect(val(four1) * 1000 % PHY_MODES.eht.symNs, 'because a frame is whole symbols').toBe(0)
+    // 「每个变体的“速率”一行都是 MCS 13」
+    for (const v of everyFig(/都是 MCS (\d+)/g, 'the rung every variant lands on', 1)) {
+      for (const [i] of streams.variants!.entries()) {
+        expect(one(bigData(runOf(streams, i, RUN_NS)).map((r) => r.frame.mcs)),
+          `variant ${i + 1} runs at that rung`).toBe(val(v))
+      }
+    }
+    // 「带宽那个倍数每翻一倍都要付 3 dB」, and the two places the lesson says it again
+    const narrow = Math.min(...widths)
+    for (const v of everyFig(/每翻一倍都要付 (\d+) dB|多要了 (\d+) dB 的信号|这就是那 (\d+) dB/g,
+      'what a doubling of the width costs', 3)) {
+      expect(val(v), 'the floor rises by that much when the channel doubles')
+        .toBe(Math.round(noiseDbm(2 * narrow) - noiseDbm(narrow)))
+    }
+    // 「四条流就是它的四倍，9360」 and `sources` 「20 MHz 的一个符号装 2340 个数据比特」
+    const [fourfold] = figs(EVERYWHERE, /四条流就是它的四倍，(\d+)/, 'the four-stream figure')
+    expect(fourfold, 'four streams of this rung at this width').toBe(4 * perStream)
+    const [srcWidth, srcBits] = figs(EVERYWHERE,
+      /最高调制下 (\d+) MHz 的一个符号装 (\d+) 个数据比特/, '`sources` on one stream’s symbol')
+    expect(srcBits, 'what one stream carries at that width')
+      .toBe(PHY_MODES.eht.ndbps[mcs] * toneRatio('eht', srcWidth))
+    // 「上表里 2 条流那一行」 and 「上一课里单靠 160 MHz 的结果」, the two 「等同于」 cells
+    const t = tableOf('两个混合变体')
+    t.rows.forEach((r, i) => {
+      const v = streams.variants![3 + i].scenario()
+      const [, refNss] = /(\d+) 条流那一行/.exec(r[3]) ?? []
+      if (refNss) {
+        expect(val(refNss), `row ${i + 1}: the row of the main table it is equal to`)
+          .toBe(nssOfScene(v))
+      }
+      const [, refWidth] = /单靠 (\d+) MHz/.exec(r[3]) ?? []
+      if (refWidth) {
+        expect([...v.nodes.map((n) => n.caps.widthMhz)],
+          `row ${i + 1}: the width it is equal to`).toContain(val(refWidth))
+      }
+    })
   })
 })
