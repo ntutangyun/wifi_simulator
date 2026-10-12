@@ -10,10 +10,13 @@
  * frame, and the three observations. There was never a `.body!` site to retire.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { ampdu, ampduSubframeFields } from '../../src/course/tier2/ampdu'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { ROOT, zhNumeral } from './coverage'
 import { AMPDU_DELIMITER_BYTES, BA_BYTES, FCS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, QOS_HDR_BYTES } from '../../src/engine/phy'
 import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
 import { MODULES } from '../../src/course/curriculum'
@@ -256,5 +259,373 @@ describe('ampdu · the whole 200 ms run, both ways', () => {
 
   it('every jump target occurs in the batched run', () => {
     for (const j of ampdu.jumps) expect(agg().some(j.find), j.label).toBe(true)
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * Everything above measures the engine and compares it with a literal written in THIS file, with
+ * the lesson's row quoted in a comment beside it — and one `it` does the lesson's arithmetic on
+ * this side instead of reading it: `expect(((28 + 28 + 2_248 + 32) / 14).toFixed(1)).toBe('166.9')`
+ * types all five of the formula's figures here and never once looks at the formula. That assertion
+ * cannot fail for any edit to the lesson, including an edit that changes every number in it.
+ *
+ * `@ampdu` hand-types 35 figures into its graded prose. What follows is the other half of each
+ * assertion above, with no figure on this side: three tables (five, five and eight rows), the
+ * formula, the subframe caption, the steps, both observe lines, both experiments, and the prose
+ * the graded walk never reads — `deeper`, `limits` and their three file-and-function citations.
+ *
+ * Conventions read off the prose rather than written here, because a figure cannot be
+ * re-measured without them: each cell's unit (this lesson's cells carry B, µs and ms, two of them
+ * in one cell), each figure's own number of decimals, and 「约 160 µs」 to the precision that
+ * figure itself states — the nearest ten.
+ */
+describe('ampdu · every printed figure is read back out of the lesson', () => {
+  const a = agg()
+  const p = plain()
+  const turns = (rs: TLRecord[]) => ofType(rs, 'TXOP_START').length
+  const staTx = (rs: TLRecord[]) => txs(rs).filter((r) => r.node === 'sta-1').length
+  const tableWith = (fragment: string): { heading: string; head: string[]; rows: string[][] } => {
+    const b = ampdu.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { heading: string; head: string[]; rows: string[][] }
+  }
+  const textWith = (fragment: string): string => {
+    const b = ampdu.numbers!.find((x) => (x.kind ?? 'p') === 'p' && (x.heading ?? '').includes(fragment))
+    expect(b, `no paragraph whose heading contains 「${fragment}」`).toBeDefined()
+    return (b as { text: string }).text
+  }
+  /** 「21 502 B」 → 21502; 「166.9 µs」 → 166.9. */
+  const val = (cell: string): number => Number(cell.replace(/[^\d.]/g, ''))
+  /** A printed figure against a measurement, rounded to the decimals the figure itself carries. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/\s/g, '')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** The same, for a figure stated in a unit: 「2 248 µs」 against nanoseconds. */
+  const time = (printed: string, ns: number, what: string): void => {
+    const m = /^([\d\s.]+?)\s*(ms|µs)$/.exec(printed.trim())
+    expect(m, `${what}: 「${printed}」 is not a time with a unit`).not.toBeNull()
+    same(m![1], ns / (m![2] === 'ms' ? MS : US), `${what}, in ${m![2]}`)
+  }
+  const zhCount = (s: string): number | null => zhNumeral(s.replace(/两/g, '二'))
+  /** Every 「file.ts 的 symbol」 in a passage, against the file that is supposed to declare it. */
+  const cite = (text: string, what: string): void => {
+    for (const m of text.matchAll(/([a-z]+\.ts) 的 (\w+)/g)) {
+      const path = ['src/engine', 'src/model', 'src/course']
+        .map((d) => resolve(ROOT, `${d}/${m[1]}`)).find(existsSync)
+      expect(path, `${what}: ${m[1]} is not a file of this repository`).toBeDefined()
+      expect(readFileSync(path!, 'utf8').includes(m[2]), `${what}: ${m[1]} declares ${m[2]}`).toBe(true)
+    }
+  }
+
+  const t0 = ofType(a, 'TXOP_START')[0]
+  const batch = txs(a, 'data')[0]
+  const ba = txs(a, 'ba').find((r) => r.t > batch.t)!
+  const exchangeEnd = ba.t + ba.frame.txTimeNs
+
+  it('the one-turn table: five rows, both columns, and the dash in the corner', () => {
+    const t = tableWith('同一次传输，两种打法')
+    const row = (label: string): string[] => {
+      const r = t.rows.find((x) => x[0] === label)
+      expect(r, `no row labelled 「${label}」`).toBeDefined()
+      return r!
+    }
+    expect(t.rows, 'the table states exactly the rows this reads').toHaveLength(5)
+    // 「发出的帧数」: 14 against 1 — the batch's own count, and a plain frame being one frame
+    const n = row('发出的帧数')
+    expect(val(n[1]), 'the frames one batched transmission carries').toBe(batch.frame.ampdu!.mpduCount)
+    expect(val(n[2]), 'and the frames one plain transmission carries')
+      .toBe(txs(p, 'data')[0].frame.ampdu?.mpduCount ?? 1)
+    // 「21 502 B · 2 248 µs」: one cell, two figures, two units
+    for (const [j, rs] of [a, p].entries()) {
+      const cell = row('这次传输')[1 + j]
+      const m = /^([\d\s]+) B · ([\d\s]+) µs$/.exec(cell)
+      expect(m, `「${cell}」 is not 「n B · m µs」`).not.toBeNull()
+      const d = txs(rs, 'data')[0]
+      same(m![1], d.frame.bytes, 'the bytes that transmission carries')
+      time(`${m![2]} µs`, d.frame.txTimeNs, 'and how long it is on the air')
+    }
+    // 「BlockAck · 32 B · 32 µs」 / 「ACK · 14 B · 28 µs」: the answer, named and measured
+    const ANSWER: readonly (readonly ['ba' | 'ack', TLRecord[]])[] = [['ba', a], ['ack', p]]
+    ANSWER.forEach(([kind, rs], j) => {
+      const cell = row('回答')[1 + j]
+      const m = /^(BlockAck|ACK) · (\d+) B · (\d+) µs$/.exec(cell)
+      expect(m, `「${cell}」 is not 「name · n B · m µs」`).not.toBeNull()
+      const f = txs(rs, kind)[0]
+      expect(f, `no ${kind} in that run`).toBeDefined()
+      same(m![2], f.frame.bytes, `the ${m![1]}’s bytes`)
+      time(`${m![3]} µs`, f.frame.txTimeNs, `the ${m![1]}’s airtime`)
+    })
+    // 「RTS + CTS · 28 µs each」 against 「—」: the dash is a claim, and this is it
+    const open = row('开场交互')
+    const m = /^RTS \+ CTS · (\d+) µs each$/.exec(open[1])
+    expect(m, `「${open[1]}」 is not 「RTS + CTS · n µs each」`).not.toBeNull()
+    for (const kind of ['rts', 'cts'] as const) {
+      expect(new Set(txs(a, kind).map((r) => r.frame.txTimeNs)), `every ${kind} is that long`)
+        .toEqual(new Set([Number(m![1]) * US]))
+    }
+    expect(open[2], 'the plain column prints a dash').toBe('—')
+    expect([...txs(p, 'rts'), ...txs(p, 'cts')], 'and nothing opens a plain turn').toHaveLength(0)
+    // 「每成功一帧的发送时间」: the worked figure, which the formula below derives
+    const opening = txs(a, 'rts')[0].frame.txTimeNs + txs(a, 'cts')[0].frame.txTimeNs
+    same(row('每成功一帧的发送时间')[1].replace(' µs', ''),
+      (opening + batch.frame.txTimeNs + ba.frame.txTimeNs) / US / batch.frame.ampdu!.mpduCount,
+      'the air one batched frame costs')
+    same(row('每成功一帧的发送时间')[2].replace(' µs', ''),
+      (txs(p, 'data')[0].frame.txTimeNs + txs(p, 'ack')[0].frame.txTimeNs) / US,
+      'and one plain frame')
+  })
+
+  it('the formula: every term is one of the engine’s, and both divisions come out', () => {
+    const f = ampdu.numbers!.find((x) => x.kind === 'formula') as { text: string }
+    const lines = f.text.split('\n')
+    expect(lines, 'the block states both ways of counting').toHaveLength(2)
+    const m0 = /^打批：\s*\((\d+) \+ (\d+) \+ ([\d\s]+) \+ (\d+)\) µs ÷ (\d+) 帧 = ([\d.]+) µs$/.exec(lines[0])
+    expect(m0, `「${lines[0]}」 is not the batched line this reads`).not.toBeNull()
+    // the four terms are the question, the answer, the batch and the BlockAck, each measured
+    time(`${m0![1]} µs`, txs(a, 'rts')[0].frame.txTimeNs, 'the question')
+    time(`${m0![2]} µs`, txs(a, 'cts')[0].frame.txTimeNs, 'the answer to it')
+    time(`${m0![3]} µs`, batch.frame.txTimeNs, 'the batch itself')
+    time(`${m0![4]} µs`, ba.frame.txTimeNs, 'and the BlockAck')
+    expect(Number(m0![5]), 'the frames it divides by').toBe(batch.frame.ampdu!.mpduCount)
+    const sum = [1, 2, 3, 4].reduce((n, i) => n + val(m0![i]), 0)
+    same(m0![6], sum / Number(m0![5]), 'the lesson’s own division')
+    const m1 = /^一帧一发：\((\d+) \+ (\d+)\) µs ÷ (\d+) 帧\s*= ([\d.]+) µs$/.exec(lines[1])
+    expect(m1, `「${lines[1]}」 is not the one-at-a-time line this reads`).not.toBeNull()
+    time(`${m1![1]} µs`, txs(p, 'data')[0].frame.txTimeNs, 'a plain frame')
+    time(`${m1![2]} µs`, txs(p, 'ack')[0].frame.txTimeNs, 'and its answer')
+    expect(Number(m1![3]), 'divided by the one frame it carries').toBe(1)
+    same(m1![4], (val(m1![1]) + val(m1![2])) / Number(m1![3]), 'that division too')
+    // 「同样的编码，同样的字节，同一个房间」: the note's claim, in the records
+    expect(new Set([...txs(a, 'data'), ...txs(p, 'data')].map((r) => r.frame.mcs)).size,
+      'one coding on both sides').toBe(1)
+  })
+
+  it('the run table: five rows, both columns, and the row that is a count and a gloss', () => {
+    const t = tableWith('整轮仿真，两种打法')
+    const row = (label: string): string[] => {
+      const r = t.rows.find((x) => x[0] === label)
+      expect(r, `no row labelled 「${label}」`).toBeDefined()
+      return r!
+    }
+    expect(t.rows, 'the table states exactly the rows this reads').toHaveLength(5)
+    // 「200 ms 之内」: the head cell states the window, and it is the window that was run
+    const win = /^([\d\s]+) ms 之内$/.exec(t.head[0])
+    expect(win, `「${t.head[0]}」 does not state the window`).not.toBeNull()
+    time(`${win![1]} ms`, RUN_NS, 'the window both columns are measured over')
+    const PAIRS: readonly (readonly [string, (rs: TLRecord[]) => number])[] = [
+      ['赢下的轮数（TXOP）', turns],
+      ['每轮装进去的帧数', (rs) => delivered(rs) / turns(rs)],
+      ['成功送达的帧数', delivered],
+      ['每成功一帧的发送时间', (rs) => busyAirNs(rs) / delivered(rs) / US],
+    ]
+    for (const [label, q] of PAIRS) {
+      const r = row(label)
+      same(r[1].replace(' µs', ''), q(a), `${label}, batched`)
+      same(r[2].replace(' µs', ''), q(p), `${label}, one at a time`)
+    }
+    // 「2（问答 + 一批）」 against 「8.9」: a figure with a gloss beside it, and a bare figure
+    const used = row('每轮用掉的发送次数')
+    const g = /^(\d+)（(.+)）$/.exec(used[1])
+    expect(g, `「${used[1]}」 is not 「n（gloss）」`).not.toBeNull()
+    same(g![1], staTx(a) / turns(a), 'the transmissions a batched turn costs the station')
+    // the gloss names two things, and two is the figure beside it
+    expect(g![2].split(' + '), 'the gloss lists that many').toHaveLength(Number(g![1]))
+    same(used[2], staTx(p) / turns(p), 'and the transmissions a plain turn costs it')
+  })
+
+  it('the two notes under the tables, including the division one of them warns about', () => {
+    // 「拿 83 轮去除 738 帧会得到 8.9，而不是 1」
+    const note = textWith('两种打法都是')
+    const m = /拿 (\d+) 轮去除 (\d+) 帧会得到 ([\d.]+)，而不是 (\d+)/.exec(note)
+    expect(m, 'the note no longer walks the division it warns about').not.toBeNull()
+    expect(Number(m![1]), 'the turns it divides by').toBe(turns(p))
+    expect(Number(m![2]), 'the frames it divides').toBe(delivered(p))
+    same(m![3], delivered(p) / turns(p), 'and the quotient')
+    // 「而不是 1」: the 1 belongs to the other table, which is the whole point of the note
+    expect(Number(m![4]), 'the 1 the note says this is not')
+      .toBe(txs(p, 'data')[0].frame.ampdu?.mpduCount ?? 1)
+    // 「照样连发八九帧」: the Chinese 「八九」 is a range, and both ends bracket the measurement
+    const range = /照样连发([一二三四五六七八九十]{2})帧/.exec(note)
+    expect(range, 'the note no longer says how many a plain turn carries').not.toBeNull()
+    const [lo, hi] = [...range![1]].map((c) => zhCount(c)!)
+    const perTurn = delivered(p) / turns(p)
+    expect(perTurn, `more than ${lo}`).toBeGreaterThan(lo)
+    expect(perTurn, `and fewer than ${hi + 1}`).toBeLessThan(hi + 1)
+    // the second note: 「这一轮里没有任何重传——80 轮全部成功」
+    const why = textWith('为什么实测和算式不完全一致')
+    const n = /(\d+) 轮全部成功/.exec(why)
+    expect(n, 'the note no longer counts the turns that finished').not.toBeNull()
+    expect(Number(n![1]), 'the turns that finished inside the window')
+      .toBe(ofType(a, 'TXOP_END').length)
+    expect(ofType(a, 'RETRY'), 'and none of them was retried').toHaveLength(0)
+    // 「它的十四帧还没有送达」: the open turn, which is why the measured figure is the higher one
+    const left = /它的([一二三四五六七八九十]+)帧还没有送达/.exec(why)
+    expect(left, 'the note no longer says what the last turn is still carrying').not.toBeNull()
+    expect(zhCount(left![1]), 'the frames the unfinished turn holds')
+      .toBe(batch.frame.ampdu!.mpduCount)
+    expect(turns(a) - ofType(a, 'TXOP_END').length, 'and there is exactly one such turn').toBe(1)
+  })
+
+  it('the subframe caption: the fixed bytes, the payload, the padding and the batch', () => {
+    const blk = ampdu.numbers!.find((x) => x.kind === 'diagram') as { spec: unknown; caption?: string }
+    expect(blk.spec, 'the figure in `numbers` is `ampduSubframeFields()`').toEqual(ampduSubframeFields())
+    const m = /固定的那 (\d+) 字节（定界符、帧头、校验）加上 ([\d\s]+) 字节载荷，再补齐到 ([\d\s]+)。([一二三四五六七八九十]+)个这样的子帧首尾相接就是 ([\d\s]+) 字节——不是 (\d+) × ([\d\s]+)/
+      .exec(blk.caption ?? '')
+    expect(m, 'the caption no longer walks the subframe and the batch').not.toBeNull()
+    same(m![1], AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + FCS_BYTES, 'the fixed bytes of a subframe')
+    const payload = val(m![2])
+    same(m![3], ampduSubframeBytes(payload), 'a padded subframe')
+    const count = zhCount(m![4])!
+    expect(count, 'the subframes the batch carries').toBe(batch.frame.ampdu!.mpduCount)
+    same(m![5], ampduPsduBytes(Array(count).fill(payload)), 'and the batch they add up to')
+    same(m![5], batch.frame.bytes, 'which is the batch this run sends')
+    // 「不是 14 × 1 530」: the product it is NOT, and that it really is not
+    expect(Number(m![6]), 'the count in the product it denies').toBe(count)
+    expect(val(m![7]) * count, 'which really is not the batch')
+      .not.toBe(batch.frame.bytes)
+  })
+
+  it('the steps: both ceilings, the five segments of a subframe, and the BlockAck', () => {
+    const items = (ampdu.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+    expect(items, 'the lesson builds the batch in exactly the steps this reads').toHaveLength(6)
+    // step 2: 「最多 64 帧」 and 「比 5.484 ms 还长」
+    const caps = /最多 (\d+) 帧[^]*?比 ([\d.]+) ms 还长/.exec(items[1])
+    expect(caps, 'step 2 no longer states the two ceilings').not.toBeNull()
+    expect(Number(caps![1]), 'the aggregation ceiling').toBe(MAX_AMPDU_MPDUS)
+    time(`${caps![2]} ms`, MAX_PPDU_NS, 'the longest transmission')
+    // step 3: 「4 字节的定界符」 … 「所以它是 1 534 字节」
+    const seg = /(\d+) 字节的定界符/.exec(items[2])
+    expect(seg, 'step 3 no longer states the delimiter’s size').not.toBeNull()
+    expect(Number(seg![1]), 'the delimiter').toBe(AMPDU_DELIMITER_BYTES)
+    const last = /最后一个子帧不补齐，所以它是 ([\d\s]+) 字节/.exec(items[2])
+    expect(last, 'step 3 no longer states the last subframe’s size').not.toBeNull()
+    same(last![1], AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + 1_500 + FCS_BYTES, 'an unpadded subframe')
+    // step 5: 「只回一个 32 字节的 BlockAck」
+    const answer = /只回一个 (\d+) 字节的 BlockAck/.exec(items[4])
+    expect(answer, 'step 5 no longer states the BlockAck’s size').not.toBeNull()
+    expect(Number(answer![1]), 'the BlockAck').toBe(ba.frame.bytes)
+  })
+
+  it('the worked batch: eight rows, including the fifteenth subframe that does not fit', () => {
+    const t = tableWith('第一批，逐项加起来')
+    const payload = 1_500
+    const count = batch.frame.ampdu!.mpduCount
+    const ROWS: readonly (readonly [RegExp, (cell: string, l: RegExpExecArray) => void])[] = [
+      // 「取走的帧数，允许的是 64」 → 14
+      [/^取走的帧数，允许的是 (\d+)$/, (c, l) => {
+        expect(Number(l[1]), 'the ceiling the row names').toBe(MAX_AMPDU_MPDUS)
+        expect(val(c), 'and the frames actually taken').toBe(count)
+      }],
+      // 「前十三个每个：4 + 26 + 1 500 + 4，再补齐」 → 1 536 B
+      [/^前([一二三四五六七八九十]+)个每个：(\d+) \+ (\d+) \+ ([\d\s]+) \+ (\d+)，再补齐$/, (c, l) => {
+        expect(zhCount(l[1]), 'the subframes that are padded').toBe(count - 1)
+        expect([Number(l[2]), Number(l[3]), Number(l[5])], 'delimiter, header and check')
+          .toEqual([AMPDU_DELIMITER_BYTES, QOS_HDR_BYTES, FCS_BYTES])
+        same(l[4], payload, 'the payload')
+        same(c.replace(' B', ''), ampduSubframeBytes(payload), 'and a padded subframe')
+      }],
+      [/^最后一个，不补齐$/, (c) => same(c.replace(' B', ''),
+        AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + payload + FCS_BYTES, 'the unpadded last subframe')],
+      // 「13 × 1 536 + 1 534」 → 21 502 B: the label is the arithmetic, the cell is the sum
+      [/^(\d+) × ([\d\s]+) \+ ([\d\s]+)$/, (c, l) => {
+        expect(Number(l[1]), 'the padded subframes').toBe(count - 1)
+        same(l[2], ampduSubframeBytes(payload), 'each of them')
+        same(l[3], AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + payload + FCS_BYTES, 'and the last')
+        expect(Number(l[1]) * val(l[2]) + val(l[3]), 'the lesson’s own product and sum')
+          .toBe(val(c))
+        same(c.replace(' B', ''), batch.frame.bytes, 'which is the batch')
+      }],
+      [/^在空中的时长$/, (c) => time(c, batch.frame.txTimeNs, 'the batch’s airtime')],
+      [/^整次交互：提问、回答、三段停顿、这一批、BlockAck$/, (c) =>
+        time(c, exchangeEnd - t0.t, 'the whole exchange')],
+      [/^本轮的上限$/, (c) => time(c, t0.untilNs - t0.t, 'the turn’s ceiling')],
+      // 「剩下的，而第十五个子帧要花约 160 µs」 → 144 µs
+      [/^剩下的，而第([一二三四五六七八九十]+)个子帧要花约 (\d+) µs$/, (c, l) => {
+        time(c, t0.untilNs - exchangeEnd, 'what is left of the turn')
+        expect(zhCount(l[1]), 'the subframe that would not fit').toBe(count + 1)
+        // 「约 160」 is read to its own precision — the nearest ten — and nothing finer
+        const per = batch.frame.txTimeNs / count / US
+        const step = 10 ** (l[2].length - String(Number(l[2])).replace(/0+$/, '').length)
+        expect(Math.round(per / step) * step, `one subframe to the nearest ${step} µs`)
+          .toBe(Number(l[2]))
+        expect(per, 'and it really does not fit in what is left')
+          .toBeGreaterThan((t0.untilNs - exchangeEnd) / US)
+      }],
+    ]
+    expect(t.rows, 'the table adds up exactly the rows this reads').toHaveLength(ROWS.length)
+    for (const [i, [re, check]] of ROWS.entries()) {
+      const l = re.exec(t.rows[i][0])
+      expect(l, `row ${i}: 「${t.rows[i][0]}」 is not in the shape this reads`).not.toBeNull()
+      check(t.rows[i][1], l!)
+    }
+  })
+
+  it('both observe lines and both experiments', () => {
+    const o = ampdu.observe!
+    // 「×14 的角标」 … 「十四帧、21 502 字节 … 2 248 µs」
+    const badge = /×(\d+) 的角标/.exec(o[0])
+    expect(badge, 'observe[0] no longer states the badge').not.toBeNull()
+    expect(Number(badge![1]), 'the badge the batch carries').toBe(batch.frame.ampdu!.mpduCount)
+    const m = /([一二三四五六七八九十]+)帧、([\d\s]+) 字节在同一个前导码下面发出去，是一次时长 ([\d\s]+) µs 的传输/
+      .exec(o[0])
+    expect(m, 'observe[0] no longer states the batch it hovers over').not.toBeNull()
+    expect(zhCount(m![1]), 'the frames').toBe(batch.frame.ampdu!.mpduCount)
+    same(m![2], batch.frame.bytes, 'the bytes')
+    time(`${m![3]} µs`, batch.frame.txTimeNs, 'and the airtime')
+    // 「32 字节、32 µs」 … 「它顶替的是十四个独立回答」
+    const b = /(\d+) 字节、(\d+) µs，就把这一轮收尾了——它顶替的是([一二三四五六七八九十]+)个独立回答/.exec(o[1])
+    expect(b, 'observe[1] no longer states the BlockAck it replaces').not.toBeNull()
+    same(b![1], ba.frame.bytes, 'the BlockAck’s bytes')
+    time(`${b![2]} µs`, ba.frame.txTimeNs, 'its airtime')
+    expect(zhCount(b![3]), 'and the answers it stands in for').toBe(batch.frame.ampdu!.mpduCount)
+    // tryThis[0]: 「每赢一次信道就清掉 14 帧，而不是 1 帧 … 上限是 64 帧」
+    const e0 = /清掉 (\d+) 帧，而不是 (\d+) 帧[^]*?上限是 (\d+) 帧/.exec(ampdu.tryThis![0])
+    expect(e0, 'the first experiment is gone, or its shape changed').not.toBeNull()
+    const deq = ofType(a, 'DEQUEUE').filter((r) => r.node === 'sta-1' && r.t <= exchangeEnd)
+    expect(Number(e0![1]), 'the frames one win clears from the queue').toBe(deq.length)
+    expect(new Set(deq.map((r) => r.t)).size, 'all at one instant').toBe(1)
+    expect(Number(e0![3]), 'and the ceiling that is not what bound it').toBe(MAX_AMPDU_MPDUS)
+    // tryThis[1]: 「成功送达的帧数约为 1.5 倍」
+    const e1 = /成功送达的帧数约为 ([\d.]+) 倍/.exec(ampdu.tryThis![1])
+    expect(e1, 'the second experiment is gone, or its shape changed').not.toBeNull()
+    same(e1![1], delivered(a) / delivered(p), 'the frames aggregation buys')
+  })
+
+  it('`deeper` and `limits`: the two ceilings, the fixed bytes, and three citations', () => {
+    const d = (ampdu.deeper! as { heading?: string; text?: string }[])
+      .map((x) => `${x.heading ?? ''}\n${x.text ?? ''}`).join('\n')
+    // 「最多容纳 64 个成员」 … 「所以这一批是 14 帧，而不是 64 帧」
+    const m = /最多容纳 (\d+) 个成员[^]*?所以这一批是 (\d+) 帧，而不是 (\d+) 帧/.exec(d)
+    expect(m, '`deeper` no longer states which ceiling binds').not.toBeNull()
+    expect([Number(m![1]), Number(m![3])], 'the structural ceiling, twice')
+      .toEqual([MAX_AMPDU_MPDUS, MAX_AMPDU_MPDUS])
+    expect(Number(m![2]), 'and the batch the clock actually allows')
+      .toBe(batch.frame.ampdu!.mpduCount)
+    const ls = ampdu.limits.map((l) => l.text).join('\n')
+    // 「这次尝试里的十四帧一起记重传」
+    const fourteen = /这次尝试里的([一二三四五六七八九十]+)帧一起记重传/.exec(ls)
+    expect(fourteen, '`limits` no longer counts the frames a failure takes down').not.toBeNull()
+    expect(zhCount(fourteen![1]), 'the frames in one batch').toBe(batch.frame.ampdu!.mpduCount)
+    // 「4 字节定界符 + 26 字节 QoS 帧头 + 载荷 + 4 字节校验」 and 「自带 36 字节」
+    const bytes = /(\d+) 字节定界符 \+ (\d+) 字节 QoS 帧头 \+ 载荷 \+ (\d+) 字节校验/.exec(ls)
+    expect(bytes, '`limits` no longer spells out the byte arithmetic').not.toBeNull()
+    expect([Number(bytes![1]), Number(bytes![2]), Number(bytes![3])], 'the three fixed parts')
+      .toEqual([AMPDU_DELIMITER_BYTES, QOS_HDR_BYTES, FCS_BYTES])
+    const fixed = /自带 (\d+) 字节的非载荷字节/.exec(ls)
+    expect(fixed, '`limits` no longer totals them').not.toBeNull()
+    same(fixed![1], ampduSubframeBytes(1_500) - 1_500, 'the non-payload bytes a subframe carries')
+    // 「1120 对 738 帧」: the figure the last limit says would stop holding
+    const pair = /(\d+) 对 (\d+) 帧/.exec(ls)
+    expect(pair, '`limits` no longer names the gain it says is scene-bound').not.toBeNull()
+    expect([Number(pair![1]), Number(pair![2])], 'the two deliveries')
+      .toEqual([delivered(a), delivered(p)])
+    // and every 「file.ts 的 symbol」 in `limits` is a claim about this repository
+    cite(ls, '`limits`')
+    expect([...ls.matchAll(/（?([a-z]+\.ts) 的 (\w+)/g)].length, 'it cites three of them').toBe(3)
   })
 })
