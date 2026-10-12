@@ -27,11 +27,15 @@ import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { layoutDiagram, textBox, W, type Shape } from '../../src/course/diagram'
 import type { Block } from '../../src/course/lessonKit'
 import { linkBudget, BAND_EXTRA_LOSS_DB } from '../../src/course/widgetModel'
-import { WALL_LOSS_DB, buildLinkTable, pathLossDb, wallsCrossed } from '../../src/engine/propagation'
+import {
+  PL0_DB, WALL_LOSS_DB, buildLinkTable, pathLossDb, wallsCrossed,
+} from '../../src/engine/propagation'
+import { freeSpacePl0Db } from '../../src/uwb/units'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { lessonShapeSuite, runOf } from './kit'
+import { lessonTexts } from '../../src/course/readability'
 import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
@@ -47,13 +51,25 @@ const txs = (recs: TLRecord[], node: string, kind: string): Tx[] =>
 const variantRecs = (i: number): TLRecord[] => runOf(radioPrimer, i, RUN_NS)
 
 const wallsFor = (d: number) => (d > 5.5 ? (['brick'] as const) : ([] as const))
-/** The "The same laptop, four places" table: the decibels taken off, the RSSI, and the rate. */
-const TABLE = [
-  { off: '46.7', rssi: '-31.7', mbps: 172.1 },
-  { off: '67.7', rssi: '-52.7', mbps: 129.0 },
-  { off: '75.3 + 12', rssi: '-72.3', mbps: 34.4 },
-  { off: '81.1 + 12', rssi: '-78.1', mbps: 17.2 },
-]
+/**
+ * The 「同一台笔记本，四个位置」 table, **read out of the lesson** rather than transcribed.
+ *
+ * It was transcribed until 2026-10-12, which made every assertion below it a pin on the engine
+ * and none on the lesson: the four rows could be edited a digit at a time with the suite green
+ * (`scripts/figure-planting.ts` planted six figures here and none of them reddened). Reading the
+ * rows instead turned all of it into a read-back without changing a line of the assertions.
+ */
+const TABLE = ((): { off: string; rssi: string; mbps: number }[] => {
+  const t = (radioPrimer.numbers ?? []).find(
+    (b): b is Extract<Block, { kind: 'table' }> =>
+      b.kind === 'table' && (b.heading ?? '').startsWith('同一台笔记本'))
+  if (!t) throw new Error('the 「同一台笔记本，四个位置」 table is gone from `numbers`')
+  return t.rows.map((r) => ({
+    off: r[1],
+    rssi: r[2].replace('−', '-').replace(' dBm', ''),
+    mbps: Number(r[3].replace(' Mb/s', '')),
+  }))
+})()
 
 // The contract every migrated lesson owes (tests/course/kit.ts).
 lessonShapeSuite(radioPrimer, { runNs: RUN_NS })
@@ -370,5 +386,334 @@ describe('radio-primer · the fading limit after frequency selectivity', () => {
       expect(sc.selectivity).toBeUndefined()
       expect(sc.fading).toBeUndefined()
     }
+  })
+})
+
+// --- every figure the lesson prints ------------------------------------------------------------
+
+/**
+ * **`TABLE` above used to be this lesson's own table, transcribed.** Four rows of 「the decibels
+ * taken off, the RSSI, the rate」 typed on this side and compared with `linkBudget`, which pins
+ * the engine and leaves the prose free: the figures in the lesson could be edited one digit at a
+ * time with the suite still green. `scripts/figure-planting.ts` measured it on 2026-10-12 — six
+ * planted, six unnoticed, 108 plantable figures. `TABLE` is now read out of the lesson, so every
+ * assertion above it became a read-back without changing a line of it.
+ *
+ * What is left is everything the lesson prints outside that table, and nearly all of it is the
+ * same four quantities restated: the path-loss law (in the formula, in `sources` and in `limits`),
+ * the three wall materials (three times over), the two transmit powers, and the −72.3 dBm the
+ * living-room link arrives at (six times over, in `deeper`, `tryThis` and the quiz). So each is
+ * read at every one of its sites.
+ */
+describe('radio-primer · every figure the lesson prints, read back out of its own prose', () => {
+  const EVERYWHERE = lessonTexts(radioPrimer).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/−/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/−/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  const LAPTOP_DBM = 15
+  const budgetAt = (d: number, walls: readonly ('brick' | 'drywall' | 'glass')[] = wallsFor(d)) =>
+    linkBudget({ txDbm: LAPTOP_DBM, distanceM: d, walls: [...walls], widthMhz: 20, mode: 'eht' })
+
+  it('the law, in the formula and wherever the lesson restates it', () => {
+    const f = (radioPrimer.numbers ?? []).find(
+      (b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
+    expect(f, 'the formula is gone from `numbers`').toBeDefined()
+    const [pl0, exp, base, oneM] = figs(f!.text,
+      /RSSI = P_tx − \(([\d.]+) \+ (\d+)·log(\d+)\(d \/ (\d+) m\)\) − Σ/, 'the law itself')
+    expect(pathLossDb(oneM), 'the loss at one metre').toBeCloseTo(pl0, 12)
+    expect(pathLossDb(base) - pathLossDb(oneM), 'and ten times further costs that')
+      .toBeCloseTo(exp, 9)
+    // 「距离翻倍要多损耗 9.0 dB」 and the quiz's 「30·log10(2) = 9.03 dB」
+    same(raw(EVERYWHERE, /距离翻倍要多损耗 ([\d.]+) dB/, 'what doubling costs')[0],
+      pathLossDb(2 * oneM) - pathLossDb(oneM), 'the cost of doubling')
+    const [thirty, ten, two, nine] = figs(EVERYWHERE,
+      /(\d+)·log(\d+)\((\d+)\) = ([\d.]+) dB/, 'the quiz’s own arithmetic for it')
+    expect([thirty, ten, two], 'the exponent, the base and the factor').toEqual([exp, base, 2])
+    same(String(nine), pathLossDb(2 * oneM) - pathLossDb(oneM), 'and what it comes to')
+    // 「一米的 46.7 dB 与其后 3.0 的路径损耗指数」 — in `limits` and in `sources`
+    for (const v of everyFig(/其后 ([\d.]+) 的路径损耗指数/g, 'the path-loss exponent', 2)) {
+      expect(val(v) * 10, 'ten times the exponent is the decibels a decade costs').toBe(exp)
+    }
+    expect(figs(EVERYWHERE, /前者是 ([\d.]+) GHz 的自由空间损耗/, 'the band the constant is for')[0],
+      'which is a 5 GHz band').toBeGreaterThan(5)
+  })
+
+  it('the three wall materials, at every one of the three places the lesson lists them', () => {
+    const lists = [...EVERYWHERE.matchAll(
+      /石膏板 (\d+) dB、砖墙 (\d+)(?: dB)?、玻璃 (\d+)/g)].map((m) => m.slice(1).map(val))
+    expect(lists.length, 'the lesson lists the materials more than twice').toBeGreaterThan(2)
+    for (const [drywall, brick, glass] of lists) {
+      expect({ drywall, brick, glass }, 'the engine’s own wall table').toEqual(WALL_LOSS_DB)
+    }
+    // 「后两条多出来的 12，就是书房与客厅之间那堵砖墙」 — the figure caption
+    for (const v of everyFig(/多出来的 (\d+)，就是书房与客厅之间那堵砖墙/g, 'the wall in the figure', 1)) {
+      expect(val(v), 'that wall is brick').toBe(WALL_LOSS_DB.brick)
+    }
+    // the quiz: 「12 dB 的砖墙换成 3 dB 的玻璃」, 「省下的是 12 − 3 = 9 dB」
+    const [brick, glass] = figs(EVERYWHERE, /(\d+) dB 的砖墙换成 (\d+) dB 的玻璃/,
+      'the swap the quiz makes')
+    expect([brick, glass], 'brick for glass').toEqual([WALL_LOSS_DB.brick, WALL_LOSS_DB.glass])
+    const [b2, g2, saved] = figs(EVERYWHERE, /省下的是 (\d+) − (\d+) = (\d+) dB/,
+      'what the swap saves')
+    expect([b2, g2], 'the same two').toEqual([brick, glass])
+    expect(b2 - g2, 'and the saving is their difference').toBe(saved)
+  })
+
+  it('the two transmit powers, and the decibel arithmetic `deeper` works in milliwatts', () => {
+    const scen = radioPrimer.scenario()
+    const powerOf = (id: string) => scen.nodes.find((n) => n.id === id)!.txPowerDbm
+    const [laptop, router] = figs(EVERYWHERE,
+      /这台笔记本 (\d+) dBm，路由器 (\d+) dBm/, 'the two powers the budget starts from')
+    expect([laptop, router], 'what the two radios transmit at')
+      .toEqual([powerOf('sta-1'), powerOf('ap')])
+    expect(laptop, 'and the laptop is the one every row of the table is about').toBe(LAPTOP_DBM)
+    // 「dB 是比值，10·log10(P1/P2)；dBm 是相对 1 mW 的功率」
+    const [ten, base, p1, p2, mw1] = figs(EVERYWHERE,
+      /dB 是比值，(\d+)·log(\d+)\(P(\d+)\/P(\d+)\)；dBm 是相对 (\d+) mW/, '`deeper` on the units')
+    expect([ten, base, p1, p2, mw1], 'ten, base ten, the two powers and the milliwatt')
+      .toEqual([10, 10, 1, 2, 1])
+    expect(dbm(mw1), 'one milliwatt is zero dBm').toBeCloseTo(0, 12)
+    // 「+3 dB 是功率翻倍，−3 dB 是减半，+10 dB 是乘以十」
+    const [up, down, tenfold] = figs(EVERYWHERE,
+      /\+(\d+) dB 是功率翻倍，−(\d+) dB 是减半，\+(\d+) dB 是乘以十/, '`deeper` on the three steps')
+    expect(mw(up) / mw(0), 'three decibels is twice the power').toBeCloseTo(2, 2)
+    expect(mw(-down) / mw(0), 'and minus three is half of it').toBeCloseTo(0.5, 2)
+    expect(mw(tenfold) / mw(0), 'and ten decibels is ten times').toBeCloseTo(10, 9)
+    // 「路由器发 100 mW（20 dBm），笔记本发 31.6 mW（15 dBm）」
+    const [routerMw, routerDbm, laptopMw, laptopDbm] = raw(EVERYWHERE,
+      /路由器发 ([\d.]+) mW（(\d+) dBm），笔记本发 ([\d.]+) mW（(\d+) dBm）/,
+      '`deeper` on the two powers in milliwatts')
+    expect([val(routerDbm), val(laptopDbm)], 'the same two powers').toEqual([router, laptop])
+    same(routerMw, mw(val(routerDbm)), 'the router’s power in milliwatts')
+    same(laptopMw, mw(val(laptopDbm)), 'and the laptop’s')
+    // 「隔着 9 m 和一堵砖墙之后 … 只剩 5.85 × 10⁻⁸ mW，也就是 −72.3 dBm」
+    const [metres, mant, pow, asDbm] = raw(EVERYWHERE,
+      /隔着 (\d+) m 和一堵砖墙之后，这台笔记本在路由器处只剩 ([\d.]+) × (\d+)⁻⁸ mW，也就是 −([\d.]+) dBm/,
+      '`deeper` on what arrives, in milliwatts')
+    const rssi = budgetAt(val(metres)).rssiDbm
+    same(`-${asDbm}`, rssi, 'the level that arrives')
+    expect(val(pow), 'the power of ten it is written with').toBe(10)
+    same(mant, mw(rssi) * 1e8, 'and the mantissa in front of it')
+  })
+
+  it('the four places: the distance column, the walls, and the level every other passage repeats', () => {
+    const t = (radioPrimer.numbers ?? []).find(
+      (b): b is Extract<Block, { kind: 'table' }> =>
+        b.kind === 'table' && (b.heading ?? '').startsWith('同一台笔记本'))!
+    expect(t.rows, 'the table still has its four places').toHaveLength(PRIMER_DISTANCES.length)
+    t.rows.forEach((r, i) => {
+      const d = PRIMER_DISTANCES[i]
+      const [printed] = figs(r[0], /，(\d+) m/, `row ${i + 1}: the distance`)
+      expect(printed, `row ${i + 1}: the distance this variant really puts the laptop at`).toBe(d)
+      expect(/砖墙/.test(r[0]), `row ${i + 1}: 「砖墙」 exactly when the ray crosses one`)
+        .toBe(wallsFor(d).length > 0)
+    })
+    // 「−30 dBm 是贴着路由器发送，−80 dBm 是隔着半间屋子」: the two ends of the scale `picture`
+    // draws, which this lesson's own four places sit between.
+    const [near, far] = figs(EVERYWHERE,
+      /−(\d+) dBm 是贴着路由器发送，−(\d+) dBm 是隔着半间屋子/, '`picture` on the scale')
+    const levels = PRIMER_DISTANCES.map((d) => budgetAt(d).rssiDbm)
+    expect(Math.max(...levels), 'the closest place is below the top of the scale')
+      .toBeLessThan(-near)
+    expect(Math.min(...levels), 'and the furthest is above its bottom').toBeGreaterThan(-far)
+    // 「9 m 处共 75.3 dB」 and 「剩下 −72.3 dBm」
+    const [metres, loss] = raw(EVERYWHERE, /距离每涨十倍再减 \d+ dB——(\d+) m 处共 ([\d.]+) dB/,
+      'the loss the steps work out')
+    same(loss, pathLossDb(val(metres)), 'the path loss at that distance')
+    same(`-${raw(EVERYWHERE, /只穿一堵砖墙，剩下 −([\d.]+) dBm/, 'what is left after the wall')[0]}`,
+      budgetAt(val(metres)).rssiDbm, 'the RSSI of the living-room link')
+    /*
+     * Every 「−N dBm」 the lesson prints — `picture`'s two ends of the scale, the table, `deeper`,
+     * `tryThis` twice and the quiz four times — is a level one of the seven links THIS LESSON
+     * works really produces. (The captures are the magnitudes: the sign is outside them.)
+     *
+     * The seven are the lesson's own: the four places behind whatever wall stands there, the two
+     * ends of the `tryThis` walk, and the living room with the brick swapped for glass. An
+     * earlier version of this allowed every distance crossed with every material, and that set
+     * was wide enough to swallow a planting: 18 m behind glass is −72.36 dBm, which renders
+     * −72.4, so the quiz's −72.3 could be edited to −72.4 and stay green. A membership test is
+     * only as good as the narrowest set that still contains every figure.
+     */
+    const walk = figs(radioPrimer.tryThis.join('\n'),
+      /从 ([\d.]+) m 挪到 (\d+) m，再挪到 (\d+) m/, 'the walk `tryThis` sends the reader on')
+    const links: [number, readonly ('brick' | 'glass')[]][] = [
+      ...PRIMER_DISTANCES.map((d) => [d, wallsFor(d)] as [number, readonly 'brick'[]]),
+      ...walk.map((d) => [d, ['brick']] as [number, readonly 'brick'[]]),
+      [PRIMER_DISTANCES[2], ['glass']],
+    ]
+    for (const v of everyFig(/−([\d.]+) dBm|−([\d.]+) 变成|变成 −([\d.]+) dBm/g,
+      'a level in dBm', 8)) {
+      const dp = (v.split('.')[1] ?? '').length
+      const allowed = links.map(([d, w]) => Number(budgetAt(d, w).rssiDbm.toFixed(dp)))
+        .concat([-near, -far])
+      expect(allowed, `−${v} dBm is a level one of this lesson’s own links produces`)
+        .toContain(-val(v))
+    }
+  })
+
+  it('`tryThis` and the quiz: the walk down the centre line, and the glass swap', () => {
+    const [d1, d2, d3] = figs(radioPrimer.tryThis.join('\n'),
+      /从 ([\d.]+) m 挪到 (\d+) m，再挪到 (\d+) m/, 'the three places the reader walks to')
+    expect([d2 / d1, d3 / d2], 'each one twice as far as the last').toEqual([2, 2])
+    const levels = raw(radioPrimer.tryThis.join('\n'),
+      /接收电平依次是 −([\d.]+)、−([\d.]+)、−([\d.]+) dBm/, 'the three levels')
+    for (const [i, d] of [d1, d2, d3].entries()) {
+      same(`-${levels[i]}`, budgetAt(d, ['brick']).rssiDbm, `${d} m behind one brick wall`)
+    }
+    /*
+     * 「距离每翻一倍，衰减都是同一个台阶」. The step is identical in the model — it is
+     * 30·log10(2) whatever the distance — and the printed levels are rounded to a decimal, so
+     * their differences come out 9.0 and 9.1. So the claim is read both ways: exactly on the
+     * levels the engine computes, and to the decibel on the ones the lesson prints.
+     */
+    const exact = [d1, d2, d3].map((d) => budgetAt(d, ['brick']).rssiDbm)
+    expect(exact[0] - exact[1], 'the step is the same at every distance')
+      .toBeCloseTo(exact[1] - exact[2], 9)
+    const steps = [val(levels[1]) - val(levels[0]), val(levels[2]) - val(levels[1])]
+    for (const st of steps) {
+      expect(Math.round(st), 'and the printed levels show the same step, to the decibel')
+        .toBe(Math.round(exact[0] - exact[1]))
+    }
+    // the glass swap: 「升到 −63.3 dBm——正是 4.5 m 隔砖墙时的那个数——帧速率也从 34.4 升到 86.0」
+    const [glassDbm, sameAs, was, now] = raw(radioPrimer.tryThis.join('\n'),
+      /升到 −([\d.]+) dBm——正是 ([\d.]+) m 隔砖墙时的那个数——帧速率也从 ([\d.]+) Mb\/s 升到 ([\d.]+) Mb\/s/,
+      'the glass swap')
+    const livingRoom = PRIMER_DISTANCES[2]
+    same(`-${glassDbm}`, budgetAt(livingRoom, ['glass']).rssiDbm,
+      'what glass leaves at the living room')
+    same(`-${glassDbm}`, budgetAt(val(sameAs), ['brick']).rssiDbm,
+      'which is the level the shorter link has through brick')
+    expect(budgetAt(livingRoom).mbps, 'the rate through brick').toBe(val(was))
+    expect(budgetAt(livingRoom, ['glass']).mbps, 'and the rate through glass').toBe(val(now))
+    // the quiz's own two answers: 「约 9 dB」 for the move, 「9 dB」 for the swap
+    for (const v of everyFig(/约 (\d+) dB：这个模型里距离每翻一倍|= (\d+) dB：−/g,
+      'the nine decibels both answers turn on', 2)) {
+      expect(val(v), 'which is what doubling costs, to the decibel')
+        .toBe(Math.round(pathLossDb(2) - pathLossDb(1)))
+    }
+  })
+
+  it('`observe` and `deeper`: the two counts, the four rates, and the reply', () => {
+    const obs = radioPrimer.observe.join('\n')
+    const rates = figs(obs, /的速率：([\d.]+)、([\d.]+)、([\d.]+)、([\d.]+) Mb\/s/,
+      'the four rates `observe` sends the reader to read')
+    PRIMER_DISTANCES.forEach((d, i) => {
+      expect(rates[i], `${d} m: the rate the first frame goes at`).toBe(budgetAt(d).mbps)
+    })
+    const [ms, desk, far] = figs(obs,
+      /前 (\d+) ms 里，路由器确认了书桌位置的 (\d+) 帧，远端墙边却只有 (\d+) 帧/,
+      'the two counts it names')
+    expect(ms * MS, 'the window those counts are taken over').toBe(RUN_NS)
+    const acked = (i: number): number =>
+      txs(variantRecs(i), 'ap', 'ack').length
+    expect(desk, 'what the router acknowledged at the desk').toBe(acked(0))
+    expect(far, 'and at the far wall').toBe(acked(3))
+    expect(far * 3, '「不到三分之一」').toBeLessThan(desk)
+    // 「差别全在那 46 dB 的距离与砖墙」
+    const [gap] = figs(obs, /那 (\d+) dB 的距离与砖墙/, 'the gap between the two places')
+    expect(Math.round(budgetAt(PRIMER_DISTANCES[0]).rssiDbm - budgetAt(PRIMER_DISTANCES[3]).rssiDbm),
+      'which is the difference of the two levels').toBe(gap)
+    // `deeper` on the reply: 「前三个变体都是 24 Mb/s，只有到远端墙边才降到 12 Mb/s，28 µs 对 32 µs」
+    const [fast, slow, fastUs, slowUs] = figs(EVERYWHERE,
+      /前三个变体都是 (\d+) Mb\/s，只有到远端墙边才降到 (\d+) Mb\/s，空口时间 (\d+) µs 对 (\d+) µs/,
+      '`deeper` on the router’s reply')
+    const ackOf = (i: number) => txs(variantRecs(i), 'ap', 'ack')[0].frame
+    for (const i of [0, 1, 2]) {
+      expect(ackOf(i).mbps, `variant ${i + 1}: the reply’s rate`).toBe(fast)
+    }
+    expect(ackOf(3).mbps, 'and at the far wall it drops').toBe(slow)
+    same(String(fastUs), ackOf(0).txTimeNs / 1000, 'how long the faster reply takes')
+    same(String(slowUs), ackOf(3).txTimeNs / 1000, 'and the slower one')
+    // 「两端的天线都在地面以上 1 m」 and 「6 GHz 链路还要再多 1.2 dB」
+    const [height] = figs(EVERYWHERE, /两端的天线都在地面以上 (\d+) m/, 'the antenna height')
+    for (const n of radioPrimer.scenario().nodes) {
+      expect(n.pos.z, `${n.id} stands that high`).toBe(height)
+    }
+    for (const v of everyFig(/(?:再多|多付的) ([\d.]+) dB/g, 'what a 6 GHz link pays', 2)) {
+      same(v, BAND_EXTRA_LOSS_DB['6g'], 'the extra loss of the higher band')
+    }
+  })
+
+  /**
+   * **The first pass left eighteen sites unread, and twelve of them were in the quiz's own
+   * options and explanations** — the place a reader is most likely to take a figure from, and the
+   * place this course's tests have always been thinnest. The rest: the two ends of the scale
+   * `picture` draws, the decade of distance where `numbers` restates it, the two 「6 GHz」 and the
+   * one 「5.2 GHz」.
+   */
+  it('the figures the quiz, the scale and the two band names print, at every one of their sites', () => {
+    const quiz = radioPrimer.quiz.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
+    const decade = pathLossDb(10) - pathLossDb(1)
+    const step = pathLossDb(2) - pathLossDb(1)
+    // 「−30 dBm 是贴着路由器发送，−80 dBm 是隔着半间屋子」: the two ends of the scale are this
+    // flat's own extremes, each rounded to the nearest ten decibels.
+    const [near, far] = figs(EVERYWHERE,
+      /−(\d+) dBm 是贴着路由器发送，−(\d+) dBm 是隔着半间屋子/, '`picture` on the scale')
+    const tens = (x: number): number => Math.round(x / 10) * 10
+    const levels = PRIMER_DISTANCES.map((d) => budgetAt(d).rssiDbm)
+    expect(-near, 'the top of the scale is the desk, to the ten').toBe(tens(Math.max(...levels)))
+    expect(-far, 'and the bottom is the far wall').toBe(tens(Math.min(...levels)))
+    // the decade of distance: `numbers` restates it, and the quiz argues about it twice
+    for (const v of everyFig(
+      /距离每涨十倍再减 (\d+) dB|(\d+) dB：公式里写着 (\d+)|(\d+) 是距离涨十倍对应的分贝/g,
+      'the decibels a decade of distance costs', 4)) {
+      same(v, decade, 'what ten times the distance costs')
+    }
+    // 「约 9 dB」 and 「这个模型里距离每翻一倍就是 9.0 dB」: the step, to its own decimals
+    for (const v of everyFig(/距离每翻一倍就是 ([\d.]+) dB/g, 'the step the quiz explains', 1)) {
+      same(v, step, 'what doubling the distance costs')
+    }
+    // 「3 dB：距离翻倍，功率减半」 is a wrong answer, and the figure in it is right about
+    // something else: halving a power IS 3 dB. What makes it wrong is the exponent — this model
+    // charges three decades of spreading, not two — so both halves are read.
+    for (const v of everyFig(/(\d+) dB：距离翻倍，功率减半/g, 'the wrong answer’s own figure', 1)) {
+      expect(val(v), 'halving a power is that many decibels').toBe(Math.round(-dbm(0.5)))
+      expect(val(v), 'and it is less than this model charges for doubling the distance')
+        .toBeLessThan(step)
+    }
+    // the quiz's own walk, and the wall swap in its second question
+    const [from, to] = figs(quiz, /笔记本从 ([\d.]+) m 挪到 (\d+) m/, 'the move the quiz asks about')
+    expect(to / from, 'twice as far').toBe(2)
+    same(`-${raw(quiz, /= [\d.]+ dB，−([\d.]+) 变成/, 'where that move starts')[0]}`,
+      budgetAt(from, ['brick']).rssiDbm, 'the level before the move')
+    for (const v of everyFig(/升高 (\d+) dB：\d+ dB 的砖墙换成/g, 'what the swap gains', 1)) {
+      expect(val(v), 'brick less glass').toBe(WALL_LOSS_DB.brick - WALL_LOSS_DB.glass)
+    }
+    for (const v of everyFig(/升高 (\d+) dB：那堵墙整个没了/g, 'the wrong answer’s own figure', 1)) {
+      expect(val(v), 'which is the whole brick wall, not the difference')
+        .toBe(WALL_LOSS_DB.brick)
+    }
+    for (const v of everyFig(/玻璃仍要拿走 (\d+) dB/g, 'what glass still takes', 1)) {
+      expect(val(v), 'the glass wall').toBe(WALL_LOSS_DB.glass)
+    }
+    // 「6 GHz 链路还要再多 1.2 dB」 and `sources` saying it again: the band and its own extra
+    const bands = [...EVERYWHERE.matchAll(/(\d) GHz (?:链路还要再多|多付的) ([\d.]+) dB/g)]
+    expect(bands.length, 'the lesson names that band more than once').toBeGreaterThan(1)
+    for (const m of bands) {
+      const key = `${m[1]}g` as keyof typeof BAND_EXTRA_LOSS_DB
+      expect(BAND_EXTRA_LOSS_DB, `${m[1]} GHz is a band this engine has`).toHaveProperty(key)
+      same(m[2], BAND_EXTRA_LOSS_DB[key], `what a ${m[1]} GHz link pays`)
+    }
+    // 「前者是 5.2 GHz 的自由空间损耗」: the carrier that reproduces the engine's own first metre
+    const [ghz] = figs(EVERYWHERE, /前者是 ([\d.]+) GHz 的自由空间损耗/,
+      'the carrier `limits` says the constant is for')
+    expect(Math.abs(freeSpacePl0Db(ghz * 1000) - PL0_DB),
+      `free space at ${ghz} GHz is this engine’s own loss at one metre`).toBeLessThan(0.1)
   })
 })
