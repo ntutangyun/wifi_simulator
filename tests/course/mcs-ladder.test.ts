@@ -15,6 +15,8 @@
  * readability.test.ts applies course-wide is re-run over it here.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mcsLadder as mcsLadderLesson } from '../../src/course/tier1/mcs-ladder'
 import { decodeThresholds } from '../../src/course/tier1/decode-thresholds'
 import { primerScenario, PRIMER_DISTANCES } from '../../src/course/tier1/radioLink'
@@ -31,6 +33,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { ROOT, zhNumeral } from './coverage'
 import { selBinWidthMhz } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
@@ -381,5 +384,342 @@ describe('mcs-ladder · the lookup-table limit promises only the half that is ke
       const lim = rvm.limits.find((l) => l.text.includes(needle))!
       expect([lim.until, lim.seeAlso], needle).toEqual([undefined, undefined])
     }
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * This file is the most thorough in M1 — the six rungs, the five steps, the worked column, the
+ * four positions and both experiments all have assertions — and every one of them compares the
+ * engine with a literal written HERE, with the lesson's row quoted in a comment above it. `TABLE`
+ * at the top of this file is the four-position table retyped: five figures a row, twenty in all,
+ * on the test side. A comment is not a comparison, and a retyped table is not the table.
+ *
+ * `@mcs-ladder` hand-types 37 figures into its graded prose. It is also where the ratchet's own
+ * detector was wrong: `tests/course/prose-readback.test.ts` listed this lesson as one whose test
+ * never touches its prose, while the test reads `mcsLadderLesson.numbers` and
+ * `mcsLadderLesson.limits` on four lines — the lesson is imported under an alias here, because
+ * `mcsLadder` is already the widget model's function, and the detector only ever looked for
+ * `mcsLadder.numbers`. The detector now reads the alias out of the import; what it was reporting
+ * for this lesson was a naming convention. What it reported is nonetheless true of the FIGURES:
+ * the reads it found are the widget's `params` and four `toContain` checks over `limits`, and not
+ * one of the 37 printed figures. So this describe is the read-back the list was asking for.
+ *
+ * Each cell's unit and each figure's own number of decimals are read off the cell, never written
+ * here: a figure cannot be re-measured without its convention.
+ */
+describe('mcs-ladder · every printed figure is read back out of the lesson', () => {
+  const L = mcsLadderLesson
+  const rungs = mcsLadder('eht')
+  const tableWith = (fragment: string): { heading: string; head: string[]; rows: string[][] } => {
+    const b = L.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { heading: string; head: string[]; rows: string[][] }
+  }
+  /** 「−82 dBm」 → −82; 「8.99 dB」 → 8.99; 「129.6 µs」 → 129.6; 「8.6」 → 8.6. */
+  const val = (cell: string): number => Number(cell.replace(/−/g, '-').replace(/[^\d.-]/g, ''))
+  /** A printed figure against a measurement, rounded to the decimals the CELL carries. */
+  const same = (cell: string, measured: number, what: string): void => {
+    const printed = cell.replace(/−/g, '-').replace(/[^\d.-]/g, '')
+    const dp = (printed.split('.')[1] ?? '').length
+    expect(Number(printed), `${what} (to ${dp} decimals, read off the cell)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** `zhNumeral` with 「两」 read as 「二」: the form Chinese uses before a measure word. */
+  const zhCount = (s: string): number | null => zhNumeral(s.replace(/两/g, '二'))
+
+  it('the rung table: fourteen rungs, six printed, and every cell of all six', () => {
+    const t = tableWith('十四级中的六级')
+    // 「十四级中的六级，20 MHz、单流」: the ladder's own length, this table's own length, and
+    // the width — which is the width the worked column subtracts a noise floor for.
+    const h = /([一二三四五六七八九十]+)级中的([一二三四五六七八九十]+)级，(\d+) MHz、单流/.exec(t.heading)
+    expect(h, 'the heading no longer states the ladder, the extract and the width').not.toBeNull()
+    expect(zhCount(h![1]), 'the rungs the ladder has').toBe(rungs.length)
+    expect(zhCount(h![2]), 'and the rungs this table prints').toBe(t.rows.length)
+    const floor = tableWith('照着步骤走一遍').rows
+      .find((r) => r[0].includes('噪声地板'))![1]
+    same(floor, noiseDbm(Number(h![3])), `the noise floor at the ${h![3]} MHz the heading names`)
+    // every row, every column: the index, the modulation, the bits, the rate, the sensitivity
+    // and the requirement — none of them typed on this side
+    for (const row of t.rows) {
+      const mcs = Number(row[0])
+      const r = rungs.find((x) => x.mcs === mcs)
+      expect(r, `the table prints MCS ${row[0]}, which the ladder does not have`).toBeDefined()
+      const bits = PHY_MODES.eht.ndbps[mcs] / 234
+      same(row[2], bits, `MCS ${mcs}: bits per sub-carrier`)
+      same(row[3], r!.mbps, `MCS ${mcs}: Mb/s`)
+      same(row[4], r!.sensDbm, `MCS ${mcs}: sensitivity`)
+      same(row[5], r!.reqSinrDb, `MCS ${mcs}: the SINR it needs`)
+      // 「16-QAM 1/2」: the name counts the symbols and the fraction is the coding rate, and
+      // the two of them multiply out to the bits in the column beside them
+      const m = /^(BPSK|QPSK|(\d+)-QAM) (\d+)\/(\d+)$/.exec(row[1])
+      expect(m, `MCS ${mcs}: 「${row[1]}」 is not 「<modulation> <rate>」`).not.toBeNull()
+      const symbols = m![2] ? Number(m![2]) : m![1] === 'BPSK' ? 2 : 4
+      expect(Math.log2(symbols) * (Number(m![3]) / Number(m![4])),
+        `MCS ${mcs}: ${row[1]} carries the bits the table prints beside it`).toBeCloseTo(bits, 9)
+    }
+    // the extract is in the ladder's own order, which is what makes it a ladder
+    const printed = t.rows.map((r) => Number(r[0]))
+    expect(printed, 'the rows climb').toEqual([...printed].sort((a, b) => a - b))
+    // and it spans the whole ladder: the bottom rung and the top one are both in it
+    expect([printed[0], printed[printed.length - 1]], 'from the bottom rung to the top')
+      .toEqual([rungs[0].mcs, rungs[rungs.length - 1].mcs])
+  })
+
+  it('the gloss under it: two levels, four levels, and the QAM family it names', () => {
+    const p = (L.numbers! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+    const m = /([两一二三四五六七八九十]+)个电平是 BPSK[^]*?([两一二三四五六七八九十]+)个是 QPSK[^]*?家族的 ([\d、和 ]+)。/
+      .exec(p)
+    expect(m, 'the modulation gloss is gone, or its shape changed').not.toBeNull()
+    expect(Math.log2(zhCount(m![1])!), 'BPSK carries one bit per symbol').toBe(1)
+    expect(Math.log2(zhCount(m![2])!), 'and QPSK two').toBe(2)
+    // the family members it lists are exactly the QAM orders the table prints
+    const listed = m![3].split(/、|和/).map((x) => Number(x.trim())).sort((a, b) => a - b)
+    const inTable = [...new Set(tableWith('十四级中的六级').rows
+      .map((r) => /^(\d+)-QAM/.exec(r[1])?.[1]).filter(Boolean).map(Number))].sort((a, b) => a - b)
+    expect(listed, 'the gloss lists the QAM orders the table uses').toEqual(inTable)
+    // 「1/2 表示一半是消息、一半是冗余」
+    const half = /(\d+)\/(\d+) 表示一半是消息/.exec(p)
+    expect(half, 'the gloss no longer reads a coding rate out loud').not.toBeNull()
+    expect(Number(half![1]) / Number(half![2]), 'and that rate really is a half').toBe(0.5)
+  })
+
+  it('the widget’s caption rounds the living room down, and the marker is that figure', () => {
+    const w = L.numbers!.find((b) => b.kind === 'widget') as
+      { params?: Record<string, number | string>; caption?: string }
+    const m = /向下取整到 ([\d.]+) dB/.exec(w.caption ?? '')
+    expect(m, 'the caption no longer states the rounded SNR').not.toBeNull()
+    const lb = linkBudget({ txDbm: 15, distanceM: 9, walls: ['brick'], widthMhz: 20, mode: 'eht' })
+    expect(Number(m![1]), 'the SNR the marker stops at, rounded down to half a dB')
+      .toBe(Math.floor(lb.snrDb * 2) / 2)
+    expect(Number(m![1]), 'which is the figure the widget is actually given').toBe(w.params!.snrDb)
+    // 「余量已经算进去了」: the rungs it lights are the ones the margin allows
+    expect(rungs.filter((r) => Number(m![1]) >= r.reqSinrDb + RATE_MARGIN_DB).map((r) => r.mcs),
+      'the rungs that fit at that SNR').toEqual([0, 1, 2, 3])
+  })
+
+  it('the steps: the 90.99 dB it adds back, the 3 dB it keeps, and the width', () => {
+    const items = (L.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+    // step 2: 「它的灵敏度加 90.99 dB」
+    const add = /灵敏度（sensitivity）加 ([\d.]+) dB/.exec(items[1])
+    expect(add, 'step 2 no longer states what it adds to a sensitivity').not.toBeNull()
+    for (const r of rungs) {
+      same(`${add![1]}`, r.reqSinrDb - r.sensDbm, `MCS ${r.mcs}: requirement less sensitivity`)
+    }
+    // step 3: 「所需 SINR + 3 dB ≤ SNR」
+    const margin = /所需 SINR \+ (\d+) dB ≤ SNR/.exec(items[2])
+    expect(margin, 'step 3 no longer states the margin').not.toBeNull()
+    same(`${margin![1]}`, RATE_MARGIN_DB, 'the rate margin step 3 keeps')
+    // step 5: 「在 20 MHz 上」, and 「比标准表格的假设多听见 3 dB，恰好与余量相抵」
+    const width = /在 (\d+) MHz 上/.exec(items[4])
+    expect(width, 'step 5 no longer names the width its shortcut holds at').not.toBeNull()
+    const extra = /多听见 (\d+) dB/.exec(items[4])
+    expect(extra, 'step 5 no longer states the dB that cancels the margin').not.toBeNull()
+    same(`${extra![1]}`, RATE_MARGIN_DB, 'the dB the shortcut cancels against')
+    // and the shortcut really does agree with the arithmetic, at the width it names
+    const w = Number(width![1])
+    for (let dbm = -90; dbm <= -30; dbm += 0.5) {
+      const bySens = PHY_MODES.eht.sensDbm.reduce((best, sens, i) => (dbm >= sens ? i : best), 0)
+      expect(mcsForRssi('eht', dbm, undefined, w), `${dbm} dBm at ${w} MHz`).toBe(bySens)
+    }
+  })
+
+  it('the worked column: six rows, the two verdicts included', () => {
+    const t = tableWith('照着步骤走一遍')
+    const rssi = val(t.rows.find((r) => r[0].includes('到达电平'))![1])
+    const snr = rssi - noiseDbm(20)
+    const ROWS: readonly (readonly [RegExp, (cell: string, l: RegExpExecArray) => void])[] = [
+      [/^这条链路的到达电平$/, (c) => {
+        const s = L.variants![2].scenario()
+        same(c, buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!, 'the level on that link')
+      }],
+      [/^减去 (\d+) MHz 的噪声地板$/, (c, l) => same(c, noiseDbm(Number(l[1])), 'the noise floor')],
+      [/^= SNR$/, (c) => same(c, snr, 'the SNR the two rows above give')],
+      // 「第 3 级的要求，加上余量」 → 「16.99 + 3 = 19.99 dB ✓」: a sum, and a verdict
+      [/^第 (\d+) 级的要求，加上余量$/, (c, l) => verdict(c, Number(l[1]), snr)],
+      [/^第 (\d+) 级的要求，加上余量$/, (c, l) => verdict(c, Number(l[1]), snr)],
+      [/^于是这一帧发出去时用的是$/, (c) => {
+        const m = /^MCS (\d+)$/.exec(c)
+        expect(m, `「${c}」 is not 「MCS n」`).not.toBeNull()
+        expect(Number(m![1]), 'the rung the sender picks').toBe(mcsForRssi('eht', rssi, undefined, 20))
+      }],
+    ]
+    function verdict(cell: string, mcs: number, snrDb: number): void {
+      const m = /^([\d.]+) \+ (\d+) = ([\d.]+) dB ([✓✗])$/.exec(cell)
+      expect(m, `MCS ${mcs}: 「${cell}」 is not 「req + margin = sum dB ✓/✗」`).not.toBeNull()
+      same(m![1], reqSinrDb('eht', mcs), `MCS ${mcs}: what it requires`)
+      same(m![2], RATE_MARGIN_DB, `MCS ${mcs}: the margin`)
+      same(m![3], reqSinrDb('eht', mcs) + RATE_MARGIN_DB, `MCS ${mcs}: and the sum`)
+      // the tick is a claim, not decoration: it says this rung fits at this SNR
+      expect(m![4], `MCS ${mcs}: whether it fits at ${snrDb.toFixed(1)} dB`)
+        .toBe(reqSinrDb('eht', mcs) + RATE_MARGIN_DB <= snrDb ? '✓' : '✗')
+    }
+    expect(t.rows, 'the column walks exactly the rows this reads').toHaveLength(ROWS.length)
+    for (const [i, [re, check]] of ROWS.entries()) {
+      const l = re.exec(t.rows[i][0])
+      expect(l, `row ${i}: 「${t.rows[i][0]}」 is not in the shape this reads`).not.toBeNull()
+      check(t.rows[i][1], l!)
+    }
+    // the two verdicts really are one of each, which is what makes the row above the answer
+    expect(t.rows.map((r) => /([✓✗])$/.exec(r[1])?.[1]).filter(Boolean), 'one fits, one does not')
+      .toEqual(['✓', '✗'])
+  })
+
+  it('the four positions: distance, wall, level, SNR, rung, requirement and airtime', () => {
+    const t = tableWith('同一个 1530 字节帧，按位置')
+    // the heading carries the frame size, and it is the frame the run actually sends
+    const bytes = /同一个 (\d+) 字节帧/.exec(t.heading)
+    expect(bytes, 'the heading no longer states the frame size').not.toBeNull()
+    // the margin column names the margin
+    const head = /所需 \+ (\d+) dB/.exec(t.head[4])
+    expect(head, 'the requirement column no longer names the margin it adds').not.toBeNull()
+    same(head![1], RATE_MARGIN_DB, 'the margin the column adds')
+    expect(t.rows, 'one row per variant of the lesson').toHaveLength(L.variants!.length)
+    t.rows.forEach((row, i) => {
+      // 「客厅，9 m + 砖墙」: the distance, and whether there is a wall in the way
+      const where = /^.+?，(\d+) m( \+ 砖墙)?$/.exec(row[0])
+      expect(where, `row ${i}: 「${row[0]}」 does not name a distance`).not.toBeNull()
+      const d = Number(where![1])
+      expect(d, `row ${i}: the distance the scene is built at`).toBe(PRIMER_DISTANCES[i])
+      const s = L.variants![i].scenario()
+      const lb = linkBudget({ txDbm: 15, distanceM: d, walls: [...wallsFor(d)], widthMhz: 20, mode: 'eht' })
+      const measured = buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!
+      same(row[1], measured, `row ${i}: the level`)
+      // 「+ 砖墙」 is a claim about the PATH, and every one of these scenes has five walls in it,
+      // so counting them answers a different question. The level does answer it: of the two
+      // budgets, with a brick wall and without, only one is the level that was measured.
+      const budget = (walls: 'brick'[]) =>
+        linkBudget({ txDbm: 15, distanceM: d, walls, widthMhz: 20, mode: 'eht' }).rssiDbm
+      expect(Math.abs(measured - budget(['brick'])) < Math.abs(measured - budget([])),
+        `row ${i}: whether a brick wall stands in this path`).toBe(!!where![2])
+      same(row[2], lb.snrDb, `row ${i}: the SNR`)
+      expect(Number(row[3]), `row ${i}: the rung`).toBe(lb.mcs)
+      same(row[4], reqSinrDb('eht', lb.mcs) + RATE_MARGIN_DB, `row ${i}: requirement plus margin`)
+      const data = txs(variantRecs(i), 'sta-1', 'data')[0]
+      same(row[5], data.frame.txTimeNs / 1000, `row ${i}: the airtime`)
+      expect(data.frame.bytes, `row ${i}: and the frame really is that size`).toBe(Number(bytes![1]))
+    })
+  })
+
+  it('both observe lines, including the 「近六倍」 the second one takes', () => {
+    const o = L.observe!
+    // 「13、10、3、1」
+    const rungsSaid = /第一个数据帧的 MCS：([\d、]+)——/.exec(o[0])
+    expect(rungsSaid, 'observe[0] no longer lists the four rungs').not.toBeNull()
+    expect(rungsSaid![1].split('、').map(Number), 'the rung of the first data frame, variant by variant')
+      .toEqual(L.variants!.map((_v, i) => txs(variantRecs(i), 'sta-1', 'data')[0].frame.mcs))
+    // 「129.6、143.2、415.2、768.8 µs」 and 「往下走十二级 … 多花近六倍」
+    const air = /空口时间：([\d.、]+) µs。往下走([一二三四五六七八九十]+)级，同样的 (\d+) 个字节要多花近([一二三四五六七八九十]+)倍/
+      .exec(o[1])
+    expect(air, 'observe[1] no longer lists the four airtimes').not.toBeNull()
+    const printed = air![1].split('、')
+    expect(printed, 'one airtime per variant').toHaveLength(L.variants!.length)
+    printed.forEach((cell, i) => {
+      same(cell, txs(variantRecs(i), 'sta-1', 'data')[0].frame.txTimeNs / 1000, `variant ${i}: airtime`)
+    })
+    const mcsOf = (i: number): number => txs(variantRecs(i), 'sta-1', 'data')[0].frame.mcs!
+    expect(zhCount(air![2]), 'the rungs between the top position and the bottom one')
+      .toBe(mcsOf(0) - mcsOf(printed.length - 1))
+    expect(Number(air![3]), 'the frame it is the same frame of')
+      .toBe(txs(variantRecs(0), 'sta-1', 'data')[0].frame.bytes)
+    // 「近六倍」: approaching six, and it has not got there
+    const ratio = txs(variantRecs(3), 'sta-1', 'data')[0].frame.txTimeNs
+      / txs(variantRecs(0), 'sta-1', 'data')[0].frame.txTimeNs
+    const n = zhCount(air![4])!
+    expect(ratio, `「近${air![4]}倍」 has not reached ${n}`).toBeLessThan(n)
+    expect(Math.abs(ratio / n - 1), 'but is within a tenth of it').toBeLessThan(0.1)
+  })
+
+  it('both experiments, read out of `tryThis`', () => {
+    // 「把滑杆先调到 15.9 dB，再调到 62.3 dB：最高可用级从 MCS 1 变成 MCS 13——46 dB 换来十二级」
+    const a = /把滑杆先调到 ([\d.]+) dB，再调到 ([\d.]+) dB：最高可用级从 MCS (\d+) 变成 MCS (\d+)——(\d+) dB 换来([一二三四五六七八九十]+)级/
+      .exec(L.tryThis![0])
+    expect(a, 'the slider experiment is gone, or its shape changed').not.toBeNull()
+    const top = (mode: 'he' | 'eht', snr: number) =>
+      mcsLadder(mode).filter((r) => snr >= r.reqSinrDb + RATE_MARGIN_DB).pop()!.mcs
+    expect(Number(a![3]), 'the top rung at the lower setting').toBe(top('eht', Number(a![1])))
+    expect(Number(a![4]), 'and at the higher one').toBe(top('eht', Number(a![2])))
+    // the two SNRs are two rows of the position table, so the experiment is the room
+    const positions = tableWith('同一个 1530 字节帧，按位置').rows.map((r) => val(r[2]))
+    for (const snr of [Number(a![1]), Number(a![2])]) {
+      expect(positions, `${snr} dB is a position in the table`).toContain(snr)
+    }
+    // 「46 dB 换来十二级」: both halves, to the dB the sentence rounds to
+    same(a![5], Number(a![2]) - Number(a![1]), 'the dB between the two settings')
+    expect(zhCount(a![6]), 'and the rungs they buy').toBe(Number(a![4]) - Number(a![3]))
+    // 「再按下 HE（Wi-Fi 6）那个模式按钮，最快的两级就消失了」
+    const he = /按下 HE（Wi-Fi 6）那个模式按钮，最快的([两一二三四五六七八九十]+)级就消失了/
+      .exec(L.tryThis![0])
+    expect(he, 'the HE half of the experiment is gone').not.toBeNull()
+    expect(zhCount(he![1]), 'the rungs HE does not have').toBe(rungs.length - mcsLadder('he').length)
+    // 「把发射功率从 15 dBm 降到 12 dBm … 时长从 768.8 µs 拉到 1476.0 µs」
+    const b = /从 (\d+) dBm 降到 (\d+) dBm[^]*?时长从 ([\d.]+) µs 拉到 ([\d.]+) µs：(\d+) dB 几乎让空口时间翻倍/
+      .exec(L.tryThis![1])
+    expect(b, 'the transmit-power experiment is gone, or its shape changed').not.toBeNull()
+    const far = PRIMER_DISTANCES[PRIMER_DISTANCES.length - 1]
+    const s = primerScenario(far)
+    expect(s.nodes.find((n) => n.id === 'sta-1')!.txPowerDbm, 'the power the scene starts at')
+      .toBe(Number(b![1]))
+    s.nodes.find((n) => n.id === 'sta-1')!.txPowerDbm = Number(b![2])
+    const dropped = [...new Simulation(s).runUntil(50 * MS).records] as TLRecord[]
+    same(b![3], txs(variantRecs(3), 'sta-1', 'data')[0].frame.txTimeNs / 1000, 'the airtime before')
+    same(b![4], txs(dropped, 'sta-1', 'data')[0].frame.txTimeNs / 1000, 'and after')
+    same(b![5], Number(b![1]) - Number(b![2]), 'the dB it was dropped by')
+    // 「几乎翻倍」: not quite double, which is the whole point of 「几乎」
+    expect(val(b![4]), 'it has not quite doubled').toBeLessThan(2 * val(b![3]))
+    expect(val(b![4]) / val(b![3]), 'but it is close').toBeGreaterThan(1.8)
+  })
+
+  it('the quiz walks the shortcut by hand, in the engine’s own sensitivities', () => {
+    // quiz 1: 「为什么在书桌旁只要 129.6 µs，到远端墙边却要 768.8 µs」, and its explanation's two rungs
+    const q1 = /只要 ([\d.]+) µs，到远端墙边却要 ([\d.]+) µs/.exec(L.quiz[0].q)
+    expect(q1, 'quiz 1 no longer states the two airtimes').not.toBeNull()
+    same(q1![1], txs(variantRecs(0), 'sta-1', 'data')[0].frame.txTimeNs / 1000, 'the desk’s airtime')
+    same(q1![2], txs(variantRecs(3), 'sta-1', 'data')[0].frame.txTimeNs / 1000, 'and the far wall’s')
+    const e1 = /这一帧走 MCS (\d+) 而不是 MCS (\d+)/.exec(L.quiz[0].explain!)
+    expect(e1, 'quiz 1’s explanation no longer names the two rungs').not.toBeNull()
+    expect([Number(e1![1]), Number(e1![2])], 'the far wall’s rung and the desk’s')
+      .toEqual([txs(variantRecs(3), 'sta-1', 'data')[0].frame.mcs,
+        txs(variantRecs(0), 'sta-1', 'data')[0].frame.mcs])
+    // quiz 2: 「到达电平是 −73 dBm，20 MHz」 → 「MCS 3：灵敏度 −74 dBm；下一级要 −70 dBm」
+    const q2 = /到达电平是 ([−\d.]+) dBm，(\d+) MHz/.exec(L.quiz[1].q)
+    expect(q2, 'quiz 2 no longer states the level it asks about').not.toBeNull()
+    const dbm = val(q2![1])
+    const o = /^MCS (\d+)：灵敏度 ([−\d.]+) dBm，不高于 ([−\d.]+) dBm；下一级要 ([−\d.]+) dBm$/
+      .exec(L.quiz[1].options[L.quiz[1].answer])
+    expect(o, 'the right answer no longer walks the shortcut').not.toBeNull()
+    const pick = Number(o![1])
+    expect(pick, 'the rung the shortcut picks at that level')
+      .toBe(mcsForRssi('eht', dbm, undefined, Number(q2![2])))
+    same(o![2], PHY_MODES.eht.sensDbm[pick]!, `MCS ${pick}: its sensitivity`)
+    expect(val(o![3]), 'the level the question asked about, restated').toBe(dbm)
+    same(o![4], PHY_MODES.eht.sensDbm[pick + 1]!, `MCS ${pick + 1}: the rung just above`)
+    // and the shortcut's two inequalities, which are what make this the answer
+    expect(PHY_MODES.eht.sensDbm[pick]!, 'the chosen rung is within reach').toBeLessThanOrEqual(dbm)
+    expect(PHY_MODES.eht.sensDbm[pick + 1]!, 'and the next one is not').toBeGreaterThan(dbm)
+  })
+
+  it('`deeper`’s 10 dB and `limits`’ citation, which the graded walk never reads', () => {
+    // Headings as well as bodies: 「为什么 Wi-Fi 6 只有十二级」 is a heading, and the figure in
+    // it is the only place the course states how many rungs HE has.
+    const d = (L.deeper! as { heading?: string; text?: string }[])
+      .map((x) => `${x.heading ?? ''}\n${x.text ?? ''}`).join('\n')
+    // 「第 3 级与第 7 级 … 2 比特对 5 比特，代价是要求高出 10 dB」
+    const m = /第 (\d+) 级与第 (\d+) 级[^]*?(\d+) 比特对 (\d+) 比特，代价是要求高出 (\d+) dB/.exec(d)
+    expect(m, '`deeper` no longer compares the two rungs').not.toBeNull()
+    const [lo, hi] = [Number(m![1]), Number(m![2])]
+    same(m![3], PHY_MODES.eht.ndbps[lo] / 234, `MCS ${lo}: bits per sub-carrier`)
+    same(m![4], PHY_MODES.eht.ndbps[hi] / 234, `MCS ${hi}: bits per sub-carrier`)
+    same(m![5], reqSinrDb('eht', hi) - reqSinrDb('eht', lo), 'and the dB between their requirements')
+    // 「为什么 Wi-Fi 6 只有十二级」
+    const twelve = /只有([一二三四五六七八九十]+)级/.exec(d)
+    expect(twelve, '`deeper` no longer counts HE’s rungs').not.toBeNull()
+    expect(zhCount(twelve![1]), 'the rungs HE has').toBe(mcsLadder('he').length)
+    // 「（simulation.ts 的 mcsForPeer）」: a citation is a claim about this repository
+    const cite = /（([\w.]+) 的 (\w+)）/.exec(L.limits.map((x) => x.text).join('\n'))
+    expect(cite, '`limits` no longer cites where the sender reads the level').not.toBeNull()
+    const src = readFileSync(resolve(ROOT, `src/engine/${cite![1]}`), 'utf8')
+    expect(src.includes(cite![2]), `${cite![1]} declares ${cite![2]}`).toBe(true)
   })
 })

@@ -17,9 +17,17 @@
  * ratchet turning, which is its job. `@amp-slots` (84, third on the ranking) followed: 13 and 78,
  * then `@uwb-uwbd` (54, four tables) and `@uwb-subrounds` (43): 11 and 80, and `@txop-protect`
  * — 40 figures, the most of the eleven still owing — 10 and 81. `@txop` (38, the next on that
- * ranking) took it to 9 and 82. That is the ratchet this file is: a new lesson whose test
- * never touches its own prose has to be added here deliberately, and a lesson that gains a
- * read-back has to be taken off in the same edit.
+ * ranking) took it to 9 and 82, and `@mcs-ladder` (37) to 8 and 83. That is the ratchet this
+ * file is: a new lesson whose test never touches its own prose has to be added here
+ * deliberately, and a lesson that gains a read-back has to be taken off in the same edit.
+ *
+ * **The detector itself was wrong about one lesson, and the slice that paid that lesson down
+ * is how it was found.** `@mcs-ladder`'s test imports the lesson under an alias, and the
+ * detector only ever looked for `camel(id)` — so the list carried a lesson whose test reads
+ * `mcsLadderLesson.numbers` and `….limits` on four lines. It now reads the alias out of the
+ * import (`bindings`), which moves exactly that one lesson and no other. The list was
+ * nonetheless right about the FIGURES: those four reads are the widget's `params` and four
+ * `toContain` checks over `limits`, and not one of the 37 the lesson prints.
  *
  * **What this detects, said plainly, because it is weaker than its title suggests.** It is a
  * SYNTACTIC check: does the test file mention the lesson object's prose fields at all
@@ -65,17 +73,34 @@ const PROSE_FIELDS = [
  * ceiling, and for the same reason: a count can stay right while the membership rots.
  */
 const NO_READBACK: readonly string[] = [
-  'mcs-ladder', 'ifs', 'nav', 'hidden', 'ampdu', 'rate',
-  'mumimo', 'mlo', 'amp-ppdu',
+  'ifs', 'nav', 'hidden', 'ampdu', 'rate', 'mumimo', 'mlo', 'amp-ppdu',
 ]
+
+/**
+ * **The names a test file can be holding its lesson under.** `camel(id)` is the convention, and
+ * two files break it on purpose: `mcs-ladder`'s test imports `mcsLadder as mcsLadderLesson`,
+ * because `mcsLadder` is already the widget model's function, and `claim-to-contribution`'s
+ * renames to `L`. Reading the alias out of the import is the difference between measuring what
+ * this file says it measures and measuring a naming convention — the detector called
+ * `@mcs-ladder` bare for four slices while its test was reading `mcsLadderLesson.numbers` and
+ * `….limits` on four lines. (`@claim-to-contribution` was never on the list, but only because
+ * it also calls `tableOf(`: the right answer for the wrong reason.)
+ */
+const bindings = (text: string, id: string): string[] => {
+  const v = camel(id)
+  const out = new Set([v, 'lesson'])
+  for (const m of text.matchAll(new RegExp(String.raw`\b${v}\s+as\s+(\w+)`, 'g'))) out.add(m[1])
+  return [...out]
+}
 
 const touchesProse = (id: string): boolean => {
   const f = resolve(ROOT, `tests/course/${id}.test.ts`)
   if (!existsSync(f)) return false
   const t = readFileSync(f, 'utf8')
-  const v = camel(id)
-  return PROSE_FIELDS.some((fld) => t.includes(`${v}.${fld}`) || t.includes(`lesson.${fld}`))
-    || t.includes(`JSON.stringify(${v}`) || t.includes('tableOf(')
+  const names = bindings(t, id)
+  return names.some((v) => PROSE_FIELDS.some((fld) => t.includes(`${v}.${fld}`)))
+    || names.some((v) => t.includes(`JSON.stringify(${v}`))
+    || t.includes('tableOf(')
 }
 
 describe('every lesson test either reads its lesson’s prose, or is listed as not doing so', () => {
@@ -115,12 +140,20 @@ describe('every lesson test either reads its lesson’s prose, or is listed as n
     // Planted, because a detector only ever run against the real tree has not been shown able to
     // separate the two answers.
     const probe = (body: string): boolean => {
-      const v = camel('fading')
-      return PROSE_FIELDS.some((fld) => body.includes(`${v}.${fld}`) || body.includes(`lesson.${fld}`))
-        || body.includes(`JSON.stringify(${v}`) || body.includes('tableOf(')
+      const names = bindings(body, 'fading')
+      return names.some((v) => PROSE_FIELDS.some((fld) => body.includes(`${v}.${fld}`)))
+        || names.some((v) => body.includes(`JSON.stringify(${v}`))
+        || body.includes('tableOf(')
     }
     expect(probe('expect(runOf(fading).length).toBeGreaterThan(0)'), 'a run-only test').toBe(false)
     expect(probe('const m = /x/.exec(fading.observe[0])'), 'a read-back').toBe(true)
     expect(probe('const t = tableOf(「x」)'), 'the table helper counts too').toBe(true)
+    // and the alias, which is the hole this detector had until 2026-10-12: both answers through
+    // a renamed import, so the fix is shown able to separate them rather than only to match more
+    const aliased = "import { fading as fadingLesson } from '../../src/course/tier2/fading'; "
+    expect(probe(`${aliased}const m = /x/.exec(fadingLesson.observe[0])`),
+      'a read-back through an alias').toBe(true)
+    expect(probe(`${aliased}expect(runOf(fadingLesson).length).toBe(1)`),
+      'and an alias whose test still reads no prose').toBe(false)
   })
 })
