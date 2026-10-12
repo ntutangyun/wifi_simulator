@@ -25,15 +25,23 @@
  * sentences that now carry them; the originals stay where they are.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { ifs, ifsTiming } from '../../src/course/tier1/ifs'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { ACK_TX_TIME_6M_NS, DIFS_NS, EIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
+import { ROOT, zhNumeral } from './coverage'
+import {
+  ACK_BYTES, ACK_TX_TIME_6M_NS, DIFS_NS, EIFS_NS, MANDATORY_MBPS, SIFS_NS, SLOT_NS, txTimeNs,
+} from '../../src/engine/phy'
+import { LESSONS } from '../../src/course/lessons'
 import { MODULES } from '../../src/course/curriculum'
+import { clampSpan } from '../../src/ui/timelineGestures'
 import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 
 const MS = 1_000_000
+const US = 1_000
 /** 100 ms: the window the "254 answers" sentence is counted over. */
 const RUN_NS = 100 * MS
 
@@ -203,5 +211,289 @@ describe('ifs · the timing figure is the run', () => {
         expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
       }
     }
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * Everything above measures the engine against a literal written in THIS file —
+ * `expect(SLOT_NS).toBe(9_000)`, `expect(acks.length).toBe(254)`,
+ * `expect(draw.value).toBe(11)`. That is what keeps the engine from drifting, and it leaves the
+ * lesson free to drift: all eighteen figures `@ifs` hand-types could each be edited to a
+ * neighbouring number with this file still green.
+ *
+ * What follows is the other half of each, with no figure on this side. The two waits and the
+ * slot come off the table's own cells — including 「34 µs = SIFS + 2 个时隙」, whose `2` is read
+ * out of the cell and multiplied by the engine's own slot — the first turn's five instants off
+ * the caption, the three span labels off the spans they label, 「两个时隙」 off `picture` and off
+ * `tryThis`, the two waits again off `observe` and off both quiz options, and the 1528-byte frame
+ * and the EIFS definition off `sources`.
+ *
+ * `limits` is read too, and it is where this lesson keeps its widest claims — two of them about
+ * the ENGINE having no delay at all, which is measurable here and nowhere else in the course:
+ *
+ *  - 「侦听的翻转没有检测时延：一路发射开始的那一纳秒，听得见的电台就同时翻成忙」. All 1018
+ *    `CCA_BUSY` records of this run land on the same nanosecond as a `TX_START`, and so do all
+ *    509 `RX_START`s — which is the other half of the same entry, 「传播时延在这台引擎里是零」.
+ *    The standard's own 「最多 4 µs 内报告」 is a figure about radios, and this repository holds
+ *    no clause text to check it against; what is checked is the zero the engine actually has.
+ *  - 「全场所有站点共用同一个时基」. The Wi-Fi node schema has no clock-offset field to carry:
+ *    `ppm` exists on `uwb` only. 「几十 ppm」 is a property of real crystals and stays unchecked
+ *    for the same reason as the 4 µs — stated here rather than asserted weakly.
+ */
+describe('ifs · every printed figure is read back out of the lesson', () => {
+  const rs = recs()
+  const data = txs('data')
+  const acks = txs('ack')
+  const gaps = ofType(rs, 'IFS_START')
+  const draws = ofType(rs, 'BACKOFF_DRAW')
+  const ends = ofType(rs, 'TX_END').filter((r) => r.frame.kind === 'data')
+
+  const table = ifs.numbers!.find((x) => x.kind === 'table') as
+    { heading: string; head: string[]; rows: string[][] }
+  const caption = (ifs.numbers!.find((x) => x.kind === 'diagram') as { caption: string }).caption
+  const steps = (ifs.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+  const pictureText = (ifs.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+  const quizText = ifs.quiz!.flatMap((q) => [...q.options, q.explain ?? '']).join('\n')
+  const limitText = ifs.limits.map((x) => x.text).join('\n')
+
+  /** 「9 µs」 → 9_000: a cell that is a figure and its unit, and nothing else. */
+  const figure = (cell: string, what: string): number => {
+    const m = /^([\d\s.]+?)\s*µs$/.exec(cell.trim())
+    expect(m, `${what}: the cell 「${cell}」 is not a figure followed by µs`).not.toBeNull()
+    return Number(m![1].replace(/\s/g, '')) * US
+  }
+
+  /** The captures of `re`, as numbers. A space inside a figure is a thousands group. */
+  const figs = (text: string, re: RegExp, what: string): number[] => {
+    const m = re.exec(text)
+    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
+    return m!.slice(1).map((x) => Number(x.replace(/\s/g, '')))
+  }
+
+  /** `zhNumeral` reads 〇–九十九 and not 「两」, which is the form a quantified noun takes. */
+  const zhCount = (s: string): number => {
+    const n = zhNumeral(s.replace(/两/g, '二'))
+    expect(n, `「${s}」 is not a number this reads`).not.toBeNull()
+    return n!
+  }
+  const counted = (text: string, re: RegExp, what: string): number => {
+    const m = re.exec(text)
+    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
+    return zhCount(m![1])
+  }
+
+  it('the table: the slot, the short wait, and the long one spelled out as a sum', () => {
+    expect(table.rows, 'the table states exactly the three rows this reads').toHaveLength(3)
+    const slot = figure(table.rows[0][1], 'the slot')
+    const short = figure(table.rows[1][1], 'the short wait')
+    expect(slot).toBe(SLOT_NS)
+    expect(short).toBe(SIFS_NS)
+
+    // 「34 µs = SIFS + 2 个时隙」: the figure, and the arithmetic the cell prints beside it
+    const [long, slots] = figs(table.rows[2][1], /^(\d+) µs = SIFS \+ (\d+) 个时隙$/,
+      'the long wait and how many slots it adds')
+    expect(long * US).toBe(DIFS_NS)
+    expect(short + slots * slot, 'the sum the cell prints').toBe(long * US)
+
+    // 「较长等待都是拿它搭出来的」: a cell with no figure is a claim too — what the long wait
+    // adds to the short one is a whole number of slots, and so is every gap in the run
+    expect((DIFS_NS - SIFS_NS) % SLOT_NS).toBe(0)
+    expect(gaps.length).toBeGreaterThan(200)
+    for (const g of gaps) {
+      if (g.untilNs > g.t) expect((g.untilNs - g.t - short) % slot, `the gap at ${g.t}`).toBe(0)
+    }
+
+    // 「只有已经在进行的那次交互」 may follow the short wait: in this run the only thing that
+    // ever starts one short wait after the air goes quiet is the answer, and no gap is even
+    // armed for it
+    for (const a of acks) {
+      const d = ends.filter((e) => e.t <= a.t).pop()!
+      expect(a.t - d.t, `the answer at ${a.t}`).toBe(short)
+      expect(gaps.some((g) => g.node === a.node && g.t >= d.t && g.t <= a.t)).toBe(false)
+    }
+  })
+
+  it('the 出处 column cites the clauses this lesson’s own `sources` cite, for the same figures', () => {
+    // Prose against prose, which this programme otherwise refuses; the argument for the
+    // exception is that both sides are THIS lesson. A table that cites §17.4.4 for the slot
+    // while `sources` says §17.4.4 gives something else is one lesson contradicting itself,
+    // and that is a defect whichever side is wrong.
+    const src = ifs.sources!.join('\n')
+    for (const row of table.rows) {
+      expect(src.includes(row[3]), `the table cites ${row[3]} for ${row[0]} and \`sources\` never`
+        + ' names that clause').toBe(true)
+    }
+    // and `sources` prints the two PHY figures itself
+    const [sifsUs] = figs(src, /aSIFSTime 为 (\d+) µs/, '`sources` on aSIFSTime')
+    const [slotUs] = figs(src, /aSlotTime 为 (\d+) µs/, '`sources` on aSlotTime')
+    expect(sifsUs * US).toBe(SIFS_NS)
+    expect(slotUs * US).toBe(SLOT_NS)
+    const n = counted(src, /DIFS 定义为 SIFS 加([〇一二三四五六七八九十两]+)个时隙/,
+      '`sources` on how DIFS is built')
+    expect(SIFS_NS + n * SLOT_NS).toBe(DIFS_NS)
+    // 「EIFS = SIFS + DIFS + 以最低强制速率发完一个确认帧的时间」, against the engine's own
+    // constant and its own lowest mandatory rate
+    expect(EIFS_NS).toBe(SIFS_NS + DIFS_NS + txTimeNs(ACK_BYTES, MANDATORY_MBPS[0]))
+    expect(ACK_TX_TIME_6M_NS).toBe(txTimeNs(ACK_BYTES, MANDATORY_MBPS[0]))
+    // and 「它在本场景里一次也没有启动过」
+    expect(new Set(gaps.map((g) => g.kind))).toEqual(new Set(['DIFS']))
+    // 「1528 字节的帧」
+    const [bytes] = figs(src, /(\d+) 字节的帧/, '`sources` on the frame this scene sends')
+    expect(new Set(data.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
+  })
+
+  it('the caption: the first turn’s five instants, the draw, and the run’s whole census', () => {
+    const [short, long] = figs(caption, /(\d+) µs 对 (\d+) µs/, 'the two waits the figure draws')
+    const [frameEnd] = figs(caption, /帧在 (\d+) µs 结束/, 'when the frame ends')
+    const [ackEnd] = figs(caption, /(\d+) µs 结束；DIFS/, 'when the answer ends')
+    const [difsEnd] = figs(caption, /DIFS 从那里走到 (\d+) µs/, 'when the long wait ends')
+    const [drawn] = figs(caption, /这次抽到 (\d+) 个时隙/, 'the wait it draws')
+    const [next] = figs(caption, /下一帧落在 (\d+) µs/, 'when the next frame goes out')
+    const [answers, after] = figs(caption, /本轮 (\d+) 个回答，个个都在帧尾之后 (\d+) µs 开始/,
+      'the census of answers')
+
+    expect(short * US).toBe(SIFS_NS)
+    expect(long * US).toBe(DIFS_NS)
+    expect(data[0].t + data[0].frame.txTimeNs, 'when the first frame ends').toBe(frameEnd * US)
+    expect(acks[0].t, 'when the first answer starts').toBe(frameEnd * US + short * US)
+    expect(acks[0].t + acks[0].frame.txTimeNs, 'when the first answer ends').toBe(ackEnd * US)
+    const difs = gaps.find((g) => g.t === ackEnd * US)
+    expect(difs, `no gap starts at ${ackEnd} µs`).toBeDefined()
+    expect(difs!.kind).toBe('DIFS')
+    expect(difs!.untilNs, 'when the long wait ends').toBe(difsEnd * US)
+    expect(draws[0].t, 'the station draws only once the long wait is over').toBe(difsEnd * US)
+    expect(draws[0].value, 'what it draws').toBe(drawn)
+    expect(data[1].t, 'when the next frame goes out').toBe(next * US)
+    expect(data[1].t - draws[0].t, 'and the draw is counted off in slots').toBe(drawn * SLOT_NS)
+    // the census, and 「个个都」 means every one of them
+    expect(acks.length).toBe(answers)
+    for (const a of acks) {
+      expect(a.t - ends.filter((e) => e.t <= a.t).pop()!.t, `the answer at ${a.t}`).toBe(after * US)
+    }
+  })
+
+  it('the figure’s three labels are the spans they label', () => {
+    const sifs = lane('SIFS').spans[0]
+    const difs = lane('DIFS').spans[0]
+    const bo = lane('退避').spans[0]
+    expect(figure(sifs.label!, 'the SIFS lane’s label')).toBe((sifs.toUs - sifs.fromUs) * US)
+    expect(figure(difs.label!, 'the DIFS lane’s label')).toBe((difs.toUs - difs.fromUs) * US)
+    const [slots] = figs(bo.label!, /^(\d+) 个时隙$/, 'the backoff lane’s label')
+    expect(slots).toBe(draws[0].value)
+    expect((bo.toUs - bo.fromUs) * US, 'the span the label counts off').toBe(slots * SLOT_NS)
+  })
+
+  it('`picture` and `tryThis` both say the long wait adds exactly two slots, and the run never adds more', () => {
+    const inPicture = counted(pictureText, /短间隙再加([〇一二三四五六七八九十两]+)个时隙/,
+      '`picture` on how the long wait is built')
+    const again = counted(pictureText, /多出来的这([〇一二三四五六七八九十两]+)个时隙/,
+      '`picture` on the extra wait')
+    const exactly = counted(ifs.tryThis!.join('\n'), /恰好([〇一二三四五六七八九十两]+)个时隙/,
+      '`tryThis` on what the reader should measure')
+    expect(SIFS_NS + inPicture * SLOT_NS).toBe(DIFS_NS)
+    expect(again).toBe(inPicture)
+    expect(exactly).toBe(inPicture)
+    // 「绝不会更多」: every gap this run arms is that length to the nanosecond
+    for (const g of gaps) {
+      if (g.untilNs > g.t) expect(g.untilNs - g.t, `the gap at ${g.t}`).toBe(SIFS_NS + exactly * SLOT_NS)
+    }
+    // and the ruler `tryThis` hands the reader is the engine's slot, at a span the strip can show
+    const [ruler] = figs(ifs.tryThis!.join('\n'), /拿 (\d+) µs 的时隙刻度/, '`tryThis`’s ruler')
+    expect(ruler * US).toBe(SLOT_NS)
+    const [span] = figs(ifs.tryThis!.join('\n'), /缩放到约 (\d+) µs 的跨度/, 'the window to zoom to')
+    expect(clampSpan(span * US), 'the strip cannot show the window this asks for').toBe(span * US)
+    expect(span * US, 'the window is narrower than the gap it is for').toBeGreaterThan(DIFS_NS)
+    expect(span * US, 'and zooming in is only needed because the whole turn is wider')
+      .toBeLessThan(ifsTiming().axis.toUs * US)
+  })
+
+  it('`observe` and the quiz quote the same two waits, and the first frame at zero', () => {
+    const [short] = figs(ifs.observe!.join('\n'), /每一次都是 (\d+) µs 的/, '`observe` on the short wait')
+    const [long] = figs(ifs.observe!.join('\n'), /走完一个 (\d+) µs 的 DIFS/, '`observe` on the long wait')
+    expect(short * US).toBe(SIFS_NS)
+    expect(long * US).toBe(DIFS_NS)
+    const [quizLong] = figs(quizText, /一个完整的 DIFS，(\d+) µs/, 'the quiz option naming the long wait')
+    const [quizShort] = figs(quizText, /一个 SIFS，(\d+) µs/, 'the quiz option naming the short wait')
+    expect(quizLong * US).toBe(DIFS_NS)
+    expect(quizShort * US).toBe(SIFS_NS)
+    // 「本轮第一帧就落在 0 µs」, and the first gap it did not have to wait out
+    const [first] = figs(quizText, /本轮第一帧就落在 (\d+) µs/, 'where the first frame lands')
+    expect(data[0].t).toBe(first * US)
+    const zero = gaps.filter((g) => g.untilNs === g.t)
+    expect(zero.map((g) => g.t), 'the gaps of no length at all').toEqual([first * US])
+  })
+
+  it('`limits`: the two waits are constants, and this engine has no delay of any kind', () => {
+    const [short, long] = figs(limitText, /(\d+) µs 与 (\d+) µs 是 phy\.ts 里的常数/,
+      '`limits` on where the two waits come from')
+    expect(short * US).toBe(SIFS_NS)
+    expect(long * US).toBe(DIFS_NS)
+    // 「全场所有站点共用同一个时基」: there is no clock-offset field for a Wi-Fi node to carry.
+    // `ppm` is a `uwb` field — a ranging clock — and nothing in the MAC reads one.
+    const sc = ifs.scenario()
+    for (const n of sc.nodes) expect(n.uwb, `${n.id} is a Wi-Fi node with a ranging clock`).toBeUndefined()
+    expect(readFileSync(resolve(ROOT, 'src/engine/mac.ts'), 'utf8'),
+      'the MAC reads a per-device clock offset after all').not.toContain('ppm')
+
+    // 「一路发射开始的那一纳秒，听得见的电台就同时翻成忙」 and 「传播时延在这台引擎里是零」:
+    // the standard's own 「最多 4 µs 内报告」 is a figure about radios and this repository has no
+    // clause text to check it against, so what is asserted is the zero the engine has.
+    const starts = new Set(ofType(rs, 'TX_START').map((r) => r.t))
+    const busy = ofType(rs, 'CCA_BUSY')
+    expect(busy.length).toBeGreaterThan(1000)
+    for (const b of busy) expect(starts.has(b.t), `a busy report at ${b.t}, between transmissions`).toBe(true)
+    const rx = ofType(rs, 'RX_START')
+    expect(rx.length).toBeGreaterThan(500)
+    for (const r of rx) expect(starts.has(r.t), `a reception starting at ${r.t}, after its own frame`).toBe(true)
+    // and the slot is the figure that pays for both, which `limits` prints as well
+    const [slot] = figs(limitText, /时隙之所以要 (\d+) µs/, '`limits` on what the slot pays for')
+    expect(slot * US).toBe(SLOT_NS)
+  })
+
+  it('`limits`: the long wait is the figure that only holds without traffic classes', () => {
+    const scoped = ifs.limits.find((x) => x.kind === 'out-of-scope')!
+    const [long] = figs(scoped.text, /^(\d+) µs 这个数/, '`limits` on the figure that is DCF’s own')
+    expect(long * US).toBe(DIFS_NS)
+    // every gap in this scene really is that one figure, which is what makes the limit a limit
+    expect(new Set(gaps.filter((g) => g.untilNs > g.t).map((g) => g.untilNs - g.t)))
+      .toEqual(new Set([long * US]))
+    // and the lesson it promises the ladder to is a lesson
+    expect(LESSONS.some((l) => l.id === scoped.until), `\`until\` names ${scoped.until}`).toBe(true)
+  })
+
+  it('`limits` name only code this repository has, in the files they name it in', () => {
+    // Three files and three identifiers across the four entries: 「phy.ts 里的常数」,
+    // 「mac.ts 的 beginIfsAc」, 「channel.ts 的 updateAllCca」, and a bare `lastBusyEndNs`
+    // whose file is named by another entry. Every identifier must be declared in one of the
+    // files `limits` themselves name — the whole point of a citation is that it says where
+    // to look.
+    const named = [...limitText.matchAll(/\b([a-z][a-z0-9]*\.ts)\b/g)].map((x) => x[1])
+    const src = [...new Set(named)].map((f) => {
+      const p = ['src/engine', 'src/model', 'src/course'].map((d) => resolve(ROOT, `${d}/${f}`)).find(existsSync)
+      expect(p, `${f} is not a file of this repository`).toBeDefined()
+      return readFileSync(p!, 'utf8')
+    }).join('\n')
+    const syms = [...limitText.matchAll(/\b([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)\b/g)].map((x) => x[1])
+    for (const sym of syms) {
+      expect(src.includes(sym), `\`${sym}\` is named here, and by none of the files named with it`).toBe(true)
+    }
+    expect(named.length, 'the files `limits` cite').toBe(3)
+    expect(syms.length, 'the identifiers `limits` name').toBe(3)
+  })
+
+  it('the procedure’s own two figures are the ones the engine deals in', () => {
+    // Step 3's 「这段间隙的长度是零」 and step 4's basic access, which between them describe
+    // the only gap of this run that has no length — the lesson's claim is that the station
+    // which has never heard the medium busy is treated as having been idle all along.
+    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
+    expect(steps[2]).toContain('长度是零')
+    expect(gaps.filter((g) => g.untilNs === g.t).map((g) => g.t)).toEqual([0])
+    // step 4: that first frame goes out with no draw before it
+    expect(data[0].t).toBe(0)
+    expect(draws[0].t).toBeGreaterThan(data[0].t)
+    // step 6: the answer skips all of it, every time
+    expect(acks.length).toBe(data.length - 1)
   })
 })

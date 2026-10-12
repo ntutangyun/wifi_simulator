@@ -24,7 +24,10 @@
  * `@nav` (19) took it to 3 and 88, and found two: an `unmodelled` limit listing TXOP
  * protection among what this engine does not do, nineteen days after it landed, and a
  * one-AP limit whose citation said a second access point is ignored where the schema
- * refuses it by name. That is the ratchet this
+ * refuses it by name. `@ifs` (18) took it to 2 and 89, and its `limits` turned out to hold
+ * the two claims in the course that are about the engine having NO delay — zero CCA
+ * detection, zero propagation — which 1018 `CCA_BUSY` and 509 `RX_START` records, every one
+ * of them on the same nanosecond as a `TX_START`, now say out loud. That is the ratchet this
  * file is: a new lesson whose test never touches its own prose has to be added here
  * deliberately, and a lesson that gains a read-back has to be taken off in the same edit.
  *
@@ -80,7 +83,7 @@ const PROSE_FIELDS = [
  * ceiling, and for the same reason: a count can stay right while the membership rots.
  */
 const NO_READBACK: readonly string[] = [
-  'ifs', 'rate', 'mumimo',
+  'rate', 'mumimo',
 ]
 
 /**
