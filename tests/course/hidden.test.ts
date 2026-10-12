@@ -23,18 +23,22 @@
  * id, file and scene.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { hidden, hiddenTopology } from '../../src/course/tier1/hidden'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { buildLinkTable } from '../../src/engine/propagation'
+import { WALL_LOSS_DB, buildLinkTable, wallsCrossed } from '../../src/engine/propagation'
 import { ACK_TIMEOUT_NS, CCA_ED_DBM, CCA_PD_DBM, DIFS_NS, SIFS_NS, SLOT_NS } from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { ROOT, zhNumeral } from './coverage'
 import { MODULES } from '../../src/course/curriculum'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 
 const MS = 1_000_000
+const US = 1_000
 /** 300 ms: the window the collision and delivery figures of `numbers` are counted over. */
 const RUN_NS = 300 * MS
 
@@ -273,5 +277,216 @@ describe('hidden · the door experiment', () => {
     expect(link(6.8)).toBeGreaterThan(CCA_PD_DBM)
     expect(link(1)).toBe(link(null))
     expect(link(3.5)).toBe(link(null))
+  })
+})
+
+/**
+ * **Every figure the lesson prints, read back out of the lesson.**
+ *
+ * Everything above measures the engine and compares it with a literal written in THIS file, with
+ * the lesson's row quoted in a comment beside it — the two table rows have an `it` each, and the
+ * figures in them (1528, 1.95, 2.31, 106, 66, 2325, 2353, 28, 34, 2387, 64) are all on this side.
+ *
+ * `@hidden` hand-types 23 figures into its graded prose. What follows is the other half of each
+ * assertion above, with no figure here: the five steps' four levels and the timeout, both table
+ * rows including their **wall counts** — 「两堵」/「一堵」 is a claim about what the ray crosses, and
+ * `wallsCrossed` answers it — the closing census, the door experiment's `y ≈ 7.2`, the quiz's two
+ * thresholds, and `limits`, which the graded walk never reads and which carries the wall table
+ * (砖 12 / 石膏板 5 / 玻璃 3 dB) and four citations.
+ */
+describe('hidden · every printed figure is read back out of the lesson', () => {
+  const rs = base()
+  const sc = hidden.scenario()
+  const pos = (id: string) => sc.nodes.find((n) => n.id === id)!.pos
+  const links = buildLinkTable(sc.nodes, sc.walls)
+  const steps = (hidden.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
+  const tableWith = (fragment: string): { head: string[]; rows: string[][] } => {
+    const b = hidden.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return b as { head: string[]; rows: string[][] }
+  }
+  /** 「−83.4 dBm」 → −83.4; 「1528 字节」 → 1528. Full-width minus included. */
+  const val = (s: string): number => Number(s.replace(/−/g, '-').replace(/[^\d.-]/g, ''))
+  /** A printed figure against a measurement, rounded to the decimals the figure itself carries. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/−/g, '-').replace(/\s/g, '')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zhCount = (s: string): number | null => zhNumeral(s.replace(/两/g, '二'))
+  const cite = (text: string, what: string): number => {
+    // Two phrasings, because this lesson uses both: 「traffic.ts 的 saturated」 and
+    // 「channel.ts 里对 CCA_PD_DBM 的那次比较」.
+    const found = [...text.matchAll(/([a-z]+\.ts) (?:的|里对) (\w+)/g)]
+    for (const m of found) {
+      const path = ['src/engine', 'src/model', 'src/course']
+        .map((d) => resolve(ROOT, `${d}/${m[1]}`)).find(existsSync)
+      expect(path, `${what}: ${m[1]} is not a file of this repository`).toBeDefined()
+      expect(readFileSync(path!, 'utf8').includes(m[2]), `${what}: ${m[1]} declares ${m[2]}`)
+        .toBe(true)
+    }
+    return found.length
+  }
+  /** The near station's frame the table's first row is about, and the ACK of the second. */
+  const near = txs(rs, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > 1_900_000)[0]
+  const ack = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'ack' && r.t > near.t)[0]
+
+  it('the steps: both thresholds, the level that misses them, and the timeout', () => {
+    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(5)
+    // step 2: 「到达电平不低于 −82 dBm；或者空中所有能量加起来不低于 −62 dBm」
+    const lines = /到达电平不低于 ([−\d.]+) dBm；或者空中所有能量加起来不低于 ([−\d.]+) dBm/
+      .exec(steps[1])
+    expect(lines, 'step 2 no longer states the two thresholds').not.toBeNull()
+    same(lines![1], CCA_PD_DBM, 'the preamble-detection threshold')
+    same(lines![2], CCA_ED_DBM, 'and the energy one')
+    // step 3: 「只有 −83.4 dBm：比前导检测那条线还低 1.4 dB，比能量检测那条线低二十多分贝」
+    const m = /只有 ([−\d.]+) dBm：比前导检测（preamble detection）那条线还低 ([\d.]+) dB，比能量检测（energy detection, ED）那条线低([一二三四五六七八九十]+)多分贝/
+      .exec(steps[2])
+    expect(m, 'step 3 no longer states what the other room arrives at').not.toBeNull()
+    const other = links.get('sta-1')!.get('sta-2')!
+    same(m![1], other, 'the level the other room arrives at')
+    same(m![2], CCA_PD_DBM - other, 'how far under the preamble line it is')
+    // 「二十多」: twenty-odd, which is a range and is read as one
+    const edGap = CCA_ED_DBM - other
+    expect(edGap, `「${m![3]}多分贝」 is at least ${zhCount(m![3])}`).toBeGreaterThanOrEqual(zhCount(m![3])!)
+    expect(edGap, 'and under the next ten').toBeLessThan(zhCount(m![3])! + 10)
+    // step 4: 「接入点回的那个确认帧（ACK），−60.6 dBm」
+    const a = /确认帧（acknowledgement, ACK），([−\d.]+) dBm/.exec(steps[3])
+    expect(a, 'step 4 no longer states the ACK’s level at the far station').not.toBeNull()
+    same(a![1], links.get('ap')!.get('sta-2')!, 'the ACK’s level at the far station')
+    expect(val(a![1]), 'which is the one thing above the preamble line').toBeGreaterThan(CCA_PD_DBM)
+    // step 5: 「发送方要等自己那 45 µs 的期限到期才知情」
+    const t = /自己那 (\d+) µs 的期限/.exec(steps[4])
+    expect(t, 'step 5 no longer states the timeout').not.toBeNull()
+    same(t![1], ACK_TIMEOUT_NS / US, 'the timeout a sender waits out')
+  })
+
+  it('the exchange table: both rows, their instants, their counts and their walls', () => {
+    const t = tableWith('整场交互里，远端站点听得见什么')
+    expect(t.rows, 'the table states exactly the two frames this reads').toHaveLength(2)
+    // row 1: 「近端的 1528 字节数据帧 · 1.95 – 2.31 ms · 两堵 · 径直数了过去：106、105、……66」
+    const r0 = /^近端的 (\d+) 字节数据帧$/.exec(t.rows[0][0])
+    expect(r0, `「${t.rows[0][0]}」 is not the frame this reads`).not.toBeNull()
+    expect(Number(r0![1]), 'the frame’s bytes').toBe(near.frame.bytes)
+    const span = /^([\d.]+) – ([\d.]+) ms$/.exec(t.rows[0][1])
+    expect(span, `「${t.rows[0][1]}」 is not 「a – b ms」`).not.toBeNull()
+    same(span![1], near.t / MS, 'when it starts')
+    same(span![2], (near.t + near.frame.txTimeNs) / MS, 'and when it ends')
+    const walls0 = zhCount(t.rows[0][2].replace('堵', ''))
+    expect(walls0, 'the walls the table says lie between the two stations')
+      .toBe(wallsCrossed(pos('sta-1'), pos('sta-2'), sc.walls).length)
+    const counted = /径直数了过去：(\d+)、(\d+)、……(\d+)/.exec(t.rows[0][3])
+    expect(counted, 'the first row no longer says what the far station counted').not.toBeNull()
+    const decs = ofType(rs, 'BACKOFF_DEC')
+      .filter((r) => r.node === 'sta-2' && r.t >= near.t && r.t <= near.t + near.frame.txTimeNs)
+    expect([Number(counted![1]), Number(counted![3])], 'from this value down to that one')
+      .toEqual([decs[0].value, decs[decs.length - 1].value])
+    expect(Number(counted![2]), 'and the one in between is the next step down')
+      .toBe(Number(counted![1]) - 1)
+
+    // row 2: 「接入点的 ACK · 2325 – 2353 µs · 一堵 · 在 64 冻结，等完 28 µs 的 ACK 和 34 µs
+    // 的等待，2387 µs 从 64 继续」
+    const span2 = /^(\d+) – (\d+) µs$/.exec(t.rows[1][1])
+    expect(span2, `「${t.rows[1][1]}」 is not 「a – b µs」`).not.toBeNull()
+    same(span2![1], ack.t / US, 'when the ACK starts')
+    same(span2![2], (ack.t + ack.frame.txTimeNs) / US, 'and when it ends')
+    const walls1 = zhCount(t.rows[1][2].replace('堵', ''))
+    expect(walls1, 'the walls between the access point and the far station')
+      .toBe(wallsCrossed(pos('ap'), pos('sta-2'), sc.walls).length)
+    expect(walls1, 'which is fewer than between the two stations — the whole row').toBeLessThan(walls0!)
+    const froze = /在 (\d+) 冻结，等完 (\d+) µs 的 ACK 和 (\d+) µs 的等待，(\d+) µs 从 (\d+) 继续/
+      .exec(t.rows[1][3])
+    expect(froze, 'the second row no longer says what the freeze did').not.toBeNull()
+    const freeze = ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-2' && r.t === ack.t)!
+    expect(Number(froze![1]), 'the value it froze at').toBe(freeze.value)
+    same(froze![2], ack.frame.txTimeNs / US, 'the ACK it waited out')
+    const ifs = ofType(rs, 'IFS_START')
+      .find((r) => r.node === 'sta-2' && r.t === ack.t + ack.frame.txTimeNs)!
+    same(froze![3], (ifs.untilNs - ifs.t) / US, 'the silence after it')
+    const resume = ofType(rs, 'BACKOFF_RESUME').find((r) => r.node === 'sta-2' && r.t === ifs.untilNs)!
+    same(froze![4], resume.t / US, 'when it resumed')
+    expect(Number(froze![5]), 'and from the same value it froze at').toBe(resume.value)
+    expect(Number(froze![1]), 'which the row states twice, consistently').toBe(Number(froze![5]))
+  })
+
+  it('the closing census, read out of the paragraph and out of `observe`', () => {
+    const p = (hidden.numbers! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
+    const m = /(\d+) ms 里这个房间碰撞 (\d+) 次，每一次都夹着一个数据帧（data frame），两台站点合起来只送达 (\d+) 帧/
+      .exec(p)
+    expect(m, 'the census paragraph is gone, or its shape changed').not.toBeNull()
+    same(m![1], RUN_NS / MS, 'the window it counts over')
+    expect(Number(m![2]), 'the collisions').toBe(ofType(rs, 'COLLISION').length)
+    expect(Number(m![2]), 'every one of them on a data frame').toBe(caughtData(rs).length)
+    expect(Number(m![3]), 'and the frames delivered').toBe(acked(rs, 'sta-1') + acked(rs, 'sta-2'))
+    // 「它的 Duration 是零，没有什么可预告的」
+    expect(/Duration 是零/.test(p), 'the paragraph still says the ACK announces nothing').toBe(true)
+    expect(ack.frame.durationFieldNs, 'and it does').toBe(0)
+    // observe[0] states the same census again, in its own words
+    const o = /(\d+) ms 里 (\d+) 次/.exec(hidden.observe![0])
+    expect(o, 'observe[0] no longer counts the collisions').not.toBeNull()
+    expect([Number(o![1]), Number(o![2])], 'the same window and the same count')
+      .toEqual([RUN_NS / MS, ofType(rs, 'COLLISION').length])
+  })
+
+  it('the door experiment’s own height, and the quiz’s two thresholds', () => {
+    // tryThis: 「靠上端、也就是两台站点连线经过处（y ≈ 7.2）开一扇门」
+    const d = /（y ≈ ([\d.]+)）/.exec(hidden.tryThis![0])
+    expect(d, 'the experiment no longer states the height to open the door at').not.toBeNull()
+    const y = Number(d![1])
+    // the height it names is the stations' own line, which is what makes the door work
+    expect([pos('sta-1').y, pos('sta-2').y], 'the two stations sit on that line').toEqual([y, y])
+    const open = (from: number): number => {
+      const s = hidden.scenario()
+      s.walls.find((w) => w.x1 === 4 && w.x2 === 4)!.openings = [{ from, to: from + 0.9 }]
+      return buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('sta-2')!
+    }
+    expect(open(y - 0.4), 'a door on that line lets them hear each other').toBeGreaterThan(CCA_PD_DBM)
+    expect(open(1), 'and one lower down does not').toBe(links.get('sta-1')!.get('sta-2')!)
+    // quiz 2: 「既没到 −82 dBm 的前导检测门限，也没到 −62 dBm 的能量门限」
+    const q = /既没到 ([−\d.]+) dBm 的前导检测门限，也没到 ([−\d.]+) dBm 的能量门限/
+      .exec(hidden.quiz[1].options[hidden.quiz[1].answer])
+    expect(q, 'the quiz’s right answer no longer states the two thresholds').not.toBeNull()
+    same(q![1], CCA_PD_DBM, 'the preamble threshold, as the quiz states it')
+    same(q![2], CCA_ED_DBM, 'and the energy one')
+  })
+
+  it('`limits`: the wall table, the hard line, the census, and four citations', () => {
+    const ls = hidden.limits.map((l) => l.text)
+    const all = ls.join('\n')
+    // 「−83.4 dBm 是一个定数，只比门限低 1.4 dB」
+    const m = /([−\d.]+) dBm 是一个定数，只比门限低 ([\d.]+) dB/.exec(all)
+    expect(m, '`limits` no longer states the level and its margin').not.toBeNull()
+    const other = links.get('sta-1')!.get('sta-2')!
+    same(m![1], other, 'the level the first limit is about')
+    same(m![2], CCA_PD_DBM - other, 'and how far under the line it sits')
+    // 「到达 −82.0 dBm 就一定判忙，−82.1 dBm 就一定判不出」
+    const hard = /到达 ([−\d.]+) dBm 就一定判忙，([−\d.]+) dBm 就一定判不出/.exec(all)
+    expect(hard, '`limits` no longer states the hard line').not.toBeNull()
+    same(hard![1], CCA_PD_DBM, 'the level that is certainly busy')
+    expect(val(hard![2]), 'and the one a tenth of a dB below it')
+      .toBeCloseTo(CCA_PD_DBM - 0.1, 9)
+    // 「砖 12 dB、石膏板 5 dB、玻璃 3 dB」: the engine's own table, materials included
+    const walls = /砖 (\d+) dB、石膏板 (\d+) dB、玻璃 (\d+) dB/.exec(all)
+    expect(walls, '`limits` no longer states the wall table').not.toBeNull()
+    expect([Number(walls![1]), Number(walls![2]), Number(walls![3])], 'the three losses it lists')
+      .toEqual([WALL_LOSS_DB.brick, WALL_LOSS_DB.drywall, WALL_LOSS_DB.glass])
+    expect(Object.keys(WALL_LOSS_DB).length, 'and the table has no fourth material the limit hides')
+      .toBe(3)
+    // 「碰撞 126 次、只送达 45 帧」, restated in the last limit
+    const census = /碰撞 (\d+) 次、只送达 (\d+) 帧/.exec(all)
+    expect(census, '`limits` no longer restates the census').not.toBeNull()
+    expect([Number(census![1]), Number(census![2])], 'the same two figures as the paragraph')
+      .toEqual([ofType(rs, 'COLLISION').length, acked(rs, 'sta-1') + acked(rs, 'sta-2')])
+    // `limits` cites in three shapes, and all three are claims about this repository:
+    // 「file.ts 的 symbol」, 「file.ts 里对 symbol 的那次比较」, and a bare path or a bare symbol.
+    expect(cite(all, '`limits`'), 'the two citations that name a file AND a symbol').toBe(2)
+    const bare = /（(src\/[\w/.]+\.ts)）/.exec(all)
+    expect(bare, '`limits` no longer cites the file the wall table lives in').not.toBeNull()
+    expect(existsSync(resolve(ROOT, bare![1])), `${bare![1]} is a file of this repository`).toBe(true)
+    const sym = /（(rxPowerDbm)）/.exec(all)
+    expect(sym, '`limits` no longer names the function that computes the level').not.toBeNull()
+    expect(readFileSync(resolve(ROOT, bare![1]), 'utf8').includes(`function ${sym![1]}`),
+      `${bare![1]} declares ${sym![1]}`).toBe(true)
   })
 })
