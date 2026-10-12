@@ -21,7 +21,10 @@
  * `@mlo` (27) to 6 and 85, `@amp-ppdu` (26) to 5 and 86, and `@hidden` (23) to 4 and 87
  * — that one found a real one: the subframe caption called the three fixed parts 36 bytes
  * when they are 34, the 36 being the total WITH the padding the same sentence then adds.
- * That is the ratchet this
+ * `@nav` (19) took it to 3 and 88, and found two: an `unmodelled` limit listing TXOP
+ * protection among what this engine does not do, nineteen days after it landed, and a
+ * one-AP limit whose citation said a second access point is ignored where the schema
+ * refuses it by name. That is the ratchet this
  * file is: a new lesson whose test never touches its own prose has to be added here
  * deliberately, and a lesson that gains a read-back has to be taken off in the same edit.
  *
@@ -77,7 +80,7 @@ const PROSE_FIELDS = [
  * ceiling, and for the same reason: a count can stay right while the membership rots.
  */
 const NO_READBACK: readonly string[] = [
-  'ifs', 'nav', 'rate', 'mumimo',
+  'ifs', 'rate', 'mumimo',
 ]
 
 /**
