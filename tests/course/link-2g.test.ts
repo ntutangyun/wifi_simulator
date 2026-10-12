@@ -25,7 +25,11 @@ import { link2gScenario, longApartment, sc } from '../../src/course/wifiScenes'
 import { brick, node } from '../../src/course/lessonKit'
 import { Simulation, LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { CCA_PD_DBM, mcsForRssi, mcsRateMbps, noiseDbm } from '../../src/engine/phy'
+import {
+  ACK_BYTES, CCA_ED_DBM, CCA_PD_DBM, CW_MIN, EDCA_PARAMS, ERP_2G, OFDM_5G, PHY_MODES, mcsForRssi,
+  mcsRateMbps, noiseDbm,
+} from '../../src/engine/phy'
+import { lessonTexts } from '../../src/course/readability'
 import { negotiatedWidth, widthOf, virtualId } from '../../src/model/caps'
 import { ScenarioSchema, type NodeCfg, type Wall } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -752,5 +756,441 @@ describe('link-2g · the figures the lesson states in sentences, not in its tabl
     }
     expect((ppdu('2g') - ppdu('5g')) / 1000, 'one PPDU costs 6 µs more on 2.4 GHz')
       .toBe(Number(m![5]))
+  })
+})
+
+// --- every figure the lesson's PROSE prints ----------------------------------------------------
+
+/**
+ * **The two net-sum tables above are read out of the lesson; its prose is not.** This file's own
+ * docblock says 「every figure the lesson prints, measured here」, and for the tables it is true —
+ * but `scripts/figure-planting.ts` counts **235 plantable figures** in this lesson and the tables
+ * hold 74 of them. The rest are in `terms`, `picture`, `numbers`' paragraphs, `deeper`,
+ * `sources`, `limits`, `observe`, `tryThis` and the quiz, and a six-figure sample on 2026-10-12
+ * noticed none of six.
+ *
+ * So every figure is read at every site it is printed, which is the order this programme arrived
+ * at: a lesson states its band offset six times and its EIFS three, and a read that takes only
+ * the site where the figure is derived leaves the other five free.
+ *
+ * **A band name in prose is semantics, not a quantity.** 「这门课量到现在的每一个数，都是在
+ * 5 GHz 上量的」 says WHICH BAND a sentence is about, and editing the 5 to a 6 makes the
+ * sentence wrong without making any measurement wrong — there is no quantity in this engine the
+ * figure has to equal. What is checkable, and what the first test below checks, is that every
+ * band this lesson names is one the engine HAS: the keys of `LINK_EXTRA_LOSS_DB`. The sweep goes
+ * on reporting those sites as unpinned, which is correct, and that is the fourth exemption class
+ * of `docs/course-figure-pinning.md`.
+ *
+ * Two more exemptions, each with its argument:
+ *  - 「真实世界里 2.4 GHz 与 5 GHz 在自由空间中的路径损耗差约为 6.6 分贝」 is about the real world,
+ *    not about this engine — the whole point of the sentence is that the engine's −6.5 dB is a
+ *    chosen constant beside it. What is checkable is the comparison, and it is: the two differ by
+ *    less than a decibel.
+ *  - 「ERP-DSSS/CCK 的 1、2、5.5、11 Mb/s 四档速率」 are the rates this engine does **not** build
+ *    (`limits` says so in the same sentence), so there is nothing here to check them against.
+ */
+describe('link-2g · every figure the prose prints, read back out of it', () => {
+  const EVERYWHERE = lessonTexts(link2g).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  /** The lesson's own tables, by a fragment of their heading — the other describe has its own. */
+  const tableWithHeading = (fragment: string): string[][] => {
+    const b = link2g.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
+    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
+    return (b as Extract<typeof b, { kind: 'table' }>).rows
+  }
+  /** 「139.2 µs」 → 139 200 ns; 「−6.0」 → −6 000 ns. Full-width minus included. */
+  const ns = (cell: string): number =>
+    Math.round(Number(cell.replace(/\s|µs/g, '').replace(/[−–]/, '-')) * 1000)
+  /** The band a 「N GHz」 names. The KEYS are pinned to the engine's own set below. */
+  const BAND_GHZ: Record<keyof typeof LINK_EXTRA_LOSS_DB, number> = { '2g': 2.4, '5g': 5, '6g': 6 }
+
+  it('every 「N GHz」 is a band this engine has, and every offset is the one it charges', () => {
+    expect(Object.keys(BAND_GHZ).sort(), 'the engine’s own three links')
+      .toEqual(Object.keys(LINK_EXTRA_LOSS_DB).sort())
+    for (const v of everyFig(/([\d.]+) GHz/g, 'a band', 20)) {
+      expect(Object.values(BAND_GHZ), `${v} GHz is a band this engine has`).toContain(val(v))
+    }
+    // 「2.4 GHz 是 −6.5 分贝、6 GHz 是 +1.2 分贝、5 GHz 是 0」 — the whole table, in one sentence
+    const [b1, off1, b2, off2, b3, off3] = raw(EVERYWHERE,
+      /([\d.]+) GHz 是 −([\d.]+) 分贝、([\d.]+) GHz 是 \+([\d.]+) 分贝、([\d.]+) GHz 是 (\d)/,
+      'the band offsets, all three')
+    type Link = keyof typeof LINK_EXTRA_LOSS_DB
+    const keyOf = (ghz: string): Link =>
+      (Object.keys(BAND_GHZ) as Link[]).find((k) => BAND_GHZ[k] === val(ghz))!
+    same(`-${off1}`, LINK_EXTRA_LOSS_DB[keyOf(b1)], `the offset on ${b1} GHz`)
+    same(off2, LINK_EXTRA_LOSS_DB[keyOf(b2)], `the offset on ${b2} GHz`)
+    same(off3, LINK_EXTRA_LOSS_DB[keyOf(b3)], `the offset on ${b3} GHz`)
+    // and every other site that names the 2.4 GHz offset — six of them
+    const offset = Math.abs(LINK_EXTRA_LOSS_DB['2g' as keyof typeof LINK_EXTRA_LOSS_DB])
+    for (const v of everyFig(
+      /−([\d.]+) 分贝是本仿真器|加 ([\d.]+) 分贝变成|往右推 ([\d.]+) 分贝|那 ([\d.]+) 分贝做了什么|（\+([\d.]+) 分贝）|([\d.]+) 分贝换来几级|([\d.]+) 分贝就跨不过去|这条硬线两侧的那 ([\d.]+) 分贝|−([\d.]+) 分贝的频段路损偏移/g,
+      'the band offset', 6)) {
+      same(v, offset, 'the offset this engine charges 2.4 GHz')
+    }
+    // 「真实世界里…约为 6.6 分贝」: the exemption's own comparison
+    const [real] = figs(EVERYWHERE, /路径损耗差约为 ([\d.]+) 分贝/, 'the real-world difference')
+    expect(Math.abs(real - offset), 'the engine’s constant is within a decibel of it')
+      .toBeLessThan(1)
+  })
+
+  it('the six timing constants of 2.4 GHz, and the two interval figures they produce', () => {
+    // 「aSIFSTime 10 µs、短时隙 9 µs、aSignalExtension 6 µs、aRxPHYStartDelay（ERP-OFDM）20 µs、
+    //  aCWmin 15」
+    const [sifs, slot, ext, rxDelay, cwMin] = figs(EVERYWHERE,
+      /aSIFSTime (\d+) µs、短时隙 (\d+) µs、aSignalExtension (\d+) µs、aRxPHYStartDelay（ERP-OFDM）(\d+) µs、aCWmin (\d+)/,
+      '`sources` on the six constants')
+    expect([sifs * 1000, slot * 1000, ext * 1000, rxDelay * 1000],
+      'the four this engine holds for 2.4 GHz')
+      .toEqual([ERP_2G.sifsNs, ERP_2G.slotNs, ERP_2G.signalExtNs, ERP_2G.rxStartDelayNs])
+    expect(cwMin, 'and the window it starts from').toBe(CW_MIN)
+    // every statement of the signal extension — `terms`, `sources`, and the 「5/6 GHz 为 0」 pair
+    for (const v of everyFig(/多算的 (\d+) 微秒静默期|aSignalExtension (\d+) µs|GHz 为 (\d+) µs/g,
+      'the signal extension', 3)) {
+      expect(val(v) * 1000, 'the extension 2.4 GHz pays').toBe(ERP_2G.signalExtNs)
+    }
+    for (const v of everyFig(/GHz 上它是 (\d)|GHz 为 (\d)，/g, 'the extension the other bands pay', 2)) {
+      expect(val(v) * 1000, 'which is none').toBe(OFDM_5G.signalExtNs)
+    }
+    // 「两条链路的时隙都是 9 微秒」 and 「固定用 9 微秒的短时隙」
+    for (const v of everyFig(/时隙都是 (\d+) 微秒|固定用 (\d+) 微秒的短时隙/g, 'the slot', 2)) {
+      expect(val(v) * 1000, 'the slot both links count in').toBe(ERP_2G.slotNs)
+      expect(ERP_2G.slotNs, 'and 5 GHz has the same one').toBe(OFDM_5G.slotNs)
+    }
+    // 「5 GHz 等 45 微秒而 2.4 GHz 等 39 微秒」, and `limits` on what the standard would give
+    const [five, two] = figs(EVERYWHERE, /(\d+) 微秒而 2\.4 GHz 等 (\d+) 微秒/,
+      'the two ACK timeouts')
+    expect([five * 1000, two * 1000], 'the timeouts this engine applies')
+      .toEqual([OFDM_5G.ackTimeoutNs, ERP_2G.ackTimeoutNs])
+    const [stdSifs, stdSlot, stdDelay, stdSum] = figs(EVERYWHERE,
+      /于是 (\d+) \+ (\d+) \+ (\d+) = (\d+)/, '`limits` on the standard’s own sum')
+    expect(stdSifs + stdSlot + stdDelay, 'the lesson’s own arithmetic').toBe(stdSum)
+    expect([stdSifs * 1000, stdSlot * 1000], 'its first two terms are the engine’s')
+      .toEqual([ERP_2G.sifsNs, ERP_2G.slotNs])
+    expect(stdDelay * 1000, 'and the third is the one the engine does NOT use')
+      .not.toBe(ERP_2G.rxStartDelayNs)
+    expect(stdSum * 1000 - ERP_2G.ackTimeoutNs, 'the whole difference is that third term')
+      .toBe(stdDelay * 1000 - ERP_2G.rxStartDelayNs)
+    // every 「39 微秒」 and every 「88 微秒」
+    for (const v of everyFig(/确认帧超时 (\d+) 微秒|站点，(\d+) 微秒就是标准值/g,
+      'the 2.4 GHz timeout, restated', 2)) {
+      expect(val(v) * 1000, 'the timeout this engine applies').toBe(ERP_2G.ackTimeoutNs)
+    }
+    for (const v of everyFig(/它的长度是 (\d+) 微秒|长度全是 (\d+) 微秒|长度都是 (\d+) 微秒/g,
+      'the EIFS', 3)) {
+      expect(val(v) * 1000, 'the EIFS 2.4 GHz has').toBe(ERP_2G.eifsNs)
+    }
+  })
+
+  it('the three levels, the two thresholds and the two margins of the stairwell', () => {
+    const s = link2gScenario('pair', '5g', { seed: 7 })
+    const t = buildLinkTable(s.nodes, s.walls)
+    const between5 = t.get('sta-1')!.get('sta-2')!
+    const up5 = t.get('sta-1')!.get('ap')!
+    /*
+     * `buildLinkTable` does not know about the band: `simulation.ts` adds
+     * `LINK_EXTRA_LOSS_DB` to the whole table when it builds the run, which is why the same
+     * geometry reads −83.58 dBm here and −77.08 dBm on 2.4 GHz. That offset is the lesson's own
+     * subject, so the 2.4 GHz level is formed exactly the way the engine forms it.
+     */
+    const between2 = between5 - LINK_EXTRA_LOSS_DB['2g' as keyof typeof LINK_EXTRA_LOSS_DB]
+    // every 「−83.58 dBm」, 「−64.14 dBm」 and 「−77.08 dBm」
+    for (const v of everyFig(/−([\d.]+) dBm，而前导检测|之间是 −([\d.]+) dBm|算出 −([\d.]+) dBm/g,
+      'the level between the two stations on 5 GHz', 2)) {
+      same(`-${v}`, between5, 'what one station hears of the other on 5 GHz')
+    }
+    for (const v of everyFig(/都是 −([\d.]+) dBm，一模一样/g, 'the level up to the router', 1)) {
+      same(`-${v}`, up5, 'what the router hears of either station')
+    }
+    for (const v of everyFig(/分贝变成 −([\d.]+) dBm/g, 'the same path on 2.4 GHz', 1)) {
+      same(`-${v}`, between2, 'what one station hears of the other on 2.4 GHz')
+    }
+    expect(Number((between2 - between5).toFixed(2)), 'which is the offset, exactly')
+      .toBe(Number(Math.abs(LINK_EXTRA_LOSS_DB['2g']).toFixed(2)))
+    // every 「−82 dBm」 and 「−62 dBm」
+    for (const v of everyFig(/门限是 −(\d+) dBm|低于 −(\d+) dBm 的前导检测|前导检测 −(\d+) dBm|前导检测在本仿真器里是 −(\d+) dBm/g,
+      'the preamble-detection threshold', 3)) {
+      expect(-val(v), 'the threshold this engine applies').toBe(CCA_PD_DBM)
+    }
+    for (const v of everyFig(/另一半是 −(\d+) dBm 的能量检测|能量检测 −(\d+) dBm/g,
+      'the energy-detection threshold', 2)) {
+      expect(-val(v), 'the other half of CCA').toBe(CCA_ED_DBM)
+    }
+    // 「差 1.58 分贝，刚好在门限之下」 and 「高出门限 4.92 分贝」
+    for (const v of everyFig(/——差 ([\d.]+) 分贝|门限之下 ([\d.]+) 分贝处/g,
+      'how far below the threshold the 5 GHz path sits', 2)) {
+      same(v, CCA_PD_DBM - between5, 'the margin below the threshold')
+    }
+    for (const v of everyFig(/高出门限 ([\d.]+) 分贝/g, 'and how far above it the 2.4 GHz path sits', 1)) {
+      same(v, between2 - CCA_PD_DBM, 'the margin above the threshold')
+    }
+    // 「让它低于门限 10 分贝，6.5 分贝就跨不过去」: the counterfactual, as an inequality
+    const [deeper] = figs(EVERYWHERE, /低于门限 (\d+) 分贝/, 'the counterfactual `limits` names')
+    expect(deeper, 'which is more than the offset could cross')
+      .toBeGreaterThan(Math.abs(LINK_EXTRA_LOSS_DB['2g']))
+  })
+
+  it('the room, and the two distances the picture gives it', () => {
+    const s = link2gScenario('pair', '5g', { seed: 7 })
+    const at = (id: string) => s.nodes.find((n) => n.id === id)!.pos
+    const [gap] = figs(EVERYWHERE, /中间一道 ([\d.]+) 米宽的砖砌楼梯间/, 'the stairwell’s width')
+    const xs = [...new Set(s.walls.filter((w) => w.x1 === w.x2).map((w) => w.x1))].sort((a, b) => a - b)
+    const inner = xs.filter((x) => x > Math.min(at('sta-1').x, at('sta-2').x)
+      && x < Math.max(at('sta-1').x, at('sta-2').x))
+    expect(inner, 'two inner walls, which are the stairwell').toHaveLength(2)
+    same(String(gap), inner[1] - inner[0], 'the gap between them')
+    const [apart] = figs(EVERYWHERE, /相距 ([\d.]+) 米/, 'how far apart the two laptops are')
+    same(String(apart), Math.abs(at('sta-1').x - at('sta-2').x), 'their separation')
+  })
+
+  it('`observe`: the four segments on each link, and the exchange they come to', () => {
+    const obs = link2g.observe.join('\n')
+    const [difs5, difs2, data5, data2, sifs5, sifs2, ack5, ack2] = raw(obs,
+      /DIFS 从 ([\d.]+) 变成 ([\d.]+) 微秒，数据 PPDU 从 ([\d.]+) 变成 ([\d.]+)，SIFS 从 ([\d.]+) 变成 ([\d.]+)，确认帧从 ([\d.]+) 变成 ([\d.]+)/,
+      '`observe` on the eight segments')
+    const rows = tableWithHeading('一次零退避的交换')
+    // the eight figures `observe` quotes are the eight cells of the table above it
+    const cell = (row: number, col: number): string => rows[row][col]
+    for (const [i, pair] of [[difs5, difs2], [data5, data2], [sifs5, sifs2], [ack5, ack2]].entries()) {
+      same(pair[0], ns(cell(i, 1)) / 1000, `row ${i}: the 5 GHz segment`)
+      same(pair[1], ns(cell(i, 2)) / 1000, `row ${i}: and the 2.4 GHz one`)
+    }
+    const [exchange] = raw(obs, /一次交换都是 ([\d.]+) 微秒/, 'the exchange both links come to')
+    same(exchange, ns(cell(4, 1)) / 1000, 'the total the table prints')
+    expect(ns(cell(4, 1)), 'and the two totals really are equal').toBe(ns(cell(4, 2)))
+    // 「每个 IFS 短 6 µs，每个 PPDU 长 6 µs」: the lesson's own account of why the sum is zero
+    const [shorter, longer] = figs(EVERYWHERE, /每个 IFS 短 (\d+) µs，每个 PPDU 长 (\d+) µs/,
+      'the two halves of the cancellation')
+    expect([shorter * 1000, longer * 1000], 'the signal extension, twice')
+      .toEqual([ERP_2G.signalExtNs, ERP_2G.signalExtNs])
+    expect(ns(cell(0, 1)) - ns(cell(0, 2)), 'the IFS really is shorter by it')
+      .toBe(shorter * 1000)
+    expect(ns(cell(1, 2)) - ns(cell(1, 1)), 'and the PPDU longer by it').toBe(longer * 1000)
+  })
+
+  it('the hidden-node pair: the two means, the two counts and the ten-fold the lesson claims', () => {
+    const tally = (band: Band) => {
+      let ok = 0
+      let coll = 0
+      let eifs = 0
+      let bits = 0
+      for (const s of seeds(10)) {
+        for (const r of recordsOf('pair', band, s)) {
+          if (r.type === 'RX_OK' && r.node === vid(band, 'ap') && r.frame.kind === 'data') {
+            ok += 1
+            bits += (r.frame.bytes - 28) * 8
+          } else if (r.type === 'COLLISION') coll += 1
+          else if (r.type === 'IFS_START' && r.kind === 'EIFS') eifs += 1
+        }
+      }
+      return { ok, coll, eifs, mbps: bits / seeds(10).length / (RUN_MS / 1000) / 1e6 }
+    }
+    const five = tally('5g')
+    const two = tally('2g')
+    const [m5, ok5, coll5, eifs5] = raw(EVERYWHERE,
+      /吞吐均值 ([\d.]+) Mb\/s，路由器收下 ([\d\s]+) 帧，碰撞 ([\d\s]+) 次，EIFS 记录 (\d+) 条/,
+      'the 5 GHz figures the lesson prints')
+    same(m5, five.mbps, 'the 5 GHz mean')
+    expect([val(ok5), val(coll5), val(eifs5)], 'the three counts behind it')
+      .toEqual([five.ok, five.coll, five.eifs])
+    const [m2, ok2, coll2, eifs2] = raw(EVERYWHERE,
+      /均值 ([\d.]+) Mb\/s，收下 ([\d\s]+) 帧，碰撞降到 ([\d\s]+) 次，EIFS 记录 ([\d\s]+) 条/,
+      'the 2.4 GHz figures')
+    same(m2, two.mbps, 'the 2.4 GHz mean')
+    expect([val(ok2), val(coll2), val(eifs2)], 'and its three counts')
+      .toEqual([two.ok, two.coll, two.eifs])
+    expect(val(eifs2), 'one EIFS for every frame the router took').toBe(two.ok)
+    const [ratio] = raw(EVERYWHERE, /收下的帧数差 ([\d.]+) 倍/, 'the ratio of the two counts')
+    same(ratio, two.ok / five.ok, 'the ratio the lesson prints')
+  })
+
+  it('the rate ladder, cell by cell, and the two rungs 6.5 dB buys', () => {
+    const rows = tableWithHeading('分贝换来几级')
+    expect(rows.length, 'the ladder still has its rows').toBeGreaterThan(3)
+    const offset = Math.abs(LINK_EXTRA_LOSS_DB['2g' as keyof typeof LINK_EXTRA_LOSS_DB])
+    for (const row of rows) {
+      const [, lvl] = /−([\d.]+) dBm/.exec(row[0]) ?? []
+      if (!lvl) continue
+      const at5 = -val(lvl)
+      const read = (cell: string): [number, number] => {
+        const [, idx, mbps] = /MCS (\d+) · ([\d.]+) Mb\/s/.exec(cell)!
+        expect(mcsRateMbps('he', val(idx)), `MCS ${idx}’s own rate`).toBe(val(mbps))
+        return [val(idx), val(mbps)]
+      }
+      const [idx5] = read(row[1])
+      const [idx2] = read(row[2])
+      expect(idx5, `${at5} dBm on 5 GHz`).toBe(mcsForRssi('he', at5, undefined, 20))
+      expect(idx2, `${at5} dBm plus the offset on 2.4 GHz`)
+        .toBe(mcsForRssi('he', at5 + offset, undefined, 20))
+      expect(idx2, 'and 2.4 GHz is never the lower rung').toBeGreaterThanOrEqual(idx5)
+    }
+  })
+
+  it('the wide-channel arm: the floor it raises, the rungs it costs, and the points it loses', () => {
+    // 「从 5 GHz 开到 160 兆赫，噪声地板跟着抬高 9.03 分贝…2.4 GHz 守在 40 兆赫上只抬 3.01 分贝」
+    const [wideMhz, riseDb] = raw(EVERYWHERE,
+      /开到 (\d+) 兆赫，噪声地板（noise floor）跟着抬高 ([\d.]+) 分贝/, 'the wide channel and its floor')
+    const [capMhz, capRise] = raw(EVERYWHERE,
+      /守在 (\d+) 兆赫上只抬 ([\d.]+) 分贝/, 'the capped channel and its floor')
+    same(riseDb, noiseDbm(val(wideMhz)) - noiseDbm(20), `the floor at ${wideMhz} MHz over 20`)
+    same(capRise, noiseDbm(val(capMhz)) - noiseDbm(20), `and at ${capMhz} MHz`)
+    const capped = widthOf(link2gScenario('wide', '2g', { seed: 7 }).nodes[1], '2g')
+    expect(val(capMhz), 'the cap is what `widthOf` gives 2.4 GHz').toBe(capped)
+    // 「把它压到 MCS 9」 and 「一路爬到阶梯顶上的 MCS 13」
+    /*
+     * The rung is read off the run rather than recomputed: the lesson's own words are 「把它压到
+     * MCS 9」 and 「一路爬到阶梯顶上的 MCS 13」, which is what the rate control selected, and the
+     * selection takes the band offset and the negotiated width together.
+     */
+    const rungOf = (band: Band): number => {
+      const rs = recordsOf('wide', band, 7, 50)
+      const tx = ofType(rs, 'TX_START')
+        .find((r) => r.node === vid(band, 'sta-1') && r.frame.kind === 'data')!
+      return tx.frame.mcs!
+    }
+    const [pressed] = figs(EVERYWHERE, /把它压到 MCS (\d+)/, 'the rung the wide channel costs')
+    const [top] = figs(EVERYWHERE, /爬到阶梯顶上的 MCS (\d+)/, 'and the rung the capped one keeps')
+    expect(pressed, 'the rung 160 MHz leaves').toBe(rungOf('5g'))
+    expect(top, 'the rung 40 MHz leaves').toBe(rungOf('2g'))
+    expect(top, 'which is the top of this ladder').toBe(PHY_MODES.eht.sensDbm.length - 1)
+    expect(top, 'and it really is above the wide channel’s').toBeGreaterThan(pressed)
+  })
+
+  it('the 40 MHz table, cell by cell, and the points it loses in spite of the higher rung', () => {
+    const rows = tableWithHeading('反方向的砝码')
+    expect(rows, 'the table still has its five rows').toHaveLength(5)
+    const row = (starts: string): string[] => {
+      const r = rows.find((x) => x[0].startsWith(starts))
+      expect(r, `the row 「${starts}」 is gone`).toBeDefined()
+      return r!
+    }
+    const seg = (band: Band) => {
+      const rs = recordsOf('wide', band, 7, 50)
+      const sta = vid(band, 'sta-1')
+      const tx = ofType(rs, 'TX_START').filter((r) => r.node === sta && r.frame.kind === 'data')
+      const starts = tx.map((r) => r.t)
+      const gaps = starts.slice(1).map((t, i) => t - starts[i])
+      return {
+        width: tx[0].frame.widthMhz, mcs: tx[0].frame.mcs,
+        data: tx[0].frame.txTimeNs, floor: Math.min(...gaps),
+      }
+    }
+    const five = seg('5g')
+    const two = seg('2g')
+    const [w5, w2] = [row('协商到的信道带宽')[1], row('协商到的信道带宽')[2]]
+      .map((c) => val(/(\d+) 兆赫/.exec(c)![1]))
+    expect([w5, w2], 'the widths the two links negotiate').toEqual([five.width, two.width])
+    const [m5, m2] = [row('选中的 MCS')[1], row('选中的 MCS')[2]].map(val)
+    expect([m5, m2], 'the rungs they hold').toEqual([five.mcs, two.mcs])
+    same(row('同一帧的数据 PPDU')[1].replace(' µs', ''), five.data / 1000, 'the 5 GHz PPDU')
+    same(row('同一帧的数据 PPDU')[2].replace(' µs', ''), two.data / 1000, 'and the 2.4 GHz one')
+    same(row('一次交换')[1].replace(' µs', ''), five.floor / 1000, 'the 5 GHz exchange')
+    same(row('一次交换')[2].replace(' µs', ''), two.floor / 1000, 'and the 2.4 GHz one')
+    // the two means over the twenty seeds the heading names, and the points between them
+    const mean5 = mean(seeds(20).map((s) => throughputMbps('wide', '5g', s)))
+    const mean2 = mean(seeds(20).map((s) => throughputMbps('wide', '2g', s)))
+    same(row('吞吐均值')[1].replace(' Mb/s', ''), mean5, 'the 5 GHz mean over those seeds')
+    same(row('吞吐均值')[2].replace(' Mb/s', ''), mean2, 'and the 2.4 GHz one')
+    const [points] = raw(EVERYWHERE, /还是输 ([\d.]+) 个百分点/, 'the points the capped link loses')
+    same(points, 100 * (1 - mean2 / mean5), 'the loss between the two means')
+    expect(two.mcs!, 'while holding the higher rung').toBeGreaterThan(five.mcs!)
+  })
+
+  it('`deeper`: the two interframe figures EDCA would hide, and the two it points at instead', () => {
+    const deep = (link2g.deeper ?? [])
+      .map((b) => `${b.heading ?? ''}\n${'text' in b ? b.text : ''}`).join('\n')
+    // 「这一课要对照的那个 28 对 34」: the two DIFS values, which is the lesson's own first table
+    const [two, five] = figs(deep, /那个 (\d+) 对 (\d+) 就从记录里消失了/,
+      '`deeper` on the pair EDCA would hide')
+    expect([two * 1000, five * 1000], 'the DIFS of the two links')
+      .toEqual([ERP_2G.difsNs, OFDM_5G.difsNs])
+    // 「AC_BE 的 37 微秒与 AC_BK 的 73 微秒」: the AIFS those categories would use on 2.4 GHz
+    const [be, bk] = figs(deep, /AC_BE 的 (\d+) 微秒与 AC_BK 的 (\d+) 微秒/,
+      '`deeper` on the two AIFS it points at instead')
+    const aifs = (name: string): number => {
+      const ac = EDCA_PARAMS.find((p) => p.name === name)!
+      return ERP_2G.sifsNs + ac.aifsn * ERP_2G.slotNs
+    }
+    expect([be * 1000, bk * 1000], 'the AIFS of those two categories on this link')
+      .toEqual([aifs('BE'), aifs('BK')])
+  })
+
+  /**
+   * **What the first pass left, and what is left after this one.** The sweep of the mop-up above
+   * reported 27 of the 102, and they fall into four groups:
+   *
+   *  - **nine band names** (「都是在 5 GHz 上量的」, 「搬回 5 GHz」, 「5/6 GHz 为 0」 …): the fourth
+   *    exemption class, for the reason in this block's own docblock.
+   *  - **four widths and two caps** stated in shapes the reads above did not match, plus the
+   *    offset and the signal extension each twice more. Those are read here, at every site.
+   *  - **the ladder table's own levels.** −46.7 dBm is the desk link's measured level and is read
+   *    as one; the other four rows (−60, −70, −75, −80) are round numbers a reader can hold in
+   *    their head, and the rung PAIR at each of them is what the table is for — which the read
+   *    above already checks. Editing −75 to −76 leaves both rungs where they are, so the figure
+   *    is a reader-facing choice and not a measurement: the second exemption class.
+   *  - **three counts** — the ACK's own octets, the twenty MSDUs of the burst, and the rung both
+   *    links reach on the desk — each of which has an engine quantity, and is read against it.
+   */
+  it('the widths, the offset and the extension at every site, and the three counts', () => {
+    const offset = Math.abs(LINK_EXTRA_LOSS_DB['2g' as keyof typeof LINK_EXTRA_LOSS_DB])
+    // every 「N 兆赫」 is a width this engine has, and the two this lesson turns on are its own
+    const wide = negotiatedWidth(
+      link2gScenario('wide', '5g', { seed: 7 }).nodes[0],
+      link2gScenario('wide', '5g', { seed: 7 }).nodes[1], '5g')
+    const capped = widthOf(link2gScenario('wide', '2g', { seed: 7 }).nodes[1], '2g')
+    const ladderWidth = 20
+    for (const v of everyFig(/(\d+) 兆赫/g, 'a channel width', 6)) {
+      expect([wide, capped, ladderWidth], `${v} 兆赫 is a width this lesson turns on`)
+        .toContain(val(v))
+    }
+    expect(capped, 'and the cap really is below the width the other link gets').toBeLessThan(wide)
+    // the offset, at the two sites the reads above did not match
+    for (const v of everyFig(/path loss）小 ([\d.]+) 分贝|说出 ([\d.]+) 分贝的频段路损偏移/g,
+      'the band offset, where `why` and `outcomes` state it', 2)) {
+      same(v, offset, 'the offset this engine charges 2.4 GHz')
+    }
+    // the signal extension, likewise
+    for (const v of everyFig(/末尾多挂 (\d+) 微秒|只付一次 (\d+) 微秒/g,
+      'the signal extension, where `why` and `numbers` state it', 2)) {
+      expect(val(v) * 1000, 'the extension 2.4 GHz pays').toBe(ERP_2G.signalExtNs)
+    }
+    // the ACK's own octets, and the MSDUs one burst carries
+    for (const v of everyFig(/确认帧 PPDU（(\d+) 字节）/g, 'the answer’s own octets', 1)) {
+      expect(val(v), 'the ACK this engine builds').toBe(ACK_BYTES)
+    }
+    const burst = ofType(recordsOf('burst', '5g', 7, 50), 'TX_START')
+      .find((r) => r.node === 'sta-1' && r.frame.kind === 'data')!
+    for (const v of everyFig(/一个装 (\d+) 个 MSDU|：(\d+) 个 MSDU 装进一个/g,
+      'the MSDUs one burst carries', 2)) {
+      expect(val(v), 'the subframes the engine aggregates').toBe(burst.frame.ampdu!.mpduCount)
+    }
+    // 「两边都跑到 MCS 11」: the rung the desk link reaches on both bands
+    const desk = link2gScenario('single', '5g', { seed: 7 })
+    const deskRssi = buildLinkTable(desk.nodes, desk.walls).get('sta-1')!.get('ap')!
+    for (const v of everyFig(/两边都跑到 MCS (\d+)/g, 'the rung both links reach on the desk', 1)) {
+      expect(val(v), 'the rung this level supports').toBe(mcsForRssi('he', deskRssi, undefined, 20))
+      expect(val(v), 'and the offset does not change it')
+        .toBe(mcsForRssi('he', deskRssi + offset, undefined, 20))
+    }
+    // 「−46.7 dBm（桌上）」: the first row of the ladder is the desk link's own level
+    const [onDesk] = raw(EVERYWHERE, /−([\d.]+) dBm（桌上）/, 'the level the ladder starts from')
+    same(`-${onDesk}`, deskRssi, 'the desk link’s own level')
   })
 })
