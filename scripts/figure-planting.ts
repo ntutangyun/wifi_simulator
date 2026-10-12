@@ -14,6 +14,7 @@
  *
  * ```
  * npx tsx scripts/figure-planting.ts --census            # every lesson, figures by exposure
+ * npx tsx scripts/figure-planting.ts ifs --list          # what one lesson prints, planting nothing
  * npx tsx scripts/figure-planting.ts ifs                 # sweep one lesson
  * npx tsx scripts/figure-planting.ts mumimo tests/course/quoted-timestamps.test.ts
  * ```
@@ -60,14 +61,14 @@ interface Figure {
 }
 
 /** A clause, a chapter, a document number: nothing here can check one. */
-const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa)/
+const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCOM)/
 /**
  * The same, judged by what FOLLOWS the figure: a working-document number (`11-24/1613r20`,
  * `15-24/0123r4`), a draft version (`D1.0`) and a date (「2026 年」, 「5 月」). All three are
  * claims about documents outside this repository, and a sweep that plants them asks a question
  * nothing here can answer.
  */
-const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|\s?年|\s?月|\.\d\s*(将|于|发布))/
+const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|\.\d\s*(将|于|发布))/
 
 /**
  * **A digit inside a name is not a figure.** 「Wi-Fi 6」, 「4096-QAM」, 「802.11ac」 and
@@ -78,7 +79,7 @@ const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|\s?年|\s?月|\.\d\s*(将|于|发布))/
  */
 // `#` for a link id written as a suffix (`sta-1#6g`, where the 6 is a band and not a count).
 // `D` for a draft version (`D1.0`, `D05`): the figure is part of the document's name.
-const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot)$/
+const NAME_BEFORE = /(Wi-Fi |Wi‑Fi |802\.11|MU-MIMO |-|#|D|dot|TG)$/
 // `-2024` for a standard's year (「802.11-2024 的 5956 页」) and `× LTF` for a training-field
 // multiplier: both measured, like the Wi-Fi 6 case, from a sweep whose output they cluttered.
 // `D` for the name of a view (「3D 视图」): the 3 is a dimension count in a product name, and a
@@ -121,9 +122,10 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
         fig: m[0],
         section: t.section,
         role: t.role,
-        // `802.11` is the standard's own name wherever it appears, including as the whole
-        // figure (「真实的 802.11 承载 IP 时」), which neither context test can see.
-        cite: CITE.test(before) || CITE_AFTER.test(after) || m[0].startsWith('802.11')
+        // `802.11` and `802.15.4` are the standards' own names wherever they appear, including
+        // as the whole figure (「真实的 802.11 承载 IP 时」, 「全部来自 P802.15.4ab」), which
+        // neither context test can see.
+        cite: CITE.test(before) || CITE_AFTER.test(after) || m[0].startsWith('802.')
           || NAME_BEFORE.test(before) || NAME_AFTER.test(after),
         ctx: `${before}⟦${m[0]}⟧${after}`.replace(/\s+/g, ' '),
       })
@@ -133,6 +135,16 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
 }
 
 const migrated = LESSONS.filter(isMigrated)
+
+/*
+ * The two rules added on 2026-10-13, both found by a sweep reporting a citation as unpinned:
+ *  - `JSAC` and `INFOCOM` join the journals and standards bodies, because 「IEEE JSAC 18(3):
+ *    535–547，2000」 and 「Wu 等人（INFOCOM 2002）」 are references — `@bianchi` prints five
+ *    figures of them and this repository has no corpus for any of them.
+ *  - a figure immediately followed by `-NN` is a clause or equation number: 「按式 17-29」. The
+ *    rule is on what FOLLOWS, not on the 「式」 before it, because 「路径损耗公式 46.7」 is a model
+ *    value and reads the same way on the left.
+ */
 
 /**
  * **Every numeric literal anywhere under `tests/`, at every scale a unit change could put it.**
@@ -258,7 +270,40 @@ if (process.argv.includes('--saved')) {
   const saved = new Set((JSON.parse(readFileSync(p, 'utf8')) as Figure[]).map((f) => f.at))
   mine = mine.filter((f) => saved.has(f.at))
 }
+/**
+ * **Two reader-visible strings can be the same literal in the source.** `@radio-primer` prints
+ * 67.7 as a cell of its four-place table AND as a label of the figure that is built from that
+ * table, and the module file holds the string once — so `lessonTexts` yields two texts whose
+ * offsets are the same. A planting is per SOURCE SITE, so the second one is dropped.
+ *
+ * Found by the whole-set probe below, which plants every figure in one file and threw
+ * `offset drifted at 5978: found 67.8` — the first replacement had already moved the digit the
+ * second was about to check. It threw before writing, so nothing was left planted; the sweep
+ * simply could not run on that lesson until this.
+ */
+const sites = new Map<number, Figure>()
+for (const f of mine) if (!sites.has(f.at)) sites.set(f.at, f)
+const shared = mine.length - sites.size
+mine = [...sites.values()]
+
 if (mine.length === 0) throw new Error(`no printed figures found for \`${id}\``)
+
+/**
+ * `--list` prints the figures and plants nothing — the list a read-back is written against.
+ * Writing one lesson's reads takes the whole list in front of you (「this figure is printed four
+ * times, that one is a draft range with nothing to check it」), and a sweep is twelve minutes.
+ * Before this existed the list was produced by a throwaway script, three times in one session.
+ */
+if (process.argv.includes('--list')) {
+  for (const [i, f] of mine.entries()) {
+    console.log(String(i + 1).padStart(4), f.section.padEnd(13), f.role.padEnd(6),
+      f.fig.padStart(9), ' ', f.ctx)
+  }
+  console.log(`${id}: ${mine.length} plantable figures`,
+    `(${figures.length - mine.length - shared} citations and names`
+    + (shared > 0 ? `, ${shared} printed twice from one literal)` : ')'))
+  process.exit(0)
+}
 
 const file = resolve(ROOT, mine[0].file)
 const orig = readFileSync(file, 'utf8')
@@ -298,7 +343,8 @@ const notices = (subset: Figure[]): boolean => {
 }
 
 if (!green()) throw new Error('the tests are already red; nothing to measure')
-console.log(`${id}: ${mine.length} printed figures in ${mine[0].file}`)
+console.log(`${id}: ${mine.length} printed figures in ${mine[0].file}`
+  + (shared > 0 ? ` (${shared} more printed twice from the same literal)` : ''))
 console.log(`         against ${tests.join(' ')}`)
 
 // One run for the whole set first: a lesson nothing pins is answered by it alone. Then one run
