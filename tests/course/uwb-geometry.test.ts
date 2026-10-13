@@ -22,13 +22,14 @@ import type { Block } from '../../src/course/lessonKit'
 import { lessonStrings } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { C_M_PER_NS, FOM_LOS, FOM_NLOS, UWB_NLOS_NS, fomText } from '../../src/uwb/phy'
-import { rangeSigmaM, solvePosition, type AnchorPos, type Fix } from '../../src/uwb/position'
+import { MIN_DET, rangeSigmaM, solvePosition, type AnchorPos, type Fix } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
 import { uwbFixRow, uwbRangeRows } from '../../src/uwb/ui/rows'
 import type { UwbNodeView } from '../../src/uwb/view'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
@@ -102,6 +103,37 @@ function roundResidualsCm(variant?: number): string[] {
     expect(fix, `block ${b} of variant ${variant ?? 'base'}`).not.toBeNull()
     return (fix!.residualM * 100).toFixed(2)
   })
+}
+
+/** A numeral the lesson spells out in Chinese, as a number. */
+function zhNum(s: string): number {
+  const n = zhNumeral(s.replace(/两/g, '二'))
+  expect(n, `「${s}」 is not a numeral this file knows how to read`).not.toBeNull()
+  return n!
+}
+
+/**
+ * The lowest and highest GDOP the panel prints anywhere in the room, swept once per run.
+ *
+ * The grid runs to the room's bounds, because the extremes live in the corner strip the old
+ * 0.2-inset grid never visited. Memoised because two suites need it and the sweep is 32 000
+ * solves: the figure-planting sweep runs this file once per plantable figure.
+ */
+let roomBandCache: { lo: number; hi: number } | undefined
+function roomBand(): { lo: number; hi: number } {
+  if (roomBandCache === undefined) {
+    let lo = Infinity
+    let hi = 0
+    for (let x = 0; x <= 10.0001; x += 0.05) {
+      for (let y = 0; y <= 8.0001; y += 0.05) {
+        const g = exactFix(x, y).gdop
+        lo = Math.min(lo, g)
+        hi = Math.max(hi, g)
+      }
+    }
+    roomBandCache = { lo, hi }
+  }
+  return roomBandCache
 }
 
 /** A Jacobian row at (px, py): the horizontal part of the 3-D unit vector to an anchor. */
@@ -247,15 +279,7 @@ describe('uwb-geometry · what the geometry charges', () => {
     // The sweep runs to the room's bounds, because the extremes live in the corner strip the
     // old 0.2-inset grid never visited; "prints" is the load-bearing word — the true minimum
     // is 1.0286, which the panel's two decimals show as 1.03.
-    let lo = Infinity
-    let hi = 0
-    for (let x = 0; x <= 10.0001; x += 0.05) {
-      for (let y = 0; y <= 8.0001; y += 0.05) {
-        const g = exactFix(x, y).gdop
-        lo = Math.min(lo, g)
-        hi = Math.max(hi, g)
-      }
-    }
+    const { lo, hi } = roomBand()
     expect(lo.toFixed(4)).toBe('1.0286')
     expect(hi.toFixed(4)).toBe('1.2574')
     expect(lo.toFixed(2)).toBe('1.03')
@@ -694,5 +718,472 @@ describe('uwb-geometry · the medium queues echoes; none of these three scenes h
     for (const variant of [undefined, 0, 1]) {
       expect(ofType(recs(variant), 'UWB_ECHO')).toHaveLength(0)
     }
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above pins the solver against a figure typed on *this* side of the file. The
+ * worked-example table is the exception and was already a read-back — each of its cells is
+ * built from `jRows()` and compared with `toBe`, so an edited cell reddens it. The prose was
+ * not: `expect(text).toContain('2.12')` says the figure appears *somewhere*, and 2.12 appears
+ * in three places, so editing any one of them leaves the row green.
+ *
+ * Nothing new is measured here. Every assertion calls the same `exactFix`, `fixes`,
+ * `tagRanges`, `roundResidualsCm`, `jRow`, `gdopOfRows`, `gapsAt` and `inspectorAfter` the
+ * tests above call — the figure is parsed **out of the lesson** instead of being written down
+ * beside the measurement.
+ */
+describe('uwb-geometry · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(uwbGeometry.numbers)
+  const DEEP = blockText(uwbGeometry.deeper)
+  const LIMITS = blockText(uwbGeometry.limits)
+  const SRC = blockText(uwbGeometry.sources)
+  const TRY = blockText(uwbGeometry.tryThis)
+  const QUIZ = blockText(uwbGeometry.quiz)
+
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`)
+      .not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const normalOf = (rs: [number, number][]) => {
+    let xx = 0, xy = 0, yy = 0
+    for (const [ux, uy] of rs) { xx += ux * ux; xy += ux * uy; yy += uy * uy }
+    return { xx, xy, yy, det: xx * yy - xy * xy }
+  }
+  /** N unit rows spread evenly in bearing — the ideal layout the lesson's algebra is about. */
+  const evenRows = (n: number): [number, number][] =>
+    Array.from({ length: n }, (_x, i) =>
+      [Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n)] as [number, number])
+  const BIAS_M = UWB_NLOS_NS.brick * C_M_PER_NS
+  /** The noise-free solve with the brick bias on anchor-1 alone — the shift the lesson quotes. */
+  const biasedFix = (): Fix => {
+    const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+    const f = solvePosition(anchors, anchors.map((a) => ({
+      id: a.id,
+      distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z)
+        + (a.id === 'anchor-1' ? BIAS_M : 0),
+    })), TAG.z, SIGMA_R)
+    expect(f, 'the biased solve converges').not.toBeNull()
+    return f!
+  }
+
+  it('the two GDOP figures of the formula, and the algebra `deeper` does them with', () => {
+    same(raw(NUMS, /GDOP = √trace\(\(JᵀJ\)⁻¹\) = ([\d.]+)/, 'the formula')[0]!,
+      exactFix(TAG.x, TAG.y).gdop, 'the GDOP this layout charges at the tag')
+    /*
+     * "JᵀJ is exactly (N/2)·I, the trace of its inverse is 4/N, and GDOP is 2/√N — 1.00 at
+     * four anchors." Three divisors and a multiplier, all read off the lesson and all fed
+     * back through rows that really are spread evenly, at three different N.
+     */
+    const [half] = figs(DEEP, /JᵀJ 恰好等于 \(N\/(\d)\)·I/, '`deeper` on the ideal JᵀJ')
+    const [traceNum] = figs(DEEP, /其逆的迹为 (\d)\/N/, '`deeper` on the trace of its inverse')
+    const [gdopNum] = figs(DEEP, /于是 GDOP = (\d)\/√N/, '`deeper` on the GDOP that gives')
+    for (const n of [4, 6, 8]) {
+      const q = normalOf(evenRows(n))
+      expect(q.xx, `N = ${n}: JᵀJ really is (N/${half}) on the diagonal`).toBeCloseTo(n / half!, 9)
+      expect(q.yy, `N = ${n}: on both diagonal entries`).toBeCloseTo(n / half!, 9)
+      expect(q.xy, `N = ${n}: and nothing off it`).toBeCloseTo(0, 9)
+      expect(q.yy / q.det + q.xx / q.det, `N = ${n}: the trace of its inverse`)
+        .toBeCloseTo(traceNum! / n, 9)
+      expect(gdopOfRows(evenRows(n)), `N = ${n}: and the GDOP`)
+        .toBeCloseTo(gdopNum! / Math.sqrt(n), 9)
+    }
+    // "1.00 at four anchors" — in the formula's note, in `deeper` and in the third answer
+    for (const [text, re, what] of [
+      [NUMS, /GDOP 会恰好是 ([\d.]+)/, 'the formula’s note'],
+      [DEEP, /为什么均匀分布的锚点恰好给出 ([\d.]+)/, '`deeper`’s own heading'],
+      [DEEP, /四个锚点时是 ([\d.]+)。本场景读作/, '`deeper`, after the algebra'],
+      [QUIZ, /四个这样的锚点恰好给出 ([\d.]+)/, 'the third answer'],
+      [QUIZ, /这里它比 ([\d.]+) 略高/, 'the third explanation'],
+    ] as const) {
+      same(raw(text, re, what)[0]!, gdopOfRows(evenRows(CORNERS.length)),
+        `${what}: what four evenly spread anchors would give`)
+    }
+    /*
+     * And what this scene reads instead — the figure on the right of the same sentence. The
+     * sweep of 2026-10-13 planted it with the suite green: the read above captured the ideal
+     * 1.00 on its left and stopped at the full stop.
+     */
+    const [here] = raw(DEEP, /本场景读作 ([\d.]+)，原因有二/,
+      '`deeper` on what this scene reads instead')
+    same(here!, exactFix(TAG.x, TAG.y).gdop, 'the GDOP this layout really charges')
+    expect(val(here!), 'which is worse than the ideal, as the sentence says')
+      .toBeGreaterThan(gdopOfRows(evenRows(CORNERS.length)))
+    /*
+     * And the whole number the third question rounds it to. 「接近 1」 is a claim with a width:
+     * nowhere in the room does the figure round to anything else, which is what makes the
+     * question answerable and a planted 2 wrong.
+     */
+    const [near] = figs(QUIZ, /GDOP 为什么接近 (\d)？/, 'the third question')
+    expect(Math.round(gdopOfRows(evenRows(CORNERS.length))),
+      'the whole number the ideal rounds to').toBe(near)
+    const band = roomBand()
+    expect(Math.round(band.lo), 'and so does the whole room, at its lowest').toBe(near)
+    expect(Math.round(band.hi), 'and at its highest').toBe(near)
+  })
+
+  it('the three-scenes table: every cell of every row, against that scene’s own first fix', () => {
+    const variants = [undefined, 0, 1]
+    table(0).rows.forEach((_row, i) => {
+      const v = variants[i]
+      const f = fixes(v)[0]
+      expect(f, `row ${i}: that scene produced a first fix`).toBeDefined()
+      same(cell(0, i, 1), f!.gdop, `row ${i}: the GDOP it prints`)
+      const [a, b] = raw(cell(0, i, 2), /([\d.]+) × ([\d.]+) cm/, `row ${i}: the ellipse cell`)
+      same(a!, f!.ellipse.a * 100, `row ${i}: the long semi-axis`)
+      same(b!, f!.ellipse.b * 100, `row ${i}: and the short one`)
+      const [x, y] = raw(cell(0, i, 3), /\(([\d.]+), ([\d.]+)\) m/, `row ${i}: the estimate cell`)
+      same(x!, f!.x, `row ${i}: the x the solver gave`)
+      same(y!, f!.y, `row ${i}: and the y`)
+      same(raw(cell(0, i, 4), /([\d.]+) cm/, `row ${i}: the error cell`)[0]!,
+        fixErr(f!) * 100, `row ${i}: and how far off it was`)
+      // the same four figures are what the inspector shows for that run
+      const row = uwbFixRow(inspectorAfter(v, 1).position!, STRINGS.uwb)
+      expect([row.gdop, row.ellipse, row.estimate, row.error],
+        `row ${i}: the inspector prints the same four`)
+        .toEqual([cell(0, i, 1), cell(0, i, 2), cell(0, i, 3), cell(0, i, 4)])
+    })
+    // "the walled row carries the same GDOP and the same ellipse as the clean one"
+    expect([cell(0, 1, 1), cell(0, 1, 2)], 'the wall moved neither')
+      .toEqual([cell(0, 0, 1), cell(0, 0, 2)])
+  })
+
+  it('the band the four corners hold the room inside, and the spot that breaks it', () => {
+    const band = roomBand()
+    const [lo, hi] = raw(NUMS, /这个数都落在 ([\d.]+) 与 ([\d.]+) 之间/,
+      '`numbers` on the band the room is held inside')
+    same(lo!, band.lo, 'the lowest GDOP the panel prints anywhere in the room')
+    same(hi!, band.hi, 'and the highest')
+    // the experiment repeats the band and names one corner of it
+    const [tLo, tHi, cx, cy, corner] = raw(TRY, /都在 ([\d.]+) 与 ([\d.]+) 之间，连 \((\d), (\d)\) 那个角落也只升到 ([\d.]+)/,
+      '`tryThis` on the same band')
+    same(tLo!, band.lo, '`tryThis`: the same floor')
+    same(tHi!, band.hi, '`tryThis`: the same ceiling')
+    same(corner!, exactFix(val(cx!), val(cy!)).gdop, '`tryThis`: and that corner’s own figure')
+    expect(val(corner!), 'which is inside the band the sentence just gave')
+      .toBeLessThanOrEqual(val(tHi!))
+    // "drop a corner and the floor goes with it: standing under one of the three it reaches 2.32"
+    const [here] = raw(NUMS, /它会达到 ([\d.]+)。/, '`numbers` on the worst spot of three anchors')
+    const [ax, ay] = raw(DEEP, /把手机拖到 \(([\d.]+), ([\d.]+)\) 的锚点上/,
+      '`deeper` on which anchor it is')
+    const under = exactFix(val(ax!), val(ay!), 'anchor-4')
+    same(here!, under.gdop, 'the GDOP of standing under that anchor on three')
+    expect(val(here!), 'which is outside the band four corners hold').toBeGreaterThan(band.hi)
+    // `deeper` prints the same figure to four places, and the four-anchor figure beside it
+    same(raw(DEEP, /GDOP 会达到 ([\d.]+)。/, '`deeper` on the same spot')[0]!, under.gdop,
+      'the same spot, to four places')
+    same(raw(DEEP, /同一个位置平平无奇——([\d.]+)，仍落在/, '`deeper` with all four anchors')[0]!,
+      exactFix(val(ax!), val(ay!)).gdop, 'that spot with the fourth anchor back')
+    expect(exactFix(val(ax!), val(ay!)).gdop, 'and it is back inside the band')
+      .toBeLessThan(band.hi)
+    // "two anchors 37.9° apart carry the fix by themselves"
+    const kept = CORNERS.slice(0, 3)
+    const rows = kept.map(([, x, y]) => jRow(val(ax!), val(ay!), x, y))
+    const zeroed = rows.filter((r) => Math.hypot(...r) === 0)
+    expect(zeroed, 'one row is exactly zero: the anchor overhead').toHaveLength(1)
+    const live = kept.filter((_c, i) => Math.hypot(...rows[i]!) > 0)
+    const bearing = (ax2: number, ay2: number): number =>
+      (Math.atan2(ay2 - val(ay!), ax2 - val(ax!)) * 180) / Math.PI
+    same(raw(DEEP, /只剩两个相隔 ([\d.]+)° 的锚点/, '`deeper` on the surviving pair')[0]!,
+      Math.abs(bearing(live[0]![1], live[0]![2]) - bearing(live[1]![1], live[1]![2])),
+      'how far apart the two live bearings are')
+  })
+
+  it('the brick wall: the delay, the flight distance it is, and the range it lengthens', () => {
+    // "A first path through brick arrives 2.0 ns late, which is 0.5996 m of flight"
+    const [ns, m] = raw(NUMS, /首径（first path）迟到 ([\d.]+) ns，折合 ([\d.]+) m 的飞行距离/,
+      '`numbers` on the cost of one wall')
+    same(ns!, UWB_NLOS_NS.brick, 'the delay channel.ts gives brick')
+    same(m!, UWB_NLOS_NS.brick * C_M_PER_NS, 'and the flight distance it is')
+    // the same three materials, in `sources` and in `limits`
+    for (const [text, re, what] of [
+      [SRC, /砖墙 ([\d.]+) ns、石膏板 ([\d.]+) ns、玻璃 ([\d.]+) ns/, '`sources`'],
+      [LIMITS, /（砖 ([\d.]+) ns、石膏板 ([\d.]+)、玻璃 ([\d.]+)）/, '`limits`'],
+    ] as const) {
+      const [brick, drywall, glass] = raw(text, re, `${what} on the material table`)
+      expect([val(brick!), val(drywall!), val(glass!)], `${what}: UWB_NLOS_NS, value for value`)
+        .toEqual([UWB_NLOS_NS.brick, UWB_NLOS_NS.drywall, UWB_NLOS_NS.glass])
+    }
+    same(raw(LIMITS, /永远正好把距离拉长 ([\d.]+) m/, '`limits` on the constant it is')[0]!,
+      UWB_NLOS_NS.brick * C_M_PER_NS, 'the one distance a brick wall ever adds here')
+    /*
+     * 「GDOP 与 1σ 椭圆都是仿真器自己的模型取值」 — the multiple is not decoration: the solver's
+     * semi-axes are exactly that many standard deviations of Σ = σ_r²(JᵀJ)⁻¹, so a planted 2
+     * reddens this. (The sweep of 2026-10-13 planted it with the suite green.)
+     */
+    const [sigmas] = figs(SRC, /GDOP 与 (\d)σ 椭圆都是仿真器自己的/,
+      '`sources` on what the model owns')
+    const fx = exactFix(TAG.x, TAG.y)
+    const nq = normalOf(CORNERS.map(([, x, y]) => jRow(TAG.x, TAG.y, x, y)))
+    const s2q = SIGMA_R * SIGMA_R
+    const qxx = (s2q * nq.yy) / nq.det
+    const qxy = (-s2q * nq.xy) / nq.det
+    const qyy = (s2q * nq.xx) / nq.det
+    const trq = qxx + qyy
+    const detq = qxx * qyy - qxy * qxy
+    const lamMax = trq / 2 + Math.sqrt(Math.max((trq * trq) / 4 - detq, 0))
+    expect(sigmas! * Math.sqrt(lamMax), 'the long semi-axis is that many standard deviations')
+      .toBeCloseTo(fx.ellipse.a, 12)
+    // "the blocked range reads 5.33 m against a true 4.76 m in the first block"
+    const blocked = tagRanges(0).filter((r) => r.peer === 'anchor-1')
+    const [read, truth] = raw(NUMS, /这条被挡住的距离报出 ([\d.]+) m，真值是 ([\d.]+) m/,
+      '`numbers` on the first block’s blocked range')
+    same(read!, blocked[0]!.distM, 'what that range measured')
+    same(truth!, blocked[0]!.trueDistM, 'and what it really was')
+    // "over seven blocks the bias averages 59.4 cm — within a third of a σ_r of the ideal"
+    const [of, bias] = raw(NUMS, /(.)个块平均下来，偏差是 ([\d.]+) cm/,
+      '`numbers` on the mean bias')
+    expect(blocked, 'the blocks that range was measured in').toHaveLength(zhNum(of!))
+    const mean = blocked.reduce((s, r) => s + (r.distM - r.trueDistM), 0) / blocked.length
+    same(bias!, mean * 100, 'the bias those blocks averaged')
+    expect(Math.abs(mean - BIAS_M), 'which is within a third of a σ_r of the ideal figure')
+      .toBeLessThan(SIGMA_R / 3)
+    // the FoM table: that range's own error, and "the other three, under 1.4 cm"
+    same(raw(cell(1, 0, 1), /([\d.]+) cm/, 'the FoM table’s error cell')[0]!,
+      (blocked[0]!.distM - blocked[0]!.trueDistM) * 100, 'that range’s own error')
+    const [under] = raw(cell(1, 1, 1), /不到 ([\d.]+) cm/, 'the FoM table’s other-three cell')
+    const clean = tagRanges(0).filter((r) => r.peer !== 'anchor-1' && r.block === 0)
+    expect(clean, 'the three honest ranges of that block').toHaveLength(CORNERS.length - 1)
+    for (const r of clean) {
+      expect(Math.abs(r.distM - r.trueDistM) * 100, `${r.peer}: inside that figure`)
+        .toBeLessThan(val(under!))
+    }
+    // and the figure is the tightest tenth of a centimetre that holds them
+    const worst = Math.max(...clean.map((r) => Math.abs(r.distM - r.trueDistM) * 100))
+    expect(val(under!), 'and no looser than it has to be')
+      .toBeLessThanOrEqual(Math.ceil(worst * 10) / 10)
+  })
+
+  it('the quality byte, read back out of its own two numbers', () => {
+    const [nlosHex, nlosPct, nlosNs] = raw(cell(1, 0, 2),
+      /0x([0-9a-f]+) — (\d+) % within (\d+) ns/, 'the FoM cell of the blocked range')
+    expect(parseInt(nlosHex!, 16), 'the byte ranging.ts returns for an obstructed path')
+      .toBe(FOM_NLOS)
+    expect(`${nlosPct} % within ${nlosNs} ns`, 'and the wording phy.ts gives that byte')
+      .toBe(fomText(FOM_NLOS))
+    const [losHex, losPct, losNs] = raw(cell(1, 1, 2),
+      /0x([0-9a-f]+) — (\d+) % within ([\d.]+) ns/, 'the FoM cell of the other three')
+    expect(parseInt(losHex!, 16), 'the byte it returns for a clean one').toBe(FOM_LOS)
+    expect(`${losPct} % within ${losNs} ns`, 'and its wording').toBe(fomText(FOM_LOS))
+    expect(val(losNs!), 'the clean byte promises the tighter window')
+      .toBeLessThan(val(nlosNs!))
+    expect(val(losPct!), 'and the higher confidence').toBeGreaterThan(val(nlosPct!))
+    // `limits` names the same two bytes as the only two values the function has
+    const [onHex, offHex] = raw(LIMITS, /为真时返回 0x([0-9a-f]+)，否则 0x([0-9a-f]+)/,
+      '`limits` on the two values fomFor has')
+    expect([parseInt(onHex!, 16), parseInt(offHex!, 16)], 'the two bytes, in that order')
+      .toEqual([FOM_NLOS, FOM_LOS])
+    const seen = new Set(tagRanges(0).map((r) => r.fom))
+    expect([...seen].sort((a, b) => a - b), 'and the run only ever carries those two')
+      .toEqual([FOM_LOS, FOM_NLOS].sort((a, b) => a - b))
+  })
+
+  it('what the wall did to the fix: the shift, the share of the bias, and the residuals', () => {
+    const f = fixes(0)[0]!
+    const [moved, notThis] = raw(NUMS, /而定位只挪了 ([\d.]+) cm，不是 (\d+)。/,
+      '`numbers` on the shift')
+    same(moved!, fixErr(f) * 100, 'how far the fix moved')
+    expect(val(notThis!), 'against the bias it did not move by')
+      .toBe(Math.round(BIAS_M * 100))
+    const biased = biasedFix()
+    const shift = Math.hypot(biased.x - TAG.x, biased.y - TAG.y)
+    const [noiseFree, share] = raw(NUMS, /位移是 ([\d.]+) m，即偏差的 (\d+) %/,
+      '`numbers` on the noise-free shift')
+    same(noiseFree!, shift, 'the shift with no noise at all')
+    same(share!, (shift / BIAS_M) * 100, 'and that shift as a share of the bias')
+    // the first question and its explanation print the same two figures
+    const [qBias, qShift] = raw(QUIZ, /一条长了 ([\d.]+) m，可扣掉噪声后定位只移动了 ([\d.]+) m/,
+      'the first question')
+    expect(val(qBias!), 'the bias, to the two places the question gives it')
+      .toBe(Number(BIAS_M.toFixed(2)))
+    same(qShift!, shift, 'and the shift it moved instead')
+    same(raw(QUIZ, /为什么不是 ([\d.]+) m？/, 'the first question’s own closing')[0]!,
+      BIAS_M, 'the figure the question asks why it is not')
+    same(raw(QUIZ, /位移是偏差的 (\d+) %/, 'the first explanation')[0]!,
+      (shift / BIAS_M) * 100, 'the same share, in the explanation')
+    same(raw(QUIZ, /它在身后留下 (\d+) cm 的残差/, 'the first explanation’s residual')[0]!,
+      biased.residualM * 100, 'the residual that same noise-free solve leaves')
+    // "19.85 to 22.25 cm this run, 0.78 to 1.98 cm the clean one — same anchors, same seed,
+    //  the same 100 ps of timestamp noise"
+    const [wLo, wHi, cLo, cHi, ps] = raw(NUMS,
+      /七个块留下 ([\d.]+) 到 ([\d.]+) cm 的残差，而上一课那干净的七个块留下的是 ([\d.]+) 到 ([\d.]+) cm——[\s\S]*?同样 (\d+) ps 的时间戳噪声/,
+      '`numbers` on the residuals')
+    const wall = roundResidualsCm(0).map(Number)
+    const cleanR = roundResidualsCm().map(Number)
+    same(wLo!, Math.min(...wall), 'the smallest residual the walled run leaves')
+    same(wHi!, Math.max(...wall), 'and the largest')
+    same(cLo!, Math.min(...cleanR), 'the smallest the clean run leaves')
+    same(cHi!, Math.max(...cleanR), 'and its largest')
+    expect(val(ps!), 'the timestamp noise both runs use')
+      .toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    expect(val(cHi!), 'the clean run’s worst is inside the walled run’s best')
+      .toBeLessThan(val(wLo!))
+  })
+
+  it('the envelope the geometry promises, each factor read out of the sentence that uses it', () => {
+    const exact = exactFix(TAG.x, TAG.y)
+    const [measured, sigma, gdop, oneSigma] = raw(NUMS,
+      /来量这 ([\d.]+) cm：σ_r 乘 GDOP 就是定位误差的 1σ 尺度，([\d.]+) × ([\d.]+) = ([\d.]+) cm/,
+      '`numbers` on the envelope')
+    same(measured!, fixErr(fixes(0)[0]!) * 100, 'the error the sentence is measuring')
+    same(sigma!, SIGMA_R * 100, 'the range noise the solver was given')
+    same(gdop!, exact.gdop, 'the GDOP of this layout, to four places')
+    same(oneSigma!, SIGMA_R * exact.gdop * 100, 'and the 1σ scale those two give')
+    // the same 1σ scale is the quadrature sum of the two semi-axes the table already prints
+    same(oneSigma!, Math.hypot(exact.ellipse.a, exact.ellipse.b) * 100,
+      'which is the ellipse the table prints, in one number')
+    const [times, envelope] = raw(NUMS, /取(.)倍得 ([\d.]+) cm/, '`numbers` on the envelope itself')
+    same(envelope!, zhNum(times!) * SIGMA_R * exact.gdop * 100, 'the envelope that multiple gives')
+    const [over] = raw(NUMS, /([\d.]+) cm 是它的(?:.)倍半。/, '`numbers` on the verdict')
+    same(over!, fixErr(fixes(0)[0]!) * 100, 'the error, once more')
+    const [howMany] = raw(NUMS, /cm 是它的(.)倍半。/, '`numbers` on how many times over it is')
+    expect((fixErr(fixes(0)[0]!) / (zhNum(times!) * SIGMA_R * exact.gdop)).toFixed(1),
+      'and the error really is that many times the envelope')
+      .toBe(`${zhNum(howMany!)}.5`)
+    // "the clean seven blocks of the previous lesson are all inside it"
+    const env = zhNum(times!) * SIGMA_R * exact.gdop
+    for (const g of fixes()) expect(fixErr(g), `block ${g.block} is inside it`).toBeLessThan(env)
+    // the second explanation writes the whole recipe out a second time
+    const [qN, qRecipe, qAgain, qSig, qG, qEnv] = raw(QUIZ,
+      /(\d)σ 包络（(\d) × σ_r × GDOP = (\d) × ([\d.]+) × ([\d.]+) = ([\d.]+) cm）/,
+      'the second explanation')
+    expect([qN, qRecipe, qAgain], 'the same multiple, all three times it is written')
+      .toEqual([String(zhNum(times!)), String(zhNum(times!)), String(zhNum(times!))])
+    same(qSig!, SIGMA_R * 100, 'the same range noise')
+    same(qG!, exact.gdop, 'the same GDOP')
+    same(qEnv!, zhNum(times!) * SIGMA_R * exact.gdop * 100, 'and the same envelope')
+    same(raw(QUIZ, /有墙的场景里定位偏了 (\d+) cm/, 'the second question')[0]!,
+      fixErr(fixes(0)[0]!) * 100, 'the error the question opens with')
+  })
+
+  it('the procedure: the determinant floor, σ_r² and the angle of the long axis', () => {
+    const steps = uwbGeometry.numbers!
+      .find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
+    const text = steps.items.join('\n')
+    same(raw(text, /也就是 ([\d.]+) cm 测距噪声的平方/, 'step 6 on σ_r')[0]!, SIGMA_R * 100,
+      'the range noise the solver squares')
+    /*
+     * 「小于 1e-9 就根本没有答案」 — `position.ts` now exports the floor, which is the only way
+     * this figure can be read back: the solver applies it at **every Gauss-Newton iterate**, so
+     * bisecting a near-collinear layout for the determinant at which it starts answering
+     * measures the iterate's wander and not the constant (it lands around 0.05).
+     */
+    const [mantissa, exp] = raw(text, /小于 (\d+)e-(\d+) 就根本没有答案/,
+      'step 3 on the determinant floor')
+    expect(val(mantissa!) * 10 ** -val(exp!), 'the floor position.ts applies').toBe(MIN_DET)
+    /*
+     * And the sentence's claim as behaviour: three anchors on a line cannot fix a point. The
+     * determinant that goes under the floor is NOT the one at the truth — the rows there are
+     * bearings to three different places and JᵀJ is a healthy 0.055. It is an iterate's: the
+     * fit has nothing to pin it along the line, walks off, and crosses the floor out there.
+     */
+    const line: AnchorPos[] = [1, 2, 3].map((i) => ({ id: `a${i}`, x: i, y: 4, z: ANCHOR_Z }))
+    const ranges = line.map((a) =>
+      ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
+    expect(solvePosition(line, ranges, TAG.z, SIGMA_R), 'the solver has no answer').toBeNull()
+    expect(normalOf(line.map((a) => jRow(TAG.x, TAG.y, a.x, a.y))).det,
+      'though at the truth itself JᵀJ is nowhere near the floor').toBeGreaterThan(MIN_DET)
+    // "½·atan2(2Σ_xy, Σ_xx − Σ_yy) is the tilt of its long axis"
+    const [arity, twice] = figs(text, /½·atan(\d)\((\d)Σ_xy, Σ_xx − Σ_yy\)/,
+      'step 6 on the angle')
+    const fn = (Math as unknown as Record<string, unknown>)[`atan${arity}`]
+    expect(typeof fn, 'the lesson names a function that exists').toBe('function')
+    expect(fn, 'and it is the two-argument arctangent the solver uses').toBe(Math.atan2)
+    const f = exactFix(TAG.x, TAG.y)
+    const n = normalOf(CORNERS.map(([, x, y]) => jRow(TAG.x, TAG.y, x, y)))
+    const s2 = SIGMA_R * SIGMA_R
+    const sxx = (s2 * n.yy) / n.det
+    const sxy = (-s2 * n.xy) / n.det
+    const syy = (s2 * n.xx) / n.det
+    expect(0.5 * Math.atan2(twice! * sxy, sxx - syy),
+      'and that multiplier gives the solver’s own tilt').toBeCloseTo(f.ellipse.thetaRad, 12)
+  })
+
+  it('`deeper`: why this room misses 1.00, and what the ellipse does when a corner goes', () => {
+    // "the anchors are at 2.20 m and the phone at 1.00 m, so every row is the horizontal
+    //  shadow of a slanted unit vector, only 0.968 to 0.985 long"
+    const [aZ, tZ, shortest, longest] = raw(DEEP,
+      /锚点在 ([\d.]+) m 而手机在 ([\d.]+) m[\s\S]*?长度只有 ([\d.]+) 到 ([\d.]+)/,
+      '`deeper` on the slanted rows')
+    same(aZ!, ANCHOR_Z, 'the height the anchors hang at')
+    same(tZ!, TAG.z, 'and the height the phone is held at')
+    const lens = CORNERS.map(([, x, y]) => rowLen(TAG.x, TAG.y, x, y))
+    same(shortest!, Math.min(...lens), 'the shortest row this layout gives')
+    same(longest!, Math.max(...lens), 'and the longest')
+    expect(Math.max(...lens), 'all of them short of a full unit vector').toBeLessThan(1)
+    // "the four anchors span 9 × 7 m, and from the phone the bearings are 64.6°, 89.4°,
+    //  95.2° and 110.8° apart"
+    const [w, h] = figs(DEEP, /四个锚点张成 (\d+) × (\d+) m/, '`deeper` on the span')
+    expect(w, 'the width the four corners span')
+      .toBe(Math.max(...CORNERS.map(([, x]) => x)) - Math.min(...CORNERS.map(([, x]) => x)))
+    expect(h, 'and the height')
+      .toBe(Math.max(...CORNERS.map(([, , y]) => y)) - Math.min(...CORNERS.map(([, , y]) => y)))
+    expect(w, 'a rectangle, not a square — which is the sentence’s point').not.toBe(h)
+    const gaps = figs(DEEP, /方位角间隔是 ([\d.]+)°、([\d.]+)°、([\d.]+)° 与 ([\d.]+)°/,
+      '`deeper` on the four bearings')
+    expect([...gaps].sort((a, b) => a - b), 'the gaps this layout really leaves')
+      .toEqual(gapsAt(TAG.x, TAG.y, CORNERS.map(([id]) => id)).map(Number)
+        .sort((a, b) => a - b))
+    // "the room’s centre is no better: 1.0544 against 1.0488"
+    const [centre, atTag] = raw(DEEP, /房间正中还要更差一点：([\d.]+) 对 ([\d.]+)。/,
+      '`deeper` on the room’s centre')
+    const mid = { x: (Math.min(...CORNERS.map(([, x]) => x)) + Math.max(...CORNERS.map(([, x]) => x))) / 2,
+      y: (Math.min(...CORNERS.map(([, , y]) => y)) + Math.max(...CORNERS.map(([, , y]) => y))) / 2 }
+    same(centre!, exactFix(mid.x, mid.y).gdop, 'the GDOP at the middle of the four corners')
+    same(atTag!, exactFix(TAG.x, TAG.y).gdop, 'against the GDOP where the phone stands')
+    expect(val(centre!), 'and the middle really is the worse of the two')
+      .toBeGreaterThan(val(atTag!))
+    // the ellipse, axis by axis, on four anchors and on three
+    const four = exactFix(TAG.x, TAG.y)
+    const three = exactFix(TAG.x, TAG.y, 'anchor-4')
+    const [a4, b4, tilt4, ratio4] = raw(DEEP,
+      /四个锚点时椭圆是 ([\d.]+) × ([\d.]+) cm[\s\S]*?与 \+x 轴成 −([\d.]+)°，长短轴之比 ([\d.]+)/,
+      '`deeper` on the four-anchor ellipse')
+    same(a4!, four.ellipse.a * 100, 'its long semi-axis')
+    same(b4!, four.ellipse.b * 100, 'its short one')
+    same(tilt4!, -((four.ellipse.thetaRad * 180) / Math.PI), 'the tilt of its long axis')
+    same(ratio4!, four.ellipse.a / four.ellipse.b, 'and the ratio between the two')
+    const [scale, drawn] = raw(DEEP, /场景把它放大(.)倍来画——长半轴 (\d+) cm/,
+      '`deeper` on how the scene draws it')
+    expect(zhNum(scale!), 'the factor scene.ts draws it at').toBe(ELLIPSE_DRAW_SCALE)
+    expect(val(drawn!), 'and the semi-axis that gives on screen')
+      .toBe(Number((four.ellipse.a * ELLIPSE_DRAW_SCALE * 100).toFixed(0)))
+    const [aPanel, bPanel] = raw(DEEP, /检视面板照实印出 ([\d.]+) × ([\d.]+) cm/,
+      '`deeper` on what the inspector prints instead')
+    expect(`${aPanel} × ${bPanel} cm`, 'the inspector prints the true size')
+      .toBe(uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.uwb).ellipse)
+    const [a3, b3, ratio3, tilt3] = raw(DEEP,
+      /它增大到 ([\d.]+) × ([\d.]+) cm，比值变成 ([\d.]+)，长轴摆到 \+([\d.]+)°/,
+      '`deeper` on the three-anchor ellipse')
+    same(a3!, three.ellipse.a * 100, 'its long semi-axis')
+    same(b3!, three.ellipse.b * 100, 'its short one')
+    same(ratio3!, three.ellipse.a / three.ellipse.b, 'the ratio between them')
+    same(tilt3!, (three.ellipse.thetaRad * 180) / Math.PI, 'and where its long axis swung to')
+    expect(three.ellipse.a, 'it really did grow').toBeGreaterThan(four.ellipse.a)
+    expect(three.ellipse.a / three.ellipse.b, 'and really did stretch')
+      .toBeGreaterThan(four.ellipse.a / four.ellipse.b)
   })
 })

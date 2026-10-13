@@ -34,11 +34,12 @@ import {
   pdoaRad, trueAzimuthDeg, wavelengthM,
 } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
-import { UWB_CHANNEL_MHZ } from '../../src/uwb/phy'
+import { C_M_PER_NS, UWB_CHANNEL_MHZ, tsNoiseScale } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { uwbAoaRows, uwbFixRow, uwbRangeRows } from '../../src/uwb/ui/rows'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
 /** Seven blocks, the window every UWB lesson measures over: one DS round per 200 ms block. */
@@ -716,5 +717,419 @@ describe('uwb-aoa · multipath cannot move a bearing, and the reason is structur
     for (const v of ['base', 'off45', 'off60', 'behind'] as const) {
       expect(ofType(recs(v), 'UWB_ECHO')).toHaveLength(0)
     }
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Two of this lesson's tables were already read-backs — the log-line table's cells are
+ * `fmtRecord` of the records they quote, and the worked example's are built out of round 0 —
+ * so forty of the 136 printed figures were already watched. The prose was not: the figures in
+ * `picture`, in the formula notes, in the three-spot table's labels, in `deeper`, `limits`,
+ * `sources`, `tryThis` and the quiz all had their twin typed on this side of the file.
+ *
+ * Nothing new is measured here. Every assertion calls the same `recs`, `fixErrM`,
+ * `ancRangeErrM`, `split`, `crossSigmaM`, `runExtra`, `wavelengthM`, `antennaSpacingM`,
+ * `pdoaRad`, `azimuthFromPdoaDeg`, `aoaSigmaDeg` and `trueAzimuthDeg` the tests above call —
+ * the figure is parsed **out of the lesson** instead of being written down beside it.
+ */
+describe('uwb-aoa · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(uwbAoa.numbers)
+  const DEEP = blockText(uwbAoa.deeper)
+  const LIMITS = blockText(uwbAoa.limits)
+  const SRC = blockText(uwbAoa.sources)
+  const TRY = blockText(uwbAoa.tryThis)
+  const QUIZ = blockText(uwbAoa.quiz)
+
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`)
+      .not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const zh = (s: string): number => {
+    const n = zhNumeral(s.replace(/两/g, '二'))
+    expect(n, `「${s}」 is not a numeral this file knows how to read`).not.toBeNull()
+    return n!
+  }
+  const CH = uwbAoa.scenario().uwb!.channel
+  const ANC_POS = { x: ANCHOR_X, y: ANCHOR_Y, z: ANCHOR_Z }
+  const truthAt = (v: UwbAoaVariant, yaw = YAW_IN): number =>
+    trueAzimuthDeg(ANC_POS, yaw, { ...tagXY(v), z: TAG_Z })
+  const SIGMA_R_M = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
+
+  it('the carrier, the spacing and the channel they belong to — in the note and in `deeper`', () => {
+    for (const [text, re, what] of [
+      [NUMS, /在信道 (\d) 上，就是 ([\d.]+) cm 载波下相距 ([\d.]+) cm 的两根天线/, 'the formula’s note'],
+      [DEEP, /信道 (\d) 的载波是 ([\d.]+) cm，天线间距 ([\d.]+) cm/, '`deeper`'],
+    ] as const) {
+      const [ch, lambda, spacing] = raw(text, re, `${what} on the antennas`)
+      expect(val(ch!), `${what}: the channel this scene runs`).toBe(CH)
+      same(lambda!, wavelengthM(CH) * 100, `${what}: the carrier that channel has`)
+      same(spacing!, antennaSpacingM(CH) * 100, `${what}: and the spacing aoa.ts uses`)
+    }
+    // "channel 5's are 4.62 cm and 2.31 cm" — the other channel, and only the ratio matters
+    const [other, oLambda, oSpacing] = raw(DEEP, /信道 (\d) 则是 ([\d.]+) cm 与 ([\d.]+) cm/,
+      '`deeper` on the other channel')
+    expect(val(other!), 'a channel this engine carries').not.toBe(CH)
+    same(oLambda!, wavelengthM(val(other!) as 5 | 9) * 100, 'its carrier')
+    same(oSpacing!, antennaSpacingM(val(other!) as 5 | 9) * 100, 'and its spacing')
+    const [half] = figs(NUMS, /相距 λ\/(\d) 的两根天线/, 'step 3 on the spacing')
+    expect(antennaSpacingM(CH) * half!, 'the spacing really is that fraction of the carrier')
+      .toBeCloseTo(wavelengthM(CH), 12)
+    expect(antennaSpacingM(val(other!) as 5 | 9) * half!, 'on the other channel too')
+      .toBeCloseTo(wavelengthM(val(other!) as 5 | 9), 12)
+    // "45° off boresight is 2.221 rad, 60° is 2.721 rad" — the same on both channels
+    const [a1, p1, a2, p2] = raw(DEEP,
+      /偏离正前方 (\d+)° 时 ([\d.]+) rad，(\d+)° 时 ([\d.]+) rad/, '`deeper` on the two phases')
+    for (const [deg, rad] of [[a1!, p1!], [a2!, p2!]] as const) {
+      same(rad, Math.abs(pdoaRad(-val(deg), CH)), `${deg}° off boresight: the phase it gives`)
+      expect(pdoaRad(-val(deg), val(other!) as 5 | 9), `${deg}°: and the other channel agrees`)
+        .toBeCloseTo(pdoaRad(-val(deg), CH), 12)
+    }
+    // "behind the anchor the sine repeats: sin(180° − θ) = sin θ"
+    const [turn] = figs(DEEP, /sin\((\d+)° − θ\) = sin θ/, '`deeper` on the mirror')
+    for (const t of [10, 45, 60, 80]) {
+      expect(Math.sin(((turn! - t) * Math.PI) / 180), `${t}°: the identity really holds`)
+        .toBeCloseTo(Math.sin((t * Math.PI) / 180), 12)
+    }
+  })
+
+  it('the phase noise, what it is in degrees, and the bearing noise it inverts to', () => {
+    const [rad, deg, ahead] = raw(NUMS,
+      /相位噪声，([\d.]+) rad，约合 ([\d.]+)°。正前方它反解出 ([\d.]+)° 的方位角噪声/,
+      'the second formula’s note')
+    same(rad!, AOA_SIGMA_PHI_RAD, 'the phase noise aoa.ts carries')
+    same(deg!, (AOA_SIGMA_PHI_RAD * 180) / Math.PI, 'the same thing in degrees')
+    same(ahead!, aoaSigmaDeg(0), 'and the bearing noise it inverts to at boresight')
+    // the same constant in `sources`, in `limits` and in step 3
+    for (const [text, re, what] of [
+      [SRC, /σ_φ = ([\d.]+) rad 的相位测量/, '`sources`'],
+      [LIMITS, /σ_φ = ([\d.]+) rad 是 aoa\.ts/, '`limits`'],
+      [NUMS, /接收机相位噪声的抽样，σ_φ = ([\d.]+) rad/, 'step 3'],
+    ] as const) same(raw(text, re, what)[0]!, AOA_SIGMA_PHI_RAD, `${what}: the phase noise`)
+    // the three σ_θ `deeper` and the quiz quote, each at the spot it belongs to
+    const spots: UwbAoaVariant[] = ['base', 'off45', 'off60']
+    const three = figs(DEEP, /模型在真实方位角处的 σ_θ 是 ([\d.]+)°、([\d.]+)° 与 ([\d.]+)°/,
+      '`deeper` on the three σ_θ')
+    three.forEach((s, i) => {
+      same(String(s), aoaSigmaDeg(truthAt(spots[i]!)), `${spots[i]}: the σ_θ at its true azimuth`)
+      same(cell(0, i, 2).replace('°', ''), aoaSigmaDeg(truthAt(spots[i]!)),
+        `${spots[i]}: and the table’s own cell`)
+    })
+    const [qAhead, qDeg, qThere] = raw(QUIZ,
+      /σ_φ\/\(π·cos θ\) 正前方 ([\d.]+)°，(\d+)° 处 ([\d.]+)°/, 'the first answer')
+    same(qAhead!, aoaSigmaDeg(0), 'the quiz: the σ_θ at boresight')
+    same(qThere!, aoaSigmaDeg(-val(qDeg!)), 'and the σ_θ at the angle it names')
+    expect(val(qThere!), 'which really is the larger of the two').toBeGreaterThan(val(qAhead!))
+    // the inspector's ± is the LAST bearing's, not the spot's — three readings, three runs
+    const panel = figs(DEEP, /分别读作 ± ([\d.]+)°、± ([\d.]+)° 与 ± ([\d.]+)°/,
+      '`deeper` on what the inspector shows')
+    panel.forEach((p, i) => {
+      const vs = initViewState(scenarioOf(spots[i]!))
+      for (const r of recs(spots[i]!)) applyRecord(vs, r)
+      expect(uwbAoaRows(vs.nodes[ANC].uwb!)[0]!.sigma, `${spots[i]}: the row the panel shows`)
+        .toBe(`± ${p.toFixed(1)}°`)
+    })
+  })
+
+  it('the three spots: where each stands, its true bearing, and what seven rounds give', () => {
+    const spots: UwbAoaVariant[] = ['base', 'off45', 'off60']
+    const [oneSigma] = figs(blockText(table(0).head), /横向 (\d)-σ/, 'the cross-range column head')
+    spots.forEach((v, i) => {
+      // the label: "straight ahead, 2 m" / "45° right, 4 m" / "60° right, 5 m"
+      const label = cell(0, i, 0)
+      const off = /右偏 (\d+)°/.exec(label)
+      const [range] = raw(label, /(?:，|方 )([\d.]+) m$/, `row ${i}: the distance in the label`)
+      same(range!, SPOTS[v].rangeM, `row ${i}: the distance that scene puts the badge at`)
+      if (off !== null) {
+        expect(val(off[1]!), `row ${i}: how far off boresight the label says`)
+          .toBe(SPOTS[v].offBoresightDeg)
+      }
+      // the true azimuth cell, and the bearing the run reports as true
+      const truth = truthAt(v)
+      same(cell(0, i, 1).replace('°', ''), truth, `row ${i}: the true azimuth`)
+      for (const a of ofType(recs(v), 'UWB_AOA')) {
+        same(cell(0, i, 1).replace('°', ''), a.trueThetaDeg,
+          `row ${i}: and every record agrees about it`)
+      }
+      // the cross-range column is rh · σ_θ, at the multiple its own head names
+      same(cell(0, i, 3).replace(' cm', ''), oneSigma! * crossSigmaM(v) * 100,
+        `row ${i}: the cross-range 1-σ`)
+      // the fix-error cell: the range of the seven, and their mean
+      const [lo, hi, avg] = raw(cell(0, i, 5), /([\d.]+)–([\d.]+) cm，平均 ([\d.]+)/,
+        `row ${i}: the fix-error cell`)
+      const errs = fixErrM(recs(v)).map((e) => e * 100)
+      expect(errs, `row ${i}: seven rounds`).toHaveLength(BLOCKS)
+      same(lo!, Math.min(...errs), `row ${i}: the best of the seven`)
+      same(hi!, Math.max(...errs), `row ${i}: the worst`)
+      same(avg!, mean(errs), `row ${i}: and their mean`)
+      // the ranging-error cell is the same in all three rows, which is the table's whole point
+      same(cell(0, i, 4).replace(' cm', ''), mean(ancRangeErrM(recs(v))) * 100,
+        `row ${i}: the ranging error`)
+      expect(cell(0, i, 4), `row ${i}: unchanged across the three rows`).toBe(cell(0, 0, 4))
+    })
+    // the ellipse column: the two semi-axes the records carry
+    spots.forEach((v, i) => {
+      const [a, b] = raw(cell(0, i, 6), /([\d.]+) × ([\d.]+) cm/, `row ${i}: the ellipse cell`)
+      // the FIRST fix of the run, which is the one the column was taken from
+      const f0 = ofType(recs(v), 'UWB_POSITION')[0]!
+      same(a!, f0.ellipse.a * 100, `row ${i}: the long semi-axis`)
+      same(b!, f0.ellipse.b * 100, `row ${i}: and the short one`)
+      same(b!, SIGMA_R_M * 100, `row ${i}: which is the range σ and never moves`)
+    })
+    // the two experiment labels are the two variants, by what they put the badge at
+    const [d45, a45, d60, a60] = figs(TRY, /载入“(\d) m 处 (\d+)°”，再载入“(\d) m 处 (\d+)°”/,
+      '`tryThis` on the two spots')
+    expect([d45, a45], 'the first scene it names')
+      .toEqual([SPOTS.off45.rangeM, SPOTS.off45.offBoresightDeg])
+    expect([d60, a60], 'and the second')
+      .toEqual([SPOTS.off60.rangeM, SPOTS.off60.offBoresightDeg])
+    expect(uwbAoa.variants![V.off45]!.label, 'the first is a variant label')
+      .toBe(`${d45} m 处 ${a45}°`)
+    expect(uwbAoa.variants![V.off60]!.label, 'and so is the second')
+      .toBe(`${d60} m 处 ${a60}°`)
+  })
+
+  it('the height correction, in metres and in the centimetres it would have cost', () => {
+    const [slant, plan, off] = raw(NUMS,
+      /射频量到 ([\d.]+) m，平面图上是 ([\d.]+) m。原样平着走出去，会把点钉远 ([\d.]+) cm/,
+      '`numbers` on the height correction')
+    const dz = ANCHOR_Z - TAG_Z
+    same(slant!, Math.hypot(SPOTS.off45.rangeM, dz), 'the slant range at that spot')
+    same(plan!, SPOTS.off45.rangeM, 'the plan distance it really is')
+    same(off!, (Math.hypot(SPOTS.off45.rangeM, dz) - SPOTS.off45.rangeM) * 100,
+      'and how far out the uncorrected leg would land')
+    // step 2 and the worked example's first row: the badge stands on the boresight
+    same(raw(NUMS, /本场景是 ([\d.]+)°，因为胸牌正站在正前方/, 'step 2')[0]!, truthAt('base'),
+      'the true azimuth of the base scene')
+    // step 6: GDOP is 1.00 by construction, and the along term is the range σ
+    for (const [text, re, what] of [
+      [NUMS, /GDOP 按构造恒为 ([\d.]+)。/, 'step 6'],
+      [DEEP, /这里的 GDOP 恒为 ([\d.]+)、无话可说/, '`deeper`'],
+    ] as const) {
+      const [g] = raw(text, re, `${what} on the GDOP`)
+      for (const f of ofType(recs('base'), 'UWB_POSITION')) {
+        same(g, f.gdop, `${what}: the GDOP every fix of one anchor carries`)
+      }
+    }
+    same(raw(NUMS, /沿射线是距离的 ([\d.]+) cm/, 'step 6 on the along term')[0]!,
+      SIGMA_R_M * 100, 'the range σ the ellipse’s short axis is')
+    // `sources`: σ_r = c · σ_ts / √2 at 100 ps
+    const [sigmaCm] = raw(SRC, /([\d.]+) cm 的测距 σ/, '`sources` on the range σ')
+    const [root, ps] = figs(SRC, /σ_r = c · σ_ts \/ √(\d)，代入 (\d+) ps 的时间戳噪声/,
+      '`sources` on where it comes from')
+    expect(ps, 'the timestamp noise the session carries').toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    same(sigmaCm!, SIGMA_R_M * 100, 'the range σ it gives')
+    expect((C_M_PER_NS * (ps! / 1000)) / Math.sqrt(root!),
+      'and the divisor the formula names').toBeCloseTo(SIGMA_R_M, 12)
+    // `sources` also names the channel the scene runs
+    expect(val(raw(SRC, /场景自己的取值是信道 (\d)/, '`sources` on the scene')[0]!),
+      'the channel it runs on').toBe(CH)
+    // `deeper`: along-track, no fix of the three spots is over 9 cm
+    const [alongCm] = figs(DEEP, /二十一次定位无一超过 (\d+) cm/,
+      '`deeper` on the along-track error')
+    const alongs = (['base', 'off45', 'off60'] as UwbAoaVariant[])
+      .flatMap((v) => split(recs(v), v).along.map(Math.abs))
+    expect(alongs, 'twenty-one fixes').toHaveLength(3 * BLOCKS)
+    expect(Math.ceil(Math.max(...alongs) * 100), 'and the bound is the tightest whole centimetre')
+      .toBe(alongCm)
+  })
+
+  it('the two clamps, where each begins to bite, and the spot `deeper` sends the badge to', () => {
+    // the azimuth clamp: ±90°, wherever the lesson names it
+    for (const [text, re, what] of [
+      [NUMS, /截断在 ±(\d+)°/, 'the formula'],
+      [NUMS, /θ̂ = asin\(φ\/π\)，截断在 ±(\d+)°/, 'step 4'],
+      [DEEP, /读数被钉在 ±([\d.]+)° 时/, '`deeper`'],
+      [LIMITS, /读数被钉成 ±([\d.]+)°/, '`limits`'],
+      [SRC, /反正弦及其 ±(\d+)° 截断/, '`sources`'],
+      [QUIZ, /是 ±(\d+)° 的截断把读数折了回来/, 'the third question’s first option'],
+    ] as const) {
+      const [clamp] = raw(text, re, `${what} on the azimuth clamp`)
+      same(clamp, azimuthFromPdoaDeg(Math.PI * 1.4, CH), `${what}: where the arc sine is pinned`)
+      same(clamp, -azimuthFromPdoaDeg(-Math.PI * 1.4, CH), `${what}: and on the other side`)
+    }
+    // "azimuthFromPdoaDeg pins the arc sine's argument at ±1" — measured, not transcribed
+    const [arg] = figs(LIMITS, /把反正弦的自变量钉在 ±(\d)/, '`limits` on the argument clamp')
+    expect(azimuthFromPdoaDeg(Math.PI * arg!, CH),
+      'at that argument the reading is already the clamp').toBe(90)
+    let lo = 0
+    let hi = 2
+    for (let i = 0; i < 200; i++) {
+      const mid = (lo + hi) / 2
+      if (azimuthFromPdoaDeg(Math.PI * mid, CH) < 90) lo = mid
+      else hi = mid
+    }
+    expect(Number(hi.toFixed(6)), 'and that is exactly where it starts being pinned').toBe(arg)
+    // the σ_θ clamp: 45°, and the angle at which the formula reaches it
+    for (const [text, re, what] of [
+      [DEEP, /σ_θ 本身也截断在 (\d+)°/, '`deeper`'],
+      [SRC, /σ_θ 的 (\d+)° 截断/, '`sources`'],
+      [LIMITS, /又把 σ_θ 钉在 (\d+)°/, '`limits`'],
+    ] as const) {
+      const [clamp] = raw(text, re, `${what} on the σ_θ clamp`)
+      same(clamp, aoaSigmaDeg(90), `${what}: what σ_θ is pinned at`)
+      expect(val(clamp), 'which is the constant aoa.ts exports').toBe(AOA_SIGMA_CLAMP_DEG)
+    }
+    const [cross] = raw(DEEP, /公式大约在偏离正前方 ±([\d.]+)° 处到达这个值/,
+      '`deeper` on where the formula reaches it')
+    let clo = 0
+    let chi = 90
+    for (let i = 0; i < 200; i++) {
+      const mid = (clo + chi) / 2
+      if (aoaSigmaDeg(mid) < AOA_SIGMA_CLAMP_DEG) clo = mid
+      else chi = mid
+    }
+    same(cross!, clo, 'the angle at which σ_θ first hits its clamp')
+    // the 80° spot: its coordinates, its σ_θ, the pinned readings and the worst ellipse
+    const [sx, sy, sr, sdeg] = raw(DEEP,
+      /把胸牌拖到 \(([\d.]+), ([\d.]+)\)——(\d) m 处偏 (\d+)°——/, '`deeper` on the far spot')
+    const far = {
+      x: ANCHOR_X + val(sr!) * Math.sin((val(sdeg!) * Math.PI) / 180),
+      y: ANCHOR_Y + val(sr!) * Math.cos((val(sdeg!) * Math.PI) / 180),
+    }
+    same(sx!, far.x, 'the x that spot really is')
+    same(sy!, far.y, 'and the y')
+    const [sigma, ofThem, pinned, clampedTo, maxA] = raw(DEEP,
+      /σ_θ 是 ([\d.]+)°，(.+?)个方位角里有(.)个被钉在 −([\d.]+)°，最差的那个椭圆半长轴达 ([\d.]+) m/,
+      '`deeper` on what happens there')
+    same(sigma!, aoaSigmaDeg(-val(sdeg!)), 'the σ_θ at that angle')
+    const base = uwbAoaScenario('base')
+    const run80 = runExtra('off80', () => ({
+      ...base,
+      nodes: base.nodes.map((n): NodeCfg => (n.id === TAG ? { ...n, pos: { ...n.pos, ...far } } : n)),
+    }))
+    const bearings = ofType(run80, 'UWB_AOA')
+    expect(bearings, 'the bearings that run leaves').toHaveLength(zh(ofThem!))
+    const clampDeg = azimuthFromPdoaDeg(Math.PI * 1.4, CH)
+    same(clampedTo!, clampDeg, 'the value the pinned ones are pinned to')
+    expect(bearings.filter((b) => b.thetaDeg === -clampDeg), 'and how many are pinned there')
+      .toHaveLength(zh(pinned!))
+    same(maxA!, Math.max(...ofType(run80, 'UWB_POSITION').map((f) => f.ellipse.a)),
+      'the longest semi-axis that run produces')
+  })
+
+  it('behind the anchor: the azimuth, the bearings it repeats, and where the fixes land', () => {
+    const [behindDeg] = raw(DEEP, /胸牌偏离正前方 ([\d.]+)°/, '`deeper` on the mirror scene')
+    same(behindDeg!, Math.abs(truthAt('behind', YAW_WALL)), 'how far off boresight it then is')
+    // "the fourteen bearings match the base scene to every digit"
+    const behind = ofType(recs('behind'), 'UWB_AOA')
+    const ahead = ofType(recs('base'), 'UWB_AOA')
+    expect(behind, 'as many bearings as the base scene').toHaveLength(ahead.length)
+    behind.forEach((a, i) => {
+      expect(a.thetaDeg, `bearing ${i} comes back as the base scene’s`)
+        .toBeCloseTo(ahead[i]!.thetaDeg, 12)
+    })
+    // "so the seven fixes land near (5.06, −1.47) m, 3.97 to 4.03 m from the badge — twice the
+    //  plan distance, and outside the room"
+    const [fx, fy] = raw(DEEP, /七次定位落在 \(([\d.]+), −([\d.]+)\) m 一带/,
+      '`deeper` on where they land')
+    const fs = ofType(recs('behind'), 'UWB_POSITION')
+    expect(fs, 'seven of them').toHaveLength(BLOCKS)
+    // the first of the seven, which is what 「一带」 refers to: the others sit within a few
+    // centimetres of it, and that is checked below by the spread of their distances
+    same(fx!, fs[0]!.x, 'the x the first of them lands at')
+    same(fy!, -fs[0]!.y, 'and the y')
+    for (const f of fs) {
+      expect(Math.hypot(f.x - fs[0]!.x, f.y - fs[0]!.y), 'and the rest land thereabouts')
+        .toBeLessThan(0.3)
+    }
+    const [dLo, dHi, times] = raw(DEEP, /离胸牌 ([\d.]+) 到 ([\d.]+) m——正是平面距离的(.)倍/,
+      '`deeper` on how far off they are')
+    const offs = fs.map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
+    same(dLo!, Math.min(...offs), 'the closest of the seven')
+    same(dHi!, Math.max(...offs), 'and the furthest')
+    expect(mean(offs) / SPOTS.behind.rangeM, 'which is that multiple of the plan distance')
+      .toBeCloseTo(zh(times!), 1)
+    expect(Math.min(...fs.map((f) => f.y)), 'and it is outside the room')
+      .toBeLessThan(0)
+  })
+
+  /*
+   * **A table's read-back has to cover the LABEL column too.**
+   *
+   * Both of this lesson's already-read-back tables check column 1 — the log-line table's cells
+   * are `fmtRecord` of the records they quote, the worked example's are built out of round 0 —
+   * and neither ever looks at column 0. The sweep of 2026-10-13 planted four figures that live
+   * there with the suite green: the instant of each of the two bearings, the height that comes
+   * out of the range, and the anchor's own Facing. Each is read here off the label that prints it.
+   */
+  it('the label column of both tables: the two instants, the height and the Facing', () => {
+    const as = ofType(recs('base'), 'UWB_AOA')
+    same(raw(cell(1, 0, 0), /首个方位角，([\d.]+) µs 处/, 'the first row’s label')[0]!,
+      as[0]!.t / 1000, 'when the first bearing was measured')
+    const [second] = raw(cell(1, 1, 0), /第二个，来自 Final，([\d. ]+) ms 处/,
+      'the second row’s label')
+    same(second!, as[1]!.t / 1e6, 'and when the second was')
+    expect(as[1]!.t, 'which is the one the Final carried, later in the round')
+      .toBeGreaterThan(as[0]!.t)
+    // the worked example's own two labels
+    const ws = uwbAoa.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+    const label = (row: number): string => ws[ws.length - 1]!.rows[row]![0]!
+    same(raw(label(5), /扣掉 Δz = ([\d.]+) m/, 'the height row’s label')[0]!,
+      ANCHOR_Z - TAG_Z, 'the height that comes out of the range')
+    const [facing] = figs(label(6), /沿 (\d+)° \+ θ̂ 走出去/, 'the leg row’s label')
+    expect(facing, 'the Facing the leg is walked from')
+      .toBe(uwbAoa.scenario().nodes[0]!.uwb!.yawDeg)
+    expect(facing, 'which is the one the scene ships').toBe(YAW_IN)
+  })
+
+  it('the inspector’s range row, and the two tallies the last questions quote', () => {
+    const vs = initViewState(uwbAoa.scenario())
+    for (const r of recs('base')) applyRecord(vs, r)
+    const row = uwbRangeRows(vs.nodes[ANC].uwb!, STRINGS.uwb)[0]!
+    const [measured, truth, diff, rounds] = raw(DEEP,
+      /距离读作 ([\d.]+) m，真值 ([\d.]+)，差 −([\d.]+) cm，(.)轮 DS-TWR/,
+      '`deeper` on the range row beside it')
+    expect(row.measured, 'what the panel shows as measured').toBe(`${measured} m`)
+    expect(row.trueDist, 'and as true').toBe(`${truth} m`)
+    expect(row.error, 'and the difference between them').toBe(`-${diff} cm`)
+    expect(row.rounds, 'over that many rounds').toBe(String(zh(rounds!)))
+    // the second question: the mean fix error at the furthest spot, and its range error
+    const [fixCm, rangeCm] = figs(QUIZ, /定位平均偏 (\d+) cm，它的距离却准到 (\d+) cm/,
+      'the second question')
+    same(String(fixCm), mean(fixErrM(recs('off60'))) * 100, 'the mean fix error there')
+    same(String(rangeCm), mean(ancRangeErrM(recs('off60'))) * 100, 'and its mean range error')
+    expect(fixCm, 'the fix error really is the larger').toBeGreaterThan(rangeCm!)
+    same(raw(QUIZ, /rh·σ_θ 是 ([\d.]+) cm，正是椭圆的长轴/, 'the second answer')[0]!,
+      crossSigmaM('off60') * 100, 'the cross-range 1-σ it names')
+    // 「正是椭圆的长轴」 names WHICH axis it is, and that is checkable per round: each
+    // fix's long semi-axis is its own leg times σ_θ, and its short one is the range σ
+    for (const f of ofType(recs('off60'), 'UWB_POSITION')) {
+      const leg = Math.hypot(f.trueX - ANCHOR_X, f.trueY - ANCHOR_Y)
+      expect(f.ellipse.a, 'the long axis is the cross-range term')
+        .toBeGreaterThan(0.8 * leg * aoaSigmaDeg(truthAt('off60')) * (Math.PI / 180))
+      expect(f.ellipse.b, 'and the short one is the range σ').toBeCloseTo(SIGMA_R_M, 12)
+      expect(f.ellipse.a, 'so the ellipse really does lie across the line of sight')
+        .toBeGreaterThan(f.ellipse.b)
+    }
+    // `limits`: the timestamp σ is scaled by SINR and the phase σ is not
+    const [sigmaMult, upTo] = raw(LIMITS, /时间戳的 (\d)σ 会按信干噪比放大最多(.)倍/,
+      '`limits` on what scales and what does not')
+    expect(val(sigmaMult!), 'the multiple of σ that line is about').toBe(1)
+    const scales = Array.from({ length: 81 }, (_x, i) => tsNoiseScale(i - 20))
+    expect(Math.max(...scales) / Math.min(...scales), 'the range tsNoiseScale spans')
+      .toBeCloseTo(zh(upTo!), 6)
   })
 })

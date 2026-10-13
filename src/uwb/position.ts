@@ -34,9 +34,16 @@ export function rangeSigmaM(tsNoisePs: number): number {
 
 const MAX_ITERATIONS = 20
 const STEP_TOL_M = 1e-3
-// Below this, JtJ (rows are unit vectors, so O(1)-scaled) is treated as singular:
-// collinear/degenerate anchor geometry cannot fix a 2-D point.
-const MIN_DET = 1e-9
+/**
+ * Below this, JtJ (rows are unit vectors, so O(1)-scaled) is treated as singular:
+ * collinear/degenerate anchor geometry cannot fix a 2-D point. model
+ *
+ * Exported because `@uwb-geometry` prints it (「小于 1e-9 就根本没有答案」) and the figure cannot
+ * be read back any other way: the test is applied at every Gauss-Newton iterate, not at the
+ * truth, so measuring the determinant at which a near-collinear layout starts answering
+ * measures the iterate's wander instead of this constant.
+ */
+export const MIN_DET = 1e-9
 
 interface NormalEquations {
   jtjXX: number
