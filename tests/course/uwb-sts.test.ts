@@ -15,7 +15,9 @@ import { uwbSts, uwbStsScenario, uwbStsSequence, HONEST_20_M, SPOOFED_M, RELAY_A
 import { uwbIntro, uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
 import { DEFAULT_UWB_SESSION, ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { C_M_PER_NS, PSYM_CHIPS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS } from '../../src/uwb/phy'
+import {
+  C_M_PER_NS, PSYM_CHIPS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_CHIP_HZ,
+} from '../../src/uwb/phy'
 import { uwbPpduLayout } from '../../src/uwb/frameFields'
 import { chipsToNs } from '../../src/uwb/units'
 import { ratioSigma } from '../../src/uwb/mms'
@@ -363,5 +365,315 @@ describe('uwb-sts · what the try-this experiments ask for', () => {
     expect(src).toContain('scenario.uwb.stsOff')
     expect(src).toContain('15.650 ps')
     expect(src).toContain('0.299792458 m/ns')
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This file measures the attack to the tick — and compares it with figures typed here, the
+ * lesson's own sentence quoted in a comment. The sampling sweep of 2026-10-12 scored the lesson
+ * 5 of 6.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the whole lesson is one figure and its consequences**, so it is read that way: the relay's
+ *    advance is the scene's own `stsAdvanceNs`, and every other figure in the lesson is derived
+ *    from it — the ticks it is worth, the metres it is worth, the ranges the two rounds report,
+ *    and the difference between them.
+ *  - **the four counters are read as two subtractions.** 「4267 − 1072 = 3195 RCTU」 is the round
+ *    trip against the reply, both read off the table's own cells, and the difference has to be
+ *    the advance in ticks.
+ *  - **the quiz's three wrong answers are read too**, because each is a figure: 7.5 m is the
+ *    advance halved, 15 m is it unhalved, 30 m is it doubled — and the right answer is what the
+ *    engine actually loses.
+ */
+describe('uwb-sts · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbSts.picture)
+  const NUMS = blockText(uwbSts.numbers)
+  const DEEP = blockText(uwbSts.deeper)
+  const SRC = blockText(uwbSts.sources)
+  const LIM = blockText(uwbSts.limits)
+  const OBS = blockText(uwbSts.observe)
+  const TRY = blockText(uwbSts.tryThis)
+  const QUIZ = blockText(uwbSts.quiz)
+  const ALL = [PIC, NUMS, DEEP, SRC, LIM, OBS, TRY, QUIZ].join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...text.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((mm) => mm.slice(1))
+  }
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const occ = (text: string, needle: string): number => text.split(needle).length - 1
+  /** One counter tick, in picoseconds — the unit this lesson counts the advance in. */
+  const TICK_PS = RCTU_NS * 1000
+  const tableOf = (needle: string): string[][] => {
+    const b = uwbSts.numbers!.find((x) => x.kind === 'table'
+      && (x as { heading?: string }).heading?.includes(needle))
+    expect(b, `no table whose heading contains 「${needle}」`).toBeDefined()
+    return (b as { rows: string[][] }).rows
+  }
+  /** The advance the relay gives every reception of the round, out of the scene itself. */
+  const advanceNs = uwbSts.variants![V_OFF]!.scenario().uwb!.attacker!.advanceNs!
+  const rangeOf = (variant?: number): Extract<TLRecord, { type: 'UWB_RANGE' }> | undefined =>
+    ofType(recs(variant), 'UWB_RANGE')[0]
+
+  it('reads the advance, every printing of it, and what it is worth in metres', () => {
+    // 「50 ns」 is printed nine times across the lesson; each one is the scene's own advance.
+    // Only the short ones: the lesson also prints a counter instant in nanoseconds, and that
+    // is a figure of its own (read in the observe test below).
+    for (const [ns] of every(ALL, /(?<!\d )(?<![\d.])(\d{1,3}(?:\.\d)?) ns/g,
+      'every printing of the advance in nanoseconds', 15)) {
+      expect([advanceNs, Number(advanceNs.toFixed(1))], `「${ns} ns」`).toContain(val(ns!))
+    }
+    // 「50 ns × 0.299792458 m/ns = 14.99 m」
+    const [ns, c, m] = figs(NUMS, /([\d.]+) ns × ([\d.]+) m\/ns = ([\d.]+) m/, 'the advance in metres')
+    expect(ns, 'the advance').toBe(advanceNs)
+    expect(c, 'the speed of light').toBe(C_M_PER_NS)
+    same(String(m), ns! * c!, 'what the advance is worth in metres')
+    // …and that is exactly what the attacked round loses against the honest one.
+    const honest = rangeOf(V_HONEST_20)!
+    const spoofed = rangeOf(V_OFF)!
+    same(String(m), honest.distM - spoofed.distM, 'and what the attacked round really loses')
+  })
+
+  it('reads the picture’s own four distances, which the prose prints again later', () => {
+    /*
+     * **Four of the twelve the sweep of 2026-10-13 found were in `picture`** — the same figures
+     * the tables and the formula print, said once more in the opening prose. A second printing is
+     * its own site, which is this programme's third-oldest rule and still its most productive.
+     */
+    const honestM = rangeOf(V_HONEST_20)!.distM
+    const spoofedM = rangeOf(V_OFF)!.distM
+    same(raw(PIC, /测距行报出 ([\d.]+) m/, '`picture` on the honest range')[0]!, honestM,
+      'the honest range, in `picture`')
+    same(raw(PIC, /于是同一个房间报出 ([\d.]+) m/, '`picture` on the spoofed range')[0]!, spoofedM,
+      'and the spoofed one')
+    same(raw(NUMS, /凭空少掉手机从未走过的 ([\d.]+) m/, '`numbers` on what is lost')[0]!,
+      honestM - spoofedM, 'what the attack takes off the reading')
+    const [roomM] = figs(NUMS, /两个变体都站在 (\d+) m 的原因/, '`numbers` on why both rooms are 20 m')
+    expect(roomM, 'the room both attacked variants stand in')
+      .toBe(Math.round(rangeOf(V_OFF)!.trueDistM))
+  })
+
+  it('reads the ticks the advance is worth, every printing of them', () => {
+    // 「时间戳因此偏低 3195 格」 and four more printings of the same figure.
+    const inTicks = Math.round((advanceNs * 1000) / TICK_PS)
+    for (const [ticks] of every(ALL, /(?<![\d.])(\d{3,4}) (?:格|RCTU)/g,
+      'every printing of a figure in ticks', 8)) {
+      expect([inTicks, 4267, 1072], `「${ticks}」`).toContain(val(ticks!))
+    }
+    const [low] = figs(NUMS, /时间戳因此偏低 ([\d,]+) 格/, '`numbers` on the ticks')
+    expect(low, 'the ticks fifty nanoseconds is')
+      .toBe(Math.round((advanceNs * 1000) / TICK_PS))
+    // 「一格就是一个 RCTU……15.650 ps」, and the same tick in the table and in `sources`.
+    for (const [ps] of every(ALL, /([\d.]+) ps/g, 'every printing of the tick', 4)) {
+      expect([Number(TICK_PS.toFixed(3)), 100], `「${ps} ps」`).toContain(val(ps!))
+    }
+    // `sources` derives the tick from the chip rate: 「一个 RCTU 是 499.2 MHz 码片的 2⁻⁷」
+    const [mhz, base, derived] = figs(SRC,
+      /一个 RCTU 是 ([\d.]+) MHz 码片的 (\d+)⁻⁷，即 ([\d.]+) ps/, '`sources` on the tick’s derivation')
+    expect(mhz! * 1e6, 'the chip rate').toBe(UWB_CHIP_HZ)
+    expect(base, 'a binary fraction of it').toBe(2)
+    same(String(derived), (1e12 / (mhz! * 1e6)) / base! ** 7, 'the tick that fraction gives')
+    same(String(derived), TICK_PS, 'which is the tick the engine uses')
+    // 「往返时间降了 3195 格，作答时间升了 3195 格；两者之差折半」
+    const [down, up] = figs(NUMS, /往返时间降了 ([\d,]+) 格，作答时间升了 ([\d,]+) 格/,
+      '`numbers` on the two movements')
+    expect([down, up], 'both move by the advance’s own ticks').toEqual([low, low])
+  })
+
+  it('reads the counter table as the two subtractions it is', () => {
+    const rows = tableOf('换成计数单位')
+    const flat = rows.map((r) => r.join(' · ')).join('\n')
+    /*
+     * **The four counter values are the run's own stamps** — and they were the only four figures
+     * of this lesson with no equal literal anywhere under `tests/`, which is the sweep's own way
+     * of saying nothing had ever looked at them. Each is a `UWB_TS` counter: two rows, two
+     * columns, the honest 20 m room against the relayed one.
+     */
+    const stampsOf = (variant?: number): number[] =>
+      ofType(recs(variant), 'UWB_TS').map((r) => r.counter)
+    const honest = stampsOf(V_HONEST_20)
+    const relayed = stampsOf(V_OFF)
+    const rxRows = rows.filter((r) => r[0]!.includes('RX RMARKER'))
+    expect(rxRows.length, 'the two receive stamps the table prints').toBe(2)
+    rxRows.forEach((row, i) => {
+      // The anchor's receive stamp is the second of the four, the tag's the fourth.
+      const idx = [1, 3][i]!
+      expect(val(row[1]!), `the honest counter of 「${row[0]}」`).toBe(honest[idx])
+      expect(val(row[2]!), `and the relayed one`).toBe(relayed[idx])
+      expect(counterDiff(honest[idx]!, relayed[idx]!),
+        `and the relayed stamp is the advance low`).toBe(Math.round((advanceNs * 1000) / TICK_PS))
+    })
+    const counters = [...flat.matchAll(/([\d]{2,3}(?: \d{3})+)/g)].map((mm) => val(mm[1]!))
+    expect(counters.length, 'the four counters the table prints').toBeGreaterThanOrEqual(4)
+    const [roundTrip, reply] = figs(NUMS, /([\d,]+) − ([\d,]+) = ([\d,]+) RCTU/, 'the subtraction')
+    const [, , diff] = figs(NUMS, /([\d,]+) − ([\d,]+) = ([\d,]+) RCTU/, 'the subtraction’s result')
+    expect(roundTrip! - reply!, 'the arithmetic the line prints').toBe(diff)
+    expect(diff, 'which is the advance in ticks').toBe(Math.round((advanceNs * 1000) / TICK_PS))
+    // 「3195 RCTU = 50.0 ns」 and 「15.650 ps per RCTU」 in the table's own cells.
+    const [tableTicks, tableNs] = figs(flat, /([\d,]+) RCTU = ([\d.]+) ns/, 'the table on the advance')
+    expect(tableTicks, 'the ticks').toBe(diff)
+    same(String(tableNs), (tableTicks! * TICK_PS) / 1000, 'and the nanoseconds they are')
+    same(raw(flat, /([\d.]+) ps per RCTU/, 'the table on the tick')[0]!, TICK_PS, 'one tick')
+    // 「19.95 m − 4.96 m = 14.99 m」
+    const [honestM, spoofedM, lostM] = figs(NUMS, /([\d.]+) m − ([\d.]+) m = ([\d.]+) m/,
+      'the subtraction in metres')
+    same(String(honestM), rangeOf(V_HONEST_20)!.distM, 'the honest range')
+    same(String(spoofedM), rangeOf(V_OFF)!.distM, 'the spoofed one')
+    expect(honestM! - spoofedM!, 'and their difference').toBeCloseTo(lostM!, 2)
+    // 「(Tround − Treply) / 2」
+    const [half] = figs(NUMS, /und − Treply\) \/ (\d+)/, 'the formula’s own divisor')
+    expect(half, 'a round trip is two flights').toBe(2)
+  })
+
+  it('reads the three rooms, the three ranges and the outcome table', () => {
+    const rows = tableOf('三种结局')
+    // 「诚实的 20 m（第三个变体）」 and the two attacked rooms: every room is a measured distance.
+    for (const [m] of every(ALL, /(\d+) m 的房间|诚实的 (\d+) m|真值是 ([\d.]+) m|放在 (\d+) m 上/g,
+      'every room the lesson names', 6).map((g) => [g.find((x) => x !== undefined)!])) {
+      expect([5, 20], `「${m} m」`).toContain(Math.round(val(m!)))
+    }
+    const honest = rangeOf(V_HONEST_20)!
+    expect(Math.round(honest.trueDistM), 'the honest room’s own distance').toBe(20)
+    // The table's three ranges, each against its own run.
+    /*
+     * **The table's three rows are the base scene first**, then the two relayed ones — the
+     * honest 20 m room is the counter table's column, not a row of this one. Its third row
+     * prints no range at all, which the run has to agree with.
+     */
+    const want: (number | undefined)[] = [
+      rangeOf(undefined)?.distM, rangeOf(V_OFF)?.distM, rangeOf(V_ON)?.distM,
+    ]
+    for (const [i, row] of rows.entries()) {
+      const printed = /([\d.]+) m$/.exec(row[2]!)
+      const measured = want[i]
+      if (printed === null) {
+        expect(row[2], `row ${i} says so in words`).toBe('没有')
+        expect(measured, `row ${i} prints no range, so the run must give none`).toBeUndefined()
+        continue
+      }
+      expect(measured, `row ${i} prints a range, so the run must give one`).toBeDefined()
+      same(printed[1]!, measured!, `the range of row ${i}`)
+      // …and the row's own 「真值」 column is that run's true distance.
+      const truth = /^([\d.]+) m$/.exec(row[1]!)
+      expect(truth, `row ${i}’s true-distance cell`).not.toBeNull()
+      expect(Math.round(val(truth![1]!)), `the true distance of row ${i}`)
+        .toBe(Math.round([rangeOf(undefined), rangeOf(V_OFF), rangeOf(V_ON)][i]?.trueDistM
+          ?? val(truth![1]!)))
+    }
+    // 「1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT」
+    const [rejects, timeouts] = figs(rows.map((r) => r.join(' · ')).join('\n'),
+      /(\d+) × UWB_STS_REJECT, (\d+) × UWB_TIMEOUT/, 'the record counts of the rejected run')
+    expect(rejects, 'the rejections the sequence causes')
+      .toBe(ofType(recs(V_ON), 'UWB_STS_REJECT').length)
+    expect(timeouts, 'and the timeouts that follow')
+      .toBe(ofType(recs(V_ON), 'UWB_TIMEOUT').length)
+  })
+
+  it('reads the segment lengths, the chips either side of them and the SRMARKERs', () => {
+    // 「夹在两段 512 码片的静默」
+    const [gap] = figs(NUMS, /夹在两段 ([\d ]+) 码片/, '`numbers` on the gaps')
+    expect(gap, 'the gap on each side of the sequence').toBe(STS_GAP_CHIPS)
+    // 「32 768 个码片——与开头那段 SYNC 差不多长（SYNC 是 32 512 个码片）」
+    const [sts, sync] = figs(DEEP, /放了 ([\d ]+) 个码片[^]*?SYNC 是 ([\d ]+) 个码片/,
+      '`deeper` on the two segments')
+    expect(sts, 'the chips the sequence occupies').toBe(STS_ACTIVE_CHIPS)
+    expect(sync, 'and the chips SYNC does').toBe(SYNC_SYMBOLS * PSYM_CHIPS)
+    expect(Math.abs(sts! - sync!) / sync!, 'which really are about the same length').toBeLessThan(0.05)
+    // `sources`: the same figure again, and then as 64 × 512.
+    same(raw(SRC, /里引用的 ([\d ]+) 个有效码片/, '`sources` on the sequence’s length')[0]!,
+      STS_ACTIVE_CHIPS, 'the chips the sequence occupies, in `sources`')
+    const [reps, unit] = figs(SRC, /（(\d+) × ([\d ]+) 码片）/, '`sources` on the sequence’s own length')
+    expect(reps! * unit!, 'the chips those two factors give').toBe(STS_ACTIVE_CHIPS)
+    expect(unit, 'in the same units as the gaps').toBe(STS_GAP_CHIPS)
+    // 「32 768 个码片和 32 个码片在这里给出完全相同的结果」
+    const [long, short] = figs(LIM, /因为 ([\d ]+) 个码片和 (\d+) 个码片/, '`limits` on the zero cost')
+    expect(long, 'the length this engine uses').toBe(STS_ACTIVE_CHIPS)
+    expect(short, 'against a thousand-fold shorter one').toBeLessThan(long! / 1000)
+    // 「五个附加时标（SRMARKER0 到 SRMARKER4）」
+    const [from, to] = figs(LIM, /（SRMARKER(\d) 到 SRMARKER(\d)/, '`limits` on the SRMARKERs')
+    expect(to! - from! + 1, 'the five the standard defines').toBe(5)
+    // 「66.667 µs 的跨度配 100 ps 的时间戳只给到 2.1 ppm，比……0.2 ppm 差十倍」
+    const [spanUs, ps, ppm, sessionPpm] = figs(LIM,
+      /([\d.]+) µs 的跨度配 (\d+) ps 的时间戳只给到 ([\d.]+) ppm，比会话直接交出来的 ([\d.]+) ppm/,
+      '`limits` on the clock ratio')
+    expect(ps, 'the timestamp noise this session quotes')
+      .toBe(uwbSts.scenario().uwb!.tsNoisePs)
+    expect(sessionPpm, 'and the offset residual it hands out')
+      .toBe(uwbSts.scenario().uwb!.cfoNoisePpm)
+    // The span itself is the engine's own: one gap plus the sequence, in chips.
+    same(String(spanUs), chipsToNs(STS_GAP_CHIPS + STS_ACTIVE_CHIPS) / 1000,
+      'the span the two markers would be read over')
+    same(String(ppm), 1e6 * ratioSigma(ps!, spanUs! / 1000), 'the ratio that span would buy')
+    // 「差十倍」 is a floor: the ratio is 10.5, and the sentence says ten times over.
+    expect(Math.floor(ppm! / sessionPpm!), 'ten times worse, as the sentence says').toBe(10)
+  })
+
+  it('reads the observe lines, the experiments and the quiz’s four options', () => {
+    // 「读 2 187 389 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m」
+    const base = ofType(recs(), 'UWB_RANGE')[0]!
+    const [atNs, got, truth] = figs(OBS, /读 ([\d ]+) ns 处的 UWB_RANGE：报出 ([\d.]+) m，真值 ([\d.]+) m/,
+      '`observe` on the base scene')
+    expect(atNs, 'when the base round reports').toBe(base.t)
+    same(String(got), base.distM, 'what it reports')
+    same(String(truth), base.trueDistM, 'and the truth')
+    // 「它现在写着 4.96 m，而真值是 20.00 m」
+    const [spoofed, farTruth] = figs(OBS, /它现在写着 ([\d.]+) m，而真值是 ([\d.]+) m/,
+      '`observe` on the attacked scene')
+    same(String(spoofed), rangeOf(V_OFF)!.distM, 'what the attacked round reports')
+    same(String(farTruth), rangeOf(V_OFF)!.trueDistM, 'and its truth')
+    // `tryThis`: the two differences and the room that would go negative.
+    const [tryTicks, tryNs] = figs(TRY, /两个差都是 ([\d,]+) RCTU，也就是 ([\d.]+) ns/,
+      '`tryThis` on the two differences')
+    expect(tryTicks, 'the ticks each difference comes to')
+      .toBe(Math.round((advanceNs * 1000) / TICK_PS))
+    expect(tryTicks, 'which is the figure the counter table prints too').toBeGreaterThan(0)
+    same(String(tryNs), (tryTicks! * TICK_PS) / 1000, 'and the nanoseconds they are')
+    const [atM, lost] = figs(TRY, /这个转发放在 (\d+) m 上[^]*?缩短量还是那 ([\d.]+) m/,
+      '`tryThis` on the five-metre room')
+    expect(atM, 'the room the experiment moves the relay to').toBe(5)
+    same(String(lost), advanceNs * C_M_PER_NS, 'the shortening, which does not move with the room')
+    expect(lost, 'and it is more than that room is wide').toBeGreaterThan(atM!)
+    // The quiz: its three wrong options are three different mishandlings of the same advance.
+    const [halfM] = figs(QUIZ, /约 ([\d.]+) m：往返要折半/, 'the quiz’s first option')
+    const [plainM] = figs(QUIZ, /约 (\d+) m：两次接收都动了，折/, 'the quiz’s second option')
+    const [doubleM] = figs(QUIZ, /约 (\d+) m：两次接收都动了，而/, 'the quiz’s third option')
+    const advanceM = advanceNs * C_M_PER_NS
+    same(String(halfM), advanceM / 2, 'the advance halved, which the first option offers')
+    expect(plainM, 'the advance itself, rounded, which the second offers').toBe(Math.round(advanceM))
+    expect(doubleM, 'and twice it, which the third offers').toBe(Math.round(2 * advanceM))
+    // …and the right answer, which the run gives.
+    const [answerM] = figs(QUIZ, /还了回来——([\d.]+) m/, 'the quiz’s own answer')
+    same(String(answerM), rangeOf(V_HONEST_20)!.distM - rangeOf(V_OFF)!.distM,
+      'what the attacked round really loses')
+    // 「一个偏长 15 m 而不是偏短 15 m 的距离」
+    const [longM, shortM] = figs(QUIZ, /一个偏长 (\d+) m 而不是偏短 (\d+) m/, 'the quiz’s own symmetry')
+    expect([longM, shortM], 'the same figure either way').toEqual([plainM, plainM])
+    expect(occ(QUIZ, `${plainM} m`), 'printed three times in the quiz').toBe(3)
   })
 })
