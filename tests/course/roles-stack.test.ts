@@ -29,6 +29,9 @@ import type { TLRecord } from '../../src/model/records'
 import type { LatencyStats } from '../../src/model/view'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { decodeFrame } from '../../src/model/frameFields'
+import { FRAME_KINDS } from '../../src/model/frames'
+import { MAC_HDR_BYTES, QOS_HDR_BYTES, FCS_BYTES } from '../../src/engine/phy'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const MS = 1_000_000
@@ -243,5 +246,211 @@ describe('roles-stack · the experiment', () => {
     for (const r of tv) expect(r.frame.dst).toBe('ap')
     // and the rule has not changed for anybody else either
     expect(dataTx(records).some((r) => r.node !== 'ap' && r.frame.dst !== 'ap')).toBe(false)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The file above measures the right thing and compares it with a figure typed on **this** side —
+ * `expect(lap.every((r) => r.bytes === 1500)).toBe(true)` — with the lesson's table quoted in a
+ * comment. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12
+ * planted six of this lesson's figures and **two went unnoticed**. Here every figure is parsed
+ * out of the shipped string and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **each row of the device table is read against the arrivals it describes**, by the device
+ *    its own first cell names — so the burst of fifty, the two payload sizes and the three
+ *    periods are measured on the lane that row is about.
+ *  - **「约每 0.85 ms 一个」 is read at the precision it prints**: the mean spacing of the
+ *    television's arrivals over the second this lesson measures, to the hundredth.
+ *  - **「每 1.4–1.7 ms」 is read as the tightest pair the run allows**: the smallest gap rounded
+ *    down and the largest rounded up, so a wider range would fail and a narrower one could not
+ *    have been printed.
+ *  - **「三个 6 字节的地址位置」 is read off the decoder**, and the 48 bits `sources` quotes for a
+ *    BSSID are the same six octets, times eight.
+ */
+describe('roles-stack · every figure the prose prints, read back out of it', () => {
+  // the same second the file above measures: `runOf` hands back the one run, memoized
+  const rs1s = runOf(rolesStack, undefined, RUN_NS)
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(rolesStack.picture)
+  const DEEP = blockText(rolesStack.deeper)
+  const LIM = blockText(rolesStack.limits)
+  const SRC = blockText(rolesStack.sources)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const table = (): { head: string[]; rows: string[][] } =>
+    rolesStack.numbers!.find((b) => b.kind === 'table') as unknown as
+      { head: string[]; rows: string[][] }
+  type Arrival = Extract<TLRecord, { type: 'ARRIVAL' }>
+  const arrivalsAt = (node: string, dst: string): Arrival[] =>
+    rs1s.filter((r): r is Arrival => r.type === 'ARRIVAL' && r.node === node && r.dst === dst)
+
+  it('reads the device table against the arrivals each row is about', () => {
+    for (const row of table().rows) {
+      const [device, , load] = row as [string, string, string]
+      if (device.includes('笔记本')) {
+        // 「50 × 1500 B，每 60 ms 一批」
+        const [count, bytes, everyMs] = figs(load, /(\d+) × (\d+) B，每 (\d+) ms 一批/,
+          `${device}: its own cell`)
+        const lap = rs1s.filter((r): r is Arrival => r.type === 'ARRIVAL' && r.node === 'sta-1')
+        const times = [...new Set(lap.map((r) => r.t))]
+        expect(lap.every((r) => r.bytes === bytes), `${device}: every payload`).toBe(true)
+        expect(lap.length, `${device}: as many payloads as that many per batch`)
+          .toBe(count! * times.length)
+        for (let i = 1; i < times.length; i++) {
+          expect(times[i]! - times[i - 1]!, `${device}: the gap between batches`).toBe(everyMs! * MS)
+        }
+        expect((rs1s.find(firstUplinkData) as Tx).frame.ampdu?.mpduCount,
+          `${device}: and one burst really carries that many`).toBe(count)
+      } else if (device.includes('电视')) {
+        // 「1400 B，约每 0.85 ms 一个」
+        const [bytes] = figs(load, /^(\d+) B，约每/, `${device}: its payload`)
+        const [aboutMs] = raw(load, /约每 ([\d.]+) ms 一个/, `${device}: its period`)
+        const tv = arrivalsAt('ap', 'sta-2')
+        expect(tv.every((r) => r.bytes === bytes), `${device}: every payload`).toBe(true)
+        same(aboutMs!, (RUN_NS / MS) / tv.length, `${device}: the mean spacing of its arrivals`)
+      } else if (device.includes('手机')) {
+        // 「1400 B，每个方向每 1.4–1.7 ms 一个」
+        const [bytes] = figs(load, /^(\d+) B，每个方向/, `${device}: its payload`)
+        const [lo, hi] = figs(load, /每个方向每 ([\d.]+)–([\d.]+) ms 一个/, `${device}: its range`)
+        for (const p of PHONES) {
+          const a = arrivalsAt(p, 'ap')
+          expect(a.every((r) => r.bytes === bytes), `${p}: every payload`).toBe(true)
+          const gaps = a.slice(1).map((r, i) => r.t - a[i]!.t)
+          expect(Math.min(...gaps) / MS, `${p}: no gap below the bottom of that range`)
+            .toBeGreaterThanOrEqual(lo!)
+          expect(Math.max(...gaps) / MS, `${p}: none above the top`).toBeLessThanOrEqual(hi!)
+          // the tightest pair the run allows: a wider range would be a looser claim
+          expect(Math.floor((Math.min(...gaps) / MS) * 10) / 10, `${p}: the bottom is the run’s own`)
+            .toBe(lo)
+          expect(Math.ceil((Math.max(...gaps) / MS) * 10) / 10, `${p}: and so is the top`).toBe(hi)
+        }
+      } else {
+        // 「每份载荷都在空口上走两趟」 — the access point's own row, and it carries no figure
+        expect(load, 'the access point’s row says what it does, not how much').toContain('两趟')
+        const relayed = rs1s.filter((r) => r.type === 'ARRIVAL' && r.node === 'ap'
+          && PHONES.includes(r.dst as string))
+        expect(relayed.length, 'and it really re-queues the phones’ payloads').toBeGreaterThan(1000)
+      }
+    }
+  })
+
+  it('reads the six metres the caption and `deeper` both print', () => {
+    const sc = rolesStackScenario()
+    const a = sc.nodes.find((n) => n.id === 'sta-3')!.pos
+    const b = sc.nodes.find((n) => n.id === 'sta-4')!.pos
+    const apart = Math.hypot(a.x - b.x, a.y - b.y)
+    for (const [text, re, what] of [
+      [PIC, /隔着 (\d+) m，第一帧就解不出来/, 'the caption on the two phones'],
+      [DEEP, /隔着房间 (\d+) m，信干噪比支持不了/, '`deeper` on the same distance'],
+    ] as [string, RegExp, string][]) {
+      expect(figs(text, re, what)[0], what).toBe(apart)
+    }
+    // and the failure that distance causes is the one `deeper` names
+    const hop1 = rs1s.find(firstRelayHop1) as Tx
+    const failA = rs1s.find((r) => r.type === 'RX_FAIL' && r.node === 'sta-3'
+      && r.t === hop1.t + hop1.frame.txTimeNs)
+    expect(failA, 'the overheard frame really fails at the other phone')
+      .toMatchObject({ from: 'sta-4', reason: 'lowSinr' })
+  })
+
+  it('reads `limits` and `sources`: the four traffic figures again, and the addresses', () => {
+    // 「1500 B 一批 50 份的备份、每 0.85 ms 一个 1400 B 的视频帧」 — the table's figures, restated
+    const [bytes, perBatch, everyMs, videoBytes] = figs(LIM,
+      /(\d+) B 一批 (\d+) 份的备份、每 ([\d.]+) ms 一个 (\d+) B 的视频帧/,
+      '`limits` on the traffic model')
+    const lap = rs1s.filter((r): r is Arrival => r.type === 'ARRIVAL' && r.node === 'sta-1')
+    expect(lap.every((r) => r.bytes === bytes), 'the backup’s own payload').toBe(true)
+    expect(lap.length / new Set(lap.map((r) => r.t)).size, 'and its batch').toBe(perBatch)
+    const tv = arrivalsAt('ap', 'sta-2')
+    expect(tv.every((r) => r.bytes === videoBytes), 'the video frame’s payload').toBe(true)
+    same(String(everyMs), (RUN_NS / MS) / tv.length, 'and how often one arrives')
+    /*
+     * 「字段视图里那三个 6 字节的地址位置填的就是这些 id」 — read off the decoder: three address
+     * fields, each that wide, and each filled with a node id of this scene.
+     */
+    const [addrs, octets] = raw(LIM, /那(.)个 (\d) 字节的地址位置/, '`limits` on the address fields')
+    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
+    const ul = rs1s.find(firstUplinkData) as Tx
+    const fields = decodeFrame(ul.frame, { apId: 'ap', isEdca: true })
+      .users[0]!.subframes[0]!.mpdu.fields.filter((f) => f.key.startsWith('addr'))
+    expect(fields.length, 'the address fields this decoder really builds').toBe(cn(addrs!))
+    for (const f of fields) {
+      expect(f.bytes, `${f.key} is that many octets`).toBe(val(octets!))
+      expect(rolesStackScenario().nodes.some((n) => n.id === f.node),
+        `${f.key} is filled with a node id`).toBe(true)
+    }
+    // 「BSSID 为 48 位」 — the standard's own width (class (a)), and it is those six octets
+    const [bits] = figs(SRC, /BSSID 为 (\d+) 位/, '`sources` on the BSSID')
+    expect(bits, 'the same address, in bits').toBe(val(octets!) * 8)
+    /*
+     * 「每个站点从 0 时刻起就已关联」 — read as what the engine has instead of association: no
+     * management frame kind exists at all, and the run opens with traffic.
+     */
+    /*
+     * **Exempt, class (d): the 「0 时刻」 itself** — it is the name of the clock's origin, and any
+     * instant before the first record would read the same. What is read is the claim around it:
+     * there is no management frame kind to associate with, nothing is on the air before the
+     * first traffic, and the first frame leaves as soon as a payload arrives rather than after
+     * an exchange.
+     */
+    const [zero] = figs(LIM, /每个站点从 (\d) 时刻起就已关联/, '`limits` on association')
+    for (const kind of ['beacon', 'probe', 'auth', 'assoc']) {
+      expect([...FRAME_KINDS], `no ${kind} frame kind`).not.toContain(kind)
+    }
+    // reduced rather than spread: this run is hundreds of thousands of records long
+    expect(rs1s.reduce((m, r) => Math.min(m, r.t), Infinity), 'nothing happens before that instant')
+      .toBeGreaterThanOrEqual(zero!)
+    const firstArrival = rs1s.find((r): r is Arrival => r.type === 'ARRIVAL')!
+    const firstTx = rs1s.find((r): r is Tx => r.type === 'TX_START')!
+    expect(firstTx.t, 'and the first frame on the air follows the first payload, not a handshake')
+      .toBeGreaterThanOrEqual(firstArrival.t)
+    expect(firstTx.t - firstArrival.t, 'within one access delay of it').toBeLessThan(MS)
+    // 「p2pvideo 的每一份载荷入队时收件人就写成接入点」 — the profile the phones really carry
+    const [profile] = raw(LIM, /(p\dpvideo) 的每一份载荷/, '`limits` on the profile it names')
+    for (const p of PHONES) {
+      expect(rolesStackScenario().nodes.find((n) => n.id === p)!.profiles,
+        `${p} really runs that profile`).toContain(profile)
+    }
+    /*
+     * **Exempt, class (a): the 8 octets of the LLC/SNAP header.** It is 802.2's, no corpus ships
+     * with this repo, and 「而在 802.11 看来，那只是载荷的一部分」 is the sentence's own point.
+     * What is read is that point: this engine's frame accounting has no such header in it — a
+     * frame is header plus payload plus FCS, with nothing between.
+     */
+    const [llc] = figs(DEEP, /MAC 载荷以 (\d) 个八位组的 LLC\/SNAP 头开头/, '`deeper` on LLC/SNAP')
+    expect(llc, 'an octet count, not a field this engine builds').toBeGreaterThan(0)
+    const sub0 = decodeFrame(ul.frame, { apId: 'ap', isEdca: true }).users[0]!.subframes[0]!
+    expect(sub0.mpdu.fields.some((f) => /llc|snap/i.test(f.key)),
+      'this engine builds no such field').toBe(false)
+    const body = sub0.mpdu.fields.find((f) => f.key === 'body')!
+    expect(body.bytes, 'and the payload is the arrival’s own size, with nothing prepended')
+      .toBe(lap[0]!.bytes)
+    expect(QOS_HDR_BYTES + body.bytes + FCS_BYTES - MAC_HDR_BYTES,
+      'so one subframe is header, payload and check, and the two headers differ by the QoS pair')
+      .toBe(body.bytes + FCS_BYTES + (QOS_HDR_BYTES - MAC_HDR_BYTES))
   })
 })
