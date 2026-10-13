@@ -16,6 +16,7 @@
  * figure geometry that tests/course/diagram.test.ts will check course-wide the
  * moment the lesson is in `LESSONS`.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { FIG, uwbSlotBudget, uwbSlotBudgetTiming } from '../../src/course/uwb/uwb-slot-budget'
 import { FIG as GRID, uwbBlocks, uwbBlocksScenario } from '../../src/course/uwb/uwb-blocks'
@@ -31,8 +32,8 @@ import { clampField } from '../../src/editor/planOps'
 import { fmtRecord } from '../../src/ui/format'
 import { roundPlan } from '../../src/uwb/session'
 import {
-  UWB_SLOT_GUARD_NS, RSTU_CHIPS, rstuNs, uwbFinalBytes, uwbMaxAnchors, uwbPpduNs, uwbSlotFitNs,
-  uwbSlotsPerTag,
+  UWB_SLOT_GUARD_NS, RSTU_CHIPS, RSTU_NS, UWB_CHIP_HZ, UWB_TX_POWER_DBM, C_M_PER_NS, rstuNs,
+  uwbFinalBytes, uwbMaxAnchors, uwbPpduNs, uwbSlotFitNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -537,5 +538,372 @@ describe('uwb-slot-budget · the figure', () => {
         expect(hit, `"${ts[i].text}" overlaps "${ts[j].text}"`).toBe(false)
       }
     }
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and then compares it with a figure typed on **this**
+ * side — `expect(radioOnNs(...)).toBe(1_934_334)`, with the lesson's sentence in a comment above
+ * it. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12 scored this
+ * lesson 3 of 6, and the three it reached were all in prose. This describe parses each figure out
+ * of the shipped string and compares *that* with the measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the slot-length procedure is read as one chain, step by step.** 「14 + 12N 字节：四个
+ *    锚点时 62 字节，空口 236 603 ns」 → 「加 200 ns 飞行余量：236 803 ns，合 285 个 RSTU」 →
+ *    「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步还宽 13.2 µs」. Every
+ *    figure is parsed and every one has to be the next step's input, so a digit moved anywhere
+ *    along it breaks the link that follows.
+ *  - **the RSTU is read out of its own definition.** 「416 个码片，在 499.2 Mchip/s 下即
+ *    833.333 ns」 is three figures and one division, against `RSTU_CHIPS`, `UWB_CHIP_HZ` and
+ *    `RSTU_NS` — the unit the whole lesson counts in.
+ *  - **the regulatory limit is read against the comment that derives the model value.**
+ *    「−14 dBm」 is `UWB_TX_POWER_DBM`, and the 「−41.3 dBm/MHz」 beside it in `limits` is the
+ *    mean the constant was derived from: spread over one channel it rounds back to that −14.
+ *  - **「每次不到 0.24 ms」 is read as a ceiling, not a bound.** The longest frame of the round
+ *    is 0.2366 ms, so 0.24 is what it rounds up to at a hundredth of a millisecond — which
+ *    pins the figure, where `< 0.24` would have been true of 0.25 as well.
+ */
+describe('uwb-slot-budget · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const WHY = uwbSlotBudget.why ?? ''
+  const PIC = blockText(uwbSlotBudget.picture)
+  const NUMS = blockText(uwbSlotBudget.numbers)
+  const DEEP = blockText(uwbSlotBudget.deeper)
+  const LIM = blockText(uwbSlotBudget.limits)
+  const SRC = blockText(uwbSlotBudget.sources)
+  const OBS = blockText(uwbSlotBudget.observe)
+  const TRY = blockText(uwbSlotBudget.tryThis)
+  const QUIZ = blockText(uwbSlotBudget.quiz)
+  /** The PHY file whose own comment derives this lesson's transmit power. */
+  const PHY_SRC = readFileSync(new URL('../../src/uwb/phy.ts', import.meta.url), 'utf8')
+  /** The schema, whose comment beside `ppm` is where the crystal tolerance is written down. */
+  const SCENARIO_SRC = readFileSync(new URL('../../src/model/scenario.ts', import.meta.url), 'utf8')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const VPLAN = roundPlan(uwbSlotBudget.variants![0].scenario().uwb!, ANCHORS)
+
+  it('reads the slot this lesson is about, wherever the prose names it', () => {
+    // `why`: 「一个测距时隙（ranging slot）是 2 ms」
+    const [whyMs] = figs(WHY, /是 (\d+) ms，真正发出去的那一帧/, '`why` on the slot')
+    same(String(whyMs), PLAN.slotNs / MS, 'the slot this scene runs')
+    // the caption: 「上一行是本课的 2 ms 时隙：十个时隙铺满 20 ms」 and the variant beside it
+    const [capSlot, capRound] = figs(PIC, /上一行是本课的 (\d+) ms 时隙：十个时隙铺满 (\d+) ms/,
+      'the caption on the base row')
+    expect(capSlot, 'the same slot the figure draws').toBe(whyMs)
+    same(String(capRound), PLAN.roundNs / MS, 'and the round its ten slots fill')
+    expect(PLAN.slots, 'which really is ten slots').toBe(10)
+    const [shortSlot, shortRound] = figs(PIC, /把时隙缩到 ([\d.]+) ms，同样十帧落在前 (\d+) ms 之内/,
+      'the caption on the short row')
+    same(String(shortSlot), VPLAN.slotNs / MS, 'the variant’s slot')
+    same(String(shortRound), VPLAN.roundNs / MS, 'and the round it falls to')
+    // 「两行都是 1 934 334 ns」
+    const [capRadio] = figs(PIC, /两行都是 ([\d ]+) ns/, 'the caption on the radio-on total')
+    expect(capRadio, 'the phone’s radio time, which both scenes share')
+      .toBe(radioOnNs(recs(), 'uwb-1', PLAN.blockNs))
+    expect(capRadio, 'and the variant’s, to the nanosecond')
+      .toBe(radioOnNs(recs(0), 'uwb-1', PLAN.blockNs))
+  })
+
+  it('reads the slot-length procedure as the one chain it is', () => {
+    // the formula: 「slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4」
+    const [guard, ppdu, guard2, fit, n] = figs(NUMS,
+      /slot ≥ PPDU\(Final, N anchors\) \+ (\d+) ns = ([\d ]+) \+ (\d+) = ([\d ]+) ns at N = (\d+)/,
+      'the formula, term for term')
+    expect(n, 'the anchors this scene has').toBe(ANCHORS)
+    expect(guard, 'the flight guard the rule adds').toBe(UWB_SLOT_GUARD_NS)
+    expect(guard2, 'printed twice, the same both times').toBe(guard)
+    expect(ppdu, 'the longest frame of the round').toBe(uwbPpduNs(uwbFinalBytes(n!)))
+    expect(fit, 'and the sum, which is the engine’s own rule').toBe(uwbSlotFitNs(n!))
+    expect(ppdu! + guard!, 'the addition the formula prints').toBe(fit)
+    // the note: 「再加 200 ns 飞行余量，相当于 60 m 空气。所以 2 ms …只占自己时隙的 11.8 %」
+    const [noteGuard, metres] = figs(NUMS, /再加 (\d+) ns 飞行余量，相当于 (\d+) m 空气/,
+      'the note on the guard')
+    expect(noteGuard, 'the same guard').toBe(guard)
+    same(String(metres), noteGuard! * C_M_PER_NS, 'the air that guard is worth')
+    const [noteSlot, pct] = figs(NUMS, /所以 (\d+) ms 不是算出来的下限[^]*?只占自己时隙的 ([\d.]+) %/,
+      'the note on the slot and the share')
+    same(String(noteSlot), PLAN.slotNs / MS, 'the slot the archive chose')
+    same(String(pct), (100 * ppdu!) / PLAN.slotNs, 'the share that frame takes of it')
+    // step 1: 「Final，14 + 12N 字节：四个锚点时 62 字节，空口 236 603 ns」
+    const [base, per, bytes, air] = figs(NUMS,
+      /Final，(\d+) \+ (\d+)N 字节：四个锚点时 (\d+) 字节，空口 ([\d ]+) ns/, 'step 1')
+    expect(base! + per! * n!, 'the bytes that formula gives four anchors').toBe(bytes)
+    expect(bytes, 'which is the Final the engine builds').toBe(uwbFinalBytes(n!))
+    expect(air, 'and its airtime').toBe(ppdu)
+    // step 2: 「加 200 ns 飞行余量：这个场景的容量下限是 236 803 ns，合 285 个 RSTU 还多一点」
+    const [stepGuard, stepFit, rstu] = figs(NUMS,
+      /加 (\d+) ns 飞行余量：这个场景的容量下限是 ([\d ]+) ns，合 (\d+) 个 RSTU/, 'step 2')
+    expect([stepGuard, stepFit], 'the same guard and the same floor').toEqual([guard, fit])
+    expect(rstuNs(rstu!), 'the RSTU count it comes to, and 「还多一点」')
+      .toBeGreaterThan(stepFit!)
+    expect(rstuNs(rstu! - 3), 'while three RSTU less would not hold it').toBeLessThan(stepFit!)
+    // step 3: 「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步还宽 13.2 µs」
+    const [floor, floorUs, over] = figs(NUMS,
+      /设了 (\d+) RSTU 的下限，即 ([\d.]+) µs，比上一步还宽 ([\d.]+) µs/, 'step 3')
+    same(String(floorUs), rstuNs(floor!) / 1000, 'what that floor is in microseconds')
+    same(String(over), (rstuNs(floor!) - stepFit!) / 1000, 'and how much wider it is')
+    expect(schemaIssues(floor!), 'the schema takes that floor').toEqual([])
+    expect(schemaIssues(floor! - 3), 'and refuses three RSTU less').not.toEqual([])
+    const [floorAgain] = figs(NUMS, /所以本场景真正的最短时隙是 (\d+) RSTU/, 'step 3’s conclusion')
+    expect(floorAgain, 'the same floor, named twice in one step').toBe(floor)
+    // step 4: 「必须是 3 RSTU 的整数倍…285 与 282 都过得了」
+    const [mult, a, b] = figs(NUMS, /必须是 (\d+) RSTU 的整数倍[^]*?；(\d+) 与 (\d+) 都过得了/,
+      'step 4')
+    /*
+     * **What both of them pass is this step's own rule**, the multiple — and what refuses both
+     * is the step before it. The capacity rule is a third answer: 285 clears it and 282 does
+     * not, which is the correction of 2026-10-13 (`tryThis` had said both cleared it).
+     */
+    for (const v of [a!, b!]) {
+      expect(v % mult!, `${v} is a whole number of ${mult}-RSTU units`).toBe(0)
+      expect(schemaIssues(v), `${v} is refused all the same`).toContain(
+        `Number must be greater than or equal to ${floor}`)
+    }
+    expect(rstuNs(a!), 'and the wider of the two does clear the capacity rule')
+      .toBeGreaterThan(stepFit!)
+    expect(rstuNs(b!), 'while the other does not').toBeLessThan(stepFit!)
+    // step 5: 「输 285，它跳到 300」
+    const [typed, snapped] = figs(NUMS, /夹一遍：输 (\d+)，它跳到 (\d+)/, 'step 5')
+    expect(typed, 'the value the step types').toBe(a)
+    const to3 = (x: number): number => Math.max(3, Math.round(x / 3) * 3)
+    expect(to3(clampField(String(typed), floor!, 60_000, true)), 'where the editor puts it')
+      .toBe(snapped)
+    expect(snapped, 'which is the floor').toBe(floor)
+  })
+
+  it('reads the margin paragraph: the frame, the silence, and the drift across a block', () => {
+    const [deepBytes, deepAir, deepSlot] = figs(DEEP,
+      /四个锚点的 Final 是 (\d+) 字节、空口 ([\d ]+) ns，所以 (\d+) ms 的时隙里将近九成是静默/,
+      '`deeper` on the frame and its slot')
+    expect(deepBytes, 'the Final again').toBe(uwbFinalBytes(ANCHORS))
+    expect(deepAir, 'and its airtime again').toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)))
+    same(String(deepSlot), PLAN.slotNs / MS, 'the slot it sits in')
+    // 「将近九成是静默」: the frame is under a tenth and a half of its slot
+    expect(1 - deepAir! / PLAN.slotNs, 'nearly nine tenths of it is silence').toBeGreaterThan(0.85)
+    // 「20 ppm 跨过一个 200 ms 的块就是每边 4 µs」
+    const [ppm, blockMs, us] = figs(DEEP, /但 (\d+) ppm 跨过一个 (\d+) ms 的块就是每边 ([\d.]+) µs/,
+      '`deeper` on the drift')
+    same(String(blockMs), PLAN.blockNs / MS, 'the block it is measured across')
+    /*
+     * **The microseconds cannot pin the tolerance**: 「4 µs」 carries no decimals, so 21 ppm
+     * would round to it too (the sweep of 2026-10-13 found exactly that). The tolerance is read
+     * against the comment the schema keeps beside the field a reader would set it in.
+     */
+    expect(ppm, 'the tolerance the schema’s own comment names')
+      .toBe(figs(SCENARIO_SRC, /in ppm \(standard §[\d.]+ allows ±(\d+)\)/,
+        '`scenario.ts` beside its own `ppm` field')[0])
+    same(String(us), (ppm! * 1e-6 * PLAN.blockNs) / 1000, 'the drift that tolerance buys')
+    // the heading over that paragraph is the slot again
+    const [headSlot] = figs(uwbSlotBudget.deeper![0].heading!, /^(\d+) ms 的余量/,
+      'the paragraph’s own heading')
+    expect(headSlot, 'the same slot the paragraph is about').toBe(deepSlot)
+  })
+
+  it('reads how the radio-on total is put together, down to the flight per reception', () => {
+    const head = uwbSlotBudget.deeper![1].heading!
+    const [headNs] = figs(head, /^([\d ]+) ns 是怎么凑出来的/, 'the paragraph’s own heading')
+    const tag = radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
+    expect(headNs, 'the figure the paragraph takes apart').toBe(tag)
+    // 「它的 1 934 334 ns 恰好是这一轮的空口时间 1 934 230 ns，再加上它接收的八帧、每帧 13 ns」
+    const [total, airtime, flight] = figs(DEEP,
+      /它的 ([\d ]+) ns 恰好是这一轮的空口时间 ([\d ]+) ns，再加上它接收的八帧、每帧 (\d+) ns/,
+      '`deeper` on how it adds up')
+    expect(total, 'the same total').toBe(tag)
+    const air = ofType(recs(), 'TX_START').filter((r) => r.t < PLAN.roundNs)
+      .reduce((s, r) => s + r.frame.txTimeNs, 0)
+    expect(airtime, 'the airtime of the round it sits in').toBe(air)
+    const rx = ofType(recs(), 'UWB_TS')
+      .filter((r) => r.node === 'uwb-1' && r.dir === 'rx' && r.t < PLAN.roundNs)
+    expect(rx, 'the eight receptions 「八帧」 names').toHaveLength(8)
+    expect(airtime! + rx.length * flight!, 'the sum those three make').toBe(total)
+    // 「第一轮 816 180 ns」 and 「合计 2 448 546 ns」
+    const [firstRound] = figs(DEEP, /十个时隙里醒来四次，第一轮 ([\d ]+) ns/,
+      '`deeper` on the anchor’s first round')
+    expect(firstRound, 'what the anchor spends in the first round')
+      .toBe(radioOnNs(recs(), 'anchor-1', PLAN.roundNs))
+    const [anchorTotal] = figs(DEEP, /合计 ([\d ]+) ns/, '`deeper` on the anchor’s three rounds')
+    expect(anchorTotal, 'and over all three').toBe(radioOnNs(recs(), 'anchor-1', PLAN.blockNs))
+    expect(anchorTotal, '「三轮之间因飞行时间差着几纳秒」: not three times the first')
+      .not.toBe(3 * firstRound!)
+  })
+
+  it('reads when the capacity rule overtakes the floor, and why nine anchors is the cap', () => {
+    // 「六个锚点时 Final 要 267 572 ns，即 324 RSTU」
+    const [six, needsRaw, rstuRaw] = raw(DEEP, /(.)个锚点时 Final 要 ([\d ]+) ns，即 (\d+) RSTU/,
+      '`deeper` on the six-anchor round')
+    // the anchors are written as a Chinese numeral, so the figure beside it is read against it
+    const n6 = '零一二三四五六七八九'.indexOf(six!)
+    expect(n6, 'a numeral the sentence really spells out').toBeGreaterThan(0)
+    const needs = val(needsRaw!)
+    const rstu = val(rstuRaw!)
+    expect(needs, 'what six anchors make the rule ask for').toBe(uwbSlotFitNs(n6))
+    expect(rstuNs(rstu), 'the RSTU count that comes to').toBeGreaterThanOrEqual(needs)
+    expect(rstuNs(rstu - 3), 'and the one below it does not hold the frame').toBeLessThan(needs)
+    // 「容量规则才超过 300 RSTU 的下限」 — that floor is the sentence's own figure.
+    const [deepFloor] = figs(DEEP, /容量规则才超过 (\d+) RSTU 的下限/, '`deeper` on the floor')
+    expect(schemaIssues(deepFloor!), 'the floor the schema really takes').toEqual([])
+    expect(schemaIssues(deepFloor! - 3), 'and one step under it').not.toEqual([])
+    expect(rstuNs(rstu), 'which is past that floor at last').toBeGreaterThan(rstuNs(deepFloor!))
+    // 「14 + 12N 在十个锚点时是 134 字节，超过了负载 127 字节的上限」
+    const [base, per, atTen, cap] = figs(DEEP,
+      /(\d+) \+ (\d+)N 在十个锚点时是 (\d+) 字节，超过了负载 (\d+) 字节的上限/,
+      '`deeper` on the payload cap')
+    expect(base! + per! * 10, 'what the formula gives ten anchors').toBe(atTen)
+    expect(atTen, 'which is over the cap').toBeGreaterThan(cap!)
+    const most = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
+    expect(base! + per! * most, 'while the engine’s own cap fits').toBeLessThanOrEqual(cap!)
+    expect(base! + per! * (most + 1), 'and one more does not').toBeGreaterThan(cap!)
+  })
+
+  it('reads `sources` against the units and the two model values it declares', () => {
+    // 「§10.32.2 规定块长与时隙长都以整数个 3 RSTU 计」
+    const [mult] = figs(SRC, /都以整数个 (\d+) RSTU 计/, '`sources` on the multiple')
+    expect(PLAN.slotNs % rstuNs(mult!), 'the slot really is a whole number of those').toBe(0)
+    expect(PLAN.blockNs % rstuNs(mult!), 'and so is the block').toBe(0)
+    // 「把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns」
+    const [chips, rate, ns] = figs(SRC,
+      /把 RSTU 定为 (\d+) 个码片，在 ([\d.]+) Mchip\/s 下即 ([\d.]+) ns/,
+      '`sources` on the unit itself')
+    expect(chips, 'the chips one RSTU is').toBe(RSTU_CHIPS)
+    same(String(rate), UWB_CHIP_HZ / 1e6, 'the rate they run at')
+    same(String(ns), (chips! * 1000) / rate!, 'and the nanoseconds that makes')
+    same(String(ns), RSTU_NS, 'which is the unit the engine counts in')
+    // 「2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值」
+    const [slotMs, blockMs] = figs(SRC, /(\d+) ms 的测距时隙与 (\d+) ms 的测距块是 FiRa/,
+      '`sources` on the archive’s two values')
+    same(String(slotMs), PLAN.slotNs / MS, 'the slot this scene runs')
+    same(String(blockMs), PLAN.blockNs / MS, 'and the block')
+    // 「追加的 200 ns 飞行余量，以及…给任何时隙设下的 300 RSTU 下限」
+    const [guard, floor] = figs(SRC,
+      /追加的 (\d+) ns 飞行余量，以及场景 schema 给任何时隙设下的 (\d+) RSTU 下限/,
+      '`sources` on the two model values')
+    expect(guard, 'the guard, as the engine exports it').toBe(UWB_SLOT_GUARD_NS)
+    expect(schemaIssues(floor!), 'the floor, as the schema applies it').toEqual([])
+    expect(schemaIssues(floor! - 3), 'one step under it').not.toEqual([])
+  })
+
+  it('reads `limits` on the two model values and on the power it never charges for', () => {
+    const [guard, floor, mult] = figs(LIM,
+      /(\d+) ns 的飞行余量与 (\d+) RSTU 的下限都是本仿真器自己的数[^]*?标准只要求时隙是 (\d+) RSTU 的整数倍/,
+      '`limits` on what is the model’s and what is the standard’s')
+    expect(guard, 'the guard').toBe(UWB_SLOT_GUARD_NS)
+    expect(PLAN.slotNs % rstuNs(mult!), 'the multiple the standard does ask for').toBe(0)
+    const [again] = figs(LIM, /「本场景真正的最短时隙是 (\d+) RSTU」/, '`limits` quoting step 3')
+    expect(again, 'the same floor the step concluded on').toBe(floor)
+    // 「每一帧的发射功率是常数 −14 dBm」 and 「−41.3 dBm/MHz 的平均功率限制」
+    const [dbm] = figs(LIM, /发射功率是常数 (−\d+) dBm/, '`limits` on the transmit power')
+    expect(dbm, 'the power every UWB frame of this engine goes out at').toBe(UWB_TX_POWER_DBM)
+    const [psd] = figs(LIM, /遵守 (−[\d.]+) dBm\/MHz 的平均功率限制/, '`limits` on the regulation')
+    /*
+     * **The regulation is where the model value comes from**, and `phy.ts` says so beside the
+     * constant: a mean of that many dBm per megahertz, spread over one UWB channel, is the −14
+     * the engine transmits at. So the two figures are read against each other and against the
+     * comment a reader would walk over to.
+     */
+    const [srcPsd, srcBw] = figs(PHY_SRC,
+      /UWB_TX_POWER_DBM = -\d+ \/\/ model default \((−[\d.]+) dBm\/MHz mean EIRP over ([\d.]+) MHz\)/,
+      '`phy.ts` on where that default comes from')
+    expect(psd, 'the same limit the constant’s own comment names').toBe(srcPsd)
+    expect(Math.round(psd! + 10 * Math.log10(srcBw!)), 'which over one channel is that power')
+      .toBe(UWB_TX_POWER_DBM)
+    same(String(srcBw), UWB_CHIP_HZ / 1e6, 'the channel it is spread over')
+  })
+
+  it('reads the observation as the lane shows it, the 0.24 ms included', () => {
+    const [us, ms, blockMs, pct] = figs(OBS,
+      /每次不到 ([\d.]+) ms；这些深色段加起来是 ([\d.]+) ms，也就是整块 (\d+) ms 的 ([\d.]+) %/,
+      '`observe` on the phone’s lane')
+    const longest = ofType(recs(), 'TX_START').filter((r) => r.t < PLAN.roundNs)
+      .reduce((m, r) => Math.max(m, r.frame.txTimeNs), 0)
+    /*
+     * **A ceiling, not a bound.** The longest frame of the round is 0.2366 ms, and 「不到 0.24」
+     * is that rounded up at a hundredth of a millisecond — read that way, a planted 0.25 is
+     * wrong, where `< 0.24` would have accepted it.
+     */
+    expect(us, 'the longest wake-up, rounded up to a hundredth of a millisecond')
+      .toBe(Math.ceil((longest / MS) * 100) / 100)
+    expect(longest / MS, 'and it really is under it').toBeLessThan(us!)
+    const tag = radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
+    same(String(ms), tag / MS, 'what those dark slivers add up to')
+    same(String(blockMs), PLAN.blockNs / MS, 'the block they are a share of')
+    same(String(pct), (100 * tag) / PLAN.blockNs, 'and the share itself')
+  })
+
+  it('reads both experiments, and the two questions that quote their figures', () => {
+    // 「载入“0.5 ms 时隙”，…三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，…每块 40 轮」
+    const [label, done, f1, f2, f3, rounds] = figs(TRY,
+      /载入“([\d.]+) ms 时隙”[^]*?三个轮次到 (\d+) ms 就做完，定位落在 (\d+)、(\d+)、(\d+) ms，编辑器规划出每块 (\d+) 轮/,
+      '`tryThis` on the short-slot scene')
+    same(String(label), VPLAN.slotNs / MS, 'the variant that experiment loads')
+    expect(uwbSlotBudget.variants![0].label, 'which is the label the variant carries')
+      .toContain(`${label} ms`)
+    const fixes = ofType(recs(0), 'UWB_POSITION').filter((f) => f.block === 0)
+    expect([f1, f2, f3], 'the three fixes of the first block, in milliseconds')
+      .toEqual(fixes.map((f) => f.t / MS))
+    expect(done, 'and the last of them is when the three rounds are finished').toBe(f3)
+    expect(rounds, 'the rounds that block now holds').toBe(VPLAN.roundsPerBlock)
+    // 「输入 285 再移开焦点：它跳到 300，282 也一样。两个都是 3 的整数倍」
+    const [typed, snapped, other, mult, clears, shortOne, shortBy] = figs(TRY,
+      /输入 (\d+) 再移开焦点：它跳到 (\d+)，(\d+) 也一样。两个都是 (\d+) 的整数倍，而只有 (\d+) 宽过容量规则，(\d+) 还差 ([\d.]+) µs/,
+      '`tryThis` on the editor’s clamp')
+    const to3 = (x: number): number => Math.max(3, Math.round(x / 3) * 3)
+    for (const v of [typed!, other!]) {
+      expect(v % mult!, `${v} is a whole number of ${mult}`).toBe(0)
+      expect(to3(clampField(String(v), snapped!, 60_000, true)), `${v} snaps there`).toBe(snapped)
+    }
+    /*
+     * **The corrected claim, read as the three things it says** (2026-10-13): both are whole
+     * numbers of 3 RSTU, only the larger clears the capacity rule, and the other is short of it
+     * by the microseconds the sentence now names.
+     */
+    expect(clears, 'the one that clears the capacity rule').toBe(typed)
+    expect(shortOne, 'and the one that does not is the other of the two').toBe(other)
+    expect(rstuNs(clears!), 'and it really does').toBeGreaterThan(uwbSlotFitNs(ANCHORS))
+    same(String(shortBy), (uwbSlotFitNs(ANCHORS) - rstuNs(other!)) / 1000,
+      'while the other is short of it by this much')
+    const [floorAgain] = figs(TRY, /拦住它们的都是那条 (\d+) RSTU 下限/, '`tryThis` on what refuses them')
+    expect(floorAgain, 'the floor, which is where they snapped to').toBe(snapped)
+    // quiz 1: 「射频开启时间只有 0.97 % 与 1.22 %」
+    const [tagPct, ancPct] = figs(QUIZ, /射频开启时间只有 ([\d.]+) % 与 ([\d.]+) %/,
+      'the first question’s two shares')
+    same(String(tagPct), (100 * radioOnNs(recs(), 'uwb-1', PLAN.blockNs)) / PLAN.blockNs,
+      'the phone’s share')
+    same(String(ancPct), (100 * radioOnNs(recs(), 'anchor-1', PLAN.blockNs)) / PLAN.blockNs,
+      'and the anchor’s')
+    // quiz 2: 「从 2 ms 缩到 0.5 ms」, 「一轮缩到 5.0 ms，一个块装 40 轮而不是 10 轮」
+    const [was, now] = figs(QUIZ, /把测距时隙从 (\d+) ms 缩到 ([\d.]+) ms/, 'the second question’s two slots')
+    same(String(was), PLAN.slotNs / MS, 'the slot it starts from')
+    same(String(now), VPLAN.slotNs / MS, 'and the one it moves to')
+    const [round, more, fewer] = figs(QUIZ, /一轮缩到 ([\d.]+) ms，一个块装 (\d+) 轮而不是 (\d+) 轮/,
+      'the answer it marks right')
+    same(String(round), VPLAN.roundNs / MS, 'the round the short slot gives')
+    expect([more, fewer], 'the rounds a block holds, each way')
+      .toEqual([VPLAN.roundsPerBlock, PLAN.roundsPerBlock])
+    const [quizFloor] = figs(QUIZ, /它的下界由最长那一帧和 (\d+) RSTU 决定/, 'the explanation’s own floor')
+    expect(quizFloor, 'the same floor, a fourth time').toBe(floorAgain)
   })
 })
