@@ -1045,8 +1045,19 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
   it('reads the member’s share, the legacy spacing and the rest of `limits`', () => {
     // 「20 MHz 上两个成员各读 9 格里的 4 格」 is interpolated; the 106-tone claim beside it is not.
     expect(PIC.length + NUMS.length, 'the lesson still has the sections this reads').toBeGreaterThan(0)
+    /*
+     * **Exempt, class (a): the 106 itself.** 「两个 106 音调资源单元正好各覆盖 4 格」 is the
+     * standard's RU size and no corpus ships with this repo — 107 tones would fold onto the same
+     * four bins, so the sweep of 2026-10-14 reports it unpinned and will keep doing so. What is
+     * read is the claim the sentence makes: that RU folds onto exactly the member's share of
+     * this engine's bins, it is more than one bin (so it is not the smallest RU, which this
+     * lesson's own bin is), and two of them fit the channel the sentence is about.
+     */
     const [tones] = figs(NUMS, /两个 (\d+) 音调资源单元正好各覆盖/, '`numbers` on the 106-tone RU')
     expect(Math.floor(tones! / RU26_TONES), 'what that RU covers in bins').toBe(selMemberBins(20, 1 / 2))
+    expect(Math.floor(tones! / RU26_TONES), 'and it is more than one bin').toBeGreaterThan(1)
+    expect(2 * Math.floor(tones! / RU26_TONES), 'while two of them fit the whole channel')
+      .toBeLessThanOrEqual(selBins(20))
     // 「312.5 kHz 的子载波间隔上不存在 26 音调资源单元」: four times the spacing this lesson uses.
     const [legacyKhz] = figs(LIM, /([\d.]+) kHz 的子载波间隔上不存在/, '`limits` on the legacy spacing')
     expect(legacyKhz! / DF_EHT_KHZ, 'the legacy spacing, in units of this one').toBe(4)

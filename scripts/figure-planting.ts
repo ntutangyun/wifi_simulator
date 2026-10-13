@@ -17,6 +17,7 @@
  * npx tsx scripts/figure-planting.ts ifs --list          # what one lesson prints, planting nothing
  * npx tsx scripts/figure-planting.ts ifs                 # sweep one lesson
  * npx tsx scripts/figure-planting.ts ifs --own --built   # only the figures typed into a built string
+ * npx tsx scripts/figure-planting.ts ifs --own --only=第  # only the figures whose context matches
  * npx tsx scripts/figure-planting.ts mumimo tests/course/quoted-timestamps.test.ts
  * ```
  *
@@ -86,14 +87,24 @@ interface Figure {
 }
 
 /** A clause, a chapter, a document number: nothing here can check one. */
-const CITE = /(§|第|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCOM)/
+/*
+ * **「第」 used to be on this list, and it was too wide by 199 figures.** 「第 36 章」 is a
+ * citation, but 「它落在第 10 纳秒」 is an instant and 「第 1 个时隙」 is an index — both are
+ * figures a reader can check and neither can be answered by a document. Until 2026-10-14 any
+ * 「第」 within sixteen characters before a figure marked it a name, so none of them was ever
+ * planted: `@uwb-sensing` printed 「第 10 纳秒，而…第 7 纳秒」 and the sweep reported 26 figures
+ * of 28. The document words moved to `CITE_AFTER`, which judges by what FOLLOWS: 「第 N 章」,
+ * 「第 N 节」, 「第 N 页」, 「第 N 部分」, 「第 N 条」 and 「第 N 款」 stay names, and the course-wide
+ * census went 8 049 → 8 248.
+ */
+const CITE = /(§|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCOM)/
 /**
  * The same, judged by what FOLLOWS the figure: a working-document number (`11-24/1613r20`,
  * `15-24/0123r4`), a draft version (`D1.0`) and a date (「2026 年」, 「5 月」). All three are
  * claims about documents outside this repository, and a sweep that plants them asks a question
  * nothing here can answer.
  */
-const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|\.\d\s*(将|于|发布))/
+const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|\s?(章|节|页|部分|条|款)|\.\d\s*(将|于|发布))/
 
 /**
  * **A digit inside a name is not a figure.** 「Wi-Fi 6」, 「4096-QAM」, 「802.11ac」 and
@@ -444,6 +455,17 @@ if (sampleArg) {
  * full re-sweep of a hundred.
  */
 if (process.argv.includes('--built')) mine = mine.filter((f) => f.built)
+/*
+ * `--only=<regex>` plants only the figures whose context matches, which is how a **rule change**
+ * is discharged on a lesson already swept: when `第` stopped being a name on 2026-10-14, 199
+ * figures became visible across courses whose sweeps were already written, and re-sweeping them
+ * whole would be a day. `--own --only=第` costs one planting each.
+ */
+const onlyArg = process.argv.find((a) => a.startsWith('--only='))
+if (onlyArg) {
+  const re = new RegExp(onlyArg.slice('--only='.length))
+  mine = mine.filter((f) => re.test(f.ctx))
+}
 // `--saved` re-plants only what a previous run reported, which is how a cheap first pass
 // (`--own`) is followed by an expensive one over its candidates alone.
 if (process.argv.includes('--saved')) {
@@ -506,6 +528,16 @@ if (process.argv.includes('--list')) {
   console.log(`${id}: ${mine.length} plantable figures`,
     `(${figures.length - mine.length - shared} citations and names`
     + (shared > 0 ? `, ${shared} printed twice from one literal)` : ')'))
+  process.exit(0)
+}
+
+/*
+ * **A filter can select nothing, and that is an answer.** `--built` and `--only=` are run over a
+ * list of lessons at a time (discharging a rule change), and a lesson with no figure of that kind
+ * used to crash on `mine[0]` — which in a batch looks exactly like a lesson that failed.
+ */
+if (mine.length === 0) {
+  console.log(`${id}: no figure of this kind to plant`)
   process.exit(0)
 }
 

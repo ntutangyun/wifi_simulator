@@ -311,6 +311,30 @@ describe('uwb-intro · the four lines to subtract', () => {
     expect(ofType(rs, 'UWB_RANGE')[0].tofRawRctu).toBe(tof)
   })
 
+  it('reads the hand-subtraction’s three results out of the formula block itself', () => {
+    /*
+     * **The `it` above compares the engine with figures typed on this side** — `.toBe('16.75')`
+     * — and the sweep of 2026-10-14 (the first one that could see a figure typed into a built
+     * string) found the lesson's own 16.75 unpinned. Here the line's three results are parsed
+     * out of the shipped string and compared with the same three computations.
+     */
+    const RE = /= (\d+) RCTU = ([\d.]+) ns = ([\d.]+) m/
+    const fml = uwbIntro.numbers!.find((b): b is Extract<Block, { kind: 'formula' }> =>
+      b.kind === 'formula' && RE.test(b.text))
+    expect(fml, 'no formula block prints the three results any more').toBeDefined()
+    const m = RE.exec(fml!.text)
+    expect(m, 'the formula no longer prints its three results in the shape this test reads')
+      .not.toBeNull()
+    const [rctu, ns, metres] = m!.slice(1)
+    const [t1, t2, t3, t4] = ts.map((r) => r.counter)
+    const tof = ssTwrRaw(counterDiff(t4, t1), counterDiff(t3, t2))
+    expect(Number(rctu), 'the ticks the subtraction really leaves').toBe(tof)
+    expect(ns, 'those ticks in nanoseconds').toBe((tof * RCTU_NS).toFixed(2))
+    expect(metres, 'and in metres').toBe(rctuToMetres(tof).toFixed(2))
+    expect(ofType(rs, 'UWB_RANGE')[0]!.tofRawRctu, 'which is the engine’s own raw figure')
+      .toBe(tof)
+  })
+
   it('1070 is 4.3 ticks long: the truth is 16.678 ns, or 1065.7 ticks', () => {
     // the formula note: "A difference of 2140 between two numbers in the hundreds of billions.
     //  The truth is 1065.7 ticks: the reading runs 4.3 ticks long, because each receive counter

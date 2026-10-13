@@ -1325,6 +1325,27 @@ describe('ru-diversity · the scene comment’s own nine figures', () => {
  * 26-tone RUs. What the sentence uses the list for — that the sizes are discrete and uneven, so
  * a scheduler picks from a table rather than dividing — is checked on the five.
  */
+describe('ru-diversity · the two figures `observe` prints with the window they belong to', () => {
+  /*
+   * **A figure typed into a built string was invisible until 2026-10-14**, and this lesson's
+   * `observe` has two: 「本课默认载入的 150 ms 里，接入点发出的合成记录一共 45 条，其中 1 条是
+   * 整条信道」 sits in a template, so the sweep that swept this lesson whole never planted them.
+   * The sentence names its own window, which is what makes the count readable at all.
+   */
+  it('reads the window and the count of synthesis records in it', () => {
+    const text = (lesson.observe ?? []).join('\n')
+    const m = /本课默认载入的 (\d+) ms 里，接入点发出的合成记录一共 (\d+) 条，其中 (\d+) 条是整条信道/
+      .exec(text)
+    expect(m, '`observe` no longer prints this in the shape this test reads').not.toBeNull()
+    const [ms, total, whole] = m!.slice(1).map(Number)
+    expect(ms! * MS, 'the window this lesson loads by default').toBe(RUN_NS)
+    const sels = ofType(runOf(lesson, SPLIT, ms! * MS), 'WIFI_SEL')
+    expect(sels.length, 'the synthesis records this window really holds').toBe(total)
+    expect(sels.filter((r) => r.ruFraction === undefined).length,
+      'of which the ones that were not grouped').toBe(whole)
+  })
+})
+
 describe('ru-diversity · every figure the prose prints, read back out of it', () => {
   const blockText = (b: unknown): string => {
     const out: string[] = []
