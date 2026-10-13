@@ -435,6 +435,15 @@ for (const t of tests) {
 
 const { figures } = figuresOf(lesson)
 let mine = figures.filter((f) => plantCites || !f.cite)
+/*
+ * **A lesson that prints no figure at all is an error; a FILTER that selects none is an answer.**
+ * This check used to sit after `--sample`, `--built`, `--only=` and `--saved`, where it swallowed
+ * the second case into the first: `--list --only=第` over 91 lessons threw on the 27 lessons that
+ * print no figure next to a 「第」, and in a batch log a throw reads exactly like a lesson whose
+ * sweep failed. The friendly 「no figure of this kind to plant」 line below was written for that
+ * case on 2026-10-14 and was unreachable from the day it landed, because this line ran first.
+ */
+if (mine.length === 0) throw new Error(`no printed figures found for \`${id}\``)
 /**
  * `--sample N` plants N evenly spaced figures instead of all of them: the sweep of one lesson
  * costs a run per figure, so ranking 91 lessons by what they leave unread costs a day. A sample
@@ -515,8 +524,6 @@ for (const f of mine) {
 }
 mine = kept
 
-if (mine.length === 0) throw new Error(`no printed figures found for \`${id}\``)
-
 /**
  * `--list` prints the figures and plants nothing — the list a read-back is written against.
  * Writing one lesson's reads takes the whole list in front of you (「this figure is printed four
@@ -531,6 +538,7 @@ if (process.argv.includes('--list')) {
   console.log(`${id}: ${mine.length} plantable figures`,
     `(${figures.length - mine.length - shared} citations and names`
     + (shared > 0 ? `, ${shared} printed twice from one literal)` : ')'))
+  if (mine.length === 0) console.log(`${id}: no figure of this kind to list`)
   process.exit(0)
 }
 
