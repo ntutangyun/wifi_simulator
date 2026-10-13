@@ -50,7 +50,7 @@ export const edcaTamper: Lesson = {
   ],
   picture: [
     { heading: '这套规则没有裁判', text: '增强型分布式信道接入（enhanced distributed channel access, EDCA）全部的强制力，在于每一台设备都照着同一张表去等、去抽。那张表在标准里是信标（Beacon）帧里的一个 EDCA 参数集（parameter set）元素，由接入点广播；而等多久、抽多宽这两件事发生在设备自己的芯片里，空口上谁也看不见。一台改了驱动的设备不需要破解任何东西，它只要把自己那几个数填小一点。更要紧的是：本仿真器连管理帧（management frame）都不发，于是这里的作弊者偏离的，是一套从未被广播过的参数。' },
-    { kind: 'watch', jump: 0, heading: '先看一个没人作弊的房间', text: '载入仿真。三台站点都在饱和上传，用的是同一套尽力而为的参数。跳到第一次碰撞，再把三台的发送计数并排读：6 099、7 343、5 967 帧，彼此差不到 7 个百分点。这就是「公平」在这套规则下长什么样——不是精确均分，是谁也没有系统性的优势。' },
+    { kind: 'watch', jump: 0, heading: '先看一个没人作弊的房间', text: '载入仿真。三台站点都在饱和上传，用的是同一套尽力而为的参数。跳到第一次碰撞，再把三台的发送计数并排读：6 099、7 343、5 967 帧，彼此差不到 8 个百分点。这就是「公平」在这套规则下长什么样——不是精确均分，是谁也没有系统性的优势。' },
     { heading: '七种改法，改的是四个地方', text: '编辑器里那个下拉框有七个预设，而它们动的其实只有四个地方：这一类该等的那段静默，由它的仲裁帧间间隔数（arbitration interframe space number, AIFSN）定；抽倒数值的范围，也就是那两个竞争窗口（contention window, CW）——最小竞争窗口（minimum contention window, CWmin）与最大竞争窗口（maximum contention window, CWmax）；一次拿到信道之后能连续占多久，即这一类的 TXOP 上限（TXOP limit），而这样的一次占用在标准里叫一个传输机会（transmit opportunity, TXOP）；以及每一帧帧头（MAC header）里宣告的持续时间（Duration/ID）。第五种是把自己所有的帧都标进语音那一个接入类别（access category, AC），第六种是碰撞之后不把窗口翻倍，第七种是前面四种一起上。' },
   ],
   numbers: [
@@ -134,7 +134,7 @@ export const edcaTamper: Lesson = {
       q: '五个种子一起看，七种改法排出来的是几级？',
       options: [
         '七级，从最轻到最狠严格递增',
-        '四级加一个封顶组：前五种次序稳定，最后三种都在 98.6 % 以上且相互次序随种子翻转',
+        '四级加一个封顶组：前五种次序稳定，最后三种都在 98.5 % 以上且相互次序随种子翻转',
         '两级：有效的和无效的',
       ],
       answer: 1,
