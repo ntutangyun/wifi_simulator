@@ -21,7 +21,9 @@ import {
 } from '../../src/course/uwb/uwb-capstone'
 import { DEFAULT_UWB_SESSION, ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { UWB_NLOS_NS, FOM_LOS, FOM_NLOS, fomText, rstuNs } from '../../src/uwb/phy'
+import { readFileSync } from 'node:fs'
+import { UWB_NLOS_NS, FOM_LOS, FOM_NLOS, UWB_SIR_MIN_DB, fomText, rstuNs } from '../../src/uwb/phy'
+import { azimuthFromPdoaDeg } from '../../src/uwb/aoa'
 import { C_M_PER_NS } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 import { solvePosition } from '../../src/uwb/position'
@@ -421,5 +423,409 @@ describe('uwb-capstone · echoes exist, and none of the four scenes has an objec
     for (const variant of [undefined, V_FAR, V_FAST, V_OTM]) {
       expect(ofType(recs(variant), 'UWB_ECHO')).toHaveLength(0)
     }
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The two tables above are already held against the run — 「`expect(scene(i).slice(0, 4))
+ * .toEqual(want)`」 — but through a literal typed on **this** side, and the prose around them is
+ * not read at all. The sampling sweep of 2026-10-12 planted six of this lesson's figures and
+ * **four went unnoticed**. Here every figure is parsed out of the shipped string, the tables
+ * included, and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the four-scene table is read as the four runs it is, with the record its own row names.**
+ *    A column is a scene (by the words of its heading, including the 「每 100 ms」 that is the
+ *    variant's own block length) and a row is a figure that names where it is read — so each
+ *    cell is counted with the record type printed in its own row label.
+ *  - **「600 RSTU 是本仿真器允许 MMS 轮次使用的最短时隙」 is read by trying every shorter one.**
+ *    Every slot from 1 to 599 RSTU is rejected by the scenario schema and 600 is accepted, which
+ *    is what makes that sentence a claim about this simulator rather than a number.
+ *  - **「±90° 的视场」 is measured by sweeping the estimator.** The phase difference is swept
+ *    well past the array's unambiguous range and the extreme azimuths it returns are the two
+ *    edges the sentence prints.
+ *  - **the figures `deeper` counts are read as the solver's own arithmetic**: three ranges, two
+ *    unknowns, one measurement to spare — and 「加第四个锚点」 is the anchor count plus one.
+ *  - **the Chinese numerals are read too**, and in this lesson they carry half the claims:
+ *    「两个房间」、「三个距离、三个方位」、「四个场景，七个块」、「一串片段，三个名字」.
+ */
+describe('uwb-capstone · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const WHY = [uwbCapstone.why!, ...uwbCapstone.outcomes!].join('\n')
+  const PIC = blockText(uwbCapstone.picture)
+  const NUMS = blockText(uwbCapstone.numbers)
+  const DEEP = blockText(uwbCapstone.deeper)
+  const LIM = blockText(uwbCapstone.limits)
+  const SRC = blockText(uwbCapstone.sources)
+  const OBS = blockText(uwbCapstone.observe)
+  const TRY = blockText(uwbCapstone.tryThis)
+  const QUIZ = blockText(uwbCapstone.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** 「两」「三」「七」「十四」, and 「半」 for the half metre the brief asks for. */
+  const cn = (s: string): number => {
+    if (s === '半') return 0.5
+    const d = (c: string): number => '零一二三四五六七八九'.indexOf(c === '两' ? '二' : c)
+    const i = s.indexOf('十')
+    if (i < 0) return d(s)
+    return (i === 0 ? 1 : d(s.slice(0, i))) * 10 + (i === s.length - 1 ? 0 : d(s.slice(i + 1)))
+  }
+  const SCENES = [undefined, V_FAR, V_FAST, V_OTM]
+  const fixesOf = (v?: number) => ofType(recs(v), 'UWB_POSITION')
+  const tagRanges = (v?: number) => ofType(recs(v), 'UWB_RANGE').filter((r) => r.node === TAG)
+  const errsOf = (peer: string) => tagRanges().filter((r) => r.peer === peer)
+    .map((r) => r.distM - r.trueDistM)
+  /** The scene a column of the four-scene table is about, by the words of its own heading. */
+  const sceneOf = (head: string): number | undefined => {
+    if (head.includes('现状')) return undefined
+    if (head.includes('挪远')) return V_FAR
+    if (head.includes('一个块')) return V_FAST
+    if (head.includes('一轮')) return V_OTM
+    throw new Error(`no scene for the column 「${head}」`)
+  }
+
+  it('reads the flat, and the half metre the brief asks for', () => {
+    // 「两个房间，中间夹着一条走廊，隔断全是砖」
+    const sc = uwbCapstone.scenario()
+    const [roomsCn, hallsCn] = raw(PIC, /(.)个房间，中间夹着(.)条走廊/, '`picture` on the flat')
+    const halls = sc.rooms.filter((r) => r.name.includes('Hallway'))
+    expect(sc.rooms.length - halls.length, 'the rooms this flat really has').toBe(cn(roomsCn!))
+    expect(halls.length, 'and the hallway between them').toBe(cn(hallsCn!))
+    // 「它对面的墙上已经装了两个锚点，一头一个，第三个立在走廊里」
+    const [pairCn, thirdCn] = raw(PIC, /已经装了(.)个锚点，一头一个，第(.)个立在走廊里/,
+      '`picture` on where the anchors are')
+    const inRoomB = CAPSTONE_ANCHORS.filter((a) => a.x > TAG_POS.x - 2)
+    expect(inRoomB.length, 'the anchors beside the phone').toBe(cn(pairCn!))
+    expect(cn(thirdCn!), 'and the one across the hallway wall, which is the last of them')
+      .toBe(CAPSTONE_ANCHORS.length)
+    expect(CAPSTONE_ANCHORS.filter((a) => !inRoomB.includes(a)).map((a) => a.id),
+      'and it is anchor-3').toEqual(['anchor-3'])
+    /*
+     * 「把手机定位到半米以内」 — the brief, printed in `why`, in `picture` and again in the
+     * method's last step. It is read as the figure it is: half a metre, against the worst
+     * three-range fix of the flat as it stands, which does not meet it.
+     */
+    for (const [text, re, what] of [
+      [WHY, /把一部手机定位到(.)米以内/, '`why` on the brief'],
+      [PIC, /把手机定位到(.)米以内/, '`picture` on the brief'],
+      [blockText(steps()), /能把每一次定位都压在(.)米以内/, 'the method on the brief'],
+    ] as [string, RegExp, string][]) {
+      const metres = cn(raw(text, re, what)[0]!)
+      expect(Math.max(...threeRange().map((x) => x.err)), `${what}: and the flat misses it`)
+        .toBeGreaterThan(metres)
+    }
+  })
+
+  it('reads the four-scene table as the four runs it is, by the record each row names', () => {
+    const tb = table(0)
+    // 「四个场景，七个块」
+    const [scenesCn, blocksCn] = raw(tb.heading!, /(.)个场景，(.)个块/, 'the table’s own heading')
+    expect(cn(scenesCn!), 'the scenes the brief offers').toBe(1 + uwbCapstone.variants!.length)
+    expect(cn(blocksCn!), 'and the blocks this window holds')
+      .toBe(count(undefined, 'UWB_ROUND'))
+    // 「每 100 ms 一个块」 — the column heading carries the variant's own block length
+    const [fastMs] = figs(tb.head.join('\n'), /每 (\d+) ms 一个块/, 'the fast column’s heading')
+    expect(fastMs! * MS, 'the block that variant really runs').toBe(rstuNs(FAST_BLOCK_RSTU))
+    // 「一轮问遍三个」
+    const [askCn] = raw(tb.head.join('\n'), /一轮问遍(.)个/, 'the one-round column’s heading')
+    expect(cn(askCn!), 'the anchors one round really asks').toBe(ANCHORS.length)
+    for (const [c, head] of tb.head.slice(1).entries()) {
+      const v = sceneOf(head)
+      for (const row of tb.rows) {
+        const label = row[0]!
+        const printed = row[c + 1]!
+        const named = /(UWB_[A-Z]+|TX_START)/.exec(label)?.[1]
+        if (named) {
+          expect(recs().some((r) => r.type === named), `${named} is a record the flat carries`)
+            .toBe(true)
+        }
+        if (label.includes('空口时间')) {
+          expect(printed, `${label} · ${head}`).toBe(`${onAir(v).ms} ms`)
+        } else if (label.includes('发射次数')) {
+          // 「手机与三个锚点的 TX_START」 — the session's own frames, not the router's
+          expect(cn(raw(label, /手机与(.)个锚点/, 'the row’s own label')[0]!),
+            'the anchors it counts').toBe(ANCHORS.length)
+          expect(val(printed), `${label} · ${head}`).toBe(onAir(v).n)
+        } else if (label.includes('三距离交汇')) {
+          const [threeCn] = raw(label, /记录里写着(.)个锚点的那些/, 'the row’s own label')
+          expect(val(printed), `${label} · ${head}`)
+            .toBe(fixesOf(v).filter((f) => f.anchors.length === cn(threeCn!)).length)
+          expect(cn(threeCn!), 'and that is every anchor of the flat').toBe(ANCHORS.length)
+        } else {
+          expect(val(printed), `${label} · ${head}`).toBe(count(v, named as TLRecord['type']))
+        }
+      }
+    }
+    // 「每一列都是同一个 1300 ms 窗口」
+    const [windowMs] = figs(NUMS, /每一列都是同一个 (\d+) ms 窗口/, 'the paragraph on the window')
+    expect(windowMs! * MS, 'the window every column is counted over').toBe(RUN_NS)
+    // 「凡不是三距离交汇的定位，都是某一个锚点单独测出的方位」
+    for (const v of SCENES) {
+      for (const f of fixesOf(v)) {
+        if (f.anchors.length === ANCHORS.length) continue
+        expect([f.anchors.length, f.method], `a lone fix of scene ${String(v)}`).toEqual([1, 'aoa'])
+      }
+    }
+  })
+
+  it('reads the ranges table, the formula and the brick wall behind the bias', () => {
+    const tb = table(1)
+    for (const row of tb.rows) {
+      const [peer, trueM, errM, cause] = row as [string, string, string, string]
+      const mine = tagRanges().filter((r) => r.peer === peer)
+      expect(mine.length, `${peer} is a peer this run ranges to`).toBeGreaterThan(0)
+      same(trueM.replace(' m', ''), mean(mine.map((r) => r.trueDistM)), `${peer}: the true distance`)
+      same(errM.replace(' m', ''), mean(mine.map((r) => r.distM - r.trueDistM)),
+        `${peer}: the mean error`)
+      const nlos = cause.includes('砖墙')
+      expect(mine[0]!.fom, `${peer}: the quality byte its cause implies`)
+        .toBe(nlos ? FOM_NLOS : FOM_LOS)
+      if (nlos) {
+        expect(mine.every((r) => r.distM > r.trueDistM), `${peer}: every range of it reads long`)
+          .toBe(true)
+      }
+    }
+    /*
+     * 「砖 2.0 ns」 — `limits` names the table the delay comes from, and the +0.60 m of the
+     * ranges table is that delay in metres. Both are read, and the second from the first.
+     */
+    const [brickNs] = figs(LIM, /砖 ([\d.]+) ns/, '`limits` on the brick wall')
+    expect(brickNs, 'the delay this engine charges a brick wall').toBe(UWB_NLOS_NS.brick)
+    const [limBias] = figs(LIM, /那 \+([\d.]+) m 是一个定数/, '`limits` on the bias')
+    same(String(limBias), brickNs! * C_M_PER_NS, 'the brick delay, in metres')
+    same(String(limBias), mean(errsOf('anchor-3')), 'and the bias every block really carries')
+    // 「平均误差 0.55 m，最差 0.57 m，GDOP 1.25」
+    const formula = uwbCapstone.numbers!.find((b) => b.kind === 'formula') as unknown as
+      { text: string; note: string }
+    const [meanM, worstM, gdop] = figs(formula.text,
+      /平均误差 ([\d.]+) m，最差 ([\d.]+) m，GDOP ([\d.]+)/, 'the formula line')
+    const three = threeRange()
+    same(String(meanM), mean(three.map((x) => x.err)), 'the mean error of a three-range fix')
+    same(String(worstM), Math.max(...three.map((x) => x.err)), 'the worst of them')
+    same(String(gdop), three[0]!.f.gdop, 'and the geometry’s own figure')
+    // 「离散度极小」 — the note's own claim about the five of them
+    expect(Math.max(...three.map((x) => x.err)) - Math.min(...three.map((x) => x.err)),
+      'the spread the note calls very small').toBeLessThan(0.05)
+  })
+
+  it('reads 「有谁达到要求了吗」 and the correction that does meet the brief', () => {
+    const [offsetM] = figs(NUMS, /光那个偏移就有 ([\d.]+) m/, 'the paragraph on the offset')
+    const [halfCn] = raw(NUMS, /压在(.)米以内/, 'the paragraph on the brief')
+    const [leftM] = figs(NUMS, /这个块就只差 ([\d.]+) m/, 'the paragraph on the corrected block')
+    const bias = mean(errsOf('anchor-3'))
+    same(String(offsetM), bias, 'the offset anchor-3 carries')
+    expect(offsetM, 'which alone is more than the brief allows').toBeGreaterThan(cn(halfCn!))
+    // 「没有哪个场景能把每一次定位都压在半米以内」
+    for (const v of SCENES) {
+      const errs = threeRange(v).map((x) => x.err)
+      if (errs.length === 0) continue
+      expect(Math.max(...errs), `scene ${String(v)} misses the brief`).toBeGreaterThan(cn(halfCn!))
+    }
+    // 「把这份偏移从 anchor-3 的距离里扣掉、再解一次，这个块就只差 0.02 m」
+    const block = threeRange()[0]!.f.block
+    const inBlock = tagRanges().filter((r) => r.block === block)
+    expect(inBlock, 'the three ranges of that block').toHaveLength(ANCHORS.length)
+    const fix = solvePosition(
+      CAPSTONE_ANCHORS.map((a) => ({ id: a.id, x: a.x, y: a.y, z: ANCHOR_Z })),
+      inBlock.map((r) => ({ id: r.peer, distM: r.distM - (r.peer === 'anchor-3' ? bias : 0) })),
+      TAG_Z, 0.021,
+    )!
+    same(String(leftM), Math.hypot(fix.x - TAG_POS.x, fix.y - TAG_POS.y),
+      'what the corrected block really leaves')
+    expect(leftM, 'which does meet the brief').toBeLessThan(cn(halfCn!))
+  })
+
+  it('reads `deeper`: three ranges, two unknowns, one to spare, and a fourth anchor', () => {
+    // 「在三个距离上做最小二乘，只比两个未知量——地面上的两个坐标…多出一个测量」
+    const [rangesCn, unknownsCn, coordsCn] = raw(DEEP,
+      /在(.)个距离上做最小二乘，只比(.)个未知量——地面上的(.)个坐标/, '`deeper` on the fit')
+    expect(cn(rangesCn!), 'the ranges a three-range fix is made of').toBe(ANCHORS.length)
+    expect(cn(unknownsCn!), 'and the unknowns the solver really has').toBe(cn(coordsCn!))
+    /*
+     * The two unknowns, measured: the solver takes the tag's z as an argument and refuses a
+     * third range's worth of redundancy — three ranges are the fewest it will answer, and two
+     * leave it with nothing to answer from.
+     */
+    const anchorsIn = CAPSTONE_ANCHORS.map((a) => ({ id: a.id, x: a.x, y: a.y, z: ANCHOR_Z }))
+    const block = threeRange()[0]!.f.block
+    const inBlock = tagRanges().filter((r) => r.block === block)
+      .map((r) => ({ id: r.peer, distM: r.distM }))
+    expect(solvePosition(anchorsIn, inBlock.slice(0, cn(unknownsCn!)), TAG_Z, 0.021),
+      'two ranges are not enough for two unknowns').toBeNull()
+    expect(solvePosition(anchorsIn, inBlock, TAG_Z, 0.021),
+      'and three are the fewest it answers').not.toBeNull()
+    expect(inBlock.length - cn(unknownsCn!), '「多出一个测量」').toBe(1)
+    // 「要让解算器察觉到这一点，最便宜的办法就是加第四个锚点」, and `tryThis` says it again
+    for (const [text, what] of [[DEEP, '`deeper`'], [TRY, '`tryThis`']] as [string, string][]) {
+      const [nth] = raw(text, /第(.)个锚点/, `${what} on the extra anchor`)
+      expect(cn(nth!), `${what}: one more than the flat has`).toBe(ANCHORS.length + 1)
+    }
+    /*
+     * 「日志里每一个距离都带着一个品质因数…本仿真器的解算器完全没有去读它」 — read off the
+     * solver's own signature: the records carry a `fom`, and what `solvePosition` accepts does
+     * not have a field for one.
+     */
+    const POS_SRC = readFileSync(new URL('../../src/uwb/position.ts', import.meta.url), 'utf8')
+    const [accepts] = raw(POS_SRC, /solvePosition\(\s*\n\s*anchors: AnchorPos\[\],\s*\n\s*ranges: \{([^}]*)\}/,
+      'what the solver accepts')
+    expect(accepts!.includes('fom'), 'the solver has no field for a quality byte').toBe(false)
+    for (const r of tagRanges()) expect(typeof r.fom, 'while every range carries one').toBe('number')
+    expect(tagRanges().find((r) => r.peer === 'anchor-3')!.fom, 'and the obstructed one is worse')
+      .not.toBe(tagRanges().find((r) => r.peer === 'anchor-1')!.fom)
+  })
+
+  it('reads `sources`: the profile, the shortest slot, the noise and the threshold', () => {
+    // 「200 ms 的测距块与 2 ms 的测距时隙来自 FiRa 的配置文件」
+    const [blockMs, slotMs] = figs(SRC, /(\d+) ms 的测距块与 (\d+) ms 的测距时隙来自 FiRa/,
+      '`sources` on the profile')
+    expect(blockMs! * MS, 'the block this flat really runs').toBe(rstuNs(DEFAULT_UWB_SESSION.blockRstu))
+    expect(slotMs! * MS, 'and the slot').toBe(rstuNs(DEFAULT_UWB_SESSION.slotRstu))
+    expect(rstuNs(uwbCapstone.scenario().uwb!.blockRstu), 'which is the scene’s own block')
+      .toBe(blockMs! * MS)
+    /*
+     * 「600 RSTU 是本仿真器允许 MMS 轮次使用的最短时隙，因为两个时隙必须装得下这一轮里最长的
+     * 那条窄带消息」 — read by trying every shorter slot: the schema rejects all of them.
+     */
+    const [shortest, slotsCn] = raw(SRC,
+      /(\d+) RSTU 是本仿真器允许 MMS 轮次使用的最短时隙，因为(.)个时隙必须装得下/,
+      '`sources` on the shortest slot')
+    const otm = uwbCapstone.variants![V_OTM]!.scenario()
+    expect(otm.uwb!.slotRstu, 'the slot that variant really runs').toBe(val(shortest!))
+    const parses = (s: number): boolean => {
+      const sc = uwbCapstone.variants![V_OTM]!.scenario()
+      sc.uwb!.slotRstu = s
+      return ScenarioSchema.safeParse(sc).success
+    }
+    expect(parses(val(shortest!)), 'and the schema does accept it').toBe(true)
+    const shorter = Array.from({ length: val(shortest!) - 1 }, (_, i) => i + 1).filter(parses)
+    expect(shorter, 'while every shorter slot is refused').toEqual([])
+    // and the rule the sentence gives: the capacity the engine checks is two slots' worth
+    const SC_SRC = readFileSync(new URL('../../src/model/scenario.ts', import.meta.url), 'utf8')
+    const [factor] = figs(SC_SRC, /RSTU 的时隙合起来是 \$\{\((\d) \* slotNs/, 'the engine’s own rule')
+    expect(factor, 'the slots that rule adds up').toBe(cn(slotsCn!))
+    // 「每个时间戳 100 ps 的 1σ 噪声」 and 「−12 dB 信干比门限」
+    const [noisePs] = figs(SRC, /每个时间戳 (\d+) ps 的 1σ 噪声/, '`sources` on the timestamp noise')
+    expect(noisePs, 'the noise this session really carries')
+      .toBe(uwbCapstone.scenario().uwb!.tsNoisePs)
+    const [sirDb] = figs(SRC, /打掉的 (−?\d+) dB 信干比门限/, '`sources` on the threshold')
+    expect(sirDb, 'the threshold the engine really uses').toBe(UWB_SIR_MIN_DB)
+    /*
+     * 「它 ±90° 的视场」 — swept rather than quoted: the phase difference is pushed well past
+     * the array's unambiguous range, and the two extremes the estimator returns are the edges.
+     */
+    const [fov] = figs(SRC, /以及它 ±(\d+)° 的视场/, '`sources` on the field of view')
+    const swept: number[] = []
+    for (let phi = -6; phi <= 6; phi += 0.01) swept.push(azimuthFromPdoaDeg(phi, 5))
+    expect([Math.min(...swept), Math.max(...swept)], 'the azimuths this estimator can return')
+      .toEqual([-fov!, fov!])
+  })
+
+  it('reads the anchor the brief moves, and the draft it names twice', () => {
+    /*
+     * **Three figures got past the reads above** (sweep of 2026-10-14), and two of them are the
+     * same anchor's number: 「锚点 3 挪远」 in the table's own column heading and 「把锚点 3 挪到
+     * 另一个房间」 in the quiz. Read as what they name: the one node this variant moves.
+     */
+    const base = uwbCapstone.scenario()
+    const far = uwbCapstone.variants![V_FAR]!.scenario()
+    const movedIds = base.nodes
+      .filter((n, i) => JSON.stringify(n.pos) !== JSON.stringify(far.nodes[i]!.pos))
+      .map((n) => n.id)
+    for (const [text, re, what] of [
+      [table(0).head.join('\n'), /锚点 (\d) 挪远/, 'the column heading'],
+      [QUIZ, /把锚点 (\d) 挪到另一个房间/, 'the quiz'],
+    ] as [string, RegExp, string][]) {
+      const [n] = figs(text, re, what)
+      expect(movedIds, `${what}: the only node this variant moves`).toEqual([`anchor-${n}`])
+    }
+    /*
+     * 「见 P802.15.4ab（4ab 草案 15-22/0381r5 …）」 — the draft is named in full and then by its
+     * short name in the same breath, so the short name is read as what it is: the tail of the
+     * full one. No corpus ships with this repo, which is why this is all there is to check
+     * (class (a)); `tests/course/doc-citations.test.ts` covers the document number itself.
+     */
+    const [full, short] = raw(SRC, /见 (P802\.15\.(\dab))（\dab 草案 \d\d-\d\d\/\d+r\d/,
+      '`sources` on the draft')
+    expect(full!.endsWith(short!), 'the short name is the tail of the full one').toBe(true)
+    const [again] = raw(SRC, /（(\dab) 草案/, '`sources` on the same draft, named again')
+    expect(again, 'and the two spellings agree').toBe(short)
+  })
+
+  it('reads `observe`, `tryThis`, the rubric and the quiz', () => {
+    // 「三个距离、三个方位、一次三锚点定位」
+    const [rangesCn, aoaCn, fixCn] = raw(OBS, /(.)个距离、(.)个方位、一次(.)锚点定位/,
+      '`observe` on one block')
+    const block = threeRange()[0]!.f.block
+    expect(tagRanges().filter((r) => r.block === block).length, 'the ranges one block gives')
+      .toBe(cn(rangesCn!))
+    const bearings = new Set(ofType(recs(), 'UWB_AOA').filter((r) => r.block === block)
+      .map((r) => r.node))
+    expect(bearings.size, 'the anchors that report a bearing in it').toBe(cn(aoaCn!))
+    expect(threeRange()[0]!.f.anchors.length, 'and the fix it ends in').toBe(cn(fixCn!))
+    // 「一串片段，三个名字」
+    const [namesCn] = raw(OBS, /一串片段，(.)个名字/, '`observe` on the train')
+    const train = ofType(recs(V_OTM), 'UWB_MMS_TRAIN')[0]!
+    expect(train.responders!.length, 'the responders one train really names').toBe(cn(namesCn!))
+    expect(train.responders, 'and they are the three anchors').toEqual(ANCHORS)
+    // 「先把三个决定写下来」 and 「把四个场景都跑一遍」
+    const [decisionsCn] = raw(TRY, /先把(.)个决定写下来/, '`tryThis` on the decisions')
+    expect(uwbCapstone.variants!.length, 'the decisions the brief offers').toBe(cn(decisionsCn!))
+    const [allCn] = raw(TRY, /把(.)个场景都跑一遍/, '`tryThis` on the scenes')
+    expect(1 + uwbCapstone.variants!.length, 'and the scenes they make').toBe(cn(allCn!))
+    /*
+     * 「定位次数少了一半，超时翻了一倍」 — the quiz's own explanation of the far anchor, read as
+     * the two ratios it claims: the fixes really halve, exactly, and the timeouts more than
+     * double.
+     */
+    const [halfCn, doubleCn] = raw(QUIZ, /定位次数少了一(.)，超时翻了一(.)/, 'the quiz on the far anchor')
+    expect(halfCn, 'the lesson says 「一半」').toBe('半')
+    expect(fixesOf(V_FAR).length * 2, 'and the fixes really halve').toBe(fixesOf(undefined).length)
+    expect(doubleCn, 'and 「一倍」').toBe('倍')
+    expect(count(V_FAR, 'UWB_TIMEOUT'), 'while the timeouts more than double')
+      .toBeGreaterThanOrEqual(2 * count(undefined, 'UWB_TIMEOUT'))
+    /*
+     * 「超时数和被 Wi-Fi 打掉的接收都恰好翻倍；定位次数与空口占用则差一点」 — the rubric's own
+     * row, and the reason it cannot be exact is read too: the window holds fourteen blocks, and
+     * the fourteenth starts at the very instant the window closes.
+     */
+    const rubric = table(2).rows.find((r) => r[0]!.includes('节奏'))![1]!
+    expect(count(V_FAST, 'UWB_TIMEOUT'), 'the timeouts a faster block really doubles')
+      .toBe(2 * count(undefined, 'UWB_TIMEOUT'))
+    expect(count(V_FAST, 'UWB_INTERFERED'), 'and the receptions Wi-Fi really buries')
+      .toBe(2 * count(undefined, 'UWB_INTERFERED'))
+    expect(rubric, 'the row says those two are exact').toContain('恰好翻倍')
+    const [lastCn] = raw(rubric, /第(..)个块正好起在窗口末尾那一刻/, 'the rubric on the last block')
+    const rounds = ofType(recs(V_FAST), 'UWB_ROUND')
+    expect(rounds.length, 'the blocks the faster rhythm really starts').toBe(cn(lastCn!))
+    expect(rounds.at(-1)!.t, 'and the last of them starts as the window closes').toBe(RUN_NS)
+    const lastFrames = ofType(recs(V_FAST), 'TX_START')
+      .filter((r) => UWB_NODES.has(r.node) && r.t >= rounds.at(-1)!.t)
+    const [frameCn] = raw(rubric, /只发出了(.)帧/, 'the rubric on what it managed')
+    expect(lastFrames.length, 'so it manages exactly that many frames').toBe(cn(frameCn!))
+    expect(Number(onAir(V_FAST).ms) / Number(onAir(undefined).ms),
+      'which is why the airtime is not exactly twice').toBeLessThan(2)
   })
 })
