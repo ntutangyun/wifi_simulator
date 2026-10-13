@@ -30,7 +30,7 @@ import type { TimingSpec } from '../../src/course/diagram'
 import { echoExcessM } from '../../src/engine/scatter'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
-import { C_M_PER_NS, UWB_CHIP_NS } from '../../src/uwb/phy'
+import { C_M_PER_NS, UWB_CHIP_HZ, UWB_CHIP_NS } from '../../src/uwb/phy'
 import {
   ECHO_FLIP_OFFSET_M, ECHO_FLIP_OVER, ECHO_FLIP_UNDER, ECHO_NEAR_LINE, ECHO_OFF_LINE,
   ECHO_RESOLUTION_M,
@@ -332,5 +332,185 @@ describe('uwb-sensing-resolution · the multipath entry quotes a Wi-Fi sentence 
     }
     // a floor, so this cannot pass by grading an empty track
     expect(wifi().length).toBeGreaterThanOrEqual(40)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Every figure of the table, the caption and the variant labels is interpolated from
+ * `src/ui/echoFacts.ts`, and the file above measures those against runs. What is typed into the
+ * sentences is a different set, and it is the lesson's whole argument: 「1/B」 six times, the
+ * chip rate twice, the chip itself, the 0.60 m it becomes, the two excesses the model flips
+ * between, and a quiz option's half chip.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **「1/B」 is read as the length it becomes.** The numerator is parsed at all six printings
+ *    and multiplied by the chip rate the lesson quotes: one over 499.2 Mchip/s, times c, is the
+ *    0.60 m the same lesson prints twice and the `resolutionM` every echo record carries.
+ *  - **the flip is read as a straddle.** 「0.56 米与 0.69 米之间并没有一道墙」 names the two
+ *    excesses of the two variants, and what makes them that pair is that the threshold lies
+ *    between them — which is read, not assumed.
+ *  - **「将近一米八」 is solved, not quoted**: the flip offset at a ten-metre baseline comes out
+ *    of the same inversion the lesson prints, and the Chinese numeral is read as 1.8.
+ *  - **the two chip fractions of `deeper` are exempt (class (a))** — they describe real
+ *    receivers and this repo has no corpus for them — but their order is the claim, and that is
+ *    read: both are inside one chip, and the closer pair is the worse one.
+ */
+describe('uwb-sensing-resolution · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbSensingResolution.picture)
+  const NUMS = blockText(uwbSensingResolution.numbers)
+  const DEEP = blockText(uwbSensingResolution.deeper)
+  const LIM = blockText(uwbSensingResolution.limits)
+  const SRC = blockText(uwbSensingResolution.sources)
+  const TRY = blockText(uwbSensingResolution.tryThis)
+  const QUIZ = blockText(uwbSensingResolution.quiz)
+  const ALL = [PIC, NUMS, DEEP, LIM, SRC, TRY, QUIZ].join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** The exact threshold, which is what the engine compares against. */
+  const EXACT_M = C_M_PER_NS * UWB_CHIP_NS
+
+  it('reads 「1/B」 at every printing, the chip rate behind it and the length it becomes', () => {
+    // 「1/B」 — the picture, the formula line, two steps, two paragraphs of `deeper`, `sources`
+    /*
+     * Counted over the sections joined together, so a block whose text and whose note both carry
+     * it counts twice — the claim being read is not how many times it is written but that every
+     * writing has the same numerator, and that the numerator is the one the length comes from.
+     */
+    const ones = [...ALL.matchAll(/(\d)\/B/g)].map((m) => val(m[1]!))
+    expect(ones.length, 'the lesson leans on it throughout').toBeGreaterThanOrEqual(6)
+    expect(new Set(ones).size, 'and always with the same numerator').toBe(1)
+    // 「499.2 Mchip/s」 — in `deeper` and in `sources`
+    const rates = [...ALL.matchAll(/([\d.]+) Mchip\/s/g)].map((m) => val(m[1]!))
+    expect(rates.length, 'the chip rate, printed more than once').toBeGreaterThanOrEqual(2)
+    expect(new Set(rates).size, 'and the same rate both times').toBe(1)
+    expect(rates[0]! * 1e6, 'the chip rate this engine runs').toBe(UWB_CHIP_HZ)
+    // 「一个码片 2.003205 ns」
+    const [chipNs] = figs(SRC, /一个码片 ([\d.]+) ns/, '`sources` on the chip')
+    same(String(chipNs), UWB_CHIP_NS, 'the chip itself')
+    same(String(chipNs), (ones[0]! / rates[0]!) * 1000, 'which is one over that rate')
+    // 「折成路程约 0.60 米」 in `picture`, and 「乘以光速得到的 0.60 米」 in `sources`
+    const lengths = [...ALL.matchAll(/([\d.]+) 米(?:是几何|。所以「分得开」)/g)].map((m) => m[1]!)
+    expect(lengths.length, 'the resolution, printed as a length twice').toBe(2)
+    for (const printed of lengths) {
+      expect(printed, 'the length one chip of flight comes to').toBe(ECHO_RESOLUTION_M)
+    }
+    expect(Number(ECHO_RESOLUTION_M), 'and that is c times one chip')
+      .toBe(Number(((ones[0]! / (rates[0]! * 1e6)) * 1e9 * C_M_PER_NS).toFixed(2)))
+    // every echo record carries the same threshold, unrounded
+    for (const v of ['pair', 'under', 'over'] as UwbResolutionVariant[]) {
+      for (const e of echoes(v)) {
+        expect(e.resolutionM, `${v}: the record’s own threshold`).toBeCloseTo(EXACT_M, 12)
+      }
+    }
+  })
+
+  it('reads the straddle: the two excesses the flip lies between', () => {
+    /*
+     * 「所以表里 0.56 米与 0.69 米之间并没有一道墙」 — in `deeper` and again in `limits`. The two
+     * figures are the two variants' own excesses, and what makes them this pair is that the
+     * threshold falls between them: that is read here, and it is what the sentence is about.
+     */
+    for (const [text, what] of [[DEEP, '`deeper`'], [LIM, '`limits`']] as [string, string][]) {
+      const [under, over] = figs(text, /([\d.]+) 米与 ([\d.]+) 米之间(?:并)?没有一道墙/,
+        `${what} on the two sides of the flip`)
+      expect(String(under), `${what}: the excess of the station that cannot be separated`)
+        .toBe(ECHO_FLIP_UNDER.excessM)
+      expect(String(over), `${what}: and of the one that can`).toBe(ECHO_FLIP_OVER.excessM)
+      expect(under, `${what}: the threshold falls between them`).toBeLessThan(EXACT_M)
+      expect(over, `${what}: on both sides`).toBeGreaterThan(EXACT_M)
+      const u = off('under', 'obj-near')[0] ?? echoes('under')[0]!
+      const o = off('over', 'obj-near')[0] ?? echoes('over')[0]!
+      expect(u.resolvable, 'and the run agrees about the nearer one').toBe(false)
+      expect(o.resolvable, 'and about the further one').toBe(true)
+    }
+  })
+
+  it('reads `deeper`’s two chip fractions, and the baselines it solves the flip at', () => {
+    /*
+     * 「差 0.9 个码片时两个峰还能看出是个双峰、只是位置有偏；差 0.3 个码片时它就是一个被拉宽、
+     * 拉偏的峰」 — and the paragraph goes on to name the two table rows, so the first fraction is
+     * the table's own 「分不开」 station measured in chips: 0.56 m of excess is 0.93 of one, which
+     * is why a real receiver would still see two peaks where this engine reports one.
+     *
+     * **Exempt, class (a): the 0.3.** It is the other end of the same sentence about real
+     * correlators — any fraction well inside one chip would make it — and no corpus ships with
+     * this repo. What is read is its claim: it is inside one chip, and it is the closer, worse
+     * case of the two.
+     */
+    const fractions = [...DEEP.matchAll(/差 ([\d.]+) 个码片/g)].map((m) => val(m[1]!))
+    expect(fractions.length, 'two fractions of a chip').toBe(2)
+    for (const f of fractions) expect(f, `${f} chips is inside one chip`).toBeLessThan(1)
+    expect(fractions[0], 'and the first is the wider pair').toBeGreaterThan(fractions[1]!)
+    expect(fractions[0], 'the first is the table’s own unresolvable station, in chips')
+      .toBe(Number((Number(ECHO_FLIP_UNDER.excessM) / EXACT_M).toFixed(1)))
+    /*
+     * 「2·√((s/2)² + d²) − s = c × 1/B…对 d 解一次就得到 0.87 米（s = 2 米时）。…十米的连线上，
+     * 物体要偏出将近一米八才分得开」 — the inversion the lesson prints, read at both baselines.
+     */
+    const flipAt = (s: number): number => Math.sqrt(((EXACT_M + s) / 2) ** 2 - (s / 2) ** 2)
+    const [spanCn] = raw(DEEP, /（s = (\d) 米时）/, '`deeper` on the baseline it solves at')
+    expect(val(spanCn!), 'the span this lesson’s own pair is').toBe(PAIR_SPAN_M)
+    expect(flipAt(val(spanCn!)).toFixed(2), 'the offset the inversion really gives there')
+      .toBe(ECHO_FLIP_OFFSET_M)
+    const [tenCn, oneCn, eightCn] = raw(DEEP,
+      /(.)米的连线上，物体要偏出将近(.)米(.)才分得开/, '`deeper` on the long baseline')
+    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+    const far = cn(tenCn!)
+    const want = cn(oneCn!) + cn(eightCn!) / 10
+    expect(Number(flipAt(far).toFixed(1)), 'the offset a ten-metre line really needs').toBe(want)
+    expect(flipAt(far), 'which is further out than this lesson’s own').toBeGreaterThan(flipAt(PAIR_SPAN_M))
+    // 「再把两台设备拉到四米远…翻转的位置会往外跑」
+    const [fourCn] = raw(TRY, /把两台设备拉到(.)米远/, '`tryThis` on the wider pair')
+    expect(flipAt(cn(fourCn!)), 'and four metres apart it is further out too')
+      .toBeGreaterThan(flipAt(PAIR_SPAN_M))
+  })
+
+  it('reads the quiz’s half chip, and the table cell the variant names', () => {
+    // 「半个码片，也就是约 0.30 米」 — a wrong option, and its arithmetic is the lesson's own
+    const [halfM] = figs(QUIZ, /半个码片，也就是约 ([\d.]+) 米/, 'the quiz’s wrong option')
+    same(String(halfM), EXACT_M / 2, 'half a chip, in metres of flight')
+    expect(halfM, 'which is less than the offset the right answer gives')
+      .toBeLessThan(Number(ECHO_FLIP_OFFSET_M))
+    /*
+     * 「0.9 m」 — one cell of the four-station table, typed into a string the module builds, and
+     * invisible to every sweep before 2026-10-14. It is the offset of the variant whose label
+     * the lesson writes with the same figure, and the object really stands there.
+     */
+    const tb = table(0)
+    const offsets = tb.rows.map((r) => val(raw(r[0]!, /^([\d.]+) m$/, 'a station of the table')[0]!))
+    expect(offsets, 'the four stations, outward').toEqual([...offsets].sort((a, b) => a - b))
+    expect(offsets.includes(Number(ECHO_FLIP_OVER.offM)), 'and one of them is the flip-over one')
+      .toBe(true)
+    const sc = scenarioOf('over')
+    const objs = sc.scatterers ?? []
+    expect(objs.length, 'the variant has one object').toBe(1)
+    // the offset is measured from the line the two ends stand on, not from the room's origin
+    const lineY = sc.nodes.find((n) => n.uwb !== undefined)!.pos.y
+    expect(Math.abs(objs[0]!.pos.y - lineY), 'standing exactly that far off the line')
+      .toBeCloseTo(Number(ECHO_FLIP_OVER.offM), 9)
   })
 })
