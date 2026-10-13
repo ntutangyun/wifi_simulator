@@ -15,6 +15,7 @@
  * sentence; the shape checks every migrated lesson owes are in
  * tests/course/kit.ts.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
   ANCHOR_Z, TAG_SPOTS, TAG_Z, UL_ANCHORS, uwbUlTdoa, uwbUlTdoaScenario, type UwbUlTdoaVariant,
@@ -670,5 +671,295 @@ describe('uwb-ul-tdoa · the procedure, step by step', () => {
       }
     }
     expect(tablesOf(uwbUlTdoa.numbers!)[0].rows[1][1]).toBe('1 个 2 ms 时隙，1 帧')
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The tables above are already read the right way round — a cell is compared with the string the
+ * engine's own figures build, so moving a digit in the lesson reddens them. What the sampling
+ * sweep of 2026-10-12 found (3 of 6) is everything **outside** the tables: `numbers`' three
+ * paragraphs, the whole of `deeper`, `sources`, `observe`, `tryThis` and the two table
+ * **headings** that carry a count of their own. This describe reads those, and it reads them the
+ * same way: the figure is parsed out of the shipped string and compared with a live measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the σ formula is read as the root it is.** 「√2·c·√(σ_ts² + sync²)」 and the worked cell
+ *    「√2·c·√(0.1² + 0²) ns = 4.2 cm」 give up four figures: the 2 under the first radical, the
+ *    timestamp noise in nanoseconds, this scene's own calibration residual and the answer. The
+ *    root is rebuilt from the parsed 2, so a 3 there is a different sigma and the cells no longer
+ *    match the engine.
+ *  - **the geometry experiment builds its scene out of its own sentence.** 「把 badge-1 拖到
+ *    (9.8, 0.2)」 is parsed, and *that* badge is moved *there*; the GDOP, the ellipse and the
+ *    worst of the seven fixes the same sentence quotes have to be what that run produces.
+ *  - **`sources` is read against the schema's own comments.** The ±20 ppm tolerance and the
+ *    clause it cites are written beside `NodeCfg.ppm` in `src/model/scenario.ts`, and the 1-σ of
+ *    the 100 ps noise is written beside `tsNoisePs` — so the reader who walks over there has to
+ *    find the same figures.
+ *  - **the walk is driven by the four values `tryThis` prints**, not by a list typed here: each
+ *    parsed value builds its own run, and the mean it produces has to be the one `deeper`'s
+ *    table prints on that row.
+ *
+ * **One figure is exempt, class (c), and it is argued rather than waved:** 「都落在它的 4σ
+ * 之内」. That sentence's content is an inequality — the base run's worst difference is 2.4σ and
+ * the 1 ns run's is 0.96σ, so a 3 or a 5 in that place would be just as true of this run. What is
+ * read instead is the claim itself: every difference and every fix of both runs is inside the
+ * multiple the sentence names. The 68 % of 「不是 68 % 置信区间」 is exempt for the same reason
+ * `@uwb-dl-tdoa` files it — it is the statistical convention the sentence is warning the reader
+ * *not* to apply, and this repository holds no confidence interval of any size.
+ */
+describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(uwbUlTdoa.numbers)
+  const DEEP = blockText(uwbUlTdoa.deeper)
+  const LIM = blockText(uwbUlTdoa.limits)
+  const SRC = blockText(uwbUlTdoa.sources)
+  const OBS = blockText(uwbUlTdoa.observe)
+  const TRY = blockText(uwbUlTdoa.tryThis)
+  /** The schema file whose own comments answer two of `sources`' figures. */
+  const SCENARIO_SRC = readFileSync(new URL('../../src/model/scenario.ts', import.meta.url), 'utf8')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** The view state the inspector builds, which is where two of `deeper`'s figures are printed. */
+  const viewOf = (v: UwbUlTdoaVariant): ReturnType<typeof initViewState> => {
+    const vs = initViewState(scenarioOf(v))
+    for (const r of recs(v)) applyRecord(vs, r)
+    return vs
+  }
+
+  it('reads the pseudo-range sentence, and both scenes’ sync error wherever it is printed', () => {
+    // 「1 ns 就是 29.98 cm 的伪距」
+    const [ns, cm] = figs(NUMS, /(\d+) ns 就是 ([\d.]+) cm 的伪距/, '`numbers` on one nanosecond')
+    same(String(cm), ns! * C_M_PER_NS * 100, 'what a nanosecond of pseudo-range is worth')
+    // 「默认的 0 ns 意味着锚点完美无缺，而变体把它设成 1 ns」 — and the steps say it again.
+    const [dflt, variant] = figs(NUMS, /默认的 (\d+) ns 意味着锚点完美无缺，而变体把它设成 (\d+) ns/,
+      '`numbers` on the two scenes')
+    expect(dflt, 'the session default this scene takes').toBe(DEFAULT_UWB_SESSION.syncErrorNs)
+    expect(dflt, 'which is what the base scene runs on').toBe(scenarioOf('base').uwb!.syncErrorNs)
+    expect(variant, 'and the one the variant sets').toBe(scenarioOf('sync').uwb!.syncErrorNs)
+    const [stepBase, stepVariant] = figs(NUMS, /本场景是 (\d+) ns，变体里是 (\d+) ns/,
+      'the steps on the same two')
+    expect([stepBase, stepVariant], 'the same two, in the steps').toEqual([dflt, variant])
+    // 「载入“1 ns 的同步误差”」 — the experiment names the variant by its own label.
+    const [tryNs] = figs(TRY, /载入“(\d+) ns 的同步误差”/, '`tryThis` on the variant it loads')
+    expect(tryNs, 'the variant that experiment loads').toBe(variant)
+    expect(uwbUlTdoa.variants![V_SYNC].label, 'and the label the variant carries')
+      .toContain(`${tryNs} ns`)
+    // 「然后把它调回 1 ns」, in `deeper`
+    const [backTo] = figs(DEEP, /把它调回 (\d+) ns/, '`deeper` on the knob it returns to')
+    expect(backTo, 'the same scene the geometry half of that experiment runs on').toBe(variant)
+  })
+
+  it('reads the two headings that carry a count of their own', () => {
+    const fixes = (v: UwbUlTdoaVariant): number => fixErrM(recs(v)).length
+    // 「两个场景，各七个块、各 70 次定位」 — the heading of the comparison table.
+    const twoScenes = tablesOf(uwbUlTdoa.numbers!)[1]!
+    const [perScene] = figs(twoScenes.heading!, /各 (\d+) 次定位/, 'the comparison table’s heading')
+    expect(perScene, 'the fixes one scene of this lesson produces').toBe(fixes('base'))
+    expect(perScene, 'in either scene').toBe(fixes('sync'))
+    expect(twoScenes.rows, 'and the table has one row per scene').toHaveLength(2)
+    // 「70 次里最差」 — a column heading of the sync-error walk, which is the same count.
+    const walk = tablesOf(uwbUlTdoa.deeper!)[0]!
+    const [perRow] = figs(walk.head.join(' · '), /(\d+) 次里最差/, 'the walk’s own column heading')
+    expect(perRow, 'the fixes each row of the walk is measured over').toBe(perScene)
+  })
+
+  it('reads the sigma formula as the root it is, and the worked cell that spells it out', () => {
+    // 「那个 σ 是 √2·c·√(σ_ts² + sync²)」
+    const [root] = figs(NUMS, /那个 σ 是 √(\d+)·c·√\(σ_ts² \+ sync²\)/, '`numbers` on the formula')
+    const sigmaFrom = (syncNs: number): number =>
+      Math.sqrt(root!) * C_M_PER_NS * Math.hypot(DEFAULT_UWB_SESSION.tsNoisePs / 1000, syncNs)
+    for (const [v, syncNs] of [['base', 0], ['sync', 1]] as [UwbUlTdoaVariant, number][]) {
+      expect(sigmaFrom(syncNs), `${v}: the sigma that root builds`).toBeCloseTo(ulSigmaM(syncNs), 12)
+      // …and it is the figure the table prints for that scene.
+      expect(`${(sigmaFrom(syncNs) * 100).toFixed(1)} cm`, `${v}: the cell it has to fill`)
+        .toBe(cell(1, syncNs === 0 ? 0 : 1, 1))
+    }
+    // 「√2·c·√(0.1² + 0²) ns = 4.2 cm」 — the worked table writes the same formula with its values.
+    const ts = tablesOf(uwbUlTdoa.numbers!)
+    const worked = ts[ts.length - 1]!.rows.find((r) => r[0]!.includes('σ'))![1]!
+    const [cellRoot, tsNs, syncNs, answer] = figs(worked,
+      /√(\d+)·c·√\(([\d.]+)² \+ (\d+)²\) ns = ([\d.]+) cm/, 'the worked table’s own sigma')
+    expect(cellRoot, 'the same root').toBe(root)
+    expect(tsNs! * 1000, 'the receive-timestamp noise, in picoseconds')
+      .toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    expect(syncNs, 'and this scene’s own calibration residual')
+      .toBe(scenarioOf('base').uwb!.syncErrorNs)
+    same(String(answer), sigmaFrom(syncNs!) * 100, 'the sigma those three make')
+    /*
+     * **Exempt, class (c): the 4 of 「都落在它的 4σ 之内」.** Argued in this describe's header.
+     * What is read is the claim: both runs stay inside the multiple the sentence names.
+     */
+    const [mult] = figs(NUMS, /都落在它的 (\d+)σ 之内/, '`numbers` on the bound it claims')
+    for (const [v, syncNs] of [['base', 0], ['sync', 1]] as [UwbUlTdoaVariant, number][]) {
+      expect(Math.max(...diffErrM(recs(v))), `${v}: every difference`)
+        .toBeLessThan(mult! * ulSigmaM(syncNs))
+      expect(Math.max(...fixErrM(recs(v))), `${v}: and every fix`)
+        .toBeLessThan(mult! * ulSigmaM(syncNs))
+    }
+  })
+
+  it('reads the four drawn offsets, and the bias they leave on every one of badge 1’s rounds', () => {
+    // 「在 1 ns 下，四次抽样得到 +0.14、−0.97、−0.34 与 −0.31 ns」
+    const [underNs] = figs(DEEP, /在 (\d+) ns 下，四次抽样得到/, '`deeper` on the scene it draws in')
+    expect(underNs, 'the scene those draws belong to').toBe(scenarioOf('sync').uwb!.syncErrorNs)
+    const drawn = figs(DEEP,
+      /四次抽样得到 ([+−][\d.]+)、([+−][\d.]+)、([+−][\d.]+) 与 ([+−][\d.]+) ns/,
+      '`deeper` on the four draws')
+    expect(drawn, 'the four anchors’ own residuals, in the order the infrastructure lists them')
+      .toEqual(UL_ANCHORS.map((a) => Number(drawnOffsetNs(a.id, underNs!).toFixed(2))))
+    // 「badge-1 相对 anchor-2 的时间差短了大约 1.15 ns」
+    const bias = diffBiasNs(recs('sync'), 'anchor-2', 'badge-1')
+    const [shortBy] = figs(DEEP, /的时间差短了大约 ([\d.]+) ns/, '`deeper` on the bias it leaves')
+    same(String(shortBy), -mean(bias), 'the mean of the seven differences')
+    // 「它的七次读数是 −1.18、−1.28、−1.16、−1.11、−1.12、−1.18 与 −0.99 ns」
+    const [readings] = raw(DEEP, /它的七次读数是 ([−\d.、与 ]+) ns，/, '`deeper` on the seven readings')
+    const seven = readings!.split(/、|\s*与\s*/).map(val)
+    expect(seven, 'one reading per block, as the run produces them')
+      .toEqual(bias.map((v) => Number(v.toFixed(2))))
+    expect(seven.length, 'seven of them, which is the blocks of this run').toBe(BLOCKS)
+    expect(seven.every((v) => v < 0), 'and not one of them changes sign').toBe(true)
+  })
+
+  it('reads badge 1’s own two fixes, and the drift the whole room takes', () => {
+    // 「它自己的定位偏了 12.7 cm，而同步完好的那次只偏 2.1 cm」
+    const [withSyncErr, clean] = raw(DEEP, /它自己的定位偏了 ([\d.]+) cm，而同步完好的那次只偏 ([\d.]+) cm/,
+      '`deeper` on badge 1’s two fixes')
+    const errOf = (v: UwbUlTdoaVariant): string =>
+      uwbFixRow(viewOf(v).nodes['badge-1']!.uwb!.position!, STRINGS.uwb).error
+    expect(`${withSyncErr} cm`, 'the fix the inspector shows in the 1 ns scene').toBe(errOf('sync'))
+    expect(`${clean} cm`, 'and the one it shows in the synchronised scene').toBe(errOf('base'))
+    // 「十个全都往东挪了 12 到 22 cm」
+    const [from, to] = figs(DEEP, /十个全都往东挪了 (\d+) 到 (\d+) cm/, '`deeper` on the drift')
+    const dx = BADGES.map((id) => meanOffsetM(recs('sync'), id).dx * 100)
+    expect([from, to], 'the least and the most any badge moves')
+      .toEqual([Math.min(...dx), Math.max(...dx)].map((v) => Number(v.toFixed(0))))
+    expect(dx.every((v) => v > 0), 'and every one of them moves the same way').toBe(true)
+  })
+
+  it('reads the geometry experiment, building its scene out of its own sentence', () => {
+    // 「把 badge-1 拖到 (9.8, 0.2)，即锚点矩形之外：GDOP 从 0.85 变成 3.43，椭圆从 32 cm 涨到
+    //   1.4 m，七次定位里最差的一次到 45.3 cm」
+    const [x, y] = figs(DEEP, /拖到 \(([\d.]+), ([\d.]+)\)，即锚点矩形之外/, '`deeper` on where it drags it')
+    expect(x! > Math.max(...UL_ANCHORS.map((a) => a.x)) || y! < Math.min(...UL_ANCHORS.map((a) => a.y)),
+      'a spot outside the anchor rectangle, as the sentence says').toBe(true)
+    const out = runExtra(`moved-${x}-${y}`, () => moved('badge-1', x!, y!))
+    const outFix = ofType(out, 'UWB_POSITION').filter((f) => f.of === 'badge-1')
+    expect(outFix, 'seven fixes there too').toHaveLength(BLOCKS)
+    const [was, now] = figs(DEEP, /GDOP 从 ([\d.]+) 变成 ([\d.]+)/, '`deeper` on the two GDOPs')
+    const inside = ofType(recs('sync'), 'UWB_POSITION').filter((f) => f.of === 'badge-1')[0]!
+    same(String(was), inside.gdop, 'the GDOP the badge has where it stands')
+    same(String(now), outFix[0]!.gdop, 'and the one it has in the corner')
+    const [small, big] = figs(DEEP, /椭圆从 (\d+) cm 涨到 ([\d.]+) m/, '`deeper` on the two ellipses')
+    expect(small, 'the semi-major axis where it stands, to the nearest centimetre')
+      .toBe(Math.round(inside.ellipse.a * 100))
+    same(String(big), outFix[0]!.ellipse.a, 'and the one in the corner, in metres')
+    const [worst] = figs(DEEP, /七次定位里最差的一次到 ([\d.]+) cm/, '`deeper` on the worst of the seven')
+    same(String(worst), Math.max(...fixErrM(out, 'badge-1')) * 100, 'the worst fix that run makes')
+  })
+
+  it('reads what a listening round costs the anchors against what ten blinks cost', () => {
+    // 「锚点都只花掉块的 0.505 %；而十个闪发的胸牌，七个块里要花掉 12.685 260 ms 的空口时间」
+    const air = (rs: TLRecord[]): number =>
+      ofType(rs, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
+    const [listening] = figs(DEEP, /锚点都只花掉块的 ([\d.]+) %/, '`deeper` on the listening round')
+    const dl = runExtra('dl-ten', () => uwbDlTdoaScenario('ten'))
+    same(String(listening), (100 * air(dl)) / BLOCKS / (200 * MS), 'what one listening round costs')
+    const [blinks] = raw(DEEP, /七个块里要花掉 ([\d. ]+) ms 的空口时间/, '`deeper` on the blinks')
+    same(blinks!, air(recs('base')) / MS, 'what ten blinking badges cost over the same blocks')
+    expect(val(blinks!) / BLOCKS, 'which is ten blinks a block')
+      .toBeCloseTo((BADGES.length * uwbPpduNs(UWB_BLINK_BYTES)) / MS, 9)
+    expect(val(blinks!) / BLOCKS / (200), 'and it is the larger of the two shares')
+      .toBeGreaterThan(listening! / 100)
+    /*
+     * **Exempt, class (a): the 68 % of 「不是 68 % 置信区间」**, in `deeper` and again in
+     * `limits`. It is the statistical convention the sentence warns the reader not to apply, and
+     * no confidence interval of any size exists in this engine. What is read is that both
+     * printings say the same thing.
+     */
+    const [deepPct] = figs(DEEP, /而不是 (\d+) % 置信区间/, '`deeper` on the convention it refuses')
+    const [limPct] = figs(LIM, /不是「重复测量有 (\d+) % 落在这里」/, '`limits` on the same refusal')
+    expect(limPct, 'the same convention, named the same way in both places').toBe(deepPct)
+  })
+
+  it('reads `sources` against the comments the schema keeps beside those two fields', () => {
+    // 「把胸牌设到的 ±20 ppm 晶振容差，出自 §16.4.9」
+    const [ppm] = figs(SRC, /±(\d+) ppm 晶振容差/, '`sources` on the crystal tolerance')
+    const [clause] = raw(SRC, /出自 (§[\d.]+)。/, '`sources` on the clause that gives it')
+    const [schemaPpm] = figs(SCENARIO_SRC, /in ppm \(standard §[\d.]+ allows ±(\d+)\)/,
+      '`scenario.ts` beside its own `ppm` field')
+    expect(ppm, 'the tolerance the schema’s own comment names').toBe(schemaPpm)
+    expect(SCENARIO_SRC, 'and the clause it cites, where the reader would go looking')
+      .toContain(`standard ${clause} allows ±${schemaPpm}`)
+    // 「发送它的那个 2 ms 时隙」
+    const [slotMs] = figs(SRC, /发送它的那个 (\d+) ms 时隙/, '`sources` on the slot')
+    expect(slotMs! * MS, 'the slot this session is scheduled on')
+      .toBe(rstuNs(DEFAULT_UWB_SESSION.slotRstu))
+    // 「每个接收时间戳上 100 ps 的 1σ 噪声；同步误差默认取 0 ns」
+    const [ps, sigmas] = figs(SRC, /每个接收时间戳上 (\d+) ps 的 (\d)σ 噪声/, '`sources` on the noise')
+    expect(ps, 'the timestamp noise this session runs on').toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    expect(sigmas, 'and how many sigmas that figure is, as the schema writes it')
+      .toBe(figs(SCENARIO_SRC, /(\d)-σ receive-timestamp noise in picoseconds/,
+        '`scenario.ts` beside its own `tsNoisePs` field')[0])
+    const [dflt] = figs(SRC, /同步误差默认取 (\d+) ns/, '`sources` on the default')
+    expect(dflt, 'the default the session really carries').toBe(DEFAULT_UWB_SESSION.syncErrorNs)
+  })
+
+  it('reads the four arrival stamps `observe` sends the reader to', () => {
+    // 「四个到达时间戳，分别在 181.234、181.237、181.240 与 181.242 µs」
+    const stamps = ofType(recs('base'), 'UWB_TS').filter((r) => r.dir === 'rx' && r.t < 2 * MS)
+    const printed = figs(OBS, /分别在 ([\d.]+)、([\d.]+)、([\d.]+) 与 ([\d.]+) µs/,
+      '`observe` on the four stamps')
+    expect(printed, 'the four arrivals of the first blink, in the order they are stamped')
+      .toEqual(stamps.map((r) => Number((r.t / 1000).toFixed(3))))
+    expect(printed, 'four of them, one per anchor').toHaveLength(UL_ANCHORS.length)
+  })
+
+  it('reads both experiments, and drives the walk from the four values `tryThis` prints', () => {
+    // 「房间中部那个胸牌的椭圆增大到 32.1 × 16.8 cm」
+    const [a, b] = figs(TRY, /椭圆增大到 ([\d.]+) × ([\d.]+) cm/, '`tryThis` on the ellipse')
+    expect(`${a} × ${b} cm`, 'the ellipse the inspector shows for that badge')
+      .toBe(uwbFixRow(viewOf('sync').nodes['badge-1']!.uwb!.position!, STRINGS.uwb).ellipse)
+    // 「七十次定位的平均误差，从 3.2 cm 变成 16.7」
+    const [before, after] = figs(TRY, /平均误差，从 ([\d.]+) cm 变成 ([\d.]+)/,
+      '`tryThis` on the two means')
+    same(String(before), mean(fixErrM(recs('base'))) * 100, 'the mean fix error of the base scene')
+    same(String(after), mean(fixErrM(recs('sync'))) * 100, 'and of the 1 ns scene')
+    // 「依次走过 0、1、2、4 ns」 — four scenes, and `deeper`'s table is their means.
+    const walkNs = figs(TRY, /依次走过 (\d+)、(\d+)、(\d+)、(\d+) ns/, '`tryThis` on the walk')
+    const walk = tablesOf(uwbUlTdoa.deeper!)[0]!
+    expect(walkNs, 'the same four the walk’s table has rows for')
+      .toEqual(walk.rows.map((r, i) => figs(r[0]!, /^(\d+) ns$/, `the walk’s row ${i}`)[0]))
+    walkNs.forEach((ns, row) => {
+      const run = ns === 0 ? recs('base') : ns === 1 ? recs('sync') : runExtra(`sync${ns}`, () => withSync(ns))
+      const errs = fixErrM(run)
+      same(raw(walk.rows[row]![1]!, /^([\d.]+) cm$/, `the walk’s mean at ${ns} ns`)[0]!,
+        mean(errs) * 100, `the mean that scene produces at ${ns} ns`)
+      same(raw(walk.rows[row]![2]!, /^([\d.]+) cm$/, `the walk’s worst at ${ns} ns`)[0]!,
+        Math.max(...errs) * 100, `and the worst of its ${errs.length}`)
+    })
+    expect(walkNs[0], 'the walk starts at the scene’s own default').toBe(DEFAULT_UWB_SESSION.syncErrorNs)
   })
 })
