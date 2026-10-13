@@ -21,7 +21,7 @@ import type { TLRecord } from '../../src/model/records'
 import type { FrameDesc } from '../../src/model/frames'
 import type { Block } from '../../src/course/lessonKit'
 import type { SequenceSpec } from '../../src/course/diagram'
-import { paragraphTexts } from '../../src/course/readability'
+import { lessonTexts, paragraphTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { counterDiff } from '../../src/uwb/clock'
 import { rangeSigmaM } from '../../src/uwb/position'
@@ -909,5 +909,356 @@ describe('uwb-dstwr · the quiz', () => {
       expect(text, s).toContain(s)
     }
     expect(uwbDstwr.quiz.map((q) => q.answer)).toEqual([1, 1, 1])
+  })
+})
+
+// --- every figure the PROSE prints ------------------------------------------------------------
+
+/**
+ * **Twelve describes above, and the sweep still edits half the lesson.** `scripts/figure-planting`
+ * plants one edit per printed figure and runs this file: of the 146 figures this lesson prints,
+ * **75** could be edited with the suite green on 2026-10-13, four of them without an equal literal
+ * anywhere under `tests/` — the round's own 20 000 µs and the 1 934.23 µs it radiates, the instant
+ * the anchor finishes its arithmetic, and the nanosecond the round ends at.
+ *
+ * Nothing new is measured below. Every assertion calls the same `recs`, `ranges`, `fourTimes`,
+ * `stamp`, `dsSigmaM`, `PLAN`, `finalFrame` the tests above call, and the figure comes out of the
+ * prose instead of out of this file.
+ */
+describe('uwb-dstwr · every figure the prose prints, read back out of it', () => {
+  const EVERYWHERE = lessonTexts(uwbDstwr).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  const deep = deeperProse()
+  const limitsText = (uwbDstwr.limits ?? []).map((l) => l.text).join('\n')
+  const srcText = (uwbDstwr.sources ?? []).join('\n')
+  const obs = uwbDstwr.observe.join('\n')
+  const trys = uwbDstwr.tryThis.join('\n')
+  const quizText = uwbDstwr.quiz.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
+
+  const A1 = 'anchor-1'
+  const FLIGHT_NS = metresToNs(RING_M)
+  /** The two half-rounds of one anchor, each the uncorrected SS-TWR estimate of its direction. */
+  const halves = (anchorId: string, rs: TLRecord[] = recs()): [number, number] => {
+    const t = fourTimes(anchorId, rs)
+    return [rctuToMetres(ssTwrRaw(t.tround1, t.treply1)), rctuToMetres(ssTwrRaw(t.tround2, t.treply2))]
+  }
+  /** Every microsecond of UWB PPDU one round radiates. */
+  const radiatedUs = (rs: TLRecord[]): number =>
+    ofType(rs, 'TX_START').filter((r) => r.t < PLAN.roundNs)
+      .reduce((a, r) => a + r.frame.txTimeNs, 0) / 1000
+
+  it('the two half-rounds, their average, and the answer that is neither', () => {
+    // 「把第一行的两个半场平均一下，得到 −5.49 m——也不是答案」
+    const [avg] = raw(numbersProse(), /两个半场平均一下，得到 (−[\d.]+) m/,
+      '`numbers` on the average of the two halves')
+    const [first, second] = halves(A1)
+    same(avg!, (first! + second!) / 2, 'the average of the two half-rounds')
+    // and the quiz states all three: 「9.51 m 与 −20.49 m，答案却是 3.51 m」 and the average again
+    const [q1, q2, ans] = raw(quizText,
+      /两个半场是 ([\d.]+) m 与 (−[\d.]+) m，答案却是 ([\d.]+) m/,
+      'the quiz on the same three figures')
+    same(q1!, first!, 'the first half-round')
+    same(q2!, second!, 'the second')
+    same(ans!, ranges().find((r) => r.peer === A1 || r.node === A1)!.distM, 'and the answer')
+    const [qAvg] = raw(quizText, /两者的平均是 (−[\d.]+) m/, 'the quiz on their average')
+    expect(val(qAvg!), 'the same average the paragraph states').toBe(val(avg!))
+    // 「锚点 4 作答前等四个时隙，锚点 1 只等一个」 — the two the quiz compares
+    const [late, early] = figs(quizText, /锚点 (\d) 作答前等四个时隙，锚点 (\d) 只等一个/,
+      'the quiz on the two anchors it compares')
+    expect([early, late], 'the first and the last to answer').toEqual([1, ANCHORS])
+    const errs = ranges().filter((r) => r.node === 'tag-1').map((r) => Math.abs(r.distM - r.trueDistM))
+    expect(Math.max(...errs) / Math.min(...errs), 'and they really are of one accuracy')
+      .toBeLessThan(10)
+  })
+
+  it('the frame table’s own prose: the shorter Response, and what the round radiates', () => {
+    // 「这里的 Response 是 14 个字节，不是 20 个」
+    const [now, before] = figs(numbersProse(), /Response 是 (\d+) 个字节，不是 (\d+) 个/,
+      '`numbers` on why the Response shrank')
+    const resp = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbResp')!
+    expect(now, 'the octets a Response really carries here').toBe(resp.frame.bytes)
+    const ss = [...new Simulation(uwbSstwrScenario({ tag: 10, anchors: -10 })).runUntil(RUN_NS).records]
+    const ssResp = ofType(ss, 'TX_START').find((r) => r.frame.kind === 'uwbResp')!
+    expect(before, 'and the octets it carried in the single-sided lesson')
+      .toBe(ssResp.frame.bytes)
+    /*
+     * 「在 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，上一课那个单边轮是 9.56 %」 — the round
+     * and the microseconds it radiates were two of the four figures with no equal literal
+     * anywhere under `tests/`.
+     */
+    const [roundUs, radiated, share, ssShare] = raw(numbersProse(),
+      /在 ([\d\s]+) µs 的轮里辐射 ([\d\s.]+) µs，占 ([\d.]+) %，上一课那个单边轮是 ([\d.]+) %/,
+      '`numbers` on what the round costs')
+    expect(val(roundUs!) * 1000, 'the round this session lays out').toBe(PLAN.roundNs)
+    same(radiated!, radiatedUs(recs()), 'the microseconds it radiates')
+    same(share!, (100 * radiatedUs(recs()) * 1000) / PLAN.roundNs, 'and the share that is')
+    const ssPlan = roundPlan(uwbSstwrScenario({ tag: 10, anchors: -10 }).uwb!, ANCHORS)
+    const ssRadiated = ofType(ss, 'TX_START').filter((r) => r.t < ssPlan.roundNs)
+      .reduce((a, r) => a + r.frame.txTimeNs, 0) / 1000
+    same(ssShare!, (100 * ssRadiated * 1000) / ssPlan.roundNs,
+      'and the share the single-sided round took')
+    // the quiz states both shares again
+    const [qa, qb] = figs(quizText, /占比 ([\d.]+) % 对 ([\d.]+) %/, 'the quiz on the two shares')
+    expect([qa, qb], 'the same pair').toEqual([val(share!), val(ssShare!)])
+  })
+
+  it('`deeper`: the four counters of anchor 1, and the two differences they leave', () => {
+    // 「锚点 1 打出 26 381 597 885、26 509 391 059 与 27 020 567 485」
+    const [which, c1, c2, c3] = raw(deep,
+      /锚点 (\d) 打出 ([\d\s]+)、([\d\s]+) 与 ([\d\s]+)，/,
+      '`deeper` on the three counters the anchor stamps')
+    const id = `anchor-${val(which!)}`
+    expect([val(c1!), val(c2!), val(c3!)], 'the three stamps that anchor really takes')
+      .toEqual([
+        stamp(recs(), id, 'rx', 'uwbPoll'),
+        stamp(recs(), id, 'tx', 'uwbResp'),
+        stamp(recs(), id, 'rx', 'uwbFinal'),
+      ])
+    // 「于是 Treply1 = 127 793 174，Tround2 = 511 176 426 RCTU。手机对它的那一对是
+    //  Tround1 = 127 797 230 与 Treply2 = 511 185 160」
+    const [treply1, tround2] = figs(deep, /Treply1 = ([\d\s]+)，Tround2 = ([\d\s]+) RCTU/,
+      '`deeper` on the anchor’s own pair')
+    const [tround1, treply2] = figs(deep, /Tround1 = ([\d\s]+) 与 Treply2 = ([\d\s]+)/,
+      '`deeper` on the tag’s own pair')
+    const t = fourTimes(id)
+    expect({ treply1, tround2, tround1, treply2 }, 'the four times the records give')
+      .toEqual({ treply1: t.treply1, tround2: t.tround2, tround1: t.tround1, treply2: t.treply2 })
+    // 「把两对分别相减：+4056 与 −8734 RCTU，即 +63 ns 与 −137 ns——而两者本都应当是 11.675 ns
+    //  飞行时间的两倍」
+    const [d1, d2, ns1, ns2, flight] = raw(deep,
+      /把两对分别相减：\+(\d+) 与 (−\d+) RCTU，即 \+(\d+) ns 与 (−\d+) ns——而两者本都应当是 ([\d.]+) ns/,
+      '`deeper` on the two differences')
+    expect(val(d1!), 'the first pair’s own difference').toBe(t.tround1 - t.treply1)
+    expect(val(d2!), 'and the second pair’s').toBe(t.tround2 - t.treply2)
+    expect(Math.round((t.tround1 - t.treply1) * RCTU_NS), 'the first, in nanoseconds').toBe(val(ns1!))
+    expect(Math.round((t.tround2 - t.treply2) * RCTU_NS), 'and the second').toBe(val(ns2!))
+    same(flight!, FLIGHT_NS, 'the flight time both of them should have been twice')
+    // 「四者相加约为 1 277 952 000 RCTU：整场交互，被计了两遍」
+    const [total] = figs(deep, /四者相加约为 ([\d\s]+) RCTU/, '`deeper` on the sum of all four')
+    expect(Math.abs(t.tround1 + t.tround2 + t.treply1 + t.treply2 - total!) / total!,
+      'the four times really add up to about that').toBeLessThan(1e-4)
+  })
+
+  it('`deeper`: the two instants, the fix the round ends with, and the frame that grows fastest', () => {
+    // 「锚点在 Final 到达时就算完了，时刻是 10 236 615 ns；手机要等该锚点的报告——锚点 1 是
+    //  12 191 486 ns，晚了将近两毫秒」
+    const [anchorAt, which, tagAt] = raw(deep,
+      /时刻是 ([\d\s]+) ns；手机要等该锚点的报告——锚点 (\d) 是 ([\d\s]+) ns/,
+      '`deeper` on when each end finishes')
+    const id = `anchor-${val(which!)}`
+    const anchorRange = ranges().find((r) => r.node === id)!
+    const tagRange = ranges().find((r) => r.node === 'tag-1' && r.peer === id)!
+    expect(anchorRange.t, 'when the anchor finishes its own arithmetic').toBe(val(anchorAt!))
+    expect(tagRange.t, 'and when the tag finishes the same arithmetic').toBe(val(tagAt!))
+    expect(anchorRange.distM, 'and the two get the same distance, to the last digit')
+      .toBe(tagRange.distM)
+    // 「四个距离解算出 (5.01, 3.98) m 的定位，真值 (5.00, 4.00)：偏差 2 cm，……GDOP 为 1.00」
+    const [x, y, tx, ty, errCm, gdop] = raw(deep,
+      /解算出 \(([\d.]+), ([\d.]+)\) m 的定位，真值 \(([\d.]+), ([\d.]+)\)：偏差 (\d+) cm[\s\S]*?为 ([\d.]+)——/,
+      '`deeper` on the fix the round ends with')
+    const fix = ofType(recs(), 'UWB_POSITION')[0]!
+    same(x!, fix.x, 'the fix’s own x')
+    same(y!, fix.y, 'and its y')
+    same(tx!, fix.trueX, 'the true x')
+    same(ty!, fix.trueY, 'and the true y')
+    expect(Math.round(Math.hypot(fix.x - fix.trueX, fix.y - fix.trueY) * 100),
+      'the error between them, to the centimetre').toBe(val(errCm!))
+    same(gdop!, fix.gdop, 'and the GDOP this symmetric ring gives')
+    // 「14 + 12N 字节，而 Poll 是 27 + 3N——此处 62 字节、496 位、两个 Reed–Solomon 码块」
+    const [fBase, fPer, pBase, pPer, bytes, bits] = figs(deep,
+      /：(\d+) \+ (\d+)N 字节，而 Poll 是 (\d+) \+ (\d+)N——此处 (\d+) 字节、(\d+) 位/,
+      '`deeper` on how the two frames grow')
+    const final = finalFrame(recs())
+    const poll = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.frame
+    expect(fBase! + fPer! * ANCHORS, 'the octets a Final carries for four anchors').toBe(final.bytes)
+    expect(pBase! + pPer! * ANCHORS, 'and the octets a Poll carries').toBe(poll.bytes)
+    expect(bytes, 'which is the Final this run really sends').toBe(final.bytes)
+    expect(bits, 'and the bits those octets are').toBe(final.bytes! * 8)
+    // 「多一个锚点，Final 会多 12 字节，整轮会多两个时隙、即 4 ms」
+    const [perAnchor, moreMs] = figs(deep, /Final 会多 (\d+) 字节，整轮会多两个时隙、即 (\d) ms/,
+      '`deeper` on what one more anchor costs')
+    expect(perAnchor, 'the octets one more anchor adds to the Final').toBe(fPer)
+    expect(moreMs! * MS, 'and the two slots it adds to the round').toBe(2 * PLAN.slotNs)
+  })
+
+  it('the names, the labels and the indices — every one of them against the scene', () => {
+    /*
+     * **The four subscripted names are checked as a SET.** 「Treply1（锚点的等待）」 and
+     * 「Treply2（手机的等待）」 are two cells of the worked table, so an edit to either subscript
+     * makes the four no longer distinct — which is the only thing a subscript can be wrong
+     * about, and it is what the standard's own figure 10-199 names them for.
+     */
+    const named = [...EVERYWHERE.matchAll(/= (T(?:round|reply)\d)（(.+?)）/g)]
+      .map((m) => [m[1]!, m[2]!] as const)
+    expect(named.length, 'the worked table names all four times').toBe(4)
+    expect(new Set(named.map(([n]) => n)).size, 'and each name appears exactly once').toBe(4)
+    const ends = new Map(named)
+    expect(ends.get('Treply1'), 'the first reply is the anchor’s own wait').toContain('锚点')
+    expect(ends.get('Tround2'), 'and the second round is the anchor’s').toContain('锚点')
+    expect(ends.get('Tround1'), 'while the first round is the phone’s').toContain('手机')
+    expect(ends.get('Treply2'), 'and the second reply is the phone’s').toContain('手机')
+    // 「锚点 2–4」 — the figure's own lane label, against the anchors it stands for
+    const [from, to] = figs(
+      (uwbDstwr.picture ?? []).map((b) => ('spec' in b ? JSON.stringify(b.spec) : '')).join('\n'),
+      /锚点 (\d)–(\d)/, 'the figure’s own lane label')
+    expect([from, to], 'the anchors that lane stands for').toEqual([2, ANCHORS])
+    // 「测距噪声 1σ」 — the noise column's own heading
+    const [sigma] = figs(table(2).head[2]!, /测距噪声 (\d)σ/, 'the noise column’s own heading')
+    expect(sigma, 'one sigma').toBe(1)
+    // 「锚点 4 等了四倍长，拿到的数值一样准」 — the last anchor to answer
+    const [longest] = figs(numbersProse(), /锚点 (\d) 等了四倍长/,
+      '`numbers` on the anchor that waits longest')
+    expect(longest, 'the last of them').toBe(ANCHORS)
+    const resp = ofType(recs(), 'TX_START').filter((r) => r.frame.kind === 'uwbResp')
+    expect(resp[longest! - 1]!.t, 'and it really answers last')
+      .toBe(Math.max(...resp.map((r) => r.t)))
+    // 「时隙 0。手机给 Poll 离开时的 RMARKER 打一个戳」 — the slot the poll goes out in
+    const [slot0] = figs(numbersProse(), /时隙 (\d)。手机给 Poll 离开/,
+      '`numbers` on which slot the poll is in')
+    expect(ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.t,
+      'the poll opens the round').toBe(slot0! * PLAN.slotNs)
+    // 「锚点 1」 — the worked example's own anchor, wherever it is named
+    const worked = figs(table(3).heading ?? '', /锚点 (\d)/, 'the worked table’s own heading')[0]!
+    for (const v of everyFig(/锚点 (\d) 的四个计数值|锚点 (\d)，照着步骤走一遍|锚点 (\d) 的两个半场/g,
+      'the anchor the worked example follows', 3)) {
+      expect(val(v), 'the same anchor every time').toBe(worked)
+    }
+    expect(stamp(recs(), `anchor-${worked}`, 'rx', 'uwbPoll'),
+      'and that anchor really stamped the poll in').toBeGreaterThan(0)
+    // 「多一个锚点 Final 多 12 字节」 — `limits` quoting `deeper`, and the same octets
+    const [perAnchorAgain] = figs(limitsText, /多一个锚点 Final 多 (\d+) 字节/,
+      '`limits` quoting the figure `deeper` works out')
+    expect(uwbFinalBytes(ANCHORS + 1) - uwbFinalBytes(ANCHORS),
+      'the octets one more anchor really adds').toBe(perAnchorAgain)
+    // 「一堵砖墙会给每一个距离加上 60 cm」 — `limits` quotes it too, and both must agree
+    const walls = [...EVERYWHERE.matchAll(/加上 (\d+) cm/g)].map((m) => val(m[1]!))
+    expect(walls.length, 'the wall’s own centimetres are stated twice').toBeGreaterThanOrEqual(2)
+    for (const w of walls) {
+      expect(Math.round(UWB_NLOS_NS.brick * C_M_PER_NS * 100), 'and both are the wall’s own')
+        .toBe(w)
+    }
+    /*
+     * 「标准只要求至少 32 位」 is **exempt**: it is a floor the standard sets and this repository
+     * has no clause text to read it against (the first exemption class). What is checkable is
+     * what the sentence is for — the engine's own width clears it — so the sweep goes on
+     * reporting this one green, and that is correct.
+     */
+    const [least] = figs(srcText, /标准只要求至少 (\d+) 位/, '`sources` on the standard’s floor')
+    expect(COUNTER_BITS, 'the width this engine runs clears it').toBeGreaterThan(least!)
+    // 「四个结果的变化不到 3 mm」 — an upper bound, so it is read as the millimetre it rounds up to
+    const [mm] = figs(trys, /变化不到 (\d+) mm/, '`tryThis` on how little the answers move')
+    const base = ranges().filter((r) => r.node === 'tag-1')
+    const worst = ranges(0).filter((r) => r.node === 'tag-1')
+    const moved = worst.map((r, i) => Math.abs(r.distM - base[i]!.distM))
+    expect(Math.ceil(Math.max(...moved) * 1000), 'the largest move, to the millimetre above it')
+      .toBe(mm)
+  })
+
+  it('`limits` and `sources`: the widths they own, the wall, and the counter', () => {
+    // 「Final 的 RMI 为 3 + 6N 字节、单个回复时延 6 字节、Report 的 RMI 13 字节」 — twice over
+    /*
+     * `limits` and `sources` each state the three widths, in their own words — so they are read
+     * separately and then required to agree. 「这个数在别处读过了」 is not read; two printings of
+     * one width are two sites.
+     */
+    const inLimits = figs(limitsText,
+      /RMI 为 (\d+) \+ (\d+)N 字节、单个回复时延 (\d+) 字节、Report 的 RMI (\d+) 字节/,
+      '`limits` on the three widths it owns')
+    const inSources = figs(srcText,
+      /RMI 为 (\d+) \+ (\d+)N 字节，单个应答时延字段为 (\d+) 字节，报告的 RMI 为 (\d+) 字节/,
+      '`sources` on the same three')
+    expect(inSources, 'and the two statements agree, figure for figure').toEqual(inLimits)
+    const [rmiBase, rmiPer, replyBytes, reportRmi] = inLimits
+    // the Final's own body is the RMI plus one reply-time field per anchor
+    const final = finalFrame(recs())
+    expect(rmiBase! + rmiPer! * ANCHORS, 'the RMI of a four-anchor Final')
+      .toBeLessThanOrEqual(final.bytes!)
+    expect(rmiPer, 'and the per-anchor part of it').toBe(replyBytes)
+    const report = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbReport')!.frame
+    expect(reportRmi, 'the RMI a report carries').toBeLessThanOrEqual(report.bytes!)
+    // 「砖 2.0 ns」 and 「一堵砖墙会给每一个距离加上 60 cm」
+    const [wallNs] = figs(limitsText, /砖 ([\d.]+) ns/, '`limits` on the wall’s own delay')
+    expect(wallNs, 'the delay `channel.ts` gives a brick wall').toBe(UWB_NLOS_NS.brick)
+    const [wallCm] = figs(EVERYWHERE, /一堵砖墙会给每一个距离加上 (\d+) cm/,
+      'the sentence `limits` is about')
+    // the delay enters the distance ONCE — 「既不打对折，也不会被抵消」 — so it is the wall's own
+    expect(Math.round(UWB_NLOS_NS.brick * C_M_PER_NS * 100),
+      'the wall’s own delay, in centimetres of distance').toBe(wallCm)
+    // 「40 位的测距计数器——标准只要求至少 32 位」
+    const [bits, least] = figs(srcText, /(\d+) 位的测距计数器——标准只要求至少 (\d+) 位/,
+      '`sources` on the counter’s own width')
+    expect(bits, 'the counter width `phy.ts` exports').toBe(COUNTER_BITS)
+    expect(bits, 'which is wider than the standard’s floor').toBeGreaterThan(least!)
+    // 「±20 ppm 的晶振容差」, 「2 ms 的测距时隙」 and 「100 ps 的 1σ 噪声」
+    for (const v of everyFig(/±(\d+) ppm 的晶振容差/g, 'the crystal tolerance', 1)) {
+      expect(val(v), 'the tolerance `phy.ts` exports').toBe(UWB_PPM_MAX)
+    }
+    for (const v of everyFig(/(\d) ms 的测距时隙|× ([\d.]+) µs/g, 'the ranging slot', 2)) {
+      const n = val(v)
+      expect(n === PLAN.slotNs / MS || n === PLAN.slotNs / 1000,
+        `${n} is this session's own slot, in whichever unit it is quoted`).toBe(true)
+    }
+    const [ps, sigma] = figs(srcText, /(\d+) ps 的 (\d)σ 噪声/, '`sources` on the timestamp noise')
+    expect(ps, 'the noise this session runs with').toBe(SESSION.tsNoisePs)
+    expect(sigma, 'one sigma of it').toBe(1)
+  })
+
+  it('`observe` and `tryThis`: every instant, and what the worst crystals do', () => {
+    // 「整轮那一行写着 "10 slots × 2000.0 µs"，到 20 000 000 ns 结束」
+    const [slots, slotUs, endNs] = raw(obs,
+      /"(\d+) slots × ([\d.]+) µs"，到 ([\d\s]+) ns 结束/,
+      '`observe` on the round’s own line')
+    expect(val(slots!), 'the slots this round lays out').toBe(PLAN.slots)
+    same(slotUs!, PLAN.slotNs / 1000, 'and each one’s length')
+    expect(val(endNs!), 'and where the round ends').toBe(PLAN.roundNs)
+    // 「Final 独自坐在这一轮正中间，10 ms 处」
+    const [midMs] = figs(obs, /正中间，(\d+) ms 处/, '`observe` on where the Final sits')
+    const final = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbFinal')!
+    expect(final.t, 'when the Final goes out').toBe(midMs! * MS)
+    expect(midMs! * MS * 2, 'which is the middle of the round').toBe(PLAN.roundNs)
+    // 「四条锚点泳道上的测距都出现在 10 236 615 ns……手机自己那四条则在 12、14、16、18 ms 出现」
+    const [atNs] = raw(obs, /都出现在 ([\d\s]+) ns/, '`observe` on when the anchors finish')
+    for (const r of ranges().filter((x) => x.node.startsWith('anchor'))) {
+      expect(r.t, 'every anchor finishes at that instant').toBe(val(atNs!))
+    }
+    const tagAt = figs(obs, /则在 (\d+)、(\d+)、(\d+)、(\d+) ms 出现/,
+      '`observe` on when the tag finishes each of them')
+    // the sentence gives whole milliseconds, so each is the millisecond its own report lands in
+    const tagTimes = ranges().filter((x) => x.node === 'tag-1').map((x) => Math.floor(x.t / MS))
+    expect(tagAt, 'the four milliseconds the tag’s own lane shows them in').toEqual(tagTimes)
+    // 「载入“最差晶振，±20 ppm”……第一个锚点读到 15.51 m 与 −44.47 m，原先是 9.51 与 −20.49
+    //  ——而四个结果的变化不到 3 mm」
+    const [worstPpm, w1, w2, b1, b2, mm] = raw(trys,
+      /±(\d+) ppm”[\s\S]*?第一个锚点读到 ([\d.]+) m 与 (−[\d.]+) m，原先是 ([\d.]+) 与 (−[\d.]+)[\s\S]*?变化不到 (\d+) mm/,
+      '`tryThis` on the worst-crystal variant')
+    expect(val(worstPpm!), 'the crystal that variant ships').toBe(Math.abs(ppmOf(0).tag))
+    const worst = halves(A1, recs(0))
+    same(w1!, worst[0]!, 'the first half-round at the worst crystals')
+    same(w2!, worst[1]!, 'and the second')
+    const base = halves(A1)
+    same(b1!, base[0]!, 'against the first at the shipped crystals')
+    same(b2!, base[1]!, 'and the second')
+    const moved = ranges(0).filter((r) => r.node === 'tag-1')
+      .map((r, i) => Math.abs(r.distM - ranges().filter((x) => x.node === 'tag-1')[i]!.distM))
+    expect(Math.max(...moved) * 1000, 'while every one of the four answers moves less than that')
+      .toBeLessThan(val(mm!))
   })
 })
