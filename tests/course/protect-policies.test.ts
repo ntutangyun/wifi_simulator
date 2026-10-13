@@ -24,6 +24,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { CF_END_BYTES, OFDM_5G } from '../../src/engine/phy'
+import { LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { MODULES, trackOf } from '../../src/course/curriculum'
 import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 import {
@@ -261,5 +262,286 @@ describe('protect-policies · every official term carries its English name', () 
 
   it('had its terminology actually graded', () => {
     expect(rows.filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length).toBeGreaterThanOrEqual(2)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and compares it with a figure typed on **this** side
+ * — `expect(ms(nav.untilNs)).toBe(3.264)` — with the lesson's row quoted in a comment. So the
+ * engine is pinned and the prose is not: the sampling sweep of 2026-10-12 planted six of this
+ * lesson's figures and **all six went unnoticed**. Here every figure is parsed out of the shipped
+ * string and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the three-policy table is read as the three runs it is**, by the policy each column names:
+ *    the collisions, the frames delivered, the longest Duration a data frame carries and the
+ *    CF-Ends sent — each against the run that column is about, so 「多重跑出来和边界完全一样」
+ *    is read as the equality of two columns rather than as a sentence.
+ *  - **the worked ending is read as one burst's own records**: the announced end, the last answer,
+ *    what was left on the reservation, what one more exchange would have needed, both CF-Ends,
+ *    the instant the hidden station drops its reservation, and the microseconds handed back —
+ *    every row from the same `TXOP_END`/`NAV_SET`/`NAV_CLEAR` trio.
+ *  - **the two Duration figures are read as the two rules that write them**: 「整轮末尾减去提问
+ *    自身，这里是 2 500 µs」 and 「回答则再扣掉一段停顿和它自己，写 2 456 µs」 are the engine's
+ *    own subtraction, and the 「44 到 60 µs」 the other policy writes is read as the range the
+ *    run's own data frames really carry.
+ */
+describe('protect-policies · every figure the prose prints, read back out of it', () => {
+  const rs = boundary()
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(protectPolicies.picture)
+  const NUMS = blockText(protectPolicies.numbers)
+  const LIM = blockText(protectPolicies.limits)
+  const OBS = blockText(protectPolicies.observe)
+  const TRY = blockText(protectPolicies.tryThis)
+  const QUIZ = blockText(protectPolicies.quiz)
+  const SRC = blockText(protectPolicies.sources)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    protectPolicies.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+  const caption = (): string =>
+    (protectPolicies.numbers!.find((b) => b.kind === 'diagram') as unknown as { caption: string }).caption
+  /** The run a column of the three-policy table is about, by its own heading. */
+  const runOfPolicy = (head: string): TLRecord[] => {
+    if (head.includes('单次')) return single()
+    if (head.includes('边界')) return boundary()
+    if (head.includes('多重')) return multiple()
+    throw new Error(`no run for the column 「${head}」`)
+  }
+  const collisions = (x: TLRecord[]): number => ofType(x, 'COLLISION').length
+  const cfEnds = (x: TLRecord[]): number => txs(x, (r) => r.frame.kind === 'cfend').length
+  /** The burst the worked table and the figure are both about. */
+  const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms(r.t) === 0.736)!
+
+  it('reads the three-policy table as the three runs it is', () => {
+    const t = tables().find((x) => x.head.some((h) => h.includes('单次')))!
+    const [windowMs] = figs(t.head[0]!, /^(\d+) ms 内的统计$/, 'the table’s own window')
+    expect(windowMs! * MS, 'the window every column is counted over').toBe(RUN_NS)
+    const runs = t.head.slice(1).map(runOfPolicy)
+    for (const row of t.rows) {
+      const label = row[0]!
+      row.slice(1).forEach((cell, i) => {
+        const x = runs[i]!
+        if (label.includes('碰撞次数')) {
+          expect(val(cell), `${label} in column ${i}`).toBe(collisions(x))
+        } else if (label.includes('成功送达')) {
+          expect(val(cell), `${label} in column ${i}`).toBe(delivered(x))
+        } else if (label.includes('CF-End')) {
+          expect(val(cell), `${label} in column ${i}`).toBe(cfEnds(x))
+        } else if (label.includes('Duration')) {
+          const printed = raw(cell, /^([\d.]+) (µs|ms)$/, `${label} in column ${i}`)
+          const scale = printed[1] === 'ms' ? MS : US
+          expect(val(printed[0]!) * scale, `the longest Duration in column ${i}`)
+            .toBe(Math.max(...dataDurs(x)))
+        }
+      })
+    }
+    // 「它跑出来和边界保护完全一样，一次碰撞对一次碰撞，一帧送达对一帧送达」
+    expect([collisions(multiple()), delivered(multiple())], 'the two columns really are one')
+      .toEqual([collisions(boundary()), delivered(boundary())])
+    // 「本轮最长可达 2.164 ms」 — the figure that column prints, in the paragraph too
+    const [longestMs] = figs(NUMS, /写进每一个数据帧，本轮最长可达 ([\d.]+) ms/,
+      '`numbers` on the longest Duration')
+    same(String(longestMs), Math.max(...dataDurs(multiple())) / MS, 'the longest it really writes')
+  })
+
+  it('reads the two Duration rules, and the range the other policy writes', () => {
+    // 「把开场那句提问的 Duration 写成整轮末尾减去提问自身，这里是 2 500 µs，回答则…写 2 456 µs」
+    const [askUs, answerUs] = figs(NUMS, /这里是 ([\d ]+) µs，回答则再扣掉一段停顿和它自己，写 ([\d ]+) µs/,
+      'the step on the two announcements')
+    const ask = txs(rs, (r) => r.frame.kind === 'rts' && r.t >= t0.t)[0]!
+    const answer = txs(rs, (r) => r.frame.kind === 'cts' && r.t > ask.t)[0]!
+    expect(askUs! * US, 'what the question announces').toBe(ask.frame.durationFieldNs)
+    expect(answerUs! * US, 'and what the answer announces').toBe(answer.frame.durationFieldNs)
+    expect(askUs! - answerUs!, 'the pause and the answer the second one takes off')
+      .toBe((OFDM_5G.sifsNs + answer.frame.txTimeNs) / US)
+    // 「也就是边界保护始终写的那个 44 到 60 µs」
+    const [lo, hi] = figs(NUMS, /也就是边界保护始终写的那个 (\d+) 到 (\d+) µs/,
+      'the step on the range a data frame carries')
+    const durs = dataDurs(rs)
+    expect(Math.min(...durs) / US, 'the shortest Duration a data frame of this run carries').toBe(lo)
+    expect(Math.max(...durs) / US, 'and the longest').toBe(hi)
+    // `observe` prints the same range against the other policy's own figure
+    const [obsLongMs, obsLo, obsHi] = figs(OBS,
+      /最长 ([\d.]+) ms，而边界保护下只有 (\d+) 到 (\d+) µs/, '`observe` on the two policies')
+    same(String(obsLongMs), Math.max(...dataDurs(multiple())) / MS, 'what multiple writes at most')
+    expect([obsLo, obsHi], 'against the range boundary writes').toEqual([lo, hi])
+  })
+
+  it('reads the worked ending as one burst’s own records', () => {
+    const t = tables().find((x) => x.rows.some((r) => r[0]!.includes('还回去的时间')))!
+    const row = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
+    const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
+    const cf = txs(rs, (r) => r.frame.kind === 'cfend' && r.t > end.t)
+    const clear = ofType(rs, 'NAV_CLEAR').find((r) => r.node === 'sta-2' && r.t > end.t)!
+    same(raw(row('预告出去的预约管到'), /^([\d.]+) ms$/, 'the announced end')[0]!,
+      nav.untilNs / MS, 'where the reservation was announced to')
+    same(raw(row('最后一个回答落在'), /^([\d.]+) ms$/, 'the last answer')[0]!,
+      end.t / MS, 'when the burst really ends')
+    const [leftUs] = figs(row('已预告的预约还剩'), /^(\d+) µs$/, 'what was left on it')
+    expect(leftUs! * US, 'the time left on the announcement').toBe(nav.untilNs - end.t)
+    const [needUs] = figs(row('再做一次交互需要'), /^(\d+) µs ✗$/, 'what one more exchange needs')
+    expect(needUs, 'more than was left — which is why the burst stops').toBeGreaterThan(leftUs!)
+    same(raw(row('持有者的 CF-End 发于'), /^([\d.]+) ms$/, 'the holder’s CF-End')[0]!,
+      cf[0]!.t / MS, 'when the holder hands the time back')
+    expect(cf[0]!.node, 'and who sends it').toBe('sta-1')
+    same(raw(row('接入点重复的那一份发于'), /^([\d.]+) ms$/, 'the repeat')[0]!,
+      cf[1]!.t / MS, 'when the access point repeats it')
+    expect(cf[1]!.node, 'and who repeats it').toBe('ap')
+    same(raw(row('于是远端站点的预约结束于'), /^([\d.]+) ms$/, 'the clear')[0]!,
+      clear.t / MS, 'when the hidden station drops its reservation')
+    const [backUs] = figs(row('还回去的时间'), /^(\d+) µs$/, 'the time handed back')
+    expect(backUs! * US, 'which is what the announcement had left').toBe(nav.untilNs - clear.t)
+    // `picture` and `observe` print three of those figures again
+    for (const text of [PIC, OBS]) {
+      const [left] = figs(text, /预约还剩 (\d+) µs/, 'the same remainder')
+      expect(left, 'the same remainder').toBe(leftUs)
+    }
+    const [closeMs, insteadMs] = figs(PIC, /那条紫条在 ([\d.]+) ms 收尾，而不是等到预告的 ([\d.]+) ms/,
+      '`picture` on the two ends')
+    same(String(closeMs), clear.t / MS, 'when the bar really closes')
+    same(String(insteadMs), nav.untilNs / MS, 'against where it was announced to')
+    const [obsClose, obsInstead] = figs(OBS, /B 的预约在 ([\d.]+) ms 结束，而不是 ([\d.]+) ms/,
+      '`observe` on the same two')
+    expect([obsClose, obsInstead], 'the same two again').toEqual([closeMs, insteadMs])
+  })
+
+  it('reads the figure’s own axis note, the band it contrasts, and the wrong option', () => {
+    /*
+     * **The six the sweep of 2026-10-14 still got past this file**, each a different shape:
+     * the figure's axis note, a cell whose read was an inequality, a band name printed twice,
+     * the band this lesson's own room is on, and a quiz option's fabricated figure.
+     */
+    // 「µs（0 是那句提问）」 — the axis unit, which says where the drawing's zero is
+    const spec = policyReachTiming()
+    const [zero] = figs(spec.axis!.unit!, /（(\d+) 是那句提问）/, 'the figure’s axis note')
+    expect(zero, 'where the axis really starts').toBe(spec.axis!.fromUs)
+    const burst = spec.lanes.find((l) => l.label === '这一串')!
+    const rts = burst.spans.find((s) => s.label === 'RTS')!
+    expect(rts.fromUs, 'and the question really is drawn at it').toBe(zero)
+    /*
+     * **The 416 µs cell was read as an inequality** — 「再做一次交互需要 416 µs ✗」 only had to
+     * be more than the 376 µs left, so 417 passed too. It is the same quantity the figure's
+     * single lane carries: what a CTS announces for one exchange, which the single-protection
+     * run really writes into that field.
+     */
+    const single1 = single()
+    const sTxop = ofType(single1, 'TXOP_START').filter((r) => r.node === 'sta-1')
+      .find((r) => ms(r.t) === 0.736)!
+    const sAnswer = txs(single1, (r) => r.frame.kind === 'cts' && r.t > sTxop.t)[0]!
+    const ending = tables().find((x) => x.rows.some((r) => r[0]!.includes('还回去的时间')))!
+    const [needUs] = figs(ending.rows.find((r) => r[0]!.includes('再做一次交互需要'))![1]!,
+      /^(\d+) µs ✗$/, 'what one more exchange needs')
+    expect(needUs! * US, 'what one more exchange really needs')
+      .toBe(sAnswer.frame.durationFieldNs)
+    /*
+     * **S1G is a band this engine does not have**, and that is the whole point of both sentences:
+     * the standard writes the repeat for sub-1 GHz access points and this engine lets every
+     * access point do it. So the figure inside the name is read against the three links this
+     * engine really has — `S2G` would name one of them, and then the sentence would be false.
+     */
+    const [limG] = figs(LIM, /标准是针对 S(\d)G 接入点写明的/, '`limits` on whose rule it is')
+    const [srcG] = figs(SRC, /标准是针对 S(\d)G 接入点写明那次重复的/, '`sources` on the same')
+    expect(srcG, 'the same band, named in both places').toBe(limG)
+    expect(Object.keys(LINK_EXTRA_LOSS_DB), 'a band this engine has no link for')
+      .not.toContain(`${limG}g`)
+    // 「一台普通的 5 GHz 接入点并不会这样帮忙」 — the band this lesson's own room is on
+    const [bandG] = figs(LIM, /一台普通的 (\d) GHz 接入点并不会这样帮忙/, '`limits` on the ordinary one')
+    const scene = ScenarioSchema.parse(protectPolicies.scenario())
+    const ap = scene.nodes.find((n) => n.kind === 'ap')!
+    expect(ap.linkId ?? '5g', 'the link this lesson’s own access point is on').toBe(`${bandG}g`)
+    expect(LINK_EXTRA_LOSS_DB[`${bandG}g` as keyof typeof LINK_EXTRA_LOSS_DB],
+      'and it is the band the engine takes nothing off for').toBe(0)
+    /*
+     * 「更少的碰撞：21 次降到 12 次」 — the wrong option, and the 21 is the table's own: both
+     * boundary and multiple collide that many times, which is exactly why the option is wrong.
+     *
+     * **Exempt, class (e): the 12.** The option has to claim an improvement that did not happen,
+     * so any figure below the 21 would do the same work — 13 reads as the same wrong answer.
+     * What is read is the claim: the figure it drops to is lower than the one it drops from,
+     * and the run it is about never goes below it.
+     */
+    const [from, to] = figs(QUIZ, /更少的碰撞：(\d+) 次降到 (\d+) 次/, 'the quiz’s wrong option')
+    expect(from, 'the collisions boundary protection really has').toBe(collisions(rs))
+    expect(collisions(multiple()), 'and multiple protection has exactly as many').toBe(from)
+    expect(to, 'while the option claims it drops below that').toBeLessThan(from!)
+  })
+
+  it('reads the caption, the CF-End count and the experiment', () => {
+    // 「零点取本轮 0.736 ms 那句提问…只预约到第一次交互做完为止（416 µs）；…（2 456 µs），
+    //   可这一串 2 152 µs 就完了，于是两份 CF-End 把最后那 288 µs 还了回去」
+    const cap = caption()
+    const [zeroMs] = figs(cap, /零点取本轮 ([\d.]+) ms 那句提问/, 'the caption’s own zero point')
+    same(String(zeroMs), t0.t / MS, 'the burst the figure is drawn from')
+    const [singleUs] = figs(cap, /只预约到第一次交互做完为止（(\d+) µs）/, 'the caption on single')
+    const [boundaryUs] = figs(cap, /边界保护预约到本轮末尾（([\d ]+) µs）/, 'the caption on boundary')
+    const [burstUs, backUs] = figs(cap, /可这一串 ([\d ]+) µs 就完了，于是两份 CF-End 把最后那 (\d+) µs 还了回去/,
+      'the caption on what was handed back')
+    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
+    const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
+    const clear = ofType(rs, 'NAV_CLEAR').find((r) => r.node === 'sta-2' && r.t > end.t)!
+    expect(burstUs! * US, 'how long the burst really runs').toBe(end.t - t0.t)
+    /*
+     * **The two reaches are the two policies' own announcements**: each is what the answer of
+     * that run writes into its Duration, so the caption's two figures come from two runs of the
+     * same burst rather than from one and an arithmetic guess.
+     */
+    const answerOf = (x: TLRecord[]): Tx => {
+      const start = ofType(x, 'TXOP_START').filter((r) => r.node === 'sta-1')
+        .find((r) => ms(r.t) === zeroMs)!
+      return txs(x, (r) => r.frame.kind === 'cts' && r.t > start.t)[0]!
+    }
+    expect(boundaryUs! * US, 'what the answer announces under boundary')
+      .toBe(answerOf(boundary()).frame.durationFieldNs)
+    expect(singleUs! * US, 'and under single')
+      .toBe(answerOf(single()).frame.durationFieldNs)
+    expect(backUs! * US, 'the time the two CF-Ends hand back').toBe(nav.untilNs - clear.t)
+    expect(singleUs, 'while single announces only the first exchange').toBeLessThan(burstUs!)
+    // 「整轮 300 ms 里这样的 CF-End 一共 198 帧，正好一半出自接入点」
+    const [obsWindowMs, obsCf] = figs(OBS, /整轮 (\d+) ms 里这样的 CF-End 一共 (\d+) 帧/,
+      '`observe` on the CF-End count')
+    expect(obsWindowMs! * MS, 'the window').toBe(RUN_NS)
+    expect(obsCf, 'the CF-Ends this run sends').toBe(cfEnds(rs))
+    expect(txs(rs, (r) => r.frame.kind === 'cfend' && r.node === 'ap').length * 2,
+      'half of them the access point’s').toBe(obsCf)
+    const [limCf, limBackUs] = figs(LIM, /于是那 (\d+) 帧 CF-End 里正[^]*?才能提前 (\d+) µs 清除自己的预约/,
+      '`limits` on the same count')
+    expect(limCf, 'the same count in `limits`').toBe(obsCf)
+    expect(limBackUs, 'and the same time handed back').toBe(backUs)
+    // 「计数也完全一样——21 次碰撞、送达 614 帧」 and the quiz’s 「21 次降到 12 次」
+    const [tryColl, tryOk] = figs(TRY, /计数也完全一样——(\d+) 次碰撞、送达 (\d+) 帧/,
+      '`tryThis` on the multiple run')
+    expect([tryColl, tryOk], 'the multiple column, a second time')
+      .toEqual([collisions(multiple()), delivered(multiple())])
+    const [qFrom, qTo] = figs(QUIZ, /更少的碰撞：(\d+) 次降到 (\d+) 次/, 'the quiz on the two counts')
+    expect(qFrom, 'the collisions under boundary').toBe(collisions(boundary()))
+    expect(qTo, 'and the number the question offers as a wrong answer')
+      .not.toBe(collisions(single()))
   })
 })
