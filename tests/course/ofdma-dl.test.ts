@@ -43,13 +43,24 @@ const one = <T>(xs: T[]): T => {
   expect(new Set(xs.map((x) => JSON.stringify(x))).size).toBe(1)
   return xs[0]
 }
-/** The lesson's scene with OFDMA switched off on the nodes named: the experiments. */
+/**
+ * The lesson's scene with OFDMA switched off on the nodes named: the experiments.
+ *
+ * **Memoised, because the suite's simulated work is bounded** (tests/simCost.ts): four `it`s of
+ * this file ask for the same two variants, and an unmemoised helper ran each of them again.
+ */
+const offRuns = new Map<string, TLRecord[]>()
 function without(...ids: string[]): TLRecord[] {
+  const key = [...ids].sort().join(',')
+  const hit = offRuns.get(key)
+  if (hit) return hit
   const sc: Scenario = ofdmaDl.scenario()
   for (const n of sc.nodes) {
     if (ids.includes(n.id)) n.caps.features = { ...n.caps.features, ofdma: false }
   }
-  return [...new Simulation(sc).runUntil(RUN_NS).records]
+  const rs = [...new Simulation(sc).runUntil(RUN_NS).records]
+  offRuns.set(key, rs)
+  return rs
 }
 
 lessonShapeSuite(ofdmaDl, { runNs: RUN_NS })
@@ -742,7 +753,14 @@ describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', 
   const tier = (gi?: 'double' | 'quad') => {
     const base = ofdmaDl.scenario()
     const s = gi ? ({ ...base, guardInterval: { gi } } as Scenario) : base
-    const rs = [...new Simulation(s).runUntil(150 * MS_NS).records]
+    /*
+     * **The base tier is a prefix of this file's own run**, record for record — the engine is
+     * deterministic, so a shorter run of the same scene is the longer one cut off — and the
+     * suite's simulated work is bounded (tests/simCost.ts), so it is taken rather than re-run.
+     */
+    const rs = gi
+      ? [...new Simulation(s).runUntil(150 * MS_NS).records]
+      : runOf(ofdmaDl, undefined, RUN_NS).filter((r) => r.t < 150 * MS_NS)
     const ppdus = rs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START')
       .map((r) => r.frame).filter((f) => !f.amp && !f.uwb)
     // **Dequeued MSDUs, not the sum of received octets.** A DL MU PPDU is received once per
@@ -1179,7 +1197,12 @@ describe('ofdma-dl · every figure the prose prints, read back out of it', () =>
      * figure is measured over that window, which is also the window its MSDU count is about.
      */
     const [entryMs] = figs(LIM, /runUntil\((\d+) ms\)/, '`limits` on its own window')
-    const short150 = [...new Simulation(ofdmaDl.scenario()).runUntil(entryMs! * MS).records]
+    /*
+     * **The prefix of this file's own run is that window**, record for record — the engine is
+     * deterministic and a shorter run is a prefix of a longer one — so the figures are measured
+     * without paying for a second simulation (tests/simCost.ts bounds the suite's).
+     */
+    const short150 = rs.filter((r) => r.t < entryMs! * MS)
     same(String(airWas), airNs(txs(short150)) / MS, 'the air every PPDU of that window takes')
     same(String(airPct), (100 * (airNow! - airWas!)) / airWas!, 'and the share the longer one adds')
     expect(airPct, 'which is smaller than the per-send figure').toBeLessThan(pct!)
@@ -1233,7 +1256,9 @@ describe('ofdma-dl · every figure the prose prints, read back out of it', () =>
     expect(muPpdus(one1).some((r) => r.frame.muParts!.some((p) => p.dst === `sta-${outTv}`)),
       'and no group of that variant ever contains it again').toBe(false)
     const [allOff] = figs(TRY, /共 ([\d,]+) 次/, '`tryThis` on the second experiment')
-    const allOffRun = without(...PHONES)
+    // 「把四台设备的 OFDMA 全部关掉」 is all four, the access point included — which is the
+    // scene the test above already built, so the memo answers it.
+    const allOffRun = without('ap', ...PHONES)
     expect(allOff, 'the sends it takes with no grouping at all')
       .toBe(txs(allOffRun, (r) => r.node === 'ap' && r.frame.kind === 'data').length)
   })

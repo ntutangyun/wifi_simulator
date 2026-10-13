@@ -11,6 +11,28 @@ function run(id: string, untilNs: number): TLRecord[] {
   return [...sim.runUntil(untilNs).records]
 }
 
+/**
+ * One `width` variant with the laptop moved, **memoised**.
+ *
+ * Three `it`s below ask for the same scenes: the far-corner experiment runs each of the four
+ * variants at (15, 7) and the airtime check runs three of them again at the same spot. The suite's
+ * simulated work is bounded (tests/simCost.ts, `EVENT_CEILING`), and the engine is deterministic,
+ * so the second ask is answered from the first rather than simulated again. Nothing about what is
+ * measured changes.
+ */
+const movedRuns = new Map<string, TLRecord[]>()
+function widthAt(variant: number, x: number, y: number): TLRecord[] {
+  const key = `${variant}@${x},${y}`
+  const hit = movedRuns.get(key)
+  if (hit) return hit
+  const l = LESSONS.find((x2) => x2.id === 'width')!
+  const sc = l.variants![variant].scenario()
+  sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x, y, z: 1 }
+  const recs = [...new Simulation(sc).runUntil(200_000_000).records]
+  movedRuns.set(key, recs)
+  return recs
+}
+
 it('quoted lesson timestamps still hold', () => {
   const l3 = run('backoff', 400_000)
   expect(l3.find((x) => x.type === 'COLLISION')?.t).toBe(248_000)
@@ -112,9 +134,7 @@ it('`width`’s far-corner experiment breaks the widest channel and only the wid
   const l = LESSONS.find((x) => x.id === 'width')!
   // "drag the laptop into the far corner of the living room, through the brick wall"
   const far = (i: number) => {
-    const sc = l.variants![i].scenario()
-    sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 15, y: 7, z: 1 }
-    const recs = [...new Simulation(sc).runUntil(200_000_000).records]
+    const recs = widthAt(i, 15, 7)
     return {
       acks: recs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'ack').length,
       drops: recs.filter((r) => r.type === 'DROP').length,
@@ -127,9 +147,7 @@ it('`width`’s far-corner experiment breaks the widest channel and only the wid
   expect(far(3).drops).toBeGreaterThan(0)
   // "80 MHz delivers at 401.6 µs a frame, 20 MHz at 524.0, and 40 MHz … 768.8"
   const airtime = (i: number) => {
-    const sc = l.variants![i].scenario()
-    sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 15, y: 7, z: 1 }
-    const recs = [...new Simulation(sc).runUntil(200_000_000).records]
+    const recs = widthAt(i, 15, 7)
     const data = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
       r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.bytes > 1000)
     return new Set(data.map((r) => r.frame.txTimeNs))
@@ -150,11 +168,8 @@ it('`width`’s far-corner experiment breaks the widest channel and only the wid
  * lie, so the whole ladder is pinned, MCS included.
  */
 it('`width`’s second experiment position really inverts 80 → 160 MHz, with every frame delivered', () => {
-  const l = LESSONS.find((x) => x.id === 'width')!
   const walk = (i: number) => {
-    const sc = l.variants![i].scenario()
-    sc.nodes.find((n) => n.id === 'sta-1')!.pos = { x: 10.5, y: 6, z: 1 }
-    const recs = [...new Simulation(sc).runUntil(200_000_000).records]
+    const recs = widthAt(i, 10.5, 6)
     const data = recs.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
       r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.bytes > 1000)
     const airtimes = new Set(data.map((r) => r.frame.txTimeNs))
@@ -208,13 +223,26 @@ it('`width`’s second experiment position really inverts 80 → 160 MHz, with e
 it('the scheduled-Wi-Fi lessons quote the OFDMA and MU-MIMO PPDUs its own variants produce', () => {
   const l = LESSONS.find((x) => x.id === 'mumimo')!
   type MuTx = Extract<TLRecord, { type: 'TX_START' }> & { frame: { muParts: NonNullable<Extract<TLRecord, { type: 'TX_START' }>['frame']['muParts']> } }
-  const muRecords = (v: NonNullable<(typeof l)['variants']>[number]): MuTx[] => {
-    const recs = [...new Simulation(v.scenario()).runUntil(500_000_000).records]
-    return recs.filter((r): r is MuTx => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts !== undefined)
+  /*
+   * **One run per variant, memoised.** The MU-MIMO variant is asked for twice in this `it` —
+   * once for its multi-user PPDUs and once, further down, for every downlink the access point
+   * sends — and a 500 ms run of this house is the most expensive thing in the file. The suite's
+   * simulated work is bounded (tests/simCost.ts), and the engine is deterministic, so the second
+   * ask is answered from the first.
+   */
+  const muRuns = new Map<number, TLRecord[]>()
+  const muRun = (i: number): TLRecord[] => {
+    const hit = muRuns.get(i)
+    if (hit) return hit
+    const rs = [...new Simulation(l.variants![i].scenario()).runUntil(500_000_000).records]
+    muRuns.set(i, rs)
+    return rs
   }
+  const muRecords = (i: number): MuTx[] => muRun(i)
+    .filter((r): r is MuTx => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts !== undefined)
 
-  const ofdma = muRecords(l.variants![0])
-  const mumimo = muRecords(l.variants![1])
+  const ofdma = muRecords(0)
+  const mumimo = muRecords(1)
 
   // "the MU-MIMO group is never three" — every MU-MIMO PPDU in this house has
   // exactly two members; OFDMA reaches three.
@@ -252,7 +280,7 @@ it('the scheduled-Wi-Fi lessons quote the OFDMA and MU-MIMO PPDUs its own varian
   // "124 times (58%) … 72 times (34%) … and neither of those 18 times (8%)" — where the
   // trimmed member actually turns up next. The lesson used to present this as a two-way
   // split; it is not exhaustive, and the third case is what this pins (fix round 2, I5).
-  const allApData = [...new Simulation(l.variants![1].scenario()).runUntil(500_000_000).records]
+  const allApData = muRun(1)
     .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.node === 'ap' && r.frame.kind === 'data')
   const twoMember = allApData.filter((r) => r.frame.muParts?.length === 2)
   let followedByTrimmedSu = 0, sweptIntoNextMu = 0, neither = 0

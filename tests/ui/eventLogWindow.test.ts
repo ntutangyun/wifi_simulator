@@ -66,13 +66,22 @@ function storeOf(b: Batch): TimelineStore {
   return st
 }
 
+/**
+ * The shortest rung of the ladder on which every predicate fires.
+ *
+ * **The first rung is run once, not twice.** The initialiser used to simulate `LADDER[0]` and the
+ * loop then simulated it again and threw the first away — once per lesson, and the suite's
+ * simulated work is bounded (tests/simCost.ts, `EVENT_CEILING`). The ladder itself is unchanged,
+ * so every case below is the same recording it was.
+ */
 function runUntilAllFire(scenario: () => ReturnType<Lesson['scenario']>, preds: ((r: TLRecord) => boolean)[]) {
-  let b: Batch = new Simulation(scenario()).runUntil(LADDER[0])
+  let b: Batch | undefined
   for (const ns of LADDER) {
-    b = new Simulation(scenario()).runUntil(ns)
-    if (preds.every((p) => b.records.some(p))) break
+    const cur = new Simulation(scenario()).runUntil(ns)
+    b = cur
+    if (preds.every((p) => cur.records.some(p))) break
   }
-  return { batch: b, store: storeOf(b) }
+  return { batch: b!, store: storeOf(b!) }
 }
 
 /** Every jump of every lesson, against the recording it points at. */
