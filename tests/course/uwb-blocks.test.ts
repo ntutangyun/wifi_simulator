@@ -619,3 +619,354 @@ describe('uwb-blocks · the procedure, step by step', () => {
     expect(end.t).toBe(open.t + PLAN.roundNs)
   })
 })
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This lesson is a timetable, and the file above measures every edge of it — against figures
+ * typed on **this** side, with the lesson's row quoted in a comment. So the engine is pinned and
+ * the prose is not: the sampling sweep of 2026-10-12 planted six of this lesson's figures and
+ * **five went unnoticed**. Here every figure is parsed out of the shipped string and compared
+ * with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **every RSTU is read with the millisecond beside it.** 「一个块 240 000 RSTU，200.0 ms」 is
+ *    one claim with two figures, and the engine's own `rstuNs` has to turn the first into the
+ *    second — so a planted either one breaks the pair.
+ *  - **the log table is read as the log**: each row's right-hand cell is the string
+ *    `fmtRecord` really writes for the record that row names.
+ *  - **the arithmetic table is read as arithmetic**: 「1 × 20.0 ms = 20 ms」 is parsed into its
+ *    three parts, and the two instants below it are the Poll and the Final of that very round.
+ *  - **「20 ppm 跨过一个 200 ms 的块就是每边 4 µs」 is read as the multiplication it is**, which
+ *    is the one figure in `limits` that is not about this engine at all.
+ */
+describe('uwb-blocks · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(uwbBlocks.numbers)
+  const LIM = blockText(uwbBlocks.limits)
+  const SRC = blockText(uwbBlocks.sources)
+  const TRY = blockText(uwbBlocks.tryThis)
+  const QUIZ = blockText(uwbBlocks.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    uwbBlocks.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+  const rs = recs()
+
+  it('reads the three nested lengths, each with the millisecond beside it', () => {
+    const caption = (uwbBlocks.picture!.find((b) => b.kind === 'diagram') as unknown as
+      { caption: string }).caption
+    // 「一个块 240 000 RSTU…200.0 ms，装得下十轮；一轮 24 000 RSTU，20.0 ms；…每个 2 400 RSTU，
+    //   2 000.0 µs」
+    const [blockRstu, blockMs] = figs(caption,
+      /一个块 ([\d ]+) RSTU（ranging slot time unit），([\d.]+) ms/, 'the caption on the block')
+    same(String(blockMs), rstuNs(blockRstu!) / MS, 'the block this session really runs')
+    expect(blockRstu, 'which is the session’s own figure').toBe(SESSION.blockRstu)
+    const [roundsCn] = raw(caption, /装得下(.)轮/, 'the caption on how many rounds fit')
+    expect(Math.floor(rstuNs(blockRstu!) / PLAN.roundNs), 'the rounds a block really holds')
+      .toBe(cn(roundsCn!))
+    const [roundRstu, roundMs] = figs(caption, /一轮 ([\d ]+) RSTU，([\d.]+) ms/,
+      'the caption on the round')
+    same(String(roundMs), PLAN.roundNs / MS, 'the round this plan really lays out')
+    expect(rstuNs(roundRstu!), 'and its RSTU').toBe(PLAN.roundNs)
+    const [slotsCn] = raw(caption, /轮里切成(.)个时隙/, 'the caption on the slots')
+    expect(cn(slotsCn!), 'the slots a round really has').toBe(PLAN.slots)
+    const [slotRstu, slotUs] = figs(caption, /每个 ([\d ]+) RSTU，([\d .]+) µs/,
+      'the caption on the slot')
+    same(String(slotUs), PLAN.slotNs / 1000, 'the slot this plan really uses')
+    expect(rstuNs(slotRstu!), 'and its RSTU').toBe(PLAN.slotNs)
+    expect(slotRstu, 'which is the session’s own figure').toBe(SESSION.slotRstu)
+    // 「时隙 0 是手机的 Poll，时隙 5 是它的 Final」
+    const [pollSlot, finalSlot] = figs(caption, /时隙 (\d) 是手机的 Poll，时隙 (\d) 是它的 Final/,
+      'the caption on the two frames')
+    const firstRound = ofType(rs, 'TX_START').filter((r) => (r.frame.uwb?.block ?? -1) === 0
+      && (r.frame.uwb?.round ?? -1) === 0)
+    expect(firstRound.find((r) => r.frame.kind === 'uwbPoll')!.frame.uwb!.slot, 'the Poll’s slot')
+      .toBe(pollSlot)
+    expect(firstRound.find((r) => r.frame.kind === 'uwbFinal')!.frame.uwb!.slot, 'the Final’s')
+      .toBe(finalSlot)
+    // 「没有分配出去的那七轮合每块 140 ms」
+    const [idleCn, idleMs] = raw(NUMS, /没有分配出去的那(.)轮合每块 (\d+) ms/,
+      '`numbers` on the idle rounds')
+    const rounds = Math.floor(rstuNs(blockRstu!) / PLAN.roundNs)
+    expect(rounds - TAGS.length, 'the rounds nobody is given').toBe(cn(idleCn!))
+    same(idleMs!, (rounds - TAGS.length) * PLAN.roundNs / MS, 'and what they come to')
+    // 「要到第十一部，这个块才装不下」
+    const [capCn] = raw(NUMS, /要到第(..)部，这个块才装不下/, '`numbers` on the cap')
+    // 「十一」 is eleven: a leading 十 is one ten, and the digit after it the units
+    const tens = (s: string): number => {
+      const i = s.indexOf('十')
+      if (i < 0) return cn(s)
+      return (i === 0 ? 1 : cn(s.slice(0, i))) * 10 + (i === s.length - 1 ? 0 : cn(s.slice(i + 1)))
+    }
+    expect(tens(capCn!), 'one more than a block holds').toBe(rounds + 1)
+  })
+
+  it('reads the log table as the log, row by row', () => {
+    const tb = tables().find((x) => x.head[0] === '内容')!
+    const cellOf = (needle: string): string => tb.rows.find((r) => r[0]!.includes(needle))![1]!
+    // 「uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs」
+    const round0 = ofType(rs, 'UWB_ROUND').find((r) => r.block === 0 && r.round === 0)!
+    expect(cellOf('整轮那一行'), 'the round line the log really writes').toBe(fmtRecord(round0))
+    // 「0, 20 and 40 ms; block 1 at 200, 220 and 240 ms」
+    const starts = figs(cellOf('第 0 块的各轮何时开启'),
+      /^(\d+), (\d+) and (\d+) ms; block (\d) at (\d+), (\d+) and (\d+) ms$/,
+      'the row on the round starts')
+    const rounds0 = ofType(rs, 'UWB_ROUND').filter((r) => r.block === 0)
+    const rounds1 = ofType(rs, 'UWB_ROUND').filter((r) => r.block === starts[3])
+    expect(rounds0.map((r) => r.t / MS), 'the starts of the first block’s rounds')
+      .toEqual([starts[0], starts[1], starts[2]])
+    expect(rounds1.map((r) => r.t / MS), 'and of the next block’s')
+      .toEqual([starts[4], starts[5], starts[6]])
+    // 「0, 20 000 000 and 40 000 000 ns」
+    const polls = figs(cellOf('第 0 块的三帧 Poll 何时离开'),
+      /^(\d+), ([\d ]+) and ([\d ]+) ns$/, 'the row on the Polls')
+    const sent = ofType(rs, 'TX_START')
+      .filter((r) => r.frame.kind === 'uwbPoll' && (r.frame.uwb?.block ?? -1) === 0)
+    expect(sent.map((r) => r.t), 'when the three Polls really leave').toEqual(polls)
+    // 「Poll, 39 octets」
+    const [pollBytes] = figs(cellOf('带着这张网格的那帧开场帧'), /Poll, (\d+) octets/,
+      'the row on the opener')
+    expect(sent[0]!.frame.bytes, 'the Poll this round really sends').toBe(pollBytes)
+    expect(uwbPollBytes(ANCHORS), 'which is what the engine prices it at').toBe(pollBytes)
+    // 「第一张清单，10 字节」 → ARC, and 「第二张清单，15 字节」 → RDM
+    const [arcBytes] = figs(tb.rows.find((r) => r[0]!.includes('第一张清单'))![0]!, /(\d+) 字节/,
+      'the first list’s own size')
+    expect(arcBytes, 'the ARC element’s own width').toBe(ARC_IE_BYTES)
+    const [rdmBytes] = figs(tb.rows.find((r) => r[0]!.includes('第二张清单'))![0]!, /(\d+) 字节/,
+      'the second list’s own size')
+    expect(rdmBytes, 'the RDM element’s own width at this anchor count').toBe(rdmIeBytes(ANCHORS))
+    // 「SP1 · DS-TWR · 块 0 · 轮 0 · 4 个应答方」 and the RDM's own slot list
+    const fields = uwbFrameFields(sent[0]!.frame)
+    const text = JSON.stringify(fields)
+    const [arcBlock, arcRound, arcResponders] = figs(cellOf('第一张清单'),
+      /块 (\d) · 轮 (\d) · (\d) 个应答方/, 'the ARC cell’s own figures')
+    expect([arcBlock, arcRound], 'the block and round that Poll really opens')
+      .toEqual([sent[0]!.frame.uwb!.block, sent[0]!.frame.uwb!.round])
+    expect(arcResponders, 'and the responders it names').toBe(ANCHORS)
+    const slots = figs(cellOf('第二张清单'),
+      /(\d) 台设备：anchor-1 时隙 (\d)、anchor-2 时隙 (\d)、anchor-3 时隙 (\d)、anchor-4 时隙 (\d)/,
+      'the RDM cell’s own list')
+    expect(slots[0], 'the devices that list names').toBe(ANCHORS)
+    for (const [i, slot] of slots.slice(1).entries()) {
+      const resp = ofType(rs, 'TX_START').find((r) => r.node === `anchor-${i + 1}`
+        && r.frame.kind === 'uwbResp' && (r.frame.uwb?.block ?? -1) === 0
+        && (r.frame.uwb?.round ?? -1) === 0)!
+      expect(resp.frame.uwb!.slot, `anchor-${i + 1}: the slot it really answers in`).toBe(slot)
+      expect(text, 'and the frame really carries that list').toContain(`anchor-${i + 1}`)
+    }
+  })
+
+  it('reads the positions table, and the arithmetic table under it', () => {
+    // 「uwb-1 | (5.01, 3.99) m at 20 ms」 …
+    const tb = tables().find((x) => x.head[0] === '手机')!
+    // 「它在第 0 块的定位」 — the column says which block these three fixes are from
+    const [block] = figs(tb.head[1]!, /它在第 (\d) 块的定位/, 'the column’s own block')
+    for (const row of tb.rows) {
+      const [tag, cell] = row as [string, string]
+      const [x, y, ms] = figs(cell, /\(([\d.]+), ([\d.]+)\) m at (\d+) ms/, `${tag}: its own fix`)
+      const fix = ofType(rs, 'UWB_POSITION').filter((f) => f.node === tag && f.block === block)[0]!
+      same(String(x), fix.x, `${tag}: the x it really solves`)
+      same(String(y), fix.y, `${tag}: and the y`)
+      same(String(ms), fix.t / MS, `${tag}: and when it lands`)
+    }
+    // 「每部手机每秒五次定位…每一次的误差都在 2 cm 以内」
+    const [perSecCn] = raw(NUMS, /每部手机每秒(.)次定位/, '`numbers` on the rate')
+    const [cm] = figs(NUMS, /每一次的误差都在 (\d+) cm 以内/, '`numbers` on the error')
+    let worstCm = 0
+    for (const tag of TAGS) {
+      const fixes = ofType(rs, 'UWB_POSITION').filter((f) => f.node === tag)
+      expect(1000 / (rstuNs(SESSION.blockRstu) / MS), `${tag}: fixes per second`)
+        .toBe(cn(perSecCn!))
+      /*
+       * 「都在 2 cm 以内」 at the precision the table prints an error to: the records' own error
+       * line reads 0.02 m, so a fix 2.26 cm out is 「2 cm」 as the lesson writes it. And it is
+       * read as the TIGHTEST whole centimetre the run supports, not as the inequality it is
+       * written as — 「3 cm 以内」 would be true of this very run, so a bound-only read would let
+       * the figure be moved. The looser bound every fix keeps is the solver's own 4σ, above.
+       */
+      for (const f of fixes) {
+        worstCm = Math.max(worstCm,
+          Math.round(Math.hypot(f.x - f.trueX, f.y - f.trueY) * 100))
+      }
+    }
+    // 「每一次」 is every fix of every phone, so the worst of them all is where the figure is read
+    expect(worstCm, 'the worst fix the three phones leave in the whole run').toBe(cm)
+    // 「它的块号与轮号 | 0 · 1」, 「于是这一轮开始于 | 1 × 20.0 ms = 20 ms」, and the two instants
+    const at = tables().find((x) => x.heading?.includes('定在时间轴上'))!
+    const cellOf = (needle: string): string => at.rows.find((r) => r[0]!.includes(needle))![1]!
+    const [blockNo, roundNo] = figs(cellOf('块号与轮号'), /^(\d) · (\d)$/, 'the row on the two numbers')
+    // 「第 2 部手机的那一轮」 — the heading names a phone, and that phone really owns this round
+    const [whose] = figs(at.heading!, /第 (\d) 部手机的那一轮/, 'the heading’s own phone')
+    const owner = ofType(rs, 'UWB_ROUND')
+      .find((r) => r.block === blockNo && r.round === roundNo)!.node
+    expect(owner, `the phone that really owns round ${roundNo} of block ${blockNo}`)
+      .toBe(`uwb-${whose}`)
+    const [factor, roundMs, startMs] = figs(cellOf('于是这一轮开始于'),
+      /(\d) × ([\d.]+) ms = (\d+) ms/, 'the row on the start')
+    expect(factor, 'the round number the multiplication uses').toBe(roundNo)
+    same(String(roundMs), PLAN.roundNs / MS, 'the round length it multiplies by')
+    const round = ofType(rs, 'UWB_ROUND')
+      .find((r) => r.block === blockNo && r.round === roundNo)!
+    same(String(startMs), round.t / MS, 'and when that round really starts')
+    const [pollSlot] = figs(at.rows.find((r) => r[0]!.includes('Poll 在时隙'))![0]!, /时隙 (\d) 发出/,
+      'the Poll row’s own slot')
+    const [pollNs] = figs(cellOf('Poll 在时隙'), /^([\d ]+) ns$/, 'the Poll row’s own instant')
+    const poll = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'uwbPoll'
+      && r.frame.uwb?.block === blockNo && r.frame.uwb?.round === roundNo)!
+    expect(poll.frame.uwb!.slot, 'the slot that Poll really sits in').toBe(pollSlot)
+    expect(poll.t, 'and when it really leaves').toBe(pollNs)
+    const [finalSlot] = figs(at.rows.find((r) => r[0]!.includes('Final 在时隙'))![0]!,
+      /时隙 (\d) 发出/, 'the Final row’s own slot')
+    const [finalNs] = figs(cellOf('Final 在时隙'), /^([\d ]+) ns$/, 'the Final row’s own instant')
+    const fin = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'uwbFinal'
+      && r.frame.uwb?.block === blockNo && r.frame.uwb?.round === roundNo)!
+    expect(fin.frame.uwb!.slot, 'the slot the Final really sits in').toBe(finalSlot)
+    expect(fin.t, 'and when it really leaves').toBe(finalNs)
+    expect(fin.t - poll.t, 'which is that many slots later')
+      .toBe((finalSlot! - pollSlot!) * PLAN.slotNs)
+    const [endNs] = figs(cellOf('这一轮结束'), /^([\d ]+) ns$/, 'the row on the round’s end')
+    expect(round.t + PLAN.roundNs, 'when that round really ends').toBe(endNs)
+  })
+
+  it('reads the two steps that hand out rounds and slots', () => {
+    const steps = blockText(uwbBlocks.numbers!.find((b) => b.kind === 'steps'))
+    /*
+     * 「第 k 轮归第 k 部手机，每个块都如此：这里三部手机分到第 0、1、2 轮」 — three figures that
+     * are one claim, and the claim is an assignment. Read phone by phone, out of the rounds the
+     * run really opens, and over every block of the run rather than the first.
+     */
+    const [phonesCn] = raw(steps, /这里(.)部手机分到第/, 'the step on how many phones')
+    const assigned = figs(steps, /这里.部手机分到第 (\d)、(\d)、(\d) 轮/, 'the step on their rounds')
+    expect(cn(phonesCn!), 'the phones this scene has').toBe(TAGS.length)
+    expect(assigned.length, 'and a round printed for each of them').toBe(TAGS.length)
+    const blocks = [...new Set(ofType(rs, 'UWB_ROUND').map((r) => r.block))]
+    expect(blocks.length, 'the blocks this run gets through').toBeGreaterThan(1)
+    for (const [i, tag] of TAGS.entries()) {
+      for (const b of blocks) {
+        const mine = ofType(rs, 'UWB_ROUND').filter((r) => r.node === tag && r.block === b)
+        expect(mine.map((r) => r.round), `${tag}: the rounds it owns in block ${b}`)
+          .toEqual([assigned[i]])
+      }
+    }
+    /*
+     * 「时隙 0 是手机的 Poll，接着四个是各锚点按名单顺序的 Response，第六个是 Final，最后四个是
+     * 各自的 Report」 — the roster of a round, read as the slots the run really transmits in.
+     * 「接着四个」 and 「最后四个」 are counts of the anchors, and 「第六个」 is an ordinal, so the
+     * three of them have to add up to the slots the plan lays out.
+     */
+    const [pollSlot] = figs(steps, /时隙 (\d) 是手机的 Poll/, 'the step on the Poll')
+    const [respCn] = raw(steps, /接着(.)个是各锚点/, 'the step on the Responses')
+    const [finalCn] = raw(steps, /第(.)个是 Final/, 'the step on the Final')
+    const [reportCn] = raw(steps, /最后(.)个是各自的 Report/, 'the step on the Reports')
+    expect(cn(respCn!), 'the Responses a round holds').toBe(ANCHORS)
+    expect(cn(reportCn!), 'and the Reports').toBe(ANCHORS)
+    expect(1 + cn(respCn!) + 1 + cn(reportCn!), 'which with the Poll and the Final is the round')
+      .toBe(PLAN.slots)
+    const round0 = ofType(rs, 'TX_START')
+      .filter((r) => (r.frame.uwb?.block ?? -1) === 0 && (r.frame.uwb?.round ?? -1) === 0)
+    const slotsOf = (kind: string): number[] => round0
+      .filter((r) => r.frame.kind === kind).map((r) => r.frame.uwb!.slot!).sort((a, b) => a - b)
+    expect(slotsOf('uwbPoll'), 'the slot the Poll really goes out in').toEqual([pollSlot])
+    expect(slotsOf('uwbResp'), 'the slots the Responses really follow it in')
+      .toEqual(Array.from({ length: cn(respCn!) }, (_, i) => pollSlot! + 1 + i))
+    // 「第六个」 is an ordinal over the slots, so the Final sits one before the count it names
+    expect(slotsOf('uwbFinal'), 'and the slot the Final really sits in')
+      .toEqual([cn(finalCn!) - 1])
+    expect(slotsOf('uwbReport'), 'and the Reports after it')
+      .toEqual(Array.from({ length: cn(reportCn!) }, (_, i) => cn(finalCn!) + i))
+    // 「按名单顺序」: the anchors answer in the order the scene lists them
+    const byOrder = round0.filter((r) => r.frame.kind === 'uwbResp')
+      .sort((a, b) => a.frame.uwb!.slot! - b.frame.uwb!.slot!).map((r) => r.node)
+    expect(byOrder, 'in the order the scene names them')
+      .toEqual(uwbBlocks.scenario().nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id))
+  })
+
+  it('reads the drift `limits` computes, the units `sources` cites and both experiments', () => {
+    /*
+     * 「每台设备用自己的晶振去数这张表，20 ppm 跨过一个 200 ms 的块就是每边 4 µs」 — the one
+     * figure in `limits` that is not about this engine, and it is read as the multiplication it
+     * is: the tolerance times the block.
+     */
+    const [ppm, blockMs, perSideUs] = figs(LIM,
+      /(\d+) ppm 跨过一个 (\d+) ms 的块就是每边 (\d+) µs/, '`limits` on the drift')
+    same(String(blockMs), rstuNs(SESSION.blockRstu) / MS, 'the block this session runs')
+    expect(ppm! * 1e-6 * blockMs! * 1000, 'the drift that tolerance gives over it').toBe(perSideUs)
+    // 「想知道 200 ms 够不够」 — the same block, named again
+    const [again] = figs(LIM, /想知道 (\d+) ms 够不够/, '`limits` on the fix rate')
+    expect(again, 'the same block length').toBe(blockMs)
+    /*
+     * 「§10.29.1.5 与表 10-145 把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns」 — the
+     * unit this whole lesson is written in, read against the engine's own conversion.
+     */
+    const [chips, mchips, ns] = figs(SRC,
+      /把 RSTU 定为 (\d+) 个码片，在 ([\d.]+) Mchip\/s 下即 ([\d.]+) ns/, '`sources` on the RSTU')
+    expect(chips, 'the chips an RSTU really is').toBe(RSTU_CHIPS)
+    same(String(ns), (chips! / (mchips! * 1e6)) * 1e9, 'and what they come to at that rate')
+    // the engine counts in whole nanoseconds, so its own RSTU is that figure rounded
+    expect(rstuNs(1), 'which is the engine’s own conversion, to the nanosecond').toBe(Math.round(ns!))
+    /*
+     * 「并规定块长与时隙长都以整数个 3 RSTU 计」 — **exempt, class (a): a clause's own
+     * granularity.** What the engine can say is that its two lengths satisfy the rule, and that
+     * is said below; it cannot say the rule's divisor is 3, because 240 000 and 2 400 RSTU are
+     * whole multiples of 2 and of 4 as well. The figure is §10.32.2's, not this engine's, and
+     * the only instrument that could move it is the clause.
+     */
+    const [granule] = figs(SRC, /都以整数个 (\d) RSTU 计/, '`sources` on the granularity')
+    for (const n of [SESSION.blockRstu, SESSION.slotRstu]) {
+      expect(n % granule!, `${n} RSTU is a whole number of them`).toBe(0)
+    }
+    // 「2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值」
+    const [slotMs, blkMs] = figs(SRC, /(\d+) ms 的测距时隙与 (\d+) ms 的测距块是 FiRa/,
+      '`sources` on the two FiRa values')
+    expect(rstuNs(SESSION.slotRstu), 'the slot this session runs').toBe(slotMs! * MS)
+    expect(rstuNs(SESSION.blockRstu), 'and its block').toBe(blkMs! * MS)
+    /*
+     * 「每轮 8 个时隙 · 每块 12 轮」—「本方法的一轮是 2N + 2 个时隙。轮长从 20 ms 降到 16 ms，
+     * 块长一动不动」 — the experiment that deletes an anchor, read on a plan with one fewer.
+     */
+    const [slots, rounds] = figs(TRY, /每轮 (\d+) 个时隙 · 每块 (\d+) 轮/, '`tryThis` on the smaller round')
+    const [coef, plus] = figs(TRY, /本方法的一轮是 (\d)N \+ (\d) 个时隙/, '`tryThis` on the formula')
+    const smaller = roundPlan(SESSION, ANCHORS - 1)
+    expect(smaller.slots, 'the slots a round of one fewer anchor really has').toBe(slots)
+    expect(coef! * (ANCHORS - 1) + plus!, 'which is what the formula gives').toBe(slots)
+    expect(coef! * ANCHORS + plus!, 'and it gives this lesson’s own round too').toBe(PLAN.slots)
+    expect(Math.floor(rstuNs(SESSION.blockRstu) / smaller.roundNs),
+      'the rounds that block then holds').toBe(rounds)
+    const [fromMs, toMs] = figs(TRY, /轮长从 (\d+) ms 降到 (\d+) ms/, '`tryThis` on the two lengths')
+    expect(PLAN.roundNs / MS, 'the round as it stands').toBe(fromMs)
+    expect(smaller.roundNs / MS, 'and with one anchor fewer').toBe(toMs)
+    // 「0.5 ms 时隙」 — the variant's own label
+    const [variantMs] = figs(uwbBlocks.variants![0]!.label, /([\d.]+) ms 时隙/, 'the variant’s label')
+    expect(rstuNs(uwbBlocks.variants![0]!.scenario().uwb!.slotRstu) / MS,
+      'the slot that variant really runs').toBe(variantMs)
+    // 「一部手机的定位为什么每 200 ms 才落一次，而不是每 20 ms？」
+    const [quizBlock, quizRound] = figs(QUIZ, /每 (\d+) ms 才落一次，而不是每 (\d+) ms/,
+      'the quiz on the two periods')
+    expect([quizBlock, quizRound], 'the block and the round, as this plan has them')
+      .toEqual([rstuNs(SESSION.blockRstu) / MS, PLAN.roundNs / MS])
+  })
+})
