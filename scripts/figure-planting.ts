@@ -16,6 +16,7 @@
  * npx tsx scripts/figure-planting.ts --census            # every lesson, figures by exposure
  * npx tsx scripts/figure-planting.ts ifs --list          # what one lesson prints, planting nothing
  * npx tsx scripts/figure-planting.ts ifs                 # sweep one lesson
+ * npx tsx scripts/figure-planting.ts ifs --own --built   # only the figures typed into a built string
  * npx tsx scripts/figure-planting.ts mumimo tests/course/quoted-timestamps.test.ts
  * ```
  *
@@ -45,6 +46,23 @@ import { lessonTexts } from '../src/course/readability'
 const ROOT = resolve(import.meta.dirname, '..')
 const COURSE = resolve(ROOT, 'src/course')
 
+/**
+ * **Every place a figure stands on its own in `hay`.** The fallback in `figuresOf` searches for a
+ * figure's digits, and digits occur inside other figures: 「14」 is three characters into the
+ * literal `'5.001420'`, and planting it there would move a digit of a number nobody asked about
+ * — the offset guard in `planted` caught exactly that on 2026-10-14. So a hit counts only when
+ * neither neighbour is a digit or a decimal point.
+ */
+function standalone(hay: string, needle: string): number[] {
+  const out: number[] = []
+  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + 1)) {
+    const before = hay[i - 1] ?? ' '
+    const after = hay[i + needle.length] ?? ' '
+    if (!/[\d.]/.test(before) && !/[\d.]/.test(after)) out.push(i)
+  }
+  return out
+}
+
 /** A figure a reader reads, and where it is written. */
 interface Figure {
   id: string
@@ -57,6 +75,13 @@ interface Figure {
   role: string
   /** A citation or a name rather than a measurable figure: not planted by default. */
   cite: boolean
+  /**
+   * Typed into a string the module **builds** rather than types, so it was invisible to every
+   * sweep before 2026-10-14: the rendered text is not in the file, and until then the whole
+   * string was skipped with every figure in it. `--built` plants these alone, which is how a
+   * lesson swept under the old instrument is brought up to date without sweeping it again.
+   */
+  built: boolean
   ctx: string
 }
 
@@ -154,9 +179,58 @@ function blankComments(src: string): string {
   return out.join('')
 }
 
+/**
+ * **The source with everything that is not inside a string literal blanked out**, character for
+ * character, so an offset into it is an offset into the file.
+ *
+ * It is the second half of the fallback in `figuresOf`: a figure of an interpolated string is
+ * located by searching for its digits, and a digit sequence that occurs in CODE is not the one
+ * the reader saw. `${BYTES.poll}` renders as 「21」 and `poll: 21` is the arithmetic behind it —
+ * planting the latter would edit the constant, change every figure built from it, and report the
+ * reader's figure as pinned on the strength of a test that reddened for another reason. So the
+ * search runs over the strings alone, and an interpolation's own expression is blanked too,
+ * because that is code as well.
+ */
+function onlyStrings(src: string): string {
+  const out = new Array<string>(src.length).fill(' ')
+  let i = 0
+  let inStr: string | null = null
+  while (i < src.length) {
+    const c = src[i]!
+    const next = src[i + 1]
+    if (inStr) {
+      if (c === '\\') { i += 2; continue }
+      if (c === inStr) { inStr = null; i++; continue }
+      if (inStr === '`' && c === '$' && next === '{') {
+        // the expression inside `${ … }` is code: skip to its closing brace
+        let depth = 0
+        i += 1
+        while (i < src.length) {
+          if (src[i] === '{') depth++
+          else if (src[i] === '}') { depth--; if (depth === 0) { i++; break } }
+          i++
+        }
+        continue
+      }
+      out[i] = c
+      i++
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; i++; continue }
+    if (c === '/' && next === '/') { while (i < src.length && src[i] !== '\n') i++; continue }
+    if (c === '/' && next === '*') {
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++
+      i += 2
+      continue
+    }
+    i++
+  }
+  return out.join('')
+}
+
 const sources = allFiles(COURSE).map((p) => {
   const src = readFileSync(p, 'utf8')
-  return { p, src, prose: blankComments(src) }
+  return { p, src, prose: blankComments(src), strings: onlyStrings(src) }
 })
 const moduleOf = (id: string) => sources.find((f) => f.src.includes(`id: '${id}'`)) ?? null
 
@@ -168,18 +242,46 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
   for (const t of lessonTexts(l)) {
     if (!/\d/.test(t.text)) continue
     const at = mod.prose.indexOf(t.text)
-    // Not in the file as written (interpolated), or written twice (the offset would be a guess).
-    if (at === -1 || mod.prose.indexOf(t.text, at + 1) !== -1) { skipped++; continue }
+    // Written twice: the offset would be a guess, so the whole string is skipped.
+    if (at !== -1 && mod.prose.indexOf(t.text, at + 1) !== -1) { skipped++; continue }
+    /*
+     * **A string built rather than typed is still read by somebody.** When the rendered text is
+     * not in the file (`${BYTES.poll} 字节的 Poll`), the interpolated figures are the module's own
+     * arithmetic and there is nothing to plant — but the SAME string usually also carries figures
+     * that were typed into it, and until 2026-10-14 those were invisible: one skipped text took
+     * every figure in it down with it. `@uwb-reply-time` is where it showed — 「从 2.000 ms 挪到了
+     * 2.198 ms」 and 「整轮那一行写着 "3 slots"」 sit inside template literals, so nobody could
+     * plant them, and a sweep reporting 「32 printed figures」 was reporting 32 of 36.
+     *
+     * So each figure of such a string is now located on its own, and only when its digits occur
+     * **exactly once** in this module's prose — otherwise the offset would again be a guess, and
+     * then the figure is skipped alone rather than with its whole sentence.
+     */
     // A space is a thousands separator in this course's prose (「1 536 B」, 「250 250 字节」), so
     // the grouped form is matched first — otherwise 「1 536」 counts as two figures and planting
     // its leading digit asks a question nobody wrote.
     for (const m of t.text.matchAll(/\d{1,3}(?: \d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)*/g)) {
       const before = t.text.slice(Math.max(0, m.index - 16), m.index)
       const after = t.text.slice(m.index + m[0].length, m.index + m[0].length + 12)
+      let figAt = at + m.index
+      if (at === -1) {
+        const hits = standalone(mod.strings, m[0])
+        const first = hits[0] ?? -1
+        if (hits.length !== 1) { skipped++; continue }
+        /*
+         * **One literal, several printings, one planting.** A figure hoisted into a constant
+         * (`RANGE_M.matched`) is printed by the formula note AND by a table cell, and both
+         * resolve to the same offset — the one place it is written. Planting it twice asks the
+         * same question twice and trips the offset guard on the way, so the second printing is
+         * counted where the other 「printed twice from one literal」 figures are counted.
+         */
+        if (figures.some((f) => f.at === first)) { skipped++; continue }
+        figAt = first
+      }
       figures.push({
         id: l.id,
         file: mod.p.slice(ROOT.length + 1).replace(/\\/g, '/'),
-        at: at + m.index,
+        at: figAt,
         fig: m[0],
         section: t.section,
         role: t.role,
@@ -188,6 +290,7 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
         // neither context test can see.
         cite: CITE.test(before) || CITE_AFTER.test(after) || m[0].startsWith('802.')
           || NAME_BEFORE.test(before) || NAME_AFTER.test(after),
+        built: at === -1,
         ctx: `${before}⟦${m[0]}⟧${after}`.replace(/\s+/g, ' '),
       })
     }
@@ -323,6 +426,14 @@ if (sampleArg) {
     mine = Array.from({ length: k }, (_, i) => mine[Math.floor(i * step)])
   }
 }
+/*
+ * `--built` plants only the figures typed into a string the module interpolates — the set the
+ * 2026-10-14 fix to `figuresOf` made visible. A lesson whose sweep predates that fix was swept
+ * over fewer figures than it prints, and this is the cheap way to close the difference: the
+ * twelve lessons the census named cost one planting each for one to five figures, against a
+ * full re-sweep of a hundred.
+ */
+if (process.argv.includes('--built')) mine = mine.filter((f) => f.built)
 // `--saved` re-plants only what a previous run reported, which is how a cheap first pass
 // (`--own`) is followed by an expensive one over its candidates alone.
 if (process.argv.includes('--saved')) {
