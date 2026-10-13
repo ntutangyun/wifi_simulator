@@ -10,6 +10,7 @@
  * ratio and the honest share of the gain over a 4z poll — is pinned next door, in
  * tests/course/uwb-mms-numbers.test.ts, which runs this same scene.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
   ANCHOR_Z, MMS_ANCHORS, TAG_POS, TAG_Z, uwbMms, uwbMmsScenario, type UwbMmsVariant,
@@ -638,4 +639,315 @@ describe('uwb-mms · one round, step by step', () => {
     expect(ofType(recs('base'), 'TX_START').filter((r) => r.frame.kind === 'uwbRif')).toEqual([])
   })
 })
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The tables above are already read the right way round — a whole cell against the string the
+ * engine's own figures build. What the sampling sweep of 2026-10-12 found (2 of 6) is the prose:
+ * the paragraphs between the tables, the whole of `deeper`, `limits`, `sources`, `observe` and
+ * `tryThis`, where the same figures are printed a second time and nothing was reading them.
+ * Every assertion here parses its figure out of the shipped string and compares it with a live
+ * measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the round's airtime is read as the three shares it is.** 「整轮 7.106 ms 空口时间里的
+ *    4.480 ms，而三十二个片段加起来才 2.626 ms」 is three figures and two counts, and the counts
+ *    are **Chinese numerals** — 「七条消息」 and 「三十二个片段」 — which a planter cannot touch
+ *    but a reader can check, so they are mapped back to numbers and counted off the run.
+ *  - **the wall's bias is read through the arithmetic that makes it.** 「偏长同样的 1.199 m：
+ *    砖墙给首径添 2 ns」 — the nanoseconds are `UWB_NLOS_NS.brick`, the metres are two walls'
+ *    worth of them at the speed of light, and every range of the run has to sit that far long.
+ *  - **the anchor that is not there is read as a pair of figures that hold each other up.**
+ *    「只有 8.58 m 远、电平高 3.6 个分贝」 is one hypothetical position, so the distance and the
+ *    decibels are computed from the same spot: moving either one alone breaks the pair.
+ *  - **`limits` is read against the engine file it names.** 「evaluateTrain 取 frags[0].rssiDbm」
+ *    and 「10·log10(N)」 are checked against `src/uwb/mms.ts` itself — the index it really takes
+ *    and the gain it really returns for the fragment counts this lesson's scenes run.
+ *
+ * **One figure is exempt, class (c), and it is argued rather than waved:** the 0.1 of 「差 0.1 dB
+ * 整串就判为未检出」. The sentence's content is that the test is `margin >= 0` with no hysteresis
+ * at all, so any shortfall whatever would do — 0.2 or 0.05 would be just as true. What is read
+ * instead is the claim itself: `trainDetected` says yes at a margin of zero and no at a margin
+ * that is short by the amount the sentence names, and by a tenth of it.
+ */
+describe('uwb-mms · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const TERMS = blockText(uwbMms.terms)
+  const NUMS = blockText(uwbMms.numbers)
+  const DEEP = blockText(uwbMms.deeper)
+  const LIM = blockText(uwbMms.limits)
+  const SRC = blockText(uwbMms.sources)
+  const OBS = blockText(uwbMms.observe)
+  const TRY = blockText(uwbMms.tryThis)
+  /** The two engine files `limits` names by function, by field and by constant. */
+  const MMS_SRC = readFileSync(new URL('../../src/uwb/mms.ts', import.meta.url), 'utf8')
+  const DEV_MMS_SRC = readFileSync(new URL('../../src/uwb/device.mms.ts', import.meta.url), 'utf8')
 
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...text.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((mm) => mm.slice(1))
+  }
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** A Chinese numeral up to 九十九, which is how this lesson writes its two counts. */
+  const cn = (s: string): number => {
+    const d = '零一二三四五六七八九'
+    const i = s.indexOf('十')
+    if (i < 0) return d.indexOf(s)
+    const tens = i === 0 ? 1 : d.indexOf(s.slice(0, i))
+    const ones = i === s.length - 1 ? 0 : d.indexOf(s.slice(i + 1))
+    return tens * 10 + ones
+  }
+
+  it('reads the sensitivity `terms` prints against the receiver the engine gives this lesson', () => {
+    const [sens] = figs(TERMS, /本课是 (−?[\d.]+) dBm/, '`terms` on the receiver’s own threshold')
+    expect(sens, 'the sensitivity every train of this lesson is judged against').toBe(UWB_RX_SENS_DBM)
+  })
+
+  it('reads the round’s airtime as the three shares it is, Chinese counts and all', () => {
+    const [whole, nb, frags] = figs(NUMS,
+      /整轮 ([\d.]+) ms 空口时间（airtime）里的 ([\d.]+) ms，而三十二个片段加起来才 ([\d.]+) ms/,
+      '`numbers` on the three shares')
+    // the window is the round the comparison table gives this scene, read out of that table
+    const [roundMs] = figs(comparison(1)[0]!, /^(\d+) ms$/, 'the comparison table on the round')
+    const air = ofType(recs('base'), 'TX_START').filter((r) => r.t < roundMs! * MS)
+    const sum = (kinds: string[]): number =>
+      air.filter((r) => kinds.includes(r.frame.kind)).reduce((a, r) => a + r.frame.txTimeNs, 0)
+    same(String(whole), air.reduce((a, r) => a + r.frame.txTimeNs, 0) / MS, 'the whole round’s air')
+    same(String(nb), sum(['nbPoll', 'nbResp', 'nbReport']) / MS, 'what the narrowband side takes')
+    same(String(frags), sum(['uwbRsf']) / MS, 'and what every fragment of it takes')
+    expect(nb! + frags!, 'the two shares are the whole of it').toBeCloseTo(whole!, 3)
+    expect(nb!, 'and the slow side is the narrowband one').toBeGreaterThan(frags!)
+    // 「它那七条消息」 and 「三十二个片段」: counts, written as Chinese numerals.
+    const [msgs] = raw(NUMS, /它那(.)条消息/, '`numbers` on how many narrowband messages')
+    expect(cn(msgs!), 'the narrowband messages one round sends')
+      .toBe(air.filter((r) => r.frame.kind.startsWith('nb')).length)
+    const [count] = raw(NUMS, /而(...)个片段加起来/, '`numbers` on how many fragments')
+    expect(cn(count!), 'the fragments the same round sends')
+      .toBe(air.filter((r) => r.frame.kind === 'uwbRsf').length)
+  })
+
+  it('reads the wall’s bias through the arithmetic that makes it', () => {
+    const [metres, ns] = figs(NUMS, /每一次测距都偏长同样的 ([\d.]+) m：砖墙给首径添 ([\d.]+) ns/,
+      '`numbers` on the bias and the brick that causes it')
+    expect(ns, 'the extra delay one brick partition adds to the first path')
+      .toBe(UWB_NLOS_NS.brick)
+    same(String(metres), 2 * ns! * C_M_PER_NS, 'two partitions’ worth of it, as a distance')
+    for (const r of ofType(recs('base'), 'UWB_RANGE')) {
+      expect(Math.abs(r.distM - r.trueDistM - metres!), `${r.peer} b${r.block}`)
+        .toBeLessThan(4 * rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs))
+    }
+  })
+
+  it('reads the fix the inspector shows, and the three distances `deeper` prints again', () => {
+    const [x, y, trueX, trueY] = raw(NUMS,
+      /显示的是最后一个块的结果：\(([\d.]+), ([\d.]+)\) m，真值 \(([\d.]+), ([\d.]+)\)/,
+      '`numbers` on the inspector’s own fix')
+    const vs = initViewState(uwbMmsScenario('base'))
+    for (const r of recs('base')) applyRecord(vs, r)
+    const row = uwbFixRow(vs.nodes[TAG].uwb!.position!, STRINGS.uwb)
+    expect(`(${x}, ${y}) m`, 'the estimate the panel shows').toBe(row.estimate)
+    expect(`(${trueX}, ${trueY}) m`, 'and the truth beside it').toBe(row.truth)
+    // 「三个锚点到标签分别是 13.04、13.04 与 12.76 m」 — the room table's third row, again.
+    const printed = raw(DEEP, /三个锚点到标签分别是 ([\d.]+)、([\d.]+) 与 ([\d.]+) m/,
+      '`deeper` on the three distances')
+    expect(printed, 'the three distances this scene really has')
+      .toEqual(MMS_ANCHORS.map((a) => distTo(a).toFixed(2)))
+    expect(cell(0, 2, 1), 'which is what the room table prints too')
+      .toBe(`${printed.join(', ')} m`)
+  })
+
+  it('reads the anchor that is not there as a pair of figures that hold each other up', () => {
+    const [near, louder] = figs(DEEP, /它就只有 ([\d.]+) m 远、电平高 ([\d.]+) 个分贝/,
+      '`deeper` on the anchor pushed against the partition')
+    /*
+     * **One hypothetical spot, two figures.** 「贴到第一道砖墙上」 is read as half a metre short
+     * of the first partition — whose x the room table prints — on the middle anchor's own line,
+     * and both figures are computed from that one spot, so moving either alone breaks the pair.
+     */
+    const [wallX] = figs(cell(0, 1, 1), /^x = (\d+) m/, 'the room table on the first partition')
+    const spot = { x: wallX! - 0.5, y: MMS_ANCHORS[2].y }
+    same(String(near), distTo(spot), 'how far that spot is from the tag')
+    same(String(louder), 10 * UWB_PL_EXP * Math.log10(distTo(MMS_ANCHORS[0]) / distTo(spot)),
+      'and how much louder the tag is there')
+    expect(spot.x, 'a spot still inside the first bay').toBeLessThan(wallX!)
+  })
+
+  it('reads the room `sources` calls the simulator’s own', () => {
+    const [w, h, wall, ns] = figs(SRC,
+      /(\d+) × (\d+) m 的大厅、两道各 (\d+) dB 的砖墙、每道砖墙 ([\d.]+) ns/,
+      '`sources` on the room it built')
+    const sc = uwbMmsScenario('base')
+    expect([w, h], 'the hall this scene lays out').toEqual([sc.rooms[0].w, sc.rooms[0].h])
+    expect(wall, 'the loss one of them charges').toBe(WALL_LOSS_DB.brick)
+    expect(ns, 'and the delay each of them adds').toBe(UWB_NLOS_NS.brick)
+    expect(cell(0, 0, 1), 'the same hall the room table prints').toBe(`${w} × ${h} m`)
+    // the room table prints the PAIR, which is why its figure is twice this one
+    expect(cell(0, 3, 1), 'and both of them together').toBe(`${2 * wall!} dB`)
+  })
+
+  it('reads the verdict `limits` describes: the margin, the two fragment counts, the gain', () => {
+    const trains = (v: UwbMmsVariant): Extract<TLRecord, { type: 'UWB_MMS_TRAIN' }>[] =>
+      ofType(recs(v), 'UWB_MMS_TRAIN').filter((r) => r.kind === 'rsf')
+    // 「所以 +1.77 dB 这个余量七个块都是同一个数」
+    const [margin] = figs(LIM, /所以 \+([\d.]+) dB 这个余量七个块都是同一个数/,
+      '`limits` on the margin that never moves')
+    /*
+     * **「七个块都是同一个数」 is per pair, not per room.** The third anchor stands 12.76 m
+     * away where the other two are 13.04, so its fragments land 0.19 dB louder and its margin is
+     * its own constant. What the sentence says is that a pair's margin never moves between
+     * blocks — which is read here pair by pair — and the figure it prints is the one the worked
+     * table runs through, anchor 1's.
+     */
+    const byPair = new Map<string, Set<number>>()
+    for (const r of trains('base')) {
+      const k = `${r.node}|${r.peer}`
+      byPair.set(k, (byPair.get(k) ?? new Set()).add(Number(r.marginDb.toFixed(2))))
+    }
+    for (const [k, s] of byPair) {
+      expect([...s], `${k}: one margin for every block`).toHaveLength(1)
+      expect(trains('base').filter((r) => `${r.node}|${r.peer}` === k), `${k}: and one train a block`)
+        .toHaveLength(BLOCKS)
+    }
+    const first = [...new Set(trains('base')
+      .filter((r) => r.node === ANCHORS[0] || r.peer === ANCHORS[0])
+      .map((r) => Number(r.marginDb.toFixed(2))))]
+    expect(first, 'the margin anchor 1 has, which is the one the lesson prints').toEqual([margin])
+    // 「「X = 8 成、X = 4 败」在现实里是一条成功率曲线」
+    const [pass, fail] = figs(LIM, /「X = (\d+) 成、X = (\d+) 败」/,
+      '`limits` on the two fragment counts')
+    expect(pass, 'the train length this scene runs').toBe(uwbMmsScenario('base').uwb!.mms.rsfs)
+    expect(fail, 'and the one the half-train variant runs').toBe(uwbMmsScenario('four').uwb!.mms.rsfs)
+    expect(trains('base').every((r) => r.detected), 'every train of the first is detected').toBe(true)
+    expect(trains('four').some((r) => r.detected), 'and not one of the second').toBe(false)
+    /*
+     * **Exempt, class (c): the 0.1 dB.** Argued in this describe's header — the claim is that
+     * `trainDetected` is `margin >= 0` and nothing else, so any shortfall at all would serve.
+     */
+    const [short] = figs(LIM, /差 ([\d.]+) dB 整串就判为未检出/, '`limits` on the shortfall')
+    const t0 = trains('base')[0]!
+    const atMargin = (m: number): boolean => trainDetected(t0.rxDbm - (t0.marginDb - m), t0.heard)
+    expect(atMargin(0), 'a train with nothing to spare is still detected').toBe(true)
+    expect(atMargin(-short!), 'one short by what the sentence names is not').toBe(false)
+    expect(atMargin(-short! / 10), 'and nor is one short by a tenth of that').toBe(false)
+    // 「evaluateTrain 取 frags[0].rssiDbm 当作整串的电平」
+    const [idx] = figs(LIM, /取 frags\[(\d+)\]\.rssiDbm/, '`limits` on the fragment it takes')
+    expect(DEV_MMS_SRC, 'the index `evaluateTrain` really takes')
+      .toContain(`frags[${idx}].rssiDbm`)
+    // 「combineGainDb 那一项，也就是 10·log10(N)」, printed twice
+    for (const [mult, base] of every(LIM, /(\d+)·log(\d+)\(/g, '`limits` on the combining gain', 2)) {
+      for (const n of [uwbMmsScenario('base').uwb!.mms.rsfs, uwbMmsScenario('four').uwb!.mms.rsfs]) {
+        expect(val(mult!) * Math.log(n) / Math.log(val(base!)), `the gain at N = ${n}`)
+          .toBeCloseTo(combineGainDb(n), 9)
+      }
+    }
+  })
+
+  it('reads the instant `observe` sends the reader to, and the delay `tryThis` measures', () => {
+    // 「读一读 18.500 ms 处那条判定」
+    const [ms] = figs(OBS, /读一读 ([\d.]+) ms 处那条判定/, '`observe` on where the verdict is')
+    const verdict = ofType(recs('base'), 'UWB_MMS_TRAIN')[0]!
+    same(String(ms), verdict.t / MS, 'the instant the first train is judged')
+    // 「本块的定位也从 26 ms 推迟到 42 ms」
+    const [was, now] = figs(TRY, /本块的定位也从 (\d+) ms 推迟到 (\d+) ms/,
+      '`tryThis` on the two fixes')
+    const fixAt = (v: UwbMmsVariant): number => ofType(recs(v), 'UWB_POSITION')[0]!.t / MS
+    same(String(was), fixAt('base'), 'when this scene has its block fix')
+    same(String(now), fixAt('pairwise'), 'and when one anchor at a time has it')
+    expect([`${was} ms`, `${now} ms`], 'the same two the comparison table prints')
+      .toEqual(comparison(3))
+  })
+
+  it('reads the log table’s own clock column, every row of it', () => {
+    /*
+     * **The left column of a log table is a figure too.** Each row quotes a line the log really
+     * prints, so the instant beside it is that record's own `t` — which is how all eight rows
+     * are read at once, including the three nobody was reading (1.000, 4.000 and 20.608 ms).
+     */
+    const when = new Map<string, number>()
+    for (const r of recs('base')) {
+      const line = fmtRecord(r)
+      if (!when.has(line)) when.set(line, r.t)
+    }
+    const rows = table(1).rows
+    expect(rows.length, 'one row per line of the round').toBeGreaterThan(0)
+    rows.forEach((row, i) => {
+      const at = when.get(row[1])
+      expect(at, `row ${i}: the log never prints 「${row[1]}」`).toBeDefined()
+      same(raw(row[0], /^([\d.]+) ms$/, `the clock of row ${i}`)[0], at! / MS,
+        `when row ${i} happens`)
+    })
+  })
+
+  it('reads the「出处」column of the comparison table, which carries figures of its own', () => {
+    // 「52 × 500 µs」 — where the round's length comes from.
+    const [slots, slotUs] = figs(cell(2, 1, 3), /(\d+) × (\d+) µs/,
+      'the comparison table on where its round length comes from')
+    const round = ofType(recs('base'), 'UWB_ROUND')[0]!
+    expect(slots, 'the slots this round really has').toBe(round.slots)
+    same(String(slotUs), round.slotNs / 1000, 'and the slot it counts them in')
+    expect(figs(comparison(1)[0], /^(\d+) ms$/, 'the row’s own one-to-many cell')[0],
+      'which is the product of the two').toBe((slots! * slotUs!) / 1000)
+    // 「两个 600 RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 3 字节」
+    const [rstu, perResponder] = figs(cell(2, 5, 3),
+      /两个 (\d+) RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 (\d+) 字节/,
+      'the comparison table on the Poll window')
+    expect(rstu, 'the slot this session runs').toBe(uwbMmsScenario('base').uwb!.slotRstu)
+    expect(perResponder, 'what one more responder adds to the Poll')
+      .toBe(nbOtmPollBytes(ANCHORS.length + 1) - nbOtmPollBytes(ANCHORS.length))
+    // …and the responders that window really holds, which is the row's own two cells.
+    const [holds, pairHolds] = comparison(5).map((c, i) =>
+      figs(c, /^(\d+)$/, `the row’s own cell ${i}`)[0]!)
+    expect(uwbNbSlotFitNs(uwbMmsScenario('base').uwb!.mms, holds!),
+      'the Poll for that many fits two slots').toBeLessThan(2 * rstuNs(rstu!))
+    expect(uwbNbSlotFitNs(uwbMmsScenario('base').uwb!.mms, holds! + 1),
+      'and the Poll for one more does not').toBeGreaterThan(2 * rstuNs(rstu!))
+    expect(pairHolds, 'while a pair round asks one anchor at a time').toBe(1)
+  })
+
+  it('reads the row label the worked table gives those gates', () => {
+    // 「三关，600 RSTU」 — a row LABEL, which no read of the value column ever looks at.
+    const row = table(3).rows.find((r) => r[0].includes('三关'))!
+    const [rstu] = figs(row[0], /三关，(\d+) RSTU/, 'the worked table’s own row label')
+    expect(rstu, 'the slot those three gates are applied to')
+      .toBe(uwbMmsScenario('base').uwb!.slotRstu)
+    expect(figs(row[1], /^(\d+) % /, 'the value cell beside it')[0],
+      'which is the slot the cell itself goes on to test').toBe(rstu)
+  })
+
+  it('reads the three gates the slot has to pass, and the multiple they start from', () => {
+    const [rstu] = figs(NUMS, /它要是 (\d+) RSTU（ranging slot time unit）的整数倍/,
+      'the steps on the first gate')
+    const slot = uwbMmsScenario('base').uwb!.slotRstu
+    expect(slot % rstu!, 'the slot this session runs really is a multiple of it').toBe(0)
+    expect(MMS_SRC, 'and it is the minimum `mms.ts` keeps for a fixed reply')
+      .toContain(`MMS_FIXED_REPLY_RSTU_MIN = ${rstu}`)
+    // the worked table states the same gate on this scene's own slot
+    const [printedSlot, printedRstu, remainder] = figs(worked(6), /(\d+) % (\d+) = (\d+)/,
+      'the worked table on the same gate')
+    expect([printedSlot, printedRstu, remainder], 'the slot, the multiple and the remainder')
+      .toEqual([slot, rstu, 0])
+  })
+})
