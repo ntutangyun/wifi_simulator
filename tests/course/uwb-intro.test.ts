@@ -490,3 +490,306 @@ describe('uwb-intro · echoes exist in the medium; this hall has nothing to refl
     }
   })
 })
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This file's own header says it: 「Each assertion quotes the sentence it guards」 — in a
+ * comment. The figure beside it is typed here. The sampling sweep of 2026-10-12 planted six of
+ * this lesson's figures and every one went unnoticed, 6 of 6, which is what a quotation in a
+ * comment cannot do and a parse can.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the units table is one chain of conversions, and it is read as one.** A chip at
+ *    499.2 MHz, a tick at 2⁻⁷ of it, a metre at 3.3356 ns and 213.1 ticks, a tick as 4.7 mm of
+ *    flight and 2.3 mm of range: every one of those is computed from the one before it and from
+ *    the engine's own constants, so a cell that drifts out of the chain fails even if it still
+ *    looks plausible.
+ *  - **the counter's own width decides two figures.** 「2⁴⁰ 格就是 17.2 秒」 is read as the
+ *    modulus times the tick, and the 40 is read against `COUNTER_BITS`.
+ *  - **「读数偏大 4.3 格」 is read as the difference of the two figures printed beside it** —
+ *    1070 against the truth's 1065.7 — rather than as a figure of its own.
+ *  - **the three distances of the range line are three different quantities**, and the lesson
+ *    prints all three twice: the corrected reading, the truth, and the raw time-of-flight. Each
+ *    is read against its own source, and the pair that must differ is required to differ.
+ */
+describe('uwb-intro · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbIntro.picture)
+  const NUMS = blockText(uwbIntro.numbers)
+  const DEEP = blockText(uwbIntro.deeper)
+  const SRC = blockText(uwbIntro.sources)
+  const LIM = blockText(uwbIntro.limits)
+  const OBS = blockText(uwbIntro.observe)
+  const TRY = blockText(uwbIntro.tryThis)
+  const QUIZ = blockText(uwbIntro.quiz)
+  const ALL = [PIC, NUMS, DEEP, SRC, LIM, OBS, TRY, QUIZ].join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...text.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((mm) => mm.slice(1))
+  }
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tableOf = (needle: string): { head: string[]; rows: string[][] } => {
+    const b = uwbIntro.numbers!.find((x) => x.kind === 'table'
+      && (x as { heading?: string }).heading?.includes(needle))
+    expect(b, `no table whose heading contains 「${needle}」`).toBeDefined()
+    return b as { head: string[]; rows: string[][] }
+  }
+  const cellsOf = (needle: string): string[][] => tableOf(needle).rows
+  const occ = (text: string, needle: string): number => text.split(needle).length - 1
+  const rs = recs()
+  const range = ofType(rs, 'UWB_RANGE')[0]!
+
+  it('reads the units table as the chain of conversions it is', () => {
+    const rows = cellsOf('单位换算')
+    const flat = rows.map((r) => r.join(' · ')).join('\n')
+    // The chip rate, and the chip it gives.
+    const [mhz] = figs(flat, /([\d.]+) MHz 的一个码片/, 'the chip rate')
+    expect(mhz! * 1e6, 'the chip rate the engine runs at').toBe(UWB_CHIP_HZ)
+    // 「一个 RCTU = 2⁻⁷ 码片」: the tick as a fraction of a chip.
+    const [base] = figs(flat, /一个 RCTU = (\d+)⁻⁷ 码片/, 'the tick’s own definition')
+    expect(base, 'a binary fraction of a chip').toBe(2)
+    expect(RCTU_NS * base! ** 7, 'and seven halvings of it are one chip').toBeCloseTo(UWB_CHIP_NS, 9)
+    // 「3.3356 ns = 213.1 RCTU」: one metre, both ways.
+    const [ns, ticks] = figs(flat, /([\d.]+) ns = ([\d.]+) RCTU/, 'one metre in time and in ticks')
+    same(String(ns), 1 / C_M_PER_NS, 'one metre of flight, in nanoseconds')
+    same(String(ticks), ns! / RCTU_NS, 'and the same metre in counter ticks')
+    // 「c = 0.299792458 m/ns」
+    const [c] = figs(flat, /c = ([\d.]+) m\/ns/, 'the speed of light')
+    expect(c, 'the speed of light the engine uses').toBe(C_M_PER_NS)
+    // 「飞行 4.7 mm，测距 2.3 mm」: one tick, as flight and as range.
+    const [flightMm, rangeMm] = figs(flat, /飞行 ([\d.]+) mm，测距 ([\d.]+) mm/, 'one tick in millimetres')
+    same(String(flightMm), RCTU_NS * C_M_PER_NS * 1000, 'what one tick is worth in flight')
+    same(String(rangeMm), (RCTU_NS * C_M_PER_NS * 1000) / 2, 'and in range, which is half of it')
+  })
+
+  it('reads the flight table, its own column heading included', () => {
+    /*
+     * **The grid is in the column heading, not in a cell** — the shape this programme calls the
+     * ninth: 「落在 1 ns 网格上」 is the third column's name, and a table read row by row never
+     * looks at it.
+     */
+    const t2 = tableOf('飞行时间')
+    const [gridNs] = figs(t2.head[2]!, /落在 (\d+) ns 网格上/, 'the third column’s own heading')
+    expect(gridNs, 'the grid the event queue rounds to').toBe(1)
+    // Both rows: the distance, its flight time, and the whole nanosecond it lands on.
+    for (const row of t2.rows) {
+      const [m] = figs(row[0]!, /^(\d+) m$/, `the distance of 「${row[0]}」`)
+      const [ns] = figs(row[1]!, /^([\d.]+) ns$/, `the flight time of 「${row[0]}」`)
+      const [grid] = figs(row[2]!, /^(\d+) ns$/, `the grid cell of 「${row[0]}」`)
+      same(String(ns), m! / C_M_PER_NS, `the flight time of ${m} m`)
+      expect(grid, 'which the queue rounds up, never to nearest').toBe(Math.ceil(ns!))
+    }
+    // …and the two distances really are the two placements this lesson ships.
+    const apart = (sc: Scenario): number => {
+      const [a, b] = sc.nodes.filter((n) => n.uwb !== undefined)
+      return Math.hypot(a!.pos.x - b!.pos.x, a!.pos.y - b!.pos.y)
+    }
+    expect(t2.rows.map((r) => figs(r[0]!, /^(\d+) m$/, 'a distance cell')[0]),
+      'the near placement and the far one')
+      .toEqual([Math.round(apart(uwbIntro.scenario())),
+        Math.round(apart(uwbIntro.variants![0]!.scenario()))])
+  })
+
+  it('reads the tick and the grid, and the factor between them', () => {
+    // 「它以 15.650 ps 为一格，比时间线精细 64 倍」 — and the same tick in four more places.
+    const [ps, times] = figs(NUMS, /它以 ([\d.]+) ps 为一格，比时间线精细 (\d+) 倍/, '`numbers` on the tick')
+    same(String(ps), RCTU_PS, 'the counter’s own tick')
+    expect(times, 'how much finer than the timeline’s nanosecond it is').toBe(Math.round(1000 / RCTU_PS))
+    // Every printing of a time in picoseconds is one of two quantities, at the precision printed.
+    for (const [p] of every(ALL, /([\d.]+) ps/g, 'every printing of a time in picoseconds', 8)) {
+      const dp = (p!.split('.')[1] ?? '').length
+      expect([RCTU_PS, uwbIntro.scenario().uwb!.tsNoisePs].map((x) => Number(x.toFixed(dp))),
+        `「${p} ps」`).toContain(val(p!))
+    }
+    // The two figures that are the counter's width.
+    const [bits, floor] = figs(DEEP, /计数器是 (\d+) 位宽，标准只要求至少 (\d+) 位/, '`deeper` on the width')
+    expect(bits, 'the width this engine gives it').toBe(COUNTER_BITS)
+    expect(floor, 'and the floor the standard asks for').toBeLessThan(bits!)
+    const [modBase, secs] = figs(DEEP, /每格 [\d.]+ ps，(\d+)⁴⁰ 格就是 ([\d.]+) 秒/, '`deeper` on the wrap')
+    expect(modBase, 'a binary counter').toBe(2)
+    expect(modBase! ** bits!, 'whose modulus the engine computes').toBe(COUNTER_MOD)
+    same(String(secs), (COUNTER_MOD * RCTU_PS) / 1e12, 'how long it takes to wrap')
+    // `sources` prints the pair again.
+    const [srcBits, srcFloor] = figs(SRC, /(\d+) 位计数器是模型取值，标准正文只要求至少 (\d+) 位/,
+      '`sources` on the same pair')
+    expect([srcBits, srcFloor], 'the same two widths').toEqual([bits, floor])
+  })
+
+  it('reads the five figures the sweep of 2026-10-13 walked through', () => {
+    /*
+     * **Five sites the first pass missed, and four of them are second printings.** The speed of
+     * light is in the units table AND in the sentence that walks the reader through the
+     * multiplication; the counter's modulus base is in 「2⁴⁰ 格就是 17.2 秒」 AND in 「每一次相减
+     * 都是模 2⁴⁰ 的」; and 「只有 1σ 会随信干噪比按 1/√SNR 放大」 carries two of them in one
+     * clause. 「Clause 16」 is the fifth, and it is a chapter number with no corpus here — so it
+     * is pinned by occurrence, which is this programme's instrument for a citation.
+     */
+    const [c] = figs(NUMS, /ps × ([\d.]+) m\/ns/, '`numbers` on the speed of light')
+    expect(c, 'the speed of light, in the sentence that multiplies by it').toBe(C_M_PER_NS)
+    const [modBase] = figs(DEEP, /每一次相减都是模 (\d+)⁴⁰ 的/, '`deeper` on the modulus')
+    expect(modBase! ** COUNTER_BITS, 'the modulus every subtraction is taken under')
+      .toBe(COUNTER_MOD)
+    const [sigma, one] = figs(LIM, /只有 (\d+)σ 会随信干噪比按 (\d+)\/√SNR 放大/,
+      '`limits` on how the noise scales')
+    expect(sigma, 'one standard deviation').toBe(1)
+    expect(one, 'and the numerator of the Cramér-Rao shape').toBe(1)
+    expect(occ(ALL, 'Clause 16'), 'the chapter the units come from, cited once').toBe(1)
+  })
+
+  it('reads the four-counter subtraction and the error it leaves', () => {
+    const f = uwbIntro.numbers!.find((b) => b.kind === 'formula') as { text: string }
+    const [half] = figs(f.text, /und − Treply\) \/ (\d+)/, 'the formula’s own divisor')
+    expect(half, 'a round trip is two flights').toBe(2)
+    // 「两个几千亿量级的数字，差值只有 2140。真值是 1065.7 格：读数偏大 4.3 格」
+    const [diff] = figs(NUMS, /差值只有 ([\d,]+)。/, '`numbers` on the difference')
+    const [truth] = figs(NUMS, /真值是 ([\d.]+) 格/, '`numbers` on the truth')
+    const [over] = figs(NUMS, /读数偏大 ([\d.]+) 格/, '`numbers` on the error')
+    const sels = ofType(rs, 'UWB_TS')
+    expect(sels.length, 'the round stamps four counters').toBeGreaterThanOrEqual(4)
+    expect(diff, 'the difference of the two round-trip counters').toBe(2 * range.tofRawRctu!)
+    const trueNs = range.trueDistM / C_M_PER_NS
+    same(String(truth), trueNs / RCTU_NS, 'the ticks five metres of flight really is')
+    same(String(over), range.tofRawRctu! - trueNs / RCTU_NS, 'how many ticks the reading is over')
+    // 「因为两次接收计数各带 100 ps 噪声」
+    const [noisePs] = figs(NUMS, /各带 (\d+) ps 噪声/, '`numbers` on the stamp noise')
+    expect(noisePs, 'the noise this session quotes its stamps at')
+      .toBe(uwbIntro.scenario().uwb!.tsNoisePs)
+    // 「raw 就是上面那个 1070」
+    const [rawTicks] = figs(NUMS, /raw 就是上面那个 ([\d,]+)/, '`numbers` on the raw ticks')
+    expect(rawTicks, 'the ticks the raw figure comes from').toBe(range.tofRawRctu)
+  })
+
+  it('reads the three distances of the range line, each against its own source', () => {
+    const fmt = fmtRecord(range)
+    // The value block prints the line itself: 「4.95 m (true 5.00 m, raw 5.02 m)」
+    const [got, truth, rawM] = figs(NUMS, /: ([\d.]+) m \(true ([\d.]+) m, raw ([\d.]+) m\)/,
+      '`numbers` on the range line')
+    same(String(got), range.distM, 'the corrected reading')
+    same(String(truth), range.trueDistM, 'the truth')
+    same(String(rawM), rctuToMetres(range.tofRawRctu!), 'and the raw time-of-flight in metres')
+    expect(fmt, 'and the line the engine prints carries all three').toContain(`${got} m`)
+    expect(got, 'the corrected reading is not the raw one').not.toBe(rawM)
+    // `observe` prints the same three, and the noise behind the gap.
+    const [oGot, oTruth, oRaw] = figs(OBS, /报出 ([\d.]+) m，真值 ([\d.]+) m[^]*?raw 的 ([\d.]+) m/,
+      '`observe` on the same three')
+    expect([oGot, oTruth, oRaw], 'the same three figures').toEqual([got, truth, rawM])
+    same(raw(OBS, /噪声标准差就是 ([\d.]+) cm/, '`observe` on the noise')[0]!, 100 * SIGMA_R,
+      'one standard deviation of a single reading')
+    // 「本来无事可修，可答案还是挪动了 7 cm」
+    const [movedCm] = figs(NUMS, /答案还是挪动了 (\d+) cm/, '`numbers` on what the correction moves')
+    expect(movedCm, 'the correction’s own residual, in centimetres')
+      .toBe(Math.round(100 * Math.abs(rctuToMetres(range.tofRawRctu!) - range.distM)))
+    // 「找到 2 187 389 ns 处的 UWB_RANGE」
+    const [atNs] = figs(OBS, /找到 ([\d ]+) ns 处的 UWB_RANGE/, '`observe` on when the line appears')
+    expect(atNs, 'when the round reports').toBe(range.t)
+  })
+
+  it('reads the flight time, both placements, and the arrival gaps', () => {
+    const gap = (variant?: number): number => {
+      const r = recs(variant)
+      const tx = ofType(r, 'TX_START')[0]!
+      const rx = ofType(r, 'RX_START').find((x) => x.t >= tx.t)!
+      return rx.t - tx.t
+    }
+    // 「TX_START 在 0 ns，锚点泳道上的 RX_START 在 17 ns」
+    const [at, arrive] = figs(OBS, /TX_START 在 (\d+) ns，锚点泳道上的 RX_START 在 (\d+) ns/,
+      '`observe` on the first two records')
+    expect(at, 'when the first frame goes out').toBe(ofType(rs, 'TX_START')[0]!.t)
+    expect(arrive, 'and when it arrives').toBe(gap())
+    // 「到达间隔从 17 ns 变成 67 ns——距离四倍，飞行时间也四倍」
+    const [near, far] = figs(TRY, /到达间隔从 (\d+) ns 变成 (\d+) ns/, '`tryThis` on the two gaps')
+    expect(near, 'the gap at five metres').toBe(gap())
+    expect(far, 'and at twenty').toBe(gap(0))
+    expect(Math.round(far! / near!), 'four times the distance, four times the delay').toBe(4)
+    // 「测距行报出 19.95 m，真值 20.00 m」
+    const farRange = ofType(recs(0), 'UWB_RANGE')[0]!
+    const [farGot, farTruth] = figs(TRY, /测距行报出 ([\d.]+) m，真值 ([\d.]+) m/, '`tryThis` on the far range')
+    same(String(farGot), farRange.distM, 'what the far round reports')
+    same(String(farTruth), farRange.trueDistM, 'and its truth')
+    // The variant's own label, and the 2 ms slot the picture and `sources` both name.
+    const [labelM] = figs(uwbIntro.variants![0]!.label, /相距 (\d+) m/, 'the variant’s label')
+    expect(labelM, 'the distance that variant sets').toBe(Math.round(farRange.trueDistM))
+    const [tryM] = figs(TRY, /载入 (\d+) m 变体/, '`tryThis` on which variant to load')
+    expect(tryM, 'the same variant, named in the experiment').toBe(labelM)
+  })
+
+  it('reads the slot, the block and the four model values `sources` invites argument with', () => {
+    const round = ofType(rs, 'UWB_ROUND')[0]!
+    // 「2 ms 的测距时隙和 200 ms 的测距块」 — and the slot again in `picture` and in `numbers`.
+    const [slotMs, blockMs] = figs(SRC, /(\d+) ms 的测距时隙和 (\d+) ms 的测距块/, '`sources` on the two')
+    expect(slotMs! * MS, 'the slot the round runs on').toBe(round.slotNs)
+    expect(blockMs! * MS, 'and the block it sits in')
+      .toBe((uwbIntro.scenario().uwb!.blockRstu * RSTU_NS))
+    for (const [ms] of every([PIC, NUMS].join('\n'), /(\d+) ms (?:的等待|后，锚点)/g,
+      'the slot, named twice more', 2)) {
+      expect(val(ms!) * MS, 'the wait between the two frames').toBe(round.slotNs)
+    }
+    // 「−14 dBm 发射功率、−93 dBm 接收灵敏度、每个接收时间戳上 100 ps 的 1σ 噪声、……0.2 ppm」
+    const [tx, sens, ps, sigma, ppm] = figs(SRC,
+      /−(\d+) dBm 发射功率、−(\d+) dBm 接收灵敏度、每个接收时间戳上 (\d+) ps 的 (\d+)σ 噪声、时钟偏差估计中残留的 ([\d.]+) ppm/,
+      '`sources` on the four model values')
+    expect(-tx!, 'the transmit power').toBe(UWB_TX_POWER_DBM)
+    expect(-sens!, 'the receive sensitivity').toBe(UWB_RX_SENS_DBM)
+    expect(ps, 'the timestamp noise').toBe(uwbIntro.scenario().uwb!.tsNoisePs)
+    expect(sigma, 'quoted as one standard deviation').toBe(1)
+    expect(ppm, 'and the clock-offset residual').toBe(uwbIntro.scenario().uwb!.cfoNoisePpm)
+    // `limits`: the same noise, the same sigma, and the crystals this lesson pins.
+    const [limPs] = figs(LIM, /那 (\d+) ps 是模型取值/, '`limits` on the noise')
+    expect(limPs, 'the same figure').toBe(ps)
+    const [pinned] = figs(LIM, /把两端的晶振都钉在 (\d+) ppm/, '`limits` on the crystals')
+    expect(new Set(uwbIntro.scenario().nodes.map((n) => n.uwb?.ppm ?? 0)),
+      'both crystals, as the scene sets them').toEqual(new Set([pinned]))
+    // 「传播时延不过几十纳秒，而时隙是 9 µs」
+    const [slotUs] = figs(DEEP, /而时隙是 (\d+) µs/, '`deeper` on the Wi-Fi slot')
+    expect(slotUs! * US, 'the Wi-Fi contention slot it is compared with').toBe(SLOT_NS)
+  })
+
+  it('reads the quiz, which is the units table asked as four questions', () => {
+    // 「一个码片，2.003 ns，约 60 cm」
+    const [chipNs, chipCm] = figs(QUIZ, /一个码片，([\d.]+) ns，约 (\d+) cm/, 'the quiz on the chip')
+    same(String(chipNs), UWB_CHIP_NS, 'one chip, in nanoseconds')
+    expect(chipCm, 'and in centimetres of flight, as the option rounds it')
+      .toBe(Math.round(10 * UWB_CHIP_NS * C_M_PER_NS) * 10)
+    // 「码片的 2⁻⁷，15.650 ps，约 4.7 mm 的飞行距离」
+    const [base, ps, mm] = figs(QUIZ, /码片的 (\d+)⁻⁷，([\d.]+) ps，约 ([\d.]+) mm/, 'the quiz on the tick')
+    expect(base, 'a binary fraction').toBe(2)
+    same(String(ps), RCTU_PS, 'the tick')
+    same(String(mm), RCTU_NS * C_M_PER_NS * 1000, 'and its flight')
+    // 「一纳秒，也就是时间线的网格，约 30 cm」
+    const [gridCm] = figs(QUIZ, /也就是时间线的网格，约 (\d+) cm/, 'the quiz on the grid')
+    expect(gridCm, 'a nanosecond of flight, as the option rounds it')
+      .toBe(Math.round(100 * C_M_PER_NS / 10) * 10)
+    // 「计数器比 499.2 MHz 的码片速率再细 128 倍；一米是 213.1 格」
+    const [mhz, finer, perM] = figs(QUIZ, /比 ([\d.]+) MHz 的码片速率再细 (\d+) 倍；一米是 ([\d.]+) 格/,
+      'the quiz on the counter')
+    expect(mhz! * 1e6, 'the chip rate').toBe(UWB_CHIP_HZ)
+    expect(finer, 'how much finer the counter is').toBe(Math.round(UWB_CHIP_NS / RCTU_NS))
+    same(String(perM), 1 / C_M_PER_NS / RCTU_NS, 'and one metre in ticks')
+  })
+})
