@@ -44,7 +44,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { ANCILLARY_MESSAGE_KIND, ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
-import { uwbPpduNs } from '../../src/uwb/phy'
+import { C_M_PER_NS, uwbPpduNs } from '../../src/uwb/phy'
 import { blockCarriesAncillary, blockSlots, roundPlan } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -212,7 +212,16 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
  *
  * `lose` is the index inside the appended window to drop, 0…FRAMES−1.
  */
+const losing = new Map<number, TLRecord[]>()
 function runLosing(lose: number): TLRecord[] {
+  const hit = losing.get(lose)
+  if (hit) return hit
+  const out = runLosingOnce(lose)
+  losing.set(lose, out)
+  return out
+}
+
+function runLosingOnce(lose: number): TLRecord[] {
   const sc = uwbAncillaryScenario()
   expect(() => ScenarioSchema.parse(sc)).not.toThrow()
   const sender = sc.nodes.find((n) => n.id === SENDER_ID)
@@ -412,5 +421,189 @@ describe('uwb-ancillary-loss · what the exchange does not change, and what it d
       expect(code, sym).toMatch(new RegExp(String.raw`\b${sym}\b`))
     }
     expect(code, 'the figures come from the other half').toContain("from './uwb-ancillary'")
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The acceptance above measures the three losses and compares each with a figure typed on **this**
+ * side — `expect(named[0].missing).toEqual([FRAMES - 2])` — with the lesson's sentence in a
+ * comment. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12 planted
+ * six of this lesson's figures and six went unnoticed, and the sweep of 2026-10-14 could see two
+ * more (「第 N 个时隙」 used to count as a name).
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the opening example is read as the run it describes.** 「读到的数从 3 跳到 1，它当场就知道
+ *    本该写 2 的那一帧没有来」 is three figures of one measurement: the two readings the receiver
+ *    really gets and the name the record really gives the gap.
+ *  - **「差是 1，中间没有丢；差超过 1」 is read on both runs**: every step of the clean block is
+ *    that difference with no gap named, and the losing block's step is bigger by exactly the
+ *    frames whose names the record lists.
+ *  - **「收齐的判据是读到 0」 is read four times over**, because the lesson states it in the term,
+ *    in a step, in a jump label and twice in the quiz — and every one of them is the same
+ *    criterion the engine applies.
+ */
+describe('uwb-ancillary-loss · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const WHY = [uwbAncillaryLoss.why!, ...uwbAncillaryLoss.outcomes!].join('\n')
+  const TERMS = blockText(uwbAncillaryLoss.terms)
+  const PIC = blockText(uwbAncillaryLoss.picture)
+  const DEEP = blockText(uwbAncillaryLoss.deeper)
+  const SRC = blockText(uwbAncillaryLoss.sources)
+  const QUIZ = blockText(uwbAncillaryLoss.quiz)
+  const JUMPS = uwbAncillaryLoss.jumps.map((j) => j.label).join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+
+  it('reads the opening example as the run it describes', () => {
+    // 「接收端读到的数从 3 跳到 1，它当场就知道本该写 2 的那一帧没有来，不必等任何超时」
+    const [from, to, missing] = figs(WHY,
+      /接收端读到的数从 (\d+) 跳到 (\d+)，它当场就知道本该写 (\d+) 的那一帧没有来/,
+      '`why` on the jump')
+    const rs = runLosing(1)
+    const got = anc(rs)
+    expect(got.map((r) => r.framesRemaining).slice(0, 2), 'the two readings the receiver really gets')
+      .toEqual([from, to])
+    const named = got.filter((r) => r.missing.length > 0)
+    expect(named, 'one record names the gap').toHaveLength(1)
+    expect(named[0]!.missing, 'and it names the frame the sentence names').toEqual([missing])
+    expect(from! - to!, 'the step the gap opens').toBeGreaterThan(1)
+    expect(missing, 'and the missing name lies between the two readings').toBeLessThan(from!)
+    expect(missing, 'between them').toBeGreaterThan(to!)
+    // 「不必等任何超时」
+    expect(ofType(rs, 'UWB_TIMEOUT').filter((r) => r.expected === 'uwbAncillary'),
+      'no timeout anywhere in that block').toEqual([])
+  })
+
+  it('reads the difference that tells a gap from no gap, on both runs', () => {
+    // 「差是 1，中间没有丢；差超过 1，中间那几个数就是没来的那几帧的名字」
+    const [step, over] = figs(PIC, /差是 (\d+)，中间没有丢；差超过 (\d+)，中间那几个数就是没来的/,
+      '`picture` on the subtraction')
+    expect(over, 'one difference, named twice in one step').toBe(step)
+    const clean = anc(runOf(uwbAncillaryLoss, undefined, RUN_NS))
+    const byBlock = new Map<number, number[]>()
+    for (const r of clean) {
+      if (r.framesRemaining === null) continue
+      byBlock.set(r.block, [...(byBlock.get(r.block) ?? []), r.framesRemaining])
+    }
+    expect(byBlock.size, 'the clean run has blocks to read').toBeGreaterThan(0)
+    for (const [block, reads] of byBlock) {
+      for (let i = 1; i < reads.length; i++) {
+        expect(reads[i - 1]! - reads[i]!, `block ${block}: every step of a clean message`).toBe(step)
+      }
+    }
+    for (const r of clean) expect(r.missing, 'and no gap is named in it').toEqual([])
+    // the losing run: the step is bigger, and what it skipped is what the record lists
+    const got = anc(runLosing(1))
+    const named = got.filter((r) => r.missing.length > 0)[0]!
+    const before = got[got.indexOf(named) - 1]!
+    expect(before.framesRemaining! - named.framesRemaining!, 'the step across the gap')
+      .toBeGreaterThan(step!)
+    const skipped: number[] = []
+    for (let n = before.framesRemaining! - step!; n > named.framesRemaining!; n -= step!) skipped.push(n)
+    expect(named.missing, 'and the names are the readings that never came').toEqual(skipped)
+  })
+
+  it('reads 「收齐的判据是读到 0」 everywhere the lesson states it', () => {
+    const zeros: number[] = [
+      figs(TERMS, /最后一帧写 (\d)/, 'the term on the last frame')[0]!,
+      figs(PIC, /读到 (\d) 就是收齐/, 'the step on completion')[0]!,
+      figs(JUMPS, /写 (\d) 的那一帧：这条消息的最后一帧/, 'the jump label')[0]!,
+      figs(QUIZ, /丢掉的是写 (\d) 的那一帧，接收端什么时候知道/, 'the quiz’s question')[0]!,
+      figs(QUIZ, /因为写 (\d) 的那一帧才是收齐的判据/, 'the quiz’s wrong option')[0]!,
+      figs(QUIZ, /因为收齐的判据是读到 (\d)/, 'the quiz’s explanation')[0]!,
+    ]
+    expect(new Set(zeros).size, 'one criterion, stated six times').toBe(1)
+    const zero = zeros[0]!
+    // the engine's own criterion: the record that completes a message is the one that read it
+    const clean = anc(runOf(uwbAncillaryLoss, undefined, RUN_NS))
+    const complete = clean.filter((r) => r.complete)
+    expect(complete.length, 'every clean block completes its message').toBeGreaterThan(0)
+    for (const r of complete) {
+      expect(r.framesRemaining, 'and it is the frame that read that figure').toBe(zero)
+    }
+    for (const r of clean) {
+      if (r.framesRemaining === zero) expect(r.complete, 'reading it is completing').toBe(true)
+    }
+    // 「而倒数停在 1、后面又没有下一帧时，这一步永远不会发生」
+    const [stopsAt] = figs(PIC, /而倒数停在 (\d)、后面又没有下一帧时/, '`picture` on the last loss')
+    const last = anc(runLosing(FRAMES - 1)).filter((r) => r.slot !== null)
+    expect(last.at(-1)!.framesRemaining, 'the countdown really stops there').toBe(stopsAt)
+    expect(last.some((r) => r.complete), 'and no reception completes that message').toBe(false)
+    expect(stopsAt, 'one short of the criterion').toBe(zero + 1)
+    // 「倒数停在 1 之后就没有下一次读数了」 — the quiz says it again
+    const [quizStop] = figs(QUIZ, /倒数停在 (\d) 之后就没有下一次读数了/, 'the quiz on the same stop')
+    expect(quizStop, 'the same stop, a second time').toBe(stopsAt)
+    /*
+     * 「丢掉的是第一帧…接收端第一次读到的是 2，而它手里没有可以相减的上一次读数」 — the third
+     * loss, and the figure is the reading that opens the message when the first frame is gone.
+     */
+    const first = anc(runLosing(0)).filter((r) => r.slot !== null)
+    expect(first[0]!.framesRemaining, 'the first reading of that run').toBe(FRAMES - 2)
+    expect(first.some((r) => r.missing.length > 0), 'and nothing names the gap').toBe(false)
+    expect(first.some((r) => r.complete), 'while the message still completes').toBe(true)
+  })
+
+  it('reads the quiz option that says the presence bit is clear, which it is not', () => {
+    /*
+     * 「因为第一帧里的剩余帧数字段不在，那一位是置 0 的」 — a wrong option, and what makes it
+     * wrong is a bit this engine always sets: every frame of every scene carries a Frames
+     * Remaining, so the figure the option prints is the complement of the real one. Read that
+     * way round, the option's own digit is pinned by the engine rather than by its own wording.
+     */
+    const [printed] = figs(QUIZ, /因为第一帧里的剩余帧数字段不在，那一位是置 (\d) 的/,
+      'the quiz’s wrong option on the presence bit')
+    const frames = sent(runOf(uwbAncillaryLoss, undefined, RUN_NS))
+    expect(frames.length, 'the run really sends fragments').toBeGreaterThan(0)
+    for (const f of frames) {
+      expect(f.remaining, `the frame in slot ${f.slot} carries a Frames Remaining`).not.toBeUndefined()
+    }
+    const present = frames.every((f) => f.remaining !== undefined)
+    expect(printed, 'so the option prints the value that bit does NOT have')
+      .toBe(1 - Number(present))
+    // and the right answer's reason is the field's own content, which the record shows
+    const first = anc(runLosing(0)).filter((r) => r.slot !== null)[0]!
+    expect(first.framesRemaining, 'the first reading of the first-frame loss')
+      .toBe(FRAMES - 2)
+    expect(first.missing, 'and nothing to subtract from, so no name').toEqual([])
+  })
+
+  it('reads the flight time `deeper` quotes, and the hall `sources` keeps identical', () => {
+    // 「与那次运行只差一次飞行时间（本课大厅里是 22 ns）」
+    const [flightNs] = figs(DEEP, /只差一次飞行时间（本课大厅里是 (\d+) ns）/,
+      '`deeper` on the flight time')
+    const sc = uwbAncillaryScenario()
+    const sender = sc.nodes.find((n) => n.id === SENDER_ID)!.pos
+    const tag = sc.nodes.find((n) => n.id === TAG_ID)!.pos
+    const flight = Math.hypot(sender.x - tag.x, sender.y - tag.y, (sender.z ?? 0) - (tag.z ?? 0))
+      / C_M_PER_NS
+    // rounded up, because that is what the medium does with a delivery instant (`channel.ts`)
+    expect(Math.ceil(flight), 'the flight between the two devices, to the nanosecond')
+      .toBe(flightNs)
+    // and that is the difference between the closed form and the measured lead
+    const rs = runLosing(1)
+    const named = anc(rs).filter((r) => r.missing.length > 0)[0]!
+    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID)[0]!
+    expect(Math.abs((end.t - named.t) - NS.lead), 'which is all the two differ by')
+      .toBeLessThanOrEqual(flightNs! + 1)
+    // 「同一个 22 × 8 m 大厅」
+    const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
+    expect([sc.rooms[0]!.w, sc.rooms[0]!.h], 'the hall both lessons run in').toEqual([wide, deep])
   })
 })
