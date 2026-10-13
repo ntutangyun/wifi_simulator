@@ -35,6 +35,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
+import { uwbAncillaryScenario } from '../../src/course/uwb/uwb-ancillary'
 import { raictIeBytes, uwbAncillaryBytes, uwbPpduNs } from '../../src/uwb/phy'
 import { ancillaryGrantFits, ancillarySlots, blockSlots, roundPlan } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -352,5 +353,235 @@ describe('uwb-ancillary-request · every number in the prose is the engine’s',
     expect(text).toContain('model')
     // the one thing §10.35 does not define, named in the lesson's own words
     for (const needle of ['批复', '拒绝', '应答']) expect(text).toContain(needle)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Every length, slot count and width in this lesson is interpolated from its own module, and the
+ * file above measures those against runs. What is typed is the semantics and the arithmetic in
+ * words: the Request bit's value, the window split into 「message plus one」, the capacity a block
+ * has, and the per-block widths `deeper` measured. The sampling sweep of 2026-10-12 planted six
+ * and six went unnoticed.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the window is read as the split the sentence makes of it**: 「窗口是 3 个测距时隙：2 格
+ *    消息，1 格要求」 is one claim with three figures in it, so the message's frames plus the
+ *    request's own slot have to be the window the engine lays out.
+ *  - **the capacity line is read as the arithmetic it shows**: block over slot is how many slots
+ *    a block holds, less the ranging round and the request's own slot is the widest grant — and
+ *    the wide-slot scene is read the same way, down to the refusal of the very same request.
+ *  - **the per-block widths `deeper` quotes are read in Chinese numerals**, on a session whose
+ *    control message governs the blocks it names.
+ */
+describe('uwb-ancillary-request · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const WHY = [uwbAncillaryRequest.why!, ...uwbAncillaryRequest.outcomes!].join('\n')
+  const TERMS = blockText(uwbAncillaryRequest.terms)
+  const PIC = blockText(uwbAncillaryRequest.picture)
+  const NUMS = blockText(uwbAncillaryRequest.numbers)
+  const DEEP = blockText(uwbAncillaryRequest.deeper)
+  const LIM = blockText(uwbAncillaryRequest.limits)
+  const SRC = blockText(uwbAncillaryRequest.sources)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    uwbAncillaryRequest.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+
+  const rs = runOf(uwbAncillaryRequest, undefined, RUN_NS)
+
+  it('reads the Request bit, and the figure the request frame writes', () => {
+    // 「把它的第一位置 1」 in `why`, 「置 0 是上一课，置 1 是向控制器要时隙」 in the terms,
+    // 「Request 这一位置 1 表示…」 in `sources`
+    const [whyBit] = figs(WHY, /把它的第一位置 (\d)/, '`why` on the bit')
+    const [prev, mine] = figs(TERMS, /置 (\d) 是上一课，置 (\d) 是向控制器要时隙/, 'the term on the bit')
+    const [srcBit] = figs(SRC, /Request 这一位置 (\d) 表示这枚信息单元是在向控制器要时隙/,
+      '`sources` on the bit')
+    expect([whyBit, srcBit], 'the half this lesson builds, named three times').toEqual([mine, mine])
+    expect(prev, 'and the other half is the one before it').not.toBe(mine)
+    expect(uwbAncillaryRequestScenario().uwb!.ancillaryRequest,
+      'this lesson really runs that half').toBe(Boolean(mine))
+    expect(uwbAncillaryRequestOffScenario().uwb!.ancillaryRequest,
+      'and the scene with it off runs the other').toBe(Boolean(prev))
+    // every request frame on the air carries the bit, and the fragments do not
+    const frames = sent(rs)
+    const req = frames.filter((f) => f.request)
+    expect(req.length, 'one request per block, once the exchange is on').toBeGreaterThan(0)
+    for (const f of frames) {
+      expect(f.request, `the frame in slot ${f.slot} carries the bit only if it is the request`)
+        .toBe(f.remaining === undefined || f.number === undefined)
+    }
+    // 「字段里写 3」 — the field the request really carries, and what it asked for
+    const [asked] = figs(PIC, /Request 置 \d，字段里写 (\d+)/, 'the step on what it writes')
+    for (const r of requests(rs)) {
+      expect(r.requestedSlots, 'what every request really asks for').toBe(asked)
+    }
+    expect(asked, 'which is the session’s own figure')
+      .toBe(uwbAncillaryRequestScenario().uwb!.ancillaryRequestSlots)
+  })
+
+  it('reads the window as the split the sentence makes of it, and the two tables', () => {
+    // 「本课的第一条消息是 2 帧，所以窗口是 3 个测距时隙：2 格消息，1 格要求」
+    const [frames, window, msgSlots, reqSlots] = figs(PIC,
+      /本课的第一条消息是 (\d+) 帧，所以窗口是 (\d+) 个测距时隙（ranging slot）：(\d+) 格消息，(\d+) 格要求/,
+      '`picture` on the window')
+    expect(frames, 'the frames the first message really has').toBe(FIRST_FRAMES)
+    expect(msgSlots, 'one slot per frame').toBe(frames)
+    expect(reqSlots, 'and the request’s own slot').toBe(1)
+    expect(window, 'which together are the window the engine lays out').toBe(msgSlots! + reqSlots!)
+    expect(ancillarySlots(PLAN), 'read off the plan itself').toBe(window)
+    // 「第 0 格是控制消息，后面 4 格是每个锚点各作答一次」
+    const [ctrl, anchors] = figs(PIC, /第 (\d) 格是控制消息，后面 (\d+) 格是每个锚点/,
+      '`picture` on the ranging round')
+    expect(ctrl, 'the control message’s own slot').toBe(0)
+    expect(anchors, 'and one slot per anchor').toBe(ANCHORS)
+    // slot 0 plus one each: 「第 0 格」 is an index, so the round is one more than the last index
+    expect(ctrl! + 1 + anchors!, 'which is the round this plan lays out').toBe(PLAN.slots)
+    // 「窗口从 3 格变成 4 格，一块从 8 格变成 9 格」
+    const [wFrom, wTo, bFrom, bTo] = figs(PIC,
+      /窗口从 (\d+) 格变成 (\d+) 格，一块从 (\d+) 格变成 (\d+) 格/, '`picture` on what the grant changes')
+    expect([wFrom, wTo], 'the window before and after the grant')
+      .toEqual([ancillarySlots(PLAN), ancillarySlots(PLAN, REQUEST)])
+    expect([bFrom, bTo], 'and the block before and after')
+      .toEqual([blockSlots(PLAN, 0), blockSlots(PLAN, 1, REQUEST)])
+    // the per-block table: frames, countdown, window and block width, block by block
+    const tb = tables().find((x) => x.head[0] === '哪一块')!
+    const counts = firstCountdown(rs)
+    for (const row of tb.rows) {
+      const [label, msgFrames, countdown, win, block] = row as [string, string, string, string, string]
+      const [blockNo] = figs(label, /块 (\d+)/, `${label}: its own block number`)
+      const granted = blockNo! > 0
+      /*
+       * 「块 1 及以后」 — read as the FIRST granted block, not merely a granted one: the block
+       * before it still counts down from the session's own frames, and this one already counts
+       * down from the grant. Any later block would satisfy the row's figures on its own.
+       */
+      if (label.includes('及以后')) {
+        expect(counts.get(blockNo! - 1), `${label}: the block before it is still the old length`)
+          .toBe(FIRST_FRAMES - 1)
+        expect(counts.get(blockNo!), `${label}: and this one is already the granted length`)
+          .toBe(REQUEST - 1)
+      }
+      const want = granted ? REQUEST : FIRST_FRAMES
+      expect(val(msgFrames), `${label}: the frames that block’s message has`).toBe(want)
+      expect(counts.get(blockNo!), `${label}: and the countdown it starts at`).toBe(want - 1)
+      const [from, to] = figs(countdown, /(\d+) → (\d+)/, `${label}: its countdown`)
+      expect([from, to], `${label}: printed from that figure down to zero`).toEqual([want - 1, 0])
+      expect(val(win.replace(' 格', '')), `${label}: its window`)
+        .toBe(granted ? ancillarySlots(PLAN, REQUEST) : ancillarySlots(PLAN))
+      expect(val(block.replace(' 格', '')), `${label}: and its block`)
+        .toBe(granted ? blockSlots(PLAN, blockNo!, REQUEST) : blockSlots(PLAN, blockNo!))
+    }
+    // the two-frame table: the request is one octet shorter, because it reports no number
+    const bt = tables().find((x) => x.head[0] === '哪一帧')!
+    const [fragRow, reqRow] = bt.rows
+    expect(val(fragRow![4]!.replace(' 字节', '')), 'a fragment’s own length').toBe(BYTES.fragment)
+    expect(val(reqRow![4]!.replace(' 字节', '')), 'and the request’s').toBe(BYTES.request)
+    expect(BYTES.fragment - BYTES.request, 'the one octet between them').toBe(1)
+    expect([fragRow![1], reqRow![1]], 'and which of them reports a message number')
+      .toEqual(['报', '不报'])
+    for (const f of sent(rs)) {
+      expect(f.bytes, `the frame in slot ${f.slot} is as long as its row says`)
+        .toBe(f.request ? BYTES.request : BYTES.fragment)
+    }
+  })
+
+  it('reads the capacity arithmetic, and the refusal the wider slot causes', () => {
+    /*
+     * 「一块 200 ms、一个时隙 2 ms，所以一块装得下 100 格；测距那一轮占 5 格，要求自己占 1 格，
+     * 于是能批的最大宽度是 94」 — every figure of that line, against the plan it describes.
+     */
+    const [blockMs, slotMs, perBlock, ranging, reqSlot, grant] = figs(NUMS,
+      /一块 ([\d.]+) ms、一个时隙 ([\d.]+) ms，所以一块装得下 (\d+) 格；测距那一轮占 (\d+) 格，要求自己占 (\d+) 格，于是能批的最大宽度是 (\d+)/,
+      '`numbers` on the capacity')
+    expect(blockMs, 'the block this scene runs').toBe(MS.block)
+    expect(slotMs, 'and its slot').toBe(MS.slot)
+    expect(perBlock, 'so this many slots fit a block').toBe(CAPS.perBlock)
+    expect(Math.floor(blockMs! / slotMs!), 'which is the division the sentence shows').toBe(perBlock)
+    expect(ranging, 'the ranging round’s own slots').toBe(PLAN.slots)
+    expect(reqSlot, 'the request’s own slot').toBe(1)
+    expect(grant, 'and the widest grant that leaves').toBe(CAPS.grant)
+    expect(perBlock! - ranging! - reqSlot!, 'read as the subtraction it is').toBe(grant)
+    expect(ancillaryGrantFits(PLAN, grant!), 'the engine accepts that width').toBe(true)
+    expect(ancillaryGrantFits(PLAN, grant! + 1), 'and refuses one more').toBe(false)
+    /*
+     * 「把时隙加宽十倍（20 ms）而块一动不动，同一块就只装得下 10 格，能批的最大宽度掉到 4——
+     * 于是同一个 3 在这个大厅里被拒」
+     */
+    const [timesCn, wideMsS, widePerS, wideGrantS, sameS] = raw(NUMS,
+      /把时隙加宽(.)倍（([\d.]+) ms）而块一动不动，同一块就只装得下 (\d+) 格，能批的最大宽度掉到 (\d+)——于是同一个 (\d+) 在这个大厅里被拒/,
+      '`numbers` on the wide slot')
+    const [wideMs, widePer, wideGrant, same] = [wideMsS, widePerS, wideGrantS, sameS].map((x) => val(x!))
+    expect(wideMs / MS.slot, 'as many times as wide as the character says').toBe(cn(timesCn!))
+    expect(widePer, 'the slots that block then holds').toBe(CAPS.widePerBlock)
+    expect(wideGrant, 'and the widest grant left').toBe(CAPS.wideGrant)
+    expect(same, 'while the request is unchanged').toBe(REQUEST)
+    expect(ancillaryGrantFits(WIDE_PLAN, same), 'so the wide scene refuses it').toBe(false)
+    expect(ancillaryGrantFits(PLAN, same), 'and this one grants it').toBe(true)
+  })
+
+  it('reads `deeper`’s per-block widths, the hall and the sender', () => {
+    /*
+     * 「一条控制消息管四块时，同一个会话的块 0 与块 4 是九格，块 1、2、3 是五格」 — the widths of
+     * the blocks it names, on a session whose control message governs that many.
+     */
+    const [blocksCn, wideA, wideB, wideCn, narrowA, narrowB, narrowC, narrowCn] = raw(DEEP,
+      /一条控制消息管(.)块时，同一个会话的块 (\d) 与块 (\d) 是(.)格，块 (\d)、(\d)、(\d) 是(.)格/,
+      '`deeper` on the per-block widths')
+    /*
+     * 「同一个会话」 is the lesson before this one: `deeper` measured it there, on the four-frame
+     * message, which is why the wide blocks are nine slots and not this lesson's eight.
+     */
+    const validity = cn(blocksCn!)
+    const plan = roundPlan(uwbAncillaryScenario({ rcmValidityRounds: validity }).uwb!, ANCHORS)
+    for (const b of [wideA, wideB]) {
+      expect(blockSlots(plan, val(b!)), `block ${b} is the wider one`).toBe(cn(wideCn!))
+    }
+    /*
+     * The three narrow blocks are the ones BETWEEN the two wide ones, consecutively — which is
+     * what makes 「块 1、2、3」 a reading of the window rather than three numbers that happen to
+     * be narrow.
+     */
+    expect([narrowA, narrowB, narrowC].map((b) => val(b!)),
+      'the blocks between the two wide ones, in order')
+      .toEqual([val(wideA!) + 1, val(wideA!) + 2, val(wideA!) + 3])
+    expect(val(wideB!), 'and the second wide block closes that window')
+      .toBe(val(narrowC!) + 1)
+    for (const b of [narrowA, narrowB, narrowC]) {
+      expect(blockSlots(plan, val(b!)), `block ${b} is the narrower one`).toBe(cn(narrowCn!))
+    }
+    expect(cn(wideCn!), 'and the wide blocks really are the wider').toBeGreaterThan(cn(narrowCn!))
+    // 「本课四个场景是同一个 22 × 8 m 大厅」
+    const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
+    for (const sc of [uwbAncillaryRequestScenario(),
+      uwbAncillaryRequestScenario({ schedule: 'contention' }),
+      uwbAncillaryRequestScenario({ slotRstu: WIDE_SLOT_RSTU }),
+      uwbAncillaryRequestOffScenario()]) {
+      expect([sc.rooms[0]!.w, sc.rooms[0]!.h], 'every scene runs in the same hall').toEqual([wide, deep])
+    }
+    // 「发消息的始终是第 0 个响应方」
+    const [idx] = figs(LIM, /发消息的始终是第 (\d) 个响应方/, '`limits` on the sender')
+    expect(idx, 'the responder index the model chose').toBe(ANCILLARY_SENDER_INDEX)
+    expect(new Set(sent(rs).map((f) => f.node)), 'and one node sends every frame of it')
+      .toEqual(new Set([ASKER_ID]))
+    expect(ASKER_ID, 'which is that index of the anchors').toBe(idOf(ANCILLARY_SENDER_INDEX))
   })
 })
