@@ -33,6 +33,9 @@ import {
   uwbMmrcmSlots, uwbPollBytes,
 } from '../../src/uwb/phy'
 import { mmrcmResponders, roundPlan } from '../../src/uwb/session'
+import { uwbRcmValidity } from '../../src/course/uwb/uwb-rcm-validity'
+import { uwbAncillary } from '../../src/course/uwb/uwb-ancillary'
+import { uwbAncillaryRequest } from '../../src/course/uwb/uwb-ancillary-request'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -367,5 +370,273 @@ describe('uwb-receipt · the base run the fixture replays', () => {
     expect(quiet.length).toBeGreaterThan(0)
     expect(quiet[0].frame.kind).toBe('uwbMmrcm')
     expect(quiet[0].node).toBe(QUIET_ID)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Every byte count, slot count and frame count here is interpolated from this lesson's own module
+ * and the file above measures those against runs. What is typed is the **bit** this clause turns
+ * on, the convention a bitmap is read with, the widths `limits` names, and the figures `sources`
+ * lists — and the sweep of 2026-10-14 could see several of them for the first time (「第 15 位」
+ * used to count as a name).
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the bit index is read against the field it sits beside.** 「ARC 信息单元控制字段里的第 15
+ *    位」 is one past the six-bit validity field `@uwb-rcm-validity` reads bit for bit, so the two
+ *    lessons' accounts of the same control word have to agree.
+ *  - **「收到记 1」 and 「读出哪几位是 0」 are read as the bitmap the run really builds**, against
+ *    the medium's own `RX_OK` records rather than against the implementation's state.
+ *  - **「置 1 与不置 1 的控制消息字节数完全相同」 is read as the two prices**, which is the whole
+ *    claim of this lesson's first table.
+ */
+describe('uwb-receipt · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const TERMS = blockText(uwbReceipt.terms)
+  const PIC = blockText(uwbReceipt.picture)
+  const LIM = blockText(uwbReceipt.limits)
+  const SRC = blockText(uwbReceipt.sources)
+  const QUIZ = blockText(uwbReceipt.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    uwbReceipt.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+
+  it('reads the bit this clause turns on, beside the field the lesson before it reads', () => {
+    // 「ARC 信息单元控制字段里的第 15 位：置 1 就是请求对方回一次收妥确认」
+    const bits = [...[TERMS, PIC, SRC].join('\n').matchAll(/第 (\d+) 位/g)].map((m) => val(m[1]!))
+    expect(bits.length, 'the bit, named in the term, the step and the sources')
+      .toBeGreaterThanOrEqual(3)
+    expect(new Set(bits).size, 'and it is the same bit every time').toBe(1)
+    /*
+     * The validity field of `@uwb-rcm-validity` is the six bits below it, and that lesson reads
+     * its own indices off its own `sources`. So the two accounts of one control word are read
+     * against each other: this bit is the one immediately above that field.
+     */
+    const neighbour = uwbRcmValidity.sources!.join('\n')
+    const [, upper] = figs(neighbour, /字段里的第 (\d+) 到 (\d+) 位/,
+      'the neighbouring lesson on the validity field')
+    expect(bits[0], 'immediately above the validity field').toBe(upper! + 1)
+    // 「置 1 就是请求对方回一次收妥确认」, and `picture` says it again
+    const [termSet] = figs(TERMS, /位：置 (\d) 就是请求对方回一次收妥确认/, 'the term on the value')
+    const [picSet] = figs(PIC, /位置 (\d)。这一位和有效轮次那六位/, '`picture` on the same value')
+    expect(picSet, 'set, both times').toBe(termSet)
+    /*
+     * A set bit is written as the figure a true flag encodes as — read that way rather than as
+     * 「truthy」, because every figure above zero is truthy and only one of them is the bit.
+     */
+    expect(termSet, 'the figure a set flag is written as')
+      .toBe(Number(uwbReceiptScenario(true).uwb!.mmrcr))
+    expect(Number(uwbReceiptScenario(false).uwb!.mmrcr), 'and the quiet scene writes the other')
+      .toBe(1 - termSet!)
+  })
+
+  it('reads the bitmap’s own convention against the medium’s records', () => {
+    // 「窗口的第一条开场消息在最左，一位一条，收到记 1」
+    const [got] = figs(TERMS, /一位一条，收到记 (\d)/, 'the term on the bitmap')
+    /*
+     * One block, because in this mode every block is its own validity window: the bitmap is one
+     * bit wide, and that bit is 「收到记 1」 for the initiator the entry names. Read against the
+     * medium's own `RX_OK` records, which is the referee the file above uses too.
+     */
+    const rs = run(uwbReceiptScenario(), ONE_BLOCK)
+    const frames = sent(rs)
+    expect(frames.length, 'the run really carries confirmations').toBeGreaterThan(0)
+    expect(got, 'a received block is written as the figure a true flag encodes as').toBe(Number(true))
+    for (const f of frames) {
+      for (const e of f.list) {
+        const ones = [...e.bits].filter((b) => b === String(got)).length
+        expect(ones > 0, `${f.node} on ${e.initiator}: set exactly when it decoded that opener`)
+          .toBe(decoded(rs, f.node, e.initiator) > 0)
+      }
+    }
+    // 「从自己那个条目里读出哪几位是 0」 — the complement, on the same frames
+    const [missed] = figs(PIC, /从自己那个条目里读出哪几位是 (\d)/, '`picture` on what a reader reads')
+    expect(missed, 'the other value of the same bit').not.toBe(got)
+    for (const f of frames) {
+      for (const e of f.list) {
+        const zeros = [...e.bits].filter((b) => b === String(missed)).length
+        const ones = [...e.bits].filter((b) => b === String(got)).length
+        expect(zeros + ones, `${f.node} on ${e.initiator}: every bit is one or the other`)
+          .toBe(e.bits.length)
+        expect(zeros > 0, `${f.node} on ${e.initiator}: a zero means it missed that opener`)
+          .toBe(decoded(rs, f.node, e.initiator) === 0)
+      }
+    }
+  })
+
+  it('reads the first table: what the request costs and what the answer costs', () => {
+    const tb = tables().find((x) => x.head[0] === '量什么')!
+    const row = (needle: string): string[] => tb.rows.find((r) => r[0]!.includes(needle))!.slice(1)
+    const on = run(uwbReceiptTwrScenario(true), TWR_NS)
+    const off = run(uwbReceiptTwrScenario(false), TWR_NS)
+    const openerOf = (rs: TLRecord[], kind: string): number => ofType(rs, 'TX_START')
+      .filter((r) => r.frame.kind === kind)[0]!.frame.bytes
+    // 「窗口第一块的开场消息」 and 「窗口其余各块的开场消息」 — the same price either way
+    const [offFirst, onFirst] = row('窗口第一块的开场消息').map((c) => val(c.replace(' 字节', '')))
+    expect(onFirst, 'the control message costs the same with the request on').toBe(offFirst)
+    expect(openerOf(off, 'uwbPoll'), 'and that is what it really costs').toBe(offFirst)
+    expect(openerOf(on, 'uwbPoll'), 'both ways').toBe(onFirst)
+    const [offRest, onRest] = row('窗口其余各块的开场消息').map((c) => val(c.replace(' 字节', '')))
+    expect([openerOf(off, 'uwbInit'), openerOf(on, 'uwbInit')], 'and so does the initiation message')
+      .toEqual([offRest, onRest])
+    // 「回来的 MMRCM」: none when the request is off, and this many when it is on
+    const [offFrames] = row('回来的 MMRCM').map((c) => val(c.replace(' 帧', '')))
+    expect(sent(off).length, 'no confirmation comes back unasked').toBe(offFrames)
+    const [onFrames, onBytes] = figs(row('回来的 MMRCM')[1]!, /(\d+) 帧，各 (\d+) 字节/,
+      'the row on what comes back')
+    expect(sent(on).length, 'and this many when it is asked for').toBe(onFrames)
+    for (const f of sent(on)) expect(f.bytes, 'each of that size').toBe(onBytes)
+    // the quiz says the same thing about the request's price, twice
+    const [q1, q2] = figs(QUIZ, /置 (\d) 与不置 (\d) 的控制消息字节数完全相同/,
+      'the quiz on the request’s price')
+    expect(q2, 'one bit, two mentions').toBe(q1)
+    expect(openerOf(on, 'uwbPoll') - openerOf(off, 'uwbPoll'), 'and the prices really are equal')
+      .toBe(0)
+  })
+
+  it('reads the two dimensions table, the figure’s own labels, and the borrowed request bit', () => {
+    /*
+     * 「两个维度，没有哪个场景同时撑开」 — a row per scene, and each row's two figures are read on
+     * that scene's own run: how many entries a confirmation carries there, and how many bits each
+     * entry's bitmap is.
+     */
+    const tb = tables().find((x) => x.head[0] === '场景')!
+    for (const row of tb.rows) {
+      const [scene, entries, width] = row as [string, string, string]
+      const m2mRow = scene.includes('多对多')
+      const rs = m2mRow ? run(uwbReceiptScenario(), ONE_BLOCK) : run(uwbReceiptTwrScenario(true), TWR_NS)
+      const frames = sent(rs)
+      expect(frames.length, `${scene}: that scene really answers`).toBeGreaterThan(0)
+      for (const f of frames) {
+        expect(f.list.length, `${scene}: the entries one frame carries`)
+          .toBe(val(entries.replace(' 个', '')))
+        for (const e of f.list) {
+          expect(e.bits.length, `${scene}: and the width of each bitmap`)
+            .toBe(val(width.replace(' 位', '')))
+        }
+      }
+    }
+    /*
+     * 「固定部分 15 字节，之后每个发起方 6 字节」 — the caption's two figures, read against the
+     * drawing's own boxes: the fixed ones add up to the first, and each entry box is the second.
+     */
+    const diagram = uwbReceipt.picture!.find((b) => b.kind === 'diagram') as unknown as
+      { caption: string; spec: { fields: { label?: string; size: number }[] } }
+    const [fixed, perEntry] = figs(diagram.caption,
+      /固定部分 (\d+) 字节，之后每个发起方 (\d+) 字节/, 'the caption on the two parts')
+    const boxes = diagram.spec.fields
+    const entryBoxes = boxes.filter((f) => /条目/.test(f.label ?? ''))
+    expect(entryBoxes.length, 'the drawing shows one box per entry').toBeGreaterThan(0)
+    for (const b of entryBoxes) expect(b.size, 'each as wide as the caption says').toBe(perEntry)
+    expect(boxes.filter((f) => !entryBoxes.includes(f)).reduce((a, b) => a + b.size, 0),
+      'and the rest of the boxes are the fixed part').toBe(fixed)
+    expect(fixed, 'which is the engine’s own fixed part')
+      .toBe(UWB_MHR_BYTES + RMMRC_FIXED_BYTES + UWB_FCS_BYTES)
+    expect(perEntry, 'and its own per-initiator entry').toBe(rmmrcEntryBytes(1))
+    /*
+     * 「Request 置 1 时那一帧是向控制器请求…」 — this lesson only mentions the ancillary clause's
+     * bit, so every mention of it is read as one of that bit's two values, each on the lesson
+     * that runs it.
+     */
+    const halves = [...LIM.matchAll(/Request 置 (\d)/g)].map((m) => val(m[1]!))
+    expect(halves.length, 'the bit is mentioned').toBeGreaterThanOrEqual(2)
+    expect(new Set(halves), 'and every mention is one of its two values').toEqual(new Set([0, 1]))
+    const [asks] = figs(LIM, /Request 置 (\d) 时那一帧是向控制器请求/, '`limits` on the asking half')
+    expect(uwbAncillaryRequest.scenario().uwb!.ancillaryRequest,
+      'the lesson that asks really sets it').toBe(Boolean(asks))
+    expect(uwbAncillary.scenario().uwb!.ancillaryRequest,
+      'and the one before it does not').toBe(!asks)
+  })
+
+  it('reads what a long address would cost, which is the one figure this repo cannot check', () => {
+    /*
+     * **Exempt, class (a): the long address's own width.** 「真实设备用长地址时每个条目要宽 6 个
+     * 字节」 is the difference between the standard's extended address and the short one this
+     * engine builds, and no corpus ships with this repo — nothing here states the extended
+     * width, so 7 would read the same. What is read is the claim around it: the entry this
+     * engine does build is the short one, the formula the lesson prints is that entry's, and a
+     * wider address would make the entry wider by a positive amount.
+     */
+    const [wider] = figs(LIM, /真实设备用长地址时每个条目要宽 (\d) 个字节/,
+      '`limits` on the long address')
+    expect(wider, 'wider, by something').toBeGreaterThan(0)
+    expect(RMMRC_ADDR_BYTES, 'while this engine builds the short one').toBeLessThan(
+      RMMRC_ADDR_BYTES + wider!)
+    const [fixed, perEntry] = figs(LIM, /而本课的 (\d+) \+ (\d)N 这条式子算不出那一种/,
+      '`limits` on the formula it does fit')
+    expect(perEntry, 'the entry that formula prices is the short-address one')
+      .toBe(rmmrcEntryBytes(1))
+    expect(uwbMmrcmBytes(1, 1), 'and one entry really prices that way').toBe(fixed! + perEntry!)
+  })
+
+  it('reads the widths `limits` names and the figures `sources` lists', () => {
+    // 「RMMRC_ADDR_BYTES 恒为 2 字节的短地址」
+    const [addr] = figs(LIM, /RMMRC_ADDR_BYTES 恒为 (\d) 字节的短地址/, '`limits` on the address')
+    expect(addr, 'the address width this engine always uses').toBe(RMMRC_ADDR_BYTES)
+    // 「本课的 15 + 3N 这条式子算不出那一种」
+    const [fixed, perEntry] = figs(LIM, /而本课的 (\d+) \+ (\d)N 这条式子算不出那一种/,
+      '`limits` on this lesson’s own formula')
+    expect(fixed, 'the fixed part of a confirmation frame')
+      .toBe(UWB_MHR_BYTES + RMMRC_FIXED_BYTES + UWB_FCS_BYTES)
+    expect(perEntry, 'and what one initiator adds to it').toBe(rmmrcEntryBytes(1))
+    expect(uwbMmrcmBytes(2, 1), 'so the formula really prices the frame')
+      .toBe(fixed! + 2 * perEntry!)
+    // 「rcmValidityRounds 只能是 1」 — the many-to-many constraint, read off the schema
+    const [onlyOne] = figs(LIM, /rcmValidityRounds 只能是 (\d)/, '`limits` on the m2m window')
+    const m2m = uwbReceiptScenario()
+    expect(m2m.uwb!.rcmValidityRounds, 'that mode’s own window').toBe(onlyOne)
+    const wider = { ...m2m, uwb: { ...m2m.uwb!, rcmValidityRounds: onlyOne! + 1 } }
+    expect(ScenarioSchema.safeParse(wider).success, 'and the schema refuses a wider one')
+      .toBe(false)
+    /*
+     * 「所以那里位图永远只有一位——撑开的是列表那一维，一帧里 N−1 个条目」 — the dimension that
+     * does open up, read as the arithmetic it prints: a participant hears everybody but itself,
+     * so a frame of that mode carries that many fewer entries than there are participants.
+     */
+    const [less] = figs(LIM, /一帧里 N−(\d) 个条目/, '`limits` on the list dimension')
+    const m2mFrames = sent(run(uwbReceiptScenario(), ONE_BLOCK))
+    expect(m2mFrames.length, 'that mode really answers').toBeGreaterThan(0)
+    for (const f of m2mFrames) {
+      expect(f.list.length, 'and a frame carries that many fewer entries than participants')
+        .toBe(PARTICIPANTS - less!)
+    }
+    // 「2 ms 的测距时隙与 200 ms 的块来自 FiRa 的缺省配置」
+    const [slotMs, blockMs] = figs(SRC, /(\d+) ms 的测距时隙与 (\d+) ms 的块来自 FiRa/,
+      '`sources` on the two defaults')
+    expect(roundPlan(m2m.uwb!, PARTICIPANTS).slotNs, 'the slot this scene runs').toBe(slotMs! * MS)
+    expect(roundPlan(m2m.uwb!, PARTICIPANTS).blockNs, 'and its block').toBe(blockMs! * MS)
+    /*
+     * 「基础场景是 20 × 16 m 大厅里 3 个多对多参与者…两个变体是 22 × 8 m 大厅里 3 个锚点…功率
+     * 低 14 dB」 — two halls and one power offset, each read off the scene it belongs to.
+     */
+    const [wideM, deepM, parts] = figs(SRC, /基础场景是 (\d+) × (\d+) m 大厅里 (\d) 个多对多参与者/,
+      '`sources` on the base hall')
+    expect([m2m.rooms[0]!.w, m2m.rooms[0]!.h], 'the base hall').toEqual([wideM, deepM])
+    expect(m2m.nodes.filter((n) => n.uwb !== undefined).length, 'and its participants').toBe(parts)
+    const [wideT, deepT] = figs(SRC, /两个变体是 (\d+) × (\d+) m 大厅/, '`sources` on the other hall')
+    const twr = uwbReceiptTwrScenario(true)
+    expect([twr.rooms[0]!.w, twr.rooms[0]!.h], 'the two-way hall').toEqual([wideT, deepT])
+    const [downDb] = figs(SRC, /功率低 (\d+) dB/, '`sources` on the quiet participant')
+    const powers = m2m.nodes.filter((n) => n.uwb !== undefined).map((n) => n.txPowerDbm ?? 0)
+    expect(Math.max(...powers) - Math.min(...powers), 'the gap between the loudest and the quietest')
+      .toBe(downDb)
   })
 })
