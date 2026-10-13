@@ -24,7 +24,10 @@ import { COURSE_ORDER, MODULES, basisOf } from '../../src/course/curriculum'
 import { layoutDiagram } from '../../src/course/diagram'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { UWB_MAX_PSDU_BYTES, uwbM2mBytes, uwbMaxParticipants } from '../../src/uwb/phy'
+import {
+  C_M_PER_NS, UWB_FCS_BYTES, UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES, rstuNs, uwbM2mBytes,
+  uwbMaxParticipants,
+} from '../../src/uwb/phy'
 import { m2mParticipants, roundPlan } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -389,5 +392,185 @@ describe('uwb-m2m · an arrival nobody heard is a range that does not exist (des
     expect(air(open).map((r) => r.frame.bytes)).toEqual(BYTES.slice(0, WALLED_PARTICIPANTS))
     // and the ranges that survive are still right: the walls removed pairs, they did not corrupt one
     for (const r of ranges(walled)) expect(Math.abs(r.distM - r.trueDistM)).toBeLessThanOrEqual(Number(ERR.ssMax))
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The slot counts, the frame lengths and the cap are interpolated from this lesson's own module
+ * and the file above measures those against runs. What is typed is the **order**: who sends in
+ * which slot, how many ranges each participant ends up holding, and the four error figures the
+ * two methods read — plus the field widths `sources` lists.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the descending count is read as one claim.** 「参与者 0 算五条，参与者 1 算四条，……参与者
+ *    5 一条也算不出来」 and 「5、4、3、2、1、0 条」 are the same sequence written twice, and both
+ *    are read against the ranges the run really hands each participant.
+ *  - **the four error figures are read at the precision they are printed to**, each against the
+ *    method's own run — which is what makes 「单边是分米，双边是毫米」 a measurement.
+ *  - **「参与者 0 在第 0 个时隙发」 is read as the slot order the session lays out**, so the
+ *    sentence is about this engine's own ordering rather than about a convention.
+ */
+describe('uwb-m2m · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbM2m.picture)
+  const NUMS = blockText(uwbM2m.numbers)
+  const LIM = blockText(uwbM2m.limits)
+  const SRC = blockText(uwbM2m.sources)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    uwbM2m.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+  /** How many ranges each participant really computed, in slot order. */
+  const heldBy = (rs: TLRecord[]): number[] => {
+    const ids = m2mParticipants(uwbM2m.scenario().nodes)
+    return ids.map((id) => ranges(rs).filter((r) => r.node === id).length)
+  }
+
+  it('reads the numbering, the slot order and the descending count', () => {
+    const ids = m2mParticipants(uwbM2m.scenario().nodes)
+    // 「把六台设备编号 0 到 5，各占一个测距时隙，按号依次发一次」
+    const [from, to] = figs(PIC, /把六台设备编号 (\d) 到 (\d)，各占一个测距时隙/,
+      '`picture` on the numbering')
+    expect(to! - from! + 1, 'as many numbers as there are participants').toBe(ids.length)
+    expect(from, 'counted from zero').toBe(0)
+    // 「参与者 0 在第 0 个时隙发。它还没听到任何人」
+    const [who, slot] = figs(PIC, /参与者 (\d) 在第 (\d) 个时隙发/, '`picture` on the first sender')
+    const sends = air(base).filter((r) => r.frame.kind === 'uwbM2m')
+      .map((r) => ({ node: r.node, slot: r.frame.uwb?.slot ?? -1 }))
+    expect(sends.length, 'one send per participant').toBe(ids.length)
+    expect(sends.find((s) => s.slot === slot)!.node, 'who really sends in that slot')
+      .toBe(ids[who!])
+    expect(sends.map((s) => s.node), 'and the order is the session’s own').toEqual(ids)
+    /*
+     * 「参与者 0 算五条，参与者 1 算四条，……参与者 5 一条也算不出来」 and 「十五条距离分落在
+     * 六个人手里：5、4、3、2、1、0 条」 — the same sequence, twice, read against the run.
+     */
+    const [firstWho, firstCn, secondWho, secondCn, lastWho] = raw(PIC,
+      /参与者 (\d) 算(.)条，参与者 (\d) 算(.)条，……参与者 (\d) 一条也算不出来/,
+      '`picture` on who computes what')
+    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+    const held = heldBy(base)
+    expect(held[val(firstWho!)], 'the first participant’s own count').toBe(cn(firstCn!))
+    expect(held[val(secondWho!)], 'the second’s').toBe(cn(secondCn!))
+    expect(held[val(lastWho!)], 'and the last one holds none').toBe(0)
+    const sequence = figs(PIC, /分落在六个人手里：(\d)、(\d)、(\d)、(\d)、(\d)、(\d) 条/,
+      '`picture` on the whole sequence')
+    expect(sequence, 'the sequence the run really produces').toEqual(held)
+    expect(sequence.reduce((a, b) => a + b, 0), 'and they add up to every pair')
+      .toBe(ranges(base).length)
+    // 「每一行都是 N−1−i」 — the paragraph under the table says the same thing as a formula
+    const [less] = figs(NUMS, /每一行都是 N−(\d)−i/, '`numbers` on the formula')
+    expect(held, 'and that formula gives the same row')
+      .toEqual(ids.map((_v, i) => ids.length - less! - i))
+  })
+
+  it('reads the two tables: the slot counts per N, and what each participant holds', () => {
+    const slotTable = tables().find((x) => x.head[0] === 'N')!
+    for (const row of slotTable.rows) {
+      const [nCell, turns, ss, ds, pairs] = row as [string, string, string, string, string]
+      const n = val(nCell)
+      const [turnSlots, turnRecords] = figs(turns, /(\d+) 个时隙、(\d+) 条/, `N = ${n}: taking turns`)
+      const live = takingTurns(n)
+      expect(turnSlots, `N = ${n}: the slots taking turns really needs`).toBe(live.slots)
+      expect(turnRecords, `N = ${n}: and the records it really leaves`).toBe(live.records)
+      expect(val(ss.replace(' 个时隙', '')), `N = ${n}: the single-sided round`).toBe(n)
+      expect(val(ds.replace(' 个时隙', '')), `N = ${n}: and the double-sided one`).toBe(2 * n)
+      expect(val(pairs.replace(' 条', '')), `N = ${n}: the pairs there are`)
+        .toBe((n * (n - 1)) / 2)
+      expect(live.pairs.size, `N = ${n}: which is what taking turns covers too`)
+        .toBe((n * (n - 1)) / 2)
+    }
+    // 「每个参与者手里有几条」: a row per N, and the cells are that run's own counts
+    const perTable = tables().find((x) => x.head[0] === '参与者 i')!
+    expect(perTable.head.slice(1).map(val), 'the columns are the participants, numbered from zero')
+      .toEqual(perTable.head.slice(1).map((_v, i) => i))
+    /*
+     * Every row of that table is its own N, and each is read on a run of that many participants —
+     * the second row is three of them, and its dashes are the columns that N does not have.
+     */
+    for (const row of perTable.rows) {
+      const [label, ...cells] = row as string[]
+      const [n] = figs(label!, /N = (\d+)/, `${label}: its own participant count`)
+      const rs = n === PARTICIPANTS ? base : run(uwbM2mScenario('ss', n!))
+      const counts = cells.filter((c) => c !== '—').map(val)
+      expect(counts.length, `${label}: a column per participant`).toBe(n)
+      expect(cells.length - counts.length, `${label}: and a dash for every column it lacks`)
+        .toBe(perTable.head.length - 1 - n!)
+      const ids = m2mParticipants(uwbM2mScenario('ss', n!).nodes)
+      expect(counts, `${label}: the ranges each participant really holds`)
+        .toEqual(ids.map((id) => ranges(rs).filter((r) => r.node === id).length))
+    }
+  })
+
+  it('reads the four error figures, each against its own method’s run', () => {
+    const tb = tables().find((x) => x.head[0] === '形态')!
+    for (const row of tb.rows) {
+      const [shape, slots, max, meanCell] = row as [string, string, string, string]
+      const ds = shape.includes('DS')
+      const rs = ds ? run(uwbM2mScenario('ds')) : base
+      const errs = errsOf(rs)
+      expect(errs.length, `${shape}: that run really produces ranges`).toBeGreaterThan(0)
+      const dp = (max.replace(' m', '').split('.')[1] ?? '').length
+      expect(max.replace(' m', ''), `${shape}: its worst error`)
+        .toBe(Math.max(...errs).toFixed(dp))
+      const dpm = (meanCell.replace(' m', '').split('.')[1] ?? '').length
+      expect(meanCell.replace(' m', ''), `${shape}: and its mean`).toBe(mean(errs).toFixed(dpm))
+      expect(val(slots), `${shape}: the slots it takes`).toBe(ds ? 2 * PARTICIPANTS : PARTICIPANTS)
+    }
+    // 「2 ms 的时隙配上 0.2 ppm 的估计残差，折成…」 — the two figures the error is built from
+    const [slotMs, ppm] = figs(NUMS, /(\d+) ms 的时隙配上 ([\d.]+) ppm 的估计残差/,
+      '`numbers` on where the error comes from')
+    const session = uwbM2m.scenario().uwb!
+    expect(rstuNs(session.slotRstu), 'the slot this scene runs').toBe(slotMs! * MS)
+    expect(ppm, 'and the residual it carries').toBe(session.cfoNoisePpm)
+    // `sources` names the same residual again, as the one thing this round leaves on
+    const [srcPpm] = figs(SRC, /只留下载波频偏估计的 ([\d.]+) ppm 残差/,
+      '`sources` on the same residual')
+    expect(srcPpm, 'the same figure, a second time').toBe(ppm)
+    expect(session.tsNoisePs, 'while the timestamp noise really is off').toBe(0)
+    expect((ERR_PER_SLOT_M * 2) / (rstuNs(session.slotRstu) * ppm! * 1e-6),
+      'which is what one slot of reply interval is worth, over the speed of light')
+      .toBeCloseTo(C_M_PER_NS, 9)
+  })
+
+  it('reads the field widths `sources` lists, and the frame they add up to', () => {
+    // 「帧头 9 字节、RRMC 3 字节、发送时刻 6 字节、到达时刻每个 4 字节、帧校验 2 字节」
+    const five = figs(SRC,
+      /帧头 (\d+) 字节、RRMC (\d+) 字节、发送时刻 (\d+) 字节、到达时刻每个 (\d+) 字节、帧校验 (\d+) 字节/,
+      '`sources` on the five widths')
+    const [mhr, rrmc, txTime, perRx, fcs] = five
+    expect([mhr, fcs], 'the two every frame of this engine has')
+      .toEqual([UWB_MHR_BYTES, UWB_FCS_BYTES])
+    // the first frame carries no arrival at all, so it is the four fixed widths together
+    expect(uwbM2mBytes(0), 'the first frame of a round').toBe(mhr! + rrmc! + txTime! + fcs!)
+    // and every further arrival adds the fifth, which the frame lengths themselves show
+    for (let k = 2; k < BYTES.length; k++) {
+      expect(uwbM2mBytes(k) - uwbM2mBytes(k - 1), `one more arrival at k = ${k}`).toBe(perRx)
+    }
+    // 「2 ms 的测距时隙来自 FiRa 的缺省配置」
+    const [slotMs] = figs(SRC, /(\d+) ms 的测距时隙来自 FiRa/, '`sources` on the slot')
+    expect(rstuNs(uwbM2m.scenario().uwb!.slotRstu), 'the slot this scene runs').toBe(slotMs! * MS)
+    // 「参与者 0 其实手里握着到其余五个人的距离」 — `limits` on what the first one holds
+    const [first] = figs(LIM, /参与者 (\d) 其实手里握着/, '`limits` on the first participant')
+    expect(heldBy(base)[first!], 'and it really holds that many')
+      .toBe(m2mParticipants(uwbM2m.scenario().nodes).length - 1)
   })
 })
