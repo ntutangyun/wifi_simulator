@@ -13,6 +13,7 @@
  * engine's own exports rather than being re-typed here, and every measured figure is
  * read out of a run over the lesson's 1.3 s window.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
   ANCHOR_Z, LAPTOP_POS, NBA_ANCHORS, NBA_CHANNELS, ROUTER_POS, TAG_POS, TAG_Z,
@@ -29,11 +30,13 @@ import { applyRecord, initViewState } from '../../src/model/view'
 import {
   NB_CHIP_US, NB_CRC_BYTES, NB_MSG_ID, NB_MSG_ID_BYTES, NB_PHR_SYMBOLS, NB_POLL_BYTES,
   NB_REPORT_BYTES, NB_REPORT_TIME_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_SHR_SYMBOLS,
-  NB_SYMBOL_CHIPS, NB_SYMBOL_US, NB_TX_DBM, nbPpduNs,
+  NB_SYMBOL_CHIPS, NB_SYMBOL_US, NB_TX_DBM, nbOtmPollBytes, nbPl0Db, nbPpduNs,
 } from '../../src/uwb/nb'
-import { UWB_CHIP_HZ } from '../../src/uwb/units'
+import { UWB_CHIP_HZ, uwbPathLossDb } from '../../src/uwb/units'
+import { uwbPl0Db } from '../../src/uwb/phy'
 import { mmsLayout } from '../../src/uwb/mms'
 import { roundPlan } from '../../src/uwb/session'
+import { rstuNs, uwbNbSlotFitNs } from '../../src/uwb/phy'
 import { uwbTrainKey } from '../../src/uwb/view'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -289,7 +292,7 @@ describe('uwb-nba · the grid underneath and the train on top', () => {
     expect(ofType(recs(V_OUT), 'UWB_ROUND')).toHaveLength(BLOCKS * ANCHORS.length)
   })
 
-  it('"8 fragments of 8 … 34.5 dB and 32.0 dB" — the wide radio is never the problem', () => {
+  it('"8 fragments of 8 … 34.5 dB and 33.4 dB" — the wide radio is never the problem', () => {
     const vs = initViewState(uwbNbaScenario('base'))
     for (const r of recs()) applyRecord(vs, r)
     const u = vs.nodes[TAG].uwb!
@@ -441,5 +444,302 @@ describe('uwb-nba · how the two radios divide one round', () => {
     expect(report.t).toBe(20 * MS)
     expect(range.t).toBeGreaterThan(report.t)
     expect((range.t / MS).toFixed(3)).toBe('20.608')
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The tables and the steps above are read the right way round; the prose between them is not.
+ * The sampling sweep of 2026-10-12 scored this lesson 4 of 6, and what it reached was all in
+ * paragraphs: the round's own grid, the two fragment margins, the compressed payload's message
+ * IDs, the narrowband link budget, `sources`' symbol arithmetic, all three `observe` lines and
+ * both questions. Every assertion here parses its figure out of the shipped string.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the 576 µs is read as the arithmetic the lesson prints.** 「(10 + 2 + 2 × 字节数) 个符号
+ *    × 16 µs」 is parsed term by term against `NB_SHR_SYMBOLS`, `NB_PHR_SYMBOLS` and
+ *    `NB_SYMBOL_US`, and each of the three lines under it — 12, 13 and 23 octets — has to be the
+ *    airtime `nbPpduNs` really gives that message.
+ *  - **the 250 kb/s is read as a quotient**: four bits in a symbol of that many microseconds,
+ *    which is also where the symbol's 32 chips at 0.5 µs come from in `sources`.
+ *  - **the four message IDs are read against `NB_MSG_ID`**, hexadecimal digits and all — the
+ *    prose writes them as 0x04 … 0x07 and the planter moves the last digit of each.
+ *  - **the narrowband range claim is read against the one term that changes.** 「lossDbFor 对
+ *    窄带只换掉 1 m 处的自由空间项」: the 1 m is `freeSpacePl0Db`'s own reference distance, named
+ *    in `units.ts`, and the claim is checked by computing both laws — only the first metre
+ *    differs, the exponent and the walls do not.
+ */
+describe('uwb-nba · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbNba.picture)
+  const NUMS = blockText(uwbNba.numbers)
+  const DEEP = blockText(uwbNba.deeper)
+  const LIM = blockText(uwbNba.limits)
+  const SRC = blockText(uwbNba.sources)
+  const OBS = blockText(uwbNba.observe)
+  const QUIZ = blockText(uwbNba.quiz)
+  /** The leaf that defines the first metre both radios measure from. */
+  const UNITS_SRC = readFileSync(new URL('../../src/uwb/units.ts', import.meta.url), 'utf8')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const PLAN = roundPlan(uwbNbaScenario('base').uwb!, NBA_ANCHOR_COUNT('base'))
+
+  it('reads the 576 µs as the arithmetic it prints, all three message sizes of it', () => {
+    // 「(10 + 2 + 2 × 字节数) 个符号 × 16 µs」
+    const [shr, phr, perByte, symUs] = figs(formula().text,
+      /\((\d+) \+ (\d+) \+ (\d+) × 字节数\) 个符号 × (\d+) µs/, 'the formula’s own terms')
+    expect(shr, 'the preamble and marker symbols').toBe(NB_SHR_SYMBOLS)
+    expect(phr, 'the header symbols').toBe(NB_PHR_SYMBOLS)
+    expect(perByte, 'the symbols one octet takes').toBe(2)
+    same(String(symUs), NB_SYMBOL_US, 'one symbol of this radio')
+    // 「12 字节 → 36 × 16 = 576 µs」, 「13 字节 → 38 × 16 = 608 µs」, 「23 字节 → 58 × 16 = 928 µs」
+    const lines = [...formula().text.matchAll(/(\d+) 字节 → (\d+) × (\d+) = (\d+) µs/g)]
+      .map((m) => m.slice(1).map(val))
+    expect(lines.length, 'one worked line per message size of this round').toBe(3)
+    for (const [bytes, syms, mul, us] of lines) {
+      expect(shr! + phr! + perByte! * bytes!, `the symbols ${bytes} octets take`).toBe(syms)
+      expect(mul, 'times the same symbol').toBe(symUs)
+      expect(syms! * mul!, `the airtime of ${bytes} octets`).toBe(us)
+      same(String(us), nbPpduNs(bytes!) / 1000, `which is what the engine gives ${bytes} octets`)
+    }
+    const pollFrame = ofType(recs(), 'TX_START').filter((r) => r.frame.kind === 'nbPoll')[0]!.frame
+    expect(lines.map(([b]) => b), 'the three sizes this round really sends')
+      .toEqual([NB_RESP_BYTES, NB_REPORT_BYTES, pollFrame.bytes])
+    // 「每个符号载四个比特，一个符号持续 16 µs，也就是 250 kb/s」
+    const [noteUs, kbps] = figs(NUMS, /一个符号持续 (\d+) µs，也就是 (\d+) kb\/s/, 'the note on the rate')
+    expect(noteUs, 'the same symbol').toBe(symUs)
+    same(String(kbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
+    // the heading over it is that same airtime
+    const [headUs] = figs(formula().heading!, /^(\d+) µs 是怎么来的/, 'the formula’s own heading')
+    expect(headUs, 'the airtime the block is about').toBe(lines[0]![3])
+  })
+
+  it('reads the first block message by message, and the grid underneath it', () => {
+    const rs = recs()
+    // 「第一条 Report 在 20.000 ms 处发出，而距离紧随其后 608 µs 出现，落在 20.608 ms」
+    const [behind, at] = figs(NUMS, /距离紧随其后 (\d+) µs 出现，落在 ([\d.]+) ms/,
+      '`numbers` on the first distance')
+    const report = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbReport')[0]!
+    const range = ofType(rs, 'UWB_RANGE').filter((r) => r.node === TAG)[0]!
+    same(String(at), range.t / MS, 'when the first distance appears')
+    same(String(behind), (range.t - report.t) / 1000, 'and how far behind the report it is')
+    expect(behind! * 1000, 'which is that report’s own airtime').toBe(report.frame.txTimeNs)
+    // 「一轮是 52 个时隙、每个 500 µs，合 26 ms；一个块只装一轮」
+    const [slots, slotUs, roundMs] = figs(NUMS,
+      /一轮是 (\d+) 个时隙、每个 (\d+) µs，合 (\d+) ms/, '`numbers` on the grid')
+    expect(slots, 'the slots a round of this session has').toBe(PLAN.slots)
+    same(String(slotUs), PLAN.slotNs / 1000, 'the slot they are')
+    same(String(roundMs), PLAN.roundNs / MS, 'and the round they make')
+    expect(slots! * slotUs! * 1000, 'the product the sentence states').toBe(PLAN.roundNs)
+    // 「这段 1.3 秒的运行里，整整齐齐放得下七个块」
+    const [secs] = figs(NUMS, /这段 ([\d.]+) 秒的运行里/, '`numbers` on the window')
+    same(String(secs), RUN_NS / (1000 * MS), 'the window every figure of this lesson is measured over')
+    const blocks = new Set(ofType(rs, 'UWB_ROUND').map((r) => r.block))
+    expect(blocks.size, 'the blocks that window holds').toBe(BLOCKS)
+    // 「一条 Poll 加一条 Response 合起来占住空口 1.504 ms」
+    const [together] = figs(NUMS, /合起来占住空口 ([\d.]+) ms/, '`numbers` on the two messages')
+    // the poll of this round names three responders, so it is the longer one-to-many poll
+    const pollNs = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbPoll')[0]!.frame.txTimeNs
+    const respNs = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbResp')[0]!.frame.txTimeNs
+    same(String(together), (pollNs + respNs) / MS, 'a poll and a response together')
+    expect(respNs, 'the response being the pair-round message size').toBe(nbPpduNs(NB_RESP_BYTES))
+    // …and every fragment of the train they arrange is shorter than either of them
+    const frags = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRsf')
+    expect(frags.length, 'the run really sends fragments').toBeGreaterThan(0)
+    expect(Math.max(...frags.map((r) => r.frame.txTimeNs)), 'and the longest is shorter than either')
+      .toBeLessThan(Math.min(pollNs, respNs))
+  })
+
+  it('reads the two fragment margins, and the eight of eight beside them', () => {
+    // 「两个作答的锚点都是 8 个片段收到 8 个，两串片段分别比接收端所需的电平高出 34.5 dB 与 33.4 dB」
+    const [sent, heard, m1, m2] = figs(NUMS,
+      /都是 (\d+) 个片段收到 (\d+) 个，两串片段分别比接收端所需的电平高出 ([\d.]+) dB 与 ([\d.]+) dB/,
+      '`numbers` on the trains')
+    const trains = ofType(recs(), 'UWB_MMS_TRAIN').filter((r) => r.node === TAG && r.kind === 'rsf')
+    expect(new Set(trains.map((r) => r.fragments)), 'the fragments each train carries')
+      .toEqual(new Set([sent]))
+    expect(new Set(trains.map((r) => r.heard)), 'and the ones that were heard').toEqual(new Set([heard]))
+    expect(heard, 'all of them').toBe(sent)
+    const margins = [...new Set(trains.map((r) => Number(r.marginDb.toFixed(1))))]
+    expect(margins, 'the two margins, in the order the sentence prints them').toEqual([m1, m2])
+    expect(trains.every((r) => r.detected), 'and both trains are detected').toBe(true)
+  })
+
+  it('reads the compressed payload `deeper` takes apart', () => {
+    // 「Poll 是 0x04，Response 是 0x05，Report 的两个方向分别是 0x06 与 0x07」
+    const ids = raw(DEEP,
+      /Poll 是 0x(\d+)，Response 是 0x(\d+)，Report 的两个方向分别是 0x(\d+) 与 0x(\d+)/,
+      '`deeper` on the four message IDs')
+    expect(ids.map((h) => parseInt(h!, 16)), 'the four IDs the engine really writes')
+      .toEqual([NB_MSG_ID.poll, NB_MSG_ID.resp, NB_MSG_ID.reportInitiator, NB_MSG_ID.reportResponder])
+    // 「一条 Report 把十三个字节里的五个花在时间本身上」
+    const [reportCn, timeCn] = raw(DEEP, /把(..)个字节里的(.)个花在时间本身上/,
+      '`deeper` on what a report spends')
+    const cn = (s: string): number => {
+      const d = '零一二三四五六七八九'
+      const i = s.indexOf('十')
+      if (i < 0) return d.indexOf(s)
+      return (i === 0 ? 1 : d.indexOf(s.slice(0, i))) * 10 + (i === s.length - 1 ? 0 : d.indexOf(s.slice(i + 1)))
+    }
+    expect(cn(reportCn!), 'the report’s own size').toBe(NB_REPORT_BYTES)
+    expect(cn(timeCn!), 'and the octets of it that are time').toBe(NB_REPORT_TIME_BYTES)
+    expect(NB_MSG_ID_BYTES + NB_CRC_BYTES, 'the ID and the check the paragraph counts')
+      .toBeLessThan(NB_REPORT_BYTES)
+  })
+
+  it('reads the link budget the range claim rests on, and the one term that changes', () => {
+    // 「和一条 499.2 MHz 宽的测距信道摆在一起，250 kb/s 听上去荒唐」
+    const [wide, kbps] = figs(DEEP, /和一条 ([\d.]+) MHz 宽的测距信道摆在一起，(\d+) kb\/s/,
+      '`deeper` on the two radios')
+    same(String(wide), UWB_CHIP_HZ / 1e6, 'the ranging channel’s own width')
+    same(String(kbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'against the control radio’s rate')
+    // 「模型里的接收端能听到 −100 dBm，发射端则发 10 dBm」, and `limits` names the constants
+    const [sens, tx] = figs(DEEP, /接收端能听到 (−\d+) dBm，发射端则发 (\d+) dBm/,
+      '`deeper` on the budget')
+    expect(sens, 'the sensitivity `nb.ts` exports').toBe(NB_RX_SENS_DBM)
+    expect(tx, 'and the transmit power').toBe(NB_TX_DBM)
+    const [limTx, limSens, floor] = figs(LIM,
+      /NB_TX_DBM = (\d+) dBm 与 NB_RX_SENS_DBM = (−\d+) dBm，而标准第 12 章给这部 PHY 的底线是 (−\d+)/,
+      '`limits` on the same three')
+    expect([limTx, limSens], 'the same two constants').toEqual([tx, sens])
+    const [srcFloor] = figs(SRC, /标准对这部 PHY 给出的底线是 (−\d+) dBm/, '`sources` on the floor')
+    expect(floor, 'and the standard’s floor, which both sections print').toBe(srcFloor)
+    expect(floor, 'a floor this model is more generous than').toBeGreaterThan(sens!)
+    // 「lossDbFor 对窄带只换掉 1 m 处的自由空间项，指数与每道墙的损耗照用宽带那一侧的」
+    const [metre] = figs(LIM, /只换掉 (\d+) m 处的自由空间项/, '`limits` on the term it swaps')
+    expect(UNITS_SRC, 'the distance `freeSpacePl0Db` is defined at')
+      .toContain(`Free-space path loss at ${metre} m`)
+    const ch = uwbNbaScenario('base').uwb!.channel
+    const nbCh = uwbNbaScenario('base').uwb!.mms.nbChannels[0]!
+    expect(nbPl0Db(nbCh), 'the narrowband first metre really is its own')
+      .not.toBeCloseTo(uwbPl0Db(ch), 6)
+    for (const [d, walls] of [[2, 0], [10, 12]] as [number, number][]) {
+      expect(uwbPathLossDb(nbPl0Db(nbCh), d, walls) - uwbPathLossDb(uwbPl0Db(ch), d, walls),
+        `at ${d} m through ${walls} dB of wall, only the first metre differs`)
+        .toBeCloseTo(nbPl0Db(nbCh) - uwbPl0Db(ch), 9)
+    }
+  })
+
+  it('reads `sources` on the PHY the radio really is', () => {
+    // 「一个符号 32 个码片、每个码片 0.5 µs，每个符号载四个比特。一条 12 字节消息的 576 µs」
+    const [chips, chipUs, bytes, us] = figs(SRC,
+      /一个符号 (\d+) 个码片、每个码片 ([\d.]+) µs，每个符号载四个比特。一条 (\d+) 字节消息的 (\d+) µs/,
+      '`sources` on the symbol')
+    expect(chips, 'the chips one symbol is').toBe(NB_SYMBOL_CHIPS)
+    same(String(chipUs), NB_CHIP_US, 'the chip they run at')
+    same(String(chips! * chipUs!), NB_SYMBOL_US, 'and the symbol they make')
+    expect(bytes, 'the message this airtime is of').toBe(NB_RESP_BYTES)
+    same(String(us), nbPpduNs(bytes!) / 1000, 'which is what the engine gives it')
+    // 「接收端 −100 dBm 的灵敏度（标准对这部 PHY 给出的底线是 −85 dBm）；以及一次控制发射
+    //   所用的 10 dBm」 — the same two model values `deeper` and `limits` print
+    const [srcSens, srcTx] = figs(SRC,
+      /接收端 (−\d+) dBm 的灵敏度（标准对这部 PHY 给出的底线是 −\d+ dBm）；以及一次控制发射所用的 (\d+) dBm/,
+      '`sources` on the same budget')
+    expect(srcSens, 'the sensitivity, a third time').toBe(NB_RX_SENS_DBM)
+    expect(srcTx, 'and the transmit power').toBe(NB_TX_DBM)
+    // 「52 个时隙一轮、200 ms 一个块，则是本会话的参数设置」
+    const [slots, blockMs] = figs(SRC, /(\d+) 个时隙一轮、(\d+) ms 一个块，则是本会话/,
+      '`sources` on the session’s own grid')
+    expect(slots, 'the slots this session schedules').toBe(PLAN.slots)
+    same(String(blockMs), PLAN.blockNs / MS, 'and the block it schedules them in')
+    // 「每条消息前面那十个前导与标记符号、两个头部符号」
+    const [shrCn, phrCn] = raw(SRC, /前面那(.)个前导与标记符号、(.)个头部符号/,
+      '`sources` on the symbols before the payload')
+    // 「两」 is the counting form of 「二」, which is what the sentence uses for the header symbols
+    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s === '两' ? '二' : s)
+    expect(cn(shrCn!), 'the preamble and marker symbols').toBe(NB_SHR_SYMBOLS)
+    expect(cn(phrCn!), 'and the header symbols').toBe(NB_PHR_SYMBOLS)
+  })
+
+  it('reads the responder row of the message table, and the rule in its own last cell', () => {
+    /*
+     * **A table row whose value is a count and whose last cell is the reason for it.** 「3 of 4」
+     * is how many of the four corner anchors this round can carry, and the cell beside it says
+     * why: a one-to-many Poll grows by three octets per responder and two 600 RSTU slots have to
+     * hold it. So the count is read against the run, and the rule against `uwbNbSlotFitNs`.
+     */
+    // 「Poll，三个应答者」 is a row label too, so the needle has to be the whole phrase
+    const row = table(0).rows.find((r) => r[0].includes('容得下的应答者'))!
+    const [joined, corners] = figs(row[1], /^(\d+) of (\d+)$/, 'the responder row’s own count')
+    /*
+     * **It is what the round carries, not what answers.** The Poll of this run names three — its
+     * own size says so — while one of the three loses its narrowband slot to the router and never
+     * joins, which is the coexistence half's subject and pinned next door.
+     */
+    const pollBytes = ofType(recs(), 'TX_START')
+      .filter((r) => r.frame.kind === 'nbPoll')[0]!.frame.bytes
+    expect(pollBytes, 'the Poll this round sends names that many responders')
+      .toBe(nbOtmPollBytes(joined!))
+    expect(joined, 'which is what the scene builds').toBe(NBA_ANCHOR_COUNT('base'))
+    expect(corners, 'of the corners the room has').toBe(NBA_ANCHORS.length)
+    expect(joined, 'one short of all of them').toBeLessThan(corners!)
+    const [perResponder, slotRstu] = figs(row[3],
+      /Poll 每多一个应答者就长 (\d+) 字节，而两个 (\d+) RSTU/, 'the rule in the last cell')
+    expect(perResponder, 'what one more responder adds to the Poll')
+      .toBe(nbOtmPollBytes(joined! + 1) - nbOtmPollBytes(joined!))
+    expect(slotRstu, 'the slot this session schedules')
+      .toBe(uwbNbaScenario('base').uwb!.slotRstu)
+    // …and that is the reason the fourth corner stays out: its Poll would not fit two slots
+    const mms = uwbNbaScenario('base').uwb!.mms
+    expect(uwbNbSlotFitNs(mms, joined!), 'the Poll for three fits two slots')
+      .toBeLessThan(2 * rstuNs(slotRstu!))
+    expect(uwbNbSlotFitNs(mms, corners!), 'and the Poll for four does not')
+      .toBeGreaterThan(2 * rstuNs(slotRstu!))
+  })
+
+  it('reads all three `observe` lines as the log really prints them', () => {
+    const rs = recs()
+    // 「“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”。它是整段运行里的第一件事」
+    const [pollLine] = raw(OBS, /“(uwb-1 → \* NBPOLL [^”]+)”/, '`observe` on the poll')
+    const poll = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbPoll')[0]!
+    expect(fmtRecord(poll), 'the line the log prints for the poll').toBe(pollLine)
+    expect(ofType(rs, 'TX_START')[0]!.t, 'and it is the first transmission of the run').toBe(poll.t)
+    expect(poll.t, 'at the very beginning').toBe(0)
+    // 「20.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”」
+    const [atMs] = figs(OBS, /([\d.]+) ms 处的 “anchor-1 → uwb-1 NBREPORT/, '`observe` on when')
+    const [reportLine] = raw(OBS, /“(anchor-1 → uwb-1 NBREPORT [^”]+)”/, '`observe` on the report')
+    const report = ofType(rs, 'TX_START')
+      .filter((r) => r.frame.kind === 'nbReport' && r.node === 'anchor-1')[0]!
+    expect(fmtRecord(report), 'the line the log prints for the report').toBe(reportLine)
+    same(String(atMs), report.t / MS, 'and the instant it goes out')
+    // 「“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”」
+    const [rangeLine] = raw(OBS, /“(uwb-1 range → anchor-1 [^”]+)”/, '`observe` on the distance')
+    const range = ofType(rs, 'UWB_RANGE').filter((r) => r.node === TAG && r.peer === 'anchor-1')[0]!
+    expect(fmtRecord(range), 'the line the log prints for the distance').toBe(rangeLine)
+  })
+
+  it('reads the two questions, and the next lesson the picture points at', () => {
+    // 「一条十二字节的消息，在这部射频上要 576 µs」, 「一个 16 µs 的符号只载四个比特——250 kb/s」
+    const [qUs] = figs(QUIZ, /在这部射频上要 (\d+) µs/, 'the second question’s airtime')
+    same(String(qUs), nbPpduNs(NB_RESP_BYTES) / 1000, 'what a twelve-octet message really takes')
+    const [qSym, qKbps] = figs(QUIZ, /一个 (\d+) µs 的符号只载四个比特——(\d+) kb\/s/,
+      'the answer it marks right')
+    same(String(qSym), NB_SYMBOL_US, 'the symbol of this radio')
+    same(String(qKbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'and the rate four bits in it make')
+    // 「这正是下一课《窄带射频也共享 6 GHz》要讲的事」 — the band the next lesson shares
+    const [ghz] = figs(PIC, /《窄带射频也共享 (\d+) GHz》/, '`picture` on the next lesson')
+    expect(Math.floor(WIFI_6G_CENTER_MHZ / 1000), 'the band this room’s router sits in').toBe(ghz)
   })
 })
