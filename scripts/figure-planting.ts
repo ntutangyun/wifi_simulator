@@ -97,7 +97,7 @@ interface Figure {
  * 「第 N 节」, 「第 N 页」, 「第 N 部分」, 「第 N 条」 and 「第 N 款」 stay names, and the course-wide
  * census went 8 049 → 8 248.
  */
-const CITE = /(§|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCOM)/
+const CITE = /(§|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCOM|MobiCom)/
 /**
  * The same, judged by what FOLLOWS the figure: a working-document number (`11-24/1613r20`,
  * `15-24/0123r4`), a draft version (`D1.0`) and a date (「2026 年」, 「5 月」). All three are
@@ -325,7 +325,10 @@ const migrated = LESSONS.filter(isMigrated)
  * The two rules added on 2026-10-13, both found by a sweep reporting a citation as unpinned:
  *  - `JSAC` and `INFOCOM` join the journals and standards bodies, because 「IEEE JSAC 18(3):
  *    535–547，2000」 and 「Wu 等人（INFOCOM 2002）」 are references — `@bianchi` prints five
- *    figures of them and this repository has no corpus for any of them.
+ *    figures of them and this repository has no corpus for any of them. `MobiCom` joined them on
+ *    2026-10-14, for the same reason and found the same way: the sweep of `@rate-vs-model`
+ *    reported 「（Wong 等，MobiCom 2006）」 as the one figure in that lesson with no equal literal
+ *    anywhere under `tests/`, which is what a citation with no corpus looks like.
  *  - a figure immediately followed by `-NN` is a clause or equation number: 「按式 17-29」. The
  *    rule is on what FOLLOWS, not on the 「式」 before it, because 「路径损耗公式 46.7」 is a model
  *    value and reads the same way on the left.

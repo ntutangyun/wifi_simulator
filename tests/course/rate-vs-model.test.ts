@@ -347,3 +347,358 @@ describe('rate-vs-model · the single-cause limit, and the lesson that adds the 
     expect(rateVsModel.limits.filter((l) => l.until)).toHaveLength(1)
   })
 })
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The two tables above are already read out of the lesson — `cell()` is what this file compares
+ * its counts against — so what the sampling sweep of 2026-10-12 found unread was the **prose**:
+ * five of the six figures it planted went unnoticed, and every one of them was in a sentence
+ * rather than in a cell. Here each of those is parsed out of the shipped string and compared with
+ * the same measurement the cells are compared with.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the same quantity is read at every precision the lesson prints it to.** 「29.5」 in `why`,
+ *    「29.52」 in `picture` and in `tryThis` are one number at two roundings, and the read uses the
+ *    decimals each sentence shows rather than one canonical form.
+ *  - **the replaced input is read as the replacement**: the measured mean airtime goes into
+ *    `dcfTimes`' two times, the fixed point is solved again, and the result has to be the figure
+ *    the lesson prints — which is what makes 「这不是调参数」 checkable rather than rhetorical.
+ *  - **「三分之二」 and 「五分之一」 are read as the ratios they name**, so the words carry the
+ *    same weight as the digits beside them.
+ */
+describe('rate-vs-model · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const WHY = [rateVsModel.why!, ...rateVsModel.outcomes!].join('\n')
+  const PIC = blockText(rateVsModel.picture)
+  const NUMS = blockText(rateVsModel.numbers)
+  const DEEP = blockText(rateVsModel.deeper)
+  const LIM = blockText(rateVsModel.limits)
+  const SRC = blockText(rateVsModel.sources)
+  const OBS = blockText(rateVsModel.observe)
+  const TRY = blockText(rateVsModel.tryThis)
+  const QUIZ = blockText(rateVsModel.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  /** A printed figure against a measurement, at the precision the lesson prints it to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** The model's own prediction at the top rung, which is the figure the lesson opens with. */
+  const paperMbps = (): number => {
+    const t54 = dcfTimes(1500, 54)
+    const { tau } = solveBianchi({ n: 5, ...PARAMS })
+    return saturationThroughput({
+      n: 5, tau, slotNs: SLOT_NS, tsNs: t54.tsNs, tcNs: t54.tcNs, payloadBits: PAYLOAD_BITS,
+    }).mbps
+  }
+  /**
+   * The same fixed point with the run's own mean airtime in place of the assumed one — built the
+   * way the lesson's own step says: only the frame changes, and the other three terms are the
+   * arc's own (the acknowledgement goes at the slowest rung, as the control-response rule has it).
+   */
+  const replacedMbps = (): number => {
+    const { tau } = solveBianchi({ n: 5, ...PARAMS })
+    const measuredNs = near().meanDataNs
+    const ackNs = dcfTimes(1500, 6).ackNs
+    return saturationThroughput({
+      n: 5, tau, slotNs: SLOT_NS, payloadBits: PAYLOAD_BITS,
+      tsNs: measuredNs + SIFS_NS + ackNs + DIFS_NS,
+      tcNs: measuredNs + ACK_TIMEOUT_NS + DIFS_NS,
+    }).mbps
+  }
+  const snrDb = (): number => {
+    const scen = rateVsModel.scenario()
+    const level = buildLinkTable(scen.nodes, scen.walls).get('sta-1')!.get('ap')!
+    return level - noiseDbm(20)
+  }
+
+  it('reads the five-fold miss at both precisions the lesson prints it to', () => {
+    // 「纸上的答案说吞吐该有 29.5 Mb/s。实跑只给了 5.5」 (`why`)
+    const [paperWhy, runWhy] = figs(WHY, /吞吐该有 ([\d.]+) Mb\/s。实跑只给了 ([\d.]+)/,
+      '`why` on the two figures')
+    same(String(paperWhy), paperMbps(), '`why`: the model’s own prediction')
+    same(String(runWhy), near().mbps, '`why`: and what the run gives')
+    // 「模型说 29.52 Mb/s，实跑给出 5.53」 (`picture`) — the same pair, one decimal further
+    const [paperPic, runPic] = figs(PIC, /模型说 ([\d.]+) Mb\/s，实跑给出 ([\d.]+)/,
+      '`picture` on the same pair')
+    same(String(paperPic), paperMbps(), '`picture`: the model’s own prediction')
+    same(String(runPic), near().mbps, '`picture`: and what the run gives')
+    // 「分歧不是几个百分点，是五倍」 and `why`’s 「快了九倍」
+    const [foldCn] = raw(PIC, /是(.)倍——这么大的分歧/, '`picture` on the size of the gap')
+    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+    expect(paperMbps() / near().mbps, 'the ratio the word names')
+      .toBeGreaterThanOrEqual(cn(foldCn!))
+    // 「近处实跑只交付了预测的约五分之一」 — the quiz says the same thing as a fraction
+    const [overCn, underCn] = raw(QUIZ, /只交付了预测的约(.)分之(.)/, 'the quiz on the fraction')
+    expect(near().mbps / paperMbps(), 'the fraction the quiz names')
+      .toBeCloseTo(cn(underCn!) / cn(overCn!), 1)
+  })
+
+  it('reads the alibi, the link and the rungs the colours walk through', () => {
+    // 「这个数实测是 26.17%，预测是 27.22%」
+    const [measured, predicted] = figs(PIC, /这个数实测是 ([\d.]+)%，预测是 ([\d.]+)%/,
+      '`picture` on the alibi')
+    same(String(measured), 100 * near().p, 'the collision rate this run really has')
+    same(String(predicted), 100 * solveBianchi({ n: 5, ...PARAMS }).p, 'and the model’s own')
+    // 「这条链路有 57.8 dB 的信噪比」 — in `numbers` and again in `limits`
+    for (const [text, re, what] of [
+      [NUMS, /这条链路有 ([\d.]+) dB 的信噪比/, '`numbers` on the link'],
+      [LIM, /这条链路有 ([\d.]+) dB 的信噪比/, '`limits` on the same link'],
+    ] as [string, RegExp, string][]) {
+      same(String(figs(text, re, what)[0]), snrDb(), what)
+    }
+    // 「五台站点到达接入点的电平完全相同（−36.215 dBm）」
+    const [level] = figs(LIM, /电平完全相同（(−[\d.]+) dBm）/, '`limits` on the level')
+    const scen = rateVsModel.scenario()
+    const table = buildLinkTable(scen.nodes, scen.walls)
+    const levels = scen.nodes.filter((n) => n.kind === 'sta')
+      .map((n) => table.get(n.id)!.get('ap')!)
+    /*
+     * 「完全相同」 at the precision the figure is printed to: the five stations sit on one circle
+     * and their levels differ in the fourth decimal, so the figure is one of them exactly and
+     * the spread between them is read as the width of 「完全相同」.
+     */
+    /*
+     * Against the first station's own level, not against 「any of the five」: they differ in the
+     * fourth decimal, so a planted digit would find a station to match if the read were loose.
+     */
+    same(String(level), table.get('sta-1')!.get('ap')!, 'the level the lesson prints')
+    expect(Math.max(...levels) - Math.min(...levels), 'and they really are the same level')
+      .toBeLessThan(0.002)
+    // 「248 µs、704 µs、2064 µs」 — three rungs' airtimes, in `picture` and two in `observe`
+    const three = figs(PIC, /跟着变：(\d+) µs、(\d+) µs、(\d+) µs/, '`picture` on the three lengths')
+    const rungOf = (us: number): number => [...near().rateMix.keys()]
+      .find((mbps) => dcfTimes(1500, mbps).dataNs / 1000 === us)!
+    for (const us of three) {
+      expect(rungOf(us), `${us} µs is a rung this run really used`).toBeGreaterThan(0)
+    }
+    const [fastUs, slowUs] = figs(OBS, /最快那一级 (\d+) µs，最慢那一级 (\d+) µs/,
+      '`observe` on the two ends')
+    const rungs = [...near().rateMix.keys()].sort((a, b) => a - b)
+    expect(dcfTimes(1500, rungs.at(-1)!).dataNs / 1000, 'the fastest rung’s own airtime').toBe(fastUs)
+    expect(dcfTimes(1500, rungs[0]!).dataNs / 1000, 'and the slowest').toBe(slowUs)
+    // 「第 7.661 ms 上出现第一帧降了档的」
+    const [firstMs] = figs(OBS, /第 ([\d.]+) ms 上出现第一帧降了档的/, '`observe` on the first drop')
+    const data = near().records.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
+      r.type === 'TX_START' && r.frame.kind === 'data')
+    const first = data.find((r) => r.frame.mbps < rungs.at(-1)!)!
+    same(String(firstMs), first.t / 1e6, 'when the first frame really drops a rung')
+  })
+
+  it('reads the replaced input, and the residual it leaves', () => {
+    // 「模型给一次成功算的开销，是一帧在最快那一级上的 248 µs。实跑里…平均要占 1723.7 µs」
+    const [assumedUs] = figs(PIC, /是一帧在最快那一级上的 (\d+) µs/, '`picture` on the assumption')
+    const [meanUs] = figs(PIC, /平均要占 ([\d.]+) µs/, '`picture` on the measurement')
+    expect(dcfTimes(1500, 54).dataNs / 1000, 'the airtime the model assumes').toBe(assumedUs)
+    same(String(meanUs), near().meanDataNs / 1000, 'and the mean this run really has')
+    // the same pair again in `numbers`, and once more in a step
+    const [numsAssumed, numsMean] = figs(NUMS, /模型假设的 (\d+) µs，在实跑里是 ([\d.]+) µs/,
+      '`numbers` on the same pair')
+    expect([numsAssumed, numsMean], 'the same two figures, a second time')
+      .toEqual([assumedUs, meanUs])
+    const [stepMean, stepAssumed] = figs(NUMS, /这十秒里是 ([\d.]+) µs，而模型假设的是 (\d+)/,
+      'the step on the same pair')
+    expect([stepMean, stepAssumed], 'and a third time').toEqual([meanUs, assumedUs])
+    // 「竞争没变，一帧的空口时间变了七倍」
+    const [foldCn] = raw(NUMS, /一帧的空口时间变了(.)倍/, '`numbers` on the growth')
+    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+    expect(Math.round(near().meanDataNs / dcfTimes(1500, 54).dataNs), 'how much longer a frame got')
+      .toBe(cn(foldCn!))
+    /*
+     * 「只把 T_s 里那个帧长换成实测的平均帧长，其余三项照旧，方程给出 5.547 Mb/s，而实测是
+     * 5.534——差 0.24%」 — the replacement is performed here, and the three figures are read
+     * against it.
+     */
+    const [replaced, measured, residual] = figs(PIC,
+      /方程给出 ([\d.]+) Mb\/s，而实测是 ([\d.]+)——差 ([\d.]+)%/, '`picture` on the replacement')
+    same(String(replaced), replacedMbps(), 'the fixed point with the measured airtime in it')
+    same(String(measured), near().mbps, 'what the run gives')
+    same(String(residual), 100 * Math.abs(replacedMbps() - near().mbps) / near().mbps,
+      'and the residual between them')
+    // the step and the quiz print the pair again
+    const [stepReplaced, stepMeasured] = figs(NUMS, /把新的预测和实测放在一起：([\d.]+) 对 ([\d.]+) Mb\/s/,
+      'the step on the comparison')
+    expect([stepReplaced, stepMeasured], 'the same two, a second time').toEqual([replaced, measured])
+    const [quizReplaced] = figs(QUIZ, /预测就落到 ([\d.]+) Mb\/s/, 'the quiz on the replacement')
+    expect(quizReplaced, 'and a third time').toBe(replaced)
+    const residuals = [...QUIZ.matchAll(/([\d.]+)% 才是(?:真正的)?残差|还剩 ([\d.]+)%/g)]
+      .map((m) => val(m[1] ?? m[2]!))
+    expect(residuals.length, 'the quiz names the residual twice').toBeGreaterThanOrEqual(2)
+    for (const r of residuals) expect(r, 'and it is the same residual').toBe(residual)
+    const [deepResidual] = figs(DEEP, /剩下的 ([\d.]+)% 才是真正的残差/, '`deeper` on the residual')
+    expect(deepResidual, 'as is `deeper`’s').toBe(residual)
+  })
+
+  it('reads the histogram’s two shares wherever the prose quotes them', () => {
+    const s = near()
+    const rungs = [...s.rateMix.keys()].sort((a, b) => a - b)
+    const topShare = 100 * s.rateMix.get(rungs.at(-1)!)! / s.attempts
+    const bottomShare = 100 * s.rateMix.get(rungs[0]!)! / s.attempts
+    // 「可只有 1.1% 的帧用上了它；三分之二的帧掉到了最慢的一级」
+    const [top] = figs(NUMS, /可只有 ([\d.]+)% 的帧用上了它/, '`numbers` on the top rung’s share')
+    same(String(top), topShare, 'the share of frames on the ceiling')
+    const [overCn, underCn] = raw(NUMS, /(.)分之(.)的帧掉到了最慢的一级/,
+      '`numbers` on the bottom rung’s share')
+    const cn = (s2: string): number => '零一二三四五六七八九十'.indexOf(s2)
+    expect(bottomShare / 100, 'the fraction the words name')
+      .toBeGreaterThanOrEqual(cn(underCn!) / cn(overCn!))
+    // 「为什么 1.1% 比 67.7% 更能说明问题」 — `deeper`'s heading names both shares
+    const [deepTop, deepBottom] = figs(DEEP, /为什么 ([\d.]+)% 比 ([\d.]+)% 更能说明问题/,
+      '`deeper` on the two shares')
+    same(String(deepTop), topShare, '`deeper`: the ceiling’s share')
+    same(String(deepBottom), bottomShare, '`deeper`: and the floor’s')
+    // the quiz quotes the ceiling's share too
+    const [quizTop] = figs(QUIZ, /只有 ([\d.]+)% 的帧用上了链路的上限/, 'the quiz on the same share')
+    expect(quizTop, 'the same share again').toBe(top)
+    // 「这十秒里，6248 帧各走了哪一级」 — the heading's own count
+    const heading = (rateVsModel.numbers!.filter((b) => b.kind === 'table')[1] as unknown as
+      { heading: string }).heading
+    const [frames] = figs(heading, /这十秒里，([\d,]+) 帧各走了哪一级/, 'the table’s own heading')
+    expect(frames, 'the frames this run really sends').toBe(s.attempts)
+  })
+
+  it('reads the first table’s own two shares, and every rung of the histogram’s first column', () => {
+    /*
+     * **Thirteen figures got past the reads above** (sweep of 2026-10-14), and ten of them were
+     * cells the file already read — in the columns it did not read. The histogram's first column
+     * is the ladder itself, and the alibi table's last row is the share the mechanism is read
+     * from, so both are read here.
+     */
+    const s = near()
+    // 「以最慢速率发出的帧：67.7 %」 against 「100 %」 on the arc
+    const [nearShare] = figs(cell('同样五台站点，挪到近处', 3, 0), /：([\d.]+) %/,
+      'the close-in share of the slowest rung')
+    const [arcShare] = figs(cell('同样五台站点，挪到近处', 3, 1), /^([\d.]+) %$/,
+      'and the arc’s')
+    const bottomOf = (x: Stats): number => {
+      const rungs = [...x.rateMix.keys()].sort((a, b) => a - b)
+      return (100 * x.rateMix.get(rungs[0]!)!) / x.attempts
+    }
+    same(String(nearShare), bottomOf(s), 'the frames this run sends at its slowest rung')
+    same(String(arcShare), bottomOf(arc5()), 'and the arc, which has only that rung')
+    expect([...arc5().rateMix.keys()], 'because the arc really allows one rung only')
+      .toHaveLength(1)
+    /*
+     * The histogram's first column: every rung the run used, fastest first, each printed with the
+     * engine's own rate — and the two it labels are the ceiling and the floor.
+     */
+    const histogram = rateVsModel.numbers!.filter((b) => b.kind === 'table')[1] as unknown as
+      { rows: string[][] }
+    const rungs = [...s.rateMix.keys()].sort((a, b) => b - a)
+    expect(histogram.rows.length, 'a row per rung the run used').toBe(rungs.length)
+    for (const [i, row] of histogram.rows.entries()) {
+      const [mbps] = figs(row[0]!, /^(\d+) Mb\/s/, `row ${i}: its own rate`)
+      expect(mbps, `row ${i}: the rung the run used there`).toBe(rungs[i])
+      expect(s.rateMix.get(mbps!), `row ${i}: and it really sent frames at it`).toBeGreaterThan(0)
+    }
+    expect(histogram.rows[0]![0], 'the first row is labelled the link’s ceiling').toContain('上限')
+    expect(histogram.rows.at(-1)![0], 'and the last the slowest rung').toContain('最慢')
+    expect(rungs[0], 'which is the rate this link can carry')
+      .toBe(dataRateFor(buildLinkTable(rateVsModel.scenario().nodes, rateVsModel.scenario().walls)
+        .get('sta-1')!.get('ap')!))
+    // and the quiz prints the measured mean one more time
+    const [quizMean] = figs(QUIZ, /把 T_s 里的帧长换成实测的 ([\d.]+) µs/, 'the quiz on the mean')
+    same(String(quizMean), s.meanDataNs / 1000, 'the mean this run really has')
+  })
+
+  it('reads the alibi table whole: three columns, four rows', () => {
+    /*
+     * The first table's heading names its three columns — 「近处实测」, 「圆弧上」, 「预测」 — so
+     * every cell is read against the run or the model that column is about. The file above read
+     * the first column; these are the other two.
+     */
+    const tb = rateVsModel.numbers!.filter((b) => b.kind === 'table')[0] as unknown as
+      { head: string[]; rows: string[][] }
+    expect(tb.head, 'the three columns this table compares')
+      .toEqual(['近处实测', '圆弧上', '预测'])
+    const { tau, p } = solveBianchi({ n: 5, ...PARAMS })
+    const t54 = dcfTimes(1500, 54)
+    const modelMbps = saturationThroughput({
+      n: 5, tau, slotNs: SLOT_NS, tsNs: t54.tsNs, tcNs: t54.tcNs, payloadBits: PAYLOAD_BITS,
+    }).mbps
+    const rowOf = (needle: string): string[] => tb.rows.find((r) => r[0]!.includes(needle))!
+    // 「碰撞：26.17 %」 | 「25.84 %」 | 「27.22 %」
+    const collide = rowOf('碰撞')
+    same(raw(collide[0]!, /：([\d.]+) %/, 'the close-in collision rate')[0]!, 100 * near().p,
+      'the collision rate close in')
+    same(raw(collide[1]!, /^([\d.]+) %$/, 'the arc’s')[0]!, 100 * arc5().p, 'the arc’s own')
+    same(raw(collide[2]!, /^([\d.]+) %$/, 'the model’s')[0]!, 100 * p, 'and the model’s')
+    // 「吞吐：5.534 Mb/s」 | 「4.717 Mb/s」 | 「29.52 Mb/s」
+    const thru = rowOf('吞吐')
+    same(raw(thru[0]!, /：([\d.]+) Mb\/s/, 'the close-in throughput')[0]!, near().mbps,
+      'the throughput close in')
+    same(raw(thru[1]!, /^([\d.]+) Mb\/s$/, 'the arc’s')[0]!, arc5().mbps, 'the arc’s own')
+    same(raw(thru[2]!, /^([\d.]+) Mb\/s$/, 'the model’s')[0]!, modelMbps, 'and the model’s')
+    // 「平均帧长：1723.7 µs」 | 「2064 µs」 | 「按假设 248 µs」
+    const frame = rowOf('平均帧长')
+    same(raw(frame[0]!, /：([\d.]+) µs/, 'the close-in mean')[0]!, near().meanDataNs / 1000,
+      'the mean frame close in')
+    same(raw(frame[1]!, /^([\d.]+) µs$/, 'the arc’s')[0]!, arc5().meanDataNs / 1000,
+      'the arc’s own, which is one rung only')
+    same(raw(frame[2]!, /按假设 ([\d.]+) µs/, 'the model’s')[0]!, t54.dataNs / 1000,
+      'and the one the model assumes')
+    // 「以最慢速率发出的帧：67.7 %」 | 「100 %」 | 「按假设为零」
+    const slowest = rowOf('以最慢速率发出的帧')
+    expect(slowest[2], 'the model assumes none at all').toContain('零')
+    // 「同样五台站点，挪到近处」 and 「n = 5 在圆弧上」: the stations each scene really has
+    const cnOf = (ch: string): number => '零一二三四五六七八九十'.indexOf(ch)
+    const stations = (sc: Scenario): number => sc.nodes.filter((n) => n.kind === 'sta').length
+    const [countCn] = raw((rateVsModel.numbers!.filter((b) => b.kind === 'table')[0] as unknown as
+      { heading: string }).heading, /同样(.)台站点/, 'the table’s own heading')
+    expect(cnOf(countCn!), 'the stations this scene has').toBe(stations(rateVsModel.scenario()))
+    const [arcN] = figs(PIC, /「n = (\d) 在圆弧上」/, '`picture` on the variant')
+    expect(arcN, 'and the variant the sentence names')
+      .toBe(stations(rateVsModel.variants![0]!.scenario()))
+  })
+
+  it('reads both experiments in `tryThis`, and the scene `sources` names', () => {
+    // 「碰撞 26.17% 对 25.84%，吞吐 5.534 对 4.717 Mb/s」
+    const [nearP, arcP, nearMbps, arcMbps] = figs(TRY,
+      /碰撞 ([\d.]+)% 对 ([\d.]+)%，吞吐 ([\d.]+) 对 ([\d.]+) Mb\/s/, '`tryThis` on the four figures')
+    same(String(nearP), 100 * near().p, 'the close-in collision rate')
+    same(String(arcP), 100 * arc5().p, 'the arc’s')
+    same(String(nearMbps), near().mbps, 'the close-in throughput')
+    same(String(arcMbps), arc5().mbps, 'and the arc’s')
+    // 「把基础场景和「n = 5 在圆弧上」各跑十秒」
+    const [n, secsCn] = raw(TRY, /「n = (\d) 在圆弧上」各跑(.)秒/, '`tryThis` on the two runs')
+    expect(rateVsModel.scenario().nodes.filter((x) => x.kind === 'sta').length,
+      'the stations this scene has').toBe(val(n!))
+    const cn = (s2: string): number => '零一二三四五六七八九十'.indexOf(s2)
+    expect(cn(secsCn!), 'the seconds each run covers').toBe(SECS)
+    // 「算出 1723.7 µs，把它代进 T_s 与 T_c，再解一次不动点。你应该得到 5.547 Mb/s，而不是 29.52」
+    const [meanUs, replaced, paper] = figs(TRY,
+      /算出 ([\d.]+) µs，把它代进 T_s[\s\S]*?你应该得到 ([\d.]+) Mb\/s，而不是 ([\d.]+)/,
+      '`tryThis` on the replacement')
+    same(String(meanUs), near().meanDataNs / 1000, 'the mean airtime the reader is to compute')
+    same(String(replaced), replacedMbps(), 'the fixed point it gives')
+    same(String(paper), paperMbps(), 'and the one it replaces')
+    // 「15 dBm 的近处场景、种子 7、十秒采样窗口」
+    const [dbm, seed] = figs(SRC, /(\d+) dBm 的近处场景、种子 (\d+)/, '`sources` on the scene')
+    const scen = rateVsModel.scenario()
+    for (const st of scen.nodes.filter((x) => x.kind === 'sta')) {
+      expect(st.txPowerDbm, 'every station’s own power').toBe(dbm)
+    }
+    expect(scen.seed, 'and the seed this lesson quotes').toBe(seed)
+    const [winCn] = raw(SRC, /(.)秒采样窗口/, '`sources` on the window')
+    expect(cn(winCn!), 'the window every figure is measured over').toBe(SECS)
+  })
+})
