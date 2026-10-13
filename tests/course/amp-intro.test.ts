@@ -25,6 +25,7 @@ import { fmtRecord } from '../../src/ui/format'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import type { Block } from '../../src/course/lessonKit'
 
 const MS = 1_000_000
 const US = 1_000
@@ -375,5 +376,426 @@ describe('amp-intro · what the log shows', () => {
     expect(fmtRecord(ofType(rs, 'AMP_ROUND')[0]))
       .toBe('ap#2g AMP round (random): 4 slots × 528.0 µs, ACW 3, DL 250 kb/s, UL 250 kb/s')
     expect(fmtRecord(results(rs, 'tag-2#2g')[0])).toBe('tag-2#2g slot 1: acknowledged')
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures this round to the microsecond — and every figure it compares against
+ * is typed on **this** side, with the lesson's own sentence quoted in a comment above it. That is
+ * the shape the sampling sweep of 2026-10-12 scored 6 of 6 on: all six figures it planted went
+ * unnoticed, because no assertion in this file ever read the lesson at all. The comments made the
+ * two sides look tied together, and they are not.
+ *
+ * Here every figure is parsed **out of the lesson** and compared with the same measurement the
+ * assertions above make. Nothing new is measured: the same `recs()`, `txs`, `ends`, `aboc`,
+ * `results`, `rssiOn` and the same four engine constants.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the timeline table is read as a chain, not as twenty numbers.** Every row's 「起」 is one
+ *    AMP SIFS after the previous row's 「止」, and every 「止」 is its own frame's airtime — so the
+ *    table is checked the way the lesson tells a reader to check it, forward from zero.
+ *  - **both formulas are checked as arithmetic.** 「round = 50 + 10 + 618 + 4 × (10 + 528 + 10 +
+ *    330) = 4190 µs = 100 ms 的 4.19 %」 has all nine of its figures parsed out, the sum has to
+ *    equal the measured round, and the percentage has to equal the sum over the measured period.
+ *  - **the nine gaps and the two silent slots are counted, not quoted.** 「90 µs 是那九个间隔，
+ *    1056 µs 是两个没人用的时隙」 reads both the count and the product out of the sentence, and
+ *    the sentence's own three parts have to add up to its own total.
+ *  - **the ACWE algebra is read with its own exponent.** 「ACWE，这里取 2，于是窗口 ACW = 2² − 1
+ *    = 3」 is parsed into base, exponent and offset, and the window has to be what the records
+ *    carry.
+ *
+ * **One figure is exempt, class (d): the 「2.4 GHz」 of `sources`.** It is a band's name rather
+ * than a measurement — this engine identifies the band as `'2g'` and holds no centre frequency
+ * for it — and what the sentence says about it IS checked: that the band's own SIFS is the AMP
+ * SIFS, which is the whole of its claim.
+ */
+describe('amp-intro · every figure the prose prints, read back out of it', () => {
+  const rs = recs()
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(ampIntro.numbers)
+  const DEEP = blockText(ampIntro.deeper)
+  const SRC = blockText(ampIntro.sources)
+  const OBS = blockText(ampIntro.observe)
+  const TRY = blockText(ampIntro.tryThis)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(text)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** A Chinese numeral up to the thousands: this lesson counts a second of polling in characters. */
+  const zh = (x: string): number => {
+    let total = 0
+    let cur = 0
+    for (const ch of x.replace(/两/g, '二')) {
+      const d = '零一二三四五六七八九'.indexOf(ch)
+      if (d >= 0) { cur = d; continue }
+      const unit = { 十: 10, 百: 100, 千: 1000 }[ch]
+      expect(unit, `「${x}」 is not a numeral this test can read`).toBeDefined()
+      total += (cur || 1) * unit!
+      cur = 0
+    }
+    return total + cur
+  }
+  const tableOf = (n: number): Extract<Block, { kind: 'table' }> => ampIntro.numbers!
+    .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]!
+  const firstRound = <T extends TLRecord>(xs: T[]): T[] => xs.filter((r) => r.t < 5 * MS)
+
+  it('reads the timeline table forward from zero, one SIFS at a time', () => {
+    const rows = tableOf(0).rows
+    expect(rows.length, 'the ten rows of the first round').toBe(10)
+    // Every row is 「起」 → 「止」 in microseconds, and the whole table is one chain.
+    const spans = rows.map((r) => [val(raw(r[1]!, /^([\d ]+) µs$/, `row 「${r[0]}」 start`)[0]!),
+      val(raw(r[2]!, /^([\d ]+) µs$/, `row 「${r[0]}」 end`)[0]!)] as const)
+    for (const [i, [from, to]] of spans.entries()) {
+      expect(to, `row 「${rows[i]![0]}」 ends after it starts`).toBeGreaterThan(from)
+      if (i > 0) {
+        expect(from - spans[i - 1]![1], `row 「${rows[i]![0]}」 opens one AMP SIFS after the row above`)
+          .toBe(AMP_SIFS_NS / US)
+      }
+    }
+    // …and the chain's own frames, in the order the engine puts them on the air.
+    const cts = txs(rs, 'cts')[0]!
+    const trig = txs(rs, 'ampTrigger')[0]!
+    const slots = firstRound(ofType(rs, 'AMP_SLOT'))
+    const acks = firstRound(txs(rs, 'ampAck'))
+    expect(spans[0], 'the CTS-to-self row').toEqual([cts.t / US, (cts.t + cts.frame.txTimeNs) / US])
+    expect(spans[1], 'the trigger row').toEqual([trig.t / US, (trig.t + trig.frame.txTimeNs) / US])
+    for (const [i, slot] of slots.entries()) {
+      expect(spans[2 + 2 * i], `the row of slot ${slot.slot}`).toEqual([slot.t / US, slot.untilNs / US])
+      const ack = acks[i]!
+      expect(spans[3 + 2 * i], `the row of Ack ${i + 1}`)
+        .toEqual([ack.t / US, (ack.t + ack.frame.txTimeNs) / US])
+    }
+    // The labels carry figures too: the Duration, the slot count and the slot length.
+    const [duration] = figs(rows[0]![0]!, /Duration ([\d ]+) µs/, 'the CTS row’s own label')
+    expect(duration! * US, 'the Duration the CTS-to-self carries').toBe(cts.frame.durationFieldNs)
+    const [slotCount, slotUs] = figs(rows[1]![0]!, /(\d+) 个时隙 × ([\d ]+) µs/, 'the trigger row’s label')
+    const round = ofType(rs, 'AMP_ROUND')[0]!
+    expect(slotCount, 'the slots the trigger allocates').toBe(round.slots)
+    expect(slotUs! * US, 'and how long each of them is').toBe(round.slotNs)
+    for (const [i, slot] of slots.entries()) {
+      const [n] = figs(rows[2 + 2 * i]![0]!, /时隙 (\d+)/, `the label of slot row ${i + 1}`)
+      expect(n, 'the slot number the label names').toBe(slot.slot)
+    }
+  })
+
+  it('reads the sentence that states the gap before the table uses it', () => {
+    // 「这一轮里每个间隔都是 10 µs」: the sweep of 2026-10-13 found this one, because every other
+    // reading of the gap is inside a formula or a log line.
+    const [gapUs] = figs(NUMS, /这一轮里每个间隔都是 (\d+) µs/, '`numbers` on the gap')
+    expect(gapUs! * US, 'the gap every row of the table opens after').toBe(AMP_SIFS_NS)
+    /*
+     * …and it really is every gap of the round — measured on the round's own chain of spans,
+     * which is a slot wherever a slot is open and a frame wherever one is sent. An empty slot
+     * still occupies its whole 528 µs, so reading the chain as frames alone would report the
+     * 548 µs across a silent slot as a gap, which is the slot and not a gap.
+     */
+    const spans: [number, number][] = [
+      ...firstRound([...txs(rs, 'cts'), ...txs(rs, 'ampTrigger'), ...txs(rs, 'ampAck')])
+        .map((r) => [r.t, r.t + r.frame.txTimeNs] as [number, number]),
+      ...firstRound(ofType(rs, 'AMP_SLOT')).map((r) => [r.t, r.untilNs] as [number, number]),
+    ].sort((x, y) => x[0] - y[0])
+    const gaps = spans.slice(1).map(([from], i) => from - spans[i]![1])
+    expect(new Set(gaps), 'every gap of the round, between one span and the next')
+      .toEqual(new Set([gapUs! * US]))
+    expect(gaps.length, 'and there are nine of them').toBe(9)
+  })
+
+  it('reads both slot formulas, which are the chain the table walks', () => {
+    const f = ampIntro.numbers!.filter((b) => b.kind === 'formula')[0] as { text: string }
+    const [one, trigEnd, gap1, slot1] = figs(f.text,
+      /时隙 (\d+) = 触发帧结束 ([\d ]+) \+ (\d+) = ([\d ]+) µs/, 'the first slot formula')
+    const [two, ackEnd, gap2, slot2] = figs(f.text,
+      /时隙 (\d+) = Ack₁ 结束 ([\d ]+) \+ (\d+) = ([\d ]+) µs/, 'the second')
+    const slots = firstRound(ofType(rs, 'AMP_SLOT'))
+    const trig = ends(rs, 'ampTrigger')[0]!
+    const ack1 = ends(rs, 'ampAck')[0]!
+    expect([one, two], 'the two slots the formulas are about').toEqual([slots[0]!.slot, slots[1]!.slot])
+    expect(trigEnd! * US, 'where the trigger ends').toBe(trig.t)
+    expect(ackEnd! * US, 'where the first Ack ends').toBe(ack1.t)
+    for (const g of [gap1, gap2]) expect(g! * US, 'the gap each slot opens after').toBe(AMP_SIFS_NS)
+    expect(slot1! * US, 'where slot 1 opens').toBe(slots[0]!.t)
+    expect(slot2! * US, 'and slot 2').toBe(slots[1]!.t)
+    expect(trigEnd! + gap1!, 'the first sum the lesson prints').toBe(slot1)
+    expect(ackEnd! + gap2!, 'and the second').toBe(slot2)
+  })
+
+  it('reads the round formula, its percentage and the three parts it splits into', () => {
+    const f = ampIntro.numbers!.filter((b) => b.kind === 'formula')[1] as { text: string; note: string }
+    const [cts, g1, trig, n, g2, slot, g3, ack, total, periodMs] = figs(f.text,
+      /round = (\d+) \+ (\d+) \+ (\d+) \+ (\d+) × \((\d+) \+ ([\d ]+) \+ (\d+) \+ ([\d ]+)\) = ([\d ]+) µs = ([\d ]+) ms 的 ([\d.]+) %/,
+      'the round formula')
+    // The arithmetic the line shows, and the round it is about.
+    expect(cts! + g1! + trig! + n! * (g2! + slot! + g3! + ack!), 'the sum the formula prints').toBe(total)
+    const ctsTx = txs(rs, 'cts')[0]!
+    const lastAck = firstRound(ends(rs, 'ampAck')).pop()!
+    expect(total! * US, 'the round the engine runs').toBe(lastAck.t - ctsTx.t)
+    // Each term against what it names.
+    expect(cts! * US, 'the CTS-to-self’s own airtime').toBe(ctsTx.frame.txTimeNs)
+    for (const g of [g1, g2, g3]) expect(g! * US, 'an AMP SIFS').toBe(AMP_SIFS_NS)
+    const trigTx = txs(rs, 'ampTrigger')[0]!
+    expect(trig! * US, 'the trigger’s airtime').toBe(trigTx.frame.txTimeNs)
+    const round = ofType(rs, 'AMP_ROUND')[0]!
+    expect(n, 'the slots of one round').toBe(round.slots)
+    expect(slot! * US, 'the length of one slot').toBe(round.slotNs)
+    expect(ack! * US, 'and one Ack’s airtime')
+      .toBe(firstRound(txs(rs, 'ampAck'))[0]!.frame.txTimeNs)
+    // The period, and the share of it this round costs.
+    const starts = txs(rs, 'cts').map((r) => r.t)
+    expect(periodMs! * MS, 'the period between two rounds').toBe(starts[1]! - starts[0]!)
+    same(raw(f.text, /的 ([\d.]+) %/, 'the share of the period')[0]!,
+      (100 * total! * US) / (periodMs! * MS), 'the share of the period the round costs')
+    // The note: it names the round again, then splits it three ways.
+    const [noteTotal] = figs(f.note, /这 ([\d ]+) µs 里/, 'the note’s own printing of the round')
+    expect(noteTotal, 'the round, printed a second time at the head of the note').toBe(total)
+    const [air] = figs(f.note, /真正有帧在空中的只有 ([\d ]+) µs/, 'the note on the airtime')
+    const frames = firstRound([...txs(rs, 'cts'), ...txs(rs, 'ampTrigger'),
+      ...txs(rs, 'ampAck'), ...txs(rs, 'ampResp')])
+    expect(air! * US, 'the frames of the round, added up')
+      .toBe(frames.reduce((a, r) => a + r.frame.txTimeNs, 0))
+    const [gapTotal, gapCount] = raw(f.note, /([\d ]+) µs 是那([一二三四五六七八九十]+)个间隔/,
+      'the note on the gaps')
+    expect(zh(gapCount!) * (AMP_SIFS_NS / US), 'the gaps, counted and multiplied out').toBe(val(gapTotal!))
+    const [idleTotal, idleCount] = raw(f.note, /([\d ]+) µs 是([一二三四五六七八九十两]+)个没人用的时隙/,
+      'the note on the silent slots')
+    expect(zh(idleCount!) * (round.slotNs / US), 'the silent slots, counted out').toBe(val(idleTotal!))
+    const used = new Set(firstRound(ofType(rs, 'AMP_RESULT')).map((r) => r.slot))
+    expect(round.slots - used.size, 'and that many slots really do go unused').toBe(zh(idleCount!))
+    expect(air! + val(gapTotal!) + val(idleTotal!), 'the three parts are the whole round')
+      .toBe(total)
+  })
+
+  it('reads the second of polling, which the prose counts in characters', () => {
+    const [periodMs] = figs(NUMS, /路由器每 ([\d ]+) ms 整点开启一轮/, 'the period')
+    const starts = txs(rs, 'cts').map((r) => r.t)
+    expect(periodMs! * MS, 'the period between two rounds').toBe(starts[1]! - starts[0]!)
+    const [rounds, slots, acks, answers] = raw(NUMS,
+      /所以一秒钟里有(.+?)轮：(.+?)个时隙、(.+?)帧 Ack、(.+?)次标签作答/, 'the second of polling')
+    expect(zh(rounds!), 'the rounds a second holds').toBe(ofType(rs, 'AMP_ROUND').length)
+    expect(zh(slots!), 'the slots').toBe(ofType(rs, 'AMP_SLOT').length)
+    expect(zh(acks!), 'the Acks').toBe(txs(rs, 'ampAck').length)
+    expect(zh(answers!), 'and the answers the tags give').toBe(txs(rs, 'ampResp').length)
+    expect(zh(slots!), 'which is the rounds times the slots of one').toBe(zh(rounds!) * 4)
+    // Which Acks name a tag, and which name the router itself.
+    const [named, self] = raw(NUMS, /其中(.+?)帧点名了某个标签，另外(.+?)帧写的是路由器自己/,
+      'the Acks that name a tag')
+    const ackDsts = txs(rs, 'ampAck').map((r) => r.frame.dst)
+    expect(zh(named!), 'the Acks that name a tag').toBe(ackDsts.filter((d) => d !== 'ap').length)
+    expect(zh(self!), 'and the ones that name the router').toBe(ackDsts.filter((d) => d === 'ap').length)
+    expect(zh(named!) + zh(self!), 'together they are every Ack of the second').toBe(zh(acks!))
+    // Both tags answered every round, and how those answers ended.
+    const [all, acked, lost] = raw(NUMS, /两个标签都在全部(.+?)轮里作了答：(.+?)次被确认、(.+?)次丢失/,
+      'how the answers ended')
+    for (const tag of TAGS) {
+      expect(results(rs, tag).length, `${tag} answered every round`).toBe(zh(all!))
+      expect(results(rs, tag).filter((r) => r.acked).length, `${tag} acknowledged`).toBe(zh(acked!))
+      expect(results(rs, tag).filter((r) => !r.acked).length, `${tag} lost`).toBe(zh(lost!))
+    }
+    expect(zh(acked!) + zh(lost!), 'and the two add up to the rounds').toBe(zh(all!))
+  })
+
+  it('reads the collision table out of the two collisions', () => {
+    const rows = tableOf(1).rows
+    const coll = ofType(rs, 'COLLISION')
+    const lost = ofType(rs, 'AMP_RESULT').filter((r) => !r.acked)
+    expect(rows.length, 'one row per collision').toBe(coll.length)
+    const [periodMs] = figs(NUMS, /路由器每 ([\d ]+) ms 整点开启一轮/, 'the period')
+    for (const [i, row] of rows.entries()) {
+      const c = coll[i]!
+      expect(val(row[0]!), `row ${i}: the round it happened in`)
+        .toBe(Math.floor(c.t / (periodMs! * MS)) + 1)
+      const slot = ofType(rs, 'AMP_SLOT').find((r) => r.untilNs === c.t)!
+      expect(val(row[1]!), `row ${i}: the slot both tags drew`).toBe(slot.slot)
+      same(raw(row[2]!, /^([\d ]+) µs$/, `row ${i}: when they collided`)[0]!, c.t / US,
+        `row ${i}: when they collided`)
+      // 「Ack 点名」 is 「路由器自己」: the Ack after a collision names its own sender.
+      const ack = txs(rs, 'ampAck').find((r) => r.t > c.t)!
+      expect(ack.frame.dst, `row ${i}: the Ack names the router`).toBe(ack.frame.src)
+      expect(row[3], `row ${i}: and the cell says so`).toBe('路由器自己')
+      // 「标签得知」: when the tags learn, which is the result record's own instant.
+      const learned = [...new Set(lost.filter((r) => r.t > c.t).map((r) => r.t))][0]!
+      same(raw(row[4]!, /^([\d ]+) µs$/, `row ${i}: when the tags learn`)[0]!, learned / US,
+        `row ${i}: when the tags learn`)
+    }
+    // The sentence above the table: it is not weak signal, it is two tags on one slot.
+    const [twice, often] = raw(NUMS, /([一二三四五六七八九十]+)轮里有([一二三四五六七八九十两]+)轮，两个标签抽到了同一个数/,
+      'the reason for the losses')
+    expect(zh(twice!), 'the rounds of the second').toBe(ofType(rs, 'AMP_ROUND').length)
+    expect(zh(often!), 'and the ones both tags drew the same slot in').toBe(coll.length)
+  })
+
+  it('reads the link-margin table and the decibels `deeper` makes of it', () => {
+    const rows = (ampIntro.deeper!.filter((b) => b.kind === 'table')[0] as { rows: string[][] }).rows
+    const s = ampIntro.scenario()
+    const links = buildLinkTable(s.nodes, s.walls)
+    const dl = rssiOn('2g', links, 'ap', 'tag-2')
+    const ul = rssiOn('2g', links, 'tag-2', 'ap')
+    // Downlink row: arrival, threshold, margin — and the margin is the difference of the two.
+    same(raw(rows[0]![1]!, /^(−[\d.]+) dBm$/, 'the downlink arrival')[0]!, dl, 'the downlink arrival level')
+    same(raw(rows[0]![2]!, /^(−[\d.]+) dBm$/, 'the tag’s sensitivity')[0]!, AMP_TAG_DL_SENS_DBM,
+      'the tag’s own threshold')
+    same(raw(rows[0]![3]!, /^([\d.]+) dB$/, 'the downlink margin')[0]!, dl - AMP_TAG_DL_SENS_DBM,
+      'the downlink margin')
+    // Uplink row, the same three.
+    same(raw(rows[1]![1]!, /^(−[\d.]+) dBm$/, 'the uplink arrival')[0]!, ul, 'the uplink arrival level')
+    same(raw(rows[1]![2]!, /^(−[\d.]+) dBm$/, 'the router’s floor')[0]!, ampUlSensDbm(250),
+      'the router’s own floor')
+    same(raw(rows[1]![3]!, /^([\d.]+) dB$/, 'the uplink margin')[0]!, ul - ampUlSensDbm(250),
+      'the uplink margin')
+    // The paragraph that explains the margin: the two transmit powers, and the floor it buys.
+    const [tagDbm, apDbm] = figs(DEEP, /标签以 (\d+) dBm 发送，而路由器是 (\d+) dBm/,
+      '`deeper` on the two transmit powers')
+    const nodes = s.nodes as NodeCfg[]
+    expect(tagDbm, 'the tag’s transmit power').toBe(nodes.find((n) => n.id === 'tag-2')!.txPowerDbm)
+    expect(apDbm, 'and the router’s').toBe(nodes.find((n) => n.id === 'ap')!.txPowerDbm)
+    same(raw(DEEP, /仍有 ([\d.]+) dB 余量/, '`deeper` on the uplink margin')[0]!, ul - ampUlSensDbm(250),
+      'the uplink margin, printed a second time')
+    const [kbps, floor, wifi, diff] = figs(DEEP,
+      /路由器接收 (\d+) kb\/s 作答的 −(\d+) dBm 底线，比一帧普通 Wi-Fi 必须跨过的 −(\d+) dBm 还低约 (\d+) dB/,
+      '`deeper` on what the floor is bought with')
+    const rate = s.nodes[0]!.ampAp!.ulKbps
+    expect(kbps, 'the uplink rate this scene runs at').toBe(rate)
+    expect(-floor!, 'the floor at that rate').toBe(Math.round(ampUlSensDbm(rate)))
+    expect(-wifi!, 'the preamble-detect threshold an OFDM frame must clear').toBe(CCA_PD_DBM)
+    expect(diff, 'and the difference between them').toBe(Math.round(CCA_PD_DBM - ampUlSensDbm(rate)))
+  })
+
+  it('reads the ACWE algebra with its own exponent, and the draw that reaches the last slot', () => {
+    const [acwe, base, minus, acw] = figs(DEEP,
+      /窗口指数 ACWE，这里取 (\d+)，于是窗口 ACW = (\d+)² − (\d+) = (\d+)/,
+      '`deeper` on the window')
+    const round = ofType(rs, 'AMP_ROUND')[0]!
+    expect(acwe, 'the exponent the trigger carries').toBe(round.acwe)
+    expect(base, 'a binary window').toBe(2)
+    expect(base! ** acwe! - minus!, 'the window the formula gives, with the printed exponent')
+      .toBe(acw)
+    expect(acw, 'which is the window the records carry')
+      .toBe([...new Set(ofType(rs, 'AMP_ABOC').map((r) => r.acw))][0])
+    // 「每个标签从 0、1、2、3 中抽一个 ABOC」: every value of the window, and nothing else.
+    const [drawList] = raw(DEEP, /每个标签从 ([\d、 ]+?) 中抽一个 ABOC/, '`deeper` on the draw’s range')
+    expect(drawList!.split('、').map((x) => Number(x.trim())),
+      'the values a draw can take').toEqual([...Array(acw! + 1).keys()])
+    // 「只有当……ACW + 1 > N 时，标签才会空转一轮」: the condition itself, before the numbers.
+    const [condPlus] = figs(DEEP, /也就是 ACW \+ (\d+) > N 时/, '`deeper` on the condition’s shape')
+    // 「ACW + 1 = 4 = N」: why no tag ever sits a round out, with both sides read.
+    const [plus, n] = figs(DEEP, /这里 ACW \+ (\d+) = (\d+) = N/, '`deeper` on the condition')
+    expect(condPlus, 'the condition and its instance add the same one').toBe(plus)
+    expect(acw! + plus!, 'the slots the window can reach').toBe(n)
+    expect(n, 'which is the slots the round has').toBe(round.slots)
+    expect(ofType(rs, 'AMP_ABOC').filter((r) => r.slot === null).length,
+      'so no tag sits a round out').toBe(0)
+    // The same list of draws, printed a second time as the reason — the sweep found all four.
+    const [again] = raw(DEEP, /所以([\d、 ]+?) 每一个结果都指向一个真实存在的时隙/,
+      '`deeper` on the draws that all land somewhere')
+    expect(again!.split('、').map((x) => Number(x.trim())),
+      'every value of the window, printed again').toEqual([...Array(acw! + 1).keys()])
+    // 「抽到 3 就落在时隙 4」, and it happens in this run.
+    const [drew, lands] = figs(DEEP, /抽到 (\d+) 就落在时隙 (\d+)/, '`deeper` on the last slot')
+    expect(drew! + plus!, 'the slot that draw points at').toBe(lands)
+    expect(lands, 'the last slot there is').toBe(round.slots)
+    expect(ofType(rs, 'AMP_ABOC').some((r) => r.aboc === drew && r.slot === lands),
+      'and some tag really draws it').toBe(true)
+  })
+
+  it('reads the reservation `deeper` traces, and the two paddings beside it', () => {
+    const cts = txs(rs, 'cts')[0]!
+    const ctsEnd = ends(rs, 'cts')[0]!
+    const [duration, endsAt, expires] = figs(DEEP,
+      /Duration 是 ([\d ]+) µs。它在 (\d+) µs 结束，所以这份预留到 ([\d ]+) µs 到期/,
+      '`deeper` on the reservation')
+    expect(duration! * US, 'the Duration the CTS carries').toBe(cts.frame.durationFieldNs)
+    expect(endsAt! * US, 'when the CTS itself ends').toBe(ctsEnd.t)
+    expect(expires! * US, 'and when the reservation expires').toBe(ctsEnd.t + cts.frame.durationFieldNs)
+    expect(expires, 'which is where the last Ack of the round stops')
+      .toBe(firstRound(ends(rs, 'ampAck')).pop()!.t / US)
+    // The tag's own signal, as long as its slot.
+    same(raw(DEEP, /标签那 ([\d ]+) µs 的通断键控信号/, '`deeper` on the tag’s signal')[0]!,
+      ofType(rs, 'AMP_ROUND')[0]!.slotNs / US, 'the slot a tag answers in')
+    // The two paddings, which is the distinction the same paragraph draws.
+    const [protectedUs, plainUs] = figs(DEEP, /填充 (\d+) µs 而不是 (\d+) µs/, '`deeper` on the two paddings')
+    expect(protectedUs! * US, 'a protected AMP frame’s padding').toBe(AMP_PADDING_PROTECTED_NS)
+    expect(plainUs! * US, 'and an unprotected one’s').toBe(AMP_PADDING_NS)
+  })
+
+  it('reads `sources` on the gap and the four model values', () => {
+    /*
+     * **Exempt, class (d): the 「2.4 GHz」.** It is the band's name, not a measurement — this
+     * engine identifies the band as `'2g'` and holds no centre frequency for it — and the claim
+     * the sentence makes about it is checked right here: that band's own SIFS is the AMP SIFS.
+     */
+    expect(SRC, 'the band is still named the way the sentence names it').toContain('2.4 GHz')
+    expect(ERP_2G.sifsNs, 'and the claim about it: that band’s SIFS is this one').toBe(AMP_SIFS_NS)
+    const [gapUs] = figs(SRC, /(\d+) µs 的 AMP SIFS/, '`sources` on the gap')
+    expect(gapUs! * US, 'the AMP SIFS the lesson cites').toBe(AMP_SIFS_NS)
+    // The four values the simulator chose, named as chosen.
+    const [sens, dlSinr, kbps, ulSinr] = figs(SRC,
+      /标签 −(\d+) dBm 的下行灵敏度、通断键控的 SINR 门限（下行 (\d+) dB，(\d+) kb\/s 上行 (\d+) dB）/,
+      '`sources` on the model values')
+    expect(-sens!, 'the tag’s downlink sensitivity').toBe(AMP_TAG_DL_SENS_DBM)
+    expect(dlSinr, 'the downlink SINR threshold').toBe(AMP_DL_REQ_SINR_DB)
+    expect([250, 1000], 'the rate the thresholds are quoted at is one the engine has').toContain(kbps)
+    expect(ulSinr, 'and the uplink one at that rate')
+      .toBe(AMP_UL_REQ_SINR_DB[kbps === 250 ? 250 : 1000])
+    const [srcKbps, srcFloor] = figs(SRC, /路由器接收 (\d+) kb\/s 作答的 −(\d+) dBm 底线/,
+      '`sources` on the floor')
+    expect(srcKbps, 'the rate the floor is quoted at').toBe(kbps)
+    expect(-srcFloor!, 'the floor itself')
+      .toBe(Math.round(ampUlSensDbm(srcKbps === 250 ? 250 : 1000)))
+  })
+
+  it('reads both observe lines off the log, and the experiment’s own level', () => {
+    // 「触发帧结束，隔一个 10 µs 的间隔，时隙 1 就打开」
+    const [gapUs, slotNo] = figs(OBS, /隔一个 (\d+) µs 的间隔，时隙 (\d+) 就打开/,
+      'the first observe line')
+    const trigEnd = ends(rs, 'ampTrigger')[0]!
+    const slot1 = firstRound(ofType(rs, 'AMP_SLOT'))[0]!
+    expect(gapUs! * US, 'the gap between the trigger and the first slot').toBe(slot1.t - trigEnd.t)
+    expect(slotNo, 'the slot that opens there').toBe(slot1.slot)
+    // The two log lines, word for word out of `fmtRecord`.
+    const [quotedAboc] = raw(OBS, /打印成 “(ABOC \d+ of \[\d+, \d+\] → slot \d+)”/,
+      'the observe line’s ABOC quote')
+    const [quotedResult] = raw(OBS, /打印成 “(slot \d+: acknowledged)”/,
+      'the observe line’s result quote')
+    const tagAboc = aboc(rs, 'tag-1#2g')
+    const tagResults = results(rs, 'tag-1#2g')
+    // `fmtRecord` puts the node's own name in front of both lines, and the lesson quotes the
+    // part after it — which is the part a reader reads once they have selected that tag.
+    const i = tagAboc.findIndex((r) => fmtRecord(r).endsWith(quotedAboc!))
+    expect(i, `no draw of Fridge tag prints as 「${quotedAboc}」`).toBeGreaterThanOrEqual(0)
+    expect(fmtRecord(tagAboc[i]!), 'and the line really is that tag’s').toContain('tag-1')
+    expect(fmtRecord(tagResults[i]!).endsWith(quotedResult!),
+      `the outcome of that same round prints as 「${fmtRecord(tagResults[i]!)}」`).toBe(true)
+    // `tryThis`: the level the reader is told to raise the threshold past.
+    const s = ampIntro.scenario()
+    const links = buildLinkTable(s.nodes, s.walls)
+    same(raw(TRY, /抬到高于它实际收到的 (−[\d.]+) dBm/, '`tryThis` on the arrival level')[0]!,
+      rssiOn('2g', links, 'ap', 'tag-2'), 'what the Door tag actually receives')
+    // The variant's label, which is reader-visible text with a figure in it.
+    const [mbps] = figs(ampIntro.variants![0]!.label, /(\d+) Mb\/s/, 'the variant’s own label')
+    const v = ampIntro.variants![0]!.scenario().nodes[0]!.ampAp!
+    expect(mbps! * 1000, 'the rate both directions run at in that variant').toBe(v.dlKbps)
+    expect(v.dlKbps, 'and both directions really are the same').toBe(v.ulKbps)
   })
 })
