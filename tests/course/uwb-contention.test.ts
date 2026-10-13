@@ -54,10 +54,17 @@ const scenarioOf = (v: UwbContentionVariant): Scenario =>
 const recs = (v: UwbContentionVariant): TLRecord[] =>
   runOf(uwbContention, v === 'base' ? undefined : (v === 'slots4' ? V4 : V16), RUN_NS)
 
-/** The base scene with the schedule swapped back to a roll call: the reference the lesson prices against. */
+/**
+ * The base scene with the schedule swapped back to a roll call: the reference the lesson prices
+ * against. **Memoised** — eight `it`s ask for it, and it is the only run in this file that is not
+ * already shared through the kit's memo (tests/simCost.ts bounds the suite's simulated work).
+ */
+let rollCall: TLRecord[] | undefined
 function timeScheduled(): TLRecord[] {
+  if (rollCall) return rollCall
   const s = uwbContentionScenario('base')
-  return [...new Simulation({ ...s, uwb: { ...s.uwb!, schedule: 'time' } }).runUntil(RUN_NS).records]
+  rollCall = [...new Simulation({ ...s, uwb: { ...s.uwb!, schedule: 'time' } }).runUntil(RUN_NS).records]
+  return rollCall
 }
 
 const tagRounds = (rs: TLRecord[]) => ofType(rs, 'UWB_ROUND').filter((r) => r.node === TAG)
@@ -669,5 +676,407 @@ describe('uwb-contention · the procedure, against the device', () => {
     expect(lowSlots.length).toBeGreaterThan(3)
     expect(highSlots.length).toBeGreaterThan(3)
     expect(rms(highSlots)).toBeGreaterThan(rms(lowSlots))
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * The four tables above are read the right way round already — a cell against the string the
+ * run's own figures build. What the sampling sweep of 2026-10-12 found (3 of 6) is the prose: the
+ * formula block, the two paragraphs between the tables, the whole of `deeper`, `limits`,
+ * `sources`, both experiments and both questions, where the same measurements are printed a
+ * second time and nothing was reading them.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the birthday formula is read as the formula it prints.** `N·(1 − 1/S)^(N−1)` is parsed
+ *    out of the block — the exponent and the reciprocal included — and the three answers beside
+ *    it have to be what *that* expression gives for the three windows the scenes really run.
+ *  - **the residual error is read through the two factors that make it.** 「每多等一毫秒，就是
+ *    3.0 cm，于是每个时隙 6.0 cm」 is ½·T·σ_cfo with the session's own `cfoNoisePpm` and the
+ *    slot it really schedules, so the per-millisecond figure and the per-slot figure cannot drift
+ *    apart from each other or from the session.
+ *  - **the Chinese numerals are read too.** 「正好三点五倍」, 「八点五个时隙」 and 「四点五」 are
+ *    figures a planter cannot touch but a reader can check, so they are mapped back to numbers
+ *    and compared with the ratio and the means the runs produce.
+ *  - **the two neighbours of the capture threshold are read as neighbours.** 「领先 5 dB 未必
+ *    必输，领先 7 dB 也未必必赢」 is the sentence's way of saying the engine's 6 dB is a cliff
+ *    where a real receiver has a curve, so the two figures are read as one below and one above
+ *    `UWB_CAPTURE_DB`, each exactly one decibel from it.
+ */
+describe('uwb-contention · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(uwbContention.numbers)
+  const DEEP = blockText(uwbContention.deeper)
+  const LIM = blockText(uwbContention.limits)
+  const SRC = blockText(uwbContention.sources)
+  const OBS = blockText(uwbContention.observe)
+  const TRY = blockText(uwbContention.tryThis)
+  const QUIZ = blockText(uwbContention.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...text.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((mm) => mm.slice(1))
+  }
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  /** A Chinese numeral, 「三点五」 and 「十五」 included — the course writes counts this way. */
+  const cn = (s: string): number => {
+    const d = '零一二三四五六七八九'
+    if (s.includes('点')) {
+      const [a, b] = s.split('点')
+      return d.indexOf(a!) + d.indexOf(b!) / 10
+    }
+    const i = s.indexOf('十')
+    if (i < 0) return d.indexOf(s)
+    const tens = i === 0 ? 1 : d.indexOf(s.slice(0, i))
+    const ones = i === s.length - 1 ? 0 : d.indexOf(s.slice(i + 1))
+    return tens * 10 + ones
+  }
+  /** The response slots each scene really advertises, by the window the prose names. */
+  const sceneOf = (slots: number): UwbContentionVariant => {
+    const hit = VARIANTS.find((v) => CONTENTION_SLOTS[v] === slots)
+    expect(hit, `no scene of this lesson advertises ${slots} slots`).toBeDefined()
+    return hit!
+  }
+  const errsOf = (v: UwbContentionVariant): number[] =>
+    rounds(v).flatMap((r) => [...r.errCm.values()])
+
+  it('reads the birthday formula as the expression it prints', () => {
+    // 「P(独占自己的时隙) = (1 − 1/S)^(N−1)      期望应答数 = N·(1 − 1/S)^(N−1)」
+    const [one, sub1, nMul, one2, sub2] = figs(NUMS,
+      /P\(独占自己的时隙\) = \((\d) − 1\/S\)\^\(N−(\d)\)\s+期望应答数 = N·\((\d) − 1\/S\)\^\(N−(\d)\)/,
+      'the formula block’s own expression')
+      .concat([0])
+    expect([one, nMul], 'the same shape printed twice: one minus the reciprocal').toEqual([1, 1])
+    expect([sub1, one2, sub2].slice(0, 2), 'and the same exponent, N − 1').toEqual([1, 1])
+    // 「N = 6 个锚点：      S = 4 → 1.42      S = 8 → 3.08      S = 16 → 4.35」
+    const [n, s1, e1, s2, e2, s3, e3] = figs(NUMS,
+      /N = (\d) 个锚点：\s+S = (\d+) → ([\d.]+)\s+S = (\d+) → ([\d.]+)\s+S = (\d+) → ([\d.]+)/,
+      'the formula block’s three answers')
+    expect(n, 'the anchors this ring really has').toBe(CONTENTION_ANCHORS)
+    for (const [slots, want] of [[s1, e1], [s2, e2], [s3, e3]] as [number, number][]) {
+      const v = sceneOf(slots)
+      expect(CONTENTION_SLOTS[v], `S = ${slots} is a window this lesson runs`).toBe(slots)
+      same(String(want), expectedResponses(n!, slots), `the expectation at S = ${slots}`)
+    }
+    expect([s1, s2, s3], 'the three windows, in the order the table lists them')
+      .toEqual(VARIANTS.map((v) => CONTENTION_SLOTS[v]).sort((a, b) => a - b))
+  })
+
+  it('reads the residual error through the two factors that make it', () => {
+    // 「应答每多等一毫秒，就是 3.0 cm，于是每个时隙 6.0 cm」
+    const [perMs, perSlot] = figs(NUMS, /应答每多等一毫秒，就是 ([\d.]+) cm，于是每个时隙 ([\d.]+) cm/,
+      '`numbers` on the residual error')
+    const slotMs = rstuNs(DEFAULT_UWB_SESSION.slotRstu) / 1e6
+    const cmPerMs = 0.5 * 1e-3 * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6 * 299_792_458 * 100
+    same(String(perMs), cmPerMs, 'half the reply delay times the session’s own frequency error')
+    same(String(perSlot), cmPerMs * slotMs, 'and the same thing over one slot')
+    expect(slotMs, 'the slot this session schedules').toBe(2)
+    // the steps print the per-slot figure again, with the slot beside it
+    const [stepSlotMs, stepCm] = figs(NUMS,
+      /就要等 k 个 (\d) ms 的时隙，这在单边测距里折合成每个时隙 ([\d.]+) cm/, 'the steps on the same cost')
+    expect(stepSlotMs, 'the same slot').toBe(slotMs)
+    expect(stepCm, 'and the same centimetres').toBe(perSlot)
+  })
+
+  it('reads the error ramp, slot by slot, and the three runs it adds up to', () => {
+    // 「八个应答时隙上的分时隙测距误差 RMS 依次是 7.3、14.9、16.2、23.5、28.2、32.0、22.8 与 47.1 cm」
+    const [listed] = raw(DEEP, /分时隙测距误差 RMS 依次是 ([\d.、与 ]+) cm/, '`deeper` on the ramp')
+    const ramp = listed!.split(/、|\s*与\s*/).map(val)
+    const bySlot = new Map<number, number[]>()
+    for (const r of rounds('base')) {
+      for (const [id, slot] of r.ranged) bySlot.set(slot, [...(bySlot.get(slot) ?? []), r.errCm.get(id)!])
+    }
+    expect(ramp, 'one RMS per response slot of the base window')
+      .toHaveLength(CONTENTION_SLOTS.base)
+    ramp.forEach((cm, i) => {
+      same(String(cm), rms(bySlot.get(i + 1)!), `the RMS of slot ${i + 1}`)
+    })
+    // 「大约每格 6 cm 的一道斜坡」: the slope the ramp really climbs, to the nearest centimetre
+    const [slope] = figs(DEEP, /大约每格 (\d+) cm 的一道斜坡/, '`deeper` on the slope')
+    const fit = (ramp[ramp.length - 1]! - ramp[0]!) / (ramp.length - 1)
+    expect(slope, 'the climb per slot, to the nearest centimetre').toBe(Math.round(fit))
+    // 「整段运行合起来是 26.8 cm，而四个时隙是 14.6 cm、十六个时隙是 51.4 cm：
+    //   51.4 除以 14.6，正好三点五倍」
+    const [whole, narrowSlots, narrow, wide] = figs(DEEP,
+      /整段运行合起来是 ([\d.]+) cm，而(.)个时隙是 ([\d.]+) cm、十六个时隙是 ([\d.]+) cm/,
+      '`deeper` on the three runs')
+      .map((x, i) => (i === 1 ? x : x))
+    const narrowScene = sceneOf(cn(raw(DEEP, /而(.)个时隙是 [\d.]+ cm/, 'the narrow window')[0]!))
+    same(String(whole), rms(errsOf('base')), 'the base run’s own RMS')
+    same(String(narrow), rms(errsOf(narrowScene)), 'the narrow window’s')
+    same(String(wide), rms(errsOf('slots16')), 'and the wide one’s')
+    expect(narrowSlots, 'the narrow window, as a Chinese numeral').toBe(NaN)
+    /*
+     * **The ratio clause prints both of them again** (「51.4 除以 14.6，正好三点五倍」), and the
+     * sweep of 2026-10-13 caught both second printings: a read of the sentence before it never
+     * looks here. So the two are parsed again and required to be the same two.
+     */
+    const [overCn, underCn, ratio] = raw(DEEP, /([\d.]+) 除以 ([\d.]+)，正好(...)倍/,
+      '`deeper` on the ratio')
+    expect([val(overCn!), val(underCn!)], 'the same two figures the sentence just stated')
+      .toEqual([wide, narrow])
+    expect(cn(ratio!), 'how many times worse the wide window is')
+      .toBe(Math.round((wide! / narrow!) * 10) / 10)
+  })
+
+  it('reads what thirty rounds give, against the roll call that answers every time', () => {
+    const base = recs('base')
+    const fixes = ofType(base, 'UWB_POSITION')
+    // 「在三十轮里交出 79 次应答（满打满算本可有 180 次）与 15 次定位，这十五次里有六次只用上
+    //   三个锚点，而第一次要等到第 6 个块、1.218 s 才出现」
+    const [heard, possible, got] = figs(DEEP,
+      /在三十轮里交出 (\d+) 次应答（满打满算本可有 (\d+) 次）与 (\d+) 次定位/,
+      '`deeper` on what the base run gives')
+    expect(heard, 'the responses the tag really hears').toBe(tagRanges(base).length)
+    expect(possible, 'every anchor in every round').toBe(ROUNDS * CONTENTION_ANCHORS)
+    expect(got, 'and the fixes they make').toBe(fixes.length)
+    const [threeAnchor] = raw(DEEP, /这十五次里有(.)次只用上三个锚点/, '`deeper` on the thin fixes')
+    expect(cn(threeAnchor!), 'the fixes that had only three anchors to work with')
+      .toBe(fixes.filter((f) => f.anchors.length === 3).length)
+    const [block, secs] = figs(DEEP, /第一次要等到第 (\d+) 个块、([\d.]+) s 才出现/,
+      '`deeper` on when the first fix comes')
+    expect(block, 'the block the first fix falls in').toBe(fixes[0]!.block)
+    same(String(secs), fixes[0]!.t / (1000 * MS), 'and the second it falls at')
+    // 「同样六个锚点改用点名，则是 180 次应答、30 次定位」
+    const [refHeard, refFixes] = figs(DEEP, /改用点名，则是 (\d+) 次应答、(\d+) 次定位/,
+      '`deeper` on the roll call')
+    const ref = timeScheduled()
+    expect(refHeard, 'a roll call loses nothing')
+      .toBe(ofType(ref, 'UWB_RANGE').filter((r) => r.node === TAG).length)
+    expect(refFixes, 'and fixes every round').toBe(ofType(ref, 'UWB_POSITION').length)
+    expect(refHeard, 'which is every anchor in every round').toBe(possible)
+    // 「四个时隙时，七次定位全都只勉强用上三个锚点」
+    const [narrowFixes] = raw(DEEP, /四个时隙时，(.)次定位全都只勉强用上三个锚点/,
+      '`deeper` on the narrow window’s fixes')
+    const nf = ofType(recs('slots4'), 'UWB_POSITION')
+    expect(cn(narrowFixes!), 'the fixes the narrow window makes').toBe(nf.length)
+    expect(new Set(nf.map((f) => f.anchors.length)), 'every one of them on three anchors')
+      .toEqual(new Set([3]))
+    // 「第一轮起就每轮都有，而且每轮还短 4 ms」
+    const [shorter] = figs(DEEP, /而且每轮还短 (\d+) ms/, '`deeper` on the roll call’s round')
+    same(String(shorter), (tagRounds(base)[0]!.untilNs - tagRounds(ref)[0]!.untilNs) / MS,
+      'how much shorter a roll call’s round is')
+  })
+
+  it('reads the doubling sentence: both columns, and what the width costs', () => {
+    // 「窗口从 8 个时隙翻倍到 16 个，实测那一列每轮只多换来 1.50 个应答（2.63 → 4.13，
+    //   三十轮 79 → 124 条），公式那一列给的是 1.27（3.08 → 4.35）；代价都是每轮多用 16 ms」
+    const [from, to, gain, was, now, totalWas, totalNow] = figs(DEEP,
+      /窗口从 (\d+) 个时隙翻倍到 (\d+) 个，实测那一列每轮只多换来 ([\d.]+) 个应答（([\d.]+) → ([\d.]+)，三十轮 (\d+) → (\d+) 条）/,
+      '`deeper` on the measured column')
+    expect(to, 'twice the base window').toBe(2 * from!)
+    expect([from, to], 'both of them windows this lesson runs')
+      .toEqual([CONTENTION_SLOTS[sceneOf(from!)], CONTENTION_SLOTS[sceneOf(to!)]])
+    const perRound = (v: UwbContentionVariant): number => tagRanges(recs(v)).length / ROUNDS
+    same(String(was), perRound(sceneOf(from!)), 'the responses a round of the base window')
+    same(String(now), perRound(sceneOf(to!)), 'and of the wide one')
+    expect(totalWas, 'the thirty rounds behind the first').toBe(tagRanges(recs(sceneOf(from!))).length)
+    expect(totalNow, 'and behind the second').toBe(tagRanges(recs(sceneOf(to!))).length)
+    same(String(gain), now! - was!, 'the difference the sentence calls the gain')
+    const [fGain, fWas, fNow] = figs(DEEP, /公式那一列给的是 ([\d.]+)（([\d.]+) → ([\d.]+)）/,
+      '`deeper` on the formula column')
+    same(String(fWas), expectedResponses(CONTENTION_ANCHORS, from!), 'the formula at the base window')
+    same(String(fNow), expectedResponses(CONTENTION_ANCHORS, to!), 'and at the wide one')
+    same(String(fGain), fNow! - fWas!, 'the gain the formula promises')
+    const [costMs] = figs(DEEP, /代价都是每轮多用 (\d+) ms/, '`deeper` on what it costs')
+    const roundMs = (v: UwbContentionVariant): number => tagRounds(recs(v))[0]!.untilNs / MS
+    same(String(costMs), roundMs(sceneOf(to!)) - roundMs(sceneOf(from!)),
+      'the milliseconds the wider window adds to a round')
+    /*
+     * **Exempt, class (c): the 4σ of 「三个总数都落在所印公式的 4σ 二项包络之内」.** The
+     * sentence's content is an inequality, and the widest of the three is 1.8σ out, so a 3 or a
+     * 5 would be just as true of this run. What is read is the claim itself, for all three.
+     */
+    const [sigmas] = figs(DEEP, /落在所印公式的 (\d+)σ 二项包络之内/, '`deeper` on the envelope')
+    for (const v of VARIANTS) {
+      const p = (1 - 1 / CONTENTION_SLOTS[v]) ** (CONTENTION_ANCHORS - 1)
+      const mean = ROUNDS * CONTENTION_ANCHORS * p
+      const sd = Math.sqrt(ROUNDS * CONTENTION_ANCHORS * p * (1 - p))
+      expect(Math.abs(tagRanges(recs(v)).length - mean), `${v} is inside ${sigmas}σ`)
+        .toBeLessThan(sigmas! * sd)
+    }
+  })
+
+  it('reads the thinning sentence, which moves the expectation both ways', () => {
+    // 「竞争者变少，在四个时隙时会把期望抬高——从 1.42 抬到 1.69；在更宽的窗口里则会把期望压低」
+    const [lifted, to] = figs(NUMS, /会把期望抬高——从 ([\d.]+) 抬到 ([\d.]+)/,
+      '`numbers` on the thinning')
+    same(String(lifted), expectedResponses(CONTENTION_ANCHORS, CONTENTION_SLOTS.slots4),
+      'the formula at six contenders')
+    /*
+     * **The illustration is at four contenders**, which is the count the first question spells
+     * out in Chinese — the paragraph itself only says 「竞争者变少」. So the figure is read as the
+     * formula at that count, and the contenders the scene really has must sit between the two.
+     */
+    const [thinnedCn] = raw(QUIZ, /竞争者只有(.)个时/, 'the contender count the question names')
+    same(String(to), expectedResponses(cn(thinnedCn!), CONTENTION_SLOTS.slots4),
+      'and at the count the question thins them to')
+    expect(to, 'which is higher, in the narrow window').toBeGreaterThan(lifted!)
+    const contenders = (v: UwbContentionVariant): number =>
+      rounds(v).reduce((a, r) => a + r.drew.size, 0) / ROUNDS
+    expect(contenders('slots4'), 'while the run itself sits between the two counts')
+      .toBeGreaterThan(cn(thinnedCn!))
+    expect(contenders('slots4'), 'and under the six the formula assumes')
+      .toBeLessThan(CONTENTION_ANCHORS)
+    // …and lower in the wide one, which is the other half of the same sentence
+    expect(expectedResponses(contenders('slots16'), CONTENTION_SLOTS.slots16),
+      'while thinning costs the wide window')
+      .toBeLessThan(expectedResponses(CONTENTION_ANCHORS, CONTENTION_SLOTS.slots16))
+  })
+
+  it('reads `limits` and `sources` on the defaults, the mode and the threshold', () => {
+    // 「8 个时隙与 3 次尝试是会话的默认值」, in `limits` and again in `sources`
+    for (const [slots, tries] of every([LIM, SRC].join('\n'), /(\d+) 个时隙与 (\d+) 次尝试/g,
+      'the two session defaults, printed twice', 2)) {
+      expect(val(slots!), 'the window the session defaults to')
+        .toBe(DEFAULT_UWB_SESSION.contentionSlots)
+      expect(val(tries!), 'and the attempts it allows').toBe(DEFAULT_UWB_SESSION.maxAttempts)
+    }
+    expect(uwbContentionScenario('base').uwb!.contentionSlots, 'which is what this scene runs')
+      .toBe(DEFAULT_UWB_SESSION.contentionSlots)
+    // 「调度模式 0」
+    const [mode] = figs(SRC, /调度模式 (\d+)/, '`sources` on the schedule mode')
+    expect(mode, 'the mode a contention round is, as the clause numbers it').toBe(0)
+    // 「一条 6 dB 的硬门限（phy.ts 的 UWB_CAPTURE_DB）：领先 6 dB 的那一路整帧解出」
+    for (const [db] of every(LIM, /(\d+) dB 的(?:硬门限|那一路)/g, 'the threshold, printed twice', 2)) {
+      expect(val(db!), 'the capture margin the engine applies').toBe(UWB_CAPTURE_DB)
+    }
+    // 「领先 5 dB 未必必输，领先 7 dB 也未必必赢」
+    const [below, above] = figs(LIM, /领先 (\d+) dB 未必必输，领先 (\d+) dB 也未必必赢/,
+      '`limits` on what a real receiver does')
+    expect([UWB_CAPTURE_DB - below!, above! - UWB_CAPTURE_DB],
+      'one decibel under the threshold and one over it').toEqual([1, 1])
+    // 「6 dB 的捕获余量」 in `sources`, and once more in `deeper`, are the same threshold
+    const [srcDb] = figs(SRC, /(\d+) dB 的捕获余量/, '`sources` on the same margin')
+    expect(srcDb, 'the same margin again').toBe(UWB_CAPTURE_DB)
+    const [deepDb] = figs(DEEP, /只要较强的一路领先 (\d+) dB，介质就放它过去/,
+      '`deeper` on the same margin')
+    expect(deepDb, 'and a third time, where `deeper` explains why no capture happens here')
+      .toBe(UWB_CAPTURE_DB)
+    // 「每个锚点都在 3.50 m 处、功率相同」 and 「发的都是同样的 −14 dBm」
+    const [ringM] = figs(NUMS, /而这里每个锚点都在 ([\d.]+) m 处/, 'the steps on the ring')
+    same(String(ringM), RING_RADIUS_M, 'the ring this scene really lays out')
+    const [dbm] = figs(DEEP, /发的都是同样的 (−\d+) dBm/, '`deeper` on the transmit power')
+    expect(dbm, 'the power every UWB frame goes out at').toBe(UWB_TX_POWER_DBM)
+    const [deepRing] = figs(DEEP, /每个锚点离手机都是 ([\d.]+) m/, '`deeper` on the same ring')
+    expect(deepRing, 'the same radius').toBe(ringM)
+  })
+
+  it('reads the draw the steps describe, and the log line `observe` quotes', () => {
+    // 「应答窗口里有 8 个时隙，一个应答者可以尝试 3 次」
+    const [slots, tries] = figs(NUMS, /应答窗口里有 (\d+) 个时隙，一个应答者可以尝试 (\d+) 次/,
+      'the steps on what the poll announces')
+    expect(slots, 'the window this scene advertises')
+      .toBe(uwbContentionScenario('base').uwb!.contentionSlots)
+    expect(tries, 'and the attempts it allows').toBe(DEFAULT_UWB_SESSION.maxAttempts)
+    // 「1 加上一个小于 S 的均匀整数」 — the draw's own range, and the run stays inside it
+    const [base1] = figs(NUMS, /它抽一个时隙：(\d+) 加上一个小于 S 的均匀整数/, 'the steps on the draw')
+    const drawn = rounds('base').flatMap((r) => [...r.drew.values()])
+    expect(Math.min(...drawn), 'the lowest slot anyone draws').toBe(base1)
+    expect(Math.max(...drawn), 'and the highest').toBe(base1! + slots! - 1)
+    // 「“anchor-1 contends: slot 4 (attempt 1)”」
+    const [who, slot, attempt] = raw(OBS, /“(anchor-\d) contends: slot (\d+) \(attempt (\d+)\)”/,
+      '`observe` on the log line')
+    const first = draws(recs('base'))[0]!
+    expect(fmtRecord(first), 'the line the log really prints')
+      .toBe(`${who} contends: slot ${slot} (attempt ${attempt})`)
+    expect(first.node, 'the anchor that draws first').toBe(who)
+    // 「“uwb-1 contention collision in slot 4”」
+    const [colSlot] = figs(DEEP, /contention collision in slot (\d+)”/, '`deeper` on the collision line')
+    expect(colSlot, 'the slot the first collision is recorded in').toBe(collided(recs('base'))[0]!.slot)
+  })
+
+  it('reads both experiments and both questions', () => {
+    // 「载入“16 个应答时隙”。…一轮长到 34 ms…平均一路应答现在要等八点五个时隙，而不是四点五个」
+    const [wide] = figs(TRY, /载入“(\d+) 个应答时隙”/, '`tryThis` on the scene it loads')
+    expect(uwbContention.variants![V16].label, 'the label that variant carries')
+      .toContain(`${wide} 个应答时隙`)
+    const [roundMs] = figs(TRY, /一轮长到 (\d+) ms/, '`tryThis` on its round')
+    same(String(roundMs), tagRounds(recs(sceneOf(wide!)))[0]!.untilNs / MS, 'the round it runs')
+    const [wideWait, baseWait] = raw(TRY, /要等(...)个时隙，而不是(...)个/, '`tryThis` on the two waits')
+    const meanDrawn = (v: UwbContentionVariant): number => {
+      const d = rounds(v).flatMap((r) => [...r.drew.values()])
+      return d.reduce((a, b) => a + b, 0) / d.length
+    }
+    expect(cn(wideWait!), 'the slots a wide-window answer waits on average')
+      .toBe((CONTENTION_SLOTS[sceneOf(wide!)] + 1) / 2)
+    expect(cn(baseWait!), 'and a base-window one').toBe((CONTENTION_SLOTS.base + 1) / 2)
+    expect(cn(wideWait!), 'which the runs’ own draws agree with')
+      .toBeCloseTo(meanDrawn(sceneOf(wide!)), 0)
+    const [narrow] = figs(TRY, /再载入“(\d+) 个应答时隙”/, '`tryThis` on the other scene')
+    expect(uwbContention.variants![V4].label, 'the label that one carries')
+      .toContain(`${narrow} 个应答时隙`)
+    const [against] = figs(TRY, /把测距误差与 (\d+) 个时隙那一次比一比/, '`tryThis` on the comparison')
+    expect(against, 'the narrow window, which is the one it compares against').toBe(narrow)
+    expect(rms(errsOf(sceneOf(narrow!))), 'and a roll call really is worse than it')
+      .toBeLessThan(rms(ofType(timeScheduled(), 'UWB_RANGE').filter((r) => r.node === TAG)
+        .map((r) => Math.abs(r.distM - r.trueDistM) * 100)))
+    // quiz 1: 「在 4 个应答时隙下，六个锚点每轮给出 1.57 次测距，而公式预测 1.42」
+    const [qSlots, measured, formula] = figs(QUIZ,
+      /在 (\d+) 个应答时隙下，六个锚点每轮给出 ([\d.]+) 次测距，而公式预测 ([\d.]+)/,
+      'the first question’s two figures')
+    const scene = sceneOf(qSlots!)
+    same(String(measured), tagRanges(recs(scene)).length / ROUNDS, 'what that scene really gives')
+    same(String(formula), expectedResponses(CONTENTION_ANCHORS, qSlots!), 'and what the formula says')
+    const [onThinned, notFormula, back, stillMeasured] = figs(QUIZ,
+      /期望是 ([\d.]+) 而不是 ([\d.]+)；按每一轮实测的竞争者数逐轮代回去，平均是 ([\d.]+)，而实测是 ([\d.]+)/,
+      'the first question’s explanation')
+    const [thinnedCn] = raw(QUIZ, /竞争者只有(.)个时/, 'the thinned contender count')
+    expect(cn(thinnedCn!), 'a count written as a Chinese numeral, and a real one')
+      .toBeGreaterThan(0)
+    same(String(onThinned), expectedResponses(cn(thinnedCn!), qSlots!),
+      'the expectation at that many contenders')
+    expect(notFormula, 'against the one at six').toBe(formula)
+    /*
+     * **Round by round, then averaged** — which is what the table's own column does, and what
+     * the explanation now says (correction of 2026-10-13: it used to say 「把实测的 5.23 代回去」,
+     * and substituting that rounded mean gives 1.55, not the 1.54 the column prints: the gap is
+     * the formula's curvature, so the operation the sentence named was not the one behind it).
+     */
+    same(String(back), rounds(scene).reduce((a, r) => a + expectedResponses(r.drew.size, qSlots!), 0) / ROUNDS,
+      'the expectation those contenders give, round by round')
+    expect(cell(1, ROW[scene], 2), 'which is the column the table prints').toBe(String(back))
+    expect(stillMeasured, 'and the measurement it is still short of').toBe(measured)
+    // quiz 2: 「为什么 16 个时隙窗口下的测距误差是 4 个时隙窗口的三点五倍？」
+    const [qWide, qNarrow] = figs(QUIZ, /为什么 (\d+) 个时隙窗口下的测距误差是 (\d+) 个时隙窗口的/,
+      'the second question’s two windows')
+    const [qRatio] = raw(QUIZ, /个时隙窗口的(...)倍/, 'the second question’s ratio')
+    expect(cn(qRatio!), 'the ratio between the two runs’ RMS')
+      .toBe(Math.round((rms(errsOf(sceneOf(qWide!))) / rms(errsOf(sceneOf(qNarrow!)))) * 10) / 10)
+    const [qCm, qSigma] = figs(QUIZ, /每个时隙留下 ([\d.]+) cm 的 (\d)σ/, 'the second question’s per-slot cost')
+    const slotMs = rstuNs(DEFAULT_UWB_SESSION.slotRstu) / 1e6
+    const perSlotCm = 0.5 * slotMs * 1e-3 * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6 * 299_792_458 * 100
+    same(String(qCm), perSlotCm, 'the residual error one slot of waiting leaves')
+    expect(qSigma, 'and how many sigmas that figure is').toBe(1)
+    // …and the explanation under it prints the slot and the same two figures over again
+    const [exSlotMs, exCm, exSigma] = figs(QUIZ,
+      /要等 k 个 (\d) ms 的时隙，于是每个时隙 ([\d.]+) cm 的 (\d)σ/,
+      'the second question’s explanation')
+    expect(exSlotMs, 'the slot this session schedules').toBe(slotMs)
+    same(String(exCm), perSlotCm, 'the same centimetres a slot of waiting costs')
+    expect(exSigma, 'and the same one sigma').toBe(qSigma)
   })
 })
