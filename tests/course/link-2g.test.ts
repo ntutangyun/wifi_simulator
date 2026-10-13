@@ -44,8 +44,24 @@ const RUN_MS = 200
 
 const vid = (band: Band, id: string): string => virtualId(id, band)
 
+/**
+ * One run of one shape on one band, **memoised**.
+ *
+ * Twenty-odd `it`s below ask for these runs and many ask for the same one — the 200 ms pair on
+ * both bands, the 50 ms single on both, the burst, the wide, and the seven-seed sweep twice over.
+ * The suite's simulated work is bounded (tests/simCost.ts, `EVENT_CEILING`) and this is the most
+ * expensive file in it, so a run already made is handed back rather than made again. Nothing here
+ * mutates a record array in place (every `sort` below is on a copy or on a filtered array), and
+ * the engine is deterministic, so every assertion sees exactly the recording it saw before.
+ */
+const runs = new Map<string, TLRecord[]>()
 function recordsOf(shape: Shape, band: Band, seed: number, ms = RUN_MS): TLRecord[] {
-  return [...new Simulation(link2gScenario(shape, band, { seed })).runUntil(ms * MS).records]
+  const key = `${shape}/${band}/${seed}/${ms}`
+  const hit = runs.get(key)
+  if (hit) return hit
+  const rs = [...new Simulation(link2gScenario(shape, band, { seed })).runUntil(ms * MS).records]
+  runs.set(key, rs)
+  return rs
 }
 
 /** Megabits of MSDU payload the access point took delivery of, per second. */
