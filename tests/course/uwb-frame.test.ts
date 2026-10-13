@@ -26,10 +26,12 @@ import type { Block } from '../../src/course/lessonKit'
 import {
   DATA_SYMBOL_CHIPS, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS, RS_PARITY_BITS, SFD_SYMBOLS,
   STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TAIL_SYMBOLS, UWB_RMARKER_CHIPS,
-  RCTU_NS, RCTU_PS, UWB_RMARKER_NS, UWB_TS_ACCUM_GAIN_DB,
+  RCTU_NS, RCTU_PS, RS_BLOCK_BITS, UWB_RMARKER_NS, UWB_RX_SENS_DBM, UWB_TS_ACCUM_GAIN_DB,
   chipsToNs, psduSymbols, uwbPollBytes, uwbPpduNs, uwbRespBytes,
 } from '../../src/uwb/phy'
 import { UWB_MBPS } from '../../src/uwb/frames'
+import { rctuToMetres } from '../../src/uwb/ranging'
+import { readFileSync } from 'node:fs'
 import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
@@ -352,5 +354,296 @@ describe('uwb-frame · how a stamp is taken off this frame', () => {
     expect(uwbPpduLayout(resp.frame).find((s) => s.rmarkerNs !== undefined)!.rmarkerNs)
       .toBe(layout.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs)
     expect(resp.frame.txTimeNs).not.toBe(poll.frame.txTimeNs)
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This file measures the whole PPDU, field by field and chip by chip — against figures typed on
+ * **this** side, with the lesson's own cell quoted in a comment above each one. The sampling
+ * sweep of 2026-10-12 scored the lesson 6 of 6: every figure it planted went unnoticed, because
+ * no assertion here reads the lesson at all.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **every cell of the field table is read as its own arithmetic.** 「SYNC，64 个前导符号 ×
+ *    508 码片 = 32 512 码片」 has all three figures parsed out, the product has to be the third,
+ *    and the third has to be the chips the engine's layout gives that field — so a compensating
+ *    edit (fewer symbols, longer symbol) that keeps the duration right still fails.
+ *  - **the PSDU's bit budget is read as a sum.** 「240 个数据比特 + 48 个校验比特 + 2 个符号的尾
+ *    = 290 个符号」 is checked against `psduSymbols` and against the parity the engine adds.
+ *  - **the RMARKER is read as the sum of the two fields in front of it**, both of which are read
+ *    off the layout, and the quiz's three printings of the same three figures are read too.
+ *  - **the 0.299792458 m/ns of `tryThis` is read as the speed of light** — the one figure in this
+ *    lesson that is a constant of nature rather than of the engine.
+ */
+describe('uwb-frame · every figure the prose prints, read back out of it', () => {
+  const poll = txs(recs(), 'uwbPoll')[0]!
+  const resp = txs(recs(), 'uwbResp')[0]!
+  const layout = uwbPpduLayout(poll.frame)
+  const seg = (key: string, nth = 0) => layout.filter((x) => x.key === key)[nth]!
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(uwbFrame.numbers)
+  const SRC = blockText(uwbFrame.sources)
+  const LIM = blockText(uwbFrame.limits)
+  const TRY = blockText(uwbFrame.tryThis)
+  const QUIZ = blockText(uwbFrame.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tableOf = (n: number): Extract<Block, { kind: 'table' }> => uwbFrame.numbers!
+    .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]!
+
+  it('reads the field table: both factors, the product, and the duration each one buys', () => {
+    const rows = tableOf(0).rows
+    /** Which layout key each row of the table is about, by the name the row opens with. */
+    const KEY: Record<string, string> = {
+      SYNC: 'sync', SFD: 'sfd', STS: 'sts', PHR: 'phr', PSDU: 'psdu',
+    }
+    let seen = 0
+    for (const row of rows) {
+      const name = /^([A-Z]+)/.exec(row[0]!)?.[1]
+      // 「STS 间隔」 and 「STS」 both open with the same three letters, and they are two fields:
+      // the gap states one factor, the active segment a product.
+      const key = row[0]!.startsWith('STS 间隔') ? 'stsGap'
+        : name === undefined ? undefined : KEY[name]
+      if (key === undefined) continue
+      if (key === 'stsGap') {
+        same(raw(row[0]!, /STS 间隔，([\d ]+) 码片/, 'the gap row’s own chips')[0]!, STS_GAP_CHIPS,
+          'the chips of one STS gap')
+        same(raw(row[1]!, /^([\d.]+) µs$/, 'the gap’s duration')[0]!, seg('stsGap').durNs / US,
+          'the duration of one STS gap')
+        seen++
+        continue
+      }
+      seen++
+      const chips = seg(key).durNs
+      // Every row that states a product states both of its factors.
+      // The factor is the one immediately in front of the ×, not the first number of the cell:
+      // the PSDU row opens with its octet count, and reading that as a factor gives 30 × 64.
+      const prod = /(\d+) 个(?:前导)?符号 × ([\d ]+) 码片 = ([\d ]+) 码片/.exec(row[0]!)
+        ?? /(\d+) × ([\d ]+) = ([\d ]+) 码片/.exec(row[0]!)
+      expect(prod, `the 「${name}」 row no longer states its chips as a product`).not.toBeNull()
+      const [a, b, total] = prod!.slice(1).map(val)
+      expect(a! * b!, `the 「${name}」 row’s own arithmetic`).toBe(total)
+      expect(chipsToNs(total!), `and the chips of 「${name}」 buy its duration`).toBe(chips)
+      // …and the duration cell beside it, to the three decimals the lesson prints.
+      same(raw(row[1]!, /^([\d.]+) µs$/, `the duration of 「${name}」`)[0]!, chips / US,
+        `the duration of 「${name}」`)
+    }
+    expect(seen, 'the seven rows of the table that name a field of the frame').toBe(7)
+    // The symbol counts the rows state are the engine's own.
+    expect(figs(rows[0]![0]!, /SYNC，(\d+) 个前导符号/, 'the SYNC row')[0], 'the SYNC symbols')
+      .toBe(SYNC_SYMBOLS)
+    expect(figs(rows[1]![0]!, /SFD，(\d+) 个前导符号/, 'the SFD row')[0], 'the SFD symbols')
+      .toBe(SFD_SYMBOLS)
+    expect(figs(rows[0]![0]!, /× ([\d ]+) 码片/, 'the preamble symbol')[0], 'a preamble symbol’s chips')
+      .toBe(PSYM_CHIPS)
+    const phr = rows.find((r) => r[0]!.startsWith('PHR'))!
+    expect(figs(phr[0]!, /PHR，(\d+) 个符号 × ([\d ]+) 码片/, 'the PHR row'),
+      'the PHR’s symbols and its symbol length').toEqual([PHR_SYMBOLS, PHR_SYMBOL_CHIPS])
+    const psdu = rows.find((r) => r[0]!.startsWith('PSDU'))!
+    const [octets, symbols, chipsPer] = figs(psdu[0]!,
+      /PSDU，(\d+) 个字节：(\d+) 个符号 × (\d+) 码片/, 'the PSDU row')
+    expect(octets, 'the octets this poll carries').toBe(poll.frame.bytes)
+    expect(symbols, 'the symbols they become').toBe(psduSymbols(octets!))
+    expect(chipsPer, 'and a data symbol’s chips').toBe(DATA_SYMBOL_CHIPS)
+    // The STS row's two factors, and the gap row if it states one.
+    const sts = rows.find((r) => r[0]!.startsWith('STS，'))!
+    const [reps, unit] = figs(sts[0]!, /STS，(\d+) × ([\d ]+) =/, 'the STS row')
+    expect(reps! * unit!, 'the STS chips the engine uses').toBe(STS_ACTIVE_CHIPS)
+    expect(unit, 'in units the gap between its halves is one of').toBe(STS_GAP_CHIPS)
+    // The whole frame, in the heading above the table and in the last row.
+    same(raw(NUMS, /^([\d.]+) µs 由什么组成/m, 'the heading above the table')[0]!,
+      poll.frame.txTimeNs / US, 'the whole poll')
+    expect(uwbPpduNs(poll.frame.bytes), 'which the engine computes from its octets')
+      .toBe(poll.frame.txTimeNs)
+  })
+
+  it('reads the structure-and-message split, both figures and their sum', () => {
+    const [structure, message] = figs(NUMS, /结构 ([\d.]+) µs，消息 ([\d.]+) µs/,
+      'the row that splits the frame')
+    const structNs = layout.filter((x) => x.key !== 'psdu').reduce((a, x) => a + x.durNs, 0)
+    same(String(structure), structNs / US, 'the structure of the frame')
+    same(String(message), seg('psdu').durNs / US, 'and its message')
+    expect(structure! + message!, 'which together are the frame')
+      .toBeCloseTo(poll.frame.txTimeNs / US, 3)
+    // 「这一轮占用的两个 2 ms 时隙里，真正有帧在传的只有 385 µs」
+    const [slots, slotMs, onAir] = figs(NUMS,
+      /这一轮占用的两个 (\d+) ms 时隙里，真正有帧在传的只有 (\d+) µs/, 'the round’s own silence')
+      .slice(0, 3)
+    const round = ofType(recs(), 'UWB_ROUND')[0]!
+    expect(slots, 'the slot length the round runs on').toBe(round.slotNs / MS)
+    expect(round.slots, 'and the slots it has').toBe(2)
+    expect(slotMs, 'the air both frames take, in whole microseconds')
+      .toBe(Math.round((poll.frame.txTimeNs + resp.frame.txTimeNs) / US))
+    expect(onAir, 'the third figure of that sentence is the same one read twice').toBe(undefined)
+  })
+
+  it('reads the RMARKER formula and the quiz that repeats it', () => {
+    const f = uwbFrame.numbers!.find((b) => b.kind === 'formula') as { text: string }
+    const [sync, sfd, total] = figs(f.text, /SYNC ([\d.]+) µs \+ SFD ([\d.]+) µs = 帧内 ([\d.]+) µs/,
+      'the RMARKER formula')
+    same(String(sync), seg('sync').durNs / US, 'the SYNC field')
+    same(String(sfd), seg('sfd').durNs / US, 'the SFD')
+    expect(sync! + sfd!, 'their sum, as the line adds them').toBeCloseTo(total!, 3)
+    same(String(total), UWB_RMARKER_NS / US, 'and where the RMARKER falls')
+    // `chipsToNs` rounds to the nanosecond; the constant keeps the fraction.
+    expect(chipsToNs(UWB_RMARKER_CHIPS), 'which the engine computes from its chips')
+      .toBe(Math.round(UWB_RMARKER_NS))
+    // The quiz prints all three again.
+    const [qSync, qSfd] = figs(QUIZ, /经过 ([\d.]+) µs 的 SYNC 与 ([\d.]+) µs 的 SFD/, 'the quiz’s own pair')
+    expect([qSync, qSfd], 'the same two fields').toEqual([sync, sfd])
+    same(raw(QUIZ, /比它早 ([\d.]+) µs/, 'the quiz on the offset')[0]!, UWB_RMARKER_NS / US,
+      'the offset the quiz asks about')
+    // The figure prints the SFD's duration a third time, in a box label.
+    expect(JSON.stringify(uwbFrameFields()), 'the figure still carries the SFD’s own duration')
+      .toContain(`SFD ${(seg('sfd').durNs / US).toFixed(3)} µs`)
+  })
+
+  it('reads the PSDU’s bit budget and the rate it goes out at', () => {
+    const f = uwbFrame.numbers!.filter((b) => b.kind === 'formula')[1] as { text: string }
+    const [data, parity, tail, symbols, chips] = figs(f.text,
+      /(\d+) 个数据比特 \+ (\d+) 个校验比特 \+ (\d+) 个符号的尾 = (\d+) 个符号 × (\d+) 码片/,
+      'the PSDU formula')
+    expect(data, 'the data bits thirty octets hold').toBe(8 * poll.frame.bytes)
+    expect(parity, 'the parity the engine adds').toBe(RS_PARITY_BITS)
+    expect(tail, 'the tail symbols').toBe(TAIL_SYMBOLS)
+    expect(symbols, 'the symbols they come to').toBe(psduSymbols(poll.frame.bytes))
+    expect(chips, 'and a data symbol’s chips').toBe(DATA_SYMBOL_CHIPS)
+    expect(chipsToNs(symbols! * chips!), 'which buy the PSDU its duration').toBe(seg('psdu').durNs)
+    // 「为什么 30 个字节要花 37.179 µs」 — the heading of that formula.
+    const [octets, us] = figs(NUMS, /为什么 (\d+) 个字节要花 ([\d.]+) µs/, 'the heading of the formula')
+    expect(octets, 'the octets').toBe(poll.frame.bytes)
+    same(String(us), seg('psdu').durNs / US, 'and the duration they take')
+    // 「按 6.81 Mb/s 算，光是消息本身只要 35.2 µs」
+    const [mbps, bare] = figs(NUMS, /按 ([\d.]+) Mb\/s 算，光是消息本身只要 ([\d.]+) µs/,
+      'the rate and the bare message')
+    expect(mbps, 'the rate the PSDU goes out at').toBe(UWB_MBPS)
+    same(String(bare), (8 * poll.frame.bytes) / mbps! / 1000 * 1000, 'the message at that rate')
+    expect(bare, 'which is less than the PSDU field itself takes').toBeLessThan(seg('psdu').durNs / US)
+  })
+
+  it('reads the poll-and-response table, and what differs between them', () => {
+    const rows = tableOf(1).rows
+    for (const [row, tx] of [[rows[0]!, poll], [rows[1]!, resp]] as const) {
+      const [octets] = figs(row[1]!, /^(\d+) octets$/, `the octets of 「${row[0]}」`)
+      expect(octets, `the octets of 「${row[0]}」`).toBe(tx.frame.bytes)
+      const l = uwbPpduLayout(tx.frame)
+      same(raw(row[2]!, /^([\d.]+) µs$/, `the PSDU of 「${row[0]}」`)[0]!,
+        l.find((x) => x.key === 'psdu')!.durNs / US, `the PSDU of 「${row[0]}」`)
+      same(raw(row[3]!, /^([\d.]+) µs$/, `the frame of 「${row[0]}」`)[0]!, tx.frame.txTimeNs / US,
+        `the whole frame of 「${row[0]}」`)
+    }
+    expect(uwbRespBytes('ss'), 'the response’s own octet count').toBe(resp.frame.bytes)
+    // `sources`: the response's octet count is this simulator's own choice, named as one.
+    const [srcOctets] = figs(SRC, /与 (\d+) 字节的应答是本仿真器对/, '`sources` on the response')
+    expect(srcOctets, 'the same octet count').toBe(resp.frame.bytes)
+    const [srcSlot] = figs(SRC, /(\d+) ms 的测距时隙来自/, '`sources` on the slot')
+    expect(srcSlot, 'the slot length').toBe(ofType(recs(), 'UWB_ROUND')[0]!.slotNs / MS)
+  })
+
+  it('reads the six steps: the counts, the gain, the jitter and the tick', () => {
+    const [sync, sfd, gap] = figs(NUMS,
+      /(\d+) 个 SYNC 前导符号[^]*?(\d+) 个 SFD 符号（symbol）、夹在两段 (\d+) 码片间隔中间的 STS/,
+      'the steps on the frame’s own five segments')
+    expect([sync, sfd], 'the two preamble fields’ symbol counts').toEqual([SYNC_SYMBOLS, SFD_SYMBOLS])
+    expect(gap, 'the gap on each side of the STS').toBe(STS_GAP_CHIPS)
+    expect(layout.filter((x) => x.key === 'stsGap').length, 'and there really are two of them').toBe(2)
+    // 「同一个前导符号重复的那 64 遍——相比只用一个符号，这一步值 18.1 dB」
+    const [reps, gainDb] = figs(NUMS, /重复的那 (\d+) 遍[^]*?这一步值 ([\d.]+) dB/, 'the steps on the gain')
+    expect(reps, 'the repetitions the accumulation gets').toBe(SYNC_SYMBOLS)
+    same(String(gainDb), UWB_TS_ACCUM_GAIN_DB, 'the gain they are worth')
+    expect(Number((10 * Math.log10(reps!)).toFixed(1)), 'which is ten log ten of them')
+      .toBe(val(String(gainDb)))
+    // `limits` prints the same gain again, and the same two symbol counts.
+    same(raw(LIM, /于是那 ([\d.]+) dB 的前导累积增益/, '`limits` on the gain')[0]!, UWB_TS_ACCUM_GAIN_DB,
+      'the gain, in `limits`')
+    const [limSync, limSts, limUnit, limMbps] = figs(LIM,
+      /(\d+) 个 SYNC 前导符号、SFD #2、(\d+) × (\d+) 码片的 STS、([\d.]+) Mb\/s 的 PSDU/,
+      '`limits` on the one PPDU shape')
+    expect(limSync, 'the SYNC symbols').toBe(SYNC_SYMBOLS)
+    expect(limSts! * limUnit!, 'the STS chips').toBe(STS_ACTIVE_CHIPS)
+    expect(limMbps, 'and the PSDU’s rate').toBe(UWB_MBPS)
+    // 「1σ 是 100 ps」 and 「一格是 15.650 ps」
+    const [sigma, ps] = figs(NUMS, /(\d+)σ 是 (\d+) ps/, 'the steps on the jitter')
+    expect(sigma, 'one standard deviation').toBe(1)
+    expect(ps, 'the jitter this session quotes its stamps at')
+      .toBe(uwbFrame.scenario().uwb!.tsNoisePs)
+    same(raw(NUMS, /一格是 ([\d.]+) ps/, 'the steps on the tick')[0]!, RCTU_PS, 'one tick of the counter')
+    expect(RCTU_NS * 1000, 'which is the same tick in nanoseconds').toBeCloseTo(RCTU_PS, 6)
+  })
+
+  it('reads the experiment’s four figures, one of which is a constant of nature', () => {
+    const [ps, mPerNs] = figs(TRY, /再乘以 ([\d.]+) ps、乘以 ([\d.]+) m\/ns/, '`tryThis` on the two factors')
+    same(String(ps), RCTU_PS, 'the tick the experiment multiplies by')
+    expect(mPerNs, 'the speed of light, in metres a nanosecond').toBe(0.299792458)
+    expect(mPerNs! * 1e9, 'which is the figure physics gives it, in metres a second').toBe(299_792_458)
+    const [rctu, metres] = figs(TRY, /你应该得到 (\d+) RCTU 与 ([\d.]+) m/, '`tryThis` on the answer')
+    // The round's own two stamps: the answer the reader is told they should get.
+    same(String(metres), (rctu! * RCTU_PS * mPerNs!) / 1000, 'the distance those ticks come to')
+    expect(rctu, 'and the ticks are a whole number of them').toBe(Math.round(rctu!))
+    /*
+     * **「测距行里的那个数」 is the range line's RAW figure.** That line prints three: the
+     * corrected distance (4.95 m), the truth (5.00 m) and the raw time-of-flight converted
+     * straight to metres (5.02 m) — and the hand computation the reader is walked through is
+     * the third, because nothing in it corrects the clock.
+     */
+    const range = ofType(recs(), 'UWB_RANGE')[0]!
+    expect(rctu, 'the ticks the round’s own record carries').toBe(range.tofRawRctu)
+    same(String(metres), rctuToMetres(range.tofRawRctu!), 'the raw figure the range line prints')
+    expect(range.distM, 'while the corrected distance it also prints is a different number')
+      .not.toBe(rctuToMetres(range.tofRawRctu!))
+  })
+
+  it('reads `limits` and the variant label', () => {
+    /*
+     * **The three figures of `limits` are the engine's own constants** — the sweep of 2026-10-13
+     * walked through all three, because what stood here were bounds (「bigger than the parity」,
+     * 「below −80 dBm」, 「slower than the PSDU's rate」) and a bound admits its neighbour.
+     */
+    const [block] = figs(LIM, /每 (\d+) 比特一块的 RS 校验/, '`limits` on the RS block')
+    expect(block, 'the block the parity is computed over').toBe(RS_BLOCK_BITS)
+    const [floor] = figs(LIM, /只问到达电平有没有达到 −(\d+) dBm/, '`limits` on the receiver floor')
+    expect(-floor!, 'the floor the engine checks every reception against').toBe(UWB_RX_SENS_DBM)
+    /*
+     * **The 850 kb/s is the nominal rate the PHR's own symbol length is defined at** — this
+     * engine never carries a PSDU at it, but it is in the engine all the same, as the comment
+     * beside `PHR_SYMBOL_CHIPS` records: that constant is Table 16-4/16-14's 850 kb/s figure.
+     * So the sentence's 「850 kb/s 换更省的码片」 is read against the source that holds it.
+     */
+    const [other] = figs(LIM, /「([\d ]+) kb\/s 换更省的码片/, '`limits` on the rate it does not build')
+    const PHY = readFileSync(new URL('../../src/uwb/phy.ts', import.meta.url), 'utf8')
+    expect(figs(PHY, /PHR_SYMBOL_CHIPS = \d+ \/\/ standard Table [\d/-]+ \((\d+) kb\/s nominal\)/,
+      'the rate `phy.ts` defines the PHR symbol at')[0], 'the rate the engine names').toBe(other)
+    expect(other! / 1000, 'and this engine’s own PSDU does not run at it').not.toBe(UWB_MBPS)
+    // The variant's label, which is reader-visible text with a figure in it.
+    const [metres] = figs(uwbFrame.variants![0]!.label, /相距 (\d+) m/, 'the variant’s own label')
+    const sc = uwbFrame.variants![0]!.scenario()
+    const [a, b] = sc.nodes.filter((n) => n.uwb !== undefined)
+    expect(Math.round(Math.hypot(a!.pos.x - b!.pos.x, a!.pos.y - b!.pos.y)),
+      'the distance that variant really puts between them').toBe(metres)
   })
 })
