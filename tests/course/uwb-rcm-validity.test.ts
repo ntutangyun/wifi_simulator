@@ -33,6 +33,8 @@ import {
   rstuNs, uwbInitBytes, uwbPollBytes, uwbRmnrBytes,
 } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
+import { uwbAncillary } from '../../src/course/uwb/uwb-ancillary'
+import { uwbAncillaryRequest } from '../../src/course/uwb/uwb-ancillary-request'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -393,5 +395,209 @@ describe('uwb-rcm-validity · no frame length is written as a literal', () => {
     for (const fn of ['uwbPollBytes', 'uwbInitBytes', 'uwbRmnrBytes', 'blockCarriesRcm']) {
       expect(code, fn).toContain(fn)
     }
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Every byte count, slot count and saving in this lesson is interpolated from its own module and
+ * the file above measures those against runs. What is typed is the **standard's own field layout**
+ * — six bits, bits 9 to 14, 0 to 63 rounds, bit 15 for the other request — plus the two model
+ * values `sources` lists, the hall, and the two halves of the Request bit it borrows from the
+ * ancillary lessons.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the field's width is read against the range it allows.** 「字段里的第 9 到 14 位，6 位，
+ *    所以标准侧的取值是 0 到 63 轮」 is four figures of one claim: the two bit indices span that
+ *    many bits, and that many bits hold exactly that many values.
+ *  - **「第 0 块 39 字节，第 1 块 14 字节」 is read as the two openers the run really sends**, by
+ *    the block each figure names — and the information elements that go with them.
+ *  - **the Request bit's two halves are read on the lessons that have them**, the same way
+ *    `@uwb-ancillary` reads them, because this lesson's `limits` only *mentions* them.
+ */
+describe('uwb-rcm-validity · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const TERMS = blockText(uwbRcmValidity.terms)
+  const PIC = blockText(uwbRcmValidity.picture)
+  const NUMS = blockText(uwbRcmValidity.numbers)
+  const LIM = blockText(uwbRcmValidity.limits)
+  const SRC = blockText(uwbRcmValidity.sources)
+  const OBS = blockText(uwbRcmValidity.observe)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+
+  const rs = runOf(uwbRcmValidity, undefined, RUN_NS)
+
+  it('reads the field’s own width against the range of rounds it allows', () => {
+    /*
+     * 「有效轮次字段是 ARC 信息单元控制字段里的第 9 到 14 位，6 位，所以标准侧的取值是 0 到 63
+     * 轮」 — the two bit indices, the width they span and the values that width holds. No corpus
+     * ships with this repo, so what is read is the arithmetic between the four figures, which is
+     * what makes them a layout rather than four numbers.
+     */
+    const [from, to, bits] = figs(SRC, /字段里的第 (\d+) 到 (\d+) 位，(\d+) 位/,
+      '`sources` on the field’s bits')
+    expect(to! - from! + 1, 'the bits those two indices span').toBe(bits)
+    const [lo, hi] = figs(SRC, /所以标准侧的取值是 (\d+) 到 (\d+) 轮/, '`sources` on the range')
+    expect(hi! - lo! + 1, 'and the values that many bits hold').toBe(2 ** bits!)
+    // `limits` prints the width again, and the engine's own field is inside that range
+    const [limBits] = figs(LIM, /有效轮次那 (\d+) 位/, '`limits` on the same width')
+    expect(limBits, 'the same width, a second time').toBe(bits)
+    const [termBits] = figs(TERMS, /ARC 信息单元里的一个 (\d+) 位字段/, 'the term on the same width')
+    expect(termBits, 'and a third time, in the term').toBe(bits)
+    /*
+     * 「ARC_IE_BYTES 一个字节数（头部加 8 字节的控制、块号、轮号、时隙号）」 — the octets that
+     * element carries beyond the header every element has, read off the engine's own price.
+     */
+    const [content] = figs(LIM, /头部加 (\d+) 字节的控制、块号、轮号、时隙号/,
+      '`limits` on what the ARC element carries')
+    expect(ARC_IE_BYTES - UWB_IE_HDR_BYTES, 'what it carries past the header').toBe(content)
+    expect(uwbRcmValidityScenario().uwb!.rcmValidityRounds, 'and this lesson’s own setting')
+      .toBeLessThanOrEqual(hi!)
+    expect(uwbRcmValidityScenario().uwb!.rcmValidityRounds, 'inside the range the field allows')
+      .toBeGreaterThanOrEqual(lo!)
+    // 「第 15 位是 §10.36 的…请求位」 — one past the field, printed twice
+    const requestBits = [...LIM.matchAll(/第 (\d+) 位/g)].map((m) => val(m[1]!))
+    expect(requestBits.length, 'the other request bit, named twice').toBe(2)
+    expect(new Set(requestBits).size, 'and it is the same bit both times').toBe(1)
+    expect(requestBits[0], 'immediately above the validity field').toBe(to! + 1)
+  })
+
+  it('reads the two openers by the block each figure names', () => {
+    // 「第 0 块 39 字节，第 1 块 14 字节」
+    const [longBlock, longBytes, shortBlock, shortBytes] = figs(PIC,
+      /第 (\d) 块 (\d+) 字节，第 (\d) 块 (\d+) 字节/, '`picture` on the two openers')
+    const op = openers(rs)
+    const of_ = (b: number) => op.find((x) => x.block === b)!
+    expect(of_(longBlock!).bytes, `block ${longBlock} really opens with that many octets`)
+      .toBe(longBytes)
+    expect(of_(shortBlock!).bytes, `and block ${shortBlock} with that many`).toBe(shortBytes)
+    expect(of_(longBlock!).kind, 'the long one is the poll').toBe('uwbPoll')
+    expect(of_(shortBlock!).kind, 'and the short one is the initiation message').toBe('uwbInit')
+    expect(longBytes, 'which is the saving this lesson is about').toBeGreaterThan(shortBytes!)
+    // 「点开它看信息单元那一列，只剩 RRMC 一个；第 0 块那一帧里的 ARC 与 RDM 都不在了」
+    expect(of_(shortBlock!).ies, 'the short opener carries one element').toEqual(['RRMC'])
+    for (const ie of ['ARC', 'RDM']) {
+      expect(of_(longBlock!).ies, `and the long one carries ${ie}`).toContain(ie)
+    }
+    // 「点开第 1 块那帧开场的信息单元列」 — `observe` names the same block
+    const [obsBlock] = figs(OBS, /点开第 (\d) 块那帧开场的信息单元列/, '`observe` on the block')
+    expect(obsBlock, 'the same block the picture names').toBe(shortBlock)
+    // 「RMNR 帧 = 帧头 9 + 信息单元头 2 + 帧校验 2 = 13 字节」
+    const [mhr, ieHdr, fcs, total] = figs(NUMS,
+      /RMNR 帧 = 帧头 (\d+) \+ 信息单元头 (\d+) \+ 帧校验 (\d+) = (\d+) 字节/,
+      '`numbers` on the RMNR frame')
+    expect([mhr, ieHdr, fcs], 'the three widths this engine really uses')
+      .toEqual([UWB_MHR_BYTES, UWB_IE_HDR_BYTES, UWB_FCS_BYTES])
+    expect(mhr! + ieHdr! + fcs!, 'and their sum is the frame').toBe(total)
+    expect(total, 'which is what the engine prices it at').toBe(uwbRmnrBytes())
+  })
+
+  it('reads the anchors’ own names, which is where the window’s figure lives in the file', () => {
+    /*
+     * **The site of a figure can be a name.** 「一直播到第 4 块」 is interpolated from `VALIDITY`,
+     * so the only standalone 「4」 inside this module's strings is the id `'anchor-4'` — and the
+     * sweep of 2026-10-14 plants that one. Renaming an anchor is a real change to the scene and
+     * nothing noticed it, so the ids are read here: this lesson's anchors are numbered from one,
+     * consecutively, as many as it has, and the walled variant's own anchor is the last of them.
+     */
+    const sc = uwbRcmValidityScenario()
+    const ids = sc.nodes.filter((n) => n.uwb?.role === 'anchor').map((n) => n.id)
+    expect(ids.length, 'the anchors this lesson lays out').toBe(ANCHORS)
+    expect(ids, 'numbered from one, consecutively')
+      .toEqual(Array.from({ length: ANCHORS }, (_v, i) => `anchor-${i + 1}`))
+    expect(WALLED_ANCHOR, 'and the walled one is the last of them').toBe(ids.at(-1))
+    const walled = uwbRcmValidity.variants!.map((v) => v.scenario())
+      .find((s) => s.walls.length > sc.walls.length)!
+    expect(walled.nodes.some((n) => n.id === WALLED_ANCHOR),
+      'which really is in the walled scene').toBe(true)
+  })
+
+  it('reads the block the window turns over on', () => {
+    /*
+     * 「一直播到第 4 块：开场帧又回到 39 字节。4 个块一个窗口，第 0 个和第 4 个块各有一条控制
+     * 消息，中间三个块只有启动消息」 — the whole claim is about which blocks carry which opener,
+     * so it is read as that: the two blocks the sentence names open long, the ones between open
+     * short, and the window is as wide as the session says.
+     */
+    const [turnBlock, turnBytes] = figs(PIC, /一直播到第 (\d+) 块：开场帧又回到 (\d+) 字节/,
+      '`picture` on the turn of the window')
+    const [perWindow, firstBlock, lastBlock] = figs(PIC,
+      /(\d+) 个块一个窗口，第 (\d) 个和第 (\d+) 个块各有一条控制消息/, '`picture` on the window')
+    const op = openers(rs)
+    const of_ = (b: number) => op.find((x) => x.block === b)!
+    expect(perWindow, 'the window this session really runs')
+      .toBe(uwbRcmValidityScenario().uwb!.rcmValidityRounds)
+    expect(lastBlock, 'the block the sentence plays on to').toBe(turnBlock)
+    expect(lastBlock! - firstBlock!, 'one window apart').toBe(perWindow)
+    for (const b of [firstBlock!, lastBlock!]) {
+      expect(of_(b).kind, `block ${b} opens with a control message`).toBe('uwbPoll')
+      expect(of_(b).bytes, `and it is that long`).toBe(turnBytes)
+    }
+    const [betweenCn] = raw(PIC, /中间(.)个块只有启动消息/, '`picture` on the blocks between')
+    const between = '零一二三四五六七八九'.indexOf(betweenCn!)
+    expect(between, 'the blocks between the two').toBe(perWindow! - 1)
+    for (let b = firstBlock! + 1; b < lastBlock!; b++) {
+      expect(of_(b).kind, `block ${b} opens with an initiation message`).toBe('uwbInit')
+    }
+  })
+
+  it('reads the model values `sources` lists, and the hall it keeps', () => {
+    // 「2 ms 的测距时隙与 200 ms 的块来自 FiRa 的缺省配置」
+    const [slotMs, blockMs] = figs(SRC, /([\d.]+) ms 的测距时隙与 (\d+) ms 的块来自 FiRa/,
+      '`sources` on the two FiRa defaults')
+    const session = uwbRcmValidityScenario().uwb!
+    expect(rstuNs(session.slotRstu), 'the slot this scene runs').toBe(slotMs! * MS)
+    expect(rstuNs(session.blockRstu), 'and its block').toBe(blockMs! * MS)
+    // 「时间戳噪声按缺省留在 100 ps」
+    const [noisePs] = figs(SRC, /时间戳噪声按缺省留在 (\d+) ps/, '`sources` on the noise')
+    expect(noisePs, 'the noise this lesson leaves on').toBe(session.tsNoisePs)
+    // 「本课的三个场景是同一个 22 × 8 m 大厅的三种设置」
+    const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
+    const scenes = [uwbRcmValidityScenario(), ...uwbRcmValidity.variants!.map((v) => v.scenario())]
+    expect(scenes.length, 'the three scenes it counts').toBe(3)
+    for (const sc of scenes) {
+      expect([sc.rooms[0]!.w, sc.rooms[0]!.h], 'every one of them in the same hall')
+        .toEqual([wide, deep])
+    }
+  })
+
+  it('reads the two halves of the Request bit it borrows from the next module', () => {
+    /*
+     * 「这个交换只建了 Request 置 0 的那一半…没建的是 Request 置 1 的那一半」 — this lesson only
+     * mentions them, so each half is read on the lesson that runs it, the same way
+     * `@uwb-ancillary` does.
+     */
+    const halves = [...LIM.matchAll(/Request 置 (\d)/g)].map((m) => val(m[1]!))
+    expect(halves.length, 'both halves are named').toBeGreaterThanOrEqual(2)
+    // one bit has two values, and every mention of it prints one of them
+    expect(new Set(halves), 'every mention is one of the two values of one bit')
+      .toEqual(new Set([0, 1]))
+    const built = halves[0]!
+    const notBuilt = halves.find((h) => h !== built)!
+    expect(uwbAncillary.scenario().uwb!.ancillaryRequest, 'the half that lesson builds')
+      .toBe(Boolean(built))
+    expect(uwbAncillaryRequest.scenario().uwb!.ancillaryRequest, 'and the half the next one does')
+      .toBe(Boolean(notBuilt))
+    // 「Frames Remaining 在那一位置 1 时装的是请求的时隙数」 — the half that carries a slot count
+    const [asksWhen] = figs(LIM, /Frames Remaining 在那一位置 (\d) 时装的是请求的时隙数/,
+      '`limits` on what the field then means')
+    expect(asksWhen, 'the half that asks for slots').toBe(notBuilt)
   })
 })
