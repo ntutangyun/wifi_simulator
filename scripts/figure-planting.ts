@@ -104,7 +104,60 @@ function allFiles(dir: string, out: string[] = []): string[] {
   return out
 }
 
-const sources = allFiles(COURSE).map((p) => ({ p, src: readFileSync(p, 'utf8') }))
+/**
+ * **A figure is looked for in the lesson's prose, not in its comments.**
+ *
+ * The offset of a printed figure is found by searching the module file for the string the reader
+ * reads. For a long sentence that is unambiguous; for a table cell that is just 「14」 it is not —
+ * `@uwb-sp3` has four cells whose whole text is a bare number, built by interpolation
+ * (`${BYTES.respDeferred}`), and 「14」 also occurs in a docblock three hundred lines away
+ * (「one 14-octet Response each」) while 「17」 occurs inside the header's 「37.179 µs」. Planting
+ * at those offsets edits a comment: no test can see it, so the sweep reports the figure unnoticed
+ * for ever and no read-back can close it. (Found 2026-10-14, by reading the two offsets the
+ * `--list` of that lesson gave.)
+ *
+ * So the search runs over a copy with every comment blanked out, character for character, which
+ * keeps the offsets valid and makes a comment match impossible. An interpolated cell then finds
+ * no literal at all and is skipped, which is what should have happened: a figure the module never
+ * writes down cannot drift.
+ */
+function blankComments(src: string): string {
+  const out = src.split('')
+  let i = 0
+  let inStr: string | null = null
+  while (i < src.length) {
+    const c = src[i]!
+    const next = src[i + 1]
+    if (inStr) {
+      if (c === '\\') { i += 2; continue }
+      if (c === inStr) inStr = null
+      i++
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; i++; continue }
+    if (c === '/' && next === '/') {
+      while (i < src.length && src[i] !== '\n') { out[i] = ' '; i++ }
+      continue
+    }
+    if (c === '/' && next === '*') {
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+        if (src[i] !== '\n') out[i] = ' '
+        i++
+      }
+      out[i] = ' '
+      out[i + 1] = ' '
+      i += 2
+      continue
+    }
+    i++
+  }
+  return out.join('')
+}
+
+const sources = allFiles(COURSE).map((p) => {
+  const src = readFileSync(p, 'utf8')
+  return { p, src, prose: blankComments(src) }
+})
 const moduleOf = (id: string) => sources.find((f) => f.src.includes(`id: '${id}'`)) ?? null
 
 function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
@@ -114,9 +167,9 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
   let skipped = 0
   for (const t of lessonTexts(l)) {
     if (!/\d/.test(t.text)) continue
-    const at = mod.src.indexOf(t.text)
+    const at = mod.prose.indexOf(t.text)
     // Not in the file as written (interpolated), or written twice (the offset would be a guess).
-    if (at === -1 || mod.src.indexOf(t.text, at + 1) !== -1) { skipped++; continue }
+    if (at === -1 || mod.prose.indexOf(t.text, at + 1) !== -1) { skipped++; continue }
     // A space is a thousands separator in this course's prose (「1 536 B」, 「250 250 字节」), so
     // the grouped form is matched first — otherwise 「1 536」 counts as two figures and planting
     // its leading digit asks a question nobody wrote.
