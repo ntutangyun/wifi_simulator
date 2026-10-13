@@ -37,7 +37,10 @@ import { readFileSync } from 'node:fs'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER } from '../../src/course/curriculum'
 import { lessonStrings, readerTexts } from '../../src/course/readability'
-import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins, selEffSinrDb } from '../../src/engine/selectivity'
+import {
+  DF_EHT_KHZ, RU26_PER_20MHZ, RU26_TONES,
+  selBinWidthMhz, selBins, selMemberBins, selEffSinrDb,
+} from '../../src/engine/selectivity'
 import { smallScaleDb, type FadingCfg } from '../../src/engine/fading'
 import { noiseDbm } from '../../src/engine/phy'
 import { Simulation } from '../../src/engine/simulation'
@@ -393,9 +396,17 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
       (b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table' && !!b.heading?.includes('掉帧率'),
     )
     expect(table, 'the pooled drop-rate table').toBeDefined()
-    expect(dbs(row!.plain)).toEqual(dbs(table!.heading!))
-    expect(dbs(row!.plain)).toHaveLength(1)
-    for (const v of dbs(row!.plain)) expect(v).toBeCloseTo(sweep()[1].marginDb, 1)
+    /*
+     * **The gloss names TWO margins, and that is the 2026-10-13 correction.** It used to say
+     * 「本课五档各 3.62 dB」, which this lesson's own five rounds contradict: the four wider ones
+     * settle at the pooled figure and the narrowest sits a whole rung higher, at 6.62 dB — which
+     * the lesson says itself two screens later and the quiz's own explanation rests on. So the
+     * gloss now names the table's margin as the table's, and the narrow round's beside it.
+     */
+    expect(dbs(row!.plain), 'the table’s margin first, then this lesson’s narrowest round’s')
+      .toEqual([dbs(table!.heading!)[0], Number(sweep()[0].marginDb.toFixed(2))])
+    expect(dbs(row!.plain)[0], 'and the first of them is what the four wider rounds measure')
+      .toBeCloseTo(sweep()[1].marginDb, 1)
   })
 
   /**
@@ -620,5 +631,463 @@ describe('selectivity · the four limits are each about this engine', () => {
     // remains out of scope is the uneven allocation this engine cannot build.
     expect(t).toContain('多用户成员读的是它自己那一份截到整数格之后的格数')
     expect(t).toContain('不等分的分配')
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This file already measured most of what the lesson claims, and several of its assertions do
+ * read the prose — but with `expect(mainText).toContain('10.29 dB')`, which is a figure typed
+ * here beside a figure typed there. The sampling sweep of 2026-10-12 scored this lesson 6 of 6:
+ * all six figures it planted went unnoticed, and the ones it happened to pick were in the
+ * sections no assertion reaches at all — `terms`, `sources`, `limits`, `deeper`.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the bin width is computed from its own two factors.** 「每格宽度 = 26 根音调 × 78.125 kHz,
+ *    也就是 2.03125 MHz」 has all three parsed out, and the product of the first two has to be
+ *    the third and has to be what the engine answers.
+ *  - **the two tone counts are read out of `phy.ts`**, because the sentence names that table:
+ *    「234 正是本仿真器算 20 MHz 的……那个音调数（phy.ts 的 TONES_HE）」. A reader who goes there
+ *    has to find the same number, and the 80 MHz pair (980 against 36 bins' 936) is the same
+ *    read one width up.
+ *  - **the pooled drop rates are read against the engine test that owns them.** `sources` says
+ *    they come from `tests/engine/selectivity-inert.test.ts`, so the five printed cells are
+ *    compared with the five that file asserts — the only honest instrument for a figure this
+ *    lesson's own five rounds do not produce.
+ *  - **the four-bit deviation field is read as arithmetic and as a measurement**: −8 to +7 is
+ *    sixteen values, which is what four bits hold, and the 96.7 % / 15.33 % inside and outside
+ *    that window are re-drawn from the engine's own sampler.
+ *  - **the 312.5 kHz of `limits` is read against the spacing this lesson is about**: it is four
+ *    times 78.125 kHz, which is why a 26-tone RU does not exist on it.
+ *
+ * **One correction came out of writing this**, and it is in the commit beside this one: the
+ * `margin` gloss said 「本课五档各 3.62 dB」, and this lesson's own five rounds measure
+ * 6.62 / 3.62 / 3.62 / 3.62 / 3.62 — the narrowest sits a whole rung higher, which the lesson
+ * says itself two screens later (「它五轮的余量并不齐」) and which the test below measures.
+ */
+describe('selectivity · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const TERMS = blockText(lesson.terms)
+  const PIC = blockText(lesson.picture)
+  const NUMS = blockText(lesson.numbers)
+  const DEEP = blockText(lesson.deeper)
+  const SRC = blockText(lesson.sources)
+  const LIM = blockText(lesson.limits)
+  const OBS = blockText(lesson.observe)
+  const TRY = blockText(lesson.tryThis)
+  const QUIZ = blockText(lesson.quiz)
+  const ALL = [TERMS, PIC, NUMS, DEEP, SRC, LIM, OBS, TRY, QUIZ].join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...text.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((mm) => mm.slice(1))
+  }
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const occ = (text: string, needle: string): number => text.split(needle).length - 1
+  const PHY = readFileSync(new URL('../../src/engine/phy.ts', import.meta.url), 'utf8')
+  const INERT = readFileSync(new URL('../engine/selectivity-inert.test.ts', import.meta.url), 'utf8')
+
+  it('reads the tones of one bin, every printing of them', () => {
+    // 「26 根相邻音调」 / 「26 音调资源单元就是 26 个连号的子载波」 / 「26 根音调 ×」 / …
+    // Four shapes name the bin's own tone count, and one names an RU of any size.
+    for (const [text, re, n] of [
+      [ALL, /(\d+) 根相邻音调/g, 2],
+      [ALL, /(\d+) 个连号的子载波/g, 1],
+      [ALL, /(\d+) 根音调/g, 2],
+      [ALL, /九块各 (\d+) 根/g, 1],
+    ] as [string, RegExp, number][]) {
+      for (const [tones] of every(text, re, 'the tones of one bin', n)) {
+        same(tones!, RU26_TONES, 'the tones one bin is made of')
+      }
+    }
+    /*
+     * **「N 音调资源单元」 is printed at two sizes**, and both are read the same way: a tone
+     * count folds onto the bins this engine splits a channel into. 26 is one bin; 106 is the
+     * two-member share this lesson's last paragraph is about.
+     */
+    for (const [tones] of every(ALL, /(\d+) 音调资源单元/g, 'every N-tone RU', 5)) {
+      const bins = Math.floor(val(tones!) / RU26_TONES)
+      expect([1, selMemberBins(20, 1 / 2)], `「${tones} 音调资源单元」 covers`).toContain(bins)
+      if (bins === 1) same(tones!, RU26_TONES, 'the smallest RU there is')
+    }
+  })
+
+  it('reads the bin width out of its own two factors', () => {
+    const [tones, khz, mhz] = figs(NUMS,
+      /每格宽度 = (\d+) 根音调 × ([\d.]+) kHz，也就是 ([\d.]+) MHz/, '`numbers` on the bin width')
+    expect(tones, 'the tones').toBe(RU26_TONES)
+    expect(khz, 'the subcarrier spacing').toBe(DF_EHT_KHZ)
+    same(String(mhz), (tones! * khz!) / 1000, 'the bin width, from the two factors beside it')
+    same(String(mhz), selBinWidthMhz(), 'and the width the engine computes')
+    // 「每 20 MHz 就是九块，所以九乘以带宽再除以 20 就是格数」
+    const [per, div] = figs(NUMS, /每 (\d+) MHz 就是九块，所以九乘以带宽再除以 (\d+) 就是格数/,
+      '`numbers` on the bin count')
+    expect(per, 'the width the standard reports nine blocks for').toBe(div)
+    expect(RU26_PER_20MHZ * 320 / per!, 'nine blocks of that width, scaled to the widest channel')
+      .toBe(selBins(320))
+    // The subcarrier spacing, printed a second time in the same paragraph and again in `sources`.
+    for (const [khz2] of every(ALL, /([\d.]+) kHz (?:是 Wi-Fi 7 的子载波间隔|的子载波间隔出)/g,
+      'the subcarrier spacing, named twice more', 2)) {
+      expect(val(khz2!), 'the spacing this lesson’s bins are built on').toBe(DF_EHT_KHZ)
+    }
+  })
+
+  it('reads the two tone counts out of the table `phy.ts` holds', () => {
+    const TONES = (w: number): number => {
+      const m = new RegExp(`TONES_HE[^=]*= \\{[^}]*\\b${w}: (\\d+)`).exec(PHY)
+      expect(m, `phy.ts no longer holds a tone count for ${w} MHz`).not.toBeNull()
+      return Number(m![1])
+    }
+    // 「九块各 26 根，一共 234 根子载波，而 234 正是……那个音调数」
+    const [tones20a, tones20b] = figs(NUMS, /一共 (\d+) 根子载波，而 (\d+) 正是/,
+      '`numbers` on the 20 MHz tone count')
+    expect(tones20a, 'the tones nine blocks of 26 hold').toBe(RU26_PER_20MHZ * RU26_TONES)
+    expect(tones20b, 'and the same figure again, as the engine’s own').toBe(TONES_20())
+    function TONES_20(): number { return TONES(20) }
+    // 「80 MHz 的音调数是 980，而三十六块只合 936」
+    const [w, tones80, binTones] = figs(NUMS, /(\d+) MHz 的音调数是 (\d+)，而三十六块只合 (\d+)/,
+      '`numbers` on the 80 MHz pair')
+    expect(tones80, 'the tones that width carries').toBe(TONES(w!))
+    expect(binTones, 'and what its bins cover').toBe(selBins(w!) * RU26_TONES)
+    expect(selBins(w!), 'which really is thirty-six of them').toBe(36)
+    expect(tones80, 'the grid leaves some of them out').toBeGreaterThan(binTones!)
+  })
+
+  it('reads the capacity formula’s own structure', () => {
+    const f = lesson.numbers!.find((b) => b.kind === 'formula') as { text: string }
+    const [ten, log10, two, log2, one, ten2, ten3, one2] = figs(f.text,
+      /有效信噪比 = (\d+)·log(\d+)\( (\d+)\^\( 各格 log(\d+)\((\d+) \+ (\d+)\^\(\(均值 \+ 该格偏差\)\/(\d+)\)\) 的平均 \) − (\d+) \)/,
+      'the capacity formula')
+    expect([ten, log10, ten2, ten3], 'the decibel conversions are all base ten')
+      .toEqual([10, 10, 10, 10])
+    expect([two, log2], 'the capacity is base two, both ways round').toEqual([2, 2])
+    expect([one, one2], 'and the 1 + x inside it comes back out again').toEqual([1, 1])
+    // The formula is the engine's own function: one bin at a known deviation reproduces it.
+    const mean = 20
+    const devs = [3, -4, 1]
+    const byHand = 10 * Math.log10(2 ** (devs
+      .map((d) => Math.log2(1 + 10 ** ((mean + d) / 10)))
+      .reduce((a, b) => a + b, 0) / devs.length) - 1)
+    expect(selEffSinrDb(mean, devs), 'the engine computes what the line prints').toBeCloseTo(byHand, 9)
+  })
+
+  it('reads the two-ended table and the paragraph that reads it the other way', () => {
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    const worst = ends.rows.find((r) => r[0]!.includes('最深那一格'))!
+    const loss = ends.rows.find((r) => r[0]!.includes('损失中位数'))!
+    const [narrowWorst, wideWorst] = [worst[1]!, worst[2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a worst-bin cell')[0]!))
+    const [narrowLoss, wideLoss] = [loss[1]!, loss[2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a loss cell')[0]!))
+    // 「上面一行每翻一倍深约 3 dB」, over the four doublings the table spans.
+    const [perDouble] = figs(NUMS, /上面一行每翻一倍深约 (\d+) dB/, '`numbers` on the deepening')
+    const doublings = Math.log2(320 / 20)
+    expect((wideWorst - narrowWorst) / doublings, 'the deepening a doubling buys, as the prose rounds it')
+      .toBeCloseTo(perDouble!, 0)
+    // 「只多了 0.06 dB」 — the two loss cells' own difference.
+    same(raw(NUMS, /只多了 ([\d.]+) dB/, '`numbers` on the loss’s own rise')[0]!,
+      wideLoss - narrowLoss, 'the rise between the table’s two loss cells')
+    // 「在 320 MHz 上前者是后者的十倍」
+    const [wideW] = figs(NUMS, /在 (\d+) MHz 上前者是后者的十倍/, '`numbers` on the ratio')
+    expect(wideW, 'the width that comparison is about').toBe(320)
+    expect(Math.round(wideWorst / wideLoss), 'and the ratio, to the ten the prose names').toBe(10)
+    // The 40 000-draw instrument, re-measured at 4000 the way the test above does it.
+    const RAYLEIGH: FadingCfg = { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' }
+    const drawLoss = (bins: number): number => {
+      const xs: number[] = []
+      for (let i = 0; i < 4000; i++) {
+        const devs: number[] = []
+        for (let b = 0; b < bins; b++) devs.push(smallScaleDb(RAYLEIGH, 7, 'ap', 'sta', `f${i}`, b))
+        xs.push(20 - selEffSinrDb(20, devs))
+      }
+      return median(xs)
+    }
+    expect(drawLoss(selBins(20)), 'the narrow loss cell, on the instrument the heading names')
+      .toBeCloseTo(narrowLoss, 1)
+    expect(drawLoss(selBins(320)), 'and the wide one').toBeCloseTo(wideLoss, 1)
+    // 「这一课自己跑一轮量到的是另一对数——最窄一档 2.03 dB，最宽一档 2.36 dB」 and the 0.27 between.
+    const rs = WIDTHS.map((_w, i) => rowOf(i))
+    const [ownNarrow, ownWide] = raw(NUMS, /最窄一档 ([\d.]+) dB，最宽一档 ([\d.]+) dB/,
+      '`numbers` on this round’s own pair')
+    same(ownNarrow!, rs[0]!.medLossDb, 'this round’s narrow loss')
+    same(ownWide!, rs[4]!.medLossDb, 'and its wide one')
+    same(raw(NUMS, /窄的那一头差了 ([\d.]+) dB/, '`numbers` on the gap between rulers')[0]!,
+      narrowLoss - rs[0]!.medLossDb, 'the gap between the two rulers at the narrow end')
+    expect(val(ownWide!), 'while at the wide end they agree to the printed decimals')
+      .toBe(wideLoss)
+  })
+
+  it('reads the paragraph that warns a round will be shallower', () => {
+    const rs = WIDTHS.map((_w, i) => rowOf(i))
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    const tableNarrow = val(raw(ends.rows[0]![1]!, /^([\d.]+) dB$/, 'the table’s narrow cell')[0]!)
+    const [w, own, shallower] = figs(NUMS,
+      /这一课的 (\d+) MHz 变体跑下来，最深那一格的中位数是比均值低 ([\d.]+) dB，比表里那一格浅了约 ([\d.]+) dB/,
+      '`numbers` on the round against the table')
+    expect(w, 'the variant it is about').toBe(WIDTHS[0])
+    same(String(own), -rs[0]!.medWorstDb, 'the deepest bin this round’s median shows')
+    expect(tableNarrow - own!, 'how much shallower it is, as the prose rounds it')
+      .toBeCloseTo(shallower!, 1)
+    // The same two figures again at the head of the paragraph above it.
+    const [a, b] = figs(NUMS, /([\d.]+) dB 与 ([\d.]+) dB 是四万次抽样下的均值/,
+      '`numbers` on the table’s two cells')
+    expect([a, b], 'the table’s own two cells, named again')
+      .toEqual([tableNarrow, val(raw(ends.rows[0]![2]!, /^([\d.]+) dB$/, 'the wide cell')[0]!)])
+  })
+
+  it('reads every bandwidth the prose names outside a table', () => {
+    /*
+     * **Six of the fifteen the sweep of 2026-10-13 found were bandwidths in prose.** A width is
+     * a figure: it says which of this lesson's five variants a sentence is about, and this
+     * engine only answers for a width that splits into whole bins. Every printing is read, and
+     * the ones that name a variant are read against that variant's own bin count.
+     */
+    // The lookbehind matters: 「每格 2.03125 MHz」 ends in a run of digits that reads as a
+    // bandwidth to a pattern without one.
+    for (const [w] of every(ALL, /(?<![\d.])(\d+) MHz/g, 'every bandwidth the lesson prints', 16)) {
+      const width = val(w!)
+      expect(Number.isInteger(selBins(width)), `${width} MHz must split into whole bins`).toBe(true)
+      expect([...WIDTHS] as number[], `${width} MHz is one of the five this lesson runs`)
+        .toContain(width)
+    }
+    // 「234 正是本仿真器算 20 MHz 的 Wi-Fi 6／7 每符号比特数时用的那个音调数」
+    const [w20] = figs(NUMS, /正是本仿真器算 (\d+) MHz 的/, '`numbers` on the tone table’s width')
+    expect(w20, 'the width that tone count belongs to').toBe(WIDTHS[0])
+    expect(occ(ALL, 'Wi-Fi 6／7'), 'the two generations the grid applies to, named once').toBe(1)
+    // 「落在「每 20 MHz 九块」这张网格之外」 and 「在 320 MHz 上看到两个 2.36」
+    const [gridW] = figs(NUMS, /落在「每 (\d+) MHz 九块」这张网格之外/, '`numbers` on the grid')
+    expect(RU26_PER_20MHZ, 'nine blocks of that width').toBe(selBins(gridW!))
+    const [coincW, coincDb] = figs(NUMS, /在 (\d+) MHz 上看到两个 ([\d.]+)/, '`numbers` on the coincidence')
+    expect(coincW, 'the width the two rulers agree at').toBe(WIDTHS[4])
+    const rs = WIDTHS.map((_w, i) => rowOf(i))
+    same(String(coincDb), rs[4]!.medLossDb, 'the figure they agree on')
+    // 「320 MHz 的链路比 20 MHz 的链路差十几个分贝」
+    const [deepWide, deepNarrow] = figs(DEEP, /(\d+) MHz 的链路比 (\d+) MHz 的链路差十几个分贝/,
+      '`deeper` on the two links')
+    expect([deepWide, deepNarrow], 'the widest and the narrowest').toEqual([WIDTHS[4], WIDTHS[0]])
+  })
+
+  it('reads the capacity sentence in prose, and the provenance `sources` gives every figure', () => {
+    // 「每一格算一个 log2(1 + 信噪比)」 — the prose's own printing of the formula's two figures.
+    const [base, plus] = figs(NUMS, /每一格算一个 log(\d+)\((\d+) \+ 信噪比\)/,
+      '`numbers` on the capacity in prose')
+    expect(base, 'capacity is base two').toBe(2)
+    expect(plus, 'and the 1 + x inside it').toBe(1)
+    const f = lesson.numbers!.find((b) => b.kind === 'formula') as { text: string }
+    expect(f.text, 'the same two in the formula block').toContain(`log${base}(${plus} + `)
+    /*
+     * **`sources` names every instrument, and the figures beside the names are figures.** Four
+     * of the fifteen the sweep found were here: the two loss medians, the round's own deepest
+     * bin, and the two run lengths that make the engine's sweep and this lesson's disagree.
+     */
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    const [a, b] = figs(SRC, /([\d.]+)／([\d.]+) dB 两个损失中位数/, '`sources` on the two medians')
+    expect([a, b], 'the table’s own two loss cells')
+      .toEqual([ends.rows[1]![1]!, ends.rows[1]![2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a cell')[0]!)))
+    const rs = WIDTHS.map((_w, i) => rowOf(i))
+    const [own, w, ms] = figs(SRC, /([\d.]+) dB 是这一课 (\d+) MHz 变体自己那 (\d+) ms 跑出来的/,
+      '`sources` on this round’s own figure')
+    same(String(own), -rs[0]!.medWorstDb, 'the deepest bin this round shows')
+    expect(w, 'the variant it is about').toBe(WIDTHS[0])
+    expect(ms * MS, 'and the length this file runs it for').toBe(RUN_NS)
+    const [engineMs] = figs(SRC, /引擎那边同一个场景跑 (\d+) ms 读到的是另一个数/,
+      '`sources` on the engine’s own length')
+    expect(engineMs, 'the length the engine sweep runs, which is longer').toBeGreaterThan(ms!)
+    const ROUND = readFileSync(new URL('../engine/selectivity-round.test.ts', import.meta.url), 'utf8')
+    expect(ROUND, 'and that file really does run it for that long')
+      .toContain(`${engineMs}`)
+  })
+
+  it('reads the five pooled drop rates against the engine test that owns them', () => {
+    const table = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('掉帧率'))!
+    const printed = table.rows.map((r) => raw(r[2]!, /^([\d.]+) %$/, `the rate of ${r[0]} MHz`)[0]!)
+    // The engine test asserts the same five as one array; `sources` names that file.
+    const asserted = raw(INERT, /toEqual\(\['([\d.]+)', '([\d.]+)', '([\d.]+)', '([\d.]+)', '([\d.]+)'\]\)/,
+      'the five rates `selectivity-inert.test.ts` asserts')
+    expect(printed, 'the five cells, against the five that file pins').toEqual(asserted)
+    expect(SRC, 'and `sources` names that file').toContain('selectivity-inert.test.ts')
+    // The widths and bin counts beside them are the engine's own.
+    expect(table.rows.map((r) => val(r[0]!)), 'the five widths').toEqual([...WIDTHS])
+    expect(table.rows.map((r) => val(r[1]!)), 'and their bin counts').toEqual(WIDTHS.map(selBins))
+    // 「14.66 % 到 0.75 %，端到端十九倍」
+    const [from, to] = figs(NUMS, /([\d.]+) % 到 ([\d.]+) %，端到端十九倍/, '`numbers` on the span')
+    expect([String(from), String(to)], 'the two ends of the span').toEqual([printed[0], printed[4]])
+    // 「十九倍」 is a floor — the ratio is 19.55, and the sentence says nineteen times over.
+    expect(from! / to!, 'the ratio the prose names in characters').toBeGreaterThan(19)
+    expect(from! / to!, 'and under the next whole one').toBeLessThan(20)
+  })
+
+  it('reads the margin the table rests on, and the gloss that used to overclaim it', () => {
+    const rs = WIDTHS.map((_w, i) => rowOf(i))
+    const table = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('掉帧率'))!
+    const [pooled] = figs(table.heading!, /余量都是 ([\d.]+) dB/, 'the table’s own heading')
+    /*
+     * **The margin is the table's, not this lesson's five rounds'** — the correction this
+     * read-back produced. Four of the five rounds settle at the pooled figure and the narrowest
+     * settles a whole rung higher, which is the lesson's own later point and the quiz's answer.
+     */
+    const [glossPooled, glossOwn] = figs(TERMS, /五档各 ([\d.]+) dB（本课自己那五轮并不这样齐，最窄一档停在 ([\d.]+) dB）/,
+      'the `margin` gloss')
+    expect(glossPooled, 'the gloss names the table’s margin').toBe(pooled)
+    for (const r of rs.slice(1)) {
+      same(String(pooled), r.marginDb, `the margin of this lesson’s own ${r.w} MHz round`)
+    }
+    same(String(glossOwn), rs[0]!.marginDb, 'and the narrowest round’s own margin')
+    expect(rs[0]!.marginDb, 'which really is a rung higher').toBeGreaterThan(pooled! + 2)
+    // The same margin again in the paragraph under the table and in the quiz.
+    for (const groups of every([NUMS, QUIZ].join('\n'),
+      /余量都是 ([\d.]+) dB|前提是五档余量都是 ([\d.]+) dB/g,
+      'the pooled margin, named three times', 3)) {
+      expect(val(groups.find((x) => x !== undefined)!), 'the margin the table rests on').toBe(pooled)
+    }
+    // 「不是速率余量固定留的 3 dB」: the margin the rate picker leaves, out of `phy.ts`.
+    const [rateMargin] = figs(TERMS, /速率余量固定留的 (\d+) dB/, 'the `margin` gloss on the rate margin')
+    expect(rateMargin, 'the margin `dataRateFor` adds to every sensitivity')
+      .toBe(figs(PHY, /rssiDbm >= r\.sensDbm \+ (\d+)/, 'the margin in `phy.ts`')[0])
+  })
+
+  it('reads the noise floor the table had to cancel, and the deeper subtraction', () => {
+    const [from, to, rise] = figs(NUMS,
+      /噪声地板（noise floor）从 (\d+) 到 (\d+) MHz 抬高了 ([\d.]+) dB/, '`numbers` on the noise floor')
+    expect([from, to], 'the two widths').toEqual([WIDTHS[0], WIDTHS[4]])
+    same(String(rise), noiseDbm(to!) - noiseDbm(from!), 'the noise floor’s own rise')
+    // Printed again in the next sentence, and again in `deeper` as a coincidence to warn about.
+    for (const groups of every([NUMS, DEEP].join('\n'),
+      /这 ([\d.]+) dB 抵掉了|与噪声地板那一节的 ([\d.]+) dB 数值相同/g,
+      'the same rise, twice more', 2)) {
+      expect(val(groups.find((x) => x !== undefined)!), 'the rise the two sentences name').toBe(rise)
+    }
+    // 「24.09 − 12.05 = 12.04 dB」: the subtraction `deeper` warns is a coincidence.
+    const [wide, narrow, diff] = figs(DEEP, /（([\d.]+) − ([\d.]+) = ([\d.]+) dB/, '`deeper` on the subtraction')
+    expect(wide! - narrow!, 'the arithmetic it shows').toBeCloseTo(diff!, 9)
+    expect(diff, 'which happens to equal the noise floor’s rise').toBe(rise)
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    expect([narrow, wide], 'and both terms are the table’s own two cells')
+      .toEqual([ends.rows[0]![1]!, ends.rows[0]![2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a cell')[0]!)))
+    // 「最深那一格平均低 24.09 dB，而容量合成的损失中位数是 2.36 dB」
+    const [deepWorst, deepLoss] = figs(DEEP, /最深那一格平均低 ([\d.]+) dB，而容量合成的损失中位数是 ([\d.]+) dB/,
+      '`deeper` on the two quantities')
+    expect([deepWorst, deepLoss], 'the same two figures the table prints for the widest channel')
+      .toEqual([wide, val(raw(ends.rows[1]![2]!, /^([\d.]+) dB$/, 'the wide loss cell')[0]!)])
+  })
+
+  it('reads the four-bit deviation field, as arithmetic and as a measurement', () => {
+    const [lo, hi] = figs(ALL, /四个比特，−(\d+) 到 \+(\d+) dB/, '`numbers` on the deviation field')
+    expect(lo! + hi! + 1, 'the values four bits hold').toBe(2 ** 4)
+    // `sources` prints the same window and the same width the other way round.
+    const [srcLo, srcHi] = figs(SRC, /−(\d+) 到 \+(\d+) dB、四个比特/, '`sources` on the same field')
+    expect([srcLo, srcHi], 'the same window').toEqual([lo, hi])
+    // The two shares inside and outside it, re-drawn from the engine's own sampler.
+    const inside = (cfg: FadingCfg): number => {
+      let n = 0
+      const N = 20_000
+      for (let i = 0; i < N; i++) {
+        const d = smallScaleDb(cfg, 7, 'ap', 'sta', `w${i}`, i % 9)
+        if (d >= -lo! && d <= hi!) n++
+      }
+      return (100 * n) / N
+    }
+    const [k, ricePct] = figs(ALL, /K = (\d+) dB）?抽逐格偏差，([\d.]+) % 落在这个窗口里/,
+      '`numbers` on the Rician share')
+    const rice = inside({ shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rician', ricianKdB: k })
+    expect(Math.round(rice * 10) / 10, 'the share of Rician draws inside the window')
+      .toBeCloseTo(ricePct!, 0)
+    const [rayPct] = figs(NUMS, /才有 ([\d.]+) % 落在窗口外被夹住/, '`numbers` on the Rayleigh share')
+    const ray = 100 - inside({ shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' })
+    expect(Math.round(ray * 10) / 10, 'and the share of Rayleigh draws outside it')
+      .toBeCloseTo(rayPct!, 0)
+    // `sources` prints both shares again, and `limits` the K a third time.
+    const [srcK, srcRice, srcRay] = figs(SRC, /莱斯 K = (\d+) dB 下 ([\d.]+) %，瑞利下 ([\d.]+) %/,
+      '`sources` on the two shares')
+    expect([srcK, srcRice, srcRay], 'the same three figures').toEqual([k, ricePct, rayPct])
+    for (const groups of every([SRC, LIM].join('\n'), /K 默认 (\d+) dB|默认 (\d+) dB 的 K/g,
+      'the default K, named twice more', 2)) {
+      expect(val(groups.find((x) => x !== undefined)!), 'the K this engine defaults to').toBe(k)
+    }
+  })
+
+  it('reads the member’s share, the legacy spacing and the rest of `limits`', () => {
+    // 「20 MHz 上两个成员各读 9 格里的 4 格」 is interpolated; the 106-tone claim beside it is not.
+    expect(PIC.length + NUMS.length, 'the lesson still has the sections this reads').toBeGreaterThan(0)
+    const [tones] = figs(NUMS, /两个 (\d+) 音调资源单元正好各覆盖/, '`numbers` on the 106-tone RU')
+    expect(Math.floor(tones! / RU26_TONES), 'what that RU covers in bins').toBe(selMemberBins(20, 1 / 2))
+    // 「312.5 kHz 的子载波间隔上不存在 26 音调资源单元」: four times the spacing this lesson uses.
+    const [legacyKhz] = figs(LIM, /([\d.]+) kHz 的子载波间隔上不存在/, '`limits` on the legacy spacing')
+    expect(legacyKhz! / DF_EHT_KHZ, 'the legacy spacing, in units of this one').toBe(4)
+    // 「2.36 dB 是最小的那个数」: the loss the threshold entry calls a lower bound.
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    const wideLoss = val(raw(ends.rows[1]![2]!, /^([\d.]+) dB$/, 'the wide loss cell')[0]!)
+    same(raw(LIM, /([\d.]+) dB 是最小的那个数/, '`limits` on the lower bound')[0]!, wideLoss,
+      'the figure the threshold entry calls the smallest')
+  })
+
+  it('reads both observe lines and the two quiz figures', () => {
+    const rs = WIDTHS.map((_w, i) => rowOf(i))
+    // 「worst bin 从约 10 dB 深到约 23 dB——每翻一倍约 3 dB」
+    const [shallow, deep, perDouble] = figs(OBS,
+      /worst bin 从约 (\d+) dB 深到约 (\d+) dB——每翻一倍约 (\d+) dB/, 'the first observe line')
+    expect(Math.round(-rs[0]!.medWorstDb), 'the narrow end, as the line rounds it').toBe(shallow)
+    expect(Math.round(-rs[4]!.medWorstDb), 'and the wide end').toBe(deep)
+    expect((deep! - shallow!) / Math.log2(320 / 20), 'the deepening a doubling buys')
+      .toBeCloseTo(perDouble!, 0)
+    // 「一直在 2 dB 上下（这一课最窄一档的中位数 2.03 dB，最宽一档 2.36 dB）」
+    const [about, narrow, wide] = figs(OBS,
+      /一直在 (\d+) dB 上下（这一课最窄一档的中位数 ([\d.]+) dB，最宽一档 ([\d.]+) dB）/,
+      'the second observe line')
+    expect(Math.round(rs[0]!.medLossDb), 'the loss, to the decibel the line names').toBe(about)
+    same(String(narrow), rs[0]!.medLossDb, 'this round’s narrow loss, in `observe`')
+    same(String(wide), rs[4]!.medLossDb, 'and its wide one')
+    // The quiz: the widest channel, its deepest bin and the loss that answers it.
+    const [quizW, quizWorst] = figs(QUIZ, /(\d+) MHz 的信道有一百四十四格，最深那一格平均比均值低 ([\d.]+) dB/,
+      'the quiz’s own question')
+    expect(quizW, 'the width it asks about').toBe(WIDTHS[4])
+    expect(selBins(quizW!), 'which has the bins the question counts in characters').toBe(144)
+    const ends = lesson.numbers!
+      .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+      .find((b) => b.heading?.includes('两端的两个量'))!
+    expect(quizWorst, 'the deepest bin, as the table prints it')
+      .toBe(val(raw(ends.rows[0]![2]!, /^([\d.]+) dB$/, 'the wide worst cell')[0]!))
+    const [quizAgain] = figs(QUIZ, /要因此减掉 ([\d.]+) dB 吗/, 'the quiz’s own second printing')
+    expect(quizAgain, 'printed twice in one question').toBe(quizWorst)
+    const [quizLoss] = figs(QUIZ, /实际损失的中位数是 ([\d.]+) dB/, 'the quiz’s own answer')
+    expect(quizLoss, 'the loss the right option gives')
+      .toBe(val(raw(ends.rows[1]![2]!, /^([\d.]+) dB$/, 'the wide loss cell')[0]!))
   })
 })
