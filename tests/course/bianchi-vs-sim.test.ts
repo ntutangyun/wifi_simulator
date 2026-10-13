@@ -357,3 +357,304 @@ describe('the model-against-run table (moved here from the Bianchi lesson)', () 
     expect(arcN(2).p).toBeGreaterThan(solveBianchi({ n: 2, ...PARAMS }).p)
   })
 })
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and then compares it with a figure typed on **this**
+ * side — `expect(pct(arc5().p)).toBe('25.84 %')`, with the lesson's sentence in the `it` name. So
+ * the engine and the model are pinned and the prose is not: the sampling sweep of 2026-10-12
+ * planted six of this lesson's figures and **all six went unnoticed**. This describe parses each
+ * figure out of the shipped string and compares *that* with the same computation.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the sixteen cells of the comparison table are read as four rows of one method.** Each
+ *    row's `n` is parsed, the predicted pair has to be `solveBianchi`/`saturationThroughput` at
+ *    that `n`, and the measured pair has to be a ten-second run of the arc with that many
+ *    stations — so a digit moved in any cell lands on the row it belongs to.
+ *  - **「每个碰撞数都落在预测的 10% 以内」 is read as the tightest bound it can be.** The worst
+ *    row is 9.9 % out, so the claim holds at 10 and fails at 9 — which is what pins the figure,
+ *    where `within 10 %` alone would have been true of 11 as well.
+ *  - **the three smaller differences are read through the engine's own timings.** 「一次碰撞比
+ *    一次成功早结束 15 µs，约占一次交互的 0.7%，二十台时值 0.2% 的吞吐」 is `dcfTimes` and
+ *    `saturationThroughput` with the convention swapped, and 「预测反而往另一边挪 0.6%」 is the
+ *    paper's own T_c, so the sign of that last one is part of the read.
+ *  - **the no-window corner is read as the whole of what the run gives**: attempts, collisions,
+ *    drops, the one cheat's share, the five frames the rule-followers get out, and the 5.557 Mb/s
+ *    that is one payload over one clean exchange.
+ *
+ * **Two figures are exempt, and both are argued rather than waved:**
+ *  - **the 47.9 % of the slot-clock probe** (class (a)): that figure comes from a one-off patched
+ *    MAC which this repository deliberately does not pin — the lesson file's header and this
+ *    file's say so. What is read instead is the claim the sentence makes about it: that it lands
+ *    about half way between the measured 45.83 % and the predicted 49.59 %.
+ *  - **the 5 % of 「每个吞吐都在 5% 以内」** (class (c)): the worst row is 3.4 % out, so a 4
+ *    would be just as true of this run. The claim itself is read for all four rows.
+ */
+describe('bianchi-vs-sim · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(bianchiVsSim.picture)
+  const NUMS = blockText(bianchiVsSim.numbers)
+  const DEEP = blockText(bianchiVsSim.deeper)
+  const LIM = blockText(bianchiVsSim.limits)
+  const SRC = blockText(bianchiVsSim.sources)
+  const OBS = blockText(bianchiVsSim.observe)
+  const TRY = blockText(bianchiVsSim.tryThis)
+  const QUIZ = blockText(bianchiVsSim.quiz)
+  const LABELS = bianchiVsSimVariants.map((v) => v.label).join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const table = (): { rows: string[][] } =>
+    bianchiVsSim.numbers!.find((b) => b.kind === 'table') as unknown as { rows: string[][] }
+  /**
+   * A ten-second arc run at any station count the table lists — **through the keys this file
+   * already uses**, so the read-back adds no simulation of its own (tests/simCost.ts bounds the
+   * suite's): n = 5 and n = 20 are the lesson's two variants, and n = 2 and n = 10 are the model
+   * lesson's, which is where the other two rows have always been measured.
+   */
+  const arcAt = (n: number): Stats => n === 5
+    ? arc5()
+    : n === 20
+      ? arc20()
+      : measure(`n${n}`, bianchi.variants![n === 2 ? 0 : 1].scenario())
+  const predict = (n: number) => solveBianchi({ n, ...PARAMS })
+  const predictMbps = (n: number): number => {
+    const t = dcfTimes(1500, 6)
+    return saturationThroughput({
+      n, tau: predict(n).tau, slotNs: SLOT_NS, tsNs: t.tsNs, tcNs: t.tcNs, payloadBits: PAYLOAD_BITS,
+    }).mbps
+  }
+
+  it('reads the method’s own four inputs and the payload it counts in', () => {
+    // 「乘上一个载荷（payload）的 12,000 比特，再除以那十秒」
+    const [bits] = figs(NUMS, /一个载荷（payload）的 ([\d,]+) 比特/, 'the steps on the payload')
+    expect(bits, 'the payload every delivery carries').toBe(PAYLOAD_BITS)
+    // 「W = 16、m = 6、L = 7 取自引擎；一次成功与一次碰撞的代价按 6 Mb/s 计算」
+    const [w, m, l, mbps] = figs(NUMS,
+      /W = (\d+)、m = (\d+)、L = (\d+) 取自引擎；一次成功与一次碰撞的代价按 (\d+) Mb\/s 计算/,
+      'the steps on the model’s inputs')
+    expect(w, 'the first contention window, as the engine sets it').toBe(CW_MIN + 1)
+    expect(2 ** m! * w!, 'and the doublings it allows').toBe(CW_MAX + 1)
+    expect(l, 'the attempts a frame gets').toBe(SHORT_RETRY_LIMIT)
+    expect([...arc5().rateMix.keys()], 'the one rate this arc allows').toEqual([mbps])
+    // 「n = 5 在圆弧上（速率钉在 6 Mb/s）」 — the variant's own label, and `picture`'s
+    const [labelN, labelMbps] = figs(LABELS, /n = (\d+) 在圆弧上（速率钉在 (\d+) Mb\/s）/,
+      'the first variant’s label')
+    expect(labelN, 'the stations that variant puts on the arc')
+      .toBe(bianchiVsSimVariants[0]!.scenario().nodes.filter((x) => x.kind === 'sta').length)
+    expect(labelMbps, 'and the rate it pins them to').toBe(mbps)
+    const [picN] = figs(PIC, /先切到「n = (\d+) 在圆弧上」/, '`picture` on the variant it opens')
+    expect(picN, 'the same variant the watch call-out sends the reader to').toBe(labelN)
+  })
+
+  it('reads the comparison table as four rows of one method', () => {
+    const rows = table().rows
+    expect(rows, 'four station counts').toHaveLength(4)
+    for (const row of rows) {
+      const [n] = figs(row[0]!, /^(\d+)$/, 'the row’s own station count')
+      const [predP] = figs(row[1]!, /^([\d.]+) %$/, `the prediction at n = ${n}`)
+      const [gotP] = figs(row[2]!, /^([\d.]+) %$/, `the measurement at n = ${n}`)
+      const [predS] = figs(row[3]!, /^([\d.]+)$/, `the predicted throughput at n = ${n}`)
+      const [gotS] = figs(row[4]!, /^([\d.]+) Mb\/s$/, `the measured throughput at n = ${n}`)
+      same(String(predP), 100 * predict(n!).p, `the model’s collision rate at n = ${n}`)
+      same(String(gotP), 100 * arcAt(n!).p, `the run’s own at n = ${n}`)
+      same(String(predS), predictMbps(n!), `the model’s throughput at n = ${n}`)
+      same(String(gotS), arcAt(n!).mbps, `the run’s own at n = ${n}`)
+    }
+    // 「每个碰撞数都落在预测的 10% 以内，每个吞吐都在 5% 以内」
+    const [pBound, sBound] = figs(NUMS, /每个碰撞数都落在预测的 (\d+)% 以内，每个吞吐都在 (\d+)% 以内/,
+      '`numbers` on how close the two columns are')
+    const relP = rows.map((r) => {
+      const n = val(r[0]!)
+      return Math.abs(arcAt(n).p - predict(n).p) / predict(n).p
+    })
+    const relS = rows.map((r) => {
+      const n = val(r[0]!)
+      return Math.abs(arcAt(n).mbps - predictMbps(n)) / predictMbps(n)
+    })
+    expect(Math.max(...relP) * 100, 'every collision rate inside that bound').toBeLessThan(pBound!)
+    /*
+     * **And the collision bound is the tightest it can be**: one row is 9.9 % out, so the claim
+     * fails one point lower. That is what pins the figure.
+     */
+    expect(Math.max(...relP) * 100, 'while one point tighter would be false')
+      .toBeGreaterThan(pBound! - 1)
+    expect(Math.max(...relS) * 100, 'every throughput inside its own bound').toBeLessThan(sBound!)
+    // 「从五台站点往上，实跑的碰撞总是少于预测，只有两台那一行符号反了过来」
+    for (const row of rows) {
+      const n = val(row[0]!)
+      const below = arcAt(n).p < predict(n).p
+      expect(below, `n = ${n} sits ${below ? 'below' : 'above'} the prediction`).toBe(n >= 5)
+    }
+  })
+
+  it('reads the slot-clock difference, and the claim it makes about a figure it will not pin', () => {
+    // 「二十台站点的实测值就从 45.83% 升到 47.9% 左右——约是它与 49.59% 之间差距的一半」
+    const [measured, probe, predicted] = figs(NUMS,
+      /二十台站点的实测值就从 ([\d.]+)% 升到 ([\d.]+)% 左右——约是它与 ([\d.]+)% 之间差距的一半/,
+      '`numbers` on the slot clock')
+    same(String(measured), 100 * arc20().p, 'the measurement that probe starts from')
+    same(String(predicted), 100 * predict(20).p, 'and the prediction it moves towards')
+    /*
+     * **Exempt, class (a): the 47.9 %.** It is a one-off probe against a patched MAC, which this
+     * repository deliberately does not pin (this file's header, and the lesson's). The claim is
+     * read instead: it lands about half way between the two columns.
+     */
+    expect(Math.abs(probe! - (measured! + predicted!) / 2),
+      'about half way between the measured and the predicted').toBeLessThan(0.5)
+    const [srcProbe] = figs(SRC, /时隙时钟那个约 ([\d.]+)% 的数字/, '`sources` on the same probe')
+    expect(srcProbe, 'the same figure, where `sources` says where it comes from').toBe(probe)
+    // 「五台站点的圆弧记录了 1029 次这种更长的等待，每一次都让某个邻居…多被挡在竞争之外 60 µs」
+    const [deferrals, extraUs] = figs(NUMS,
+      /五台站点的圆弧记录了 ([\d,]+) 次这种更长的等待，每一次都让某个邻居比其他人多被挡在竞争之外 (\d+) µs/,
+      '`numbers` on the restart times')
+    expect(deferrals, 'the extended spaces the arc run really logs').toBe(arc5().eifs)
+    const [eifsUs, difsUs] = figs(SRC, /这里是 (\d+) µs，而 DIFS 是 (\d+) µs/,
+      '`sources` on the two spaces')
+    expect(extraUs, 'the difference between them').toBe(eifsUs! - difsUs!)
+  })
+
+  it('reads the cost of a pile-up, both conventions of it', () => {
+    // 「一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，二十台时值 0.2% 的吞吐」
+    const [earlyUs, shareP, thruP] = figs(NUMS,
+      /一次碰撞比一次成功早结束 (\d+) µs，约占一次交互的 ([\d.]+)%，二十台时值 ([\d.]+)% 的吞吐/,
+      '`numbers` on the cost of a collision')
+    const t = dcfTimes(1500, 6)
+    expect(earlyUs! * 1000, 'how much earlier a collision ends').toBe(t.tsNs - t.tcNs)
+    same(String(shareP), (100 * (t.tsNs - t.tcNs)) / t.tsNs, 'the share that is of one exchange')
+    const S = (tcNs: number): number => saturationThroughput({
+      n: 20, tau: predict(20).tau, slotNs: SLOT_NS, tsNs: t.tsNs, tcNs, payloadBits: PAYLOAD_BITS,
+    }).mbps
+    same(String(thruP), (100 * (S(t.tcNs) - S(t.tsNs))) / S(t.tsNs), 'and what it is worth at twenty')
+    // 「改用论文自己的取值，预测反而往另一边挪 0.6%」
+    const [otherWay] = figs(NUMS, /预测反而往另一边挪 ([\d.]+)%/, '`numbers` on the paper’s own convention')
+    const paperTc = t.dataNs + 34_000
+    const moved = (100 * (S(t.tcNs) - S(paperTc))) / S(paperTc)
+    same(String(otherWay), Math.abs(moved), 'how far the paper’s convention moves it')
+    expect(moved, 'and it moves the other way, which is what 「反而」 says').toBeLessThan(0)
+  })
+
+  it('reads `deeper`: the sign flip, the spread, and the no-window corner', () => {
+    // 「两台站点就是那个符号反转的行：实测 11.20%，预测 10.46%」
+    const [got2, pred2] = figs(DEEP, /实测 ([\d.]+)%，预测 ([\d.]+)%/, '`deeper` on n = 2')
+    same(String(got2), 100 * arcAt(2).p, 'the two-station measurement')
+    same(String(pred2), 100 * predict(2).p, 'and its prediction')
+    expect(got2, 'which the measurement is above, uniquely').toBeGreaterThan(pred2!)
+    // 「各站点自己的碰撞率从 42.9% 铺到 52.1%」
+    const [lo, hi] = figs(DEEP, /各站点自己的碰撞率从 ([\d.]+)% 铺到 ([\d.]+)%/,
+      '`deeper` on the per-station spread')
+    const per = arc20().perStationP.map((x) => 100 * x)
+    same(String(lo), Math.min(...per), 'the luckiest station of the twenty')
+    same(String(hi), Math.max(...per), 'and the unluckiest')
+    // 「23,335 次尝试，其中 23,330 次碰撞，一个回答也没有，3,330 帧被放弃」
+    // the same key the corner above uses, so the run is the one it already made
+    const cheatAll = measure('cheat5', ((): Scenario => {
+      const scen = bianchiVsSimVariants[0]!.scenario()
+      for (const n of scen.nodes) if (n.kind === 'sta') n.tamper = { ...TAMPER_PRESETS.cw }
+      return scen
+    })())
+    const [tries, hits, dropped] = figs(DEEP,
+      /([\d,]+) 次尝试，其中 ([\d,]+) 次碰撞，一个回答也没有，([\d,]+) 帧被放弃/,
+      '`deeper` on the no-window corner')
+    expect(tries, 'the attempts five window-less stations make').toBe(cheatAll.attempts)
+    expect(hits, 'the collisions among them').toBe(cheatAll.collided)
+    expect(cheatAll.acks, 'and not one answer comes back').toBe(0)
+    expect(dropped, 'the frames given up').toBe(Object.values(cheatAll.drops).reduce((a, b) => a + b, 0))
+    // 「只给一台挂上作弊，它就拿走 4,639 次尝试中的 4,634 次，四台遵守规则的站点十秒里一共只发出
+    //   五帧，而信道仍跑出 5.557 Mb/s」
+    const cheatOne = measure('cheat1', ((): Scenario => {
+      const scen = bianchiVsSimVariants[0]!.scenario()
+      const first = scen.nodes.find((n) => n.kind === 'sta')!
+      first.tamper = { ...TAMPER_PRESETS.cw }
+      return scen
+    })())
+    const [all, mine] = figs(DEEP, /它就拿走 ([\d,]+) 次尝试中的 ([\d,]+) 次/,
+      '`deeper` on the one cheat’s share')
+    expect(all, 'the attempts that run makes in all').toBe(cheatOne.attempts)
+    const cheatId = cheatOne.records.find((r) => r.type === 'TX_START')!.node
+    expect(mine, 'and the cheat’s own share of them').toBe(cheatOne.attemptsBy.get(cheatId))
+    const [restCn] = raw(DEEP, /四台遵守规则的站点十秒里一共只发出(.)帧/, '`deeper` on the rest')
+    expect('零一二三四五六七八九'.indexOf(restCn!), 'what the four rule-followers get out')
+      .toBe(all! - mine!)
+    const [mbps] = figs(DEEP, /而信道仍跑出 ([\d.]+) Mb\/s/, '`deeper` on the channel’s throughput')
+    same(String(mbps), cheatOne.mbps, 'what the channel still carries')
+    // …which is one payload over one clean exchange: the single-station ceiling
+    const t = dcfTimes(1500, 6)
+    expect(mbps, 'the single-station ceiling')
+      .toBeCloseTo(PAYLOAD_BITS / ((t.tsNs + SLOT_NS * 7.5) / 1e9) / 1e6, 0)
+  })
+
+  it('reads `limits` on the seeds, and `sources` on the arc’s own two settings', () => {
+    // 「换成种子 8 或 12345 会得到 25.53% 与 25.71%」
+    const [s1, s2, p1, p2] = figs(LIM, /换成种子 (\d+) 或 (\d+) 会得到 ([\d.]+)% 与 ([\d.]+)%/,
+      '`limits` on the other two seeds')
+    for (const [seed, want] of [[s1, p1], [s2, p2]] as [number, number][]) {
+      const scen = bianchiVsSimVariants[0]!.scenario()
+      scen.seed = seed
+      // seed 8 is the key step 6 above already ran; the other seed is this read's own
+      const key = seed === 8 ? 'arc5-seed8' : `read-back-seed-${seed}`
+      same(String(want), 100 * measure(key, scen).p, `the arc on seed ${seed}`)
+    }
+    // 「−20 dBm 的圆弧、种子 7」, and `limits` names the same power again
+    const [dbm, seed] = figs(SRC, /(−\d+) dBm 的圆弧、种子 (\d+)/, '`sources` on the arc’s settings')
+    const arc = bianchiVsSimVariants[0]!.scenario()
+    expect(seed, 'the seed every figure of this lesson is measured on').toBe(arc.seed)
+    expect(dbm, 'and the power that pins the rate')
+      .toBe(arc.nodes.find((n) => n.kind === 'sta')!.txPowerDbm)
+    const [limDbm] = figs(LIM, /才把它压住（(−\d+) dBm 的圆弧）/, '`limits` on the same power')
+    expect(limDbm, 'the same power, where `limits` explains why it is there').toBe(dbm)
+  })
+
+  it('reads `observe`, `tryThis` and the quiz, where the same three counts come round again', () => {
+    // 「每个绿色色块都是同样的 2064 µs；…十秒里 1370 次错失，恰好对应 1370 次重传」
+    const [blockUs] = figs(OBS, /每个绿色色块都是同样的 (\d+) µs/, '`observe` on one data frame')
+    expect(blockUs! * 1000, 'the frame this arc sends, every time').toBe(dcfTimes(1500, 6).dataNs)
+    const misses = arc5().records.filter((r) => r.type === 'RX_MISS' && r.node === 'ap').length
+    const [missed, retried] = figs(OBS, /十秒里 ([\d,]+) 次错失，恰好对应 ([\d,]+) 次重传/,
+      '`observe` on the two counts')
+    expect(missed, 'what the access point misses').toBe(misses)
+    expect(retried, 'and what the stations retry').toBe(arc5().collided)
+    expect(missed, 'the same number, exactly — which is what makes the comparison legitimate')
+      .toBe(retried)
+    // the quiz prints both of them again
+    const [qMissed, qRetried] = figs(QUIZ, /接入点的 ([\d,]+) 次错失对应 ([\d,]+) 次重传/,
+      'the first question’s explanation')
+    expect([qMissed, qRetried], 'the same pair, a second time').toEqual([missed, retried])
+    // 「把 n = 20 的圆弧跑十秒，把实测的 45.83% 放到预测的 49.59% 旁边」
+    const [tryN, tryGot, tryPred] = figs(TRY,
+      /把 n = (\d+) 的圆弧跑十秒，把实测的 ([\d.]+)% 放到预测的 ([\d.]+)% 旁边/,
+      '`tryThis` on the first experiment')
+    same(String(tryGot), 100 * arcAt(tryN!).p, 'the measurement that experiment reads')
+    same(String(tryPred), 100 * predict(tryN!).p, 'and the prediction beside it')
+    // 「实跑在 23,335 次尝试里碰撞 23,330 次，什么也没送到，放弃 3,330 帧」
+    const [tryTries, tryHits, tryDrops] = figs(TRY,
+      /实跑在 ([\d,]+) 次尝试里碰撞 ([\d,]+) 次，什么也没送到，放弃 ([\d,]+) 帧/,
+      '`tryThis` on the corner it checks')
+    const deepTriple = figs(DEEP,
+      /([\d,]+) 次尝试，其中 ([\d,]+) 次碰撞，一个回答也没有，([\d,]+) 帧被放弃/,
+      '`deeper` on the same corner')
+    expect([tryTries, tryHits, tryDrops], 'the same three figures `deeper` prints')
+      .toEqual(deepTriple)
+  })
+})
