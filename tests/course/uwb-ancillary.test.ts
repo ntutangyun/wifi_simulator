@@ -27,7 +27,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, BYTES, FRAMES, IE, MS, NS, PLACES, SENDER_ID, SLOTS, TAG, TAG_ID,
+  ANCHORS, BYTES, FRAMES, IE, MS, NS, PLACES, SENDER_ID, SLOTS, TAG, TAG_ID, VALIDITY,
   idOf, uwbAncillary, uwbAncillaryFields, uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from '../../src/course/uwb/uwb-ancillary'
 import { MODULES, basisOf } from '../../src/course/curriculum'
@@ -429,5 +429,160 @@ describe('uwb-ancillary · the `until` it carries is measured, not merely writte
     expect(text).toContain('blockSlots')
     // …and the half of that sentence that IS true is still said: one `roundPlan` call per session.
     expect(text).toContain('roundPlan')
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This lesson prints almost no figure it typed — the frame length, the slot counts, the window
+ * and the airtime are all interpolated from its own module, and the file above measures those
+ * against runs. What is typed is the **semantics**: the two values of the Request bit, the
+ * countdown that ends at zero, the hall this course measures in, and the responder index the
+ * model chose. The sampling sweep of 2026-10-12 planted six of them and six went unnoticed.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the countdown is read as the sequence the run writes.** 「剩余帧数从帧数减一数到 0」 and
+ *    「最后一帧写 0」 are one claim about one block's frames, so the whole descending run is read
+ *    at once — and the jump label that says 「写 0 的那一帧」 has to name the last of them.
+ *  - **both halves of the Request bit are read, each on the lesson that has it.** 「置 0 是本课
+ *    这一半，置 1 是向控制器请求时隙」 is checked against this lesson's own run (no request frame
+ *    anywhere) and against the next lesson's (one request frame per message), which is the only
+ *    way a sentence about the other half can be read at all.
+ *  - **「22 × 8 m 大厅」 is read off the scene**, because the hall is what the two lessons after
+ *    this one keep identical, and `sources` says so.
+ */
+describe('uwb-ancillary · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const TERMS = blockText(uwbAncillary.terms)
+  const PIC = blockText(uwbAncillary.picture)
+  const DEEP = blockText(uwbAncillary.deeper)
+  const LIM = blockText(uwbAncillary.limits)
+  const SRC = blockText(uwbAncillary.sources)
+  const JUMPS = uwbAncillary.jumps.map((j) => j.label).join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+
+  const rs = runOf(uwbAncillary, undefined, RUN_NS)
+  const frames = sent(rs)
+  const firstBlock = frames.filter((f) => f.block === frames[0]!.block)
+
+  it('reads the countdown, and the jump label that names its last frame', () => {
+    // 「剩余帧数从帧数减一数到 0」
+    const [downTo] = figs(PIC, /剩余帧数从帧数减一数到 (\d)/, '`picture` on the countdown')
+    expect(firstBlock.map((f) => f.remaining), 'the countdown this block really writes')
+      .toEqual(Array.from({ length: FRAMES }, (_, i) => FRAMES - 1 - i))
+    expect(firstBlock.at(-1)!.remaining, 'and it ends at the figure the step prints').toBe(downTo)
+    // 「最后一帧写 0。接收端据此判定这条消息收齐了」
+    const [lastWrites] = figs(PIC, /最后一帧写 (\d)。接收端据此判定/, '`picture` on the last frame')
+    expect(lastWrites, 'the same figure, a second time').toBe(downTo)
+    const done = anc(rs).filter((r) => r.framesRemaining === lastWrites)
+    expect(done.length, 'and a receiver really sees one such frame per message')
+      .toBe(new Set(frames.map((f) => f.block)).size)
+    // 「写 0 的那一帧：这条消息的最后一帧」 — the jump label
+    const [jumpZero] = figs(JUMPS, /写 (\d) 的那一帧：这条消息的最后一帧/, 'the jump label')
+    expect(jumpZero, 'the jump names the same frame').toBe(downTo)
+    // 「跳到第一帧辅助信息，它在第 5 个时隙，后面还跟着 3 帧。每帧 16 字节。」
+    const [slot, behind, bytes] = figs(PIC,
+      /它在第 (\d+) 个时隙，后面还跟着 (\d+) 帧。每帧 (\d+) 字节/, '`picture` on the first frame')
+    expect(firstBlock[0]!.slot, 'the slot the first fragment really takes').toBe(slot)
+    expect(firstBlock[0]!.remaining, 'how many follow it').toBe(behind)
+    for (const f of frames) expect(f.bytes, 'and every frame is that long').toBe(bytes)
+  })
+
+  it('reads both halves of the Request bit, each on the lesson that has it', () => {
+    // 「置 0 是本课这一半，置 1 是向控制器请求时隙」
+    const [mine, other] = figs(TERMS, /置 (\d) 是本课这一半，置 (\d) 是向控制器请求时隙/,
+      'the term on the Request bit')
+    expect(mine, 'the two values of one bit').not.toBe(other)
+    expect(uwbAncillaryScenario().uwb!.ancillaryRequest,
+      'this lesson runs the half the term says it does').toBe(Boolean(mine))
+    expect(uwbAncillaryRequest.scenario().uwb!.ancillaryRequest,
+      'and the next lesson runs the other half').toBe(Boolean(other))
+    // 「Request 置 0 时这个信息单元还报这条消息的类型」
+    const [limMine] = figs(LIM, /Request 置 (\d) 时这个信息单元还报这条消息的类型/,
+      '`limits` on the type field')
+    expect(limMine, 'the same half as the term names').toBe(mine)
+    for (const r of anc(rs)) {
+      expect(r.messageKind, 'and the type is the one constant this engine has')
+        .toBe(ANCILLARY_MESSAGE_KIND)
+    }
+    // 「Request 置 1 的那一半不在本课里」, and 「剩余帧数那个字段在置 1 时装的是请求的时隙数」
+    const [limOther, fieldWhen] = figs(LIM,
+      /Request 置 (\d) 的那一半不在本课里[\s\S]*?剩余帧数那个字段在置 (\d) 时装的是请求的时隙数/,
+      '`limits` on the other half')
+    expect([limOther, fieldWhen], 'both name the half this lesson does not build')
+      .toEqual([other, other])
+    // 「发出这条消息的始终是第 0 个响应方，一轮也只有一条消息」
+    const [senderIdx] = figs(LIM, /发出这条消息的始终是第 (\d) 个响应方/, '`limits` on the sender')
+    expect(senderIdx, 'the responder index the model chose').toBe(ANCILLARY_SENDER_INDEX)
+    expect(new Set(frames.map((f) => f.node)), 'and one node sends every frame')
+      .toEqual(new Set([SENDER_ID]))
+    expect(SENDER_ID, 'which is that index of the scene’s anchors').toBe(idOf(ANCILLARY_SENDER_INDEX))
+  })
+
+  it('reads the information element’s own length range, and `sources` on the half it builds', () => {
+    /*
+     * **Two figures got past the reads above** (sweep of 2026-10-14), and one of them taught the
+     * site-versus-sentence lesson again: 「后面还跟着 3 帧」 is interpolated, so the only standalone
+     * 「3」 in this module's strings is the one in the formula note — 「这个信息单元的内容是 1 到 3
+     * 字节」. It is read here as the range the engine's own pricing really has, over the four
+     * combinations of the two presence bits.
+     */
+    const note = (uwbAncillary.numbers!.find((b) => b.kind === 'formula') as unknown as
+      { note: string }).note
+    const [lo, hi] = figs(note, /这个信息单元的内容是 (\d) 到 (\d) 字节/,
+      'the formula note on the element’s content')
+    const contents = IE.bits.map(([n, f]) => raictIeBytes(n, f) - UWB_IE_HDR_BYTES)
+    expect(Math.min(...contents), 'the shortest content this element can have').toBe(lo)
+    expect(Math.max(...contents), 'and the longest').toBe(hi)
+    expect(hi! - lo!, 'the two optional fields are one octet each').toBe(2)
+    expect(RAICT_IE_MIN_BYTES - UWB_IE_HDR_BYTES, 'and the shortest is the control byte alone')
+      .toBe(lo)
+    // 「本课建的是 Request 置 0 的那一半」 — the third place this lesson names its own half
+    const [srcHalf] = figs(SRC, /本课建的是 Request 置 (\d) 的那一半/, '`sources` on the half')
+    expect(Boolean(srcHalf), 'the half this lesson really runs')
+      .toBe(uwbAncillaryScenario().uwb!.ancillaryRequest)
+    expect(srcHalf, 'and it is the same half the term names')
+      .toBe(figs(TERMS, /置 (\d) 是本课这一半/, 'the term on the same half')[0])
+  })
+
+  it('reads the hall, and the contention window `deeper` quotes', () => {
+    // 「本课四个场景是同一个 22 × 8 m 大厅」
+    const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
+    const sc = uwbAncillaryScenario()
+    const room = sc.rooms[0]!
+    expect([room.w, room.h], 'the hall this lesson really runs in').toEqual([wide, deep])
+    const others = [
+      uwbAncillaryScenario({ schedule: 'contention' }),
+      uwbAncillaryScenario({ rcmValidityRounds: VALIDITY }),
+      uwbAncillaryOffScenario(),
+    ]
+    expect(others.length + 1, 'the four scenes `sources` counts')
+      .toBe(1 + uwbAncillary.variants!.length)
+    for (const other of others) {
+      expect([other.rooms[0]!.w, other.rooms[0]!.h], 'and so do the other three scenes')
+        .toEqual([wide, deep])
+    }
+    // 「竞争式排的是这一轮自己那一段竞争时隙，本课的设置下是 8 个」
+    const [contend] = figs(DEEP, /本课的设置下是 (\d+) 个/, '`deeper` on the contention window')
+    const contendPlan = roundPlan(uwbAncillaryScenario({ schedule: 'contention' }).uwb!, ANCHORS)
+    expect(ancillarySlots(contendPlan), 'the window that schedule really gives').toBe(contend)
+    expect(contend, 'which is wider than the scheduled one').toBeGreaterThan(SLOTS.window)
   })
 })
