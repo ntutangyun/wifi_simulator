@@ -241,9 +241,19 @@ function figuresOf(l: Lesson): { figures: Figure[]; skipped: number } {
   let skipped = 0
   for (const t of lessonTexts(l)) {
     if (!/\d/.test(t.text)) continue
-    const at = mod.prose.indexOf(t.text)
-    // Written twice: the offset would be a guess, so the whole string is skipped.
-    if (at !== -1 && mod.prose.indexOf(t.text, at + 1) !== -1) { skipped++; continue }
+    /*
+     * **A cell whose whole text is a bare number has to stand on its own too.** `@uwb-reply-time`
+     * prints a cap cell that is just 「33」, and the only 「33」 in the module's prose is the middle
+     * of the 「833 ns」 a term prints — so a plain `indexOf` located that cell inside another
+     * figure's literal, and the two plantings moved one digit twice (`offset drifted at 12151:
+     * found 834`). `standalone` is the same rule the per-figure fallback below uses, and for a
+     * text that begins with a Chinese character it does exactly what `indexOf` did.
+     */
+    const whole = standalone(mod.prose, t.text)
+    // Not there, or written twice: the offset would be a guess, so the string falls through to
+    // the per-figure search below, which has its own uniqueness rule.
+    const at = whole.length === 1 ? whole[0]! : -1
+    if (whole.length > 1) { skipped++; continue }
     /*
      * **A string built rather than typed is still read by somebody.** When the rendered text is
      * not in the file (`${BYTES.poll} 字节的 Poll`), the interpolated figures are the module's own
@@ -455,8 +465,30 @@ if (process.argv.includes('--saved')) {
  */
 const sites = new Map<number, Figure>()
 for (const f of mine) if (!sites.has(f.at)) sites.set(f.at, f)
-const shared = mine.length - sites.size
+let shared = mine.length - sites.size
 mine = [...sites.values()]
+/*
+ * **And two sites can OVERLAP without being the same site.** The fallback for a figure typed
+ * into a built string locates it by its digits, and a located figure may land inside another
+ * figure's literal even though it stands on its own there — 「33」 standing alone in the strings
+ * of this module while 「833」 is the figure a term prints. Planting both moves one digit twice
+ * and the offset guard in `planted` throws. So the later of an overlapping pair is dropped, and
+ * it is dropped LOUDLY: a figure nobody plants is the whole defect this script exists to find,
+ * so it is named on the way past rather than counted.
+ */
+mine.sort((a, b) => a.at - b.at)
+const kept: Figure[] = []
+for (const f of mine) {
+  const prev = kept.at(-1)
+  if (prev && f.at < prev.at + prev.fig.length) {
+    console.log(`  dropped 「${f.fig}」 at ${f.at}: inside 「${prev.fig}」 (${f.section} ${f.role})`)
+    console.log(`          ${f.ctx}`)
+    shared++
+    continue
+  }
+  kept.push(f)
+}
+mine = kept
 
 if (mine.length === 0) throw new Error(`no printed figures found for \`${id}\``)
 
