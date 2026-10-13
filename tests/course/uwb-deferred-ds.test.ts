@@ -22,7 +22,8 @@ import { MODULES, basisOf } from '../../src/course/curriculum'
 import { fmtRecord } from '../../src/ui/format'
 import { anchor } from '../../src/course/lessonKit'
 import {
-  RMI_FINAL_DEFERRED_ENTRY_BYTES, RMI_FINAL_ENTRY_BYTES, RRTI_IE_BYTES, UWB_MAX_PSDU_BYTES,
+  C_M_PER_NS, RMI_FINAL_DEFERRED_ENTRY_BYTES, RMI_FINAL_ENTRY_BYTES, RMI_FINAL_FIXED_BYTES,
+  RRTI_IE_BYTES, UWB_FCS_BYTES, UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES, UWB_SLOT_GUARD_NS, rstuNs,
   uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbSlotFitNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -32,10 +33,15 @@ const RUN_NS = 30 * MS
 
 lessonShapeSuite(uwbDeferredDs, { runNs: RUN_NS })
 
+const runs = new Map<string, TLRecord[]>()
 function run(replyTime: 'embedded' | 'deferred'): TLRecord[] {
+  const hit = runs.get(replyTime)
+  if (hit) return hit
   const sc = uwbDeferredDsScenario(replyTime)
   expect(() => ScenarioSchema.parse(sc), replyTime).not.toThrow()
-  return [...new Simulation(sc).runUntil(RUN_NS).records]
+  const rs = [...new Simulation(sc).runUntil(RUN_NS).records]
+  runs.set(replyTime, rs)
+  return rs
 }
 
 const txOf = (rs: TLRecord[], kind: string) =>
@@ -226,5 +232,207 @@ describe('uwb-deferred-ds · who ends up holding the range (design §7)', () => 
     expect(anchorRanges('ss', 'deferred')).toBe(0)
     expect(anchorRanges('ds', 'embedded')).toBe(1)
     expect(anchorRanges('ds', 'deferred')).toBe(0)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Almost every figure of this lesson is interpolated from its own module (`BYTES`, `CAP`,
+ * `DEMAND`, `FIG`) and the file above measures those against runs. What is typed is the rest:
+ * the PSDU ceiling in two places, the six field widths `sources` lists, the two instants in
+ * `FIG`, the diagram's own labels and a few figures in `limits`.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the two instants are read as the two runs they belong to.** 「嵌入形态的锚点在 4.194 ms
+ *    就算出了…而标签要等到 6.191 ms」 is the anchor's range record in the embedded round and the
+ *    tag's in both — and 「把 Final 延后，那一行就整行消失」 is read as the absence of it.
+ *  - **the 「谁手里有距离」 table is read as five runs' worth of presence and absence**, for the
+ *    two this lesson can run: a ✓ means a range record on that lane, a ✗ means none.
+ *  - **the six field widths are read off the constants `sources` names**, and their sum is the
+ *    frame the run really sends.
+ */
+describe('uwb-deferred-ds · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const TERMS = blockText(uwbDeferredDs.terms)
+  const NUMS = blockText(uwbDeferredDs.numbers)
+  const LIM = blockText(uwbDeferredDs.limits)
+  const SRC = blockText(uwbDeferredDs.sources)
+  const OBS = blockText(uwbDeferredDs.observe)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    uwbDeferredDs.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+  const rangesOf = (rt: 'embedded' | 'deferred', node: string) =>
+    ofType(run(rt), 'UWB_RANGE').filter((r) => r.node === node)
+  const TAG = uwbDeferredDsScenario('deferred').nodes.find((n) => n.uwb!.role === 'tag')!.id
+  const ANC = uwbDeferredDsScenario('deferred').nodes.find((n) => n.uwb!.role === 'anchor')!.id
+
+  it('reads the two instants, and the row that disappears when the Final is deferred', () => {
+    // 「嵌入形态的锚点在 4.194 ms 就算出了 4.99… m…而标签要等到 6.191 ms 才算出同一个数」
+    const [anchorMs, tagMs] = raw(NUMS,
+      /嵌入形态的锚点在 ([\d.]+) ms 就算出了 [\d.]+ m（真值 [\d.]+ m），而标签要等到 ([\d.]+) ms/,
+      '`numbers` on the two instants')
+    const anchorRange = rangesOf('embedded', ANC)
+    const tagRange = rangesOf('embedded', TAG)
+    expect(anchorRange, 'the embedded round really gives the anchor one').toHaveLength(1)
+    same(anchorMs!, anchorRange[0]!.t / MS, 'when the anchor really has it')
+    same(tagMs!, tagRange[0]!.t / MS, 'and when the tag does')
+    expect(anchorRange[0]!.distM.toFixed(6), 'and they are the same number to the last digit')
+      .toBe(tagRange[0]!.distM.toFixed(6))
+    // 「把 Final 延后，4.194 ms 那一行就整行消失，标签那一行一个字都不变」
+    const [goneMs] = raw(NUMS, /把 Final 延后，([\d.]+) ms 那一行就整行消失/,
+      '`numbers` on the row that goes')
+    expect(goneMs, 'the row that disappears is the anchor’s').toBe(anchorMs)
+    expect(rangesOf('deferred', ANC), 'and in the deferred round there is none').toHaveLength(0)
+    expect(fmtRecord(rangesOf('deferred', TAG)[0]!), 'while the tag’s line is unchanged')
+      .toBe(fmtRecord(tagRange[0]!))
+    // `observe` prints both instants again
+    const [obsTag, obsAnchor] = raw(OBS,
+      /在 ([\d.]+) ms、手机那条泳道上。载入「嵌入」，锚点那条泳道会在 ([\d.]+) ms 多出一条/,
+      '`observe` on the same two')
+    expect([obsTag, obsAnchor], 'the same two instants, a second time').toEqual([tagMs, anchorMs])
+    // 「Final 在 4 ms 处发出」
+    const [finalMs] = figs(OBS, /Final 在 (\d+) ms 处发出/, '`observe` on the Final')
+    same(String(finalMs), txOf(run('deferred'), 'uwbFinal')[0]!.t / MS, 'when the Final really leaves')
+  })
+
+  it('reads the 「谁手里有距离」 table for the two rounds this lesson runs', () => {
+    const tb = tables().find((x) => x.head[0] === '形态')!
+    expect(tb.rows.length, 'five shapes').toBe(5)
+    for (const row of tb.rows) {
+      const [shape, tagCell, ancCell] = row as [string, string, string]
+      if (!shape.startsWith('DS-TWR')) continue
+      const rt = shape.includes('嵌入') ? 'embedded' : 'deferred'
+      expect(tagCell.startsWith('✓'), `${shape}: the tag’s cell`).toBe(rangesOf(rt, TAG).length > 0)
+      expect(ancCell.startsWith('✓'), `${shape}: the anchor’s cell`).toBe(rangesOf(rt, ANC).length > 0)
+      // the tag's cell says WHEN, and in both rounds that is when the report lands
+      expect(tagCell, `${shape}: and what the tag waits for`).toContain('报告')
+      const report = txOf(run(rt), 'uwbReport').at(-1)!
+      expect(rangesOf(rt, TAG)[0]!.t, `${shape}: the tag’s range follows the report`)
+        .toBeGreaterThanOrEqual(report.t)
+    }
+  })
+
+  it('reads the PSDU ceiling, the two caps and the two growths', () => {
+    // 「一帧里真正装消息的那一段，最长 127 字节」 (a term) and 「一帧最长 127 字节的 PSDU」
+    for (const [text, re, what] of [
+      [TERMS, /最长 (\d+) 字节/, 'the term on the PSDU'],
+      [SRC, /一帧最长 (\d+) 字节的 PSDU/, '`sources` on the same'],
+    ] as [string, RegExp, string][]) {
+      expect(figs(text, re, what)[0], what).toBe(UWB_MAX_PSDU_BYTES)
+    }
+    const tb = tables().find((x) => x.head[0] === '这一帧')!
+    const cell = (needle: string): string[] => tb.rows.find((r) => r[0]!.includes(needle))!.slice(1)
+    // 「Final 长度」: `base + nA` for each shape, read against the engine's own Final
+    const [emb, def] = cell('Final 长度')
+    for (const [printed, rt] of [[emb!, 'embedded'], [def!, 'deferred']] as const) {
+      const [base, growth] = figs(printed, /(\d+) \+ (\d+)A/, `the ${rt} Final’s growth`)
+      expect(uwbFinalBytes(0, rt), `${rt}: the Final with no anchor in it`).toBe(base)
+      expect(uwbFinalBytes(1, rt) - uwbFinalBytes(0, rt), `${rt}: what one anchor adds`).toBe(growth)
+    }
+    // 「A = 1（本课这一轮）」 — the anchors this lesson's own scene really has
+    const [oneRow] = raw(tb.rows.find((r) => r[0]!.startsWith('A = '))![0]!, /A = (\d+)（本课这一轮）/,
+      'the row’s own anchor count')
+    expect(uwbDeferredDsScenario('deferred').nodes.filter((n) => n.uwb!.role === 'anchor').length,
+      'the anchors this round really asks').toBe(val(oneRow!))
+    // 「锚点上限」 for the two shapes
+    const [capEmb, capDef] = cell('锚点上限')
+    expect(val(capEmb!), 'the embedded cap').toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
+    expect(val(capDef!), 'and the deferred one').toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
+    // 「轮里最长的一帧」: a frame name, and for the deferred shape the Poll's own length
+    const [longEmb, longDef] = cell('轮里最长的一帧')
+    expect(longEmb, 'the embedded round’s longest frame').toBe('Final')
+    const [pollBytes] = figs(longDef!, /Poll，(\d+) B/, 'the deferred round’s longest frame')
+    expect(pollBytes, 'which is the Poll at the figure’s own anchor count')
+      .toBe(uwbPollBytes(FIG_ANCHORS))
+    expect(uwbLongestFrameBytes(FIG_ANCHORS, 'twr', 'time', 'ds', 'deferred'),
+      'and the engine agrees it is the longest').toBe(pollBytes)
+  })
+
+  it('reads the six field widths `sources` lists, and the two model values beside them', () => {
+    // 「2 ms 的测距时隙…时隙末尾 200 ns 的飞行守卫」
+    const [slotMs] = figs(SRC, /(\d+) ms 的测距时隙/, '`sources` on the slot')
+    expect(rstuNs(uwbDeferredDsScenario('deferred').uwb!.slotRstu), 'the slot this scene runs')
+      .toBe(slotMs! * MS)
+    const [guardNs] = figs(SRC, /时隙末尾 (\d+) ns 的飞行守卫/, '`sources` on the guard')
+    expect(guardNs, 'the guard the engine keeps').toBe(UWB_SLOT_GUARD_NS)
+    /*
+     * 「帧头 9、RMI 表头 3、嵌入式每响应方 6、延后每响应方 2、每段回复时延 6、帧校验 2」 — six
+     * widths, each read off the constant the same sentence names, and their sum is the frame the
+     * run really sends at one anchor.
+     */
+    const six = figs(SRC,
+      /帧头 (\d+)、RMI 表头 (\d+)、嵌入式每响应方 (\d+)、延后每响应方 (\d+)、每段回复时延 (\d+)、帧校验 (\d+)/,
+      '`sources` on the field widths')
+    expect(six, 'the six widths this engine really uses').toEqual([
+      UWB_MHR_BYTES, RMI_FINAL_FIXED_BYTES, RMI_FINAL_ENTRY_BYTES,
+      RMI_FINAL_DEFERRED_ENTRY_BYTES, RRTI_IE_BYTES, UWB_FCS_BYTES,
+    ])
+    const [mhr, hdr, embEntry, defEntry, rrti, fcs] = six
+    expect(mhr! + hdr! + embEntry! + rrti! + fcs!, 'their sum is the embedded Final at one anchor')
+      .toBe(txOf(run('embedded'), 'uwbFinal')[0]!.frame.bytes)
+    expect(mhr! + hdr! + defEntry! + fcs!, 'and the deferred one')
+      .toBe(txOf(run('deferred'), 'uwbFinal')[0]!.frame.bytes)
+    // 「那段等待错 1 ns 就是约 15 cm 的距离误差」
+    const [errNs, errCm] = figs(LIM, /那段等待错 (\d+) ns 就是约 (\d+) cm 的距离误差/,
+      '`limits` on what a nanosecond costs')
+    same(String(errCm), (errNs! / 2) * C_M_PER_NS * 100, 'half the error, times the speed of light')
+  })
+
+  it('reads the figure’s own labels, and the anchors it is drawn at', () => {
+    // 「9 个锚点的 Final，一格一格看」
+    const diagram = uwbDeferredDs.numbers!.find((b) => b.kind === 'diagram') as unknown as
+      { heading: string; caption: string }
+    const [anchors] = figs(diagram.heading, /(\d+) 个锚点的 Final/, 'the figure’s own heading')
+    expect(anchors, 'the anchor count the figure is drawn at').toBe(FIG_ANCHORS)
+    /*
+     * Every label of the drawing carries its own width, and the widths have to add up to the
+     * frame the engine builds at that anchor count — so a planted label breaks the sum.
+     */
+    const spec = uwbDeferredDsFields()
+    const labels = spec.fields.map((f) => f.label)
+    const sizes = spec.fields.map((f) => f.size)
+    for (const [i, label] of labels.entries()) {
+      // a label is either 「name N」 (its own width) or 「name ×N」 (one box per anchor)
+      const times = /×(\d+)$/.exec(label!)
+      if (times) {
+        expect(val(times[1]!), `the label 「${label}」 counts the anchors`).toBe(anchors)
+        expect(sizes[i]! % val(times[1]!), `and its width is that many equal entries`).toBe(0)
+        continue
+      }
+      const m = /(\d+)$/.exec(label!)
+      if (!m) continue
+      expect(val(m[1]!), `the label 「${label}」 names its own width`).toBe(sizes[i])
+    }
+    expect(sizes.reduce((a, b) => a + b, 0), 'and the fields add up to the embedded Final')
+      .toBe(uwbFinalBytes(anchors!, 'embedded'))
+    // 「DROPPED_BYTES 个字节里，一半是…往返时间，一半是…回复时延」
+    const [dropped] = figs(diagram.caption, /(\d+) 个字节里，一半是/, 'the caption on what goes')
+    expect(dropped, 'the octets the deferred Final does without')
+      .toBe(uwbFinalBytes(anchors!, 'embedded') - uwbFinalBytes(anchors!, 'deferred'))
+    expect(dropped, 'and that is what the module computes').toBe(DROPPED_BYTES)
   })
 })
