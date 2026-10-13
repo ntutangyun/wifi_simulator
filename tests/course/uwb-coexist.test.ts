@@ -27,7 +27,7 @@ import type { TLRecord } from '../../src/model/records'
 import type { Block } from '../../src/course/lessonKit'
 import { COURSE_ORDER, MODULES, TIERS } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
-import { lessonStrings } from '../../src/course/readability'
+import { lessonStrings, lessonTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { CCA_ED_DBM, noiseDbm, reqSinrDb } from '../../src/engine/phy'
 import { uwbToWifiPathLossDb, wifiToUwbPathLossDb } from '../../src/engine/spectrum'
@@ -36,6 +36,7 @@ import {
   tsSigmaNs, uwbBandOverlap, uwbBandOverlapMhz, uwbInBandDbm, uwbPl0Db, uwbSinrDb,
 } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
+import { linkPlanFor } from '../../src/model/caps'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -792,5 +793,482 @@ describe('uwb-coexist · the procedure, against the mediator', () => {
     // channel-9 run's, so nothing but the overlap ever did anything
     expect(interfered(WIFI7)).toEqual([])
     expect(interfered(CH9)).toEqual([])
+  })
+})
+
+// --- every figure the PROSE prints ------------------------------------------------------------
+
+/**
+ * **The tables of this lesson are read cell by cell above — against literals typed HERE.** That
+ * does catch an edit to a cell (the comparison is `toBe('6240.0 to 6739.2 MHz')`, so the cell is
+ * the received value), but it leaves every figure in the prose around them free: the sweep of
+ * 2026-10-13 could edit **109 of this lesson's 184** figures with the suite green, three of them
+ * without an equal literal anywhere under `tests/`.
+ *
+ * Nothing new is measured below. Every assertion calls the same `wifiAt`, `uwbAt`, `anchorAtTag`,
+ * `noiseRiseDb`, `uwbBandOverlapMhz`, `recs` the tests above call, and the figure comes out of
+ * the prose instead of out of this file.
+ */
+describe('uwb-coexist · every figure the prose prints, read back out of it', () => {
+  const EVERYWHERE = lessonTexts(uwbCoexist).map((t) => t.text).join('\n')
+  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const everyFig = (re: RegExp, what: string, least: number): string[] => {
+    const out = [...EVERYWHERE.matchAll(re)].flatMap((m) => m.slice(1).filter((x) => x !== undefined))
+    expect(out.length, `${what}: fewer occurrences than this test was written for`)
+      .toBeGreaterThanOrEqual(least)
+    return out
+  }
+  const blockText = (b: unknown): string => {
+    const o = b as { heading?: string; text?: string; items?: string[]; note?: string; caption?: string }
+    return [o.heading ?? '', o.text ?? '', (o.items ?? []).join('\n'), o.note ?? '', o.caption ?? '']
+      .join('\n')
+  }
+  const nums = (uwbCoexist.numbers ?? []).map(blockText).join('\n')
+  const deep = (uwbCoexist.deeper ?? []).map(blockText).join('\n')
+  const limitsText = (uwbCoexist.limits ?? []).map((l) => l.text).join('\n')
+  const srcText = (uwbCoexist.sources ?? []).join('\n')
+  const obs = uwbCoexist.observe.join('\n')
+  const trys = uwbCoexist.tryThis.join('\n')
+  const quizText = uwbCoexist.quiz!.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
+
+  const SESSION = uwbCoexistScenario().uwb!
+  const UWB_CH = SESSION.channel
+  const CH9_CH = uwbCoexistScenario('ch9').uwb!.channel
+
+  it('every channel number the lesson names, and the band each one occupies', () => {
+    // 「本会话所用的 UWB 5 号」/「会话默认的 UWB 9 号」 — the row labels of the channel table
+    for (const v of everyFig(/UWB (\d) 号/g, 'a UWB channel the prose names', 3)) {
+      expect([UWB_CH, CH9_CH], `UWB channel ${v} is one this lesson runs`).toContain(val(v))
+    }
+    // 「UWB 9 号信道占据 7737.6 至 8236.8 MHz」
+    const [ch, lo, hi] = figs(deep, /UWB (\d) 号信道占据 ([\d.]+) 至 ([\d.]+) MHz/,
+      '`deeper` on where channel 9 sits')
+    expect(ch, 'the channel the session falls back to').toBe(CH9_CH)
+    expect(UWB_BAND_MHZ[ch as 5 | 9], 'the band `phy.ts` gives it')
+      .toEqual({ lo, hi })
+    // 「一帧测距帧的功率摊在 499.2 MHz 上，进到 80 MHz 接收机里的只有 80 MHz——先丢掉 7.95 dB」
+    const [own, rx, overlap, lost] = raw(nums,
+      /功率摊在 ([\d.]+) MHz 上，进到 (\d+) MHz 接收机里的只有 (\d+) MHz——路径损耗（path loss）还没开始，就先丢掉 ([\d.]+) dB/,
+      '`numbers` on what an overlap costs a ranging frame')
+    const band = UWB_BAND_MHZ[UWB_CH as 5 | 9]
+    same(own!, band.hi - band.lo, 'the width a ranging frame spreads over')
+    expect(val(rx!), 'the receiver’s own width').toBe(WIDTH_MHZ)
+    expect(val(overlap!), 'and the part of the frame that lands in it')
+      .toBe(uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
+    const inBand = uwbInBandDbm(UWB_TX_POWER_DBM, uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
+    same(lost!, UWB_TX_POWER_DBM - inBand, 'what it loses before the path loss starts')
+    // 「中介每报一次变动，手机就在自己的 6240.0 至 6739.2 MHz 上重读外来功率」
+    const [sLo, sHi] = figs(nums, /手机就在自己的 ([\d.]+) 至 ([\d.]+) MHz 上重读外来功率/,
+      'the steps on the band the tag reads over')
+    expect({ lo: sLo, hi: sHi }, 'which is its own channel’s band')
+      .toEqual(UWB_BAND_MHZ[UWB_CH as 5 | 9])
+    // 「把它挪进 6 GHz 路由器工作的那条信道」 and the title — the band the Wi-Fi link is on
+    for (const v of everyFig(/(\d) GHz/g, 'the band this lesson shares', 5)) {
+      expect(linkPlanFor(uwbCoexistScenario().nodes).links, `${v} GHz is the band these radios share`)
+        .toContain(`${v}g`)
+    }
+    // 「Wi-Fi 使用 7 号信道（5 985 MHz）」 — the variant's own label, and the channel it ships
+    const [chNo, mhz] = figs(uwbCoexist.variants![WIFI7]!.label, /(\d) 号信道（([\d\s]+) MHz）/,
+      'the variant label')
+    expect(mhz, 'the centre that variant ships')
+      .toBe(uwbCoexistScenario('wifi7').sixGhzCenterMhz)
+    expect(chNo, 'and the channel number that centre is').toBe(sixGhzChannelNo(mhz!))
+    // and every other 「N 号信道」 of the prose is a channel number of its own centre
+    const pairs = [...EVERYWHERE.matchAll(/中心挪到 (\d+) MHz，(\d+) 号信道/g)]
+      .map((m) => [val(m[1]!), val(m[2]!)] as const)
+    expect(pairs.length, '`deeper` names two more of them').toBeGreaterThanOrEqual(2)
+    for (const [centre, no] of pairs) {
+      expect(no, `${centre} MHz is channel ${no}`).toBe(sixGhzChannelNo(centre))
+    }
+  })
+
+  it('the level ledger’s own distances and the three decibels the prose takes from it', () => {
+    // 「路由器，相距 3.14 m」「笔记本，相距 3.35 m」「手机，相距 3.14 m」
+    for (const v of everyFig(/相距 ([\d.]+) m/g, 'a distance the ledger prints', 3)) {
+      const m = val(v)
+      expect([dist(AP, TAG), dist(LAPTOP, TAG)].map((d) => Number(d.toFixed(2))),
+        `${m} m is a distance of this scene`).toContain(m)
+    }
+    // 「对上笔记本，最弱的那个锚点离可解调的程度还差 18.8 dB」
+    const [short] = raw(nums, /最弱的那个锚点离可解调的程度还差 ([\d.]+) dB/,
+      '`numbers` on how far the weakest anchor is from being decodable')
+    /*
+     * The laptop is a WI-FI transmitter, so what it is worth at the tag comes from `wifiAt` and
+     * its own EIRP — read off the ledger's own cell rather than named here, which is what makes
+     * this a read-back of the sentence and not a second typing of 15 dBm.
+     */
+    const weakest = Math.min(...CORNERS.map(([, x, y]) => anchorAtTag(x, y)))
+    const [laptopCell] = raw(cell(1, 1, 2), /(−[\d.]+) dBm/, 'the ledger’s own laptop cell')
+    const laptop = val(laptopCell!)
+    const sir = weakest - laptop
+    same(short!, UWB_SIR_MIN_DB - sir,
+      'the weakest anchor against the laptop, and the floor it would need')
+    expect(sir, 'which really is under the floor').toBeLessThan(UWB_SIR_MIN_DB)
+    // 「这里没有哪一帧能达到 −62 dBm 这条能量检测门限的 18.57 dB 以内」
+    const [ed, within] = raw(nums,
+      /没有哪一帧能达到 (−\d+) dBm 这条能量检测门限（energy detection threshold）的 ([\d.]+) dB 以内/,
+      'the steps on the other direction')
+    expect(val(ed!), 'the threshold `phy.ts` exports').toBe(CCA_ED_DBM)
+    same(within!, Math.abs(uwbAt(TAG, AP) - CCA_ED_DBM), 'and how far under it the loudest frame is')
+    // 「低于 −12 dB 门限」 — the SIR floor, wherever it appears
+    // `dB(?!m)`: without it, 「达到 −62 dBm」 matches too — dB is a prefix of dBm
+    for (const v of everyFig(/(−\d+) dB(?!m) 门限|达到 (−\d+) dB(?!m)|(−\d+) dB(?!m) 这条线/g,
+      'the SIR floor', 3)) {
+      expect(val(v), 'the floor `phy.ts` exports').toBe(UWB_SIR_MIN_DB)
+    }
+  })
+
+  it('the five seconds: the losses, the timeout, the error and the margin', () => {
+    const rs = recs()
+    // 「备份那次运行每三个块丢一帧测距帧……而 1.8 ms 之后那个时隙超时」
+    const [timeoutMs] = raw(nums, /而 ([\d.]+) ms 之后那个时隙超时/,
+      '`numbers` on when the slot times out')
+    const lost = interfered()[0]!
+    const out = ofType(rs, 'UWB_TIMEOUT').find((r) => r.t > lost.t)!
+    same(timeoutMs!, (out.t - lost.t) / MS, 'the gap between the loss and the timeout')
+    // 「一百次测距丢了八次——可二十五次定位一次也没少，其中八次只用三个锚点，误差依然在 4.2 cm 以内」
+    const [err] = raw(nums, /误差依然在 ([\d.]+) cm 以内/, '`numbers` on the error of the three-anchor fixes')
+    const three = fixes().filter((f) => f.anchors.length === 3)
+    expect(three.length, 'the run really makes three-anchor fixes').toBeGreaterThan(0)
+    expect(Math.max(...three.map(fixErr)) * 100, 'every one of them inside that')
+      .toBeLessThanOrEqual(val(err!))
+    expect(Math.ceil(Math.max(...three.map(fixErr)) * 1000) / 10,
+      'and that is the figure rounded up to the millimetre').toBe(val(err!))
+    // 「五秒里丢掉 200 帧，一次定位也解不出来」 — the saturated variant
+    const [sat] = figs(deep, /五秒里丢掉 (\d+) 帧，一次定位也解不出来/,
+      '`deeper` on the saturated upload')
+    expect(sat, 'the ranging frames the saturated run loses').toBe(interfered(SAT).length)
+    expect(fixes(SAT), 'and it makes no fix at all').toHaveLength(0)
+    // 「吞吐从 276.816 Mb/s 掉到 274.128 Mb/s——但那只是 0.97 %」
+    const [was, now, pct] = raw(deep,
+      /吞吐从 ([\d.]+) Mb\/s 掉到 ([\d.]+) Mb\/s——但那只是 ([\d.]+) %/,
+      '`deeper` on what the saturated run costs the Wi-Fi')
+    expect(val(now!), 'the lower of the two is the run with the session')
+      .toBeLessThan(val(was!))
+    same(pct!, 100 * (1 - val(now!) / val(was!)), 'and the share between them is its own arithmetic')
+    // 「两边都是 9.960 Mb/s」
+    const [both] = raw(deep, /两边都是 ([\d.]+) Mb\/s/, '`deeper` on the backup’s own goodput')
+    expect(val(both!), 'a goodput the prose states for both runs').toBeGreaterThan(0)
+  })
+
+  it('`deeper`: channel 9’s headroom, and the 40 cm the threshold is reachable at', () => {
+    // 「6 GHz 的 Wi-Fi 频段到 7125 MHz 为止；即便用编辑器允许的最高中心频率 7115 MHz 开一条
+    //  320 MHz 的信道，其上边沿也只到 7275 MHz——距 9 号信道的下边沿还有 462.6 MHz 的净空」
+    const [bandTop, top, width, edge, clear] = figs(deep,
+      /频段到 (\d+) MHz 为止；即便用编辑器允许的最高中心频率 (\d+) MHz 开一条 (\d+) MHz 的信道，其上边沿也只到 (\d+) MHz——距 9 号信道的下边沿还有 ([\d.]+) MHz 的净空/,
+      '`deeper` on the clear air above channel 9')
+    expect(() => ScenarioSchema.parse({ ...uwbCoexist.scenario(), sixGhzCenterMhz: top }),
+      'that centre is the highest the schema takes').not.toThrow()
+    expect(() => ScenarioSchema.parse({ ...uwbCoexist.scenario(), sixGhzCenterMhz: top! + 5 }))
+      .toThrow()
+    expect(top! + width! / 2, 'the upper edge that centre and that width reach').toBe(edge)
+    same(String(clear), UWB_BAND_MHZ[CH9_CH as 5 | 9].lo - edge!, 'and the gap to channel 9')
+    expect(bandTop, 'while the band itself stops below that edge').toBeLessThan(edge!)
+    for (const w of [20, 40, 80, 160, width!]) {
+      expect(uwbBandOverlapMhz(top!, w, CH9_CH as 5 | 9), `${w} MHz at that centre still misses it`)
+        .toBe(0)
+    }
+    // 「把一帧测距帧的带内电平与 −62 dBm 的能量检测门限解一个等式，交叉点落在 0.37 m，正文里
+    //  向上取整到十厘米：把一台 Wi-Fi 收发机放到离 UWB 发射机约 40 cm 以内」
+    const [edDbm, cross, cm] = raw(deep,
+      /与 (−\d+) dBm 的能量检测门限解一个等式，交叉点落在 ([\d.]+) m，正文里向上取整到十厘米：把一台 Wi-Fi 收发机放到离 UWB 发射机约 (\d+) cm 以内/,
+      '`deeper` on where the threshold is reachable')
+    expect(val(edDbm!), 'the threshold').toBe(CCA_ED_DBM)
+    const inBand = uwbInBandDbm(UWB_TX_POWER_DBM, uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
+    const solve = (): number => {
+      let lo = 0.01, hi = 100
+      for (let i = 0; i < 200; i++) {
+        const m = (lo + hi) / 2
+        if (inBand - uwbToWifiPathLossDb(m, 0, 5) >= CCA_ED_DBM) lo = m
+        else hi = m
+      }
+      return lo
+    }
+    same(cross!, solve(), 'the distance that equation crosses at')
+    expect(Math.ceil(solve() * 10) * 10, 'and the ten-centimetre figure the prose rounds it up to')
+      .toBe(val(cm!))
+    // 「离手机 3.14 m 的路由器——远远没有那么近。即使在手机造成的 8.12 dB 噪声抬升之下，路由器
+    //  自己的上行仍然保有 26 dB 的信干噪比」
+    const [away, rise, sinr] = raw(deep,
+      /离手机 ([\d.]+) m 的路由器——远远没有那么近。即使在手机造成的 ([\d.]+) dB 噪声抬升之下，路由器自己的上行仍然保有 (\d+) dB 的信干噪比/,
+      '`deeper` on the router’s own margin')
+    same(away!, dist(AP, TAG), 'how far the router is from the tag')
+    same(rise!, noiseRiseDb(uwbAt(TAG, AP)), 'the noise rise the tag causes there')
+    expect(val(sinr!), 'and the SINR the uplink keeps').toBeGreaterThan(0)
+  })
+
+  it('`deeper`: the eight encounters, each figure of them', () => {
+    // 「八次全来自 anchor-4——它离路由器 8.16 m，到达时只有 −88.87 dBm，把噪声抬高 2.58 dB。
+    //  笔记本的上行以 −53.46 dBm 到达，于是还剩 31.92 dB 的信干噪比，而它所用的 MCS 7 只需要
+    //  26.99 dB」
+    const [far, at, rise, upAt, sinr, mcs, needs] = raw(deep,
+      /它离路由器 ([\d.]+) m，到达时只有 (−[\d.]+) dBm，把噪声抬高 ([\d.]+) dB。笔记本的上行以 (−[\d.]+) dBm 到达，于是还剩 ([\d.]+) dB 的信干噪比，而它所用的 MCS (\d+) 只需要 ([\d.]+) dB/,
+      '`deeper` on what the eight encounters cost the Wi-Fi')
+    const a4 = CORNERS.find(([id]) => id === 'anchor-4')!
+    same(far!, dist({ x: a4[1], y: a4[2], z: ANCHOR_Z }, AP), 'how far anchor-4 is from the router')
+    same(at!, uwbAt({ x: a4[1], y: a4[2], z: ANCHOR_Z }, AP), 'what its frame arrives at there')
+    same(rise!, noiseRiseDb(uwbAt({ x: a4[1], y: a4[2], z: ANCHOR_Z }, AP)),
+      'and the noise rise it causes')
+    expect(val(sinr!), 'the SINR the laptop keeps under it').toBeGreaterThan(val(needs!))
+    // the laptop's own generation, read off the scene rather than named here
+    const gen = uwbCoexistScenario().nodes.find((n) => n.id === 'laptop')!.caps.generation
+    expect(val(needs!), 'which is what that MCS needs of this generation')
+      .toBe(Number(reqSinrDb(gen, val(mcs!)).toFixed(2)))
+    expect(val(upAt!), 'while the laptop’s own uplink arrives well above it').toBeLessThan(0)
+    // 「整个会话在这五秒里占用空口 48.6 ms」
+    const [airMs] = raw(deep, /占用空口 ([\d.]+) ms/, '`deeper` on the air the session takes')
+    const air = ofType(recs(), 'TX_START')
+      .filter((r) => UWB_IDS.has(r.node))
+      .reduce((a, r) => a + (r.frame.txTimeNs ?? 0), 0)
+    expect(val(airMs!), 'a share of five seconds').toBeGreaterThan(0)
+    void air
+  })
+
+  it('`limits` and `sources`: every constant each one names', () => {
+    // 「−45 dBm/MHz 的最大输入」
+    const [maxIn] = figs(limitsText, /(−\d+) dBm\/MHz 的最大输入/, '`limits` on the maximum input')
+    expect(maxIn, 'the limit `phy.ts` documents').toBe(UWB_MAX_INPUT_DBM_PER_MHZ)
+    // 「一次 1 µs 的猝发和一次占满整帧的猝发代价一样」 — an argument, not a measurement: what is
+    // checked is that the engine's decision is per frame, which is what makes the two equal
+    const [us] = figs(limitsText, /一次 (\d+) µs 的猝发/, '`limits` on the hardest case')
+    expect(us, 'a burst shorter than any frame of this scene').toBeGreaterThan(0)
+    // 「窄带那一侧另有一条 0 dB」
+    const [nbFloor] = figs(limitsText, /另有一条 (\d+) dB/, '`limits` on the narrowband floor')
+    expect(nbFloor, 'the floor the narrowband side uses').toBe(0)
+    // 「Wi-Fi 按室内衰减指数 3 传播——一米处 46.7 dB，加 30·log10 d，6 GHz 再加 1.2 dB」
+    const [exp3, oneM, mult, logBase, band, extra] = figs(srcText,
+      /按室内衰减指数 (\d) 传播——一米处 ([\d.]+) dB，加 (\d+)·log(\d+) d，(\d) GHz 再加 ([\d.]+) dB/,
+      '`sources` on the Wi-Fi law')
+    // the logarithm's own base, fed back: a decade is only 30 dB if the base is ten
+    expect(mult! * (Math.log(10) / Math.log(logBase!)), 'the decade that base and that multiplier give')
+      .toBeCloseTo(wifiToUwbPathLossDb(10, 0) - wifiToUwbPathLossDb(1, 0), 6)
+    expect(mult, 'ten times the exponent').toBe(10 * exp3!)
+    /*
+     * **`same()` is for a figure read as a string; handing it a computed sum loses the decimals
+     * the figures had.** `String(46.8 + 1.2)` is `'48'`, so the comparison dropped to whole
+     * decibels and a planted 46.7 → 46.8 came back green. Compare at the precision the two
+     * figures were printed to instead.
+     */
+    expect(Number((oneM! + extra!).toFixed(1)),
+      'the loss of the first metre, with the band’s own extra')
+      .toBe(Number(wifiToUwbPathLossDb(1, 0).toFixed(1)))
+    expect(wifiToUwbPathLossDb(10, 0) - wifiToUwbPathLossDb(1, 0),
+      'and the decade the exponent gives').toBeCloseTo(mult!, 6)
+    expect(band, 'the band that extra belongs to').toBe(6)
+    // 「UWB 按自由空间、指数 2 传播——5 号信道一米处 48.69 dB，加 20·log10 d」
+    const [exp2, ch, pl0, mult2, logBase2] = figs(srcText,
+      /按自由空间、指数 (\d) 传播——(\d) 号信道一米处 ([\d.]+) dB，加 (\d+)·log(\d+) d/,
+      '`sources` on the UWB law')
+    expect(mult2! * (Math.log(10) / Math.log(logBase2!)), 'the same base, in the other law')
+      .toBeCloseTo(uwbToWifiPathLossDb(10, 0, 5) - uwbToWifiPathLossDb(1, 0, 5), 6)
+    expect(exp2, 'the exponent `phy.ts` spreads UWB with').toBe(UWB_PL_EXP)
+    expect(mult2, 'ten times it').toBe(10 * exp2!)
+    expect(ch, 'the channel that first metre belongs to').toBe(UWB_CH)
+    same(String(pl0), uwbPl0Db(ch as 5 | 9), 'and the loss of its first metre')
+    expect(uwbToWifiPathLossDb(10, 0, 5) - uwbToWifiPathLossDb(1, 0, 5), 'the decade it gives')
+      .toBeCloseTo(mult2!, 6)
+    // 「每个接收时间戳 100 ps 的 1σ 噪声」 and 「信干噪比跌到 20 dB 以下时，引擎最多会把它乘上
+    //  十倍……这个倍数始终在 1.0 上下」
+    const [ps, sigma] = figs(srcText, /每个接收时间戳 (\d+) ps 的 (\d)σ 噪声/,
+      '`sources` on the timestamp noise')
+    expect(ps, 'the noise this session runs with').toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    expect(sigma, 'one sigma of it').toBe(1)
+    const [knee, flat] = figs(srcText, /跌到 (\d+) dB 以下时.*?这个倍数始终在 ([\d.]+) 上下/,
+      '`sources` on where the multiplier starts to bite')
+    expect(tsSigmaNs(DEFAULT_UWB_SESSION.tsNoisePs, knee!) / (DEFAULT_UWB_SESSION.tsNoisePs / 1000),
+      'at the knee the multiplier is still one').toBeCloseTo(flat!, 1)
+    // 「−62 dBm 的能量检测门限，以及 6 GHz 的信道编号」
+    const [srcEd] = figs(srcText, /(−\d+) dBm 的能量检测门限/, '`sources` on the threshold')
+    expect(srcEd, 'the threshold, a third time').toBe(CCA_ED_DBM)
+  })
+
+  it('the figures this lesson prints again outside its tables', () => {
+    // every 「N MHz」 that is a channel width is this scene's own width
+    for (const v of everyFig(/(\d+) MHz 上的噪声|真实的 (\d+) MHz 猝发|其中 (\d+) MHz 落进|(\d+) MHz 接收机/g,
+      'the channel width, wherever it is named', 3)) {
+      expect(val(v), 'the width this scene’s 6 GHz channel is').toBe(WIDTH_MHZ)
+    }
+    // every 「499.2 MHz」 is the ranging channel's own width
+    const band = UWB_BAND_MHZ[UWB_CH as 5 | 9]
+    for (const v of everyFig(/([\d.]+) MHz 码片率|又摊在 ([\d.]+) MHz 上/g,
+      'the ranging channel’s width, wherever it is named', 2)) {
+      same(v, band.hi - band.lo, 'the width a ranging frame spreads over')
+    }
+    // every 「N 号信道」 is a channel this lesson runs — the two UWB ones, or a 6 GHz number
+    const sixes = [
+      uwbCoexistScenario().sixGhzCenterMhz, uwbCoexistScenario('wifi7').sixGhzCenterMhz,
+      6225, 6185,
+    ].map((c) => sixGhzChannelNo(c!))
+    for (const v of everyFig(/(\d+) 号信道/g, 'a channel number the prose names', 6)) {
+      expect([UWB_CH, CH9_CH, ...sixes], `channel ${v} is one this lesson names`)
+        .toContain(val(v))
+    }
+    // 「6 GHz 的 Wi-Fi 频段到 7125 MHz 为止」 — the narrowest channel at the highest centre
+    const [bandTop] = figs(deep, /频段到 (\d+) MHz 为止/, '`deeper` on where the band stops')
+    const TOP = 7115
+    expect(bandTop, 'the upper edge a 20 MHz channel at the highest centre reaches')
+      .toBe(TOP + 20 / 2)
+    // 「0 MHz overlap」 / 「重叠 0 MHz」 — the two cures that work
+    for (const v of everyFig(/(\d) MHz overlap|重叠 (\d) MHz/g, 'the overlap the cures leave', 2)) {
+      expect(val(v), 'no overlap at all').toBe(0)
+      expect(uwbBandOverlapMhz(CLEAR_6G_CENTER_MHZ, WIDTH_MHZ, UWB_CH as 5 | 9),
+        'which is what moving the Wi-Fi leaves').toBe(val(v))
+      expect(uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, CH9_CH as 5 | 9),
+        'and what moving the session leaves').toBe(val(v))
+    }
+    // 「吞吐从 276.816 Mb/s 掉到 274.128 Mb/s」 — against the run with the session removed
+    const [was, now] = raw(deep, /吞吐从 ([\d.]+) Mb\/s 掉到 ([\d.]+) Mb\/s/,
+      '`deeper` on the saturated run’s cost')
+    const { uwb: _session, ...sat } = scenarioOf(SAT)
+    const alone: Scenario = { ...sat, nodes: sat.nodes.filter((n) => n.kind !== 'uwb') }
+    const without = [...new Simulation(alone).runUntil(RUN_NS).records]
+    same(now!, mbps(recs(SAT), 'laptop#6g'), 'the laptop’s goodput with the session')
+    same(was!, mbps(without, 'laptop#6g'), 'and with it taken out')
+    // 「两边都是 9.960 Mb/s」 — the backup, with and without the session
+    const [both] = raw(deep, /两边都是 ([\d.]+) Mb\/s/, '`deeper` on the backup’s own goodput')
+    same(both!, mbps(recs(), 'laptop#6g'), 'the backup with the session')
+    same(both!, mbps(recs(NO_UWB), 'laptop#6g'), 'and without it')
+    // 「笔记本的上行以 −53.46 dBm 到达，于是还剩 31.92 dB 的信干噪比」
+    const [upAt, sinr] = raw(deep, /笔记本的上行以 (−[\d.]+) dBm 到达，于是还剩 ([\d.]+) dB 的信干噪比/,
+      '`deeper` on the laptop’s own uplink')
+    const [laptopEirp] = figs(nums, /(\d+) dBm/, 'nothing')
+    void laptopEirp
+    const a4 = { x: 9.5, y: 7.5, z: ANCHOR_Z }
+    const rssiUl = 15 - wifiToUwbPathLossDb(dist(LAPTOP, AP), 0)
+    same(upAt!, rssiUl, 'what the laptop’s uplink arrives at')
+    same(sinr!, rssiUl - (noiseDbm(WIDTH_MHZ) + noiseRiseDb(uwbAt(a4, AP))),
+      'and the SINR it keeps under the anchor’s noise rise')
+    // 「路由器自己的上行仍然保有 26 dB 的信干噪比」
+    const [routerSinr] = figs(deep, /路由器自己的上行仍然保有 (\d+) dB 的信干噪比/,
+      '`deeper` on the router’s own uplink')
+    const tagUl = 15 - wifiToUwbPathLossDb(dist(LAPTOP, AP), 0)
+      - (noiseDbm(WIDTH_MHZ) + noiseRiseDb(uwbAt(TAG, AP)))
+    expect(Math.floor(tagUl), 'the SINR it keeps under the tag’s own noise rise')
+      .toBe(routerSinr)
+    // 「整个会话在这五秒里占用空口 48.6 ms」
+    const [airMs] = raw(deep, /占用空口 ([\d.]+) ms/, '`deeper` on the air the session takes')
+    const air = ofType(recs(), 'TX_START').filter((r) => UWB_IDS.has(r.node))
+      .reduce((a, r) => a + r.frame.txTimeNs, 0)
+    same(airMs!, air / MS, 'the PPDU microseconds the session really spends')
+    // 「一次 1 µs 的猝发」 and 「那 40 cm 是怎么算出来的」 — `limits` restating both
+    /*
+     * 「一次 1 µs 的猝发和一次占满整帧的猝发代价一样」 — the content is an INEQUALITY (any burst
+     * shorter than a frame says the same thing), so the sweep reports this one green and should.
+     * What is checked is the inequality itself, and the claim it serves: the engine decides once
+     * per frame, on the worst instant, so the two cost the same.
+     */
+    const [burstUs] = figs(limitsText, /一次 (\d+) µs 的猝发/, '`limits` on the hardest case')
+    expect(burstUs, 'shorter than any frame this scene sends').toBeLessThan(
+      Math.min(...ofType(recs(), 'TX_START').map((r) => r.frame.txTimeNs)) / 1000)
+    const [cmAgain] = figs(limitsText, /「那 (\d+) cm 是怎么算出来的」/,
+      '`limits` quoting the `deeper` heading')
+    const [cmThere] = figs(deep, /约 (\d+) cm 以内/, 'and the heading it quotes')
+    expect(cmAgain, 'the same distance both times').toBe(cmThere)
+    // 「当信干噪比跌到 20 dB 以下时，引擎最多会把它乘上十倍」 — the knee, as a boundary
+    const [knee] = figs(srcText, /跌到 (\d+) dB 以下时/, '`sources` on where the multiplier bites')
+    const base = DEFAULT_UWB_SESSION.tsNoisePs / 1000
+    expect(tsSigmaNs(DEFAULT_UWB_SESSION.tsNoisePs, knee!), 'at the knee it is still the floor')
+      .toBeCloseTo(base, 9)
+    expect(tsSigmaNs(DEFAULT_UWB_SESSION.tsNoisePs, knee! - 1),
+      'and a decibel under it, it is not').toBeGreaterThan(base)
+    // 「丢失之后 1.8 ms 该时隙超时」 and 「误差仍在 4.2 cm 以内」 — the quiz says both again
+    const lost = interfered()[0]!
+    const out = ofType(recs(), 'UWB_TIMEOUT').find((r) => r.t > lost.t)!
+    for (const v of everyFig(/丢失之后 ([\d.]+) ms|而 ([\d.]+) ms 之后那个时隙超时/g,
+      'the gap to the timeout, wherever it is named', 2)) {
+      same(v, (out.t - lost.t) / MS, 'the gap the run really leaves')
+    }
+    const three = fixes().filter((f) => f.anchors.length === 3)
+    for (const v of everyFig(/误差(?:依然|仍)在 ([\d.]+) cm 以内/g,
+      'the error of the three-anchor fixes, wherever it is named', 2)) {
+      expect(Math.ceil(Math.max(...three.map(fixErr)) * 1000) / 10,
+        'the worst of them, rounded up to the millimetre').toBe(val(v))
+    }
+  })
+
+  it('`observe` and `tryThis`: the counts, the period and the two experiments', () => {
+    const rs = recs()
+    // 「这一对记录每 600 ms 回来一次」
+    const [periodMs] = figs(obs, /这一对记录每 (\d+) ms 回来一次/, '`observe` on how often the pair returns')
+    const losses = interfered().map((r) => r.t)
+    const gaps = losses.slice(1).map((t, i) => (t - losses[i]!) / MS)
+    expect(Math.min(...gaps), 'the gap between two losses').toBe(periodMs)
+    // 「最终爬到 8——与它的超时次数一样。每个锚点的这一行都是 0」
+    const [count, zero] = figs(obs, /最终爬到 (\d+)——与它的超时次数一样。每个锚点的这一行都是 (\d)/,
+      '`observe` on the inspector row')
+    expect(count, 'the losses the tag counts').toBe(interfered().length)
+    expect(count, 'which is its timeouts too')
+      .toBe(ofType(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'uwb-1').length)
+    for (const [id] of CORNERS) {
+      expect(interfered().filter((r) => r.node === id), `${id}’s own row is ${zero}`)
+        .toHaveLength(zero!)
+    }
+    // 「载入“Wi-Fi 使用 7 号信道”。测距记录变得与 9 号信道那次运行逐字段相同」
+    const [wifiCh, uwbCh] = figs(trys, /载入“Wi-Fi 使用 (\d) 号信道”。测距记录变得与 (\d) 号信道那次运行逐字段相同/,
+      '`tryThis` on the two runs that come out the same')
+    expect(wifiCh, 'the channel that variant moves the Wi-Fi to')
+      .toBe(sixGhzChannelNo(uwbCoexistScenario('wifi7').sixGhzCenterMhz!))
+    expect(uwbCh, 'and the channel the other one moves the session to').toBe(CH9_CH)
+    expect(stripSeq(recs(WIFI7).filter(isUwbSide)), 'and the two really are the same records')
+      .toEqual(stripSeq(recs(CH9).filter(isUwbSide)))
+    // 「再把 6 GHz 中心频率设为 6225 MHz 重新载入一次」
+    const [band, centre] = figs(trys, /再把 (\d) GHz 中心频率设为 (\d+) MHz 重新载入一次/,
+      '`tryThis` on the second experiment')
+    expect(band, 'the band it edits').toBe(6)
+    expect(() => ScenarioSchema.parse({ ...uwbCoexist.scenario(), sixGhzCenterMhz: centre }),
+      'a centre the schema accepts').not.toThrow()
+    expect(uwbBandOverlapMhz(centre!, WIDTH_MHZ, UWB_CH as 5 | 9),
+      'and it still overlaps the ranging channel, which is why the losses go on')
+      .toBeGreaterThan(0)
+  })
+
+  it('the quiz: the two levels, the 34 dB and the two GDOPs', () => {
+    // 「路由器在手机处造成 −42.79 dBm，手机在路由器处只造成 −80.57 dBm」
+    const [atTag, atAp] = raw(quizText,
+      /路由器在手机处造成 (−[\d.]+) dBm，手机在路由器处只造成 (−[\d.]+) dBm/,
+      'the quiz on the asymmetry')
+    same(atTag!, wifiAt(AP, 20, TAG), 'what the router puts into the tag’s band')
+    same(atAp!, uwbAt(TAG, AP), 'and what the tag puts into the router’s channel')
+    // 「34 dB 的发射功率差距，再加上 UWB 帧有 7.95 dB 落在这 80 MHz 信道之外」
+    const [gap, outside, width] = raw(quizText,
+      /(\d+) dB 的发射功率差距，再加上 UWB 帧有 ([\d.]+) dB 落在这 (\d+) MHz 信道之外/,
+      'the quiz on where the asymmetry comes from')
+    const [eirp, tx, sum] = figs(quizText, /(\d+) dBm 对 −(\d+) dBm，一上来就是 (\d+) dB/,
+      'the quiz’s own subtraction')
+    expect(-tx!, 'the UWB transmit power').toBe(UWB_TX_POWER_DBM)
+    expect(eirp! + tx!, 'and the difference it works out').toBe(sum)
+    expect(val(gap!), 'the same difference, stated twice').toBe(sum)
+    const inBand = uwbInBandDbm(UWB_TX_POWER_DBM, uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
+    same(outside!, UWB_TX_POWER_DBM - inBand, 'and what falls outside the channel')
+    expect(val(width!), 'the channel it falls outside of').toBe(WIDTH_MHZ)
+    // 「接着这 −14 dBm 又摊在 499.2 MHz 上」 — the transmit power, a second time in the same answer
+    for (const v of everyFig(/(−\d+) dBm 又摊在|对 (−\d+) dBm，一上来/g,
+      'the UWB transmit power, wherever the quiz names it', 2)) {
+      expect(val(v), 'the power `phy.ts` exports').toBe(UWB_TX_POWER_DBM)
+    }
+    // 「100 次测距里丢了 8 次，却没丢掉 25 次定位中的任何一次」
+    const [ofN, lostN, fixN] = figs(quizText, /在 (\d+) 次测距里丢了 (\d+) 次，却没丢掉 (\d+) 次定位中的任何一次/,
+      'the quiz on the tally')
+    expect(lostN, 'the ranging frames lost').toBe(interfered().length)
+    expect(fixN, 'the fixes made').toBe(fixes().length)
+    expect(ofN, 'out of that many ranges').toBe(tagRanges().length + interfered().length)
+    // 「GDOP 从 1.05 升到 1.26」
+    const [g4, g3] = raw(quizText, /GDOP 从 ([\d.]+) 升到 ([\d.]+)/, 'the quiz on the two GDOPs')
+    const four = fixes().filter((f) => f.anchors.length === 4)
+    const three = fixes().filter((f) => f.anchors.length === 3)
+    same(g4!, Math.min(...four.map((f) => f.gdop)), 'the GDOP of a four-anchor fix')
+    same(g3!, Math.min(...three.map((f) => f.gdop)), 'and of a three-anchor one')
   })
 })
