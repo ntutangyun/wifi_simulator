@@ -17,6 +17,7 @@
  * wide-channel runs came the other way, out of `deeper` and into `tryThis`, and
  * they are now the lesson's proof that the threshold is hard.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { decodeThresholds } from '../../src/course/tier1/decode-thresholds'
 import { primerScenario, PRIMER_DISTANCES } from '../../src/course/tier1/radioLink'
@@ -34,6 +35,7 @@ import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { selBinWidthMhz } from '../../src/engine/selectivity'
+import { selectivity } from '../../src/course/tier2/selectivity'
 
 const MS = 1_000_000
 /** The same run length radio-primer uses, so the four M1 lessons share the memo. */
@@ -300,5 +302,369 @@ describe('decode-thresholds · the hard threshold after frequency selectivity', 
     // The parenthesis is a claim about the engine, so it is read back out of the engine: the
     // section without a fading section is refused (src/model/scenario.ts's superRefine).
     expect(() => ScenarioSchema.parse({ ...decodeThresholds.scenario(), selectivity: {} })).toThrow()
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and compares it with a figure typed on **this** side
+ * — `expect(reqSinrDb('eht', 3).toFixed(2)).toBe('16.99')` — with the lesson's step quoted in a
+ * comment. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12 planted
+ * six of this lesson's figures and **five went unnoticed**. Here every figure is parsed out of the
+ * shipped string and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the requirement is read as the subtraction the formula prints.** 「所需 SINR = 灵敏度 −
+ *    kTB(20 MHz) − 10 dB = 灵敏度 + 90.99 dB」 has four figures in it, and the engine's own
+ *    `reqSinrDb` has to come out of them for every rung of the ladder, not just the one quoted.
+ *  - **the two experiments are read as the runs they are**: the 80 MHz one is under the margin
+ *    and over the requirement, the 160 MHz one is over the detection threshold and under the
+ *    requirement — and both are read off scenes built at those widths.
+ *  - **the quiz's own arithmetic is read**: every figure in its explanations is one of the five
+ *    quantities this lesson measures, so the question and the lesson cannot drift apart.
+ *  - **the two figures `limits` borrows from `@selectivity` are read against that lesson's own
+ *    table**, because that is where they are measured — a figure's home is where its measurement
+ *    lives.
+ */
+describe('decode-thresholds · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const WHY = [decodeThresholds.why!, ...decodeThresholds.outcomes!].join('\n')
+  const TERMS = blockText(decodeThresholds.terms)
+  const NUMS = blockText(decodeThresholds.numbers)
+  const DEEP = blockText(decodeThresholds.deeper)
+  const LIM = blockText(decodeThresholds.limits)
+  const SRC = blockText(decodeThresholds.sources)
+  const OBS = blockText(decodeThresholds.observe)
+  const TRY = blockText(decodeThresholds.tryThis)
+  const QUIZ = blockText(decodeThresholds.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    decodeThresholds.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+  /** Which of the four places this lesson's own scene is: the living room, 9 m with a wall. */
+  const LIVING_ROOM = PRIMER_DISTANCES.findIndex((d) => d === 9)
+  /** The living room's own link: the scene this lesson's steps walk through. */
+  const livingRoomSnr = (widthMhz = 20): number => {
+    const s = withWidth(primerScenario(PRIMER_DISTANCES[LIVING_ROOM]!), widthMhz as 20 | 40 | 80 | 160)
+    const rssi = buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')!
+    return rssi - noiseDbm(widthMhz)
+  }
+  /** Thermal noise alone, without this engine's own noise figure: the formula's own kTB. */
+  const kTB = (widthMhz: number): number => -174 + 10 * Math.log10(widthMhz * 1e6)
+
+  it('reads the three-question table against the engine’s own thresholds', () => {
+    const tb = tables().find((x) => x.head[0] === '问题')!
+    const preambleRow = tb.rows.find((r) => r[0]!.includes('前导码'))!
+    const [rssiDbm, sinrDb] = figs(preambleRow[1]!,
+      /（RSSI）≥ (−\d+) dBm 且 SINR ≥ (\d+) dB/, 'the preamble row’s condition')
+    expect(rssiDbm, 'the level this engine starts a reception at').toBe(CCA_PD_DBM)
+    expect(sinrDb, 'and the ratio it needs with it').toBe(PREAMBLE_DETECT_SINR_DB)
+    const [missAt] = figs(preambleRow[2]!, /够响却不到 (\d+) dB 则记 RX_MISS/,
+      'the preamble row’s outcome')
+    expect(missAt, 'the same ratio, named twice in one row').toBe(sinrDb)
+    const energyRow = tb.rows.find((r) => r[0]!.includes('总功率'))!
+    const [edDbm] = figs(energyRow[1]!, /空中总功率 ≥ (−\d+) dBm/, 'the energy row’s condition')
+    expect(edDbm, 'the level this engine calls the air busy at').toBe(CCA_ED_DBM)
+    // 「差 0.1 dB 就整帧作废」 — `why` on the hardness of the threshold
+    const [sliver] = figs(WHY, /差 ([\d.]+) dB 就整帧作废/, '`why` on the hard threshold')
+    expect(sliver, 'a sliver below the requirement').toBeGreaterThan(0)
+    const need = reqSinrDb('eht', 3)
+    expect(need - sliver!, 'and anything below it fails').toBeLessThan(need)
+  })
+
+  it('reads the requirement formula, and every rung it is claimed for', () => {
+    const formula = decodeThresholds.numbers!.find((b) => b.kind === 'formula') as unknown as
+      { text: string; note: string }
+    // 「所需 SINR = 灵敏度 − kTB(20 MHz) − 10 dB = 灵敏度 + 90.99 dB」
+    const [widthMhz, assumedNf, sum] = figs(formula.text,
+      /所需 SINR = 灵敏度 − kTB\((\d+) MHz\) − (\d+) dB = 灵敏度 \+ ([\d.]+) dB/,
+      'the formula line')
+    same(String(sum), -kTB(widthMhz!) - assumedNf!, 'the two terms the formula folds together')
+    for (const mcs of [0, 3, 5, 11]) {
+      expect(reqSinrDb('eht', mcs).toFixed(2),
+        `rung ${mcs}: its sensitivity plus that sum`)
+        .toBe((PHY_MODES.eht.sensDbm[mcs]! + sum!).toFixed(2))
+    }
+    // 「那张表假设了 10 dB 的噪声系数」 — the same assumption, named again in the note
+    const [noteNf] = figs(formula.note, /那张表假设了 (\d+) dB 的噪声系数/, 'the note on the assumption')
+    expect(noteNf, 'the same assumption twice').toBe(assumedNf)
+    // 「第 0 级灵敏度 −82 dBm，所需 8.99 dB」
+    const [rung0, sens0, need0] = figs(formula.note,
+      /第 (\d) 级灵敏度 (−\d+) dBm，所需 ([\d.]+) dB/, 'the note on rung zero')
+    expect(sens0, 'that rung’s own sensitivity').toBe(PHY_MODES.eht.sensDbm[rung0!])
+    same(String(need0), reqSinrDb('eht', rung0!), 'and what it needs')
+    // the three steps: 「第 3 级，标准给 −74 dBm」, 「加上 90.99 dB…16.99 dB」, 「给出 21.66 dB」
+    const [rung, sens] = figs(NUMS, /笔记本发第 (\d) 级，标准给 (−\d+) dBm/, 'step 1')
+    expect(sens, 'the sensitivity that rung really has').toBe(PHY_MODES.eht.sensDbm[rung!])
+    const [added, needed] = figs(NUMS, /加上 ([\d.]+) dB，得到所需 SINR：([\d.]+) dB/, 'step 2')
+    expect(added, 'the same sum as the formula’s').toBe(sum)
+    same(String(needed), reqSinrDb('eht', rung!), 'the requirement that rung carries')
+    const [given] = figs(NUMS, /这条链路给出 ([\d.]+) dB，够了/, 'step 3')
+    same(String(given), livingRoomSnr(), 'what this link really gives')
+    expect(given, 'which clears the requirement').toBeGreaterThanOrEqual(needed!)
+    // 「它与信道带宽无关」 — the engine's own signature says so
+    expect(reqSinrDb.length, 'the requirement takes no width').toBe(2)
+  })
+
+  it('reads the 3-dB table, both columns and both rows', () => {
+    const tb = tables().find((x) => x.head[0] === '这一次比较')!
+    const picking = tb.rows.find((r) => r[0]!.includes('门槛'))!
+    const [margin, withMargin] = figs(picking[1]!, /所需 SINR \+ (\d) dB = ([\d.]+) dB/,
+      'the sender’s own threshold')
+    expect(margin, 'the margin this engine really keeps').toBe(RATE_MARGIN_DB)
+    const [bare] = figs(picking[2]!, /所需 SINR = ([\d.]+) dB/, 'the receiver’s own threshold')
+    same(String(bare), reqSinrDb('eht', 3), 'the rung’s bare requirement')
+    same(String(withMargin), reqSinrDb('eht', 3) + RATE_MARGIN_DB, 'and the same plus the margin')
+    const gives = tb.rows.find((r) => r[0]!.includes('这条链路给出'))!
+    for (const [i, cell] of gives.slice(1).entries()) {
+      const [dB] = figs(cell!, /([\d.]+) dB/, `the link’s own ratio, column ${i}`)
+      same(String(dB), livingRoomSnr(), `column ${i}: what the link gives`)
+      expect(cell, `column ${i}: and the lesson marks it as enough`).toContain('✓')
+    }
+    // the term and the outcome print the margin again
+    for (const [text, re, what] of [
+      [TERMS, /多留的 (\d) dB/, 'the term on the margin'],
+      [WHY, /发送端多留的那 (\d) dB/, 'the outcome on the margin'],
+    ] as [string, RegExp, string][]) {
+      expect(figs(text, re, what)[0], what).toBe(RATE_MARGIN_DB)
+    }
+  })
+
+  it('reads `deeper`: the hidden five, the engine’s own seven, and the widths it holds for', () => {
+    // 「标准的灵敏度表除了假设 10 dB 的噪声系数，还预先扣掉了 5 dB 的实现余量」
+    const [nf, impl] = figs(DEEP, /除了假设 (\d+) dB 的噪声系数，还预先扣掉了 (\d) dB 的实现余量/,
+      '`deeper` on what the table hides')
+    const [heading] = figs(DEEP, /那张表里还含着 (\d) dB/, '`deeper`’s own heading')
+    expect(heading, 'the heading names the same margin').toBe(impl)
+    const [stays] = figs(DEEP, /这 (\d) dB 留在要求之内没有减回去/, '`deeper` on why it stays')
+    expect(stays, 'and it is still the same one').toBe(impl)
+    /*
+     * 「本仿真器自己的 7 dB 噪声系数比标准假设的 10 dB 好 3 dB。这 3 dB 抵掉的正是发送端留的
+     * 3 dB 速率余量」 — read as the arithmetic between the three figures, and then as the claim
+     * itself: the rung this engine picks with its margin is the rung an assumed-noise receiver
+     * picks with none.
+     */
+    const [ours, theirs, better] = figs(DEEP,
+      /本仿真器自己的 (\d+) dB 噪声系数比标准假设的 (\d+) dB 好 (\d) dB/, '`deeper` on the two figures')
+    expect(theirs, 'the standard’s own assumption, a third time').toBe(nf)
+    expect(theirs! - ours!, 'how much better this engine’s is').toBe(better)
+    expect(better, 'which is exactly the margin the sender keeps').toBe(RATE_MARGIN_DB)
+    const [withNf, withMargin] = figs(DEEP,
+      /本仿真器按「(\d+) dB 噪声系数 \+ (\d) dB 余量」挑出来的那一级/, '`deeper` on how it picks')
+    expect([withNf, withMargin], 'the pair it picks with').toEqual([ours, better])
+    const [assumed] = figs(DEEP, /一台按标准假设（(\d+) dB 噪声系数）的接收机/,
+      '`deeper` on the other receiver')
+    expect(assumed, 'the assumption that other receiver runs on').toBe(nf)
+    // 「这一点与带宽无关，20、40、80、160 MHz 都成立」 — measured at each width it names
+    const widths = figs(DEEP, /与带宽无关，(\d+)、(\d+)、(\d+)、(\d+) MHz 都成立/,
+      '`deeper` on the widths')
+    /*
+     * The four widths are read as the widths this engine HAS: its tone table is the list of
+     * channel widths it can price at all, and these are that list without its widest entry —
+     * so a width that is not one of them makes the sentence name something this engine cannot
+     * run.
+     */
+    const PHY_SRC = readFileSync(new URL('../../src/engine/phy.ts', import.meta.url), 'utf8')
+    const [tones] = raw(PHY_SRC, /const TONES_HE: Record<number, number> = \{([^}]+)\}/,
+      'the engine’s own tone table')
+    const supported = [...tones!.matchAll(/(\d+):/g)].map((m) => Number(m[1]))
+    expect(widths, 'every width the sentence names is one this engine has')
+      .toEqual(supported.slice(0, widths.length))
+    expect(supported.length - widths.length, 'and it leaves out only the widest').toBe(1)
+    for (const w of widths) {
+      const snr = livingRoomSnr(w)
+      const rssi = snr + noiseDbm(w)
+      const ourRung = mcsForRssi('eht', rssi, undefined, w)
+      /*
+       * The claim itself, at this width: the rung this engine picks (7 dB noise figure, 3 dB of
+       * margin) is the rung a receiver on the table's own assumption (10 dB, no margin) picks.
+       */
+      const assumedSnr = rssi - kTB(w) - nf!
+      let theirRung = -1
+      for (let m = 0; m < PHY_MODES.eht.sensDbm.length; m++) {
+        if (assumedSnr >= reqSinrDb('eht', m)) theirRung = m
+      }
+      expect(ourRung, `${w} MHz: the rung this engine picks`).toBe(theirRung)
+    }
+    // 「因为两个 3 dB 都是比值」
+    const [bothCn] = figs(DEEP, /因为两个 (\d) dB 都是比值/, '`deeper` on why width does not matter')
+    expect(bothCn, 'the two figures that cancel').toBe(better)
+  })
+
+  it('reads `limits` and `sources`, including the two figures borrowed from `@selectivity`', () => {
+    // 「信道按 2.03125 MHz 一格各抽一次衰落」
+    const [binMhz] = figs(LIM, /信道按 ([\d.]+) MHz 一格各抽一次衰落/, '`limits` on the bin')
+    expect(binMhz, 'the bin this engine splits a channel into').toBe(selBinWidthMhz())
+    /*
+     * 「320 MHz 上最深那一格平均深 24.09 dB，整帧的有效信噪比却只掉 2.36 dB」 — both figures are
+     * measured in `@selectivity`, whose own table prints them, so they are read against that
+     * table: a figure's home is where its measurement lives.
+     */
+    const [wideMhz, deepest, effective] = figs(LIM,
+      /(\d+) MHz 上最深那一格平均深 ([\d.]+) dB，整帧的有效信噪比却只掉 ([\d.]+) dB/,
+      '`limits` on the two selectivity figures')
+    const selTable = selectivity.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { head: string[]; rows: string[][] }[]
+    const pair = selTable.find((x) => x.rows.some((r) => r[0]!.includes('最深那一格比均值低')))!
+    const col = pair.head.findIndex((h) => h.includes(String(wideMhz)))
+    expect(col, 'that lesson’s table has a column for this width').toBeGreaterThan(0)
+    expect(val(pair.rows.find((r) => r[0]!.includes('最深那一格'))![col]!.replace(' dB', '')),
+      'the deepest bin, as the lesson that measures it prints it').toBe(deepest)
+    expect(val(pair.rows.find((r) => r[0]!.includes('有效信噪比'))![col]!.replace(' dB', '')),
+      'and the effective loss').toBe(effective)
+    expect(deepest, 'the deepest bin is far deeper than the loss').toBeGreaterThan(effective! * 5)
+    // 「全场所有电台共用一个 7 dB 噪声系数」
+    const [nf] = figs(LIM, /共用一个 (\d+) dB 噪声系数/, '`limits` on the noise figure')
+    expect(noiseDbm(20) - kTB(20), 'the noise figure this engine adds').toBeCloseTo(nf!, 9)
+    // 「每一处都写明了 10% 误包率的条件，以及其背后 10 dB 噪声系数与 5 dB 实现余量的假设」
+    const [per, srcNf, srcImpl] = figs(SRC,
+      /写明了 (\d+)% 误包率的条件，以及其背后 (\d+) dB 噪声系数与 (\d) dB 实现余量/,
+      '`sources` on the table’s conditions')
+    expect(per, 'the packet error rate the table is defined at').toBeGreaterThan(0)
+    expect([srcNf, srcImpl], 'the two assumptions `deeper` reads as well')
+      .toEqual(figs(DEEP, /除了假设 (\d+) dB 的噪声系数，还预先扣掉了 (\d) dB 的实现余量/,
+        '`deeper` on the same two'))
+    // 「−82 dBm 的前导检测门限与 −62 dBm 的能量检测门限」 and 「4 dB…与 3 dB…」
+    const [pd, ed] = figs(SRC, /(−\d+) dBm 的前导检测门限与 (−\d+) dBm 的能量检测门限/,
+      '`sources` on the two thresholds')
+    expect([pd, ed], 'the engine’s own pair').toEqual([CCA_PD_DBM, CCA_ED_DBM])
+    const [pdSinr, rateMargin] = figs(SRC, /(\d) dB 的前导检测比值与 (\d) dB 的速率余量/,
+      '`sources` on the two model values')
+    expect([pdSinr, rateMargin], 'and its own two model values')
+      .toEqual([PREAMBLE_DETECT_SINR_DB, RATE_MARGIN_DB])
+  })
+
+  it('reads the margin wherever it is printed again, and the sliver the hard line leaves', () => {
+    /*
+     * **Twelve of this lesson's figures were second printings of the margin or of a width**
+     * (sweep of 2026-10-14). The margin is printed seven times in all — the outcome, the term,
+     * the table's own heading, two sentences of `deeper`, `sources`, and three of the quiz's
+     * options — and every one of them is this engine's own `RATE_MARGIN_DB`.
+     */
+    const tb = tables().find((x) => x.head[0] === '这一次比较')!
+    const margins = [
+      figs(tb.heading!, /那 (\d) dB 在哪一边/, 'the table’s own heading')[0]!,
+      figs(DEEP, /这 (\d) dB 抵掉的正是发送端留的/, '`deeper` on what cancels it')[0]!,
+      figs(DEEP, /抵掉的正是发送端留的 (\d) dB 速率余量/, '`deeper` on the margin itself')[0]!,
+      figs(QUIZ, /发送端多留的那 (\d) dB，接收端解码时算不算/, 'the quiz’s question')[0]!,
+      figs(QUIZ, /算：接收端要所需比值再加 (\d) dB/, 'the quiz’s wrong option')[0]!,
+      figs(QUIZ, /([\d.]+) dB 是发送端留给起伏的/, 'the quiz’s right option')[0]!,
+    ]
+    for (const m of margins) expect(m, 'every printing is the engine’s own margin').toBe(RATE_MARGIN_DB)
+    /*
+     * **Exempt, class (e): 「差 0.1 dB 就整帧作废」.** The sentence needs a sliver, and any
+     * figure below the smallest step between two rungs would say the same thing. What is read is
+     * that claim: the sliver is smaller than the gap between two neighbouring requirements, so
+     * a frame that far short really is a frame that fails rather than one that drops a rung.
+     */
+    const [sliver] = figs(WHY, /差 ([\d.]+) dB 就整帧作废/, '`why` on the hard threshold')
+    const gaps: number[] = []
+    for (let m = 1; m < PHY_MODES.eht.sensDbm.length; m++) {
+      gaps.push(reqSinrDb('eht', m) - reqSinrDb('eht', m - 1))
+    }
+    expect(sliver, 'smaller than any step on the ladder').toBeLessThan(Math.min(...gaps))
+    expect(sliver, 'and still a real amount').toBeGreaterThan(0)
+    /*
+     * **Exempt, class (a): the 10 % packet error rate.** It is the condition the standard's
+     * sensitivity table is defined at and no corpus ships with this repo. What is read of it:
+     * the lesson quotes it where it quotes the clauses, and the two assumptions beside it are
+     * the ones `deeper` reads against this engine's own noise figure.
+     */
+    const [per] = figs(SRC, /写明了 (\d+)% 误包率的条件/, '`sources` on the error rate')
+    expect(per, 'a percentage, not a ratio').toBeGreaterThan(0)
+    expect(per, 'and a small one').toBeLessThan(100)
+  })
+
+  it('reads `observe`, both experiments and the quiz against the runs they describe', () => {
+    // 「它走第 3 级，所需 16.99 dB，而这条链路给出 21.66 dB」
+    const [rung, need, given] = figs(OBS,
+      /它走第 (\d) 级，所需 ([\d.]+) dB，而这条链路给出 ([\d.]+) dB/, '`observe` on the first frame')
+    const first = txs(variantRecs(LIVING_ROOM), 'sta-1', 'data')[0]!
+    expect(first.frame.mcs, 'the rung that frame really uses').toBe(rung)
+    same(String(need), reqSinrDb('eht', rung!), 'what it requires')
+    same(String(given), livingRoomSnr(), 'and what the link gives')
+    // 「四个变体跑满 100 ms，没有重传、没有超时，也没有一次接收失败…仍留着 3 dB 速率余量」
+    const [ms] = figs(OBS, /四个变体跑满 (\d+) ms/, '`observe` on the window')
+    expect(ms! * MS, 'the window every variant is run for').toBe(RUN_NS)
+    const [margin] = figs(OBS, /可要求之上仍留着 (\d) dB 速率余量/, '`observe` on the margin')
+    expect(margin, 'the margin every link still has').toBe(RATE_MARGIN_DB)
+    for (const i of decodeThresholds.variants!.map((_v, k) => k)) {
+      const rs = variantRecs(i)
+      expect(ofType(rs, 'RX_FAIL'), `variant ${i}: no failed reception`).toEqual([])
+      expect(ofType(rs, 'RETRY'), `variant ${i}: no retry`).toEqual([])
+    }
+    /*
+     * 「把两端的信道带宽改成 80 MHz。地板抬到 −87.97 dBm，比值掉到 9.89 dB——低于第 0 级含余量的
+     * 11.99 dB，却高于它 8.99 dB 的裸要求」 — four figures of one experiment, on a scene built at
+     * that width.
+     */
+    const [w80, floor80, snr80, rung0, withMargin0, bare0] = figs(TRY,
+      /把两端的信道带宽改成 (\d+) MHz。地板抬到 (−[\d.]+) dBm，比值掉到 ([\d.]+) dB——低于第 (\d) 级含余量的 ([\d.]+) dB，却高于它 ([\d.]+) dB 的裸要求/,
+      '`tryThis` on the 80 MHz experiment')
+    const far = PRIMER_DISTANCES.at(-1)!
+    const farSnr = (w: 20 | 40 | 80 | 160): number => {
+      const s = withWidth(primerScenario(far), w)
+      return buildLinkTable(s.nodes, s.walls).get('sta-1')!.get('ap')! - noiseDbm(w)
+    }
+    same(String(floor80), noiseDbm(w80!), 'the floor that width really has')
+    same(String(snr80), farSnr(w80! as 80), 'the ratio that link really gives')
+    same(String(bare0), reqSinrDb('eht', rung0!), 'the bare requirement of that rung')
+    same(String(withMargin0), reqSinrDb('eht', rung0!) + RATE_MARGIN_DB, 'and the same with margin')
+    expect(snr80, 'under the margin').toBeLessThan(withMargin0!)
+    expect(snr80, 'and over the requirement').toBeGreaterThan(bare0!)
+    // 「再改成 160 MHz：比值只剩 6.87 dB」
+    const [w160, snr160] = figs(TRY, /再改成 (\d+) MHz：比值只剩 ([\d.]+) dB/,
+      '`tryThis` on the 160 MHz experiment')
+    same(String(snr160), farSnr(w160! as 160), 'the ratio that width leaves')
+    expect(snr160, 'below the requirement, so nothing decodes').toBeLessThan(bare0!)
+    /*
+     * The quiz walks the three questions at that width: the level clears detection, the ratio
+     * clears the preamble's own, and the requirement is what stops it.
+     */
+    const [qw, arrival, pd, qSnr, pdSinr] = figs(QUIZ,
+      /换到 (\d+) MHz 后[\s\S]*?到达电平 (−[\d.]+) dBm 高于 (−\d+) dBm，([\d.]+) dB 也高于开始接收要的 (\d) dB/,
+      'the quiz on the three questions')
+    expect(qw, 'the same width as the experiment').toBe(w160)
+    const sFar = withWidth(primerScenario(far), qw! as 160)
+    same(String(arrival), buildLinkTable(sFar.nodes, sFar.walls).get('sta-1')!.get('ap')!,
+      'the level that link really delivers')
+    expect(pd, 'the detection threshold').toBe(CCA_PD_DBM)
+    same(String(qSnr), farSnr(qw! as 160), 'the ratio it really gives')
+    expect(pdSinr, 'and the preamble’s own ratio').toBe(PREAMBLE_DETECT_SINR_DB)
+    const [stuck, against] = figs(QUIZ, /卡住的是第三个问题：([\d.]+) 低于 ([\d.]+) dB/,
+      'the quiz on what stops it')
+    expect([stuck, against], 'the same pair the experiment printed').toEqual([snr160, bare0])
+    // 「算一半：所需比值加 1.5 dB」 — a wrong option, and its figure is half the margin
+    const [half] = figs(QUIZ, /算一半：所需比值加 ([\d.]+) dB/, 'the quiz’s wrong option')
+    expect(half! * 2, 'half of the margin').toBe(RATE_MARGIN_DB)
+    // 「80 MHz 那个实验就是证据：9.89 dB 低于含余量的 11.99 dB，却高于 8.99 dB 的裸要求」
+    const [qw80, qSnr80, qMargin80, qBare80] = figs(QUIZ,
+      /(\d+) MHz 那个实验就是证据：([\d.]+) dB 低于含余量的 ([\d.]+) dB，却高于 ([\d.]+) dB 的裸要求/,
+      'the quiz on the 80 MHz experiment')
+    expect([qw80, qSnr80, qMargin80, qBare80], 'the experiment’s own four figures')
+      .toEqual([w80, snr80, withMargin0, bare0])
   })
 })
