@@ -53,6 +53,7 @@ import type { Block } from '../../src/course/lessonKit'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
 /** The lesson's own reading length, and the one the hash fixture records. */
@@ -1286,4 +1287,515 @@ describe('ru-diversity · the scene comment’s own nine figures', () => {
     expect(dropRate(two.half)).toBeLessThan(dropRate(two.whole))
     for (const t of ['41.94 % against 39.45 %', '38.58 % against 39.91 %']) expect(SCENE).toContain(t)
   }, 1_200_000)
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures this lesson's claims, and most of its figures were already watched
+ * — but watched in the shape this programme calls the eighth: the figure typed on **this** side
+ * as `toBeCloseTo(2.098, 3)`, with an `expect(mainText).toContain('九格 2.098 dB，四格 2.068 dB')`
+ * beside it. That pair does redden when the prose moves, so the sweep of 2026-10-13 found most
+ * of this lesson pinned. What it cannot do is survive a re-measurement: if the scene ever
+ * changes, both sides have to be edited by hand, and the test says nothing about whether the
+ * printed figure is still the measured one. Here the figure is **parsed out of the lesson** and
+ * compared with the measurement, at the precision it was printed to.
+ *
+ * Nothing new is measured. Every assertion calls the same `legs`, `runScene`, `runOf`, `dlRows`,
+ * `largestMarginGroup`, `dropRate`, `q`, `mean` and the same engine functions the tests above
+ * call — the memoised runs are the ones they already paid for.
+ *
+ * **Two instruments are new, and both are the standard's own arithmetic rather than a literal:**
+ *
+ *  - **the tone counts come off the ranges `engine/selectivity.ts` records.** 106 is not typed
+ *    here: it is `[-122:-17]` counted out, from the docblock that justifies the truncation. The
+ *    26 is `[-16:-4, 4:16]` counted the same way, and 52 likewise, so 「106 音调资源单元」 is read
+ *    against a span rather than against a second copy of itself. The engine's docblock also
+ *    names RU 5, RU 14 and Table 27-8's NOTE 2, which are three more figures the lesson prints.
+ *  - **the four excluded 26-tone RUs are read against each other and `RU26_PER_20MHZ`.** 「RU 19、
+ *    56、93、130」 is an arithmetic progression whose step is the 26-tone RUs of one 80 MHz block
+ *    (4 × 9 + 1 = 37, the +1 being that block's own middle RU) and whose first term is that
+ *    block's middle (19 = (37 + 1) / 2). Move any one of the four and the progression breaks.
+ *
+ * **One figure is exempt, class (a), and it is argued rather than waved:** the 996 of 「26、52、
+ * 106、242、484、996……」. That list is the standard's discrete tone table and this repository
+ * holds no corpus of it, so the five figures that can be anchored are (26 and 52 against the
+ * engine's ranges, 106 against them too, 242 against the 484 printed next to it, since 484 is
+ * exactly twice it), and the sixth cannot: 996 is neither twice 484 nor a whole number of
+ * 26-tone RUs. What the sentence uses the list for — that the sizes are discrete and uneven, so
+ * a scheduler picks from a table rather than dividing — is checked on the five.
+ */
+describe('ru-diversity · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(lesson.numbers)
+  const DEEP = blockText(lesson.deeper)
+  const SRC = blockText(lesson.sources)
+  const LIM = blockText(lesson.limits)
+  const OBS = blockText(lesson.observe)
+  const TRY = blockText(lesson.tryThis)
+  const ALL = [
+    lesson.why, blockText(lesson.outcomes), blockText(lesson.terms), blockText(lesson.picture),
+    NUMS, DEEP, SRC, LIM, OBS, TRY, blockText(lesson.quiz),
+  ].join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (s: string, re: RegExp, what: string): string[] => {
+    const m = re.exec(s)
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return m!.slice(1)
+  }
+  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
+  /** Every occurrence, with the count asserted so a new printing cannot slip in unread. */
+  const every = (s: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...s.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((m) => m.slice(1))
+  }
+  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const occ = (s: string, needle: string): number => s.split(needle).length - 1
+  const zh = (x: string): number => {
+    const n = /^\d+$/.test(x) ? Number(x) : zhNumeral(x.replace(/两/g, '二'))
+    expect(n, `「${x}」 is not a number this test can read`).not.toBeNull()
+    return n!
+  }
+  const tableBy = (needle: string): Extract<Block, { kind: 'table' }> => lesson.numbers!
+    .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
+    .find((b) => b.heading!.includes(needle))!
+
+  /**
+   * The engine's own docblock for `selMemberBins`, which carries the standard's tone ranges —
+   * the instrument behind every tone count this lesson prints.
+   */
+  const SEL = readFileSync(new URL('../../src/engine/selectivity.ts', import.meta.url), 'utf8')
+  /** Every `[lo:hi]` range that docblock quotes, counted out into tones. */
+  const SPANS = [...SEL.matchAll(/`\[(-?\d+):(-?\d+)\]`/g)].map(([, a, b]) => val(b!) - val(a!) + 1)
+  /** The middle 26-tone RU, whose range comes in two halves around DC. */
+  const SPLIT_SPAN = ((): number => {
+    const [a, b, c, d] = figs(SEL, /`\[(-?\d+):(-?\d+), (-?\d+):(-?\d+)\]`/, 'the middle RU’s range')
+    return (b! - a! + 1) + (d! - c! + 1)
+  })()
+  /** The two tone counts those ranges give, which three `it`s below read figures against. */
+  const RU52 = [...new Set(SPANS)].find((x) => x > RU26_TONES && x < 100)!
+  const RU106 = [...new Set(SPANS)].find((x) => x > 100)!
+
+  it('counts the tones of one bin out of the standard’s own range, three printings of it', () => {
+    // The 26 the lesson prints is the middle 26-tone RU's own two half-ranges, counted.
+    expect(SPLIT_SPAN, 'the middle RU of Table 27-8, counted out of its range').toBe(RU26_TONES)
+    for (const [tones] of every(ALL, /(\d+) 根(?:相邻)?音调/g, 'the tones of one bin', 3)) {
+      same(tones!, RU26_TONES, 'the tones in one bin')
+    }
+    // And the bin width is that count times the subcarrier spacing, both read off the sentence.
+    const [mhz, tones, khz] = raw(SRC, /每格 ([\d.]+) MHz 由 (\d+) 根音调与 ([\d.]+) kHz/,
+      '`sources` on where the bin width comes from')
+    same(tones!, RU26_TONES, 'the tones the bin width is computed from')
+    same(khz!, DF_EHT_KHZ, 'the subcarrier spacing')
+    same(mhz!, (val(tones!) * val(khz!)) / 1000, 'the bin width, from the two figures beside it')
+    same(mhz!, selBinWidthMhz(), 'the bin width the engine computes')
+    // The one interpolated printing, which a planter cannot reach but a reader can see.
+    same(raw(ALL, /按 ([\d.]+) MHz 一格/, 'the picture’s bin width')[0]!, selBinWidthMhz(),
+      'the bin width in `picture`')
+  })
+
+  it('reads every N-tone resource unit against a span the engine records', () => {
+    expect(SPANS.filter((x) => x === 106).length, 'the six 106-tone RUs of Tables 27-8 and 27-9').toBe(6)
+    expect(SPANS.filter((x) => x === 52).length, 'the four 52-tone RUs of Table 27-8').toBe(4)
+    // 242 is anchored by the 484 printed beside it — the standard's table doubles there.
+    const tones = figs(LIM, /（(\d+)、(\d+)、(\d+)、(\d+)、(\d+)、(\d+)……）/,
+      '`limits` on the standard’s discrete tone table')
+    same(String(tones[0]), RU26_TONES, 'the smallest RU of the table')
+    same(String(tones[1]), 2 * RU26_TONES, 'the 52-tone RU, two bins’ worth')
+    same(String(tones[1]), RU52, 'the 52-tone RU against Table 27-8’s range')
+    same(String(tones[2]), RU106, 'the 106-tone RU against Table 27-8’s range')
+    same(String(tones[4]), 2 * tones[3]!, 'the 484-tone RU, twice the 242 printed before it')
+    for (let i = 1; i < tones.length; i++) {
+      expect(tones[i]!, `the table is increasing at ${tones[i]}`).toBeGreaterThan(tones[i - 1]!)
+    }
+    const RU242 = tones[3]!
+    /*
+     * **Exempt, class (a): the 996.** Argued in this describe's header — the one entry of the
+     * six that neither doubles its neighbour nor counts out of a range this repository holds.
+     */
+    expect(tones[5]!, 'and the exempt entry is the last one, which is what the argument covers')
+      .toBeGreaterThan(tones[4]!)
+
+    // Now every printing of a tone count in the lesson, against those four anchored values.
+    const seen = new Map<number, number>()
+    for (const [n] of every(ALL, /(\d+) 音调/g, 'every N-tone resource unit the lesson prints', 21)) {
+      const v = val(n!)
+      seen.set(v, (seen.get(v) ?? 0) + 1)
+      expect([RU26_TONES, RU52, RU106, RU242], `「${n} 音调」`).toContain(v)
+    }
+    expect([...seen.entries()].sort((a, b) => a[0] - b[0]))
+      .toEqual([[RU26_TONES, 11], [RU52, 2], [RU106, 6], [RU242, 2]])
+    // What the two floors fold to in bins, which is the clause the sentence draws from them.
+    const [he, eht] = figs(LIM, /HE 不小于 (\d+) 音调、EHT 不小于 (\d+) 音调/, '`limits` on the two floors')
+    expect(Math.floor(he! / RU26_TONES), 'the HE floor in bins').toBe(selMemberBins(20, 1 / 2))
+    expect(Math.floor(eht! / RU26_TONES), 'the EHT floor in bins').toBe(selBins(20))
+    expect(LIM, 'and the lesson says those two folds in words').toContain('最少四格与九格')
+  })
+
+  it('reads the four excluded 26-tone RUs as the progression they are', () => {
+    const rus = figs(SRC, /RU (\d+)、(\d+)、(\d+)、(\d+)/, '`sources` on the RUs the CQI report excludes')
+    // One 80 MHz block holds 4 x 9 + 1 26-tone RUs, the +1 being its own middle one.
+    const step = 4 * RU26_PER_20MHZ + 1
+    expect(rus.map((x, i) => (i === 0 ? x : x - rus[i - 1]!)).slice(1), 'the step of the progression')
+      .toEqual([step, step, step])
+    same(String(rus[0]), (step + 1) / 2, 'the first of them: the middle RU of the first 80 MHz block')
+    // And the nine blocks per 20 MHz the same sentence gives, in Chinese.
+    const [mhz, blocks] = raw(SRC, /每 (\d+) MHz ([一二三四五六七八九十]+)块/, '`sources` on the CQI blocks')
+    expect(Number.isInteger(selBins(val(mhz!))), `${mhz} MHz splits into whole bins`).toBe(true)
+    expect(zh(blocks!), 'the reportable bins of one 20 MHz').toBe(RU26_PER_20MHZ)
+    expect(zh(blocks!), 'which is this engine’s own bin count').toBe(selBins(val(mhz!)))
+  })
+
+  it('reads every (bandwidth, member count) the prose prints against the engine’s own split', () => {
+    for (const [w, n] of every(ALL, /(\d+) MHz(?:，| )(?:上|)?(两|三|四|\d+) ?个成员/g,
+      'every (bandwidth, member count) pair', 13)) {
+      const width = val(w!)
+      expect(Number.isInteger(selBins(width)), `${width} MHz must split into whole bins`).toBe(true)
+      expect([2, 3, 4], `${width} MHz with ${n} members`).toContain(zh(n!))
+    }
+    // The 40 MHz claims, each read back: 18 bins, no middle one, and the two RUs left out.
+    for (const [even] of every(ALL, /(\d+) 是偶数/g, 'the bins of 40 MHz, twice', 2)) {
+      same(even!, selBins(40), 'the bins of 40 MHz')
+      expect(selBins(40) % 2, 'which is what 「是偶数」 claims about it').toBe(0)
+    }
+    for (const [lo, hi] of every(ALL, /直流落在 RU (\d+) 与 RU (\d+) 之间/g, 'the two RUs DC falls between', 2)) {
+      same(lo!, selBins(40) / 2, 'the RU below DC at 40 MHz')
+      same(hi!, selBins(40) / 2 + 1, 'and the one above it')
+    }
+    // RU 5 and RU 14 are the engine docblock's own pair, and they are symmetric about the centre.
+    const [five, fourteen] = figs(SEL, /26-tone RUs (\d+)[\s*]+and (\d+)/, 'the engine on the two RUs left out')
+    const [evenW, evenBins] = figs(SEL, /\((\d+) MHz has no middle RU — (\d+) is even\)/,
+      'the engine on 40 MHz having no middle RU')
+    expect(evenW, 'the width that docblock is talking about').toBe(40)
+    expect(evenBins, 'and its bin count').toBe(selBins(40))
+    expect(five! + fourteen!, 'the two left-out RUs are symmetric about the channel centre')
+      .toBe(selBins(40) + 1)
+    expect(five!, 'and the lower one sits just past the first member’s run')
+      .toBe(selMemberBins(40, 1 / 4) + 1)
+    for (const [a, b] of every(ALL, /26 音调 RU (\d+) 与 RU (\d+)/g, 'the lesson on the two RUs left out', 2)) {
+      same(a!, five!, 'the lower RU the 40 MHz split leaves out')
+      same(b!, fourteen!, 'and the upper one')
+    }
+  })
+
+  it('reads the two bandwidths that appear without a member count', () => {
+    /*
+     * **The sweep of 2026-10-13 walked through both of these**, and they are the same shape:
+     * 「40 MHz 没有「中间那一格」」 in the share table's last column and 「而 40 MHz 根本没有中间
+     * 那一格」 in `limits` name a bandwidth with no member count after it, so the (bandwidth,
+     * member count) read above does not reach them. What makes the figure checkable is the
+     * clause itself: a channel has a middle bin only when its bin count is odd, and this engine
+     * answers for a width only when that count is a whole number.
+     */
+    for (const [w] of every(ALL, /(\d+) MHz (?:没有|根本没有中间)/g,
+      'the bandwidth with no middle bin, printed twice', 2)) {
+      const width = val(w!)
+      expect(Number.isInteger(selBins(width)), `${width} MHz must split into whole bins`).toBe(true)
+      expect(selBins(width) % 2, `${width} MHz has no middle bin, so its bin count is even`).toBe(0)
+      expect(selBins(width) / 2 + 1, 'and the bin above DC is the one the same clause names')
+        .toBe(figs(ALL, /直流落在 RU \d+ 与 RU (\d+) 之间/, 'the RU above DC')[0])
+    }
+  })
+
+  it('reads the multi-resource-unit allocation, all three printings of it', () => {
+    /*
+     * **The other six the sweep walked through**: 「52+26 这样的多资源单元」, printed in
+     * `numbers`, in `sources` and in `limits`. Neither figure carries 「音调」 after it, so the
+     * read of every N-tone resource unit above does not reach them either — and that is exactly
+     * the shape this programme keeps finding, a figure whose unit is implied by its neighbours.
+     * Both halves are anchored: the 52 against Table 27-8's four 52-tone ranges, the 26 against
+     * the middle RU's own two half-ranges, and the sum against what the sentence uses it for —
+     * absorbing the bin the truncation drops, which is one bin on top of the two the 52 covers.
+     */
+    for (const [a, b] of every(ALL, /(\d+)\+(\d+) 这(?:样的|类)多资源单元/g,
+      'the multi-RU allocation, printed three times', 3)) {
+      expect(val(a!), 'the first half, against Table 27-8’s 52-tone range').toBe(RU52)
+      expect(val(b!), 'the second, against the middle RU’s own range').toBe(RU26_TONES)
+      expect(Math.floor(val(a!) / RU26_TONES) + Math.floor(val(b!) / RU26_TONES),
+        'and the two together are the member’s two bins plus the one nobody holds')
+        .toBe(selMemberBins(20, 1 / 4) + (selBins(20) - 2 * selMemberBins(20, 1 / 2)))
+    }
+  })
+
+  it('reads the share table’s own cells out of the cells, label column included', () => {
+    const t = tableBy('谁也没拿的那几格')
+    expect(t.rows.length, 'the rows of the share table').toBe(6)
+    for (const row of t.rows) {
+      const [w, n] = figs(row[0]!, /(\d+) MHz，(\d+) 个成员/, `the label of 「${row[0]}」`)
+      same(row[1]!, selBins(w!), `the channel’s bins on row 「${row[0]}」`)
+      same(row[2]!, selBins(w!) / n!, `the even split on row 「${row[0]}」`)
+      same(row[3]!, selMemberBins(w!, 1 / n!), `the truncated bins on row 「${row[0]}」`)
+      const left = selBins(w!) - n! * selMemberBins(w!, 1 / n!)
+      if (left === 0) expect(row[4], `row 「${row[0]}」 leaves nothing over`).toBe('没有')
+      else same(raw(row[4]!, /^(\d+) 格/, `the leftover count on row 「${row[0]}」`)[0]!, left,
+        `the leftover bins on row 「${row[0]}」`)
+    }
+    // The heading of the other table is a figure too: the length every figure below it is measured over.
+    same(raw(tableBy('同一个实测余量组里的两腿').heading!, /（(\d+) ms/, 'the gate table’s heading')[0]!,
+      GATE_NS / MS, 'the round length the two legs are measured over')
+  })
+
+  it('reads the arrival level and the lowest rung off the link table', () => {
+    const sc = lesson.scenario()
+    const links = buildLinkTable(sc.nodes, sc.walls)
+    const level = links.get('ap')!.get('sta-1')!
+    same(raw(ALL, /约 −(\d+) dBm/, 'the picture on the arrival level')[0]!, -Math.round(level),
+      'the arrival level, as the prose rounds it')
+    // The 20 MHz the outcomes name is the channel every node in this scene is on.
+    const [w] = figs(blockText(lesson.outcomes), /(\d+) MHz 上两个成员/, 'the outcomes on the bandwidth')
+    expect(new Set(sc.nodes.map((n) => n.caps.widthMhz)), 'every node is on that channel').toEqual(new Set([w]))
+    expect(Number.isInteger(selBins(w!)), 'which splits into whole bins').toBe(true)
+  })
+
+  it('reads the gate table and its two denominators out of the prose', () => {
+    const { on, group, key, half, whole } = legs()
+    const t = tableBy('同一个实测余量组里的两腿')
+    for (const [i, leg] of [half, whole].entries()) {
+      const [all, bad] = figs(t.rows[i]![3]!, /(\d+) 条里 (\d+) 条/, `the counts of leg ${i}`)
+      expect(all, `the receptions of leg ${i}`).toBe(leg.length)
+      expect(bad, `the failures of leg ${i}`).toBe(leg.filter((x) => x.failed).length)
+      same(raw(t.rows[i]![4]!, /([\d.]+) %/, `the drop rate of leg ${i}`)[0]!,
+        100 * dropRate(leg), `the drop rate of leg ${i}`)
+      // The bin count the row claims, which is the whole subject of the comparison.
+      same(t.rows[i]![2]!, leg[0]!.bins, `the bins of leg ${i}`)
+    }
+    // The grouping paragraph: the group, the round it came out of, and the strays.
+    const [dl, inGroup] = figs(NUMS, /装下了这一轮 (\d+) 条下行（downlink, DL）接收里的 (\d+) 条/,
+      'the grouping paragraph on its own denominator')
+    expect(dl, 'the member leg’s whole round').toBe(on.length)
+    expect(inGroup, 'and the group inside it').toBe(group.length)
+    same(raw(NUMS, /掉出组外的那 (\d+) 条/, 'the strays')[0]!, on.length - group.length, 'the strays')
+    const [wAll, wIn] = figs(NUMS, /按同一条规则是 (\d+) 条里的 (\d+) 条/,
+      'the whole-channel leg’s denominator')
+    expect(wAll, 'the whole-channel leg’s own round').toBe(dlRows(runOf(lesson, WHOLE, GATE_NS)).length)
+    expect(wIn, 'and the group inside it').toBe(whole.length)
+    // The margin itself, printed three times: the paragraph, the gate table of the window, the quiz.
+    same(raw(NUMS, /这一组的余量是 ([\d.]+) dB/, 'the group’s margin')[0]!, key, 'the group’s margin')
+    same(raw(NUMS, /本课的 ([\d.]+) dB/, 'the gate table’s own row')[0]!, key, 'the margin in the gate table')
+  })
+
+  it('reads the tail paragraph’s eight figures off the two populations', () => {
+    const { half, whole } = legs()
+    const h = half.map((r) => r.lossDb)
+    const w = whole.map((r) => r.lossDb)
+    const [nine, four, less] = raw(NUMS, /九格 ([\d.]+) dB，四格 ([\d.]+) dB，四格还低了 ([\d.]+) dB/,
+      'the two mean losses')
+    same(nine!, mean(w), 'the nine-bin leg’s mean loss')
+    same(four!, mean(h), 'the four-bin leg’s mean loss')
+    same(less!, mean(w) - mean(h), 'and the difference the prose draws from them')
+    const [mw, mh] = raw(NUMS, /([\d.]+) dB 降到 ([\d.]+) dB/, 'the two medians')
+    same(mw!, q(w, 0.5), 'the nine-bin median')
+    same(mh!, q(h, 0.5), 'the four-bin median')
+    const [pw, ph] = raw(NUMS, /([\d.]+) dB 涨到 ([\d.]+) dB/, 'the two ninetieth percentiles')
+    same(pw!, q(w, 0.9), 'the nine-bin p90')
+    same(ph!, q(h, 0.9), 'the four-bin p90')
+    const [dw, dh] = raw(NUMS, /从 ([\d.]+) dB 走到 ([\d.]+) dB/, 'the two deepest receptions')
+    same(dw!, Math.max(...w), 'the deepest nine-bin reception')
+    same(dh!, Math.max(...h), 'the deepest four-bin reception')
+    // Both directions the paragraph claims, so the figures are not merely equal to themselves.
+    expect(val(mh!), 'the median moves down').toBeLessThan(val(mw!))
+    expect(val(ph!), 'and p90 moves up').toBeGreaterThan(val(pw!))
+    // The better-than-mean counts, and the percentages computed from them.
+    const [nw, cw, nh, ch] = figs(NUMS, /九格里 (\d+) 条有 (\d+) 条，四格里 (\d+) 条有 (\d+) 条/,
+      'the better-than-mean counts')
+    expect(nw, 'the nine-bin population').toBe(whole.length)
+    expect(nh, 'the four-bin population').toBe(half.length)
+    expect(cw, 'the nine-bin receptions better than their own mean').toBe(w.filter((x) => x <= 0).length)
+    expect(ch, 'the four-bin ones').toBe(h.filter((x) => x <= 0).length)
+    const [pctW, pctH] = raw(NUMS, /占比从 ([\d.]+) % 涨到 ([\d.]+) %/, 'the two shares')
+    same(pctW!, (100 * cw!) / nw!, 'the nine-bin share, from the counts beside it')
+    same(pctH!, (100 * ch!) / nh!, 'and the four-bin share')
+    // The deepest bin, which runs the other way — the misreading the paragraph exists to block.
+    const [bw, bh] = raw(NUMS, /比均值低 ([\d.]+) dB，四格那一腿只有 ([\d.]+) dB/, 'the two deepest bins')
+    same(bw!, -q(whole.map((r) => r.worstBinDb), 0.5), 'the nine-bin leg’s median worst bin')
+    same(bh!, -q(half.map((r) => r.worstBinDb), 0.5), 'the four-bin leg’s')
+    expect(val(bh!), 'shallower on the leg that drops more').toBeLessThan(val(bw!))
+  })
+
+  it('reads the window’s three margins and four drop rates off the sweep', () => {
+    const at = (x: number, on: boolean): Scenario => {
+      const sc = ruDiversityScenario(on)
+      return { ...sc, nodes: sc.nodes.map((n) => (n.id.startsWith('sta') ? { ...n, pos: { ...n.pos, x } } : n)) }
+    }
+    /** The same three positions the sweep above ran, off the same memo. */
+    const leg = (x: number) => {
+      const on = dlRows(runScene(`x${x}|on`, at(x, true)))
+      const off = dlRows(runScene(`x${x}|off`, at(x, false)))
+      const group = largestMarginGroup(on)
+      const key = group[0]!.margin
+      return {
+        key,
+        half: dropRate(group.filter((r) => r.ruFraction !== undefined)),
+        whole: dropRate(off.filter((r) => r.margin === key)),
+      }
+    }
+    const inward = leg(12.5)
+    const here = leg(13.5)
+    const outward = leg(14.5)
+    // One metre out: the margin the prose prints, and the pair that runs backwards.
+    same(raw(NUMS, /余量掉到 ([\d.]+) dB/, 'the margin one metre out')[0]!, outward.key, 'the margin one metre out')
+    const [revW, revH] = raw(NUMS, /整条九格 ([\d.]+) %，成员四格 ([\d.]+) %/, 'the reversed pair')
+    same(revW!, 100 * outward.whole, 'the nine-bin drop rate one metre out')
+    same(revH!, 100 * outward.half, 'the four-bin one')
+    expect(val(revH!), 'and out there the four-bin leg drops LESS').toBeLessThan(val(revW!))
+    // One metre in: still forward.
+    same(raw(NUMS, /往里挪一米，余量 ([\d.]+) dB/, 'the margin one metre in')[0]!, inward.key,
+      'the margin one metre in')
+    const [fwdH, fwdW] = raw(NUMS, /（([\d.]+) % 对 ([\d.]+) %）/, 'the forward pair')
+    same(fwdH!, 100 * inward.half, 'the four-bin drop rate one metre in')
+    same(fwdW!, 100 * inward.whole, 'the nine-bin one')
+    expect(val(fwdH!), 'and in there it drops MORE').toBeGreaterThan(val(fwdW!))
+    // The bracket, and how the prose rounds the distance to its lower edge.
+    const [above, below] = raw(NUMS, /([\d.]+) dB 上方向是正的，([\d.]+) dB 上已经反了/, 'the bracket')
+    same(above!, here.key, 'the margin the direction still holds at')
+    same(below!, outward.key, 'and the one it has reversed at')
+    const gap = val(above!) - val(below!)
+    same(raw(NUMS, /离它不到 ([\d.]+) dB/, 'the distance to the lower edge')[0]!,
+      Math.ceil(gap * 10) / 10, 'the bracket’s width, rounded up to the tenth the prose prints')
+    expect(gap, 'and it really is under that').toBeLessThan(val(raw(NUMS, /离它不到 ([\d.]+) dB/, 'x')[0]!))
+  }, 600_000)
+
+  it('reads the 15.4 dB of the scene this lesson is not taught on, both printings', () => {
+    const base = LESSONS.find((l) => l.id === 'ofdma-dl')!.scenario()
+    const rs = runScene('ofdma-dl|sel', { ...base, fading: RAYLEIGH, selectivity: {} }, 150 * MS)
+    const margins = ofType(rs, 'WIFI_SEL').map((s) => s.meanSinrDb - s.threshDb)
+    const median = q(margins, 0.5)
+    for (const [dB] of every(ALL, /余量中位数是 ([\d.]+) dB/g, 'the other scene’s margin, twice', 2)) {
+      same(dB!, median, 'the median margin of `ofdma-dl`’s scene')
+    }
+    // Both printings are the same figure, and the quiz's is the one a reader is asked about.
+    expect(occ(NUMS, '15.4 dB') + occ(blockText(lesson.quiz), '15.4 dB'),
+      'the two printings of it').toBe(2)
+  })
+
+  it('reads `deeper` and `tryThis` off their own rounds', () => {
+    const delivered = (v: number | undefined): number =>
+      ofType(runOf(lesson, v, GATE_NS), 'RX_OK').filter((r) => r.frame.kind === 'data' && r.from === 'ap').length
+    const [split, whole, ns] = figs(DEEP, /开着分片 (\d+) 帧，关掉 (\d+) 帧（(\d+) ms/,
+      '`deeper` on the frames delivered')
+    expect(split, 'the frames delivered with the split on').toBe(delivered(SPLIT))
+    expect(whole, 'and with it off').toBe(delivered(WHOLE))
+    expect(ns, 'over the round it names').toBe(GATE_NS / MS)
+    // The third television, printed once in `deeper` and once in `tryThis`.
+    const feats = { edca: true, ampdu: true, txop: true, ofdma: true }
+    const base = ruDiversityScenario(true)
+    const tv3 = node('sta-3', 'TV 3', 'sta', 13.5, 7, 'eht', 'video', feats)
+    tv3.caps.widthMhz = 20
+    tv3.caps.nss = 1
+    const three = ofType(runScene('three', { ...base, nodes: [...base.nodes, tv3] }), 'TX_START')
+      .filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap')
+    for (const [ms, sends] of every(ALL, /(\d+) ms 里 (\d+) 次下行发送/g, 'the third television’s round', 2)) {
+      expect(val(ms!), 'the round the third television is measured over').toBe(GATE_NS / MS)
+      expect(val(sends!), 'the downlink sends it makes').toBe(three.length)
+    }
+    expect(three.filter((r) => r.frame.muParts !== undefined).length, 'and not one of them grouped').toBe(0)
+    // The two legs' bin counts, as `tryThis` names them.
+    const [four, nine] = figs(TRY, /每次接收读 (\d+) 格还是读 (\d+) 格/, '`tryThis` on the two legs')
+    expect(four, 'the member leg’s bins').toBe(selMemberBins(20, 1 / 2))
+    expect(nine, 'the whole-channel leg’s').toBe(selBins(20))
+    // The margin agreement `tryThis` counts, read off the whole-channel leg.
+    const { key } = legs()
+    const off = dlRows(runOf(lesson, WHOLE, GATE_NS))
+    const [all, agree, differ] = figs(TRY, /(\d+) 条里有 (\d+) 条是，剩下 (\d+) 条不是/,
+      '`tryThis` on the margins that agree')
+    expect(all, 'the whole-channel leg’s round').toBe(off.length)
+    expect(agree, 'the receptions at the same margin').toBe(off.filter((r) => r.margin === key).length)
+    expect(differ, 'and the ones that are not').toBe(off.length - off.filter((r) => r.margin === key).length)
+    // The drop rates `tryThis` quotes, which are the gate table's two cells read a second time.
+    const [lo, hi] = raw(TRY, /比例从 ([\d.]+) % 涨到 ([\d.]+) %/, '`tryThis` on the two drop rates')
+    same(lo!, 100 * dropRate(legs().whole), 'the nine-bin drop rate')
+    same(hi!, 100 * dropRate(legs().half), 'the four-bin one')
+  })
+
+  it('reads the payload asymmetry and the percentage points it flatters', () => {
+    const big = (v: number | undefined) => ofType(runOf(lesson, v, GATE_NS), 'TX_START')
+      .filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap' && r.frame.bytes > 2000)
+    const [whole, split] = figs(LIM, /(\d+) 字节，而成员那一腿每个成员只扛 (\d+) 字节/,
+      '`limits` on the two payloads')
+    expect(new Set(big(WHOLE).map((r) => r.frame.bytes)), 'the whole-channel leg’s payload').toEqual(new Set([whole]))
+    expect(new Set(big(SPLIT).flatMap((r) => r.frame.muParts!.map((p) => p.bytes))), 'each member’s')
+      .toEqual(new Set([split]))
+    expect(whole, 'and the one really is twice the other, which is the entry’s point')
+      .toBe(2 * split! + 2)
+    const [aWhole, aSplit] = raw(LIM, /（([\d.]+) 对 ([\d.]+) ms）/, '`limits` on the two airtimes')
+    same(aWhole!, [...new Set(big(WHOLE).map((r) => r.frame.txTimeNs))][0]! / MS, 'the whole-channel airtime')
+    same(aSplit!, [...new Set(big(SPLIT).map((r) => r.frame.txTimeNs))][0]! / MS, 'the split airtime')
+    // The gap in percentage points, computed from the two drop rates the table prints.
+    same(raw(LIM, /表里那 (\d+) 个百分点/, '`limits` on the gap')[0]!,
+      100 * (dropRate(legs().half) - dropRate(legs().whole)), 'the gap in points, as the prose rounds it')
+    // And the one-over-n share, whose numerator is the figure printed.
+    const members = selRows(runOf(lesson, SPLIT, GATE_NS)).filter((x) => x.sel.ruFraction !== undefined)
+    const frac = [...new Set(members.map((x) => x.sel.ruFraction!))]
+    expect(frac.length, 'one share, on this scene').toBe(1)
+    same(raw(LIM, /frac = (\d+) \/ 成员数/, '`limits` on the share’s numerator')[0]!,
+      frac[0]! * 2, 'the numerator of a two-member share')
+  })
+
+  it('reads the uplink entry’s five figures, four of them off a published scene', () => {
+    const base = LESSONS.find((l) => l.id === 'ofdma-ul')!.scenario()
+    const rs = runScene('ofdma-ul|sel', { ...base, fading: RAYLEIGH, selectivity: {} })
+    const up = selRows(rs).filter((x) => x.sel.from !== 'ap' && x.sel.ruFraction !== undefined)
+    const [dB, n] = raw(LIM, /上行成员的余量是 ([\d.]+) dB，(\d+) 条接收一条也没掉/,
+      '`limits` on the uplink margin')
+    expect(new Set(up.map((x) => (x.sel.meanSinrDb - x.sel.threshDb).toFixed(3))), 'one margin, to three decimals')
+      .toEqual(new Set([val(dB!).toFixed(3)]))
+    expect(val(n!), 'the uplink receptions').toBe(up.length)
+    expect(up.filter((x) => !selRowDecoded(rs, x)).length, 'and not one of them failed').toBe(0)
+    same(raw(LIM, /selectivity 两节，(\d+) ms/, '`limits` on the uplink round')[0]!, GATE_NS / MS,
+      'the round the uplink figure is measured over')
+    // The two transmit powers, and the asymmetry the entry computes from them.
+    const sc = lesson.scenario()
+    const [apDbm, staDbm] = figs(LIM, /接入点发 (\d+) dBm、站点发 (\d+) dBm/, '`limits` on the two powers')
+    expect(apDbm, 'the access point’s transmit power').toBe(sc.nodes.find((x) => x.id === 'ap')!.txPowerDbm)
+    expect(staDbm, 'the station’s').toBe(sc.nodes.find((x) => x.id === 'sta-1')!.txPowerDbm)
+    const links = buildLinkTable(sc.nodes, sc.walls)
+    same(raw(LIM, /比它高 (\d+) dB 的那条路/, '`limits` on the asymmetry')[0]!,
+      links.get('ap')!.get('sta-1')! - links.get('sta-1')!.get('ap')!, 'the asymmetry, from the two powers')
+    expect(apDbm! - staDbm!, 'which is the difference of the two figures beside it')
+      .toBe(val(raw(LIM, /比它高 (\d+) dB 的那条路/, 'x')[0]!))
+  })
+
+  it('reads the loss the observe line promises, and the two citations that carry a figure', () => {
+    // 「loss 多半在 2 dB 上下」: the median of the leg a reader loads first, to the decibel.
+    same(raw(OBS, /loss 多半在 (\d+) dB 上下/, '`observe` on the loss')[0]!,
+      q(legs().half.map((r) => r.lossDb), 0.5), 'the member leg’s median loss, to the decibel')
+    expect(legs().half.some((r) => r.lossDb <= 0), 'and 「偶尔是负的」 happens').toBe(true)
+    /*
+     * **Table 27-8's NOTE 2 is read against the engine's own citation of it.** The note number
+     * is a figure with no corpus here, but it is printed twice in this repository — the lesson's
+     * `numbers` and `selectivity.ts`'s docblock — and the two have to agree, which is what a
+     * reader following the lesson into the engine depends on.
+     */
+    const [lessonNote] = figs(ALL, /NOTE (\d+)/, 'the lesson on Table 27-8’s note')
+    const [engineNote] = figs(SEL, /NOTE (\d+) calls/, 'the engine on the same note')
+    expect(lessonNote, 'the note the lesson cites is the one the engine cites').toBe(engineNote)
+    expect(occ(ALL, `NOTE ${lessonNote}`), 'and it is cited once').toBe(1)
+    /*
+     * **The slice number in `limits` is read against the slice ledger.** 「4a 记过一次这样的不
+     * 对称」 points at a row of `docs/uwb-modellable-backlog.md`, and that row has to be the
+     * frequency-selectivity slice for the sentence to mean anything.
+     */
+    const [slice] = raw(LIM, /(\d[a-z]) 记过一次/, '`limits` on the slice that recorded the asymmetry')
+    const ledger = readFileSync(new URL('../../docs/uwb-modellable-backlog.md', import.meta.url), 'utf8')
+    const row = ledger.split('\n').find((l) => l.startsWith(`| ${slice} |`))
+    expect(row, `the ledger has no row for slice ${slice}`).toBeDefined()
+    expect(row, `slice ${slice} is the frequency-selectivity slice`).toContain('频率选择性')
+  })
 })
