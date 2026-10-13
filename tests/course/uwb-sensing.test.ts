@@ -31,13 +31,18 @@ import { readerTexts } from '../../src/course/readability'
 import type { Block, Lesson } from '../../src/course/lessonKit'
 import { PHY_MODES } from '../../src/engine/phy'
 import { EventQueue } from '../../src/engine/events'
-import { directDelayNs } from '../../src/engine/scatter'
+import { apertureCorrectionDb, directDelayNs, echoLossDb, echoPathM } from '../../src/engine/scatter'
+import { wallsCrossed } from '../../src/engine/propagation'
+import { NEW_SCATTERER_EXTRA_LOSS_DB } from '../../src/editor/planOps'
 import { makeEmitter } from '../../src/model/records'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { Ns } from '../../src/model/types'
 import { UwbChannel } from '../../src/uwb/channel'
-import { UWB_RX_SENS_DBM } from '../../src/uwb/phy'
+import {
+  C_M_PER_NS, UWB_BAND_MHZ, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_RX_SENS_DBM, UWB_TX_POWER_DBM,
+  freeSpacePl0Db, uwbPathLossDb,
+} from '../../src/uwb/phy'
 import { Simulation } from '../../src/engine/simulation'
 import { anchor, oneRoom, uwbSc, uwbTag } from '../../src/course/lessonKit'
 import {
@@ -368,5 +373,226 @@ describe('uwb-sensing · the multipath entry quotes a Wi-Fi sentence that exists
     }
     // a floor, so this cannot pass by grading an empty track
     expect(wifi().length).toBeGreaterThanOrEqual(40)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This lesson quotes almost nothing it typed: the table, the caption and the two levels are
+ * interpolated from `src/ui/echoFacts.ts`, and the file above measures those against runs. What
+ * is typed, and was therefore read by nobody, is the rest — the aperture correction written out
+ * three times in `deeper`, the reflectivity convention in `sources` and `limits`, the chip and
+ * the 1/B it comes from, and the two instants the watch line sends a reader to look at.
+ * (Those two were invisible to the sweep until 2026-10-14: 「第 10 纳秒」 counted as a name.)
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the aperture correction is evaluated with the figures the sentence prints**, at the
+ *    wavelength this channel really has: 「10·log10(4π/λ²)」 appears three times and the σ form
+ *    once, and each is fed to `apertureCorrectionDb` as its own three figures.
+ *  - **「比一平方米还强十个分贝」 is measured, not restated**: the same object is priced at the
+ *    reflectivity the 🪞 tool writes and at 0 dB, and the difference is the ten decibels.
+ *  - **the nine-metre pair in `tryThis` is read against the floor**: at that baseline the ideal
+ *    square metre falls under `UWB_RX_SENS_DBM` and the wardrobe stays over it, which is the
+ *    whole point of 「回波的作用距离，就是这么短」.
+ *  - **「一次 0.5 米」 is exempt (class (e))** — any step would show the same thing — but the
+ *    claim beside it is not: the bistatic distance rises and the level falls at every step.
+ */
+describe('uwb-sensing · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbSensing.picture)
+  const NUMS = blockText(uwbSensing.numbers)
+  const DEEP = blockText(uwbSensing.deeper)
+  const LIM = blockText(uwbSensing.limits)
+  const SRC = blockText(uwbSensing.sources)
+  const TRY = blockText(uwbSensing.tryThis)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s === '两' ? '二' : s)
+
+  /** This scene's own channel, and the two arithmetic pieces every level below is built from. */
+  const CH = scenarioOf('base').uwb!.channel
+  const CENTRE_MHZ = (UWB_BAND_MHZ[CH].lo + UWB_BAND_MHZ[CH].hi) / 2
+  const LAMBDA_M = (C_M_PER_NS * 1e9) / (CENTRE_MHZ * 1e6)
+  const law = (dM: number): number => uwbPathLossDb(freeSpacePl0Db(CENTRE_MHZ), dM, 0)
+  /** What a receiver on this channel hears from one object, dBm — `UwbChannel`'s own arithmetic. */
+  const echoDbmAt = (span: number, offM: number, reflDb: number): number => UWB_TX_POWER_DBM
+    - echoLossDb({ x: 0, y: 0, z: 1 }, { x: span / 2, y: offM, z: 1 }, { x: span, y: 0, z: 1 },
+      law, LAMBDA_M, reflDb)
+  const bistaticAt = (span: number, offM: number): number =>
+    echoPathM({ x: 0, y: 0, z: 1 }, { x: span / 2, y: offM, z: 1 }, { x: span, y: 0, z: 1 })
+
+  it('reads the two instants the watch line sends a reader to', () => {
+    // 「它落在第 10 纳秒，而同一次发送的直达路径落在第 7 纳秒」
+    const [echoNs, directNsFig] = figs(PIC,
+      /它落在第 (\d+) 纳秒，而同一次发送的直达路径落在第 (\d+) 纳秒/, '`picture` on the two arrivals')
+    const e = echoes('base')[0]!
+    expect(e.t, 'when the first echo record really lands').toBe(echoNs)
+    same(String(directNsFig), directNs(scenarioOf('base')), 'and the direct ray’s own flight')
+    expect(echoNs, 'later, always — and this is the sentence that shows it')
+      .toBeGreaterThan(directNsFig!)
+    expect(e.propNs, 'the echo’s own propagation, from the record').toBeGreaterThan(directNsFig!)
+  })
+
+  it('reads the aperture correction everywhere `deeper` writes it out', () => {
+    /*
+     * 「正好是 10·log10(4π/λ²)」, 「那个 10·log10(4π/λ²) 是从哪里来的」 and 「两段和 − 雷达 =
+     * 10·log10(σ · 4π / λ²)」 — three printings of one expression, each fed to the engine's own
+     * `apertureCorrectionDb` as the three figures it prints. With σ = 1 (a square metre, which
+     * `sources` says is what 0 dB means) the third is the same number as the other two.
+     */
+    const writings = [...DEEP.matchAll(/(\d+)·log(\d+)\((?:σ · )?(\d)π ?\/ ?λ²\)/g)]
+    expect(writings.length, 'the expression is written three times').toBe(3)
+    for (const m of writings) {
+      const [mul, base, four] = m.slice(1).map(val)
+      expect(mul! * (Math.log(four! * Math.PI / (LAMBDA_M * LAMBDA_M)) / Math.log(base!)),
+        `「${m[0]}」 against the engine’s own aperture correction`)
+        .toBeCloseTo(apertureCorrectionDb(LAMBDA_M), 9)
+    }
+    // 「不退的话，回波会比该有的弱三十多分贝」 — and that is the size of the correction itself
+    const [tensCn] = raw(DEEP, /回波会比该有的弱(.)十多分贝/, '`deeper` on what forgetting it costs')
+    expect(Math.abs(apertureCorrectionDb(LAMBDA_M)), 'the correction this channel really carries')
+      .toBeGreaterThan(cn(tensCn!) * 10)
+    expect(Math.abs(apertureCorrectionDb(LAMBDA_M)), 'and it is in that decade')
+      .toBeLessThan((cn(tensCn!) + 1) * 10)
+  })
+
+  it('reads the reflectivity convention, and the wardrobe’s ten decibels', () => {
+    // 「0 dB 定义为一面理想的一平方米反射面，半平方米是 +3.01 dB」 — in `sources` and in `limits`
+    const [zeroDb, halfDb] = figs(SRC, /：(\d) dB 定义为一面理想的一平方米反射面，半平方米是 \+([\d.]+) dB/,
+      '`sources` on the convention')
+    expect(zeroDb, 'a square metre is the zero of this scale').toBe(0)
+    same(String(halfDb), 10 * Math.log10(2), 'and half of one costs that much more loss')
+    const [limZero] = figs(LIM, /(\d) dB 是一平方米/, '`limits` on the same zero')
+    expect(limZero, 'the same zero, a second time').toBe(zeroDb)
+    // 「🪞 工具放置时写 −10 dB（一个衣柜）」, and `limits` says it again
+    for (const [text, re, what] of [
+      [SRC, /工具放置时写 −(\d+) dB（一个衣柜）/, '`sources` on the tool’s own object'],
+      [LIM, /−(\d+) dB 是 🪞 工具默认的衣柜/, '`limits` on the same object'],
+    ] as [string, RegExp, string][]) {
+      expect(-figs(text, re, what)[0]!, 'the reflectivity the tool really writes')
+        .toBe(NEW_SCATTERER_EXTRA_LOSS_DB)
+    }
+    /*
+     * 「再加上 🪞 工具写的 −10 dB 比一平方米还强十个分贝」 — the field is a LOSS, so the tool's
+     * object is louder than a square metre by exactly that much. Measured on the same geometry
+     * at the two reflectivities rather than argued from the sign.
+     */
+    const [toolDb, overCn] = raw(DEEP, /工具写的 −(\d+) dB 比一平方米还强(.)个分贝/,
+      '`deeper` on the tool’s object')
+    const wardrobe = echoDbmAt(PAIR_SPAN_M, 0.2, -val(toolDb!))
+    const ideal = echoDbmAt(PAIR_SPAN_M, 0.2, 0)
+    expect(Number((wardrobe - ideal).toFixed(6)), 'how much louder it really is').toBe(cn(overCn!))
+    expect(val(toolDb!), 'and the figure the tool writes is that many decibels')
+      .toBe(cn(overCn!))
+    // 「本课两点之间没有墙，所以它就是 2 米上的自由空间那一项」
+    const [spanM] = figs(SRC, /它就是 (\d+) 米上的自由空间那一项/, '`sources` on the direct ray')
+    expect(spanM, 'the span this lesson’s two ends really are apart').toBe(PAIR_SPAN_M)
+    // 「本课两点之间没有墙」 — the room has four of them; none is in the way
+    const sc = scenarioOf('base')
+    const pos = (id: string) => sc.nodes.find((n) => n.id === id)!.pos
+    expect(wallsCrossed(pos(TAG), pos(ANC), sc.walls), 'and no wall between them').toEqual([])
+    same(String(spanM), bistaticAt(PAIR_SPAN_M, 0),
+      'and an object standing on the line adds nothing to it')
+  })
+
+  it('reads the chip, the 0.60 m it becomes and the 1/B it comes from', () => {
+    // 「一个码片 2.003205 ns，乘以光速约 0.60 米」
+    const [chipNs, resM] = figs(SRC, /一个码片 ([\d.]+) ns，乘以光速约 ([\d.]+) 米/,
+      '`sources` on the chip')
+    same(String(chipNs), UWB_CHIP_NS, 'the chip this receiver really counts in')
+    expect(String(resM.toFixed(2)), 'and what it is worth in metres').toBe(ECHO_RESOLUTION_M)
+    // 「这里只先记住那个数：0.60 米」 — `numbers` prints it again
+    const [numsRes] = figs(NUMS, /这里只先记住那个数：([\d.]+) 米/, '`numbers` on the same figure')
+    expect(numsRes!.toFixed(2), 'the same resolution, a second time').toBe(ECHO_RESOLUTION_M)
+    expect(echoes('base')[0]!.resolutionM.toFixed(2), 'and the record’s own figure for it')
+      .toBe(ECHO_RESOLUTION_M)
+    /*
+     * 「「分得开」比的是 1/B」, twice — the numerator is the figure, and what it buys is the
+     * resolution above: one over the chip rate, times the speed of light.
+     */
+    const ones = [...LIM.matchAll(/(\d)\/B/g)].map((m) => val(m[1]!))
+    expect(ones.length, '「1/B」, printed twice').toBe(2)
+    expect(new Set(ones).size, 'and the same numerator both times').toBe(1)
+    const [chipHzFig] = figs(SRC, /§16\.2\.4 的 ([\d.]+) Mchip\/s/, '`sources` on the chip rate')
+    expect(chipHzFig! * 1e6, 'the chip rate this engine runs').toBe(UWB_CHIP_HZ)
+    expect(((ones[0]! / (chipHzFig! * 1e6)) * 1e9 * C_M_PER_NS).toFixed(2),
+      '1/B, in metres of flight').toBe(ECHO_RESOLUTION_M)
+  })
+
+  it('reads both experiments: the walk away from the line, and the nine-metre pair', () => {
+    /*
+     * **Exempt, class (e): the 0.5 m step.** 「用 🪞 把衣柜沿着垂直于连线的方向往外拖，一次 0.5
+     * 米」 is an instruction, and 0.4 or 0.6 would teach the same thing. What is read is the
+     * claim beside it — 「看双站距离怎么涨，看电平怎么降」 — at the steps it names.
+     */
+    const [stepM] = figs(TRY, /往外拖，一次 ([\d.]+) 米/, '`tryThis` on the drag step')
+    let lastPath = bistaticAt(PAIR_SPAN_M, 0)
+    let lastDbm = echoDbmAt(PAIR_SPAN_M, 0, NEW_SCATTERER_EXTRA_LOSS_DB)
+    for (let k = 1; k <= 4; k++) {
+      const off = k * stepM!
+      const path = bistaticAt(PAIR_SPAN_M, off)
+      const dbm = echoDbmAt(PAIR_SPAN_M, off, NEW_SCATTERER_EXTRA_LOSS_DB)
+      expect(path, `at ${off} m off the line the bistatic distance rises`).toBeGreaterThan(lastPath)
+      expect(dbm, `and the level falls`).toBeLessThan(lastDbm)
+      lastPath = path
+      lastDbm = dbm
+    }
+    /*
+     * 「把衣柜的反射损耗从 −10 dB 改成 0 dB…回波弱了整整 10 dB，但仍然听得见。再把两台设备拖到
+     * 房间两端、相距九米左右：0 dB 的物体一条回波都不剩，而 −10 dB 的衣柜刚好卡在门限上还能
+     * 进来」 — four figures, and all four are the floor this engine really gates on.
+     */
+    const [fromDb, toDb, weakerDb] = figs(TRY,
+      /把衣柜的反射损耗从 −(\d+) dB 改成 (\d) dB.*?回波弱了整整 (\d+) dB，但仍然听得见/s,
+      '`tryThis` on the ideal reflector')
+    expect(-fromDb!, 'the reflectivity it starts from').toBe(NEW_SCATTERER_EXTRA_LOSS_DB)
+    expect(toDb, 'and the one it is changed to').toBe(0)
+    const atSpan = (span: number, refl: number): number => echoDbmAt(span, 0.2, refl)
+    expect(Number((atSpan(PAIR_SPAN_M, -fromDb!) - atSpan(PAIR_SPAN_M, toDb!)).toFixed(6)),
+      'how much weaker the ideal one really is').toBe(weakerDb)
+    expect(atSpan(PAIR_SPAN_M, toDb!), 'and it is still over the floor')
+      .toBeGreaterThan(UWB_RX_SENS_DBM)
+    const [farCn] = raw(TRY, /相距(.)米左右/, '`tryThis` on the long baseline')
+    const [goneDb, leftDb] = figs(TRY, /：(\d) dB 的物体一条回波都不剩，而 −(\d+) dB 的衣柜刚好卡在门限上/,
+      '`tryThis` on what survives at that baseline')
+    const far = cn(farCn!)
+    /*
+     * **Both reflectivities are read as the two the lesson has already defined**, not as any
+     * figure that would clear or miss the floor: the one that disappears is the convention's own
+     * zero (a square metre, from `sources`) and the one that survives is the object the 🪞 tool
+     * writes. A neighbouring decibel would pass the floor comparisons on its own.
+     */
+    expect(goneDb, 'the one that disappears is the convention’s zero')
+      .toBe(figs(SRC, /：(\d) dB 定义为一面理想的一平方米反射面/, '`sources` on the zero')[0])
+    expect(-leftDb!, 'and the one that survives is the tool’s own object')
+      .toBe(NEW_SCATTERER_EXTRA_LOSS_DB)
+    expect(echoDbmAt(far, 0, goneDb!), 'at that baseline the square metre is under the floor')
+      .toBeLessThan(UWB_RX_SENS_DBM)
+    expect(echoDbmAt(far, 0, -leftDb!), 'while the wardrobe is still over it')
+      .toBeGreaterThan(UWB_RX_SENS_DBM)
+    expect(echoDbmAt(far, 0, -leftDb!) - UWB_RX_SENS_DBM, '「刚好卡在门限上」: by very little')
+      .toBeLessThan(leftDb!)
   })
 })
