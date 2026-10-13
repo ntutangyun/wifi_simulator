@@ -20,6 +20,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
+import { TGI_NS, symNsFor } from '../../src/engine/phy'
+import { FADING_DEFAULTS } from '../../src/engine/fading'
 import { capstone, capstoneScenario, capstoneTopology } from '../../src/course/tier2/capstone'
 import type { Block } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -265,5 +267,224 @@ describe('capstone · why the tablet upgrade is nearly free of effect', () => {
   it('"its wait falls by about one part in eight": 39.06 ms to 34.31', () => {
     const drop = (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')) / base.rxWait('sta-4')
     expect(Math.round(1 / drop)).toBe(8)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and compares it with a figure typed on **this** side
+ * — `expect([base.air('sta-1'), base.air('sta-1#6g')]).toEqual([58.7, 90.6])` — with the lesson's
+ * sentence as the `it` name. So the engine is pinned and the prose is not: the sampling sweep of
+ * 2026-10-12 planted six of this lesson's figures and **all six went unnoticed**. Here every
+ * figure is parsed out of the shipped string and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the four-way table is read as the four runs it is.** Every row names a device and every
+ *    column a change, so each cell is read against the run that column describes and the lane
+ *    that row names — the base five seconds, the backup stopped, its second radio off, and the
+ *    tablet replaced.
+ *  - **the two columns that do not move are read as the invariant they state.** 「电视拿到的都是
+ *    大约 8.3 兆字节，平板拿到的都是不多不少 88,200 字节」 is read over all four runs, which is
+ *    what makes the sentence a claim about the changes rather than about one of them.
+ *  - **the experiment's figures are read against the table's own**: every figure in `tryThis`
+ *    and in the quiz is one the table already prints, so the two places cannot drift apart.
+ *  - **the sensor's three frames are read with their bytes**, because 「三帧——总共 384 字节」 is
+ *    one claim about one lane, and the count and the sum have to come from the same frames.
+ */
+describe('capstone · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(capstone.numbers)
+  const DEEP = blockText(capstone.deeper)
+  const LIM = blockText(capstone.limits)
+  const OBS = blockText(capstone.observe)
+  const TRY = blockText(capstone.tryThis)
+  const QUIZ = blockText(capstone.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,%]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,%]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
+    capstone.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; head: string[]; rows: string[][] }[]
+  /** The run a column of the four-way table is about, by the words of its own heading. */
+  const sceneOf = (head: string): Scene => {
+    if (head.includes('原样') || head.includes('现在')) return base
+    if (head.includes('停掉') || head.includes('关掉备份')) return backupStopped
+    if (head.includes('第二台电台') || head.includes('单链路')) return radioOff
+    if (head.includes('平板')) return tabletNew
+    throw new Error(`no run for the column 「${head}」`)
+  }
+
+  it('reads the air-share row, and the sensor beside it', () => {
+    // 「笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%」 — in a cell of `numbers` and in `observe`
+    for (const text of [NUMS, OBS]) {
+      const [lo, loPct, hi, hiPct] = figs(text,
+        /笔记本占了 (\d) GHz 的 ([\d.]+)%、(\d) GHz 的 ([\d.]+)%/, 'the laptop’s two shares')
+      expect(loPct, `its share of ${lo} GHz`).toBe(base.air('sta-1'))
+      expect(hiPct, `and of ${hi} GHz`).toBe(base.air('sta-1#6g'))
+      expect([lo, hi], 'the two bands it holds, in that order').toEqual([5, 6])
+    }
+    // 「其余没有一台到得了百分之二」
+    const [twoCn] = raw(NUMS, /其余没有一台到得了百分之(.)/, '`numbers` on everybody else')
+    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
+    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) {
+      expect(base.air(id), `${id} is under that`).toBeLessThan(cn(twoCn!))
+    }
+    // 「而它五秒里一共发了三帧——总共 384 字节」
+    const [framesCn, bytes] = raw(OBS, /它五秒里一共发了(.)帧——总共 ([\d,]+) 字节/,
+      '`observe` on the sensor')
+    const sent = data(base.rs, 'sta-5')
+    expect(cn(framesCn!), 'the frames the sensor sends').toBe(sent.length)
+    expect(val(bytes!), 'and the bytes they come to')
+      .toBe(sent.reduce((a, r) => a + r.frame.bytes, 0))
+    // 「笔记本的两条泳道是 58.7% 和 90.6%」 — the same pair, a third time
+    const [p1, p2] = figs(NUMS, /笔记本的两条泳道是 ([\d.]+)% 和 ([\d.]+)%/, '`numbers` on the same pair')
+    expect([p1, p2], 'the same two shares').toEqual([base.air('sta-1'), base.air('sta-1#6g')])
+  })
+
+  it('reads the four-way table as the four runs it is, cell by cell', () => {
+    const t = tables().find((x) => x.rows.length >= 4 && x.head.length >= 4)!
+    expect(t.head.length, 'a column per change, plus the row labels').toBeGreaterThanOrEqual(5)
+    const runs = t.head.slice(1).map(sceneOf)
+    for (const row of t.rows) {
+      const label = row[0]!
+      row.slice(1).forEach((cell, i) => {
+        const s = runs[i]!
+        if (label.includes('备份')) {
+          // the megabytes the access point took delivery of across both its links
+          const printed = raw(cell, /^([\d.]+)$/, `${label} in column ${i}`)[0]
+          if (printed !== undefined) same(printed, s.upMb, `${label} in column ${i}`)
+          return
+        }
+        const ms = /^([\d.]+) ms$/.exec(cell)
+        if (!ms) return
+        /*
+         * **The row label names its own lane and its own measurement**: 「泳道 sta-2 的平均接收
+         * 等待」. So the read takes both out of the label rather than guessing from the device's
+         * name — which is also what makes the label itself part of what is pinned.
+         */
+        const [node] = raw(label, /泳道 (sta-\d+) 的/, `the lane the row 「${label}」 names`)
+        const measured = label.includes('发送等待') ? s.txWait(node!) : s.rxWait(node!)
+        expect(label.includes('发送等待') || label.includes('接收等待'),
+          `the row 「${label}」 says which wait it means`).toBe(true)
+        same(ms[1]!, measured, `${label} in column ${i}`)
+      })
+    }
+  })
+
+  it('reads the two columns that do not move, over all four runs', () => {
+    // 「四个场景里，电视拿到的都是大约 8.3 兆字节，平板拿到的都是不多不少 88,200 字节」
+    const [mb, bytes] = figs(NUMS,
+      /电视拿到的都是大约 ([\d.]+) 兆字节，平板拿到的都是不多不少 ([\d,]+) 字节/,
+      '`numbers` on what nothing changes')
+    for (const s of [base, backupStopped, radioOff, tabletNew]) {
+      expect(Math.round(s.got('sta-2') / 1e5) / 10, 'the television’s megabytes').toBe(mb)
+      expect(s.got('sta-4'), 'and the tablet’s bytes').toBe(bytes)
+    }
+  })
+
+  it('reads both experiments and the question against the table’s own figures', () => {
+    // 「视频从 2.26 ms 到 0.21，语音通话从 1.90 到 0.83，平板的网页从 39.06 到 0.50」
+    const [video, videoTo, voice, voiceTo, tablet, tabletTo] = figs(TRY,
+      /视频从 ([\d.]+) ms 到 ([\d.]+)，语音通话从 ([\d.]+) 到 ([\d.]+)，平板的网页从 ([\d.]+) 到 ([\d.]+)/,
+      '`tryThis` on the first change')
+    same(String(video), base.rxWait('sta-2'), 'the television’s wait as it stands')
+    same(String(videoTo), backupStopped.rxWait('sta-2'), 'and with the backup stopped')
+    same(String(voice), base.txWait('sta-3'), 'the call’s wait as it stands')
+    same(String(voiceTo), backupStopped.txWait('sta-3'), 'and with the backup stopped')
+    same(String(tablet), base.rxWait('sta-4'), 'the tablet’s wait as it stands')
+    same(String(tabletTo), backupStopped.rxWait('sta-4'), 'and with the backup stopped')
+    // 「平板的等待只从 39.06 ms 降到 34.31」 — the third change, in `tryThis` and in the quiz
+    for (const text of [TRY, QUIZ]) {
+      const [was, now] = figs(text, /等待只从 ([\d.]+) ms 降到 ([\d.]+)/,
+        'the third change’s own pair')
+      same(String(was), base.rxWait('sta-4'), 'the tablet’s wait as it stands')
+      same(String(now), tabletNew.rxWait('sta-4'), 'and with a newer tablet')
+      expect(now, 'which is a smaller improvement than stopping the backup')
+        .toBeGreaterThan(backupStopped.rxWait('sta-4'))
+    }
+    // 「它那 39.06 ms 不是链路慢」 — `deeper` prints it again
+    const [deepMs] = figs(DEEP, /它那 ([\d.]+) ms 不是链路慢/, '`deeper` on the same wait')
+    same(String(deepMs), base.rxWait('sta-4'), 'the same wait, in `deeper`')
+    // 「所以平板那 39.06 ms 是一个静止房间里的数」 — and in `limits`
+    const [limMs] = figs(LIM, /所以平板那 ([\d.]+) ms 是一个静止房间里的数/, '`limits` on the same wait')
+    same(String(limMs), base.rxWait('sta-4'), 'and again in `limits`')
+  })
+
+  it('reads the coherence-time comparison: the two reaches, the window it holds, and the ratio', () => {
+    /*
+     * **Six of this lesson's figures sat in one sentence** (sweep of 2026-10-14) — the one that
+     * measures this engine's coherence time against the scale the standard quantifies. Three of
+     * them are this engine's own and are read here; three are the standard's and are exempt
+     * below.
+     */
+    const [dopp, shortSym, longSym, shortUs, longUs, holdMs, times] = figs(LIM,
+      /Doppler 子字段为 (\d+) 时，HE TB PPDU 里那个中段训练字段的周期只有两档，(\d+) 个符号或 (\d+) 个符号（Table 9-\d+ 与 §26\.\d+），折成 (\d+) µs 与 (\d+) µs；而本仿真器慢的那一层握着 (\d+) ms，差 (\d+) 倍/,
+      '`limits` on the scale the standard quantifies')
+    /*
+     * **The two reaches are the symbol counts in this engine's own symbol time.** `symNsFor('he')`
+     * is the data-field symbol with T_GI1,Data, which is what a midamble period is counted in, so
+     * folding either count into µs is this engine's arithmetic and not a figure from elsewhere.
+     * It pins the counts too: the planter moves one digit, and either digit breaks the product.
+     */
+    const symNs = symNsFor('he', TGI_NS.base)
+    expect(shortUs! * 1_000, 'what the shorter periodicity folds into').toBe(shortSym! * symNs)
+    expect(longUs! * 1_000, 'and what the longer one folds into').toBe(longSym! * symNs)
+    // 「而本仿真器慢的那一层握着 100 ms」 — the configured value `fading.ts` really defaults to
+    expect(holdMs, 'the coherence time this engine holds').toBe(FADING_DEFAULTS.coherenceMs)
+    // 「差 735 倍」 — against the shorter reach, which is the comparison the sentence makes
+    expect(times, 'how many of the shorter reach fit inside that window')
+      .toBe(Math.round((holdMs! * 1_000) / shortUs!))
+    /*
+     * **Exempt, class (a): the Doppler subfield's value and the two symbol counts.** 「Doppler
+     * 子字段为 1」 is Table 9-47's encoding and 「10 个符号或 20 个符号」 is §26.16's pair of
+     * periodicities; no corpus ships with this repo, and this engine has no Doppler at all —
+     * which is the sentence's whole point. What is still read of them: the subfield is the set
+     * bit the sentence needs (a zero would mean no midamble, and then there would be no two
+     * periodicities to fold), and the pair is ordered shorter-then-longer, which is the order
+     * the two µs figures above are read in.
+     */
+    expect(dopp, 'the subfield value the sentence is conditioned on').toBe(1)
+    expect(longSym, 'and the pair, printed shorter first').toBeGreaterThan(shortSym!)
+  })
+
+  it('reads `limits` on the two shares it quotes and the window it keeps', () => {
+    // 「58.7% 与 90.6% 是这一次退避抽签的结果」
+    const [lo, hi] = figs(LIM, /：([\d.]+)% 与 ([\d.]+)% 是这一次退避抽签的结果/,
+      '`limits` on the two shares')
+    expect([lo, hi], 'the laptop’s two lanes, a fourth time')
+      .toEqual([base.air('sta-1'), base.air('sta-1#6g')])
+    // 「饱和档位维持一个恒定 20 帧在手的窗口」
+    /*
+     * **「恒定 20 帧在手」 is the window the refill keeps, not the depth an enqueue finds.**
+     * Two lanes draw from this one queue, so the depth at an enqueue runs from 1 to the window;
+     * what the figure names is the ceiling, and the run really reaches it.
+     */
+    const [window] = figs(LIM, /维持一个恒定 (\d+) 帧在手的窗口/, '`limits` on the saturated window')
+    const depth = base.rs.filter((r): r is Extract<TLRecord, { type: 'ENQUEUE' }> =>
+      r.type === 'ENQUEUE' && r.node === 'sta-1').map((r) => r.depth)
+    expect(Math.max(...depth), 'the deepest the backup’s queue ever gets').toBe(window)
+    expect(depth.filter((d) => d === window).length, 'which it really reaches').toBeGreaterThan(0)
+    expect(Math.max(...depth), 'and never passes').toBeLessThanOrEqual(window!)
   })
 })
