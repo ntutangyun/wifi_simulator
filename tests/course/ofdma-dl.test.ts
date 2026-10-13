@@ -14,6 +14,7 @@
  * SIFS later); this file does not duplicate it. The lesson never had a `.body!`
  * site in any test.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { ofdmaDl, muPpduFields, MU_SYMBOLS } from '../../src/course/tier2/ofdma-dl'
 import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
@@ -24,7 +25,7 @@ import type { TLRecord } from '../../src/model/records'
 import { PHY_MODES, SIFS_NS, toneRatio } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
-import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins } from '../../src/engine/selectivity'
+import { RU26_PER_20MHZ, RU26_TONES, selBinWidthMhz, selBins, selMemberBins } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -795,5 +796,546 @@ describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', 
     // characters of room before they would have.
     expect(lessonChars(ofdmaDl)).toBe(2107)
     expect(lessonMinutes(ofdmaDl)).toBe(20)
+  })
+})
+
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This file measures the whole lesson — the two-row comparison, the symbol arithmetic, the
+ * pairing statistics, both experiments — and compares every one of them against a figure typed
+ * on **this** side. The sampling sweep of 2026-10-12 scored the lesson 5 of 6.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the symbol arithmetic is read as one chain**, from the rung's bits per symbol through the
+ *    share, the bits to carry, the symbols that takes and the length that buys: 「1950 × 0.5 =
+ *    975」, 「⌈11494 ÷ 975⌉ = 12」, 「44 + 4 + 13.6 × 12 = 211.2 µs」. Every factor is parsed out
+ *    and every product has to be the next line's input.
+ *  - **the two savings are read against each other.** 「每凑成一对，就省下 40 µs 的前导码，又因为
+ *    确认帧变大而还回去 8 µs；这段仿真里的 45 对，合起来是 1.44 ms」 is four figures and one
+ *    multiplication, and the 1.44 ms has to be the airtime difference the two runs really show.
+ *  - **the pairing statistics are read as the two rulers they are.** 4.4 % of sends against
+ *    3.9 % of close arrivals, 41 pairs against 45, and the 30 and 34 the proxy misclassifies —
+ *    each against the same window computation the tests above make.
+ *  - **the `limits` entry about the guard interval is read as its own two-column comparison**:
+ *    211.2 → 248.8 µs and 80.55 → 92.43 ms, with both percentages recomputed from the pairs.
+ */
+describe('ofdma-dl · every figure the prose prints, read back out of it', () => {
+  const rs = runOf(ofdmaDl, undefined, RUN_NS)
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(ofdmaDl.picture)
+  const NUMS = blockText(ofdmaDl.numbers)
+  const DEEP = blockText(ofdmaDl.deeper)
+  const SRC = blockText(ofdmaDl.sources)
+  const LIM = blockText(ofdmaDl.limits)
+  const OBS = blockText(ofdmaDl.observe)
+  const TRY = blockText(ofdmaDl.tryThis)
+  const QUIZ = blockText(ofdmaDl.quiz)
+
+  /** The two engine files whose own source answers figures this lesson has no record for. */
+  const PHY_SRC = readFileSync(new URL('../../src/engine/phy.ts', import.meta.url), 'utf8')
+  const TRAFFIC_SRC = readFileSync(new URL('../../src/engine/traffic.ts', import.meta.url), 'utf8')
+  const MAC_SRC = readFileSync(new URL('../../src/engine/mac.ts', import.meta.url), 'utf8')
+  const SEL_SRC = readFileSync(new URL('../../src/engine/selectivity.ts', import.meta.url), 'utf8')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
+    const ms = [...text.matchAll(re)]
+    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
+    return ms.map((mm) => mm.slice(1))
+  }
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const tableOf = (needle: string): { head: string[]; rows: string[][]; heading?: string } => {
+    const b = ofdmaDl.numbers!.find((x) => x.kind === 'table'
+      && (x as { heading?: string }).heading?.includes(needle))
+    expect(b, `no table whose heading contains 「${needle}」`).toBeDefined()
+    return b as { head: string[]; rows: string[][] }
+  }
+  /**
+   * The width `phy.ts` tabulates bits per symbol for — and falls back to when a caller names no
+   * width, which is every call this lesson's scene makes, since no node of it asks for one.
+   */
+  const REF_WIDTH_MHZ = figs(PHY_SRC, /toneRatio\(mode, opts\.widthMhz \?\? (\d+)\)/,
+    '`phy.ts` on its own default width')[0]!
+
+  const mu = muPpdus(rs)
+  const su = suData(rs)
+
+  it('reads the two-row comparison, every cell of it', () => {
+    const t = tableOf('两种发法')
+    /*
+     * **This table runs the other way**: the two ways of sending are its ROWS, and what is being
+     * compared is its COLUMNS. So a figure is addressed by the column heading that names it, and
+     * `pair(h)[1]` / `[2]` are the one-at-a-time and the all-at-once cell of that column.
+     */
+    const pair = (needle: string): string[] => {
+      const i = t.head.findIndex((h) => h.includes(needle))
+      expect(i, `no column 「${needle}」`).toBeGreaterThan(0)
+      return ['', t.rows[0]![i]!, t.rows[1]![i]!]
+    }
+    const row = pair
+    const suFrame = one(su.map((r) => r.frame.txTimeNs))
+    const muFrame = one(mu.map((r) => r.frame.txTimeNs))
+    // 「44 µs × 2」 against 「48 µs」: the opening, once per send or once for both.
+    const [suPre, suTimes] = figs(row('前导码')[1]!, /(\d+) µs × (\d+)/, 'the single-user opening')
+    expect(suPre! * US, 'a single-user preamble').toBe(PHY_MODES.he.preambleNs)
+    expect(suTimes, 'paid once per television').toBe(2)
+    const [muPre] = figs(row('前导码')[2]!, /^(\d+) µs$/, 'the multi-user opening')
+    // A multi-user opening is the single-user one plus the per-user map the steps price.
+    expect(muPre! - suPre!, 'what the per-user map adds to the opening')
+      .toBe(figs(NUMS, /再加 (\d+) µs 装“这一发里有谁”的分配表/, 'the map in the steps')[0])
+    // 「6 + 6」 against 「12」: the symbols, each way.
+    const [a, b] = figs(row('数据符号')[1]!, /(\d+) \+ (\d+)/, 'the single-user symbol counts')
+    const [both] = figs(row('数据符号')[2]!, /^(\d+)$/, 'the multi-user symbol count')
+    expect(a! + b!, 'the same symbols, paid in two sends').toBe(both)
+    // 「125.6 µs × 2」 against 「211.2 µs」: the airtime, each way.
+    const [suLen, suLenTimes] = figs(row('占用空口')[1]!, /([\d.]+) µs × (\d+)/, 'the single-user airtime')
+    same(String(suLen), suFrame / US, 'one single-user send')
+    expect(suLenTimes, 'twice').toBe(2)
+    same(raw(row('占用空口')[2]!, /^([\d.]+) µs$/, 'the multi-user airtime')[0]!, muFrame / US,
+      'one multi-user send')
+    // 「两个确认帧，各 28 µs，一前一后」 against 「两个块确认帧，各 32 µs，同一瞬间」
+    const [ackUs] = figs(row('确认')[1]!, /各 (\d+) µs/, 'the single-user acknowledgement')
+    const [baUs] = figs(row('确认')[2]!, /各 (\d+) µs/, 'the multi-user one')
+    const acks = txs(rs, (r) => r.frame.kind === 'ack')
+    const bas = txs(rs, (r) => r.frame.kind === 'ba' || r.frame.kind === 'mba')
+    same(String(ackUs), one(acks.map((r) => r.frame.txTimeNs)) / US, 'an acknowledgement')
+    expect(bas.length, 'and the run really sends block acknowledgements too').toBeGreaterThan(0)
+    same(String(baUs), one(bas.filter((r) => r.t > mu[0]!.t).slice(0, 2)
+      .map((r) => r.frame.txTimeNs)) / US, 'a block acknowledgement')
+    // 「两帧一起走只要 211.2 µs，而一前一后地发要 251.2 µs」
+    const [together, apart] = figs(NUMS, /两帧一起走只要 ([\d.]+) µs，而一前一后地发要 ([\d.]+) µs/,
+      '`numbers` on the two totals')
+    same(String(together), muFrame / US, 'the two frames together')
+    expect(apart, 'and the same two one after the other')
+      .toBe(Number(((2 * suFrame) / US).toFixed(1)))
+    expect(together, 'which is the longer of the two').toBeLessThan(apart!)
+  })
+
+  it('reads the symbol arithmetic as the chain it is', () => {
+    const t = tableOf('照着步骤走')
+    const cell = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
+    // 「1950 × 0.5 = 975」
+    const [perSym, share, mine] = figs(cell('每个成员每符号比特数'), /(\d+) × ([\d.]+) = (\d+)/,
+      'the bits per symbol of one member')
+    const rung = one(mu.map((r) => r.frame.mcs))
+    expect(perSym, 'the bits one symbol carries at this rung, over the whole channel')
+      .toBe(PHY_MODES.he.ndbps[rung!] * toneRatio('he', 20))
+    expect(share, 'the share each member gets').toBe(1 / one(mu.map((r) => r.frame.muParts!.length))!)
+    expect(perSym! * share!, 'and the product the cell prints').toBe(mine)
+    // 「⌈11494 ÷ 975⌉ = 12」
+    const [bits, divisor, symbols] = figs(cell('每个成员的符号数'), /⌈(\d+) ÷ (\d+)⌉ = (\d+)/,
+      'the symbols one member’s bytes take')
+    expect(divisor, 'divided by the bits one of its symbols carries').toBe(mine)
+    expect(Math.ceil(bits! / divisor!), 'the ceiling the cell prints').toBe(symbols)
+    // …and the bits are the member's own bytes, through the formula the lesson states.
+    const [svc, perByte, tail] = figs(NUMS, /⌈\((\d+) \+ (\d+) × 字节数 \+ (\d+)\) ÷ 每符号比特数⌉/,
+      'the formula the steps state')
+    const memberBytes = one(mu.map((r) => r.frame.muParts!.map((p) => p.bytes)))![0]!
+    expect(svc! + perByte! * memberBytes + tail!, 'the bits that formula gives this member')
+      .toBe(bits)
+    // 「44 + 4 + 13.6 × 12 = 211.2 µs」
+    const [pre, map, sym, count, total] = figs(cell('这次发送的长度'),
+      /(\d+) \+ (\d+) \+ ([\d.]+) × (\d+) = ([\d.]+) µs/, 'the airtime the symbols buy')
+    expect(pre! * US, 'the single-user preamble').toBe(PHY_MODES.he.preambleNs)
+    expect(sym! * US, 'one symbol').toBe(PHY_MODES.he.symNs)
+    expect(count, 'the symbols, as the row above counts them').toBe(symbols)
+    expect(pre! + map! + sym! * count!, 'the sum the cell prints').toBeCloseTo(total!, 3)
+    same(String(total), one(mu.map((r) => r.frame.txTimeNs))! / US, 'the send the engine builds')
+    // The same four figures in the steps' prose, and the gap and answer that follow.
+    const [proPre, proMap, proSym] = figs(NUMS,
+      /(\d+) µs 前导码，再加 (\d+) µs 装“这一发里有谁”的分配表，然后每个符号 ([\d.]+) µs/,
+      'the steps on the three terms')
+    expect([proPre, proMap, proSym], 'the same three').toEqual([pre, map, sym])
+    const [gapUs, baUs] = figs(NUMS, /结束后隔 (\d+) µs，每个成员各在自己的资源单元上回一个 (\d+) µs 的块确认/,
+      'the steps on the gap and the answer')
+    expect(gapUs! * US, 'one short interframe space').toBe(SIFS_NS)
+    // The worked table states the gap in its own ROW LABEL, and the answer in the cell.
+    const ackRow = t.rows.find((r) => r[0]!.includes('之后回来的确认'))!
+    const [cellGap] = figs(ackRow[0]!, /^(\d+) µs 之后回来的确认是$/, 'the worked table’s own gap')
+    expect(cellGap, 'the same gap').toBe(gapUs)
+    const [cellBa] = figs(ackRow[1]!, /(\d+) µs（两个并排/, 'the worked table’s own answer')
+    expect(cellBa, 'and the same answer').toBe(baUs)
+    // …and the bytes the same table gives one member.
+    const [cellBytes] = figs(cell('装进去的字节'), /^([\d,]+) B$/, 'the worked table’s own payload')
+    expect(cellBytes, 'the bytes one member carries')
+      .toBe(one(mu.map((r) => r.frame.muParts!.map((p) => p.bytes)))![0])
+    const [queued] = figs(cell('队列里有东西的设备'), /^(\d+)$/, 'the devices with something queued')
+    expect(queued, 'the members the first group takes').toBe(one(mu.map((r) => r.frame.muParts!.length)))
+    // 「先取它那一级在 20 MHz 信道、单流下的比特数——这几台电视是 1950——再乘上它分到的子载波占比，
+    //   这里正好折半，得到 975」
+    const [width, bitsPerSym, half] = figs(NUMS,
+      /在 (\d+) MHz 信道、单流下的比特数——这几台电视是 (\d+)——[^]*?得到 (\d+)/,
+      'the steps on the bits per symbol')
+    /*
+     * **No node of this scene states a width**, and `phy.ts` is why the sentence can still name
+     * one: `ndbps` is tabulated per 20 MHz, and `bitsPerSymbol` falls back to that same 20 when
+     * the caller gives no width — which is what every figure of this lesson was computed at.
+     */
+    expect(ofdmaDl.scenario().nodes.every((n) => n.caps.widthMhz === undefined),
+      'no node of this scene asks for a width').toBe(true)
+    expect(width, 'so the channel the bits per symbol are tabulated for').toBe(REF_WIDTH_MHZ)
+    expect([bitsPerSym, half], 'the same two figures the table prints').toEqual([perSym, mine])
+  })
+
+  it('reads the whole-run table and the airtime the pairing gives back', () => {
+    const t = tableOf('整段仿真')
+    const flat = t.rows.map((r) => r.join(' · ')).join('\n')
+    const [windowMs] = figs(t.heading!, /(\d+) ms/, 'the window the table is measured over')
+    expect(windowMs! * MS, 'the window every figure of this lesson is measured over').toBe(RUN_NS)
+    const off = without(...PHONES)
+    // 「161.5 ms」 against 「163.0 ms」: the air each way.
+    const [withOf, withoutOf] = figs(flat, /([\d.]+) ms[^]*?([\d.]+) ms/, 'the two airtimes')
+    // 「空口忙碌的总时间」 is every frame of the run — acknowledgements included.
+    same(String(withOf), airNs(txs(rs)) / MS, 'the air this run uses')
+    same(String(withoutOf), airNs(txs(off)) / MS, 'and the air the same room uses with no grouping')
+    // 「每凑成一对，就省下 40 µs 的前导码，又因为确认帧变大而还回去 8 µs；这段仿真里的 45 对，
+    //   合起来是 1.44 ms」
+    const [saved, paid, pairs, net] = figs(NUMS,
+      /就省下 (\d+) µs 的前导码，又因为确认帧变大而还回去 (\d+) µs；这段仿真里的 (\d+) 对，合起来是 ([\d.]+) ms/,
+      '`numbers` on the two savings')
+    expect(pairs, 'the pairs this run makes').toBe(mu.length)
+    same(String(net), (airNs(txs(off)) - airNs(txs(rs))) / MS, 'the air the pairing gives back')
+    expect(((saved! - paid!) * pairs! * US) / MS, 'which is what the two per-pair figures predict')
+      .toBeCloseTo(net!, 2)
+    // The same 1.44 ms in `tryThis` and in the quiz.
+    for (const [ms] of every([TRY, QUIZ].join('\n'), /([\d.]+) ms 的空口|空口多忙了 ([\d.]+) ms/g,
+      'the air the pairing gives back, twice more', 2).map((g) => [g.find((x) => x !== undefined)!])) {
+      expect(val(ms!), 'the same figure').toBe(net)
+    }
+    const [quizMs] = figs(QUIZ, /在 (\d+) ms 内还回去/, 'the quiz on the window')
+    expect(quizMs! * MS, 'over the same window').toBe(RUN_NS)
+  })
+
+  it('reads the pairing statistics as the two rulers they are', () => {
+    const enqs = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap')
+    const byId = new Map(enqs.map((e) => [e.msduId, e]))
+    const apData = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'data')
+    const windows = (): number[] => {
+      const out: number[] = []
+      for (const tx of apData) {
+        const ids = tx.frame.muParts
+          ? tx.frame.muParts.flatMap((p) => p.msduIds ?? [])
+          : [tx.frame.msduId!]
+        for (const id of ids) out.push(tx.t - byId.get(id)!.t)
+      }
+      return out.sort((a, b) => a - b)
+    }
+    const w = windows()
+    // 「中位数只有 9.6 µs——1061 帧里有 506 帧在一微秒之内就上了空口」
+    const [median, frames, quick] = figs(DEEP,
+      /中位数只有 ([\d.]+) µs——(\d+) 帧里有 (\d+) 帧在一微秒之内/, '`deeper` on the window')
+    same(String(median), w[Math.floor(w.length / 2)]! / US, 'the window’s own median')
+    expect(frames, 'the frames of the run').toBe(w.length)
+    expect(quick, 'the ones gone inside a microsecond').toBe(w.filter((x) => x <= US).length)
+    // 「等得最久的那一帧也只等了 185.2 µs」 and the same figure again further down.
+    for (const [us] of every(DEEP, /([\d.]+) µs(?:，一次交互的长度|，窗口并不因此变宽)/g,
+      'the longest wait, printed twice', 2)) {
+      same(us!, w[w.length - 1]! / US, 'the longest a frame waits')
+    }
+    // 「上十分位：十帧里有一帧等到了 145.3 µs 以上」
+    same(raw(DEEP, /一帧等到了 ([\d.]+) µs 以上/, '`deeper` on the ninth decile')[0]!,
+      w[Math.floor(w.length * 0.9)]! / US, 'the window’s ninth decile')
+    // 「相邻两次发往不同电视的到达一共 1058 对」, 「接入点总共发了 1016 次」, 「45 次装着两台（4.4 %）」
+    const arrivals = enqs.map((e) => ({ t: e.t, dst: e.dst })).sort((a, b) => a.t - b.t)
+    let close = 0
+    let cross = 0
+    for (let i = 1; i < arrivals.length; i++) {
+      if (arrivals[i]!.dst === arrivals[i - 1]!.dst) continue
+      cross++
+      if (arrivals[i]!.t - arrivals[i - 1]!.t < 14 * US) close++
+    }
+    const [crossPairs] = figs(DEEP, /发往不同电视的到达一共 (\d+) 对/, '`deeper` on the cross arrivals')
+    expect(crossPairs, 'the arrivals that cross from one television to another').toBe(cross)
+    const [sends] = figs(DEEP, /接入点总共发了 (\d+) 次/, '`deeper` on the sends')
+    expect(sends, 'the sends the access point makes').toBe(apData.length)
+    const [paired, pct] = figs(DEEP, /就是那 (\d+) 次装着两台（([\d.]+) %）/, '`deeper` on the share')
+    expect(paired, 'the sends that carried two').toBe(mu.length)
+    same(String(pct), (100 * mu.length) / apData.length, 'their share of every send')
+    // 「按窗口中位数 9.6 µs 的量级取 14 µs 这个整数」, 「会数出 41 对（1058 对里的 3.9 %）」
+    const [proxyUs] = figs(DEEP, /的量级取 (\d+) µs 这个整数/, '`deeper` on the proxy threshold')
+    expect(proxyUs, 'the threshold the proxy uses').toBe(14)
+    const [proxyPairs, proxyOf, proxyPct] = figs(DEEP, /会数出 (\d+) 对（(\d+) 对里的 ([\d.]+) %）/,
+      '`deeper` on the proxy’s count')
+    expect(proxyPairs, 'the pairs the proxy counts').toBe(close)
+    expect(proxyOf, 'out of the same denominator').toBe(cross)
+    same(String(proxyPct), (100 * close) / cross, 'and their share')
+    expect(proxyPairs, 'which is four short of the engine’s own count').toBeLessThan(paired!)
+  })
+
+  it('reads the two counts the proxy misclassifies, and the floor that makes it the wrong ruler', () => {
+    // 「30 对被门限数了进来，而第二帧……34」 and the queue-residence floor.
+    const [counted, dropped] = figs(DEEP,
+      /(\d+) 对被门限数了进来，而第一帧其实早就走了；另有 (\d+) 对被门限筛掉/,
+      'the proxy’s two misclassifications')
+    /*
+     * **Both are measured against the per-frame criterion the paragraph calls the accurate one.**
+     * A pair the proxy counts but the window does not is one whose first frame had already left;
+     * a pair the window counts but the proxy does not is one whose first frame was waiting out
+     * an exchange. The two are computed here the same way the test above computes the 45.
+     */
+    const enq2 = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap')
+    const apTx = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'data')
+    const txAt = new Map<number, number>()
+    for (const tx of apTx) {
+      const ids = tx.frame.muParts ? tx.frame.muParts.flatMap((p) => p.msduIds ?? []) : [tx.frame.msduId!]
+      for (const id of ids) txAt.set(id, tx.t)
+    }
+    const arr = enq2.map((e) => ({ t: e.t, dst: e.dst, id: e.msduId })).sort((a, b) => a.t - b.t)
+    let proxyOnly = 0
+    let windowOnly = 0
+    for (let i = 1; i < arr.length; i++) {
+      if (arr[i]!.dst === arr[i - 1]!.dst) continue
+      const gap = arr[i]!.t - arr[i - 1]!.t
+      const byProxy = gap < 14 * US
+      const byWindow = (txAt.get(arr[i - 1]!.id) ?? 0) > arr[i]!.t
+      if (byProxy && !byWindow) proxyOnly++
+      if (!byProxy && byWindow) windowOnly++
+    }
+    expect(counted, 'the pairs the proxy counts and the window does not').toBe(proxyOnly)
+    expect(dropped, 'and the ones the window counts and the proxy does not').toBe(windowOnly)
+    // 「那个数自带 125.6 + 16 + 28 = 169.6 µs 的下限，按它算会得出 37 % 这种答案」
+    const [len, gap, ack, floor] = figs(DEEP, /自带 ([\d.]+) \+ (\d+) \+ (\d+) = ([\d.]+) µs 的下限/,
+      '`deeper` on the floor')
+    same(String(len), one(su.map((r) => r.frame.txTimeNs)) / US, 'one single-user send')
+    expect(gap! * US, 'one gap').toBe(SIFS_NS)
+    same(String(ack), one(txs(rs, (r) => r.frame.kind === 'ack').map((r) => r.frame.txTimeNs)) / US,
+      'and one acknowledgement')
+    expect(len! + gap! + ack!, 'the sum the sentence prints').toBeCloseTo(floor!, 3)
+    const [wrongPct] = figs(DEEP, /会得出 (\d+) % 这种答案/, '`deeper` on the wrong ruler’s answer')
+    const enqs = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap')
+    const arrivals = enqs.map((e) => ({ t: e.t, dst: e.dst })).sort((a, b) => a.t - b.t)
+    let within = 0
+    let cross = 0
+    for (let i = 1; i < arrivals.length; i++) {
+      if (arrivals[i]!.dst === arrivals[i - 1]!.dst) continue
+      cross++
+      if (arrivals[i]!.t - arrivals[i - 1]!.t < 184 * US) within++
+    }
+    expect(wrongPct, 'the answer that floor would give, as the sentence rounds it')
+      .toBe(Math.round((100 * within) / cross))
+    // 「单用户发送的前导码是 44 µs，多用户是 48 µs」
+    const [suPre, muPre] = figs(DEEP, /单用户发送的前导码是 (\d+) µs，多用户是 (\d+) µs/,
+      '`deeper` on the two preambles')
+    expect(suPre! * US, 'the single-user preamble').toBe(PHY_MODES.he.preambleNs)
+    expect(muPre! - suPre!, 'and what the per-user map adds')
+      .toBe(figs(NUMS, /再加 (\d+) µs 装“这一发里有谁”的分配表/, 'the map’s own cost')[0])
+    // 「每台电视的下一帧要 747 到 947 µs 之后才来」 and the same period in `limits`.
+    const [from, to] = figs(DEEP, /下一帧要 (\d+) 到 (\d+) µs 之后才来/, '`deeper` on the period')
+    const [base, jLo, jHi] = figs(LIM, /（(\d+) µs 加上 (\d+) 到 (\d+) µs 的抖动）/,
+      '`limits` on the same period')
+    /*
+     * **The period is the video generator's, not this scene's**: `scheduleVideo` schedules the
+     * next frame at `747 µs + floor(rng × 200 µs)`, so the base and the span are read out of
+     * `traffic.ts`, the floor of the draw is the 0, and `deeper`'s two ends are their sum.
+     */
+    const [srcBase, srcSpan] = figs(TRAFFIC_SRC,
+      /const next = t \+ (\d+) \* US \+ Math\.floor\(this\.rng\.next\(\) \* (\d+) \* US\)/,
+      'the video generator’s own period')
+    expect([base, jHi], 'the period and the span `limits` prints').toEqual([srcBase, srcSpan])
+    expect(jLo, 'and the floor of a `Math.floor` draw').toBe(0)
+    expect(from, 'the shortest gap between two frames for one television').toBe(base! + jLo!)
+    expect(to, 'and the longest').toBe(base! + jHi!)
+  })
+
+  it('reads the guard-interval entry’s own two comparisons', () => {
+    // 「211.2 → 248.8 µs，涨 17.8 %——12 个符号从 13.6 变 16 µs，再加上 4× LTF 给前导码添的那 8.8 µs」
+    const [was, now, pct, symbols, symWas, symNow, ltf] = figs(LIM,
+      /([\d.]+) → ([\d.]+) µs，涨 ([\d.]+) %——(\d+) 个符号从 ([\d.]+) 变 (\d+) µs，再加上 4× LTF 给前导码添的那 ([\d.]+) µs/,
+      '`limits` on the longer PPDU')
+    same(String(was), one(mu.map((r) => r.frame.txTimeNs)) / US, 'the send this engine builds')
+    expect(symbols, 'the symbols it carries')
+      .toBe(figs(NUMS, /× (\d+) = [\d.]+ µs/, 'the symbol count')[0])
+    expect(symWas! * US, 'a symbol at this guard interval').toBe(PHY_MODES.he.symNs)
+    expect(symbols! * (symNow! - symWas!) + ltf!, 'what the longer interval would add')
+      .toBeCloseTo(now! - was!, 3)
+    same(String(pct), (100 * (now! - was!)) / was!, 'the share that is of the send')
+    // 「80.55 → 92.43 ms，涨 14.7 %」
+    const [airWas, airNow, airPct] = figs(LIM, /([\d.]+) → ([\d.]+) ms，涨 ([\d.]+) %/,
+      '`limits` on the whole run’s air')
+    /*
+     * **That entry names its own instrument**: `runUntil(150 ms)`, not this file's 300 ms. So the
+     * figure is measured over that window, which is also the window its MSDU count is about.
+     */
+    const [entryMs] = figs(LIM, /runUntil\((\d+) ms\)/, '`limits` on its own window')
+    const short150 = [...new Simulation(ofdmaDl.scenario()).runUntil(entryMs! * MS).records]
+    same(String(airWas), airNs(txs(short150)) / MS, 'the air every PPDU of that window takes')
+    same(String(airPct), (100 * (airNow! - airWas!)) / airWas!, 'and the share the longer one adds')
+    expect(airPct, 'which is smaller than the per-send figure').toBeLessThan(pct!)
+    // 「这 150 ms 里真正送出去的 MSDU：两档都是 529 个」 and 「RX_FAIL 也都是 0」
+    const [ms] = figs(LIM, /这 (\d+) ms 里真正送出去的/, '`limits` on the MSDU window')
+    expect(ms, 'which is the same window the entry names at the top').toBe(entryMs)
+    const [msdus] = figs(LIM, /两档都是 (\d+) 个/, '`limits` on the MSDUs')
+    const short = short150
+    /*
+     * **The entry names its own criterion and this read has to obey it**: 「数的是出队的 MSDU，
+     * 不是各接收端收到的字节之和」. Counting receptions instead gives 1 521 for the same window,
+     * because all three televisions decode every send — which is the mistake the sentence warns
+     * about, so it is measured here too, and has to be the larger of the two.
+     */
+    const dequeued = ofType(short, 'DEQUEUE').filter((r) => r.node === 'ap').length
+    expect(msdus, 'the MSDUs that window really sends out').toBe(dequeued)
+    const received = ofType(short, 'RX_OK').filter((r) => r.frame.kind === 'data' && r.from === 'ap').length
+    expect(received, 'while summing over the receivers counts the same payloads several times')
+      .toBeGreaterThan(dequeued)
+    const [fails] = figs(LIM, /RX_FAIL 也都是 (\d+)/, '`limits` on the failures')
+    expect(fails, 'and the failures it has').toBe(ofType(short, 'RX_FAIL').length)
+    // 「12 个符号（MU_SYMB…）」 and 「frac = 1 / 成员数」
+    const [fixed] = figs(LIM, /是定长的 (\d+) 个符号/, '`limits` on the fixed symbol count')
+    expect(fixed, 'the symbols every multi-user send of this scene carries').toBe(symbols)
+    const [num] = figs(LIM, /frac = (\d+) \/ 成员数/, '`limits` on the share’s numerator')
+    expect(num / one(mu.map((r) => r.frame.muParts!.length))!,
+      'the share each member gets').toBe(one(mu.map((r) => r.frame.muParts![0]!.ruFraction))!)
+  })
+
+  it('reads the observe lines, the experiments and the picture’s own payload', () => {
+    // 「为两台电视各装了 1434 字节」, in `observe` and in `picture`.
+    for (const [bytes] of every([PIC, OBS].join('\n'), /各装 ?了? ?([\d,]+) 字节/g,
+      'the payload each member carries, printed twice', 2)) {
+      expect(val(bytes!), 'the bytes one member of a group carries')
+        .toBe(one(mu.map((r) => r.frame.muParts!.map((p) => p.bytes)))![0])
+    }
+    // 「两个 32 µs 的确认帧」, 「整段仿真里接入点向下发了 1016 次，其中只有 45 次装着两台电视」
+    const apData = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'data')
+    const [sends, paired] = figs(OBS, /接入点向下发了 ([\d,]+) 次，其中只有 (\d+) 次装着两台电视/,
+      '`observe` on the two counts')
+    expect(sends, 'the sends the access point makes').toBe(apData.length)
+    expect(paired, 'and the ones that carried two').toBe(mu.length)
+    // `tryThis`: one television out, and all three out.
+    const [whichTv, pairs] = figs(TRY, /关掉电视 (\d) 的 OFDMA[^]*?整段仿真里凑了 (\d+) 次/,
+      '`tryThis` on the first experiment')
+    const one1 = without(`sta-${whichTv}`)
+    expect(pairs, 'the pairs the other two still make')
+      .toBe(muPpdus(one1).length)
+    const [outTv] = figs(TRY, /而电视 (\d) 从此只被单独服务/, '`tryThis` on the one left out')
+    expect(outTv, 'the same television the experiment switches off').toBe(whichTv)
+    expect(muPpdus(one1).some((r) => r.frame.muParts!.some((p) => p.dst === `sta-${outTv}`)),
+      'and no group of that variant ever contains it again').toBe(false)
+    const [allOff] = figs(TRY, /共 ([\d,]+) 次/, '`tryThis` on the second experiment')
+    const allOffRun = without(...PHONES)
+    expect(allOff, 'the sends it takes with no grouping at all')
+      .toBe(txs(allOffRun, (r) => r.node === 'ap' && r.frame.kind === 'data').length)
+  })
+
+  it('reads the formula block, the row that names the three televisions, and both 32 µs', () => {
+    /*
+     * **The formula is printed twice and the two printings differ**: the steps write it with
+     * 「每符号比特数」 already folded, the `formula` block spells out 「× RU 占比」. Both are read
+     * here, their three constants have to agree, and the three together have to turn this run's
+     * own payload into the bit count the worked table divides.
+     */
+    const [svc, perByte, tail] = figs(NUMS,
+      /符号数 = ⌈\((\d+) \+ (\d+)·字节数 \+ (\d+)\) ÷ \(每符号比特数 × RU 占比\)⌉/,
+      'the `formula` block’s own three terms')
+    const steps = figs(NUMS, /⌈\((\d+) \+ (\d+) × 字节数 \+ (\d+)\) ÷ 每符号比特数⌉/,
+      'the same formula in the steps')
+    expect([svc, perByte, tail], 'the same three constants, both times').toEqual(steps)
+    const t2 = tableOf('照着步骤走')
+    const cell = (needle: string): string => t2.rows.find((r) => r[0]!.includes(needle))![1]!
+    const [bits] = figs(cell('每个成员的符号数'), /⌈(\d+) ÷/, 'the bits the worked table divides')
+    const memberBytes = one(mu.map((r) => r.frame.muParts!.map((p) => p.bytes)))![0]!
+    expect(svc! + perByte! * memberBytes + tail!, 'what those three make of this member’s payload')
+      .toBe(bits)
+    // 「电视 1 / 2 / 3 收到的帧数」 — the row label names the scene's three stations, in order.
+    const label = figs(NUMS, /电视 (\d) \/ (\d) \/ (\d) 收到的帧数/,
+      'the row label’s three televisions')
+    expect(label, 'the three televisions of this scene, in the order the scenario lists them')
+      .toEqual(PHONES.map((id) => Number(id.split('-')[1])))
+    // 「本课的测试把它钉成这个恒等式，而不是钉成 45」 — the identity's own value, this run.
+    const [notPinned] = figs(LIM, /而不是钉成 (\d+)）/, '`limits` on the count it refuses to pin')
+    expect(notPinned, 'the paired sends of this one run, which is what that identity comes to')
+      .toBe(mu.length)
+    /*
+     * **Both remaining 32 µs are the same answer**, and neither has a record of its own on the
+     * test side: `limits` quotes it as the length `mac.ts` writes into the duration field, and
+     * `observe` tells the reader to look at it on the timeline. So both are read against the
+     * block acknowledgements the run really sends inside a group.
+     */
+    const groupBas = txs(rs, (r) => (r.frame.kind === 'ba' || r.frame.kind === 'mba')
+      && r.frame.orthogonalGroup !== undefined)
+    expect(groupBas.length, 'the run answers its groups with block acknowledgements')
+      .toBe(2 * mu.length)
+    const baUs = one(groupBas.map((r) => r.frame.txTimeNs))! / US
+    const [limBa] = figs(LIM, /一个短帧间间隔加一个 (\d+) µs 的块确认/,
+      '`limits` on the answer the engine hard-codes')
+    const [obsBa] = figs(OBS, /两个 (\d+) µs 的确认帧/, '`observe` on the same answer')
+    same(String(limBa), baUs, 'the block acknowledgement `limits` prices')
+    same(String(obsBa), baUs, 'and the one `observe` points at')
+  })
+
+  it('reads `sources` and the tone table `limits` quotes', () => {
+    // 「44 µs 的前导码、多用户信令多出的 4 µs 以及 13.6 µs 的符号」
+    const [pre, map, sym] = figs(SRC, /(\d+) µs 的前导码、多用户信令多出的 (\d+) µs 以及 ([\d.]+) µs 的符号/,
+      '`sources` on the three model values')
+    expect(pre! * US, 'the preamble').toBe(PHY_MODES.he.preambleNs)
+    expect(sym! * US, 'and the symbol').toBe(PHY_MODES.he.symNs)
+    expect(map, 'the per-user map’s own cost')
+      .toBe(figs(NUMS, /再加 (\d+) µs 装“这一发里有谁”的分配表/, 'the map in the steps')[0])
+    // 「muDsts.slice(0, 4)」, printed in `sources` and again in `limits`
+    const [srcFrom, srcTo] = figs(MAC_SRC, /muDsts\.slice\((\d+), (\d+)\)/,
+      'the slice `mac.ts` really takes')
+    for (const [from, to] of every([SRC, LIM].join('\n'), /muDsts\.slice\((\d+), (\d+)\)/g,
+      'the slice the engine takes, printed twice', 2)) {
+      expect([val(from!), val(to!)], 'both ends, as the engine writes them').toEqual([srcFrom, srcTo])
+    }
+    expect(srcTo, 'a cap this scene never reaches')
+      .toBeGreaterThan(one(mu.map((r) => r.frame.muParts!.length))!)
+    // 「资源单元最小可到 26 个子载波」 and the discrete tone table in `limits`
+    const [smallest] = figs(SRC, /资源单元最小可到 (\d+) 个子载波/, '`sources` on the smallest RU')
+    expect(smallest, 'the tones of the smallest resource unit').toBe(RU26_TONES)
+    const tones = figs(LIM, /（(\d+)、(\d+)、(\d+)、(\d+)、(\d+)、(\d+)……）/, '`limits` on the tone table')
+    expect(tones[0], 'the table opens with that same smallest one').toBe(smallest)
+    expect(tones[1], 'and doubles').toBe(2 * smallest!)
+    /*
+     * **The 106 is counted out of the engine's own ranges**, the way `@ru-diversity` reads the
+     * same table: `selectivity.ts` writes each resource unit of Tables 27-8 and 27-9 as a tone
+     * range, and the span of the widest of them is the 106 this list prints. The 242 and the 484
+     * hold each other up — the standard's table doubles there, so moving either breaks the pair.
+     * **The 996 is exempt, class (a)**, by the argument `@ru-diversity` files for it: of the six
+     * it is the one entry that neither doubles its neighbour nor counts out of a range this
+     * repository holds, and 802.11 prose is not in the corpus.
+     */
+    const SPANS = [...SEL_SRC.matchAll(/`\[(-?\d+):(-?\d+)\]`/g)].map(([, a, b]) => val(b!) - val(a!) + 1)
+    expect(tones[2], 'the 106-tone RU, as `selectivity.ts` spans it')
+      .toBe([...new Set(SPANS)].find((x) => x > 100))
+    expect(tones[4], 'the fifth entry, twice the fourth').toBe(2 * tones[3]!)
+    for (let i = 1; i < tones.length; i++) {
+      expect(tones[i]!, `the table is increasing at ${tones[i]}`).toBeGreaterThan(tones[i - 1]!)
+    }
+    // 「802.11ax 在 20 MHz 上用 26 音调的资源单元就能装九个成员」 — the tones, and the Chinese
+    // numeral beside them, which is `RU26_PER_20MHZ` itself.
+    const [axWidth, axTones] = figs(LIM, /在 (\d+) MHz 上用 (\d+) 音调的资源单元/,
+      '`limits` on what a 20 MHz channel of smallest RUs holds')
+    expect(axTones, 'the smallest resource unit again').toBe(smallest)
+    const [cn] = raw(LIM, /就能装(.)个成员/, '`limits` on how many of them fit')
+    expect('零一二三四五六七八九'.indexOf(cn!), 'as many members as that width has such RUs')
+      .toBe(RU26_PER_20MHZ)
+    expect(axWidth, 'on the width that count is per').toBe(REF_WIDTH_MHZ)
+    const [smallGrant] = figs(LIM, /一块 (\d+) 音调的/, '`limits` on the small grant')
+    expect(smallGrant, 'which is the smallest the scheduler could hand out').toBe(smallest)
+    // 「320 MHz 上的资源单元有……」
+    const [wide] = figs(LIM, /而 (\d+) MHz 上的资源单元/, '`limits` on the widest channel')
+    expect(Number.isInteger(selBins(wide!)), 'a width this engine splits into whole bins').toBe(true)
   })
 })
