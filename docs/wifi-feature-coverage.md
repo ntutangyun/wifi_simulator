@@ -824,7 +824,7 @@ P 的「新增」是**减出来的**，不是假定基线为零：基线（主�
 
 | 量 | 实测 | 断言在哪 | 余量 |
 | --- | --- | --- | --- |
-| 全课程主路径汉字 | **201 136** | `tests/course/readability.test.ts`：逐课 (700, 4 400)，总和 > 100 000 且 < 300 000 | 逐课最紧的是 `@ru-diversity` 4 030（距上沿 370） |
+| 全课程主路径汉字 | **201 189** | `tests/course/readability.test.ts`：逐课 (700, 4 400)，总和 > 100 000 且 < 300 000 | 逐课最紧的是 `@ru-diversity` 4 030（距上沿 370） |
 | 分钟数合计 | **1 925** | 同文件，**等式** | 0 |
 | `limits` 债务棘轮 | 287 | 同文件，≤ 287 | **0** |
 | 课数 | 91（Wi-Fi 52、AMP 5、UWB 34） | 同文件，`toBe(91)`，**精确** | — |
@@ -841,9 +841,9 @@ P 的「新增」是**减出来的**，不是假定基线为零：基线（主�
 `逐课 (700, 4 400)` 这个区间也和 `tests/course/coverageNumbers.ts` 的 `MAIN_PATH_BAND` 比。
 **注意那条上界是严格的**（`toBeLessThan`），所以「距上沿 370」是**距离**，还能加的字是 **369**。
 
-**一门新课的典型主路径是 2 000–3 000 字**（全课程 91 门的均值 2 210 = 201 136 / 91；
+**一门新课的典型主路径是 2 000–3 000 字**（全课程 91 门的均值 2 211 = 201 189 / 91；
 最近九门新课，最新的在前：`uwb-ancillary-loss` 2 253、`claim-to-contribution` 2 791、`uhr-rate-ladder` 2 899、`link-2g` 2 496、
-`amp-backscatter` 2 487、`uwb-ancillary-request` 2 990、`wan-rtt` 2 053、`edca-tamper` 3 246、
+`amp-backscatter` 2 487、`uwb-ancillary-request` 2 990、`wan-rtt` 2 093、`edca-tamper` 3 246、
 `ru-diversity` 4 030）。
 **所以逐课那个区间的中间三分之一正好是一门新课。**
 

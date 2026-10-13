@@ -959,7 +959,8 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
      * read-back produced. Four of the five rounds settle at the pooled figure and the narrowest
      * settles a whole rung higher, which is the lesson's own later point and the quiz's answer.
      */
-    const [glossPooled, glossOwn] = figs(TERMS, /五档各 ([\d.]+) dB（本课自己那五轮并不这样齐，最窄一档停在 ([\d.]+) dB）/,
+    const [glossPooled, glossOwn] = figs(TERMS,
+      /五档各 ([\d.]+) dB（本课那五轮并不齐，最窄一档 ([\d.]+) dB）/,
       'the `margin` gloss')
     expect(glossPooled, 'the gloss names the table’s margin').toBe(pooled)
     for (const r of rs.slice(1)) {

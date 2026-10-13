@@ -441,7 +441,7 @@ npx tsx scripts/figure-planting.ts cca --own --sample=6   # 抽六个数估个�
 正在栽它自己那一课，而我同时让 `@ofdma-ul` 的 `--saved` 跑起来——后者在基线那一步就抛了「the tests
 are already red」。原因是每个扫描跑的那一组测试里有走遍**全部课程**的那几个（`lessons.test.ts`、
 `prose-readback.test.ts` 之类），于是另一门课此刻被栽着的那一位数把它们读红了。更坏的是它留下的
-后果：那一次失败把 `probes.local/unpinned-ofdma-ul.json` 清掉了，于是 `--saved` 从此无从重跑，
+后果：那一次失败把器具保存的那份未钉清单清掉了，于是 `--saved` 从此无从重跑，
 只能重新全扫一遍（七分钟）。**一次只跑一个扫描；要并行就等它报完。**
 
 **半路掐掉一次扫描，会把当前那一处栽桩留在课文里——而且掐掉外壳并不等于掐掉扫描。** 器具每一
