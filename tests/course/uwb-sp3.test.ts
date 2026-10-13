@@ -28,7 +28,7 @@ import {
   uwbSp1Scenario, uwbSp3, uwbSp3Fields, uwbSp3Scenario, uwbSp3SweepScenario,
 } from '../../src/course/uwb/uwb-sp3'
 import { Simulation } from '../../src/engine/simulation'
-import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
+import { DEFAULT_UWB_SESSION, ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { MODULES, basisOf } from '../../src/course/curriculum'
 import { diagramTexts } from '../../src/course/diagram'
@@ -38,6 +38,7 @@ import {
   uwbSp3Chips, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
+import { uwbReceiptTwrScenario } from '../../src/course/uwb/uwb-receipt'
 import { roundPlan, slotAction } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -472,5 +473,209 @@ describe('uwb-sp3 · the base run the fixture replays', () => {
     expect(at(5)[0]).toEqual(at(1)[0])
     // 4: the first range, which is a record rather than a transmission
     expect(ofType(rs, 'UWB_RANGE').some(uwbSp3.jumps[4].find)).toBe(true)
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Every byte count, microsecond and crossover in this lesson is interpolated from its own module
+ * and the file above measures those against runs. What is typed is the **emptiness of an SP3
+ * marker**, the three octets a request costs, the two values a packet-configuration field has,
+ * the mode this lesson is not, and the figures `sources` lists.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **「0 字节，一个信息单元也没有」 is read as the frame itself**, in three places that say it:
+ *    a table cell, a jump label and `observe`. A marker's bytes, its rate and its element list
+ *    are all read off the air.
+ *  - **「mode 取 m2m」 is read behaviourally**: the schema really does refuse SP3 in that mode,
+ *    which is what the sentence claims, and accepts it in this lesson's own.
+ *  - **「sp 字段类型就只有 1 和 3 两个取值」 is read off the type itself** in `uwb/frames.ts`, so
+ *    the sentence stays true only while that union does.
+ */
+describe('uwb-sp3 · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbSp3.picture)
+  const NUMS = blockText(uwbSp3.numbers)
+  const DEEP = blockText(uwbSp3.deeper)
+  const LIM = blockText(uwbSp3.limits)
+  const SRC = blockText(uwbSp3.sources)
+  const OBS = blockText(uwbSp3.observe)
+  const JUMPS = uwbSp3.jumps.map((j) => j.label).join('\n')
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+
+  const rs = runOf(uwbSp3, undefined, RUN_NS)
+  const frames = air(rs)
+  const markers = frames.filter((f) => f.sp === 3)
+
+  it('reads the marker’s emptiness everywhere the lesson states it', () => {
+    expect(markers.length, 'the round really sends markers').toBeGreaterThan(0)
+    // 「什么也没有：0 字节，一个信息单元也没有」 (a cell), 「整帧 0 字节」 (a jump label),
+    // 「字节数 0、速率 0、信息单元一列空着」 (`observe`)
+    const zeros = [
+      figs(PIC, /什么也没有：(\d) 字节，一个信息单元也没有/, 'the cell on the marker')[0]!,
+      figs(JUMPS, /整帧 (\d) 字节/, 'the jump label')[0]!,
+      figs(OBS, /字节数 (\d)、速率 (\d)/, '`observe` on the marker')[0]!,
+    ]
+    expect(new Set(zeros).size, 'one figure, three places').toBe(1)
+    const [obsBytes, obsRate] = figs(OBS, /字节数 (\d)、速率 (\d)/, '`observe` on both columns')
+    for (const m of markers) {
+      expect(m.bytes, `the marker in slot ${m.slot} carries no octet`).toBe(obsBytes)
+      expect(m.ies, 'and no element').toEqual([])
+    }
+    const mbps = ofType(rs, 'TX_START')
+      .filter((r) => (r.frame.uwb?.sp ?? -1) === 3)
+      .map((r) => r.frame.mbps ?? 0)
+    expect(new Set(mbps), 'and the rate column of every one of them').toEqual(new Set([obsRate]))
+    expect(zeros[0], 'which is the same figure the cell and the label print').toBe(obsBytes)
+  })
+
+  it('reads the three metres the mutation’s verdict rests on', () => {
+    /*
+     * 「每一条都逐位等于另一台锚点的测量，和它自己记下的真实距离差了 3 m」 — the two anchors the
+     * reversed table swaps, and the figure is what their true distances to the tag differ by.
+     */
+    const [metres] = figs(PIC, /和它自己记下的真实距离差了 (\d+) m/, '`picture` on the mutation')
+    /*
+     * That mutation runs in the file `deeper` names, not in this lesson's own scene, so the
+     * figure is read off **that** file's geometry: its two anchors stand at those x positions and
+     * the tag between them, and the metres the swap costs is what their true distances differ by.
+     * Reading it from anywhere else would be reading it from nowhere.
+     */
+    const MUT_SRC = readSrc('../tests/uwb/sp3-round.test.ts')
+    const [xs] = raw(MUT_SRC, /const ANCHOR_X = \[([^\]]+)\]/, 'that file’s anchor positions')
+    const [tagX] = figs(MUT_SRC, /const TAG_X = (\d+)/, 'and its tag')
+    const [a1, a2] = xs!.split(',').slice(0, 2).map((x) => Math.abs(val(x) - tagX!))
+    expect(Math.abs(a1! - a2!), 'what a swapped slot table costs there').toBe(metres)
+  })
+
+  it('reads the request’s three octets, and the crossover the other request moves', () => {
+    // 「控制消息里那 3 个字节确实发了出去」
+    const [octets] = figs(DEEP, /控制消息里那 (\d) 个字节确实发了出去/, '`deeper` on the request')
+    expect(srrrIeBytes(1), 'what one responder’s request element costs').toBe(octets)
+    expect(SRRR_IE_BYTES, 'and that is the element’s own width').toBe(octets)
+    // 「交叉点才从 A = 11 这一侧浮出来」, and `numbers` prints the same crossover
+    const [deepCross] = figs(DEEP, /交叉点才从 A = (\d+) 这一侧浮出来/, '`deeper` on the crossover')
+    const [numsCross] = figs(NUMS, /交叉点就挪到 A = (\d+)/, '`numbers` on the same crossover')
+    expect(deepCross, 'the same crossover, in both places').toBe(numsCross)
+    expect(numsCross, 'and it is the one the engine’s own sweep finds').toBe(PAY.crossoverRrtt)
+    expect(PAY.crossoverRrtt, 'further out than the one without that request')
+      .toBeGreaterThan(PAY.crossover)
+    // 「外加 4 个 SRRR 信息单元」 — one per responder, in the control message on the air
+    const [srrrCount] = figs(PIC, /外加 (\d+) 个 SRRR 信息单元/, '`picture` on the control message')
+    expect(srrrCount, 'one per responder').toBe(ANCHORS)
+    /*
+     * The element list on a frame names each kind once, so 「4 个」 is read where the four really
+     * show: in the control message's own length, which is longer than a plain poll by exactly
+     * that many of them.
+     */
+    const control = frames.find((f) => f.kind === 'uwbPoll')!
+    expect(control.ies, 'the control message carries that element').toContain('SRRR')
+    expect(control.bytes - uwbPollBytes(ANCHORS), 'and that many of them, by its own length')
+      .toBe(srrrCount! * srrrIeBytes(1))
+    expect(control.bytes, 'which is what the engine prices it at').toBe(uwbSp3PollBytes(ANCHORS))
+  })
+
+  it('reads the request that costs nothing, the item that costs four, and the figure cited twice', () => {
+    /*
+     * 「0 字节：那一位在控制消息本来就带着的控制字段里」 — the other clause's request rides a
+     * field the frame already has, so it is read as the length it does not change: the same
+     * control message, with the receipt requested and without, comes out the same size.
+     */
+    const [free] = figs(NUMS, /^(\d) 字节：那一位在控制消息本来就带着的控制字段里/m,
+      '`numbers` on the free request')
+    /*
+     * Read on the lesson that owns that request, because this one's scene may not carry it: the
+     * schema refuses the receipt in an SP3 round. `@uwb-receipt`'s own scene takes the bit as a
+     * parameter, so the same control message can be priced both ways — which is the measurement
+     * 「0 字节」 is a claim about.
+     */
+    const asking = uwbReceiptTwrScenario(true)
+    const quiet = uwbReceiptTwrScenario(false)
+    for (const sc of [asking, quiet]) {
+      expect(ScenarioSchema.safeParse(sc).success, 'both of those scenes parse').toBe(true)
+    }
+    const pollOf = (sc: Scenario): number => ofType(run(sc, ONE_ROUND_NS), 'TX_START')
+      .filter((r) => r.frame.kind === 'uwbPoll')[0]!.frame.bytes
+    expect(pollOf(asking) - pollOf(quiet), 'and asking for it costs that many octets').toBe(free)
+    /*
+     * 「差的正好是方位角那一项的 4 个字节」, and `limits` prints the same width again: the octets
+     * the angle adds to a report, which is what the two report lengths differ by.
+     */
+    const [itemA] = figs(NUMS, /差的正好是方位角那一项的 (\d) 个字节/, '`numbers` on the angle item')
+    const [itemB] = figs(LIM, /方位角那一项的 (\d) 个字节也是本仿真器的取值/,
+      '`limits` on the same item')
+    expect(itemB, 'the same width, named twice').toBe(itemA)
+    expect(itemA, 'what the angle really adds to a report').toBe(UWB_SP3_RAOA_ITEM_BYTES)
+    expect(BYTES.reportRaoa - BYTES.report, 'and the two report lengths differ by it').toBe(itemA)
+    /*
+     * **Exempt, class (a): the figure number.** 「Figure 10-242」 is the standard's own and no
+     * corpus ships with this repo. What is read is that the lesson cites the same figure in both
+     * places it leans on it — `deeper` and `sources` — so the two cannot drift apart.
+     */
+    const [deepFig] = raw(DEEP, /是 (Figure \d+-\d+) 里发起方自己那/, '`deeper` on the figure')
+    const [srcFig] = raw(SRC, /连同它的 (Figure \d+-\d+) 给出时隙的指派/, '`sources` on the same')
+    expect(deepFig, 'one figure, cited twice').toBe(srcFig)
+  })
+
+  it('reads the two values of the packet-configuration field, and the mode this is not', () => {
+    /*
+     * 「UwbInfo 的 sp 字段类型就只有 1 和 3 两个取值，连写下 SP2 的地方都没有」 — read off the
+     * type in the file the sentence names, so the claim holds only while that union does.
+     */
+    const FRAMES_SRC = readSrc('uwb/frames.ts')
+    const [a, b] = figs(LIM, /sp 字段类型就只有 (\d) 和 (\d) 两个取值/, '`limits` on the field')
+    const [declared] = raw(FRAMES_SRC, /sp\??: (\d(?: \| \d)*)/, 'the type as the file declares it')
+    expect(declared!.split(' | ').map(Number), 'the values that type really has').toEqual([a, b])
+    // 「多对多在引擎里已经是另一个模式（mode 取 m2m），而…校验规则在那个模式下直接拒绝 sp3」
+    const [modeDigit] = figs(LIM, /mode 取 m(\d)m/, '`limits` on the other mode')
+    const mode = `m${modeDigit}m`
+    const sp3 = uwbSp3Scenario()
+    expect(ScenarioSchema.safeParse(sp3).success, 'this lesson’s own scene parses').toBe(true)
+    const asM2m = { ...sp3, uwb: { ...sp3.uwb!, mode } }
+    expect(ScenarioSchema.safeParse(asM2m).success, `and the schema refuses SP3 under ${mode}`)
+      .toBe(false)
+  })
+
+  it('reads the figures `sources` lists: the chips, the residual and the hall', () => {
+    // 「UWB_SHR_CHIPS 加 UWB_STS_CHIPS，即 … 个码片，没有物理头那 … 个」
+    const chips = figs(SRC, /即 ([\d ]+) \+ ([\d ]+) = ([\d ]+) 个码片，没有物理头那 ([\d ]+)/,
+      '`sources` on the chips')
+    expect(chips[0]! + chips[1]!, 'the two segments a marker is made of').toBe(chips[2])
+    expect([chips[0], chips[1], chips[3]], 'and each is the engine’s own count')
+      .toEqual([UWB_SHR_CHIPS, UWB_STS_CHIPS, UWB_PHR_CHIPS])
+    expect(uwbSp3Chips(), 'which is what the engine prices a marker at').toBe(chips[2])
+    /*
+     * 「四个场景都把非视距与载波频偏估计的残差关掉（cfoNoisePpm 取 0），…0.2 ppm 的残差在最后
+     * 几个时隙上值几十厘米的距离」 — two figures: the value this lesson sets, and the default it
+     * is turning off.
+     */
+    const [off] = figs(SRC, /cfoNoisePpm 取 (\d)/, '`sources` on what it switches off')
+    const [ppm] = figs(SRC, /([\d.]+) ppm 的残差/, '`sources` on the residual')
+    expect(uwbSp3Scenario().uwb!.cfoNoisePpm, 'the residual this scene really carries').toBe(off)
+    expect(ppm, 'and the one the engine carries by default')
+      .toBe(DEFAULT_UWB_SESSION.cfoNoisePpm)
+    // 「本课四个场景是同一个 22 × 8 m 大厅」
+    const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
+    const scenes = [uwbSp3Scenario(), ...uwbSp3.variants!.map((v) => v.scenario())]
+    for (const sc of scenes) {
+      expect([sc.rooms[0]!.w, sc.rooms[0]!.h], 'every scene in the same hall').toEqual([wide, deep])
+    }
   })
 })
