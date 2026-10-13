@@ -636,7 +636,7 @@ Read/Write），**而第 5 条没收掉**——那一课只放反向散射标签
 | ➕ Experiment design and statistics | **没有** |
 | 🔧 Validating a simulator against analytic models, ns-3 and measurements | **已交付一半，而且交在第一阶段**：`@bianchi`、`@bianchi-vs-sim`、`@rate-vs-model` 三门课就是「解析模型对上实跑」，它们在 M5 / tier 0。ns-3 与实测那两侧没有。 |
 | ➕ Reading the standard and the task-group process | **已交付，先交在 UWB 轨，2026-10-10 起 Wi-Fi 侧也有了**：`BASES` 的 `draft` 标志、`CONTRIBUTIONS` 里的文稿号与它们各自的一句话（共 34 条：4ab 18、TGbp 9、TGbn 7）、以及「UWB 第三阶段 · 下一步的草案」底下九门课。**「Wi-Fi 侧没有对应物」这句话切片 W12b 之后不再成立**：`@uhr-rate-ladder` 按着一份未批准的 TGbn 草案教，它的 `sources` 读的就是动议号（#42 / #216 / #313 / #417）——而 802.11-2024 本身仍然没有草案过程可读，那一半没变。 |
-| ➕ From problem to contribution or patent | **已交付（切片 W13，2026-10-10）**：`@claim-to-contribution`，第四阶段第二门课，进的是**已存在的** M13。它骑 `@uhr-rate-ladder` 的场景（`uhrLadderScenario` 的另一取值，客厅深处、两层起伏），把那门课印的 +11.78 % 放到四批种子上重算（+11.78 / +7.40 / +8.65 / +6.60 %），再让读者核仪器——阴影标准差为 0 时相干时间读不到，两个只差这个字段的变体在 `lesson-hashes.json` 里是同一个指纹——最后走一遍这四档自己的公开记录：七份文稿、Motion #42/#216/#313/#417、两轮信函投票的 8 523 与 7 874 条意见。**「or patent」那一半没有，也不在排期里。** |
+| ➕ From problem to contribution or patent | **已交付（切片 W13，2026-10-10）**：`@claim-to-contribution`，第四阶段第二门课，进的是**已存在的** M13。它骑 `@uhr-rate-ladder` 的场景（`uhrLadderScenario` 的另一取值，客厅深处、两层起伏），把那门课印的 +11.78 % 放到四批种子上重算（+11.78 / +7.40 / +8.65 / +6.60 %），再让读者核仪器——阴影标准差为 0 时相干时间读不到，两个只差这个字段的变体在 `lesson-hashes.json` 里是同一个指纹——最后走一遍这四档自己的公开记录：七份文稿、Motion #42/#216/#417、两轮信函投票的 8 523 与 7 874 条意见（**#313 不在这一门里**：发射星座误差那一节是 `@uhr-rate-ladder` 的 `sources` 引的，而本表原先把四个动议全算在这一门名下，2026-10-14 按课文真正印的那三个改回来）。**「or patent」那一半没有，也不在排期里。** |
 | Tier 4 项目 | **没有** |
 
 所以第四阶段的真实剩余是：**Wi-Fi 8 剩下的那些，而方法课那一侧已经结清**——
