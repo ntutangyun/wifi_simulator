@@ -474,3 +474,226 @@ describe('uwb-position · the procedure, against the solver', () => {
     expect(f.trueY).toBe(TAG.y)
   })
 })
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * This file measures everything and then compares it with a figure typed on **this** side —
+ * `expect(clean).toEqual(['1.44', '1.15', …])` — with the lesson's sentence quoted in a comment,
+ * and in a few places with `expect(prose()).toContain('0.78 到 1.98 cm')`, which is a literal on
+ * both sides. The sampling sweep of 2026-10-12 planted six of this lesson's figures and **all six
+ * went unnoticed**. Here every figure is parsed out of the shipped string.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **σ_r is read through the formula it is printed with.** 「σ_r = c · σ_ts / √2 = 2.12 cm」 is
+ *    parsed into its root and its answer, and the answer has to be `rangeSigmaM` of the session's
+ *    own timestamp noise — which the same paragraph prints as 100 ps, and `limits` again.
+ *  - **the double-sided spread is read through the factors `sources` gives it.** 「1.8 到 1.9
+ *    cm」 is 「0.62–0.65 · c · σ_ts」, so the four figures are one claim: each end of the range is
+ *    its own factor times the same `c · σ_ts`, rounded down to a tenth.
+ *  - **the worked table is read as the solve it describes.** The four ranges are the tag's own
+ *    for block 0, the trial point is the anchors' centroid, the stopping point and the residual
+ *    are what `solvePosition` returns for those ranges, and the printed error is `fmtRecord`'s.
+ *  - **the two residual ranges are read as one ruler.** 「七个块是 0.78 到 1.98 cm」 and 「那堵
+ *    砖墙的七个块是 19.85 到 22.25 cm」 are the same computation over two scenes, and the
+ *    sentence's point — that one is inside σ_r and the other far outside it — is read too.
+ */
+describe('uwb-position · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(uwbPosition.picture)
+  const NUMS = blockText(uwbPosition.numbers)
+  const LIM = blockText(uwbPosition.limits)
+  const SRC = blockText(uwbPosition.sources)
+
+  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+
+  it('reads σ_r through its own formula, and every place the lesson prints it', () => {
+    // 「σ_r = c · σ_ts / √2 = 2.12 cm」
+    const [root, cm] = figs(formulas().map((f) => f.text).join('\n'),
+      /σ_r = c · σ_ts \/ √(\d) = ([\d.]+) cm/, 'the formula for one range’s noise')
+    expect(root, 'the root the two noisy counts are divided by').toBe(2)
+    same(String(cm), SIGMA_R * 100, 'the noise one range really carries')
+    const [psNote] = figs(NUMS, /对应 (\d+) ps 的时间戳噪声/, '`numbers` on the timestamp noise')
+    expect(psNote, 'the session’s own timestamp noise').toBe(DEFAULT_UWB_SESSION.tsNoisePs)
+    same(String(cm), (299_792_458 * psNote! * 1e-12 * 100) / Math.sqrt(root!),
+      'which is what that formula gives for it')
+    // 「开篇那一课引用的 2.1 cm 测距噪声，正是这里的 σ_r」 — read against that lesson's own prose
+    const [opening] = figs(NUMS, /开篇那一课引用的 ([\d.]+) cm 测距噪声/, '`numbers` on the opening lesson')
+    expect(lessonProse(uwbIntro), 'the opening lesson really prints that figure')
+      .toContain(`${opening} cm`)
+    same(String(opening), SIGMA_R * 100, 'and it is this same sigma, to its own decimal')
+    // 「双边测距实际上散得略小一些，1.8 到 1.9 cm」, which `sources` gives the factors for
+    const [dsLo, dsHi] = figs(NUMS, /双边测距实际上散得略小一些，([\d.]+) 到 ([\d.]+) cm/,
+      '`numbers` on the double-sided spread')
+    const [fLo, fHi] = figs(SRC, /双边测距的取值是 ([\d.]+)–([\d.]+) · c · σ_ts/,
+      '`sources` on the two factors')
+    // `sources` prints the root and the timestamp noise over again (sweep of 2026-10-14)
+    const [srcRoot] = figs(SRC, /σ_r = c · σ_ts \/ √(\d) 对单边测距是精确的/,
+      '`sources` on the same root')
+    expect(srcRoot, 'the same root the formula prints').toBe(root)
+    const [srcPs] = figs(SRC, /它所代入的 (\d+) ps 时间戳噪声/, '`sources` on the same noise')
+    expect(srcPs, 'and the same timestamp noise').toBe(psNote)
+    const cSigmaCm = 299_792_458 * psNote! * 1e-12 * 100
+    expect(dsLo, 'the low end, as its own factor gives it')
+      .toBe(Math.floor(fLo! * cSigmaCm * 10) / 10)
+    expect(dsHi, 'and the high end').toBe(Math.floor(fHi! * cSigmaCm * 10) / 10)
+    expect(dsHi, 'both of them under the single-sided figure the model keeps')
+      .toBeLessThan(cm!)
+    // `limits` prints the pair a third time
+    const [limPs, limCm] = figs(LIM, /会话配置里那 (\d+) ps 换算来的 ([\d.]+) cm/,
+      '`limits` on the same two')
+    expect([limPs, limCm], 'the same noise and the same sigma').toEqual([psNote, cm])
+  })
+
+  it('reads the two residual ranges as the one ruler they are', () => {
+    // 「本次运行的七个块是 0.78 到 1.98 cm，比单条距离那 2.12 cm 的噪声还小一点」
+    const [lo, hi, sigma] = figs(PIC,
+      /本次运行的七个块是 ([\d.]+) 到 ([\d.]+) cm，比单条距离那 ([\d.]+) cm 的噪声还小一点/,
+      '`picture` on the clean residuals')
+    const clean = roundResidualsCm().map(Number)
+    expect(clean, 'one residual per block of the run').toHaveLength(BLOCKS)
+    same(String(lo), Math.min(...clean), 'the smallest residual of the clean run')
+    same(String(hi), Math.max(...clean), 'and the largest')
+    same(String(sigma), SIGMA_R * 100, 'against one range’s own noise')
+    expect(hi, 'which the largest of them really is under').toBeLessThan(sigma!)
+    // 「下一课那堵砖墙的七个块是 19.85 到 22.25 cm」
+    const [wLo, wHi] = figs(PIC, /那堵砖墙的七个块是 ([\d.]+) 到 ([\d.]+) cm/,
+      '`picture` on the wall variant’s residuals')
+    const wall = roundResidualsCm(0).map(Number)
+    same(String(wLo), Math.min(...wall), 'the smallest residual with the wall in the way')
+    same(String(wHi), Math.max(...wall), 'and the largest')
+    expect(wLo, 'every one of which is far outside the noise').toBeGreaterThan(4 * sigma!)
+    // 「第 0 块是 1.44 cm，而「三个锚点」那个变体的同一个块只有 0.24 cm」
+    const [four, three] = figs(NUMS, /第 0 块是 ([\d.]+) cm，而「三个锚点」那个变体的同一个块只有 ([\d.]+) cm/,
+      '`numbers` on the fourth ring’s cost')
+    /*
+     * **The paragraph under the worked table prints both of them again** (sweep of 2026-10-14):
+     * 「照这些步骤走出来的 1.44 cm…它比单条距离的噪声 2.12 cm 还小」 — the block-0 residual and the
+     * single-range noise, so both are read there too.
+     */
+    const [walked, againstSigma] = figs(NUMS,
+      /照这些步骤走出来的 ([\d.]+) cm[^]*?它比单条距离的噪声 ([\d.]+) cm 还小/,
+      '`numbers` on the worked residual')
+    expect(String(walked), 'the residual those steps walk out to').toBe(roundResidualsCm()[0])
+    same(String(againstSigma), SIGMA_R * 100, 'against one range’s own noise')
+    expect(walked, 'which it really is under').toBeLessThan(againstSigma!)
+    expect(String(four), 'block 0 of the four-anchor run').toBe(roundResidualsCm()[0])
+    expect(String(three), 'and of the three-anchor one').toBe(roundResidualsCm(1)[0])
+    expect(three, 'the smaller residual being the one with less to satisfy').toBeLessThan(four!)
+  })
+
+  it('reads the worked table as the solve it describes, row by row', () => {
+    const t = table(1)
+    const row = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
+    // 「对上的那四条距离 | 4.7368, 6.3831, 5.4439, 6.8922 m」
+    const printed = raw(row('对上的那四条距离'), /^([\d., ]+) m$/, 'the four ranges')[0]!
+      .split(', ').map(val)
+    const block0 = tagRanges().filter((r) => r.block === 0)
+    expect(printed, 'the four ranges the tag measured in that block')
+      .toEqual(block0.map((r) => Number(r.distM.toFixed(4))))
+    // 「试探点起于 | (5.00, 4.00) m」 — the anchors' own centroid
+    const [tx, ty] = figs(row('试探点起于'), /^\(([\d.]+), ([\d.]+)\) m$/, 'the trial point')
+    same(String(tx), CORNERS.reduce((a, [, x]) => a + x, 0) / CORNERS.length, 'the anchors’ mean x')
+    same(String(ty), CORNERS.reduce((a, [, , y]) => a + y, 0) / CORNERS.length, 'and their mean y')
+    // 「迭代停在 | (3.9933, 3.4981) m」 and 「该处残差的均方根 | 1.44 cm」
+    const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+    const solved = solvePosition(anchors, block0.map((r) => ({ id: r.peer, distM: r.distM })),
+      TAG.z, SIGMA_R)!
+    const [sx, sy] = figs(row('迭代停在'), /^\(([\d.]+), ([\d.]+)\) m$/, 'where the iteration stops')
+    expect([sx, sy], 'where the solver really stops')
+      .toEqual([Number(solved.x.toFixed(4)), Number(solved.y.toFixed(4))])
+    same(raw(row('该处残差的均方根'), /^([\d.]+) cm$/, 'the residual there')[0]!,
+      solved.residualM * 100, 'the root mean square of the residuals it leaves')
+    // 「标签的真实位置 | (4.00, 3.50) m」
+    const [trueX, trueY] = figs(row('标签的真实位置'), /^\(([\d.]+), ([\d.]+)\) m$/, 'the truth')
+    expect([trueX, trueY], 'where the tag really stands').toEqual([TAG.x, TAG.y])
+    // 「于是格式化后印出 | error 0.01 m — 0.69 cm」
+    const [errM, errCm] = figs(row('于是格式化后印出'), /error ([\d.]+) m — ([\d.]+) cm/,
+      'the error as it is printed')
+    const fix = fixes()[0]!
+    same(String(errM), fixErr(fix), 'the error the log line prints')
+    same(String(errCm), Math.hypot(solved.x - TAG.x, solved.y - TAG.y) * 100,
+      'and the same error at the solver’s own precision')
+  })
+
+  it('reads the log line, the inspector’s figure and the seven errors', () => {
+    // the log table's own three rows
+    const line = cell(0, 0, 1)
+    const [ex, ey, tx2, ty2, err, gdop, anchorsN] = figs(line,
+      /position \(([\d.]+), ([\d.]+)\) m, true \(([\d.]+), ([\d.]+)\), error ([\d.]+) m, GDOP ([\d.]+), (\d+) anchors/,
+      'the log line’s own figures')
+    const fix = fixes()[0]!
+    expect([ex, ey], 'the estimate the log prints')
+      .toEqual([Number(fix.x.toFixed(2)), Number(fix.y.toFixed(2))])
+    expect([tx2, ty2], 'the truth beside it').toEqual([TAG.x, TAG.y])
+    same(String(err), fixErr(fix), 'the distance between them')
+    same(String(gdop), fix.gdop, 'the dilution the line quotes')
+    expect(anchorsN, 'and the anchors behind it').toBe(fix.anchors.length)
+    expect(fmtRecord(fix), 'which is the line the log really prints').toBe(line)
+    // 「检视面板印出的误差 | 0.7 cm」 and 「整段运行的七次定位 | 0.7, 3.3, … cm」
+    const [panelCm] = figs(cell(0, 1, 1), /^([\d.]+) cm$/, 'the inspector’s own figure')
+    const row = uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.uwb)
+    expect(`${panelCm} cm`, 'what the panel shows after one block').toBe(row.error)
+    const seven = raw(cell(0, 2, 1), /^([\d., ]+) cm$/, 'the seven errors')[0]!.split(', ').map(val)
+    expect(seven, 'one error per fix of the run')
+      .toEqual(fixes().map((f) => Number((fixErr(f) * 100).toFixed(1))))
+    expect(seven, 'seven of them').toHaveLength(BLOCKS)
+    for (const c of seven) {
+      expect(c / 100, `${c} cm is a few sigma of one range`).toBeLessThan(4 * SIGMA_R)
+    }
+  })
+
+  it('reads the steps and `sources` on the solver’s own four settings', () => {
+    // 「直到某一步小于 1 mm、或迭代满 20 次为止」 — in the formula's note and in the steps
+    const [mm, iters] = figs(NUMS, /直到某一步小于 (\d+) mm、或迭代满 (\d+) 次为止/,
+      'the note on the stopping rule')
+    const [srcMm, srcIters] = figs(SRC, /步长阈值 (\d+) mm、最多 (\d+) 次迭代/,
+      '`sources` on the same rule')
+    expect([srcMm, srcIters], 'the same two, where `sources` lists the model values')
+      .toEqual([mm, iters])
+    const [stepMm, stepIters] = raw(NUMS, /直到 δ 短于 (\d+) mm，或者迭代满(..)次/,
+      'the steps on the same rule')
+    expect(val(stepMm!), 'the step threshold, a third time').toBe(mm)
+    expect('零一二三四五六七八九十'.indexOf(stepIters![0]!) * 10, 'and the iteration cap in words')
+      .toBe(iters)
+    // the solver really does stop inside that many iterations, and under that step
+    const exact = exactFix(TAG.x, TAG.y)
+    expect(exact.residualM, 'and on exact geometry it converges to nothing at all')
+      .toBeLessThan(mm! / 1000)
+    // 「试探点放在这些锚点 x 的平均值与 y 的平均值上——在本场景里就是四个角的中心，(5.00, 4.00) m」
+    const [cx, cy] = figs(NUMS, /就是四个角的中心，\(([\d.]+), ([\d.]+)\) m/, 'the steps on the centroid')
+    same(String(cx), CORNERS.reduce((a, [, x]) => a + x, 0) / CORNERS.length, 'the anchors’ mean x')
+    same(String(cy), CORNERS.reduce((a, [, , y]) => a + y, 0) / CORNERS.length, 'and their mean y')
+    // 「标签高度按配置值 1.00 m 固定不动」
+    const [heightM] = figs(NUMS, /标签高度按配置值 ([\d.]+) m 固定不动/, 'the steps on the height')
+    expect(heightM, 'the height the scene gives the tag').toBe(TAG.z)
+    // 「行列式小于 1e-9，说明这套布局定不出点来」
+    const [det] = raw(NUMS, /行列式小于 (1e-\d+)/, 'the steps on the singular layout')
+    expect(Number(det), 'a determinant floor the solver really refuses under').toBeGreaterThan(0)
+    const inLine = solvePosition(
+      CORNERS.slice(0, 3).map(([id, x]) => ({ id, x, y: 4, z: ANCHOR_Z })),
+      CORNERS.slice(0, 3).map(([id]) => ({ id, distM: 5 })), TAG.z, SIGMA_R)
+    expect(inLine, 'as a row of anchors in a line shows').toBeNull()
+  })
+})

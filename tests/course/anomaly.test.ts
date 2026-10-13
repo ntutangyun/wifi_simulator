@@ -39,7 +39,9 @@ import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { ACK_BYTES, CW_MIN, DIFS_NS, SIFS_NS, SLOT_NS, sinrThreshDb } from '../../src/engine/phy'
+import {
+  ACK_BYTES, CCA_PD_DBM, CW_MIN, DIFS_NS, SIFS_NS, SLOT_NS, sinrThreshDb,
+} from '../../src/engine/phy'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -64,6 +66,24 @@ const runFor = (mod: (sc: ReturnType<typeof anomaly.scenario>) => void): TLRecor
   mod(sc)
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
+/**
+ * The same, **memoised by a name** — the read-back at the end of this file asks for the two
+ * one-station rooms this file already runs, and the suite's simulated work is bounded
+ * (tests/simCost.ts). The engine is deterministic, so a shared run is the same run.
+ */
+const aloneRuns = new Map<string, TLRecord[]>()
+const runNamed = (key: string, mod: (sc: ReturnType<typeof anomaly.scenario>) => void): TLRecord[] => {
+  const hit = aloneRuns.get(key)
+  if (hit) return hit
+  const made = runFor(mod)
+  aloneRuns.set(key, made)
+  return made
+}
+/** The room with only the near station in it, and the room with only the far one. */
+const nearAloneRun = (): TLRecord[] =>
+  runNamed('near-alone', (sc) => { sc.nodes = sc.nodes.filter((n) => n.id !== 'sta-2') })
+const farAloneRun = (): TLRecord[] =>
+  runNamed('far-alone', (sc) => { sc.nodes = sc.nodes.filter((n) => n.id !== 'sta-1') })
 
 lessonShapeSuite(anomaly, { runNs: RUN_NS })
 
@@ -174,8 +194,8 @@ describe('anomaly · what the room costs the fast station', () => {
     const rs = recs()
     expect(acked(rs, 'sta-1')).toBe(209)
     expect(acked(rs, 'sta-2')).toBe(135)
-    const nearAlone = runFor((sc) => { sc.nodes = sc.nodes.filter((n) => n.id !== 'sta-2') })
-    const farAlone = runFor((sc) => { sc.nodes = sc.nodes.filter((n) => n.id !== 'sta-1') })
+    const nearAlone = nearAloneRun()
+    const farAlone = farAloneRun()
     expect(acked(nearAlone, 'sta-1')).toBe(510)
     expect(acked(farAlone, 'sta-2')).toBe(234)
     // "which is more than either of them gets while they share the room"
@@ -457,5 +477,320 @@ describe('anomaly · which of its limits another lesson actually lifts', () => {
       expect(bo.text, `backoff: ${shared}`).toContain(shared)
       expect(byNeedle('没有发送机会（TXOP），也不聚合').text, `anomaly: ${shared}`).toContain(shared)
     }
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and compares it with a figure typed on **this** side
+ * — `expect([near.length, far.length]).toEqual([209, 154])`, with the lesson's own row quoted in
+ * a comment above it. So the engine is pinned and the prose is not: the sampling sweep of
+ * 2026-10-12 planted six of this lesson's figures and **all six went unnoticed**. Here every
+ * figure is parsed out of the shipped string and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the worked table is read as the arithmetic the steps promise**, row by row and column by
+ *    column: turns, the air one turn takes, the air they add up to and its share of the window,
+ *    the turns that were answered, the frames a second that makes, and the megabits those frames
+ *    carry — each row's figure being the previous row's input, both stations at once.
+ *  - **the two rooms with one station in them are read against the room with both.** 「不是 209
+ *    帧，而是 510 帧」 and 「远端若独占房间，自己能送出 234 帧」 are three counts from three
+ *    runs, and the sentence's claim — that alone is better for both — is read too.
+ *  - **the three turn lengths are read as the rate ladder they come from.** 「704、1044、1384
+ *    µs」 are the three airtimes the far station's frames really take, and the table's own three
+ *    rows give the rate beside two of them, so the pair has to agree.
+ *  - **DIFS is read as the sum the steps spell out**, 「16 µs 的间隔加两个 9 µs 的时隙，合 34
+ *    µs」, against `SIFS_NS`, `SLOT_NS` and `DIFS_NS` — three constants and one addition.
+ */
+describe('anomaly · every figure the prose prints, read back out of it', () => {
+  const rs = recs()
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const NUMS = blockText(anomaly.numbers)
+  const LIM = blockText(anomaly.limits)
+  const SRC = blockText(anomaly.sources)
+  const OBS = blockText(anomaly.observe)
+  const TRY = blockText(anomaly.tryThis)
+
+  const val = (x: string): number => Number(x.replace(/[\s,%]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,%]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
+  const tables = (): { heading?: string; rows: string[][] }[] =>
+    anomaly.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; rows: string[][] }[]
+  const caption = (): string =>
+    (anomaly.numbers!.find((b) => b.kind === 'diagram') as unknown as { caption: string }).caption
+  const diagramHeading = (): string =>
+    (anomaly.numbers!.find((b) => b.kind === 'diagram') as unknown as { heading: string }).heading
+  /** Everything one station's own figures come to, exactly as the worked table computes them. */
+  const stats = (node: string) => {
+    const turns = data(rs, node)
+    const airNs = turns.reduce((a, r) => a + r.frame.txTimeNs, 0)
+    return {
+      turns: turns.length,
+      perTurnUs: Math.round(airNs / turns.length / 1000),
+      airMs: airNs / MS,
+      sharePct: (airNs / RUN_NS) * 100,
+      ok: acked(rs, node),
+      perSec: acked(rs, node) / (RUN_NS / 1e9),
+      mbps: (acked(rs, node) * BYTES * 8) / (RUN_NS / 1e9) / 1e6,
+    }
+  }
+
+  it('reads the figure’s own heading and caption: three turns each, two lengths', () => {
+    // 「同一段 3.6 ms 里，两台各三轮」
+    const [ms] = figs(diagramHeading(), /同一段 ([\d.]+) ms 里/, 'the figure’s own window')
+    const [eachCn] = raw(diagramHeading(), /两台各(.)轮/, 'the figure’s own turn count')
+    const spans = anomalyTiming().lanes.map((l) => l.spans.length)
+    expect(spans, 'the figure draws that many turns in each lane')
+      .toEqual([cn(eachCn!), cn(eachCn!)])
+    const axis = anomalyTiming().axis!
+    same(String(ms), (axis.toUs - axis.fromUs) / 1000, 'the window the figure is drawn over')
+    // 「近端每轮 248 µs，远端每轮 704 µs，两边装的都是 1528 字节」
+    const [nearUs, farUs, bytes] = figs(caption(),
+      /近端每轮 (\d+) µs，远端每轮 (\d+) µs，两边装的都是 (\d+) 字节/, 'the caption on the two turns')
+    expect(nearUs, 'the near station’s turn, as the run really sends it')
+      .toBe(stats('sta-1').perTurnUs)
+    expect(farUs! * 1000, 'the far station’s best turn, which is its shortest frame')
+      .toBe(Math.min(...data(rs, 'sta-2').map((r) => r.frame.txTimeNs)))
+    expect(new Set(data(rs, 'sta-1').concat(data(rs, 'sta-2')).map((r) => r.frame.bytes)),
+      'and the payload both of them carry').toEqual(new Set([bytes]))
+  })
+
+  it('reads the rate table as the three rungs the far station really uses', () => {
+    const t = tables()[0]!
+    const rows = t.rows.map((r) => ({
+      label: r[0]!,
+      mbps: figs(r[1]!, /^(\d+) Mb\/s$/, 'the row’s own rate')[0]!,
+      bytes: figs(r[2]!, /^(\d+)$/, 'the row’s own payload')[0]!,
+      us: figs(r[3]!, /^(\d+) µs$/, 'the row’s own airtime')[0]!,
+    }))
+    expect(rows, 'three rows: the near station and the far one twice').toHaveLength(3)
+    for (const row of rows) {
+      const who = row.label.includes('近端') ? 'sta-1' : 'sta-2'
+      const hit = data(rs, who).find((r) => r.frame.mbps === row.mbps)
+      expect(hit, `${who} really sends at ${row.mbps} Mb/s`).toBeDefined()
+      expect(row.us! * 1000, `what ${row.mbps} Mb/s costs this payload`).toBe(hit!.frame.txTimeNs)
+      expect(row.bytes, 'the payload never changing').toBe(hit!.frame.bytes)
+    }
+    // the far station's own two rows are its best rung and the one two steps below it
+    const farRows = rows.filter((r) => r.label.includes('远端'))
+    expect(farRows, 'two rows for the far station').toHaveLength(2)
+    const rungs = [...new Set(data(rs, 'sta-2').map((r) => r.frame.mbps))].sort((a, b) => b - a)
+    expect(farRows.map((r) => r.mbps), 'its best rung and the one 「连降两档之后」')
+      .toEqual([rungs[0], rungs[2]])
+    // 「远端的绿色块…有三种长度——704、1044、1384 µs」
+    const three = figs(OBS, /有三种长度——(\d+)、(\d+)、(\d+) µs/, '`observe` on the three lengths')
+    expect(three.map((us) => us * 1000).sort((a, b) => a - b),
+      'the three airtimes the far station’s frames really take')
+      .toEqual([...new Set(data(rs, 'sta-2').map((r) => r.frame.txTimeNs))].sort((a, b) => a - b))
+  })
+
+  it('reads the worked table row by row, both stations at once', () => {
+    const t = tables()[1]!
+    const [windowMs] = figs(t.heading!, /同样的 (\d+) ms/, 'the worked table’s own window')
+    expect(windowMs! * MS, 'the window every figure of this lesson is counted over').toBe(RUN_NS)
+    const row = (needle: string): string[] => {
+      const hit = t.rows.find((r) => r[0]!.includes(needle))
+      expect(hit, `no row 「${needle}」`).toBeDefined()
+      return hit!
+    }
+    // **the first row's label carries the window too** (sweep of 2026-10-14)
+    const [rowMs] = figs(row('竞争成功的轮次')[0]!, /^(\d+) ms 内竞争成功的轮次$/,
+      'the first row’s own window')
+    expect(rowMs! * MS, 'the same window the heading names').toBe(RUN_NS)
+    // the two value columns of every row, in the order the table puts them
+    const columns: [number, string][] = [[1, 'sta-1'], [2, 'sta-2']]
+    for (const [i, node] of columns) {
+      const s = stats(node)
+      const [turns] = figs(row('竞争成功的轮次')[i]!, /^(\d+)$/, `${node}’s turns`)
+      expect(turns, `the turns ${node} wins`).toBe(s.turns)
+      const [perTurn] = figs(row('每轮的空口时间')[i]!, /^(\d+) µs$/, `${node}’s turn length`)
+      expect(perTurn, `the air one of its turns takes`).toBe(s.perTurnUs)
+      const [airMs, share] = figs(row('占住的空口时间')[i]!, /^([\d.]+) ms · ([\d.]+) %$/,
+        `${node}’s air and share`)
+      same(String(airMs), s.airMs, `the air ${node} holds`)
+      same(String(share), s.sharePct, 'and its share of the window')
+      expect(Math.round((perTurn! * turns!) / 100) / 10, 'which is the two rows above, multiplied')
+        .toBeCloseTo(airMs!, 0)
+      const [ok] = figs(row('被确认的')[i]!, /^(\d+)$/, `${node}’s answered turns`)
+      expect(ok, `the turns of ${node} that were answered`).toBe(s.ok)
+      const [perSec] = figs(row('每秒送达的帧数')[i]!, /^(\d+)$/, `${node}’s frames a second`)
+      expect(perSec, 'the frames a second that makes').toBe(s.perSec)
+      const [mbit] = figs(row('× 1528 字节 × 8 比特')[i]!, /^([\d.]+) Mb\/s$/, `${node}’s throughput`)
+      same(String(mbit), s.mbps, `what ${node} delivers`)
+    }
+    // the row label is itself the arithmetic of the last step
+    const [labelBytes, labelBits] = figs(row('× 1528 字节 × 8 比特')[0]!, /× (\d+) 字节 × (\d+) 比特/,
+      'the last row’s own label')
+    expect(labelBytes, 'the payload it multiplies by').toBe(BYTES)
+    expect(labelBits, 'and the bits in an octet').toBe(8)
+    const s2 = stats('sta-2')
+    expect(Number(((s2.perSec * labelBytes! * labelBits!) / 1e6).toFixed(1)),
+      'which is what that multiplication gives').toBe(Number(s2.mbps.toFixed(1)))
+  })
+
+  it('reads why the fourth row is not the first, and the failures behind it', () => {
+    // 「远端竞争成功 154 轮，被确认的只有 135 轮，其余整帧失败」
+    const [turns, ok] = figs(NUMS, /远端竞争成功 (\d+) 轮，被确认的只有 (\d+) 轮/,
+      '`numbers` on the far station’s two counts')
+    const s = stats('sta-2')
+    expect([turns, ok], 'what it wins and what it gets answered').toEqual([s.turns, s.ok])
+    // 「远端 154 轮里有 19 轮整帧失败」 — `limits` prints the difference
+    const [limTurns, lost] = figs(LIM, /远端 (\d+) 轮里有 (\d+) 轮整帧失败/, '`limits` on the failures')
+    expect(limTurns, 'the same turns').toBe(turns)
+    expect(lost, 'and the ones that failed whole').toBe(s.turns - s.ok)
+    // 「时间轴上一次碰撞都没记」 and 「那个场景里各站点的到达电平相差 34.4 dB」
+    expect(ofType(rs, 'COLLISION'), 'and the run really records no collision at all').toEqual([])
+    const [spreadDb] = figs(NUMS, /各站点的到达电平相差 ([\d.]+) dB/, '`numbers` on the project’s spread')
+    const project = LESSONS.find((l) => l.id === 'tier1-project-review')
+    expect(project, 'the lesson that scene belongs to').toBeDefined()
+    const sc = project!.scenario()
+    const table = buildLinkTable(sc.nodes, sc.walls)
+    const levels = sc.nodes.filter((n) => n.kind === 'sta')
+      .map((n) => table.get(n.id)!.get('ap')!)
+    same(String(spreadDb), Math.max(...levels) - Math.min(...levels),
+      'the spread of arriving levels in that other scene')
+    /*
+     * **Exempt, class (c): the 0.1 dB of 「差 0.1 dB 就全废」.** The sentence's content is that
+     * the rung's requirement is a cliff with no tolerance at all, so any shortfall whatever would
+     * serve — 0.2 or 0.05 would be just as true (the same argument `@uwb-mms` files for its own
+     * 0.1 dB). What is read is the claim: the engine's threshold for the rung this station runs
+     * really is a single number, and a reception a tenth of a decibel under it is under it.
+     */
+    const [epsilon] = figs(LIM, /够就全收、差 ([\d.]+) dB 就全废/, '`limits` on the hard line')
+    const rung = data(rs, 'sta-2')[0]!.frame.mbps
+    const need = sinrThreshDb(rung)
+    expect(need - epsilon!, 'a tenth of a decibel under the requirement is under it')
+      .toBeLessThan(need)
+    expect(new Set(data(rs, 'sta-2').map((r) => sinrThreshDb(r.frame.mbps))).size,
+      'and every rung this station uses has exactly one such number')
+      .toBe(new Set(data(rs, 'sta-2').map((r) => r.frame.mbps)).size)
+  })
+
+  it('reads what `observe` says about the two lanes, window and all', () => {
+    // 「检视器：前 200 ms 里两者的轮次相当，可远端占用的空口时间是近端的两倍多」
+    const [obsMs] = figs(OBS, /前 (\d+) ms 里两者的轮次相当/, '`observe` on its own window')
+    expect(obsMs! * MS, 'the window every figure of this lesson is counted over').toBe(RUN_NS)
+    const near = stats('sta-1')
+    const far = stats('sta-2')
+    expect(near.turns / far.turns, 'the turns really are comparable').toBeLessThan(1.5)
+    expect(far.airMs / near.airMs, 'while the air is more than twice as much').toBeGreaterThan(2)
+  })
+
+  it('reads the two rooms with one station in them', () => {
+    // 「把远端删掉，同样的 200 ms 里近端送出的就不是 209 帧，而是 510 帧」
+    /*
+     * **Delivered, not sent** — and the lesson says 「送达」 now because of this read: the near
+     * station alone really sends 511 frames over the window, one of which is still in flight when
+     * it closes, so 510 is what the acknowledgements count (correction of 2026-10-14; `tryThis`
+     * had always said 「送达」 for the same pair).
+     */
+    const [ms, together, alone] = figs(NUMS,
+      /同样的 (\d+) ms 里近端送达的就不是 (\d+) 帧，而是 (\d+) 帧/, '`numbers` on the near station alone')
+    expect(ms! * MS, 'the same window').toBe(RUN_NS)
+    expect(together, 'what the near station delivers with the far one there').toBe(stats('sta-1').ok)
+    expect(alone, 'and what it delivers alone').toBe(acked(nearAloneRun(), 'sta-1'))
+    expect(data(nearAloneRun(), 'sta-1').length, 'while it sends one more than that')
+      .toBeGreaterThan(alone!)
+    expect(alone, 'which is more than twice as much').toBeGreaterThan(2 * together!)
+    // 「远端若独占房间，自己能送出 234 帧——比两台共处一室时任何一台都多」
+    const [farAlone] = figs(NUMS, /远端若独占房间，自己能送达 (\d+) 帧/,
+      '`numbers` on the far station alone')
+    expect(farAlone, 'what the far station delivers alone').toBe(acked(farAloneRun(), 'sta-2'))
+    expect(farAlone, 'more than either of them manages together')
+      .toBeGreaterThan(Math.max(stats('sta-1').turns, stats('sta-2').turns))
+    // `tryThis` prints the near station's pair again
+    const [tryMs, tryWas, tryNow] = figs(TRY,
+      /近端 (\d+) ms 内送达的帧数从 (\d+) 跳到 (\d+)/, '`tryThis` on the same experiment')
+    expect(tryMs! * MS, 'the same window again').toBe(RUN_NS)
+    expect([tryWas, tryNow], 'the same two counts `numbers` prints')
+      .toEqual([stats('sta-1').ok, acked(nearAloneRun(), 'sta-1')])
+  })
+
+  it('reads the steps: one DIFS, the window it draws from, and the answer', () => {
+    // 「16 µs 的间隔加两个 9 µs 的时隙，合 34 µs」
+    const [sifs, slotsCn, slot, difs] = raw(NUMS,
+      /(\d+) µs 的间隔加(.)个 (\d+) µs 的时隙，合 (\d+) µs/, 'the steps on the wait before a draw')
+    expect(val(sifs!) * 1000, 'the short interframe space').toBe(SIFS_NS)
+    expect(val(slot!) * 1000, 'one slot').toBe(SLOT_NS)
+    expect(val(sifs!) + cn(slotsCn!) * val(slot!), 'the sum the sentence states').toBe(val(difs!))
+    expect(val(difs!) * 1000, 'which is the space the engine applies').toBe(DIFS_NS)
+    // 「在 0 到自己的竞争窗口之间抽一个整数时隙数——窗口从 15 起步」
+    const [from, start] = figs(NUMS, /在 (\d+) 到自己的竞争窗口（contention window, CW）之间[^]*?窗口从 (\d+) 起步/,
+      'the steps on the draw')
+    expect(start, 'the window both stations start from').toBe(CW_MIN)
+    const draws = ofType(rs, 'BACKOFF_DRAW')
+    expect(Math.min(...draws.map((r) => r.value)), 'the lowest draw the run makes')
+      .toBeGreaterThanOrEqual(from!)
+    expect(Math.max(...draws.filter((r) => r.cw === CW_MIN).map((r) => r.value)),
+      'and the highest at the first window').toBeLessThanOrEqual(start!)
+    // 「这一轮有多长…近端 248 µs，远端平均 795 µs」
+    const [nearUs, farUs] = figs(NUMS, /近端 (\d+) µs，远端平均 (\d+) µs/, 'the steps on the two turns')
+    expect(nearUs, 'the near station’s turn').toBe(stats('sta-1').perTurnUs)
+    expect(farUs, 'and the far station’s mean turn').toBe(stats('sta-2').perTurnUs)
+    // 「接入点回一个 14 字节的确认帧」
+    const [ackBytes] = figs(NUMS, /接入点回一个 (\d+) 字节的确认帧/, 'the steps on the answer')
+    expect(ackBytes, 'the acknowledgement the engine sends').toBe(ACK_BYTES)
+    expect(new Set(txs(rs, (r) => r.frame.kind === 'ack').map((r) => r.frame.bytes)),
+      'and every answer of the run is that size').toEqual(new Set([ackBytes]))
+    /*
+     * **The payload is printed three times in the steps** and the sweep of 2026-10-14 caught the
+     * two I had not read: 「两边都是 1528 字节」 where the draw is described, and 「就是那 1528
+     * 字节按它自己的速率发完要多久」 where the turn's length is. Both are the one payload every
+     * frame of this run carries.
+     */
+    const payloads = new Set(data(rs, 'sta-1').concat(data(rs, 'sta-2')).map((r) => r.frame.bytes))
+    for (const [b] of [...NUMS.matchAll(/(\d+) 字节/g)].map((m) => m.slice(1))) {
+      if (val(b!) === 8 || val(b!) === ACK_BYTES) continue
+      expect(payloads, `「${b} 字节」 is the payload this scene really sends`)
+        .toEqual(new Set([val(b!)]))
+    }
+    // 「它的吞吐量就是每秒被确认的轮次乘 1528 字节再乘 8 比特」
+    const [bytes, bits] = figs(NUMS, /每秒被确认的轮次乘 (\d+) 字节再乘 (\d+) 比特/,
+      'the steps on the throughput')
+    expect(bytes, 'the payload it multiplies by').toBe(BYTES)
+    expect(bits, 'and the bits in an octet').toBe(8)
+  })
+
+  it('reads `sources` and the two figures `limits` quotes back', () => {
+    // 「这里的速率、1528 字节的帧长与各自的空口时间，出自本仿真器自己的 OFDM 模型；−82 dBm 的
+    //   检测底、4 dB 的前导检测余量」
+    const [bytes] = figs(SRC, /这里的速率、(\d+) 字节的帧长/, '`sources` on the frame length')
+    expect(bytes, 'the payload every frame of this scene carries').toBe(BYTES)
+    const [floor, margin] = figs(SRC, /(−\d+) dBm 的检测底、(\d+) dB 的前导检测余量/,
+      '`sources` on the two model values')
+    expect(margin, 'the preamble-detection margin the engine applies').toBe(PREAMBLE_DETECT_SINR_DB)
+    expect(floor, 'and the preamble-detect floor it exports').toBe(CCA_PD_DBM)
+    expect(floor, 'which every level in this room is above')
+      .toBeLessThan(Math.min(...[...buildLinkTable(anomaly.scenario().nodes, anomaly.scenario().walls)
+        .get('sta-2')!.values()]))
+    // 「209 对 154 轮、12.8 与 8.3 Mb/s，只在这几条同时成立时才成立」
+    const [a, b, m1, m2] = figs(LIM, /(\d+) 对 (\d+) 轮、([\d.]+) 与 ([\d.]+) Mb\/s/,
+      '`limits` quoting the table back')
+    expect([a, b], 'the two turn counts of the worked table')
+      .toEqual([stats('sta-1').turns, stats('sta-2').turns])
+    same(String(m1), stats('sta-1').mbps, 'the near station’s throughput')
+    same(String(m2), stats('sta-2').mbps, 'and the far station’s')
   })
 })

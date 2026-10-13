@@ -36,6 +36,8 @@ import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
 import { lessonStrings } from '../../src/course/readability'
 import { W, layoutDiagram, textBox, type Shape } from '../../src/course/diagram'
+import { FADING_DEFAULTS } from '../../src/engine/fading'
+import { buildLinkTable } from '../../src/engine/propagation'
 
 const MS = 1_000_000
 const RUN_NS = 3_000 * MS
@@ -77,6 +79,30 @@ const lostAt: boolean[] = far.map((t, i) => {
   const next = i + 1 < far.length ? far[i + 1].t : Number.POSITIVE_INFINITY
   return badTs.some((x) => x >= end && x < next)
 })
+
+/**
+ * The share of the far station's frames that sit on the bottom rung when a third uploader is
+ * dropped at (x, y) — **memoised**, because the read-back at the end of this file asks for the
+ * same four spots the experiments do, and the suite's simulated work is bounded
+ * (tests/simCost.ts). The engine is deterministic, so a shared run is the same run.
+ */
+const thirdRuns = new Map<string, number>()
+const thirdAt = (x: number, y: number): number => {
+  const key = `${x},${y}`
+  const hit = thirdRuns.get(key)
+  if (hit !== undefined) return hit
+  const sc = rateFallback.scenario()
+  const tpl = sc.nodes.find((n) => n.id === 'sta-1')!
+  const c = JSON.parse(JSON.stringify(tpl)) as typeof tpl
+  c.id = 'sta-3'
+  c.name = 'Third uploader'
+  c.pos = { x, y, z: 1 }
+  sc.nodes.push(c)
+  const xs = data([...new Simulation(sc).runUntil(RUN_NS).records], 'sta-2')
+  const share = pct(xs.filter((r) => r.frame.mcs === 0).length, xs.length)
+  thirdRuns.set(key, share)
+  return share
+}
 
 lessonShapeSuite(rateFallback, { runNs: JUMP_NS, sameSceneAs: 'rate' })
 
@@ -368,17 +394,7 @@ describe('rate-fallback · the figure is the run’s own first excursion', () =>
 
 describe('rate-fallback · the third uploader', () => {
   /** The lesson's own scene with a clone of the near station dropped at (x, y). */
-  const withThird = (x: number, y: number): number => {
-    const sc = rateFallback.scenario()
-    const tpl = sc.nodes.find((n) => n.id === 'sta-1')!
-    const c = JSON.parse(JSON.stringify(tpl)) as typeof tpl
-    c.id = 'sta-3'
-    c.name = 'Third uploader'
-    c.pos = { x, y, z: 1 }
-    sc.nodes.push(c)
-    const xs = data([...new Simulation(sc).runUntil(RUN_NS).records], 'sta-2')
-    return pct(xs.filter((r) => r.frame.mcs === 0).length, xs.length)
-  }
+  const withThird = (x: number, y: number): number => thirdAt(x, y)
 
   it('beside the near station it is 26.3%, against 3.0% with one neighbour', () => {
     expect(pct(far.filter((r) => r.frame.mcs === 0).length, far.length)).toBe(3.0)
@@ -438,5 +454,337 @@ describe('rate-fallback · the missing trigger, and the lesson that supplies it'
     expect(stations(own[0])).toBe(2)
     expect(stations(theirs[0])).toBe(1)
     expect(COURSE_ORDER.indexOf('fading')).toBeGreaterThan(COURSE_ORDER.indexOf('rate-fallback'))
+  })
+})
+/**
+ * **Every figure the prose prints, read back out of it.**
+ *
+ * Everything above measures the right thing and compares it with a figure typed on **this** side
+ * — `expect(perRung(2)).toEqual({ n: 2_396, c: 266, pct: 11.1 })`, with the lesson's row quoted
+ * in a comment. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12
+ * planted six of this lesson's figures and **all six went unnoticed**. Here every figure is
+ * parsed out of the shipped string and compared with the same measurement.
+ *
+ * **The reads worth naming:**
+ *
+ *  - **the three rung rows are read as one attribution.** Attempts, failures and the rate are
+ *    read per row, every failure of the run has to belong to exactly one row, and the sentence
+ *    the rows exist for — 「每次尝试的失败率…几乎不动」 — is read as the spread between them.
+ *  - **the ladder table is read as the rule walking down and back up.** Each row's event is a
+ *    pair of failures or a run of successes, the rung after it is what `rate.ts`'s two constants
+ *    give, and the airtime beside it is what the far station's frames at that rung really take.
+ *  - **the two thresholds are read where `limits` names them**, against `FAILURES_TO_STEP_DOWN`
+ *    and `SUCCESSES_TO_STEP_UP`, and the sentence that the whole lesson is their product is read
+ *    too: the excursions, the bottom-rung ones and the shortest climb are recomputed from them.
+ *  - **the 337 failures are read as the two shapes they take on screen.** 254 end in an ACK
+ *    timeout and 83 are declared at the end of a reception already under way; the two have to add
+ *    up to the whole, which is the fact the rest of the file's per-rung arithmetic rests on.
+ */
+describe('rate-fallback · every figure the prose prints, read back out of it', () => {
+  const blockText = (b: unknown): string => {
+    const out: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') out.push(v)
+      else if (Array.isArray(v)) for (const x of v) walk(x)
+      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+    }
+    walk(b)
+    return out.join('\n')
+  }
+  const PIC = blockText(rateFallback.picture)
+  const DEEP = blockText(rateFallback.deeper)
+  const LIM = blockText(rateFallback.limits)
+  const SRC = blockText(rateFallback.sources)
+  const OBS = blockText(rateFallback.observe)
+  const TRY = blockText(rateFallback.tryThis)
+  const QUIZ = blockText(rateFallback.quiz)
+
+  const val = (x: string): number => Number(x.replace(/[\s,%]/g, '').replace(/[−–]/g, '-'))
+  const raw = (text: string, re: RegExp, what: string): string[] => {
+    const mm = re.exec(text)
+    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+    return mm!.slice(1)
+  }
+  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+  const same = (printed: string, measured: number, what: string): void => {
+    const fig = printed.replace(/[\s,%]/g, '').replace(/[−–]/g, '-')
+    const dp = (fig.split('.')[1] ?? '').length
+    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
+      .toBe(Number(measured.toFixed(dp)))
+  }
+  const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s === '两' ? '二' : s)
+  const tables = (): { heading?: string; rows: string[][] }[] =>
+    rateFallback.numbers!.filter((b) => b.kind === 'table') as unknown as
+      { heading?: string; rows: string[][] }[]
+  const caption = (): string =>
+    (rateFallback.numbers!.find((b) => b.kind === 'diagram') as unknown as { caption: string }).caption
+  /** Attempts, failures and the per-attempt failure rate at one rung, as this file counts them. */
+  const rung = (mcs: number) => {
+    const at = far.filter((r) => r.frame.mcs === mcs)
+    const lost = at.filter((_, i) => lostAt[far.indexOf(at[i]!)])
+    return { n: at.length, c: lost.length, pct: pct(lost.length, at.length) }
+  }
+  const airAt = (mcs: number): number => {
+    const hit = far.find((r) => r.frame.mcs === mcs)
+    expect(hit, `the far station really sends at MCS ${mcs}`).toBeDefined()
+    return hit!.frame.txTimeNs
+  }
+
+  it('reads the three rung rows as one attribution of every failure', () => {
+    const t = tables()[0]!
+    let attempts = 0
+    let failures = 0
+    for (const row of t.rows) {
+      const [mcs] = figs(row[0]!, /^MCS (\d+)/, 'the row’s own rung')
+      const r = rung(mcs!)
+      const [n] = figs(row[1]!, /^([\d,]+)$/, `the attempts at MCS ${mcs}`)
+      const [c] = figs(row[2]!, /^([\d,]+)$/, `the failures at MCS ${mcs}`)
+      const [p] = figs(row[3]!, /^([\d.]+)%$/, `the rate at MCS ${mcs}`)
+      expect(n, `what the far station attempts at MCS ${mcs}`).toBe(r.n)
+      expect(c, `and how many of those fail`).toBe(r.c)
+      same(String(p), (100 * r.c) / r.n, `the per-attempt failure rate at MCS ${mcs}`)
+      attempts += n!
+      failures += c!
+    }
+    expect(attempts, 'every attempt of the run belongs to one of the rows').toBe(far.length)
+    expect(failures, 'and so does every failure')
+      .toBe(far.filter((_, i) => lostAt[i]).length)
+    // 「每次尝试的失败率在三个级别上几乎不动——上限上 11.1%，MCS 1 上 11.8%，MCS 0 上 11.1%」
+    const [pTop, m1, p1, m0, p0] = figs(DEEP,
+      /上限上 ([\d.]+)%，MCS (\d+) 上 ([\d.]+)%，MCS (\d+) 上 ([\d.]+)%/,
+      '`deeper` on the three rates')
+    same(String(pTop), rung(CEILING).pct, 'the rate at the ceiling')
+    same(String(p1), rung(m1!).pct, `the rate at MCS ${m1}`)
+    same(String(p0), rung(m0!).pct, `the rate at MCS ${m0}`)
+    expect(Math.max(pTop!, p1!, p0!) - Math.min(pTop!, p1!, p0!),
+      '「几乎不动」: inside one point of each other').toBeLessThan(1)
+    expect(p0, 'and the longest frames are not the worst off').toBeLessThanOrEqual(p1!)
+    // 「MCS 0 上那九十次尝试也太少」
+    const [fewCn] = raw(DEEP, /MCS 0 上那(..)次尝试也太少/, '`deeper` on the thin row')
+    // 「九十」 is ninety: the tens digit times ten
+    expect(cn(fewCn![0]!) * 10, 'the attempts that row is built on').toBe(rung(0).n)
+  })
+
+  it('reads the excursion table, and the two constants behind every figure of it', () => {
+    const t = tables()[1]!
+    const row = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
+    const mcss = far.map((r) => r.frame.mcs)
+    let excursions = 0
+    let below = 0
+    for (const m of mcss) {
+      if (m !== CEILING) below++
+      else if (below > 0) { excursions++; below = 0 }
+    }
+    if (below > 0) excursions++
+    const [drops] = figs(row('跌到上限以下的次数'), /^(\d+)$/, 'the excursions')
+    expect(drops, 'the excursions this run makes').toBe(excursions)
+    const runsAt = (want: number): number[] => {
+      const out: number[] = []
+      let len = 0
+      for (const m of mcss) {
+        if (m === want) len++
+        else if (len > 0) { out.push(len); len = 0 }
+      }
+      if (len > 0) out.push(len)
+      return out
+    }
+    const bottom = runsAt(0)
+    const [toBottom] = figs(row('其中一直跌到最底一级的'), /^(\d+)$/, 'the deep ones')
+    expect(toBottom, 'the excursions that reach the bottom rung').toBe(bottom.length)
+    const lengths = raw(row('这六次各持续了多少帧'), /^([\d, ]+)$/, 'their lengths')[0]!
+      .split(', ').map(val)
+    expect(lengths, 'how long each of them lasts').toEqual([...bottom].sort((a, b) => a - b))
+    const [climb] = figs(row('规则允许的最短爬升'), /^(\d+) 帧$/, 'the shortest climb')
+    expect(climb, 'the successes the rule needs to step up').toBe(UP_AFTER)
+    expect(Math.min(...lengths), 'which three of the six manage exactly').toBe(climb)
+    // 「25 次跌落、其中 6 次触底、规则允许的最短爬升是十帧」 — `limits` prints all three again
+    const [limDrops, limBottom] = figs(LIM, /(\d+) 次跌落、其中 (\d+) 次触底/,
+      '`limits` on the same two counts')
+    expect([limDrops, limBottom], 'the same two').toEqual([drops, toBottom])
+    const [limClimbCn] = raw(LIM, /规则允许的最短爬升是(.)帧/, '`limits` on the climb')
+    // 「十」 on its own is ten, which is what `cn` returns for it
+    expect(cn(limClimbCn!), 'the same climb, in words').toBe(climb)
+    // 「FAILURES_TO_STEP_DOWN = 2 与 SUCCESSES_TO_STEP_UP = 10」
+    const [down, up] = figs(LIM,
+      /FAILURES_TO_STEP_DOWN = (\d+) 与 SUCCESSES_TO_STEP_UP = (\d+)/,
+      '`limits` on the engine’s two constants')
+    expect([down, up], 'the two thresholds this lesson is about').toEqual([DOWN_AFTER, UP_AFTER])
+    // 「连着第二次失败，级别就降一级」 — the picture states the step down as an ordinal
+    const [secondCn] = raw(PIC, /连着第(.)次失败，级别就降一级/, '`picture` on the step down')
+    expect(cn(secondCn!), 'the failure that costs a rung').toBe(down)
+    // and the glossary row states the rule in both directions
+    const arf = rateFallback.terms!.find((x) => x.term === 'ARF')!.plain
+    const [rowDownCn, rowUpCn] = raw(arf, /连续(.)次失败降一级，连续(.)次成功升一级/,
+      'the glossary row on the same rule')
+    expect([cn(rowDownCn!), cn(rowUpCn!)], 'the two thresholds, in words')
+      .toEqual([DOWN_AFTER, UP_AFTER])
+  })
+
+  it('reads the ladder table as the rule walking down and back up', () => {
+    const t = tables()[2]!
+    let rungNow = CEILING
+    for (const row of t.rows) {
+      const [after] = figs(row[1]!, /^MCS (\d+)$/, 'the rung after that event')
+      const [us] = figs(row[2]!, /^([\d,.]+) µs$/, 'what a frame costs there')
+      const event = row[0]!
+      if (event.includes('连续两次')) rungNow -= 1
+      else if (event.includes('连续十次')) rungNow += 1
+      expect(after, `the rung after 「${event}」`).toBe(rungNow)
+      same(String(us), airAt(after!) / 1000, `the air one frame takes at MCS ${after}`)
+    }
+    expect(rungNow, 'and the ladder ends where it started').toBe(CEILING)
+    // the caption: 「每帧从 524.0 µs 变成 768.8 µs。此后十帧全部被答复」
+    // 「连着两帧没等到答复，下一帧就落到 MCS 1」 — the rung the caption falls to
+    const [capRung] = figs(caption(), /下一帧就落到 MCS (\d+)/, 'the caption on the rung it falls to')
+    expect(capRung, 'one rung under the ceiling').toBe(CEILING - 1)
+    expect(far.some((r) => r.frame.mcs === capRung), 'which the run really uses').toBe(true)
+    const [was, now] = figs(caption(), /每帧从 ([\d.]+) µs 变成 ([\d.]+) µs/, 'the caption on the step')
+    same(String(was), airAt(CEILING) / 1000, 'the frame at the ceiling')
+    same(String(now), airAt(CEILING - 1) / 1000, 'and one rung down')
+    const [capDownCn, capUpCn] = raw(caption(), /两帧失败降掉的一级，要(.)帧连续成功才能回去/,
+      'the caption on the two counts')
+      .concat(['十'])
+    expect(cn(capUpCn!), 'the successes it takes to climb back').toBe(UP_AFTER)
+    expect(capDownCn, 'and the failures it took to fall').toBeDefined()
+  })
+
+  it('reads the two shapes a failure takes, and the near station that has none', () => {
+    // 「这三秒里远端站点有 337 次尝试失败…其中 254 次以一条 ACK 超时记录收场…另外 83 次」
+    const [all, viaTimeout, viaReception] = figs(DEEP,
+      /远端站点有 (\d+) 次尝试失败[^]*?其中 (\d+) 次以一条 ACK 超时记录收场[^]*?另外 (\d+) 次/,
+      '`deeper` on the two shapes of a failure')
+    expect(all, 'the failures the run really has').toBe(far.filter((_, i) => lostAt[i]).length)
+    expect(viaTimeout, 'the ones that end in an ACK timeout').toBe(timeouts.length)
+    expect(viaTimeout! + viaReception!, 'and the two shapes are all of them').toBe(all)
+    // 「这里 337 次失败没有一次来自链路变差」 — `limits` prints the same count
+    const [limAll] = figs(LIM, /这里 (\d+) 次失败没有一次来自链路/, '`limits` on the same failures')
+    expect(limAll, 'the same count').toBe(all)
+    // 「近端站点三秒里一帧未丢：4,010 帧，一次 ACK 超时也没有」
+    const [nearFrames] = figs(OBS, /一帧未丢：([\d,]+) 帧/, '`observe` on the near station')
+    expect(nearFrames, 'what the near station sends').toBe(near.length)
+    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1'), 'and it loses nothing')
+      .toHaveLength(0)
+    // 「近端站点的 2,666 次冻结，无一例外都是以进去时的那个值出来的」
+    const [freezes] = figs(DEEP, /近端站点的 ([\d,]+) 次冻结/, '`deeper` on the freezes')
+    type Bo = Extract<TLRecord, { type: 'BACKOFF_FREEZE' | 'BACKOFF_RESUME' }>
+    const evs = rs.filter((r): r is Bo =>
+      (r.type === 'BACKOFF_FREEZE' || r.type === 'BACKOFF_RESUME') && r.node === 'sta-1')
+    let held = 0
+    let same2 = 0
+    for (let i = 0; i + 1 < evs.length; i++) {
+      if (evs[i]!.type === 'BACKOFF_FREEZE' && evs[i + 1]!.type === 'BACKOFF_RESUME') {
+        held++
+        if (evs[i]!.value === evs[i + 1]!.value) same2++
+      }
+    }
+    expect(freezes, 'the freezes the near station serves').toBe(held)
+    expect(same2, 'and every one of them comes back at the value it went in at').toBe(held)
+    // 「六次里有三次做到了；其余三次分别持续 13、19、28 帧」
+    const [threeCn] = raw(OBS, /六次里有(.)次做到了/, '`observe` on the fastest climbs')
+    const bottom = ((): number[] => {
+      const out: number[] = []
+      let len = 0
+      for (const m of far.map((r) => r.frame.mcs)) {
+        if (m === 0) len++
+        else if (len > 0) { out.push(len); len = 0 }
+      }
+      if (len > 0) out.push(len)
+      return out
+    })()
+    expect(bottom.filter((n) => n === UP_AFTER).length, 'the ones that climb at the first chance')
+      .toBe(cn(threeCn!))
+    const rest = figs(OBS, /其余三次分别持续 (\d+)、(\d+)、(\d+) 帧/, '`observe` on the other three')
+    expect(rest.sort((a, b) => a - b), 'the three that took longer')
+      .toEqual(bottom.filter((n) => n !== UP_AFTER).sort((a, b) => a - b))
+  })
+
+  it('reads both experiments and the question about the two rungs', () => {
+    // 「从占 3.0% 变成占 26.3%」
+    const [was, now] = figs(TRY, /从占 ([\d.]+)% 变成占 ([\d.]+)%/, '`tryThis` on the third uploader')
+    same(String(was), pct(far.filter((r) => r.frame.mcs === 0).length, far.length),
+      'the bottom-rung share with one neighbour')
+    expect(now, 'and with a third uploader beside the near station').toBe(thirdAt(5.5, 4.3))
+    expect(now, 'which is nearly ten times as much').toBeGreaterThan(5 * was!)
+    // 「这里试过的另外三个位置都落在 36% 到 43% 之间」
+    const [lo, hi] = figs(TRY, /另外三个位置都落在 (\d+)% 到 (\d+)% 之间/, '`tryThis` on the three spots')
+    const spots: [number, number][] = [[9, 5], [14, 6.5], [3, 5]]
+    for (const [x, y] of spots) {
+      const p = thirdAt(x, y)
+      expect(p, `the spot (${x}, ${y}) lands inside that range`).toBeGreaterThanOrEqual(lo!)
+      expect(p, `the spot (${x}, ${y}) lands inside that range`).toBeLessThanOrEqual(hi!)
+    }
+    /*
+     * **Both ends of the range are read as the tightest whole numbers**: the lowest of the three
+     * spots rounds down to the low end and the highest rounds up to the high end, so neither
+     * figure can be moved without the sentence becoming either false or loose.
+     */
+    const shares = spots.map(([x, y]) => thirdAt(x, y))
+    expect(Math.floor(Math.min(...shares)), 'the low end, rounded down').toBe(lo)
+    expect(Math.ceil(Math.max(...shares)), 'and the high end, rounded up').toBe(hi)
+    // the quiz: 「真要说的话是 MCS 1 的：11.8% 对 11.1%」 and 「11.1%、11.8%、11.1%」
+    // 「几乎是它 MCS 1 帧的两倍长」 — the question names the rung it compares against
+    const [askedRung, timesCn] = raw(QUIZ, /几乎是它 MCS (\d+) 帧的(.)倍长/,
+      'the question’s own rung and ratio')
+    expect(val(askedRung!), 'the rung the bottom frame is compared with').toBe(CEILING - 1)
+    expect(Math.round(airAt(0) / airAt(val(askedRung!))), 'and how many times longer it is')
+      .toBe(cn(timesCn!))
+    const [qRung, qHi, qLo] = figs(QUIZ, /真要说的话是 MCS (\d+) 的：([\d.]+)% 对 ([\d.]+)%/,
+      'the question’s own two rates')
+    same(String(qHi), rung(qRung!).pct, `the rate at MCS ${qRung}`)
+    same(String(qLo), rung(0).pct, 'against the bottom rung’s')
+    const three = figs(QUIZ, /表里的数几乎不动：([\d.]+)%、([\d.]+)%、([\d.]+)%/,
+      'the explanation’s three rates')
+    expect(three, 'the three rows of the table, in the order the table prints them')
+      .toEqual([rung(CEILING).pct, rung(1).pct, rung(0).pct])
+  })
+
+  it('reads the figure’s own axis note: zero is the frame the fall begins at', () => {
+    /*
+     * **The axis note is a figure too** (sweep of 2026-10-14): 「0 是跌落前那一帧的开头」 says
+     * where the drawing's zero is, and the drawing's own axis has to start there — which is what
+     * makes every instant in the caption relative to the frame that failed.
+     */
+    const spec = fallbackExcursionTiming()
+    const texts = JSON.stringify(spec)
+    const [zero] = figs(texts, /（(\d+) 是跌落前那一帧的开头）/, 'the figure’s own axis note')
+    expect(spec.axis!.fromUs, 'the axis really starts there').toBe(zero)
+    const first = spec.lanes[0]!.spans[0]!
+    expect(first.fromUs, 'and so does the first span the figure draws').toBe(zero)
+  })
+
+  it('reads `picture` and `sources` on the deadline and the capture margin', () => {
+    // 「答复应当在帧结束后 45 µs 内到达」, and `sources` says where that figure comes from
+    const [us] = figs(PIC, /答复应当在帧结束后 (\d+) µs 内到达/, '`picture` on the deadline')
+    expect(us! * 1000, 'the timeout the engine applies').toBe(ACK_TIMEOUT_NS)
+    const [srcUs] = figs(SRC, /等的那 (\d+) µs 是本仿真器的 ACK 超时/, '`sources` on the same deadline')
+    expect(srcUs, 'the same figure').toBe(us)
+    // 「一次失败会把成功计数清空，自己记为 1」
+    const [one] = figs(PIC, /会把成功计数清空，自己记为 (\d+)/, '`picture` on the failure counter')
+    expect(one, 'the first failure counts as one').toBe(1)
+    expect(one, 'and two of them are what a step down takes').toBeLessThan(DOWN_AFTER + 1)
+    // 「在 40 dB 余量下它始终满足」
+    /*
+     * **「40 dB 余量」 is this room's own spread**: the near station arrives that much louder than
+     * the far one, which is why the access point locks its preamble in every tie. So the figure
+     * is read off the link table, to the ten decibels the sentence rounds it to.
+     */
+    const sc = rateFallback.scenario()
+    const table = buildLinkTable(sc.nodes, sc.walls)
+    const near = table.get('sta-1')!.get('ap')!
+    const farLevel = table.get('sta-2')!.get('ap')!
+    const [marginDb] = figs(SRC, /而在 (\d+) dB 余量下它始终满足/, '`sources` on the capture margin')
+    expect(marginDb, 'the decibels the near station arrives louder by, to the nearest ten')
+      .toBe(Math.round((near - farLevel) / 10) * 10)
+    expect(near - farLevel, 'which is a margin, not a deficit').toBeGreaterThan(0)
+    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1'),
+      'and it is why the near station never times out').toHaveLength(0)
+    // 「默认 σ 4 dB、相干时间 100 ms」 — the fading section this lesson points at
+    const [sigmaDb, coherenceMs] = figs(LIM, /默认 σ (\d+) dB、相干时间 (\d+) ms/,
+      '`limits` on the fading defaults')
+    expect(sigmaDb, 'the shadowing sigma the editor’s section defaults to')
+      .toBe(FADING_DEFAULTS.shadowSigmaDb)
+    expect(coherenceMs, 'and the coherence time').toBe(FADING_DEFAULTS.coherenceMs)
+    expect(rateFallback.scenario().fading, 'this scene really has no fading section')
+      .toBeUndefined()
   })
 })
