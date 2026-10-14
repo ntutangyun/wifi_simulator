@@ -252,8 +252,9 @@ describe('frame-anatomy-bytes · from bytes to microseconds', () => {
      * what the planter's own 「第」 rule exists to skip. **It offered them anyway, and that is an
      * instrument finding, not a lesson one**: the narrowed rule (2026-10-14) decides by what
      * FOLLOWS the figure — 「第 36 章」 is a name — and in a LIST the counter word comes once at
-     * the end, so 21 and 27 are followed by 「、」 and fall through. Recorded in
-     * `docs/course-figure-pinning.md`; the fix belongs in the classifier.
+     * the end, so 21 and 27 were followed by 「、」 and fell through. **Fixed in the classifier the
+     * same day** (`CITE_AFTER` now walks a 「、N」 run before the counter word), so the planter no
+     * longer offers them; the read below stays, because it is worth having either way.
      *
      * What IS readable here is the shape of the sentence, and it is worth reading: the three
      * clauses are the three generations whose preambles the same sentence lists, in the same

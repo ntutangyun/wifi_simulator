@@ -96,6 +96,13 @@ interface Figure {
  * of 28. The document words moved to `CITE_AFTER`, which judges by what FOLLOWS: 「第 N 章」,
  * 「第 N 节」, 「第 N 页」, 「第 N 部分」, 「第 N 条」 and 「第 N 款」 stay names, and the course-wide
  * census went 8 049 → 8 248.
+ *
+ * **And a citation can be a LIST, where the counter word comes once at the end** (2026-10-14,
+ * found by the batch that discharged this very rule change). `@frame-anatomy-bytes` cites
+ * 「（第 21、27、36 章）」 — three clauses of the standard — and only the 36 is followed by 「章」,
+ * so 21 and 27 were offered as plantable figures in a lesson that has no corpus to check them
+ * against. `CITE_AFTER` now walks a 「、N」 run before the counter word, so every member of the
+ * list is judged by the word the list ends with.
  */
 const CITE = /(§|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCOM|MobiCom)/
 /**
@@ -104,7 +111,7 @@ const CITE = /(§|IEEE|Std|Table|802\.11|r\d\b|15-\d|11-\d|ANSI|FiRa|JSAC|INFOCO
  * claims about documents outside this repository, and a sweep that plants them asks a question
  * nothing here can answer.
  */
-const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|\s?(章|节|页|部分|条|款)|\.\d\s*(将|于|发布))/
+const CITE_AFTER = /^(-\d\d\/\d{3,4}r\d|-\d\d(?!\d)|\s?年|\s?月|(?:、\d+)*\s?(?:章|节|页|部分|条|款)|\.\d\s*(将|于|发布))/
 
 /**
  * **A digit inside a name is not a figure.** 「Wi-Fi 6」, 「4096-QAM」, 「802.11ac」 and
