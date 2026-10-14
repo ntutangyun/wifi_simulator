@@ -371,6 +371,20 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     // the term is read by removing the other two from it.
     expect(-perHz, 'the per-hertz term the rest is built on')
       .toBeCloseTo(noiseDbm(width) - nf - ten * Math.log10(width * 1e6), 2)
+    /*
+     * 「前两项是室温下的热噪声，第 3 项是接收机自己的噪声系数」 — the note's own ordinals, which
+     * the 「第」 rule change of 2026-10-14 uncovered. They are a claim about this formula's own
+     * shape: the left-hand side is a sum of three terms, and the one the note numbers is the one
+     * carrying the noise figure.
+     */
+    const terms = f!.text.split('→')[0]!.split('=')[1]!.split('+').map((x) => x.trim())
+    const ord = /前(.)项是室温下的热噪声，第 (\d+) 项是接收机自己的噪声系数/.exec(f!.note!)
+    expect(ord, 'the note no longer numbers the terms').not.toBeNull()
+    expect(terms.length, 'the terms the formula really adds up').toBe(Number(ord![2]))
+    expect('零一二三四五六七八九'.indexOf(ord![1]!.replace('两', '二')), 'the thermal ones before it')
+      .toBe(terms.length - 1)
+    expect(terms[Number(ord![2]) - 1], `term ${ord![2]} is the noise figure`)
+      .toBe(`${NOISE_FIGURE_DB} dB`)
     // 「每赫兹 −174 dBm」 and 「本仿真器取 7 dB」, where `sources` says them again
     for (const v of everyFig(/每赫兹 −(\d+) dBm/g, 'the per-hertz term', 1)) {
       expect(val(v), 'the same term').toBe(perHz)
@@ -522,12 +536,23 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
   it('`observe`, `tryThis` and the quiz: the exchange, the two experiments, the two answers', () => {
     const obs = noiseFloor.observe.join('\n')
     const floor = noiseDbm(WIDTH)
-    // 「从 0 走到 415.2 µs，16 µs 后路由器的确认帧开始，到 459.2 µs 结束」
-    const [sifs, end] = figs(obs, /(\d+) µs 后路由器的确认帧（ACK）开始，到 ([\d.]+) µs 结束/,
+    /*
+     * 「数据帧从 0 走到 415.2 µs，16 µs 后路由器的确认帧（ACK）开始，到 459.2 µs 结束」 — the
+     * 「第」 rule change of 2026-10-14 uncovered the first two figures of this sentence (the
+     * sentence opens 「切到客厅变体看第一帧」, so the whole span sat behind that 「第」). The
+     * frame's airtime is asserted elsewhere in this file against a literal; here it is read, and
+     * with the 0, which is a claim too: this frame is the first thing on the air in that run.
+     */
+    const [spanFrom, spanTo, sifs, end] = figs(obs,
+      /数据帧从 (\d+) 走到 ([\d.]+) µs，(\d+) µs 后路由器的确认帧（ACK）开始，到 ([\d.]+) µs 结束/,
       '`observe` on the first exchange')
     const recs = variantRecs(2)
     const data = txs(recs, 'sta-1', 'data')[0]
     const ack = txs(recs, 'ap', 'ack')[0]
+    expect(spanFrom! * 1000, 'where the data frame starts').toBe(data.t)
+    expect(data.t, 'which is the first transmission of that run')
+      .toBe(ofType(recs, 'TX_START')[0]!.t)
+    same(String(spanTo), (data.t + data.frame.txTimeNs) / 1000, 'and where it ends')
     expect(sifs * 1000, 'the gap before the answer').toBe(ack.t - (data.t + data.frame.txTimeNs))
     same(String(end), (ack.t + ack.frame.txTimeNs) / 1000, 'and when the answer ends')
     // 「四个变体各跑 100 ms」

@@ -457,6 +457,50 @@ describe('mlo-gain · every figure the prose prints, read back out of it', () =>
       .toBeGreaterThan(on.wait(laneNode('sta-1', qLeft!)))
   })
 
+  it('reads the band the watch block jumps to, the jump’s own label, and the band `limits` imagines', () => {
+    /*
+     * **Three more bands, uncovered by the 「第」 rule change of 2026-10-14** — all three stood
+     * next to a 「第」 (「跳到第一个 6 GHz 数据帧」, 「不可能有第三个人。真实的 6 GHz 上…」, and
+     * the jump label 「第一个 5 GHz 数据帧」), so the sweep that read the other eight never
+     * offered them. Each is the same kind of claim as the eight: which lane the sentence is
+     * about, and here also which lane the reader is sent to.
+     */
+    const on = viewOf('base')
+    const lanes = (ghz: number): Set<string> => new Set(on.rs
+      .filter((r): r is Tx => r.type === 'TX_START')
+      .filter((r) => (ghz === 6) === r.node.endsWith('#6g'))
+      .map((r) => r.node))
+    const [watch] = figs(PIC, /跳到第一个 (\d) GHz 数据帧/, 'the watch block on where it jumps')
+    const jump = mloGain.jumps![(mloGain.picture!
+      .find((b) => b.kind === 'watch') as { jump: number }).jump]!
+    const [labelBand] = figs(jump.label, /第一个 (\d) GHz 数据帧/, 'the jump’s own label')
+    expect(labelBand, 'the band the jump the watch block names is about').toBe(watch)
+    const hit = on.rs.find((r) => jump.find(r))
+    expect(hit, `「${jump.label}」 finds no such record in the base run`).toBeDefined()
+    expect((hit as Tx).node, 'and the record it lands on is on that lane')
+      .toBe(laneNode('sta-1', watch!))
+    // every jump of this lesson names a band, and each one lands on the lane it names
+    let labelled = 0
+    for (const j of mloGain.jumps!) {
+      const m = /第一个 (\d) GHz 数据帧/.exec(j.label)
+      if (m === null) continue
+      labelled++
+      const r = on.rs.find((x) => j.find(x))
+      expect(r, `「${j.label}」 finds no such record`).toBeDefined()
+      expect((r as Tx).node, `「${j.label}」 lands on the lane it names`)
+        .toBe(laneNode('sta-1', Number(m[1])))
+    }
+    expect(labelled, 'one jump per lane this device has').toBe(2)
+    // `limits`: 「真实的 6 GHz 上有邻居的网」 — the same clean band the sentence before it names
+    const [real] = figs(LIM, /真实的 (\d) GHz 上有邻居的网/,
+      '`limits` on what a real one of that band would carry')
+    const [clean] = figs(LIM, /所以 (\d) GHz 上除了这台笔记本和它的接入点/,
+      '`limits` on the band with nobody else on it')
+    expect(real, 'the band it is contrasting with is the one it just called clean').toBe(clean)
+    expect([...lanes(real!)].sort(), 'and in this scene only those two are on it')
+      .toEqual(['ap#6g', 'sta-1#6g'])
+  })
+
   it('reads `limits` and `sources` on the two bands and the one run behind every figure', () => {
     // 「LINK_EXTRA_LOSS_DB 给 6 GHz 一律多记 1.2 dB、给 2.4 GHz 一律少记 6.5 dB」
     const [hiGhz, hiDb, loGhz, loDb] = figs(LIM,

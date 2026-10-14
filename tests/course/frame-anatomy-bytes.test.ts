@@ -224,6 +224,54 @@ describe('frame-anatomy-bytes · from bytes to microseconds', () => {
     expect(QOS_HDR_BYTES + 1500 + FCS_BYTES).toBe(1530)
     expect(Math.ceil((16 + 8 * 1530 + 6) / 216)).toBe(57)
     expect(txTimeNs(1530, 54)).toBe(248_000)
+    /*
+     * **The 「第」 rule change of 2026-10-14 uncovered step 6's two ordinals**, and an ordinal
+     * that points at another step of its own block is checkable without leaving the block:
+     * 「把第 1 步重做一遍」 has to point at the step that counts bytes, and 「到第 3 步」 at the
+     * one that rounds up. The two figures beside them are read out of the sentence as well, so
+     * step 6 is READ here rather than quoted in a comment above an assertion of its figures.
+     */
+    const six = /再带上业务标记把第 (\d+) 步重做一遍：(\d+) B；到第 (\d+) 步，向上取整得到的仍是 (\d+) 个符号/
+      .exec(steps.items[5]!)
+    expect(six, 'step 6 no longer redoes two of the steps by number').not.toBeNull()
+    const [redo, tagged, round, syms] = six!.slice(1).map(Number) as [number, number, number, number]
+    expect(steps.items[redo - 1], `step ${redo} is the one that counts this frame’s bytes`)
+      .toMatch(/^先数这一帧的字节/)
+    expect(steps.items[round - 1], `step ${round} is the one that rounds up`).toContain('向上取整')
+    expect(tagged, 'the tagged frame’s bytes, as step 6 states them')
+      .toBe(QOS_HDR_BYTES + 1500 + FCS_BYTES)
+    expect(syms, 'and the symbols it still needs').toBe(Math.ceil((16 + 8 * tagged + 6) / 216))
+    expect(syms, 'which is the same symbol count as the untagged frame — the point of the step')
+      .toBe(Math.ceil(bits / 216))
+  })
+
+  it('`sources`: the three preambles and the three clauses are one list each, in one order', () => {
+    /*
+     * **Exempt, class (a): the clause numbers 「第 21、27、36 章」.** They are chapters of
+     * IEEE Std 802.11-2024, there is no corpus of it in this repository, and a clause number is
+     * what the planter's own 「第」 rule exists to skip. **It offered them anyway, and that is an
+     * instrument finding, not a lesson one**: the narrowed rule (2026-10-14) decides by what
+     * FOLLOWS the figure — 「第 36 章」 is a name — and in a LIST the counter word comes once at
+     * the end, so 21 and 27 are followed by 「、」 and fall through. Recorded in
+     * `docs/course-figure-pinning.md`; the fix belongs in the classifier.
+     *
+     * What IS readable here is the shape of the sentence, and it is worth reading: the three
+     * clauses are the three generations whose preambles the same sentence lists, in the same
+     * order, so neither list may grow, shrink or be reordered on its own.
+     */
+    const s = frameAnatomyBytes.sources!.join('\n')
+    const m = /(\d+)、(\d+)、(\d+) µs 的前导码与 ([\d.]+) µs 的符号[^]*?（第 (\d+)、(\d+)、(\d+) 章）/
+      .exec(s)
+    expect(m, '`sources` no longer states the two lists').not.toBeNull()
+    const pre = m!.slice(1, 4).map(Number)
+    const clauses = m!.slice(5, 8).map(Number)
+    expect(pre, 'the three preambles this engine really has, in µs')
+      .toEqual([PHY_MODES.vht, PHY_MODES.he, PHY_MODES.eht].map((p) => p.preambleNs / 1000))
+    expect(Number(m![4]), 'and the symbol those modes share').toBe(PHY_MODES.he.symNs / 1000)
+    expect(clauses.length, 'one clause per generation named').toBe(pre.length)
+    expect([...clauses].sort((a, b) => a - b), 'the clauses rise with the generations')
+      .toEqual(clauses)
+    expect(new Set(clauses).size, 'and they are three different clauses').toBe(clauses.length)
   })
 
   it('the procedure reproduces the airtime of every frame the run puts on the air', () => {

@@ -367,6 +367,23 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     expect(first.map((r) => r.t)).toEqual([10 * MS, 10 * MS, 10 * MS])
     expect(cell(4, 1, 1)).toBe('badge-1 TDoA anchor-2 − anchor-1: 5.66 ns (true 5.39 ns)')
     expect(fmtRecord(first[0])).toBe(cell(4, 1, 1))
+    /*
+     * **Both tables say which block they are of, and the 「第」 rule change of 2026-10-14
+     * uncovered both** — 「日志印出什么：badge-1，第 0 块」 and 「badge-1，第 0 块，对
+     * anchor-2」. A heading is prose that prints a figure, and this one is a claim about which
+     * records are quoted below it: the block of the round line, of the difference and of the fix
+     * in these tables is the block the heading names.
+     */
+    const heads = tablesOf(uwbDlTdoa.numbers!)
+      .flatMap((t) => (t.heading === undefined ? [] : [t.heading]))
+      .filter((h) => /第 \d+ 块/.test(h))
+    expect(heads.length, 'the headings that name a block at all').toBe(2)
+    for (const h of heads) {
+      const b = Number(/第 (\d+) 块/.exec(h)![1])
+      expect(round.block, `「${h}」: the round line it quotes is of that block`).toBe(b)
+      expect(new Set(first.map((r) => r.block)), `「${h}」: and so are the differences`)
+        .toEqual(new Set([b]))
+    }
     const fix = ofType(rs, 'UWB_POSITION')[0]
     expect(cell(4, 2, 1)).toBe(
       'badge-1 position (3.90, 3.74) m, true (4.00, 3.50), error 0.26 m, GDOP 0.84, 4 anchors (DL-TDoA)',

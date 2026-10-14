@@ -452,6 +452,16 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     }
     expect(figs(EVERYWHERE, /前者是 ([\d.]+) GHz 的自由空间损耗/, 'the band the constant is for')[0],
       'which is a 5 GHz band').toBeGreaterThan(5)
+    /*
+     * **The first metre itself, at every one of the three places it is printed.** The 「第」 rule
+     * change of 2026-10-14 uncovered all three (「第一米 46.7 dB」 in the steps, 「第一米的
+     * 46.7 dB」 in `limits` and again in `sources`): the figure was asserted twice in this file
+     * against `pathLossDb(1)` — with a literal 46.7 typed on THIS side and the lesson's sentence
+     * in the comment above it — so no printing of it was ever read.
+     */
+    for (const v of everyFig(/第一米的? ([\d.]+) dB/g, 'the loss of the first metre', 3)) {
+      same(v, PL0_DB, 'the engine’s own loss at one metre')
+    }
   })
 
   it('the three wall materials, at every one of the three places the lesson lists them', () => {
@@ -711,9 +721,12 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
       same(m[2], BAND_EXTRA_LOSS_DB[key], `what a ${m[1]} GHz link pays`)
     }
     // 「前者是 5.2 GHz 的自由空间损耗」: the carrier that reproduces the engine's own first metre
-    const [ghz] = figs(EVERYWHERE, /前者是 ([\d.]+) GHz 的自由空间损耗/,
-      'the carrier `limits` says the constant is for')
-    expect(Math.abs(freeSpacePl0Db(ghz * 1000) - PL0_DB),
-      `free space at ${ghz} GHz is this engine’s own loss at one metre`).toBeLessThan(0.1)
+    // 「前者是 5.2 GHz 的自由空间损耗」, and `sources` says it again in its own words — the
+    // second printing was its own unread site until the 「第」 sweep of 2026-10-14.
+    for (const g of everyFig(/是 ([\d.]+) GHz 的自由空间损耗/g,
+      'the carrier the lesson says the constant is for', 2)) {
+      expect(Math.abs(freeSpacePl0Db(val(g) * 1000) - PL0_DB),
+        `free space at ${g} GHz is this engine’s own loss at one metre`).toBeLessThan(0.1)
+    }
   })
 })

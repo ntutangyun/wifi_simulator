@@ -171,6 +171,28 @@ describe('amp-intro · the shape of one round', () => {
     // the table's Ack rows: "AMP Ack₁ → Door tag", "AMP Ack₂ → Fridge tag", then two "→ Router"
     const round1Acks = txs(rs, 'ampAck').filter((r) => r.t < 5 * MS)
     expect(round1Acks.map((r) => r.frame.dst)).toEqual(['tag-2', 'tag-1', 'ap', 'ap'])
+    /*
+     * **And the label column of that table, which is where the 「第」 rule change of 2026-10-14
+     * found four unread figures**: 「第 1 帧 Ack → Door tag」 … 「第 4 帧 Ack → 路由器」. The
+     * ordinal is a claim about which Ack of this round the row is, and 「→ 路由器」 against a
+     * tag's name is a claim about who it names — an Ack with nobody to name is addressed to the
+     * router itself, which is the whole reason the empty slots still cost an Ack. Both are read
+     * here, together with the row's own two instants.
+     */
+    const firstRound = (ampIntro.numbers!.find((b) => b.kind === 'table'
+      && b.heading?.includes('路由器泳道上的第一轮')) as { rows: string[][] }).rows
+    const ackRows = firstRound.filter((r) => /^第 \d+ 帧 Ack → /.test(r[0]!))
+    expect(ackRows.length, 'one row per Ack of the round').toBe(round1Acks.length)
+    for (const [i, row] of ackRows.entries()) {
+      const m = /^第 (\d+) 帧 Ack → (.+)$/.exec(row[0]!)!
+      expect(Number(m[1]), `row ${i}: which Ack of the round it is`).toBe(i + 1)
+      expect(m[2] === '路由器', `row ${i}: 「→ 路由器」 iff that Ack names nobody but the router`)
+        .toBe(round1Acks[i]!.frame.dst === 'ap')
+      expect([Number(/^(\d+) µs$/.exec(row[1]!)![1]), Number(/^(\d+) µs$/.exec(row[2]!)![1])],
+        `row ${i}: when that Ack starts and ends`)
+        .toEqual([round1Acks[i]!.t / US,
+          (round1Acks[i]!.t + round1Acks[i]!.frame.txTimeNs) / US])
+    }
     const round = ofType(rs, 'AMP_ROUND')[0]
     expect(round.slots).toBe(4)
     expect(round.slotNs).toBe(528 * US)
@@ -255,7 +277,18 @@ describe('amp-intro · a second of polling', () => {
       expect(a.length).toBe(10)
       expect(new Set(a.map((r) => r.acw))).toEqual(new Set([acw]))
       expect(a.every((r) => r.aboc >= 0 && r.aboc <= acw)).toBe(true)
-      expect(a.every((r) => r.slot === r.aboc + 1)).toBe(true)
+      /*
+       * 「每个标签从 0、1、2、3 中抽一个 ABOC，在第 ABOC + 1 个时隙作答」 — the offset is read
+       * out of `deeper` rather than typed here, which is what the 「第」 rule change of
+       * 2026-10-14 uncovered: a 2 in that sentence would put every tag in the wrong slot and
+       * this file would not have noticed.
+       */
+      const deep = ampIntro.deeper!.map((b) => (b as { text?: string }).text ?? '').join(' ')
+      const om = /在第 ABOC \+ (\d) 个时隙作答/.exec(deep)
+      expect(om, '`deeper` no longer says which slot a draw answers in').not.toBeNull()
+      const off = Number(om![1])
+      expect(a.every((r) => r.slot === r.aboc + off), `every draw answers ABOC + ${off}`)
+        .toBe(true)
       expect(a.filter((r) => r.slot === null).length).toBe(0)
     }
     // "a draw of 3 lands in slot 4, the last one there is" — it happens in this run

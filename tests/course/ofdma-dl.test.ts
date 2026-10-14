@@ -1239,6 +1239,16 @@ describe('ofdma-dl · every figure the prose prints, read back out of it', () =>
       expect(val(bytes!), 'the bytes one member of a group carries')
         .toBe(one(mu.map((r) => r.frame.muParts!.map((p) => p.bytes)))![0])
     }
+    /*
+     * 「跳到第一次多用户发送。那个宽蓝块长 211.2 µs」 — the 「第」 rule change of 2026-10-14
+     * uncovered this one: the MU PPDU's airtime is asserted three times in the describes above
+     * and read in the step block, but `observe`'s own printing of it was only ever a comment.
+     * Read against the block the sentence sends the reader to: the FIRST multi-user send of the
+     * run, which is the one the jump lands on.
+     */
+    const [wide] = figs(OBS, /那个宽蓝块长 ([\d.]+) µs/, '`observe` on the wide block')
+    expect(wide! * US, 'the airtime of the first multi-user send')
+      .toBe(mu[0]!.frame.txTimeNs)
     // 「两个 32 µs 的确认帧」, 「整段仿真里接入点向下发了 1016 次，其中只有 45 次装着两台电视」
     const apData = txs(rs, (r) => r.node === 'ap' && r.frame.kind === 'data')
     const [sends, paired] = figs(OBS, /接入点向下发了 ([\d,]+) 次，其中只有 (\d+) 次装着两台电视/,
