@@ -209,13 +209,14 @@ export function layoutFor(w: number, h: number, coarsePointer = false): ShellLay
  * before, and it is why the value is written out rather than assumed.
  */
 export function mainColumns(
-  mode: 'edit' | 'simulate' | 'course',
+  mode: 'edit' | 'simulate' | 'course' | 'map',
   layout: ShellLayout,
   courseW: number,
   pane: MainPane,
 ): string {
   const one = ONE_COLUMN
-  if (mode === 'edit') return one
+  // 'map' is the feature graph: one column at every width, like the editor.
+  if (mode === 'edit' || mode === 'map') return one
   if (layout.singleColumn) return one
   if (mode === 'simulate') {
     return layout.sideAsDrawer ? one : `${one} minmax(320px, 400px)`

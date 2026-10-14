@@ -18,7 +18,7 @@ export interface FrameSelection {
 }
 
 export interface UiState {
-  mode: 'edit' | 'simulate' | 'course'
+  mode: 'edit' | 'simulate' | 'course' | 'map'
   scenario: Scenario
   /** Edit history of `scenario`. Read it for canUndo/canRedo; write it only through the actions. */
   history: History<Scenario>
@@ -30,7 +30,7 @@ export interface UiState {
   selectedNodeId: string | null
   selectedFrame: FrameSelection | null
   simError: string | null
-  setMode(m: 'edit' | 'simulate' | 'course'): void
+  setMode(m: 'edit' | 'simulate' | 'course' | 'map'): void
   /** Course: currently selected lesson + whether its sim is loaded. */
   courseLessonId: string | null
   courseLoaded: boolean
@@ -132,7 +132,7 @@ type Mode = UiState['mode']
 function initialMode(): Mode {
   try {
     const m = typeof localStorage !== 'undefined' ? localStorage.getItem('wifi-sim.mode') : null
-    if (m === 'edit' || m === 'simulate' || m === 'course') return m
+    if (m === 'edit' || m === 'simulate' || m === 'course' || m === 'map') return m
   } catch {
     // default below
   }

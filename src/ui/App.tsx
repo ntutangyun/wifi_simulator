@@ -10,6 +10,7 @@ import { Inspector } from './Inspector'
 import { useUi } from './store'
 import { TimelineStrip } from './TimelineStrip'
 import { Transport } from './Transport'
+import { FeatureMap } from './FeatureMap'
 import { layoutFor, mainColumns, ONE_COLUMN, TIMELINE_H_COLLAPSED, type MainPane } from './layout'
 import { useViewport } from './useViewport'
 
@@ -165,7 +166,15 @@ export function App() {
         // width and pushes the page into a horizontal scroll.
         whiteSpace: 'nowrap', minWidth: 0,
       }}>
-        <strong style={{ flexShrink: 0 }}>{layout.singleColumn ? 'Wi-Fi Sim' : 'Wi-Fi Airtime Simulator'}</strong>
+        {/* **The wordmark is the next thing to go, and the sixth control is why.**
+            `index.css` sizes every control by pointer type, so on the device this shell is
+            measured on — a folded foldable, `pointer: coarse` — the controls are wider than they
+            look on a desktop at the same 470 px. Adding the 🗺 mode put the row at 473 px against
+            470 in course mode, where the pane switch takes two slots of its own:
+            `tests/e2e/narrow-width.spec.ts` measured it off the edge by 3 px. The wordmark is
+            74 px of identity, not a control, and the page title and the browser tab both still
+            carry it — so it yields, one step past the subtitle above. */}
+        {!layout.singleColumn && <strong style={{ flexShrink: 0 }}>Wi-Fi Airtime Simulator</strong>}
         {/* The subtitle is the first thing to go: it is context, not a control. */}
         {!layout.compact && <span style={{ color: 'var(--dim)', fontSize: 12 }}>{L.header.subtitle}</span>}
         {/* One column: the reader chooses which pane is on screen. It sits outside
@@ -188,7 +197,7 @@ export function App() {
           minWidth: 0, overflowX: 'auto',
         }}>
           {/* The side panel has no column of its own at this width, so it needs a way in. */}
-          {layout.sideAsDrawer && mode !== 'edit' && (
+          {layout.sideAsDrawer && mode !== 'edit' && mode !== 'map' && (
             <button className={sideOpen ? 'active' : ''} title={L.compact.openSide} onClick={() => setSideOpen((v) => !v)}>
               {sideOpen ? L.compact.closeSide : short ? S.openSide : L.compact.openSide}
             </button>
@@ -200,6 +209,7 @@ export function App() {
           <button className={mode === 'edit' ? 'active' : ''} title={L.header.edit} onClick={() => setMode('edit')}>{short ? S.edit : L.header.edit}</button>
           <button className={mode === 'simulate' ? 'active' : ''} title={L.header.simulate} onClick={() => setMode('simulate')}>{short ? S.simulate : L.header.simulate}</button>
           <button className={mode === 'course' ? 'active' : ''} title={L.header.course} onClick={() => setMode('course')}>{short ? S.course : L.header.course}</button>
+          <button className={mode === 'map' ? 'active' : ''} title={L.header.map} onClick={() => setMode('map')}>{short ? S.map : L.header.map}</button>
         </div>
       </header>
 
@@ -231,6 +241,8 @@ export function App() {
             <div style={{ position: 'absolute', inset: 0 }}>
               {mode === 'edit' ? (
                 <FloorPlanEditor />
+              ) : mode === 'map' ? (
+                <FeatureMap />
               ) : simActive ? (
                 <Viewport key={`vp-${mode}-${simSession}`} cameraButtons={layout.cameraPad} />
               ) : (
@@ -244,8 +256,8 @@ export function App() {
         </div>
         )}
         {/* A column when there is room for one, a drawer over the content when there is not. */}
-        {mode !== 'edit' && !layout.sideAsDrawer && <SidePanel />}
-        {mode !== 'edit' && layout.sideAsDrawer && sideOpen && (
+        {mode !== 'edit' && mode !== 'map' && !layout.sideAsDrawer && <SidePanel />}
+        {mode !== 'edit' && mode !== 'map' && layout.sideAsDrawer && sideOpen && (
           <>
             <div
               onClick={() => setSideOpen(false)}

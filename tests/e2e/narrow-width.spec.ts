@@ -244,7 +244,7 @@ function expectNothingOffScreen(s: Survey, where: string): void {
 }
 
 /** Open the app in a given mode, with a given lesson selected, from a clean slate. */
-async function open(page: Page, mode: 'edit' | 'simulate' | 'course', lesson?: string): Promise<void> {
+async function open(page: Page, mode: 'edit' | 'simulate' | 'course' | 'map', lesson?: string): Promise<void> {
   await page.addInitScript(([m, l]: [string, string]) => {
     try {
       localStorage.clear()
@@ -300,6 +300,24 @@ test.describe('nothing falls off the side of the screen', () => {
     await page.locator('main button', { hasText: /^📂 载入$/ }).click()
     await expect(page.locator('main span', { hasText: 'Expected array' }).first()).toBeVisible()
     expectNothingOffScreen(await survey(page), 'edit · six refusal lines')
+  })
+
+  /**
+   * The feature map is the one mode that draws a picture wider than any phone — 1 936 px for the
+   * UWB spine — so it is the one most likely to push the page into a horizontal scroll. It must
+   * not: the graph pans inside its own box and the page does not move. The mode also adds a sixth
+   * control to the header, which at 470 px is the width this whole file exists to defend.
+   */
+  test('map mode, both tracks', async ({ page }) => {
+    await open(page, 'map')
+    await page.locator('svg[role="img"]').waitFor()
+    expectNothingOffScreen(await survey(page), 'map · wifi')
+    // A group's rows open under the graph: the longest evidence cells in either document.
+    await page.locator('svg[role="img"] g').filter({ hasText: 'DCF' }).first().click()
+    expectNothingOffScreen(await survey(page), 'map · wifi · a group open')
+    await page.locator('main button', { hasText: /^UWB$/ }).click()
+    await page.locator('svg[role="img"]').waitFor()
+    expectNothingOffScreen(await survey(page), 'map · uwb')
   })
 
   test('simulate mode, with a run on screen', async ({ page }) => {

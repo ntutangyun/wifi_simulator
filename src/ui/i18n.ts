@@ -24,7 +24,7 @@ export interface LegendItem {
 }
 
 export interface Strings {
-  header: { subtitle: string; edit: string; simulate: string; course: string }
+  header: { subtitle: string; edit: string; simulate: string; course: string; map: string }
   /** The red banner over the scene when the worker refuses a scenario. */
   simError: (detail: string) => string
   /** The floating text above a device in the 3D view. */
@@ -67,11 +67,30 @@ export interface Strings {
       edit: string
       simulate: string
       course: string
+      map: string
     }
   }
   guideWindow: {
     title: string; terms: string; overview: string; search: string
     empty: string; close: string; dragHint: string
+  }
+  /** The feature map: the two coverage documents as a dependency graph. */
+  map: {
+    title: string
+    track: { wifi: string; uwb: string }
+    counts: (rows: number, groups: number) => string
+    boxCounts: (rows: number, lessons: number) => string
+    family: { core: string; draft: string; derived: string; absent: string }
+    kind: { published: string; draft: string; contested: string; unsettled: string; none: string }
+    openBadge: string
+    pickPrompt: string
+    needs: string
+    noNeeds: string
+    lessonsLabel: string
+    noLessons: string
+    orphanTitle: (n: number) => string
+    orphanNote: string
+    source: (doc: string) => string
   }
   course: {
     title: string
@@ -759,7 +778,10 @@ const SP0_ROLE_SHORT: Record<'poll' | 'resp' | 'report', string> = {
 }
 
 export const STRINGS: Strings = {
-  header: { subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度', edit: '✎ 编辑', simulate: '▶ 仿真', course: '📚 课程' },
+  header: {
+    subtitle: 'IEEE 802.11 DCF/EDCA · 微秒时间尺度',
+    edit: '✎ 编辑', simulate: '▶ 仿真', course: '📚 课程', map: '🗺 图谱',
+  },
   simError: (detail) => `仿真出错：${detail}`,
   sceneLabel: { slot: (n) => `时隙 ${n}`, waitAck: '等 ACK', waitCts: '等 CTS' },
   panel: { inspector: '🔍 检视器', log: '📜 事件日志', guide: '📖 学习指南', resizeHint: '拖动调整宽度 · 双击恢复默认' },
@@ -781,7 +803,36 @@ export const STRINGS: Strings = {
       edit: '编辑',
       simulate: '仿真',
       course: '课程',
+      map: '🗺',
     },
+  },
+  map: {
+    title: '特性图谱',
+    track: { wifi: 'Wi-Fi', uwb: 'UWB' },
+    counts: (rows, groups) => `${rows} 行特性，归成 ${groups} 组`,
+    boxCounts: (rows, lessons) => `${rows} 行 · ${lessons} 课`,
+    family: {
+      core: '已发布标准的主干',
+      draft: '草案／提案',
+      derived: '派生：标准里没有条款',
+      absent: '整块缺席（范围决定）',
+    },
+    kind: {
+      published: '已发布', draft: '已进草案', contested: '仍在争论',
+      unsettled: '无法判定', none: '标准不规定',
+    },
+    openBadge: '组里有几行还在争论或无法判定',
+    pickPrompt: '点一个框，看它底下那几行特性、它们的证据与课号。',
+    needs: '依赖：',
+    noNeeds: '（无）',
+    lessonsLabel: '课：',
+    noLessons: '（无）',
+    orphanTitle: (n) => `${n} 门课在这张覆盖表里没有对应的特性行`,
+    orphanNote: '这不是图画漏了：这些课在那份文档里没有被任何一行引到。'
+      + 'UWB 那张表是穷举的，所以它这一格必须是空的；Wi-Fi 那张表自己写明不枚举整部标准，'
+      + '所以项目课、模型对照课与「一份测量怎么成为文稿」这类课本来就没有特性行——'
+      + '而其中有一门是真的缺口：第五个代次 uhr 已经落地，覆盖表的物理层参数那一节还停在 EHT。',
+    source: (doc) => `这张图现算自 ${doc} 与课程本身，不存第二份数据：改那份文档，这里跟着变。`,
   },
   guideWindow: {
     title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
