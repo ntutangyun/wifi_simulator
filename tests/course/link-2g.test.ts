@@ -877,6 +877,32 @@ describe('link-2g · every figure the prose prints, read back out of it', () => 
       'the four this engine holds for 2.4 GHz')
       .toEqual([ERP_2G.sifsNs, ERP_2G.slotNs, ERP_2G.signalExtNs, ERP_2G.rxStartDelayNs])
     expect(cwMin, 'and the window it starts from').toBe(CW_MIN)
+    /*
+     * **`limits` on the one constant the engine takes for every generation**, uncovered by the
+     * 「第」 rule change of 2026-10-14: 「本仿真器对所有世代都取 aRxPHYStartDelay = 20 微秒，那
+     * 是第 17/18 章的值……短帧间间隔与时隙两项在两个算法里都是 10 与 9 微秒，差的只有第三项」.
+     *
+     * 「对所有世代都取」 is the readable part and it is the point of the whole limit: both
+     * timing sets this engine holds carry the same delay, which is why a Wi-Fi 6 station prints
+     * the older figure. The two shared terms are read against the same set. The clause pair is a
+     * name (exempt, class (a) — no corpus of the standard here), **but the pair is still
+     * checkable as a pair**: two different, consecutive clauses, which is what 「第 17/18 章」
+     * asserts, and the planter moves exactly one of them.
+     */
+    const [uniform] = figs(EVERYWHERE, /对所有世代都取 aRxPHYStartDelay = (\d+) 微秒/,
+      '`limits` on the delay it takes everywhere')
+    expect([ERP_2G.rxStartDelayNs, OFDM_5G.rxStartDelayNs],
+      'both timing sets this engine holds carry that delay')
+      .toEqual([uniform! * 1000, uniform! * 1000])
+    const [cl1, cl2] = figs(EVERYWHERE, /那是第 (\d+)\/(\d+) 章的值/,
+      '`limits` on which clauses it is from')
+    expect(cl2, 'the second clause of the pair is the next one').toBe(cl1! + 1)
+    const [bothSifs, bothSlot] = figs(EVERYWHERE,
+      /两项在两个算法里都是 (\d+) 与 (\d+) 微秒/, '`limits` on the two terms both算法 share')
+    expect([bothSifs! * 1000, bothSlot! * 1000], 'the two terms both ways of counting share')
+      .toEqual([ERP_2G.sifsNs, ERP_2G.slotNs])
+    // (「两个算法」 is this engine's sum against the standard's for THIS band, not the two
+    // bands: 5 GHz counts a 16 µs SIFS, which is why the sentence says 「两个算法」.)
     // every statement of the signal extension — `terms`, `sources`, and the 「5/6 GHz 为 0」 pair
     for (const v of everyFig(/多算的 (\d+) 微秒静默期|aSignalExtension (\d+) µs|GHz 为 (\d+) µs/g,
       'the signal extension', 3)) {

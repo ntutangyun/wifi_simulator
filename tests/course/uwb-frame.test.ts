@@ -243,6 +243,57 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(txs(rs, 'uwbResp')[0].t).toBe(2 * MS)
     // the poll is ready long before its slot ends: 197.628 µs of 2 ms
     expect(txs(rs, 'uwbPoll')[0].t).toBe(0)
+    /*
+     * **And `observe`'s own sentence, read.** 「Poll 在第一个时隙，Response 在第二个，而第二个
+     * 时隙恰好从 2 000 000 ns 开始」 — uncovered by the 「第」 rule change of 2026-10-14, and
+     * the one figure of this lesson with **no equal literal anywhere under `tests/`**: every
+     * assertion above writes the instant as `2 * MS`. The two ordinals are figures too: they say
+     * which slot each frame goes out in, and the answer waits for the top of its own slot.
+     */
+    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s.replace(/两/g, '二'))
+    const o = /Poll 在第(.)个时隙，Response 在第(.)个，而第(.)个时隙恰好从 ([\d ]+) ns 开始/
+      .exec(uwbFrame.observe.join(' '))
+    expect(o, '`observe` no longer says which slot each frame leaves in').not.toBeNull()
+    const slotTs = ofType(rs, 'UWB_SLOT').map((r) => r.t)
+    expect(slotTs[cn(o![1]!) - 1], 'the slot the poll leaves in').toBe(txs(rs, 'uwbPoll')[0].t)
+    expect(slotTs[cn(o![2]!) - 1], 'and the one the response leaves in')
+      .toBe(txs(rs, 'uwbResp')[0].t)
+    expect(cn(o![3]!), 'the sentence names that same slot twice').toBe(cn(o![2]!))
+    expect(Number(o![4]!.replace(/ /g, '')), 'where that slot really starts')
+      .toBe(slotTs[cn(o![3]!) - 1])
+  })
+
+  it('reads the RMARKER offset at both places it is printed, and the poll’s thirty octets', () => {
+    /*
+     * **Two more printings the 「第」 rule change of 2026-10-14 uncovered.** The formula and a
+     * quiz option both give the offset (「距帧首 73.269 µs」, 「帧内 73.269 µs」) and the three
+     * figures of the formula are the two segments and their sum — all measurable off this
+     * frame's own layout. The quiz explanation's 「30 个字节就够了」 is the poll's own size, and
+     * the wrong option beside it says the standard caps a ranging payload at thirty octets:
+     * **that one is a claim about the standard and this repository has no corpus of it**, so
+     * what is read is that the figure in the explanation is the frame the engine really builds.
+     */
+    const rs = recs()
+    const poll = txs(rs, 'uwbPoll')[0]!
+    const lay = uwbPpduLayout(poll.frame)
+    const quiz = uwbFrame.quiz.map((q) => `${q.q}\u000a${q.options.join('\u000a')}\u000a${q.explain}`)
+      .join('\u000a')
+    const form = /SYNC ([\d.]+) µs \+ SFD ([\d.]+) µs = 帧内 ([\d.]+) µs/
+      .exec(uwbFrame.numbers!.map((b) => (b as { text?: string }).text ?? '').join(' '))
+    expect(form, 'the formula no longer adds the two segments up').not.toBeNull()
+    const [sync, sfd, sum] = form!.slice(1).map(Number)
+    expect(sync! * US, 'the SYNC this frame really carries')
+      .toBe(lay.find((s) => s.key === 'sync')!.durNs)
+    expect(sfd! * US, 'and the SFD after it').toBe(lay.find((s) => s.key === 'sfd')!.durNs)
+    expect(sum! * US, 'the two of them together, which is where the RMARKER falls')
+      .toBe(lay.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs)
+    expect(Number((sync! + sfd!).toFixed(3)), 'and the sentence’s own addition').toBe(sum)
+    const q = /距帧首 ([\d.]+) µs/.exec(quiz)
+    expect(q, 'the quiz option no longer gives the offset').not.toBeNull()
+    expect(Number(q![1]), 'the same offset the formula gives').toBe(sum)
+    const bytes = /(\d+) 个字节就够了/.exec(quiz)
+    expect(bytes, 'the explanation no longer says how little the poll has to carry').not.toBeNull()
+    expect(Number(bytes![1]), 'the octets the poll really carries').toBe(poll.frame.bytes)
   })
 })
 

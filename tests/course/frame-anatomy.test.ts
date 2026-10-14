@@ -767,9 +767,32 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
     const orig = txs.find((r) => r.frame.src === 'sta-1' && r.frame.seqNo === again && !r.frame.retryFlag)!
     expect(atMs! * MS, 'when the original went out').toBe(orig.t)
     expect(String(origRetry), 'and its own retry bit').toBe(bitOf(firstMpdu(orig.frame), 'retry'))
+    /*
+     * **The two instants the reader is sent to, and the bit the jump label quotes** — all three
+     * uncovered by the 「第」 rule change of 2026-10-14. 「跳到旧笔记本的第一帧（0 µs）」 and
+     * 「跳到第一次重传（retry，12.013 ms）」 are instructions: a wrong figure sends the reader to
+     * a moment that is not the one the sentence then describes. The jump label 「第一次重传
+     * （Retry = 1）」 states the bit that makes it a retransmission at all.
+     */
+    const [firstAt] = figs(OBS, /跳到旧笔记本的第一帧（(\d+) µs）/,
+      '`observe` on the first frame it jumps to')
+    expect(firstAt! * 1000, 'where that frame really is').toBe(legacy.t)
+    expect(legacy.t, 'and it really is the first thing this laptop puts on the air')
+      .toBe(txs.filter((r) => r.frame.src === 'sta-1')[0]!.t)
+    const [retryAt] = figs(OBS, /跳到第一次重传（retry，([\d.]+) ms）/,
+      '`observe` on the retransmission it jumps to')
+    expect(retryAt! * MS, 'where the first retransmission really is').toBe(retry.t)
+    const jumpLabel = frameAnatomy.jumps!.map((j) => j.label)
+      .find((l) => /第一次重传/.test(l))
+    expect(jumpLabel, 'the jump to the retransmission is gone').toBeDefined()
+    const [jumpBit] = figs(jumpLabel!, /Retry = (\d)/, 'the jump label on the retry bit')
+    expect(String(jumpBit), 'the bit the frame it lands on really carries')
+      .toBe(bitOf(firstMpdu(retry.frame), 'retry'))
     // `tryThis`: the two addresses and the size that do not move when the roles swap.
-    const [addrNo, swapped] = figs(TRY, /地址 (\d) 仍是旧笔记本，整帧仍是 (\d+) B/,
+    const [routerNo, addrNo, swapped] = figs(TRY,
+      /地址 (\d) 仍是路由器、地址 (\d) 仍是旧笔记本，整帧仍是 (\d+) B/,
       '`tryThis` on the swapped scene')
+    expect(field(m, `addr${routerNo}`).node, 'the address the router keeps').toBe('ap')
     expect(field(m, `addr${addrNo}`).node, 'the address the old laptop keeps').toBe('sta-1')
     expect(swapped, 'and the size, which the swap does not move').toBe(legacy.frame.bytes)
     // The quiz: the three addresses by role, and the Duration it asks about.

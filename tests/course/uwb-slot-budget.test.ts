@@ -229,6 +229,24 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
     expect(steps().items[3]).toContain('3 RSTU 的整数倍')
     // and the 13.2 µs the step quotes is the gap between the two rules
     expect(((rstuNs(300) - uwbSlotFitNs(ANCHORS)) / 1000).toFixed(1)).toBe('13.2')
+    /*
+     * **`limits` names that jump, and the 「第」 rule change of 2026-10-14 uncovered both of its
+     * figures**: 「换掉其中任一个，第三步和编辑器那次 285 → 300 的跳变就都不成立了」. The pair
+     * is the whole claim — the value the schema refuses on the floor alone, and the value it
+     * takes — so both are read against the schema itself, and the sentence's 「第三步」 against
+     * the step that states the floor.
+     */
+    const jump = /第(.)步和编辑器那次 (\d+) → (\d+) 的跳变/
+      .exec(uwbSlotBudget.limits.map((l) => l.text).join(' '))
+    expect(jump, '`limits` no longer names the jump the editor shows').not.toBeNull()
+    const [refused, taken] = [Number(jump![2]), Number(jump![3])]
+    expect(schemaIssues(refused), 'the value the schema refuses on the floor alone')
+      .toEqual([floor])
+    expect(schemaIssues(taken), 'and the one it takes').toEqual([])
+    expect(taken, 'the jump really goes up').toBeGreaterThan(refused)
+    const nth = '零一二三四五六七八九'.indexOf(jump![1]!)
+    expect(steps().items[nth - 1], `step ${nth} is the one that states the floor`)
+      .toContain(`${taken} RSTU 的下限`)
   })
 
   it('the capacity rule only overtakes the floor once the Final grows', () => {
