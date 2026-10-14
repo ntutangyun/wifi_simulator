@@ -101,13 +101,29 @@ describe('uwb-sstwr · the lesson’s own place in the track', () => {
   })
 
   it('the two jump labels that quote a number quote the number the run produces', () => {
-    // "the first range: raw is 6 m long" / "the fourth range: raw is 24 m long"
-    expect(Math.round(rawErr(ranges()[0]))).toBe(6)
-    expect(Math.round(rawErr(ranges()[3]))).toBe(24)
-    // the last jump is a pure predicate on the record, and it finds the fourth range
-    const fourth = uwbSstwr.jumps[3].find
-    expect(recs().filter(fourth)).toHaveLength(1)
-    expect(ranges().findIndex(fourth)).toBe(3)
+    /*
+     * **Read out of the labels, ordinal and all.** The 「第」 rule change of 2026-10-14 uncovered
+     * both figures: they were asserted as `Math.round(rawErr(ranges()[0])) === 6`, with the 6 and
+     * the 24 typed on THIS side and the labels quoted in the comment, so an edited label would
+     * have shipped green. 「第一次」 and 「第四次」 are figures too — they say which of the four
+     * ranges the label is about — and each label's own predicate has to land on that range.
+     */
+    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
+    const labelled = uwbSstwr.jumps.flatMap((j) => {
+      const m = /第(.)次测距：raw 长了 (\d+) m/.exec(j.label)
+      return m === null ? [] : [[cn(m[1]!), Number(m[2]), j] as const]
+    })
+    expect(labelled.length, 'the jump labels that quote a figure').toBe(2)
+    for (const [nth, over, j] of labelled) {
+      expect(ranges()[nth - 1], `「${j.label}」: range ${nth} is not in this run`).toBeDefined()
+      expect(Math.round(rawErr(ranges()[nth - 1])), `「${j.label}」: how long raw really is`)
+        .toBe(over)
+      expect(recs().filter(j.find).length, `「${j.label}」 finds no record`).toBeGreaterThan(0)
+      expect(ranges().findIndex(j.find), `「${j.label}」 lands on the range it names`)
+        .toBe(nth - 1)
+    }
+    // the fourth jump is a pure predicate on the record, so it finds that range and only it
+    expect(recs().filter(uwbSstwr.jumps[3].find)).toHaveLength(1)
   })
 
   it('names the standard clauses it leans on and the three numbers that are model, in `sources`', () => {

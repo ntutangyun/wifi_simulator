@@ -634,7 +634,20 @@ describe('uwb-mms · one round, step by step', () => {
   it('the integrity fragments this scene does not send start at X + Z + y − 1', () => {
     const x = base.uwb!.mms.rsfs
     const z = base.uwb!.mms.gapMs
-    for (const y of [0, 1, 2, 3]) expect(rifStartMs(x, z, y)).toBe(x + z + y - 1)
+    /*
+     * 「第 y 个完整性片段（y 从零数起）落在第 X + Z + y − 1 毫秒上」 — the offset is read out of
+     * `deeper` rather than typed here, which is what the 「第」 rule change of 2026-10-14
+     * uncovered: a 2 in that sentence would describe a layout this engine does not build, and
+     * `rifStartMs` would have gone on agreeing with the test's own copy of the formula.
+     */
+    const deep = uwbMms.deeper!.map((b) => (b as { text?: string }).text ?? '').join(' ')
+    const f = /落在第 X \+ Z \+ y − (\d+) 毫秒上/.exec(deep)
+    expect(f, '`deeper` no longer gives the integrity fragments’ own offset').not.toBeNull()
+    const off = Number(f![1])
+    const [fromZero] = [/（y 从(.)数起）/.exec(deep)]
+    expect(fromZero, 'nor says where y starts').not.toBeNull()
+    expect(fromZero![1], 'y counts from zero, which is why the offset is what it is').toBe('零')
+    for (const y of [0, 1, 2, 3]) expect(rifStartMs(x, z, y)).toBe(x + z + y - off)
     expect(base.uwb!.mms.rifs).toBe(0)
     expect(ofType(recs('base'), 'TX_START').filter((r) => r.frame.kind === 'uwbRif')).toEqual([])
   })
@@ -793,6 +806,19 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
     same(String(louder), 10 * UWB_PL_EXP * Math.log10(distTo(MMS_ANCHORS[0]) / distTo(spot)),
       'and how much louder the tag is there')
     expect(spot.x, 'a spot still inside the first bay').toBeLessThan(wallX!)
+  })
+
+  it('reads the bit rate `sources` gives the narrowband radio', () => {
+    /*
+     * 「第 12 章、250 kb/s 的 O-QPSK PHY」 — the 「第」 rule change of 2026-10-14 uncovered this
+     * printing of the control radio's bit rate. It is a figure of the standard, and **this
+     * repository can still answer it**, because the rate is a quotient of two things the engine
+     * holds: four bits per symbol, and the symbol's own length. (The clause number beside it is
+     * a name — exempt, class (a): there is no corpus of 802.15.4 here.)
+     */
+    const [srcKbps] = figs(SRC, /第 12 章(?:、|那部 )([\d]+) kb\/s/,
+      '`sources` on the narrowband radio’s bit rate')
+    same(String(srcKbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
   })
 
   it('reads the room `sources` calls the simulator’s own', () => {

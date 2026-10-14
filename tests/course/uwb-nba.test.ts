@@ -538,6 +538,21 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
 
   it('reads the first block message by message, and the grid underneath it', () => {
     const rs = recs()
+    /*
+     * 「Poll 在零时刻出发，第一条 Response 在 1.000 ms 处作答，第一条 Report 在 20.000 ms 处发
+     * 出」 — the two instants before the one this test already read, uncovered by the 「第」 rule
+     * change of 2026-10-14. They are asserted elsewhere in this file against literals; here they
+     * are read off the sentence and compared with the first message of each kind.
+     */
+    const [pollZh, respAt, reportAt] = raw(NUMS,
+      /Poll 在(零)时刻出发，第一条 Response 在 ([\d.]+) ms 处作答，第一条 Report 在 ([\d.]+) ms 处发出/,
+      '`numbers` on the first block, message by message')
+    const firstOf = (kind: string): number => ofType(rs, 'TX_START')
+      .filter((r) => r.frame.kind === kind)[0]!.t
+    expect(pollZh, 'the instant the poll leaves, which the sentence writes in Chinese').toBe('零')
+    expect(firstOf('nbPoll'), 'and the poll really leaves then').toBe(0)
+    same(String(respAt), firstOf('nbResp') / MS, 'when the first response answers')
+    same(String(reportAt), firstOf('nbReport') / MS, 'and when the first report goes out')
     // 「第一条 Report 在 20.000 ms 处发出，而距离紧随其后 608 µs 出现，落在 20.608 ms」
     const [behind, at] = figs(NUMS, /距离紧随其后 (\d+) µs 出现，落在 ([\d.]+) ms/,
       '`numbers` on the first distance')
@@ -615,6 +630,16 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
       '`deeper` on the two radios')
     same(String(wide), UWB_CHIP_HZ / 1e6, 'the ranging channel’s own width')
     same(String(kbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'against the control radio’s rate')
+    /*
+     * 「第 12 章、250 kb/s 的 O-QPSK PHY」 — the 「第」 rule change of 2026-10-14 uncovered this
+     * printing of the control radio's bit rate. It is a figure of the standard, and **this
+     * repository can still answer it**, because the rate is a quotient of two things the engine
+     * holds: four bits per symbol, and the symbol's own length. (The clause number beside it is
+     * a name — exempt, class (a): there is no corpus of 802.15.4 here.)
+     */
+    const [srcKbps] = figs(SRC, /第 12 章(?:、|那部 )([\d]+) kb\/s/,
+      '`sources` on the narrowband radio’s bit rate')
+    same(String(srcKbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
     // 「模型里的接收端能听到 −100 dBm，发射端则发 10 dBm」, and `limits` names the constants
     const [sens, tx] = figs(DEEP, /接收端能听到 (−\d+) dBm，发射端则发 (\d+) dBm/,
       '`deeper` on the budget')

@@ -322,6 +322,14 @@ describe('uwb-sts · the SRMARKERs the engine does not read', () => {
     expect(span).toBe(66_667)
     const entry = uwbSts.limits.find((l) => l.text.includes('SRMARKER'))!
     expect(entry.kind).toBe('out-of-scope')
+    /*
+     * 「第二个落在段尾那个 512 码片的静默间隔上」 — the gap's own chip count, printed here as
+     * well as in step 1, and uncovered by the 「第」 rule change of 2026-10-14. Step 1 asserts
+     * `STS_GAP_CHIPS === 512` with the figure typed on this side; this reads the printing.
+     */
+    const gap = /那个 (\d+) 码片的静默间隔/.exec(entry.text)
+    expect(gap, '`limits` no longer says which gap the second marker sits on').not.toBeNull()
+    expect(Number(gap![1]), 'the gap this engine really leaves').toBe(STS_GAP_CHIPS)
     expect(entry.text).toContain(`${spaced(span)} ns`)
   })
 

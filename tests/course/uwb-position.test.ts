@@ -294,6 +294,14 @@ describe('uwb-position · the base run', () => {
     const line = 'uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors'
     expect(cell(0, 0, 1)).toBe(line)
     expect(fmtRecord(fixes()[0])).toBe(line)
+    /*
+     * **And the row's own label, which names the block.** The 「第」 rule change of 2026-10-14
+     * uncovered it: 「第 0 块的定位」 is a claim about which record the cell beside it quotes,
+     * and the block is a field of that record.
+     */
+    const [label] = [/第 (\d+) 块的定位/.exec(cell(0, 0, 0))]
+    expect(label, 'the row no longer says which block’s fix it quotes').not.toBeNull()
+    expect(fixes()[0].block, 'the block of the fix that row quotes').toBe(Number(label![1]))
   })
 
   it('the seven errors are the seven the table lists, and the inspector prints the first', () => {
@@ -442,6 +450,15 @@ describe('uwb-position · the procedure, against the solver', () => {
 
   it('step 7: the residual the worked example prints is √(Σ r_i²/n) at the converged point', () => {
     const rs = block0()
+    /*
+     * 「本次运行的第 0 块，照着这些步骤走一遍」 — the heading says which block the worked example
+     * walks, and every cell below is that block's. Uncovered by the 「第」 rule change of
+     * 2026-10-14; read here against the records the cells are built from.
+     */
+    const head = /本次运行的第 (\d+) 块/.exec(table(1).heading!)
+    expect(head, 'the worked example no longer says which block it walks').not.toBeNull()
+    expect(new Set(rs.map((r) => r.block)), 'the block every range in it belongs to')
+      .toEqual(new Set([Number(head![1])]))
     const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
     const fix = solvePosition(anchors, rs.map((r) => ({ id: r.peer, distM: r.distM })), TAG.z, SIGMA_R)!
     // the table's own rows, value by value

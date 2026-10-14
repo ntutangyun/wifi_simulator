@@ -23,6 +23,7 @@ import { UWB_RX_SENS_DBM } from '../../src/uwb/units'
 import { lessonTexts } from '../../src/course/readability'
 import { fmtRecord } from '../../src/ui/format'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { NB_SYMBOL_US } from '../../src/uwb/nb'
 import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
@@ -541,6 +542,18 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
       expect(zhNumeral(zh!.replace(/两/g, '二')), `${PLANES[i]![0]}: the distances one block yields`)
         .toBe(ofType(runOf(uwbUwbd, PLANES[i]![2], BLOCK_NS), 'UWB_RANGE').length)
     }
+  })
+
+  it('the bit rate `sources` gives the narrowband radio, which is a quotient', () => {
+    /*
+     * 「即第 12 章、250 kb/s 的 O-QPSK 物理层」 — the 「第」 rule change of 2026-10-14 uncovered
+     * this one. It is a figure of the standard, and **this repository can still answer it**: the
+     * rate is four bits per symbol over the symbol's own length, both of which `nb.ts` holds.
+     * (The clause number beside it is a name — exempt, class (a), no corpus of 802.15.4 here.)
+     */
+    const [kbps] = figs(uwbUwbd.sources!.join('\u000a'), /第 12 章、(\d+) kb\/s/,
+      '`sources` on the narrowband radio’s bit rate')
+    same(String(kbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
   })
 
   it('the 14.54 dB and each of its two halves, at every place the lesson states them', () => {
