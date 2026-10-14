@@ -553,6 +553,62 @@ describe('mlo · every printed figure is read back out of the lesson', () => {
     expect(BAND_LABEL['6g'], 'and it is the second link’s own label').toBe(tag![1])
   })
 
+  /**
+   * **The four sites the 「第」 rule change of 2026-10-14 uncovered.** The planter used to treat
+   * any 「第」 within sixteen characters of a figure as part of a name (「第 36 章」 cannot be off
+   * by one), and that gate was narrowed to the documentary words. What came out from under it in
+   * this lesson is four ordinals-and-bands: 「第二条标着 ·6G」, 「第一条泳道，也就是 5 GHz 那
+   * 条」, the jump label 「第一个 5 GHz 数据帧」 and the drop note's second printing of the retry
+   * limit. **An ordinal is a figure**: 「the SECOND lane carries the tag」 is a claim about the
+   * order this device's lanes are built in, and the band beside it is a claim about which lane
+   * carries which record — both of which this scene answers. The band read above asks only that
+   * every band named be a band the model has an id for, which 「6」 satisfies as happily as
+   * 「5」, so these two sentences sat inside a set that was too wide to see them.
+   */
+  it('the ordinals: which lane is second, which lane carries the enqueue, and the jump’s band', () => {
+    const sc = mlo.scenario()
+    const lanes = [...nodeLinks(sc.nodes.find((n) => n.id === 'sta-1')!, true)]
+    const ghz = (id: LinkId): string => BAND_LABEL[id].replace(/G$/, '')
+    const pic = mlo.picture!.map((b) => (b as { text?: string }).text ?? '').join('\n')
+    // 「笔记本在时间轴上有两条泳道，第二条标着 ·6G」
+    const w = /第([一二三四五六七八九十两]+)条标着 ·(\w+)/.exec(pic)
+    expect(w, 'the watch block no longer says which lane carries the tag').not.toBeNull()
+    const nth = zhCount(w![1])!
+    expect(lanes.length, 'the lanes this device really has').toBeGreaterThanOrEqual(nth)
+    expect(BAND_LABEL[lanes[nth - 1]!], `lane ${nth} of this device’s own lanes`).toBe(w![2])
+    // 「到达记录与入队记录写的都是这台设备的第一条泳道，也就是 5 GHz 那条」
+    const nums = (mlo.numbers! as { text?: string; items?: string[] }[])
+      .map((x) => [x.text ?? '', ...(x.items ?? [])].join('\n')).join('\n')
+    const f = /第([一二三四五六七八九十两]+)条泳道，也就是 ([\d.]+) GHz 那条/.exec(nums)
+    expect(f, '`numbers` no longer says which lane those two records are written on').not.toBeNull()
+    const written = new Set(rs.flatMap((r) => ((r.type === 'ARRIVAL' || r.type === 'ENQUEUE')
+      && r.node.startsWith('sta-1') ? [r.node] : [])))
+    expect(written.size, 'the lanes those two records really appear on').toBe(1)
+    const named = lanes[zhCount(f![1])! - 1]!
+    expect([...written], 'and it is the lane that ordinal points at').toEqual([
+      named === lanes[0] ? 'sta-1' : `sta-1#${named}`,
+    ])
+    expect(ghz(named), 'the band the sentence names for it').toBe(f![2])
+    // the jump label 「第一个 5 GHz 数据帧」 lands on a frame of that very lane
+    let bandLabels = 0
+    for (const j of mlo.jumps ?? []) {
+      const m = /第([一二三四五六七八九十两]+)个 ([\d.]+) GHz/.exec(j.label)
+      if (m === null) continue
+      bandLabels++
+      const hit = rs.filter((r) => j.find(r))[zhCount(m[1]!)! - 1]
+      expect(hit, `「${j.label}」 finds no such record in this run`).toBeDefined()
+      const node = (hit as Tx).node
+      const lane = node.includes('#') ? (node.split('#')[1] as LinkId) : lanes[0]!
+      expect(ghz(lane), `「${j.label}」 lands on a frame of the band it names`).toBe(m[2])
+    }
+    expect(bandLabels, 'the jump labels that name a band at all — one per lane').toBe(lanes.length)
+    // 「所以“加到 7 就丢弃”这条分支是拿一个合成的场景钉住的」 — the limit, printed a third time
+    const again = /“加到 (\d+) 就丢弃”这条分支/.exec(nums)
+    expect(again, 'the drop note no longer restates the limit').not.toBeNull()
+    expect(Number(again![1]), 'the same retry limit the step and the note state')
+      .toBe(SHORT_RETRY_LIMIT)
+  })
+
   it('the stack figure’s window, the first row’s queue depth, and `tryThis`’s batch', () => {
     // 「最初 300 ms 里，笔记本每五帧里有四帧是从 6 GHz 那条链路出去的」
     // the stack figure lives in `picture`, not in `numbers`

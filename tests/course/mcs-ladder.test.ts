@@ -181,6 +181,59 @@ describe('mcs-ladder · choosing a rung, step by step', () => {
     expect(mcsForRssi('eht', RSSI, undefined, 20)).toBe(3)
   })
 
+  /**
+   * **The 「第」 rule change of 2026-10-14 uncovered six ordinals in this lesson, and an ordinal
+   * inside a procedure is a figure with a referent.** 「第 1 到 3 步可并成一次查表」 names the
+   * steps the shortcut replaces, 「按第 5 步那条捷径」 names the step it is, and 「第 3 级够，第
+   * 4 级不够」 names two neighbouring rungs of the ladder. Every measurement they stand on was
+   * already in this file — the three `it`s above walk the arithmetic, and the one below walks the
+   * shortcut over 121 levels — but all of them compare against a literal written here, so
+   * 「第 1 到 4 步」 or 「第 6 步」 or 「第 5 级够」 would have shipped green. These read the
+   * numbers out of the sentences instead.
+   */
+  it('the ordinals: the steps the shortcut merges, the step it is, and the rungs the quiz walks', () => {
+    const items = steps.items!
+    /*
+     * 「在 20 MHz 上，第 1 到 3 步可并成一次查表」 — two claims about this list's own order: the
+     * merge starts at the first step, and the steps merged are exactly the ones that COMPUTE a
+     * rung, so the step after them is 「就用这一级发」. The sentence is itself the last step.
+     */
+    const sc = /第 (\d+) 到 (\d+) 步可并成一次查表/.exec(items.join('\n'))
+    expect(sc, 'the shortcut step no longer says which steps it merges').not.toBeNull()
+    const [lo, hi] = [Number(sc![1]), Number(sc![2])]
+    expect(lo, 'it merges from the first step').toBe(1)
+    expect(items[hi], `step ${hi + 1} is the first one the shortcut does NOT merge`)
+      .toMatch(/^就用这一级发/)
+    expect(items.findIndex((s) => s.includes('可并成一次查表')) + 1,
+      'and the shortcut is the last step, which is the number the quiz calls it by')
+      .toBe(items.length)
+    const quiz = mcsLadderLesson.quiz
+      .map((q) => `${q.q}\n${q.options.join('\n')}\n${q.explain}`).join('\n')
+    const which = /按第 (\d+) 步那条捷径/.exec(quiz)
+    expect(which, 'the quiz no longer points at the shortcut by number').not.toBeNull()
+    expect(items[Number(which![1]) - 1], 'the step the quiz sends the reader to')
+      .toBe(items[items.length - 1])
+    /*
+     * 「一条链路的到达电平是 −73 dBm，20 MHz…第 3 级够，第 4 级不够；那 3 dB 已经含在这张表
+     * 里」 — the quiz's own link, walked by the engine: the rung it names is the one the shortcut
+     * returns, the next one up really is out of reach, and the two are neighbours (which is what
+     * makes 「不够」 the answer to 「够」 rather than a remark about some rung further up).
+     */
+    const q = /到达电平是 (−[\d.]+) dBm，(\d+) MHz/.exec(quiz)
+    expect(q, 'the quiz no longer states the link it asks about').not.toBeNull()
+    const dbm = Number(q![1]!.replace('−', '-'))
+    const width = Number(q![2])
+    const walk = /第 (\d+) 级够，第 (\d+) 级不够；那 (\d+) dB 已经含在这张表里/.exec(quiz)
+    expect(walk, 'the explanation no longer walks the two rungs').not.toBeNull()
+    const [fits, misses, margin] = walk!.slice(1, 4).map(Number) as [number, number, number]
+    expect(mcsForRssi('eht', dbm, undefined, width), `${dbm} dBm at ${width} MHz`).toBe(fits)
+    expect(PHY_MODES.eht.sensDbm[fits]!, 'the rung that fits is one this level reaches')
+      .toBeLessThanOrEqual(dbm)
+    expect(PHY_MODES.eht.sensDbm[misses]!, 'and the one above it is not').toBeGreaterThan(dbm)
+    expect(misses, 'and they really are neighbours on the ladder').toBe(fits + 1)
+    expect(margin, 'the margin the shortcut says is already in the table').toBe(RATE_MARGIN_DB)
+  })
+
   it('step 5: at 20 MHz the look-up shortcut picks the same rung as the arithmetic', () => {
     for (let dbm = -90; dbm <= -30; dbm += 0.5) {
       const bySensitivity = PHY_MODES.eht.sensDbm.reduce((best, sens, i) => (dbm >= sens ? i : best), 0)

@@ -608,6 +608,17 @@ describe('retries-queues · every figure the prose prints, read back out of it',
     // 「窗口从 15 一路涨到 1023」
     const [from, to] = figs(QUIZ, /窗口从 (\d+) 一路涨到 (\d+)/, 'the quiz on the ladder')
     expect([from, to], 'the two ends of the engine’s ladder').toEqual([CW_MIN, CW_MAX])
+    /*
+     * 「第七次尝试为什么发生在 26 940 µs，而不是紧挨着第六次？」 — the question's own instant,
+     * which the figure's caption also prints and which the 「第」 rule change of 2026-10-14
+     * uncovered here: this was the one figure in this lesson no literal under `tests/` matched at
+     * all. The ordinal is read with it, because 「第七次」 is which attempt the question is about.
+     */
+    const q7 = raw(QUIZ, /第(.)次尝试为什么发生在 ([\d ]+) µs/, 'the quiz on the last attempt')
+    expect('零一二三四五六七八九'.indexOf(q7[0]!), 'the attempt the question asks about')
+      .toBe(attempts.length)
+    expect(val(q7[1]!), 'and when that attempt really goes out')
+      .toBe(Math.round(attempts[attempts.length - 1]!.t / 1000))
   })
 
   it('reads `sources`, `limits` and both variant labels', () => {

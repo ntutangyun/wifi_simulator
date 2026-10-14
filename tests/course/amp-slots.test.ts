@@ -863,6 +863,36 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     for (const variant of ALL_RUNS) expect(captures(recs(variant)), 'no capture anywhere').toBe(0)
   })
 
+  it('「数到第 slot − 1 帧」: the Acks a tag counts before it answers, in every round of every run', () => {
+    /*
+     * **The 「第」 rule change of 2026-10-14 uncovered this one, and it is the mechanism sentence
+     * of the whole lesson**: 「AMP Ack 并不携带标签可以依赖的时隙编号：标签按到达顺序数 Ack，数
+     * 到第 slot − 1 帧就开始发送」. The offset is the figure — with a 2 there the tag would
+     * answer a slot late, which is the very failure the next sentence describes (「标签少数一
+     * 帧，晚一个时隙」) — so it is read as what it claims: in every round of every run, the Acks
+     * that have ENDED before a tag starts its answer number exactly its slot minus this offset.
+     */
+    const m = /数到第 slot − (\d) 帧就开始发送/.exec(EVERYWHERE)
+    expect(m, 'the Ack-as-clock sentence is gone, or its shape changed').not.toBeNull()
+    const minus = val(m![1]!)
+    let checked = 0
+    for (const variant of ALL_RUNS) {
+      const rs2 = recs(variant)
+      const starts = ofType(rs2, 'TX_START')
+      const ackEnds = ofType(rs2, 'TX_END').filter((r) => r.frame.kind === 'ampAck')
+      for (const r of starts.filter((x) => x.frame.kind === 'ampResp')) {
+        const slot = r.frame.amp!.slot!
+        const trig = starts.filter((x) => x.frame.kind === 'ampTrigger' && x.t < r.t).pop()!
+        const heard = ackEnds.filter((a) => a.t > trig.t && a.t < r.t).length
+        expect(heard, `${variant}: ${r.node} answers in slot ${slot} after ${heard} Acks`)
+          .toBe(slot - minus)
+        checked++
+      }
+    }
+    expect(checked, 'answers this holds for, across the runs the lesson ships')
+      .toBeGreaterThan(TAGS.length)
+  })
+
   it('the two formulas of the draw, fed back through every draw of every run', () => {
     // 「ACW = 2^ACWE − 1」 — the formula block, `picture` twice and the steps all print it
     const bases = [...EVERYWHERE.matchAll(/ACW = (\d)\^ACWE − (\d)/g)]

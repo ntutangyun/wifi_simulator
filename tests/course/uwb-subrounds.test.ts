@@ -469,6 +469,28 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
       'they all happen to be 600, which is why each site is read against its own').toBe(1)
   })
 
+  it('reads the two bit positions as the claim they are part of: one octet, two bits', () => {
+    /*
+     * **The 「第」 rule change of 2026-10-14 uncovered these four sites, and they are a draft
+     * figure with no corpus — but the SENTENCE around them is arithmetic.** 「草案把这两位放在
+     * 同一个八位组里（…的第 6 位与第 7 位），并没有禁止同时置位」 claims exactly two things a
+     * test can check: the two positions are different (or 「两位」 is one bit written twice), and
+     * they fall in the same octet (or 「同一个八位组」 is false). The planter moves the last
+     * digit, so 6 → 7 collapses them and 7 → 8 moves one into the next octet: both halves of the
+     * sentence are load-bearing, and both are now read. The pair is also printed in `sources`,
+     * and the two printings are read together, so one cannot be corrected alone.
+     */
+    const pairs = every(ALL, /第 (\d+) 位与第 (\d+) 位/g,
+      'the two bit positions, printed in `deeper` and in `sources`', 2)
+    for (const [a, b] of pairs) {
+      const [lo, hi] = [Number(a), Number(b)]
+      expect(hi, `「第 ${a} 位与第 ${b} 位」: 「两位」 means two different bits`).not.toBe(lo)
+      expect(Math.floor(hi / 8), `「第 ${a} 位与第 ${b} 位」: and 「同一个八位组」 means one octet`)
+        .toBe(Math.floor(lo / 8))
+    }
+    expect(pairs[0], 'the same pair in both places, in the same order').toEqual(pairs[1])
+  })
+
   it('reads the tag’s column and the first anchor’s off the air', () => {
     const ts = tagColumn()
     const [from, to] = figs(PIC, /标签的八个片段在 (\d+) 到 (\d+) ms 之间发完/,

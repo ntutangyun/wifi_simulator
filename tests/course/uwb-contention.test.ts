@@ -30,6 +30,7 @@ import { UWB_CAPTURE_DB, UWB_TX_POWER_DBM, rstuNs } from '../../src/uwb/phy'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
 import { lessonShapeSuite, ofType, runOf } from './kit'
+import { zhNumeral } from './coverage'
 
 const MS = 1_000_000
 /**
@@ -399,7 +400,20 @@ describe('uwb-contention · the analytic model', () => {
 
 describe('uwb-contention · the draw, the collisions and the sit-outs', () => {
   it('round 0’s six draws are the ones the table prints, and two pairs share a slot', () => {
-    const r0 = rounds('base')[0]
+    /*
+     * 「第 0 轮：六次抽取，两次测距」 — the heading names which round the table is of, and the
+     * 「第」 rule change of 2026-10-14 made that 0 visible. It is read here rather than assumed:
+     * the round the cells are compared against is the one the heading names.
+     */
+    const h = /第 (\d+) 轮：(.)次抽取，(.)次测距/.exec(table(2).heading!)
+    expect(h, 'the draws table no longer names the round it is of').not.toBeNull()
+    const r0 = rounds('base')[Number(h![1])]
+    expect(r0, `round ${h![1]} is not a round this run has`).toBeDefined()
+    expect(Number(h![1]), 'and it is the first round of the run').toBe(0)
+    // 「两」 is the counter form of 「二」, and `zhNumeral` only knows the numeral
+    const zh = (x: string): number | null => zhNumeral(x.replace(/两/g, '二'))
+    expect(zh(h![2]!), 'the draws that round makes').toBe(r0.drew.size)
+    expect(zh(h![3]!), 'and the answers the tag hears in it').toBe(r0.ranged.size)
     expect([...r0.drew]).toEqual([
       ['anchor-1', 4], ['anchor-2', 7], ['anchor-3', 1], ['anchor-4', 4], ['anchor-5', 8], ['anchor-6', 7],
     ])
@@ -641,13 +655,26 @@ describe('uwb-contention · the procedure, against the device', () => {
   it('step 7: the budget is spent and refilled at the round boundary, with nothing on the air', () => {
     const rs = rounds('base')
     const by = contendsOf('anchor-2')
-    // the worked example, round by round: the table's own cells
-    // each cell carries that round's drawn slot and attempt number, in the lesson's own words
+    /*
+     * The worked example, round by round: the table's own cells, read BY SHAPE.
+     *
+     * **A `toContain` of a single digit is satisfied by the other figure in the same cell**, and
+     * the planter proved it on 2026-10-14: row 2 is 「第 3 号时隙，第 3 次尝试」 and the round
+     * really has slot 3 and attempt 3, so planting the slot to 4 left 「第 4 号时隙，第 3 次尝
+     * 试」 — which still contains 「3」, from the attempt. Two figures in one cell, two
+     * containment checks, and each one answerable by the wrong figure. Parsed apart, each is
+     * read against its own field of that round's own draw.
+     */
     for (const i of [0, 1, 2]) {
-      expect(cell(4, i, 1), `row ${i}`).toContain(String(by[i].slot))
-      expect(cell(4, i, 1), `row ${i}`).toContain(String(by[i].attempt))
+      const m = /第 (\d+) 号时隙，第 (\d+) 次尝试/.exec(cell(4, i, 1))
+      expect(m, `row ${i} no longer states the slot and the attempt`).not.toBeNull()
+      expect(Number(m![1]), `row ${i}: the slot it drew`).toBe(by[i].slot)
+      expect(Number(m![2]), `row ${i}: and which attempt that was`).toBe(by[i].attempt)
+      expect(Number(cell(4, i, 0)), `row ${i}: the round it is`).toBe(i)
     }
-    expect(cell(4, 3, 1)).toContain(String(by[3].attempt))
+    const out = /不抽时隙，第 (\d+) 次尝试/.exec(cell(4, 3, 1))
+    expect(out, 'the sit-out row no longer states the attempts it has left').not.toBeNull()
+    expect(Number(out![1])).toBe(by[3].attempt)
     expect(by[3].slot).toBeNull()
     expect(by[3].attempt).toBe(0)
     // three rounds of not being heard, then the sit-out, then a full budget again
@@ -860,6 +887,18 @@ describe('uwb-contention · every figure the prose prints, read back out of it',
       '`deeper` on when the first fix comes')
     expect(block, 'the block the first fix falls in').toBe(fixes[0]!.block)
     same(String(secs), fixes[0]!.t / (1000 * MS), 'and the second it falls at')
+    /*
+     * `deeper`'s 「时延」 paragraph states the same first fix again — 「基准场景要等六轮，才有某
+     * 一轮凑齐三次测距，所以它的第一次定位落在 1.218 s」 — and the second printing is its own
+     * site: the 「第」 rule change uncovered the second 1.218, and nothing read it.
+     */
+    const d = raw(DEEP,
+      /基准场景要等(.)轮，才有某一轮凑齐(.)次测距，所以它的第一次定位落在 ([\d.]+) s/,
+      '`deeper` on how long the base scene waits')
+    expect(cn(d[0]!), 'the rounds it waits').toBe(block)
+    expect(cn(d[1]!), 'the ranges that round finally gathers')
+      .toBe(fixes[0]!.anchors.length)
+    expect(d[2], 'and the same second the paragraph above prints').toBe(String(secs))
     // 「同样六个锚点改用点名，则是 180 次应答、30 次定位」
     const [refHeard, refFixes] = figs(DEEP, /改用点名，则是 (\d+) 次应答、(\d+) 次定位/,
       '`deeper` on the roll call')
