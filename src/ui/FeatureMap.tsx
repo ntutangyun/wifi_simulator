@@ -87,6 +87,9 @@ export function FeatureMap() {
   // The two documents are ~170 KB of Markdown between them; parsing is per track and memoised.
   const g = useMemo(() => graphFor(track, lessonIds), [track, lessonIds])
   const sel = g.groups.find((x) => x.id === selected) ?? null
+  /** The other half of a dependency: who would stop making sense without this one. */
+  const dependants = sel === null ? []
+    : g.groups.filter((x) => x.needs.some((n) => n.id === sel.id))
 
   const switchTrack = (t: Track): void => { setTrack(t); setSelected(null) }
 
@@ -148,7 +151,10 @@ export function FeatureMap() {
           </defs>
           {g.edges.map((e) => (
             <path key={`${e.from}-${e.to}`} d={e.d} fill="none" stroke="var(--border)"
-              strokeWidth={1.5} markerEnd="url(#fm-arrow)" />
+              strokeWidth={1.5} markerEnd="url(#fm-arrow)">
+              <title>{`${g.groups.find((x) => x.id === e.from)?.title} → `
+                + `${g.groups.find((x) => x.id === e.to)?.title}　${e.why}`}</title>
+            </path>
           ))}
           {g.boxes.map(({ group, x, y }) => {
             const on = group.id === selected
@@ -202,14 +208,33 @@ export function FeatureMap() {
             <b style={{ fontSize: 15 }}>{sel.title}</b>
             <span style={{ color: 'var(--dim)', fontSize: 12 }}>{sel.note}</span>
           </div>
-          <p style={{ color: 'var(--dim)', fontSize: 12, margin: '6px 0 10px' }}>
-            {L.map.needs}
-            {sel.needs.length === 0 ? L.map.noNeeds
-              : sel.needs.map((n) => g.groups.find((x) => x.id === n)?.title ?? n).join('、')}
-            {'　'}
-            {L.map.lessonsLabel}
-            {sel.lessons.length === 0 ? L.map.noLessons : sel.lessons.map((x) => `@${x}`).join('、')}
-          </p>
+          {/* **Every dependency gets its reason on screen.** An arrow with no reason is a
+              teaching order wearing an arrowhead; writing them out is what kept the two apart
+              when this spine was re-derived as feature dependencies. */}
+          <div style={{ margin: '8px 0 10px', display: 'grid', gap: 4 }}>
+            <div style={{ color: 'var(--dim)', fontSize: 12 }}>
+              {L.map.needs}{sel.needs.length === 0 ? L.map.noNeeds : ''}
+            </div>
+            {sel.needs.map((n) => (
+              <div key={n.id} style={{ fontSize: 12, paddingLeft: 10 }}>
+                <button style={{ padding: '0 6px', fontSize: 12 }} onClick={() => setSelected(n.id)}>
+                  {g.groups.find((x) => x.id === n.id)?.title ?? n.id}
+                </button>
+                <span style={{ color: 'var(--dim)' }}>　{n.why}</span>
+              </div>
+            ))}
+            {dependants.length > 0 && (
+              <div style={{ color: 'var(--dim)', fontSize: 12, marginTop: 2 }}>
+                {L.map.feeds}
+                {dependants.map((d) => d.title).join('、')}
+              </div>
+            )}
+            <div style={{ color: 'var(--dim)', fontSize: 12 }}>
+              {L.map.lessonsLabel}
+              {sel.lessons.length === 0 ? L.map.noLessons
+                : sel.lessons.map((x) => `@${x}`).join('、')}
+            </div>
+          </div>
           <RowList rows={sel.rows} />
         </div>
       )}

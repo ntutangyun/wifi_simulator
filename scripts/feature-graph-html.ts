@@ -73,10 +73,17 @@ function section(track: Track): string {
   const panels = g.groups.map((group) => `<div class="panel" id="p-${track}-${group.id}">
     <h3>${esc(group.title)}</h3>
     <p class="note">${esc(group.note)}</p>
-    <p class="note">依赖：${group.needs.length === 0 ? '（无）'
-      : group.needs.map((n) => esc(g.groups.find((x) => x.id === n)!.title)).join('、')}
-      ｜ 课：${group.lessons.length === 0 ? '（无）'
-        : group.lessons.map((x) => `<code>@${esc(x)}</code>`).join('、')}</p>
+    <p class="note">课：${group.lessons.length === 0 ? '（无）'
+      : group.lessons.map((x) => `<code>@${esc(x)}</code>`).join('、')}</p>
+    ${group.needs.length === 0 ? '<p class="note">依赖：（无，这一组是一条链的起点）</p>'
+      : `<ul class="deps">${group.needs.map((n) =>
+        `<li><b>${esc(g.groups.find((x) => x.id === n.id)!.title)}</b>　${esc(n.why)}</li>`)
+        .join('')}</ul>`}
+    ${(() => {
+      const fed = g.groups.filter((x) => x.needs.some((n) => n.id === group.id))
+      return fed.length === 0 ? ''
+        : `<p class="note">它撑着：${fed.map((x) => esc(x.title)).join('、')}</p>`
+    })()}
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     ${group.rows.map((r) => `<tr>
       <td>${md(r.feature)}<div class="ev">${md(r.evidence)}</div></td>
@@ -96,7 +103,10 @@ function section(track: Track): string {
     </div>
     <div class="scroller"><svg width="${g.width}" height="${g.height}"
       viewBox="0 0 ${g.width} ${g.height}">
-      ${g.edges.map((e) => `<path class="edge" d="${e.d}"></path>`).join('\n')}
+      ${g.edges.map((e) => `<path class="edge" d="${e.d}"><title>`
+        + `${esc(g.groups.find((x) => x.id === e.from)!.title)} → `
+        + `${esc(g.groups.find((x) => x.id === e.to)!.title)}　${esc(e.why)}`
+        + '</title></path>').join('\n')}
       ${nodes}
     </svg></div>
     ${panels}
@@ -179,6 +189,8 @@ const html = `<!doctype html>
   .tag.e-已建模 { color: var(--full); border-color: var(--full) }
   .tag.e-部分建模 { color: var(--part); border-color: var(--part) }
   .tag.e-未建模 { color: var(--dim); border-color: var(--none) }
+  ul.deps { margin: 4px 0 10px; padding-left: 18px; color: var(--dim); font-size: 12.5px }
+  ul.deps b { color: var(--fg) }
   .orphans { margin-top: 16px; border: 1px dashed var(--line); border-radius: 12px;
     padding: 12px 16px; background: var(--card) }
   .view { display: none } .view.on { display: block }

@@ -61,6 +61,8 @@
   .tag.e-已建模 { color: var(--full); border-color: var(--full) }
   .tag.e-部分建模 { color: var(--part); border-color: var(--part) }
   .tag.e-未建模 { color: var(--dim); border-color: var(--none) }
+  ul.deps { margin: 4px 0 10px; padding-left: 18px; color: var(--dim); font-size: 12.5px }
+  ul.deps b { color: var(--fg) }
   .orphans { margin-top: 16px; border: 1px dashed var(--line); border-radius: 12px;
     padding: 12px 16px; background: var(--card) }
   .view { display: none } .view.on { display: block }
@@ -88,30 +90,24 @@
       <div><span class="tag e-已建模">已建模</span> 78 行</div><div><span class="tag e-部分建模">部分建模</span> 10 行</div><div><span class="tag e-未建模">未建模</span> 35 行</div>
       <div><span class="tag k-published">已发布</span> 96 行</div><div><span class="tag k-unsettled">无法判定</span> 3 行</div><div><span class="tag k-none">标准不规定</span> 24 行</div>
     </div>
-    <div class="scroller"><svg width="992" height="708"
-      viewBox="0 0 992 708">
-      <path class="edge" d="M220 206 C240 206 240 74 260 74"></path>
-<path class="edge" d="M220 74 C240 74 240 206 260 206"></path>
-<path class="edge" d="M456 74 C476 74 476 206 496 206"></path>
-<path class="edge" d="M456 74 C476 74 476 74 496 74"></path>
-<path class="edge" d="M456 206 C476 206 476 74 496 74"></path>
-<path class="edge" d="M692 74 C712 74 712 74 732 74"></path>
-<path class="edge" d="M220 74 C476 74 476 74 732 74"></path>
-<path class="edge" d="M692 206 C712 206 712 206 732 206"></path>
-<path class="edge" d="M456 74 C476 74 476 470 496 470"></path>
-<path class="edge" d="M220 206 C358 206 358 338 496 338"></path>
-      <g class="node core" data-id="wifi-phy-params"
+    <div class="scroller"><svg width="1228" height="576"
+      viewBox="0 0 1228 576">
+      <path class="edge" d="M220 74 C240 74 240 206 260 206"><title>物理层时序 → HT／VHT／HE／EHT 参数　每一代改的是前导码与符号这两个尺寸，算空口时间的那条式子不变</title></path>
+<path class="edge" d="M220 74 C240 74 240 74 260 74"><title>物理层时序 → DCF 信道接入　短帧间间隔与时隙是物理层给的两个常数，整条退避都按它们数</title></path>
+<path class="edge" d="M220 338 C240 338 240 74 260 74"><title>业务、队列与云端 → DCF 信道接入　队列里有帧，才有「谁先发」这个问题——本引擎的帧全从队列来</title></path>
+<path class="edge" d="M456 206 C476 206 476 206 496 206"><title>HT／VHT／HE／EHT 参数 → 多速率与控制响应　可选的档就是那一代速率表里的行</title></path>
+<path class="edge" d="M220 206 C358 206 358 206 496 206"><title>传播、衰落与频率选择性 → 多速率与控制响应　挑档读的是这条链路的到达电平，而电平出自传播那一侧</title></path>
+<path class="edge" d="M456 74 C476 74 476 74 496 74"><title>DCF 信道接入 → HCF／EDCA　一类就是一套自己的 DCF 参数：静默更短、窗口更窄</title></path>
+<path class="edge" d="M220 338 C358 338 358 74 496 74"><title>业务、队列与云端 → HCF／EDCA　「四类」分的是队列，而每台设备的四条队列在这一组里</title></path>
+<path class="edge" d="M456 74 C594 74 594 74 732 74"><title>DCF 信道接入 → 聚合与确认　一批帧要先赢得一次发送机会，聚合省下的正是后面几次竞争</title></path>
+<path class="edge" d="M692 206 C712 206 712 74 732 74"><title>多速率与控制响应 → 聚合与确认　一批能装多长，是「这一档上多少微秒」算出来的</title></path>
+<path class="edge" d="M456 206 C712 206 712 74 968 74"><title>HT／VHT／HE／EHT 参数 → 下行与上行的多用户　多用户是 HE／EHT 的 PPDU 形态：资源单元与触发帧都在那一层</title></path>
+<path class="edge" d="M928 74 C948 74 948 74 968 74"><title>聚合与确认 → 下行与上行的多用户　每个成员那一份仍是一批聚合帧，回答仍是块确认</title></path>
+<path class="edge" d="M692 74 C712 74 712 206 732 206"><title>HCF／EDCA → 作弊目录　七种作弊改的都是 EDCA 那三个常数或它们的用法</title></path>
+<path class="edge" d="M220 74 C358 74 358 338 496 338"><title>物理层时序 → AMP（P802.11bp）　它跑在同一片空口上，帧长仍按同一套前导码与符号算</title></path>
+<path class="edge" d="M456 74 C476 74 476 338 496 338"><title>DCF 信道接入 → AMP（P802.11bp）　一轮点名要先占住信道（CTS-to-self），占的是 DCF 的那条规矩</title></path>
+      <g class="node core" data-id="wifi-phy-timing"
       transform="translate(24,24)">
-      <title>HT／VHT／HE／EHT 参数　每一代的前导码、保护间隔、速率表 §19／§21／§27／be §36</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">HT／VHT／HE／EHT 参数</text>
-      <text class="n" x="12" y="40">14 行 · 8 课</text>
-      <text class="n dim" x="12" y="58">每一代的前导码、保护间隔、速率</text><text class="n dim" x="12" y="72">表 §19／§21／§27／be §36</text>
-      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">1</text>
-      <rect class="seg 已建模" x="12.0" y="78" width="110.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="122.6" y="78" width="24.6" height="8" rx="4"></rect><rect class="seg 未建模" x="147.1" y="78" width="36.9" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="wifi-phy-timing"
-      transform="translate(24,156)">
       <title>物理层时序　第 17 章 OFDM 与第 18 章 ERP：前导码、符号、空口时间</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">物理层时序</text>
@@ -121,7 +117,7 @@
       <rect class="seg 已建模" x="12.0" y="78" width="95.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="107.6" y="78" width="19.1" height="8" rx="4"></rect><rect class="seg 未建模" x="126.7" y="78" width="57.3" height="8" rx="4"></rect>
     </g>
 <g class="node derived" data-id="wifi-propagation"
-      transform="translate(24,288)">
+      transform="translate(24,156)">
       <title>传播、衰落与频率选择性　标准不规定的那一半：路径损耗、阴影、瑞利、逐格信噪比</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">传播、衰落与频率选择性</text>
@@ -129,6 +125,26 @@
       <text class="n dim" x="12" y="58">标准不规定的那一半：路径损耗、</text><text class="n dim" x="12" y="72">阴影、瑞利、逐格信噪比</text>
       <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">2</text>
       <rect class="seg 已建模" x="12.0" y="78" width="133.8" height="8" rx="4"></rect><rect class="seg 未建模" x="145.8" y="78" width="38.2" height="8" rx="4"></rect>
+    </g>
+<g class="node derived" data-id="wifi-traffic"
+      transform="translate(24,288)">
+      <title>业务、队列与云端　标准之外：业务模型、队列、广域往返</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">业务、队列与云端</text>
+      <text class="n" x="12" y="40">6 行 · 7 课</text>
+      <text class="n dim" x="12" y="58">标准之外：业务模型、队列、广域</text><text class="n dim" x="12" y="72">往返</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="143.3" height="8" rx="4"></rect><rect class="seg 部分建模" x="155.3" y="78" width="28.7" height="8" rx="4"></rect>
+    </g>
+<g class="node absent" data-id="wifi-wifi-absent"
+      transform="translate(24,420)">
+      <title>决定不建的　读者会合理期待、而本仓库明确不建的那一批</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">决定不建的</text>
+      <text class="n" x="12" y="40">14 行 · 3 课</text>
+      <text class="n dim" x="12" y="58">读者会合理期待、而本仓库明确不</text><text class="n dim" x="12" y="72">建的那一批</text>
+      
+      <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
 <g class="node core" data-id="wifi-dcf"
       transform="translate(260,24)">
@@ -140,28 +156,18 @@
       
       <rect class="seg 已建模" x="12.0" y="78" width="143.3" height="8" rx="4"></rect><rect class="seg 未建模" x="155.3" y="78" width="28.7" height="8" rx="4"></rect>
     </g>
-<g class="node core" data-id="wifi-rates"
+<g class="node core" data-id="wifi-phy-params"
       transform="translate(260,156)">
-      <title>多速率与控制响应　速率选择、控制回应速率、基本速率集 §10.6</title>
+      <title>HT／VHT／HE／EHT 参数　每一代的前导码、保护间隔、速率表 §19／§21／§27／be §36</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">多速率与控制响应</text>
-      <text class="n" x="12" y="40">10 行 · 10 课</text>
-      <text class="n dim" x="12" y="58">速率选择、控制回应速率、基本速</text><text class="n dim" x="12" y="72">率集 §10.6</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="137.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="149.6" y="78" width="17.2" height="8" rx="4"></rect><rect class="seg 未建模" x="166.8" y="78" width="17.2" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="wifi-agg"
-      transform="translate(496,24)">
-      <title>聚合与确认　A-MPDU／A-MSDU、块确认、重传 §10.11／§10.12／§10.25</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">聚合与确认</text>
-      <text class="n" x="12" y="40">10 行 · 6 课</text>
-      <text class="n dim" x="12" y="58">A-MPDU／A-MSDU、块确认、重传</text><text class="n dim" x="12" y="72"> §10.11／§10.12／§10.25</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="103.2" height="8" rx="4"></rect><rect class="seg 部分建模" x="115.2" y="78" width="17.2" height="8" rx="4"></rect><rect class="seg 未建模" x="132.4" y="78" width="51.6" height="8" rx="4"></rect>
+      <text class="t" x="12" y="22">HT／VHT／HE／EHT 参数</text>
+      <text class="n" x="12" y="40">14 行 · 8 课</text>
+      <text class="n dim" x="12" y="58">每一代的前导码、保护间隔、速率</text><text class="n dim" x="12" y="72">表 §19／§21／§27／be §36</text>
+      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">1</text>
+      <rect class="seg 已建模" x="12.0" y="78" width="110.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="122.6" y="78" width="24.6" height="8" rx="4"></rect><rect class="seg 未建模" x="147.1" y="78" width="36.9" height="8" rx="4"></rect>
     </g>
 <g class="node core" data-id="wifi-edca"
-      transform="translate(496,156)">
+      transform="translate(496,24)">
       <title>HCF／EDCA　四类的三个常数、内部碰撞、TXOP §10.23</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">HCF／EDCA</text>
@@ -169,6 +175,16 @@
       <text class="n dim" x="12" y="58">四类的三个常数、内部碰撞、TXO</text><text class="n dim" x="12" y="72">P §10.23</text>
       
       <rect class="seg 已建模" x="12.0" y="78" width="137.6" height="8" rx="4"></rect><rect class="seg 未建模" x="149.6" y="78" width="34.4" height="8" rx="4"></rect>
+    </g>
+<g class="node core" data-id="wifi-rates"
+      transform="translate(496,156)">
+      <title>多速率与控制响应　速率选择、控制回应速率、基本速率集 §10.6</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">多速率与控制响应</text>
+      <text class="n" x="12" y="40">10 行 · 10 课</text>
+      <text class="n dim" x="12" y="58">速率选择、控制回应速率、基本速</text><text class="n dim" x="12" y="72">率集 §10.6</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="137.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="149.6" y="78" width="17.2" height="8" rx="4"></rect><rect class="seg 未建模" x="166.8" y="78" width="17.2" height="8" rx="4"></rect>
     </g>
 <g class="node draft" data-id="wifi-amp"
       transform="translate(496,288)">
@@ -180,35 +196,15 @@
       
       <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
-<g class="node derived" data-id="wifi-traffic"
-      transform="translate(496,420)">
-      <title>业务、队列与云端　标准之外：业务模型、队列、广域往返</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">业务、队列与云端</text>
-      <text class="n" x="12" y="40">6 行 · 7 课</text>
-      <text class="n dim" x="12" y="58">标准之外：业务模型、队列、广域</text><text class="n dim" x="12" y="72">往返</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="143.3" height="8" rx="4"></rect><rect class="seg 部分建模" x="155.3" y="78" width="28.7" height="8" rx="4"></rect>
-    </g>
-<g class="node absent" data-id="wifi-wifi-absent"
-      transform="translate(496,552)">
-      <title>决定不建的　读者会合理期待、而本仓库明确不建的那一批</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">决定不建的</text>
-      <text class="n" x="12" y="40">14 行 · 3 课</text>
-      <text class="n dim" x="12" y="58">读者会合理期待、而本仓库明确不</text><text class="n dim" x="12" y="72">建的那一批</text>
-      
-      <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="wifi-mu"
+<g class="node core" data-id="wifi-agg"
       transform="translate(732,24)">
-      <title>下行与上行的多用户　OFDMA、MU-MIMO、触发帧 §26.5、be §35</title>
+      <title>聚合与确认　A-MPDU／A-MSDU、块确认、重传 §10.11／§10.12／§10.25</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">下行与上行的多用户</text>
-      <text class="n" x="12" y="40">11 行 · 8 课</text>
-      <text class="n dim" x="12" y="58">OFDMA、MU-MIMO、触发帧 §26.5</text><text class="n dim" x="12" y="72">、be §35</text>
+      <text class="t" x="12" y="22">聚合与确认</text>
+      <text class="n" x="12" y="40">10 行 · 6 课</text>
+      <text class="n dim" x="12" y="58">A-MPDU／A-MSDU、块确认、重传</text><text class="n dim" x="12" y="72"> §10.11／§10.12／§10.25</text>
       
-      <rect class="seg 已建模" x="12.0" y="78" width="62.5" height="8" rx="4"></rect><rect class="seg 部分建模" x="74.5" y="78" width="62.5" height="8" rx="4"></rect><rect class="seg 未建模" x="137.1" y="78" width="46.9" height="8" rx="4"></rect>
+      <rect class="seg 已建模" x="12.0" y="78" width="103.2" height="8" rx="4"></rect><rect class="seg 部分建模" x="115.2" y="78" width="17.2" height="8" rx="4"></rect><rect class="seg 未建模" x="132.4" y="78" width="51.6" height="8" rx="4"></rect>
     </g>
 <g class="node core" data-id="wifi-tamper"
       transform="translate(732,156)">
@@ -220,12 +216,23 @@
       
       <rect class="seg 已建模" x="12.0" y="78" width="129.0" height="8" rx="4"></rect><rect class="seg 未建模" x="141.0" y="78" width="43.0" height="8" rx="4"></rect>
     </g>
+<g class="node core" data-id="wifi-mu"
+      transform="translate(968,24)">
+      <title>下行与上行的多用户　OFDMA、MU-MIMO、触发帧 §26.5、be §35</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">下行与上行的多用户</text>
+      <text class="n" x="12" y="40">11 行 · 8 课</text>
+      <text class="n dim" x="12" y="58">OFDMA、MU-MIMO、触发帧 §26.5</text><text class="n dim" x="12" y="72">、be §35</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="62.5" height="8" rx="4"></rect><rect class="seg 部分建模" x="74.5" y="78" width="62.5" height="8" rx="4"></rect><rect class="seg 未建模" x="137.1" y="78" width="46.9" height="8" rx="4"></rect>
+    </g>
     </svg></div>
     <div class="panel" id="p-wifi-phy-timing">
     <h3>物理层时序</h3>
     <p class="note">第 17 章 OFDM 与第 18 章 ERP：前导码、符号、空口时间</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@airtime</code>、<code>@frame-anatomy-bytes</code>、<code>@amp-coexist</code>、<code>@amp-ppdu</code>、<code>@link-2g</code>、<code>@radio-primer</code>、<code>@mlo-gain</code></p>
+    <p class="note">课：<code>@airtime</code>、<code>@frame-anatomy-bytes</code>、<code>@amp-coexist</code>、<code>@amp-ppdu</code>、<code>@link-2g</code>、<code>@radio-primer</code>、<code>@mlo-gain</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    <p class="note">它撑着：HT／VHT／HE／EHT 参数、DCF 信道接入、AMP（P802.11bp）</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>第 17 章 OFDM 的 PPDU 时长公式（式 17-29、§17.4.3）<div class="ev"><code>engine/phy.ts#txTimeNs</code>：20 µs 前导 + 4 µs SIGNAL + 4 µs/符号，符号数 <code>ceil((16+8L+6)/N_DBPS)</code>。<code>@airtime</code>、<code>@frame-anatomy-bytes</code></div></td>
@@ -269,8 +276,9 @@
 <div class="panel" id="p-wifi-phy-params">
     <h3>HT／VHT／HE／EHT 参数</h3>
     <p class="note">每一代的前导码、保护间隔、速率表 §19／§21／§27／be §36</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@frame-anatomy-bytes</code>、<code>@airtime</code>、<code>@ofdma-dl</code>、<code>@streams</code>、<code>@width</code>、<code>@mcs-ladder</code>、<code>@rate</code>、<code>@selectivity</code></p>
+    <p class="note">课：<code>@frame-anatomy-bytes</code>、<code>@airtime</code>、<code>@ofdma-dl</code>、<code>@streams</code>、<code>@width</code>、<code>@mcs-ladder</code>、<code>@rate</code>、<code>@selectivity</code></p>
+    <ul class="deps"><li><b>物理层时序</b>　每一代改的是前导码与符号这两个尺寸，算空口时间的那条式子不变</li></ul>
+    <p class="note">它撑着：多速率与控制响应、下行与上行的多用户</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>四个世代与它们的前导码（§21.3.8、§27.3.9、be §36.3.10）<div class="ev"><code>engine/phy.ts#PHY_MODES</code> 的 <code>preambleNs</code>：20 / 40 / 44 / 48 µs。<b>44 与 48 是 Table 27-13 / 36-18 逐项相加后向上取整</b>（43.2 与 47.2），所以是「≈」不是「=」，代码注释自己说明了；<b>包扩展（packet extension）没建</b>。<code>@frame-anatomy-bytes</code>、<code>@airtime</code></div></td>
@@ -334,8 +342,9 @@
 <div class="panel" id="p-wifi-propagation">
     <h3>传播、衰落与频率选择性</h3>
     <p class="note">标准不规定的那一半：路径损耗、阴影、瑞利、逐格信噪比</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@radio-primer</code>、<code>@capstone</code>、<code>@noise-floor</code>、<code>@fading</code>、<code>@rate-fallback</code>、<code>@selectivity</code>、<code>@ru-diversity</code>、<code>@uwb-sensing</code>、<code>@uwb-coexist</code></p>
+    <p class="note">课：<code>@radio-primer</code>、<code>@capstone</code>、<code>@noise-floor</code>、<code>@fading</code>、<code>@rate-fallback</code>、<code>@selectivity</code>、<code>@ru-diversity</code>、<code>@uwb-sensing</code>、<code>@uwb-coexist</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    <p class="note">它撑着：多速率与控制响应</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>室内对数距离路径损耗<div class="ev"><code>engine/propagation.ts#PL0_DB</code> = 46.7（5.2 GHz 一米自由空间）、<code>engine/propagation.ts#PL_EXP</code> = 3.0，<b>两个数都是本仿真器选的</b>。<code>@radio-primer</code></div></td>
@@ -376,11 +385,46 @@
     </tr>
     </tbody></table>
   </div>
+<div class="panel" id="p-wifi-traffic">
+    <h3>业务、队列与云端</h3>
+    <p class="note">标准之外：业务模型、队列、广域往返</p>
+    <p class="note">课：<code>@queues</code>、<code>@retries-queues</code>、<code>@wan-rtt</code>、<code>@edca-tamper</code>、<code>@edca</code>、<code>@roles-stack</code>、<code>@relay-hops</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    <p class="note">它撑着：DCF 信道接入、HCF／EDCA</p>
+    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
+    <tr>
+      <td>发送队列的深度上限与 MSDU 生存期<div class="ev"><code>engine/queues.ts#DEFAULT_QUEUE_LIMIT</code> = 500、<code>engine/queues.ts#DEFAULT_MSDU_LIFETIME_NS</code> = 500 ms（<b>两个数本仿真器选的</b>）；记录 <code>DROP.reason</code> 分 <code>'queueFull'</code> / <code>'lifetime'</code>。<code>@queues</code>、<code>@retries-queues</code></div></td>
+      <td><span class="tag k-published">已发布 · 802.11-2024（dot11MaxTransmitMSDULifetime 的概念） + 标准不规定（取值）</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>九个业务档<div class="ev"><code>model/scenario.ts#PROFILE_IDS</code>：video / voice / gaming / p2pvideo / backup / browsing / iot / saturated / idle。<b>九个档现在全部至少被一门课加载过</b>——<code>gaming</code> 那一个 2026-10-05 才补上（<code>@wan-rtt</code>、<code>@edca-tamper</code>）。<code>@edca</code>、<code>@roles-stack</code></div></td>
+      <td><span class="tag k-none">标准不规定</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>站点到站点经接入点转发<div class="ev"><code>model/scenario.ts</code> 的 <code>NodeCfg.p2pTarget</code> 配 <code>p2pvideo</code> 档。<code>@relay-hops</code>、<code>@roles-stack</code></div></td>
+      <td><span class="tag k-published">已发布 · 802.11-2024（§10.2 的 DS）</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>云端服务器：单向时延、抖动、处理时间<div class="ev"><code>model/scenario.ts#DEFAULT_SERVERS</code> 四个端点（RTT 20 / 12 / 40 / 25 ms，<b>都是本仿真器选的</b>）；记录 <code>WAN_TX</code> / <code>WAN_RX</code>，视图里是 <code>stats.appRtt</code>。<code>@wan-rtt</code></div></td>
+      <td><span class="tag k-none">标准不规定（完全在 802.11 之外）</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>四种服务器端点各自的取值<div class="ev">机理只有一套（固定单向时延 + 均匀抖动 + 处理时间），四个 kind 只是四组数。<b>只有 <code>game</code> 被课程加载过</b>：<code>video</code> / <code>web</code> / <code>call</code> 在 256 个场景里零命中（七个编辑器家庭预设里有）。<code>@wan-rtt</code></div></td>
+      <td><span class="tag k-none">标准不规定</span></td>
+      <td><span class="tag e-部分建模">部分建模</span></td>
+    </tr><tr>
+      <td>每 250 ms 一次的 ping 回声，用来量应用往返<div class="ev"><code>engine/traffic.ts</code> 的 <code>schedulePing</code> / <code>PING_PERIOD_NS</code>——<b>这就是一款游戏的 ping 计数器量的那个数</b>。<code>@wan-rtt</code></div></td>
+      <td><span class="tag k-none">标准不规定</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr>
+    </tbody></table>
+  </div>
 <div class="panel" id="p-wifi-dcf">
     <h3>DCF 信道接入</h3>
     <p class="note">帧间间隔、退避、NAV、重传与丢弃 §10.3</p>
-    <p class="note">依赖：物理层时序
-      ｜ 课：<code>@ifs</code>、<code>@anomaly</code>、<code>@collisions-cw</code>、<code>@backoff</code>、<code>@nav</code>、<code>@edca</code>、<code>@cca</code>、<code>@decode-thresholds</code>、<code>@hidden</code>、<code>@rts-cts</code>、<code>@retries-queues</code>、<code>@small-frames</code>、<code>@frame-anatomy</code></p>
+    <p class="note">课：<code>@ifs</code>、<code>@anomaly</code>、<code>@collisions-cw</code>、<code>@backoff</code>、<code>@nav</code>、<code>@edca</code>、<code>@cca</code>、<code>@decode-thresholds</code>、<code>@hidden</code>、<code>@rts-cts</code>、<code>@retries-queues</code>、<code>@small-frames</code>、<code>@frame-anatomy</code></p>
+    <ul class="deps"><li><b>物理层时序</b>　短帧间间隔与时隙是物理层给的两个常数，整条退避都按它们数</li><li><b>业务、队列与云端</b>　队列里有帧，才有「谁先发」这个问题——本引擎的帧全从队列来</li></ul>
+    <p class="note">它撑着：HCF／EDCA、聚合与确认、AMP（P802.11bp）</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>SIFS / 时隙 / DIFS（§10.3.2.3.5、§17.4.4）<div class="ev"><code>engine/phy.ts#SIFS_NS</code> = 16 000、<code>engine/phy.ts#SLOT_NS</code> = 9 000、<code>engine/phy.ts#DIFS_NS</code> = 34 000，整条链路的时序封在 <code>engine/phy.ts#OFDM_5G</code> 里。<code>@ifs</code></div></td>
@@ -460,8 +504,9 @@
 <div class="panel" id="p-wifi-rates">
     <h3>多速率与控制响应</h3>
     <p class="note">速率选择、控制回应速率、基本速率集 §10.6</p>
-    <p class="note">依赖：HT／VHT／HE／EHT 参数
-      ｜ 课：<code>@bianchi</code>、<code>@rts-cts</code>、<code>@mcs-ladder</code>、<code>@decode-thresholds</code>、<code>@noise-floor</code>、<code>@width</code>、<code>@rate</code>、<code>@rate-fallback</code>、<code>@rate-cost</code>、<code>@streams</code></p>
+    <p class="note">课：<code>@bianchi</code>、<code>@rts-cts</code>、<code>@mcs-ladder</code>、<code>@decode-thresholds</code>、<code>@noise-floor</code>、<code>@width</code>、<code>@rate</code>、<code>@rate-fallback</code>、<code>@rate-cost</code>、<code>@streams</code></p>
+    <ul class="deps"><li><b>HT／VHT／HE／EHT 参数</b>　可选的档就是那一代速率表里的行</li><li><b>传播、衰落与频率选择性</b>　挑档读的是这条链路的到达电平，而电平出自传播那一侧</li></ul>
+    <p class="note">它撑着：聚合与确认</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>强制速率集（§17.3.10、Table 17-21）<div class="ev"><code>engine/phy.ts#MANDATORY_MBPS</code> = [6, 12, 24]。<code>@bianchi</code></div></td>
@@ -509,8 +554,9 @@
 <div class="panel" id="p-wifi-edca">
     <h3>HCF／EDCA</h3>
     <p class="note">四类的三个常数、内部碰撞、TXOP §10.23</p>
-    <p class="note">依赖：DCF 信道接入
-      ｜ 课：<code>@edca</code>、<code>@txop</code>、<code>@ifs</code>、<code>@mumimo</code>、<code>@collisions-cw</code>、<code>@retries-queues</code>、<code>@backoff</code>、<code>@wan-rtt</code></p>
+    <p class="note">课：<code>@edca</code>、<code>@txop</code>、<code>@ifs</code>、<code>@mumimo</code>、<code>@collisions-cw</code>、<code>@retries-queues</code>、<code>@backoff</code>、<code>@wan-rtt</code></p>
+    <ul class="deps"><li><b>DCF 信道接入</b>　一类就是一套自己的 DCF 参数：静默更短、窗口更窄</li><li><b>业务、队列与云端</b>　「四类」分的是队列，而每台设备的四条队列在这一组里</li></ul>
+    <p class="note">它撑着：作弊目录</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>四个接入类别与 AIFS[AC]（§10.23.2.3、Table 9-194 的缺省值）<div class="ev"><code>engine/phy.ts#EDCA_PARAMS</code>：AIFSN 7/3/2/2、CWmin 15/15/7/3、CWmax 1023/1023/15/7；<code>engine/phy.ts#aifsNs</code>。<code>@edca</code></div></td>
@@ -558,8 +604,9 @@
 <div class="panel" id="p-wifi-agg">
     <h3>聚合与确认</h3>
     <p class="note">A-MPDU／A-MSDU、块确认、重传 §10.11／§10.12／§10.25</p>
-    <p class="note">依赖：DCF 信道接入、多速率与控制响应
-      ｜ 课：<code>@ampdu</code>、<code>@small-frames</code>、<code>@ofdma-dl</code>、<code>@txop</code>、<code>@txop-protect</code>、<code>@protect-policies</code></p>
+    <p class="note">课：<code>@ampdu</code>、<code>@small-frames</code>、<code>@ofdma-dl</code>、<code>@txop</code>、<code>@txop-protect</code>、<code>@protect-policies</code></p>
+    <ul class="deps"><li><b>DCF 信道接入</b>　一批帧要先赢得一次发送机会，聚合省下的正是后面几次竞争</li><li><b>多速率与控制响应</b>　一批能装多长，是「这一档上多少微秒」算出来的</li></ul>
+    <p class="note">它撑着：下行与上行的多用户</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>A-MPDU 与分隔符（§10.12、§9.8）<div class="ev"><code>engine/phy.ts#AMPDU_DELIMITER_BYTES</code> = 4、<code>engine/phy.ts#QOS_HDR_BYTES</code> = 26、<code>engine/phy.ts#MAX_AMPDU_MPDUS</code> = 64。<b>填充只加在子帧之间、不加在最后一个之后</b>（标准对齐 A17）。<code>@ampdu</code>、<code>@small-frames</code></div></td>
@@ -607,8 +654,9 @@
 <div class="panel" id="p-wifi-mu">
     <h3>下行与上行的多用户</h3>
     <p class="note">OFDMA、MU-MIMO、触发帧 §26.5、be §35</p>
-    <p class="note">依赖：聚合与确认、HT／VHT／HE／EHT 参数
-      ｜ 课：<code>@ofdma-dl</code>、<code>@ru-diversity</code>、<code>@ofdma-ul</code>、<code>@mumimo</code>、<code>@mumimo-choose</code>、<code>@streams</code>、<code>@mlo</code>、<code>@mlo-gain</code></p>
+    <p class="note">课：<code>@ofdma-dl</code>、<code>@ru-diversity</code>、<code>@ofdma-ul</code>、<code>@mumimo</code>、<code>@mumimo-choose</code>、<code>@streams</code>、<code>@mlo</code>、<code>@mlo-gain</code></p>
+    <ul class="deps"><li><b>HT／VHT／HE／EHT 参数</b>　多用户是 HE／EHT 的 PPDU 形态：资源单元与触发帧都在那一层</li><li><b>聚合与确认</b>　每个成员那一份仍是一批聚合帧，回答仍是块确认</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>下行 OFDMA（§26.5.1）<div class="ev">建的是「一次发送分给几台设备、各占一份带宽」：<code>engine/mac.ts</code> 的私有方法 <code>buildMuParts</code>（<code>mumimo</code> 为 false 的那一支，成员那一份是 <code>ruFraction = 1/n</code>）。<b>没建的是真正的离散资源单元表与打孔</b>——成员那一份是一个分数而不是一个 RU 索引。<code>@ofdma-dl</code>、<code>@ru-diversity</code></div></td>
@@ -660,8 +708,9 @@
 <div class="panel" id="p-wifi-tamper">
     <h3>作弊目录</h3>
     <p class="note">七种改坏驱动的办法，以及 AP 能不能看出来 §9.4.2.27</p>
-    <p class="note">依赖：HCF／EDCA
-      ｜ 课：<code>@edca-tamper</code></p>
+    <p class="note">课：<code>@edca-tamper</code></p>
+    <ul class="deps"><li><b>HCF／EDCA</b>　七种作弊改的都是 EDCA 那三个常数或它们的用法</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>七种偏离广播 EDCA 参数的篡改驱动<div class="ev"><code>model/scenario.ts#TAMPER_KINDS</code> = escalate / aifs / cw / noDouble / txopHog / navInflate / greedy，预设在 <code>model/scenario.ts#TAMPER_PRESETS</code>；<code>engine/mac.ts#effectiveParams</code> 把它们叠到基准参数上。<b>七种全部有课</b>（<code>@edca-tamper</code> 的七个变体）。<code>@edca-tamper</code></div></td>
@@ -682,44 +731,12 @@
     </tr>
     </tbody></table>
   </div>
-<div class="panel" id="p-wifi-traffic">
-    <h3>业务、队列与云端</h3>
-    <p class="note">标准之外：业务模型、队列、广域往返</p>
-    <p class="note">依赖：DCF 信道接入
-      ｜ 课：<code>@queues</code>、<code>@retries-queues</code>、<code>@wan-rtt</code>、<code>@edca-tamper</code>、<code>@edca</code>、<code>@roles-stack</code>、<code>@relay-hops</code></p>
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    <tr>
-      <td>发送队列的深度上限与 MSDU 生存期<div class="ev"><code>engine/queues.ts#DEFAULT_QUEUE_LIMIT</code> = 500、<code>engine/queues.ts#DEFAULT_MSDU_LIFETIME_NS</code> = 500 ms（<b>两个数本仿真器选的</b>）；记录 <code>DROP.reason</code> 分 <code>'queueFull'</code> / <code>'lifetime'</code>。<code>@queues</code>、<code>@retries-queues</code></div></td>
-      <td><span class="tag k-published">已发布 · 802.11-2024（dot11MaxTransmitMSDULifetime 的概念） + 标准不规定（取值）</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>九个业务档<div class="ev"><code>model/scenario.ts#PROFILE_IDS</code>：video / voice / gaming / p2pvideo / backup / browsing / iot / saturated / idle。<b>九个档现在全部至少被一门课加载过</b>——<code>gaming</code> 那一个 2026-10-05 才补上（<code>@wan-rtt</code>、<code>@edca-tamper</code>）。<code>@edca</code>、<code>@roles-stack</code></div></td>
-      <td><span class="tag k-none">标准不规定</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>站点到站点经接入点转发<div class="ev"><code>model/scenario.ts</code> 的 <code>NodeCfg.p2pTarget</code> 配 <code>p2pvideo</code> 档。<code>@relay-hops</code>、<code>@roles-stack</code></div></td>
-      <td><span class="tag k-published">已发布 · 802.11-2024（§10.2 的 DS）</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>云端服务器：单向时延、抖动、处理时间<div class="ev"><code>model/scenario.ts#DEFAULT_SERVERS</code> 四个端点（RTT 20 / 12 / 40 / 25 ms，<b>都是本仿真器选的</b>）；记录 <code>WAN_TX</code> / <code>WAN_RX</code>，视图里是 <code>stats.appRtt</code>。<code>@wan-rtt</code></div></td>
-      <td><span class="tag k-none">标准不规定（完全在 802.11 之外）</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>四种服务器端点各自的取值<div class="ev">机理只有一套（固定单向时延 + 均匀抖动 + 处理时间），四个 kind 只是四组数。<b>只有 <code>game</code> 被课程加载过</b>：<code>video</code> / <code>web</code> / <code>call</code> 在 256 个场景里零命中（七个编辑器家庭预设里有）。<code>@wan-rtt</code></div></td>
-      <td><span class="tag k-none">标准不规定</span></td>
-      <td><span class="tag e-部分建模">部分建模</span></td>
-    </tr><tr>
-      <td>每 250 ms 一次的 ping 回声，用来量应用往返<div class="ev"><code>engine/traffic.ts</code> 的 <code>schedulePing</code> / <code>PING_PERIOD_NS</code>——<b>这就是一款游戏的 ping 计数器量的那个数</b>。<code>@wan-rtt</code></div></td>
-      <td><span class="tag k-none">标准不规定</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr>
-    </tbody></table>
-  </div>
 <div class="panel" id="p-wifi-amp">
     <h3>AMP（P802.11bp）</h3>
     <p class="note">环境供电标签：触发、时隙、反向散射——引擎建了而课没讲的那些</p>
-    <p class="note">依赖：物理层时序
-      ｜ 课：<code>@amp-intro</code>、<code>@amp-ppdu</code>、<code>@amp-slots</code>、<code>@amp-coexist</code>、<code>@amp-backscatter</code></p>
+    <p class="note">课：<code>@amp-intro</code>、<code>@amp-ppdu</code>、<code>@amp-slots</code>、<code>@amp-coexist</code>、<code>@amp-backscatter</code></p>
+    <ul class="deps"><li><b>物理层时序</b>　它跑在同一片空口上，帧长仍按同一套前导码与符号算</li><li><b>DCF 信道接入</b>　一轮点名要先占住信道（CTS-to-self），占的是 DCF 的那条规矩</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>主动发射（Active Tx）标签的轮询轮：触发、随机接入相位、调度相位<div class="ev"><code>engine/ampAp.ts</code>、<code>engine/ampSta.ts</code>；记录 <code>AMP_ROUND</code> / <code>AMP_SLOT</code> / <code>AMP_ABOC</code> / <code>AMP_RESULT</code>。<code>@amp-intro</code>、<code>@amp-ppdu</code>、<code>@amp-slots</code></div></td>
@@ -759,8 +776,9 @@
 <div class="panel" id="p-wifi-wifi-absent">
     <h3>决定不建的</h3>
     <p class="note">读者会合理期待、而本仓库明确不建的那一批</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@frame-anatomy</code>、<code>@wan-rtt</code>、<code>@edca-tamper</code></p>
+    <p class="note">课：<code>@frame-anatomy</code>、<code>@wan-rtt</code>、<code>@edca-tamper</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>信标、TIM/DTIM、扫描（§11.1）<div class="ev"><b>范围决定（现在）/ 未偿的债（按原计划）。</b> 零到一百的设计把它排在 Tier 2 的 M5 与 S5 这一刀上，所以它是<b>未偿的债</b>；<code>grep -ri 'beacon' src/engine src/model</code> 零命中，一个站点一开始就「已经连上了」。这一条与下面四条是标准对齐程序的 <b>E</b> 项。</div></td>
@@ -835,34 +853,47 @@
       <div><span class="tag e-已建模">已建模</span> 28 行</div><div><span class="tag e-部分建模">部分建模</span> 40 行</div><div><span class="tag e-未建模">未建模</span> 41 行</div>
       <div><span class="tag k-published">已发布</span> 64 行</div><div><span class="tag k-draft">已进草案</span> 26 行</div><div><span class="tag k-contested">仍在争论</span> 8 行</div><div><span class="tag k-unsettled">无法判定</span> 11 行</div>
     </div>
-    <div class="scroller"><svg width="1936" height="1104"
-      viewBox="0 0 1936 1104">
-      <path class="edge" d="M220 338 C240 338 240 74 260 74"></path>
-<path class="edge" d="M220 206 C240 206 240 74 260 74"></path>
-<path class="edge" d="M456 74 C476 74 476 206 496 206"></path>
-<path class="edge" d="M456 74 C476 74 476 74 496 74"></path>
-<path class="edge" d="M692 206 C712 206 712 74 732 74"></path>
-<path class="edge" d="M928 74 C948 74 948 338 968 338"></path>
-<path class="edge" d="M928 74 C948 74 948 74 968 74"></path>
-<path class="edge" d="M928 74 C948 74 948 470 968 470"></path>
-<path class="edge" d="M692 74 C830 74 830 470 968 470"></path>
-<path class="edge" d="M928 74 C948 74 948 206 968 206"></path>
-<path class="edge" d="M1164 206 C1184 206 1184 74 1204 74"></path>
-<path class="edge" d="M1164 338 C1184 338 1184 74 1204 74"></path>
-<path class="edge" d="M220 206 C712 206 712 206 1204 206"></path>
-<path class="edge" d="M1400 206 C1420 206 1420 74 1440 74"></path>
-<path class="edge" d="M928 74 C1184 74 1184 74 1440 74"></path>
-<path class="edge" d="M1636 74 C1538 74 1538 206 1440 206"></path>
-<path class="edge" d="M1636 206 C1656 206 1656 74 1676 74"></path>
-<path class="edge" d="M220 74 C948 74 948 74 1676 74"></path>
-<path class="edge" d="M220 74 C830 74 830 338 1440 338"></path>
-<path class="edge" d="M456 74 C948 74 948 338 1440 338"></path>
-<path class="edge" d="M1164 338 C1302 338 1302 734 1440 734"></path>
-<path class="edge" d="M1164 74 C1302 74 1302 734 1440 734"></path>
-<path class="edge" d="M928 74 C1184 74 1184 866 1440 866"></path>
-<path class="edge" d="M220 338 C830 338 830 866 1440 866"></path>
-<path class="edge" d="M456 74 C948 74 948 470 1440 470"></path>
-<path class="edge" d="M220 74 C830 74 830 602 1440 602"></path>
+    <div class="scroller"><svg width="1228" height="1236"
+      viewBox="0 0 1228 1236">
+      <path class="edge" d="M220 206 C240 206 240 206 260 206"><title>HRP 物理层：只建时长 → 测距 IE　一个信息单元是 PSDU 里的几个字节，而 PSDU 的长度与空口时间由它定</title></path>
+<path class="edge" d="M220 338 C240 338 240 338 260 338"><title>单位与计数器 → 双向测距的数学　一次测量就是两个计数器读数相减，RCTU 是减出来的那个差的单位</title></path>
+<path class="edge" d="M220 206 C240 206 240 338 260 338"><title>HRP 物理层：只建时长 → 双向测距的数学　RMARKER 是帧里一个确定的码片，没有 PPDU 的分段就没有那个时刻</title></path>
+<path class="edge" d="M456 338 C476 338 476 338 496 338"><title>双向测距的数学 → 五种回复时间形态　「回复时间」只有在一次双向测距里才存在，五种形态是它的五种去处</title></path>
+<path class="edge" d="M456 206 C476 206 476 338 496 338"><title>测距 IE → 五种回复时间形态　嵌入与延后两种把它装在 RRTI／RMI 里，固定那一种的代价正是不装</title></path>
+<path class="edge" d="M220 338 C240 338 240 74 260 74"><title>单位与计数器 → 块／轮／时隙　块与时隙都按 RSTU 的整数倍计，时隙边界是用它算出来的</title></path>
+<path class="edge" d="M456 206 C476 206 476 206 496 206"><title>测距 IE → 多节点测距 IE　它们也是信息单元，长度与字段清单按同一套算</title></path>
+<path class="edge" d="M456 74 C476 74 476 206 496 206"><title>块／轮／时隙 → 多节点测距 IE　这几个单元装的正是块号、轮号与时隙号——没有网格就没有号可装</title></path>
+<path class="edge" d="M456 338 C594 338 594 74 732 74"><title>双向测距的数学 → 一对多　每个锚点与标签之间仍然是一次双向测距，只是问话合成了一帧</title></path>
+<path class="edge" d="M456 74 C594 74 594 74 732 74"><title>块／轮／时隙 → 一对多　「各答各的」靠的是每个锚点有自己的时隙</title></path>
+<path class="edge" d="M692 206 C712 206 712 74 732 74"><title>多节点测距 IE → 一对多　RDM IE 就是那张「谁在第几个时隙」的名单</title></path>
+<path class="edge" d="M456 338 C476 338 476 74 496 74"><title>双向测距的数学 → 多对多　一帧同时是答与问，而两边各自算的仍是同一条双向测距的算术</title></path>
+<path class="edge" d="M456 74 C476 74 476 74 496 74"><title>块／轮／时隙 → 多对多　参与者 i 在第 i 个时隙发——身份与次序都来自网格</title></path>
+<path class="edge" d="M220 206 C476 206 476 206 732 206"><title>HRP 物理层：只建时长 → SP3 分组测距　SP3 是一种 PPDU 形状：SHR 加 STS，没有 PHR 也没有 PSDU</title></path>
+<path class="edge" d="M456 74 C594 74 594 206 732 206"><title>块／轮／时隙 → SP3 分组测距　这种包一个字段也带不了，所以发的人是谁只能由时隙回答</title></path>
+<path class="edge" d="M692 206 C712 206 712 206 732 206"><title>多节点测距 IE → SP3 分组测距　请求它的 SRRR IE 挂在控制消息上，一个响应方一条</title></path>
+<path class="edge" d="M928 74 C948 74 948 74 968 74"><title>一对多 → 出错之后：三节全建　这三节讲的都是控制器与响应方之间出了岔子，没有这对角色就无从谈起</title></path>
+<path class="edge" d="M692 206 C830 206 830 74 968 74"><title>多节点测距 IE → 出错之后：三节全建　三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）</title></path>
+<path class="edge" d="M220 206 C240 206 240 1130 260 1130"><title>HRP 物理层：只建时长 → 安全：整块缺席　STS 字段的位置与长度在 PPDU 里，缺的是填进去的那串码片</title></path>
+<path class="edge" d="M456 74 C476 74 476 734 496 734"><title>块／轮／时隙 → 原语、PIB 与描述符　这些原语管的是一次测距会话的启停与参数，而会话就是那张网格</title></path>
+<path class="edge" d="M220 206 C240 206 240 998 260 998"><title>HRP 物理层：只建时长 → HPRF 与脉冲形状　它们是同一层的另外几种选择：换调制、换脉冲，PPDU 的骨架不变</title></path>
+<path class="edge" d="M456 74 C476 74 476 866 496 866"><title>块／轮／时隙 → 建立、拆除与超帧　要建立与拆除的那个东西就是会话，而本引擎的会话是一张算好的网格</title></path>
+<path class="edge" d="M220 206 C240 206 240 470 260 470"><title>HRP 物理层：只建时长 → MMS 包格式　片段仍是 HRP 的码片与符号，变的是把一个包拆成一串</title></path>
+<path class="edge" d="M220 338 C240 338 240 470 260 470"><title>单位与计数器 → MMS 包格式　「每毫秒」这个预算与片段的位置都按码片与 RSTU 算</title></path>
+<path class="edge" d="M456 470 C476 470 476 470 496 470"><title>MMS 包格式 → MMS 测距与子轮　一轮 MMS 测距量的就是那串片段的首脉冲</title></path>
+<path class="edge" d="M456 338 C476 338 476 470 496 470"><title>双向测距的数学 → MMS 测距与子轮　它仍是单边双向那一套算术，加一次时钟比率修正</title></path>
+<path class="edge" d="M456 74 C476 74 476 470 496 470"><title>块／轮／时隙 → MMS 测距与子轮　子轮、测距阶段与报告阶段都排在块与时隙上</title></path>
+<path class="edge" d="M692 470 C712 470 712 338 732 338"><title>MMS 测距与子轮 → 窄带控制面　这部窄带电台只搬控制消息，而它要控制的那一轮就是 MMS 测距</title></path>
+<path class="edge" d="M928 338 C948 338 948 206 968 206"><title>窄带控制面 → 共存：LBT、SSBD、频域延后　先听后说与跳到下一个信道，判的都是那部窄带电台要不要发</title></path>
+<path class="edge" d="M220 74 C594 74 594 206 968 206"><title>信道与频段 → 共存：LBT、SSBD、频域延后　「听得见别人」是一次带内功率的比较，而带宽与重叠在这一组里</title></path>
+<path class="edge" d="M220 206 C240 206 240 602 260 602"><title>HRP 物理层：只建时长 → 感知　回波量的是同一发帧的首脉冲，时标仍取在 RMARKER 上</title></path>
+<path class="edge" d="M220 74 C240 74 240 602 260 602"><title>信道与频段 → 感知　散射体回来的那一路强不强，是一次链路预算</title></path>
+<path class="edge" d="M456 338 C712 338 712 338 968 338"><title>双向测距的数学 → 由距离解位置　解算吃的是距离，而距离是双向测距交出来的</title></path>
+<path class="edge" d="M928 74 C948 74 948 338 968 338"><title>一对多 → 由距离解位置　一次解算要同一轮里的三条以上距离，那正是一对多给的</title></path>
+<path class="edge" d="M220 338 C358 338 358 602 496 602"><title>单位与计数器 → DL／UL-TDoA　它量的是两个到达时刻之差，单位与计数器是同一套</title></path>
+<path class="edge" d="M456 74 C476 74 476 602 496 602"><title>块／轮／时隙 → DL／UL-TDoA　谁在什么时候发，靠的是排好的时隙——标签不回话，没有网格就没有次序</title></path>
+<path class="edge" d="M220 206 C358 206 358 602 496 602"><title>HRP 物理层：只建时长 → DL／UL-TDoA　到达时刻取在 RMARKER 上，和双向测距同一个瞬间</title></path>
+<path class="edge" d="M220 206 C240 206 240 734 260 734"><title>HRP 物理层：只建时长 → AoA／PDoA　相位差读在同一帧的同一瞬间上——它要的是一帧，不是一次往返</title></path>
+<path class="edge" d="M220 74 C240 74 240 866 260 866"><title>信道与频段 → UWB 侧的衰落　衰落要改的就是这条链路预算里的那一项</title></path>
       <g class="node core" data-id="uwb-band"
       transform="translate(24,24)">
       <title>信道与频段　信道 5／9、带内功率、最大输入 §11.1、§16.4.10</title>
@@ -893,48 +924,8 @@
       
       <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
-<g class="node core" data-id="uwb-twr"
-      transform="translate(260,24)">
-      <title>双向测距的数学　SS／DS-TWR、时钟偏移修正、品质因数、基本交互</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">双向测距的数学</text>
-      <text class="n" x="12" y="40">5 行 · 3 课</text>
-      <text class="n dim" x="12" y="58">SS／DS-TWR、时钟偏移修正、品</text><text class="n dim" x="12" y="72">质因数、基本交互</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="103.2" height="8" rx="4"></rect><rect class="seg 部分建模" x="115.2" y="78" width="68.8" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="uwb-ies"
-      transform="translate(496,24)">
-      <title>测距 IE　只有字节宽度与字段清单，没有比特布局 §10.29.7／.8</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">测距 IE</text>
-      <text class="n" x="12" y="40">6 行 · 2 课</text>
-      <text class="n dim" x="12" y="58">只有字节宽度与字段清单，没有比</text><text class="n dim" x="12" y="72">特布局 §10.29.7／.8</text>
-      
-      <rect class="seg 部分建模" x="12.0" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 未建模" x="98.0" y="78" width="86.0" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="uwb-shapes"
-      transform="translate(496,156)">
-      <title>五种回复时间形态　嵌入／延后／固定，SS 与 DS §10.29.6</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">五种回复时间形态</text>
-      <text class="n" x="12" y="40">6 行 · 5 课</text>
-      <text class="n dim" x="12" y="58">嵌入／延后／固定，SS 与 DS §1</text><text class="n dim" x="12" y="72">0.29.6</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="143.3" height="8" rx="4"></rect><rect class="seg 部分建模" x="155.3" y="78" width="28.7" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="uwb-grid"
-      transform="translate(732,24)">
-      <title>块／轮／时隙　时间调度与竞争两种模式、按时隙开收 §10.32.2／.3</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">块／轮／时隙</text>
-      <text class="n" x="12" y="40">3 行 · 3 课</text>
-      <text class="n dim" x="12" y="58">时间调度与竞争两种模式、按时隙</text><text class="n dim" x="12" y="72">开收 §10.32.2／.3</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
-    </g>
 <g class="node absent" data-id="uwb-lrp"
-      transform="translate(732,156)">
+      transform="translate(24,420)">
       <title>LRP 物理层：整章缺席　§19 全章——第一刀就定了只建 HRP</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">LRP 物理层：整章缺席</text>
@@ -943,98 +934,48 @@
       
       <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
-<g class="node absent" data-id="uwb-phy-absent"
-      transform="translate(732,288)">
-      <title>HPRF 与脉冲形状　HPRF、CoU、CS、LCP——没有波形层，带宽代替了脉冲</title>
+<g class="node absent" data-id="uwb-rest4ab"
+      transform="translate(24,552)">
+      <title>4ab 的其余整块　复合帧、超块、发现、协商、唤醒、卸载、RSS、LE UWB</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">HPRF 与脉冲形状</text>
-      <text class="n" x="12" y="40">4 行 · 0 课</text>
-      <text class="n dim" x="12" y="58">HPRF、CoU、CS、LCP——没有波形</text><text class="n dim" x="12" y="72">层，带宽代替了脉冲</text>
-      
+      <text class="t" x="12" y="22">4ab 的其余整块</text>
+      <text class="n" x="12" y="40">12 行 · 0 课</text>
+      <text class="n dim" x="12" y="58">复合帧、超块、发现、协商、唤醒</text><text class="n dim" x="12" y="72">、卸载、RSS、LE UWB</text>
+      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">2</text>
       <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
-<g class="node absent" data-id="uwb-prims"
-      transform="translate(732,420)">
-      <title>原语、PIB 与描述符　没有分层服务接口：场景直接构造设备</title>
+<g class="node core" data-id="uwb-grid"
+      transform="translate(260,24)">
+      <title>块／轮／时隙　时间调度与竞争两种模式、按时隙开收 §10.32.2／.3</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">原语、PIB 与描述符</text>
-      <text class="n" x="12" y="40">4 行 · 0 课</text>
-      <text class="n dim" x="12" y="58">没有分层服务接口：场景直接构造</text><text class="n dim" x="12" y="72">设备</text>
-      
-      <rect class="seg 部分建模" x="12.0" y="78" width="43.0" height="8" rx="4"></rect><rect class="seg 未建模" x="55.0" y="78" width="129.0" height="8" rx="4"></rect>
-    </g>
-<g class="node absent" data-id="uwb-security"
-      transform="translate(732,552)">
-      <title>安全：整块缺席　§10.31、§10.33、STS 的 DRBG——引擎不持密钥</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">安全：整块缺席</text>
-      <text class="n" x="12" y="40">4 行 · 1 课</text>
-      <text class="n dim" x="12" y="58">§10.31、§10.33、STS 的 DRBG</text><text class="n dim" x="12" y="72">——引擎不持密钥</text>
-      
-      <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
-    </g>
-<g class="node absent" data-id="uwb-setup"
-      transform="translate(732,684)">
-      <title>建立、拆除与超帧　§10.29.2／.3、§10.30——会话从不需要被建立起来</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">建立、拆除与超帧</text>
-      <text class="n" x="12" y="40">2 行 · 1 课</text>
-      <text class="n dim" x="12" y="58">§10.29.2／.3、§10.30——会话从</text><text class="n dim" x="12" y="72">不需要被建立起来</text>
-      
-      <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="uwb-m2m"
-      transform="translate(968,24)">
-      <title>多对多　一帧对前后两方分别是答与问 §10.32.6／.7</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">多对多</text>
-      <text class="n" x="12" y="40">2 行 · 1 课</text>
-      <text class="n dim" x="12" y="58">一帧对前后两方分别是答与问 §1</text><text class="n dim" x="12" y="72">0.32.6／.7</text>
+      <text class="t" x="12" y="22">块／轮／时隙</text>
+      <text class="n" x="12" y="40">3 行 · 3 课</text>
+      <text class="n dim" x="12" y="58">时间调度与竞争两种模式、按时隙</text><text class="n dim" x="12" y="72">开收 §10.32.2／.3</text>
       
       <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
-<g class="node core" data-id="uwb-multiie"
-      transform="translate(968,156)">
-      <title>多节点测距 IE　ARC／RCPS／RCMA／RDM 建了宽度；RIU／RR／RBU／RCR 没建</title>
+<g class="node core" data-id="uwb-ies"
+      transform="translate(260,156)">
+      <title>测距 IE　只有字节宽度与字段清单，没有比特布局 §10.29.7／.8</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">多节点测距 IE</text>
-      <text class="n" x="12" y="40">8 行 · 5 课</text>
-      <text class="n dim" x="12" y="58">ARC／RCPS／RCMA／RDM 建了宽</text><text class="n dim" x="12" y="72">度；RIU／RR／RBU／RCR 没建</text>
+      <text class="t" x="12" y="22">测距 IE</text>
+      <text class="n" x="12" y="40">6 行 · 2 课</text>
+      <text class="n dim" x="12" y="58">只有字节宽度与字段清单，没有比</text><text class="n dim" x="12" y="72">特布局 §10.29.7／.8</text>
       
       <rect class="seg 部分建模" x="12.0" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 未建模" x="98.0" y="78" width="86.0" height="8" rx="4"></rect>
     </g>
-<g class="node core" data-id="uwb-one2many"
-      transform="translate(968,288)">
-      <title>一对多　广播 Poll 点名，逐锚点作答 §10.32.4／.5</title>
+<g class="node core" data-id="uwb-twr"
+      transform="translate(260,288)">
+      <title>双向测距的数学　SS／DS-TWR、时钟偏移修正、品质因数、基本交互</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">一对多</text>
-      <text class="n" x="12" y="40">2 行 · 2 课</text>
-      <text class="n dim" x="12" y="58">广播 Poll 点名，逐锚点作答 §1</text><text class="n dim" x="12" y="72">0.32.4／.5</text>
+      <text class="t" x="12" y="22">双向测距的数学</text>
+      <text class="n" x="12" y="40">5 行 · 3 课</text>
+      <text class="n dim" x="12" y="58">SS／DS-TWR、时钟偏移修正、品</text><text class="n dim" x="12" y="72">质因数、基本交互</text>
       
-      <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="uwb-sp3"
-      transform="translate(968,420)">
-      <title>SP3 分组测距　没有 PHR 没有载荷，身份来自时隙 §10.32.8＋SRRR IE</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">SP3 分组测距</text>
-      <text class="n" x="12" y="40">2 行 · 1 课</text>
-      <text class="n dim" x="12" y="58">没有 PHR 没有载荷，身份来自时</text><text class="n dim" x="12" y="72">隙 §10.32.8＋SRRR IE</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 部分建模" x="98.0" y="78" width="86.0" height="8" rx="4"></rect>
-    </g>
-<g class="node core" data-id="uwb-recover"
-      transform="translate(1204,24)">
-      <title>出错之后：三节全建　未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">出错之后：三节全建</text>
-      <text class="n" x="12" y="40">3 行 · 6 课</text>
-      <text class="n dim" x="12" y="58">未收到 §10.34、辅助信息 §10.</text><text class="n dim" x="12" y="72">35、收妥确认 §10.36</text>
-      
-      <rect class="seg 已建模" x="12.0" y="78" width="114.7" height="8" rx="4"></rect><rect class="seg 部分建模" x="126.7" y="78" width="57.3" height="8" rx="4"></rect>
+      <rect class="seg 已建模" x="12.0" y="78" width="103.2" height="8" rx="4"></rect><rect class="seg 部分建模" x="115.2" y="78" width="68.8" height="8" rx="4"></rect>
     </g>
 <g class="node draft" data-id="uwb-mms-phy"
-      transform="translate(1204,156)">
+      transform="translate(260,420)">
       <title>MMS 包格式　片段的长度与位置、能量预算、检出 §16.2.11</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">MMS 包格式</text>
@@ -1043,28 +984,8 @@
       <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">1</text>
       <rect class="seg 已建模" x="12.0" y="78" width="49.1" height="8" rx="4"></rect><rect class="seg 部分建模" x="61.1" y="78" width="122.9" height="8" rx="4"></rect>
     </g>
-<g class="node draft" data-id="uwb-mms-mac"
-      transform="translate(1440,24)">
-      <title>MMS 测距与子轮　§10.39：建的是单边双向加时钟比率修正那一种</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">MMS 测距与子轮</text>
-      <text class="n" x="12" y="40">10 行 · 5 课</text>
-      <text class="n dim" x="12" y="58">§10.39：建的是单边双向加时钟</text><text class="n dim" x="12" y="72">比率修正那一种</text>
-      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">7</text>
-      <rect class="seg 已建模" x="12.0" y="78" width="51.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="63.6" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 未建模" x="149.6" y="78" width="34.4" height="8" rx="4"></rect>
-    </g>
-<g class="node draft" data-id="uwb-nb"
-      transform="translate(1440,156)">
-      <title>窄带控制面　§10.39.4.2、250 个 2.5 MHz 信道、按块跳频</title>
-      <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">窄带控制面</text>
-      <text class="n" x="12" y="40">3 行 · 2 课</text>
-      <text class="n dim" x="12" y="58">§10.39.4.2、250 个 2.5 MHz </text><text class="n dim" x="12" y="72">信道、按块跳频</text>
-      
-      <rect class="seg 部分建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
-    </g>
 <g class="node draft" data-id="uwb-sensing"
-      transform="translate(1440,288)">
+      transform="translate(260,552)">
       <title>感知　§10.40：只有双站、静止点目标，报告 IE 未建</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">感知</text>
@@ -1074,7 +995,7 @@
       <rect class="seg 部分建模" x="12.0" y="78" width="114.7" height="8" rx="4"></rect><rect class="seg 未建模" x="126.7" y="78" width="57.3" height="8" rx="4"></rect>
     </g>
 <g class="node derived" data-id="uwb-aoa"
-      transform="translate(1440,420)">
+      transform="translate(260,684)">
       <title>AoA／PDoA　纯几何：锚点并没有两路接收</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">AoA／PDoA</text>
@@ -1084,7 +1005,7 @@
       <rect class="seg 部分建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
 <g class="node derived" data-id="uwb-fading-uwb"
-      transform="translate(1440,552)">
+      transform="translate(260,816)">
       <title>UWB 侧的衰落　范围决定：信道模型出自 802.15.4a 的报告</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">UWB 侧的衰落</text>
@@ -1093,18 +1014,68 @@
       <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">1</text>
       <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
-<g class="node derived" data-id="uwb-position"
-      transform="translate(1440,684)">
-      <title>由距离解位置　等权高斯—牛顿，不按品质因数加权；标准不给解算</title>
+<g class="node absent" data-id="uwb-phy-absent"
+      transform="translate(260,948)">
+      <title>HPRF 与脉冲形状　HPRF、CoU、CS、LCP——没有波形层，带宽代替了脉冲</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">由距离解位置</text>
-      <text class="n" x="12" y="40">1 行 · 3 课</text>
-      <text class="n dim" x="12" y="58">等权高斯—牛顿，不按品质因数加</text><text class="n dim" x="12" y="72">权；标准不给解算</text>
-      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">1</text>
-      <rect class="seg 部分建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+      <text class="t" x="12" y="22">HPRF 与脉冲形状</text>
+      <text class="n" x="12" y="40">4 行 · 0 课</text>
+      <text class="n dim" x="12" y="58">HPRF、CoU、CS、LCP——没有波形</text><text class="n dim" x="12" y="72">层，带宽代替了脉冲</text>
+      
+      <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+    </g>
+<g class="node absent" data-id="uwb-security"
+      transform="translate(260,1080)">
+      <title>安全：整块缺席　§10.31、§10.33、STS 的 DRBG——引擎不持密钥</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">安全：整块缺席</text>
+      <text class="n" x="12" y="40">4 行 · 1 课</text>
+      <text class="n dim" x="12" y="58">§10.31、§10.33、STS 的 DRBG</text><text class="n dim" x="12" y="72">——引擎不持密钥</text>
+      
+      <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+    </g>
+<g class="node core" data-id="uwb-m2m"
+      transform="translate(496,24)">
+      <title>多对多　一帧对前后两方分别是答与问 §10.32.6／.7</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">多对多</text>
+      <text class="n" x="12" y="40">2 行 · 1 课</text>
+      <text class="n dim" x="12" y="58">一帧对前后两方分别是答与问 §1</text><text class="n dim" x="12" y="72">0.32.6／.7</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+    </g>
+<g class="node core" data-id="uwb-multiie"
+      transform="translate(496,156)">
+      <title>多节点测距 IE　ARC／RCPS／RCMA／RDM 建了宽度；RIU／RR／RBU／RCR 没建</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">多节点测距 IE</text>
+      <text class="n" x="12" y="40">8 行 · 5 课</text>
+      <text class="n dim" x="12" y="58">ARC／RCPS／RCMA／RDM 建了宽</text><text class="n dim" x="12" y="72">度；RIU／RR／RBU／RCR 没建</text>
+      
+      <rect class="seg 部分建模" x="12.0" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 未建模" x="98.0" y="78" width="86.0" height="8" rx="4"></rect>
+    </g>
+<g class="node core" data-id="uwb-shapes"
+      transform="translate(496,288)">
+      <title>五种回复时间形态　嵌入／延后／固定，SS 与 DS §10.29.6</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">五种回复时间形态</text>
+      <text class="n" x="12" y="40">6 行 · 5 课</text>
+      <text class="n dim" x="12" y="58">嵌入／延后／固定，SS 与 DS §1</text><text class="n dim" x="12" y="72">0.29.6</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="143.3" height="8" rx="4"></rect><rect class="seg 部分建模" x="155.3" y="78" width="28.7" height="8" rx="4"></rect>
+    </g>
+<g class="node draft" data-id="uwb-mms-mac"
+      transform="translate(496,420)">
+      <title>MMS 测距与子轮　§10.39：建的是单边双向加时钟比率修正那一种</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">MMS 测距与子轮</text>
+      <text class="n" x="12" y="40">10 行 · 5 课</text>
+      <text class="n dim" x="12" y="58">§10.39：建的是单边双向加时钟</text><text class="n dim" x="12" y="72">比率修正那一种</text>
+      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">7</text>
+      <rect class="seg 已建模" x="12.0" y="78" width="51.6" height="8" rx="4"></rect><rect class="seg 部分建模" x="63.6" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 未建模" x="149.6" y="78" width="34.4" height="8" rx="4"></rect>
     </g>
 <g class="node derived" data-id="uwb-tdoa"
-      transform="translate(1440,816)">
+      transform="translate(496,552)">
       <title>DL／UL-TDoA　FiRa 形状的模型；四个到达时刻怎么汇总，本模型没说</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">DL／UL-TDoA</text>
@@ -1113,18 +1084,68 @@
       <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">2</text>
       <rect class="seg 已建模" x="12.0" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 部分建模" x="98.0" y="78" width="86.0" height="8" rx="4"></rect>
     </g>
-<g class="node absent" data-id="uwb-rest4ab"
-      transform="translate(1440,948)">
-      <title>4ab 的其余整块　复合帧、超块、发现、协商、唤醒、卸载、RSS、LE UWB</title>
+<g class="node absent" data-id="uwb-prims"
+      transform="translate(496,684)">
+      <title>原语、PIB 与描述符　没有分层服务接口：场景直接构造设备</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">4ab 的其余整块</text>
-      <text class="n" x="12" y="40">12 行 · 0 课</text>
-      <text class="n dim" x="12" y="58">复合帧、超块、发现、协商、唤醒</text><text class="n dim" x="12" y="72">、卸载、RSS、LE UWB</text>
-      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">2</text>
+      <text class="t" x="12" y="22">原语、PIB 与描述符</text>
+      <text class="n" x="12" y="40">4 行 · 0 课</text>
+      <text class="n dim" x="12" y="58">没有分层服务接口：场景直接构造</text><text class="n dim" x="12" y="72">设备</text>
+      
+      <rect class="seg 部分建模" x="12.0" y="78" width="43.0" height="8" rx="4"></rect><rect class="seg 未建模" x="55.0" y="78" width="129.0" height="8" rx="4"></rect>
+    </g>
+<g class="node absent" data-id="uwb-setup"
+      transform="translate(496,816)">
+      <title>建立、拆除与超帧　§10.29.2／.3、§10.30——会话从不需要被建立起来</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">建立、拆除与超帧</text>
+      <text class="n" x="12" y="40">2 行 · 1 课</text>
+      <text class="n dim" x="12" y="58">§10.29.2／.3、§10.30——会话从</text><text class="n dim" x="12" y="72">不需要被建立起来</text>
+      
       <rect class="seg 未建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
     </g>
+<g class="node core" data-id="uwb-one2many"
+      transform="translate(732,24)">
+      <title>一对多　广播 Poll 点名，逐锚点作答 §10.32.4／.5</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">一对多</text>
+      <text class="n" x="12" y="40">2 行 · 2 课</text>
+      <text class="n dim" x="12" y="58">广播 Poll 点名，逐锚点作答 §1</text><text class="n dim" x="12" y="72">0.32.4／.5</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+    </g>
+<g class="node core" data-id="uwb-sp3"
+      transform="translate(732,156)">
+      <title>SP3 分组测距　没有 PHR 没有载荷，身份来自时隙 §10.32.8＋SRRR IE</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">SP3 分组测距</text>
+      <text class="n" x="12" y="40">2 行 · 1 课</text>
+      <text class="n dim" x="12" y="58">没有 PHR 没有载荷，身份来自时</text><text class="n dim" x="12" y="72">隙 §10.32.8＋SRRR IE</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="86.0" height="8" rx="4"></rect><rect class="seg 部分建模" x="98.0" y="78" width="86.0" height="8" rx="4"></rect>
+    </g>
+<g class="node draft" data-id="uwb-nb"
+      transform="translate(732,288)">
+      <title>窄带控制面　§10.39.4.2、250 个 2.5 MHz 信道、按块跳频</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">窄带控制面</text>
+      <text class="n" x="12" y="40">3 行 · 2 课</text>
+      <text class="n dim" x="12" y="58">§10.39.4.2、250 个 2.5 MHz </text><text class="n dim" x="12" y="72">信道、按块跳频</text>
+      
+      <rect class="seg 部分建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+    </g>
+<g class="node core" data-id="uwb-recover"
+      transform="translate(968,24)">
+      <title>出错之后：三节全建　未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">出错之后：三节全建</text>
+      <text class="n" x="12" y="40">3 行 · 6 课</text>
+      <text class="n dim" x="12" y="58">未收到 §10.34、辅助信息 §10.</text><text class="n dim" x="12" y="72">35、收妥确认 §10.36</text>
+      
+      <rect class="seg 已建模" x="12.0" y="78" width="114.7" height="8" rx="4"></rect><rect class="seg 部分建模" x="126.7" y="78" width="57.3" height="8" rx="4"></rect>
+    </g>
 <g class="node draft" data-id="uwb-coex"
-      transform="translate(1676,24)">
+      transform="translate(968,156)">
       <title>共存：LBT、SSBD、频域延后　§10.39.8.3、§10.45、提案 §10.47</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
       <text class="t" x="12" y="22">共存：LBT、SSBD、频域延后</text>
@@ -1133,12 +1154,23 @@
       <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">4</text>
       <rect class="seg 部分建模" x="12.0" y="78" width="103.2" height="8" rx="4"></rect><rect class="seg 未建模" x="115.2" y="78" width="68.8" height="8" rx="4"></rect>
     </g>
+<g class="node derived" data-id="uwb-position"
+      transform="translate(968,288)">
+      <title>由距离解位置　等权高斯—牛顿，不按品质因数加权；标准不给解算</title>
+      <rect class="box" width="196" height="100" rx="10"></rect>
+      <text class="t" x="12" y="22">由距离解位置</text>
+      <text class="n" x="12" y="40">1 行 · 3 课</text>
+      <text class="n dim" x="12" y="58">等权高斯—牛顿，不按品质因数加</text><text class="n dim" x="12" y="72">权；标准不给解算</text>
+      <circle class="open" cx="178" cy="16" r="8"></circle><text class="openn" x="178" y="20">1</text>
+      <rect class="seg 部分建模" x="12.0" y="78" width="172.0" height="8" rx="4"></rect>
+    </g>
     </svg></div>
     <div class="panel" id="p-uwb-units">
     <h3>单位与计数器</h3>
     <p class="note">RCTU、RSTU、测距计数器 §10.29.1.3–.5</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@uwb-intro</code>、<code>@uwb-blocks</code></p>
+    <p class="note">课：<code>@uwb-intro</code>、<code>@uwb-blocks</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    <p class="note">它撑着：双向测距的数学、块／轮／时隙、MMS 包格式、DL／UL-TDoA</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>测距测量与测距计数器（ranging counter）§10.29.1、§10.29.1.3<div class="ev">每次测量都是一对计数器读数：发射方给自己即将发出的 RMARKER 盖章，接收方给收到的盖章。<code>uwb/clock.ts#UwbClock</code>、<code>uwb/clock.ts#counterDiff</code>（40 bit 回绕，<code>uwb/units.ts#COUNTER_BITS</code>，标准只要求「至少 32 位」）。<code>@uwb-intro</code></div></td>
@@ -1158,8 +1190,9 @@
 <div class="panel" id="p-uwb-hrp">
     <h3>HRP 物理层：只建时长</h3>
     <p class="note">PPDU 分段、PHR、参数集、±20 ppm §16</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@uwb-frame</code>、<code>@uwb-sts</code>、<code>@uwb-mms</code></p>
+    <p class="note">课：<code>@uwb-frame</code>、<code>@uwb-sts</code>、<code>@uwb-mms</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    <p class="note">它撑着：测距 IE、双向测距的数学、SP3 分组测距、安全：整块缺席、HPRF 与脉冲形状、MMS 包格式、感知、DL／UL-TDoA、AoA／PDoA</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>HRP UWB PPDU 格式 §16.2<div class="ev">每一段在引擎里只是一个码片数，加起来得出空口时间：<code>uwb/phy.ts#uwbPpduChips</code>、<code>uwb/phy.ts#uwbPpduNs</code>、<code>uwb/phy.ts#psduSymbols</code>；分段的画法是 <code>uwb/frameFields.ts#uwbPpduLayout</code>。没有调制、没有扩频、没有比特。<code>@uwb-frame</code></div></td>
@@ -1187,8 +1220,9 @@
 <div class="panel" id="p-uwb-band">
     <h3>信道与频段</h3>
     <p class="note">信道 5／9、带内功率、最大输入 §11.1、§16.4.10</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@uwb-coexist</code></p>
+    <p class="note">课：<code>@uwb-coexist</code></p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    <p class="note">它撑着：共存：LBT、SSBD、频域延后、感知、UWB 侧的衰落</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>具备测距能力的 PHY §11.3、HRP UWB PIB 属性 §12.3.7<div class="ev">PHY 侧的量都在（<code>uwb/phy.ts</code>、<code>uwb/units.ts</code>），但同样不是 PIB 属性的形状，没有能力声明、没有属性名。</div></td>
@@ -1205,73 +1239,12 @@
     </tr>
     </tbody></table>
   </div>
-<div class="panel" id="p-uwb-twr">
-    <h3>双向测距的数学</h3>
-    <p class="note">SS／DS-TWR、时钟偏移修正、品质因数、基本交互</p>
-    <p class="note">依赖：单位与计数器、HRP 物理层：只建时长
-      ｜ 课：<code>@uwb-sstwr</code>、<code>@uwb-geometry</code>、<code>@uwb-dstwr</code></p>
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    <tr>
-      <td>测距跟踪偏移与测距跟踪间隔（ranging tracking offset / interval）§10.29.1.6.2、§10.29.1.6.3<div class="ev">建的是<b>这两个量背后的物理</b>——收发两端的相对时钟偏移，用来把应答方量到的间隔换算到发起方的钟上：<code>uwb/ranging.ts#ssTwrCorrected</code> 的 <code>(1 − coffs)</code>。没建的是标准规定的<b>上报形式</b>（偏移值与它的计量间隔作为字段传递）；引擎里 <code>coffs</code> 从场景里两台设备的真实 ppm 之差加一次高斯噪声得来，不是从载波锁定里测出来的。<code>uwb/device.ts#UwbDevice</code>、<code>@uwb-sstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-部分建模">部分建模</span></td>
-    </tr><tr>
-      <td>测距品质因数（ranging figure of merit, FoM）§10.29.1.7<div class="ev">字节的编解码是全的：<code>uwb/phy.ts#fomDecode</code>、<code>uwb/phy.ts#fomText</code>，全零解释为「不可用」。但取值只有两个：<code>uwb/ranging.ts#fomFor</code> 按纯几何遮挡返回 <code>uwb/phy.ts#FOM_NLOS</code> 或 <code>uwb/phy.ts#FOM_LOS</code>，与实际电平、噪声、多径都无关。<code>@uwb-geometry</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-部分建模">部分建模</span></td>
-    </tr><tr>
-      <td>单边双向测距（single-sided two-way ranging, SS-TWR）§10.29.1.2.2<div class="ev"><code>uwb/ranging.ts#ssTwrRaw</code>、<code>uwb/ranging.ts#ssTwrCorrected</code>。<code>@uwb-sstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>双边双向测距（double-sided two-way ranging, DS-TWR）§10.29.1.2.3<div class="ev"><code>uwb/ranging.ts#dsTwr</code>（对称式：<code>(T_r1·T_r2 − T_p1·T_p2) / (T_r1+T_r2+T_p1+T_p2)</code>）。<code>@uwb-dstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>基本测距交互 §10.29.5<div class="ev">Poll → Response（→ Final → Report）这条链就是它：<code>uwb/frames.ts#makePoll</code>、<code>uwb/frames.ts#makeResp</code>、<code>uwb/frames.ts#makeFinal</code>、<code>uwb/frames.ts#makeReport</code>。<code>@uwb-sstwr</code>、<code>@uwb-dstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr>
-    </tbody></table>
-  </div>
-<div class="panel" id="p-uwb-shapes">
-    <h3>五种回复时间形态</h3>
-    <p class="note">嵌入／延后／固定，SS 与 DS §10.29.6</p>
-    <p class="note">依赖：双向测距的数学
-      ｜ 课：<code>@uwb-dstwr</code>、<code>@uwb-reply-time</code>、<code>@uwb-sstwr</code>、<code>@uwb-subrounds</code>、<code>@uwb-deferred-ds</code></p>
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    <tr>
-      <td>测距的控制与结果传输 §10.29.6.2<div class="ev">结果传输<b>五种形态全建了</b>（见下面四行）：嵌入、延后、固定三条路都走得通，<code>uwb/session.ts#RoundPlan</code> 的 <code>replyTime</code> 决定走哪条。控制<b>仍然没建</b>：没有任何原语或管理帧能启停、重配一次测距（见 §10.29.9 那一行），<code>replyTime</code> 是场景配置而不是空口协商的结果。<code>uwb/frames.ts#makeReport</code>、<code>@uwb-dstwr</code>、<code>@uwb-reply-time</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-部分建模">部分建模</span></td>
-    </tr><tr>
-      <td>SS-TWR，回复时间延后上报 §10.29.6.3<div class="ev">Response 不带 RRTI（14 字节，而嵌入式 20 字节），回复时间在<b>自己的时隙里、自己的一条报文里</b>跟上：<code>uwb/frames.ts#makeSsDefer</code>（17 字节，<code>ies</code> 恰为 <code>['RRTI']</code>）、独立的 <code>'uwbSsDefer'</code> 帧类型、<code>uwb/session.ts#slotAction</code> 给它时隙 A+1…2A，所以一轮是 2A+1 个时隙而不是 A+1。标签在延后报文落地时才算出距离。<code>@uwb-reply-time</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>SS-TWR，回复时间嵌入 §10.29.6.4<div class="ev">这是引擎 SS-TWR 的那一种：Response 携带 <code>['RRMC', 'RRTI']</code>，回复时间在 <code>replyRctu</code> 里。<code>uwb/frames.ts#makeResp</code>、<code>uwb/phy.ts#RRTI_IE_BYTES</code>。<code>@uwb-sstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>SS-TWR，固定回复时间 §10.29.6.5<div class="ev">已发布标准这一条现在长在<b>它自己的路径上</b>（SP1 帧、槽位化轮次、不走 MMS）：<code>scenario.ts</code> 的 <code>replyTime: 'fixed'</code> 加 <code>fixedReplyRstu</code>，<code>uwb/session.ts#RoundPlan</code> 的 <code>fixedReplyNs</code>。回复时间一个字节都不上空口（Response 14 字节），而这是<b>整个 UWB 侧唯一一处不对齐时隙的发送</b>：应答方在 <code>收到 Poll 的时刻 + fixedReplyNs + k × 时隙</code> 发，否则 <code>Treply</code> 就会随距离变化、标签不被告知就算不出来。时隙预算因此两边都有界（<code>scenario.ts</code> 的两条拒绝规则）。4ab 的 MMS 固定回复时间是<b>另一个设置、另一种轮形</b>：<code>uwb/mms.ts#MMS_FIXED_REPLY_RSTU_DEFAULT</code>、<code>@uwb-subrounds</code>。<code>@uwb-reply-time</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>DS-TWR，测距时间信息延后 §10.29.6.6<div class="ev">Final <b>不带时间，但带响应方名单</b>——名单是它在这个形态里仍然存在的全部理由：锚点得知道标签究竟有没有收到它的 Response（<code>uwb/device.ts</code> 的 <code>finalListedMe</code>），那决定它该不该在报告相位里开口。于是 <code>uwb/phy.ts#uwbFinalBytes</code> 在延后下是 <code>14 + 2A</code> 而嵌入下是 <code>14 + 12A</code>（九个锚点：32 对 122 字节）。代价写在 §10.29.6.7 那一行的对面：<b>锚点从此算不出距离</b>，只有标签算得出。收益是被算出来的锚点上限从 9 移到 33（<code>uwb/phy.ts#uwbMaxAnchors</code>）。<code>@uwb-deferred-ds</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>DS-TWR，测距时间信息嵌入 §10.29.6.7<div class="ev">Final 携带 <code>['RMI', 'RRTI']</code>，每个锚点一组 <code>{tround1, treply2}</code>：<code>uwb/frames.ts#makeFinal</code>、<code>uwb/phy.ts#rmiFinalIeBytes</code>。锚点凑上自己的 <code>treply1</code>/<code>tround2</code> 当场解出距离——<b>五种形态里唯一两端都拿到距离的那一种</b>。代价是这条 Final 每多一个锚点长 12 字节，于是它是把一轮卡在 9 个锚点的那个东西（<code>uwb/phy.ts#uwbMaxAnchors</code>：这一种 9，其余四种 33）。<code>@uwb-dstwr</code>、<code>@uwb-deferred-ds</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr>
-    </tbody></table>
-  </div>
 <div class="panel" id="p-uwb-ies">
     <h3>测距 IE</h3>
     <p class="note">只有字节宽度与字段清单，没有比特布局 §10.29.7／.8</p>
-    <p class="note">依赖：双向测距的数学
-      ｜ 课：<code>@uwb-frame</code>、<code>@uwb-dl-tdoa</code></p>
+    <p class="note">课：<code>@uwb-frame</code>、<code>@uwb-dl-tdoa</code></p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　一个信息单元是 PSDU 里的几个字节，而 PSDU 的长度与空口时间由它定</li></ul>
+    <p class="note">它撑着：五种回复时间形态、多节点测距 IE</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>RSSD IE（Ranging STS Seed and Data IE）§10.29.7.1、§10.29.8.2<div class="ev"><b>范围决定。</b> 引擎不持有密钥、不生成 STS 序列，也就没有种子要传（见 §16.2.9 那几行）。</div></td>
@@ -1300,11 +1273,76 @@
     </tr>
     </tbody></table>
   </div>
+<div class="panel" id="p-uwb-twr">
+    <h3>双向测距的数学</h3>
+    <p class="note">SS／DS-TWR、时钟偏移修正、品质因数、基本交互</p>
+    <p class="note">课：<code>@uwb-sstwr</code>、<code>@uwb-geometry</code>、<code>@uwb-dstwr</code></p>
+    <ul class="deps"><li><b>单位与计数器</b>　一次测量就是两个计数器读数相减，RCTU 是减出来的那个差的单位</li><li><b>HRP 物理层：只建时长</b>　RMARKER 是帧里一个确定的码片，没有 PPDU 的分段就没有那个时刻</li></ul>
+    <p class="note">它撑着：五种回复时间形态、一对多、多对多、MMS 测距与子轮、由距离解位置</p>
+    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
+    <tr>
+      <td>测距跟踪偏移与测距跟踪间隔（ranging tracking offset / interval）§10.29.1.6.2、§10.29.1.6.3<div class="ev">建的是<b>这两个量背后的物理</b>——收发两端的相对时钟偏移，用来把应答方量到的间隔换算到发起方的钟上：<code>uwb/ranging.ts#ssTwrCorrected</code> 的 <code>(1 − coffs)</code>。没建的是标准规定的<b>上报形式</b>（偏移值与它的计量间隔作为字段传递）；引擎里 <code>coffs</code> 从场景里两台设备的真实 ppm 之差加一次高斯噪声得来，不是从载波锁定里测出来的。<code>uwb/device.ts#UwbDevice</code>、<code>@uwb-sstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-部分建模">部分建模</span></td>
+    </tr><tr>
+      <td>测距品质因数（ranging figure of merit, FoM）§10.29.1.7<div class="ev">字节的编解码是全的：<code>uwb/phy.ts#fomDecode</code>、<code>uwb/phy.ts#fomText</code>，全零解释为「不可用」。但取值只有两个：<code>uwb/ranging.ts#fomFor</code> 按纯几何遮挡返回 <code>uwb/phy.ts#FOM_NLOS</code> 或 <code>uwb/phy.ts#FOM_LOS</code>，与实际电平、噪声、多径都无关。<code>@uwb-geometry</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-部分建模">部分建模</span></td>
+    </tr><tr>
+      <td>单边双向测距（single-sided two-way ranging, SS-TWR）§10.29.1.2.2<div class="ev"><code>uwb/ranging.ts#ssTwrRaw</code>、<code>uwb/ranging.ts#ssTwrCorrected</code>。<code>@uwb-sstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>双边双向测距（double-sided two-way ranging, DS-TWR）§10.29.1.2.3<div class="ev"><code>uwb/ranging.ts#dsTwr</code>（对称式：<code>(T_r1·T_r2 − T_p1·T_p2) / (T_r1+T_r2+T_p1+T_p2)</code>）。<code>@uwb-dstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>基本测距交互 §10.29.5<div class="ev">Poll → Response（→ Final → Report）这条链就是它：<code>uwb/frames.ts#makePoll</code>、<code>uwb/frames.ts#makeResp</code>、<code>uwb/frames.ts#makeFinal</code>、<code>uwb/frames.ts#makeReport</code>。<code>@uwb-sstwr</code>、<code>@uwb-dstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr>
+    </tbody></table>
+  </div>
+<div class="panel" id="p-uwb-shapes">
+    <h3>五种回复时间形态</h3>
+    <p class="note">嵌入／延后／固定，SS 与 DS §10.29.6</p>
+    <p class="note">课：<code>@uwb-dstwr</code>、<code>@uwb-reply-time</code>、<code>@uwb-sstwr</code>、<code>@uwb-subrounds</code>、<code>@uwb-deferred-ds</code></p>
+    <ul class="deps"><li><b>双向测距的数学</b>　「回复时间」只有在一次双向测距里才存在，五种形态是它的五种去处</li><li><b>测距 IE</b>　嵌入与延后两种把它装在 RRTI／RMI 里，固定那一种的代价正是不装</li></ul>
+    
+    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
+    <tr>
+      <td>测距的控制与结果传输 §10.29.6.2<div class="ev">结果传输<b>五种形态全建了</b>（见下面四行）：嵌入、延后、固定三条路都走得通，<code>uwb/session.ts#RoundPlan</code> 的 <code>replyTime</code> 决定走哪条。控制<b>仍然没建</b>：没有任何原语或管理帧能启停、重配一次测距（见 §10.29.9 那一行），<code>replyTime</code> 是场景配置而不是空口协商的结果。<code>uwb/frames.ts#makeReport</code>、<code>@uwb-dstwr</code>、<code>@uwb-reply-time</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-部分建模">部分建模</span></td>
+    </tr><tr>
+      <td>SS-TWR，回复时间延后上报 §10.29.6.3<div class="ev">Response 不带 RRTI（14 字节，而嵌入式 20 字节），回复时间在<b>自己的时隙里、自己的一条报文里</b>跟上：<code>uwb/frames.ts#makeSsDefer</code>（17 字节，<code>ies</code> 恰为 <code>['RRTI']</code>）、独立的 <code>'uwbSsDefer'</code> 帧类型、<code>uwb/session.ts#slotAction</code> 给它时隙 A+1…2A，所以一轮是 2A+1 个时隙而不是 A+1。标签在延后报文落地时才算出距离。<code>@uwb-reply-time</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>SS-TWR，回复时间嵌入 §10.29.6.4<div class="ev">这是引擎 SS-TWR 的那一种：Response 携带 <code>['RRMC', 'RRTI']</code>，回复时间在 <code>replyRctu</code> 里。<code>uwb/frames.ts#makeResp</code>、<code>uwb/phy.ts#RRTI_IE_BYTES</code>。<code>@uwb-sstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>SS-TWR，固定回复时间 §10.29.6.5<div class="ev">已发布标准这一条现在长在<b>它自己的路径上</b>（SP1 帧、槽位化轮次、不走 MMS）：<code>scenario.ts</code> 的 <code>replyTime: 'fixed'</code> 加 <code>fixedReplyRstu</code>，<code>uwb/session.ts#RoundPlan</code> 的 <code>fixedReplyNs</code>。回复时间一个字节都不上空口（Response 14 字节），而这是<b>整个 UWB 侧唯一一处不对齐时隙的发送</b>：应答方在 <code>收到 Poll 的时刻 + fixedReplyNs + k × 时隙</code> 发，否则 <code>Treply</code> 就会随距离变化、标签不被告知就算不出来。时隙预算因此两边都有界（<code>scenario.ts</code> 的两条拒绝规则）。4ab 的 MMS 固定回复时间是<b>另一个设置、另一种轮形</b>：<code>uwb/mms.ts#MMS_FIXED_REPLY_RSTU_DEFAULT</code>、<code>@uwb-subrounds</code>。<code>@uwb-reply-time</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>DS-TWR，测距时间信息延后 §10.29.6.6<div class="ev">Final <b>不带时间，但带响应方名单</b>——名单是它在这个形态里仍然存在的全部理由：锚点得知道标签究竟有没有收到它的 Response（<code>uwb/device.ts</code> 的 <code>finalListedMe</code>），那决定它该不该在报告相位里开口。于是 <code>uwb/phy.ts#uwbFinalBytes</code> 在延后下是 <code>14 + 2A</code> 而嵌入下是 <code>14 + 12A</code>（九个锚点：32 对 122 字节）。代价写在 §10.29.6.7 那一行的对面：<b>锚点从此算不出距离</b>，只有标签算得出。收益是被算出来的锚点上限从 9 移到 33（<code>uwb/phy.ts#uwbMaxAnchors</code>）。<code>@uwb-deferred-ds</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>DS-TWR，测距时间信息嵌入 §10.29.6.7<div class="ev">Final 携带 <code>['RMI', 'RRTI']</code>，每个锚点一组 <code>{tround1, treply2}</code>：<code>uwb/frames.ts#makeFinal</code>、<code>uwb/phy.ts#rmiFinalIeBytes</code>。锚点凑上自己的 <code>treply1</code>/<code>tround2</code> 当场解出距离——<b>五种形态里唯一两端都拿到距离的那一种</b>。代价是这条 Final 每多一个锚点长 12 字节，于是它是把一轮卡在 9 个锚点的那个东西（<code>uwb/phy.ts#uwbMaxAnchors</code>：这一种 9，其余四种 33）。<code>@uwb-dstwr</code>、<code>@uwb-deferred-ds</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr>
+    </tbody></table>
+  </div>
 <div class="panel" id="p-uwb-grid">
     <h3>块／轮／时隙</h3>
     <p class="note">时间调度与竞争两种模式、按时隙开收 §10.32.2／.3</p>
-    <p class="note">依赖：五种回复时间形态
-      ｜ 课：<code>@uwb-blocks</code>、<code>@uwb-slot-budget</code>、<code>@uwb-contention</code></p>
+    <p class="note">课：<code>@uwb-blocks</code>、<code>@uwb-slot-budget</code>、<code>@uwb-contention</code></p>
+    <ul class="deps"><li><b>单位与计数器</b>　块与时隙都按 RSTU 的整数倍计，时隙边界是用它算出来的</li></ul>
+    <p class="note">它撑着：多节点测距 IE、一对多、多对多、SP3 分组测距、原语、PIB 与描述符、建立、拆除与超帧、MMS 测距与子轮、DL／UL-TDoA</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>测距块、轮与时隙结构 §10.32.2<div class="ev"><code>uwb/session.ts#roundPlan</code>、<code>uwb/session.ts#slotStartNs</code>、<code>uwb/session.ts#slotAction</code>；块与时隙都按 3 RSTU 的整数倍计（<code>model/scenario.ts#UwbSessionCfg</code>）。<code>@uwb-blocks</code>、<code>@uwb-slot-budget</code></div></td>
@@ -1321,62 +1359,12 @@
     </tr>
     </tbody></table>
   </div>
-<div class="panel" id="p-uwb-one2many">
-    <h3>一对多</h3>
-    <p class="note">广播 Poll 点名，逐锚点作答 §10.32.4／.5</p>
-    <p class="note">依赖：块／轮／时隙
-      ｜ 课：<code>@uwb-sstwr</code>、<code>@uwb-dstwr</code></p>
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    <tr>
-      <td>一对多 SS-TWR §10.32.4<div class="ev">一条广播 Poll 点名若干锚点（RDM IE），每个锚点在自己的时隙里答：<code>uwb/frames.ts#makePoll</code>、<code>uwb/phy.ts#rdmIeBytes</code>、<code>uwb/phy.ts#uwbSlotsPerTag</code>。<code>@uwb-sstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>一对多 DS-TWR §10.32.5<div class="ev">加上广播 Final 与逐锚点的 Report：<code>uwb/frames.ts#makeFinal</code>、<code>uwb/frames.ts#makeReport</code>。<code>@uwb-dstwr</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr>
-    </tbody></table>
-  </div>
-<div class="panel" id="p-uwb-m2m">
-    <h3>多对多</h3>
-    <p class="note">一帧对前后两方分别是答与问 §10.32.6／.7</p>
-    <p class="note">依赖：块／轮／时隙
-      ｜ 课：<code>@uwb-m2m</code></p>
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    <tr>
-      <td>多对多 SS-TWR §10.32.6<div class="ev">一轮 N 个时隙，参与者 i 在第 i 个时隙发一次，那一帧对后面的人是问、对前面的人是答：<code>uwb/session.ts#m2mParticipants</code>（顺序按 id，model）、<code>uwb/session.ts#slotAction</code> 的 <code>uwbM2m</code> 分支、<code>uwb/device.m2m.ts#transmitM2m</code>、<code>uwb/device.m2m.ts#onM2mRx</code>、<code>uwb/frames.ts#makeM2m</code>、<code>uwb/phy.ts#uwbM2mBytes</code>、<code>uwb/phy.ts#uwbMaxParticipants</code>。距离仍由 <code>uwb/ranging.ts#ssTwrCorrected</code> 算，而且只有排在前面的那个参与者算得出来（N−1−i 条）。<code>@uwb-m2m</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr><tr>
-      <td>多对多 DS-TWR §10.32.7<div class="ev">同一套路走两趟，每趟 N 个时隙（2N），第二趟的帧只带第二趟听到的到达时刻，所以帧长上限与 SS 相同：<code>uwb/session.ts#slotAction</code> 的 <code>pass</code>、<code>uwb/device.m2m.ts#onM2mRx</code>、<code>uwb/ranging.ts#dsTwr</code>。晶振拉开时比 SS 准约 150 倍（回复间隔是整整几个时隙，SS 要按估出来的时钟偏差折算）。<code>@uwb-m2m</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr>
-    </tbody></table>
-  </div>
-<div class="panel" id="p-uwb-sp3">
-    <h3>SP3 分组测距</h3>
-    <p class="note">没有 PHR 没有载荷，身份来自时隙 §10.32.8＋SRRR IE</p>
-    <p class="note">依赖：块／轮／时隙、测距 IE
-      ｜ 课：<code>@uwb-sp3</code></p>
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    <tr>
-      <td>SP3 分组下的测距 §10.32.8（含 §10.32.8.2、§10.32.8.3）<div class="ev"><b>建了的那一半</b>：SP3 包是 <code>uwb/phy.ts#uwbSp3Chips</code> = SHR + STS，没有 PHR 没有载荷，所以 <code>uwb/phy.ts#uwbSp3Ns</code> ≈ 141 µs，比最短的 SP1 帧短 40.256 µs；独立的 <code>uwbSp3</code> 帧类型与 <code>uwb/frames.ts#makeSp3</code>，而它<b>没有任何能装身份或时间的字段</b>——身份来自时隙（<code>uwb/session.ts#slotAction</code>），这一条由一次变异验收：把发起方的时隙表倒过来，距离会「出现而且是错的」，逐位等于另一台锚点的测量。三个相位齐全（§10.32.8.2）：RCM、SP3 测距、测量报告，而报告相位由 schema 保证而不是靠设备自觉——<code>sp3</code> 要求 <code>replyTime</code> 恰好是 <code>deferred</code>。Figure 10-242 的两帧也建了：发起方自己的标记，以及它在 RRTT 请求时才发的那一帧报告（<code>uwb/frames.ts#makeSp3InitReport</code>，<code>14 + 6A</code> 字节）。时隙预算 <code>uwb/phy.ts#uwbSlotsPerTag</code> 在 <code>sp3</code> 下是 <code>2A+2</code>，请求了 RRTT 是 <code>2A+3</code>，而 <code>sp3</code> 配双边双向测距同样合法、同样再多一个（量过：6 个锚点时 77 个时隙对 70 个）。<b>整轮的账量过</b>：对 SP1 嵌入式每个 A 都更长且差距变大，对 SP1 延后在 <b>A = 4</b> 交叉（请求 RRTT 时 A = 11）。<b>仍未建</b>：MLME-STS 原语与 RSSD IE，因此 STS 计数器的推进也没有（本引擎没有一处密码学，<code>UWB_STS_CHIPS</code> 建的只是它占多少空口时间）；SP2；以及 §10.32.8.1 说过程可推广到的多发起方多响应方。<code>@uwb-sp3</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-部分建模">部分建模</span></td>
-    </tr><tr>
-      <td>SRRR IE（SP3 Ranging Request Reports IE）§10.32.9.9<div class="ev"><code>uwb/phy.ts#SRRR_IE_BYTES</code> = 头 2 + 控制 1，每个响应方一个，所以 RCM 长 <code>uwb/phy.ts#srrrIeBytes</code> = 3A 字节——<b>请求不是免费的</b>，与 §10.36 的 MMRCR 恰好相反（那一位在 RCM 本来就带着的控制字里，一个字节都不花）。正文的 RAOA 与 RRTT 两位都建成了<code>scenario.ts</code> 的 <code>srrr</code>，而且<b>两位都真的改变空口</b>：RAOA 关掉时报告帧短 4 个字节，RRTT 置位时发起方多发一帧报告并多占一个时隙。这一条是补过的——最初 RRTT 上了空口而整个报告相位逐字节不变，是一个被允许却可证明无效果的配置；<code>sp3 + ds + raoa</code> 当时同样无效果。两位现在在 SS-TWR 之外都被拒绝。<code>@uwb-sp3</code></div></td>
-      <td><span class="tag k-published">已发布</span></td>
-      <td><span class="tag e-已建模">已建模</span></td>
-    </tr>
-    </tbody></table>
-  </div>
 <div class="panel" id="p-uwb-multiie">
     <h3>多节点测距 IE</h3>
     <p class="note">ARC／RCPS／RCMA／RDM 建了宽度；RIU／RR／RBU／RCR 没建</p>
-    <p class="note">依赖：块／轮／时隙
-      ｜ 课：<code>@uwb-frame</code>、<code>@uwb-rcm-validity</code>、<code>@uwb-receipt</code>、<code>@uwb-contention</code>、<code>@uwb-slot-budget</code></p>
+    <p class="note">课：<code>@uwb-frame</code>、<code>@uwb-rcm-validity</code>、<code>@uwb-receipt</code>、<code>@uwb-contention</code>、<code>@uwb-slot-budget</code></p>
+    <ul class="deps"><li><b>测距 IE</b>　它们也是信息单元，长度与字段清单按同一套算</li><li><b>块／轮／时隙</b>　这几个单元装的正是块号、轮号与时隙号——没有网格就没有号可装</li></ul>
+    <p class="note">它撑着：一对多、SP3 分组测距、出错之后：三节全建</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>ARC IE（Advanced Ranging Control IE）§10.32.9.1<div class="ev">每条 Poll 都挂它，长度 <code>uwb/phy.ts#ARC_IE_BYTES</code>（头 + 控制 2 + 块 2 + 轮 2 + 时隙 2）。块/轮/时隙三个号确实在帧里（<code>uwb/frames.ts#UwbInfo</code>）。<b>控制字（Content Control，bit 0–15）现在建了其中一个字段</b>：RCM Validity Rounds（bit 9–14，六位）——<code>scenario.ts</code> 的 <code>rcmValidityRounds</code>、<code>uwb/session.ts#blockCarriesRcm</code>，一条控制消息管几个块，其余块只发 14 字节的启动消息。另外两处只是名字对上了号而不是建了：Multi-node Mode 的取值 2 就是 <code>mode: 'm2m'</code> 建的那个多对多，Ranging Round Usage 的取值 3 选的是 §10.35。<b>MMRCR（bit 15）现在也建了</b>——<code>scenario.ts</code> 的 <code>mmrcr</code>，一次收妥确认的请求，见 §10.36 那一行；<b>控制字里其余的位仍未建。</b> <code>@uwb-frame</code>、<code>@uwb-rcm-validity</code>、<code>@uwb-receipt</code></div></td>
@@ -1413,11 +1401,66 @@
     </tr>
     </tbody></table>
   </div>
+<div class="panel" id="p-uwb-one2many">
+    <h3>一对多</h3>
+    <p class="note">广播 Poll 点名，逐锚点作答 §10.32.4／.5</p>
+    <p class="note">课：<code>@uwb-sstwr</code>、<code>@uwb-dstwr</code></p>
+    <ul class="deps"><li><b>双向测距的数学</b>　每个锚点与标签之间仍然是一次双向测距，只是问话合成了一帧</li><li><b>块／轮／时隙</b>　「各答各的」靠的是每个锚点有自己的时隙</li><li><b>多节点测距 IE</b>　RDM IE 就是那张「谁在第几个时隙」的名单</li></ul>
+    <p class="note">它撑着：出错之后：三节全建、由距离解位置</p>
+    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
+    <tr>
+      <td>一对多 SS-TWR §10.32.4<div class="ev">一条广播 Poll 点名若干锚点（RDM IE），每个锚点在自己的时隙里答：<code>uwb/frames.ts#makePoll</code>、<code>uwb/phy.ts#rdmIeBytes</code>、<code>uwb/phy.ts#uwbSlotsPerTag</code>。<code>@uwb-sstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>一对多 DS-TWR §10.32.5<div class="ev">加上广播 Final 与逐锚点的 Report：<code>uwb/frames.ts#makeFinal</code>、<code>uwb/frames.ts#makeReport</code>。<code>@uwb-dstwr</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr>
+    </tbody></table>
+  </div>
+<div class="panel" id="p-uwb-m2m">
+    <h3>多对多</h3>
+    <p class="note">一帧对前后两方分别是答与问 §10.32.6／.7</p>
+    <p class="note">课：<code>@uwb-m2m</code></p>
+    <ul class="deps"><li><b>双向测距的数学</b>　一帧同时是答与问，而两边各自算的仍是同一条双向测距的算术</li><li><b>块／轮／时隙</b>　参与者 i 在第 i 个时隙发——身份与次序都来自网格</li></ul>
+    
+    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
+    <tr>
+      <td>多对多 SS-TWR §10.32.6<div class="ev">一轮 N 个时隙，参与者 i 在第 i 个时隙发一次，那一帧对后面的人是问、对前面的人是答：<code>uwb/session.ts#m2mParticipants</code>（顺序按 id，model）、<code>uwb/session.ts#slotAction</code> 的 <code>uwbM2m</code> 分支、<code>uwb/device.m2m.ts#transmitM2m</code>、<code>uwb/device.m2m.ts#onM2mRx</code>、<code>uwb/frames.ts#makeM2m</code>、<code>uwb/phy.ts#uwbM2mBytes</code>、<code>uwb/phy.ts#uwbMaxParticipants</code>。距离仍由 <code>uwb/ranging.ts#ssTwrCorrected</code> 算，而且只有排在前面的那个参与者算得出来（N−1−i 条）。<code>@uwb-m2m</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr><tr>
+      <td>多对多 DS-TWR §10.32.7<div class="ev">同一套路走两趟，每趟 N 个时隙（2N），第二趟的帧只带第二趟听到的到达时刻，所以帧长上限与 SS 相同：<code>uwb/session.ts#slotAction</code> 的 <code>pass</code>、<code>uwb/device.m2m.ts#onM2mRx</code>、<code>uwb/ranging.ts#dsTwr</code>。晶振拉开时比 SS 准约 150 倍（回复间隔是整整几个时隙，SS 要按估出来的时钟偏差折算）。<code>@uwb-m2m</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr>
+    </tbody></table>
+  </div>
+<div class="panel" id="p-uwb-sp3">
+    <h3>SP3 分组测距</h3>
+    <p class="note">没有 PHR 没有载荷，身份来自时隙 §10.32.8＋SRRR IE</p>
+    <p class="note">课：<code>@uwb-sp3</code></p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　SP3 是一种 PPDU 形状：SHR 加 STS，没有 PHR 也没有 PSDU</li><li><b>块／轮／时隙</b>　这种包一个字段也带不了，所以发的人是谁只能由时隙回答</li><li><b>多节点测距 IE</b>　请求它的 SRRR IE 挂在控制消息上，一个响应方一条</li></ul>
+    
+    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
+    <tr>
+      <td>SP3 分组下的测距 §10.32.8（含 §10.32.8.2、§10.32.8.3）<div class="ev"><b>建了的那一半</b>：SP3 包是 <code>uwb/phy.ts#uwbSp3Chips</code> = SHR + STS，没有 PHR 没有载荷，所以 <code>uwb/phy.ts#uwbSp3Ns</code> ≈ 141 µs，比最短的 SP1 帧短 40.256 µs；独立的 <code>uwbSp3</code> 帧类型与 <code>uwb/frames.ts#makeSp3</code>，而它<b>没有任何能装身份或时间的字段</b>——身份来自时隙（<code>uwb/session.ts#slotAction</code>），这一条由一次变异验收：把发起方的时隙表倒过来，距离会「出现而且是错的」，逐位等于另一台锚点的测量。三个相位齐全（§10.32.8.2）：RCM、SP3 测距、测量报告，而报告相位由 schema 保证而不是靠设备自觉——<code>sp3</code> 要求 <code>replyTime</code> 恰好是 <code>deferred</code>。Figure 10-242 的两帧也建了：发起方自己的标记，以及它在 RRTT 请求时才发的那一帧报告（<code>uwb/frames.ts#makeSp3InitReport</code>，<code>14 + 6A</code> 字节）。时隙预算 <code>uwb/phy.ts#uwbSlotsPerTag</code> 在 <code>sp3</code> 下是 <code>2A+2</code>，请求了 RRTT 是 <code>2A+3</code>，而 <code>sp3</code> 配双边双向测距同样合法、同样再多一个（量过：6 个锚点时 77 个时隙对 70 个）。<b>整轮的账量过</b>：对 SP1 嵌入式每个 A 都更长且差距变大，对 SP1 延后在 <b>A = 4</b> 交叉（请求 RRTT 时 A = 11）。<b>仍未建</b>：MLME-STS 原语与 RSSD IE，因此 STS 计数器的推进也没有（本引擎没有一处密码学，<code>UWB_STS_CHIPS</code> 建的只是它占多少空口时间）；SP2；以及 §10.32.8.1 说过程可推广到的多发起方多响应方。<code>@uwb-sp3</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-部分建模">部分建模</span></td>
+    </tr><tr>
+      <td>SRRR IE（SP3 Ranging Request Reports IE）§10.32.9.9<div class="ev"><code>uwb/phy.ts#SRRR_IE_BYTES</code> = 头 2 + 控制 1，每个响应方一个，所以 RCM 长 <code>uwb/phy.ts#srrrIeBytes</code> = 3A 字节——<b>请求不是免费的</b>，与 §10.36 的 MMRCR 恰好相反（那一位在 RCM 本来就带着的控制字里，一个字节都不花）。正文的 RAOA 与 RRTT 两位都建成了<code>scenario.ts</code> 的 <code>srrr</code>，而且<b>两位都真的改变空口</b>：RAOA 关掉时报告帧短 4 个字节，RRTT 置位时发起方多发一帧报告并多占一个时隙。这一条是补过的——最初 RRTT 上了空口而整个报告相位逐字节不变，是一个被允许却可证明无效果的配置；<code>sp3 + ds + raoa</code> 当时同样无效果。两位现在在 SS-TWR 之外都被拒绝。<code>@uwb-sp3</code></div></td>
+      <td><span class="tag k-published">已发布</span></td>
+      <td><span class="tag e-已建模">已建模</span></td>
+    </tr>
+    </tbody></table>
+  </div>
 <div class="panel" id="p-uwb-recover">
     <h3>出错之后：三节全建</h3>
     <p class="note">未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36</p>
-    <p class="note">依赖：多节点测距 IE、一对多
-      ｜ 课：<code>@uwb-rcm-validity</code>、<code>@uwb-ancillary-request</code>、<code>@uwb-ancillary</code>、<code>@uwb-ancillary-loss</code>、<code>@uwb-m2m</code>、<code>@uwb-receipt</code></p>
+    <p class="note">课：<code>@uwb-rcm-validity</code>、<code>@uwb-ancillary-request</code>、<code>@uwb-ancillary</code>、<code>@uwb-ancillary-loss</code>、<code>@uwb-m2m</code>、<code>@uwb-receipt</code></p>
+    <ul class="deps"><li><b>一对多</b>　这三节讲的都是控制器与响应方之间出了岔子，没有这对角色就无从谈起</li><li><b>多节点测距 IE</b>　三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>测距消息未收到交互 §10.34，及 RMNR IE（Ranging Message Non Receipt IE）§10.34.2.1<div class="ev">响应方持有仍然有效的控制消息、却没收到本轮启动消息时，不再在自己的时隙里沉默，而是发一帧 RMNR：<code>uwb/frames.ts#makeRmnr</code>（13 字节 = MHR 9 + 一个 2 字节的单元头 + FCS 2，那个信息单元<b>没有内容字段</b>）、独立的 <code>'uwbRmnr'</code> 帧类型、<code>uwb/device.ts</code> 的 <code>owesRmnr</code>、<code>UWB_RMNR</code> 记录、以及 <code>view.ts</code> 里与 <code>timeouts</code> 配对的 <code>rmnr</code> 计数。发起方由此能把「这个锚点没听到」与「听到了但回答丢了」分开：墙后一个锚点的场景里，七条无从区分的 <code>UWB_TIMEOUT</code> 变成四条超时加三条点了名的理由。<b>它必须和 RCM 有效轮次一起建</b>，理由见 <code>@uwb-rcm-validity</code>：每轮一条控制消息时，丢了那一帧的响应方连自己该在哪个时隙发送都不知道。<code>@uwb-rcm-validity</code></div></td>
@@ -1437,8 +1480,9 @@
 <div class="panel" id="p-uwb-security">
     <h3>安全：整块缺席</h3>
     <p class="note">§10.31、§10.33、STS 的 DRBG——引擎不持密钥</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@uwb-sts</code></p>
+    <p class="note">课：<code>@uwb-sts</code></p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　STS 字段的位置与长度在 PPDU 里，缺的是填进去的那串码片</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>安全事务测距 §10.31<div class="ev"><b>范围决定。</b> 引擎不持有密钥、不加密、不做比对；<code>src</code> 里没有一处密码学。<code>@uwb-sts</code> 的 <code>limits</code> 已把这条后果写明：一次拒绝之后什么也不发生，会话不重试、不告警、不换密钥。</div></td>
@@ -1462,8 +1506,9 @@
 <div class="panel" id="p-uwb-prims">
     <h3>原语、PIB 与描述符</h3>
     <p class="note">没有分层服务接口：场景直接构造设备</p>
-    <p class="note">依赖：（无）
-      ｜ 课：（无）</p>
+    <p class="note">课：（无）</p>
+    <ul class="deps"><li><b>块／轮／时隙</b>　这些原语管的是一次测距会话的启停与参数，而会话就是那张网格</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>测距的 MAC 管理服务原语 §10.29.9（含校准原语 §10.29.9.3）<div class="ev"><b>范围决定。</b> <code>src</code> 里没有一个 MLME/MCPS 原语：本仿真器没有分层的服务接口，场景直接构造设备。</div></td>
@@ -1487,8 +1532,9 @@
 <div class="panel" id="p-uwb-phy-absent">
     <h3>HPRF 与脉冲形状</h3>
     <p class="note">HPRF、CoU、CS、LCP——没有波形层，带宽代替了脉冲</p>
-    <p class="note">依赖：（无）
-      ｜ 课：（无）</p>
+    <p class="note">课：（无）</p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　它们是同一层的另外几种选择：换调制、换脉冲，PPDU 的骨架不变</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>HPRF 模式下的 PHR §16.2.7.3 与 HPRF 调制 §16.3.4<div class="ev"><b>范围决定。</b> 整个 UWB 侧只有 BPRF 参数集 3 一种配置（见 §16.7 那一行），HPRF 在 <code>src</code> 里连一个常量都没有。术语表已写明这一点。</div></td>
@@ -1512,8 +1558,9 @@
 <div class="panel" id="p-uwb-lrp">
     <h3>LRP 物理层：整章缺席</h3>
     <p class="note">§19 全章——第一刀就定了只建 HRP</p>
-    <p class="note">依赖：（无）
-      ｜ 课：（无）</p>
+    <p class="note">课：（无）</p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>LRP UWB PHY 的四种符号结构与它们的帧：基本模式 §19.2.2、扩展模式 §19.2.3、长距模式 §19.2.4、双频模式 §19.2.5；SHR 与前导码 §19.3.2.1–§19.3.2.4；SFD §19.3.3.1；PHR §19.4；PSDU §19.5；发射机规格 §19.7；收发定时 §19.8；信道编号 §11.1.3.8；LRP PIB §12.3.6；信道能力 E.7.4.5<div class="ev"><b>范围决定。</b> <code>src</code> 里唯一一处提到 LRP 的地方是术语表里那句「不在范围内」。整个物理层、它的四种模式、它自己的信道表、它自己的 PIB，一行也没有。课程里没有一课以 LRP 为题。</div></td>
@@ -1529,8 +1576,9 @@
 <div class="panel" id="p-uwb-setup">
     <h3>建立、拆除与超帧</h3>
     <p class="note">§10.29.2／.3、§10.30——会话从不需要被建立起来</p>
-    <p class="note">依赖：（无）
-      ｜ 课：<code>@uwb-blocks</code></p>
+    <p class="note">课：<code>@uwb-blocks</code></p>
+    <ul class="deps"><li><b>块／轮／时隙</b>　要建立与拆除的那个东西就是会话，而本引擎的会话是一张算好的网格</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>测距交互前的准备与交互后的收尾 §10.29.2、§10.29.3<div class="ev"><b>范围决定。</b> 一个场景只有一条测距会话，而它从不需要被建立起来：时隙网格在会话开始之前就把谁在哪个时隙发讲定了（<code>uwb/session.ts#roundPlan</code>），没有能力交换、没有协商、没有拆除。已写进 <code>@uwb-blocks</code> 的 <code>limits</code>。</div></td>
@@ -1546,8 +1594,9 @@
 <div class="panel" id="p-uwb-mms-phy">
     <h3>MMS 包格式</h3>
     <p class="note">片段的长度与位置、能量预算、检出 §16.2.11</p>
-    <p class="note">依赖：HRP 物理层：只建时长
-      ｜ 课：<code>@uwb-mms-numbers</code>、<code>@uwb-acquisition</code>、<code>@uwb-uwbd</code></p>
+    <p class="note">课：<code>@uwb-mms-numbers</code>、<code>@uwb-acquisition</code>、<code>@uwb-uwbd</code></p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　片段仍是 HRP 的码片与符号，变的是把一个包拆成一串</li><li><b>单位与计数器</b>　「每毫秒」这个预算与片段的位置都按码片与 RSTU 算</li></ul>
+    <p class="note">它撑着：MMS 测距与子轮</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>HRP UWB MMS 包格式 §16.2.11<div class="ev">证据：条号 <code>16.2.11</code> 在 2026 年文稿里仍被引用（4 次），四年未变；15-25/0066r1 引「UWB driven MMS packet format configuration」。引擎建的是片段的<b>长度与位置</b>：<code>uwb/mms.ts#rsfNs</code>、<code>uwb/mms.ts#rifNs</code>、<code>uwb/mms.ts#mmsPacketFragments</code>、<code>uwb/mms.ts#rifStartMs</code>、<code>uwb/frameFields.ts#mmsPpduLayout</code>。片段内部的序列未建。<code>@uwb-mms-numbers</code></div></td>
@@ -1583,8 +1632,9 @@
 <div class="panel" id="p-uwb-mms-mac">
     <h3>MMS 测距与子轮</h3>
     <p class="note">§10.39：建的是单边双向加时钟比率修正那一种</p>
-    <p class="note">依赖：MMS 包格式、块／轮／时隙
-      ｜ 课：<code>@uwb-mms</code>、<code>@uwb-mms-numbers</code>、<code>@uwb-slot-budget</code>、<code>@uwb-subrounds</code>、<code>@uwb-uwbd</code></p>
+    <p class="note">课：<code>@uwb-mms</code>、<code>@uwb-mms-numbers</code>、<code>@uwb-slot-budget</code>、<code>@uwb-subrounds</code>、<code>@uwb-uwbd</code></p>
+    <ul class="deps"><li><b>MMS 包格式</b>　一轮 MMS 测距量的就是那串片段的首脉冲</li><li><b>双向测距的数学</b>　它仍是单边双向那一套算术，加一次时钟比率修正</li><li><b>块／轮／时隙</b>　子轮、测距阶段与报告阶段都排在块与时隙上</li></ul>
+    <p class="note">它撑着：窄带控制面</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>多毫秒（multi-millisecond, MMS）UWB 操作 §10.39 总体<div class="ev">证据：15-26/0179r1 的 PICS 插入项 MLF9.39「Multi-millisecond (MMS) UWB operation」直接引 §10.39；2026 年的意见决议成批引用 §10.39.x 的页/行（§10.39.8.3 一项就命中 272 次）。引擎建的是<b>单边双向加时钟比率修正</b>那一种：<code>uwb/mms.ts#mmsLayout</code>、<code>uwb/device.mms.ts#onMmsSlot</code>、<code>uwb/device.mms.ts#onMmsRx</code>、<code>uwb/device.mms.ts#solveMmsFix</code>；<code>uwb/session.ts#MmsRoundPlan</code>。MMS 里的 DS-TWR 未建。<code>@uwb-mms</code>、<code>@uwb-mms-numbers</code></div></td>
@@ -1632,8 +1682,9 @@
 <div class="panel" id="p-uwb-nb">
     <h3>窄带控制面</h3>
     <p class="note">§10.39.4.2、250 个 2.5 MHz 信道、按块跳频</p>
-    <p class="note">依赖：MMS 测距与子轮
-      ｜ 课：<code>@uwb-nba</code>、<code>@uwb-nba-coexist</code></p>
+    <p class="note">课：<code>@uwb-nba</code>、<code>@uwb-nba-coexist</code></p>
+    <ul class="deps"><li><b>MMS 测距与子轮</b>　这部窄带电台只搬控制消息，而它要控制的那一轮就是 MMS 测距</li></ul>
+    <p class="note">它撑着：共存：LBT、SSBD、频域延后</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>窄带辅助 UWB（narrowband-assisted UWB, NBA-UWB）控制面 §10.39.4.2<div class="ev">证据：15-26/0029r2 逐条引用 §10.39.4.2 页 84 的草案文字；15-26/0174r1 把「删掉窄带（Clause 13）」这条意见（I-386）判为 <b>Rejected</b>，理由是超出 PAR 范围——也就是说窄带留在草案里这件事本身已有裁定。引擎：那部窄带射频<b>只有一个物理层，没有任何链路层</b>——<code>uwb/nb.ts#nbPpduNs</code>（2 Mchip/s O-QPSK、250 kb/s）加几个消息大小，帧由 <code>uwb/frames.ts#makeNbPoll</code>、<code>uwb/frames.ts#makeNbResp</code>、<code>uwb/frames.ts#makeNbReport</code>、<code>uwb/frames.ts#makeNbPollOtm</code> 造出来。<code>@uwb-nba</code></div></td>
@@ -1653,8 +1704,9 @@
 <div class="panel" id="p-uwb-coex">
     <h3>共存：LBT、SSBD、频域延后</h3>
     <p class="note">§10.39.8.3、§10.45、提案 §10.47</p>
-    <p class="note">依赖：窄带控制面、信道与频段
-      ｜ 课：<code>@uwb-nba-coexist</code>、<code>@uwb-coexist</code>、<code>@uwb-ssbd</code></p>
+    <p class="note">课：<code>@uwb-nba-coexist</code>、<code>@uwb-coexist</code>、<code>@uwb-ssbd</code></p>
+    <ul class="deps"><li><b>窄带控制面</b>　先听后说与跳到下一个信道，判的都是那部窄带电台要不要发</li><li><b>信道与频段</b>　「听得见别人」是一次带内功率的比较，而带宽与重叠在这一组里</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>窄带先听后说（listen-before-talk, LBT）§10.39.8.3<div class="ev">证据：<b>这是 15-26/0391r4 第 36 页列出的三个未决技术议题之一</b>（&quot;Various narrow band technical topics&quot;）。表决记录：LBT 意见的成批决议（15-26/0244r1）2026 年 7 月 <b>25/14/1（64.1%）被否</b>；CID I-28（CCA 判空后是否「立即发送」，§10.39.8.3）两次被否——<b>20/15/2（57.1%）</b> 与 <b>18/19/0（48.6%）</b>；把 LBT 从 &quot;may&quot; 改成 &quot;shall&quot; 的那批意见 15-26/0061r0 判为 <b>Rejected，理由是「Group failed to reach consensus」</b>。均见 15-26/0348r1。引擎：<code>uwb/nb.ts#nbLbtRequired</code>、<code>uwb/nb.ts#NB_LBT_THRESHOLD_DBM</code>；<b>草案要求至少评估 9 µs，这里以一次瞬时功率读数代之</b>。<code>@uwb-nba-coexist</code></div></td>
@@ -1682,8 +1734,9 @@
 <div class="panel" id="p-uwb-sensing">
     <h3>感知</h3>
     <p class="note">§10.40：只有双站、静止点目标，报告 IE 未建</p>
-    <p class="note">依赖：信道与频段、双向测距的数学
-      ｜ 课：<code>@uwb-sensing</code>、<code>@uwb-sensing-resolution</code></p>
+    <p class="note">课：<code>@uwb-sensing</code>、<code>@uwb-sensing-resolution</code></p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　回波量的是同一发帧的首脉冲，时标仍取在 RMARKER 上</li><li><b>信道与频段</b>　散射体回来的那一路强不强，是一次链路预算</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>UWB 感知 §10.40 总体（感知阶段、测量报告阶段）<div class="ev">证据：15-26/0179r1 的 PICS 插入项 MLF9.40 引 §10.40；感知意见的成批决议 15-26/0242r0 在 2026 年 5 月中间会议<b>无异议通过</b>（15-26/0265r0 第 17 页）。<b>一条注意</b>：D05 复审又对感知报告阶段的措辞提了意见（15-26/0420r0，Group K），而 9 月中间会议只表决了 Motion #26 与 #27（均被否），Group K 的处置<b>尚未表决</b>。引擎建的只有几何：一个接收机被递来第二个到达时，把它蕴含的东西记下来（<code>uwb/sensing.ts#UwbSensor</code>、<code>engine/scatter.ts#echoExcessM</code>、<code>engine/scatter.ts#isResolvable</code>、<code>engine/scatter.ts#echoLossDb</code>）。草案 §10.40 的任何 MAC 结构——感知阶段、报告阶段、会话——一样也没有。<code>@uwb-sensing</code>、<code>@uwb-sensing-resolution</code></div></td>
@@ -1703,8 +1756,9 @@
 <div class="panel" id="p-uwb-rest4ab">
     <h3>4ab 的其余整块</h3>
     <p class="note">复合帧、超块、发现、协商、唤醒、卸载、RSS、LE UWB</p>
-    <p class="note">依赖：（无）
-      ｜ 课：（无）</p>
+    <p class="note">课：（无）</p>
+    <p class="note">依赖：（无，这一组是一条链的起点）</p>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>复合帧（compact frame）§10.38<div class="ev">证据：15-26/0179r1 的 PICS 插入项 FD9「Compact Frame Support」与 MLF9.38 均引 §10.38；复合帧的具体帧型被 2026 年文稿逐个引用（如 §10.39.11.3.20 的 One-to-one Final Compact，Compact Frame ID 18）。<b>范围决定</b>：引擎的帧是 802.15.4 的 MHR + IE + FCS 那一套（<code>uwb/phy.ts#UWB_MHR_BYTES</code>、<code>uwb/phy.ts#UWB_IE_HDR_BYTES</code>、<code>uwb/phy.ts#UWB_FCS_BYTES</code>），复合帧的压缩布局一处也没有。</div></td>
@@ -1760,8 +1814,9 @@
 <div class="panel" id="p-uwb-position">
     <h3>由距离解位置</h3>
     <p class="note">等权高斯—牛顿，不按品质因数加权；标准不给解算</p>
-    <p class="note">依赖：一对多、多对多
-      ｜ 课：<code>@uwb-position</code>、<code>@uwb-geometry</code>、<code>@uwb-capstone</code></p>
+    <p class="note">课：<code>@uwb-position</code>、<code>@uwb-geometry</code>、<code>@uwb-capstone</code></p>
+    <ul class="deps"><li><b>双向测距的数学</b>　解算吃的是距离，而距离是双向测距交出来的</li><li><b>一对多</b>　一次解算要同一轮里的三条以上距离，那正是一对多给的</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>由多个距离解位置（等权高斯—牛顿）<div class="ev"><b>查了什么：</b> 定位解算不是 802.15.4 的内容——标准给测量，不给解算。引擎：<code>uwb/position.ts#solvePosition</code>、<code>uwb/position.ts#rangeSigmaM</code>、<code>uwb/position.ts#Ellipse</code>。<b>解算器对每条测量一视同仁，而且从不回头</b>：不按品质因数、不按到达电平加权，没有加权最小二乘。<code>@uwb-position</code>、<code>@uwb-geometry</code>、<code>@uwb-capstone</code></div></td>
@@ -1773,8 +1828,9 @@
 <div class="panel" id="p-uwb-tdoa">
     <h3>DL／UL-TDoA</h3>
     <p class="note">FiRa 形状的模型；四个到达时刻怎么汇总，本模型没说</p>
-    <p class="note">依赖：块／轮／时隙、单位与计数器
-      ｜ 课：<code>@uwb-dl-tdoa</code>、<code>@uwb-ul-tdoa</code></p>
+    <p class="note">课：<code>@uwb-dl-tdoa</code>、<code>@uwb-ul-tdoa</code></p>
+    <ul class="deps"><li><b>单位与计数器</b>　它量的是两个到达时刻之差，单位与计数器是同一套</li><li><b>块／轮／时隙</b>　谁在什么时候发，靠的是排好的时隙——标签不回话，没有网格就没有次序</li><li><b>HRP 物理层：只建时长</b>　到达时刻取在 RMARKER 上，和双向测距同一个瞬间</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>DL-TDoA（下行到达时间差）<div class="ev"><b>查了什么：</b> 802.15.4-2024 的目录里没有一条以 TDoA 为题的条款（<code>.superpowers/sdd/uwb-clause-list.txt</code> 里 §10.32.3「Ranging modes」是唯一可能的归属），4ab 语料库里也查不到一份把 DL-TDoA 写成草案条文的文稿。引擎里它是<b>照 FiRa 的形状建的模型</b>：Poll/Response/Final 携带各自的发射与接收时刻（<code>uwb/frames.ts#UwbDlTimes</code>，按 §10.29.8.4 RMI 的形状放），tag 只听不发。<code>uwb/device.tdoa.ts#onDlSlot</code>、<code>uwb/device.tdoa.ts#transmitDl</code>、<code>uwb/device.tdoa.ts#solveTdoaFix</code>、<code>uwb/position.ts#solveTdoa</code>。<code>@uwb-dl-tdoa</code></div></td>
@@ -1790,8 +1846,9 @@
 <div class="panel" id="p-uwb-aoa">
     <h3>AoA／PDoA</h3>
     <p class="note">纯几何：锚点并没有两路接收</p>
-    <p class="note">依赖：双向测距的数学
-      ｜ 课：<code>@uwb-aoa</code></p>
+    <p class="note">课：<code>@uwb-aoa</code></p>
+    <ul class="deps"><li><b>HRP 物理层：只建时长</b>　相位差读在同一帧的同一瞬间上——它要的是一帧，不是一次往返</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>到达角（angle of arrival, AoA）与相位差（phase difference of arrival, PDoA）<div class="ev"><b>查了什么：</b> 2024 版目录里没有 AoA/PDoA 条款。引擎：纯几何，<code>uwb/aoa.ts#pdoaRad</code>、<code>uwb/aoa.ts#azimuthFromPdoaDeg</code>、<code>uwb/aoa.ts#aoaSigmaDeg</code>、<code>uwb/aoa.ts#antennaSpacingM</code>、<code>uwb/device.report.ts#measureAoa</code>。<b>锚点并没有两路接收</b>：<code>measureAoa</code> 由真实方位角算出一对半波长天线会看到的相位再加一次噪声；多径对方位角毫无影响。<code>@uwb-aoa</code></div></td>
@@ -1803,8 +1860,9 @@
 <div class="panel" id="p-uwb-fading-uwb">
     <h3>UWB 侧的衰落</h3>
     <p class="note">范围决定：信道模型出自 802.15.4a 的报告</p>
-    <p class="note">依赖：信道与频段
-      ｜ 课：<code>@uwb-mms</code></p>
+    <p class="note">课：<code>@uwb-mms</code></p>
+    <ul class="deps"><li><b>信道与频段</b>　衰落要改的就是这条链路预算里的那一项</li></ul>
+    
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>UWB 侧的衰落<div class="ev"><b>查了什么：</b> 2024 版目录里没有一条信道模型条款——UWB 的信道模型出自 IEEE 802.15.4a 的信道模型报告，不是标准正文，所以「标准怎么规定衰落」这一问在这张表里无处可对。<b>范围决定</b>，见 <code>docs/superpowers/specs/2026-09-27-fading-design.md</code> §8：那一刀只动 Wi-Fi 侧，「UWB 有自己的信道模型与自己的课程，混在一起会让两边都难验」。后果已写进 <code>@uwb-mms</code> 的 <code>limits</code>：UWB 链路的电平由几何与墙一次算定（<code>uwb/channel.ts#UwbChannel</code>），相干时间这条代价引擎看不见。</div></td>

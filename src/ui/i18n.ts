@@ -85,6 +85,7 @@ export interface Strings {
     openBadge: string
     pickPrompt: string
     needs: string
+    feeds: string
     noNeeds: string
     lessonsLabel: string
     noLessons: string
@@ -823,7 +824,8 @@ export const STRINGS: Strings = {
     },
     openBadge: '组里有几行还在争论或无法判定',
     pickPrompt: '点一个框，看它底下那几行特性、它们的证据与课号。',
-    needs: '依赖：',
+    needs: '依赖（这一组要成立，先得有）：',
+    feeds: '它撑着：',
     noNeeds: '（无）',
     lessonsLabel: '课：',
     noLessons: '（无）',

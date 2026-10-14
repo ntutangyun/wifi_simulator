@@ -58,13 +58,58 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
   it('names only groups that exist in its dependencies', () => {
     const ids = new Set(SPINE[track].map((g) => g.id))
     for (const g of SPINE[track]) {
-      for (const n of g.needs) expect(ids, `${g.id} needs ${n}`).toContain(n)
+      for (const n of g.needs) expect(ids, `${g.id} needs ${n.id}`).toContain(n.id)
     }
+  })
+
+  /**
+   * **The rule the spine is held to: an edge is a feature dependency, and it says why.**
+   *
+   * The first spine drawn here mixed two graphs — what a feature requires, and the order a reader
+   * meets things in — and the giveaway was that several edges had no reason anyone could write
+   * (`grid` did not need `shapes`; a slot grid exists whatever the reply time rides in). Requiring
+   * a reason per edge is cheap and it is what keeps the two apart, so it is asserted rather than
+   * trusted: an edge whose reason is missing or a stub does not get to be in the picture.
+   */
+  it('gives every dependency a reason, in the lesson’s own language', () => {
+    for (const g of SPINE[track]) {
+      for (const n of g.needs) {
+        expect(n.why.length, `${g.id} needs ${n.id}: no reason given`).toBeGreaterThan(8)
+        expect(n.why, `${g.id} needs ${n.id}: the reason is about the course, not the feature`)
+          .not.toMatch(/先学|讲完|这一课之后|读者先/)
+      }
+    }
+  })
+
+  it('has no cycle, so a dependency chain has an end', () => {
+    const byId = new Map(SPINE[track].map((g) => [g.id, g]))
+    const walk = (id: string, path: string[]): void => {
+      for (const n of byId.get(id)?.needs ?? []) {
+        expect(path, `cycle: ${[...path, id, n.id].join(' → ')}`).not.toContain(n.id)
+        walk(n.id, [...path, id])
+      }
+    }
+    for (const g of SPINE[track]) walk(g.id, [])
+  })
+
+  /**
+   * The column is the longest dependency chain ending at a group, so the drawing cannot disagree
+   * with its own arrows: everything a group needs is strictly to its left.
+   */
+  it('puts every group to the right of everything it needs', () => {
+    const depth = new Map(graph.groups.map((g) => [g.id, g.depth]))
+    for (const g of graph.groups) {
+      for (const n of g.needs) {
+        expect(depth.get(n.id)!, `${n.id} must sit left of ${g.id}`).toBeLessThan(depth.get(g.id)!)
+      }
+    }
+    expect(graph.groups.filter((g) => g.needs.length === 0).every((g) => g.depth === 0)).toBe(true)
   })
 
   it('draws every group and every dependency', () => {
     expect(graph.boxes.length).toBe(graph.groups.length)
     expect(graph.edges.length).toBe(SPINE[track].reduce((n, g) => n + g.needs.length, 0))
+    expect(graph.edges.every((e) => e.why.length > 8)).toBe(true)
   })
 
   it('counts what it draws, rather than restating the document', () => {
