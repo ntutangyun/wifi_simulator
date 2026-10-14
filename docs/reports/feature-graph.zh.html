@@ -871,8 +871,8 @@
 <path class="edge" d="M220 206 C476 206 476 206 732 206"><title>HRP 物理层：只建时长 → SP3 分组测距　SP3 是一种 PPDU 形状：SHR 加 STS，没有 PHR 也没有 PSDU</title></path>
 <path class="edge" d="M456 74 C594 74 594 206 732 206"><title>块／轮／时隙 → SP3 分组测距　这种包一个字段也带不了，所以发的人是谁只能由时隙回答</title></path>
 <path class="edge" d="M692 206 C712 206 712 206 732 206"><title>多节点测距 IE → SP3 分组测距　请求它的 SRRR IE 挂在控制消息上，一个响应方一条</title></path>
-<path class="edge" d="M928 74 C948 74 948 74 968 74"><title>一对多 → 出错之后：三节全建　这三节讲的都是控制器与响应方之间出了岔子，没有这对角色就无从谈起</title></path>
-<path class="edge" d="M692 206 C830 206 830 74 968 74"><title>多节点测距 IE → 出错之后：三节全建　三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）</title></path>
+<path class="edge" d="M928 74 C948 74 948 74 968 74"><title>一对多 → 测距之外的消息处理　三节说的都是控制器与响应方之间、测距以外的话：谁没听到启动消息、谁要另外带一条消息、谁收妥了哪几条——没有这对角色，这些话没有说话的人</title></path>
+<path class="edge" d="M692 206 C830 206 830 74 968 74"><title>多节点测距 IE → 测距之外的消息处理　三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）</title></path>
 <path class="edge" d="M220 206 C240 206 240 1130 260 1130"><title>HRP 物理层：只建时长 → 安全：整块缺席　STS 字段的位置与长度在 PPDU 里，缺的是填进去的那串码片</title></path>
 <path class="edge" d="M456 74 C476 74 476 734 496 734"><title>块／轮／时隙 → 原语、PIB 与描述符　这些原语管的是一次测距会话的启停与参数，而会话就是那张网格</title></path>
 <path class="edge" d="M220 206 C240 206 240 998 260 998"><title>HRP 物理层：只建时长 → HPRF 与脉冲形状　它们是同一层的另外几种选择：换调制、换脉冲，PPDU 的骨架不变</title></path>
@@ -1136,9 +1136,9 @@
     </g>
 <g class="node core" data-id="uwb-recover"
       transform="translate(968,24)">
-      <title>出错之后：三节全建　未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36</title>
+      <title>测距之外的消息处理　未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36</title>
       <rect class="box" width="196" height="100" rx="10"></rect>
-      <text class="t" x="12" y="22">出错之后：三节全建</text>
+      <text class="t" x="12" y="22">测距之外的消息处理</text>
       <text class="n" x="12" y="40">3 行 · 6 课</text>
       <text class="n dim" x="12" y="58">未收到 §10.34、辅助信息 §10.</text><text class="n dim" x="12" y="72">35、收妥确认 §10.36</text>
       
@@ -1364,7 +1364,7 @@
     <p class="note">ARC／RCPS／RCMA／RDM 建了宽度；RIU／RR／RBU／RCR 没建</p>
     <p class="note">课：<code>@uwb-frame</code>、<code>@uwb-rcm-validity</code>、<code>@uwb-receipt</code>、<code>@uwb-contention</code>、<code>@uwb-slot-budget</code></p>
     <ul class="deps"><li><b>测距 IE</b>　它们也是信息单元，长度与字段清单按同一套算</li><li><b>块／轮／时隙</b>　这几个单元装的正是块号、轮号与时隙号——没有网格就没有号可装</li></ul>
-    <p class="note">它撑着：一对多、SP3 分组测距、出错之后：三节全建</p>
+    <p class="note">它撑着：一对多、SP3 分组测距、测距之外的消息处理</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>ARC IE（Advanced Ranging Control IE）§10.32.9.1<div class="ev">每条 Poll 都挂它，长度 <code>uwb/phy.ts#ARC_IE_BYTES</code>（头 + 控制 2 + 块 2 + 轮 2 + 时隙 2）。块/轮/时隙三个号确实在帧里（<code>uwb/frames.ts#UwbInfo</code>）。<b>控制字（Content Control，bit 0–15）现在建了其中一个字段</b>：RCM Validity Rounds（bit 9–14，六位）——<code>scenario.ts</code> 的 <code>rcmValidityRounds</code>、<code>uwb/session.ts#blockCarriesRcm</code>，一条控制消息管几个块，其余块只发 14 字节的启动消息。另外两处只是名字对上了号而不是建了：Multi-node Mode 的取值 2 就是 <code>mode: 'm2m'</code> 建的那个多对多，Ranging Round Usage 的取值 3 选的是 §10.35。<b>MMRCR（bit 15）现在也建了</b>——<code>scenario.ts</code> 的 <code>mmrcr</code>，一次收妥确认的请求，见 §10.36 那一行；<b>控制字里其余的位仍未建。</b> <code>@uwb-frame</code>、<code>@uwb-rcm-validity</code>、<code>@uwb-receipt</code></div></td>
@@ -1406,7 +1406,7 @@
     <p class="note">广播 Poll 点名，逐锚点作答 §10.32.4／.5</p>
     <p class="note">课：<code>@uwb-sstwr</code>、<code>@uwb-dstwr</code></p>
     <ul class="deps"><li><b>双向测距的数学</b>　每个锚点与标签之间仍然是一次双向测距，只是问话合成了一帧</li><li><b>块／轮／时隙</b>　「各答各的」靠的是每个锚点有自己的时隙</li><li><b>多节点测距 IE</b>　RDM IE 就是那张「谁在第几个时隙」的名单</li></ul>
-    <p class="note">它撑着：出错之后：三节全建、由距离解位置</p>
+    <p class="note">它撑着：测距之外的消息处理、由距离解位置</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
       <td>一对多 SS-TWR §10.32.4<div class="ev">一条广播 Poll 点名若干锚点（RDM IE），每个锚点在自己的时隙里答：<code>uwb/frames.ts#makePoll</code>、<code>uwb/phy.ts#rdmIeBytes</code>、<code>uwb/phy.ts#uwbSlotsPerTag</code>。<code>@uwb-sstwr</code></div></td>
@@ -1456,10 +1456,10 @@
     </tbody></table>
   </div>
 <div class="panel" id="p-uwb-recover">
-    <h3>出错之后：三节全建</h3>
+    <h3>测距之外的消息处理</h3>
     <p class="note">未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36</p>
     <p class="note">课：<code>@uwb-rcm-validity</code>、<code>@uwb-ancillary-request</code>、<code>@uwb-ancillary</code>、<code>@uwb-ancillary-loss</code>、<code>@uwb-m2m</code>、<code>@uwb-receipt</code></p>
-    <ul class="deps"><li><b>一对多</b>　这三节讲的都是控制器与响应方之间出了岔子，没有这对角色就无从谈起</li><li><b>多节点测距 IE</b>　三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）</li></ul>
+    <ul class="deps"><li><b>一对多</b>　三节说的都是控制器与响应方之间、测距以外的话：谁没听到启动消息、谁要另外带一条消息、谁收妥了哪几条——没有这对角色，这些话没有说话的人</li><li><b>多节点测距 IE</b>　三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）</li></ul>
     
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>

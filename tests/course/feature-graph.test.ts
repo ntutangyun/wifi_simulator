@@ -81,6 +81,31 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
     }
   })
 
+  /**
+   * **A box may not write down what its own bar already counts.** The box draws a stacked bar from
+   * its rows, so a verdict spelled out in the title is a second, hand-written copy of it — and on
+   * 2026-10-14 the two disagreed: `recover` was titled 「出错之后：三节全建」 while §八's three rows
+   * are 已建模 2 and 部分建模 1 (辅助信息 §10.35 — Request = 0 built, the bit layout and the message
+   * content not). Renamed to what the feature IS; this is the assertion that keeps a verdict out of
+   * a name, since a name does not move when the engine does.
+   *
+   * 「缺席」 is the one verdict a title may carry, because a group in the `absent` family exists in
+   * order to say so — and then it has to be true of every row.
+   */
+  it('leaves the verdict to the bar, except an absence that is total', () => {
+    for (const g of graph.groups) {
+      for (const [what, text] of [['title', g.title], ['note', g.note]] as const) {
+        expect(text, `${g.id}: the ${what} counts what the bar already counts`)
+          .not.toMatch(/全建|都建了|全部建|全没建/)
+      }
+      if (/缺席/.test(g.title)) {
+        expect(g.rows.filter((r) => r.engine !== '未建模').map((r) => r.feature.slice(0, 24)),
+          `${g.id}: 「缺席」 is claimed, and these rows are not 未建模`).toEqual([])
+        expect(g.family, `${g.id}: 「缺席」 belongs to the absent family`).toBe('absent')
+      }
+    }
+  })
+
   it('has no cycle, so a dependency chain has an end', () => {
     const byId = new Map(SPINE[track].map((g) => [g.id, g]))
     const walk = (id: string, path: string[]): void => {

@@ -216,10 +216,10 @@ const UWB_SPINE: GroupSpec[] = [
       { id: 'multiie', why: '请求它的 SRRR IE 挂在控制消息上，一个响应方一条' },
     ],
     match: (r) => has(r, /SP3 分组下的测距|SRRR IE/) },
-  { id: 'recover', title: '出错之后：三节全建', note: '未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36',
+  { id: 'recover', title: '测距之外的消息处理', note: '未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36',
     family: 'core',
     needs: [
-      { id: 'one2many', why: '这三节讲的都是控制器与响应方之间出了岔子，没有这对角色就无从谈起' },
+      { id: 'one2many', why: '三节说的都是控制器与响应方之间、测距以外的话：谁没听到启动消息、谁要另外带一条消息、谁收妥了哪几条——没有这对角色，这些话没有说话的人' },
       { id: 'multiie', why: '三节各自挂在 ARC 控制字与自己的信息单元上（RMNR／RAICT／RMMRC）' },
     ],
     match: (r) => sec(r, '八') },
