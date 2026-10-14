@@ -318,6 +318,22 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(fmtRecord(round)).toBe(cell(2, 0, 1))
     expect(cell(2, 1, 1)).toBe('badge-1 → * UWBBLINK 14 B @6.81 Mbps (181.2 µs)')
     expect(fmtRecord(ofType(rs, 'TX_START')[0])).toBe(cell(2, 1, 1))
+    /*
+     * **The two headings that say which block they are of**, uncovered by the 「第」 rule change
+     * of 2026-10-14 — 「日志印出什么：badge-1，第 0 块」 and 「badge-1，第 0 块，对 anchor-…」.
+     * A heading is prose with a figure in it, and this figure is a claim about which records sit
+     * below it: the round line and the difference both carry the block they belong to.
+     */
+    const heads = tablesOf(uwbUlTdoa.numbers!)
+      .flatMap((x) => (x.heading === undefined ? [] : [x.heading]))
+      .filter((h) => /第 \d+ 块/.test(h))
+    expect(heads.length, 'the headings that name a block').toBe(2)
+    for (const h of heads) {
+      const b = Number(/第 (\d+) 块/.exec(h)![1])
+      expect(round.block, `「${h}」: the round line it quotes is of that block`).toBe(b)
+      expect(ofType(rs, 'UWB_TDOA')[0]!.block,
+        `「${h}」: and so is the first difference of the run`).toBe(b)
+    }
     // "A badge opens the one round of the block that is its own": badge 2's opens at 2 ms
     expect(ofType(rs, 'UWB_ROUND')[1].t).toBe(2 * MS)
     expect(ofType(rs, 'UWB_ROUND')[1].node).toBe('badge-2')

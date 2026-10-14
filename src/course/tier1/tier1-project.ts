@@ -151,7 +151,7 @@ export const tier1Project: Lesson = {
       ['客厅笔记本', '351', '⌈12246 / 351⌉ = 35', '48 + 476 = 524.0 µs',
         '12 Mb/s, 32 µs', '524.0 + 16 + 32 + 34 = 606.0 µs', '603.0 µs'],
     ] },
-    { heading: '回答有它自己的速率', text: '还是“空口时间（airtime）”那一课第 5 步的规则：确认帧用的是不超过数据帧自身参考速率的那个最高强制速率（mandatory rate）——快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞占的是 ACK 超时（ACK timeout）。' },
+    { heading: '回答有它自己的速率', text: '还是“空口时间（airtime）”那一课第 2 步的规则：确认帧用的是不超过数据帧自身参考速率的那个最高强制速率（mandatory rate）——快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞占的是 ACK 超时（ACK timeout）。' },
     { kind: 'table', heading: '（c）预测：两台饱和站点', head: [
       '量', '预测',
     ], rows: [

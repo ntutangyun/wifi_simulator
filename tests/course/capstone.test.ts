@@ -135,6 +135,23 @@ describe('capstone · the flat as the brief describes it', () => {
     // predicate finds in this lesson's own run rather than by how its button reads
     expect(capstone.jumps.length).toBe(4)
     for (const j of capstone.jumps) expect(base.rs.some(j.find), String(capstone.jumps.indexOf(j))).toBe(true)
+    /*
+     * **And the band a jump label names**, uncovered by the 「第」 rule change of 2026-10-14:
+     * 「第一个 6 GHz 数据帧」 is an instruction, and a planted digit leaves it grammatical while
+     * sending the reader to a lane this flat does not run. The record the jump lands on has to
+     * be on the lane it names.
+     */
+    let banded = 0
+    for (const j of capstone.jumps) {
+      const m = /第一个 (\d) GHz 数据帧/.exec(j.label)
+      if (m === null) continue
+      banded++
+      const hit = base.rs.find(j.find) as { node?: string }
+      expect(hit, `「${j.label}」 finds no record`).toBeDefined()
+      const onSix = (hit.node ?? '').endsWith('#6g')
+      expect(onSix, `「${j.label}」 lands on the lane it names`).toBe(m[1] === '6')
+    }
+    expect(banded, 'the jump labels that name a band').toBe(1)
   })
 })
 
@@ -248,6 +265,23 @@ describe('capstone · the method the brief asks the learner to follow', () => {
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-2').toFixed(2)} ms`))
     expect(table.rows[2].slice(1).map((c) => c))
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-4').toFixed(2)} ms`))
+    /*
+     * **`tryThis` quotes that table by column number**, and the 「第」 rule change of 2026-10-14
+     * uncovered the figure beside it: 「对照表第四列：备份照样送到 78.1 兆字节，平板的等待只从
+     * 39.06 ms 降到 34.31」. The ordinal is a claim about WHICH column — and the column it names
+     * has to be the one whose cells carry those three figures, all of which are read above
+     * against their own runs.
+     */
+    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
+    const ref = /对照表第(.)列：备份照样送到 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)/
+      .exec(capstone.tryThis.join(' '))
+    expect(ref, '`tryThis` no longer points at a column of the comparison table').not.toBeNull()
+    const col = cn(ref![1]!)
+    expect(col, 'a column this table has').toBeLessThanOrEqual(table.head.length - 1)
+    expect(table.rows[0]![col], 'the backup’s cell in the column it names').toBe(ref![2])
+    expect(tabletNew.upMb, 'which is what that option really delivers').toBe(Number(ref![2]))
+    expect(table.rows[2]![1], 'and the tablet’s wait it starts from').toBe(`${ref![3]} ms`)
+    expect(table.rows[2]![col], 'and ends at').toBe(`${ref![4]} ms`)
     expect(table.rows[3].slice(1).map((c) => c))
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.txWait('sta-3').toFixed(2)} ms`))
   })

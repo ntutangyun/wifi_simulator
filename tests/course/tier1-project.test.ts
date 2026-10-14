@@ -15,6 +15,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { projectFlat, tier1Project } from '../../src/course/tier1/tier1-project'
+import { airtime } from '../../src/course/tier1/airtime'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
@@ -150,6 +151,35 @@ describe('tier1-project · (a) the link budget the learner predicts', () => {
    * in tests/course/noise-floor.test.ts and tests/course/width.test.ts, and
    * `reqSinrDb('eht', 0)` in tests/course/decode-thresholds.test.ts.
    */
+})
+
+describe('tier1-project · the rule it borrows from another lesson', () => {
+  /**
+   * **A cross-lesson step reference is a figure, and this one was stale on the page.**
+   * 「还是『空口时间（airtime）』那一课第 5 步的规则：确认帧用的是不超过数据帧自身参考速率的
+   * 那个最高强制速率」 — the 「第」 rule change of 2026-10-14 offered that 5 to the planter, and
+   * reading it showed the reference pointed at nothing: `@airtime` once taught six steps, the
+   * split of 2026-09-25 moved the byte counting to `@frame-anatomy-bytes`, and the rule has been
+   * **step 2 of 3** ever since. A reader following the pointer landed on 「同一套算术用在 14 个
+   * 字节上」. Fixed in the lesson, and read here so it cannot go stale again: the step this
+   * sentence names has to be the step that states the rule.
+   */
+  it('points at the step of `@airtime` that really states the control-response rate rule', () => {
+    const steps = (airtime.numbers ?? []).concat(airtime.picture ?? [])
+      .find((b) => b.kind === 'steps') as { items: string[] } | undefined
+    expect(steps, '`@airtime` no longer builds the exchange in steps at all').toBeDefined()
+    const nth = /那一课第 (\d+) 步的规则/.exec(
+      tier1Project.numbers!.map((b) => (b as { text?: string }).text ?? '').join(' '))
+    expect(nth, 'the borrowed rule is no longer named by step number').not.toBeNull()
+    const i = Number(nth![1])
+    expect(i, `\`@airtime\` has only ${steps!.items.length} steps`)
+      .toBeLessThanOrEqual(steps!.items.length)
+    expect(steps!.items[i - 1], `step ${i} of \`@airtime\` is not the rule this quotes`)
+      .toContain('最高强制速率')
+    // and it is the only step of that lesson which states it, so the pointer is unambiguous
+    expect(steps!.items.filter((x) => x.includes('最高强制速率')),
+      'exactly one step states the rule').toHaveLength(1)
+  })
 })
 
 describe('tier1-project · (b) the airtime the learner predicts', () => {

@@ -534,6 +534,64 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
       .toBeLessThanOrEqual(2 * tol!)
   })
 
+  it('reads the two slot ordinals the figure’s caption gives, and `deeper`’s own k+1', () => {
+    /*
+     * **The caption says WHICH slot each shape sends in, and the 「第」 rule change of
+     * 2026-10-14 uncovered those ordinals**: 「延后的 Response 在第 1 个时隙的边界起发，第 2 个
+     * 时隙里还要再发一条延后报文；固定的那一条却落在第 1 个时隙里面——它从 Poll 到达算起，不看
+     * 时隙边界」. Three claims, all answerable by the runs the lesson ships: the deferred
+     * response leaves on a slot boundary, its extra message falls in the slot after it, and the
+     * fixed one leaves INSIDE the first slot rather than on any boundary.
+     */
+    const cap = [...(uwbReplyTime.picture ?? []), ...(uwbReplyTime.numbers ?? [])]
+      .map((b) => (b as { caption?: string }).caption ?? '').join(' ')
+    const ord = /延后的 Response 在第 (\d) 个时隙的边界起发，第 (\d) 个时隙里还要再发一条延后报文；固定的那一条却落在第 (\d) 个时隙里面/
+      .exec(cap)
+    expect(ord, 'the caption no longer says which slot each shape sends in').not.toBeNull()
+    const [onEdge, nextSlot, inside] = ord!.slice(1).map(Number) as [number, number, number]
+    const slotNs = rstuNs(uwbReplyTimeScenario('fixed').uwb!.slotRstu)
+    const txOf = (shape: 'fixed' | 'deferred', kind: string): number =>
+      ofType(runShape(shape), 'TX_START').find((r) => r.frame.kind === kind)!.t
+    expect(txOf('deferred', 'uwbResp'), 'the deferred response leaves on that boundary')
+      .toBe(onEdge * slotNs)
+    const deferAt = txOf('deferred', 'uwbSsDefer')
+    expect(deferAt, 'and its extra message falls in the slot after it')
+      .toBeGreaterThanOrEqual(nextSlot * slotNs)
+    expect(deferAt, 'inside that slot, not past it').toBeLessThan((nextSlot + 1) * slotNs)
+    expect(nextSlot, 'which is the slot after the boundary it left on').toBe(onEdge + 1)
+    const fixedAt = txOf('fixed', 'uwbResp')
+    expect(fixedAt, 'the fixed one leaves inside its slot').toBeGreaterThan(inside * slotNs)
+    expect(fixedAt, 'and before that slot ends').toBeLessThan((inside + 1) * slotNs)
+    expect(fixedAt % slotNs, 'so it is on no boundary at all').not.toBe(0)
+    // (this lesson numbers slots from zero, like the rest of the UWB track: the deferred
+    // response leaves ON the boundary of the slot the fixed one sits INSIDE)
+    expect(inside, 'the same slot the deferred one opens').toBe(onEdge)
+    /*
+     * 「它在 T0 + Ap + ToF + F + k·S 处发送，而这一刻必须落在第 k+1 个时隙之内：不早于
+     * T0 + (k+1)·S，也不晚到 T0 + (k+2)·S 减去 Ar 与守卫」 — `deeper` writes the bound out with
+     * the offsets in it, and the 「第」 rule change uncovered the first of them. The three have
+     * to agree with each other (the slot a responder answers in is one past its index, and the
+     * far edge is the slot after that), and with the window `fixedWindowRstu` really allows.
+     */
+    const deep = (uwbReplyTime.deeper ?? []).map((b) => (b as { text?: string }).text ?? '').join(' ')
+    const ineq = /必须落在第 k\+(\d) 个时隙之内：不早于 T0 \+ \(k\+(\d)\)·S，也不晚到 T0 \+ \(k\+(\d)\)·S/
+      .exec(deep)
+    expect(ineq, '`deeper` no longer writes the bound out').not.toBeNull()
+    const [slotOf, lowEdge, highEdge] = ineq!.slice(1).map(Number) as [number, number, number]
+    expect(lowEdge, 'the near edge is the slot the answer must fall in').toBe(slotOf)
+    expect(highEdge, 'and the far edge is the one after it').toBe(slotOf + 1)
+    // k = 0 for the one responder this scene runs, so the answer falls in slot k + slotOf
+    const w = fixedWindowRstu(BENCH_M, uwbReplyTimeScenario('fixed').uwb!.slotRstu)
+    const sendAt = (f: number): number => uwbPpduNs(uwbPollBytes(1)) + BENCH_M / C_M_PER_NS
+      + rstuNs(f)
+    for (const f of [w.lo, w.hi]) {
+      expect(sendAt(f), `a reply time of ${f} RSTU answers inside that slot`)
+        .toBeGreaterThanOrEqual(lowEdge * slotNs)
+      expect(sendAt(f) + uwbPpduNs(uwbRespBytes('ss', 'fixed')) + UWB_SLOT_GUARD_NS,
+        'and finishes before the far edge').toBeLessThanOrEqual(highEdge * slotNs)
+    }
+  })
+
   it('reads the octet table and the figure’s own span labels against the three runs', () => {
     const tb = tables().find((x) => x.head[0] === '帧')!
     for (const [c, head] of tb.head.slice(1).entries()) {

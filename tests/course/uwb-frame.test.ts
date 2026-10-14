@@ -288,9 +288,17 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(sum! * US, 'the two of them together, which is where the RMARKER falls')
       .toBe(lay.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs)
     expect(Number((sync! + sfd!).toFixed(3)), 'and the sentence’s own addition').toBe(sum)
-    const q = /距帧首 ([\d.]+) µs/.exec(quiz)
-    expect(q, 'the quiz option no longer gives the offset').not.toBeNull()
-    expect(Number(q![1]), 'the same offset the formula gives').toBe(sum)
+    /*
+     * **Every printing of it, not two of three.** The first pass of this read took the formula
+     * and the quiz option; the re-sweep found a third in the steps (「从整帧的第一个码片起数出
+     * 73.269 µs」). Read as a family now, so a fourth site cannot arrive unread either.
+     */
+    const everywhere = [...(uwbFrame.numbers ?? []), ...(uwbFrame.picture ?? []),
+      ...(uwbFrame.deeper ?? [])].map((b) => JSON.stringify(b)).concat(quiz).join(' ')
+    const sites = [...everywhere.matchAll(/距帧首 ([\d.]+) µs|起数出 ([\d.]+) µs|帧内 ([\d.]+) µs/g)]
+      .map((m) => m.slice(1).find((x) => x !== undefined)!)
+    expect(sites.length, 'the places this lesson prints the RMARKER offset').toBe(3)
+    for (const v of sites) expect(Number(v), 'the same offset every time').toBe(sum)
     const bytes = /(\d+) 个字节就够了/.exec(quiz)
     expect(bytes, 'the explanation no longer says how little the poll has to carry').not.toBeNull()
     expect(Number(bytes![1]), 'the octets the poll really carries').toBe(poll.frame.bytes)

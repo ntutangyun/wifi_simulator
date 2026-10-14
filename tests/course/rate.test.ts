@@ -568,6 +568,18 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     // the whole point of the sentence is that those two are different numbers
     expect(reversed, 'the two noise figures are the same, so the warning warns about nothing')
       .not.toBe(own)
+    /*
+     * **And the standard's own noise figure is read as the one that reproduces the engine's
+     * requirements**, not merely as 「something other than 7」. The 「第」 rule change of
+     * 2026-10-14 uncovered it: 「拿第 36 章的最小灵敏度减去按 10 dB 噪声系数算的噪声地板反推出
+     * 来的」 was checked only as `reversed !== own`, which an 11 satisfies as happily as a 10.
+     * The identity it describes is exact — every rung's required SINR is its sensitivity minus
+     * the floor computed at THAT noise figure — so every rung is walked.
+     */
+    for (let mcs = 0; mcs < PHY_MODES.eht.sensDbm.length; mcs++) {
+      expect(reqSinrDb('eht', mcs), `rung ${mcs} is its sensitivity over that floor`)
+        .toBeCloseTo(PHY_MODES.eht.sensDbm[mcs]! - noiseDbm(20, reversed), 9)
+    }
     // 「换一个余量，远端那条链路的上限就换一个位置」
     const rssi = links.get('sta-2')!.get('ap')!
     expect(mcsForRssi('eht', rssi, 11, 20), 'with the margin this simulator picked')

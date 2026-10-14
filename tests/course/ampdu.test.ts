@@ -517,6 +517,18 @@ describe('ampdu · every printed figure is read back out of the lesson', () => {
     const last = /最后一个子帧不补齐，所以它是 ([\d\s]+) 字节/.exec(items[2])
     expect(last, 'step 3 no longer states the last subframe’s size').not.toBeNull()
     same(last![1], AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + 1_500 + FCS_BYTES, 'an unpadded subframe')
+    /*
+     * 「这一点恰恰是本仿真器没有建模的：在这里，一批里任何位置发生碰撞，整批都会丢……下面第 6
+     * 步写的就是它真正做的事」 — `picture` points at a step by number, and the 「第」 rule change
+     * of 2026-10-14 uncovered that figure. It is checkable inside the lesson: the step it points
+     * at has to be the one that settles the batch as a whole.
+     */
+    const pic = ampdu.picture!.map((b) => (b as { text?: string }).text ?? '').join(' ')
+    const pointer = /下面第 (\d+) 步写的就是它真正做的事/.exec(pic)
+    expect(pointer, '`picture` no longer points at the step that does it').not.toBeNull()
+    expect(items[Number(pointer![1]) - 1], `step ${pointer![1]} is the one that settles the batch`)
+      .toMatch(/当成一个整体判定/)
+    expect(Number(pointer![1]), 'and it is the last step').toBe(items.length)
     // step 5: 「只回一个 32 字节的 BlockAck」
     const answer = /只回一个 (\d+) 字节的 BlockAck/.exec(items[4])
     expect(answer, 'step 5 no longer states the BlockAck’s size').not.toBeNull()
@@ -560,11 +572,19 @@ describe('ampdu · every printed figure is read back out of the lesson', () => {
       [/^剩下的，而第([一二三四五六七八九十]+)个子帧要花约 (\d+) µs$/, (c, l) => {
         time(c, t0.untilNs - exchangeEnd, 'what is left of the turn')
         expect(zhCount(l[1]), 'the subframe that would not fit').toBe(count + 1)
-        // 「约 160」 is read to its own precision — the nearest ten — and nothing finer
+        /*
+         * **「约 160」 is read as a ROUNDED figure, which is what 「约」 says.** This read used
+         * to infer its own precision from the printed digits — trailing zeros meant the nearest
+         * ten — and the planter walked straight through it on 2026-10-14: one subframe really
+         * costs 160.57 µs, so a planted 「约 161」 was checked to the nearest ONE and passed.
+         * **A tolerance inferred from the figure moves with the figure.** So the two things the
+         * sentence claims are read separately: the figure is a round ten (otherwise 「约」 is
+         * false), and it is the right ten.
+         */
         const per = batch.frame.txTimeNs / count / US
-        const step = 10 ** (l[2].length - String(Number(l[2])).replace(/0+$/, '').length)
-        expect(Math.round(per / step) * step, `one subframe to the nearest ${step} µs`)
-          .toBe(Number(l[2]))
+        expect(Number(l[2]) % 10, `「约 ${l[2]}」 is not rounded to a ten`).toBe(0)
+        expect(Math.abs(per - Number(l[2])), `one subframe is ${per.toFixed(2)} µs`)
+          .toBeLessThan(5)
         expect(per, 'and it really does not fit in what is left')
           .toBeGreaterThan((t0.untilNs - exchangeEnd) / US)
       }],

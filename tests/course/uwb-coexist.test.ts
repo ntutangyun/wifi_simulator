@@ -1044,6 +1044,21 @@ describe('uwb-coexist · every figure the prose prints, read back out of it', ()
     // checked is that the engine's decision is per frame, which is what makes the two equal
     const [us] = figs(limitsText, /一次 (\d+) µs 的猝发/, '`limits` on the hardest case')
     expect(us, 'a burst shorter than any frame of this scene').toBeGreaterThan(0)
+    /*
+     * **Exempt, class (e) — and the measurement is what makes it an exemption.** 「本课『一百次
+     * 测距丢八次』那张表整个挂在第一个数上——把它挪 3 dB，这批数字就要重跑」, uncovered by the
+     * 「第」 rule change of 2026-10-14. The nudge is illustrative: the table hangs on
+     * `UWB_SIR_MIN_DB` because it PRINTS it, and any nudge at all would oblige a re-measurement.
+     * What the figure cannot mean is that the eight losses would move — every one of them sits
+     * 18.8 dB under the floor, so a 3 dB shift leaves all eight exactly where they are. So the
+     * two facts that bound it are read instead: the nudge is smaller than the margin those
+     * losses already have, and the floor really is one of the figures that table prints.
+     */
+    const [nudge] = figs(limitsText, /把它挪 (\d) dB/, '`limits` on the nudge it imagines')
+    const margin = UWB_SIR_MIN_DB - Math.max(...interfered().map((r) => r.sirDb))
+    expect(nudge, 'a nudge smaller than the margin every loss already has').toBeLessThan(margin)
+    expect(cell(1, 3, 2), 'and the floor is printed in the very table that hangs on it')
+      .toContain(`${minus(UWB_SIR_MIN_DB)} dB`)
     // 「窄带那一侧另有一条 0 dB」
     const [nbFloor] = figs(limitsText, /另有一条 (\d+) dB/, '`limits` on the narrowband floor')
     expect(nbFloor, 'the floor the narrowband side uses').toBe(0)
