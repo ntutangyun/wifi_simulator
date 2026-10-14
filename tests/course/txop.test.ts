@@ -250,6 +250,21 @@ describe('txop · the experiments', () => {
     const longer = [...new Simulation(sc).runUntil(301 * MS).records] as TLRecord[]
     expect(draws(longer)).toBe(txs(longer, 'data').length)
     expect(draws(longer)).toBe(709)
+    /*
+     * 「那 462 次与 462 串已经结束的突发一一对应：第 463 串在 300 ms 的窗口里还没结束，它那一
+     * 次还没抽」 — the 「第」 rule change of 2026-10-14 uncovered the window in that sentence,
+     * and the sentence is the explanation for the whole off-by-one: the window is this lesson's
+     * own, and the last burst really is the one still open at its edge.
+     */
+    const t = txop.tryThis.join(' ')
+    const m = /第 (\d+) 串在 (\d+) ms 的窗口里还没结束/.exec(t)
+    expect(m, '`tryThis` no longer says why the counts differ by one').not.toBeNull()
+    expect(Number(m![2]) * MS, 'the window this lesson runs').toBe(RUN_NS)
+    const starts = ofType(rs, 'TXOP_START')
+    expect(Number(m![1]), 'the burst that is still open at the edge').toBe(starts.length)
+    expect(ofType(rs, 'TXOP_END').length, 'and the ones that closed inside it')
+      .toBe(starts.length - 1)
+    expect(draws(rs), 'which is what the countdowns match').toBe(starts.length - 1)
   })
 
   it('a saturated television grows the bursts to 1.9 ms and three frames', () => {

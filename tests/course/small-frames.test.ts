@@ -430,6 +430,16 @@ describe('small-frames · every figure the lesson prints, read back out of its o
     const [burstNav] = figs(EVERYWHERE, /它自己的持续时间只写 (\d+) µs/, 'and its own NAV')
     expect(rtsNav * 1000, 'the RTS reserves what the engine wrote in it')
       .toBe(rts.frame.durationFieldNs)
+    /*
+     * **「载入仿真，跳到第一个 RTS（2.298 ms）」 and 「跳到第一次预约（2.298 ms）」 — the same
+     * instant, as an instruction, twice.** Uncovered by the 「第」 rule change of 2026-10-14: the
+     * instant is asserted elsewhere in this file as `rts.t === 2_298_000`, with the figure typed
+     * on this side, so both printings were only ever comments.
+     */
+    for (const v of everyFig(/跳到第一个 RTS（([\d.]+) ms）|跳到第一次预约（([\d.]+) ms）/g,
+      'the instant the reader is sent to', 2)) {
+      same(v, rts.t / MS, 'where the first reservation really is')
+    }
     expect(ctsNav * 1000, 'and so does the CTS').toBe(cts.frame.durationFieldNs)
     expect(burstUs * 1000, 'the burst’s airtime').toBe(ampdu.frame.txTimeNs)
     expect(burstNav * 1000, 'and the burst reserves only what follows it')

@@ -355,6 +355,21 @@ describe('uwb-aoa · a circle and a ray', () => {
 
   it('the log table is the round, line for line', () => {
     const as = ofType(rs, 'UWB_AOA')
+    /*
+     * **The worked table says which round it walks**, and the 「第」 rule change of 2026-10-14
+     * uncovered that figure: 「badge-1，基准场景，第 0 轮」. Every line quoted below it is a
+     * record of that round, and the records carry the round they belong to.
+     */
+    const worked = [...(uwbAoa.picture ?? []), ...(uwbAoa.numbers ?? []),
+      ...(uwbAoa.deeper ?? [])].flatMap((x) => {
+      const head = (x as { heading?: string }).heading
+      return head !== undefined && /第 \d+ 轮/.test(head) ? [head] : []
+    })
+    expect(worked, 'exactly one heading names a round').toHaveLength(1)
+    const h = /第 (\d+) 轮/.exec(worked[0]!)
+    expect(h, 'the worked table no longer says which round it is of').not.toBeNull()
+    expect(as[0].round, 'the round the first bearing belongs to').toBe(Number(h![1]))
+    expect(as[0].block, 'in the first block of the run').toBe(0)
     expect(as[0].t).toBe(197_636)
     expect(as[1].t).toBe(4_193_534)
     expect(cell(1, 0, 1)).toBe(fmtRecord(as[0]))

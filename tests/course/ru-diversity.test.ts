@@ -314,6 +314,21 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
     const starts = new Map<string, Set<number>>()
     for (const m of members) starts.set(m.sel.node, new Set([...(starts.get(m.sel.node) ?? []), m.sel.binStart]))
     for (const [id, s] of starts) expect(s.size, `${id} always took the same run`).toBe(2)
+    /*
+     * 「按 muParts 的次序给一段连着的格号，而不是让每个成员都从第 0 格开始」 — `deeper` on what
+     * the model does instead, and the 「第」 rule change of 2026-10-14 uncovered its figure. It
+     * is the bin the numbering starts at, which the lesson also states as 「格号从 0 数起」 and
+     * which the records answer: one member of every pair really does begin there, and the other
+     * does not, so 「不是每个成员都从第 0 格开始」 is a measured fact about this very run.
+     */
+    const deep = lesson.deeper!.map((b) => (b as { text?: string }).text ?? '').join(' ')
+    const zero = /都从第 (\d+) 格开始/.exec(deep)
+    expect(zero, '`deeper` no longer says what it does NOT do').not.toBeNull()
+    const first = Number(zero![1])
+    expect(Math.min(...members.map((x) => x.sel.binStart)), 'the bin the numbering starts at')
+      .toBe(first)
+    expect(new Set(members.map((x) => x.sel.binStart)).size,
+      'and not every member starts there, which is the whole sentence').toBeGreaterThan(1)
   })
 
   /**

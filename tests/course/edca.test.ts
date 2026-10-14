@@ -395,6 +395,22 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     const acsRun = new Set([...draws(rs, 'sta-1'), ...draws(rs, 'sta-2'), ...draws(rs, 'sta-3')]
       .map((d) => d.ac))
     expect(acsRun.size, 'three of which this scene puts on the air').toBe(3)
+    /*
+     * **And the column heading, which the 「第」 rule change of 2026-10-14 uncovered**: 「第一次
+     * 抽取：0 到最小竞争窗口 CWmin」. The 0 is the bottom of the draw and it is INCLUSIVE —
+     * which is a claim the run answers, because a draw of zero really happens in it (that is
+     * what makes 「0 到 CWmin」 a window of CWmin + 1 values, not CWmin).
+     */
+    const h = /第一次抽取：(\d+) 到最小竞争窗口/.exec(t.head[3]!)
+    expect(h, 'the column no longer says where the draw starts').not.toBeNull()
+    const allDraws = [...draws(rs, 'sta-1'), ...draws(rs, 'sta-2'), ...draws(rs, 'sta-3')]
+    expect(Math.min(...allDraws.map((d) => d.value)), 'the lowest draw this run ever makes')
+      .toBe(Number(h![1]))
+    for (const d of allDraws) {
+      expect(d.value, `a draw of ${d.value} is inside its own window`)
+        .toBeGreaterThanOrEqual(Number(h![1]))
+      expect(d.value, 'and never above it').toBeLessThanOrEqual(d.cw)
+    }
   })
 
   it('reads the formula as the sum it prints and the set of values it allows', () => {

@@ -408,6 +408,19 @@ describe('protect-policies · every figure the prose prints, read back out of it
     expect(leftUs! * US, 'the time left on the announcement').toBe(nav.untilNs - end.t)
     const [needUs] = figs(row('再做一次交互需要'), /^(\d+) µs ✗$/, 'what one more exchange needs')
     expect(needUs, 'more than was left — which is why the burst stops').toBeGreaterThan(leftUs!)
+    /*
+     * **「跳到第一个 CF-End（约 2.90 ms）」 — an instruction, printed twice** (`picture` and
+     * `observe`), and uncovered by the 「第」 rule change of 2026-10-14. A wrong figure here
+     * lands the reader on a moment the sentence then describes wrongly, and no measurement sees
+     * it. 「约」 is part of the figure: it is read at the two decimals it is printed to, which
+     * is what makes 2.90 the right way to print 2.904.
+     */
+    for (const [ms2] of [...`${PIC}\u000a${OBS}`.matchAll(/第一个 CF-End”?（?≈? ?约? ?([\d.]+) ms/g)]
+      .map((x) => x.slice(1))) {
+      same(ms2!, cf[0]!.t / MS, 'where the first CF-End of this burst really is')
+    }
+    expect([...`${PIC}\u000a${OBS}`.matchAll(/第一个 CF-End”?（?≈? ?约? ?([\d.]+) ms/g)].length,
+      'the two places that send the reader to it').toBe(2)
     same(raw(row('持有者的 CF-End 发于'), /^([\d.]+) ms$/, 'the holder’s CF-End')[0]!,
       cf[0]!.t / MS, 'when the holder hands the time back')
     expect(cf[0]!.node, 'and who sends it').toBe('sta-1')

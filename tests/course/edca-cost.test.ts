@@ -119,10 +119,30 @@ describe('edca-cost · what the three stations actually did', () => {
   })
 
   it('the backup speaks first at 55 ms, the uploader at 0.088 ms, the caller at 23 ms', () => {
-    // the first watch call-out, and jump 0
-    expect(Math.round(firstData(rs, 'sta-3').t / MS)).toBe(55)
-    expect(firstData(rs, 'sta-2').t / MS).toBe(0.088)
-    expect(Math.round(firstData(rs, 'sta-1').t / MS)).toBe(23)
+    /*
+     * **The first watch call-out, read out of the lesson.** 「跳到备份站点的第一帧：它落在整轮
+     * 的第 55 ms。上传站点从 0.088 ms 起就一直在发，通话站点第一次发送是在 23 ms」 — three
+     * instants, uncovered by the 「第」 rule change of 2026-10-14, and until now asserted with
+     * the three figures typed on this side. Each is read against the first data frame of the
+     * station the sentence names, at the precision it is printed to, and their ORDER is read
+     * too: the whole point of the call-out is that the backup is last.
+     */
+    const pic = edcaCost.picture!.map((b) => (b as { text?: string }).text ?? '').join(' ')
+    const w = /跳到备份站点的第一帧：它落在整轮的第 (\d+) ms。上传站点从 ([\d.]+) ms 起就一直在发，通话站点第一次发送是在 (\d+) ms/
+      .exec(pic)
+    expect(w, 'the watch call-out on the three first frames is gone').not.toBeNull()
+    const firsts = { backup: firstData(rs, 'sta-3').t, upload: firstData(rs, 'sta-2').t,
+      call: firstData(rs, 'sta-1').t }
+    /** The printed figure, at exactly the decimals it is printed to. */
+    const printed = (fig: string, ns: number, what: string): void => {
+      const dp = (fig.split('.')[1] ?? '').length
+      expect(Number(fig), what).toBe(Number((ns / MS).toFixed(dp)))
+    }
+    printed(w![1]!, firsts.backup, 'when the backup station first gets on the air')
+    printed(w![2]!, firsts.upload, 'when the uploader does')
+    printed(w![3]!, firsts.call, 'and when the caller does')
+    expect(firsts.upload, 'the uploader is on the air before the caller').toBeLessThan(firsts.call)
+    expect(firsts.call, 'and the caller before the backup').toBeLessThan(firsts.backup)
     for (const j of edcaCost.jumps) expect(rs.some(j.find), j.label).toBe(true)
   })
 })

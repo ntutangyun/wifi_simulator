@@ -128,6 +128,18 @@ describe('ifs · what that buys in this run', () => {
     expect(zero[0].t).toBe(0)
     expect(zero[0].kind).toBe('DIFS')
     for (const r of ifss.slice(1)) expect(r.untilNs - r.t).toBe(DIFS_NS)
+    /*
+     * **`limits` states the consequence, and the 「第」 rule change of 2026-10-14 uncovered its
+     * figure**: 「『从来没听见介质忙过就算一直空闲』是引擎自己的起始约定……于是第一帧落在
+     * 0 µs，第一段间隙长度为零」. Both halves are read: where the first frame falls, and that
+     * the gap in front of it is the one gap of the run with no length at all.
+     */
+    const lim = ifs.limits.map((l) => l.text).join(' ')
+    const m = /于是第一帧落在 (\d+) µs，第一段间隙长度为(.)/.exec(lim)
+    expect(m, '`limits` no longer states where the first frame falls').not.toBeNull()
+    expect(Number(m![1]) * 1000, 'where the first frame really falls').toBe(txs('data')[0]!.t)
+    expect(m![2], 'and the length it gives that first gap').toBe('零')
+    expect(zero[0].t, 'which is the gap in front of that very frame').toBe(txs('data')[0]!.t)
   })
 
   it('an uninterrupted first gap is basic access: the frame goes out with no draw', () => {

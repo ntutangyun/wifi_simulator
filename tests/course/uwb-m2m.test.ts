@@ -460,6 +460,21 @@ describe('uwb-m2m · every figure the prose prints, read back out of it', () => 
       .toBe(ids[who!])
     expect(sends.map((s) => s.node), 'and the order is the session’s own').toEqual(ids)
     /*
+     * **And that it is the FIRST one, which is what 「它还没听到任何人」 means.** The planter's
+     * whole-set probe (2026-10-14) moved both digits of this sentence at once — 「参与者 1 在第
+     * 1 个时隙发」 — and the read above held, because participant 1 really does send in slot 1.
+     * One edit alone reddens; the pair moving together did not, and a renumbering is exactly the
+     * edit that moves them together. So the sentence is read as the claim it makes: the sender
+     * it names is the one whose frame carries no arrival stamps at all, and that is the first
+     * slot of the round.
+     */
+    const firstSend = air(base).filter((r) => r.frame.kind === 'uwbM2m')
+      .find((r) => (r.frame.uwb?.slot ?? -1) === slot)!
+    expect(firstSend.frame.uwb?.m2mStamps ?? [], 'it has heard nobody yet').toHaveLength(0)
+    expect(slot, 'and that is the first slot of the round')
+      .toBe(Math.min(...sends.map((x) => x.slot)))
+    expect(who, 'so the participant it names is the first one').toBe(0)
+    /*
      * 「参与者 0 算五条，参与者 1 算四条，……参与者 5 一条也算不出来」 and 「十五条距离分落在
      * 六个人手里：5、4、3、2、1、0 条」 — the same sequence, twice, read against the run.
      */

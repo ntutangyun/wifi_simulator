@@ -548,6 +548,14 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
     expect(bytes, 'and what this round’s trigger carries').toBe(trigger.frame.bytes)
     expect(mbps, 'the rate it goes out at').toBe(trigger.frame.mbps)
     same(String(us), trigger.frame.txTimeNs / US, 'and its airtime')
+    // 「跳到第一个触发帧：接入点发出的 36 µs 黄块」 — `observe` sends the reader to that frame,
+    // and the 「第」 rule change of 2026-10-14 uncovered its figure: the airtime again, as an
+    // instruction, against the first trigger of the run.
+    const [obsUs] = figs(OBS, /跳到第一个触发帧：接入点发出的 (\d+) µs 黄块/,
+      '`observe` on the trigger it sends the reader to')
+    same(String(obsUs), trigger.frame.txTimeNs / US, 'the airtime of that very frame')
+    expect(trigger.t, 'which is the first trigger of the run')
+      .toBe(txs(rs, (r) => r.frame.kind === 'trigger')[0]!.t)
     // 「32 + 8 = 40 B, 36 µs」
     const [baBase, baPer, baBytes, baUs] = figs(NUMS, /(\d+) \+ (\d+) = (\d+) B, (\d+) µs/,
       'the BlockAck’s own row')
@@ -722,6 +730,18 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
     for (const us of [he[1], he[3], eht[1], eht[3], eht[5]]) {
       expect(us, 'and no mandatory TB combination uses the short one').not.toBe(gi)
     }
+    /*
+     * 「这也是场景那一节只开放双倍与四倍两档的第二条理由：1.6 与 3.2 恰好是 TB PPDU 那一行的
+     * 强制集」 — the same two guard intervals, stated a second time as the reason the scene
+     * offers only those two. The 「第」 rule change of 2026-10-14 uncovered both figures: the
+     * sets above are read, this restatement of them was not.
+     */
+    const [why1, why2] = figs(LIM, /第二条理由：([\d.]+) 与 ([\d.]+) 恰好是 TB PPDU 那一行的强制集/,
+      '`limits` on why the scene offers two of them')
+    expect([why1! * 1000, why2! * 1000], 'the two the engine doubles and quadruples to')
+      .toEqual([TGI_NS.double, TGI_NS.quad])
+    expect([why1, why2], 'which are the two the mandatory sets above give')
+      .toEqual([he[1], he[3]])
     // 「(4×, 0.8) 在 EHT 侧挂在能力位 dot11EHT4xEHTLTFand0point8usecGIImplemented」
     const [capLtf, capUs] = figs(LIM, /\((\d+)×, ([\d.]+)\) 在 EHT 侧挂在能力位/,
       '`limits` on the capability bit')
