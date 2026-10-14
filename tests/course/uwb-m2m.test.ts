@@ -470,7 +470,17 @@ describe('uwb-m2m · every figure the prose prints, read back out of it', () => 
      */
     const firstSend = air(base).filter((r) => r.frame.kind === 'uwbM2m')
       .find((r) => (r.frame.uwb?.slot ?? -1) === slot)!
-    expect(firstSend.frame.uwb?.m2mStamps ?? [], 'it has heard nobody yet').toHaveLength(0)
+    /*
+     * **`m2mStamps` is not a field, and this line used to read it.** `?? []` then made the
+     * assertion true of every frame in the course — a check that proves nothing, caught by `tsc`
+     * rather than by the suite (2026-10-14). The arrival times a frame carries live in
+     * `uwb.m2m.rxCounters`, keyed by the peer each one is for.
+     */
+    expect(Object.keys(firstSend.frame.uwb!.m2m!.rxCounters), 'it has heard nobody yet')
+      .toHaveLength(0)
+    expect(air(base).filter((r) => r.frame.kind === 'uwbM2m')
+      .filter((r) => Object.keys(r.frame.uwb!.m2m!.rxCounters).length > 0).length,
+    'while the others do carry arrival times, so an empty set says something').toBeGreaterThan(0)
     expect(slot, 'and that is the first slot of the round')
       .toBe(Math.min(...sends.map((x) => x.slot)))
     expect(who, 'so the participant it names is the first one').toBe(0)

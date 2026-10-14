@@ -353,9 +353,9 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
       .toBe(Number(measured.toFixed(dp)))
   }
-  const tables = (): { heading?: string; rows: string[][] }[] =>
+  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
     edca.numbers!.filter((b) => b.kind === 'table') as unknown as
-      { heading?: string; rows: string[][] }[]
+      { heading?: string; head: string[]; rows: string[][] }[]
   const caption = (): string =>
     (edca.numbers!.find((b) => b.kind === 'diagram') as unknown as { caption: string }).caption
   const formulaText = (): string =>
