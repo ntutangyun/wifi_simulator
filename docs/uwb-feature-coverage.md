@@ -178,7 +178,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | 特性 | 标准状态 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
 | 测距消息未收到交互 §10.34，及 RMNR IE（Ranging Message Non Receipt IE）§10.34.2.1 | 已发布 | 已建模 | 响应方持有仍然有效的控制消息、却没收到本轮启动消息时，不再在自己的时隙里沉默，而是发一帧 RMNR：`uwb/frames.ts#makeRmnr`（13 字节 = MHR 9 + 一个 2 字节的单元头 + FCS 2，那个信息单元**没有内容字段**）、独立的 `'uwbRmnr'` 帧类型、`uwb/device.ts` 的 `owesRmnr`、`UWB_RMNR` 记录、以及 `view.ts` 里与 `timeouts` 配对的 `rmnr` 计数。发起方由此能把「这个锚点没听到」与「听到了但回答丢了」分开：墙后一个锚点的场景里，七条无从区分的 `UWB_TIMEOUT` 变成四条超时加三条点了名的理由。**它必须和 RCM 有效轮次一起建**，理由见 `@uwb-rcm-validity`：每轮一条控制消息时，丢了那一帧的响应方连自己该在哪个时隙发送都不知道。`@uwb-rcm-validity` |
-| 测距辅助信息 §10.35，及 RAICT IE（Ranging Ancillary Information Message Counter and Type IE）§10.35.2.1 | 已发布 | 部分建模 | **Request = 0 的那一半整个建了：帧、分段、以及缺帧的发现。** `uwb/phy.ts#raictIeBytes` 是本引擎第一个**长度由存在位决定**的信息单元：内容是控制 1 字节，加上消息编号 0 或 1 字节、Frames Remaining 0 或 1 字节，所以四种组合有三种长度（`uwb/phy.ts#RAICT_IE_MIN_BYTES`、`uwb/phy.ts#uwbAncillaryBytes`、`uwb/frames.ts#makeAncillary`——给了一个存在位却说没留位置的计数就抛，照 `makeMmrcm` 的先例；独立的 `uwbAncillary` 帧类型，以及它在帧检查器、时间线颜色与泳道提示里的那几行）。**分段**：一条消息分装在多帧里，一帧一个时隙，排在测距相位之后（`uwb/phy.ts#uwbAncillarySlots`、`uwb/session.ts#ancillarySlots`、`uwb/session.ts#blockSlots`），Frames Remaining 从 N−1 数到 0，而**每一帧都带着这个数**。**缺帧是被发现的，不是被超时猜出来的**：接收端把这一次读数和上一次相减，缺的那一帧在**下一帧到达的同一纳秒**就被点名，对着这条消息自己的截止时刻早 3.82 ms（量过，见 `tests/uwb/ancillary-round.test.ts` 与 `tests/course/uwb-ancillary.test.ts`：`missing: [2]` 落在该次接收的 `RX_OK` 上，整个过程一条 `UWB_TIMEOUT` 也没有）。边界也量过：丢最后一帧时倒数停住，只剩截止时刻那一条记录；丢第一帧时这个机理**什么也点不出**，因为这个信息单元既不带总帧数也不带帧序数。窗口沿用 RCM 有效期那一个（`uwb/session.ts#blockCarriesAncillary`，这是它的第三处用处），排程式与竞争式两种排法都跑得通且记录不同。另外这一节把**发起方与响应方的意思换了**：发辅助信息的那一端叫发起方，与测距里的角色相反，所以发消息的是在测距里作答的那一端。**仍未建**：Request = 1 的排程请求（切片 3d，理由是一次该做多少不是举证不足——机理已读通，而本引擎的 `RoundPlan` 在 `uwb/network.ts` 的构造函数里一次算定、整个会话共用，要让一个请求改变后续排程就得把轮的排布变成每块重算一次）；消息类型只建成一个常量而不是取值表（`uwb/device.ancillary.ts#ANCILLARY_MESSAGE_KIND`，模型取值）；一轮只有一条消息、发送端恒为第 0 个响应方（`uwb/device.ancillary.ts#ANCILLARY_SENDER_INDEX`，模型取值）；以及「一条消息分几帧」由场景配置给出而不是由上层算出（本引擎一条 MAC 原语都没有）。`@uwb-ancillary` |
+| 测距辅助信息 §10.35，及 RAICT IE（Ranging Ancillary Information Message Counter and Type IE）§10.35.2.1 | 已发布 | 部分建模 | **Request = 0 的那一半整个建了：帧、分段、以及缺帧的发现。** `uwb/phy.ts#raictIeBytes` 是本引擎第一个**长度由存在位决定**的信息单元：内容是控制 1 字节，加上消息编号 0 或 1 字节、Frames Remaining 0 或 1 字节，所以四种组合有三种长度（`uwb/phy.ts#RAICT_IE_MIN_BYTES`、`uwb/phy.ts#uwbAncillaryBytes`、`uwb/frames.ts#makeAncillary`——给了一个存在位却说没留位置的计数就抛，照 `makeMmrcm` 的先例；独立的 `uwbAncillary` 帧类型，以及它在帧检查器、时间线颜色与泳道提示里的那几行）。**分段**：一条消息分装在多帧里，一帧一个时隙，排在测距相位之后（`uwb/phy.ts#uwbAncillarySlots`、`uwb/session.ts#ancillarySlots`、`uwb/session.ts#blockSlots`），Frames Remaining 从 N−1 数到 0，而**每一帧都带着这个数**。**缺帧是被发现的，不是被超时猜出来的**：接收端把这一次读数和上一次相减，缺的那一帧在**下一帧到达的同一纳秒**就被点名，对着这条消息自己的截止时刻早 3.82 ms（量过，见 `tests/uwb/ancillary-round.test.ts` 与 `tests/course/uwb-ancillary.test.ts`：`missing: [2]` 落在该次接收的 `RX_OK` 上，整个过程一条 `UWB_TIMEOUT` 也没有）。边界也量过：丢最后一帧时倒数停住，只剩截止时刻那一条记录；丢第一帧时这个机理**什么也点不出**，因为这个信息单元既不带总帧数也不带帧序数。窗口沿用 RCM 有效期那一个（`uwb/session.ts#blockCarriesAncillary`，这是它的第三处用处），排程式与竞争式两种排法都跑得通且记录不同。另外这一节把**发起方与响应方的意思换了**：发辅助信息的那一端叫发起方，与测距里的角色相反，所以发消息的是在测距里作答的那一端。**Request = 1 的排程请求也建了**（切片 3d，2026-10-05 落地——而这一行在它落地前 49 分钟写的「仍未建」一直留到 2026-10-14 才改掉，见下文第 5 条）：请求是一帧 RAICT IE 的第三种存在位组合（Request 位置 1、Frames Remaining 带要求的时隙数、消息编号不带——§10.35.2.1 把两种用法列成互斥的两项，`uwb/device.ancillary.ts#onAncillarySlot`）；控制器的裁决只看一个块装不装得下（`uwb/device.ancillary.ts#onAncillaryRx`、`uwb/session.ts#ancillaryGrantFits`），**而拒绝是静默的**——§10.35 没有定义准予、拒绝或回复，所以请求方是从下一次给它的窗口宽度里读出答案的，这一点是本引擎的性质而不是条文的（`@uwb-ancillary-request`）。这一刀也是「发辅助信息的那一端在测距里是响应方」这个角色反转第一次挣到的东西：§10.35.1 把 Request 位挂在「发起方不是控制器」这一情形上，而本引擎里这个条件按构造成立。**仍未建**：信息单元的比特布局与消息内容本身；消息类型只建成一个常量而不是取值表（`uwb/device.ancillary.ts#ANCILLARY_MESSAGE_KIND`，模型取值）；一轮只有一条消息、发送端恒为第 0 个响应方（`uwb/device.ancillary.ts#ANCILLARY_SENDER_INDEX`，模型取值）；以及「一条消息分几帧」由场景配置给出而不是由上层算出（本引擎一条 MAC 原语都没有）。`@uwb-ancillary`、`@uwb-ancillary-loss`、`@uwb-ancillary-request` |
 | 多消息接收确认 §10.36，及 RMMRC IE（Ranging Multiple Message Receipt Confirmation IE）§10.36.2.1 | 已发布 | 已建模 | 请求是 ARC IE 控制字里的 MMRCR 位（bit 15，`scenario.ts` 的 `mmrcr`），置位前后控制消息逐字节相同——这一位本来就在那两个字节里。回答是一帧 MMRCM：`uwb/frames.ts#makeMmrcm`、独立的 `'uwbMmrcm'` 帧类型、`uwb/phy.ts#uwbMmrcmBytes`（15 + 3N，R ≤ 8 时）与算出来的条目上限 `uwb/phy.ts#uwbMaxMmrcmInitiators`；时隙由 `uwb/phy.ts#uwbMmrcmSlots` 与 `uwb/session.ts#mmrcmResponders` 排在有效期窗口最后一块的轮之后，**每个响应方一个**；位图在 `uwb/device.ts` 的 `noteOpener` 与 `receiptIn` 里按当前有效期窗口的开场消息逐块记下，一个发起方一张，`UWB_MMRCM` 记录落在发起方这一侧。**两个计数不是同一个**：IE 的列表条目每个**发起方**一个（一个响应方可能听到好几个），时隙与帧每个**响应方**一个——「每个发起方一帧」在双向轮里读着对，在多对多里不可能。标准为它画的那张图（Figure 10-272）用的正是**多对多**，所以它接在 `@uwb-m2m` 之后。仍未建的是多播／多节点下发、长地址那一种条目，以及「哪几条消息」的别种取法（位图覆盖的窗口是本仿真器选的）。`@uwb-receipt` |
 
 ## 九、已发布标准：HRP UWB 物理层（§16）
@@ -379,6 +379,20 @@ information」、§10.36「Ranging: Multiple message receipt confirmation」、�
 这是本分支上第九次同一形状的错误：**测量结果反常时，先怀疑量它的那把尺子。**
 前八次是搜索式、参数位置、取整的除数、参数形状、写错字段的覆盖、两倍块长的时间窗、
 放不下的图注、1σ 当成上限。这一次尺子是「我查了哪里」——而我根本没查那个放着正文的目录。
+
+**5.（2026-10-14 发现）这张表自己过期了 9 天，而过期的那一格是「未建」。**
+
+§10.35 那一行写着「**仍未建**：Request = 1 的排程请求（切片 3d……）」。那句话写在
+`5a862b3`（2026-10-05 15:04），而切片 3d 在 `f1d8474`（**同日 15:53**）落地——**49 分钟之后**。
+期间这张表一个字没动，`@uwb-ancillary-request`（第 72 课）与 `@uwb-ancillary-loss`（第 75 课，
+2026-10-11 从 `@uwb-ancillary` 拆出）两门课在本表里**一次也没出现过**。
+
+**为什么测试挡不住它**，这张表自己的「会怎样撒谎」那一节早就写明了：`uwb-coverage.test.ts` 只钉
+住被点名的符号与课号**还存在**，钉不住「未建」这句话**还是真的**。这一次正是那种腐烂，而且方向
+是最容易被忽略的那一个——**引擎跑到了它自己的覆盖表前面**。两处都改了（那一行现在写出请求帧、
+控制器的裁决、以及「拒绝是静默的」这条本引擎的性质），而值得记下的是发现它的办法：有人问「现在
+到底建到哪一步」，于是把全部 34 门 UWB 课挨个在这张表里找了一遍，两门找不到。**一张覆盖表的刷
+新动作，应该从「有没有哪门课它没提过」开始，而不是从重读每一行开始。**
 
 另有一处不算冲突、只是补充：**9 月中间会议上两个意见决议动议全部被否**（Motion #26 的 12/13/1 与
 Motion #27 的 11/13/0），7 月全会与 7–9 月电话会也是大面积被否。仓库现有说法「仍在 SA 投票复审中」
