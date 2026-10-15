@@ -28,7 +28,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  BASELINE, DOC_PATH, creditsOrgs, graphFor,
+  BASELINE, DOC_PATH, creditsOrgs, filterMatrix, graphFor,
   type DocGist, type DocRef, type FeatureGroup, type LessonRef, type MatrixColumn,
   type RowDetail, type StatusKind, type TimeEvent, type Track,
 } from '../course/featureGraph'
@@ -524,10 +524,25 @@ export function FeatureMap() {
   const L = useStrings()
   const [track, setTrack] = useState<Track>('wifi')
   const [open, setOpen] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
   const lessonIds = useMemo(
     () => LESSONS.filter((l) => trackOf(l) === track).map((l) => l.id), [track])
   // The two documents are ~170 KB of Markdown between them; parsing is per track and memoised.
   const g = useMemo(() => graphFor(track, lessonIds), [track, lessonIds])
+
+  /**
+   * **The search filters the picture, not a list beside it.**
+   *
+   * A column with no hit is gone rather than dimmed: at 34 columns a dimmed grid is still 34
+   * columns of scrolling, and the question 「which features has this company touched」 is answered
+   * by the shape of what is left. Quarters with nothing left go thin, the same way an idle
+   * quarter does when nothing is filtered — the time axis keeps its scale either way.
+   */
+  const filtered = useMemo(
+    () => filterMatrix(g, query, (k) => L.map.docKind[k] ?? k), [g, query, L])
+  const columns = filtered?.columns ?? g.columns
+  const rows = filtered?.rows ?? g.matrixRows
+  const titleOnly = new Set(filtered?.byTitle ?? [])
 
   const sel = g.columns.find((c) => c.group.id === open) ?? null
   /** The other half of a dependency: who would stop making sense without this one. */
@@ -536,10 +551,10 @@ export function FeatureMap() {
 
   /** Every column is one width now, so an x is arithmetic and the arcs need no measuring. */
   const xOf = (i: number): number => GUTTER + i * COL_W
-  const totalW = GUTTER + g.columns.length * COL_W
-  const indexOf = (id: string): number => g.columns.findIndex((c) => c.group.id === id)
+  const totalW = GUTTER + columns.length * COL_W
+  const indexOf = (id: string): number => columns.findIndex((c) => c.group.id === id)
 
-  const switchTrack = (t: Track): void => { setTrack(t); setOpen(null) }
+  const switchTrack = (t: Track): void => { setTrack(t); setOpen(null); setQuery('') }
   /** Escape shuts the panel: it covers the right of the map, and ✕ is 400 px from the column. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(null) }
@@ -563,6 +578,26 @@ export function FeatureMap() {
         <span style={{ color: 'var(--dim)', fontSize: 12 }}>
           {L.map.counts(g.rows.length, g.groups.length)}
         </span>
+      </div>
+
+      {/* One box over everything a block shows — including the companies, which are the one
+          thing on a block a reader can recognise and cannot type. */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder={L.map.searchHint} aria-label={L.map.searchHint}
+          style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 420, fontSize: 12, padding: '3px 8px',
+            borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)',
+            color: 'inherit' }} />
+        {query !== '' && (
+          <button onClick={() => setQuery('')} style={{ fontSize: 11.5 }}>{L.map.searchClear}</button>
+        )}
+        {filtered !== null && (
+          <span style={{ color: filtered.blocks === 0 ? '#ff8a4a' : 'var(--dim)', fontSize: 11.5 }}>
+            {filtered.blocks === 0 ? L.map.searchNone
+              : L.map.searchHits(filtered.blocks, filtered.columns.length, g.columns.length)}
+            {filtered.byTitle.length > 0 && `　${L.map.searchByTitle(filtered.byTitle.length)}`}
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
@@ -642,7 +677,7 @@ export function FeatureMap() {
           </svg>
 
           <div style={{ display: 'grid',
-            gridTemplateColumns: `${GUTTER}px repeat(${g.columns.length}, ${COL_W}px)` }}>
+            gridTemplateColumns: `${GUTTER}px repeat(${columns.length}, ${COL_W}px)` }}>
             {/* ---- the header row: features, left to right in the order they appeared ---- */}
             <div style={{ position: 'sticky', left: 0, top: 0, zIndex: 3,
               background: 'var(--panel)', borderBottom: '1px solid var(--border)',
@@ -650,7 +685,7 @@ export function FeatureMap() {
               color: 'var(--dim)' }}>
               {L.map.timeAxis}
             </div>
-            {g.columns.map((c) => {
+            {columns.map((c) => {
               const on = c.group.id === open
               const need = needIds.has(c.group.id)
               return (
@@ -666,6 +701,11 @@ export function FeatureMap() {
                     <span style={{ fontWeight: 600, fontSize: 12, lineHeight: 1.3 }}>
                       {c.group.title}
                     </span>
+                    {titleOnly.has(c.group.id) && (
+                      <span title={L.map.searchWhole} style={{ color: '#4aa3ff', fontSize: 10 }}>
+                        ✦
+                      </span>
+                    )}
                     {c.group.open > 0 && (
                       <span title={L.map.openBadge} style={{ marginLeft: 'auto',
                         background: '#ff8a4a', color: '#111318', borderRadius: 999, fontSize: 10,
@@ -713,7 +753,7 @@ export function FeatureMap() {
             })}
 
             {/* ---- one row per quarter, the published marker above them all ---- */}
-            {g.matrixRows.map((r, row) => (
+            {rows.map((r, row) => (
               <div key={r.key} style={{ display: 'contents' }}>
                 <div style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--panel)',
                   borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
@@ -723,7 +763,7 @@ export function FeatureMap() {
                   fontWeight: r.quarter === 1 || r.key === BASELINE ? 700 : 400 }}>
                   {r.key === BASELINE ? L.map.baseline : `${r.year} Q${r.quarter}`}
                 </div>
-                {g.columns.map((c) => {
+                {columns.map((c) => {
                   const es = c.events.filter((e) => e.row === row)
                   const inside = c.firstRow >= 0 && row >= c.firstRow && row <= c.lastRow
                   const on = c.group.id === open

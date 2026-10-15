@@ -820,6 +820,76 @@ export interface Graph {
 }
 
 /**
+ * **The search, and what 「everything」 means.**
+ *
+ * One box filters the matrix, and it matches what a block actually shows: the day, the document
+ * number, the kind, **the companies whose marks are on it**, the clause its text names most, and
+ * its title. Company names are in there because the mark is the one thing on a block a reader
+ * recognises at a glance and the one thing they cannot type — 「where does Qorvo appear in this
+ * history」 is a question the picture could draw and not answer.
+ *
+ * A column also matches on its own title, note and introduction, and that case behaves
+ * differently on purpose: searching 「感知」 is asking for a feature, so the column keeps its
+ * whole history, while searching 「Qualcomm」 is asking about documents, so each column keeps only
+ * the documents that match. `byTitle` says which of the two happened, and the UI prints it.
+ */
+export interface MatrixFilter {
+  query: string
+  /** Columns with a hit, each carrying only the blocks that matched (or all, for `byTitle`). */
+  columns: MatrixColumn[]
+  /** The same rows, with `events` recounted over what is left, so idle quarters go thin. */
+  rows: MatrixRow[]
+  /** How many blocks are on screen, and how many columns kept only because their name matched. */
+  blocks: number
+  byTitle: string[]
+}
+
+/** Case-folded 「does this text contain the query」, the one comparison the search makes. */
+const hits = (hay: string | undefined, q: string): boolean =>
+  hay !== undefined && hay.toLowerCase().includes(q)
+
+/**
+ * Filter the matrix by a query, or `null` for 「no query, draw everything」.
+ *
+ * `kindLabel` comes from the UI because the kind's name is a translated string (`cr` prints as
+ * 「意见决议」) and a reader types the name, not the key. Both are matched.
+ */
+export function filterMatrix(
+  g: Graph, query: string, kindLabel: (kind: string) => string,
+): MatrixFilter | null {
+  const q = query.trim().toLowerCase()
+  if (q === '') return null
+  const byTitle: string[] = []
+  const columns: MatrixColumn[] = []
+  for (const c of g.columns) {
+    const named = hits(c.group.title, q) || hits(c.group.note, q) || hits(c.group.intro, q)
+    const kept = c.events.filter((e) => hits(e.date, q) || hits(e.label, q)
+      || hits(e.detail, q) || hits(e.docKind, q)
+      || (e.docKind !== undefined && hits(kindLabel(e.docKind), q))
+      || (e.gist?.clause !== undefined && hits(`§${e.gist.clause}`, q))
+      || e.orgs.some((o) => hits(o, q)))
+    if (named) byTitle.push(c.group.id)
+    else if (kept.length === 0) continue
+    const events = named ? c.events : kept
+    columns.push({
+      group: c.group,
+      events,
+      firstRow: events.length === 0 ? -1 : events[0]!.row,
+      lastRow: events.length === 0 ? -1 : events[events.length - 1]!.row,
+    })
+  }
+  const perRow = new Map<number, number>()
+  for (const c of columns) for (const e of c.events) perRow.set(e.row, (perRow.get(e.row) ?? 0) + 1)
+  return {
+    query,
+    columns,
+    rows: g.matrixRows.map((r, i) => ({ ...r, events: perRow.get(i) ?? 0 })),
+    blocks: columns.reduce((n, c) => n + c.events.length, 0),
+    byTitle,
+  }
+}
+
+/**
  * The row above every quarter: features whose rows argue from a published clause.
  *
  * **They share one row because nothing in this repository can date them apart.** The contributions

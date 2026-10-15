@@ -84,6 +84,13 @@ export interface Strings {
     kind: { published: string; draft: string; contested: string; unsettled: string; none: string }
     openBadge: string
     pickPrompt: string
+    /** The search over the matrix: one box, everything a block shows. */
+    searchHint: string
+    searchClear: string
+    searchHits: (blocks: number, cols: number, all: number) => string
+    searchNone: string
+    searchByTitle: (n: number) => string
+    searchWhole: string
     needs: string
     feeds: string
     noNeeds: string
@@ -855,6 +862,13 @@ export const STRINGS: Strings = {
       unsettled: '无法判定', none: '标准不规定',
     },
     openBadge: '组里有几行还在争论或无法判定',
+    searchHint: '搜一个词：公司、文稿编号、条号、类型、标题，或特性的名字',
+    searchClear: '清空',
+    searchHits: (blocks, cols, all) => `命中 ${blocks} 块，落在 ${cols} 列（共 ${all} 列）`,
+    searchNone: '没有命中。这张图只认它自己画出来的东西：块上的日期、编号、类型、单位、条号与标题，'
+      + '外加每一列的名字与导读。',
+    searchByTitle: (n) => `其中 ${n} 列是名字对上的，整列历史都留着`,
+    searchWhole: '这一列是名字对上的，所以它的历史一件没筛',
     pickPrompt: '点一列，右边滑出这一个特性的全部：它的那几行与证据、它依赖什么、它一路走来的'
       + '每一篇文稿，以及教它的那几门课——课名是链接，点一下就进去。方格本身不动，'
       + '所以那一列仍留在它的邻居中间。',

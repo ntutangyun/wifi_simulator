@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, UNDATED, graphFor,
-  creditsOrgs, parseCoverage, quarterOf, type Track,
+  creditsOrgs, filterMatrix, parseCoverage, quarterOf, type Track,
 } from '../../src/course/featureGraph'
 import docMeta from '../../src/course/docMeta.json'
 import lessonMeta from '../../src/course/lessonMeta.json'
@@ -322,6 +322,90 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
     // with no event at all is 「never」, which belongs at the right end and not before 2021.
     const firsts = graph.columns.map((c) => (c.firstRow < 0 ? Infinity : c.firstRow))
     expect(firsts).toEqual([...firsts].sort((a, b) => a - b))
+  })
+
+  /**
+   * **The search matches what a block shows — the companies included.**
+   *
+   * 「Everything」 is a claim a search box makes and a test has to keep. The fields are the ones
+   * drawn on a block (day, number, kind, companies, clause, title) plus the column's own name and
+   * introduction, and each of them is checked here against a value taken from the data itself
+   * rather than a constant, so a field that stops being searched fails rather than quietly
+   * narrowing the box.
+   */
+  it('searches every field a block shows, companies included', () => {
+    const kindLabel = (k: string): string => `kind:${k}`
+    expect(filterMatrix(graph, '   ', kindLabel), 'an empty query is not a filter').toBe(null)
+
+    const sample = graph.columns.flatMap((c) => c.events).find((e) => e.kind === 'doc')!
+    for (const [what, q] of [
+      ['the document number', sample.label],
+      ['the day', sample.date],
+      ['the title', sample.detail.slice(0, 12)],
+      ['the kind', kindLabel(sample.docKind!)],
+    ] as [string, string][]) {
+      const f = filterMatrix(graph, q, kindLabel)
+      expect(f, `${what}: no hit for 「${q}」`).not.toBe(null)
+      expect(f!.blocks, `${what}: 「${q}」`).toBeGreaterThan(0)
+    }
+
+    // A company: every block left must carry that name, and every block carrying it must be left.
+    const org = graph.groups.flatMap((g) => g.orgs).sort((a, b) => b.docs - a.docs)[0]!.name
+    const f = filterMatrix(graph, org.toUpperCase(), kindLabel)!
+    const named = (e: { orgs: string[] }): boolean => e.orgs.includes(org)
+    for (const c of f.columns) {
+      if (f.byTitle.includes(c.group.id)) continue
+      expect(c.events.every(named), `${c.group.id}: a block with no 「${org}」 survived`).toBe(true)
+    }
+    const kept = new Set(f.columns.map((c) => c.group.id))
+    for (const c of graph.columns) {
+      if (c.events.some(named)) expect(kept, `${c.group.id} holds a 「${org}」 block`).toContain(c.group.id)
+    }
+    expect(f.blocks, 'case folds').toBe(filterMatrix(graph, org.toLowerCase(), kindLabel)!.blocks)
+
+    // A clause number is searched through the gist, which is the only place it is written down.
+    const withClause = graph.columns.flatMap((c) => c.events)
+      .find((e) => e.gist?.clause !== undefined)
+    if (withClause !== undefined) {
+      expect(filterMatrix(graph, `§${withClause.gist!.clause!}`, kindLabel)!.blocks)
+        .toBeGreaterThan(0)
+    }
+  })
+
+  /**
+   * **A column matched by name keeps its whole history; one matched by its documents keeps only
+   * those.** The two are different questions — 「show me this feature」 and 「show me where this
+   * company appears」 — and a filter that answered both the same way would be lying in one of
+   * them. `byTitle` is how the UI tells the reader which happened.
+   */
+  it('keeps a named column whole and a cited column cut down', () => {
+    const kindLabel = (k: string): string => k
+    const named = graph.columns.find((c) => c.events.length > 1)!
+    const f = filterMatrix(graph, named.group.title, kindLabel)!
+    expect(f.byTitle, `${named.group.id} matched its own title`).toContain(named.group.id)
+    const kept = f.columns.find((c) => c.group.id === named.group.id)!
+    expect(kept.events.length, 'a named column loses nothing').toBe(named.events.length)
+
+    // The rows are recounted over what is left, or the thin-lane rule would use the old numbers.
+    for (const f2 of [f, filterMatrix(graph, '15-26', kindLabel)!]) {
+      expect(f2.rows.length, 'the time axis keeps its scale').toBe(graph.matrixRows.length)
+      expect(f2.rows.reduce((n, r) => n + r.events, 0)).toBe(f2.blocks)
+      for (const [i, r] of f2.rows.entries()) {
+        expect(r.events, `row ${r.key}`)
+          .toBe(f2.columns.reduce((n, c) => n + c.events.filter((e) => e.row === i).length, 0))
+      }
+      for (const c of f2.columns) {
+        expect(c.firstRow, `${c.group.id}: lane start`).toBe(c.events[0]?.row ?? -1)
+        expect(c.lastRow, `${c.group.id}: lane end`).toBe(c.events[c.events.length - 1]?.row ?? -1)
+      }
+    }
+  })
+
+  it('finds nothing for a word nobody wrote', () => {
+    const f = filterMatrix(graph, 'zzzzz-no-such-word', (k) => k)!
+    expect(f.columns).toEqual([])
+    expect(f.blocks).toBe(0)
+    expect(f.rows.every((r) => r.events === 0)).toBe(true)
   })
 
   /**
