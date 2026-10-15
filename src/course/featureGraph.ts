@@ -477,7 +477,21 @@ export const DOC_META_MISSING = docMetaJson.missing as string[]
 const PROCEDURAL = new Set(['agenda', 'closing-report', 'minutes', 'process', 'motion-dock',
   'timeline', 'comments-sheet'])
 
-export interface GraphBox { group: FeatureGroup; x: number; y: number }
+export interface GraphBox {
+  group: FeatureGroup
+  x: number
+  y: number
+  /**
+   * **How far down the picture this feature is still being argued about**, as the y of the band
+   * holding its most recent cited document — or `null` when that is its own band.
+   *
+   * The band says when a feature was first tabled; this says it is not finished. MMS ranging
+   * enters in 2022-07 and its newest citation is a comment resolution of 2026-10-13, so its line
+   * runs the whole way down, through the three empty years. That gap between the two is the part
+   * of the history a box alone cannot show.
+   */
+  lifeline: number | null
+}
 
 /**
  * One dependency, drawn. `kind` is about the drawing and about the subject at once:
@@ -678,13 +692,26 @@ export function graphFor(track: Track, lessonIds: readonly string[] = []): Graph
     for (const g of gs) {
       const row = stack.get(g.depth) ?? 0
       stack.set(g.depth, row + 1)
-      boxes.push({ group: g, x: PAD_X + g.depth * COL_W, y: cursor + row * ROW_H })
+      boxes.push({
+        group: g, x: PAD_X + g.depth * COL_W, y: cursor + row * ROW_H, lifeline: null,
+      })
       cols = Math.max(cols, g.depth + 1)
     }
     const lines = Math.max(0, ...stack.values())
     const height = lines === 0 ? EMPTY_BAND_H : lines * ROW_H - (ROW_H - BOX_H)
     bands.push({ key, y: cursor, height, groups: gs.length })
     cursor += height + BAND_GAP
+  }
+
+  /**
+   * The lifeline needs the band geometry, so it is filled in once every band is placed rather
+   * than while they are being placed.
+   */
+  const bandAt = new Map(bands.map((b) => [b.key, b]))
+  for (const box of boxes) {
+    const end = box.group.until?.slice(0, 4)
+    const band = end === undefined ? undefined : bandAt.get(end)
+    box.lifeline = band === undefined || band.y <= box.y ? null : band.y + BOX_H / 2
   }
 
   const at = (id: string): GraphBox => boxes.find((b) => b.group.id === id)!

@@ -69,6 +69,10 @@ const lessonsOf = (track: Track): string[] =>
 
 function section(track: Track): string {
   const g = graphFor(track, lessonsOf(track))
+  const lifelines = g.boxes.map(({ group, x, y, lifeline }) => (lifeline === null ? ''
+    : `<g class="life"><title>${esc(group.title)}　首见 ${group.since}　最近 ${group.until}</title>
+      <line x1="${x + 10}" x2="${x + 10}" y1="${y + BOX_H}" y2="${lifeline}"></line>
+      <circle cx="${x + 10}" cy="${lifeline}" r="3.5"></circle></g>`)).join('\n')
   const nodes = g.boxes.map(({ group, x, y }) => {
     let run = 0
     const bar = ENGINE.map((e) => {
@@ -170,6 +174,7 @@ function section(track: Track): string {
         ${b.groups === 0 ? `<text class="n" x="10" y="${b.y + 28}">这一年没有新特性第一次被提出</text>`
         : ''}
       </g>`).join('\n')}
+      ${lifelines}
       ${g.edges.map((e) => `<path class="edge ${e.kind}" d="${e.d}"><title>`
         + `${esc(g.groups.find((x) => x.id === e.from)!.title)} → `
         + `${esc(g.groups.find((x) => x.id === e.to)!.title)}　${esc(e.why)}`
@@ -235,6 +240,8 @@ const html = `<!doctype html>
   .edge { fill: none; stroke: var(--line); stroke-width: 1.5 }
   .edge.side { stroke-width: 1.2 }
   .edge.up { stroke: var(--contested); stroke-width: 1.2; stroke-dasharray: 5 3 }
+  .life line { stroke: var(--dim); stroke-width: 2; stroke-dasharray: 2 3; opacity: .7 }
+  .life circle { fill: var(--dim) }
   .bandbg.odd { fill: rgba(127,127,127,.07) } .bandbg.even { fill: none }
   .bandline { stroke: var(--line) }
   text.bandlabel { fill: var(--fg); font-size: 12.5px; font-weight: 700 }
@@ -281,8 +288,9 @@ const html = `<!doctype html>
 <header>
   <h1>特性图谱：标准怎么说，草案提了什么，本仿真器建到哪一步</h1>
   <p class="sub">${counts}。<b>上下是时间</b>：一组画在它最早那篇文稿第一次公开的那一年，
-    左右仍是依赖深度，所以同一年里一组还是画在它所依赖的右边。箭头是「它得先成立」；颜色是组的
-    家族，组底下那条带子是组里各行的引擎状态，框脚的小方块是文稿上的作者单位。点一个框看它的行。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
+    左右仍是依赖深度，所以同一年里一组还是画在它所依赖的右边；框底下那条点线拖到它最近一篇文稿
+    所在的那一年，线有多长这件事就还被争论了多久。箭头是「它得先成立」；颜色是组的家族，组底下
+    那条带子是组里各行的引擎状态，框脚的小方块是文稿上的作者单位。点一个框看它的行。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
     （<code>src/course/featureGraph.ts</code>），两份覆盖表现算而来，不存第二份数据。</p>
   <div class="legend">
     ${(Object.keys(FAMILY_NAME) as FeatureGroup['family'][]).map((f) =>

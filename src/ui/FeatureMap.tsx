@@ -234,6 +234,16 @@ export function FeatureMap() {
                 + `${g.groups.find((x) => x.id === e.to)?.title}　${e.why}`}</title>
             </path>
           ))}
+          {/* **The lifeline: first tabled here, still being argued about down there.** */}
+          {g.boxes.map(({ group, x, y, lifeline }) => (lifeline === null ? null : (
+            <g key={`life-${group.id}`}>
+              <title>{`${group.title}　${L.map.firstSeen(group.since!)}　`
+                + `${L.map.lastSeen(group.until!)}`}</title>
+              <line x1={x + 10} x2={x + 10} y1={y + BOX_H} y2={lifeline} stroke="var(--dim)"
+                strokeWidth={2} strokeDasharray="2 3" opacity={0.7} />
+              <circle cx={x + 10} cy={lifeline} r={3.5} fill="var(--dim)" />
+            </g>
+          )))}
           {g.boxes.map(({ group, x, y }) => {
             const on = group.id === selected
             const barW = BOX_W - 24
