@@ -13,7 +13,8 @@
  */
 import { writeFileSync } from 'node:fs'
 import {
-  BOX_H, BOX_W, DOC_PATH, graphFor, wrapCjk, type FeatureGroup, type StatusKind, type Track,
+  BASELINE, BOX_H, BOX_W, DOC_PATH, UNDATED, graphFor, wrapCjk,
+  type FeatureGroup, type StatusKind, type Track,
 } from '../src/course/featureGraph'
 import { LESSONS } from '../src/course/lessons'
 import { trackOf } from '../src/course/curriculum'
@@ -32,6 +33,30 @@ const KIND_NAME: Record<StatusKind, string> = {
 }
 const KINDS: StatusKind[] = ['published', 'draft', 'contested', 'unsettled', 'none']
 const ENGINE = ['已建模', '部分建模', '未建模'] as const
+const DOC_KIND: Record<string, string> = {
+  proposal: '投稿', cr: '意见决议', pdt: '草案文字提案', sfd: '规范框架文件', draft: '草案',
+  agenda: '议程', 'closing-report': '闭幕报告', minutes: '会议纪要',
+  'comments-sheet': '意见汇总表', simulation: '仿真',
+  usecase: '用例', tgd: '技术指南文件', process: '流程', 'motion-dock': '动议清单',
+  timeline: '时间表',
+}
+const bandName = (key: string): string =>
+  key === BASELINE ? '已发布基线' : key === UNDATED ? '无文稿可据' : key
+
+/** The same hash-to-hue the app uses, so a company is the same colour in both. */
+const ORG_HUES = [206, 268, 152, 24, 340, 48, 188, 292, 120, 8]
+function orgColor(name: string): string {
+  let h = 0
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) % 100000
+  return `hsl(${ORG_HUES[h % ORG_HUES.length]} 52% 46%)`
+}
+function orgInitials(name: string): string {
+  const words = name.split(/[\s.,-]+/).filter((w) => w !== '')
+  if (words.length >= 2 && /^[A-Za-z]/.test(words[0]!)) {
+    return (words[0]![0]! + words[1]![0]!).toUpperCase()
+  }
+  return name.slice(0, 2).toUpperCase()
+}
 
 const esc = (s: string): string => s
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -50,13 +75,29 @@ function section(track: Track): string {
       const n = group.rows.filter((r) => r.engine === e).length
       if (n === 0) return ''
       const w = (n / group.rows.length) * (BOX_W - 24)
-      const out = `<rect class="seg ${e}" x="${(12 + run).toFixed(1)}" y="${BOX_H - 22}"`
+      const out = `<rect class="seg ${e}" x="${(12 + run).toFixed(1)}" y="${BOX_H - 42}"`
         + ` width="${w.toFixed(1)}" height="8" rx="4"></rect>`
       run += w
       return out
     }).join('')
     const note = wrapCjk(group.note, 15, 2)
       .map((line, i) => `<text class="n dim" x="12" y="${58 + i * 14}">${esc(line)}</text>`).join('')
+    const more = group.orgs.length > 4 ? group.orgs.slice(3) : []
+    const shown: { label: string; fill: string; title: string }[] = [
+      ...group.orgs.slice(0, more.length > 0 ? 3 : 4).map((o) =>
+        ({ label: orgInitials(o.name), fill: orgColor(o.name), title: `${o.name}　${o.docs} 篇文稿` })),
+      ...(more.length > 0
+        ? [{ label: `+${more.length}`, fill: 'var(--derived)',
+          title: more.map((o) => `${o.name}×${o.docs}`).join('、') }]
+        : []),
+    ]
+    const chips = shown.map((c, i) =>
+      `<g transform="translate(${BOX_W - 14 - (i + 1) * 17},${BOX_H - 24})">`
+      + `<title>${esc(c.title)}</title>`
+      + `<rect width="15" height="15" rx="4" fill="${c.fill}"></rect>`
+      + `<text class="chip" x="7.5" y="11">${esc(c.label)}</text></g>`).join('')
+    const span = group.since === null ? ''
+      : `${group.since.slice(0, 7)}→${(group.until ?? group.since).slice(0, 7)}`
     return `<g class="node ${group.family}" data-id="${track}-${group.id}"
       transform="translate(${x},${y})">
       <title>${esc(group.title)}　${esc(group.note)}</title>
@@ -64,6 +105,8 @@ function section(track: Track): string {
       <text class="t" x="12" y="22">${esc(group.title)}</text>
       <text class="n" x="12" y="40">${group.rows.length} 行 · ${group.lessons.length} 课</text>
       ${note}
+      <text class="n span" x="12" y="${BOX_H - 10}">${esc(span)}</text>
+      ${chips}
       ${group.open === 0 ? '' : `<circle class="open" cx="${BOX_W - 18}" cy="16" r="8"></circle>`
         + `<text class="openn" x="${BOX_W - 18}" y="20">${group.open}</text>`}
       ${bar}
@@ -84,6 +127,22 @@ function section(track: Track): string {
       return fed.length === 0 ? ''
         : `<p class="note">它撑着：${fed.map((x) => esc(x.title)).join('、')}</p>`
     })()}
+    <p class="note">${group.since === null
+      ? `时间：${bandName(group.era)}——${group.era === BASELINE
+        ? '这一带的行是拿已发布条款讲话的，而本仓库的语料库定不出它们各自是哪一版修正案带进来的，'
+          + '所以它们共用一带，而不是由我编一个年份。'
+        : '这一带是引擎自己的模型，没有任何文稿编号可引，所以没有日期。'}`
+      : `时间：首见 ${group.since}，最近 ${group.until}，共引 ${group.docs.length} 篇文稿。`}</p>
+    ${group.orgs.length === 0 ? '' : `<p class="note">文稿上的单位：${group.orgs.map((o) =>
+      `<span class="org"><span class="dot" style="background:${orgColor(o.name)}">`
+      + `${esc(orgInitials(o.name))}</span>${esc(o.name)} ×${o.docs}</span>`).join(' ')}
+      <br>这是这一组引用到的文稿上印着的作者单位——谁写了那份投稿或那条意见决议，不是谁发明了它，
+      也不是到场讨论过的全部单位。议程、纪要、闭幕报告与意见汇总表只算日期、不算单位。</p>`}
+    ${group.docs.length === 0 ? '' : `<details><summary>这一组的文稿年表（${group.docs.length} 篇）</summary>
+      <ul class="chrono">${group.docs.map((d) => `<li><code>${esc(d.date)}</code>
+        <b>${esc(d.dcn)}</b> <span class="tag k-unsettled">${esc(DOC_KIND[d.kind] ?? d.kind)}</span>
+        ${d.orgs.length === 0 ? '—' : esc(d.orgs.join('、'))}　${esc(d.title)}</li>`).join('')}</ul>
+      </details>`}
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     ${group.rows.map((r) => `<tr>
       <td>${md(r.feature)}<div class="ev">${md(r.evidence)}</div></td>
@@ -103,7 +162,15 @@ function section(track: Track): string {
     </div>
     <div class="scroller"><svg width="${g.width}" height="${g.height}"
       viewBox="0 0 ${g.width} ${g.height}">
-      ${g.edges.map((e) => `<path class="edge" d="${e.d}"><title>`
+      ${g.bands.map((b, i) => `<g class="band${b.groups === 0 ? ' empty' : ''}">
+        <rect x="0" y="${b.y - 8}" width="${g.width}" height="${b.height + 16}"
+          class="bandbg ${i % 2 === 0 ? 'odd' : 'even'}"></rect>
+        <line x1="0" x2="${g.width}" y1="${b.y - 8}" y2="${b.y - 8}" class="bandline"></line>
+        <text class="bandlabel" x="10" y="${b.y + 14}">${esc(bandName(b.key))}</text>
+        ${b.groups === 0 ? `<text class="n" x="10" y="${b.y + 28}">这一年没有新特性第一次被提出</text>`
+        : ''}
+      </g>`).join('\n')}
+      ${g.edges.map((e) => `<path class="edge ${e.kind}" d="${e.d}"><title>`
         + `${esc(g.groups.find((x) => x.id === e.from)!.title)} → `
         + `${esc(g.groups.find((x) => x.id === e.to)!.title)}　${esc(e.why)}`
         + '</title></path>').join('\n')}
@@ -166,6 +233,21 @@ const html = `<!doctype html>
   text.t { fill: var(--fg); font-size: 13px; font-weight: 600 }
   text.n { fill: var(--dim); font-size: 11px } text.dim { opacity: .85 }
   .edge { fill: none; stroke: var(--line); stroke-width: 1.5 }
+  .edge.side { stroke-width: 1.2 }
+  .edge.up { stroke: var(--contested); stroke-width: 1.2; stroke-dasharray: 5 3 }
+  .bandbg.odd { fill: rgba(127,127,127,.07) } .bandbg.even { fill: none }
+  .bandline { stroke: var(--line) }
+  text.bandlabel { fill: var(--fg); font-size: 12.5px; font-weight: 700 }
+  .band.empty text.bandlabel { fill: var(--dim) }
+  text.chip { fill: #fff; font-size: 8px; font-weight: 700; text-anchor: middle }
+  text.n.more { text-anchor: end; font-size: 9px }
+  text.n.span { font-size: 10px }
+  .org { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px }
+  .org .dot { display: inline-block; width: 14px; height: 14px; border-radius: 4px; color: #fff;
+    font-size: 8px; font-weight: 700; text-align: center; line-height: 14px }
+  ul.chrono { margin: 6px 0 10px; padding-left: 18px; color: var(--dim); font-size: 12px }
+  ul.chrono b { color: var(--fg) }
+  details summary { cursor: pointer; color: var(--dim); font-size: 12.5px }
   .seg.已建模 { fill: var(--full) } .seg.部分建模 { fill: var(--part) }
   .seg.未建模 { fill: var(--none) }
   circle.open { fill: var(--contested); opacity: .92 }
@@ -198,8 +280,9 @@ const html = `<!doctype html>
 </style></head><body>
 <header>
   <h1>特性图谱：标准怎么说，草案提了什么，本仿真器建到哪一步</h1>
-  <p class="sub">${counts}。框是特性组，箭头是「它得先成立」；颜色是组的家族，组底下那条带子是
-    组里各行的引擎状态。点一个框看它的行。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
+  <p class="sub">${counts}。<b>上下是时间</b>：一组画在它最早那篇文稿第一次公开的那一年，
+    左右仍是依赖深度，所以同一年里一组还是画在它所依赖的右边。箭头是「它得先成立」；颜色是组的
+    家族，组底下那条带子是组里各行的引擎状态，框脚的小方块是文稿上的作者单位。点一个框看它的行。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
     （<code>src/course/featureGraph.ts</code>），两份覆盖表现算而来，不存第二份数据。</p>
   <div class="legend">
     ${(Object.keys(FAMILY_NAME) as FeatureGroup['family'][]).map((f) =>

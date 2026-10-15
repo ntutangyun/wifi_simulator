@@ -5,6 +5,12 @@
  * engine did with the rows inside it. Click a box and the rows appear with their evidence —
  * clause numbers, engine symbols, lesson ids — exactly as the coverage document writes them.
  *
+ * **Top to bottom is time**: a group sits in the year its earliest cited contribution was first
+ * disclosed, so the picture reads as the history of the protocol rather than as a diagram of it.
+ * Every arrow therefore wants to point downwards, and on both tracks every one of them does —
+ * which is the dependency rule and the record agreeing, not an arrangement. The chips at the foot
+ * of a box are the companies whose names are on those contributions.
+ *
  * Everything on this screen is computed from `docs/wifi-feature-coverage.md` and
  * `docs/uwb-feature-coverage.md` at build time (`src/course/featureGraph.ts`). There is no copy of
  * either table here: edit a row in the document and this screen changes with it. The only thing
@@ -13,7 +19,7 @@
  */
 import { useMemo, useState } from 'react'
 import {
-  BOX_H, BOX_W, DOC_PATH, graphFor, wrapCjk,
+  BASELINE, BOX_H, BOX_W, DOC_PATH, UNDATED, graphFor, wrapCjk,
   type FeatureGroup, type FeatureRow, type StatusKind, type Track,
 } from '../course/featureGraph'
 import { LESSONS } from '../course/lessons'
@@ -31,6 +37,49 @@ const KINDS: StatusKind[] = ['published', 'draft', 'contested', 'unsettled', 'no
 const STATUS_COLOR: Record<StatusKind, string> = {
   published: '#4aa3ff', draft: '#b07cff', contested: '#ff8a4a',
   unsettled: '#8a93a3', none: '#6b7280',
+}
+
+/**
+ * **A company gets a colour and its initials, never its logo.**
+ *
+ * A logo is someone's trademark, it would have to be fetched and committed as an image, and this
+ * repository carries no third-party assets — so the chips are drawn from the one thing the
+ * corpus actually gives us: the name printed in the affiliation field. The colour is a hash of
+ * that name, so it is stable across renders and across tracks without a table to maintain, and
+ * the full name is in the chip's tooltip and spelled out in the panel.
+ */
+const ORG_HUES = [206, 268, 152, 24, 340, 48, 188, 292, 120, 8]
+function orgColor(name: string): string {
+  let h = 0
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) % 100000
+  return `hsl(${ORG_HUES[h % ORG_HUES.length]} 52% 46%)`
+}
+
+/** Two letters for a Latin name, the first two characters otherwise. */
+function orgInitials(name: string): string {
+  const words = name.split(/[\s.,-]+/).filter((w) => w !== '')
+  if (words.length >= 2 && /^[A-Za-z]/.test(words[0]!)) {
+    return (words[0]![0]! + words[1]![0]!).toUpperCase()
+  }
+  return name.slice(0, 2).toUpperCase()
+}
+
+/**
+ * The four chips a box has room for: the first three companies, then 「+N」 carrying the rest in
+ * its tooltip. Three plus a count rather than four plus a label, because the fourth label and the
+ * date span were drawn on the same line and overlapped at 196 px.
+ */
+function chipsOf(orgs: { name: string; docs: number }[]):
+{ key: string; label: string; docs: number; rest: { name: string; docs: number }[] | null }[] {
+  if (orgs.length <= 4) {
+    return orgs.map((o) => ({ key: o.name, label: orgInitials(o.name), docs: o.docs, rest: null }))
+  }
+  const rest = orgs.slice(3)
+  return [
+    ...orgs.slice(0, 3).map((o) =>
+      ({ key: o.name, label: orgInitials(o.name), docs: o.docs, rest: null })),
+    { key: '+', label: `+${rest.length}`, docs: 0, rest },
+  ]
 }
 
 const tag = (color: string): React.CSSProperties => ({
@@ -57,6 +106,13 @@ function Evidence({ text }: { text: string }) {
       })}
     </span>
   )
+}
+
+/** A band's name: the two bands that are not years get one, a year is its own. */
+function bandName(key: string, L: ReturnType<typeof useStrings>): string {
+  if (key === BASELINE) return L.map.baseline
+  if (key === UNDATED) return L.map.undated
+  return key
 }
 
 function RowList({ rows }: { rows: FeatureRow[] }) {
@@ -134,7 +190,10 @@ export function FeatureMap() {
             background: '#ff8a4a', marginRight: 4 }} />
           {L.map.openBadge}
         </span>
+        {g.edges.some((e) => e.kind === 'up') && <span>{L.map.upEdge}</span>}
       </div>
+
+      <p style={{ color: 'var(--dim)', fontSize: 11.5, margin: 0 }}>{L.map.axisNote}</p>
 
       {/* **A scroll container's min-content height is zero**, so inside a grid it is handed
           whatever is left — 41 px of a 708 px drawing, measured at 939x511. It gets a height of
@@ -149,9 +208,28 @@ export function FeatureMap() {
               <path d="M0 0 L8 4 L0 8 z" fill="var(--border)" />
             </marker>
           </defs>
+          {/* **The bands are the time axis.** A year with nothing in it still gets a lane:
+              2023, 2024 and 2025 are empty on the UWB side, and that pause is the fact —
+              the features were tabled in 2021–2022 and everything since is argument. */}
+          {g.bands.map((b, i) => (
+            <g key={b.key}>
+              <rect x={0} y={b.y - 8} width={g.width} height={b.height + 16}
+                fill={i % 2 === 0 ? 'var(--panel2)' : 'transparent'} opacity={0.5} />
+              <line x1={0} x2={g.width} y1={b.y - 8} y2={b.y - 8} stroke="var(--border)" />
+              <text x={10} y={b.y + 14} fontSize={12.5} fontWeight={700}
+                fill={b.groups === 0 ? 'var(--dim)' : 'var(--text)'}>
+                {bandName(b.key, L)}
+              </text>
+              {b.groups === 0 && (
+                <text x={10} y={b.y + 28} fontSize={10} fill="var(--dim)">{L.map.emptyYear}</text>
+              )}
+            </g>
+          ))}
           {g.edges.map((e) => (
-            <path key={`${e.from}-${e.to}`} d={e.d} fill="none" stroke="var(--border)"
-              strokeWidth={1.5} markerEnd="url(#fm-arrow)">
+            <path key={`${e.from}-${e.to}`} d={e.d} fill="none"
+              stroke={e.kind === 'up' ? '#ff8a4a' : 'var(--border)'}
+              strokeDasharray={e.kind === 'up' ? '5 3' : undefined}
+              strokeWidth={e.kind === 'down' ? 1.6 : 1.2} markerEnd="url(#fm-arrow)">
               <title>{`${g.groups.find((x) => x.id === e.from)?.title} → `
                 + `${g.groups.find((x) => x.id === e.to)?.title}　${e.why}`}</title>
             </path>
@@ -175,6 +253,26 @@ export function FeatureMap() {
                 {wrapCjk(group.note, 15, 2).map((line, i) => (
                   <text key={i} x={12} y={58 + i * 14} fill="var(--dim)" fontSize={11}>{line}</text>
                 ))}
+                {/* The span, and the companies on the contributions it spans. */}
+                {/* The band label already names a group with no date; repeating it in the box
+                    would spend the one line the span has on saying nothing. */}
+                {group.since !== null && (
+                  <text x={12} y={BOX_H - 10} fill="var(--dim)" fontSize={9.5}>
+                    {`${group.since.slice(0, 7)}→${(group.until ?? group.since).slice(0, 7)}`}
+                  </text>
+                )}
+                {/* Four chips, and the fourth becomes 「+N」 when there are more — the row has
+                    room for four, and a fifth label squeezed next to the span overlapped it. */}
+                {chipsOf(group.orgs).map((c, i) => (
+                  <g key={c.key} transform={`translate(${BOX_W - 14 - (i + 1) * 17},${BOX_H - 24})`}>
+                    <title>{c.rest === null ? `${c.key}　${L.map.docCount(c.docs)}`
+                      : c.rest.map((o) => `${o.name}×${o.docs}`).join('、')}</title>
+                    <rect width={15} height={15} rx={4}
+                      fill={c.rest === null ? orgColor(c.key) : 'var(--dim)'} />
+                    <text x={7.5} y={11} fontSize={8} fontWeight={700} fill="#fff"
+                      textAnchor="middle">{c.label}</text>
+                  </g>
+                ))}
                 {group.open > 0 && (
                   <>
                     <circle cx={BOX_W - 18} cy={16} r={8} fill="#ff8a4a" />
@@ -189,7 +287,7 @@ export function FeatureMap() {
                   const x0 = 12 + run
                   run += w
                   return (
-                    <rect key={e} x={x0} y={BOX_H - 22} width={w} height={8} rx={4}
+                    <rect key={e} x={x0} y={BOX_H - 42} width={w} height={8} rx={4}
                       fill={ENGINE_COLOR[e]} />
                   )
                 })}
@@ -208,6 +306,44 @@ export function FeatureMap() {
             <b style={{ fontSize: 15 }}>{sel.title}</b>
             <span style={{ color: 'var(--dim)', fontSize: 12 }}>{sel.note}</span>
           </div>
+          {/* **When it entered the record, and on whose paper.** */}
+          <div style={{ margin: '6px 0 2px', fontSize: 12, display: 'flex', gap: 8,
+            flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={tag(sel.since === null ? 'var(--dim)' : '#4aa3ff')}>
+              {sel.since === null ? bandName(sel.era, L) : L.map.firstSeen(sel.since)}
+            </span>
+            {sel.until !== null && sel.until !== sel.since && (
+              <span style={{ color: 'var(--dim)' }}>{L.map.lastSeen(sel.until)}</span>
+            )}
+            {sel.docs.length > 0 && (
+              <span style={{ color: 'var(--dim)' }}>{L.map.docCount(sel.docs.length)}</span>
+            )}
+          </div>
+          {sel.since === null && (
+            <p style={{ color: 'var(--dim)', fontSize: 11.5, margin: '2px 0 6px' }}>
+              {sel.era === BASELINE ? L.map.baselineWhy : L.map.undatedWhy}
+            </p>
+          )}
+          {sel.orgs.length > 0 && (
+            <div style={{ margin: '6px 0' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ color: 'var(--dim)', fontSize: 12 }}>{L.map.orgsLabel}</span>
+                {sel.orgs.map((o) => (
+                  <span key={o.name} style={{ display: 'inline-flex', alignItems: 'center',
+                    gap: 4, fontSize: 11.5 }}>
+                    <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 4,
+                      background: orgColor(o.name), color: '#fff', fontSize: 8, fontWeight: 700,
+                      textAlign: 'center', lineHeight: '14px' }}>{orgInitials(o.name)}</span>
+                    {o.name}
+                    <span style={{ color: 'var(--dim)' }}>×{o.docs}</span>
+                  </span>
+                ))}
+              </div>
+              <p style={{ color: 'var(--dim)', fontSize: 11, margin: '4px 0 0' }}>
+                {L.map.orgsNote}
+              </p>
+            </div>
+          )}
           {/* **Every dependency gets its reason on screen.** An arrow with no reason is a
               teaching order wearing an arrowhead; writing them out is what kept the two apart
               when this spine was re-derived as feature dependencies. */}
@@ -235,6 +371,27 @@ export function FeatureMap() {
                 : sel.lessons.map((x) => `@${x}`).join('、')}
             </div>
           </div>
+          {sel.docs.length > 0 && (
+            <details style={{ margin: '0 0 10px' }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--dim)' }}>
+                {L.map.chronoLabel}
+              </summary>
+              <div style={{ display: 'grid', gap: 3, marginTop: 6 }}>
+                {sel.docs.map((d) => (
+                  <div key={d.dcn} style={{ fontSize: 11.5, display: 'flex', gap: 6,
+                    flexWrap: 'wrap' }}>
+                    <span style={{ fontFamily: 'ui-monospace, Consolas, monospace' }}>{d.date}</span>
+                    <b>{d.dcn}</b>
+                    <span style={tag('var(--dim)')}>{L.map.docKind[d.kind] ?? d.kind}</span>
+                    <span style={{ color: 'var(--dim)' }}>
+                      {d.orgs.length > 0 ? d.orgs.join('、') : '—'}
+                    </span>
+                    <span style={{ color: 'var(--dim)' }}>{d.title}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
           <RowList rows={sel.rows} />
         </div>
       )}

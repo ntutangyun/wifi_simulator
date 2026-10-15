@@ -18,7 +18,11 @@
  *     would have.
  */
 import { describe, it, expect } from 'vitest'
-import { DOCS, DOC_PATH, SPINE, graphFor, parseCoverage, wrapCjk, type Track } from '../../src/course/featureGraph'
+import {
+  BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, UNDATED, graphFor,
+  parseCoverage, wrapCjk, type Track,
+} from '../../src/course/featureGraph'
+import docMeta from '../../src/course/docMeta.json'
 import { LESSONS } from '../../src/course/lessons'
 import { trackOf } from '../../src/course/curriculum'
 import { dataRows, readDoc } from './coverage'
@@ -118,17 +122,105 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
   })
 
   /**
-   * The column is the longest dependency chain ending at a group, so the drawing cannot disagree
-   * with its own arrows: everything a group needs is strictly to its left.
+   * The depth is still the longest dependency chain, and it still orders a band from left to
+   * right — it just no longer decides the row. Asserting it separately from the drawing is the
+   * point: the column rule used to BE this assertion, and when the layout turned on its side
+   * nothing would have noticed the spine's own order quietly breaking.
    */
-  it('puts every group to the right of everything it needs', () => {
+  it('keeps every group deeper than everything it needs', () => {
     const depth = new Map(graph.groups.map((g) => [g.id, g.depth]))
     for (const g of graph.groups) {
       for (const n of g.needs) {
-        expect(depth.get(n.id)!, `${n.id} must sit left of ${g.id}`).toBeLessThan(depth.get(g.id)!)
+        expect(depth.get(n.id)!, `${n.id} must be shallower than ${g.id}`)
+          .toBeLessThan(depth.get(g.id)!)
       }
     }
     expect(graph.groups.filter((g) => g.needs.length === 0).every((g) => g.depth === 0)).toBe(true)
+  })
+
+  /**
+   * **The claim the layout makes: a feature is built on features that came first.**
+   *
+   * Top to bottom is the year a group's earliest cited contribution was disclosed, so an arrow
+   * that points upwards would say a feature depends on something proposed later — either the
+   * spine is wrong or the dates are. On 2026-10-15, with the dates read off 70 cited documents,
+   * **there is not one** on either track: UWB 14 arrows run down into a later band and 25 run
+   * across inside one, Wi-Fi 2 and 12, and 0 run up. Most of the 「across」 are inside the
+   * published baseline, where no group has a date — the claim an upward arrow would break is
+   * only ever made between two bands, which is why `kind` is read off the bands.
+   */
+  it('has no dependency that is dated later than the feature needing it', () => {
+    const at = (id: string): string => {
+      const g = graph.groups.find((x) => x.id === id)!
+      return `${g.title}（${g.since ?? g.era}）`
+    }
+    expect(graph.edges.filter((e) => e.kind === 'up').map((e) => `${at(e.to)} → ${at(e.from)}`))
+      .toEqual([])
+  })
+
+  it('draws time downwards: the baseline on top, the undatable at the foot', () => {
+    const keys = graph.bands.map((b) => b.key)
+    expect(keys[0]).toBe(BASELINE)
+    const years = keys.filter((k) => /^\d{4}$/.test(k))
+    expect(years, 'the years of a track must be contiguous — an empty year is a lane, not a gap')
+      .toEqual(years.length === 0 ? [] : Array.from(
+        { length: Number(years[years.length - 1]) - Number(years[0]) + 1 },
+        (_, i) => String(Number(years[0]) + i)))
+    if (keys.includes(UNDATED)) expect(keys[keys.length - 1]).toBe(UNDATED)
+    // Bands are stacked, never overlapping, and every box sits inside its own band.
+    for (const [i, b] of graph.bands.entries()) {
+      const next = graph.bands[i + 1]
+      if (next !== undefined) expect(b.y + b.height).toBeLessThan(next.y)
+      for (const box of graph.boxes.filter((x) => x.group.era === b.key)) {
+        expect(box.y, `${box.group.id} outside band ${b.key}`).toBeGreaterThanOrEqual(b.y)
+        expect(box.y).toBeLessThan(b.y + b.height)
+      }
+    }
+  })
+
+  /**
+   * **A published row may not date anything.** §九 of the UWB table argues about the HRP PHY of
+   * IEEE Std 802.15.4-2024 and cites a 2026 PICS contribution for its clause numbers; the rule
+   * that keeps the 2007 radio out of 2026 is worth an assertion, because it is invisible in the
+   * output — a wrong answer here looks like a tidy picture.
+   */
+  it('dates a group from draft rows only, and gives a draft row a document to be dated by', () => {
+    for (const g of graph.groups) {
+      const dating = g.rows.filter((r) => r.statusKind !== 'published' || r.status.includes('草案'))
+      if (g.since !== null) {
+        expect(dating.flatMap((r) => r.dcns).length, `${g.id} is dated but cites nothing`)
+          .toBeGreaterThan(0)
+        expect(g.until!.localeCompare(g.since), `${g.id}: since after until`)
+          .toBeGreaterThanOrEqual(0)
+      }
+      if (g.family === 'draft') {
+        expect(g.since, `${g.id} is a draft feature and must cite a contribution`).not.toBeNull()
+      }
+    }
+  })
+
+  /**
+   * The group's own paperwork is evidence of WHEN, never of WHO: an agenda, minutes, a closing
+   * report and the comment spreadsheet are written by the chair, the secretary and the technical
+   * editor. The first cut of these chips counted them, and the chair came out as the biggest
+   * contributor to every feature in the draft.
+   */
+  it('takes companies from contributions, not from the group’s own paperwork', () => {
+    const PAPER = new Set(['agenda', 'closing-report', 'minutes', 'process', 'motion-dock',
+      'timeline', 'comments-sheet'])
+    for (const g of graph.groups) {
+      const fromPaper = new Set(g.docs.filter((d) => PAPER.has(d.kind)).flatMap((d) => d.orgs))
+      const fromWork = new Set(g.docs.filter((d) => !PAPER.has(d.kind)).flatMap((d) => d.orgs))
+      for (const o of g.orgs) {
+        expect(fromWork, `${g.id}: ${o.name} is only on paperwork`).toContain(o.name)
+      }
+      for (const o of fromPaper) {
+        if (!fromWork.has(o)) {
+          expect(g.orgs.map((x) => x.name), `${g.id}: ${o} came from paperwork alone`)
+            .not.toContain(o)
+        }
+      }
+    }
   })
 
   it('draws every group and every dependency', () => {
@@ -180,6 +272,53 @@ describe('a lesson no coverage row cites', () => {
       'frame-qos-fcs', 'bianchi-vs-sim', 'rate-vs-model', 'tier1-project',
       'tier1-project-review', 'edca-cost', 'uhr-rate-ladder', 'claim-to-contribution',
     ])
+  })
+})
+
+/**
+ * **`src/course/docMeta.json` is the one file here whose source is outside the repository**, so it
+ * is the one that can go stale without anything in a diff. These assertions are what makes a
+ * forgotten `npx vite-node scripts/doc-meta.ts` a red test rather than a box with no date.
+ */
+describe('the document metadata behind the time axis', () => {
+  const DCN = /\b(1[15]-\d\d\/\d{4})(?:r\d+)?/g
+
+  it('has an entry for every document either coverage table cites', () => {
+    const cited = new Set<string>()
+    for (const track of TRACKS) {
+      for (const m of DOCS[track].matchAll(DCN)) cited.add(m[1]!)
+    }
+    const have = new Set(Object.keys(docMeta.docs))
+    expect([...cited].filter((d) => !have.has(d) && !DOC_META_MISSING.includes(d)),
+      'a citation with no metadata: run `npx vite-node scripts/doc-meta.ts`').toEqual([])
+    // And nothing stale in the other direction: a document nobody cites is dead weight.
+    expect([...have].filter((d) => !cited.has(d))).toEqual([])
+    expect(docMeta.cited).toBe(cited.size)
+  })
+
+  it('found all of them, and says so', () => {
+    expect(DOC_META_MISSING, 'a cited document no mirror held — the picture dates it by nothing')
+      .toEqual([])
+    expect(DOC_CORPORA.length).toBeGreaterThanOrEqual(1)
+    expect(DOC_META_AT).toMatch(/^\d{4}-\d\d-\d\d$/)
+  })
+
+  it('holds one spelling per company', () => {
+    // The shapes that mean a missed alias in `scripts/doc-meta.ts`: the same company arriving
+    // twice under two spellings would draw two chips and claim a participant that is not there.
+    const bad = [...new Set(Object.values(docMeta.docs).flatMap((d) => d.orgs))]
+      .filter((o) => /\bet al\b|,? Inc\.?$|Technologies$|Semiconductor$|Electronics$|^self/.test(o))
+    expect(bad, 'normalise these in scripts/doc-meta.ts#ALIAS').toEqual([])
+  })
+
+  it('dates every document, as an ISO day', () => {
+    for (const [dcn, d] of Object.entries(docMeta.docs)) {
+      expect(d.date, dcn).toMatch(/^\d{4}-\d\d-\d\d$/)
+      // A document number carries its own year: `15-22/0381` cannot be dated 2026.
+      expect(Number(d.date.slice(0, 4)), `${dcn} is dated outside its own year`)
+        .toBeGreaterThanOrEqual(2000 + Number(dcn.slice(3, 5)))
+      expect(d.kind.length).toBeGreaterThan(0)
+    }
   })
 })
 

@@ -92,6 +92,22 @@ export interface Strings {
     orphanTitle: (n: number) => string
     orphanNote: string
     source: (doc: string) => string
+    /** The time axis: the band names, and what a band with nothing in it means. */
+    baseline: string
+    baselineWhy: string
+    undated: string
+    undatedWhy: string
+    emptyYear: string
+    axisNote: string
+    firstSeen: (date: string) => string
+    lastSeen: (date: string) => string
+    docCount: (n: number) => string
+    orgsLabel: string
+    orgsNote: string
+    chronoLabel: string
+    noDocs: string
+    upEdge: string
+    docKind: Record<string, string>
   }
   course: {
     title: string
@@ -835,6 +851,35 @@ export const STRINGS: Strings = {
       + '所以项目课、模型对照课与「一份测量怎么成为文稿」这类课本来就没有特性行——'
       + '而其中有一门是真的缺口：第五个代次 uhr 已经落地，覆盖表的物理层参数那一节还停在 EHT。',
     source: (doc) => `这张图现算自 ${doc} 与课程本身，不存第二份数据：改那份文档，这里跟着变。`,
+    baseline: '已发布基线',
+    baselineWhy: '这一带里的特性，它们的行是拿已发布条款讲话的，而本仓库的语料库定不出它们各自'
+      + '是哪一版修正案带进来的——标准自己的前言只按版次写历史（2003、2006、2011、2015、2020、2024，'
+      + '最后这一版并入四份修正案，其中与这里有关的是「增强测距」），不按条款写。所以它们共用一带，'
+      + '而不是由我编一个年份。',
+    undated: '无文稿可据',
+    undatedWhy: '这一带是引擎自己的模型：定位解算、UWB 侧的衰落、DL／UL-TDoA、AoA／PDoA——'
+      + '覆盖表把它们判为「无法判定」或「标准不规定」，而它们没有任何文稿编号可引，所以没有日期。'
+      + '这跟「发布得比语料库还早」是两件事，所以不跟已发布基线共用一带。',
+    emptyYear: '这一年没有新特性第一次被提出',
+    axisNote: '上下是时间：一组画在它最早那篇文稿第一次公开的那一年。左右仍是依赖深度，'
+      + '所以同一年里一组还是画在它所依赖的右边。',
+    firstSeen: (date) => `首见 ${date}`,
+    lastSeen: (date) => `最近 ${date}`,
+    docCount: (n) => `${n} 篇文稿`,
+    orgsLabel: '文稿上的单位：',
+    orgsNote: '这是这一组引用到的那些文稿上印着的作者单位，也就是「谁写了这份投稿或这条意见决议」——'
+      + '不是「谁发明了它」，也不是到场讨论过的全部单位。议程、纪要、闭幕报告与意见汇总表只算日期、'
+      + '不算单位：它们的作者是工作组自己的主席与技术编辑。',
+    chronoLabel: '这一组的文稿年表：',
+    noDocs: '这一组没有引用任何 mentor 文稿。',
+    upEdge: '虚线：它依赖的那一组反而更晚才被提出（时间倒流的边）',
+    docKind: {
+      proposal: '投稿', cr: '意见决议', pdt: '草案文字提案', sfd: '规范框架文件',
+      draft: '草案', agenda: '议程', 'closing-report': '闭幕报告', minutes: '会议纪要',
+      'comments-sheet': '意见汇总表',
+      simulation: '仿真', usecase: '用例', tgd: '技术指南文件', process: '流程',
+      'motion-dock': '动议清单', timeline: '时间表',
+    },
   },
   guideWindow: {
     title: '📖 Wi-Fi 速查手册', terms: '术语', overview: '概览',
