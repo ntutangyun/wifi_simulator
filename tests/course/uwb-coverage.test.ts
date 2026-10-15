@@ -177,7 +177,7 @@ describe(`${DOC}'s parser can fail`, () => {
  * The figures that are in prose rather than in a table are deliberately out of scope and said out
  * loud instead: 「145 行」 of `.superpowers/sdd/uwb-clause-list.txt` (re-measured 2026-10-09:
  * exactly 145 lines), 「十一个格子写了「无法判定」」 (the 无法判定 count, which IS pinned by the
- * totals table above), and 「1138 份抽出的文稿」, which names a corpus outside this repository and
+ * totals table above), and 「1150 篇，其中 1137 篇抽出了正文」, which names a corpus outside this repository and
  * cannot be measured from inside it.
  */
 const UWB_CENSUS: readonly (readonly [readonly string[], string])[] = [

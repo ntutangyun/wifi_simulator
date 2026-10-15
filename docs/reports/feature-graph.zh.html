@@ -1607,7 +1607,7 @@
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-已建模">已建模</span></td>
     </tr><tr>
-      <td>MMRS 符号与参数集（Config 表）§16.2.11<div class="ev">证据：15-23/0502r3（拟编 16.2.11.4）；草案的 MMRS 配置集现为 Table 85，至少到 Config #49。引擎的 <code>uwb/mms.ts#MMS_SETS</code>、<code>uwb/mms.ts#mmsSet</code> 是其中一个<b>命名子集</b>，不是整张表。<code>uwb/mms.ts#MMRS_LEN</code>、<code>uwb/mms.ts#MMS_SPREAD</code>。<code>@uwb-mms-numbers</code></div></td>
+      <td>MMRS 符号与参数集（Config 表）§16.2.11<div class="ev">证据：15-23/0502r3（拟编 16.2.11.4）；草案的 MMRS 配置集现为 Table 85，至少到 Config #49。引擎的 <code>uwb/mms.ts#MMS_SETS</code>、<code>uwb/mms.ts#mmsSet</code> 是其中一个<b>命名子集</b>，不是整张表。<code>uwb/mms.ts#MMRS_LEN</code>、<code>uwb/mms.ts#MMS_SPREAD</code>。<b>2026-10-15 刷新</b>：R1-304 要求把「强制参数集见 §16.8.1／§16.8.2」这句话加回 §16.2.11.1，处置 <b>Rejected</b>——同一小节十几行之后还有一份同样的话，D04 阶段按 I-219／I-93 删掉的正是重复的那一份；该处置随 CRG Motion #29 于 9-29 无异议通过。<code>@uwb-mms-numbers</code></div></td>
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
@@ -1637,7 +1637,7 @@
     <p class="note">它撑着：窄带控制面</p>
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
-      <td>多毫秒（multi-millisecond, MMS）UWB 操作 §10.39 总体<div class="ev">证据：15-26/0179r1 的 PICS 插入项 MLF9.39「Multi-millisecond (MMS) UWB operation」直接引 §10.39；2026 年的意见决议成批引用 §10.39.x 的页/行（§10.39.8.3 一项就命中 272 次）。引擎建的是<b>单边双向加时钟比率修正</b>那一种：<code>uwb/mms.ts#mmsLayout</code>、<code>uwb/device.mms.ts#onMmsSlot</code>、<code>uwb/device.mms.ts#onMmsRx</code>、<code>uwb/device.mms.ts#solveMmsFix</code>；<code>uwb/session.ts#MmsRoundPlan</code>。MMS 里的 DS-TWR 未建。<code>@uwb-mms</code>、<code>@uwb-mms-numbers</code></div></td>
+      <td>多毫秒（multi-millisecond, MMS）UWB 操作 §10.39 总体<div class="ev">证据：15-26/0179r1 的 PICS 插入项 MLF9.39「Multi-millisecond (MMS) UWB operation」直接引 §10.39；2026 年的意见决议成批引用 §10.39.x 的页/行（§10.39.8.3 一项就命中 272 次）。引擎建的是<b>单边双向加时钟比率修正</b>那一种：<code>uwb/mms.ts#mmsLayout</code>、<code>uwb/device.mms.ts#onMmsSlot</code>、<code>uwb/device.mms.ts#onMmsRx</code>、<code>uwb/device.mms.ts#solveMmsFix</code>；<code>uwb/session.ts#MmsRoundPlan</code>。MMS 里的 DS-TWR 未建。<b>2026-10-15 刷新：D05 把往返时间与回复时间的减法写反了，而引擎没有。</b> R1-280 指出 §10.39.10 把 Tround 定成「发减收」、把 Treply 定成「收减发」，照字面算出来两个时间都是负的；处置 <b>Accepted</b>，改成发起方取「收减发」、应答方取「发减收」（15-26/0408r1）。引擎本来就是这个方向——<code>uwb/device.mms.ts</code> 里先发的那一端取 <code>counterDiff(收, 发)</code>、另一端取 <code>counterDiff(发, 收)</code>，而那段注释写的正是反过来会怎样：<code>counterDiff</code> 只会回绕，于是一个倒着跑的区间变成将近 2⁴⁰ 的计数，乘上时钟修正之后是几十公里的距离，照样作为一条 <code>UWB_RANGE</code> 发出去。这条处置排在 CRG Motion #32 里（10-20 的议程 15-26/0427r6；15-26/0431r4 第 54 页那一栏的结果还空着）。<code>@uwb-mms</code>、<code>@uwb-mms-numbers</code></div></td>
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
@@ -1645,11 +1645,11 @@
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
-      <td>非交织子轮 §10.39.7<div class="ev">证据：I-331 的决议提案（15-26/0296r1，含 §10.39.7.4 的插入句）先后两次被否——2026 年 7 月全会 <b>19/9/4（67.8%）</b>、9 月前的电话会 <b>11/7/1（61.11%）</b>，见 15-26/0348r1、15-26/0377r2；另有 15-26/0354r0「clarification of one-to-many modes and interleaving modes」仍在澄清这套概念。引擎的非交织是 <code>subRounds = 1 + responders</code>（<code>uwb/mms.ts#mmsLayout</code>），即<b>两子轮的单边双向那一种</b>。<code>@uwb-subrounds</code></div></td>
+      <td>非交织子轮 §10.39.7<div class="ev">证据：I-331 的决议提案（15-26/0296r1，含 §10.39.7.4 的插入句）先后两次被否——2026 年 7 月全会 <b>19/9/4（67.8%）</b>、9 月前的电话会 <b>11/7/1（61.11%）</b>，见 15-26/0348r1、15-26/0377r2；另有 15-26/0354r0「clarification of one-to-many modes and interleaving modes」仍在澄清这套概念。引擎的非交织是 <code>subRounds = 1 + responders</code>（<code>uwb/mms.ts#mmsLayout</code>），即<b>两子轮的单边双向那一种</b>。<b>2026-10-15 刷新</b>：R1-314 指出「时间间隔 A 的 2 ms／1.5 ms 必须支持」这条要求连着的例子只对交织模式成立，处置 <b>Revised</b>——那句话里补上「在交织测距中」（15-26/0408r1，排在 CRG Motion #32，10-14 时未表决）。也就是说非交织的那几种形态不受这两个数约束。<code>@uwb-subrounds</code></div></td>
       <td><span class="tag k-contested">仍在争论</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
-      <td>一对多非交织 DS-TWR（三子轮 §10.39.7.2.3、四子轮 §10.39.7.2.4）<div class="ev">证据：15-26/0425r0（2026 年 9 月中间会议纪要）记 Motion #26——Group J 的意见决议（15-26/0417r0，R1-50 与 R1-13）<b>Y/N/A 12/13/1，动议被否</b>，反对理由是「一对多非交织 DS-TWR 在移动场景下的时长，以及应答方多时的帧长」；另有 15-26/0184r1 的意见直接提议<b>删掉 §10.39.7.2.4 与全部四子轮 DS-TWR 的引用</b>。<b>未偿的债</b>：<code>@uwb-subrounds</code> 算出来的时长只是两子轮那一种的时长，该课 <code>limits</code> 已写明三子轮形态未建，但四子轮那一种尚未写进去。</div></td>
+      <td>一对多非交织 DS-TWR（三子轮 §10.39.7.2.3、四子轮 §10.39.7.2.4）<div class="ev">证据：15-26/0425r0（2026 年 9 月中间会议纪要）记 Motion #26——Group J 的意见决议（15-26/0417r0，R1-50 与 R1-13）<b>Y/N/A 12/13/1，动议被否</b>，反对理由是「一对多非交织 DS-TWR 在移动场景下的时长，以及应答方多时的帧长」；另有 15-26/0184r1 的意见直接提议<b>删掉 §10.39.7.2.4 与全部四子轮 DS-TWR 的引用</b>。<b>未偿的债</b>：<code>@uwb-subrounds</code> 算出来的时长只是两子轮那一种的时长，该课 <code>limits</code> 已写明三子轮形态未建，但四子轮那一种尚未写进去。<b>2026-10-15 刷新</b>：R1-315（15-26/0437r0，排在 10-20 的电话会）要动的正是报告窗口那几个时隙参数——D05 的「第一／第二／第三报告时隙数」里第三个之所以存在，就是为了 §10.39.9.3 的省时一对多；提案建议改成「发起方报告时隙数」与「应答方报告时隙数」一对，腾出位置给 Final 消息自己的时隙数（D05 根本没给它配一个）。引擎的报告窗口是自己的一对（<code>uwb/mms.ts#mmsReportWindowSlots</code>、<code>uwb/mms.ts#mmsReportSlots</code>），注释里引的就是那几个草案参数名，它们可能要改名。</div></td>
       <td><span class="tag k-contested">仍在争论</span></td>
       <td><span class="tag e-未建模">未建模</span></td>
     </tr><tr>
@@ -1695,7 +1695,7 @@
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
-      <td>窄带按块跳频<div class="ev">证据：15-26/0365r0 逐句引用草案的规范文字「the next channel in the hopping sequence」——跳频序列在草案里。引擎：<code>uwb/nb.ts#nbChannelForBlock</code> 用的是<b>仿真器自己的字符串散列</b>，不是 15-22/0381r5 §1.5.3 提的「以会话种子为密钥对块序号做 AES-128-CTR」；而那条推导方式本身 2026 年文稿里查不到，所以序列怎么生成的这一问是开着的。<code>@uwb-nba-coexist</code></div></td>
+      <td>窄带按块跳频<div class="ev">证据：15-26/0365r0 逐句引用草案的规范文字「the next channel in the hopping sequence」——跳频序列在草案里。引擎：<code>uwb/nb.ts#nbChannelForBlock</code> 用的是<b>仿真器自己的字符串散列</b>，不是 15-22/0381r5 §1.5.3 提的「以会话种子为密钥对块序号做 AES-128-CTR」。<b>2026-10-15 的刷新把这一问关掉了</b>：生成式确实写在 D05 §10.39.8.4.3 里，而 R1-279（15-26/0408r1）为了换掉一个越界的例子把它整段算了一遍——<code>NbaPrng(种子, 计数器)</code> 出 128 位，取其中 32 位作 <code>PrngValue</code>，再映到信道号；种子只有一个八位组（Table 35 把 <code>mmsPrngSeed</code> 限在 0–255，而原来的例子写的是 1234），计数器是块序号（草案里叫 <code>RangingBlockIndex</code>；R1-18 顺手删掉了把它改名成 <code>mmsChannelSwitchCounter</code> 的那条编辑注记）。处置 <b>Revise</b>，给出种子 123 的十行对照值。所以 15-22/0381r5 §1.5.3 那个「拿会话种子当密钥、对块序号跑分组密码」的形状是对的，而引擎的字符串散列从此是一处<b>已知的背离</b>，不再是一个开着的问题（这条随 CRG Motion #32 等 10-20 的电话会）。<code>@uwb-nba-coexist</code></div></td>
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr>
@@ -1713,11 +1713,11 @@
       <td><span class="tag k-contested">仍在争论</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
-      <td>窄带发射功率控制（transmit power control, TPC）与复合帧<div class="ev">证据：<b>15-26/0391r4 第 36 页三个未决议题的第二个</b>（&quot;Support for transmit power control with compact frames&quot;）。CID I-23 的决议提案至少三度被否：15-26/0281r02 在 7 月全会 <b>13/10/10</b>、15-26/0285r1 同场 <b>14/16/2（46.6%）</b>，见 15-26/0348r1；该文稿本身已改到 r11，另有 15-26/0253r1、15-26/0362r1、15-26/0364r1 三份竞争方案，以及第 63 页与第 71 页两次非正式投票。<b>范围决定</b>：引擎里 UWB 与窄带的发射功率都是常数（<code>uwb/phy.ts#UWB_TX_POWER_DBM</code>、<code>uwb/nb.ts#NB_TX_DBM</code>），没有任何功率自适应。</div></td>
+      <td>窄带发射功率控制（transmit power control, TPC）与复合帧<div class="ev">证据：<b>15-26/0391r4 第 36 页三个未决议题的第二个</b>（&quot;Support for transmit power control with compact frames&quot;）。CID I-23 的决议提案至少三度被否：15-26/0281r02 在 7 月全会 <b>13/10/10</b>、15-26/0285r1 同场 <b>14/16/2（46.6%）</b>，见 15-26/0348r1；该文稿本身已改到 r11，另有 15-26/0253r1、15-26/0362r1、15-26/0364r1 三份竞争方案，以及第 63 页与第 71 页两次非正式投票。<b>范围决定</b>：引擎里 UWB 与窄带的发射功率都是常数（<code>uwb/phy.ts#UWB_TX_POWER_DBM</code>、<code>uwb/nb.ts#NB_TX_DBM</code>），没有任何功率自适应。<b>2026-10-15 刷新：第四次被否，而且这一次有日期。</b> 15-26/0281 改到 r12 之后，CRG Motion #34（按该文稿采纳 R1-8、R1-269 的决议并写进草案）在 10-13 的电话会上 <b>Y/N/A 6/5/3，动议不通过</b>（15-26/0431r4 第 56 页）。同一对意见另有一份相反的处置：15-26/0408r1 提议 <b>Rejected</b>，理由是 D05 在 TPC 上没有文字改动、D04 阶段唯一一条 TPC 意见只要求加资料性文字，因此这一轮复审里新建一套 TPC 机理属于范围之外——它排在 CRG Motion #32，10-14 时仍未表决。</div></td>
       <td><span class="tag k-contested">仍在争论</span></td>
       <td><span class="tag e-未建模">未建模</span></td>
     </tr><tr>
-      <td>窄带在 UNII-3/UNII-5 与 802.11 的共存<div class="ev">证据：15-26/0341r0「Multiple no-LBT narrowband 802.15.4ab effect on 802.11」专门研究不做 LBT 的后果；窄带信道接入的成批决议（15-26/0241r2 配 15-26/0298r0 的仿真）2026 年 7 月 <b>17/22/3（43.5%）被否</b>，见 15-26/0348r1；并见上面 LBT 那一行。引擎：两种电台同场，共存只经由<b>一份带内功率</b>——<code>engine/spectrum.ts#Spectrum</code>、<code>engine/spectrum.ts#bandOverlapMhz</code>、<code>uwb/phy.ts#uwbBandOverlapMhz</code>、<code>uwb/phy.ts#uwbInBandDbm</code>、<code>uwb/nb.ts#nbListOverlapsSixGhz</code>。每一路发射在自己频带里是一个平铺的矩形（<code>engine/spectrum.ts#Emission</code> 只带一对频带边沿），没有频谱模板。<code>@uwb-coexist</code>、<code>@uwb-nba-coexist</code></div></td>
+      <td>窄带在 UNII-3/UNII-5 与 802.11 的共存<div class="ev">证据：15-26/0341r0「Multiple no-LBT narrowband 802.15.4ab effect on 802.11」专门研究不做 LBT 的后果；窄带信道接入的成批决议（15-26/0241r2 配 15-26/0298r0 的仿真）2026 年 7 月 <b>17/22/3（43.5%）被否</b>，见 15-26/0348r1；并见上面 LBT 那一行。引擎：两种电台同场，共存只经由<b>一份带内功率</b>——<code>engine/spectrum.ts#Spectrum</code>、<code>engine/spectrum.ts#bandOverlapMhz</code>、<code>uwb/phy.ts#uwbBandOverlapMhz</code>、<code>uwb/phy.ts#uwbInBandDbm</code>、<code>uwb/nb.ts#nbListOverlapsSixGhz</code>。每一路发射在自己频带里是一个平铺的矩形（<code>engine/spectrum.ts#Emission</code> 只带一对频带边沿），没有频谱模板。<b>2026-10-15 刷新</b>：D05 复审里两条想把共存从「可以」抬到「必须」的意见都被判出界——R1-197（按 CCA／LBT 的失败次数或收到的 802.11 信标动态更新 <code>mmsNbChannelAllowList</code>）与 R1-196（检测到并发的 802.11 传输时，把「可以排除」改成「必须排除」），两条的理由相同：针对的是 D04 未改动的文字，属于新特性提案（15-26/0408r1，排在 CRG Motion #32，10-14 时未表决）。<code>@uwb-coexist</code>、<code>@uwb-nba-coexist</code></div></td>
       <td><span class="tag k-contested">仍在争论</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
@@ -1725,7 +1725,7 @@
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
-      <td>频域延后（proposed §10.47 Deferral）<div class="ev"><b>范围决定（2026-10-05）。</b> 本行此前既没写「范围决定」也没写「未偿的债」，而第四列的规矩要求未建模的行必须二选一——这一格是补上的那个判决，不是新证据。 15-26/0365r0 给出 <code>DeferralActive</code> 的规范文字（CCA 判忙时在时隙内 200 µs 处改用跳频序列的下一个信道），能力位 11。<b>它不是 §10.45</b>，本表此前把它的文字记在了 §10.45 那一行。评审组在 D04 上否决了它所答复的那条意见，理由是频域延后会抬高失步概率。另外它自己的前提是测距块不超过 100 ms，而本仓库每一个 MMS 场景的缺省块长都是 200 ms。</div></td>
+      <td>频域延后（proposed §10.47 Deferral）<div class="ev"><b>范围决定（2026-10-05）。</b> 本行此前既没写「范围决定」也没写「未偿的债」，而第四列的规矩要求未建模的行必须二选一——这一格是补上的那个判决，不是新证据。 15-26/0365r0 给出 <code>DeferralActive</code> 的规范文字（CCA 判忙时在时隙内 200 µs 处改用跳频序列的下一个信道），能力位 11。<b>它不是 §10.45</b>，本表此前把它的文字记在了 §10.45 那一行。评审组在 D04 上否决了它所答复的那条意见，理由是频域延后会抬高失步概率。<b>2026-10-15 的刷新废掉了这一格原来的第二个理由，照实记下。</b> 原来写的是：「它自己的前提是测距块不超过 100 ms，而本仓库每一个 MMS 场景的缺省块长都是 200 ms。」9 月的电话会纪要（15-26/0377r2）记下了那段问答：有人问时隙内 200 µs 够不够容下时钟不确定度、包检测与换信道，答者说延后是可选的、当前文字把它限在 100 ms 以内的测距块，<b>更长或可协商的延后时间可以在修订里考虑</b>。15-26/0365<b>r1</b>（10-13）就是那次修订：两个数都变成协商出来的字段——延后时间 150–500 µs 共八档（能力位报最小值，会话配置挑用哪一档），「块长上限」则成了 100／200／300／400 ms 四档的门限字段，<b>200 ms 现在是其中合法的一档</b>，于是块长那条理由不成立了。留下来的理由是机理本身：延后要的是同一时隙里改用跳频序列的下一个信道、且不推进这个序列，接收端还要在那个信道上再守一次——<b>一格两个接收窗口</b>，而引擎的窄带侧判忙就整块跳过（<code>uwb/nb.ts#nbLbtRequired</code>），一个时隙只有一次收。</div></td>
       <td><span class="tag k-contested">仍在争论</span></td>
       <td><span class="tag e-未建模">未建模</span></td>
     </tr>
@@ -1739,7 +1739,7 @@
     
     <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
     <tr>
-      <td>UWB 感知 §10.40 总体（感知阶段、测量报告阶段）<div class="ev">证据：15-26/0179r1 的 PICS 插入项 MLF9.40 引 §10.40；感知意见的成批决议 15-26/0242r0 在 2026 年 5 月中间会议<b>无异议通过</b>（15-26/0265r0 第 17 页）。<b>一条注意</b>：D05 复审又对感知报告阶段的措辞提了意见（15-26/0420r0，Group K），而 9 月中间会议只表决了 Motion #26 与 #27（均被否），Group K 的处置<b>尚未表决</b>。引擎建的只有几何：一个接收机被递来第二个到达时，把它蕴含的东西记下来（<code>uwb/sensing.ts#UwbSensor</code>、<code>engine/scatter.ts#echoExcessM</code>、<code>engine/scatter.ts#isResolvable</code>、<code>engine/scatter.ts#echoLossDb</code>）。草案 §10.40 的任何 MAC 结构——感知阶段、报告阶段、会话——一样也没有。<code>@uwb-sensing</code>、<code>@uwb-sensing-resolution</code></div></td>
+      <td>UWB 感知 §10.40 总体（感知阶段、测量报告阶段）<div class="ev">证据：15-26/0179r1 的 PICS 插入项 MLF9.40 引 §10.40；感知意见的成批决议 15-26/0242r0 在 2026 年 5 月中间会议<b>无异议通过</b>（15-26/0265r0 第 17 页）。<b>一条注意</b>：D05 复审又对感知报告阶段的措辞提了意见（15-26/0420r0，Group K），而 9 月中间会议只表决了 Motion #26 与 #27（均被否）。<b>2026-10-15 刷新：这件事定了。</b> CRG Motion #29 在 9-29 的电话会上无异议通过（15-26/0431r4 第 51 页），把 15-26/0420r0 的处置连同文字改动一并采纳；其中 R1-306（要求把 §10.40.4.5.1 报告阶段那两行改回 D04 的措辞）判 <b>Rejected</b>，理由是这处改动的来源是 D04 的意见 I-238、决议在 15-26/0242r0 里，原来的理由仍然成立。也就是说 <b>D05 的措辞不动</b>。引擎建的只有几何：一个接收机被递来第二个到达时，把它蕴含的东西记下来（<code>uwb/sensing.ts#UwbSensor</code>、<code>engine/scatter.ts#echoExcessM</code>、<code>engine/scatter.ts#isResolvable</code>、<code>engine/scatter.ts#echoLossDb</code>）。草案 §10.40 的任何 MAC 结构——感知阶段、报告阶段、会话——一样也没有。<code>@uwb-sensing</code>、<code>@uwb-sensing-resolution</code></div></td>
       <td><span class="tag k-draft">已进草案且未见争议</span></td>
       <td><span class="tag e-部分建模">部分建模</span></td>
     </tr><tr>
