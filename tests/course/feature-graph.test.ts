@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, UNDATED, graphFor,
-  parseCoverage, quarterOf, type Track,
+  creditsOrgs, parseCoverage, quarterOf, type Track,
 } from '../../src/course/featureGraph'
 import docMeta from '../../src/course/docMeta.json'
 import lessonMeta from '../../src/course/lessonMeta.json'
@@ -59,6 +59,82 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
 
   it('has no empty group', () => {
     expect(graph.groups.filter((g) => g.rows.length === 0).map((g) => g.id)).toEqual([])
+  })
+
+  /**
+   * **Every feature says what it is, in the map's own words.**
+   *
+   * `intro` is the one field here that is neither read off a coverage document nor computed from
+   * the corpus, so it is the one field that can be missing without anything else noticing — a
+   * column whose panel opens on 「what is a sub-round?」 and answers with a clause number. The
+   * length floor is what stops a placeholder passing as an answer.
+   *
+   * It also may not quote: this repository carries no standards text, and a sentence lifted out
+   * of a draft would be a copy of member-only material sitting in a UI string. Two markers of
+   * that are cheap to test — a run of English long enough to be a lifted sentence, and the
+   * quotation marks a copied line usually arrives in.
+   */
+  it('introduces every feature, in its own words', () => {
+    for (const g of graph.groups) {
+      expect(g.intro.length, `${g.id}: no introduction`).toBeGreaterThan(40)
+      expect(g.intro, `${g.id}: ends mid-sentence`).toMatch(/[。」）]$/)
+      expect(/[A-Za-z][A-Za-z ,.'-]{70,}/.test(g.intro),
+        `${g.id}: a long run of English reads like a sentence lifted from a draft`).toBe(false)
+      expect(g.intro.includes('“') || g.intro.includes('"'),
+        `${g.id}: quoted text — paraphrase instead`).toBe(false)
+    }
+    // The same text twice would mean a copy-paste that left one feature describing another.
+    const seen = new Set(graph.groups.map((g) => g.intro))
+    expect(seen.size, 'two features share an introduction').toBe(graph.groups.length)
+  })
+
+  /**
+   * **A document's own marks follow the same rule the group's list does.**
+   *
+   * The group's company list drops the task group's own paperwork, because counting it made the
+   * secretary's employer the top contributor to nearly every feature. Each document ALSO draws
+   * its marks on its own line, and for three iterations those lines went on printing that same
+   * name on an agenda and on a set of minutes — the aggregate was right and every row of it was
+   * wrong. `creditsOrgs` is the one rule; this is the assertion that it covers both.
+   */
+  it('credits a company for a contribution and never for the group’s own paperwork', () => {
+    const PAPERWORK = ['agenda', 'closing-report', 'minutes', 'process', 'motion-dock',
+      'timeline', 'comments-sheet']
+    for (const k of PAPERWORK) expect(creditsOrgs(k), k).toBe(false)
+    for (const k of ['proposal', 'cr', 'pdt', 'sfd', 'draft']) expect(creditsOrgs(k), k).toBe(true)
+    // And the aggregate is exactly the documents that pass it.
+    for (const g of graph.groups) {
+      const named = new Set(g.docs.filter((d) => creditsOrgs(d.kind)).flatMap((d) => d.orgs))
+      expect(g.orgs.map((o) => o.name).sort(), `${g.id}`).toEqual([...named].sort())
+    }
+  })
+
+  /**
+   * **Each sub-feature gets its own documents, and they are that row's own.**
+   *
+   * The column's timeline is the union of its rows; the panel now prints the per-row cut under
+   * each sub-feature, and the way that could quietly lie is by handing a row the column's whole
+   * list — which reads perfectly and says 「this one line was argued twenty-five times」.
+   */
+  it('gives every sub-feature the documents that row itself cites', () => {
+    for (const g of graph.groups) {
+      expect(g.rowDetails.map((d) => d.row.feature)).toEqual(g.rows.map((r) => r.feature))
+      for (const d of g.rowDetails) {
+        expect(d.docs.map((x) => x.dcn).sort(),
+          `${g.id}/${d.row.feature.slice(0, 20)}: not this row's own citations`)
+          .toEqual(d.row.dcns.filter((n) => n in docMeta.docs).sort())
+        expect(d.docs.map((x) => x.date), `${g.id}: out of order`)
+          .toEqual([...d.docs.map((x) => x.date)].sort())
+      }
+      // Every row's documents are a subset of the column's, except where a published row's
+      // citations are kept out of the column by `datesFrom` — never the other way round.
+      const all = new Set(g.docs.map((d) => d.dcn))
+      const extra = g.rowDetails.flatMap((d) => d.docs.map((x) => x.dcn))
+        .filter((dcn) => !all.has(dcn))
+      expect([...new Set(extra)].every((dcn) => g.rows.some((r) =>
+        r.dcns.includes(dcn) && r.statusKind === 'published')),
+      `${g.id}: a row cites ${extra.join(',')}, which the column does not`).toBe(true)
+    }
   })
 
   it('names only groups that exist in its dependencies', () => {

@@ -28,9 +28,9 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  BASELINE, DOC_PATH, graphFor,
-  type DocGist, type FeatureGroup, type FeatureRow, type LessonRef, type MatrixColumn,
-  type StatusKind, type TimeEvent, type Track,
+  BASELINE, DOC_PATH, creditsOrgs, graphFor,
+  type DocGist, type DocRef, type FeatureGroup, type LessonRef, type MatrixColumn,
+  type RowDetail, type StatusKind, type TimeEvent, type Track,
 } from '../course/featureGraph'
 import orgLogos from '../course/orgLogos.json'
 import { LESSONS } from '../course/lessons'
@@ -125,6 +125,18 @@ function OrgMark({ name, size = 15, docs }: { name: string; size?: number; docs?
   )
 }
 
+/**
+ * The marks a single document may draw.
+ *
+ * An agenda, a set of minutes, a closing report or the comment spreadsheet is written by the
+ * chair, the secretary or the technical editor on the group's behalf: first-rate evidence of
+ * WHEN something was discussed, none at all of WHO proposed it. The group's own company list has
+ * dropped them since the first cut of this picture made one secretary the biggest contributor to
+ * the draft; this is the same rule for the one-document lines (`creditsOrgs`).
+ */
+const marksOf = (d: { orgs: string[]; kind?: string; docKind?: string }): string[] =>
+  (creditsOrgs(d.kind ?? d.docKind ?? '') ? d.orgs : [])
+
 /** The evidence cell is Markdown: `code` and **bold** are the only two shapes it uses. */
 function Evidence({ text }: { text: string }) {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter((p) => p !== '')
@@ -146,19 +158,71 @@ function Evidence({ text }: { text: string }) {
   )
 }
 
-function RowList({ rows }: { rows: FeatureRow[] }) {
+/**
+ * **One sub-feature: what the table says it is, and how it got here.**
+ *
+ * The name carries the official term and the clause the table files it under; the two tags are
+ * the table's own verdicts; the prose is the table's evidence cell, which is where this
+ * repository already keeps 「what this is and what we did about it」. **None of that is rewritten
+ * here** — a second description per row would be a second place to go stale, and this repository
+ * has spent a month on exactly that failure (`docs/course-figure-pinning.md`).
+ *
+ * What is new is the last line: this one row's own documents, in order, with the day, the kind,
+ * the companies on them and what each one did. 「It was proposed in 2025-09, voted down twice in
+ * 2026, and the last word on it is a comment resolution from October」 is a sentence a reader can
+ * now read off one sub-feature instead of off a column's worth of citations.
+ */
+function SubFeature({ detail }: { detail: RowDetail }) {
+  const L = useStrings()
+  const { row, docs } = detail
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      {rows.map((r) => (
-        <div key={r.feature} style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
-          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <span style={{ fontWeight: 600, fontSize: 12 }}>{r.feature}</span>
-            <span style={tag(STATUS_COLOR[r.statusKind])}>{r.status}</span>
-            <span style={tag(ENGINE_COLOR[r.engine] ?? 'var(--dim)')}>{r.engine}</span>
-          </div>
-          <div style={{ color: 'var(--dim)', fontSize: 11.5, marginTop: 3, lineHeight: 1.55 }}>
-            <Evidence text={r.evidence} />
-          </div>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px' }}>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <span style={{ fontWeight: 600, fontSize: 12 }}>{row.feature}</span>
+        <span style={tag(STATUS_COLOR[row.statusKind])}>{row.status}</span>
+        <span style={tag(ENGINE_COLOR[row.engine] ?? 'var(--dim)')}>{row.engine}</span>
+      </div>
+      <div style={{ color: 'var(--dim)', fontSize: 11.5, marginTop: 3, lineHeight: 1.55 }}>
+        <Evidence text={row.evidence} />
+      </div>
+      {docs.length > 0 && (
+        <details style={{ marginTop: 4 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11 }}>
+            {L.map.rowDocs(docs.length)}
+          </summary>
+          <div style={{ marginTop: 4 }}><DocTimeline docs={docs} /></div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+/** A list of documents as a dated history: the same shape the column's own timeline draws. */
+function DocTimeline({ docs }: { docs: DocRef[] }) {
+  const L = useStrings()
+  return (
+    <div style={{ display: 'grid', gap: 5 }}>
+      {docs.map((d) => (
+        <div key={d.dcn} style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+          <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+            background: EVENT_COLOR.doc, marginRight: 5 }} />
+          <span style={{ fontFamily: 'ui-monospace, Consolas, monospace',
+            color: 'var(--dim)' }}>{d.date}</span>
+          {' '}
+          <b>{d.dcn}</b>
+          <span style={{ color: 'var(--dim)' }}>　{L.map.docKind[d.kind] ?? d.kind}</span>
+          {marksOf(d).length > 0 && (
+            <span style={{ display: 'inline-flex', gap: 3, marginLeft: 6,
+              verticalAlign: 'middle' }}>
+              {marksOf(d).map((o) => <OrgMark key={o} name={o} size={13} />)}
+            </span>
+          )}
+          {gistLine(d.gist, L) !== '' && (
+            <div style={{ color: 'var(--dim)', paddingLeft: 12 }}>{gistLine(d.gist, L)}</div>
+          )}
+          {d.title !== '' && (
+            <div style={{ color: 'var(--dim)', paddingLeft: 12 }}>{d.title}</div>
+          )}
         </div>
       ))}
     </div>
@@ -206,7 +270,7 @@ function EventBlocks({ events }: { events: TimeEvent[] }) {
           <div key={e.label} title={`${e.date === '' ? L.map.baseline : e.date}　${e.label}`
             + `${e.docKind === undefined ? '' : `　${L.map.docKind[e.docKind] ?? e.docKind}`}`
             + `${e.detail === '' ? '' : `　${e.detail}`}`
-            + `${e.orgs.length > 0 ? `　${e.orgs.join('、')}` : ''}`}
+            + `${marksOf(e).length > 0 ? `　${marksOf(e).join('、')}` : ''}`}
           style={{ borderRadius: 4, borderLeft: `3px solid ${EVENT_COLOR[e.kind]}`,
             background: 'rgba(127,127,127,.12)', padding: '2px 4px', fontSize: 9.5,
             lineHeight: '13px', overflow: 'hidden' }}>
@@ -221,7 +285,7 @@ function EventBlocks({ events }: { events: TimeEvent[] }) {
                 </span>
               )}
               <span style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
-                {e.orgs.map((o) => <OrgMark key={o} name={o} size={11} />)}
+                {marksOf(e).map((o) => <OrgMark key={o} name={o} size={11} />)}
               </span>
             </div>
             {gist !== '' && (
@@ -258,10 +322,10 @@ function Timeline({ events }: { events: TimeEvent[] }) {
               {e.docKind !== undefined && (
                 <span style={{ color: 'var(--dim)' }}>　{L.map.docKind[e.docKind] ?? e.docKind}</span>
               )}
-              {e.orgs.length > 0 && (
+              {marksOf(e).length > 0 && (
                 <span style={{ display: 'inline-flex', gap: 3, marginLeft: 6,
                   verticalAlign: 'middle' }}>
-                  {e.orgs.map((o) => <OrgMark key={o} name={o} size={13} />)}
+                  {marksOf(e).map((o) => <OrgMark key={o} name={o} size={13} />)}
                 </span>
               )}
               {gistLine(e.gist, L) !== '' && (
@@ -313,6 +377,13 @@ function LessonLinks({ refs }: { refs: LessonRef[] }) {
  *
  * It slides over the right edge of the map and leaves the grid where it is, so the column it
  * describes stays highlighted in place beside its neighbours.
+ *
+ * **The running order is an argument about who is reading it.** First the feature itself — when
+ * it was tabled, who has been writing about it, and two or three sentences saying what it IS —
+ * then what it rests on, then its sub-features one by one with their own histories. What this
+ * repository did about it (the lessons, and the whole column's own timeline) is last and folded
+ * away: it is the answer to a question the reader can only ask once they know the subject, and
+ * for one iteration it was the first thing on the screen.
  */
 function FeaturePanel({ column, dependants, onPick, onClose, titleOf }: {
   column: MatrixColumn
@@ -372,6 +443,16 @@ function FeaturePanel({ column, dependants, onPick, onClose, titleOf }: {
             <p style={{ color: 'var(--dim)', fontSize: 11, margin: '3px 0 0' }}>{L.map.orgsNote}</p>
           </div>
         )}
+        {/* **The map's own words, and labelled as such.** Everything above this line is read
+            off the coverage table or the corpus; this paragraph is not, and a reader who cannot
+            tell the two apart cannot check either. */}
+        <div style={{ margin: '8px 0', padding: '7px 9px', borderRadius: 6,
+          background: 'var(--panel2)', borderLeft: `3px solid ${FAMILY_COLOR[g.family]}` }}>
+          {/* The introduction is Markdown like every other sentence this repository writes:
+              `**` marks the one clause that is the point of the paragraph. */}
+          <div style={{ fontSize: 12.5, lineHeight: 1.7 }}><Evidence text={g.intro} /></div>
+          <div style={{ color: 'var(--dim)', fontSize: 10.5, marginTop: 4 }}>{L.map.introNote}</div>
+        </div>
         {/* **Every dependency gets its reason on screen.** An arrow with no reason is a teaching
             order wearing an arrowhead; writing them out is what kept the two apart when this spine
             was re-derived as feature dependencies. */}
@@ -392,26 +473,35 @@ function FeaturePanel({ column, dependants, onPick, onClose, titleOf }: {
             </div>
           )}
         </div>
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ color: 'var(--dim)', fontSize: 11.5, marginBottom: 3 }}>
-            {L.map.lessonsLabel}{g.lessonRefs.length === 0 ? L.map.noLessons : ''}
+        {/* **The sub-features, open.** They are what the reader came for once they know what
+            the feature is, and each carries its own dated history. */}
+        <div style={{ marginTop: 10 }}>
+          <div style={{ color: 'var(--dim)', fontSize: 11.5, marginBottom: 5 }}>
+            {L.map.subFeatures(g.rows.length)}
           </div>
-          <LessonLinks refs={g.lessonRefs} />
+          <div style={{ display: 'grid', gap: 6 }}>
+            {g.rowDetails.map((d) => <SubFeature key={d.row.feature} detail={d} />)}
+          </div>
         </div>
-        {/* Both lists fold: at 511 px the panel is 490 px tall, and which of the two a reader came
-            for depends on the question they arrived with. */}
-        <details>
-          <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
-            {L.map.rowsLabel(g.rows.length)}
-          </summary>
-          <div style={{ marginTop: 6 }}><RowList rows={g.rows} /></div>
-        </details>
-        <details open={column.events.length <= 12} style={{ marginTop: 8 }}>
-          <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
-            {L.map.timelineLabel(column.events.length)}
-          </summary>
-          <div style={{ marginTop: 6 }}><Timeline events={column.events} /></div>
-        </details>
+        {/* Last, and folded: this repository's own half. */}
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+          <details>
+            <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
+              {L.map.oursLabel(g.lessonRefs.length)}
+            </summary>
+            <div style={{ marginTop: 6 }}>
+              {g.lessonRefs.length === 0
+                ? <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>{L.map.noLessons}</div>
+                : <LessonLinks refs={g.lessonRefs} />}
+            </div>
+          </details>
+          <details style={{ marginTop: 6 }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
+              {L.map.timelineLabel(column.events.length)}
+            </summary>
+            <div style={{ marginTop: 6 }}><Timeline events={column.events} /></div>
+          </details>
+        </div>
       </div>
     </div>
   )

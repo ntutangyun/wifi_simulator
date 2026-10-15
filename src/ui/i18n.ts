@@ -98,8 +98,12 @@ export interface Strings {
     undatedWhy: string
     axisNote: string
     axisShort: string
-    rowsLabel: (n: number) => string
     timelineLabel: (n: number) => string
+    /** The panel's sections, in the order it prints them. */
+    introNote: string
+    subFeatures: (n: number) => string
+    rowDocs: (n: number) => string
+    oursLabel: (n: number) => string
     timeAxis: string
     arcsLabel: string
     /** The panel: how to shut it, how to open a lesson, and what an empty column means. */
@@ -874,8 +878,12 @@ export const STRINGS: Strings = {
       + '覆盖表把它们判为「无法判定」或「标准不规定」，而它们没有任何文稿编号可引，所以没有日期。'
       + '这跟「发布得比语料库还早」是两件事，所以不跟已发布基线共用一带。',
     axisShort: '怎么读：一列一个特性，一行一个季度 ▸',
-    rowsLabel: (n) => `这一组的 ${n} 行特性与证据 ▸`,
-    timelineLabel: (n) => `这一列的 ${n} 件事，按时间 ▸`,
+    timelineLabel: (n) => `这一列的全部 ${n} 件事，按时间 ▸`,
+    introNote: '这一段是图谱自己写的导读，不是覆盖表的原话，也没有抄草案；'
+      + '它上面那些日期、单位与下面每一行的证据才是查得到出处的。',
+    subFeatures: (n) => `这一组下面的 ${n} 件事：每一件是什么、证据，以及它自己的时间线`,
+    rowDocs: (n) => `这一行引到的 ${n} 篇文稿 ▸`,
+    oursLabel: (n) => `本仓库这一边：教它的 ${n} 门课 ▸`,
     axisNote: '一列一个特性，一行一个季度。左右是特性进入记录的先后：先是已发布标准的那一批，'
       + '再按被第一次提出的季度排草案里的，最后是标准里一条条款也没有、本仓库的语料库一篇文稿也'
       + '标不出日期的那几个——它们的列是空的，而那正是关于它们的真话。'
