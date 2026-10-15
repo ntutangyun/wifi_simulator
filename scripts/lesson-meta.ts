@@ -38,7 +38,7 @@ const git = (args: string[]): string =>
   execFileSync('git', args, { encoding: 'utf8' }).trim().split('\n')[0] ?? ''
 
 const files = index(ROOT, new Map())
-const lessons: Record<string, { file: string; added: string; touched: string }> = {}
+const lessons: Record<string, { file: string; added: string; touched: string; title: string }> = {}
 const orphans: string[] = []
 
 for (const lesson of LESSONS) {
@@ -47,7 +47,8 @@ for (const lesson of LESSONS) {
   const added = git(['log', '--diff-filter=A', '--format=%as', '-1', '--', file])
   const touched = git(['log', '--format=%as', '-1', '--', file])
   if (added === '') { orphans.push(lesson.id); continue }
-  lessons[lesson.id] = { file, added, touched }
+  // The title travels with the date so the map can say what a green block IS, not just when.
+  lessons[lesson.id] = { file, added, touched, title: lesson.title }
 }
 
 const out = {

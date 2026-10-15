@@ -23,7 +23,7 @@
  * says which path it looked for.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 /** Where the mentor mirrors live on this machine. Overridable, because they are not portable. */
 const CORPORA: { name: string; env: string; path: string }[] = [
@@ -75,11 +75,67 @@ const ALIAS: Record<string, string> = {
 
 interface CatalogDoc {
   dcn: string
+  doc_id: string
   date: string
   first_disclosed?: string
   author?: string
   title: string
   kind: string
+}
+
+/**
+ * **What a document did, computed rather than quoted.**
+ *
+ * The block in the feature map has room for one line beyond the number and the companies, and the
+ * useful line is what the document is ABOUT. Quoting its abstract would be copying its prose into
+ * this repository; counting is not. So this is counting:
+ *
+ * - `clause` — the draft clause its text mentions most. Filtered hard, because a UWB document is
+ *   full of numbers that look like clauses: 「802.15.4」 gives `15.4`, 「Draft 4.0」 gives `4.0`,
+ *   and a minutes' vote tally 「67.8%」 gives `67.8`. Only chapters that exist in this standard
+ *   count, and a match preceded by 802. is dropped.
+ * - `cids` — how many distinct comment indices (`R1-280`, `I-238`) it names. A comment resolution
+ *   document resolving 25 comments is a different animal from one resolving 2.
+ * - `acc`/`rev`/`rej` — how often the words Accepted, Revised and Rejected occur. **A count of
+ *   words, not a reading of dispositions**: it says where the weight of the document sits, and
+ *   the map labels it as counts. Procedural documents get none of this.
+ */
+interface DocGist {
+  clause?: string
+  cids?: number
+  acc?: number
+  rev?: number
+  rej?: number
+}
+
+/** Chapters that exist in IEEE Std 802.15.4 / P802.15.4ab, so a number outside them is noise. */
+const CHAPTERS = new Set([8, 10, 11, 12, 13, 16, 19])
+const PROCEDURAL = new Set(['agenda', 'closing-report', 'minutes', 'process', 'motion-dock',
+  'timeline', 'comments-sheet'])
+
+function gistOf(text: string, kind: string): DocGist {
+  const gist: DocGist = {}
+  const clauses = new Map<string, number>()
+  for (const m of text.matchAll(/(802\.)?\b(\d{1,2})\.(\d+(?:\.\d+)*)\b/g)) {
+    if (m[1] !== undefined) continue
+    const head = Number(m[2])
+    const rest = m[3]!
+    if (!CHAPTERS.has(head)) continue
+    // One dot is a clause only in the chapters this repository actually argues about.
+    if (!rest.includes('.') && ![10, 16, 19].includes(head)) continue
+    const key = `${head}.${rest}`
+    clauses.set(key, (clauses.get(key) ?? 0) + 1)
+  }
+  const top = [...clauses.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]
+  if (top !== undefined && top[1] >= 2) gist.clause = top[0]
+  if (PROCEDURAL.has(kind)) return gist
+  const cids = new Set([...text.matchAll(/\b([IR]1?-\d+)\b/g)].map((m) => m[1]!))
+  if (cids.size > 0) gist.cids = cids.size
+  for (const [word, key] of [['Accepted', 'acc'], ['Revised', 'rev'], ['Rejected', 'rej']] as const) {
+    const n = text.match(new RegExp(`\\b${word}\\b`, 'g'))?.length ?? 0
+    if (n > 0) gist[key] = n
+  }
+  return gist
 }
 
 const dcnKey = (dcn: string): string => dcn.split('r')[0]!
@@ -93,7 +149,7 @@ const dcnKey = (dcn: string): string => dcn.split('r')[0]!
  * company came out as a contributor to almost every feature in the draft, which is how the first
  * version of the company chips read. The title says what they are, so the title decides.
  */
-const MINUTES = /mins|minutes|conf call|meeting slides/i
+const MINUTES = /\bmins\b|\bminutes\b|conf call|meeting slides/i
 const kindOf = (d: CatalogDoc): string => (MINUTES.test(d.title) ? 'minutes' : d.kind)
 
 function orgsOf(author: string): string[] {
@@ -109,6 +165,8 @@ function orgsOf(author: string): string[] {
 const check = process.argv.includes('--check')
 const found: { name: string; catalog: string; generated: string; docs: number }[] = []
 const byDcn = new Map<string, CatalogDoc>()
+/** Where each catalogue's extracted text lives, so a gist can be computed for its documents. */
+const textDirOf = new Map<string, string>()
 
 for (const c of CORPORA) {
   const path = process.env[c.env] ?? c.path
@@ -118,7 +176,12 @@ for (const c of CORPORA) {
   }
   const cat = JSON.parse(readFileSync(path, 'utf8')) as
     { generated: string; documents: CatalogDoc[] }
-  for (const d of cat.documents) if (!byDcn.has(dcnKey(d.dcn))) byDcn.set(dcnKey(d.dcn), d)
+  const textDir = join(path, '..', 'text')
+  for (const d of cat.documents) {
+    if (byDcn.has(dcnKey(d.dcn))) continue
+    byDcn.set(dcnKey(d.dcn), d)
+    textDirOf.set(dcnKey(d.dcn), textDir)
+  }
   found.push({ name: c.name, catalog: path, generated: cat.generated, docs: cat.documents.length })
   console.log(`  ${c.name}: ${cat.documents.length} documents, catalogue of ${cat.generated}`)
 }
@@ -133,16 +196,29 @@ for (const d of DOCS) {
   for (const m of text.matchAll(/\b(1[15]-\d\d\/\d{4})(?:r\d+)?/g)) cited.add(m[1]!)
 }
 
-const docs: Record<string, { date: string; kind: string; title: string; orgs: string[] }> = {}
+const docs: Record<string, {
+  date: string; kind: string; title: string; orgs: string[]; gist: DocGist
+}> = {}
 const missing: string[] = []
+const noText: string[] = []
 for (const dcn of [...cited].sort()) {
   const d = byDcn.get(dcn)
   if (d === undefined) { missing.push(dcn); continue }
+  const textFile = join(textDirOf.get(dcn) ?? '', `${d.doc_id}.json`)
+  let gist: DocGist = {}
+  if (existsSync(textFile)) {
+    const pages = (JSON.parse(readFileSync(textFile, 'utf8')) as { pages: Record<string, string> })
+      .pages
+    gist = gistOf(Object.values(pages).join('\n'), kindOf(d))
+  } else {
+    noText.push(dcn)
+  }
   docs[dcn] = {
     date: d.first_disclosed ?? d.date,
     kind: kindOf(d),
     title: d.title,
     orgs: orgsOf(d.author ?? ''),
+    gist,
   }
 }
 
@@ -154,6 +230,8 @@ const out = {
   corpora: found,
   cited: cited.size,
   missing,
+  /** Cited documents whose text the mirror has not extracted: they get no gist, and say so. */
+  noText,
   docs,
 }
 const text = `${JSON.stringify(out, null, 1)}\n`
@@ -169,5 +247,6 @@ if (check) {
 } else {
   writeFileSync(OUT, text)
   console.log(`→ ${OUT}: ${Object.keys(docs).length} of ${cited.size} cited documents`
-    + `${missing.length > 0 ? `, missing ${missing.join(', ')}` : ''}`)
+    + `${missing.length > 0 ? `, missing ${missing.join(', ')}` : ''}`
+    + `${noText.length > 0 ? `, ${noText.length} without text` : ''}`)
 }

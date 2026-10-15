@@ -105,6 +105,8 @@ export interface Strings {
     /** Two characters for a block in a closed column; the long name is the tooltip's job. */
     docKindShort: Record<string, string>
     morePapers: (n: number) => string
+    cids: (n: number) => string
+    verdict: { acc: string; rev: string; rej: string; counted: string }
     firstSeen: (date: string) => string
     lastSeen: (date: string) => string
     docCount: (n: number) => string
@@ -868,9 +870,10 @@ export const STRINGS: Strings = {
     rowsLabel: (n) => `这一组的 ${n} 行特性与证据 ▸`,
     axisNote: '一列一个特性，一行一个季度。左右是特性进入记录的先后：先是已发布标准的那一批，'
       + '再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的那几个。'
-      + '上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿（块上写着它的编号、'
-      + '类型与作者单位），蓝块是已发布条款，绿块是本仓库写下那门课的那一天。一格最多摆五块，'
-      + '余下的点开这一列全看，连标题一起。',
+      + '上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿，块上是它的编号、'
+      + '类型、作者单位的标志，再加一行「它做了什么」：条号、处理了多少条意见、以及文中「接受／修订／'
+      + '否决」各出现多少次（那三个是字样计数，不是对裁决的解读），最后是它的标题。蓝块是已发布条款，'
+      + '绿块是本仓库写下那门课的那一天，块上是课的标题。一格有几件事就摆几块，不省略。',
     timeAxis: '时间 ↓ ／ 特性 →',
     arcsLabel: '展开那一列的依赖弧线',
     event: { published: '已发布条款', doc: 'mentor 文稿', lesson: '本仓库的课' },
@@ -880,6 +883,8 @@ export const STRINGS: Strings = {
       usecase: '用例', tgd: '指南', process: '流程', 'motion-dock': '动议', timeline: '日程',
     },
     morePapers: (n) => `还有 ${n} 件，点开这一列`,
+    cids: (n) => `${n} 条意见`,
+    verdict: { acc: '接受', rev: '修订', rej: '否决', counted: '字样' },
     firstSeen: (date) => `首见 ${date}`,
     lastSeen: (date) => `最近 ${date}`,
     docCount: (n) => `${n} 篇文稿`,

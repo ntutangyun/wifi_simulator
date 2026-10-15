@@ -24,6 +24,7 @@ import {
 } from '../../src/course/featureGraph'
 import docMeta from '../../src/course/docMeta.json'
 import lessonMeta from '../../src/course/lessonMeta.json'
+import orgLogos from '../../src/course/orgLogos.json'
 import { LESSONS } from '../../src/course/lessons'
 import { trackOf } from '../../src/course/curriculum'
 import { dataRows, readDoc } from './coverage'
@@ -340,6 +341,36 @@ describe('the document metadata behind the time axis', () => {
     expect(bad, 'normalise these in scripts/doc-meta.ts#ALIAS').toEqual([])
   })
 
+  /**
+   * **The gist is counted, and a count can be checked.** Every figure a block prints comes from
+   * here, so this is where a regex that started matching version numbers or vote percentages
+   * (「802.15.4」 → 15.4, 「Draft 4.0」 → 4.0, 「67.8%」 → 67.8 — all three happened) gets caught.
+   */
+  it('gives a gist that is counted, not quoted', () => {
+    const CHAPTERS = new Set(['8', '10', '11', '12', '13', '16', '19'])
+    for (const [dcn, d] of Object.entries(docMeta.docs)) {
+      const g = d.gist as {
+        clause?: string; cids?: number; acc?: number; rev?: number; rej?: number
+      }
+      expect(Object.keys(g).every((k) => ['clause', 'cids', 'acc', 'rev', 'rej'].includes(k)),
+        `${dcn}: ${Object.keys(g).join(',')}`).toBe(true)
+      if (g.clause !== undefined) {
+        expect(g.clause, `${dcn}: not a clause number`).toMatch(/^\d{1,2}(\.\d+)+$/)
+        expect(CHAPTERS, `${dcn}: §${g.clause} is in no chapter of this standard`)
+          .toContain(g.clause.split('.')[0]!)
+      }
+      for (const k of ['cids', 'acc', 'rev', 'rej'] as const) {
+        if (g[k] === undefined) continue
+        expect(Number.isInteger(g[k]), `${dcn}.${k}`).toBe(true)
+        expect(g[k]!).toBeGreaterThan(0)
+      }
+    }
+    // The gist is the point of reading the text at all, so most documents must have one.
+    const withGist = Object.values(docMeta.docs).filter((d) => Object.keys(d.gist).length > 0)
+    expect(withGist.length).toBeGreaterThan(Object.keys(docMeta.docs).length / 2)
+    expect(docMeta.noText, 'a cited document whose text the mirror never extracted').toEqual([])
+  })
+
   it('dates every document, as an ISO day', () => {
     for (const [dcn, d] of Object.entries(docMeta.docs)) {
       expect(d.date, dcn).toMatch(/^\d{4}-\d\d-\d\d$/)
@@ -357,6 +388,34 @@ describe('the document metadata behind the time axis', () => {
  * for, so a lesson it cannot date is a hole in the green dots rather than a loud failure — which
  * is why it is asserted here.
  */
+/**
+ * **The company marks are committed, not fetched**, so they are data like any other and can go
+ * stale like any other: a company that stops appearing on a cited document should stop having a
+ * mark, and a new one must land in `logos` or in `missing` rather than nowhere.
+ */
+describe('the company marks', () => {
+  const named = [...new Set(Object.values(docMeta.docs).flatMap((d) => d.orgs))].sort()
+
+  it('covers every company on a cited document, by a mark or by its initials', () => {
+    const logos = Object.keys(orgLogos.logos)
+    expect([...logos, ...orgLogos.missing].sort(),
+      'run `npx vite-node scripts/org-logos.ts` after a new company appears').toEqual(named)
+    expect(logos.filter((n) => orgLogos.missing.includes(n)),
+      'a company cannot be both drawn and missing').toEqual([])
+  })
+
+  it('holds one real path and one brand colour per mark', () => {
+    for (const [name, logo] of Object.entries(orgLogos.logos)) {
+      expect(logo.path.length, name).toBeGreaterThan(40)
+      expect(logo.path[0], `${name}: an SVG path starts with a move`).toMatch(/[Mm]/)
+      expect(logo.hex, name).toMatch(/^#[0-9A-Fa-f]{6}$/)
+      expect(logo.slug, name).toMatch(/^[a-z0-9.-]+$/)
+    }
+    expect(orgLogos.license).toContain('CC0')
+    expect(orgLogos.version).toMatch(/^\d+\.\d+\.\d+$/)
+  })
+})
+
 describe('the lesson dates behind the green dots', () => {
   it('dates every lesson, and knows which it could not', () => {
     expect(lessonMeta.orphans, 'a lesson git cannot date').toEqual([])
@@ -377,7 +436,7 @@ describe('the lesson dates behind the green dots', () => {
     }
   })
 
-  it('shows up in the matrix: every cited lesson is a green dot on its column', () => {
+  it('shows up in the matrix: every cited lesson is a green block on its column', () => {
     for (const track of TRACKS) {
       for (const c of graphFor(track).columns) {
         const dots = c.events.filter((e) => e.kind === 'lesson').map((e) => e.label.slice(1))

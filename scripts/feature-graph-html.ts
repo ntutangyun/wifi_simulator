@@ -13,8 +13,10 @@
  */
 import { writeFileSync } from 'node:fs'
 import {
-  BASELINE, DOC_PATH, graphFor, type FeatureGroup, type StatusKind, type Track,
+  BASELINE, DOC_PATH, graphFor,
+  type DocGist, type FeatureGroup, type StatusKind, type Track,
 } from '../src/course/featureGraph'
+import orgLogos from '../src/course/orgLogos.json'
 import { LESSONS } from '../src/course/lessons'
 import { trackOf } from '../src/course/curriculum'
 
@@ -39,6 +41,40 @@ const DOC_KIND: Record<string, string> = {
   usecase: '用例', tgd: '技术指南文件', process: '流程', 'motion-dock': '动议清单',
   timeline: '时间表',
 }
+const ORG_LOGOS = orgLogos.logos as Record<string, { slug: string; hex: string; path: string }>
+
+/**
+ * One company's mark, or its initials when simple-icons has none. Always on a white tile: Apple
+ * and NXP draw themselves in black, and this page has a dark theme too.
+ */
+function orgMark(name: string, size = 15, docs?: number): string {
+  const title = esc(`${name}${docs === undefined ? '' : `　${docs} 篇文稿`}`)
+  const logo = ORG_LOGOS[name]
+  if (logo === undefined) {
+    return `<span class="chip" title="${title}" style="background:${orgColor(name)};`
+      + `width:${size}px;height:${size}px;line-height:${size}px;font-size:${size * 0.53}px"`
+      + `>${esc(orgInitials(name))}</span>`
+  }
+  return `<span class="mark" title="${title}" style="width:${size}px;height:${size}px">`
+    + `<svg width="${size - 3}" height="${size - 3}" viewBox="0 0 24 24" aria-label="${title}">`
+    + `<path d="${logo.path}" fill="${logo.hex}"></path></svg></span>`
+}
+
+/** What a document did, in counted facts — the same line the app draws. */
+function gistLine(gist: DocGist | undefined): string {
+  if (gist === undefined) return ''
+  const parts: string[] = []
+  if (gist.clause !== undefined) parts.push(`§${gist.clause}`)
+  if (gist.cids !== undefined) parts.push(`${gist.cids} 条意见`)
+  const verdicts = [
+    gist.acc === undefined ? '' : `接受 ${gist.acc}`,
+    gist.rev === undefined ? '' : `修订 ${gist.rev}`,
+    gist.rej === undefined ? '' : `否决 ${gist.rej}`,
+  ].filter((x) => x !== '')
+  if (verdicts.length > 0) parts.push(`${verdicts.join('／')} 字样`)
+  return parts.join(' · ')
+}
+
 /** The same hash-to-hue the app uses, so a company is the same colour in both. */
 const ORG_HUES = [206, 268, 152, 24, 340, 48, 188, 292, 120, 8]
 function orgColor(name: string): string {
@@ -66,8 +102,6 @@ const lessonsOf = (track: Track): string[] =>
 const COL_W = 158
 const OPEN_W = 376
 const GUTTER = 84
-/** How many blocks a closed cell shows before it says there are more. */
-const BLOCKS = 5
 const DOC_KIND_SHORT: Record<string, string> = {
   proposal: '投稿', cr: '决议', pdt: '文字', sfd: '框架', draft: '草案', agenda: '议程',
   'closing-report': '闭幕', minutes: '纪要', 'comments-sheet': '意见表', simulation: '仿真',
@@ -82,11 +116,9 @@ function section(track: Track): string {
       const n = c.group.rows.filter((r) => r.engine === e).length
       return n === 0 ? '' : `<span class="seg ${e}" style="flex:${n}"></span>`
     }).join('')
-    const shown = c.group.orgs.slice(0, 4)
-    const more = c.group.orgs.slice(4)
-    const chips = shown.map((o) =>
-      `<span class="chip" style="background:${orgColor(o.name)}" title="${esc(o.name)}　${o.docs} 篇文稿"`
-      + `>${esc(orgInitials(o.name))}</span>`).join('')
+    const shown = c.group.orgs.slice(0, 5)
+    const more = c.group.orgs.slice(5)
+    const chips = shown.map((o) => orgMark(o.name, 15, o.docs)).join('')
       + (more.length === 0 ? ''
         : `<span class="chip more" title="${esc(more.map((o) => o.name).join('、'))}">+${more.length}</span>`)
     const deps = c.group.needs.length === 0 ? '<p class="note">依赖：（无，这是一条链的起点）</p>'
@@ -103,8 +135,7 @@ function section(track: Track): string {
         + `共 ${c.events.length} 件事。</p>`
     const orgs = c.group.orgs.length === 0 ? ''
       : `<p class="note">文稿上的单位：${c.group.orgs.map((o) =>
-        `<span class="org"><span class="chip" style="background:${orgColor(o.name)}">`
-        + `${esc(orgInitials(o.name))}</span>${esc(o.name)} ×${o.docs}</span>`).join(' ')}
+        `<span class="org">${orgMark(o.name, 15)}${esc(o.name)} ×${o.docs}</span>`).join(' ')}
         <br>这是这一组引用到的文稿上印着的作者单位——谁写了那份投稿或那条意见决议，不是谁发明了
         它，也不是到场讨论过的全部单位。议程、纪要、闭幕报告与意见汇总表只算日期、不算单位。</p>`
     return `<div class="head ${c.group.family}" data-col="${i}" data-id="${track}-${c.group.id}">
@@ -138,29 +169,30 @@ function section(track: Track): string {
     const cells = g.columns.map((c, i) => {
       const es = c.events.filter((e) => e.row === row)
       const inside = c.firstRow >= 0 && row >= c.firstRow && row <= c.lastRow
-      const blocks = es.slice(0, BLOCKS).map((e) =>
-        `<div class="blk ${e.kind}" title="${esc(e.date === '' ? '已发布标准' : e.date)}　`
-        + `${esc(e.label)}`
-        + `${e.docKind === undefined ? '' : `　${esc(DOC_KIND[e.docKind] ?? e.docKind)}`}`
-        + `${e.detail === '' ? '' : `　${esc(e.detail)}`}`
-        + `${e.orgs.length === 0 ? '' : `　${esc(e.orgs.join('、'))}`}">`
-        + `<span class="id">${esc(e.kind === 'published' ? '已发布标准' : e.label)}</span>`
-        + `${e.docKind === undefined ? ''
-          : `<span class="kd">${esc(DOC_KIND_SHORT[e.docKind] ?? e.docKind)}</span>`}`
-        + e.orgs.slice(0, 3).map((o) =>
-          `<span class="chip sm" style="background:${orgColor(o)}" title="${esc(o)}">`
-          + `${esc(orgInitials(o))}</span>`).join('')
-        + '</div>').join('')
-        + (es.length > BLOCKS
-          ? `<div class="more" title="${esc(es.slice(BLOCKS).map((e) => `${e.date} ${e.label}`)
-            .join('、'))}">还有 ${es.length - BLOCKS} 件，点开这一列</div>`
-          : '')
+      const blocks = es.map((e) => {
+        const gist = gistLine(e.gist)
+        return `<div class="blk ${e.kind}" title="${esc(e.date === '' ? '已发布标准' : e.date)}　`
+          + `${esc(e.label)}`
+          + `${e.docKind === undefined ? '' : `　${esc(DOC_KIND[e.docKind] ?? e.docKind)}`}`
+          + `${e.detail === '' ? '' : `　${esc(e.detail)}`}`
+          + `${e.orgs.length === 0 ? '' : `　${esc(e.orgs.join('、'))}`}">`
+          + '<div class="hd">'
+          + `<span class="id">${esc(e.kind === 'published' ? '已发布标准' : e.label)}</span>`
+          + `${e.docKind === undefined ? ''
+            : `<span class="kd">${esc(DOC_KIND_SHORT[e.docKind] ?? e.docKind)}</span>`}`
+          + `<span class="marks">${e.orgs.map((o) => orgMark(o, 11)).join('')}</span>`
+          + '</div>'
+          + `${gist === '' ? '' : `<div class="gist">${esc(gist)}</div>`}`
+          + `${e.detail === '' ? '' : `<div class="ttl">${esc(e.detail)}</div>`}`
+          + '</div>'
+      }).join('')
       const lines = es.map((e) => (e.kind === 'published'
         ? '<div class="ev-line"><span class="dot published"></span><b>已发布标准</b></div>'
         : `<div class="ev-line"><span class="dot ${e.kind}"></span>`
           + `<code>${esc(e.date)}</code> <b>${esc(e.label)}</b>`
           + `${e.docKind === undefined ? '' : `　<span class="dim">${esc(DOC_KIND[e.docKind] ?? e.docKind)}</span>`}`
-          + `${e.orgs.length === 0 ? '' : `　<span class="dim">${esc(e.orgs.join('、'))}</span>`}`
+          + `${e.orgs.length === 0 ? '' : `　<span class="marks">${e.orgs.map((o) => orgMark(o, 13)).join('')}</span>`}`
+          + `${gistLine(e.gist) === '' ? '' : `<div class="dim detail">${esc(gistLine(e.gist))}</div>`}`
           + `<div class="dim detail">${esc(e.detail)}</div></div>`)).join('')
       return `<div class="cell${inside ? ' lane' : ''}${r.events === 0 ? ' thin' : ''}"`
         + ` data-col="${i}">${blocks === '' ? '' : `<div class="blocks">${blocks}</div>`}`
@@ -287,10 +319,17 @@ const html = `<!doctype html>
   .cell.lane::before { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 2px;
     background: rgba(127,127,127,.38) }
   .cell.on { background: rgba(127,127,127,.10) }
-  .blocks { display: grid; gap: 2px; padding-top: 2px }
-  .blk { display: flex; gap: 4px; align-items: center; border-radius: 4px; padding: 1px 4px;
-    font-size: 9.5px; line-height: 14px; overflow: hidden; background: rgba(127,127,127,.12);
-    border-left: 3px solid var(--dim) }
+  .blocks { display: grid; gap: 3px; padding-top: 2px }
+  .blk { border-radius: 4px; padding: 2px 4px; font-size: 9.5px; line-height: 13px;
+    overflow: hidden; background: rgba(127,127,127,.12); border-left: 3px solid var(--dim) }
+  .blk .hd { display: flex; gap: 4px; align-items: center }
+  .blk .marks { display: flex; gap: 2px; margin-left: auto }
+  .blk .gist, .blk .ttl { color: var(--dim); font-size: 9px }
+  .blk .ttl { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden }
+  .mark { display: inline-flex; align-items: center; justify-content: center; border-radius: 4px;
+    background: #fff; flex: 0 0 auto }
+  .marks { display: inline-flex; gap: 3px; vertical-align: middle }
   .blk.published { border-left-color: var(--core) } .blk.doc { border-left-color: var(--draft) }
   .blk.lesson { border-left-color: var(--full) }
   .blk .id { font-family: ui-monospace, Consolas, monospace; white-space: nowrap }
@@ -334,9 +373,10 @@ const html = `<!doctype html>
   <h1>特性图谱：标准怎么说，草案提了什么，本仿真器建到哪一步</h1>
   <p class="sub">${counts}。<b>一列一个特性，一行一个季度。</b>左右是特性进入记录的先后：先是
     已发布标准的那一批，再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的
-    那几个。上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿（块上
-    写着编号、类型与作者单位），蓝块是已发布条款，绿块是本仓库写下那门课的那一天；一格最多摆五块，
-    余下的点开这一列全看。<b>点一列，它就地展开</b>：行里的点变成逐条的文稿，表头变成它的全部特性行、
+    那几个。上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿，块上是
+    编号、类型、作者单位的标志，再加一行「它做了什么」（条号、处理了多少条意见、文中「接受／修订／
+    否决」各出现多少次——那是字样计数，不是对裁决的解读）与它的标题；蓝块是已发布条款，绿块是本
+    仓库写下那门课的那一天。一格有几件事就摆几块，不省略。<b>点一列，它就地展开</b>：行里的点变成逐条的文稿，表头变成它的全部特性行、
     依赖与文稿上的单位。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
     （<code>src/course/featureGraph.ts</code>），两份覆盖表与两份生成的日期表现算而来，不存第二份数据。</p>
   <div class="legend">

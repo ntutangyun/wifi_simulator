@@ -24,9 +24,10 @@
 import { useMemo, useState } from 'react'
 import {
   BASELINE, DOC_PATH, graphFor,
-  type FeatureGroup, type FeatureRow, type MatrixColumn, type StatusKind, type TimeEvent,
-  type Track,
+  type DocGist, type FeatureGroup, type FeatureRow, type MatrixColumn, type StatusKind,
+  type TimeEvent, type Track,
 } from '../course/featureGraph'
+import orgLogos from '../course/orgLogos.json'
 import { LESSONS } from '../course/lessons'
 import { trackOf } from '../course/curriculum'
 import { useStrings } from './i18n'
@@ -48,6 +49,8 @@ const EVENT_COLOR: Record<TimeEvent['kind'], string> = {
   published: '#4aa3ff', doc: '#b07cff', lesson: '#35c08a',
 }
 
+const ORG_LOGOS = orgLogos.logos as Record<string, { slug: string; hex: string; path: string }>
+
 const GUTTER = 84
 const COL_W = 158
 const OPEN_W = 376
@@ -60,13 +63,16 @@ const tag = (color: string): React.CSSProperties => ({
 })
 
 /**
- * **A company gets a colour and its initials, never its logo.**
+ * **The company's own mark, where there is one.**
  *
- * A logo is someone's trademark, it would have to be fetched and committed as an image, and this
- * repository carries no third-party assets — so the chips are drawn from the one thing the corpus
- * gives us: the name printed in the affiliation field. The colour is a hash of that name, so it
- * is stable across renders and across tracks without a table to maintain, and the full name is in
- * the tooltip and spelled out when the column is open.
+ * `src/course/orgLogos.json` holds one 24×24 path and one brand hex per company, taken from
+ * simple-icons (CC0-1.0) by `scripts/org-logos.ts` and committed — nothing is fetched while the
+ * page runs, which is also what keeps the standalone report working offline. The marks are their
+ * owners' trademarks and are here to identify who wrote a contribution, nothing more.
+ *
+ * Seven of the sixteen companies on these documents have no mark in that set (Qorvo, Calterah,
+ * Spark, Zigpos, HaiLa, Blind Creek Associates, Ultra-radio); they keep the initials chip, whose
+ * colour is a hash of the name so it is stable without a table to maintain.
  */
 const ORG_HUES = [206, 268, 152, 24, 340, 48, 188, 292, 120, 8]
 function orgColor(name: string): string {
@@ -82,10 +88,34 @@ function orgInitials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
-const chipStyle = (background: string): React.CSSProperties => ({
-  display: 'inline-block', width: 15, height: 15, borderRadius: 4, fontSize: 8, fontWeight: 700,
-  color: '#fff', textAlign: 'center', lineHeight: '15px', background,
-})
+/**
+ * One company, as a mark or as its initials.
+ *
+ * The mark always sits on a white tile: Apple's and NXP's own colour is black, and a black mark
+ * on this app's dark panel would be a company that vanishes in one theme and not the other.
+ */
+function OrgMark({ name, size = 15, docs }: { name: string; size?: number; docs?: number }) {
+  const L = useStrings()
+  const logo = ORG_LOGOS[name]
+  const title = `${name}${docs === undefined ? '' : `　${L.map.docCount(docs)}`}`
+  if (logo === undefined) {
+    return (
+      <span title={title} style={{ display: 'inline-block', width: size, height: size,
+        borderRadius: 4, fontSize: size * 0.53, fontWeight: 700, color: '#fff',
+        textAlign: 'center', lineHeight: `${size}px`, background: orgColor(name),
+        flex: '0 0 auto' }}>{orgInitials(name)}</span>
+    )
+  }
+  return (
+    <span title={title} style={{ display: 'inline-flex', alignItems: 'center',
+      justifyContent: 'center', width: size, height: size, borderRadius: 4, background: '#fff',
+      flex: '0 0 auto' }}>
+      <svg width={size - 3} height={size - 3} viewBox="0 0 24 24" aria-label={name}>
+        <path d={logo.path} fill={logo.hex} />
+      </svg>
+    </span>
+  )
+}
 
 /** The evidence cell is Markdown: `code` and **bold** are the only two shapes it uses. */
 function Evidence({ text }: { text: string }) {
@@ -127,51 +157,77 @@ function RowList({ rows }: { rows: FeatureRow[] }) {
   )
 }
 
-/** How many blocks a closed cell shows before it says 「there are more, open the column」. */
-const BLOCKS = 5
+/**
+ * **What a document did, in one line of counted facts** (`DocGist`).
+ *
+ * 「§10.39.1 · 26 条意见 · 接受 9／修订 2／否决 11」 says more about 15-26/0408 than its title does,
+ * and every number in it is a count taken from the document's own text rather than a sentence
+ * lifted out of it. The last three are counts of the words Accepted / Revised / Rejected, which
+ * is why they are labelled 「字样」 and not 「dispositions」.
+ */
+function gistLine(gist: DocGist | undefined, L: ReturnType<typeof useStrings>): string {
+  if (gist === undefined) return ''
+  const parts: string[] = []
+  if (gist.clause !== undefined) parts.push(`§${gist.clause}`)
+  if (gist.cids !== undefined) parts.push(L.map.cids(gist.cids))
+  const verdicts = [
+    gist.acc === undefined ? '' : `${L.map.verdict.acc} ${gist.acc}`,
+    gist.rev === undefined ? '' : `${L.map.verdict.rev} ${gist.rev}`,
+    gist.rej === undefined ? '' : `${L.map.verdict.rej} ${gist.rej}`,
+  ].filter((x) => x !== '')
+  if (verdicts.length > 0) parts.push(`${verdicts.join('／')} ${L.map.verdict.counted}`)
+  return parts.join(' · ')
+}
 
 /**
- * A closed column's cell: **one block per thing that happened**, not one dot.
+ * A closed column's cell: **one block per thing that happened**, and every one of them.
  *
- * A dot could only say 「something happened here」; the block says which document it was, what
- * kind of document, and whose name is on it — which is the whole of what the matrix knows before
- * a column is opened. The cap keeps one busy quarter (14 comment resolutions landed on MMS
- * ranging in 2026Q3) from setting the height of its whole row.
+ * A dot could only say 「something happened here」. The block says which document it was, what
+ * kind, whose marks are on it, what it did (the gist line) and what it was called. There is no
+ * cap: a quarter in which fourteen comment resolutions landed on MMS ranging **is** fourteen
+ * blocks tall, and hiding four of them behind a 「+N」 was hiding the one quarter that mattered
+ * most.
  */
 function EventBlocks({ events }: { events: TimeEvent[] }) {
   const L = useStrings()
-  const shown = events.slice(0, BLOCKS)
   return (
-    <div style={{ display: 'grid', gap: 2, paddingTop: 2 }}>
-      {shown.map((e) => (
-        <div key={e.label} title={`${e.date === '' ? L.map.baseline : e.date}　${e.label}`
-          + `${e.docKind === undefined ? '' : `　${L.map.docKind[e.docKind] ?? e.docKind}`}`
-          + `${e.detail === '' ? '' : `　${e.detail}`}`
-          + `${e.orgs.length > 0 ? `　${e.orgs.join('、')}` : ''}`}
-        style={{ display: 'flex', gap: 4, alignItems: 'center', borderRadius: 4,
-          borderLeft: `3px solid ${EVENT_COLOR[e.kind]}`, background: 'rgba(127,127,127,.12)',
-          padding: '1px 4px', fontSize: 9.5, lineHeight: '14px', overflow: 'hidden' }}>
-          <span style={{ fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap' }}>
-            {e.kind === 'published' ? L.map.baseline : e.label}
-          </span>
-          {e.docKind !== undefined && (
-            <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>
-              {L.map.docKindShort[e.docKind] ?? L.map.docKind[e.docKind] ?? e.docKind}
-            </span>
-          )}
-          {e.orgs.slice(0, 3).map((o) => (
-            <span key={o} title={o} style={{ width: 11, height: 11, borderRadius: 3, fontSize: 6.5,
-              fontWeight: 700, color: '#fff', textAlign: 'center', lineHeight: '11px',
-              background: orgColor(o), flex: '0 0 auto' }}>{orgInitials(o)}</span>
-          ))}
-        </div>
-      ))}
-      {events.length > BLOCKS && (
-        <div title={events.slice(BLOCKS).map((e) => `${e.date} ${e.label}`).join('、')}
-          style={{ fontSize: 9, color: 'var(--dim)', paddingLeft: 5 }}>
-          {L.map.morePapers(events.length - BLOCKS)}
-        </div>
-      )}
+    <div style={{ display: 'grid', gap: 3, paddingTop: 2 }}>
+      {events.map((e) => {
+        const gist = gistLine(e.gist, L)
+        return (
+          <div key={e.label} title={`${e.date === '' ? L.map.baseline : e.date}　${e.label}`
+            + `${e.docKind === undefined ? '' : `　${L.map.docKind[e.docKind] ?? e.docKind}`}`
+            + `${e.detail === '' ? '' : `　${e.detail}`}`
+            + `${e.orgs.length > 0 ? `　${e.orgs.join('、')}` : ''}`}
+          style={{ borderRadius: 4, borderLeft: `3px solid ${EVENT_COLOR[e.kind]}`,
+            background: 'rgba(127,127,127,.12)', padding: '2px 4px', fontSize: 9.5,
+            lineHeight: '13px', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <span style={{ fontFamily: 'ui-monospace, Consolas, monospace',
+                whiteSpace: 'nowrap' }}>
+                {e.kind === 'published' ? L.map.baseline : e.label}
+              </span>
+              {e.docKind !== undefined && (
+                <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>
+                  {L.map.docKindShort[e.docKind] ?? L.map.docKind[e.docKind] ?? e.docKind}
+                </span>
+              )}
+              <span style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
+                {e.orgs.map((o) => <OrgMark key={o} name={o} size={11} />)}
+              </span>
+            </div>
+            {gist !== '' && (
+              <div style={{ color: 'var(--dim)', fontSize: 9 }}>{gist}</div>
+            )}
+            {e.detail !== '' && (
+              <div style={{ color: 'var(--dim)', fontSize: 9, display: '-webkit-box',
+                WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {e.detail}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -195,7 +251,13 @@ function EventLines({ events }: { events: TimeEvent[] }) {
                 <span style={{ color: 'var(--dim)' }}>　{L.map.docKind[e.docKind] ?? e.docKind}</span>
               )}
               {e.orgs.length > 0 && (
-                <span style={{ color: 'var(--dim)' }}>　{e.orgs.join('、')}</span>
+                <span style={{ display: 'inline-flex', gap: 3, marginLeft: 6,
+                  verticalAlign: 'middle' }}>
+                  {e.orgs.map((o) => <OrgMark key={o} name={o} size={13} />)}
+                </span>
+              )}
+              {gistLine(e.gist, L) !== '' && (
+                <div style={{ color: 'var(--dim)', paddingLeft: 12 }}>{gistLine(e.gist, L)}</div>
               )}
               {e.detail !== '' && (
                 <div style={{ color: 'var(--dim)', paddingLeft: 12 }}>{e.detail}</div>
@@ -247,7 +309,7 @@ function OpenCard({ column, dependants, onPick, titleOf }: {
             {g.orgs.map((o) => (
               <span key={o.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
                 fontSize: 11.5 }}>
-                <span style={chipStyle(orgColor(o.name))}>{orgInitials(o.name)}</span>
+                <OrgMark name={o.name} docs={o.docs} />
                 {o.name}<span style={{ color: 'var(--dim)' }}>×{o.docs}</span>
               </span>
             ))}
@@ -351,25 +413,33 @@ export function FeatureMap() {
             {L.map.event[k]}
           </span>
         ))}
-        {(['core', 'draft', 'derived', 'absent'] as FeatureGroup['family'][]).map((f) => (
-          <span key={f}>
-            <span style={{ display: 'inline-block', width: 10, height: 3, borderRadius: 2,
-              background: FAMILY_COLOR[f], marginRight: 4, verticalAlign: 'middle' }} />
-            {L.map.family[f]}
-          </span>
-        ))}
       </div>
 
+      {/* The family colours are the thinnest band of information here (they are also the colour
+          of each column's top edge), so at 470 px they fold away with the long explanation
+          rather than spending two of the five lines above the matrix. */}
       <details style={{ color: 'var(--dim)', fontSize: 11.5 }}>
         <summary style={{ cursor: 'pointer' }}>{L.map.axisShort}</summary>
         <p style={{ margin: '4px 0 0' }}>{L.map.axisNote}</p>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+          {(['core', 'draft', 'derived', 'absent'] as FeatureGroup['family'][]).map((f) => (
+            <span key={f}>
+              <span style={{ display: 'inline-block', width: 10, height: 3, borderRadius: 2,
+                background: FAMILY_COLOR[f], marginRight: 4, verticalAlign: 'middle' }} />
+              {L.map.family[f]}
+            </span>
+          ))}
+        </div>
       </details>
 
       {/* **A scroll container's min-content height is zero**, so inside a grid it is handed
           whatever is left — 41 px of a 700 px drawing, measured at 939x511. It gets a height of
           its own, capped so the matrix never pushes the rest of the screen away. */}
+      {/* **A grid row whose item scrolls has a min-height of zero**, so when the chrome above
+          wraps onto five lines at 470 px this row gets handed what is left — 55 px of a 2 000 px
+          matrix, measured. `minHeight` is the floor that stops it; the page scrolls instead. */}
       <div style={{ overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8,
-        background: 'var(--panel)', maxHeight: '72vh' }}>
+        background: 'var(--panel)', minHeight: 260, maxHeight: '72vh' }}>
         <div style={{ position: 'relative', width: totalW }}>
           {/* The dependency arcs, drawn only for the open column so the strip never becomes a
               mat. Every x comes from `widths`, the array the grid itself is built from. */}
@@ -444,13 +514,16 @@ export function FeatureMap() {
                   </div>
                   {!on && c.group.orgs.length > 0 && (
                     <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginTop: 3 }}>
-                      {c.group.orgs.slice(0, 4).map((o) => (
-                        <span key={o.name} title={`${o.name}　${L.map.docCount(o.docs)}`}
-                          style={chipStyle(orgColor(o.name))}>{orgInitials(o.name)}</span>
+                      {c.group.orgs.slice(0, 5).map((o) => (
+                        <OrgMark key={o.name} name={o.name} docs={o.docs} />
                       ))}
-                      {c.group.orgs.length > 4 && (
-                        <span title={c.group.orgs.slice(4).map((o) => o.name).join('、')}
-                          style={chipStyle('var(--dim)')}>+{c.group.orgs.length - 4}</span>
+                      {c.group.orgs.length > 5 && (
+                        <span title={c.group.orgs.slice(5).map((o) => o.name).join('、')}
+                          style={{ display: 'inline-block', width: 15, height: 15, borderRadius: 4,
+                            fontSize: 8, fontWeight: 700, color: '#fff', textAlign: 'center',
+                            lineHeight: '15px', background: 'var(--dim)' }}>
+                          +{c.group.orgs.length - 5}
+                        </span>
                       )}
                     </div>
                   )}

@@ -437,6 +437,23 @@ export interface FeatureGroup extends GroupSpec {
 /** One company, and how many of this group's cited documents carry its name. */
 export interface OrgRef { name: string; docs: number }
 
+/**
+ * **What a document did, counted rather than quoted** (`scripts/doc-meta.ts#gistOf`).
+ *
+ * `clause` is the draft clause its text mentions most; `cids` how many distinct comment indices
+ * it names; `acc`/`rev`/`rej` how often the words Accepted, Revised and Rejected occur in it.
+ * **The last three are word counts, not a reading of its dispositions** — the map labels them as
+ * counts for that reason. A document whose text the mirror never extracted has none of this, and
+ * `docMeta.json` lists it under `noText`.
+ */
+export interface DocGist {
+  clause?: string
+  cids?: number
+  acc?: number
+  rev?: number
+  rej?: number
+}
+
 /** One cited mentor document, as `docMeta.json` holds it. */
 export interface DocRef {
   dcn: string
@@ -444,6 +461,7 @@ export interface DocRef {
   kind: string
   title: string
   orgs: string[]
+  gist: DocGist
 }
 
 /**
@@ -468,7 +486,8 @@ export const DOC_META_MISSING = docMetaJson.missing as string[]
  * git history: the day each lesson file was added. It is the engine side of the time axis — the
  * only date in the picture this repository is itself answerable for.
  */
-const LESSON_META = lessonMetaJson.lessons as Record<string, { file: string; added: string; touched: string }>
+const LESSON_META = lessonMetaJson.lessons as
+  Record<string, { file: string; added: string; touched: string; title: string }>
 export const LESSON_META_AT: string = lessonMetaJson.generated
 
 /**
@@ -506,6 +525,8 @@ export interface TimeEvent {
   orgs: string[]
   /** For a document: its kind as `docMeta.json` holds it (`proposal`, `cr`, `minutes`, …). */
   docKind?: string
+  /** For a document: what it did, counted. Empty for a lesson or the published marker. */
+  gist?: DocGist
   /** Index into `Matrix.rows`. */
   row: number
 }
@@ -689,13 +710,13 @@ export function graphFor(track: Track, lessonIds: readonly string[] = []): Graph
         if (meta === undefined || seen.has(dcn)) continue
         seen.add(dcn)
         out.push({ kind: 'doc', date: meta.date, label: dcn, detail: meta.title,
-          orgs: meta.orgs, docKind: meta.kind })
+          orgs: meta.orgs, docKind: meta.kind, gist: meta.gist ?? {} })
       }
     }
     for (const id of g.lessons) {
       const meta = LESSON_META[id]
       if (meta === undefined) continue
-      out.push({ kind: 'lesson', date: meta.added, label: `@${id}`, detail: meta.file, orgs: [] })
+      out.push({ kind: 'lesson', date: meta.added, label: `@${id}`, detail: meta.title, orgs: [] })
     }
     return out
   }
