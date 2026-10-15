@@ -99,12 +99,17 @@ export interface Strings {
     axisNote: string
     axisShort: string
     rowsLabel: (n: number) => string
+    timelineLabel: (n: number) => string
     timeAxis: string
     arcsLabel: string
-    event: { published: string; doc: string; lesson: string }
+    /** The panel: how to shut it, how to open a lesson, and what an empty column means. */
+    close: string
+    openLesson: string
+    lessonAdded: (date: string) => string
+    noDocs: string
+    event: { published: string; doc: string }
     /** Two characters for a block in a closed column; the long name is the tooltip's job. */
     docKindShort: Record<string, string>
-    morePapers: (n: number) => string
     cids: (n: number) => string
     verdict: { acc: string; rev: string; rej: string; counted: string }
     firstSeen: (date: string) => string
@@ -845,7 +850,9 @@ export const STRINGS: Strings = {
       unsettled: '无法判定', none: '标准不规定',
     },
     openBadge: '组里有几行还在争论或无法判定',
-    pickPrompt: '点一列，它就地展开：那几行特性、它们的证据与课号，以及它一路走来的每一篇文稿。',
+    pickPrompt: '点一列，右边滑出这一个特性的全部：它的那几行与证据、它依赖什么、它一路走来的'
+      + '每一篇文稿，以及教它的那几门课——课名是链接，点一下就进去。方格本身不动，'
+      + '所以那一列仍留在它的邻居中间。',
     needs: '依赖（这一组要成立，先得有）：',
     feeds: '它撑着：',
     noNeeds: '（无）',
@@ -868,21 +875,27 @@ export const STRINGS: Strings = {
       + '这跟「发布得比语料库还早」是两件事，所以不跟已发布基线共用一带。',
     axisShort: '怎么读：一列一个特性，一行一个季度 ▸',
     rowsLabel: (n) => `这一组的 ${n} 行特性与证据 ▸`,
+    timelineLabel: (n) => `这一列的 ${n} 件事，按时间 ▸`,
     axisNote: '一列一个特性，一行一个季度。左右是特性进入记录的先后：先是已发布标准的那一批，'
-      + '再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的那几个。'
+      + '再按被第一次提出的季度排草案里的，最后是标准里一条条款也没有、本仓库的语料库一篇文稿也'
+      + '标不出日期的那几个——它们的列是空的，而那正是关于它们的真话。'
       + '上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿，块上是它的编号、'
       + '类型、作者单位的标志，再加一行「它做了什么」：条号、处理了多少条意见、以及文中「接受／修订／'
-      + '否决」各出现多少次（那三个是字样计数，不是对裁决的解读），最后是它的标题。蓝块是已发布条款，'
-      + '绿块是本仓库写下那门课的那一天，块上是课的标题。一格有几件事就摆几块，不省略。',
+      + '否决」各出现多少次（那三个是字样计数，不是对裁决的解读），最后是它的标题；蓝块是已发布条款。'
+      + '一格有几件事就摆几块，不省略。课不在格子里：每门课都是 2026 年 9 月到 10 月那五周里写的，'
+      + '画在图上只会是底下一条与上方特性无关的亮带——它们在右边那一页里，按天列着，点课名就进去。',
     timeAxis: '时间 ↓ ／ 特性 →',
     arcsLabel: '展开那一列的依赖弧线',
-    event: { published: '已发布条款', doc: 'mentor 文稿', lesson: '本仓库的课' },
+    close: '关掉这一页',
+    openLesson: '打开这门课',
+    lessonAdded: (date) => `${date} 写下`,
+    noDocs: '无文稿可标日期',
+    event: { published: '已发布条款', doc: 'mentor 文稿' },
     docKindShort: {
       proposal: '投稿', cr: '决议', pdt: '文字', sfd: '框架', draft: '草案', agenda: '议程',
       'closing-report': '闭幕', minutes: '纪要', 'comments-sheet': '意见表', simulation: '仿真',
       usecase: '用例', tgd: '指南', process: '流程', 'motion-dock': '动议', timeline: '日程',
     },
-    morePapers: (n) => `还有 ${n} 件，点开这一列`,
     cids: (n) => `${n} 条意见`,
     verdict: { acc: '接受', rev: '修订', rej: '否决', counted: '字样' },
     firstSeen: (date) => `首见 ${date}`,

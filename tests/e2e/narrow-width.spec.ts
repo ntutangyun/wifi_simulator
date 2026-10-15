@@ -304,22 +304,23 @@ test.describe('nothing falls off the side of the screen', () => {
 
   /**
    * The feature map is the one mode that draws something wider than any phone — the UWB matrix is
-   * 27 columns, 3 108 px — so it is the one most likely to push the page into a horizontal
+   * 34 columns, 5 456 px — so it is the one most likely to push the page into a horizontal
    * scroll. It must not: the matrix pans inside its own box, with its time gutter stuck to the
    * left and its feature headers stuck to the top, and the page does not move. The mode also adds
    * a sixth control to the header, which at 470 px is the width this whole file exists to defend.
    *
-   * Opening a column is the case that matters most here: the column grows to 376 px **inside**
-   * the same scroller, and its card carries the longest evidence cells in either document.
+   * Opening a column is the case that matters most here: the panel slides over the right edge at
+   * 94% of 470 px and carries the longest evidence cells in either document.
    */
   test('map mode, both tracks', async ({ page }) => {
     await open(page, 'map')
     await page.getByText('时间 ↓').first().waitFor()
     expectNothingOffScreen(await survey(page), 'map · wifi')
-    // A column opens in place: rows, evidence, dependencies and companies, all inside the column.
+    // Clicking a column slides the panel in: rows, evidence, dependencies, companies, lessons.
     await page.getByText('DCF 信道接入', { exact: true }).first().click()
     await page.getByText('依赖（这一组要成立，先得有）：').first().waitFor()
-    expectNothingOffScreen(await survey(page), 'map · wifi · a column open')
+    expectNothingOffScreen(await survey(page), 'map · wifi · the panel open')
+    await page.locator('main button', { hasText: /^✕$/ }).click()
     await page.locator('main button', { hasText: /^UWB$/ }).click()
     await page.getByText('时间 ↓').first().waitFor()
     expectNothingOffScreen(await survey(page), 'map · uwb')

@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, graphFor,
+  BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, UNDATED, graphFor,
   parseCoverage, quarterOf, type Track,
 } from '../../src/course/featureGraph'
 import docMeta from '../../src/course/docMeta.json'
@@ -141,6 +141,44 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
   })
 
   /**
+   * **A section of the document is not a feature.**
+   *
+   * §十四 of the UWB table is a heading with twelve rows under it — the compact frame, hyper block
+   * mode, discovery and association, PHY parameter negotiation, the wake-up radio, offload to the
+   * narrowband radio, the ranging support service, the LE UWB PHY, streaming — and for one picture
+   * it was one column titled 「4ab 的其余整块」. That column made the widest claim on the screen:
+   * that these twelve rows are one thing, with one history and one set of dependencies. They are
+   * not, and their own citations say so: the streaming row argues from the 2021 PAR, while the
+   * compact frame's security was still being voted through in 2026.
+   *
+   * So this holds the split in place. Every row of that section must land in one of these nine
+   * groups, each group must be `absent` (the section exists to list what this repository decided
+   * not to build), and **no group may mix in a row from anywhere else** — which is what would
+   * happen if a `has()` pattern here started matching a row of §十一 or §十二.
+   */
+  it('splits the document’s catch-all section into the features it holds', () => {
+    const REST = ['compact', 'hyperblock', 'assoc', 'wur', 'offload', 'rss', 'leuwb', 'stream']
+    const inSection = graph.rows.filter((r) => r.section.startsWith('十四'))
+    if (track !== 'uwb') {
+      // Not a free pass for the other track: these ids are the UWB spine's, and a Wi-Fi group
+      // answering to one of them would mean this list had drifted onto the wrong document.
+      expect(graph.groups.filter((g) => REST.includes(g.id)).map((g) => g.id)).toEqual([])
+      return
+    }
+    expect(inSection.length, 'the catch-all section lost its rows').toBeGreaterThan(10)
+    const placed = graph.groups.filter((g) => REST.includes(g.id))
+    expect(placed.map((g) => g.id).sort(), 'a group of the split went missing').toEqual([...REST].sort())
+    expect(placed.flatMap((g) => g.rows).length, 'the split drops or doubles a row')
+      .toBe(inSection.length)
+    for (const g of placed) {
+      expect(g.rows.length, `${g.id}: empty`).toBeGreaterThan(0)
+      expect(g.family, `${g.id}`).toBe('absent')
+      expect(g.rows.filter((r) => !r.section.startsWith('十四')).map((r) => r.feature),
+        `${g.id}: swallowed a row from another section`).toEqual([])
+    }
+  })
+
+  /**
    * **The claim the layout makes: a feature is built on features that came first.**
    *
    * Columns are ordered by the row of their first event, so a dependency must not start to the
@@ -204,9 +242,29 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
   it('gives every group exactly one column', () => {
     expect(graph.columns.length).toBe(graph.groups.length)
     expect([...new Set(graph.columns.map((c) => c.group.id))].length).toBe(graph.groups.length)
-    // Left to right: the row a column's first event lands in, never decreasing.
-    const firsts = graph.columns.map((c) => c.firstRow)
+    // Left to right: the row a column's first event lands in, never decreasing — and a column
+    // with no event at all is 「never」, which belongs at the right end and not before 2021.
+    const firsts = graph.columns.map((c) => (c.firstRow < 0 ? Infinity : c.firstRow))
     expect(firsts).toEqual([...firsts].sort((a, b) => a - b))
+  })
+
+  /**
+   * **An empty column says something, and it may only say that one thing.**
+   *
+   * A column holds no event exactly when the coverage table files its rows as having no clause to
+   * point at and no document number to cite (`UNDATED`: positioning, the UWB fading model, DL/UL
+   * TDoA, AoA/PDoA). Any other empty column would be a feature whose citations stopped resolving
+   * — a hole in `docMeta.json` drawn as a blank lane, which is the one way this picture could lie
+   * quietly. The lessons used to fill those lanes with a green block each; they are links in the
+   * panel now, so the blankness is load-bearing and gets an assertion.
+   */
+  it('leaves a column empty only when nothing in these corpora dates it', () => {
+    for (const c of graph.columns) {
+      expect(c.events.length === 0, `${c.group.id}: ${c.events.length} events, era ${c.group.era}`)
+        .toBe(c.group.era === UNDATED)
+      expect(c.events.some((e) => e.label.startsWith('@')),
+        `${c.group.id}: a lesson is in the grid again — it belongs in the panel`).toBe(false)
+    }
   })
 
   /**
@@ -416,7 +474,7 @@ describe('the company marks', () => {
   })
 })
 
-describe('the lesson dates behind the green dots', () => {
+describe('the lesson dates behind the panel’s links', () => {
   it('dates every lesson, and knows which it could not', () => {
     expect(lessonMeta.orphans, 'a lesson git cannot date').toEqual([])
     const ids = new Set(LESSONS.map((l) => l.id))
@@ -436,11 +494,25 @@ describe('the lesson dates behind the green dots', () => {
     }
   })
 
-  it('shows up in the matrix: every cited lesson is a green block on its column', () => {
+  /**
+   * **Every cited lesson reaches the panel, dated and titled.** It used to reach the grid as a
+   * green block; what replaced that is a link, and a link with no title is a button that says
+   * 「@uwb-mms」 — which is what the old card already said and what the reader could not act on.
+   */
+  it('reaches the panel: every cited lesson is a dated, titled link', () => {
     for (const track of TRACKS) {
       for (const c of graphFor(track).columns) {
-        const dots = c.events.filter((e) => e.kind === 'lesson').map((e) => e.label.slice(1))
-        expect([...dots].sort(), `${c.group.id}`).toEqual([...c.group.lessons].sort())
+        const refs = c.group.lessonRefs
+        expect(refs.map((r) => r.id).sort(), `${c.group.id}`)
+          .toEqual([...c.group.lessons].sort())
+        for (const r of refs) {
+          expect(r.added, `${c.group.id}/${r.id}`).toMatch(/^\d{4}-\d\d-\d\d$/)
+          expect(r.title.length, `${c.group.id}/${r.id}: a link with no name`)
+            .toBeGreaterThan(0)
+          expect(r.file.startsWith('src/course/'), `${c.group.id}/${r.id}: ${r.file}`).toBe(true)
+        }
+        // Oldest first: the panel prints them as a short history of this feature's teaching.
+        expect(refs.map((r) => r.added)).toEqual([...refs.map((r) => r.added)].sort())
       }
     }
   })

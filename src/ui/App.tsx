@@ -60,7 +60,7 @@ function SidePanel() {
 }
 
 export function App() {
-  const { mode, setMode, simError, courseLoaded, simSession, viewRequest } = useUi()
+  const { mode, setMode, simError, courseLoaded, simSession, viewRequest, courseLessonId } = useUi()
   const L = useStrings()
   const [guideOpen, setGuideOpen] = useState(false)
   const [courseW, setCourseW] = useColumnWidth('wifi-sim.courseWidth', COURSE_COL_DEFAULT, COURSE_COL_LIMITS)
@@ -101,6 +101,19 @@ export function App() {
     // sent to the view and not when they fold the screen or tap the lesson tab
     // back, so `mode` and `layout` are read, deliberately, without being watched.
   }, [viewRequest])
+  /**
+   * The same rule in the other direction: **anything that picks a lesson has to bring the lesson
+   * on screen.** The feature map's panel links to the lesson that teaches a feature, and in one
+   * column that link landed on whichever pane the reader had left showing — so from a reader who
+   * had last been sent to the viewport, 「open this lesson」 produced the viewport.
+   *
+   * Watching `courseLessonId` rather than the mode is deliberate: the catalogue (`null`) is not a
+   * lesson and must not move the pane, and walking from lesson to lesson with ◀ ▶ is already in
+   * the lesson pane, where this is a no-op.
+   */
+  useEffect(() => {
+    if (courseLessonId !== null && layout.singleColumn) setPane('course')
+  }, [courseLessonId])
   /** The side panel, when it is a drawer rather than a column. Closed by default:
    *  on a small screen the content is what the reader came for. */
   const [sideOpen, setSideOpen] = useState(false)

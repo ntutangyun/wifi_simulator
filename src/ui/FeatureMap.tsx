@@ -2,17 +2,22 @@
  * **The feature map: one column per feature, one row per quarter.**
  *
  * Left to right is the order features entered the record — the published spine first, then each
- * draft feature in the quarter it was first tabled, then the models this engine built with no
- * clause to point at. Down a column is that one feature's history: every mentor document its rows
- * cite, and the day the lesson that teaches it was added here. The two together are the point:
- * 「tabled 2022-07, still being argued 2026-10, taught here since 2026-09」 is one column, read
- * top to bottom.
+ * draft feature in the quarter it was first tabled, then (with no dated event at all) the models
+ * this engine built with no clause to point at. Down a column is that one feature's history:
+ * every mentor document its rows cite, in the quarter it was disclosed. 「Tabled 2022-07, still
+ * being argued 2026-10」 is one column, read top to bottom.
  *
- * **Clicking a column opens it in place.** The detail is not a panel somewhere else: the column
- * widens, its header becomes a card (rows and their evidence, dependencies with their reasons,
- * companies), and its cells spell out the events they were drawing as dots. The open column's
- * dependencies are drawn as arcs across the strip above the grid, and the columns they point at
- * are outlined.
+ * **Clicking a column slides a panel in from the right.** It held the detail in place for one
+ * iteration — the column widened to 376 px and its cells spelled themselves out — and that cost
+ * the thing the layout exists for: the open column shoved every column right of it off the
+ * screen, so the one view you could not get was the open feature beside its neighbours. The panel
+ * does not move the grid at all; the open column keeps its highlight, its dependencies keep their
+ * arcs across the strip above the grid, and the columns those point at stay outlined.
+ *
+ * **The lessons are in the panel, as links.** They were green blocks in the grid until the dates
+ * showed what that drew: every lesson of a track was written within five weeks of every other, so
+ * the blocks were one bright stripe along the bottom saying nothing about the feature above it.
+ * In the panel each one is a button that opens the lesson, with the day it was added beside it.
  *
  * Everything here is computed from `docs/wifi-feature-coverage.md`,
  * `docs/uwb-feature-coverage.md`, `src/course/docMeta.json` and `src/course/lessonMeta.json`
@@ -21,16 +26,17 @@
  * group a row belongs to and which group needs which — and `tests/course/feature-graph.test.ts`
  * holds it to covering every row and every lesson.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BASELINE, DOC_PATH, graphFor,
-  type DocGist, type FeatureGroup, type FeatureRow, type MatrixColumn, type StatusKind,
-  type TimeEvent, type Track,
+  type DocGist, type FeatureGroup, type FeatureRow, type LessonRef, type MatrixColumn,
+  type StatusKind, type TimeEvent, type Track,
 } from '../course/featureGraph'
 import orgLogos from '../course/orgLogos.json'
 import { LESSONS } from '../course/lessons'
 import { trackOf } from '../course/curriculum'
 import { useStrings } from './i18n'
+import { useUi } from './store'
 
 /** The four families, as the colour of a column's top edge. A drawing decision, so it lives here. */
 const FAMILY_COLOR: Record<FeatureGroup['family'], string> = {
@@ -44,18 +50,19 @@ const STATUS_COLOR: Record<StatusKind, string> = {
   published: '#4aa3ff', draft: '#b07cff', contested: '#ff8a4a',
   unsettled: '#8a93a3', none: '#6b7280',
 }
-/** What a dot means: the standard's paperwork (blue, purple) or ours (green). */
+/** What a block is: a published clause (blue) or a mentor contribution (purple). */
 const EVENT_COLOR: Record<TimeEvent['kind'], string> = {
-  published: '#4aa3ff', doc: '#b07cff', lesson: '#35c08a',
+  published: '#4aa3ff', doc: '#b07cff',
 }
 
 const ORG_LOGOS = orgLogos.logos as Record<string, { slug: string; hex: string; path: string }>
 
 const GUTTER = 84
 const COL_W = 158
-const OPEN_W = 376
 const ROW_H = 28
 const ARCS_H = 34
+/** The panel's width. It covers the grid rather than widening a column — see the file header. */
+const PANEL_W = 400
 
 const tag = (color: string): React.CSSProperties => ({
   display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11,
@@ -66,9 +73,10 @@ const tag = (color: string): React.CSSProperties => ({
  * **The company's own mark, where there is one.**
  *
  * `src/course/orgLogos.json` holds one 24×24 path and one brand hex per company, taken from
- * simple-icons (CC0-1.0) by `scripts/org-logos.ts` and committed — nothing is fetched while the
- * page runs, which is also what keeps the standalone report working offline. The marks are their
- * owners' trademarks and are here to identify who wrote a contribution, nothing more.
+ * simple-icons (CC0-1.0) by `scripts/org-logos.ts` and committed — **nothing is fetched while the
+ * page runs**, so the map draws the same marks with the network off and no third party learns
+ * who is reading it. The marks are their owners' trademarks and are here to identify who wrote a
+ * contribution, nothing more.
  *
  * Seven of the sixteen companies on these documents have no mark in that set (Qorvo, Calterah,
  * Spark, Zigpos, HaiLa, Blind Creek Associates, Ultra-radio); they keep the initials chip, whose
@@ -232,13 +240,13 @@ function EventBlocks({ events }: { events: TimeEvent[] }) {
   )
 }
 
-/** An open column's cell: the same events, spelled out where they happened. */
-function EventLines({ events }: { events: TimeEvent[] }) {
+/** The whole column, spelled out in the panel: every event of this feature, oldest first. */
+function Timeline({ events }: { events: TimeEvent[] }) {
   const L = useStrings()
   return (
-    <div style={{ display: 'grid', gap: 3, paddingLeft: 14 }}>
+    <div style={{ display: 'grid', gap: 5 }}>
       {events.map((e) => (
-        <div key={e.label} style={{ fontSize: 11, lineHeight: 1.45 }}>
+        <div key={e.label} style={{ fontSize: 11.5, lineHeight: 1.5 }}>
           <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
             background: EVENT_COLOR[e.kind], marginRight: 5 }} />
           {e.kind === 'published' ? <b>{L.map.baseline}</b> : (
@@ -271,84 +279,140 @@ function EventLines({ events }: { events: TimeEvent[] }) {
 }
 
 /**
- * The open column's header: everything the old panel held, inside the column it belongs to.
- * It scrolls on its own, so opening a column cannot push the time axis off the screen.
+ * **The lessons that teach this feature, as links that open them.**
+ *
+ * A lesson id was a dim 「@uwb-mms」 in the old card and a green dot in the grid, and neither was
+ * something a reader could act on. This is the one place in the map that reaches into the rest of
+ * the app: it selects the lesson and switches to course mode, which is what the reader meant by
+ * clicking a lesson's name. The day beside it is the day the lesson was added here (git), the
+ * only date in this picture this repository is answerable for.
  */
-function OpenCard({ column, dependants, onPick, titleOf }: {
+function LessonLinks({ refs }: { refs: LessonRef[] }) {
+  const L = useStrings()
+  const { setMode, selectLesson } = useUi()
+  const open = (id: string): void => { selectLesson(id); setMode('course') }
+  return (
+    <div style={{ display: 'grid', gap: 4 }}>
+      {refs.map((r) => (
+        <div key={r.id} style={{ display: 'flex', gap: 6, alignItems: 'baseline',
+          flexWrap: 'wrap' }}>
+          <button title={L.map.openLesson} onClick={() => open(r.id)}
+            style={{ fontSize: 11.5, padding: '1px 7px', textAlign: 'left' }}>
+            {r.title === '' ? `@${r.id}` : r.title}
+          </button>
+          <code style={{ color: 'var(--dim)', fontSize: 11 }}>@{r.id}</code>
+          <span style={{ color: 'var(--dim)', fontSize: 11 }}>{L.map.lessonAdded(r.added)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * **The panel: one feature, everything the table and the corpus say about it.**
+ *
+ * It slides over the right edge of the map and leaves the grid where it is, so the column it
+ * describes stays highlighted in place beside its neighbours.
+ */
+function FeaturePanel({ column, dependants, onPick, onClose, titleOf }: {
   column: MatrixColumn
   dependants: FeatureGroup[]
   onPick: (id: string) => void
+  onClose: () => void
   titleOf: (id: string) => string
 }) {
   const L = useStrings()
   const g = column.group
   return (
-    <div onClick={(e) => e.stopPropagation()}
-      style={{ marginTop: 6, maxHeight: 200, overflow: 'auto', fontSize: 12,
-        borderTop: '1px solid var(--border)', paddingTop: 6, cursor: 'default' }}>
-      <div style={{ color: 'var(--dim)', fontSize: 11.5, marginBottom: 6 }}>{g.note}</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
-        marginBottom: 6 }}>
-        <span style={tag(g.since === null ? 'var(--dim)' : '#4aa3ff')}>
-          {g.since === null ? L.map.baseline : L.map.firstSeen(g.since)}
-        </span>
-        {g.until !== null && g.until !== g.since && (
-          <span style={{ color: 'var(--dim)' }}>{L.map.lastSeen(g.until)}</span>
-        )}
-        <span style={{ color: 'var(--dim)' }}>{L.map.eventCount(column.events.length)}</span>
+    <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 30,
+      width: `min(${PANEL_W}px, 94%)`, background: 'var(--panel)',
+      borderLeft: `1px solid var(--border)`, boxShadow: '-10px 0 28px rgba(0,0,0,.45)',
+      display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px',
+        borderBottom: '1px solid var(--border)',
+        borderTop: `3px solid ${FAMILY_COLOR[g.family]}` }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>{g.title}</div>
+          <div style={{ color: 'var(--dim)', fontSize: 11 }}>
+            {L.map.family[g.family]}　{L.map.boxCounts(g.rows.length, g.lessons.length)}
+          </div>
+        </div>
+        <button onClick={onClose} title={L.map.close}
+          style={{ marginLeft: 'auto', fontSize: 12, padding: '1px 8px' }}>✕</button>
       </div>
-      {g.since === null && (
-        <p style={{ color: 'var(--dim)', fontSize: 11, margin: '0 0 6px' }}>
-          {g.era === BASELINE ? L.map.baselineWhy : L.map.undatedWhy}
-        </p>
-      )}
-      {g.orgs.length > 0 && (
-        <div style={{ marginBottom: 6 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ color: 'var(--dim)', fontSize: 11.5 }}>{L.map.orgsLabel}</span>
-            {g.orgs.map((o) => (
-              <span key={o.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 11.5 }}>
-                <OrgMark name={o.name} docs={o.docs} />
-                {o.name}<span style={{ color: 'var(--dim)' }}>×{o.docs}</span>
-              </span>
-            ))}
-          </div>
-          <p style={{ color: 'var(--dim)', fontSize: 11, margin: '3px 0 0' }}>{L.map.orgsNote}</p>
+      <div style={{ overflow: 'auto', padding: 12, fontSize: 12 }}>
+        <div style={{ color: 'var(--dim)', fontSize: 11.5, marginBottom: 6 }}>{g.note}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
+          marginBottom: 6 }}>
+          <span style={tag(g.since === null ? 'var(--dim)' : '#4aa3ff')}>
+            {g.since === null ? L.map.baseline : L.map.firstSeen(g.since)}
+          </span>
+          {g.until !== null && g.until !== g.since && (
+            <span style={{ color: 'var(--dim)' }}>{L.map.lastSeen(g.until)}</span>
+          )}
+          <span style={{ color: 'var(--dim)' }}>{L.map.eventCount(column.events.length)}</span>
         </div>
-      )}
-      {/* **Every dependency gets its reason on screen.** An arrow with no reason is a teaching
-          order wearing an arrowhead; writing them out is what kept the two apart when this spine
-          was re-derived as feature dependencies. */}
-      <div style={{ display: 'grid', gap: 3, marginBottom: 6 }}>
-        <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
-          {L.map.needs}{g.needs.length === 0 ? L.map.noNeeds : ''}
-        </div>
-        {g.needs.map((n) => (
-          <div key={n.id} style={{ fontSize: 11.5, paddingLeft: 8 }}>
-            <button style={{ padding: '0 6px', fontSize: 11.5 }}
-              onClick={() => onPick(n.id)}>{titleOf(n.id)}</button>
-            <span style={{ color: 'var(--dim)' }}>　{n.why}</span>
+        {g.since === null && (
+          <p style={{ color: 'var(--dim)', fontSize: 11, margin: '0 0 6px' }}>
+            {g.era === BASELINE ? L.map.baselineWhy : L.map.undatedWhy}
+          </p>
+        )}
+        {g.orgs.length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ color: 'var(--dim)', fontSize: 11.5 }}>{L.map.orgsLabel}</span>
+              {g.orgs.map((o) => (
+                <span key={o.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
+                  fontSize: 11.5 }}>
+                  <OrgMark name={o.name} docs={o.docs} />
+                  {o.name}<span style={{ color: 'var(--dim)' }}>×{o.docs}</span>
+                </span>
+              ))}
+            </div>
+            <p style={{ color: 'var(--dim)', fontSize: 11, margin: '3px 0 0' }}>{L.map.orgsNote}</p>
           </div>
-        ))}
-        {dependants.length > 0 && (
+        )}
+        {/* **Every dependency gets its reason on screen.** An arrow with no reason is a teaching
+            order wearing an arrowhead; writing them out is what kept the two apart when this spine
+            was re-derived as feature dependencies. */}
+        <div style={{ display: 'grid', gap: 3, marginBottom: 6 }}>
           <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
-            {L.map.feeds}{dependants.map((d) => d.title).join('、')}
+            {L.map.needs}{g.needs.length === 0 ? L.map.noNeeds : ''}
           </div>
-        )}
-        <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
-          {L.map.lessonsLabel}
-          {g.lessons.length === 0 ? L.map.noLessons : g.lessons.map((x) => `@${x}`).join('、')}
+          {g.needs.map((n) => (
+            <div key={n.id} style={{ fontSize: 11.5, paddingLeft: 8 }}>
+              <button style={{ padding: '0 6px', fontSize: 11.5 }}
+                onClick={() => onPick(n.id)}>{titleOf(n.id)}</button>
+              <span style={{ color: 'var(--dim)' }}>　{n.why}</span>
+            </div>
+          ))}
+          {dependants.length > 0 && (
+            <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
+              {L.map.feeds}{dependants.map((d) => d.title).join('、')}
+            </div>
+          )}
         </div>
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ color: 'var(--dim)', fontSize: 11.5, marginBottom: 3 }}>
+            {L.map.lessonsLabel}{g.lessonRefs.length === 0 ? L.map.noLessons : ''}
+          </div>
+          <LessonLinks refs={g.lessonRefs} />
+        </div>
+        {/* Both lists fold: at 511 px the panel is 490 px tall, and which of the two a reader came
+            for depends on the question they arrived with. */}
+        <details>
+          <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
+            {L.map.rowsLabel(g.rows.length)}
+          </summary>
+          <div style={{ marginTop: 6 }}><RowList rows={g.rows} /></div>
+        </details>
+        <details open={column.events.length <= 12} style={{ marginTop: 8 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
+            {L.map.timelineLabel(column.events.length)}
+          </summary>
+          <div style={{ marginTop: 6 }}><Timeline events={column.events} /></div>
+        </details>
       </div>
-      {/* The rows fold away: on a 511 px screen the open column's header is most of the view,
-          and the thing a reader came for — the column's own history — is in the cells below. */}
-      <details>
-        <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
-          {L.map.rowsLabel(g.rows.length)}
-        </summary>
-        <div style={{ marginTop: 6 }}><RowList rows={g.rows} /></div>
-      </details>
     </div>
   )
 }
@@ -367,16 +431,22 @@ export function FeatureMap() {
   const dependants = sel === null ? []
     : g.groups.filter((x) => x.needs.some((n) => n.id === sel.group.id))
 
-  /** Column widths decide every x in the picture, arcs included. One source, nothing measured. */
-  const widths = g.columns.map((c) => (c.group.id === open ? OPEN_W : COL_W))
-  const xOf = (i: number): number => GUTTER + widths.slice(0, i).reduce((a, b) => a + b, 0)
-  const totalW = GUTTER + widths.reduce((a, b) => a + b, 0)
+  /** Every column is one width now, so an x is arithmetic and the arcs need no measuring. */
+  const xOf = (i: number): number => GUTTER + i * COL_W
+  const totalW = GUTTER + g.columns.length * COL_W
   const indexOf = (id: string): number => g.columns.findIndex((c) => c.group.id === id)
 
   const switchTrack = (t: Track): void => { setTrack(t); setOpen(null) }
+  /** Escape shuts the panel: it covers the right of the map, and ✕ is 400 px from the column. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const needIds = new Set(sel?.group.needs.map((n) => n.id) ?? [])
 
   return (
+    <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
     <div style={{ height: '100%', overflow: 'auto', padding: 12, display: 'grid', gap: 10,
       alignContent: 'start' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -405,7 +475,7 @@ export function FeatureMap() {
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11.5,
         color: 'var(--dim)', alignItems: 'center' }}>
-        {(['published', 'doc', 'lesson'] as TimeEvent['kind'][]).map((k) => (
+        {(['published', 'doc'] as TimeEvent['kind'][]).map((k) => (
           <span key={k}>
             <span style={{ display: 'inline-block', width: 10, height: 9, borderRadius: 2,
               borderLeft: `3px solid ${EVENT_COLOR[k]}`, background: 'rgba(127,127,127,.2)',
@@ -469,7 +539,7 @@ export function FeatureMap() {
           </svg>
 
           <div style={{ display: 'grid',
-            gridTemplateColumns: `${GUTTER}px ${widths.map((w) => `${w}px`).join(' ')}` }}>
+            gridTemplateColumns: `${GUTTER}px repeat(${g.columns.length}, ${COL_W}px)` }}>
             {/* ---- the header row: features, left to right in the order they appeared ---- */}
             <div style={{ position: 'sticky', left: 0, top: 0, zIndex: 3,
               background: 'var(--panel)', borderBottom: '1px solid var(--border)',
@@ -512,7 +582,7 @@ export function FeatureMap() {
                       )
                     })}
                   </div>
-                  {!on && c.group.orgs.length > 0 && (
+                  {c.group.orgs.length > 0 && (
                     <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginTop: 3 }}>
                       {c.group.orgs.slice(0, 5).map((o) => (
                         <OrgMark key={o.name} name={o.name} docs={o.docs} />
@@ -527,9 +597,13 @@ export function FeatureMap() {
                       )}
                     </div>
                   )}
-                  {on && (
-                    <OpenCard column={c} dependants={dependants} onPick={setOpen}
-                      titleOf={(id) => g.groups.find((x) => x.id === id)?.title ?? id} />
+                  {/* An empty column is a statement, not a hole: no document in this corpus
+                      dates this feature at all. Saying so here is what keeps it from reading
+                      as a drawing that failed. */}
+                  {c.events.length === 0 && (
+                    <div style={{ color: 'var(--dim)', fontSize: 10, marginTop: 3 }}>
+                      {L.map.noDocs}
+                    </div>
                   )}
                 </div>
               )
@@ -564,7 +638,7 @@ export function FeatureMap() {
                         <span style={{ position: 'absolute', left: 3, top: 0,
                           bottom: 0, width: 2, background: 'rgba(127,127,127,.38)' }} />
                       )}
-                      {es.length > 0 && (on ? <EventLines events={es} /> : <EventBlocks events={es} />)}
+                      {es.length > 0 && <EventBlocks events={es} />}
                     </div>
                   )
                 })}
@@ -594,6 +668,12 @@ export function FeatureMap() {
       <p style={{ color: 'var(--dim)', fontSize: 11.5, margin: 0 }}>
         {L.map.source(DOC_PATH[track])}
       </p>
+    </div>
+    {sel !== null && (
+      <FeaturePanel column={sel} dependants={dependants} onPick={setOpen}
+        onClose={() => setOpen(null)}
+        titleOf={(id) => g.groups.find((x) => x.id === id)?.title ?? id} />
+    )}
     </div>
   )
 }
