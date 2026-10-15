@@ -161,20 +161,28 @@ function Evidence({ text }: { text: string }) {
 /**
  * **One sub-feature: what the table says it is, and how it got here.**
  *
- * The name carries the official term and the clause the table files it under; the two tags are
- * the table's own verdicts; the prose is the table's evidence cell, which is where this
- * repository already keeps 「what this is and what we did about it」. **None of that is rewritten
- * here** — a second description per row would be a second place to go stale, and this repository
- * has spent a month on exactly that failure (`docs/course-figure-pinning.md`).
+ * The name carries the official term and the clause the table files it under, and the two tags
+ * are the table's own verdicts — where the standard stands, and whether this engine built it.
+ * Under them are two folds, and **what is in which fold is the point**:
  *
- * What is new is the last line: this one row's own documents, in order, with the day, the kind,
- * the companies on them and what each one did. 「It was proposed in 2025-09, voted down twice in
- * 2026, and the last word on it is a comment resolution from October」 is a sentence a reader can
- * now read off one sub-feature instead of off a column's worth of citations.
+ * - **the documents, first** — this one row's own citations in order, with the day, the kind, the
+ *   companies and what each one did. 「Proposed 2026-04, voted down twice, last word is a comment
+ *   resolution from October」 is now readable off one sub-feature.
+ * - **the evidence cell, folded** — it is the table's own prose and it is not rewritten here (a
+ *   second description per row would be a second place to go stale), but it is also where every
+ *   `uwb/mms.ts#…` in this repository lives. **The cell cannot be split**: I measured it — 22 rows
+ *   put an engine path in the half before any 「引擎／本仿真器／范围决定」 marker, and 85 of the
+ *   123 Wi-Fi rows carry no marker at all while still naming engine files. A rule that claimed to
+ *   separate 「what the standard says」 from 「what we built」 would mislabel both. So the whole
+ *   cell folds, under a summary that says both halves are inside.
  */
 function SubFeature({ detail }: { detail: RowDetail }) {
   const L = useStrings()
   const { row, docs } = detail
+  const span = docs.length === 0 ? ''
+    : (docs[0]!.date === docs[docs.length - 1]!.date
+      ? `（${docs[0]!.date}）`
+      : `（${docs[0]!.date} → ${docs[docs.length - 1]!.date}）`)
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px' }}>
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -182,17 +190,22 @@ function SubFeature({ detail }: { detail: RowDetail }) {
         <span style={tag(STATUS_COLOR[row.statusKind])}>{row.status}</span>
         <span style={tag(ENGINE_COLOR[row.engine] ?? 'var(--dim)')}>{row.engine}</span>
       </div>
-      <div style={{ color: 'var(--dim)', fontSize: 11.5, marginTop: 3, lineHeight: 1.55 }}>
-        <Evidence text={row.evidence} />
-      </div>
       {docs.length > 0 && (
         <details style={{ marginTop: 4 }}>
           <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11 }}>
-            {L.map.rowDocs(docs.length)}
+            {L.map.rowDocs(docs.length, span)}
           </summary>
           <div style={{ marginTop: 4 }}><DocTimeline docs={docs} /></div>
         </details>
       )}
+      <details style={{ marginTop: 3 }}>
+        <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11 }}>
+          {L.map.rowEvidence}
+        </summary>
+        <div style={{ color: 'var(--dim)', fontSize: 11.5, marginTop: 3, lineHeight: 1.55 }}>
+          <Evidence text={row.evidence} />
+        </div>
+      </details>
     </div>
   )
 }
