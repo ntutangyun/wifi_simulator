@@ -309,8 +309,10 @@ const UWB_SPINE: GroupSpec[] = [
    * and streaming. Reading that as ONE feature made the widest claim on the screen: that these
    * twelve rows are one thing with one history, and that nothing in the draft needs any of them.
    *
-   * They are nine things with nine histories, and the dates prove it — the streaming row argues
-   * from the 2021 PAR while the compact frame's own security was still being voted on in 2026.
+   * They are eight features with eight histories (discovery and parameter negotiation ride
+   * together: §10.41 and §10.42 are the same handshake before a session), and the dates prove it
+   * — the streaming row argues from the 2021 PAR while the compact frame's own security was
+   * still being voted on in 2026.
    * Splitting them is what lets the picture say so; the engine's verdict on every one of them is
    * still 未建模, and the bars say that without help.
    */

@@ -151,7 +151,7 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
    * not, and their own citations say so: the streaming row argues from the 2021 PAR, while the
    * compact frame's security was still being voted through in 2026.
    *
-   * So this holds the split in place. Every row of that section must land in one of these nine
+   * So this holds the split in place. Every row of that section must land in one of these eight
    * groups, each group must be `absent` (the section exists to list what this repository decided
    * not to build), and **no group may mix in a row from anywhere else** — which is what would
    * happen if a `has()` pattern here started matching a row of §十一 or §十二.
