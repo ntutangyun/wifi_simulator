@@ -63,9 +63,16 @@ const md = (s: string): string => esc(s)
 const lessonsOf = (track: Track): string[] =>
   LESSONS.filter((l) => trackOf(l) === track).map((l) => l.id)
 
-const COL_W = 112
+const COL_W = 158
 const OPEN_W = 376
 const GUTTER = 84
+/** How many blocks a closed cell shows before it says there are more. */
+const BLOCKS = 5
+const DOC_KIND_SHORT: Record<string, string> = {
+  proposal: '投稿', cr: '决议', pdt: '文字', sfd: '框架', draft: '草案', agenda: '议程',
+  'closing-report': '闭幕', minutes: '纪要', 'comments-sheet': '意见表', simulation: '仿真',
+  usecase: '用例', tgd: '指南', process: '流程', 'motion-dock': '动议', timeline: '日程',
+}
 
 function section(track: Track): string {
   const g = graphFor(track, lessonsOf(track))
@@ -131,10 +138,23 @@ function section(track: Track): string {
     const cells = g.columns.map((c, i) => {
       const es = c.events.filter((e) => e.row === row)
       const inside = c.firstRow >= 0 && row >= c.firstRow && row <= c.lastRow
-      const dots = es.map((e) =>
-        `<span class="dot ${e.kind}" title="${esc(e.date === '' ? '已发布标准' : e.date)}　`
-        + `${esc(e.label)}${e.detail === '' ? '' : `　${esc(e.detail)}`}`
-        + `${e.orgs.length === 0 ? '' : `　${esc(e.orgs.join('、'))}`}"></span>`).join('')
+      const blocks = es.slice(0, BLOCKS).map((e) =>
+        `<div class="blk ${e.kind}" title="${esc(e.date === '' ? '已发布标准' : e.date)}　`
+        + `${esc(e.label)}`
+        + `${e.docKind === undefined ? '' : `　${esc(DOC_KIND[e.docKind] ?? e.docKind)}`}`
+        + `${e.detail === '' ? '' : `　${esc(e.detail)}`}`
+        + `${e.orgs.length === 0 ? '' : `　${esc(e.orgs.join('、'))}`}">`
+        + `<span class="id">${esc(e.kind === 'published' ? '已发布标准' : e.label)}</span>`
+        + `${e.docKind === undefined ? ''
+          : `<span class="kd">${esc(DOC_KIND_SHORT[e.docKind] ?? e.docKind)}</span>`}`
+        + e.orgs.slice(0, 3).map((o) =>
+          `<span class="chip sm" style="background:${orgColor(o)}" title="${esc(o)}">`
+          + `${esc(orgInitials(o))}</span>`).join('')
+        + '</div>').join('')
+        + (es.length > BLOCKS
+          ? `<div class="more" title="${esc(es.slice(BLOCKS).map((e) => `${e.date} ${e.label}`)
+            .join('、'))}">还有 ${es.length - BLOCKS} 件，点开这一列</div>`
+          : '')
       const lines = es.map((e) => (e.kind === 'published'
         ? '<div class="ev-line"><span class="dot published"></span><b>已发布标准</b></div>'
         : `<div class="ev-line"><span class="dot ${e.kind}"></span>`
@@ -143,7 +163,7 @@ function section(track: Track): string {
           + `${e.orgs.length === 0 ? '' : `　<span class="dim">${esc(e.orgs.join('、'))}</span>`}`
           + `<div class="dim detail">${esc(e.detail)}</div></div>`)).join('')
       return `<div class="cell${inside ? ' lane' : ''}${r.events === 0 ? ' thin' : ''}"`
-        + ` data-col="${i}">${dots === '' ? '' : `<span class="dots">${dots}</span>`}`
+        + ` data-col="${i}">${blocks === '' ? '' : `<div class="blocks">${blocks}</div>`}`
         + `${lines === '' ? '' : `<div class="lines">${lines}</div>`}</div>`
     }).join('')
     return `<div class="rowlabel${r.events === 0 ? ' thin' : ''}`
@@ -264,17 +284,25 @@ const html = `<!doctype html>
   .cell { position: relative; min-height: 28px; padding: 2px 6px; cursor: pointer;
     border-right: 1px solid var(--line); border-bottom: 1px solid var(--line) }
   .cell.thin { min-height: 12px; padding: 0 }
-  .cell.lane::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
-    margin-left: -1px; background: rgba(127,127,127,.38) }
+  .cell.lane::before { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 2px;
+    background: rgba(127,127,127,.38) }
   .cell.on { background: rgba(127,127,127,.10) }
-  .cell.on.lane::before { left: 9px }
-  .dots { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; padding-top: 5px }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--dim) }
+  .blocks { display: grid; gap: 2px; padding-top: 2px }
+  .blk { display: flex; gap: 4px; align-items: center; border-radius: 4px; padding: 1px 4px;
+    font-size: 9.5px; line-height: 14px; overflow: hidden; background: rgba(127,127,127,.12);
+    border-left: 3px solid var(--dim) }
+  .blk.published { border-left-color: var(--core) } .blk.doc { border-left-color: var(--draft) }
+  .blk.lesson { border-left-color: var(--full) }
+  .blk .id { font-family: ui-monospace, Consolas, monospace; white-space: nowrap }
+  .blk .kd { color: var(--dim); white-space: nowrap }
+  .chip.sm { width: 11px; height: 11px; border-radius: 3px; font-size: 6.5px; line-height: 11px;
+    flex: 0 0 auto }
+  .more { font-size: 9px; color: var(--dim); padding-left: 5px }
+  .lines { display: none } .cell.on .lines { display: grid; gap: 3px; padding-left: 14px }
+  .cell.on .blocks { display: none }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dim) }
   .dot.published { background: var(--core) } .dot.doc { background: var(--draft) }
   .dot.lesson { background: var(--full) }
-  .lines { display: none } .cell.on .lines { display: grid; gap: 3px; padding-left: 14px }
-  .cell.on .dots { display: none }
   .ev-line { font-size: 11px; line-height: 1.45 } .ev-line .dot { margin-right: 5px }
   .ev-line .detail { padding-left: 12px }
   .dim { color: var(--dim) }
@@ -306,8 +334,9 @@ const html = `<!doctype html>
   <h1>特性图谱：标准怎么说，草案提了什么，本仿真器建到哪一步</h1>
   <p class="sub">${counts}。<b>一列一个特性，一行一个季度。</b>左右是特性进入记录的先后：先是
     已发布标准的那一批，再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的
-    那几个。上下是这个特性自己的历史——蓝点是已发布条款，紫点是一篇 mentor 文稿，绿点是本仓库写下
-    那门课的那一天。<b>点一列，它就地展开</b>：行里的点变成逐条的文稿，表头变成它的全部特性行、
+    那几个。上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿（块上
+    写着编号、类型与作者单位），蓝块是已发布条款，绿块是本仓库写下那门课的那一天；一格最多摆五块，
+    余下的点开这一列全看。<b>点一列，它就地展开</b>：行里的点变成逐条的文稿，表头变成它的全部特性行、
     依赖与文稿上的单位。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
     （<code>src/course/featureGraph.ts</code>），两份覆盖表与两份生成的日期表现算而来，不存第二份数据。</p>
   <div class="legend">
@@ -338,7 +367,7 @@ const html = `<!doctype html>
 </footer>
 <script>
   const byId = (s) => document.getElementById(s)
-  const COL_W = 112, OPEN_W = 376, GUTTER = 84
+  const COL_W = 158, OPEN_W = 376, GUTTER = 84
   const deps = ${JSON.stringify(DEPS)}
 
   /** Widen one column in place, spell out its cells, and draw its dependency arcs. */

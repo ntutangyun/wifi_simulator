@@ -102,6 +102,9 @@ export interface Strings {
     timeAxis: string
     arcsLabel: string
     event: { published: string; doc: string; lesson: string }
+    /** Two characters for a block in a closed column; the long name is the tooltip's job. */
+    docKindShort: Record<string, string>
+    morePapers: (n: number) => string
     firstSeen: (date: string) => string
     lastSeen: (date: string) => string
     docCount: (n: number) => string
@@ -865,11 +868,18 @@ export const STRINGS: Strings = {
     rowsLabel: (n) => `这一组的 ${n} 行特性与证据 ▸`,
     axisNote: '一列一个特性，一行一个季度。左右是特性进入记录的先后：先是已发布标准的那一批，'
       + '再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的那几个。'
-      + '上下是这个特性自己的历史——蓝点是已发布、紫点是一篇 mentor 文稿、绿点是本仓库写下那门课的'
-      + '那一天。点一列，它就地展开：行里的点变成逐条的文稿，表头变成它的全部特性行与依赖。',
+      + '上下是这个特性自己的历史：格子里每一块是一件事——紫块是一篇 mentor 文稿（块上写着它的编号、'
+      + '类型与作者单位），蓝块是已发布条款，绿块是本仓库写下那门课的那一天。一格最多摆五块，'
+      + '余下的点开这一列全看，连标题一起。',
     timeAxis: '时间 ↓ ／ 特性 →',
     arcsLabel: '展开那一列的依赖弧线',
     event: { published: '已发布条款', doc: 'mentor 文稿', lesson: '本仓库的课' },
+    docKindShort: {
+      proposal: '投稿', cr: '决议', pdt: '文字', sfd: '框架', draft: '草案', agenda: '议程',
+      'closing-report': '闭幕', minutes: '纪要', 'comments-sheet': '意见表', simulation: '仿真',
+      usecase: '用例', tgd: '指南', process: '流程', 'motion-dock': '动议', timeline: '日程',
+    },
+    morePapers: (n) => `还有 ${n} 件，点开这一列`,
     firstSeen: (date) => `首见 ${date}`,
     lastSeen: (date) => `最近 ${date}`,
     docCount: (n) => `${n} 篇文稿`,

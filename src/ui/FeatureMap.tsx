@@ -49,7 +49,7 @@ const EVENT_COLOR: Record<TimeEvent['kind'], string> = {
 }
 
 const GUTTER = 84
-const COL_W = 112
+const COL_W = 158
 const OPEN_W = 376
 const ROW_H = 28
 const ARCS_H = 34
@@ -127,22 +127,52 @@ function RowList({ rows }: { rows: FeatureRow[] }) {
   )
 }
 
-/** A closed column's cell: one dot per event, the colour saying whose event it was. */
-function EventDots({ events }: { events: TimeEvent[] }) {
+/** How many blocks a closed cell shows before it says 「there are more, open the column」. */
+const BLOCKS = 5
+
+/**
+ * A closed column's cell: **one block per thing that happened**, not one dot.
+ *
+ * A dot could only say 「something happened here」; the block says which document it was, what
+ * kind of document, and whose name is on it — which is the whole of what the matrix knows before
+ * a column is opened. The cap keeps one busy quarter (14 comment resolutions landed on MMS
+ * ranging in 2026Q3) from setting the height of its whole row.
+ */
+function EventBlocks({ events }: { events: TimeEvent[] }) {
   const L = useStrings()
+  const shown = events.slice(0, BLOCKS)
   return (
-    <span style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center',
-      paddingTop: 5 }}>
-      {events.slice(0, 7).map((e) => (
-        <span key={e.label} title={`${e.date === '' ? L.map.baseline : e.date}　${e.label}`
+    <div style={{ display: 'grid', gap: 2, paddingTop: 2 }}>
+      {shown.map((e) => (
+        <div key={e.label} title={`${e.date === '' ? L.map.baseline : e.date}　${e.label}`
+          + `${e.docKind === undefined ? '' : `　${L.map.docKind[e.docKind] ?? e.docKind}`}`
           + `${e.detail === '' ? '' : `　${e.detail}`}`
           + `${e.orgs.length > 0 ? `　${e.orgs.join('、')}` : ''}`}
-        style={{ width: 8, height: 8, borderRadius: '50%', background: EVENT_COLOR[e.kind] }} />
+        style={{ display: 'flex', gap: 4, alignItems: 'center', borderRadius: 4,
+          borderLeft: `3px solid ${EVENT_COLOR[e.kind]}`, background: 'rgba(127,127,127,.12)',
+          padding: '1px 4px', fontSize: 9.5, lineHeight: '14px', overflow: 'hidden' }}>
+          <span style={{ fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap' }}>
+            {e.kind === 'published' ? L.map.baseline : e.label}
+          </span>
+          {e.docKind !== undefined && (
+            <span style={{ color: 'var(--dim)', whiteSpace: 'nowrap' }}>
+              {L.map.docKindShort[e.docKind] ?? L.map.docKind[e.docKind] ?? e.docKind}
+            </span>
+          )}
+          {e.orgs.slice(0, 3).map((o) => (
+            <span key={o} title={o} style={{ width: 11, height: 11, borderRadius: 3, fontSize: 6.5,
+              fontWeight: 700, color: '#fff', textAlign: 'center', lineHeight: '11px',
+              background: orgColor(o), flex: '0 0 auto' }}>{orgInitials(o)}</span>
+          ))}
+        </div>
       ))}
-      {events.length > 7 && (
-        <span style={{ fontSize: 9, color: 'var(--dim)' }}>+{events.length - 7}</span>
+      {events.length > BLOCKS && (
+        <div title={events.slice(BLOCKS).map((e) => `${e.date} ${e.label}`).join('、')}
+          style={{ fontSize: 9, color: 'var(--dim)', paddingLeft: 5 }}>
+          {L.map.morePapers(events.length - BLOCKS)}
+        </div>
       )}
-    </span>
+    </div>
   )
 }
 
@@ -315,8 +345,9 @@ export function FeatureMap() {
         color: 'var(--dim)', alignItems: 'center' }}>
         {(['published', 'doc', 'lesson'] as TimeEvent['kind'][]).map((k) => (
           <span key={k}>
-            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%',
-              background: EVENT_COLOR[k], marginRight: 4 }} />
+            <span style={{ display: 'inline-block', width: 10, height: 9, borderRadius: 2,
+              borderLeft: `3px solid ${EVENT_COLOR[k]}`, background: 'rgba(127,127,127,.2)',
+              marginRight: 4 }} />
             {L.map.event[k]}
           </span>
         ))}
@@ -457,10 +488,10 @@ export function FeatureMap() {
                       {/* The lane: from a feature's first event to its last, so a column with a
                           gap in the middle still reads as one thing. */}
                       {inside && (
-                        <span style={{ position: 'absolute', left: on ? 8 : COL_W / 2 - 1, top: 0,
+                        <span style={{ position: 'absolute', left: 3, top: 0,
                           bottom: 0, width: 2, background: 'rgba(127,127,127,.38)' }} />
                       )}
-                      {es.length > 0 && (on ? <EventLines events={es} /> : <EventDots events={es} />)}
+                      {es.length > 0 && (on ? <EventLines events={es} /> : <EventBlocks events={es} />)}
                     </div>
                   )
                 })}
