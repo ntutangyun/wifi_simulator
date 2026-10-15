@@ -303,20 +303,25 @@ test.describe('nothing falls off the side of the screen', () => {
   })
 
   /**
-   * The feature map is the one mode that draws a picture wider than any phone — 1 936 px for the
-   * UWB spine — so it is the one most likely to push the page into a horizontal scroll. It must
-   * not: the graph pans inside its own box and the page does not move. The mode also adds a sixth
-   * control to the header, which at 470 px is the width this whole file exists to defend.
+   * The feature map is the one mode that draws something wider than any phone — the UWB matrix is
+   * 27 columns, 3 108 px — so it is the one most likely to push the page into a horizontal
+   * scroll. It must not: the matrix pans inside its own box, with its time gutter stuck to the
+   * left and its feature headers stuck to the top, and the page does not move. The mode also adds
+   * a sixth control to the header, which at 470 px is the width this whole file exists to defend.
+   *
+   * Opening a column is the case that matters most here: the column grows to 376 px **inside**
+   * the same scroller, and its card carries the longest evidence cells in either document.
    */
   test('map mode, both tracks', async ({ page }) => {
     await open(page, 'map')
-    await page.locator('svg[role="img"]').waitFor()
+    await page.getByText('时间 ↓').first().waitFor()
     expectNothingOffScreen(await survey(page), 'map · wifi')
-    // A group's rows open under the graph: the longest evidence cells in either document.
-    await page.locator('svg[role="img"] g').filter({ hasText: 'DCF' }).first().click()
-    expectNothingOffScreen(await survey(page), 'map · wifi · a group open')
+    // A column opens in place: rows, evidence, dependencies and companies, all inside the column.
+    await page.getByText('DCF 信道接入', { exact: true }).first().click()
+    await page.getByText('依赖（这一组要成立，先得有）：').first().waitFor()
+    expectNothingOffScreen(await survey(page), 'map · wifi · a column open')
     await page.locator('main button', { hasText: /^UWB$/ }).click()
-    await page.locator('svg[role="img"]').waitFor()
+    await page.getByText('时间 ↓').first().waitFor()
     expectNothingOffScreen(await survey(page), 'map · uwb')
   })
 

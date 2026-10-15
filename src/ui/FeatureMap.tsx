@@ -1,32 +1,37 @@
 /**
- * **The feature map: what the standard defines, what a draft proposes, what this engine built.**
+ * **The feature map: one column per feature, one row per quarter.**
  *
- * One box per feature group, one arrow per dependency, and under every box a bar showing what the
- * engine did with the rows inside it. Click a box and the rows appear with their evidence —
- * clause numbers, engine symbols, lesson ids — exactly as the coverage document writes them.
+ * Left to right is the order features entered the record — the published spine first, then each
+ * draft feature in the quarter it was first tabled, then the models this engine built with no
+ * clause to point at. Down a column is that one feature's history: every mentor document its rows
+ * cite, and the day the lesson that teaches it was added here. The two together are the point:
+ * 「tabled 2022-07, still being argued 2026-10, taught here since 2026-09」 is one column, read
+ * top to bottom.
  *
- * **Top to bottom is time**: a group sits in the year its earliest cited contribution was first
- * disclosed, so the picture reads as the history of the protocol rather than as a diagram of it.
- * Every arrow therefore wants to point downwards, and on both tracks every one of them does —
- * which is the dependency rule and the record agreeing, not an arrangement. The chips at the foot
- * of a box are the companies whose names are on those contributions.
+ * **Clicking a column opens it in place.** The detail is not a panel somewhere else: the column
+ * widens, its header becomes a card (rows and their evidence, dependencies with their reasons,
+ * companies), and its cells spell out the events they were drawing as dots. The open column's
+ * dependencies are drawn as arcs across the strip above the grid, and the columns they point at
+ * are outlined.
  *
- * Everything on this screen is computed from `docs/wifi-feature-coverage.md` and
- * `docs/uwb-feature-coverage.md` at build time (`src/course/featureGraph.ts`). There is no copy of
- * either table here: edit a row in the document and this screen changes with it. The only thing
- * authored on this side is the spine — which group a row belongs to and which group needs which —
- * and `tests/course/feature-graph.test.ts` holds it to covering every row and every lesson.
+ * Everything here is computed from `docs/wifi-feature-coverage.md`,
+ * `docs/uwb-feature-coverage.md`, `src/course/docMeta.json` and `src/course/lessonMeta.json`
+ * (`src/course/featureGraph.ts`). There is no copy of either table: edit a row in the document
+ * and this screen changes with it. The only thing authored on this side is the spine — which
+ * group a row belongs to and which group needs which — and `tests/course/feature-graph.test.ts`
+ * holds it to covering every row and every lesson.
  */
 import { useMemo, useState } from 'react'
 import {
-  BASELINE, BOX_H, BOX_W, DOC_PATH, UNDATED, graphFor, wrapCjk,
-  type FeatureGroup, type FeatureRow, type StatusKind, type Track,
+  BASELINE, DOC_PATH, graphFor,
+  type FeatureGroup, type FeatureRow, type MatrixColumn, type StatusKind, type TimeEvent,
+  type Track,
 } from '../course/featureGraph'
 import { LESSONS } from '../course/lessons'
 import { trackOf } from '../course/curriculum'
 import { useStrings } from './i18n'
 
-/** The four families, as border colours. Kept here because they are a drawing decision. */
+/** The four families, as the colour of a column's top edge. A drawing decision, so it lives here. */
 const FAMILY_COLOR: Record<FeatureGroup['family'], string> = {
   core: '#4aa3ff', draft: '#b07cff', derived: '#8a93a3', absent: '#4b5563',
 }
@@ -38,15 +43,30 @@ const STATUS_COLOR: Record<StatusKind, string> = {
   published: '#4aa3ff', draft: '#b07cff', contested: '#ff8a4a',
   unsettled: '#8a93a3', none: '#6b7280',
 }
+/** What a dot means: the standard's paperwork (blue, purple) or ours (green). */
+const EVENT_COLOR: Record<TimeEvent['kind'], string> = {
+  published: '#4aa3ff', doc: '#b07cff', lesson: '#35c08a',
+}
+
+const GUTTER = 84
+const COL_W = 112
+const OPEN_W = 376
+const ROW_H = 28
+const ARCS_H = 34
+
+const tag = (color: string): React.CSSProperties => ({
+  display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11,
+  whiteSpace: 'nowrap', border: `1px solid ${color}`, color,
+})
 
 /**
  * **A company gets a colour and its initials, never its logo.**
  *
  * A logo is someone's trademark, it would have to be fetched and committed as an image, and this
- * repository carries no third-party assets — so the chips are drawn from the one thing the
- * corpus actually gives us: the name printed in the affiliation field. The colour is a hash of
- * that name, so it is stable across renders and across tracks without a table to maintain, and
- * the full name is in the chip's tooltip and spelled out in the panel.
+ * repository carries no third-party assets — so the chips are drawn from the one thing the corpus
+ * gives us: the name printed in the affiliation field. The colour is a hash of that name, so it
+ * is stable across renders and across tracks without a table to maintain, and the full name is in
+ * the tooltip and spelled out when the column is open.
  */
 const ORG_HUES = [206, 268, 152, 24, 340, 48, 188, 292, 120, 8]
 function orgColor(name: string): string {
@@ -54,8 +74,6 @@ function orgColor(name: string): string {
   for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) % 100000
   return `hsl(${ORG_HUES[h % ORG_HUES.length]} 52% 46%)`
 }
-
-/** Two letters for a Latin name, the first two characters otherwise. */
 function orgInitials(name: string): string {
   const words = name.split(/[\s.,-]+/).filter((w) => w !== '')
   if (words.length >= 2 && /^[A-Za-z]/.test(words[0]!)) {
@@ -64,27 +82,9 @@ function orgInitials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
-/**
- * The four chips a box has room for: the first three companies, then 「+N」 carrying the rest in
- * its tooltip. Three plus a count rather than four plus a label, because the fourth label and the
- * date span were drawn on the same line and overlapped at 196 px.
- */
-function chipsOf(orgs: { name: string; docs: number }[]):
-{ key: string; label: string; docs: number; rest: { name: string; docs: number }[] | null }[] {
-  if (orgs.length <= 4) {
-    return orgs.map((o) => ({ key: o.name, label: orgInitials(o.name), docs: o.docs, rest: null }))
-  }
-  const rest = orgs.slice(3)
-  return [
-    ...orgs.slice(0, 3).map((o) =>
-      ({ key: o.name, label: orgInitials(o.name), docs: o.docs, rest: null })),
-    { key: '+', label: `+${rest.length}`, docs: 0, rest },
-  ]
-}
-
-const tag = (color: string): React.CSSProperties => ({
-  display: 'inline-block', padding: '0 6px', borderRadius: 999, fontSize: 11,
-  whiteSpace: 'nowrap', border: `1px solid ${color}`, color,
+const chipStyle = (background: string): React.CSSProperties => ({
+  display: 'inline-block', width: 15, height: 15, borderRadius: 4, fontSize: 8, fontWeight: 700,
+  color: '#fff', textAlign: 'center', lineHeight: '15px', background,
 })
 
 /** The evidence cell is Markdown: `code` and **bold** are the only two shapes it uses. */
@@ -108,24 +108,17 @@ function Evidence({ text }: { text: string }) {
   )
 }
 
-/** A band's name: the two bands that are not years get one, a year is its own. */
-function bandName(key: string, L: ReturnType<typeof useStrings>): string {
-  if (key === BASELINE) return L.map.baseline
-  if (key === UNDATED) return L.map.undated
-  return key
-}
-
 function RowList({ rows }: { rows: FeatureRow[] }) {
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div style={{ display: 'grid', gap: 8 }}>
       {rows.map((r) => (
-        <div key={r.feature} style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <span style={{ fontWeight: 600 }}>{r.feature}</span>
+        <div key={r.feature} style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <span style={{ fontWeight: 600, fontSize: 12 }}>{r.feature}</span>
             <span style={tag(STATUS_COLOR[r.statusKind])}>{r.status}</span>
             <span style={tag(ENGINE_COLOR[r.engine] ?? 'var(--dim)')}>{r.engine}</span>
           </div>
-          <div style={{ color: 'var(--dim)', fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
+          <div style={{ color: 'var(--dim)', fontSize: 11.5, marginTop: 3, lineHeight: 1.55 }}>
             <Evidence text={r.evidence} />
           </div>
         </div>
@@ -134,23 +127,165 @@ function RowList({ rows }: { rows: FeatureRow[] }) {
   )
 }
 
+/** A closed column's cell: one dot per event, the colour saying whose event it was. */
+function EventDots({ events }: { events: TimeEvent[] }) {
+  const L = useStrings()
+  return (
+    <span style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center',
+      paddingTop: 5 }}>
+      {events.slice(0, 7).map((e) => (
+        <span key={e.label} title={`${e.date === '' ? L.map.baseline : e.date}　${e.label}`
+          + `${e.detail === '' ? '' : `　${e.detail}`}`
+          + `${e.orgs.length > 0 ? `　${e.orgs.join('、')}` : ''}`}
+        style={{ width: 8, height: 8, borderRadius: '50%', background: EVENT_COLOR[e.kind] }} />
+      ))}
+      {events.length > 7 && (
+        <span style={{ fontSize: 9, color: 'var(--dim)' }}>+{events.length - 7}</span>
+      )}
+    </span>
+  )
+}
+
+/** An open column's cell: the same events, spelled out where they happened. */
+function EventLines({ events }: { events: TimeEvent[] }) {
+  const L = useStrings()
+  return (
+    <div style={{ display: 'grid', gap: 3, paddingLeft: 14 }}>
+      {events.map((e) => (
+        <div key={e.label} style={{ fontSize: 11, lineHeight: 1.45 }}>
+          <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+            background: EVENT_COLOR[e.kind], marginRight: 5 }} />
+          {e.kind === 'published' ? <b>{L.map.baseline}</b> : (
+            <>
+              <span style={{ fontFamily: 'ui-monospace, Consolas, monospace',
+                color: 'var(--dim)' }}>{e.date}</span>
+              {' '}
+              <b>{e.label}</b>
+              {e.docKind !== undefined && (
+                <span style={{ color: 'var(--dim)' }}>　{L.map.docKind[e.docKind] ?? e.docKind}</span>
+              )}
+              {e.orgs.length > 0 && (
+                <span style={{ color: 'var(--dim)' }}>　{e.orgs.join('、')}</span>
+              )}
+              {e.detail !== '' && (
+                <div style={{ color: 'var(--dim)', paddingLeft: 12 }}>{e.detail}</div>
+              )}
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The open column's header: everything the old panel held, inside the column it belongs to.
+ * It scrolls on its own, so opening a column cannot push the time axis off the screen.
+ */
+function OpenCard({ column, dependants, onPick, titleOf }: {
+  column: MatrixColumn
+  dependants: FeatureGroup[]
+  onPick: (id: string) => void
+  titleOf: (id: string) => string
+}) {
+  const L = useStrings()
+  const g = column.group
+  return (
+    <div onClick={(e) => e.stopPropagation()}
+      style={{ marginTop: 6, maxHeight: 200, overflow: 'auto', fontSize: 12,
+        borderTop: '1px solid var(--border)', paddingTop: 6, cursor: 'default' }}>
+      <div style={{ color: 'var(--dim)', fontSize: 11.5, marginBottom: 6 }}>{g.note}</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center',
+        marginBottom: 6 }}>
+        <span style={tag(g.since === null ? 'var(--dim)' : '#4aa3ff')}>
+          {g.since === null ? L.map.baseline : L.map.firstSeen(g.since)}
+        </span>
+        {g.until !== null && g.until !== g.since && (
+          <span style={{ color: 'var(--dim)' }}>{L.map.lastSeen(g.until)}</span>
+        )}
+        <span style={{ color: 'var(--dim)' }}>{L.map.eventCount(column.events.length)}</span>
+      </div>
+      {g.since === null && (
+        <p style={{ color: 'var(--dim)', fontSize: 11, margin: '0 0 6px' }}>
+          {g.era === BASELINE ? L.map.baselineWhy : L.map.undatedWhy}
+        </p>
+      )}
+      {g.orgs.length > 0 && (
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ color: 'var(--dim)', fontSize: 11.5 }}>{L.map.orgsLabel}</span>
+            {g.orgs.map((o) => (
+              <span key={o.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 11.5 }}>
+                <span style={chipStyle(orgColor(o.name))}>{orgInitials(o.name)}</span>
+                {o.name}<span style={{ color: 'var(--dim)' }}>×{o.docs}</span>
+              </span>
+            ))}
+          </div>
+          <p style={{ color: 'var(--dim)', fontSize: 11, margin: '3px 0 0' }}>{L.map.orgsNote}</p>
+        </div>
+      )}
+      {/* **Every dependency gets its reason on screen.** An arrow with no reason is a teaching
+          order wearing an arrowhead; writing them out is what kept the two apart when this spine
+          was re-derived as feature dependencies. */}
+      <div style={{ display: 'grid', gap: 3, marginBottom: 6 }}>
+        <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
+          {L.map.needs}{g.needs.length === 0 ? L.map.noNeeds : ''}
+        </div>
+        {g.needs.map((n) => (
+          <div key={n.id} style={{ fontSize: 11.5, paddingLeft: 8 }}>
+            <button style={{ padding: '0 6px', fontSize: 11.5 }}
+              onClick={() => onPick(n.id)}>{titleOf(n.id)}</button>
+            <span style={{ color: 'var(--dim)' }}>　{n.why}</span>
+          </div>
+        ))}
+        {dependants.length > 0 && (
+          <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
+            {L.map.feeds}{dependants.map((d) => d.title).join('、')}
+          </div>
+        )}
+        <div style={{ color: 'var(--dim)', fontSize: 11.5 }}>
+          {L.map.lessonsLabel}
+          {g.lessons.length === 0 ? L.map.noLessons : g.lessons.map((x) => `@${x}`).join('、')}
+        </div>
+      </div>
+      {/* The rows fold away: on a 511 px screen the open column's header is most of the view,
+          and the thing a reader came for — the column's own history — is in the cells below. */}
+      <details>
+        <summary style={{ cursor: 'pointer', color: 'var(--dim)', fontSize: 11.5 }}>
+          {L.map.rowsLabel(g.rows.length)}
+        </summary>
+        <div style={{ marginTop: 6 }}><RowList rows={g.rows} /></div>
+      </details>
+    </div>
+  )
+}
+
 export function FeatureMap() {
   const L = useStrings()
   const [track, setTrack] = useState<Track>('wifi')
-  const [selected, setSelected] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
   const lessonIds = useMemo(
     () => LESSONS.filter((l) => trackOf(l) === track).map((l) => l.id), [track])
   // The two documents are ~170 KB of Markdown between them; parsing is per track and memoised.
   const g = useMemo(() => graphFor(track, lessonIds), [track, lessonIds])
-  const sel = g.groups.find((x) => x.id === selected) ?? null
+
+  const sel = g.columns.find((c) => c.group.id === open) ?? null
   /** The other half of a dependency: who would stop making sense without this one. */
   const dependants = sel === null ? []
-    : g.groups.filter((x) => x.needs.some((n) => n.id === sel.id))
+    : g.groups.filter((x) => x.needs.some((n) => n.id === sel.group.id))
 
-  const switchTrack = (t: Track): void => { setTrack(t); setSelected(null) }
+  /** Column widths decide every x in the picture, arcs included. One source, nothing measured. */
+  const widths = g.columns.map((c) => (c.group.id === open ? OPEN_W : COL_W))
+  const xOf = (i: number): number => GUTTER + widths.slice(0, i).reduce((a, b) => a + b, 0)
+  const totalW = GUTTER + widths.reduce((a, b) => a + b, 0)
+  const indexOf = (id: string): number => g.columns.findIndex((c) => c.group.id === id)
+
+  const switchTrack = (t: Track): void => { setTrack(t); setOpen(null) }
+  const needIds = new Set(sel?.group.needs.map((n) => n.id) ?? [])
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', padding: 12, display: 'grid', gap: 12,
+    <div style={{ height: '100%', overflow: 'auto', padding: 12, display: 'grid', gap: 10,
       alignContent: 'start' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 4 }}>
@@ -177,233 +312,166 @@ export function FeatureMap() {
       </div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11.5,
-        color: 'var(--dim)' }}>
+        color: 'var(--dim)', alignItems: 'center' }}>
+        {(['published', 'doc', 'lesson'] as TimeEvent['kind'][]).map((k) => (
+          <span key={k}>
+            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%',
+              background: EVENT_COLOR[k], marginRight: 4 }} />
+            {L.map.event[k]}
+          </span>
+        ))}
         {(['core', 'draft', 'derived', 'absent'] as FeatureGroup['family'][]).map((f) => (
           <span key={f}>
-            <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2,
-              background: FAMILY_COLOR[f], marginRight: 4 }} />
+            <span style={{ display: 'inline-block', width: 10, height: 3, borderRadius: 2,
+              background: FAMILY_COLOR[f], marginRight: 4, verticalAlign: 'middle' }} />
             {L.map.family[f]}
           </span>
         ))}
-        <span>
-          <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%',
-            background: '#ff8a4a', marginRight: 4 }} />
-          {L.map.openBadge}
-        </span>
-        {g.edges.some((e) => e.kind === 'up') && <span>{L.map.upEdge}</span>}
       </div>
 
-      <p style={{ color: 'var(--dim)', fontSize: 11.5, margin: 0 }}>{L.map.axisNote}</p>
+      <details style={{ color: 'var(--dim)', fontSize: 11.5 }}>
+        <summary style={{ cursor: 'pointer' }}>{L.map.axisShort}</summary>
+        <p style={{ margin: '4px 0 0' }}>{L.map.axisNote}</p>
+      </details>
 
       {/* **A scroll container's min-content height is zero**, so inside a grid it is handed
-          whatever is left — 41 px of a 708 px drawing, measured at 939x511. It gets a height of
-          its own: its natural one, capped so the picture never pushes the panel's text off a
-          short screen. */}
+          whatever is left — 41 px of a 700 px drawing, measured at 939x511. It gets a height of
+          its own, capped so the matrix never pushes the rest of the screen away. */}
       <div style={{ overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8,
-        background: 'var(--panel)', height: `min(62vh, ${g.height + 4}px)` }}>
-        <svg width={g.width} height={g.height} role="img" aria-label={L.map.title}>
-          <defs>
-            <marker id="fm-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7"
-              markerHeight="7" orient="auto">
-              <path d="M0 0 L8 4 L0 8 z" fill="var(--border)" />
-            </marker>
-          </defs>
-          {/* **The bands are the time axis.** A year with nothing in it still gets a lane:
-              2023, 2024 and 2025 are empty on the UWB side, and that pause is the fact —
-              the features were tabled in 2021–2022 and everything since is argument. */}
-          {g.bands.map((b, i) => (
-            <g key={b.key}>
-              <rect x={0} y={b.y - 8} width={g.width} height={b.height + 16}
-                fill={i % 2 === 0 ? 'var(--panel2)' : 'transparent'} opacity={0.5} />
-              <line x1={0} x2={g.width} y1={b.y - 8} y2={b.y - 8} stroke="var(--border)" />
-              <text x={10} y={b.y + 14} fontSize={12.5} fontWeight={700}
-                fill={b.groups === 0 ? 'var(--dim)' : 'var(--text)'}>
-                {bandName(b.key, L)}
-              </text>
-              {b.groups === 0 && (
-                <text x={10} y={b.y + 28} fontSize={10} fill="var(--dim)">{L.map.emptyYear}</text>
-              )}
-            </g>
-          ))}
-          {g.edges.map((e) => (
-            <path key={`${e.from}-${e.to}`} d={e.d} fill="none"
-              stroke={e.kind === 'up' ? '#ff8a4a' : 'var(--border)'}
-              strokeDasharray={e.kind === 'up' ? '5 3' : undefined}
-              strokeWidth={e.kind === 'down' ? 1.6 : 1.2} markerEnd="url(#fm-arrow)">
-              <title>{`${g.groups.find((x) => x.id === e.from)?.title} → `
-                + `${g.groups.find((x) => x.id === e.to)?.title}　${e.why}`}</title>
-            </path>
-          ))}
-          {/* **The lifeline: first tabled here, still being argued about down there.** */}
-          {g.boxes.map(({ group, x, y, lifeline }) => (lifeline === null ? null : (
-            <g key={`life-${group.id}`}>
-              <title>{`${group.title}　${L.map.firstSeen(group.since!)}　`
-                + `${L.map.lastSeen(group.until!)}`}</title>
-              <line x1={x + 10} x2={x + 10} y1={y + BOX_H} y2={lifeline} stroke="var(--dim)"
-                strokeWidth={2} strokeDasharray="2 3" opacity={0.7} />
-              <circle cx={x + 10} cy={lifeline} r={3.5} fill="var(--dim)" />
-            </g>
-          )))}
-          {g.boxes.map(({ group, x, y }) => {
-            const on = group.id === selected
-            const barW = BOX_W - 24
-            let run = 0
-            return (
-              <g key={group.id} transform={`translate(${x},${y})`} style={{ cursor: 'pointer' }}
-                onClick={() => setSelected(on ? null : group.id)}>
-                <title>{`${group.title}　${group.note}`}</title>
-                <rect width={BOX_W} height={BOX_H} rx={10} fill="var(--panel2)"
-                  stroke={FAMILY_COLOR[group.family]} strokeWidth={on ? 3 : 1.5} />
-                <text x={12} y={22} fill="var(--text)" fontSize={13} fontWeight={600}>
-                  {group.title}
-                </text>
-                <text x={12} y={40} fill="var(--dim)" fontSize={11}>
-                  {L.map.boxCounts(group.rows.length, group.lessons.length)}
-                </text>
-                {wrapCjk(group.note, 15, 2).map((line, i) => (
-                  <text key={i} x={12} y={58 + i * 14} fill="var(--dim)" fontSize={11}>{line}</text>
-                ))}
-                {/* The span, and the companies on the contributions it spans. */}
-                {/* The band label already names a group with no date; repeating it in the box
-                    would spend the one line the span has on saying nothing. */}
-                {group.since !== null && (
-                  <text x={12} y={BOX_H - 10} fill="var(--dim)" fontSize={9.5}>
-                    {`${group.since.slice(0, 7)}→${(group.until ?? group.since).slice(0, 7)}`}
-                  </text>
-                )}
-                {/* Four chips, and the fourth becomes 「+N」 when there are more — the row has
-                    room for four, and a fifth label squeezed next to the span overlapped it. */}
-                {chipsOf(group.orgs).map((c, i) => (
-                  <g key={c.key} transform={`translate(${BOX_W - 14 - (i + 1) * 17},${BOX_H - 24})`}>
-                    <title>{c.rest === null ? `${c.key}　${L.map.docCount(c.docs)}`
-                      : c.rest.map((o) => `${o.name}×${o.docs}`).join('、')}</title>
-                    <rect width={15} height={15} rx={4}
-                      fill={c.rest === null ? orgColor(c.key) : 'var(--dim)'} />
-                    <text x={7.5} y={11} fontSize={8} fontWeight={700} fill="#fff"
-                      textAnchor="middle">{c.label}</text>
-                  </g>
-                ))}
-                {group.open > 0 && (
-                  <>
-                    <circle cx={BOX_W - 18} cy={16} r={8} fill="#ff8a4a" />
-                    <text x={BOX_W - 18} y={20} fontSize={10.5} fontWeight={700} fill="#111318"
-                      textAnchor="middle">{group.open}</text>
-                  </>
-                )}
-                {(['已建模', '部分建模', '未建模'] as const).map((e) => {
-                  const n = group.rows.filter((r) => r.engine === e).length
-                  if (n === 0) return null
-                  const w = (n / group.rows.length) * barW
-                  const x0 = 12 + run
-                  run += w
+        background: 'var(--panel)', maxHeight: '72vh' }}>
+        <div style={{ position: 'relative', width: totalW }}>
+          {/* The dependency arcs, drawn only for the open column so the strip never becomes a
+              mat. Every x comes from `widths`, the array the grid itself is built from. */}
+          <svg width={totalW} height={ARCS_H} style={{ display: 'block' }}
+            role="img" aria-label={L.map.arcsLabel}>
+            <defs>
+              <marker id="fm-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7"
+                markerHeight="7" orient="auto">
+                <path d="M0 0 L8 4 L0 8 z" fill="var(--border)" />
+              </marker>
+            </defs>
+            {sel !== null && sel.group.needs.map((n) => {
+              const from = indexOf(n.id)
+              const to = indexOf(sel.group.id)
+              if (from < 0 || to < 0) return null
+              const x1 = xOf(from) + COL_W / 2
+              const x2 = xOf(to) + COL_W / 2
+              return (
+                <path key={n.id} fill="none" stroke={FAMILY_COLOR[sel.group.family]}
+                  strokeWidth={1.4} markerEnd="url(#fm-arrow)"
+                  d={`M${x1} ${ARCS_H - 3} C${x1} 4 ${x2} 4 ${x2} ${ARCS_H - 3}`}>
+                  <title>{`${g.groups.find((x) => x.id === n.id)?.title} → `
+                    + `${sel.group.title}　${n.why}`}</title>
+                </path>
+              )
+            })}
+          </svg>
+
+          <div style={{ display: 'grid',
+            gridTemplateColumns: `${GUTTER}px ${widths.map((w) => `${w}px`).join(' ')}` }}>
+            {/* ---- the header row: features, left to right in the order they appeared ---- */}
+            <div style={{ position: 'sticky', left: 0, top: 0, zIndex: 3,
+              background: 'var(--panel)', borderBottom: '1px solid var(--border)',
+              borderRight: '1px solid var(--border)', padding: '6px 8px', fontSize: 11,
+              color: 'var(--dim)' }}>
+              {L.map.timeAxis}
+            </div>
+            {g.columns.map((c) => {
+              const on = c.group.id === open
+              const need = needIds.has(c.group.id)
+              return (
+                <div key={c.group.id} onClick={() => setOpen(on ? null : c.group.id)}
+                  style={{ position: 'sticky', top: 0, zIndex: 2, cursor: 'pointer',
+                    background: on ? 'var(--panel2)' : 'var(--panel)',
+                    borderBottom: '1px solid var(--border)',
+                    borderRight: '1px solid var(--border)',
+                    borderTop: `3px solid ${FAMILY_COLOR[c.group.family]}`,
+                    outline: need ? `1px dashed ${FAMILY_COLOR[sel!.group.family]}` : undefined,
+                    outlineOffset: -2, padding: '6px 8px', alignSelf: 'start' }}>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
+                    <span style={{ fontWeight: 600, fontSize: 12, lineHeight: 1.3 }}>
+                      {c.group.title}
+                    </span>
+                    {c.group.open > 0 && (
+                      <span title={L.map.openBadge} style={{ marginLeft: 'auto',
+                        background: '#ff8a4a', color: '#111318', borderRadius: 999, fontSize: 10,
+                        fontWeight: 700, padding: '0 5px' }}>{c.group.open}</span>
+                    )}
+                  </div>
+                  <div style={{ color: 'var(--dim)', fontSize: 10.5, marginTop: 2 }}>
+                    {L.map.boxCounts(c.group.rows.length, c.group.lessons.length)}
+                  </div>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden',
+                    margin: '4px 0 2px' }}>
+                    {(['已建模', '部分建模', '未建模'] as const).map((e) => {
+                      const n = c.group.rows.filter((r) => r.engine === e).length
+                      return n === 0 ? null : (
+                        <span key={e} title={`${e} ${n}`}
+                          style={{ flex: n, background: ENGINE_COLOR[e] }} />
+                      )
+                    })}
+                  </div>
+                  {!on && c.group.orgs.length > 0 && (
+                    <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginTop: 3 }}>
+                      {c.group.orgs.slice(0, 4).map((o) => (
+                        <span key={o.name} title={`${o.name}　${L.map.docCount(o.docs)}`}
+                          style={chipStyle(orgColor(o.name))}>{orgInitials(o.name)}</span>
+                      ))}
+                      {c.group.orgs.length > 4 && (
+                        <span title={c.group.orgs.slice(4).map((o) => o.name).join('、')}
+                          style={chipStyle('var(--dim)')}>+{c.group.orgs.length - 4}</span>
+                      )}
+                    </div>
+                  )}
+                  {on && (
+                    <OpenCard column={c} dependants={dependants} onPick={setOpen}
+                      titleOf={(id) => g.groups.find((x) => x.id === id)?.title ?? id} />
+                  )}
+                </div>
+              )
+            })}
+
+            {/* ---- one row per quarter, the published marker above them all ---- */}
+            {g.matrixRows.map((r, row) => (
+              <div key={r.key} style={{ display: 'contents' }}>
+                <div style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--panel)',
+                  borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
+                  padding: r.events === 0 ? '0 8px' : '4px 8px',
+                  fontSize: r.events === 0 ? 9.5 : 11, color: 'var(--dim)',
+                  opacity: r.events === 0 ? 0.6 : 1, lineHeight: r.events === 0 ? '12px' : 1.5,
+                  fontWeight: r.quarter === 1 || r.key === BASELINE ? 700 : 400 }}>
+                  {r.key === BASELINE ? L.map.baseline : `${r.year} Q${r.quarter}`}
+                </div>
+                {g.columns.map((c) => {
+                  const es = c.events.filter((e) => e.row === row)
+                  const inside = c.firstRow >= 0 && row >= c.firstRow && row <= c.lastRow
+                  const on = c.group.id === open
                   return (
-                    <rect key={e} x={x0} y={BOX_H - 42} width={w} height={8} rx={4}
-                      fill={ENGINE_COLOR[e]} />
+                    <div key={c.group.id} onClick={() => setOpen(on ? null : c.group.id)}
+                      style={{ borderRight: '1px solid var(--border)',
+                        borderBottom: '1px solid var(--border)',
+                        background: on ? 'var(--panel2)' : undefined,
+                        minHeight: r.events === 0 ? 12 : ROW_H,
+                        padding: r.events === 0 ? 0 : '2px 6px', cursor: 'pointer',
+                        position: 'relative' }}>
+                      {/* The lane: from a feature's first event to its last, so a column with a
+                          gap in the middle still reads as one thing. */}
+                      {inside && (
+                        <span style={{ position: 'absolute', left: on ? 8 : COL_W / 2 - 1, top: 0,
+                          bottom: 0, width: 2, background: 'rgba(127,127,127,.38)' }} />
+                      )}
+                      {es.length > 0 && (on ? <EventLines events={es} /> : <EventDots events={es} />)}
+                    </div>
                   )
                 })}
-              </g>
-            )
-          })}
-        </svg>
-      </div>
-
-      {sel === null ? (
-        <p style={{ color: 'var(--dim)', fontSize: 12, margin: 0 }}>{L.map.pickPrompt}</p>
-      ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12,
-          background: 'var(--panel)' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <b style={{ fontSize: 15 }}>{sel.title}</b>
-            <span style={{ color: 'var(--dim)', fontSize: 12 }}>{sel.note}</span>
-          </div>
-          {/* **When it entered the record, and on whose paper.** */}
-          <div style={{ margin: '6px 0 2px', fontSize: 12, display: 'flex', gap: 8,
-            flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={tag(sel.since === null ? 'var(--dim)' : '#4aa3ff')}>
-              {sel.since === null ? bandName(sel.era, L) : L.map.firstSeen(sel.since)}
-            </span>
-            {sel.until !== null && sel.until !== sel.since && (
-              <span style={{ color: 'var(--dim)' }}>{L.map.lastSeen(sel.until)}</span>
-            )}
-            {sel.docs.length > 0 && (
-              <span style={{ color: 'var(--dim)' }}>{L.map.docCount(sel.docs.length)}</span>
-            )}
-          </div>
-          {sel.since === null && (
-            <p style={{ color: 'var(--dim)', fontSize: 11.5, margin: '2px 0 6px' }}>
-              {sel.era === BASELINE ? L.map.baselineWhy : L.map.undatedWhy}
-            </p>
-          )}
-          {sel.orgs.length > 0 && (
-            <div style={{ margin: '6px 0' }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ color: 'var(--dim)', fontSize: 12 }}>{L.map.orgsLabel}</span>
-                {sel.orgs.map((o) => (
-                  <span key={o.name} style={{ display: 'inline-flex', alignItems: 'center',
-                    gap: 4, fontSize: 11.5 }}>
-                    <span style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 4,
-                      background: orgColor(o.name), color: '#fff', fontSize: 8, fontWeight: 700,
-                      textAlign: 'center', lineHeight: '14px' }}>{orgInitials(o.name)}</span>
-                    {o.name}
-                    <span style={{ color: 'var(--dim)' }}>×{o.docs}</span>
-                  </span>
-                ))}
-              </div>
-              <p style={{ color: 'var(--dim)', fontSize: 11, margin: '4px 0 0' }}>
-                {L.map.orgsNote}
-              </p>
-            </div>
-          )}
-          {/* **Every dependency gets its reason on screen.** An arrow with no reason is a
-              teaching order wearing an arrowhead; writing them out is what kept the two apart
-              when this spine was re-derived as feature dependencies. */}
-          <div style={{ margin: '8px 0 10px', display: 'grid', gap: 4 }}>
-            <div style={{ color: 'var(--dim)', fontSize: 12 }}>
-              {L.map.needs}{sel.needs.length === 0 ? L.map.noNeeds : ''}
-            </div>
-            {sel.needs.map((n) => (
-              <div key={n.id} style={{ fontSize: 12, paddingLeft: 10 }}>
-                <button style={{ padding: '0 6px', fontSize: 12 }} onClick={() => setSelected(n.id)}>
-                  {g.groups.find((x) => x.id === n.id)?.title ?? n.id}
-                </button>
-                <span style={{ color: 'var(--dim)' }}>　{n.why}</span>
               </div>
             ))}
-            {dependants.length > 0 && (
-              <div style={{ color: 'var(--dim)', fontSize: 12, marginTop: 2 }}>
-                {L.map.feeds}
-                {dependants.map((d) => d.title).join('、')}
-              </div>
-            )}
-            <div style={{ color: 'var(--dim)', fontSize: 12 }}>
-              {L.map.lessonsLabel}
-              {sel.lessons.length === 0 ? L.map.noLessons
-                : sel.lessons.map((x) => `@${x}`).join('、')}
-            </div>
           </div>
-          {sel.docs.length > 0 && (
-            <details style={{ margin: '0 0 10px' }}>
-              <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--dim)' }}>
-                {L.map.chronoLabel}
-              </summary>
-              <div style={{ display: 'grid', gap: 3, marginTop: 6 }}>
-                {sel.docs.map((d) => (
-                  <div key={d.dcn} style={{ fontSize: 11.5, display: 'flex', gap: 6,
-                    flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'ui-monospace, Consolas, monospace' }}>{d.date}</span>
-                    <b>{d.dcn}</b>
-                    <span style={tag('var(--dim)')}>{L.map.docKind[d.kind] ?? d.kind}</span>
-                    <span style={{ color: 'var(--dim)' }}>
-                      {d.orgs.length > 0 ? d.orgs.join('、') : '—'}
-                    </span>
-                    <span style={{ color: 'var(--dim)' }}>{d.title}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          <RowList rows={sel.rows} />
         </div>
+      </div>
+
+      {open === null && (
+        <p style={{ color: 'var(--dim)', fontSize: 12, margin: 0 }}>{L.map.pickPrompt}</p>
       )}
 
       {g.orphanLessons.length > 0 && (

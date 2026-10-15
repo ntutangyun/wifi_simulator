@@ -13,8 +13,7 @@
  */
 import { writeFileSync } from 'node:fs'
 import {
-  BASELINE, BOX_H, BOX_W, DOC_PATH, UNDATED, graphFor, wrapCjk,
-  type FeatureGroup, type StatusKind, type Track,
+  BASELINE, DOC_PATH, graphFor, type FeatureGroup, type StatusKind, type Track,
 } from '../src/course/featureGraph'
 import { LESSONS } from '../src/course/lessons'
 import { trackOf } from '../src/course/curriculum'
@@ -40,9 +39,6 @@ const DOC_KIND: Record<string, string> = {
   usecase: '用例', tgd: '技术指南文件', process: '流程', 'motion-dock': '动议清单',
   timeline: '时间表',
 }
-const bandName = (key: string): string =>
-  key === BASELINE ? '已发布基线' : key === UNDATED ? '无文稿可据' : key
-
 /** The same hash-to-hue the app uses, so a company is the same colour in both. */
 const ORG_HUES = [206, 268, 152, 24, 340, 48, 188, 292, 120, 8]
 function orgColor(name: string): string {
@@ -67,94 +63,92 @@ const md = (s: string): string => esc(s)
 const lessonsOf = (track: Track): string[] =>
   LESSONS.filter((l) => trackOf(l) === track).map((l) => l.id)
 
+const COL_W = 112
+const OPEN_W = 376
+const GUTTER = 84
+
 function section(track: Track): string {
   const g = graphFor(track, lessonsOf(track))
-  const lifelines = g.boxes.map(({ group, x, y, lifeline }) => (lifeline === null ? ''
-    : `<g class="life"><title>${esc(group.title)}　首见 ${group.since}　最近 ${group.until}</title>
-      <line x1="${x + 10}" x2="${x + 10}" y1="${y + BOX_H}" y2="${lifeline}"></line>
-      <circle cx="${x + 10}" cy="${lifeline}" r="3.5"></circle></g>`)).join('\n')
-  const nodes = g.boxes.map(({ group, x, y }) => {
-    let run = 0
+
+  const head = g.columns.map((c, i) => {
     const bar = ENGINE.map((e) => {
-      const n = group.rows.filter((r) => r.engine === e).length
-      if (n === 0) return ''
-      const w = (n / group.rows.length) * (BOX_W - 24)
-      const out = `<rect class="seg ${e}" x="${(12 + run).toFixed(1)}" y="${BOX_H - 42}"`
-        + ` width="${w.toFixed(1)}" height="8" rx="4"></rect>`
-      run += w
-      return out
+      const n = c.group.rows.filter((r) => r.engine === e).length
+      return n === 0 ? '' : `<span class="seg ${e}" style="flex:${n}"></span>`
     }).join('')
-    const note = wrapCjk(group.note, 15, 2)
-      .map((line, i) => `<text class="n dim" x="12" y="${58 + i * 14}">${esc(line)}</text>`).join('')
-    const more = group.orgs.length > 4 ? group.orgs.slice(3) : []
-    const shown: { label: string; fill: string; title: string }[] = [
-      ...group.orgs.slice(0, more.length > 0 ? 3 : 4).map((o) =>
-        ({ label: orgInitials(o.name), fill: orgColor(o.name), title: `${o.name}　${o.docs} 篇文稿` })),
-      ...(more.length > 0
-        ? [{ label: `+${more.length}`, fill: 'var(--derived)',
-          title: more.map((o) => `${o.name}×${o.docs}`).join('、') }]
-        : []),
-    ]
-    const chips = shown.map((c, i) =>
-      `<g transform="translate(${BOX_W - 14 - (i + 1) * 17},${BOX_H - 24})">`
-      + `<title>${esc(c.title)}</title>`
-      + `<rect width="15" height="15" rx="4" fill="${c.fill}"></rect>`
-      + `<text class="chip" x="7.5" y="11">${esc(c.label)}</text></g>`).join('')
-    const span = group.since === null ? ''
-      : `${group.since.slice(0, 7)}→${(group.until ?? group.since).slice(0, 7)}`
-    return `<g class="node ${group.family}" data-id="${track}-${group.id}"
-      transform="translate(${x},${y})">
-      <title>${esc(group.title)}　${esc(group.note)}</title>
-      <rect class="box" width="${BOX_W}" height="${BOX_H}" rx="10"></rect>
-      <text class="t" x="12" y="22">${esc(group.title)}</text>
-      <text class="n" x="12" y="40">${group.rows.length} 行 · ${group.lessons.length} 课</text>
-      ${note}
-      <text class="n span" x="12" y="${BOX_H - 10}">${esc(span)}</text>
-      ${chips}
-      ${group.open === 0 ? '' : `<circle class="open" cx="${BOX_W - 18}" cy="16" r="8"></circle>`
-        + `<text class="openn" x="${BOX_W - 18}" y="20">${group.open}</text>`}
-      ${bar}
-    </g>`
+    const shown = c.group.orgs.slice(0, 4)
+    const more = c.group.orgs.slice(4)
+    const chips = shown.map((o) =>
+      `<span class="chip" style="background:${orgColor(o.name)}" title="${esc(o.name)}　${o.docs} 篇文稿"`
+      + `>${esc(orgInitials(o.name))}</span>`).join('')
+      + (more.length === 0 ? ''
+        : `<span class="chip more" title="${esc(more.map((o) => o.name).join('、'))}">+${more.length}</span>`)
+    const deps = c.group.needs.length === 0 ? '<p class="note">依赖：（无，这是一条链的起点）</p>'
+      : `<ul class="deps">${c.group.needs.map((n) =>
+        `<li><b>${esc(g.groups.find((x) => x.id === n.id)!.title)}</b>　${esc(n.why)}</li>`)
+        .join('')}</ul>`
+    const fed = g.groups.filter((x) => x.needs.some((n) => n.id === c.group.id))
+    const when = c.group.since === null
+      ? `<p class="note">时间：${c.group.era === BASELINE
+        ? '已发布标准——这一带的行是拿已发布条款讲话的，而本仓库的语料库定不出它们各自是哪一版'
+          + '修正案带进来的，所以它们共用最上面那一行，而不是由我编一个年份。'
+        : '标准里没有条款可对，只有本引擎的模型，所以它唯一的日期是本仓库写下那门课的那一天。'}</p>`
+      : `<p class="note">时间：首见 ${c.group.since}，最近 ${c.group.until}，`
+        + `共 ${c.events.length} 件事。</p>`
+    const orgs = c.group.orgs.length === 0 ? ''
+      : `<p class="note">文稿上的单位：${c.group.orgs.map((o) =>
+        `<span class="org"><span class="chip" style="background:${orgColor(o.name)}">`
+        + `${esc(orgInitials(o.name))}</span>${esc(o.name)} ×${o.docs}</span>`).join(' ')}
+        <br>这是这一组引用到的文稿上印着的作者单位——谁写了那份投稿或那条意见决议，不是谁发明了
+        它，也不是到场讨论过的全部单位。议程、纪要、闭幕报告与意见汇总表只算日期、不算单位。</p>`
+    return `<div class="head ${c.group.family}" data-col="${i}" data-id="${track}-${c.group.id}">
+      <div class="t">${esc(c.group.title)}${c.group.open === 0 ? ''
+        : `<span class="open" title="组里有几行还在争论或无法判定">${c.group.open}</span>`}</div>
+      <div class="n">${c.group.rows.length} 行 · ${c.group.lessons.length} 课</div>
+      <div class="bar">${bar}</div>
+      <div class="chips">${chips}</div>
+      <div class="card">
+        <p class="note">${esc(c.group.note)}</p>
+        ${when}
+        ${orgs}
+        ${deps}
+        ${fed.length === 0 ? '' : `<p class="note">它撑着：${fed.map((x) => esc(x.title)).join('、')}</p>`}
+        <p class="note">课：${c.group.lessons.length === 0 ? '（无）'
+          : c.group.lessons.map((x) => `<code>@${esc(x)}</code>`).join('、')}</p>
+        <details><summary>这一组的 ${c.group.rows.length} 行特性与证据</summary>
+        <table><tbody>
+        ${c.group.rows.map((r) => `<tr>
+          <td>${md(r.feature)}<div class="ev">${md(r.evidence)}</div>
+          <div><span class="tag k-${r.statusKind}">${esc(r.status)}</span>
+          <span class="tag e-${r.engine}">${esc(r.engine)}</span></div></td>
+        </tr>`).join('')}
+        </tbody></table></details>
+      </div>
+    </div>`
   }).join('\n')
 
-  const panels = g.groups.map((group) => `<div class="panel" id="p-${track}-${group.id}">
-    <h3>${esc(group.title)}</h3>
-    <p class="note">${esc(group.note)}</p>
-    <p class="note">课：${group.lessons.length === 0 ? '（无）'
-      : group.lessons.map((x) => `<code>@${esc(x)}</code>`).join('、')}</p>
-    ${group.needs.length === 0 ? '<p class="note">依赖：（无，这一组是一条链的起点）</p>'
-      : `<ul class="deps">${group.needs.map((n) =>
-        `<li><b>${esc(g.groups.find((x) => x.id === n.id)!.title)}</b>　${esc(n.why)}</li>`)
-        .join('')}</ul>`}
-    ${(() => {
-      const fed = g.groups.filter((x) => x.needs.some((n) => n.id === group.id))
-      return fed.length === 0 ? ''
-        : `<p class="note">它撑着：${fed.map((x) => esc(x.title)).join('、')}</p>`
-    })()}
-    <p class="note">${group.since === null
-      ? `时间：${bandName(group.era)}——${group.era === BASELINE
-        ? '这一带的行是拿已发布条款讲话的，而本仓库的语料库定不出它们各自是哪一版修正案带进来的，'
-          + '所以它们共用一带，而不是由我编一个年份。'
-        : '这一带是引擎自己的模型，没有任何文稿编号可引，所以没有日期。'}`
-      : `时间：首见 ${group.since}，最近 ${group.until}，共引 ${group.docs.length} 篇文稿。`}</p>
-    ${group.orgs.length === 0 ? '' : `<p class="note">文稿上的单位：${group.orgs.map((o) =>
-      `<span class="org"><span class="dot" style="background:${orgColor(o.name)}">`
-      + `${esc(orgInitials(o.name))}</span>${esc(o.name)} ×${o.docs}</span>`).join(' ')}
-      <br>这是这一组引用到的文稿上印着的作者单位——谁写了那份投稿或那条意见决议，不是谁发明了它，
-      也不是到场讨论过的全部单位。议程、纪要、闭幕报告与意见汇总表只算日期、不算单位。</p>`}
-    ${group.docs.length === 0 ? '' : `<details><summary>这一组的文稿年表（${group.docs.length} 篇）</summary>
-      <ul class="chrono">${group.docs.map((d) => `<li><code>${esc(d.date)}</code>
-        <b>${esc(d.dcn)}</b> <span class="tag k-unsettled">${esc(DOC_KIND[d.kind] ?? d.kind)}</span>
-        ${d.orgs.length === 0 ? '—' : esc(d.orgs.join('、'))}　${esc(d.title)}</li>`).join('')}</ul>
-      </details>`}
-    <table><thead><tr><th>特性</th><th>标准</th><th>引擎</th></tr></thead><tbody>
-    ${group.rows.map((r) => `<tr>
-      <td>${md(r.feature)}<div class="ev">${md(r.evidence)}</div></td>
-      <td><span class="tag k-${r.statusKind}">${esc(r.status)}</span></td>
-      <td><span class="tag e-${r.engine}">${esc(r.engine)}</span></td>
-    </tr>`).join('')}
-    </tbody></table>
-  </div>`).join('\n')
+  const body = g.matrixRows.map((r, row) => {
+    const label = r.key === BASELINE ? '已发布标准' : `${r.year} Q${r.quarter}`
+    const cells = g.columns.map((c, i) => {
+      const es = c.events.filter((e) => e.row === row)
+      const inside = c.firstRow >= 0 && row >= c.firstRow && row <= c.lastRow
+      const dots = es.map((e) =>
+        `<span class="dot ${e.kind}" title="${esc(e.date === '' ? '已发布标准' : e.date)}　`
+        + `${esc(e.label)}${e.detail === '' ? '' : `　${esc(e.detail)}`}`
+        + `${e.orgs.length === 0 ? '' : `　${esc(e.orgs.join('、'))}`}"></span>`).join('')
+      const lines = es.map((e) => (e.kind === 'published'
+        ? '<div class="ev-line"><span class="dot published"></span><b>已发布标准</b></div>'
+        : `<div class="ev-line"><span class="dot ${e.kind}"></span>`
+          + `<code>${esc(e.date)}</code> <b>${esc(e.label)}</b>`
+          + `${e.docKind === undefined ? '' : `　<span class="dim">${esc(DOC_KIND[e.docKind] ?? e.docKind)}</span>`}`
+          + `${e.orgs.length === 0 ? '' : `　<span class="dim">${esc(e.orgs.join('、'))}</span>`}`
+          + `<div class="dim detail">${esc(e.detail)}</div></div>`)).join('')
+      return `<div class="cell${inside ? ' lane' : ''}${r.events === 0 ? ' thin' : ''}"`
+        + ` data-col="${i}">${dots === '' ? '' : `<span class="dots">${dots}</span>`}`
+        + `${lines === '' ? '' : `<div class="lines">${lines}</div>`}</div>`
+    }).join('')
+    return `<div class="rowlabel${r.events === 0 ? ' thin' : ''}`
+      + `${r.quarter === 1 || r.key === BASELINE ? ' year' : ''}">${label}</div>${cells}`
+  }).join('\n')
 
   return `<section class="view" id="v-${track}">
     <div class="totals">
@@ -164,24 +158,19 @@ function section(track: Track): string {
         return n === 0 ? '' : `<div><span class="tag k-${k}">${KIND_NAME[k]}</span> ${n} 行</div>`
       }).join('')}
     </div>
-    <div class="scroller"><svg width="${g.width}" height="${g.height}"
-      viewBox="0 0 ${g.width} ${g.height}">
-      ${g.bands.map((b, i) => `<g class="band${b.groups === 0 ? ' empty' : ''}">
-        <rect x="0" y="${b.y - 8}" width="${g.width}" height="${b.height + 16}"
-          class="bandbg ${i % 2 === 0 ? 'odd' : 'even'}"></rect>
-        <line x1="0" x2="${g.width}" y1="${b.y - 8}" y2="${b.y - 8}" class="bandline"></line>
-        <text class="bandlabel" x="10" y="${b.y + 14}">${esc(bandName(b.key))}</text>
-        ${b.groups === 0 ? `<text class="n" x="10" y="${b.y + 28}">这一年没有新特性第一次被提出</text>`
-        : ''}
-      </g>`).join('\n')}
-      ${lifelines}
-      ${g.edges.map((e) => `<path class="edge ${e.kind}" d="${e.d}"><title>`
-        + `${esc(g.groups.find((x) => x.id === e.from)!.title)} → `
-        + `${esc(g.groups.find((x) => x.id === e.to)!.title)}　${esc(e.why)}`
-        + '</title></path>').join('\n')}
-      ${nodes}
-    </svg></div>
-    ${panels}
+    <div class="scroller">
+      <svg class="arcs" id="a-${track}" width="${GUTTER + g.columns.length * COL_W}" height="34">
+        <defs><marker id="ar-${track}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7"
+          markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor"></path>
+        </marker></defs>
+      </svg>
+      <div class="matrix" id="m-${track}" data-cols="${g.columns.length}"
+        style="grid-template-columns:${GUTTER}px repeat(${g.columns.length}, ${COL_W}px)">
+        <div class="corner">时间 ↓ ／ 特性 →</div>
+        ${head}
+        ${body}
+      </div>
+    </div>
     ${g.orphanLessons.length === 0 ? '' : `<div class="orphans">
       <b>${g.orphanLessons.length} 门课在这张覆盖表里没有对应的特性行</b>
       <p class="note">UWB 那张表是穷举的，所以它这一格必须是空的；Wi-Fi 那张表自己写明不枚举整部
@@ -189,8 +178,19 @@ function section(track: Track): string {
       一门是真的缺口：第五个代次 <code>uhr</code> 已经落地，覆盖表的物理层参数那一节还停在 EHT。</p>
       <p>${g.orphanLessons.map((x) => `<code>@${esc(x)}</code>`).join(' ')}</p>
     </div>`}
-    <p class="note">这一节现算自 <code>${DOC_PATH[track]}</code> 与课程本身，不存第二份数据。</p>
+    <p class="note">这一节现算自 <code>${DOC_PATH[track]}</code>、课程本身，以及
+    <code>src/course/docMeta.json</code> 与 <code>src/course/lessonMeta.json</code> 两份生成的
+    日期表，不存第二份数据。</p>
   </section>`
+}
+
+/** `{track: {groupId: [{id, title, why}]}}` — the arcs the page draws when a column opens. */
+const DEPS: Record<string, Record<string, { id: string; title: string; why: string }[]>> = {}
+for (const t of TRACKS) {
+  const g = graphFor(t, lessonsOf(t))
+  DEPS[t] = Object.fromEntries(g.groups.map((x) => [x.id, x.needs.map((n) => ({
+    id: n.id, title: g.groups.find((y) => y.id === n.id)!.title, why: n.why,
+  }))]))
 }
 
 const counts = TRACKS.map((t) => {
@@ -229,39 +229,56 @@ const html = `<!doctype html>
   .totals div { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
     font-size: 12.5px; background: var(--card) }
   .scroller { overflow: auto; border: 1px solid var(--line); border-radius: 12px;
-    background: var(--card); max-height: 70vh }
-  svg { display: block }
-  .box { fill: var(--card); stroke: var(--line); stroke-width: 1.5 }
-  .node.core .box { stroke: var(--core) } .node.draft .box { stroke: var(--draft) }
-  .node.derived .box { stroke: var(--derived) } .node.absent .box { stroke: var(--absent) }
-  .node { cursor: pointer } .node:hover .box, .node.sel .box { stroke-width: 3 }
-  text.t { fill: var(--fg); font-size: 13px; font-weight: 600 }
-  text.n { fill: var(--dim); font-size: 11px } text.dim { opacity: .85 }
-  .edge { fill: none; stroke: var(--line); stroke-width: 1.5 }
-  .edge.side { stroke-width: 1.2 }
-  .edge.up { stroke: var(--contested); stroke-width: 1.2; stroke-dasharray: 5 3 }
-  .life line { stroke: var(--dim); stroke-width: 2; stroke-dasharray: 2 3; opacity: .7 }
-  .life circle { fill: var(--dim) }
-  .bandbg.odd { fill: rgba(127,127,127,.07) } .bandbg.even { fill: none }
-  .bandline { stroke: var(--line) }
-  text.bandlabel { fill: var(--fg); font-size: 12.5px; font-weight: 700 }
-  .band.empty text.bandlabel { fill: var(--dim) }
-  text.chip { fill: #fff; font-size: 8px; font-weight: 700; text-anchor: middle }
-  text.n.more { text-anchor: end; font-size: 9px }
-  text.n.span { font-size: 10px }
+    background: var(--card); max-height: 74vh; position: relative }
+  .arcs { display: block; color: var(--line) }
+  .matrix { display: grid; font-size: 12px }
+  .corner { position: sticky; left: 0; top: 0; z-index: 4; background: var(--card);
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 6px 8px; color: var(--dim); font-size: 11px }
+  .head { position: sticky; top: 0; z-index: 3; background: var(--card); cursor: pointer;
+    align-self: start; padding: 6px 8px; border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line); border-top: 3px solid var(--line) }
+  .head.core { border-top-color: var(--core) } .head.draft { border-top-color: var(--draft) }
+  .head.derived { border-top-color: var(--derived) }
+  .head.absent { border-top-color: var(--absent) }
+  .head .t { font-weight: 600; font-size: 12px; line-height: 1.3 }
+  .head .n { color: var(--dim); font-size: 10.5px; margin-top: 2px }
+  .head .bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 4px 0 2px }
+  .seg.已建模 { background: var(--full) } .seg.部分建模 { background: var(--part) }
+  .seg.未建模 { background: var(--none) }
+  .head .open { float: right; background: var(--contested); color: #111318; border-radius: 999px;
+    font-size: 10px; font-weight: 700; padding: 0 5px }
+  .chips { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 3px }
+  .chip { display: inline-block; width: 15px; height: 15px; border-radius: 4px; color: #fff;
+    font-size: 8px; font-weight: 700; text-align: center; line-height: 15px }
+  .chip.more { background: var(--derived) }
+  .card { display: none } .head.on .card { display: block; max-height: 220px; overflow: auto;
+    border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; cursor: default }
+  .head.on { background: rgba(127,127,127,.10) }
+  .head.need { outline: 1px dashed var(--core); outline-offset: -2px }
+  .rowlabel { position: sticky; left: 0; z-index: 2; background: var(--card); color: var(--dim);
+    font-size: 11px; padding: 4px 8px; border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line) }
+  .rowlabel.year { font-weight: 700 }
+  .rowlabel.thin { font-size: 9.5px; padding: 0 8px; line-height: 12px; opacity: .6 }
+  .cell { position: relative; min-height: 28px; padding: 2px 6px; cursor: pointer;
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line) }
+  .cell.thin { min-height: 12px; padding: 0 }
+  .cell.lane::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
+    margin-left: -1px; background: rgba(127,127,127,.38) }
+  .cell.on { background: rgba(127,127,127,.10) }
+  .cell.on.lane::before { left: 9px }
+  .dots { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; padding-top: 5px }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim) }
+  .dot.published { background: var(--core) } .dot.doc { background: var(--draft) }
+  .dot.lesson { background: var(--full) }
+  .lines { display: none } .cell.on .lines { display: grid; gap: 3px; padding-left: 14px }
+  .cell.on .dots { display: none }
+  .ev-line { font-size: 11px; line-height: 1.45 } .ev-line .dot { margin-right: 5px }
+  .ev-line .detail { padding-left: 12px }
+  .dim { color: var(--dim) }
   .org { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px }
-  .org .dot { display: inline-block; width: 14px; height: 14px; border-radius: 4px; color: #fff;
-    font-size: 8px; font-weight: 700; text-align: center; line-height: 14px }
-  ul.chrono { margin: 6px 0 10px; padding-left: 18px; color: var(--dim); font-size: 12px }
-  ul.chrono b { color: var(--fg) }
-  details summary { cursor: pointer; color: var(--dim); font-size: 12.5px }
-  .seg.已建模 { fill: var(--full) } .seg.部分建模 { fill: var(--part) }
-  .seg.未建模 { fill: var(--none) }
-  circle.open { fill: var(--contested); opacity: .92 }
-  text.openn { fill: #0f1216; font-size: 10.5px; font-weight: 700; text-anchor: middle }
-  .panel { display: none; margin-top: 16px; border: 1px solid var(--line); border-radius: 12px;
-    background: var(--card); padding: 14px 16px }
-  .panel.on { display: block } .panel h3 { margin: 0 0 4px; font-size: 16px }
   .note { color: var(--dim); font-size: 12.5px; margin: 2px 0 8px }
   table { width: 100%; border-collapse: collapse; font-size: 13px }
   th, td { text-align: left; vertical-align: top; padding: 8px; border-top: 1px solid var(--line) }
@@ -287,11 +304,12 @@ const html = `<!doctype html>
 </style></head><body>
 <header>
   <h1>特性图谱：标准怎么说，草案提了什么，本仿真器建到哪一步</h1>
-  <p class="sub">${counts}。<b>上下是时间</b>：一组画在它最早那篇文稿第一次公开的那一年，
-    左右仍是依赖深度，所以同一年里一组还是画在它所依赖的右边；框底下那条点线拖到它最近一篇文稿
-    所在的那一年，线有多长这件事就还被争论了多久。箭头是「它得先成立」；颜色是组的家族，组底下
-    那条带子是组里各行的引擎状态，框脚的小方块是文稿上的作者单位。点一个框看它的行。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
-    （<code>src/course/featureGraph.ts</code>），两份覆盖表现算而来，不存第二份数据。</p>
+  <p class="sub">${counts}。<b>一列一个特性，一行一个季度。</b>左右是特性进入记录的先后：先是
+    已发布标准的那一批，再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的
+    那几个。上下是这个特性自己的历史——蓝点是已发布条款，紫点是一篇 mentor 文稿，绿点是本仓库写下
+    那门课的那一天。<b>点一列，它就地展开</b>：行里的点变成逐条的文稿，表头变成它的全部特性行、
+    依赖与文稿上的单位。这一页与仿真器里的 🗺 图谱是同一份数据、同一条骨架
+    （<code>src/course/featureGraph.ts</code>），两份覆盖表与两份生成的日期表现算而来，不存第二份数据。</p>
   <div class="legend">
     ${(Object.keys(FAMILY_NAME) as FeatureGroup['family'][]).map((f) =>
       `<span><span class="sw" style="background:var(--${f})"></span>${FAMILY_NAME[f]}</span>`).join('')}
@@ -299,6 +317,9 @@ const html = `<!doctype html>
     <span><span class="sw" style="background:var(--part)"></span>部分建模</span>
     <span><span class="sw" style="background:var(--none)"></span>未建模</span>
     <span><span class="sw" style="background:var(--contested);border-radius:50%"></span>仍在争论／无法判定</span>
+    <span><span class="sw" style="background:var(--core);border-radius:50%"></span>已发布条款</span>
+    <span><span class="sw" style="background:var(--draft);border-radius:50%"></span>mentor 文稿</span>
+    <span><span class="sw" style="background:var(--full);border-radius:50%"></span>本仓库的课</span>
   </div>
   <div class="tabs">
     ${TRACKS.map((t, i) => `<button id="t-${t}" aria-selected="${i === 0}">${TRACK_NAME[t]}</button>`).join('')}
@@ -317,26 +338,63 @@ const html = `<!doctype html>
 </footer>
 <script>
   const byId = (s) => document.getElementById(s)
-  for (const n of document.querySelectorAll('.node')) {
-    n.addEventListener('click', () => {
-      const on = n.classList.contains('sel')
-      for (const x of document.querySelectorAll('.node')) x.classList.remove('sel')
-      for (const p of document.querySelectorAll('.panel')) p.classList.remove('on')
-      if (on) return
-      n.classList.add('sel')
-      const p = byId('p-' + n.dataset.id)
-      p.classList.add('on')
-      p.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    })
+  const COL_W = 112, OPEN_W = 376, GUTTER = 84
+  const deps = ${JSON.stringify(DEPS)}
+
+  /** Widen one column in place, spell out its cells, and draw its dependency arcs. */
+  function open(track, id) {
+    const m = byId('m-' + track)
+    const heads = [...m.querySelectorAll('.head')]
+    const now = m.dataset.open === id ? null : id
+    m.dataset.open = now ?? ''
+    const index = heads.findIndex((h) => h.dataset.id === track + '-' + now)
+    const widths = heads.map((_, i) => (i === index ? OPEN_W : COL_W))
+    m.style.gridTemplateColumns = GUTTER + 'px ' + widths.map((w) => w + 'px').join(' ')
+    for (const el of m.querySelectorAll('.head, .cell')) {
+      const i = Number(el.dataset.col)
+      el.classList.toggle('on', i === index)
+      el.classList.remove('need')
+    }
+    const svg = byId('a-' + track)
+    svg.innerHTML = svg.querySelector('defs').outerHTML
+    svg.setAttribute('width', GUTTER + widths.reduce((a, b) => a + b, 0))
+    if (index < 0) return
+    const xOf = (i) => GUTTER + widths.slice(0, i).reduce((a, b) => a + b, 0) + COL_W / 2
+    for (const need of (deps[track] || {})[now] || []) {
+      const from = heads.findIndex((h) => h.dataset.id === track + '-' + need.id)
+      if (from < 0) continue
+      heads[from].classList.add('need')
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      p.setAttribute('d', 'M' + xOf(from) + ' 31 C' + xOf(from) + ' 4 ' + xOf(index) + ' 4 '
+        + xOf(index) + ' 31')
+      p.setAttribute('fill', 'none')
+      p.setAttribute('stroke', 'currentColor')
+      p.setAttribute('stroke-width', '1.4')
+      p.setAttribute('marker-end', 'url(#ar-' + track + ')')
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'title')
+      t.textContent = need.title + ' → ' + need.why
+      p.appendChild(t)
+      svg.appendChild(p)
+    }
   }
+
   const tracks = ${JSON.stringify(TRACKS)}
+  for (const t of tracks) {
+    const m = byId('m-' + t)
+    for (const el of m.querySelectorAll('.head, .cell')) {
+      el.addEventListener('click', (ev) => {
+        if (ev.target.closest('.card')) return
+        const i = Number(el.dataset.col)
+        const head = m.querySelectorAll('.head')[i]
+        open(t, head.dataset.id.slice(t.length + 1))
+      })
+    }
+  }
   const show = (which) => {
     for (const t of tracks) {
       byId('t-' + t).setAttribute('aria-selected', String(t === which))
       byId('v-' + t).classList.toggle('on', t === which)
     }
-    for (const p of document.querySelectorAll('.panel')) p.classList.remove('on')
-    for (const x of document.querySelectorAll('.node')) x.classList.remove('sel')
   }
   for (const t of tracks) byId('t-' + t).addEventListener('click', () => show(t))
   show(tracks[0])

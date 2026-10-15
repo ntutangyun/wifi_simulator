@@ -92,21 +92,22 @@ export interface Strings {
     orphanTitle: (n: number) => string
     orphanNote: string
     source: (doc: string) => string
-    /** The time axis: the band names, and what a band with nothing in it means. */
+    /** The time axis: the row above time, and what a feature with no date at all means. */
     baseline: string
     baselineWhy: string
-    undated: string
     undatedWhy: string
-    emptyYear: string
     axisNote: string
+    axisShort: string
+    rowsLabel: (n: number) => string
+    timeAxis: string
+    arcsLabel: string
+    event: { published: string; doc: string; lesson: string }
     firstSeen: (date: string) => string
     lastSeen: (date: string) => string
     docCount: (n: number) => string
+    eventCount: (n: number) => string
     orgsLabel: string
     orgsNote: string
-    chronoLabel: string
-    noDocs: string
-    upEdge: string
     docKind: Record<string, string>
   }
   course: {
@@ -839,7 +840,7 @@ export const STRINGS: Strings = {
       unsettled: '无法判定', none: '标准不规定',
     },
     openBadge: '组里有几行还在争论或无法判定',
-    pickPrompt: '点一个框，看它底下那几行特性、它们的证据与课号。',
+    pickPrompt: '点一列，它就地展开：那几行特性、它们的证据与课号，以及它一路走来的每一篇文稿。',
     needs: '依赖（这一组要成立，先得有）：',
     feeds: '它撑着：',
     noNeeds: '（无）',
@@ -850,30 +851,33 @@ export const STRINGS: Strings = {
       + 'UWB 那张表是穷举的，所以它这一格必须是空的；Wi-Fi 那张表自己写明不枚举整部标准，'
       + '所以项目课、模型对照课与「一份测量怎么成为文稿」这类课本来就没有特性行——'
       + '而其中有一门是真的缺口：第五个代次 uhr 已经落地，覆盖表的物理层参数那一节还停在 EHT。',
-    source: (doc) => `这张图现算自 ${doc} 与课程本身，不存第二份数据：改那份文档，这里跟着变。`,
-    baseline: '已发布基线',
+    source: (doc) => `这张图现算自 ${doc}、课程本身，以及 docMeta.json／lessonMeta.json 两份生成的`
+      + `日期表，不存第二份数据：改那份文档，这里跟着变。`,
+    baseline: '已发布标准',
     baselineWhy: '这一带里的特性，它们的行是拿已发布条款讲话的，而本仓库的语料库定不出它们各自'
       + '是哪一版修正案带进来的——标准自己的前言只按版次写历史（2003、2006、2011、2015、2020、2024，'
       + '最后这一版并入四份修正案，其中与这里有关的是「增强测距」），不按条款写。所以它们共用一带，'
       + '而不是由我编一个年份。',
-    undated: '无文稿可据',
     undatedWhy: '这一带是引擎自己的模型：定位解算、UWB 侧的衰落、DL／UL-TDoA、AoA／PDoA——'
       + '覆盖表把它们判为「无法判定」或「标准不规定」，而它们没有任何文稿编号可引，所以没有日期。'
       + '这跟「发布得比语料库还早」是两件事，所以不跟已发布基线共用一带。',
-    emptyYear: '这一年没有新特性第一次被提出',
-    axisNote: '上下是时间：一组画在它最早那篇文稿第一次公开的那一年。左右仍是依赖深度，'
-      + '所以同一年里一组还是画在它所依赖的右边。框底下那条点线一直拖到它最近一篇文稿所在的那一年——'
-      + '线有多长，这件事就还被争论了多久。',
+    axisShort: '怎么读：一列一个特性，一行一个季度 ▸',
+    rowsLabel: (n) => `这一组的 ${n} 行特性与证据 ▸`,
+    axisNote: '一列一个特性，一行一个季度。左右是特性进入记录的先后：先是已发布标准的那一批，'
+      + '再按被第一次提出的季度排草案里的，最后是标准里没有条款、只有本引擎模型的那几个。'
+      + '上下是这个特性自己的历史——蓝点是已发布、紫点是一篇 mentor 文稿、绿点是本仓库写下那门课的'
+      + '那一天。点一列，它就地展开：行里的点变成逐条的文稿，表头变成它的全部特性行与依赖。',
+    timeAxis: '时间 ↓ ／ 特性 →',
+    arcsLabel: '展开那一列的依赖弧线',
+    event: { published: '已发布条款', doc: 'mentor 文稿', lesson: '本仓库的课' },
     firstSeen: (date) => `首见 ${date}`,
     lastSeen: (date) => `最近 ${date}`,
     docCount: (n) => `${n} 篇文稿`,
+    eventCount: (n) => `${n} 件事`,
     orgsLabel: '文稿上的单位：',
     orgsNote: '这是这一组引用到的那些文稿上印着的作者单位，也就是「谁写了这份投稿或这条意见决议」——'
       + '不是「谁发明了它」，也不是到场讨论过的全部单位。议程、纪要、闭幕报告与意见汇总表只算日期、'
       + '不算单位：它们的作者是工作组自己的主席与技术编辑。',
-    chronoLabel: '这一组的文稿年表：',
-    noDocs: '这一组没有引用任何 mentor 文稿。',
-    upEdge: '虚线：它依赖的那一组反而更晚才被提出（时间倒流的边）',
     docKind: {
       proposal: '投稿', cr: '意见决议', pdt: '草案文字提案', sfd: '规范框架文件',
       draft: '草案', agenda: '议程', 'closing-report': '闭幕报告', minutes: '会议纪要',

@@ -19,10 +19,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, UNDATED, graphFor,
-  parseCoverage, wrapCjk, type Track,
+  BASELINE, DOCS, DOC_CORPORA, DOC_META_AT, DOC_META_MISSING, DOC_PATH, SPINE, graphFor,
+  parseCoverage, quarterOf, type Track,
 } from '../../src/course/featureGraph'
 import docMeta from '../../src/course/docMeta.json'
+import lessonMeta from '../../src/course/lessonMeta.json'
 import { LESSONS } from '../../src/course/lessons'
 import { trackOf } from '../../src/course/curriculum'
 import { dataRows, readDoc } from './coverage'
@@ -86,8 +87,8 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
   })
 
   /**
-   * **A box may not write down what its own bar already counts.** The box draws a stacked bar from
-   * its rows, so a verdict spelled out in the title is a second, hand-written copy of it — and on
+   * **A column may not write down what its own bar already counts.** The header draws a stacked
+   * bar from its rows, so a verdict spelled out in the title is a second, hand-written copy — on
    * 2026-10-14 the two disagreed: `recover` was titled 「出错之后：三节全建」 while §八's three rows
    * are 已建模 2 and 部分建模 1 (辅助信息 §10.35 — Request = 0 built, the bit layout and the message
    * content not). Renamed to what the feature IS; this is the assertion that keeps a verdict out of
@@ -141,41 +142,70 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
   /**
    * **The claim the layout makes: a feature is built on features that came first.**
    *
-   * Top to bottom is the year a group's earliest cited contribution was disclosed, so an arrow
-   * that points upwards would say a feature depends on something proposed later — either the
-   * spine is wrong or the dates are. On 2026-10-15, with the dates read off 70 cited documents,
-   * **there is not one** on either track: UWB 14 arrows run down into a later band and 25 run
-   * across inside one, Wi-Fi 2 and 12, and 0 run up. Most of the 「across」 are inside the
-   * published baseline, where no group has a date — the claim an upward arrow would break is
-   * only ever made between two bands, which is why `kind` is read off the bands.
+   * Columns are ordered by the row of their first event, so a dependency must not start to the
+   * RIGHT of the feature that needs it — that would say a feature was built on something tabled
+   * later, and one of the two would be wrong. On 2026-10-15, with the dates read off 70 cited
+   * documents and 91 lesson files, **there is not one** on either track.
+   *
+   * Same column is fine and common: 17 of the 27 UWB features share the published row, which has
+   * no dates inside it at all.
    */
-  it('has no dependency that is dated later than the feature needing it', () => {
-    const at = (id: string): string => {
-      const g = graph.groups.find((x) => x.id === id)!
-      return `${g.title}（${g.since ?? g.era}）`
-    }
-    expect(graph.edges.filter((e) => e.kind === 'up').map((e) => `${at(e.to)} → ${at(e.from)}`))
-      .toEqual([])
-  })
-
-  it('draws time downwards: the baseline on top, the undatable at the foot', () => {
-    const keys = graph.bands.map((b) => b.key)
-    expect(keys[0]).toBe(BASELINE)
-    const years = keys.filter((k) => /^\d{4}$/.test(k))
-    expect(years, 'the years of a track must be contiguous — an empty year is a lane, not a gap')
-      .toEqual(years.length === 0 ? [] : Array.from(
-        { length: Number(years[years.length - 1]) - Number(years[0]) + 1 },
-        (_, i) => String(Number(years[0]) + i)))
-    if (keys.includes(UNDATED)) expect(keys[keys.length - 1]).toBe(UNDATED)
-    // Bands are stacked, never overlapping, and every box sits inside its own band.
-    for (const [i, b] of graph.bands.entries()) {
-      const next = graph.bands[i + 1]
-      if (next !== undefined) expect(b.y + b.height).toBeLessThan(next.y)
-      for (const box of graph.boxes.filter((x) => x.group.era === b.key)) {
-        expect(box.y, `${box.group.id} outside band ${b.key}`).toBeGreaterThanOrEqual(b.y)
-        expect(box.y).toBeLessThan(b.y + b.height)
+  it('never puts a dependency after the feature that needs it', () => {
+    const at = new Map(graph.columns.map((c, i) => [c.group.id, i]))
+    const late: string[] = []
+    for (const [i, c] of graph.columns.entries()) {
+      for (const n of c.group.needs) {
+        const j = at.get(n.id)
+        if (j !== undefined && j > i) {
+          late.push(`${c.group.title}（${c.group.since ?? c.group.era}）needs `
+            + `${n.id}（${graph.groups.find((x) => x.id === n.id)?.since ?? 'baseline'}）`)
+        }
       }
     }
+    expect(late).toEqual([])
+  })
+
+  /**
+   * The matrix's own geometry: an event lands in the row its date belongs to, the lane covers
+   * every event of its column, and a quarter nobody wrote in is still a row.
+   */
+  it('puts every event in the row its own date names', () => {
+    const rowKey = graph.matrixRows.map((r) => r.key)
+    expect(rowKey[0], 'the published row is above every quarter')
+      .toBe(graph.columns.some((c) => c.events.some((e) => e.kind === 'published'))
+        ? BASELINE : rowKey[0])
+    const years = rowKey.filter((k) => k !== BASELINE)
+    expect(years, 'quarters run end to end — an idle quarter is a row, not a gap').toEqual(
+      years.length === 0 ? [] : Array.from({ length: years.length }, (_, i) => {
+        const y0 = Number(years[0]!.slice(0, 4))
+        const q0 = Number(years[0]!.slice(5))
+        return `${y0 + Math.floor((q0 - 1 + i) / 4)}Q${((q0 - 1 + i) % 4) + 1}`
+      }))
+
+    for (const c of graph.columns) {
+      for (const e of c.events) {
+        expect(rowKey[e.row], `${c.group.id}: ${e.label} is in the wrong row`)
+          .toBe(e.kind === 'published' ? BASELINE : quarterOf(e.date))
+        expect(e.row, `${c.group.id}: ${e.label} outside its own lane`)
+          .toBeGreaterThanOrEqual(c.firstRow)
+        expect(e.row).toBeLessThanOrEqual(c.lastRow)
+      }
+      expect(c.events.map((e) => e.row), `${c.group.id}: events out of order`)
+        .toEqual([...c.events.map((e) => e.row)].sort((x, y) => x - y))
+    }
+    // Every row states how many events it holds, and the UI thins the empty ones on that number.
+    for (const [i, r] of graph.matrixRows.entries()) {
+      expect(r.events, `row ${r.key} miscounts itself`)
+        .toBe(graph.columns.reduce((n, c) => n + c.events.filter((e) => e.row === i).length, 0))
+    }
+  })
+
+  it('gives every group exactly one column', () => {
+    expect(graph.columns.length).toBe(graph.groups.length)
+    expect([...new Set(graph.columns.map((c) => c.group.id))].length).toBe(graph.groups.length)
+    // Left to right: the row a column's first event lands in, never decreasing.
+    const firsts = graph.columns.map((c) => c.firstRow)
+    expect(firsts).toEqual([...firsts].sort((a, b) => a - b))
   })
 
   /**
@@ -223,8 +253,7 @@ describe.each(TRACKS)('%s: the graph is built from the document, not from a copy
     }
   })
 
-  it('draws every group and every dependency', () => {
-    expect(graph.boxes.length).toBe(graph.groups.length)
+  it('carries every dependency, with its reason', () => {
     expect(graph.edges.length).toBe(SPINE[track].reduce((n, g) => n + g.needs.length, 0))
     expect(graph.edges.every((e) => e.why.length > 8)).toBe(true)
   })
@@ -322,22 +351,38 @@ describe('the document metadata behind the time axis', () => {
   })
 })
 
-describe('wrapCjk measures the box in pixels, not in characters', () => {
-  it('wraps full-width text at the character count the box holds', () => {
-    expect(wrapCjk('一二三四五', 3, 2)).toEqual(['一二三', '四五'])
+/**
+ * **`src/course/lessonMeta.json` is the engine half of the time axis**, generated from this
+ * repository's own git history. It is the one date in the picture this repository is answerable
+ * for, so a lesson it cannot date is a hole in the green dots rather than a loud failure — which
+ * is why it is asserted here.
+ */
+describe('the lesson dates behind the green dots', () => {
+  it('dates every lesson, and knows which it could not', () => {
+    expect(lessonMeta.orphans, 'a lesson git cannot date').toEqual([])
+    const ids = new Set(LESSONS.map((l) => l.id))
+    expect(Object.keys(lessonMeta.lessons).filter((id) => !ids.has(id)),
+      'metadata for a lesson that no longer exists: run `npx vite-node scripts/lesson-meta.ts`')
+      .toEqual([])
+    expect(LESSONS.filter((l) => !(l.id in lessonMeta.lessons)).map((l) => l.id)).toEqual([])
   })
 
-  it('fits more of a Latin string on the same line', () => {
-    expect(wrapCjk('abcdefgh', 3, 2)[0]!.length).toBeGreaterThan(3)
+  it('dates them as ISO days, added no later than last touched', () => {
+    for (const [id, m] of Object.entries(lessonMeta.lessons)) {
+      expect(m.added, id).toMatch(/^\d{4}-\d\d-\d\d$/)
+      expect(m.touched, id).toMatch(/^\d{4}-\d\d-\d\d$/)
+      expect(m.added.localeCompare(m.touched), `${id}: added after it was last touched`)
+        .toBeLessThanOrEqual(0)
+      expect(m.file.startsWith('src/course/'), `${id}: ${m.file}`).toBe(true)
+    }
   })
 
-  it('marks a truncation rather than ending mid-word in silence', () => {
-    const out = wrapCjk('一二三四五六七八九十', 2, 2)
-    expect(out).toHaveLength(2)
-    expect(out[1]!.endsWith('…')).toBe(true)
-  })
-
-  it('leaves a string that fits exactly alone', () => {
-    expect(wrapCjk('一二', 2, 2)).toEqual(['一二'])
+  it('shows up in the matrix: every cited lesson is a green dot on its column', () => {
+    for (const track of TRACKS) {
+      for (const c of graphFor(track).columns) {
+        const dots = c.events.filter((e) => e.kind === 'lesson').map((e) => e.label.slice(1))
+        expect([...dots].sort(), `${c.group.id}`).toEqual([...c.group.lessons].sort())
+      }
+    }
   })
 })
