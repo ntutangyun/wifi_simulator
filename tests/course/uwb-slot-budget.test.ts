@@ -308,8 +308,8 @@ describe('uwb-slot-budget · what the radio costs', () => {
     expect((tag / PLAN.blockNs * 100).toFixed(2)).toBe('0.97')
     expect((anc / PLAN.blockNs * 100).toFixed(2)).toBe('1.22')
     const rows: [string, string, string, string, string][] = [
-      ['uwb-1', '1 of 10', '10 of 10', '1 934 334 ns', '0.97 %'],
-      ['anchor-1', '3 of 10', '4 of 10 × 3', '2 448 546 ns', '1.22 %'],
+      ['uwb-1（三部之一）', '1 of 10', '10 of 10', '1 934 334 ns', '0.97 %'],
+      ['anchor-1（四个之一）', '3 of 10', '4 of 10 × 3', '2 448 546 ns', '1.22 %'],
     ]
     rows.forEach((row, i) => row.forEach((v, j) => expect(cell(0, i, j), `${row[0]} ${j}`).toBe(v)))
     expect(Number(rows[0][3].replace(/[\sn]|s$/g, ''))).toBe(tag)
