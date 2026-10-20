@@ -15,6 +15,12 @@ export default defineConfig({
   // run-to-run noise.
   test: {
     environment: 'node',
+    // vitest 5 schedules the per-file workers differently from vitest 2, and under that
+    // scheduling a handful of 1-5 s engine runs (bianchi, mumimo, uwb-planOps's closed-system
+    // walks) land past the 5 s default and time out — a different handful each run. The suite's
+    // real cost bound is the event ceiling (tests/simCost.ts), not wall time; the timeout only
+    // needs to be above what a loaded machine takes.
+    testTimeout: 30_000,
     exclude: ['**/node_modules/**', '**/dist/**', '.claude/**', 'tests/e2e/**'],
     setupFiles: ['./tests/simCostRow.ts'],
     globalSetup: ['./tests/simCostCeiling.ts'],
