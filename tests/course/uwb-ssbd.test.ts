@@ -109,7 +109,7 @@ describe('uwb-ssbd · where it sits', () => {
     // Each of the eight documents the lesson rests on, by number.
     for (const doc of [
       '15-22/0486r5', '15-24/0010r36', '15-24/0121r2', '15-25/0486r1',
-      '15-25/0307r1', '15-26/0179r1', '15-26/0244r1', '15-26/0365r0',
+      '15-25/0307r1', '15-26/0179r1', '15-26/0244r1', '15-26/0365r2',
     ]) expect(citedDocs(uwbSsbd), doc).toContain(doc)
   })
 
@@ -506,7 +506,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       [WHY, /在整整一个测距块（ranging block）里不再发出任何控制消息，而一个块是 (\d+) ms/, '`why`'],
       [PIC, /从一个 (\d+) ms 的块，换成一个 [\d.]+ µs 的时隙/, '`picture`'],
       [QUIZ, /「一次忙赔一个 (\d+) ms 的块」/, 'the first explanation'],
-      [DEEP, /场景的块长都是 (\d+) ms/, '`deeper` on the MMS block length'],
+      [DEEP, /场景的 (\d+) ms 块长是其中合法的一档/, '`deeper` on the MMS block length'],
     ] as const) same(raw(text, re, what)[0]!, BLOCK_NS / MS, `${what}: the block this scene runs`)
     for (const [text, re, what] of [
       [PIC, /换成一个 (\d+) µs 的时隙/, '`picture`'],
@@ -849,22 +849,35 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
   })
 
   it('`deeper` and `observe`: the proposal next door, and the instant quoted twice', () => {
-    // the frequency-domain proposal: 200 µs into the slot, and a block no longer than 100 ms
-    const [at, cap, ours] = figs(DEEP,
-      /而是在时隙内 (\d+) µs 处改用跳频序列里的下一条信道[\s\S]*?测距块不超过 (\d+) ms[\s\S]*?块长都是 (\d+) ms/,
-      '`deeper` on the proposal')
+    // the frequency-domain proposal as of 15-26/0365r2: a negotiated deferral time (eight values,
+    // 150–500 µs) and a negotiated block-duration threshold (four values, 100–400 ms)
+    const PROPOSAL = /延后时间从 (\d+) µs 到 (\d+) µs 共([一二三四五六七八九十]+)档，块长门限从 (\d+) ms 到 (\d+) ms 共([一二三四五六七八九十]+)档/
+    const [lo, hi, tiers, capLo, capHi, capTiers] = raw(DEEP, PROPOSAL, '`deeper` on the proposal')
+    const [ours] = figs(DEEP, /场景的 (\d+) ms 块长是其中合法的一档/, '`deeper` on this repo’s block')
     /*
-     * **Exempt, class (a), twice over.** The 200 µs switch instant and the 100 ms block cap are
-     * the frequency-domain proposal's own figures (15-26/0365r0), and that proposal is not in
-     * this engine at all — there is no constant, no record and no run behind either. Both are
-     * kept as the inequalities the sentence is built on, which is all this repo can say about
-     * them: the switch happens inside one slot, and the cap is below what every MMS scene here
-     * uses. The sweep of 2026-10-13 walked through both, and the third figure of the sentence
-     * — this repo's own block length — is an equality against the scene.
+     * **Exempt, class (a), for the proposal's own two tables.** The ranges and their row counts
+     * are 15-26/0365r2's Table xx (deferral time, 150 µs to 500 µs in 50 µs steps) and Table yy
+     * (block duration threshold, 100 ms to 400 ms in 100 ms steps); there is no constant, record
+     * or run behind them. What IS checkable: each range is evenly stepped with exactly that many
+     * rows (a planted end or count breaks the arithmetic), the longest deferral still fits inside
+     * one slot, and this repo's block length is one of the threshold rows — which is the fact that
+     * replaced r0's「不超过 100 ms」premise (obsolete since r1 of 2026-10-13; the lesson printed
+     * it for six more days, see docs/uwb-feature-coverage.md §十七 7).
      */
-    expect(at! * US, 'the instant it would switch at is inside one slot').toBeLessThan(SLOT_NS)
-    expect(cap, 'the block length it assumes').toBeLessThan(BLOCK_NS / MS)
-    expect(ours, 'while this repo’s blocks are longer than that').toBe(BLOCK_NS / MS)
+    const TIME_STEP_US = 50, CAP_STEP_MS = 100
+    expect((Number(hi) - Number(lo)) / TIME_STEP_US + 1, 'the deferral-time table has that many rows')
+      .toBe(zh(tiers!))
+    expect((Number(capHi) - Number(capLo)) / CAP_STEP_MS + 1, 'and the threshold table that many')
+      .toBe(zh(capTiers!))
+    expect(Number(hi) * US, 'the longest deferral still fits inside one slot').toBeLessThanOrEqual(SLOT_NS)
+    expect(ours, 'this repo’s block length').toBe(BLOCK_NS / MS)
+    expect(ours! >= Number(capLo) && ours! <= Number(capHi) && (ours! - Number(capLo)) % CAP_STEP_MS === 0,
+      'and it is one of the threshold table’s rows').toBe(true)
+    // `sources` prints the same two ranges a second time, for the document that holds them
+    const second = raw(SRC,
+      /15-26\/0365r2（它的 r2 改为答复 D05 的意见 R1-35：延后时间 (\d+)–(\d+) µs 共([一二三四五六七八九十]+)档与块长门限 (\d+)–(\d+) ms 共([一二三四五六七八九十]+)档/,
+      '`sources` on the proposal')
+    expect(second, 'the second printing agrees with the first').toEqual([lo, hi, tiers, capLo, capHi, capTiers])
     /*
      * **The second printing of a figure is its own site.** `observe[0]` names the instant twice —
      * once in the quoted line's own `0.009 ms` and once in the sentence after it — and the
