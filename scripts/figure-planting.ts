@@ -584,7 +584,7 @@ let runs = 0
  */
 const VITEST = resolve(ROOT, 'node_modules/vitest/vitest.mjs')
 const green = (): boolean => {
-  const r = spawnSync(process.execPath, [VITEST, 'run', ...tests, '--reporter=basic'],
+  const r = spawnSync(process.execPath, [VITEST, 'run', ...tests, '--reporter=dot'],
     { cwd: ROOT, stdio: 'ignore' })
   return r.status === 0
 }
