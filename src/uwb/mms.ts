@@ -694,7 +694,9 @@ export function mmsControlSlots(phy: MmsPhy, responders = 1): number {
  * The draft's own figures for a zero-length control phase disagree with each other:
  * 15-25/0194r0 slide 13 (interleaved, no SP0) draws no Report at all, while slide 17
  * (non-interleaved, no SP0) draws `macMms1stReportNSlots`, **Report (optional)** and
- * `macMms2ndReportNSlots`. The report phase has its own pair of slot counts, so zeroing the
+ * `macMms2ndReportNSlots` (D05's names; CRG Motion #35 carried 15-26/0437r0 on 2026-10-20, which
+ * renames the pair `mmsInitiatorReportNSlots` / `mmsResponderReportNSlots` and frees a field for
+ * the Final message's own slot count). The report phase has its own pair of slot counts, so zeroing the
  * control phase's pair says nothing about it — and this engine does not special-case slide 13's
  * shape. The supported way to spend nothing on a report is the draft's fixed reply time, which
  * makes the reply a pre-agreed constant so the initiator holds both times already and the
