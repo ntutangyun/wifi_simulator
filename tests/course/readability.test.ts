@@ -22,13 +22,10 @@
  *    use — the reader's own requirement, with its anti-vacuity guards.
  */
 import { describe, it, expect } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { LESSONS } from '../../src/course/lessons'
 import {
-  CHARS_PER_MINUTE, COURSE_ORDER, MAX_MINUTES, MODULES, OBSERVE_MINUTES, TRY_MINUTES,
-  lessonChars, lessonMinutes, needsClosure, trackOf,
+  CHARS_PER_MINUTE, COURSE_ORDER, MODULES, SITTING_MINUTES,
+  isLongLesson, lessonMinutes, needsClosure, trackOf,
 } from '../../src/course/curriculum'
 import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
@@ -108,13 +105,6 @@ if (migrated.length) {
         expect(COURSE_ORDER.indexOf(id)).toBeLessThan(COURSE_ORDER.indexOf(l.id))
         if (trackOf(l) !== 'wifi') expect(trackOf(byId.get(id)!) === trackOf(l) || ['radio-primer', 'frame-anatomy'].includes(id), id).toBe(true)
       }
-    })
-    it('fits one sitting', () => {
-      // The word budgets went with the 2026-09-25 ruling, so this is the only
-      // length control the course has left, and the user asked for it by name: a
-      // lesson past 30 minutes is teaching two topics, and the answer is to
-      // split it, never to compress it.
-      expect(lessonMinutes(l), `${l.id}: ${lessonMinutes(l)} minutes`).toBeLessThanOrEqual(MAX_MINUTES)
     })
   })
 }
@@ -1282,127 +1272,16 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
  */
 describe('readability · the stated minutes, and the characters behind them', () => {
   /**
-   * One lesson's unrounded minutes, and how many Chinese characters of editing it would take to
-   * push it into the next five-minute bucket. Shared by the three assertions below, because the
-   * equality on 1 825 cannot say anything useful about its own failure without it.
+   * The length limit became a soft guideline on 2026-11-10 (user: "remove the course length
+   * limit, make it softer instead"). What used to stand here — a hard 30-minute ceiling, the
+   * pinned course total, the bucket-margin census and the CAUTION notes it demanded in lesson
+   * files — is gone. What is left is the guideline's own behaviour: a lesson past one sitting
+   * is marked long, and nothing refuses it.
    */
-  const rawMinutes = (l: Lesson): number => lessonChars(l) / CHARS_PER_MINUTE
-    + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
-  const toNextBucket = (l: Lesson): number =>
-    (Math.round(rawMinutes(l) / 5) * 5 + 2.5 - rawMinutes(l)) * CHARS_PER_MINUTE
-
-  /**
-   * How many characters a lesson is PAST the bucket boundary it most recently crossed. Printed
-   * next to the forward margin because the lesson that crossed is the one a red 1 825 is about,
-   * and after crossing its forward margin is a comfortable 550 — it leaves the tight list rather
-   * than topping it. This is the number that is small on exactly the culprit.
-   */
-  const sinceLastBucket = (l: Lesson): number =>
-    (rawMinutes(l) - (Math.round(rawMinutes(l) / 5) * 5 - 2.5)) * CHARS_PER_MINUTE
-
-  /**
-   * Every lesson's two bucket margins, closest boundary first — the thing a red 1 825 needs to
-   * say. The sum moving by ±5 means one lesson crossed; this census is where it is.
-   */
-  const margins = (): string => ordered
-    .map((l) => [l.id, rawMinutes(l), toNextBucket(l), sinceLastBucket(l)] as const)
-    .sort((a, b) => Math.min(a[2], a[3]) - Math.min(b[2], b[3]))
-    .map(([id, raw, next, prev]) => `  @${id} raw ${raw.toFixed(2)} → ${lessonMinutes(byId.get(id)!)}`
-      + ` min, ${next.toFixed(0)} characters to the next bucket, ${prev.toFixed(0)} past the last`)
-    .join('\n')
-
-  /**
-   * **A lesson close to a bucket boundary says so in its own file, and the figure is checked.**
-   *
-   * The `toBe(1_925)` equality below is the only thing in the suite that notices a lesson
-   * crossing a five-minute bucket, and it notices AFTER the fact: the next person to add a
-   * sentence to `@rate` gets `expected 1930 to be 1925` on a file they did not open. Slice W13's
-   * report asked for a header note and did not write one; slice W12c's wording contract already
-   * recorded four of them, and those four said neither which assertion goes red nor what to do
-   * about it.
-   *
-   * **The threshold is 50 Chinese characters, and it is the course's own sentence length.**
-   * Measured over the 11 546 sentences of the 90 lessons (split on 。！？, Han characters only):
-   * median 22, mean 26.1, p75 36, p90 52 — **88.5 % of this course's sentences are shorter than
-   * 50 characters**. So "under 50 left" means "almost any sentence anybody adds flips the
-   * bucket", which is exactly the population that owes a warning. It separates cleanly today: ten
-   * lessons are under it, the eleventh (`@uwb-aoa`) is at 58, and the median lesson has 457.
-   *
-   * **What is checked is the three figures and the two pointers, not the prose.** The note's
-   * character count, the bucket it is in and the bucket it would land in are recomputed here, so
-   * a note cannot rot the way the six §17 figures and the `@link-2g` margin did — both of which
-   * were hand-written numbers in comments that nothing read. The rest of the note is for a person
-   * and is left alone, except that it must name the file that goes red and must not offer editing
-   * the equality as a way out.
-   *
-   * It is a two-way rule on purpose: a lesson that moves AWAY from a boundary must lose its note,
-   * because a warning about a danger that has passed is the thing that teaches readers to ignore
-   * warnings.
-   */
-  describe('a lesson within 50 characters of a bucket says so in its own file', () => {
-    const TIGHT_CHARS = 50
-    /** The flattened leading docblock of a lesson's source file, by lesson id. */
-    const docblocks = new Map<string, string>()
-    const COURSE_SRC = fileURLToPath(new URL('../../src/course', import.meta.url))
-    const walk = (dir: string): void => {
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        const p = join(dir, e.name)
-        if (e.isDirectory()) { walk(p); continue }
-        if (!e.name.endsWith('.ts')) continue
-        const text = readFileSync(p, 'utf8')
-        if (!text.startsWith('/**')) continue
-        const block = text.slice(0, text.indexOf('\n */') + 4).replace(/\s*\n\s*\*\s?/g, ' ')
-        for (const m of text.matchAll(/^\s*id: '([a-z0-9-]+)',$/gm)) docblocks.set(m[1], block)
-      }
-    }
-    walk(COURSE_SRC)
-
-    const NOTE = /CAUTION — (\d+) Chinese characters? from `lessonMinutes` rounding this lesson up from (\d+) to (\d+) minutes\./
-
-    it('found a docblock for every lesson, so the rules below are not vacuous', () => {
-      const missing = ordered.map((l) => l.id).filter((id) => !docblocks.has(id))
-      expect(missing, 'no leading docblock found for these lesson ids').toEqual([])
-    })
-
-    const tight = ordered.filter((l) => Math.round(toNextBucket(l)) < TIGHT_CHARS)
-    const roomy = ordered.filter((l) => Math.round(toNextBucket(l)) >= TIGHT_CHARS)
-
-    it('has something to warn about, and something not to', () => {
-      // If every lesson were tight the threshold would be meaningless, and if none were the
-      // per-lesson rule below would assert nothing at all.
-      expect(tight.length).toBeGreaterThan(0)
-      expect(roomy.length).toBeGreaterThan(tight.length)
-    })
-
-    it.each(tight)('$id carries the note, with the right three figures', (l) => {
-      const want = Math.round(toNextBucket(l))
-      const at = lessonMinutes(l)
-      const expected = `CAUTION — ${want} Chinese character${want === 1 ? '' : 's'} from`
-        + ` \`lessonMinutes\` rounding this lesson up from ${at} to ${at + 5} minutes.`
-      const block = docblocks.get(l.id) ?? ''
-      const found = NOTE.exec(block)
-      expect(found, `@${l.id} has ${want} characters left before ${at} becomes ${at + 5} minutes`
-        + ' and its file says nothing. Add this to the end of its leading docblock, then the rest'
-        + ` of the note the other nine carry:\n  ${expected}`).not.toBeNull()
-      expect([found![1], found![2], found![3]].join('/'),
-        `@${l.id}'s note has gone stale. It should read:\n  ${expected}`)
-        .toBe(`${want}/${at}/${at + 5}`)
-      // The two things the four notes of 2026-10-01 were missing, and the reason this slice
-      // rewrote them: which assertion turns red, and that editing it is not the answer.
-      expect(block, `@${l.id}'s note must name the file that goes red`)
-        .toContain('tests/course/readability.test.ts')
-      expect(block, `@${l.id}'s note must say what to do instead of widening the sum`)
-        .toContain('re-pace or split, never the equality')
-    })
-
-    it('and no lesson with room to spare carries one', () => {
-      // A stale warning is worse than none: the next reader learns that these notes are noise.
-      // The 30-minute ceiling notes on `@ru-diversity`, `@amp-slots` and `@amp-coexist` are a
-      // different sentence about a different limit and are deliberately not matched.
-      const stale = roomy.filter((l) => NOTE.test(docblocks.get(l.id) ?? ''))
-        .map((l) => `@${l.id} (${Math.round(toNextBucket(l))} characters of room)`)
-      expect(stale, 'these lessons moved away from a boundary and kept the warning').toEqual([])
-    })
+  it('marks a lesson long exactly when its estimate is past one sitting', () => {
+    for (const l of ordered) expect(isLongLesson(l), l.id).toBe(lessonMinutes(l) > SITTING_MINUTES)
+    const padded = { ...ordered[0], why: '字'.repeat(CHARS_PER_MINUTE * (SITTING_MINUTES + 5)) }
+    expect(isLongLesson(padded), 'a lesson far past one sitting is marked, not refused').toBe(true)
   })
 
   it('has the lessons and the modules it says it has', () => {
@@ -1448,11 +1327,6 @@ describe('readability · the stated minutes, and the characters behind them', ()
         + ' tests/course/readability-rules.test.ts is, and it is exact.'
         + ` The course, shortest first:\n${census()}`)
         .toBeGreaterThan(MAIN_PATH_BAND.floor)
-      expect(n, `@${id} has ${n} main-path characters, past twice the mean lesson. A lesson that`
-        + ' long is a lesson teaching two topics, and the answer is to split it, never to'
-        + ' compress it (curriculum.ts, lessonMinutes).'
-        + ` The course, longest first:\n${sorted.slice().reverse().map(([i, c]) => `  ${i} ${c}`).join('\n')}`)
-        .toBeLessThan(MAIN_PATH_BAND.ceiling)
     }
   })
 
@@ -1468,113 +1342,4 @@ describe('readability · the stated minutes, and the characters behind them', ()
     expect(chars).toBeLessThan(300_000)
   })
 
-  it('states 1 925 minutes across the whole course, and no earlier lesson moved', () => {
-    // 1 925 since slice W13: `claim-to-contribution` is 2 791 main-path characters, three things to
-    // observe and two experiments — raw 26.6864, which the formula rounds to 25. **Measured after
-    // the prose was final, not budgeted**, and trimmed once to get there: the first complete draft
-    // was 2 870 characters, raw 27.0455, which left only 100 characters before the 27.5 boundary —
-    // and M13's other lesson already sits 71 from its own. It now sits 178 clear above and 921
-    // clear below. No earlier lesson moved: that slice added one lesson, two optional parameters to
-    // an existing scene builder and six `CONTRIBUTIONS` entries, and edited no other lesson's prose.
-    // 1 900 before it, since slice W12b: `uhr-rate-ladder` is 2 809 main-path characters, three things to
-    // observe and two experiments — raw 26.7682, which the formula rounds to 25. **Measured after
-    // the prose was final, not budgeted**, and it was trimmed twice to get there: the first
-    // complete draft was 3 255 characters, raw 28.17, which rounds to 30 and would have put a new
-    // lesson on the course's `MAX_MINUTES` ceiling. It now sits 161 characters clear of the 27.5
-    // boundary above and 939 clear of the 22.5 one below. No earlier lesson moved: that slice
-    // added one lesson, one scene builder and one `MODULES` entry, and edited no other lesson's
-    // prose — the 33 UWB edits in the same commit are `module` indices, which
-    // `MAIN_PATH_SECTIONS` does not count.
-    // 1 875 before it, since slice W3: `link-2g` is 2 496 main-path characters, three things to observe and
-    // two experiments — raw 25.3455, which the formula rounds to 25. **Measured after the prose
-    // was final, not budgeted**, and it sits 626 characters clear of the 22.5 boundary below and
-    // 474 clear of the 27.5 one above, so it does not appear near the top of the census.
-    // (Re-measured 2026-10-09: this comment read 2 494 / raw 25.34 / 476 and 475. The character
-    // count was wrong by two, the raw minute followed it, and 476 was the margin to the boundary
-    // ABOVE, printed as the one below; 475 was never either of them. The lesson itself did not
-    // move — `git log -p src/course/tier3/link-2g.ts` is one commit — so the figure was wrong when
-    // it was written. Same defect class as the six §17 figures: hand-written, unchecked.) No earlier
-    // lesson moved: that slice added one lesson, two scene builders and one `MODULES` entry, and
-    // edited no other lesson's prose — the 33 UWB edits in the same commit are `module` indices,
-    // which `MAIN_PATH_SECTIONS` does not count.
-    // 1 850 before it, since slice W5: `amp-backscatter` is 2 487 main-path characters, three things to
-    // observe and two experiments — raw 25.30, which the formula rounds to 25. **Measured after
-    // the prose was final, not budgeted**, and it sits 283 characters clear of either bucket
-    // boundary, so it does not appear near the top of the census below. No earlier lesson moved:
-    // that slice added one lesson and two scene helpers and edited no other lesson's prose.
-    // 1 825 before it, since slice 3d: `uwb-ancillary-request` is 2 990 main-path characters, two things to
-    // observe and two experiments — raw 25.59, which the formula rounds to 25. **Measured after the
-    // prose was final, not budgeted**, and `uwb-ancillary` itself did not move: that lesson's only
-    // edit was to its `limits`, which `MAIN_PATH_SECTIONS` does not count.
-    // **The equality is NOT relaxed** — it is deliberate that somebody looks at a new lesson's
-    // minutes — but a bare `expected 1830 to be 1825` reads like "you broke something else".
-    // What actually happened is that one lesson crossed a five-minute bucket, and the course has
-    // six lessons within 25 characters of doing that (`@rate` within ONE), so the failure prints
-    // every margin, tightest first. The reader of the red then sees the lesson, not the sum.
-    // This replaces the hand-written margin table in docs/wifi-course-backlog.md, whose figures
-    // for `@uwb-m2m` and `@rts-cts` were each one character out on the day it was written.
-    expect(ordered.reduce((n, l) => n + lessonMinutes(l), 0),
-      'the sum of every stated minute figure a reader can see. ±5 means one lesson crossed a'
-      + ` bucket; every lesson's margin, tightest first:\n${margins()}`).toBe(1_925)
-    // the two lessons of the built-but-untaught slice, measured after their prose was
-    // final rather than copied from its design document (which budgeted 25 and 30 and
-    // happened to be right, while its character budgets were not)
-    expect(lessonMinutes(byId.get('wan-rtt')!)).toBe(25)
-    expect(lessonMinutes(byId.get('edca-tamper')!)).toBe(30)
-    // the four lessons this slice added prose to, and the one it did not have to
-    expect(lessonMinutes(byId.get('ofdma-dl')!)).toBe(20)
-    expect(lessonMinutes(byId.get('radio-primer')!)).toBe(15)
-    expect(lessonMinutes(byId.get('small-frames')!)).toBe(20)
-    expect(lessonMinutes(byId.get('uwb-mms')!)).toBe(25)
-    expect(lessonMinutes(byId.get('uwb-uwbd')!)).toBe(20)
-  })
-
-  /**
-   * The margin itself, as an assertion rather than as a remark. Without it the
-   * two totals above look like arbitrary constants and the first person they get
-   * in the way of deletes them. This says why they are there: the course has a
-   * lesson that one more character would re-time.
-   */
-  it('has a lesson one character from the next bucket, which is why the totals are pinned', () => {
-    const tightest = ordered.map((l) => [l.id, toNextBucket(l)] as const)
-      .sort((a, b) => a[1] - b[1])[0]
-    expect(tightest[0]).toBe('rate')
-    expect(tightest[1], `${tightest[0]} is ${tightest[1].toFixed(2)} characters from being`
-      + ' re-timed; prose edits in this course are not free').toBeLessThan(5)
-    // and the lessons this slice did edit had room to spare, which is why it could choose
-    // the fix that serves the reader instead of the one that protects a number
-    for (const [id, least] of [['ofdma-dl', 100], ['radio-primer', 100], ['small-frames', 500],
-      ['uwb-mms', 300], ['uwb-uwbd', 200]] as const) {
-      const room = toNextBucket(byId.get(id)!)
-      expect(room, `${id} has ${room.toFixed(0)} characters of room left`).toBeGreaterThan(least)
-    }
-  })
-
-  /**
-   * The other end of the same ruler, and it fires EARLIER than `fits one sitting` does.
-   *
-   * `lessonMinutes` rounds to five and clamps nothing, so a lesson at raw 31 still states 30 and
-   * `fits one sitting` stays green until raw reaches 32.5. Two lessons are already past the
-   * ceiling in raw terms, which means the next edit to either is the one that re-times it, and
-   * the red it produces would arrive as a 1 825 failure rather than as "this lesson is too long".
-   *
-   * So the set is pinned, not the margin. A third lesson crossing raw 30 is a content decision —
-   * `curriculum.ts` says the answer to a lesson past 30 minutes is to split it, never to compress
-   * it — and it should be made on purpose rather than discovered at 32.5. Backlog slice W2 holds
-   * the case for splitting these two; this assertion is what it asked for instead of the split.
-   */
-  it('names the lessons already past the 30-minute ceiling in raw terms', () => {
-    const over = ordered.filter((l) => rawMinutes(l) > MAX_MINUTES).map((l) => l.id).sort()
-    expect(over, 'lessons whose unrounded minutes exceed MAX_MINUTES. A new entrant here is a'
-      + ' lesson teaching two topics (curriculum.ts, lessonMinutes) and the answer is to split'
-      + ` it. Every lesson's margin, tightest first:\n${margins()}`)
-      // `uwb-ancillary` left this list on 2026-10-11 by being SPLIT rather than compressed,
-      // which is what `curriculum.ts` says the answer is: its two halves are 16.82 and 16.66 raw
-      // minutes. `ru-diversity` is still here on purpose — the case for splitting it is open and
-      // declined, with its own re-opening conditions, in §2.2 and §6.3 of
-      // docs/superpowers/specs/2026-10-11-no-room-design.md. A single-element roster is a hard
-      // assertion to read, and keeping it is the recommendation that spec makes in §6.3: the
-      // shape of the criterion needs a human, and W2's record is on this line.
-      .toEqual(['ru-diversity'])
-  })
 })

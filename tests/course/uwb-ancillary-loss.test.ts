@@ -39,7 +39,7 @@ import {
   idOf, ms, uwbAncillary, uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from '../../src/course/uwb/uwb-ancillary'
 import { uwbAncillaryLoss } from '../../src/course/uwb/uwb-ancillary-loss'
-import { MODULES, basisOf, lessonMinutes } from '../../src/course/curriculum'
+import { MODULES, basisOf } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -116,7 +116,6 @@ describe('uwb-ancillary-loss · where it sits in the course', () => {
     expect(uwbAncillary.tryThis.length + uwbAncillaryLoss.tryThis.length).toBe(2)
     expect(uwbAncillary.observe.length).toBeGreaterThan(0)
     expect(uwbAncillaryLoss.observe.length).toBeGreaterThan(0)
-    expect(lessonMinutes(uwbAncillary) + lessonMinutes(uwbAncillaryLoss)).toBe(30)
     // and the two outcomes here are the two the first half no longer claims
     expect(uwbAncillaryLoss.outcomes).toHaveLength(2)
     expect(uwbAncillary.outcomes).toHaveLength(2)

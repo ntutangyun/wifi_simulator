@@ -91,7 +91,7 @@ export const LIMITS_DEBT_CEILING = 287
  * states this band to a reader AND states the tightest lesson's distance from its upper end, and
  * a number stated in two places with nothing comparing them is this document's standing defect.
  */
-export const MAIN_PATH_BAND = { floor: 700, ceiling: 4_400 } as const
+export const MAIN_PATH_BAND = { floor: 700 } as const
 
 /**
  * The ratchet, measured: the debt as a list of `lesson|term` pairs, its size, and the slack left

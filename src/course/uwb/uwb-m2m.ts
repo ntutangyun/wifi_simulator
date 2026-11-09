@@ -32,15 +32,6 @@
  * every count that can be computed is computed — `roundPlan`, `uwbM2mBytes`,
  * `uwbMaxParticipants`, `rstuNs` — never typed as a literal.
  * `npx tsx scripts/lesson-dump.ts uwb-m2m` prints it with its length.
- *
- * CAUTION — 2 Chinese characters from `lessonMinutes` rounding this lesson up from 25 to 30
- * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
- * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
- * wrong once and read a 484-character margin where there were four. What goes red is the
- * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
- * test; the answer there is to re-pace or split, never the equality, because that sum is the only
- * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
- * this note are checked rather than hand-written — the same file recomputes them.
  */
 import type { Scenario, UwbSessionCfg, Wall } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'
@@ -240,7 +231,7 @@ export const uwbM2m: Lesson = {
   id: 'uwb-m2m',
   module: 20,
   title: '一次发送，同时是问也是答',
-  why: '六台设备想知道两两之间的距离，一共十五条。用前面几课的办法，只能让每台设备轮流当一次标签（tag）、另外五台当锚点（anchor）答它：六轮，每轮六个测距时隙（ranging slot），三十六个。更糟的是这三十六个时隙量出三十条距离——每一对都量了两遍。标准另有一种排法：六个时隙，十五条距离，一条不重。差别只在一句话上——一次发送可以同时做两件事。',
+  why: '六台设备想知道两两之间的距离，一共十五条。用前面几课的办法，只能让每台设备轮流当一次标签（tag）、另外五台当锚点（anchor）答它：六轮，每轮六个测距时隙（ranging slot），三十六个。更糟的是这三十六个时隙量出三十条距离——每一对都量了两遍。标准另有一种排法，多对多测距（many-to-many ranging）：六个时隙，十五条距离，一条不重——轮流当标签用的时隙数，恰好是它的设备数那么多倍。秘诀是一次发送同时做两件事：每台设备按顺序发一次，帧里既有自己的发送时刻，对后面的人是问；也捎着此前听到的每个人的到达时刻，对前面的人是答。于是一对距离只有排在前面的那个算得出来：它缺的两个时刻都在对方的帧里，而对方缺的那个时刻，在它发送时还没发生。排第一的算五条，排最后的一条也算不到，却发着全轮最长的一帧——一轮最多能站多少人，就看这一帧还塞不塞得进一帧允许的最大字节数。单边形态要按自己估出的时钟偏差（clock offset）折算对方长达几个时隙的回复间隔，误差到二十厘米上下；双边形态多走一趟、时隙翻倍、帧不变长，把偏差抵消掉，误差小两个数量级。排头的人一发没被听见，丢的就是它和后面所有人之间的距离，一丢一串。',
   outcomes: [
     '说清一次发送凭什么同时是问和答，并由此算出「N 对 N²」这个整数倍',
     '指出一对距离为什么只有排在前面的那个算得出来，并数对每人手里有几条',

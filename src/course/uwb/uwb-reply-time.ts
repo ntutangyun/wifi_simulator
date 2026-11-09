@@ -31,15 +31,6 @@
  * and every count that can be computed is computed — `uwbMaxAnchors`,
  * `uwbRespBytes`, `UWB_SS_DEFER_BYTES`, `uwbSlotFitNs` — never typed as a literal.
  * `npx tsx scripts/lesson-dump.ts uwb-reply-time` prints it with its length.
- *
- * CAUTION — 4 Chinese characters from `lessonMinutes` rounding this lesson up from 25 to 30
- * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
- * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
- * wrong once and read a 484-character margin where there were four. What goes red is the
- * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
- * test; the answer there is to re-pace or split, never the equality, because that sum is the only
- * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
- * this note are checked rather than hand-written — the same file recomputes them.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'
@@ -233,7 +224,7 @@ export const uwbReplyTime: Lesson = {
   id: 'uwb-reply-time',
   module: 15,
   title: '你不能把一个数放进它自己测量的那一帧',
-  why: '上两课都把回复时延（reply time）当成 Response 帧里现成的一个数：锚点（anchor）填进去，标签（tag）减掉。可这个数量的是「从收到 Poll 到发出这一帧」——而「发出这一帧」就是这一帧自己的发送时刻。要把它写进去，锚点必须在还没发之前就知道自己会在什么时候发。不是每块射频都做得到，于是标准为同一个距离列了三条不同的走法。',
+  why: '上两课都把回复时延（reply time）当成 Response 帧里现成的一个数：锚点（anchor）填进去，标签（tag）减掉。可这个数量的是「从收到 Poll 到发出这一帧」——而「发出这一帧」就是这一帧自己的发送时刻。要把它写进去，锚点必须在还没发之前就知道自己会在什么时候发。标准为此列了三条走法。嵌入：发射机接受「在指定时刻发射」的命令，发送时刻在封帧前已知，数就写进 Response，标签收到它就有了距离。延后：Response 照发但不带这个数，发完读回自己的时间戳，再用一条专门的报文送出去——这条报文要占自己的测距时隙（ranging slot），每多一个锚点一轮就多两个时隙而不是一个，代价远大于省下的那几个字节。固定：双方事先约定这段时延，锚点在收完 Poll 之后等约定值、再加上排位那么多个时隙才发送，标签自己把它重建出来，空口上一个字节都不花；要求变成了必须准时，约定值两头都有界——太大，Response 发不完自己的时隙；太小，它落进还没轮到它的时隙，没人在听。三条路送进的是同一条算式：两端晶振（crystal）对准时三者读数逐位相同；晶振有偏差时嵌入与延后仍逐位相同，固定略有出入，因为那段时延是按锚点自己的晶振数的。一轮最多能带几个锚点，由轮里最长的一帧决定：单边三种形态里最长的是 Poll，所以它们能带的锚点远多于以 Final 为最长帧的双边嵌入式。',
   outcomes: [
     '说清一个数为什么写不进它自己测量的那一帧，以及嵌入形态凭什么能写',
     '在三种形态里指出那个数走的是哪条路、各占几个测距时隙（ranging slot）、帧长差几个字节',

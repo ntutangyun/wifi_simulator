@@ -16,15 +16,6 @@
  * `uwb-mms-numbers` are `uwb-mms`'s, value for value.
  *
  * Every number quoted below is pinned in tests/course/uwb-mms-numbers.test.ts.
- *
- * CAUTION — 22 Chinese characters from `lessonMinutes` rounding this lesson up from 20 to 25
- * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
- * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
- * wrong once and read a 484-character margin where there were four. What goes red is the
- * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
- * test; the answer there is to re-pace or split, never the equality, because that sum is the only
- * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
- * this note are checked rather than hand-written — the same file recomputes them.
  */
 import { J, firstNbReport, firstUwbRange, firstUwbRsf, firstUwbTrain, type Lesson } from '../lessonKit'
 import { uwbMmsScenario } from './uwb-mms'
@@ -33,7 +24,7 @@ export const uwbMmsNumbers: Lesson = {
   id: 'uwb-mms-numbers',
   module: 28,
   title: '片段、预算，和那 12 dB',
-  why: '多毫秒测距（multi-millisecond, MMS）里，一串片段（fragment）要么越过了接收机的门限，要么没有，而决定这件事的，是一笔在信封背面就能算完的算术。这一课就来算它：一毫秒的能量有多少，一个片段花掉其中多少，一串片段加起来是多少——以及这份改善里，有多少真正属于那个新想法，又有多少只是因为老式发射机浪费惯了。',
+  why: '多毫秒测距（multi-millisecond, MMS）里，一串片段（fragment）要么越过了接收机的门限，要么没有，而这件事在信封背面就算得完。法规限的是每一毫秒上的平均，所以它限的是一毫秒里的能量，而不是任何一瞬的功率：片段把一整毫秒的能量塞进短得多的一段里，功率因此更高。接收机把等功率的片段加起来，合成增益（combining gain）随片段数每翻一番多三个分贝；再减去接收机的灵敏度（sensitivity），余量为正才算检出。这个房间里每个片段单独都听不见，八个片段刚好越过门限；砍成四个，每个片段照样全收到、电平一点没变，和只小了三个分贝，余量就转负，整段运行一次测距也没有。这一串同时是一把十几毫秒长的尺子：片段在发送方的时钟上等间隔发出，用自己的计数器量这段跨度，就直接比出两块晶振（crystal）的时钟比值（clock ratio），它留下的误差比时间戳本身小得多，所以单边测距不必再做第二次往返。对增益要诚实：一串片段比一帧普通测距帧强将近二十个分贝，其中只有合成增益属于“许多毫秒”这个想法；其余一半多来自片段更短，以及老式发射机根本没花完它的额度。',
   outcomes: [
     '算出一串片段加起来是多少，以及它有没有越过接收机门限',
     '说清为什么把一串片段砍掉一半，整个房间就一次测距也没有了',

@@ -35,7 +35,7 @@ import type { Scenario } from '../../src/model/scenario'
 import { isMigrated, type Lesson } from '../../src/course/lessonKit'
 import { LESSONS } from '../../src/course/lessons'
 import {
-  CHARS_PER_MINUTE, MAX_MINUTES, OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes,
+  CHARS_PER_MINUTE, OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes,
 } from '../../src/course/curriculum'
 import { readerTexts } from '../../src/course/readability'
 
@@ -133,14 +133,11 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions = {}): void {
       expect(firstWatch).toBeLessThan(3)
     })
 
-    it('fits one sitting: the stated minutes are the formula, and the formula fits', () => {
+    it('states the minutes the formula gives', () => {
       expect(lessonBlocks(l).length).toBe(l.picture!.length + l.numbers!.length)
       const raw = lessonChars(l) / CHARS_PER_MINUTE
         + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
       expect(lessonMinutes(l)).toBe(Math.max(5, Math.round(raw / 5) * 5))
-      // The only length control the course has left: past 30 minutes a lesson is
-      // teaching two topics, and the answer is to split it.
-      expect(lessonMinutes(l)).toBeLessThanOrEqual(MAX_MINUTES)
     })
 
     it('every jump target occurs in the base run', () => {

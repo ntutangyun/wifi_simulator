@@ -588,9 +588,10 @@ export const CHARS_PER_MINUTE = 220
  * simulator for each thing to observe and each experiment, rounded to the
  * nearest 5 minutes (at least 5).
  *
- * With the word budgets gone this is the course's only length control: a lesson
- * that runs past 30 minutes is a lesson teaching two topics, and the answer is
- * to split it (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
+ * This is an estimate shown to the reader, not a limit. A lesson longer than
+ * {@link SITTING_MINUTES} is allowed (2026-11-10 user decision: "remove the
+ * course length limit, make it softer"); the contents list marks it so the
+ * reader can plan two sittings — see {@link isLongLesson}.
  */
 export function lessonMinutes(l: Lesson): number {
   const raw = lessonChars(l) / CHARS_PER_MINUTE
@@ -598,5 +599,13 @@ export function lessonMinutes(l: Lesson): number {
   return Math.max(5, Math.round(raw / 5) * 5)
 }
 
-/** The ceiling the user asked for: a lesson is one sitting. */
-export const MAX_MINUTES = 30
+/**
+ * What one sitting is taken to be. A soft guideline, not a ceiling: nothing
+ * refuses a lesson past it. Past it the reader is told the lesson is long and
+ * may be read in two sittings — which is softer than splitting it, and
+ * replaces the old hard `MAX_MINUTES` assertion and the pinned course total.
+ */
+export const SITTING_MINUTES = 30
+
+/** True when a lesson's estimate is past {@link SITTING_MINUTES}. */
+export const isLongLesson = (l: Lesson): boolean => lessonMinutes(l) > SITTING_MINUTES

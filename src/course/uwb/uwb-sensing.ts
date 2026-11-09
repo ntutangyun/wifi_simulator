@@ -27,15 +27,6 @@
  * Every figure quoted below comes from `src/ui/echoFacts.ts`, which computes it
  * the way `UwbChannel` computes an arrival, so no number here was typed by hand;
  * tests/course/uwb-sensing.test.ts pins each one against the run.
- *
- * CAUTION — 25 Chinese characters from `lessonMinutes` rounding this lesson up from 20 to 25
- * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
- * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
- * wrong once and read a 484-character margin where there were four. What goes red is the
- * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
- * test; the answer there is to re-pace or split, never the equality, because that sum is the only
- * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
- * this note are checked rather than hand-written — the same file recomputes them.
  */
 import type { Scenario } from '../../model/scenario'
 import type { ScattererCfg } from '../../engine/scatter'
@@ -146,7 +137,7 @@ export const uwbSensing: Lesson = {
   id: 'uwb-sensing',
   module: 27,
   title: '不回话的物体留下的回波',
-  why: '到这里为止，每一次测量都靠「问一句、答一句」：标签（tag）发出 Poll，锚点（anchor）回话，两边的时间戳凑出一个距离。可房间里绝大多数东西是不会回话的——柜子、门板、站在那里的人。它们不发射也不接收，却把信号弹回来，于是同一次发送在同一个接收端多出第二个到达。这一课就读这第二个到达：它走了哪条路，为什么不可能比直达路径更早，以及为什么测距从头到尾看不见它。',
+  why: '到这里为止，每一次测量都靠「问一句、答一句」：标签（tag）发出 Poll，锚点（anchor）回话，两边的时间戳凑出一个距离。可房间里绝大多数东西是不会回话的——柜子、门板、站在那里的人。它们不发射也不接收，却把信号弹回来，于是同一次发送在同一个接收端多出第二个到达。这样的物体叫散射体（scatterer），它绕出来的第二个到达叫回波（echo），回波走过的是「发送端到物体」加「物体到接收端」两段，这两段之和叫双站距离（bistatic range）。两段之和不可能短于那条直线，这是三角不等式，所以回波最多与直达路径同时到达，通常更晚——任何比首径（first path）更早的到达，一定是量错了。电平却没有定理：回波按两段路径损耗（path loss）来算，物体离连线远时比直达路径略弱，贴到连线边上两段都变短，反而比直达路径更强。而测距从头到尾看不见它：测距接收机锁的是首径，带回波标记的到达不打时间戳、不参与捕获判决，摆上物体前后，每条测距记录逐字段不变；读回波的只有感知（sensing）这一路。',
   outcomes: [
     '说清回波走的是哪两段路，以及三角不等式为什么让它不可能更早',
     '从一条记录里读出双站距离，并用平面图上的坐标自己验一遍',

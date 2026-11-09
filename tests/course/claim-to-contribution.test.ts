@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { claimToContribution as L } from '../../src/course/tier4/claim-to-contribution'
 import { uhrRateLadder } from '../../src/course/tier4/uhr-rate-ladder'
-import { CONTRIBUTIONS, MODULES, TIERS, basisOf, citedDocs, lessonMinutes, teachesDraft, trackOf } from '../../src/course/curriculum'
+import { CONTRIBUTIONS, MODULES, TIERS, basisOf, citedDocs, teachesDraft, trackOf } from '../../src/course/curriculum'
 import { LESSONS, lessonIndex } from '../../src/course/lessons'
 import { uhrLadderScenario } from '../../src/course/wifiScenes'
 import { Simulation } from '../../src/engine/simulation'
@@ -126,7 +126,6 @@ describe('claim-to-contribution · where it sits in the course', () => {
     expect(TIERS[3].label).toBe('第四阶段 · 研究')
     expect(basisOf(13)).toEqual(['ieee-802-11', 'p802-11bn'])
     expect(teachesDraft(13)).toBe(true)
-    expect(lessonMinutes(L)).toBe(25)
   })
 
   it('cannot be read before the lesson whose number it grades', () => {

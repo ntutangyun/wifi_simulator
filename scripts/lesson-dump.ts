@@ -25,7 +25,7 @@
  * `npx vite-node scripts/lesson-dump.ts <id>` runs it too.
  */
 import { LESSONS } from '../src/course/lessons'
-import { lessonChars, lessonMinutes, MAX_MINUTES, trackOf } from '../src/course/curriculum'
+import { lessonChars, lessonMinutes, SITTING_MINUTES, trackOf } from '../src/course/curriculum'
 import type { Block, Lesson } from '../src/course/lessonKit'
 import { diagramTexts } from '../src/course/diagram'
 
@@ -33,7 +33,7 @@ import { diagramTexts } from '../src/course/diagram'
 function budgetLine(l: Lesson): string {
   const min = lessonMinutes(l)
   return `${l.id.padEnd(16)} ${String(lessonChars(l)).padStart(5)} chars`
-    + ` · ${String(min).padStart(2)}/${MAX_MINUTES} min${min > MAX_MINUTES ? '  OVER' : ''}`
+    + ` · ${String(min).padStart(2)} min${min > SITTING_MINUTES ? '  long (soft)' : ''}`
 }
 
 const [id] = process.argv.slice(2)

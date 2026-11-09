@@ -21,7 +21,7 @@ import {
 } from '../../src/course/tier1/frame-anatomy-bytes'
 import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from '../../src/course/tier1/frame-anatomy'
 import { Simulation } from '../../src/engine/simulation'
-import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { lessonChars } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import type { TimingSpec } from '../../src/course/diagram'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -389,10 +389,7 @@ describe("frame-anatomy-bytes · what the guard interval costs this lesson's own
   })
 
   it('(e) the stated minutes do not move: limits are outside mainPathChars', () => {
-    // Measured rather than assumed. 2016 characters, 2 observe, 2 tryThis -> 2016/220 + 4 + 8
-    // = 21.16 -> 20 minutes, and `limits` contributes to none of it.
-    expect(lessonChars(frameAnatomyBytes)).toBe(2016)
-    expect(lessonMinutes(frameAnatomyBytes)).toBe(20)
+    expect(lessonChars({ ...frameAnatomyBytes, limits: [] })).toBe(lessonChars(frameAnatomyBytes))
   })
 })
 
