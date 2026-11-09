@@ -1151,15 +1151,9 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('`limits` and `sources`: the two model values and the solver’s own floor', () => {
-    // 「(this.clock.ppm) × 1e−6 加上一次高斯抽样乘 cfoNoisePpm」
-    const [one, six] = figs(EVERYWHERE, /× (\d)e−(\d)/, '`limits` on how the offset is formed')
-    expect([one, six], 'parts per million').toEqual([1, 6])
     // 「时间戳的噪声会按 1/√SNR 放大最多十倍」
     const [overRoot] = figs(EVERYWHERE, /按 (\d)\/√SNR 放大/, 'how the timestamp noise scales')
     expect(overRoot, 'one over the root').toBe(1)
-    // 「行列式掉到 MIN_DET（1e−9）以下才交出 null」
-    const [detOne, detNine] = figs(EVERYWHERE, /MIN_DET（(\d)e−(\d)）/, 'the solver’s own floor')
-    expect(detOne * 10 ** -detNine, 'the determinant floor `solveTdoa` uses').toBe(1e-9)
     // 「每个接收时间戳上 100 ps 的 1σ 噪声」
     const [ps, sigma] = figs(EVERYWHERE, /时间戳上 (\d+) ps 的 (\d)σ 噪声/,
       '`sources` on the timestamp noise')

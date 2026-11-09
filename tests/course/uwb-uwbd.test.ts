@@ -565,7 +565,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
     }
     // 「草案为此把它的门限抬高约 4 dB」 — `picture`, `deeper`, `limits`, `sources`, the quiz
     for (const v of everyFig(
-      /抬高约 (\d+) dB|再差 (\d+) dB|那 (\d+) dB 是一个数|就是这 (\d+) dB|“约 (\d+) dB”|PENALTY_DB = (\d+)|取值：(\d+) dB 这个数/g,
+      /抬高约 (\d+) dB|再差 (\d+) dB|那 (\d+) dB 是一个数|就是这 (\d+) dB|“约 (\d+) dB”|取值：(\d+) dB 这个数/g,
       'the threshold penalty', 6)) {
       expect(val(v), 'the penalty `mms.ts` charges').toBe(MMS_SP0_PENALTY_DB)
     }
@@ -626,7 +626,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
      * **The ratios are the draft's own and this repository has no corpus for them** — the first
      * exemption class, and so is the 91 of 「典型的 91 长码上」: this engine carries no SYNC code
      * length at all, which is the same reason `limits` gives for taking one number instead of
-     * three (「本引擎根本不携带 SP0 包的前导重复数这个量」). What IS checkable is the arithmetic
+     * three (「本课的模型里没有 SP0 包的前导重复数这个量」). What IS checkable is the arithmetic
      * the sentence does with each ratio, that the pulse ratio of each pair is the larger of the
      * two (the sentence's own 「比的是脉冲数而不是时长」), and that the engine's single 4 dB falls
      * among the three values it stands in for — which is what 「提案的结论句把这三个数收成一句

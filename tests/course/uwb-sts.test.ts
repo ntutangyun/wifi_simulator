@@ -357,10 +357,10 @@ describe('uwb-sts · what the try-this experiments ask for', () => {
 
   it('the counter table tags the advance itself as the simulator’s own number', () => {
     // The row is found by its provenance cell, not by its label: the claim is that the
-    // 50 ns advance is `scenario.uwb.attacker`, a model choice, and that the scenario
-    // builder really puts RELAY_ADVANCE_NS there.
+    // 50 ns advance is this lesson's own choice (「本课取值，标准不规定」), and that the
+    // scenario builder really puts RELAY_ADVANCE_NS there.
     const counters = uwbSts.numbers!.filter((b) => b.kind === 'table')[1]
-    const row = counters.rows.find((r) => r[3].includes('scenario.uwb.attacker'))!
+    const row = counters.rows.find((r) => r[3].includes('本课取值，标准不规定'))!
     expect(row).toBeDefined()
     expect(row[2]).toBe('50 ns')
     expect(uwbStsScenario(true).uwb!.attacker!.advanceNs).toBe(RELAY_ADVANCE_NS)
@@ -369,8 +369,9 @@ describe('uwb-sts · what the try-this experiments ask for', () => {
   it('names the standard, the model choices and the units in `sources`', () => {
     const src = uwbSts.sources!.map((s) => s).join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
-    expect(src).toContain('scenario.uwb.attacker')
-    expect(src).toContain('scenario.uwb.stsOff')
+    expect(src).toContain('施加固定 50 ns 的提前量')
+    expect(src).toContain('用第二个开关关闭那段序列')
+    expect(src).toContain('这两项都不是标准参数')
     expect(src).toContain('15.650 ps')
     expect(src).toContain('0.299792458 m/ns')
   })
@@ -628,7 +629,7 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
     expect(to! - from! + 1, 'the five the standard defines').toBe(5)
     // 「66.667 µs 的跨度配 100 ps 的时间戳只给到 2.1 ppm，比……0.2 ppm 差十倍」
     const [spanUs, ps, ppm, sessionPpm] = figs(LIM,
-      /([\d.]+) µs 的跨度配 (\d+) ps 的时间戳只给到 ([\d.]+) ppm，比会话直接交出来的 ([\d.]+) ppm/,
+      /([\d.]+) µs 的跨度配 (\d+) ps 的时间戳只给到 ([\d.]+) ppm，比本课取的 ([\d.]+) ppm/,
       '`limits` on the clock ratio')
     expect(ps, 'the timestamp noise this session quotes')
       .toBe(uwbSts.scenario().uwb!.tsNoisePs)

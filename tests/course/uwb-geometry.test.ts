@@ -698,9 +698,8 @@ describe('uwb-geometry · the medium queues echoes; none of these three scenes h
   const text = uwbGeometry.limits.map((l) => l.text).join('\n')
 
   it('says where echoes come from and why they cannot reach the solver', () => {
-    expect(text).toContain('scheduleEchoes')
-    expect(text).toContain('只在场景写了 scatterers 一节时才排回波')
-    expect(text).toContain('deliverEcho')
+    expect(text).toContain('回波只来自场景里摆放的反射物')
+    expect(text).toContain('不因它开启接收、不给它打时间戳')
     expect(text).toContain('距离、定位与品质因数字节一个都不会变')
     // the half that was always true, and is why the lesson's wall is the gentlest kind of NLOS
     expect(text).toContain('真实房间里最常见的非视距是直射路径干脆没了')
@@ -992,7 +991,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
       .toBeLessThan(val(nlosNs!))
     expect(val(losPct!), 'and the higher confidence').toBeGreaterThan(val(nlosPct!))
     // `limits` names the same two bytes as the only two values the function has
-    const [onHex, offHex] = raw(LIMITS, /为真时返回 0x([0-9a-f]+)，否则 0x([0-9a-f]+)/,
+    const [onHex, offHex] = raw(LIMITS, /被墙挡住时是 0x([0-9a-f]+)，否则是 0x([0-9a-f]+)/,
       '`limits` on the two values fomFor has')
     expect([parseInt(onHex!, 16), parseInt(offHex!, 16)], 'the two bytes, in that order')
       .toEqual([FOM_NLOS, FOM_LOS])

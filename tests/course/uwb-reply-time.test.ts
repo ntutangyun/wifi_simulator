@@ -74,7 +74,7 @@ describe('uwb-reply-time · where it sits in the course', () => {
     const text = uwbReplyTime.limits.map((l) => l.text).join('\n')
     expect(text).toContain('§10.29.6.2') // no control-plane primitive
     expect(text).toContain('RRTN') // the two ends do not negotiate
-    expect(text).toContain('armFixedReply') // the responder always hits the instant exactly
+    expect(text).toContain('一纳秒不差') // the responder always hits the instant exactly
     expect(text).toContain('15 cm') // …and what 1 ns of that error is worth
     // 「这一刀不说『本仿真器有简化』」: the banned sentence, in both spellings.
     expect(text).not.toContain('有简化')

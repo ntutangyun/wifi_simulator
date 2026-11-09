@@ -121,13 +121,13 @@ describe('uwb-ancillary-request · where it sits in the course', () => {
     const text = uwbAncillaryRequest.limits.map((l) => l.text).join('\n')
     // where the requested number comes from: no MAC primitive, the same reason `ancillaryFrames`
     // has
-    expect(text).toContain('ancillaryRequestSlots')
+    expect(text).toContain('这个数直接是场景里给定的一个整数')
     expect(text).toContain('原语')
     // the grant/refusal policy is the model's, because the clause defines none
-    expect(text).toContain('ancillaryGrantFits')
+    expect(text).toContain('这一块装不装得下就批')
     expect(text).toContain('§10.35')
     // and one asker per round, one controller per session
-    expect(text).toContain('ANCILLARY_SENDER_INDEX')
+    expect(text).toContain('发消息的始终是第 0 个响应方')
     // 「不许写『本仿真器有简化』」, in both spellings, and no limit calls the standard a draft
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')
@@ -346,11 +346,11 @@ describe('uwb-ancillary-request · every number in the prose is the engine’s',
     expect(CAPS.grant).toBe(CAPS.perBlock - SLOTS.ranging - 1)
     expect(CAPS.wideGrant).toBe(CAPS.widePerBlock - SLOTS.ranging - 1)
     // the prose names the mechanism rather than the number where the number is the model's
-    expect(text).toContain('ancillaryGrantFits')
+    expect(text).toContain('按这一块装不装得下批')
   })
 
   it('says which figures are the standard’s and which are this simulator’s', () => {
-    expect(text).toContain('model')
+    expect(text).toContain('是本仿真器的取值')
     // the one thing §10.35 does not define, named in the lesson's own words
     for (const needle of ['批复', '拒绝', '应答']) expect(text).toContain(needle)
   })

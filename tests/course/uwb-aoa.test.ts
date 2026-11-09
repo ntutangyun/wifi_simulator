@@ -714,9 +714,7 @@ describe('uwb-aoa · multipath cannot move a bearing, and the reason is structur
 
   it('says why an echo can never reach measureAoa', () => {
     expect(text).toContain('多径在这里对方位角毫无影响')
-    expect(text).toContain('scheduleEchoes')
-    expect(text).toContain('deliverEcho')
-    expect(text).toContain('measureAoa 根本不会为一条回波被调用一次')
+    expect(text).toContain('回波也不参与角度测量')
     // the half that was always true: the dominant real-world AoA error this engine cannot show
     expect(text).toContain('室内到达角最大的误差来源正是从墙上反射过来的那一路')
   })
@@ -840,8 +838,8 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     // the same constant in `sources`, in `limits` and in step 3
     for (const [text, re, what] of [
       [SRC, /σ_φ = ([\d.]+) rad 的相位测量/, '`sources`'],
-      [LIMITS, /σ_φ = ([\d.]+) rad 是 aoa\.ts/, '`limits`'],
-      [NUMS, /接收机相位噪声的抽样，σ_φ = ([\d.]+) rad/, 'step 3'],
+      [LIMITS, /σ_φ = ([\d.]+) rad 是本课固定取的一个数/, '`limits`'],
+      [NUMS, /接收机的相位噪声。本课取 σ_φ = ([\d.]+) rad/, 'step 3'],
     ] as const) same(raw(text, re, what)[0]!, AOA_SIGMA_PHI_RAD, `${what}: the phase noise`)
     // the three σ_θ `deeper` and the quiz quote, each at the spot it belongs to
     const spots: UwbAoaVariant[] = ['base', 'off45', 'off60']
@@ -936,7 +934,7 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     same(off!, (Math.hypot(SPOTS.off45.rangeM, dz) - SPOTS.off45.rangeM) * 100,
       'and how far out the uncorrected leg would land')
     // step 2 and the worked example's first row: the badge stands on the boresight
-    same(raw(NUMS, /本场景是 ([\d.]+)°，因为胸牌正站在正前方/, 'step 2')[0]!, truthAt('base'),
+    same(raw(NUMS, /本场景是 ([\d.]+)°，因为它正站在正前方/, 'step 2')[0]!, truthAt('base'),
       'the true azimuth of the base scene')
     // step 6: GDOP is 1.00 by construction, and the along term is the range σ
     for (const [text, re, what] of [

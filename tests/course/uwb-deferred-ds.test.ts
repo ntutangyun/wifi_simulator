@@ -65,7 +65,7 @@ describe('uwb-deferred-ds · where it sits in the course', () => {
     const text = uwbDeferredDs.limits.map((l) => l.text).join('\n')
     expect(text).toContain('§10.29.6.2')
     expect(text).toContain('RRTN')
-    expect(text).toContain('slotStartNs')
+    expect(text).toContain('设备就在时隙边界那一纳秒发射')
     expect(text).toContain('15 cm')
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')

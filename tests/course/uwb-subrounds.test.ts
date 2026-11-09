@@ -5,7 +5,7 @@
  *
  * The layout figures come from `mmsLayout` itself and the schedule figures are read off runs of the
  * lesson's own four scenes. The 65.9 km of the reversed order's previous life is deliberately NOT
- * asserted here — it cannot be reproduced any more, which is the point — and `deeper` says so;
+ * asserted here — it cannot be reproduced any more — and the lesson no longer tells it either;
  * tests/uwb/mms-reversed.test.ts is where that history is recorded.
  */
 import { describe, it, expect } from 'vitest'
@@ -377,11 +377,9 @@ describe('uwb-subrounds · the two comparison tables are read back out of the le
  *  - **the two log lines are taken off `fmtRecord`**, so the words a reader searches the event
  *    log for are the words the engine prints.
  *
- * **Two figures are exempt, class (a), and the lesson itself is the argument**: the 65 877.04 m
- * and 65 898.41 m in `deeper` are readings from before a fix, and the prose says so in the same
- * breath (「这两个数是修好之前读下来的，今天的仿真里跑不出来」). What is measured instead is the
- * thing that sentence exists to contrast them with — that the same scene ranges correctly today,
- * and that the record whose `trueDistM` it quotes still says 3.
+ * **The two pre-fix readings are no longer in the prose** (65 877.04 m and 65 898.41 m were
+ * simulator history, and the course describes the standard, not the implementation). What is
+ * measured is what `deeper` still claims — that the reversed scene ranges within centimetres.
  */
 describe('uwb-subrounds · every other figure the prose prints, read back out of it', () => {
   const blockText = (b: unknown): string => {
@@ -686,26 +684,21 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
       'and the lower bound itself is inside it').toBe(true)
   })
 
-  it('reads what `deeper` says about the two historical figures, and what still holds', () => {
+  it('reads what `deeper` says about the reversed order: it ranges within centimetres', () => {
     /*
-     * **Exempt, class (a), twice — and the lesson is the argument.** 65 877.04 m and 65 898.41 m
-     * are readings from before the fix, and the sentence that prints them says so: 「这两个数是
-     * 修好之前读下来的，今天的仿真里跑不出来」. There is no run in this repository that produces
-     * them, by design. What the sentence contrasts them with is measured here instead.
+     * 「本场景里三个锚点一个不落，误差都在几厘米」. The entry used to quote two pre-fix readings
+     * (65 877.04 m and 65 898.41 m), the counter's modulus and the record's `trueDistM`; that was
+     * simulator history, not course material, and the rows that read those figures left with the
+     * sentence. The true distance is now taken off the scene's own geometry.
      */
-    const [modulus] = figs(DEEP, /自己整个 (\d+)⁴⁰ 的模数/, '`deeper` on the counter’s modulus')
-    expect(modulus, 'the counter is binary, so its modulus is a power of two').toBe(2)
-    const [truth] = figs(DEEP, /trueDistM 写着 (\d+)/, '`deeper` on the record’s own true distance')
+    expect(DEEP, 'the claim that is measured below').toContain('三个锚点一个不落，误差都在几厘米')
+    const truth = SUBROUND_ANCHORS[0]!.x - SUBROUND_TAG_X
+    expect(truth, 'the nearest anchor is three metres from the tag').toBe(3)
     const rev = ofType(recs(REVERSED), 'UWB_RANGE')
       .find((r) => r.node === 'tag-1' && r.peer === 'anchor-1')!
     expect(rev.trueDistM, 'the true distance that record still carries').toBe(truth)
-    // And the claim the history is told to contrast with: it ranges correctly today.
     expect(Math.abs(rev.distM - rev.trueDistM), 'the reversed order is within centimetres today')
       .toBeLessThan(0.2)
-    for (const quoted of ['65 877.04', '65 898.41']) {
-      expect(DEEP, `the exempt figure ${quoted} is still presented as history`).toContain(quoted)
-    }
-    expect(DEEP, 'with the sentence that is this exemption’s argument').toContain('今天的仿真里跑不出来')
   })
 
   it('reads `limits`: the draft’s name, the vote, and the nanosecond that is thirty centimetres', () => {

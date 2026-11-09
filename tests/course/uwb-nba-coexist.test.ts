@@ -746,7 +746,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       [NUMS, /它就读一下这条信道那 ([\d.]+) MHz 里/, 'step 2'],
       [DEEP, /在自己带内任意 ([\d.]+) MHz 的一片里/, '`deeper`’s note on the radius'],
       [DEEP, /共有 \d+ 个 ([\d.]+) MHz 的信道/, '`deeper` on the whole plan'],
-      [LIMITS, /向中介要一次该 ([\d.]+) MHz 频段内/, '`limits` on the single reading'],
+      [LIMITS, /只读一次该 ([\d.]+) MHz 频段内/, '`limits` on the single reading'],
       [LIMITS, /而真实的 ([\d.]+) MHz 发射带着裙边/, '`limits` on the flat rectangle'],
       [QUIZ, /([\d.]+) MHz 里的 \d+ dBm/, 'the second answer’s explanation'],
     ] as const) same(raw(text, re, what)[0]!, NB_CHANNEL_MHZ, `${what}: one narrowband channel`)
@@ -1040,11 +1040,11 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(overlapsSix(within[within.length - 1]!), 'and it really is inside').toBe(true)
     same(raw(DEEP, /里有两个信道避开了路由器的 (\d+) MHz/, '`deeper` on the router’s width')[0]!,
       AP.caps.widthMhz!, 'the router’s own channel width')
-    // "block b takes list[hash("7:b") mod 4]" — the seed and the length of the list
-    const [seed, mod] = figs(DEEP, /list\[hash\(“(\d+):b”\) mod (\d)\]/,
+    // 「每个块按块号的一个散列从这四个里取一个」 — the length of the list; the seed is no longer printed
+    const [modZh] = raw(DEEP, /按块号的一个散列从这(.)个里取一个/,
       '`deeper` on how a block picks one')
-    expect(seed, 'the seed that scene runs').toBe(uwbNbaCoexist.variants![V_HOP]!.scenario().seed)
-    expect(mod, 'and the length of the list').toBe(list.length)
+    const seed = uwbNbaCoexist.variants![V_HOP]!.scenario().seed
+    expect(zh(modZh!), 'the length of the list').toBe(list.length)
     // the seven channels it gives, and the same seven `limits` quotes back
     const replay = Array.from({ length: BLOCKS }, (_x, b) => nbChannelForBlock(list, seed!, b))
     const seq = figs(DEEP, /依次给出 (\d+)、(\d+)、(\d+)、(\d+)、(\d+)、(\d+)、(\d+)/,

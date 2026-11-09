@@ -140,7 +140,7 @@ describe('uwb-blocks · what its `until` promises', () => {
     // what "never lifted" looks like from the other end
     const m2m = LESSONS.find((l) => l.id === 'uwb-m2m')!
     expect(m2m.limits.map((l) => l.text).join(' / '))
-      .toContain('此后没有任何设备能中途加入或退出')
+      .toContain('没有任何设备能中途加入或退出')
     expect(m2m.limits.filter((l) => l.until)).toHaveLength(0)
   })
 })

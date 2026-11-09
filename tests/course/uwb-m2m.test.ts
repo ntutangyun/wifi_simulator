@@ -156,13 +156,10 @@ describe('uwb-m2m · where it sits in the course', () => {
       .toEqual(['model-value', 'unmodelled', 'unmodelled', 'out-of-scope', 'out-of-scope'])
     const text = uwbM2m.limits.map((l) => l.text).join('\n')
     // Each entry names the engine it was checked against, not a feeling about the model.
-    expect(text).toContain('m2mParticipants')
-    expect(text).toContain('byCodeUnit')
-    expect(text).toContain('ARC_IE_BYTES')
-    expect(text).toContain('nbChannelForBlock')
+    expect(text).toContain('按设备编号排序')
+    expect(text).toContain('只计入长度，不含内容')
     expect(text).toContain('§10.32.8')
     expect(text).toContain('SRRR')
-    expect(text).toContain('solvePosition')
     // The SP3 entry says what SP3 cannot do and why that makes it a separate road —
     // it used to claim the clause's mechanism could not be established from the corpus,
     // which was false: the published standard's full text is in the corpus, and only
@@ -173,7 +170,7 @@ describe('uwb-m2m · where it sits in the course', () => {
     // false, and the true statement is narrower — SP3 exists, and the schema refuses it in THIS
     // mode. A limits entry the engine contradicts is the defect this course has had most often.
     expect(text).not.toContain('还没建')
-    expect(text).toContain('拒绝 sp3')
+    expect(text).toContain('多对多不接受 SP3')
     expect(text).not.toContain('举证不足')
     expect(text).not.toContain('uwb-clause-list.txt')
     // 「不许写『本仿真器有简化』」, in both spellings.

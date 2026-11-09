@@ -646,8 +646,8 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
     expect(limSync, 'the SYNC symbols').toBe(SYNC_SYMBOLS)
     expect(limSts! * limUnit!, 'the STS chips').toBe(STS_ACTIVE_CHIPS)
     expect(limMbps, 'and the PSDU’s rate').toBe(UWB_MBPS)
-    // 「1σ 是 100 ps」 and 「一格是 15.650 ps」
-    const [sigma, ps] = figs(NUMS, /(\d+)σ 是 (\d+) ps/, 'the steps on the jitter')
+    // 「本课取 1σ 为 100 ps」 and 「一格是 15.650 ps」
+    const [sigma, ps] = figs(NUMS, /本课取 (\d+)σ 为 (\d+) ps/, 'the steps on the jitter')
     expect(sigma, 'one standard deviation').toBe(1)
     expect(ps, 'the jitter this session quotes its stamps at')
       .toBe(uwbFrame.scenario().uwb!.tsNoisePs)

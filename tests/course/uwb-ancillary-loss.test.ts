@@ -126,11 +126,11 @@ describe('uwb-ancillary-loss · where it sits in the course', () => {
     expect(uwbAncillaryLoss.limits).toHaveLength(2)
     expect(uwbAncillaryLoss.limits.map((l) => l.kind)).toEqual(['unmodelled', 'unmodelled'])
     const text = uwbAncillaryLoss.limits.map((l) => l.text).join('\n')
-    // the one the split added: the losing scenes are not scenarios and the limit says where they
-    // are instead, by naming this very file
-    expect(text).toContain('tests/course/uwb-ancillary-loss.test.ts')
+    // the one the split added: the losing scenes are not scenarios and the limit says how they
+    // were measured instead
+    expect(text).toContain('把发送端在一段运行的中途挪开一个时隙的工夫量出来的')
     // and the one about what happens next, which is nothing
-    expect(text).toContain('uwb/device.ancillary.ts')
+    expect(text).toContain('它只出现在日志里')
     // no `until` here: the promise ledger of `limits.test.ts` (criterion B) is frozen, and the one
     // `until` of the original stayed with the half that owns the Request bit
     expect(uwbAncillaryLoss.limits.every((l) => l.until === undefined)).toBe(true)

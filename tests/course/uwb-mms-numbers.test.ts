@@ -808,14 +808,14 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
       .toBeGreaterThan(peakDbm! + 10)
     expect(perMhz, 'and the limit is quoted per that many megahertz, which this engine has no rule for')
       .toBeGreaterThan(0)
-    // 「mmsFragmentDbm 把 37 nJ 除以片段长度」
+    // 「本课把 37 nJ 除以片段长度得到片段功率」
     for (const v of everyFig(/把 (\d+) nJ 除以片段长度|(\d+) nJ 里只花掉/g,
       'the millisecond’s energy', 2)) {
       expect(val(v), 'the budget `mms.ts` divides').toBe(UWB_MS_BUDGET_NJ)
     }
-    // 「「从没花完的预算」那 6.59 dB 来自 phy.ts 的 UWB_TX_POWER_DBM = −14」
+    // 「「从没花完的预算」那 6.59 dB 来自本课给 4z 发射机取的 −14 dBm 发射功率」
     const [unspent, txPower] = figs(limitsText,
-      /那 ([\d.]+) dB 来自 phy\.ts 的 UWB_TX_POWER_DBM = −(\d+)/,
+      /那 ([\d.]+) dB 来自本课给 4z 发射机取的 −(\d+) dBm 发射功率/,
       '`limits` on which term rests on a constant')
     expect(-txPower!, 'the transmit power `phy.ts` exports').toBe(UWB_TX_POWER_DBM)
     const pollNs = uwbPpduNs(uwbPollBytes(ANCHORS.length))

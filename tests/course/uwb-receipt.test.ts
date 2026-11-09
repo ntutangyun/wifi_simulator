@@ -100,19 +100,19 @@ describe('uwb-receipt · where it sits in the course', () => {
     expect(uwbReceipt.limits.map((l) => l.kind))
       .toEqual(['model-value', 'unmodelled', 'out-of-scope', 'out-of-scope', 'model-value'])
     const text = uwbReceipt.limits.map((l) => l.text).join('\n')
-    // the window is this simulator's choice, and the limit names the two functions that make it so
-    expect(text).toContain('rmmrcBitmapBytes')
-    expect(text).toContain('receiptIn')
+    // the window is this simulator's choice, and the limit says the two things that make it so
+    expect(text).toContain('位图宽度按窗口的块数算')
+    expect(text).toContain('窗口起点按块号算')
     // the short address is the only one built, though the standard allows two sizes
-    expect(text).toContain('RMMRC_ADDR_BYTES')
+    expect(text).toContain('短地址')
     expect(text).toContain('Address Size')
     // no multicast downlink: one frame per responder, addressed by the mode's own rule
-    expect(text).toContain('onMmrcmSlot')
+    expect(text).toContain('没有多播的收发')
     // §10.35 is a separate slice, and the reason is the scheduling structure, NOT lack of evidence
     expect(text).toContain('§10.35')
     expect(text).toContain('RAICT')
-    expect(text).toContain('roundPlan')
-    expect(text).toContain('举证不足')
+    expect(text).toContain('在会话开始前一次定好')
+    expect(text).not.toContain('举证不足')
     expect(text).toContain('排程能不能被请求改变')
     // …and §10.35's Request = 0 half IS built now (`@uwb-ancillary`: one message segmented across
     // several frames, each carrying how many are left), so this limit says so rather than leaving
@@ -121,12 +121,12 @@ describe('uwb-receipt · where it sits in the course', () => {
     // rather than for lack of evidence.
     expect(text).toContain('Request 置 0 的那一半')
     expect(text).toContain('@uwb-ancillary')
-    expect(text).toContain('没建的是 Request 置 1 的那一半')
+    expect(text).toContain('Request 置 1 的那一半见 @uwb-ancillary-request')
     // the phrasing that is now false, in both spellings this repo has used for it
     expect(text).not.toContain('§10.35 的测距辅助信息还没建')
     expect(text).not.toContain('§10.35 的辅助信息交换还没建')
     // the honest limitation: neither mode exercises both dimensions of the IE
-    expect(text).toContain('rcmValidityRounds')
+    expect(text).toContain('有效轮次只能是')
     // the banned sentence, in both spellings
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')
@@ -588,8 +588,8 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
   })
 
   it('reads the widths `limits` names and the figures `sources` lists', () => {
-    // 「RMMRC_ADDR_BYTES 恒为 2 字节的短地址」
-    const [addr] = figs(LIM, /RMMRC_ADDR_BYTES 恒为 (\d) 字节的短地址/, '`limits` on the address')
+    // 「本课的条目地址恒为 2 字节的短地址」
+    const [addr] = figs(LIM, /本课的条目地址恒为 (\d) 字节的短地址/, '`limits` on the address')
     expect(addr, 'the address width this engine always uses').toBe(RMMRC_ADDR_BYTES)
     // 「本课的 15 + 3N 这条式子算不出那一种」
     const [fixed, perEntry] = figs(LIM, /而本课的 (\d+) \+ (\d)N 这条式子算不出那一种/,
@@ -599,8 +599,8 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
     expect(perEntry, 'and what one initiator adds to it').toBe(rmmrcEntryBytes(1))
     expect(uwbMmrcmBytes(2, 1), 'so the formula really prices the frame')
       .toBe(fixed! + 2 * perEntry!)
-    // 「rcmValidityRounds 只能是 1」 — the many-to-many constraint, read off the schema
-    const [onlyOne] = figs(LIM, /rcmValidityRounds 只能是 (\d)/, '`limits` on the m2m window')
+    // 「有效轮次只能是 1」 — the many-to-many constraint, read off the schema
+    const [onlyOne] = figs(LIM, /有效轮次只能是 (\d)/, '`limits` on the m2m window')
     const m2m = uwbReceiptScenario()
     expect(m2m.uwb!.rcmValidityRounds, 'that mode’s own window').toBe(onlyOne)
     const wider = { ...m2m, uwb: { ...m2m.uwb!, rcmValidityRounds: onlyOne! + 1 } }

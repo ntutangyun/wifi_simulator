@@ -395,17 +395,17 @@ describe('uwb-capstone · the rubric and the sources', () => {
  *
  * The entry used to assert, of the whole ranging track, that the medium delivers one direct path
  * and 「没有反射、没有回波、也没有第二条到达路径」. `scheduleEchoes` falsified the second half.
- * The structural claim the brief actually rests on is narrower and still exact: ranging reads the
- * direct arrival only, because `deliver` hands an echo to `deliverEcho`, which opens no
- * reception — so the +0.60 m the learner has to find stays a constant.
+ * The claim the brief actually rests on is narrower and still exact: none of these four scenes
+ * has an echo and ranging reads the direct arrival only — so the +0.60 m the learner has to find
+ * stays a constant. The entry says so without naming the engine's functions.
  */
 describe('uwb-capstone · echoes exist, and none of the four scenes has an object to make one', () => {
   const text = uwbCapstone.limits.map((l) => l.text).join('\n')
 
   it('says echoes are gated on the scenario and never enter ranging', () => {
-    expect(text).toContain('scheduleEchoes')
-    expect(text).toContain('只在场景写了 scatterers 一节时才排回波')
-    expect(text).toContain('deliverEcho')
+    // the entry states this as what the scenes assume, without naming the engine's functions
+    expect(text).toContain('这套房子的四个场景里都没有回波')
+    expect(text).toContain('每个接收机收到的只有直射路径')
     expect(text).toContain('测距读到的永远只是直射的那一次到达')
     // the half that is still true, and the one the brief's hardest claim rests on
     expect(text).toContain('在一串先后到达的回波里认出首径')
@@ -684,7 +684,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
       expect(cn(nth!), `${what}: one more than the flat has`).toBe(ANCHORS.length + 1)
     }
     /*
-     * 「日志里每一个距离都带着一个品质因数…本仿真器的解算器完全没有去读它」 — read off the
+     * 「日志里每一个距离都带着一个品质因数…本课的定位解算完全没有用到它」 — read off the
      * solver's own signature: the records carry a `fom`, and what `solvePosition` accepts does
      * not have a field for one.
      */

@@ -657,8 +657,8 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(ppdu, 'the longest frame of the round').toBe(uwbPpduNs(uwbFinalBytes(n!)))
     expect(fit, 'and the sum, which is the engine’s own rule').toBe(uwbSlotFitNs(n!))
     expect(ppdu! + guard!, 'the addition the formula prints').toBe(fit)
-    // the note: 「再加 200 ns 飞行余量，相当于 60 m 空气。所以 2 ms …只占自己时隙的 11.8 %」
-    const [noteGuard, metres] = figs(NUMS, /再加 (\d+) ns 飞行余量，相当于 (\d+) m 空气/,
+    // the note: 「再加本课取的 200 ns 飞行余量，相当于 60 m 空气。所以 2 ms …只占自己时隙的 11.8 %」
+    const [noteGuard, metres] = figs(NUMS, /再加本课取的 (\d+) ns 飞行余量，相当于 (\d+) m 空气/,
       'the note on the guard')
     expect(noteGuard, 'the same guard').toBe(guard)
     same(String(metres), noteGuard! * C_M_PER_NS, 'the air that guard is worth')
@@ -817,7 +817,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     same(String(blockMs), PLAN.blockNs / MS, 'and the block')
     // 「追加的 200 ns 飞行余量，以及…给任何时隙设下的 300 RSTU 下限」
     const [guard, floor] = figs(SRC,
-      /追加的 (\d+) ns 飞行余量，以及场景 schema 给任何时隙设下的 (\d+) RSTU 下限/,
+      /追加的 (\d+) ns 飞行余量，以及本课给任何时隙设下的 (\d+) RSTU 下限/,
       '`sources` on the two model values')
     expect(guard, 'the guard, as the engine exports it').toBe(UWB_SLOT_GUARD_NS)
     expect(schemaIssues(floor!), 'the floor, as the schema applies it').toEqual([])

@@ -646,13 +646,13 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     expect(sens, 'the sensitivity `nb.ts` exports').toBe(NB_RX_SENS_DBM)
     expect(tx, 'and the transmit power').toBe(NB_TX_DBM)
     const [limTx, limSens, floor] = figs(LIM,
-      /NB_TX_DBM = (\d+) dBm 与 NB_RX_SENS_DBM = (−\d+) dBm，而标准第 12 章给这部 PHY 的底线是 (−\d+)/,
+      /窄带发射功率 (\d+) dBm 与接收灵敏度 (−\d+) dBm，而标准第 12 章给这部 PHY 的底线是 (−\d+)/,
       '`limits` on the same three')
     expect([limTx, limSens], 'the same two constants').toEqual([tx, sens])
     const [srcFloor] = figs(SRC, /标准对这部 PHY 给出的底线是 (−\d+) dBm/, '`sources` on the floor')
     expect(floor, 'and the standard’s floor, which both sections print').toBe(srcFloor)
     expect(floor, 'a floor this model is more generous than').toBeGreaterThan(sens!)
-    // 「lossDbFor 对窄带只换掉 1 m 处的自由空间项，指数与每道墙的损耗照用宽带那一侧的」
+    // 「本课对窄带只换掉 1 m 处的自由空间项，指数与每道墙的损耗照用宽带那一侧的」
     const [metre] = figs(LIM, /只换掉 (\d+) m 处的自由空间项/, '`limits` on the term it swaps')
     expect(UNITS_SRC, 'the distance `freeSpacePl0Db` is defined at')
       .toContain(`Free-space path loss at ${metre} m`)

@@ -98,7 +98,7 @@ describe('uwb-sp3 · where it sits in the course', () => {
       .toEqual(['unmodelled', 'unmodelled', 'out-of-scope', 'out-of-scope', 'model-value'])
     const text = uwbSp3.limits.map((l) => l.text).join('\n')
     // STS is airtime and nothing else — the same reason `uwb-sts`'s own first limit gives
-    expect(text).toContain('UWB_STS_CHIPS')
+    expect(text).toContain('这一段只算「占多少空口时间」')
     expect(text).toContain('没有一处密码学')
     expect(text).toContain('@uwb-sts')
     // the three things §10.32.8.2 asks for that are not built
@@ -110,9 +110,9 @@ describe('uwb-sp3 · where it sits in the course', () => {
     expect(text).toContain('m2m')
     // SP2 is a scope decision, and the type is the evidence
     expect(text).toContain('SP2')
-    expect(text).toContain('sp 字段')
+    expect(text).toContain('包配置就只有')
     // the bearing travels the other way round from the figure's, and that is a model value
-    expect(text).toContain('makeSsDefer')
+    expect(text).toContain('天线阵列装在锚点上')
     expect(text).toContain('UWB_AOA')
     // 「不许写『本仿真器有简化』」, in both spellings, and no limit calls the standard a draft
     expect(text).not.toContain('有简化')
@@ -636,15 +636,15 @@ describe('uwb-sp3 · every figure the prose prints, read back out of it', () => 
 
   it('reads the two values of the packet-configuration field, and the mode this is not', () => {
     /*
-     * 「UwbInfo 的 sp 字段类型就只有 1 和 3 两个取值，连写下 SP2 的地方都没有」 — read off the
+     * 「本仿真器的包配置就只有 1 和 3 两个取值，没有 SP2」 — read off the
      * type in the file the sentence names, so the claim holds only while that union does.
      */
     const FRAMES_SRC = readSrc('uwb/frames.ts')
-    const [a, b] = figs(LIM, /sp 字段类型就只有 (\d) 和 (\d) 两个取值/, '`limits` on the field')
+    const [a, b] = figs(LIM, /包配置就只有 (\d) 和 (\d) 两个取值/, '`limits` on the field')
     const [declared] = raw(FRAMES_SRC, /sp\??: (\d(?: \| \d)*)/, 'the type as the file declares it')
     expect(declared!.split(' | ').map(Number), 'the values that type really has').toEqual([a, b])
-    // 「多对多在引擎里已经是另一个模式（mode 取 m2m），而…校验规则在那个模式下直接拒绝 sp3」
-    const [modeDigit] = figs(LIM, /mode 取 m(\d)m/, '`limits` on the other mode')
+    // 「多对多测距（@uwb-m2m）在本仿真器里不能和 SP3 同时打开」
+    const [modeDigit] = figs(LIM, /多对多测距（@uwb-m(\d)m）/, '`limits` on the other mode')
     const mode = `m${modeDigit}m`
     const sp3 = uwbSp3Scenario()
     expect(ScenarioSchema.safeParse(sp3).success, 'this lesson’s own scene parses').toBe(true)
@@ -654,7 +654,7 @@ describe('uwb-sp3 · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the figures `sources` lists: the chips, the residual and the hall', () => {
-    // 「UWB_SHR_CHIPS 加 UWB_STS_CHIPS，即 … 个码片，没有物理头那 … 个」
+    // 「…这两段加上加扰时间戳序列，即 … 个码片，没有物理头那 … 个」
     const chips = figs(SRC, /即 ([\d ]+) \+ ([\d ]+) = ([\d ]+) 个码片，没有物理头那 ([\d ]+)/,
       '`sources` on the chips')
     expect(chips[0]! + chips[1]!, 'the two segments a marker is made of').toBe(chips[2])
@@ -662,11 +662,11 @@ describe('uwb-sp3 · every figure the prose prints, read back out of it', () => 
       .toEqual([UWB_SHR_CHIPS, UWB_STS_CHIPS, UWB_PHR_CHIPS])
     expect(uwbSp3Chips(), 'which is what the engine prices a marker at').toBe(chips[2])
     /*
-     * 「四个场景都把非视距与载波频偏估计的残差关掉（cfoNoisePpm 取 0），…0.2 ppm 的残差在最后
+     * 「四个场景都把非视距与载波频偏估计的残差关掉（残差取 0），…0.2 ppm 的残差在最后
      * 几个时隙上值几十厘米的距离」 — two figures: the value this lesson sets, and the default it
      * is turning off.
      */
-    const [off] = figs(SRC, /cfoNoisePpm 取 (\d)/, '`sources` on what it switches off')
+    const [off] = figs(SRC, /残差关掉（残差取 (\d)）/, '`sources` on what it switches off')
     const [ppm] = figs(SRC, /([\d.]+) ppm 的残差/, '`sources` on the residual')
     expect(uwbSp3Scenario().uwb!.cfoNoisePpm, 'the residual this scene really carries').toBe(off)
     expect(ppm, 'and the one the engine carries by default')

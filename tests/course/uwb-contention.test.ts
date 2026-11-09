@@ -999,7 +999,7 @@ describe('uwb-contention · every figure the prose prints, read back out of it',
     // 「调度模式 0」
     const [mode] = figs(SRC, /调度模式 (\d+)/, '`sources` on the schedule mode')
     expect(mode, 'the mode a contention round is, as the clause numbers it').toBe(0)
-    // 「一条 6 dB 的硬门限（phy.ts 的 UWB_CAPTURE_DB）：领先 6 dB 的那一路整帧解出」
+    // 「一条 6 dB 的硬门限，这个数是本课取的：领先 6 dB 的那一路整帧解出」
     for (const [db] of every(LIM, /(\d+) dB 的(?:硬门限|那一路)/g, 'the threshold, printed twice', 2)) {
       expect(val(db!), 'the capture margin the engine applies').toBe(UWB_CAPTURE_DB)
     }
@@ -1011,7 +1011,7 @@ describe('uwb-contention · every figure the prose prints, read back out of it',
     // 「6 dB 的捕获余量」 in `sources`, and once more in `deeper`, are the same threshold
     const [srcDb] = figs(SRC, /(\d+) dB 的捕获余量/, '`sources` on the same margin')
     expect(srcDb, 'the same margin again').toBe(UWB_CAPTURE_DB)
-    const [deepDb] = figs(DEEP, /只要较强的一路领先 (\d+) dB，介质就放它过去/,
+    const [deepDb] = figs(DEEP, /只要较强的一路领先 (\d+) dB，接收机就解出它/,
       '`deeper` on the same margin')
     expect(deepDb, 'and a third time, where `deeper` explains why no capture happens here')
       .toBe(UWB_CAPTURE_DB)
@@ -1031,8 +1031,8 @@ describe('uwb-contention · every figure the prose prints, read back out of it',
     expect(slots, 'the window this scene advertises')
       .toBe(uwbContentionScenario('base').uwb!.contentionSlots)
     expect(tries, 'and the attempts it allows').toBe(DEFAULT_UWB_SESSION.maxAttempts)
-    // 「1 加上一个小于 S 的均匀整数」 — the draw's own range, and the run stays inside it
-    const [base1] = figs(NUMS, /它抽一个时隙：(\d+) 加上一个小于 S 的均匀整数/, 'the steps on the draw')
+    // 「从第 1 号到第 S 号里均匀随机取一个」 — the draw's own range, and the run stays inside it
+    const [base1] = figs(NUMS, /它抽一个时隙：从第 (\d+) 号到第 S 号里均匀随机取一个/, 'the steps on the draw')
     const drawn = rounds('base').flatMap((r) => [...r.drew.values()])
     expect(Math.min(...drawn), 'the lowest slot anyone draws').toBe(base1)
     expect(Math.max(...drawn), 'and the highest').toBe(base1! + slots! - 1)

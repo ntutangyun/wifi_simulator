@@ -355,7 +355,7 @@ describe('uwb-sensing · the multipath entry quotes a Wi-Fi sentence that exists
     expect(entry()).toContain('保护间隔')
     // the engine fact the sentence rests on: there is no guard-interval number to compare
     // against, because `symNs` is one constant per generation
-    expect(entry()).toContain('symNs 是每代一个常数')
+    expect(entry()).toContain('每一代的符号时长是一个固定值')
     for (const m of Object.values(PHY_MODES)) expect(typeof m.symNs).toBe('number')
     expect(new Set(Object.values(PHY_MODES).map((m) => m.symNs)).size).toBeLessThanOrEqual(2)
     expect(entry()).toContain(WIFI_QUOTE)

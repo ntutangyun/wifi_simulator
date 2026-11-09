@@ -878,11 +878,13 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
     expect(atMargin(0), 'a train with nothing to spare is still detected').toBe(true)
     expect(atMargin(-short!), 'one short by what the sentence names is not').toBe(false)
     expect(atMargin(-short! / 10), 'and nor is one short by a tenth of that').toBe(false)
-    // 「evaluateTrain 取 frags[0].rssiDbm 当作整串的电平」
-    const [idx] = figs(LIM, /取 frags\[(\d+)\]\.rssiDbm/, '`limits` on the fragment it takes')
+    // 「它取听到的第一个片段的电平当作整串的电平」 — the ordinal, read as the index it names
+    const [ord] = raw(LIM, /取听到的第(.)个片段的电平当作整串的电平/, '`limits` on the fragment it takes')
+    const idx = '一二三四五六七八'.indexOf(ord!)
+    expect(idx, 'an ordinal this test can read').toBeGreaterThanOrEqual(0)
     expect(DEV_MMS_SRC, 'the index `evaluateTrain` really takes')
       .toContain(`frags[${idx}].rssiDbm`)
-    // 「combineGainDb 那一项，也就是 10·log10(N)」, printed twice
+    // 「再加 10·log10(N)」, printed twice
     for (const [mult, base] of every(LIM, /(\d+)·log(\d+)\(/g, '`limits` on the combining gain', 2)) {
       for (const n of [uwbMmsScenario('base').uwb!.mms.rsfs, uwbMmsScenario('four').uwb!.mms.rsfs]) {
         expect(val(mult!) * Math.log(n) / Math.log(val(base!)), `the gain at N = ${n}`)

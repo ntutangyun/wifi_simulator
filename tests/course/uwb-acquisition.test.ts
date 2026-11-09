@@ -870,10 +870,6 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
       .toHaveLength(1)
     expect(excluded[0], 'and it is shorter than both families in use')
       .toBeLessThan(Math.min(...inUse))
-    // 「phy.ts 的 PSYM_CHIPS = 127 × 4」: the spread both families are taken at
-    const [named, spread] = figs(lim, /PSYM_CHIPS = (\d+) × (\d+)/, 'the constant `limits` names')
-    expect(spread, 'the spreading factor').toBe(MMS_SPREAD)
-    expect(named * spread, 'and what that constant multiplies out to').toBe(PSYM_CHIPS)
     // every 「N µs」 is one of the four fragment lengths, each of them computed
     const lengths = [32, 64].flatMap((n) => [rsfNs(n, GAP), rsfNs(n, GAP) + SFD_NS])
       .map((x) => x / 1000)

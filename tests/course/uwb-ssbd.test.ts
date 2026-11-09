@@ -750,8 +750,8 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
   it('the regulation figures, the channel they are spread over, and every citation counted', () => {
     // −75 dBm/MHz over a 2.5 MHz channel is −71.02 dBm: `deeper`, `sources` and `limits`
     for (const [text, re, what] of [
-      [DEEP, /本引擎取的 −(\d+) dBm\/MHz（摊到一条 ([\d.]+) MHz 的信道上是 −([\d.]+) dBm）/, '`deeper`'],
-      [LIMITS, /本引擎取的 −(\d+) dBm\/MHz（摊到 ([\d.]+) MHz 得 −([\d.]+) dBm）/, '`limits`'],
+      [DEEP, /本课取的 −(\d+) dBm\/MHz（摊到一条 ([\d.]+) MHz 的信道上是 −([\d.]+) dBm）/, '`deeper`'],
+      [LIMITS, /本课取的 −(\d+) dBm\/MHz（摊到 ([\d.]+) MHz 得 −([\d.]+) dBm）/, '`limits`'],
     ] as const) {
       const [perMhz, width, total] = raw(text, re, `${what} on the threshold`)
       expect(-val(perMhz!), `${what}: the limit the regulation sets`).toBe(NB_LBT_EDT_DBM_PER_MHZ)
@@ -788,7 +788,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       .toBeGreaterThan(NB_LBT_CCA_US)
     for (const [text, re, what] of [
       [NUMS, /读一下这条 ([\d.]+) MHz 信道里的外来功率/, 'step 3'],
-      [LIMITS, /向中介要一次该 ([\d.]+) MHz 频段内的外来功率/, '`limits`'],
+      [LIMITS, /只读一次该 ([\d.]+) MHz 频段内的外来功率/, '`limits`'],
     ] as const) same(raw(text, re, what)[0]!, NB_CHANNEL_MHZ, `${what}: one narrowband channel`)
     for (const [text, re, what] of [
       [LIMITS, /用它代替草案援引的至少 (\d) µs 能量积分/, '`limits`'],

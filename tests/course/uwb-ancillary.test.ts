@@ -114,18 +114,18 @@ describe('uwb-ancillary · where it sits in the course', () => {
     // the frame count is scenario configuration: no MAC primitive, the same reason
     // `rcmValidityRounds`'s own limit gives
     expect(text).toContain('MCPS')
-    expect(text).toContain('ancillaryFrames')
-    expect(text).toContain('uwbSlotsPerTag')
+    expect(text).toContain('帧数直接是场景里给定的一个整数')
+    expect(text).toContain('上限是这一块装不装得下这一轮')
     // the message type is a constant rather than a value table
-    expect(text).toContain('ANCILLARY_MESSAGE_KIND')
+    expect(text).toContain('类型始终是同一个数')
     // and who sends is a model decision
-    expect(text).toContain('ANCILLARY_SENDER_INDEX')
+    expect(text).toContain('这个选择是模型定的')
     // Request = 1 is a later cut, for scope and NOT for lack of evidence — the mechanism is
     // named, which is what says it was read through
     expect(text).toContain('Request')
-    expect(text).toContain('举证不足')
+    expect(text).toContain('见 @uwb-ancillary-request')
     expect(text).toContain('排程能不能被请求改变')
-    expect(text).toContain('roundPlan')
+    expect(text).toContain('轮里测距那一段的排布不变')
     // 「不许写『本仿真器有简化』」, in both spellings, and no limit calls the standard a draft
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')
@@ -426,9 +426,9 @@ describe('uwb-ancillary · the `until` it carries is measured, not merely writte
     // 「就得把轮的排布变成每块重算一次」 described work that was already done.
     const text = uwbAncillary.limits.map((l) => l.text).join('\n')
     expect(text).not.toContain('就得把轮的排布变成每块重算一次')
-    expect(text).toContain('blockSlots')
-    // …and the half of that sentence that IS true is still said: one `roundPlan` call per session.
-    expect(text).toContain('roundPlan')
+    expect(text).toContain('轮的长度本来就随块变')
+    // …and the half of that sentence that IS true is still said: the ranging part is laid out once.
+    expect(text).toContain('轮里测距那一段的排布不变')
   })
 })
 /**

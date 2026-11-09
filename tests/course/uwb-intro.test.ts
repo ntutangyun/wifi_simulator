@@ -492,10 +492,10 @@ describe('uwb-intro · echoes exist in the medium; this hall has nothing to refl
   const text = uwbIntro.limits.map((l) => l.text).join('\n')
 
   it('says echoes are gated on the scenario and that they open no reception', () => {
-    expect(text).toContain('scheduleEchoes')
-    expect(text).toContain('只在场景写了 scatterers 一节时才排回波')
-    expect(text).toContain('deliverEcho')
-    expect(text).toContain('不开启任何一次接收')
+    // The limit now states the scene's property in plain words, with no engine names: one
+    // direct arrival per receiver, and no echo in this room.
+    expect(text).toContain('每个接收端只收到一条直射信号')
+    expect(text).toContain('房间里一条回波也没有')
     // the half of the old sentence that is still true, and the reason the limit exists at all
     expect(text).toContain('真实接收端要在一串先后到达的回波里判断哪一条是首径')
   })
@@ -652,7 +652,7 @@ describe('uwb-intro · every figure the prose prints, read back out of it', () =
         `「${p} ps」`).toContain(val(p!))
     }
     // The two figures that are the counter's width.
-    const [bits, floor] = figs(DEEP, /计数器是 (\d+) 位宽，标准只要求至少 (\d+) 位/, '`deeper` on the width')
+    const [bits, floor] = figs(DEEP, /计数器取 (\d+) 位宽，标准只要求至少 (\d+) 位/, '`deeper` on the width')
     expect(bits, 'the width this engine gives it').toBe(COUNTER_BITS)
     expect(floor, 'and the floor the standard asks for').toBeLessThan(bits!)
     const [modBase, secs] = figs(DEEP, /每格 [\d.]+ ps，(\d+)⁴⁰ 格就是 ([\d.]+) 秒/, '`deeper` on the wrap')

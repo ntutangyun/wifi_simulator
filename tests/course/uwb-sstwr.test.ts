@@ -1054,8 +1054,9 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
       'the estimator’s residual, wherever it is named', 3)) {
       expect(val(v), 'the session’s own `cfoNoisePpm`').toBe(SESSION.cfoNoisePpm)
     }
-    // 「时间戳噪声会按 phy.ts 的 tsNoiseScale 随信干噪比放大到十倍」 — 「十倍」 is Chinese
-    expect(limitsText, '`limits` still names the scale that does it').toContain('tsNoiseScale')
+    // 「时间戳噪声会随信干噪比放大到十倍」 — 「十倍」 is Chinese
+    expect(limitsText, '`limits` still says the stamp noise scales and Coffs does not')
+      .toContain('时间戳噪声会随信干噪比放大到十倍')
     // 「Treply 恰好是整数个 2 ms 减去一趟飞行」 and 「2 ms 的测距时隙」
     for (const v of everyFig(/整数个 (\d+) ms|(\d+) ms 的测距时隙|灰条是 (\d+) ms/g,
       'the ranging slot, wherever it is named', 3)) {

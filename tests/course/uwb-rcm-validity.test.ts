@@ -90,8 +90,8 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
       .toEqual(['unmodelled', 'unmodelled', 'unmodelled', 'out-of-scope', 'model-value'])
     const text = uwbRcmValidity.limits.map((l) => l.text).join('\n')
     expect(text).toContain('MCPS') // no primitive: both settings are scenario configuration
-    expect(text).toContain('ARC_IE_BYTES') // the other control bits are sized, not laid out
-    expect(text).toContain('slotAction') // and the slot table is the session's, not a parsed RDM IE
+    expect(text).toContain('只计入长度') // the other control bits are sized, not laid out
+    expect(text).toContain('没有哪一端真的从 RDM 条目里读出它') // and the slot table is the session's, not a parsed RDM IE
     // §10.35 is a later slice, and the reason is slice size, not lack of evidence: the
     // mechanism is named, which is what says it was read. §10.36 of the same clause family IS
     // built now (`uwb-receipt`), so this limit says so rather than leaving a false claim
@@ -100,14 +100,12 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     expect(text).toContain('§10.36')
     expect(text).toContain('RAICT')
     expect(text).toContain('RMMRC')
-    expect(text).toContain('举证不足')
     expect(text).toContain('排程能不能被请求改变')
     // …and §10.35's Request = 0 half IS built now (`@uwb-ancillary`), so this limit is narrowed to
     // the half that is still out rather than left claiming the whole clause is unbuilt. The reason
     // it is a separate cut survives the narrowing: scope, not lack of evidence.
     expect(text).toContain('Request 置 0 的那一半')
-    expect(text).toContain('@uwb-ancillary')
-    expect(text).toContain('没建的是 Request 置 1 的那一半')
+    expect(text).toContain('Request 置 1 的那一半见 @uwb-ancillary-request')
     expect(text).not.toContain('§10.35 的辅助信息交换还没建')
     expect(text).not.toContain('§10.35 的测距辅助信息还没建')
     // the one phrasing that is now false: this lesson must not claim §10.36 is unbuilt
@@ -118,7 +116,7 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     expect(text).not.toContain('第 15 位是 §10.36 的那个请求位，本课也没有建它')
     expect(text).toContain('不是从控制字里解出来的一位')
     // the validity window counts blocks in this engine, and the limit says whose dimension that is
-    expect(text).toContain('blockCarriesRcm')
+    expect(text).toContain('有效期在本课是按块数的')
     // the banned sentence, in both spellings
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')

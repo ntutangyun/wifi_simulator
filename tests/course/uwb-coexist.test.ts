@@ -848,7 +848,7 @@ describe('uwb-coexist · every figure the prose prints, read back out of it', ()
   const CH9_CH = uwbCoexistScenario('ch9').uwb!.channel
 
   it('every channel number the lesson names, and the band each one occupies', () => {
-    // 「本会话所用的 UWB 5 号」/「会话默认的 UWB 9 号」 — the row labels of the channel table
+    // 「本会话所用的 UWB 5 号」/「此前几课所用的 UWB 9 号」 — the row labels of the channel table
     for (const v of everyFig(/UWB (\d) 号/g, 'a UWB channel the prose names', 3)) {
       expect([UWB_CH, CH9_CH], `UWB channel ${v} is one this lesson runs`).toContain(val(v))
     }
@@ -869,8 +869,8 @@ describe('uwb-coexist · every figure the prose prints, read back out of it', ()
       .toBe(uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
     const inBand = uwbInBandDbm(UWB_TX_POWER_DBM, uwbBandOverlapMhz(WIFI_6G_CENTER_MHZ, WIDTH_MHZ, 5))
     same(lost!, UWB_TX_POWER_DBM - inBand, 'what it loses before the path loss starts')
-    // 「中介每报一次变动，手机就在自己的 6240.0 至 6739.2 MHz 上重读外来功率」
-    const [sLo, sHi] = figs(nums, /手机就在自己的 ([\d.]+) 至 ([\d.]+) MHz 上重读外来功率/,
+    // 「手机在自己的 6240.0 至 6739.2 MHz 上收到的外来功率随 Wi-Fi 猝发的起止而变」
+    const [sLo, sHi] = figs(nums, /手机在自己的 ([\d.]+) 至 ([\d.]+) MHz 上收到的外来功率/,
       'the steps on the band the tag reads over')
     expect({ lo: sLo, hi: sHi }, 'which is its own channel’s band')
       .toEqual(UWB_BAND_MHZ[UWB_CH as 5 | 9])
