@@ -29,7 +29,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { uhrRateLadder } from '../../src/course/tier4/uhr-rate-ladder'
-import { MODULES, TIERS, basisOf, citedDocs, lessonMinutes, teachesDraft, trackOf } from '../../src/course/curriculum'
+import { MODULES, TIERS, basisOf, citedDocs, teachesDraft, trackOf } from '../../src/course/curriculum'
 import { LESSONS, lessonIndex } from '../../src/course/lessons'
 import { uhrLadderScenario } from '../../src/course/wifiScenes'
 import { Simulation } from '../../src/engine/simulation'
@@ -107,14 +107,13 @@ describe('uhr-rate-ladder · where it sits in the course', () => {
     expect(earlierDrafts.map((l) => l.id)).toEqual([])
   })
 
-  it('names four prerequisites, all of them earlier, and states 25 minutes', () => {
+  it('names four prerequisites, all of them earlier', () => {
     expect(uhrRateLadder.needs).toEqual(['mcs-ladder', 'rate', 'rate-fallback', 'fading'])
     const mine = lessonIndex('uhr-rate-ladder')
     for (const id of uhrRateLadder.needs!) {
       expect(lessonIndex(id), `@${id} must come before`).toBeGreaterThanOrEqual(0)
       expect(lessonIndex(id), `@${id} must come before`).toBeLessThan(mine)
     }
-    expect(lessonMinutes(uhrRateLadder)).toBe(25)
   })
 
   it('every jump target it offers is found in its own scene', () => {

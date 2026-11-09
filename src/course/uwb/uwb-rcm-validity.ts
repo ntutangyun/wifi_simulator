@@ -33,10 +33,7 @@
  * room with one anchor behind a brick partition and `rmnr` on, where it sends nothing, which is
  * the precondition in §10.34's own terms.
  *
- * `npx tsx scripts/lesson-dump.ts uwb-rcm-validity` prints it with its length. Measured, not
- * guessed: 3099 main-path characters, three things to observe and two experiments put it at 28.09
- * raw minutes, which the formula rounds to the 30-minute bucket — 972 characters below the
- * 32.5 raw minutes that would break the ceiling. Measure the same way before adding a sentence,
+ * `npx tsx scripts/lesson-dump.ts uwb-rcm-validity` prints it with its length. Measure a length
  * by IMPORTING `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from `curriculum.ts` rather than
  * retyping them: the controller retyped all three once and read a 484-character margin where there
  * were four.
@@ -226,7 +223,7 @@ export const uwbRcmValidity: Lesson = {
   id: 'uwb-rcm-validity',
   module: 21,
   title: '一个零内容的信息单元，不是一条空消息',
-  why: '前面每一课里，标签（tag）每开一个测距轮（ranging round）都先发一帧轮询帧：这一帧既告诉各个锚点（anchor）本轮谁在哪个测距时隙（ranging slot）作答，又打下本轮计时用的第一个时间戳。两件事合在一帧里，于是同一张时隙表每一轮都要重发一遍。标准允许不这样做：控制消息里有一个字段，说明它管的不止本轮，后面几轮的开场只剩一帧很短的启动消息。这一课要算清这样省下多少，而更要先想清楚它带来的那个新状态——一个锚点手里的配置还有效，却没收到本轮的启动消息，它该做什么。',
+  why: '前面每一课里，标签（tag）每开一个测距轮（ranging round）都先发一帧轮询帧：这一帧既告诉各个锚点（anchor）本轮谁在哪个测距时隙（ranging slot）作答，又打下本轮计时用的第一个时间戳。两件事合在一帧里，于是同一张时隙表每一轮都要重发一遍。标准允许把它们拆开：控制消息里的有效轮次字段说明它还管其后几轮，那几轮的开场只剩一帧不带时隙表的启动消息，长度不到完整轮询帧的一半。省下的是空口时间（airtime），不是测量——两种做法量出的每条距离逐字段相同；而且省下的那一笔是按整个有效期窗口算的，把它当成每个块的，就夸大了好几倍。更要紧的是它带来的新状态：锚点手里的配置还有效，却没收到本轮的启动消息。这时它在自己的时隙里发一帧测距消息未收到（ranging message non-receipt, RMNR）信息单元，这个信息单元连内容字段都没有，却说清三件事：发在哪个时隙说明是谁，发得出来说明控制消息收到了，发的不是应答说明启动消息没到。发起方原本只拿到一次无从分辨的超时，现在拿到一条写明原因的记录。从未收到过控制消息的锚点不知道自己的时隙在哪里，只能沉默——所以有效期正是这个交互的前提。',
   outcomes: [
     '说清「一条控制消息管几轮」为什么是测距消息未收到交互的前提，而不是两件互不相干的事',
     '读出一个有效期窗口里两种开场帧各有多少字节，并算出每几个块省下多少',

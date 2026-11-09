@@ -30,15 +30,6 @@
  *
  * Every number the lesson prints is pinned in tests/course/uwb-sstwr.test.ts.
  * `npx tsx scripts/lesson-dump.ts uwb-sstwr` prints it with its length.
- *
- * CAUTION — 45 Chinese characters from `lessonMinutes` rounding this lesson up from 25 to 30
- * minutes. Measure before adding a sentence, and import `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/
- * `TRY_MINUTES` from `curriculum.ts` rather than retyping them — the controller got all three
- * wrong once and read a 484-character margin where there were four. What goes red is the
- * course-wide minute total in tests/course/readability.test.ts, and nothing in this lesson's own
- * test; the answer there is to re-pace or split, never the equality, because that sum is the only
- * thing in the suite that notices a lesson crossing a five-minute bucket. The three figures in
- * this note are checked rather than hand-written — the same file recomputes them.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'
@@ -112,7 +103,7 @@ export const uwbSstwr: Lesson = {
   id: 'uwb-sstwr',
   module: 15,
   title: '应答时间是用对方的时钟量的',
-  why: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶振（crystal）总会走得偏快或偏慢，用走得慢的时钟量出来的一段时间就偏短。偏偏交互里最长的那一段是锚点（anchor）量的，手机却把它当成自己量的直接减掉。这一课里，这件事会错出好几米。',
+  why: '前面几课让两台射频都守着完美的时间，现实里没有哪一对是这样：石英晶振（crystal）总会走得偏快或偏慢，偏差以百万分之几（ppm）计。两端各减自己的两次读数，未知的起点约掉了，速率却约不掉：手机量的往返按手机的时钟缩放，锚点（anchor）量的作答时间按锚点的时钟缩放，而交互里最长的正是锚点等的这一段。两者一减，剩下的除了飞行时间，还有作答时间的一半乘以两块晶振的速率之差——要紧的只是两端不一样快，一起快多少都无所谓。于是不作修正的单边双向测距（single-sided two-way ranging, SS-TWR）量出的其实是锚点等了多久：两块晶振反向各偏十个 ppm，等一个时隙就长出将近六米，等两个、三个、四个时隙就成倍地长，四次读数全都偏长，不是散布。修正靠接收端锁定脉冲时顺带测出的时钟偏差（clock offset），即 Coffs：拿它缩放作答时间，误差就从几米降到几厘米。但 Coffs 本身也带一点估计误差，剩下的那一项仍是作答时间的一半乘以它，所以还是随等待变大。',
   outcomes: [
     '说清为什么“用对方的时钟量出来的应答时间”会把距离测长',
     '根据锚点在第几个时隙作答，预测它会测长多少',

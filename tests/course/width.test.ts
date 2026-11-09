@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { width, widthAirtimeTiming } from '../../src/course/tier2/width'
-import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { lessonChars } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { widthScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -610,8 +610,7 @@ describe('width · the guard interval costs a wide channel almost entirely in th
   })
 
   it('does not move the stated minutes: limits are outside mainPathChars', () => {
-    expect(lessonChars(width)).toBe(2447)
-    expect(lessonMinutes(width)).toBe(25)
+    expect(lessonChars({ ...width, limits: [] })).toBe(lessonChars(width))
   })
 })
 

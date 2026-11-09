@@ -46,8 +46,8 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
-  CHARS_PER_MINUTE, COURSE_ORDER, MODULES, OBSERVE_MINUTES, TRY_MINUTES,
-  lessonChars, lessonMinutes,
+  COURSE_ORDER, MODULES,
+  lessonMinutes,
 } from '../../src/course/curriculum'
 import { LESSONS } from '../../src/course/lessons'
 import { mainPathChars } from '../../src/course/readability'
@@ -547,7 +547,6 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
     // So the two are answered by kind, and the KIND SET is pinned: a third row printing a bare
     // integer in 余量 owes a line here, which is how 「a 0 that looks checked」 stops being free.
     const KINDS: ReadonlyMap<string, 'equality' | 'ceiling'> = new Map([
-      ['分钟数合计', 'equality'],
       ['`limits` 债务棘轮', 'ceiling'],
     ])
     const bare = dataRows(doc, FIG_HEAD)
@@ -579,38 +578,17 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
     }
   })
 
-  it('names the tightest lesson against the per-lesson ceiling, and its distance from it', () => {
-    // The 余量 cell of the 全课程主路径汉字 row is three stated figures in prose — the lesson, its
-    // characters and its distance from the upper end of the band — and none of them was read.
-    // 「距上沿 370」 is arithmetic nobody did: 4 400 − 4 030.
+  it('states the per-lesson floor, and says there is no ceiling any more', () => {
+    // The upper end of the band went with the hard length limit on 2026-11-10; §17 now says so
+    // instead of naming the tightest lesson's distance from an edge that no longer exists.
     const row = dataRows(doc, FIG_HEAD)
       .find((r) => r[0].replaceAll('*', '').trim() === '全课程主路径汉字')
     expect(row, 'the 全课程主路径汉字 row is gone from §17').toBeDefined()
-
-    const band = /逐课 \((\d[\d ]*), (\d[\d ]*)\)/.exec(row![2])
-    expect(band, 'the 断言在哪 cell no longer states the per-lesson band as 「逐课 (floor, ceiling)」')
-      .not.toBeNull()
-    const [floor, ceiling] = band!.slice(1).map((x) => Number(x.replaceAll(' ', '')))
-    expect([floor, ceiling], 'the band §17 states, against MAIN_PATH_BAND in'
-      + ' tests/course/coverageNumbers.ts — the constant readability.test.ts asserts lesson by lesson')
-      .toEqual([MAIN_PATH_BAND.floor, MAIN_PATH_BAND.ceiling])
-
-    const m = /逐课最紧的是 `@([a-z0-9-]+)` (\d[\d ]*)（距上沿 (\d[\d ]*)）/.exec(row![3])
-    expect(m, 'the 余量 cell no longer names the tightest lesson in the shape this reads')
-      .not.toBeNull()
-    const id = m![1]
-    const [chars, margin] = m!.slice(2).map((x) => Number(x.replaceAll(' ', '')))
-    const tightest = ordered.reduce((a, b) => (mainPathChars(b) > mainPathChars(a) ? b : a))
-    expect(id, `§17 calls @${id} the tightest lesson against the ceiling; the longest main path`
-      + ` in the course is @${tightest.id}'s, at ${mainPathChars(tightest)} characters`)
-      .toBe(tightest.id)
-    expect(chars, `§17 states @${id} = ${chars} main-path characters`).toBe(mainPathChars(tightest))
-    // The DISTANCE to the edge, which is what 「距上沿」 says. The room is one character less: the
-    // contract asserts `toBeLessThan(ceiling)`, strictly, so a lesson landing exactly on 4 400
-    // fails. Worth knowing before somebody reads this cell as a budget and spends all of it.
-    expect(margin, `§17 says @${id} sits ${margin} characters below the per-lesson ceiling;`
-      + ` ${ceiling} − ${mainPathChars(tightest)} = ${ceiling - mainPathChars(tightest)}`)
-      .toBe(ceiling - mainPathChars(tightest))
+    const floor = /逐课下限 (\d[\d ]*)/.exec(row![2])
+    expect(floor, 'the 断言在哪 cell no longer states the per-lesson floor as 「逐课下限 N」').not.toBeNull()
+    expect(Number(floor![1].replaceAll(' ', '')), 'the floor §17 states, against MAIN_PATH_BAND')
+      .toBe(MAIN_PATH_BAND.floor)
+    expect(row![3]).toContain('无上沿')
   })
 
   it('breaks 课数 down into the three lesson families it actually has', () => {
@@ -690,16 +668,6 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       expect(stated, `§17 states \`${id}\` = ${stated} main-path characters`)
         .toBe(mainPathChars(l!))
     }
-  })
-
-  it('states the minute sum again inside the bucket table, and that copy is measured too', () => {
-    // The second table of §17 names the sum in prose inside a cell — 「分钟数合计那条等式（今天是
-    // 1 850）变红」 — and that copy was stale while the table above it was stale. Two statements of
-    // one number are two things to check, not one.
-    const m = /分钟数合计那条等式（今天是 (\d[\d ]*)）变红/.exec(doc)
-    expect(m, 'the `@rate` row no longer names the minute sum').not.toBeNull()
-    expect(Number(m![1].replaceAll(' ', '')), 'the sum named in the 后果 cell')
-      .toBe(ordered.reduce((n, l) => n + lessonMinutes(l), 0))
   })
 })
 
@@ -977,133 +945,6 @@ describe(`${DOC}'s §14 summary table counts itself correctly`, () => {
   })
 })
 
-const BUCKET_HEAD = ['课', 'raw 分钟', '到下一档还剩', '后果']
-
-/** The cap §17 states for its bucket-margin table: every lesson at or under it owes a row. */
-const BUCKET_CAP = 30
-
-/**
- * A lesson's RAW minutes — the quantity `lessonMinutes` rounds to five. Written out rather than
- * imported because `curriculum.ts` exports the rounded answer and the parts, never this; the same
- * expression lives in `tests/course/kit.ts`'s 「fits one sitting」 and in `readability.test.ts`'s
- * raw ceiling, each named after the quantity it watches.
- */
-const rawMinutes = (l: (typeof ordered)[number]): number =>
-  lessonChars(l) / CHARS_PER_MINUTE
-  + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
-
-/**
- * The characters a lesson may still gain before `lessonMinutes` rounds it into the next bucket.
- *
- * **The rounding convention is part of the figure, so it is written down here and in §17.** The
- * next boundary is `5·(k + ½)` with `k = Math.round(raw / 5)`, and the result is `Math.round`ed —
- * the instrument the slice that wrote §17's table used (`probes.local/bucket-margins.ts`).
- * `Math.floor` would call `@rate`'s margin 0 rather than 1. A figure whose convention nobody wrote
- * down cannot be re-measured, which is the lesson `dataRows`' docblock in `coverage.ts` carries
- * from the same day.
- */
-const charsToNextBucket = (l: (typeof ordered)[number]): number => {
-  const raw = rawMinutes(l)
-  return Math.round((Math.round(raw / 5) * 5 + 2.5 - raw) * CHARS_PER_MINUTE)
-}
-
-/**
- * **§17's bucket-margin table, pinned — and until 2026-10-12 it was the one table of this document
- * the census exempted on a dated re-measurement rather than on an argument.**
- *
- * The census line read 「NOT pinned row by row (re-measured 2026-10-09: all six exact)」. Four days
- * later one row was wrong and three lessons were missing: `@uwb-m2m`'s margin had gone 5 → 2, and
- * `@edca` (16), `@uwb-mms-numbers` (22) and `@uwb-sensing` (25) all sat tighter than the loosest
- * row the table listed (`@streams`, 25) without ever appearing in it. A dated re-measurement is
- * not a comparison: it ages into a figure nobody is told to re-read.
- *
- * Two claims are checked, because the table makes two. The figures are the obvious one. The SET is
- * the one that was silently false: a list whose job is to warn an author which lessons are nearly
- * over a bucket boundary fails at that job for every lesson it leaves out, and nothing about a
- * per-row figure check would have noticed.
- */
-describe(`${DOC}'s §17 bucket-margin table states figures and a set, both measured`, () => {
-  const rows = dataRows(doc, BUCKET_HEAD)
-  const idOf = (cell: string): string => cell.replaceAll('*', '').replaceAll('`', '').replace('@', '').trim()
-  const numOf = (cell: string): number => Number(cell.replaceAll('*', '').replace(/[^\d.]/g, ''))
-
-  it('is still there, with a row per lesson and no other shape', () => {
-    expect(rows.length, 'the §17 bucket-margin table is gone, or its header changed — every'
-      + ' assertion below selects on that header').toBeGreaterThan(0)
-    for (const r of rows) {
-      const l = ordered.find((x) => x.id === idOf(r[0]))
-      expect(l, `§17's bucket table names @${idOf(r[0])}, which is not a lesson of the course`)
-        .toBeDefined()
-    }
-  })
-
-  it('states the cap it claims to be complete up to', () => {
-    const m = /余量不超过 (\d+) 字的每一门课/.exec(doc)
-    expect(m, '§17 no longer states the rule its bucket table follows, so nothing below knows how'
-      + ' far the set is supposed to reach').not.toBeNull()
-    expect(Number(m![1]), 'the cap §17 states, against BUCKET_CAP here').toBe(BUCKET_CAP)
-  })
-
-  it('states every lesson at or under the cap — the claim that was silently false', () => {
-    const owed = ordered.filter((l) => charsToNextBucket(l) <= BUCKET_CAP)
-      .sort((a, b) => charsToNextBucket(a) - charsToNextBucket(b))
-      .map((l) => l.id)
-    expect(rows.map((r) => idOf(r[0])), 'the lessons §17 lists against the lessons within'
-      + ` ${BUCKET_CAP} characters of the next five-minute bucket, tightest first. A lesson missing`
-      + ' here is a lesson this table claims to warn about and does not:\n'
-      + owed.map((id) => `  @${id} — ${charsToNextBucket(ordered.find((l) => l.id === id)!)} 字`)
-        .join('\n')).toEqual(owed)
-  })
-
-  it("states each row's raw minutes and its remaining characters, both measured", () => {
-    for (const r of rows) {
-      const id = idOf(r[0])
-      const l = ordered.find((x) => x.id === id)!
-      expect(numOf(r[1]), `§17 says @${id} has raw ${r[1]} minutes; measured`
-        + ` ${rawMinutes(l).toFixed(4)}`).toBe(Number(rawMinutes(l).toFixed(2)))
-      expect(numOf(r[2]), `§17 says @${id} has ${r[2]} before the next bucket; measured`
-        + ` ${charsToNextBucket(l)}`).toBe(charsToNextBucket(l))
-    }
-  })
-
-  it('states a DISTANCE and not the room: the boundary character is already red', () => {
-    // The column is headed 「到下一档还剩」, which reads as 「how many I may still add」. It is not:
-    // `lessonMinutes` rounds with `Math.round`, `.5` rounds UP, so the character that lands exactly
-    // on the boundary has already flipped the bucket. §17 draws the same distinction for the
-    // per-lesson ceiling (「「距上沿 370」是距离，还能加的字是 369」) because the bound there is a
-    // strict `<`; here the cause is the rounding, and the consequence is identical. Pinned as
-    // arithmetic on `lessonMinutes`' own formula, per row, so the distinction cannot be lost to a
-    // reader skipping the prose — and so that nobody "fixes" the figures by subtracting one.
-    const bucket = (raw: number): number => Math.max(5, Math.round(raw / 5) * 5)
-    for (const r of rows) {
-      const id = idOf(r[0])
-      const l = ordered.find((x) => x.id === id)!
-      const d = charsToNextBucket(l)
-      const raw = rawMinutes(l)
-      expect(bucket(raw + (d - 1) / CHARS_PER_MINUTE), `§17 says @${id} has ${d} characters to the`
-        + ` next bucket; ${d - 1} of them must leave the stated minutes alone`).toBe(lessonMinutes(l))
-      expect(bucket(raw + d / CHARS_PER_MINUTE), `and the ${d}th must flip it — if it does not, the`
-        + ' column has stopped being a distance and the note under the table is wrong')
-        .not.toBe(lessonMinutes(l))
-    }
-  })
-
-  it('those two checks can fail: a wrong margin and a missing row are both caught', () => {
-    // Planted, because a check only ever run against a passing document has not been shown able to
-    // fail — and this table passed for four days while being wrong in both ways at once.
-    const head = `| ${BUCKET_HEAD.join(' | ')} |`
-    const sep = '| --- | --- | --- | --- |'
-    const tightest = ordered.reduce((a, b) => (charsToNextBucket(b) < charsToNextBucket(a) ? b : a))
-    const wrong = [head, sep, `| \`@${tightest.id}\` | 22.50 | 999 字 | — |`].join('\n')
-    const r = dataRows(wrong, BUCKET_HEAD)[0]
-    expect(numOf(r[2]), 'the planted margin is read').toBe(999)
-    expect(numOf(r[2]) === charsToNextBucket(tightest), 'and it is not the measured one').toBe(false)
-    // and the set check: a table holding only the tightest lesson is short every other one
-    expect(dataRows(wrong, BUCKET_HEAD).map((x) => idOf(x[0])), 'a one-row table cannot equal the'
-      + ' owed set, which today holds nine lessons')
-      .not.toEqual(ordered.filter((l) => charsToNextBucket(l) <= BUCKET_CAP).map((l) => l.id))
-  })
-})
 
 /**
  * **Who checks each table's numbers, as an assertion.** Every table of this document is listed here
@@ -1133,19 +974,6 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
     + ' both margins, the baseline from `gradedWalkFailures`, and the three P−Q differences §17'
     + ' states in prose); plus the sum row — whose 涉及课数 must stay blank because the lesson sets'
     + ' overlap, and whose two 余量 cells each name WHICH side leads, compared against `leadOf`'],
-  [BUCKET_HEAD,
-    "§17 bucket margins — pinned since 2026-10-12: every row's raw minutes and remaining"
-    + ' characters against `rawMinutes`/`charsToNextBucket`, AND the set against the cap §17 states'
-    + ' about itself. It used to be exempt on a dated re-measurement (「2026-10-09: all six exact」)'
-    + ' and four days later held one wrong margin and was missing three lessons tighter than its'
-    + ' own loosest row'],
-  [['课', 'raw', '取整', '到 35 还剩'],
-    '§17 raw > 30 — the SET is pinned, in readability.test.ts, by the assertion named after the raw'
-    + " quantity; the row's own two margins are NOT, and here the reason is an argument rather"
-    + ' than a date: 303 and 479 were computed from the TWO-DECIMAL raw this table prints'
-    + ' ((32.5 − 30.32) × 220 = 479.6), not from the raw itself (480.04), so pinning them would'
-    + ' pin that display convention rather than a fact. The figure they come from, raw, is pinned'
-    + ' by the row above'],
 ]
 
 describe(`${DOC}'s table census is pinned, so a new summary table cannot go unchecked`, () => {

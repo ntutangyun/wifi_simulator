@@ -18,7 +18,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { ofdmaUl, triggeredRound, ROUND, ROUND_AT } from '../../src/course/tier2/ofdma-ul'
-import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { lessonChars } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -471,8 +471,7 @@ describe('ofdma-ul · the guard interval the TB PPDUs actually run at', () => {
   })
 
   it('does not move the stated minutes: limits are outside mainPathChars', () => {
-    expect(lessonChars(ofdmaUl)).toBe(2301)
-    expect(lessonMinutes(ofdmaUl)).toBe(20)
+    expect(lessonChars({ ...ofdmaUl, limits: [] })).toBe(lessonChars(ofdmaUl))
   })
 })
 

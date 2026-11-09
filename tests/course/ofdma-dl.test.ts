@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { ofdmaDl, muPpduFields, MU_SYMBOLS } from '../../src/course/tier2/ofdma-dl'
-import { lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { lessonChars } from '../../src/course/curriculum'
 import type { Block } from '../../src/course/lessonKit'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -808,12 +808,7 @@ describe('ofdma-dl · the guard interval only changes how long the MU PPDU is', 
   })
 
   it('does not move the stated minutes: limits are outside mainPathChars', () => {
-    // 2 107 since 2026-10-05: `why` gained the sentence that names 下行（downlink, DL）,
-    // which the reach rule's title arm asks of this lesson — its own title says 下行 and
-    // its graded main path never did. The stated minutes did not move and there were 203
-    // characters of room before they would have.
-    expect(lessonChars(ofdmaDl)).toBe(2107)
-    expect(lessonMinutes(ofdmaDl)).toBe(20)
+    expect(lessonChars({ ...ofdmaDl, limits: [] })).toBe(lessonChars(ofdmaDl))
   })
 })
 

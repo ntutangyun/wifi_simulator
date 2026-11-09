@@ -9,8 +9,9 @@
  *
  * **SPLIT 2026-10-11.** This file used to be both halves of the clause at 3 766 main-path
  * characters and 31.12 raw minutes — the widest lesson in the course by scaffold and the narrowest
- * by its distance to the 32.5 raw minutes that round to 35 (304 characters). The answer
- * `curriculum.ts` gives to a lesson past 30 minutes is to split it, and
+ * by its distance to the 32.5 raw minutes that round to 35 (304 characters), when
+ * `curriculum.ts` still refused a lesson past 30 minutes (today that is only the soft
+ * `SITTING_MINUTES` guideline, past which a lesson is marked long), and
  * `docs/superpowers/specs/2026-10-11-no-room-design.md` §2.1 and §5.2 are the case for doing it
  * here first: the four `outcomes` already divided 2 + 2, the two halves' blocks each ran
  * continuously, and the ratchet, the module index and the minute sum all cost nothing.
@@ -44,11 +45,7 @@
  * tests/course/uwb-ancillary.test.ts re-measures each figure against whole blocks. `MS` and `NS`
  * are exported for the other half, which prints them rather than recomputing them.
  *
- * `npx tsx scripts/lesson-dump.ts uwb-ancillary` prints it with its length. Measured, not guessed:
- * 1 917 main-path characters, two things to observe and one experiment put it at 16.71 raw minutes,
- * which the formula rounds to the 15-minute bucket — 174 characters below the 17.5 raw minutes that
- * would round to 20 and break the course's minute-sum equality (NOT the one-sitting ceiling, which
- * is now 15 minutes away). Measure the same way before adding a sentence, by IMPORTING
+ * `npx tsx scripts/lesson-dump.ts uwb-ancillary` prints it with its length. Measure a length by IMPORTING
  * `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from `curriculum.ts` rather than retyping
  * them: the controller retyped all three once and read a 484-character margin where there were
  * four.
@@ -242,7 +239,7 @@ export const uwbAncillary: Lesson = {
   id: 'uwb-ancillary',
   module: 24,
   title: '一条消息装不进一帧',
-  why: '测距之外，两端有时还要带一份别的内容过去，而标准为这件事留的那一节要先解决一个很直接的问题：一帧的载荷（payload）有上限，一条这样的消息可以比它长。于是它被分装在几帧里，占掉一轮测距之后连着的几个时隙。这一课只管它怎么被载送：分成几帧、一帧多长、长度由什么决定。还有一件事要先说，否则读者会以为是实现错了：这一节把发起方与响应方的意思换了，发消息的那一端在测距里恰恰是作答的那一端。每一帧还都写着这条消息还剩几帧，而那个写法换来了什么，是下一课的题目。',
+  why: '测距之外，两端有时还要带一份别的内容过去，而一帧的载荷（payload）有上限，一条这样的消息可以比它长。标准的办法是分装：一条辅助消息拆成几帧，在测距相位走完之后连着占几个时隙，一帧一个，测距那几帧一个字节也不动。每一帧都带同一个信息单元，写着这条消息的编号、这一帧之后还剩几帧，以及消息类型；剩余帧数从帧数减一一路数到零，接收端读到零就判定收齐了，不靠数自己收到了几帧。一帧多长由控制字节里的两个存在位决定：编号和剩余帧数各自可带可不带，四种组合只有三种长度，因为只带其中一个，不管带的是哪一个，都多一个字节。本课两个都带，每帧是最长的那一种。还有一件事要先说，否则读者会以为是实现错了：这一节把发起方与响应方的意思换了，发消息的那一端叫发起方，而它在测距里恰恰是作答的锚点（anchor）；时隙表仍按测距角色排，于是在测距里只作答的那台锚点在这里发出整条消息，开场的标签（tag）只是收。一条消息分几帧，在本仿真器里是会话上的一个整数，没有上层来交下一份装不下的内容。',
   outcomes: [
     '说清为什么要分段，以及一条消息分几帧在本仿真器里由谁给出',
     '说清这一节的发起方与响应方为什么和测距里的同名词相反',

@@ -44,10 +44,7 @@
  * `mmrcmResponders`, `uwbPollBytes`, `uwbInitBytes`, `rmmrcEntryBytes` and `roundPlan` are
  * called, and tests/course/uwb-receipt.test.ts re-measures each figure against whole blocks.
  *
- * `npx tsx scripts/lesson-dump.ts uwb-receipt` prints it with its length. Measured, not guessed:
- * 3498 main-path characters, three things to observe and two experiments put it at 29.90 raw
- * minutes, which the formula rounds to the 30-minute bucket — 572 characters below the 32.5 raw
- * minutes that would break the ceiling. Measure the same way before adding a sentence, by
+ * `npx tsx scripts/lesson-dump.ts uwb-receipt` prints it with its length. Measure a length by
  * IMPORTING `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES` from `curriculum.ts` rather than
  * retyping them: the controller retyped all three once and read a 484-character margin where
  * there were four.
@@ -265,7 +262,7 @@ export const uwbReceipt: Lesson = {
   id: 'uwb-receipt',
   module: 22,
   title: '谁听见了我',
-  why: '多对多测距那一课的结尾留下一个问题。一轮里每一对的距离只有排在前面的那个参与者算得出来，排在最后的那个发出全轮最长的一帧，自己一条距离也算不到。更要紧的是另一半：它知道自己算出了什么，却没有任何一帧告诉过它有谁听见了它——那一发是被收下了，还是根本没人解出来，在这个模式里它无从知道，因为一次发送的收妥情况只会被往后转达给排在它后面的人，从不回到发送者自己手里。标准为这件事专门留了一节：发起方在控制消息里置一位请求收方作答，收方用一帧回来，里面按发起方分条目，每个条目一张收妥位图（bitmap），说明「你发来的那几条我收到了哪几条」。这一课要算清代价落在哪一侧，以及那两个「每个……一个」数的为什么不是同一样东西。',
+  why: '多对多测距那一课的结尾留下一个问题。一轮里每一对的距离只有排在前面的那个参与者算得出来，排在最后的那个发出全轮最长的一帧，自己一条距离也算不到。更要紧的是另一半：它不知道有谁听见了它。一次发送的收妥情况只会被排在它后面的人捎进自己那一帧，从不回到发送者手里，而最后那个人之后再没有人发送。标准为这件事专门留了一节：发起方在控制消息里置一位请求收方作答，收方在一轮之后各占一个多排的时隙回一帧，帧里按发起方分条目，每个条目一张收妥位图（bitmap），一位一条开场消息，收到记一。代价全落在回答一侧：请求位就在控制消息本来就有的那个字段里，开场消息一个字节也不变；花掉的是那几帧回答，而它们不带任何时间量，测距结果逐字段相同。两个计数要分开：条目按发起方数，时隙和帧按响应方数——双向轮里一个响应方只听到一个发起方，两种说法给出同一个数，多对多里按发起方数就装不进时隙。基础场景里最后那个参与者的发射功率（transmit power）压低了，它从别人的回答里读到的全是零：没有人听见我。这和测距消息未收到交互回答的是同一件事，差别在粒度和由谁开口：那一种逐轮、由响应方自己发，这一种整个窗口一帧、由发起方请求。',
   outcomes: [
     '说清请求为什么一个字节也不多花，而回答为什么要一整帧',
     '分清两个计数：信息单元的列表条目按发起方数，时隙与帧按响应方数',

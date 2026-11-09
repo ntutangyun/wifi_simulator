@@ -34,7 +34,7 @@ import { describe, expect, it } from 'vitest'
 import { lessonShapeSuite, ofType } from './kit'
 import { fading } from '../../src/course/tier2/fading'
 import { LESSONS } from '../../src/course/lessons'
-import { COURSE_ORDER, MODULES, lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { fadingScenario, selectivityScenario, widthScenario } from '../../src/course/wifiScenes'
 import {
   FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, shadowDb, smallScaleDb,
@@ -106,9 +106,7 @@ describe('fading · where it sits and what it assumes', () => {
     for (const id of fading.needs!) expect(COURSE_ORDER.indexOf(id)).toBeLessThan(COURSE_ORDER.indexOf('fading'))
   })
 
-  it('is one sitting, and the stated minutes are the formula’s', () => {
-    expect(lessonMinutes(fading)).toBe(25)
-    expect(lessonChars(fading)).toBeLessThanOrEqual(2900)
+  it('has two things to observe and two experiments', () => {
     expect([fading.observe.length, fading.tryThis.length]).toEqual([2, 2])
   })
 

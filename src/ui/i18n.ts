@@ -137,6 +137,8 @@ export interface Strings {
     progressOf: (done: number, total: number) => string
     module: string
     minutes: (n: number) => string
+    /** Appended to the minutes of a lesson past `SITTING_MINUTES`: a hint, not a refusal. */
+    longLesson: string
     selectPrompt: string
     /** Section labels of the zero-to-hero lesson shape. */
     outcomes: string
@@ -949,6 +951,7 @@ export const STRINGS: Strings = {
     progressOf: (d, t) => `已完成 ${d}/${t} 课`,
     module: '模块',
     minutes: (n) => `约 ${n} 分钟`,
+    longLesson: '，篇幅较长，可分两次学',
     selectPrompt: '在左侧选择一课，载入其仿真场景，对照课文观察实时时间轴。',
     outcomes: '学完这一课你能',
     needs: '需要先学',

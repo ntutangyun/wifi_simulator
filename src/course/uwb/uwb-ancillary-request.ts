@@ -4,9 +4,9 @@
  * IEEE Std 802.15.4-2024 §10.35.1's last sentence and §10.35.2.1's Request field, which is
  * `docs/superpowers/specs/2026-10-05-ancillary-request-design.md`. The Request = 0 half is
  * `uwb-ancillary`, and this lesson is the other half of the same clause and the same module — the
- * split is the design's §8, measured rather than argued: that lesson's raw figure is 31.12 minutes
- * against a 30-minute ceiling, so it had 303 main-path characters of room and this material does not
- * fit in 303 characters.
+ * split is the design's §8: that lesson's raw figure was already 31.12 minutes, past the length
+ * (`SITTING_MINUTES`, a soft guideline past which a lesson is marked long rather than refused) that
+ * one sitting is meant to hold, so this material got its own lesson.
  *
  * **The one sentence this lesson exists for is that a device can change the schedule.** Every other
  * lesson of this tier teaches a grid that is settled before the session starts: `roundPlan` is
@@ -198,7 +198,7 @@ export const uwbAncillaryRequest: Lesson = {
   id: 'uwb-ancillary-request',
   module: 24,
   title: '一台设备要求，控制器答不答应',
-  why: '上一课的时隙表是在会话开场前一次算定的：一轮几个时隙、一块几轮，算一次，整场不动。这一课是同一节标准的另一半，而它要讲的事只有一件——这张表可以被一台设备要求改掉。办法就在上一课那枚信息单元里：把它的第一位置 1，同一个「还剩几帧」的字段装的就不再是剩余帧数，而是「请为下一次交换排这么多个测距时隙（ranging slot）」。提出要求的是在测距（ranging）里只负责作答的那一端，而答复它的是开场的那一端。标准到这里就停了：它定义了这个要求，没有定义批复、没有定义拒绝，也没有定义任何一条回话。所以「批不批」是本仿真器自己定的，而「怎么知道批没批」在本引擎里反倒是现成的。',
+  why: '上一课的时隙表是在会话开场前一次算定的：一轮几个时隙、一块几轮，算一次，整场不动。这一课是同一节标准的另一半：这张表可以被一台设备要求改掉。办法就在上一课那枚信息单元里：把它的第一位置 1，同一个「还剩几帧」的字段装的就不再是剩余帧数，而是「请为下一次交换排这么多个测距时隙（ranging slot）」。一个字节装不下两个量，所以这个要求自己占一帧，排在消息后面，不报消息编号，比一帧消息短一个字节。提出要求的是在测距（ranging）里只负责作答的那一端，收下它的是讲定时隙表的标签（tag），所以「只有不是控制器才能要」这个条件在这里天然成立。标准到这里就停了：没有批复、没有拒绝，也没有任何回话。于是本仿真器自己定了批的规则——这一块装得下就批，而能批多宽全由块长、时隙长和轮长算出；时隙一加宽，同一个要求就被拒。批到的不只是更宽的窗口，而是下一次交换的消息真的变成那么多帧，否则多出来的格子全是空的。拒绝不发任何帧，请求方照样知道：两端读的是同一张时隙表，窗口有多宽就是答复。竞争式排程下窗口一格不动，消息照样变长；测距结果在打开这个要求前后逐字段相同。',
   outcomes: [
     '说清同一个字段在两种用法下装的是两个不同的量，以及为什么一帧不能同时做两件事',
     '说出批复到底改了什么：下一次交换的消息有几帧，而不只是窗口有多宽',

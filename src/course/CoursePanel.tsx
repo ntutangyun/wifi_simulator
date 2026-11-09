@@ -4,7 +4,7 @@ import { player, useUi } from '../ui/store'
 import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
 import { layoutDiagram, type Paint, type Shape } from './diagram'
 import {
-  BASES, CONTRIBUTIONS, MODULES, TIERS, TRACKS, basisOf, citedDocs, lessonBlocks, lessonMinutes,
+  BASES, CONTRIBUTIONS, MODULES, TIERS, TRACKS, basisOf, citedDocs, isLongLesson, lessonBlocks, lessonMinutes,
   teachesDraft, trackHeadings, type StandardBasis,
 } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
@@ -310,7 +310,7 @@ export function CoursePanel() {
                 </span>
                 <span style={{ ...dim, width: 18, textAlign: 'right' }}>{lessonIndex(l.id) + 1}</span>
                 <span style={{ flex: 1 }}>{l.title}</span>
-                <span style={{ ...dim, fontSize: 10.5 }}>{L.minutes(lessonMinutes(l))}</span>
+                <span style={{ ...dim, fontSize: 10.5 }}>{L.minutes(lessonMinutes(l))}{isLongLesson(l) ? '·长' : ''}</span>
               </div>
             ))}
           </div>
@@ -432,7 +432,7 @@ export function CoursePanel() {
       </div>
 
       <div style={{ ...dim, fontSize: 11 }}>
-        {TIERS[MODULES[lesson.module].tier].label} · {MODULES[lesson.module].title} · {L.minutes(lessonMinutes(lesson))}
+        {TIERS[MODULES[lesson.module].tier].label} · {MODULES[lesson.module].title} · {L.minutes(lessonMinutes(lesson))}{isLongLesson(lesson) ? L.longLesson : ''}
       </div>
       {/* Inside a lesson the section heading is off screen, so the basis is
           repeated here: a draft's numbers are not a standard's numbers. */}

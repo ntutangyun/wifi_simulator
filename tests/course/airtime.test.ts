@@ -31,7 +31,7 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 import { zhNumeral } from './coverage'
 import { MANDATORY_MBPS, PHY_MODES, RATES, SIFS_NS, TGI_NS, ctrlRespRateFor, ctrlRespRateForMode, mcsRateMbps, preambleNsFor, symNsFor, txTimeModeNs, txTimeNs } from '../../src/engine/phy'
 import { LESSONS } from '../../src/course/lessons'
-import { MODULES, lessonChars, lessonMinutes } from '../../src/course/curriculum'
+import { MODULES } from '../../src/course/curriculum'
 import { lessonStrings } from '../../src/course/readability'
 
 const MS = 1_000_000
@@ -307,15 +307,11 @@ describe('airtime · the guard interval, its cost and the side that is not here'
     observe: airtime.observe, tryThis: airtime.tryThis, quiz: airtime.quiz,
   }).join(' | ')
 
-  // (a) §8 item 8. The budget is a hard constraint and it belongs in a test, not in someone's
-  // memory. Before this slice: 1569 chars, 3 observe, 2 tryThis -> 21.13 raw -> 20 minutes.
-  // With one more observe the window for 25 minutes is 1430 <= chars <= 2529.
-  it('(a) lands on 25 minutes, with one observe added and no tryThis', () => {
+  // (a) §8 item 8, minus its minute budget: the course length limit became a soft guideline on
+  // 2026-11-10 (`SITTING_MINUTES`), so only the shape of the simulator time is pinned here.
+  it('(a) has four things to observe and two experiments', () => {
     expect(airtime.observe.length).toBe(4)
     expect(airtime.tryThis.length).toBe(2)
-    expect(lessonChars(airtime)).toBeLessThanOrEqual(2529)
-    expect(lessonChars(airtime)).toBeGreaterThanOrEqual(1430)
-    expect(lessonMinutes(airtime)).toBe(25)
   })
 
   // (b) The variant differs from the main scene by one section and nothing else.

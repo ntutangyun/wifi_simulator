@@ -16,7 +16,8 @@
  * tests/course/uwb-intro.test.ts.
  *
  * As the first lesson of its track this one opens the whole UWB idea, so it runs
- * longer than most; the only length control left is the 30-minute ceiling
+ * longer than most; the sitting guideline (`SITTING_MINUTES` in curriculum.ts) marks a
+ * lesson past it as long rather than refusing it
  * (`npx tsx scripts/lesson-dump.ts uwb-intro` prints the estimate). Depth that
  * will not fit belongs in `deeper`, provenance in `sources`.
  *
@@ -97,7 +98,7 @@ export const uwbIntro: Lesson = {
   id: 'uwb-intro',
   module: 14,
   title: '一台测量时间的射频',
-  why: '手机其实早就能估出自己离路由器有多远——靠的是接收信号的电平有多高。问题就出在这个“估”字上：一堵墙、一只挡住天线（antenna）的手，造成的衰减比十米空气还大。射频还能问的另一个问题是：信号是什么时候到的；这就是超宽带（ultra-wideband, UWB）——而光速是一把非常可靠的尺子。这样一次测量最小可以小到什么程度？一个锚点（anchor，也就是固定在墙上的那台射频）、一部手机、四个时间戳，换来一个距离。',
+  why: '手机其实早就能估出自己离路由器有多远——靠的是接收信号的电平有多高。问题就出在这个“估”字上：一堵墙、一只挡住天线（antenna）的手，造成的衰减比十米空气还大。超宽带（ultra-wideband, UWB）改问信号是什么时候到的：它发的是极短的脉冲，边沿越陡，到达时刻就定得越准，而光速是一把非常可靠的尺子。一轮测距只要一个锚点（anchor，也就是固定在墙上的那台射频）、一部手机和四个时间戳：手机记下自己发出 Poll 和收到应答的时刻，一减得到往返时间；锚点记下自己收到 Poll 和发出应答的时刻，一减得到作答时间，并把它写进应答帧。往返时间减去作答时间再折半，就是一趟飞行。两只时钟从不对齐也无妨：每台设备只减自己的两次读数，未知的起点被约掉了。算出的距离会落在真值两侧几厘米，因为接收时间戳带着噪声、读数又只能一格一格地取整——这是射频在正常工作，不是出了毛病。',
   outcomes: [
     '从事件日志里读出一轮测距的四个时间戳',
     '说清为什么手机量的是往返时间，锚点量的是作答时间',
