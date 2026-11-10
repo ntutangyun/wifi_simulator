@@ -606,25 +606,15 @@ describe('readability · a name that arrives early says where it is taught', () 
     expect(lesson('uwb-geometry').terms!.map((t) => t.term)).toContain('GDOP')
   })
 
-  it('uwb-nba says the three variants it does not explain belong to the next lesson', () => {
+  // 2026-11-11 (W5): uwb-nba no longer shares uwb-nba-coexist's menu. Its own scene is the clear
+  // channel; the inside channel is offered once, and the prose says it is the next lesson's subject.
+  it('uwb-nba says the one variant it does not explain belongs to the next lesson', () => {
     const nba = lesson('uwb-nba')
-    const coexist = lesson('uwb-nba-coexist')
     earlier('uwb-nba', 'uwb-nba-coexist')
-    // the two lessons share one menu on purpose (uwb-nba-coexist.test.ts pins that), so the
-    // fix is disclosure in the prose rather than a shorter menu: three of the four labels are
-    // the NEXT lesson's subject, and this lesson's own scene is the broken one, so a reader
-    // looking for why reaches for them first.
-    expect(nba.variants!.map((v) => v.label)).toEqual(coexist.variants!.map((v) => v.label))
+    expect(nba.variants!.map((v) => v.label)).toEqual(['每次只与一个锚点测距', '落在路由器的信道之内'])
+    expect(lesson('uwb-nba-coexist').variants!.map((v) => v.label)).not.toContain('落在路由器的信道之内')
     const text = lessonStrings(nba).join(' / ')
-    expect(text).toContain('共用同一份变体菜单')
-    expect(text).toContain('菜单里有三项是那一课的题目')
-    for (const owed of ['跳变（channel hopping）', '先听后发（listen before talk, LBT）']) {
-      expect(text, owed).toContain(owed)
-    }
-    // the one it does use, and the count the claim depends on
-    expect(nba.variants).toHaveLength(4)
-    expect(nba.variants![3].label).toBe('每次只与一个锚点测距')
-    expect(text).toContain('本课自己只用第四项「每次只与一个锚点测距」')
+    expect(text).toContain('是下一课的题目，菜单里的「落在路由器的信道之内」就是那一课的场景')
   })
 
   it('uwb-sensing names UWB on its main path again', () => {

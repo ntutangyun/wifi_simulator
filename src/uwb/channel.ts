@@ -34,7 +34,7 @@ import type { FrameDesc } from '../model/frames'
 import type { EmitFn, RxFailReason } from '../model/records'
 import type { NodeCfg, Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
-import { MMS_COMBINE_MAX_DB, MMS_SP0_RX_SENS_DBM } from './mms'
+import { MMS_COMBINE_MAX_DB } from './mms'
 import {
   NB_CHANNEL_MHZ, NB_LBT_THRESHOLD_DBM, NB_RX_SENS_DBM, NB_SIR_MIN_DB, NB_TX_DBM,
   nbBand, nbCenterMhz, nbPl0Db,
@@ -208,11 +208,23 @@ function competes(a: Reception, b: Reception, rxId: string): boolean {
   return (a.rxScope === null || a.rxScope === rxId) && (b.rxScope === null || b.rxScope === rxId)
 }
 
+/** One running narrowband CCA: the band it senses, and the energy integrated so far. */
+interface CcaRun {
+  id: string
+  lo: number
+  hi: number
+  lastNs: Ns
+  lastMw: number
+  accMwNs: number
+}
+
 export class UwbChannel {
   private radios = new Map<string, RadioState>()
   private byId = new Map<string, NodeCfg>()
   /** Arrivals sharing an instant, resolved as one batch so power decides, not call order. */
   private pending = new Map<Ns, Arrival[]>()
+  /** Narrowband clear-channel assessments in progress (`ccaMeasure`). */
+  private ccas = new Set<CcaRun>()
 
   constructor(
     private q: EventQueue,
@@ -240,7 +252,13 @@ export class UwbChannel {
     // The other technology's power changes between our own events, so every open
     // reception re-takes its max whenever the mediator says something changed.
     if (sp) {
-      sp.onChange('uwb', () => {
+      sp.onChange('uwb', (t) => {
+        // Every running clear-channel assessment closes the constant piece that just ended.
+        for (const c of this.ccas) {
+          c.accMwNs += c.lastMw * (t - c.lastNs)
+          c.lastNs = t
+          c.lastMw = sp.foreignMw('uwb', this.posOf(c.id), c.lo, c.hi)
+        }
         for (const [rxId, r] of this.radios) {
           if (r.open.length === 0) continue
           const pos = this.posOf(rxId)
@@ -266,10 +284,12 @@ export class UwbChannel {
   // frame built without them (every 4z frame) takes the session's own answer, unchanged.
 
   /** EIRP of one frame: a narrowband message runs at the NB module's power, an MMS fragment at
-   * the power its own length lets it spend, and everything else at the node's. */
+   * the power its own length lets it spend, an SP0 control frame at the leading fragment's less the
+   * proposal's ~4 dB (`mmsSp0TxDbm`), and everything else at the node's. */
   private txDbmFor(from: string, frame?: FrameDesc): number {
     if (frame?.uwb?.nb) return NB_TX_DBM
     if (frame?.uwb?.mms) return frame.uwb.mms.txDbm
+    if (frame?.uwb?.sp0) return frame.uwb.sp0.txDbm
     return this.nodeOf(from).txPowerDbm
   }
 
@@ -324,16 +344,12 @@ export class UwbChannel {
    * `MMS_COMBINE_MAX_DB` below 4z sensitivity, because the largest train this model allows adds
    * exactly that much back; quieter than that, no train can rescue it.
    *
-   * An SP0 control frame goes the other way: it is longer than the packet's own SYNC+SFD fragment
-   * and spends its energy at a lower peak power, so it is the harder of the two to find, and the
-   * draft's own comparison prices the difference (`MMS_SP0_RX_SENS_DBM`). This is the one place
-   * that difference is charged. Under Config 1 with an SP0 control phase, receiving that packet
-   * IS being primed — so the threshold belongs on its delivery here, and `acquired` adds nothing
-   * to the fragments that follow. 4ab draft 15-25/0194r0 */
+   * An SP0 control frame is judged at the ordinary UWB sensitivity: its lower peak power is already
+   * in its transmit power (`txDbmFor`), and charging it again here would count the proposal's ~4 dB
+   * twice (2026-11-11, audit #17). 4ab draft 15-25/0194r0 */
   private sensFor(frame: FrameDesc): number {
     if (frame.uwb?.nb) return NB_RX_SENS_DBM
     if (frame.uwb?.mms) return UWB_RX_SENS_DBM - MMS_COMBINE_MAX_DB
-    if (frame.uwb?.sp0) return MMS_SP0_RX_SENS_DBM
     return UWB_RX_SENS_DBM
   }
 
@@ -396,17 +412,37 @@ export class UwbChannel {
   }
 
   /**
-   * Listen before talk on narrowband channel `channel` (4ab draft 15-22/0381r5 §1.4.2): one
-   * instantaneous reading of the mediator's foreign power over the channel's 2.5 MHz stands for
-   * the draft's 9 µs energy-detection window (model). Without a mediator — no Wi-Fi link shares
-   * the band — the channel is always clear and nothing is drawn or scheduled.
+   * One clear-channel assessment on narrowband channel `channel` by `id`, lasting `durNs`: the
+   * energy detector's reading is the foreign power **averaged over the whole detection time**, and
+   * `done` gets it at the end, with the busy verdict against `NB_LBT_THRESHOLD_DBM`.
+   *
+   * standard §11.2.8 b) ("The CCA detection time shall be equal to phyCcaDuration") and §11.2.6
+   * (the ED measurement is averaged over its measurement time); the duration the caller passes is
+   * `NB_PHY_CCA_DURATION_US`. 2026-11-11 (audit #20): this replaces one instantaneous reading.
+   *
+   * The average is exact for the mediator's piecewise-constant power: every change the spectrum
+   * announces closes one constant piece (`onChange` in the constructor). Without a mediator — no
+   * Wi-Fi link shares the band — the channel reads empty, but the detection time still passes.
    */
-  lbtBusy(id: string, channel: number): { busy: boolean; foreignDbm: number } {
+  ccaMeasure(
+    id: string, channel: number, durNs: Ns, done: (r: { busy: boolean; foreignDbm: number }) => void,
+  ): void {
+    const t0 = this.now()
     const sp = this.spectrum
-    if (!sp) return { busy: false, foreignDbm: -Infinity }
     const band = nbBand(channel)
-    const foreignDbm = sp.foreignDbm('uwb', this.posOf(id), band.lo, band.hi)
-    return { busy: foreignDbm >= NB_LBT_THRESHOLD_DBM, foreignDbm }
+    const m: CcaRun = {
+      id, lo: band.lo, hi: band.hi, lastNs: t0, accMwNs: 0,
+      lastMw: sp ? sp.foreignMw('uwb', this.posOf(id), band.lo, band.hi) : 0,
+    }
+    this.ccas.add(m)
+    this.q.schedule(t0 + durNs, () => {
+      const t = this.now()
+      m.accMwNs += m.lastMw * (t - m.lastNs)
+      this.ccas.delete(m)
+      const mw = durNs > 0 ? m.accMwNs / durNs : m.lastMw
+      const foreignDbm = mw > 0 ? 10 * Math.log10(mw) : -Infinity
+      done({ busy: foreignDbm >= NB_LBT_THRESHOLD_DBM, foreignDbm })
+    })
   }
 
   /**

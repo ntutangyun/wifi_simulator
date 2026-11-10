@@ -786,11 +786,11 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'uwb-mms':                 [7, 12, 5, 3, 3, 6, 3, 5],
     'uwb-mms-numbers':         [6, 9, 4, 3, 3, 3, 4, 4],
     'uwb-nba':                 [5, 11, 5, 3, 3, 5, 3, 4],
-    'uwb-nba-coexist':         [7, 10, 4, 3, 3, 4, 4, 3],
-    'uwb-ssbd':                [6, 8, 4, 3, 3, 5, 3, 4],
+    'uwb-nba-coexist':         [7, 10, 4, 3, 3, 4, 4, 1],
+    'uwb-ssbd':                [6, 8, 3, 3, 3, 5, 3, 1],
     'uwb-uwbd':                [5, 8, 3, 2, 3, 4, 4, 5],
-    'uwb-acquisition':         [6, 8, 4, 2, 3, 4, 4, 4],
-    'uwb-subrounds':           [6, 8, 4, 2, 3, 4, 4, 4],
+    'uwb-acquisition':         [6, 6, 3, 2, 3, 4, 4, 4],
+    'uwb-subrounds':           [7, 7, 3, 2, 3, 4, 4, 4],
     'uwb-capstone':            [6, 8, 3, 3, 3, 2, 3, 4],
   }
 

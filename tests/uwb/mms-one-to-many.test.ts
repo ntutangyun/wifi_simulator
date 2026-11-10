@@ -184,28 +184,26 @@ describe('a one-to-many round ranges every anchor at once', () => {
   const sc = mmsScene(RING, [TAG], true)
   const rs = run(sc, 1000 * MS)
 
-  it('lays the round out as control + (R + 1) slots a millisecond + report', () => {
+  // 2026-11-11 (audit #22): one pairwise sub-round per responder (15-25/0213r2, CID 474), each
+  // interleaving the initiator and that responder 500 µs apart (15-24/0633r1). It used to be one
+  // shared control phase, one shared initiator train and (R + 1) slots to a millisecond.
+  it('lays the round out as one pairwise sub-round per responder', () => {
     const plan = roundPlan(sc.uwb!, RING.length)
     const l = plan.mms!.layout
     expect(plan.mms!.oneToMany).toBe(true)
     expect(l.responders).toBe(3)
-    // Two slots for the POLL window and two for each responder's RESP.
-    expect(l.controlSlots).toBe(8)
-    // X = 8 RSFs, four devices to a millisecond — past the draft's 20-slot floor.
-    expect(l.rpSlots).toBe(32)
-    // Two report windows per responder: its own, then the initiator's answer to it.
+    expect(l.subRounds).toBe(3)
+    // A POLL and a RESP window in each sub-round.
+    expect(l.controlSlots).toBe(12)
+    // X = 8 RSFs, two slots to a millisecond — under the draft's 20-slot floor.
+    expect(l.rpSlots).toBe(20)
     expect(l.reportSlots).toBe(12)
-    expect(plan.slots).toBe(52)
-    // The initiator opens each millisecond and the three responders follow it, in order.
-    expect(l.fragmentSlot('initiator', 'rsf', 0)).toBe(8)
-    expect([0, 1, 2].map((k) => l.fragmentSlot('responder', 'rsf', 0, k))).toEqual([9, 10, 11])
-    expect(l.fragmentSlot('initiator', 'rsf', 1)).toBe(12)
-    expect([0, 1, 2].map((k) => l.reportSlot('responder', k))).toEqual([40, 44, 48])
-    expect([0, 1, 2].map((k) => l.reportSlot('initiator', k))).toEqual([42, 46, 50])
-    // Four slots to a millisecond of the ranging phase, and the draft's 600 RSTU slot is half a
-    // millisecond — so this round really spaces its fragments 2 ms apart, and says so rather
-    // than letting every receiver assume a millisecond and read a clock ratio of two.
-    expect(plan.mms!.fragGapNs).toBe(2_000_000)
+    expect(plan.slots).toBe(84)
+    expect([0, 1, 2].map((k) => l.fragmentSlot('initiator', 'rsf', 0, k))).toEqual([4, 32, 60])
+    expect([0, 1, 2].map((k) => l.fragmentSlot('responder', 'rsf', 0, k))).toEqual([5, 33, 61])
+    expect([0, 1, 2].map((k) => l.reportSlot('responder', k))).toEqual([24, 52, 80])
+    expect([0, 1, 2].map((k) => l.reportSlot('initiator', k))).toEqual([26, 54, 82])
+    expect(plan.mms!.fragGapNs).toBe(1_000_000)
   })
 
   it('gives the tag one round per block, not one per pair', () => {
@@ -450,16 +448,18 @@ describe('oneToMany: false is the cycle that shipped', () => {
   })
 
   it('measures the one-to-many POLL against its own window, even at one responder', () => {
-    // A one-to-many round with a single anchor still broadcasts a 17-octet one-to-many POLL, so
-    // the guard has to size it as one — not as the 13-octet REPORT a pair round's longest
-    // message is. The mode decides, never the responder count.
+    // A one-to-many round with a single anchor still broadcasts a 15-octet one-to-many POLL
+    // (12 + 3N, 15-22/0381r5 Table 1.6.3.1 — 2026-11-11: it was counted 14 + 3N), so the guard has
+    // to size it as one — not as the 13-octet REPORT a pair round's longest message is.
     const pair = { ...DEFAULT_UWB_SESSION.mms }
     const otm = { ...DEFAULT_UWB_SESSION.mms, oneToMany: true }
     expect(uwbNbSlotFitNs()).toBe(608_200)
     expect(uwbNbSlotFitNs(pair, 1)).toBe(608_200)
-    expect(uwbNbSlotFitNs(otm, 1)).toBe(736_200)
+    expect(uwbNbSlotFitNs(otm, 1)).toBe(672_200)
     expect(uwbNbSlotFitNs(otm, 3)).toBeLessThan(2 * rstuNs(600))
-    expect(uwbNbSlotFitNs(otm, 4)).toBeGreaterThan(2 * rstuNs(600))
+    // 12 + 3·4 = 24 octets fits the two-slot window now; 12 + 3·5 = 27 does not.
+    expect(uwbNbSlotFitNs(otm, 4)).toBeLessThan(2 * rstuNs(600))
+    expect(uwbNbSlotFitNs(otm, 5)).toBeGreaterThan(2 * rstuNs(600))
   })
 })
 

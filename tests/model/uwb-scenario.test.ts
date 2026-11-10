@@ -4,10 +4,7 @@ import {
   type NodeCfg, type Scenario, type UwbMmsCfg, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { LESSONS } from '../../src/course/lessons'
-import {
-  MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
-  MMS_REVERSED_OFFSET_RSTU, N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET,
-} from '../../src/uwb/mms'
+import { N_MSR_SET, RIF_COUNT_SET, RSF_COUNT_SET, STS_LEN_SET } from '../../src/uwb/mms'
 import { EventQueue } from '../../src/engine/events'
 import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
@@ -362,11 +359,10 @@ describe('the P802.15.4ab MMS session in the schema', () => {
       rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, nbChannels: [3], nbLbt: 'auto', report: 'bi',
       // A plan saved before one-to-many rounds existed reads back pairwise, which is what it was.
       oneToMany: false,
-      // …and one saved before the draft's five features reads back with every one of them off,
-      // which is the session it ran. Written out rather than spread: this is the assertion that
-      // a new default cannot quietly change what a stored plan replays as.
-      control: 'nba', nonInterleaved: false, fixedReplyRstu: null, reversedOrder: false,
-      rsfSfd: false, uwbdControl: 'sp0',
+      // …and one saved before the draft's features reads back with every one of them off, which is
+      // the session it ran. Written out rather than spread: this is the assertion that a new
+      // default cannot quietly change what a stored plan replays as.
+      control: 'nba', nonInterleaved: false, predictedReplyTime: false, uwbdControl: 'sp0',
       // …and one saved before SSBD existed reads back with it off too (design doc
       // 2026-10-03-ssbd-design.md §4.1): `null`, not an object of the draft's own defaults.
       ssbd: null,
@@ -551,10 +547,16 @@ describe('the MMS draft-feature fields', () => {
     const p = UwbMmsSchema.parse(base)
     expect(p.control).toBe('nba')
     expect(p.nonInterleaved).toBe(false)
-    expect(p.fixedReplyRstu).toBeNull()
-    expect(p.reversedOrder).toBe(false)
-    expect(p.rsfSfd).toBe(false)
+    expect(p.predictedReplyTime).toBe(false)
     expect(p.uwbdControl).toBe('sp0')
+  })
+
+  // 2026-11-11 (audit #6, #18): the fixed reply time and reversed order (15-25/0224r2, 15-25/0556r2,
+  // superseded by resolution 15-25/0681r1) and RSF-with-SFD (15-25/0066r1, CID 963 withdrawn) are
+  // not in the draft. A plan saved with them reads back without them.
+  it('drops the three removed proposal fields from a plan saved with them', () => {
+    const p = UwbMmsSchema.parse({ ...base, nonInterleaved: true, fixedReplyRstu: 600, reversedOrder: true, rsfSfd: true }) as Record<string, unknown>
+    expect('fixedReplyRstu' in p || 'reversedOrder' in p || 'rsfSfd' in p).toBe(false)
   })
 
   it('refuses a UWB-driven control choice under narrowband-assisted control', () => {
@@ -565,38 +567,16 @@ describe('the MMS draft-feature fields', () => {
     expect(UwbMmsSchema.safeParse(uwbd({ uwbdControl: 'none' })).success).toBe(true)
   })
 
-  it('refuses rsfSfd outside UWB-driven control', () => {
-    expect(UwbMmsSchema.safeParse(mms({ rsfSfd: true })).success).toBe(false)
+  it('accepts a predicted reply time in the non-interleaved shape only (15-25/0681r1)', () => {
+    expect(UwbMmsSchema.safeParse(mms({ predictedReplyTime: true })).success).toBe(false)
+    expect(UwbMmsSchema.safeParse(mms({ predictedReplyTime: true, nonInterleaved: true })).success).toBe(true)
+    expect(UwbMmsSchema.safeParse(mms({ predictedReplyTime: true, nonInterleaved: true, oneToMany: true })).success).toBe(true)
+    expect(UwbMmsSchema.safeParse(uwbd({ predictedReplyTime: true, nonInterleaved: true })).success).toBe(true)
   })
 
-  it('refuses rsfSfd at an RSF length the draft does not allow', () => {
-    expect(UwbMmsSchema.safeParse(uwbd({ rsfSfd: true, nMsr: 128 })).success).toBe(false)
-  })
-
-  it('accepts rsfSfd at 32 and 64 under UWB-driven control', () => {
-    for (const nMsr of [32, 64]) {
-      expect(UwbMmsSchema.safeParse(uwbd({ rsfSfd: true, nMsr })).success).toBe(true)
-    }
-  })
-
-  it('refuses a fixed reply time in interleaved mode', () => {
-    expect(UwbMmsSchema.safeParse(mms({ fixedReplyRstu: 600 })).success).toBe(false)
-  })
-
-  it('refuses a fixed reply time outside 300-612000 RSTU', () => {
-    for (const v of [299, 612_001]) {
-      expect(UwbMmsSchema.safeParse(mms({ nonInterleaved: true, fixedReplyRstu: v })).success).toBe(false)
-    }
-  })
-
-  it('accepts a fixed reply time at both ends of the drafts range', () => {
-    for (const v of [300, 612_000]) {
-      expect(UwbMmsSchema.safeParse(mms({ nonInterleaved: true, fixedReplyRstu: v })).success).toBe(true)
-    }
-  })
-
-  it('refuses reversed order in interleaved mode', () => {
-    expect(UwbMmsSchema.safeParse(mms({ reversedOrder: true })).success).toBe(false)
+  it('refuses a predicted reply time with no Response Compact frame to carry it', () => {
+    expect(UwbMmsSchema.safeParse(uwbd({ predictedReplyTime: true, nonInterleaved: true, uwbdControl: 'none' })).success)
+      .toBe(false)
   })
 
   it('refuses a narrowband channel list or a listen-before-talk setting under UWB-driven control', () => {
@@ -612,13 +592,5 @@ describe('the MMS draft-feature fields', () => {
     expect(UwbMmsSchema.safeParse(mms({ nbChannels: [3], nbLbt: 'auto' })).success).toBe(true)
   })
 
-  it('carries the drafts own bounds for the two RSTU constants', () => {
-    expect(MMS_FIXED_REPLY_RSTU_MIN).toBe(300)
-    expect(MMS_FIXED_REPLY_RSTU_MAX).toBe(612_000)
-    expect(MMS_FIXED_REPLY_RSTU_DEFAULT).toBe(600)
-    expect(MMS_REVERSED_OFFSET_RSTU).toBe(600)
-    // The default sits inside the range the schema enforces.
-    expect(MMS_FIXED_REPLY_RSTU_DEFAULT).toBeGreaterThanOrEqual(MMS_FIXED_REPLY_RSTU_MIN)
-    expect(MMS_FIXED_REPLY_RSTU_DEFAULT).toBeLessThanOrEqual(MMS_FIXED_REPLY_RSTU_MAX)
-  })
+
 })

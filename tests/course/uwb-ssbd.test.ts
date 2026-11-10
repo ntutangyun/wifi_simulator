@@ -9,14 +9,14 @@
  * here. ③'s figures are read back out of the lesson and compared with a run.
  */
 import { describe, expect, it } from 'vitest'
-import { SSBD_BIGGEST_BF, SSBD_BIGGEST_UNIT_US, SSBD_DEFAULTS, uwbSsbd, uwbSsbdScenario } from '../../src/course/uwb/uwb-ssbd'
+import { SSBD_BIGGEST_UNIT_US, SSBD_DEFAULTS, uwbSsbd, uwbSsbdScenario } from '../../src/course/uwb/uwb-ssbd'
 import { uwbNbaScenario } from '../../src/course/uwb/uwb-nba'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { ScenarioSchema, UwbSsbdSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { fmtRecord } from '../../src/ui/format'
-import { NB_LBT_CCA_US, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, NB_REPORT_BYTES, nbPpduNs } from '../../src/uwb/nb'
+import { NB_PHY_CCA_DURATION_US, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, NB_REPORT_BYTES, nbPpduNs } from '../../src/uwb/nb'
 import { nbSlotSlackNs, rstuNs, ssbdBoundNs } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -34,7 +34,6 @@ const ssbdOf = (v?: number) => ofType(recs(v), 'UWB_SSBD')
 const rangesOf = (v?: number): number => ofType(recs(v), 'UWB_RANGE').length
 const fixesOf = (v?: number): number => ofType(recs(v), 'UWB_POSITION').length
 const nbTx = (rs: TLRecord[]) => ofType(rs, 'TX_START').filter((r) => NB_KINDS.has(r.frame.kind))
-const wifiData = (rs: TLRecord[]) => ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data')
 const SLOT_NS = rstuNs(uwbSsbdScenario('defaults').uwb!.slotRstu)
 const BOUND = ssbdBoundNs(SSBD_DEFAULTS)
 const STALE = ssbdBoundNs({ ...SSBD_DEFAULTS, backoffMultiplier: 2, ccaUs: 1 })
@@ -88,33 +87,31 @@ describe('uwb-ssbd · the lesson', () => {
     expect(UwbSsbdSchema.parse({})).toEqual(SSBD_DEFAULTS)
   })
 
+  // 2026-11-11 (audit #20): every CCA lasts phyCcaDuration (128 µs), so the defaults' bound is
+  // 788 µs, longer than a POLL's window, and the in-router channel never lets a POLL out.
   it('the why states the run’s conclusions', () => {
     const why = uwbSsbd.why!
-    expect(why).toContain(`记为 ${NB_LBT_CCA_US} µs`)
-    expect(why).toContain(`延迟上界是 ${BOUND / US} µs`)
+    expect(why).toContain(`即 ${NB_PHY_CCA_DURATION_US} µs`)
+    expect(why).toContain(`延迟上界是 ${BOUND / US} µs，长于一条 Poll 在自己窗口里的 ${SLACK_POLL / US} µs 余量`)
     expect(why).toContain(`${STALE / US} µs 是按两条已经改掉的旧前提算出的`)
-    expect(why).toContain(`测距恢复到 ${rangesOf()} 次`)
-    expect(why).toContain(`只测得 ${rangesOf(V_PER_BLOCK)} 次`)
-    expect(why).toContain(`只测得 ${rangesOf(V_BIGGEST)} 次`)
+    expect([rangesOf(), rangesOf(V_PER_BLOCK), rangesOf(V_BIGGEST)]).toEqual([0, 0, 0])
+    expect(why).toContain('1.3 秒一个距离也没有')
+    expect(why).toContain(`才得到 ${rangesOf(V_OFF)} 个距离`)
+    expect(Math.floor(SLACK_POLL / (NB_PHY_CCA_DURATION_US * US))).toBe(3)
+    expect(why).toContain('三次感知都判忙之后窗口就用完了')
   })
 })
 
 describe('uwb-ssbd · ② says what the engine does, and the engine does it', () => {
-  it('per slot, per device: no per-block reading, one record per narrowband transmission', () => {
+  it('per slot, per device: no CSMA-CA record, one ending record per attempt', () => {
     expect(ofType(recs(), 'UWB_NB_LBT')).toEqual([])
-    expect(ssbdOf()).toHaveLength(nbTx(recs()).length)
     const perRound = new Map<string, number[]>()
     for (const r of ssbdOf()) {
       const k = `${r.node}|${r.block}|${r.round}`
       perRound.set(k, [...(perRound.get(k) ?? []), r.slot])
     }
     for (const [k, slots] of perRound) expect(new Set(slots).size, k).toBe(slots.length)
-    // the backoff is a whole number of units between 0 and BF
-    for (const r of ssbdOf()) {
-      expect(Number.isInteger(r.drawnUnits)).toBe(true)
-      expect(r.drawnUnits).toBeGreaterThanOrEqual(0)
-      expect(r.drawnUnits).toBeLessThanOrEqual(r.bf)
-    }
+    expect(perRound.size).toBe(28)
   })
 
   it('the threshold is −71.02 dBm; persistence and frequency-domain deferral are absent', () => {
@@ -124,7 +121,7 @@ describe('uwb-ssbd · ② says what the engine does, and the engine does it', ()
     expect(Object.keys(SSBD_DEFAULTS).sort()).toEqual(['maxBackoffs', 'maxBf', 'minBf', 'txOnEnd', 'unitBackoffUs'])
     expect(implRow('持久化').kind).toBe('absent')
     expect(implRow('频域延后').kind).toBe('absent')
-    expect(implRow('感知时长').kind).toBe('differs')
+    expect(implRow('感知时长').kind).toBe('value')
   })
 
   it('an overlong draw is cut down, and the record keeps both numbers', () => {
@@ -135,13 +132,13 @@ describe('uwb-ssbd · ② says what the engine does, and the engine does it', ()
 })
 
 describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
-  it('lab 1: 74 µs by the formula, 46 µs under the stale premises, 424 / 392 µs of room', () => {
+  it('lab 1: 788 µs by the formula, 46 µs under the stale premises, 424 / 392 µs of room', () => {
     const l = lab('上界要按公式算')
-    expect(BOUND).toBe(74 * US)
+    expect(BOUND).toBe(788 * US)
     expect(STALE).toBe(46 * US)
     const f1 = blockOf(l, 'formula', '缺省参数下的延迟上界')
-    expect(f1.text).toContain(`= ${BOUND / US} µs`)
-    const backoffs = BOUND - (SSBD_DEFAULTS.maxBackoffs + 1) * NB_LBT_CCA_US * US
+    expect(f1.text).toContain(`+ ${NB_PHY_CCA_DURATION_US} µs ] = ${BOUND / US} µs`)
+    const backoffs = BOUND - (SSBD_DEFAULTS.maxBackoffs + 1) * NB_PHY_CCA_DURATION_US * US
     expect(f1.note).toContain(`最多合计 ${backoffs / US} µs`)
     expect(blockOf(l, 'formula', '代入两条旧前提').text).toContain(`= ${STALE / US} µs`)
     const room = blockOf(l, 'formula', '一个窄带窗口的余量').text
@@ -150,6 +147,7 @@ describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
     expect(l.expect).toContain(`缺省参数给出 ${BOUND / US} µs`)
     expect(l.expect).toContain(`给出 ${STALE / US} µs`)
     expect(l.expect).toContain(`余量是 ${SLACK_POLL / US} µs，Report 窗口是 ${SLACK_REPORT / US} µs`)
+    expect(BOUND).toBeGreaterThan(SLACK_POLL)
   })
 
   it('lab 2: four settings over 1.3 s', () => {
@@ -161,63 +159,23 @@ describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
       expect(rows[i][2], String(v)).toBe(String(fixesOf(v)))
       expect(rows[i][3], String(v)).toBe(ssbd ? String(ssbdOf(v).length) : '—')
     })
-    const lbt = ofType(recs(V_PER_BLOCK), 'UWB_NB_LBT')
-    expect(l.expect).toContain(`按块规则判了 ${lbt.length} 次忙，其中 ${lbt.filter((x) => x.node === TAG).length} 次是手机的，只测得 ${rangesOf(V_PER_BLOCK)} 次`)
-    expect(l.expect).toContain(`缺省的 SSBD 测得 ${rangesOf()} 次，与关闭先听后发的 ${rangesOf(V_OFF)} 次相当`)
-    expect(l.expect).toContain(`只有 ${rangesOf(V_BIGGEST)} 次`)
+    expect(nbTx(recs(V_PER_BLOCK))).toEqual([])
+    expect(l.expect).toContain(`只有关闭先听后发测得 ${rangesOf(V_OFF)} 次`)
   })
 
-  it('lab 3: the bound, the slack and the Wi-Fi frames; 63 of 110 sent on the end action', () => {
-    const l = lab('缺省值靠收尾动作，不靠等待')
-    const rows = blockOf(l, 'table', '上界、余量与需要等待的那些帧').rows
-    const times = wifiData(recs()).map((r) => r.frame.txTimeNs)
-    const moved = Math.max(...nbTx(recs()).map((r) => r.t % SLOT_NS))
-    expect(new Set(nbTx(recs(V_OFF)).map((r) => r.t % SLOT_NS))).toEqual(new Set([0]))
-    expect(rows).toEqual([
-      ['算法的延迟上界（缺省参数）', `${BOUND / US} µs`],
-      ['六段退避的最大总和', `${(BOUND - 6 * NB_LBT_CCA_US * US) / US} µs`],
-      ['窄带消息在自身时隙内的最大推迟量，实测', `${moved / US} µs`],
-      ['一个 Poll 窗口的余量', `${SLACK_POLL / US} µs`],
-      ['场景里最短的 Wi-Fi 数据帧', `${(Math.min(...times) / US).toFixed(1)} µs`],
-      ['场景里最长的 Wi-Fi 数据帧', `${(Math.max(...times) / US).toFixed(1)} µs`],
-      [`${times.length} 帧中长于 ${SLACK_POLL / US} µs 的`, `${times.filter((t) => t > SLACK_POLL).length} 帧`],
+  it('lab 3: the first record, and how many CCAs the POLL’s window holds', () => {
+    const l = lab('窗口在收尾动作之前就用完了')
+    const first = ssbdOf()[0]
+    expect(l.expect).toContain(`第一条记录在 ${(first.t / MS).toFixed(3)} ms：「${fmtRecord(first)}」`)
+    expect(new Set(ssbdOf().map((r) => r.outcome))).toEqual(new Set(['noRoom']))
+    expect(ssbdOf().every((r) => r.node === TAG)).toBe(true)
+    expect(l.expect).toContain(`${ssbdOf().length} 条感知记录全部是这个结论`)
+    const rows = blockOf(l, 'table', '一个 Poll 窗口里放得下几次感知').rows
+    expect(rows.map((r) => r[1])).toEqual([
+      `${NB_PHY_CCA_DURATION_US} µs`, `${SLACK_POLL / US} µs`,
+      `${Math.floor(SLACK_POLL / (NB_PHY_CCA_DURATION_US * US))} 次`, `${SSBD_DEFAULTS.maxBackoffs + 1} 次`,
     ])
-    expect(times.filter((t) => t < BOUND)).toEqual([])
-    const first = ssbdOf().find((r) => r.outcome === 'txOnEnd')!
-    expect(l.expect).toContain(`「${fmtRecord(first)}」`)
-    const rs = ssbdOf()
-    const busy = rs.filter((r) => r.foreignDbm >= r.thresholdDbm)
-    const sent = rs.filter((r) => r.outcome === 'txOnEnd')
-    expect(sent).toHaveLength(busy.length)
-    for (const r of sent) expect(r.nb).toBe(SSBD_DEFAULTS.maxBackoffs)
-    expect(l.expect).toContain(`${rs.length} 条感知记录里 ${busy.length} 条读到忙，这 ${sent.length} 条都是退避用尽后照常发送`)
-    expect(l.expect).toContain(`短于 ${BOUND / US} µs`)
-    expect(l.meaning).toContain(`最多 ${moved / US} µs`)
-  })
-
-  it('lab 4: the biggest backoff that fits — 80 of 128 cut down, 52 to nothing, 53 timeouts, 3 ranges', () => {
-    const l = lab('退避调大，测距反而更少')
-    expect(l.variant).toBe(V_BIGGEST)
-    const s = uwbSsbdScenario('biggest').uwb!.mms.ssbd!
-    expect([s.minBf, s.maxBf, s.unitBackoffUs]).toEqual([SSBD_BIGGEST_BF, SSBD_BIGGEST_BF, SSBD_BIGGEST_UNIT_US])
-    expect(l.steps[0]).toContain(`退避因子固定为 ${SSBD_BIGGEST_BF}，退避单位 ${SSBD_BIGGEST_UNIT_US} µs，一次最多等待 ${SSBD_BIGGEST_BF * SSBD_BIGGEST_UNIT_US} µs，小于 Poll 窗口的 ${SLACK_POLL / US} µs 余量`)
-    expect(Math.max(...ssbdOf(V_BIGGEST).map((r) => r.backoffNs)) / US).toBe(SSBD_BIGGEST_BF * SSBD_BIGGEST_UNIT_US)
-    const rs = ssbdOf(V_BIGGEST)
-    const clamped = rs.filter((r) => r.outcome === 'clamped')
-    const zero = clamped.filter((r) => r.backoffNs === 0)
-    expect(l.expect).toContain(`${rs.length} 条感知记录里 ${clamped.length} 条被截断，其中 ${zero.length} 条实际等待 0`)
-    expect(l.expect).toContain(`${ofType(recs(V_BIGGEST), 'UWB_TIMEOUT').length} 次超时，只测得 ${rangesOf(V_BIGGEST)} 次`)
-    const longest = Math.max(...wifiData(recs()).map((r) => r.frame.txTimeNs))
-    expect(SLACK_POLL).toBeLessThan(longest)
-    expect(l.meaning).toContain(`${SLACK_POLL / US} µs 的余量本来就短于场景里最长的 ${(longest / US).toFixed(1)} µs 那一帧`)
-  })
-
-  it('the quiz repeats the run', () => {
-    const text = uwbSsbd.quiz.map((q) => `${q.q} ${q.options.join(' ')} ${q.explain}`).join(' ')
-    const rs = ssbdOf()
-    expect(text).toContain(`${rs.length} 次感知里有 ${rs.filter((r) => r.outcome === 'txOnEnd').length} 次读到忙`)
-    expect(text).toContain(`最短的 Wi-Fi 数据帧是 ${(Math.min(...wifiData(recs()).map((r) => r.frame.txTimeNs)) / US).toFixed(1)} µs`)
-    expect(text).toContain(`测距恢复到 ${rangesOf()} 次`)
-    expect(text).toContain(`${STALE / US} µs，本课算出 ${BOUND / US} µs`)
+    // the first record comes three CCAs into the window
+    expect((first.t % SLOT_NS)).toBe(3 * NB_PHY_CCA_DURATION_US * US + 3 * US)
   })
 })

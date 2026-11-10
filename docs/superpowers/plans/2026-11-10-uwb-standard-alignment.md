@@ -71,7 +71,7 @@ structure. you're going to change the content anyway」——引擎改了，课�
 ## 进度
 
 - [x] 第一阶段（试点第 70 课，见提交记录；等用户看过新结构再铺开）
-- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [x] W3（见 `docs/superpowers/specs/2026-11-11-w3-design.md`）　- [x] W4（见 `docs/superpowers/specs/2026-11-11-w4-design.md`）　- [ ] W5　- [ ] W6
+- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [x] W3（见 `docs/superpowers/specs/2026-11-11-w3-design.md`）　- [x] W4（见 `docs/superpowers/specs/2026-11-11-w4-design.md`）　- [x] W5（见 `docs/superpowers/specs/2026-11-11-w5-draft-items-design.md`）　- [ ] W6
 - [x] 34 门 UWB 课全部改成新结构（① 标准 → ② 本仿真器怎么实现 → ③ 动手仿真）。依赖 W3–W6 的课，② 里把尚未改正的引擎行为标为「与标准不同」
 - [ ] 第三阶段（Wi-Fi 与 AMP 课程）
 - [x] W2b（除一对多窄带 POLL 长度外，见 `docs/superpowers/specs/2026-11-11-w2b-design.md`）
@@ -86,5 +86,5 @@ structure. you're going to change the content anyway」——引擎改了，课�
 | ~~DS-TWR：Treply1 应在 Response 的 RRTI 里送回，报告里只放 Tround2~~ **已改正（W2b）**；延后形态的报告带 TOF（图 10-206） | 图 10-238 | dstwr、deferred-ds |
 | SS-TWR 的 Response 带 RRMC：**核实（W2b）**，一对多的图 10-235 里应答带 RRTI 与 RRMC (1)，本仿真器照此；图 10-204 是一对一 | §10.32.4 | sstwr、intro |
 | ~~「序列关闭」仍按配置 1 的帧长~~ **已改正（W2b）**：配置 0 | 表 16-1 | sts |
-| 一对多窄带 POLL 算成 14 + 3N 字节；提案表 1.6.3.1 合计 12 + 3N | 15-22/0381r5 | nba、mms |
+| ~~一对多窄带 POLL 算成 14 + 3N 字节；提案表 1.6.3.1 合计 12 + 3N~~ **W5 已改正**：12 + 3N（草案 Figure 90 同样三个字段，15-24/0687r4） | 15-22/0381r5 | nba、mms |
 | ~~RMNR 在静态场景里永远不会发出~~ **已解决（W2b）**：rcm-validity 第三个场景加入 Wi-Fi 干扰，持有控制消息的锚点漏收启动消息时发出 RMNR | §10.34 | rcm-validity |

@@ -151,6 +151,9 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       // that the cost is paid before the answer is known. `clamped` prints the draw it could not
       // afford beside the backoff it actually took: a slot whose window has no room reports a
       // sensing that happened and a wait that did not.
+      if (r.outcome === 'noRoom') {
+        return `${r.node} slot ${r.slot} ch ${r.channel}: no room left in the window for a CCA — not sent`
+      }
       const sensed = `${r.foreignDbm.toFixed(1)} dBm against ${r.thresholdDbm.toFixed(1)} dBm`
       const waited = r.backoffNs === 0 ? 'no wait' : `waited ${fmtUs(r.backoffNs)}`
       const drawn = r.outcome === 'clamped' ? ` (drew ${r.drawnUnits} units, the slot had no room)` : ''
@@ -173,8 +176,14 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
         + `${r.resolvable ? 'a separate arrival' : 'merged into the direct path'} `
         + `(${r.rssiDbm.toFixed(1)} dBm)`
     case 'UWB_NB_LBT':
-      return `${r.node} NB LBT busy on ch ${r.channel}: ${r.foreignDbm.toFixed(1)} dBm `
-        + `≥ ${r.thresholdDbm.toFixed(1)} — skipping the block`
+      // CSMA-CA, per transmission slot (4ab draft §10.39.8.3; standard §6.3.2.1).
+      if (r.outcome === 'noRoom') {
+        return `${r.node} NB CSMA-CA on ch ${r.channel}, slot ${r.slot}: no room in the window `
+          + `for a ${(r.backoffNs / 1000).toFixed(0)} µs backoff (BE ${r.be}) — not sent`
+      }
+      return `${r.node} NB CSMA-CA on ch ${r.channel}, slot ${r.slot}: CCA busy `
+        + `${r.foreignDbm.toFixed(1)} dBm ≥ ${r.thresholdDbm.toFixed(1)} (NB ${r.nb})`
+        + (r.outcome === 'fail' ? ' — channel access failure, not sent' : ' — backing off')
     case 'UWB_MMS_TRAIN':
       // A train nothing was heard of has no received power to print (see NOTHING_HEARD_DBM);
       // the line says so in words rather than quoting the sentinel back at the reader.

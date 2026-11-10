@@ -314,8 +314,8 @@ export interface Strings {
      * Which two-way ranging procedure carries the reply time (standard §10.29.6.3–.7): a select
      * beside the method, and a number field (RSTU) that only means anything under `'fixed'`.
      * `uwbReplyTimeMmsOnly` is the one shared reason both are dead for, same as `uwbMethod`'s own
-     * `uwbMmsSsOnly` — MMS has its own, differently-named fixed reply time (`uwbFixedReply` above,
-     * a different field in a different clause of a different document, design §3).
+     * `uwbMmsSsOnly` — MMS carries its reply time differently (a REPORT, or the RESP's Predicted
+     * Reply Time, `uwbPredictedReply`; resolution 15-25/0681r1).
      */
     uwbReplyTime: string; uwbReplyTimeHint: string; uwbReplyTimeMmsOnly: string
     /** `mode: 'm2m'` only: why the reply-time select is locked to 'embedded' (standard §10.32.6/§10.32.7) — a
@@ -465,12 +465,9 @@ export interface Strings {
     uwbMmsControls: Record<MmsPhy['control'], string>
     uwbUwbdControl: string; uwbUwbdControlHint: string; uwbUwbdNbaOnly: string
     uwbUwbdControls: Record<MmsPhy['uwbdControl'], string>
-    uwbRsfSfd: string; uwbRsfSfdHint: string; uwbRsfSfdUwbdOnly: string; uwbRsfSfdNMsr: string
     uwbNonInterleaved: string; uwbNonInterleavedHint: string
-    uwbFixedReply: string; uwbFixedReplyHint: string; uwbFixedReplyBad: string
-    uwbFixedReplyInterleaved: string; uwbFixedReplyOneToMany: string; uwbFixedReplyReversed: string
-    uwbReversed: string; uwbReversedHint: string
-    uwbReversedInterleaved: string; uwbReversedFixedReply: string
+    uwbPredictedReply: string; uwbPredictedReplyHint: string
+    uwbPredictedReplyInterleaved: string; uwbPredictedReplyNoResp: string
     /**
      * Spectrum sensing based deferral (task 5, standard §10.45 — a P802.15.4ab **draft** clause):
      * the on/off switch and its five fields (`UwbSsbdCfg`), each described on its own since the
@@ -610,7 +607,7 @@ export interface Strings {
     nbChannel: string; nbChannelHint: string
     nbChannelAt: (channel: number, centerMhz: number) => string
     lbtBusy: string; lbtBusyHint: string
-    lbtBusyCount: (checks: number, blocks: number) => string
+    lbtBusyCount: (checks: number, failures: number) => string
     /** Standard §10.45 (a P802.15.4ab draft clause): the per-slot channel access, which replaces
      * the per-block rule above when the session turns it on. Never both in one session. */
     ssbd: string; ssbdHint: string
@@ -1288,7 +1285,7 @@ export const STRINGS: Strings = {
     uwbNbChannelsHint: '本会话可用的窄带控制信道，用逗号分隔。全部共 250 个，间隔 2.5 MHz：0–49 位于 UNII-3，自 5726.25 MHz 起；50–249 位于 UNII-5，自 5926.25 MHz 起（4ab 草案 15-22/0381r5 §1.4.1；中心频率公式本身是依据频段边界反推出来的——模型取值）。每个测距块从列表中挑一个。按回车或移开焦点即生效。',
     uwbNbChannelsBad: '窄带信道白名单需要 1…250 个互不相同的信道，取值范围 0…249',
     uwbNbLbt: '先听后说（LBT）',
-    uwbNbLbtHint: '窄带发送前是否先监听信道。9 µs 的评估时长与 −75 dBm/MHz 的门限出自管制规定 ETSI EN 303 687（早期提案 15-22/0381r5 §1.4.2 引用过），现行草案正文没有给出；草案只在法规要求或为了共存时才要求先听后说。“自动”一档的「UNII-5（信道号 ≥ 50）执行、UNII-3 不执行」是本仿真器的规则。“忙”的判据是 2.5 MHz 信道内的外部功率达到或超过 −71.02 dBm（换算到整条信道是本仿真器的读法）；一旦判忙，本设备的窄带电台在该测距块剩余时间内不再发送——这也是本仿真器的规则，草案规定的是按发射时隙退避。',
+    uwbNbLbtHint: '窄带发送前是否先做信道接入。草案 §10.39.8.3 只在法规要求时要求（不要求时也可以为了共存而做）；“自动”一档按早期提案 15-22/0381r5 §1.4.2 的说法建模法规：UNII-5（信道号 ≥ 50）要求、UNII-3 不要求——哪条法规适用是部署的事，这是本仿真器的取法。要求时，每个发射时隙各自做一次信道接入：没有打开 SSBD 就用标准 §6.3.2.1 的 CSMA-CA（macMinBe 取 0，其余为标准缺省值），每次 CCA 按 phyCcaDuration（8 个符号，128 µs）积分外部功率，与 −71.02 dBm（由 −75 dBm/MHz 换算到 2.5 MHz）比较；窗口里放不下下一次退避时这一时隙放弃发送。',
     uwbNbLbts: { auto: '自动——信道号 ≥ 50 时开启', on: '始终开启', off: '关闭' },
     uwbReport: '报告方式',
     uwbReportHint: '成对轮次结束时由哪一方发送窄带测量报告：响应方用第一个报告时隙、发起方用第二个，或者两方都发（4ab 草案 15-22/0381r5 Table 1.1.4.1）。算一次距离需要往返时间和回复时间，而每一方各自只能测到其中之一——因此只有收到报告的一方才算得出距离。用来修正的时钟比率则来自它自己那列片段序列；若序列只给了它一个片段，就改用窄带载波频偏估计。',
@@ -1306,24 +1303,14 @@ export const STRINGS: Strings = {
     uwbUwbdControlHint: 'UWB 驱动配置下控制相位的形态。草案用轮询与响应两个时隙数来描述它：取 1–15 时控制相位里发 SP0 控制帧；两者都取 0 时控制相位长度为零——一条控制帧都不发，测距包自己的包首 SYNC+SFD 同时充当轮询与响应，整个轮次只剩测距相位与报告相位（零长度这一档只是提案 15-25/0194r0 的建议，是否已纳入草案无法确认）。选零长度省掉的正是那两个控制窗口，代价是两端都得事先知道这一轮的形状。',
     uwbUwbdNbaOnly: '零长度控制相位只属于 UWB 驱动配置：窄带辅助配置的 POLL/RESP 窗口排在窄带电台上，在这里选什么都不改变任何东西（提案 15-25/0194r0）',
     uwbUwbdControls: { sp0: 'SP0 控制帧', none: '零长度——由包首 SYNC+SFD 代劳' },
-    uwbRsfSfd: 'RSF 带 SFD',
-    uwbRsfSfdHint: '让每个 RSF 片段后面都跟一个帧起始定界符（start-of-frame delimiter, SFD），于是任何一个片段都能充当整包的开头。默认只有包首那一个片段带 SYNC+SFD，它一丢，后面的片段再全部收到也打不开这个包；带上 SFD 后接收机从听到的第一个片段起就能接管——这恰恰是把片段分布到好几个毫秒之后最需要防范的情况（提案 15-25/0066r1，是否已被采纳无法确认）。代价是每个片段都多花一段 SFD 的时间。',
-    uwbRsfSfdUwbdOnly: 'RSF 带 SFD 只在 UWB 驱动配置下有意义：窄带辅助配置里没有包首 SYNC+SFD 可丢，也就没有「哪个片段能开包」这个问题（提案 15-25/0066r1）',
-    uwbRsfSfdNMsr: '提案只在 RSF 片段长度（N_MSR）为 32 或 64 时定义了带 SFD 的 RSF：SFD 要塞进片段自己那段长度里，更长的片段没有给出这种形态（提案 15-25/0066r1）。先把 N_MSR 改成 32 或 64',
     uwbNonInterleaved: '非交织子轮',
-    uwbNonInterleavedHint: '把一个轮次拆成若干子轮（sub-round），每台设备一个：子轮里只有它自己在发，它那列片段连续发完，下一台设备的子轮才开始（4ab 草案 15-25/0292r1，拟编为 §10.39.7）。默认的交织（interleaved）形态相反——同一毫秒里每台设备各发一个片段。非交织换来的是一个明确的时刻「对方整个包收完了」，固定回复时间与反序都建立在它之上；代价是轮次长得多：一个子轮就是一整列片段的长度，设备数直接乘上去，草案默认的 600 RSTU 时隙下，三个响应方的一对多轮次要 100 个时隙（50 ms），而交织形态是 52 个。测距块装不下时，本节下方会用红字说出来。',
-    uwbFixedReply: '固定回复时间',
-    uwbFixedReplyHint: 'macMmsFixedReplyTime 出自 2025 年提案 15-25/0224r2，工作组没有采纳：通过的替代决议 15-25/0681r1 不设固定回复时间，改由应答方在 Response Compact 帧里报告预测回复时间（Predicted Reply Time）。本仿真器实现的是这份已被替代的提案：应答方不再等到自己子轮的开头才发，而是在收完对方整个 MMS 包之后（这个起点是本仿真器的取法，提案条文写的是收到对方包的起点），固定这么久再发。取值 300…612000 RSTU（约 0.25…510 ms），下界 300 RSTU 正是一个 MMS 测距时隙的最小长度；按回车或移开焦点生效，越界的值不会被保存。它把回复时间从「排定的」改成「约定的」：两端各自从同一个常量算出同一个时刻，发起方不必再等时隙边界。',
-    uwbFixedReplyBad: '固定回复时间需要一个 300…612000 RSTU 之间的整数（约 0.25…510 ms）',
-    uwbFixedReplyInterleaved: '固定回复时间只属于非交织模式：它从收完对方整个 MMS 包起算，而交织时两端在同一毫秒里各发一个片段，根本没有这样一个「收完了」的起点（提案 15-25/0224r2、15-25/0556r2）',
-    uwbFixedReplyOneToMany: '固定回复时间是一对一的：提案把它放在 One-to-one Response Compact 帧里，而一对多时一个共用的常量会让每个应答方在同一时刻一起发（提案 15-25/0224r2）',
-    uwbFixedReplyReversed: '反序下应答方就是开场先发包的那一方，而固定回复时间要的正是「收完对方的包」这个起点——一台设备同时当不了这两个角色。这是本仿真器的取舍，不是提案的禁令：提案 15-25/0556r2 把这两个位放在同一个八位组里，并明确规定了两者合用时的发送时序',
-    uwbReversed: '反序轮次',
-    uwbReversedHint: '让应答方先发自己的 MMS 包，发起方随后（提案 15-25/0556r2；替代决议 15-25/0681r1 没有加入它，是否在草案中无法确认）——发起方自进入测距阶段起偏移 600 RSTU 再发，本引擎把这个偏移放在它自己的子轮内。它换的是角色：先发的那一方量到的是往返时间，后发的量到的是回复时间，于是「谁算得出距离」也跟着换到另一边。',
-    uwbReversedInterleaved: '反序只属于非交织模式：交织时两端在同一毫秒里各发一个片段，没有「谁先发」可以调换（提案 15-25/0556r2）',
-    uwbReversedFixedReply: '固定回复时间已经打开：它要的起点是「收完对方的包」，而反序会让应答方成为开场先发的那一方，两者在同一台设备上互相排斥。要用反序，先关掉固定回复时间',
+    uwbNonInterleavedHint: '把一个轮次拆成若干子轮（sub-round），每台设备一个：子轮里只有它自己在发，它那列片段连续发完，下一台设备的子轮才开始（4ab 草案 15-25/0292r1，拟编为 §10.39.7）。默认的交织（interleaved）形态相反——发起方每毫秒发一个片段，应答方的片段在其后 500 µs。非交织换来的是一个明确的时刻：应答方发应答帧时已经收完发起方整个包，因此可以在应答帧里带上预测回复时间（见下一项）。一对多时本仿真器把发起方的子轮排在最前、各应答方依次在后（草案尚未定完这一形态，15-25/0213r2）。测距块装不下时，本节下方会用红字说出来。',
+    uwbPredictedReply: '预测回复时间',
+    uwbPredictedReplyHint: '应答方在应答紧凑帧（Response Compact frame）里以 Message Control = 2 携带 5 个八位组的预测回复时间：从它收到的发起方片段的 RMARKER 到它随后将要发出的片段的 RMARKER 之间的时间，由应答方测量，单位见 §10.29.1.4——这样就不必再单独报告回复时间，应答方的测量报告省掉（决议 15-25/0681r1，15-26/0006r0 纪要无异议通过；它取代了提案中的固定回复时间与反序）。只用于非交织模式。',
+    uwbPredictedReplyInterleaved: '预测回复时间只用于非交织模式（15-25/0681r1）：交织时应答方发应答帧时还没有收到发起方的任何片段，没有可以预测的起点。先打开非交织子轮',
+    uwbPredictedReplyNoResp: '预测回复时间由应答紧凑帧携带（15-25/0681r1）；零长度控制相位没有应答帧。先把控制相位改成 SP0 控制帧',
     uwbSsbd: 'SSBD',
-    uwbSsbdHint: '频谱感知延后（spectrum sensing based deferral, SSBD）：P802.15.4ab 草案 §10.45（不在已发布标准里）给窄带发射定的信道接入方法之一——每一个窄带发射时隙上各自感知一次信道，判忙则按线性增长的随机退避再等一次，退避次数用尽后由下面的收尾动作决定这次尝试怎么结束。默认关闭：关闭时维持本仿真器既有的先听后发规则（草案没有这条规则）——一次忙检测让本设备在整个测距块剩余时间内不再发送窄带帧。',
+    uwbSsbdHint: '频谱感知延后（spectrum sensing based deferral, SSBD）：P802.15.4ab 草案 §10.45（不在已发布标准里）给窄带发射定的信道接入方法之一——每一个窄带发射时隙上各自感知一次信道，判忙则按线性增长的随机退避再等一次，退避次数用尽后由下面的收尾动作决定这次尝试怎么结束。默认关闭：关闭时用 CSMA-CA（标准 §6.3.2.1），同样按发射时隙执行。每次 CCA 时长为 phyCcaDuration（128 µs）。',
     uwbSsbdUwbdOnly: 'UWB 驱动配置（配置 1）没有窄带电台：没有信道可以感知，与窄带信道、先听后说被置灰的理由相同',
     uwbSsbdNeedsLbt: '先听后说关闭时没有 CCA 可以跑：SSBD 是「需要先听时」使用的信道接入方法之一。请先把先听后说改成自动或始终开启',
     uwbSsbdMinBf: '退避因子下界',
@@ -1439,8 +1426,8 @@ export const STRINGS: Strings = {
     nbChannelHint: '本次会话的控制面——轮询、响应和测量报告——所在的 2.5 MHz 信道。它按测距块在允许列表中跳变。',
     nbChannelAt: (channel, centerMhz) => `${channel} · ${centerMhz.toFixed(2)} MHz`,
     lbtBusy: '先听后发',
-    lbtBusyHint: '检测到窄带信道忙的次数，以及因此损失的测距块：一次忙检测会让该设备在本块内不再发出任何窄带消息，而没有轮询就没有整个测距周期',
-    lbtBusyCount: (checks, blocks) => `${checks} 次忙 · 跳过 ${blocks} 个块`,
+    lbtBusyHint: 'CSMA-CA 的空闲信道评估判忙的次数，以及因此未能发出的窄带消息数：判忙后退避再评估，退避次数用尽或窗口里放不下下一次退避时，这一个发射时隙的消息不再发送（草案 §10.39.8.3：按发射时隙进行信道接入）。',
+    lbtBusyCount: (checks, failures) => `${checks} 次判忙 · ${failures} 条未发出`,
     ssbd: '频谱感知延后',
     ssbdHint: '按 P802.15.4ab 草案 §10.45（不在已发布标准里）做的信道接入：每一个窄带发射时隙上各感知一次，'
       + '判忙则按线性增长的随机退避再等一次，退避次数用尽后由收尾动作决定是照发还是算一次信道接入失败。'

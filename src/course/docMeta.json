@@ -21,7 +21,7 @@
    "docs": 2767
   }
  ],
- "cited": 83,
+ "cited": 81,
  "missing": [],
  "noText": [],
  "docs": {
@@ -152,6 +152,17 @@
     "rej": 8
    }
   },
+  "15-24/0223": {
+   "date": "2024-05-02",
+   "kind": "cr",
+   "title": "DraftC comment resolution - Compact Frames & RPA - CIDs 497, 507, 508, 509",
+   "orgs": [
+    "Apple"
+   ],
+   "gist": {
+    "clause": "10.38.10.2.1"
+   }
+  },
   "15-24/0506": {
    "date": "2024-09-10",
    "kind": "proposal",
@@ -162,6 +173,19 @@
    "gist": {
     "clause": "10.38.9.3.10",
     "rev": 2
+   }
+  },
+  "15-24/0658": {
+   "date": "2024-11-14",
+   "kind": "proposal",
+   "title": "Miscellaneous Comments, Part 1",
+   "orgs": [
+    "Blind Creek Associates"
+   ],
+   "gist": {
+    "clause": "10.38.7.4.3",
+    "acc": 1,
+    "rev": 4
    }
   },
   "15-25/0032": {
@@ -185,18 +209,15 @@
     "rev": 2
    }
   },
-  "15-25/0095": {
-   "date": "2025-02-13",
+  "15-25/0082": {
+   "date": "2025-01-30",
    "kind": "proposal",
-   "title": "Proposed comments resolutions - 1190 1191 1192 1195 1268",
+   "title": "Interim Call Slides Jan2025-Mar2025",
    "orgs": [
-    "Samsung"
+    "Blind Creek Associates"
    ],
    "gist": {
-    "clause": "10.38.8.4.3",
-    "acc": 10,
-    "rev": 15,
-    "rej": 4
+    "acc": 2
    }
   },
   "15-25/0103": {
@@ -255,17 +276,6 @@
     "rev": 1
    }
   },
-  "15-25/0376": {
-   "date": "2025-07-30",
-   "kind": "proposal",
-   "title": "MMS ranging procedure with fixed reply time",
-   "orgs": [
-    "STMicroelectronics"
-   ],
-   "gist": {
-    "clause": "10.39.10.2"
-   }
-  },
   "15-25/0388": {
    "date": "2025-07-30",
    "kind": "cr",
@@ -280,15 +290,6 @@
     "rej": 3
    }
   },
-  "15-25/0428": {
-   "date": "2025-08-28",
-   "kind": "minutes",
-   "title": "TG4ab July Plenary Mins",
-   "orgs": [
-    "Huawei"
-   ],
-   "gist": {}
-  },
   "15-25/0486": {
    "date": "2025-09-17",
    "kind": "comments-sheet",
@@ -299,15 +300,6 @@
    "gist": {
     "clause": "10.39.8.3"
    }
-  },
-  "15-25/0514": {
-   "date": "2025-10-09",
-   "kind": "minutes",
-   "title": "TG4ab 2025 Sep Interim Mins",
-   "orgs": [
-    "Huawei"
-   ],
-   "gist": {}
   },
   "15-25/0556": {
    "date": "2025-10-21",
@@ -320,15 +312,6 @@
     "clause": "10.39.11.1.3.8",
     "rev": 1
    }
-  },
-  "15-25/0676": {
-   "date": "2025-11-16",
-   "kind": "minutes",
-   "title": "TG4ab 2025 Nov Plenary Mins",
-   "orgs": [
-    "Huawei"
-   ],
-   "gist": {}
   },
   "15-25/0681": {
    "date": "2025-11-24",
@@ -457,21 +440,6 @@
     "rev": 1
    }
   },
-  "15-26/0180": {
-   "date": "2026-04-14",
-   "kind": "cr",
-   "title": "P802.15.4ab sponsor ballot/D04 comment resolution -- various CIDs -- p.15 to 92",
-   "orgs": [
-    "Apple"
-   ],
-   "gist": {
-    "clause": "10.39.8.4.1",
-    "cids": 18,
-    "acc": 4,
-    "rev": 3,
-    "rej": 4
-   }
-  },
   "15-26/0184": {
    "date": "2026-04-19",
    "kind": "proposal",
@@ -511,6 +479,20 @@
     "clause": "10.29.1.4",
     "cids": 2,
     "rev": 1
+   }
+  },
+  "15-26/0215": {
+   "date": "2026-05-10",
+   "kind": "cr",
+   "title": "P802.15.4ab sponsor ballot/D04 comment resolution -- various CIDs",
+   "orgs": [
+    "Apple"
+   ],
+   "gist": {
+    "clause": "10.39.11.3.12",
+    "cids": 8,
+    "rev": 4,
+    "rej": 2
    }
   },
   "15-26/0220": {

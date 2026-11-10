@@ -51,12 +51,14 @@ describe('the schedule asks the layout where the narrowband windows are', () => 
     expect(l.respSlot(2)).toBe(l.subRoundStart(3))
   })
 
-  it('does not put the POLL in slot 0 when the responders transmit first', () => {
-    const p = plan({ nonInterleaved: true, reversedOrder: true }, 1)
+  // 2026-11-11 (audit #22): an interleaved one-to-many round is one sub-round per responder, each
+  // opened by its own One-to-many Poll (15-25/0213r2, CID 474).
+  it('opens every interleaved one-to-many sub-round with a POLL of its own', () => {
+    const p = plan({ oneToMany: true }, 3)
     const l = p.mms!.layout
-    expect(at(p, 0)).toBe('nbResp/anchor/0')
-    expect(l.pollSlot()).toBeGreaterThan(0)
-    expect(at(p, l.pollSlot())).toBe('nbPoll/tag')
+    expect(at(p, l.pollSlot(0))).toBe('nbPoll/tag')
+    expect(at(p, l.pollSlot(1))).toBe('nbPoll/tag/1')
+    expect(at(p, l.pollSlot(2))).toBe('nbPoll/tag/2')
   })
 
   it('schedules the slots the old control prefix swallowed', () => {
@@ -112,10 +114,10 @@ describe('the fragment spacing has one source, and it is the layout', () => {
     expect(plan().mms!.fragGapNs).toBe(MS_NS)
   })
 
-  it('is two milliseconds in a three-responder interleaved round, and says so', () => {
-    // (R + 1) slots to a millisecond is what interleaving costs, and no legal slot length
-    // brings it back — the answer is to report it, not to hide it
-    expect(plan({ oneToMany: true }, 3).mms!.fragGapNs).toBe(2 * MS_NS)
+  // 2026-11-11 (audit #22): it was (R + 1) slots — 2 ms at three responders. The draft interleaves
+  // each responder with the initiator in a sub-round of its own, 500 µs behind (15-24/0633r1).
+  it('is a true millisecond in a three-responder interleaved round too', () => {
+    expect(plan({ oneToMany: true }, 3).mms!.fragGapNs).toBe(MS_NS)
   })
 
   it('is a millisecond non-interleaved however many responders are in the round', () => {
@@ -161,9 +163,9 @@ describe('the fragment spacing has one source, and it is the layout', () => {
 })
 
 /**
- * The interleaved round, slot for slot, against tables read off the schedule before the
- * non-interleaved shape touched any of it. Nothing in the interleaved path may move by one entry:
- * every stored plan in `tests/fixtures/` replays off these answers.
+ * The interleaved round, slot for slot. The pair round is the table read off the schedule before the
+ * non-interleaved shape touched any of it, and every stored pair plan replays off it; the
+ * one-to-many round is three copies of it (2026-11-11, audit #22).
  */
 describe('the interleaved round answers exactly what it answered before', () => {
   const PAIR = [
@@ -176,20 +178,13 @@ describe('the interleaved round answers exactly what it answered before', () => 
     'nbReport/anchor/0', 'idle', 'nbReport/tag/0', 'idle',
   ]
 
-  const O2M3 = [
-    'nbPoll/tag', 'idle', 'nbResp/anchor/0', 'idle', 'nbResp/anchor/1', 'idle', 'nbResp/anchor/2', 'idle',
-    'uwbRsf/tag/0/0', 'uwbRsf/anchor/0/0', 'uwbRsf/anchor/1/0', 'uwbRsf/anchor/2/0',
-    'uwbRsf/tag/0/1', 'uwbRsf/anchor/0/1', 'uwbRsf/anchor/1/1', 'uwbRsf/anchor/2/1',
-    'uwbRsf/tag/0/2', 'uwbRsf/anchor/0/2', 'uwbRsf/anchor/1/2', 'uwbRsf/anchor/2/2',
-    'uwbRsf/tag/0/3', 'uwbRsf/anchor/0/3', 'uwbRsf/anchor/1/3', 'uwbRsf/anchor/2/3',
-    'uwbRsf/tag/0/4', 'uwbRsf/anchor/0/4', 'uwbRsf/anchor/1/4', 'uwbRsf/anchor/2/4',
-    'uwbRsf/tag/0/5', 'uwbRsf/anchor/0/5', 'uwbRsf/anchor/1/5', 'uwbRsf/anchor/2/5',
-    'uwbRsf/tag/0/6', 'uwbRsf/anchor/0/6', 'uwbRsf/anchor/1/6', 'uwbRsf/anchor/2/6',
-    'uwbRsf/tag/0/7', 'uwbRsf/anchor/0/7', 'uwbRsf/anchor/1/7', 'uwbRsf/anchor/2/7',
-    'nbReport/anchor/0', 'idle', 'nbReport/tag/0', 'idle',
-    'nbReport/anchor/1', 'idle', 'nbReport/tag/1', 'idle',
-    'nbReport/anchor/2', 'idle', 'nbReport/tag/2', 'idle',
-  ]
+  /** Three responders: three copies of the pair round, each opened by its own POLL — the first at
+   * Message Control 1 (the action carries no `anchor`), the later ones at 0 (15-25/0213r2). */
+  const O2M3 = [0, 1, 2].flatMap((k) => PAIR.map((x) => {
+    if (x === 'nbPoll/tag') return k === 0 ? x : `nbPoll/tag/${k}`
+    return x.replace('/anchor/0', `/anchor/${k}`).replace(/^(uwbRsf\/tag)\/0/, `$1/${k}`)
+      .replace(/^nbReport\/tag\/0$/, `nbReport/tag/${k}`)
+  }))
 
   /** X = 8, Y = 8, Z = 2: the two idle milliseconds between the trains are where a drift of one
    * slot in the phase arithmetic would show up first. */

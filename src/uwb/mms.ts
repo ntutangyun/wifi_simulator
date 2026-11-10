@@ -5,16 +5,17 @@
  * device instead splits its ranging signal into short *fragments* sent a slot or more apart —
  * a *train* — and the receiver adds them up.
  *
- * How far apart is a model choice, and this engine's is its own. The pairwise round spaces
- * fragments one millisecond apart, which is 15-23/0100r2 §2.3.2's figure at the draft's 600 RSTU
- * slot. A one-to-many *interleaved* round spaces them (responders + 1) slots, so three responders
- * make it 2 ms and no legal slot length brings it back to one — see `mmsRoundPlan`. The
- * non-interleaved round of §10.39.7 has one transmitter to a sub-round and so takes the spacing
- * from the slot length instead (`mmsSlotsPerMs`), which is the one real advantage it has: the gap
- * stays a millisecond however many responders are in the round. The draft additionally has
- * an interleaved mode whose offset is 500 µs (quoted in 15-25/0388r1), which this engine does not
- * model at all. `MmsRoundPlan.fragGapNs` is what a round actually uses, and it is the ruler the
- * receiver is handed, so nothing downstream assumes the nominal millisecond.
+ * How far apart: one millisecond, which is 15-23/0100r2 §2.3.2's figure, and in the interleaved
+ * mode the responder's fragment follows the initiator's 500 µs later — "after the initiator has sent
+ * one fragment, the responder will send a fragment 500 us later" (15-24/0633r1, describing D01; the
+ * same 500 µs offset in 15-24/0664r2 and 15-25/0388r1). A one-to-many round is one ranging
+ * sub-round per responder, each with its own control phase (15-25/0213r2, CID 474: Message Control 1
+ * on the first sub-round's One-to-many Poll, 0 on the later ones), so every sub-round interleaves
+ * exactly like a pair. 2026-11-11 (audit #22): the engine used to interleave all R responders inside
+ * one shared millisecond of (R + 1) slots, which stretched the gap to 2 ms at three responders. The
+ * non-interleaved round of §10.39.7 has one transmitter to a sub-round and takes the spacing from
+ * the slot length (`mmsSlotsPerMs`). `MmsRoundPlan.fragGapNs` is what a round actually uses, and it
+ * is the ruler the receiver is handed, so nothing downstream assumes the nominal millisecond.
  *
  * Two things follow, and they are the whole point of
  * the slice: each fragment may spend a full millisecond's regulatory energy budget in its own
@@ -80,22 +81,6 @@ export const STS_UNIT_CHIPS = 512 // standard §16.2.9
  * The values are unchanged.
  */
 export const N_MSR_SET = [32, 40, 48, 64, 128, 256] as const
-/**
- * The two RSF fragment lengths an SFD may follow (`MmsPhy.rsfSfd`): the draft specifies the
- * SFD-carrying RSF at these and no others, so the schema refuses the pair elsewhere and the
- * editor greys the checkbox out there. One list, read by both. 4ab draft 15-25/0066r1
- *
- * The draft states a second condition beside this one — a sequence code index of 9 to 32 — and
- * that one needs no check here, because **it holds by construction**: index 9 upwards is the
- * length-127 ternary set (Table 16-8) and up to 32 the length-91 set (Table 16-9), so "9 to 32"
- * names those two code families and excludes only the old length-31 codes. This engine's MMS
- * packet is cut from the length-91 family (its symbol is `MMRS_LEN` spread by `MMS_SPREAD`) and
- * its 4z side from the length-127 one (`uwb/phy.ts#PSYM_CHIPS` = 127 × 4), so every packet it
- * builds is already inside the range. `MmsPhy` carries no code index at all and is not getting
- * one (design 2026-09-26 §9, restated 2026-10-03 §3.2): lengthening the RSF does not conjure one
- * either, which is why these are two unrelated gaps and not cause and effect.
- */
-export const MMS_RSF_SFD_N_MSR: readonly NMsr[] = [32, 64]
 /** X, the RSFs in a train. */
 export const RSF_COUNT_SET = [0, 1, 2, 4, 8, 16] as const // 4ab draft 15-22/0381r5 Table 1.6.3.2
 /** Y, the RIFs in a train. */
@@ -170,26 +155,27 @@ export function trainDetected(rxDbm: number, heard: number): boolean {
   return heard > 0 && rxDbm + combineGainDb(heard) >= UWB_RX_SENS_DBM
 }
 
-/** How much worse an SP0 control frame is at acquisition than the packet's own SYNC+SFD
- * fragment: SP0 is longer and sent at a lower peak power, so when it is there it is what
- * defines the link budget, and a worse one. The draft's own comparison gives 6.3, 5.3 or
- * 3.8 dB depending on code length and PSR — those are ratios of pulse counts, not of
- * duration — and its conclusion sentence rounds them to about 4 dB. The engine takes the one
- * figure; the three are in the lesson. 4ab draft 15-25/0194r0 (model) */
+/** How much lower an SP0 control frame's peak power is than the packet's own SYNC+SFD fragment:
+ * "Longer SP0 Frame is sent at lower peak power level"; the comparison gives 6.3, 5.3 or 3.8 dB
+ * depending on code length and PSR — ratios of pulse counts under the same energy budget — and
+ * the conclusion rounds them to "~4dB". 4ab draft 15-25/0194r0 slides 7–8 (a proposal; the
+ * engine takes the rounded figure, the three are in the lesson) */
 export const MMS_SP0_PENALTY_DB = 4
 
 /**
- * The sensitivity an SP0 control frame is delivered against: `MMS_SP0_PENALTY_DB` above the one
- * a 4z frame or a fragment is judged by.
+ * The power an SP0 control frame is radiated at: the session's leading fragment's power
+ * (`mmsFragmentDbm` of its own length — the packet's SYNC+SFD fragment in this engine) less
+ * `MMS_SP0_PENALTY_DB`. It is then judged against the ordinary `UWB_RX_SENS_DBM`.
  *
- * This is the **only** place the penalty is charged, and that is the point of it being a
- * constant of its own. Under `uwbdControl: 'sp0'` the SP0 packet really crosses the channel in
- * this engine — it is transmitted, it is delivered or it is not, and being primed *is* having
- * received it — so the harder acquisition the draft's comparison describes belongs on that
- * packet's own reception and nowhere else. `acquired` therefore charges nothing (see below): one
- * threshold decided in two places is two thresholds. 4ab draft 15-25/0194r0 (model)
+ * 2026-11-11 (audit #17): the proposal's ~4 dB **is** the peak-power loss, so it is charged once,
+ * here. The engine used to radiate SP0 at the node's own burst power (10.54 dB below the fragment in
+ * `uwb-uwbd`'s configuration) **and** raise its delivery threshold by the 4 dB — the same loss
+ * counted twice.
  */
-export const MMS_SP0_RX_SENS_DBM = UWB_RX_SENS_DBM + MMS_SP0_PENALTY_DB
+export function mmsSp0TxDbm(phy: MmsPhy): number {
+  const leadNs = phy.rsfs > 0 ? rsfNs(phy.nMsr, phy.gap) : rifNs(phy.stsLen)
+  return mmsFragmentDbm(leadNs) - MMS_SP0_PENALTY_DB
+}
 
 /**
  * The SP0 (BASIC_PACKET) control frame, segment by segment, in nanoseconds: the **short packet**
@@ -231,33 +217,28 @@ export const MMS_SP0_PSDU_BYTES = 12
 /**
  * Whether the receiver ever found the packet — the question `trainDetected` does not have to ask.
  *
- * There are three ways a receiver comes by its time base, and **each of them is judged in
- * exactly one place**. Config 2: the narrowband POLL/RESP exchange hands both ends the same time
- * base before a fragment goes out, so the receiver knows where every fragment will land and
- * accumulates blind — nothing to acquire. Config 1 with an SP0 control phase: the time base came
- * out of that packet, which this engine really transmits and really delivers or loses, at
- * `MMS_SP0_RX_SENS_DBM` — so by the time a fragment arrives the question has already been
- * answered, and asking it again here would charge the same 4 dB twice. Config 1 with a
- * zero-length control phase: there is no earlier packet at all, so the train's own head has to be
- * found, and **that** is the one row this function decides — at the plain `UWB_RX_SENS_DBM`, with
- * no penalty, because there is no SP0 packet in front of it to have paid one for.
+ * Config 2: the narrowband POLL/RESP exchange hands both ends the same time base before a fragment
+ * goes out, so the receiver knows where every fragment will land and accumulates blind — nothing
+ * to acquire. Config 1: the UWB-driven MMS packet **starts with a SYNC+SFD fragment** whether or
+ * not SP0 control frames went before it (15-25/0194r0 slides 5–7 draw SP0, then SYNC+SFD, then the
+ * RSF/RIF fragments), and that fragment is what acquisition and the carrier-offset estimate are
+ * taken from; losing it loses the round (15-25/0066r1's own discussion). So under Config 1 the head
+ * of `fragments` has to be audible on its own, at the plain `UWB_RX_SENS_DBM`.
+ *
+ * 2026-11-11 (audit #18): the SP0 path used to count the packet as already acquired, and an
+ * `rsfSfd` option let any RSF open it. That option was the proposal 15-25/0066r1 for CID 963, and
+ * the commenter withdrew CID 963 (15-25/0082r8) — it is not in the draft, so it is gone, and the
+ * SP0 path now has to find the packet's head like the zero-length one.
  *
  * **Nothing is combined here**, and that is the whole of what separates this from
  * `trainDetected`: one fragment has to be audible entirely on its own, because until one is
  * there is no time base to add the next one at. Four fragments 6 dB down are a detected train
  * and an unacquired packet at the same time.
- *
- * Which fragments may try is `rsfSfd`: normally only the packet's own leading SYNC+SFD fragment,
- * the head of `fragments`, and a burst of interference over it loses the whole round however loud
- * the rest arrived. With an SFD after every RSF each fragment is a copy of that same SHR, so any
- * one of them can open the packet — which is exactly the failure the PIB attribute was added to
- * buy off. It buys nothing on the SP0 path, where there was never a head to lose.
- * 4ab draft 15-25/0066r1, 15-25/0194r0. model
  */
 export function acquired(phy: MmsPhy, fragments: { rssiDbm: number }[]): boolean {
-  if (phy.control === 'nba' || phy.uwbdControl === 'sp0') return true
-  const openers = phy.rsfSfd ? fragments : fragments.slice(0, 1)
-  return openers.some((frag) => frag.rssiDbm >= UWB_RX_SENS_DBM)
+  if (phy.control === 'nba') return true
+  const head = fragments[0]
+  return head !== undefined && head.rssiDbm >= UWB_RX_SENS_DBM
 }
 
 /** One millisecond in nanoseconds: the spacing of two neighbouring fragments in the PAIRWISE
@@ -326,15 +307,16 @@ export interface MmsPhy {
   /** Each side sends its whole train contiguously, in its own sub-round, rather than
    * interleaving a fragment per millisecond. 4ab draft 15-25/0292r1 (§10.39.7) */
   nonInterleaved: boolean
-  /** macMmsFixedReplyTime in RSTU: the responder replies this long after it RECEIVES the
-   * first fragment, not at the phase start. null is the draft's default (disabled).
-   * 4ab draft 15-25/0224r2 */
-  fixedReplyRstu: number | null
-  /** The responder transmits its MMS packet first. 4ab draft 15-25/0556r2 */
-  reversedOrder: boolean
-  /** phyUwbMmsRsfSfd: an SFD after every RSF, so any RSF can open the packet.
-   * 4ab draft 15-25/0066r1 */
-  rsfSfd: boolean
+  /**
+   * Non-interleaved only: the responder sends its RESP (One-to-one / One-to-many Response Compact
+   * frame) at Message Control 2, whose content is a 5-octet **Predicted Reply Time** — the time,
+   * measured at the responder, between the RMARKER of the initiator's MMS fragments it received
+   * and the RMARKER of the MMS fragments it will transmit after this frame — "where it may be used
+   * to avoid a separate report of the reply time". Resolution 15-25/0681r1, adopted without
+   * objection (minutes 15-26/0006r0). It superseded the fixed reply time (15-25/0224r2) and the
+   * reversed order (15-25/0556r2), which are therefore not in the draft and not in this engine.
+   */
+  predictedReplyTime: boolean
   /** UWB-driven only: whether the control phase carries an SP0 (BASIC_PACKET) frame.
    * The draft makes the control phase zero-length when the poll and response slot
    * counts are zero, and puts SP0 in use when they are 1-15; this is that choice.
@@ -342,27 +324,13 @@ export interface MmsPhy {
   uwbdControl: 'sp0' | 'none'
 }
 
-/** Just the five draft features of `MmsPhy`, without the train they sit beside. */
-export type MmsDraftPhy = Pick<
-  MmsPhy, 'control' | 'nonInterleaved' | 'fixedReplyRstu' | 'reversedOrder' | 'rsfSfd' | 'uwbdControl'
->
-
-/** The bounds macMmsFixedReplyTime is written between, in RSTU: one MMS ranging slot at the
- * short end, and 612 000 RSTU (510 ms) at the long end. 4ab draft 15-25/0224r2 */
-export const MMS_FIXED_REPLY_RSTU_MIN = 300
-export const MMS_FIXED_REPLY_RSTU_MAX = 612_000
-/** What a session that switches the fixed reply time on starts from: the draft's own 600 RSTU
- * ranging slot, so the responder answers one slot after the fragment it heard.
- * 4ab draft 15-25/0224r2 */
-export const MMS_FIXED_REPLY_RSTU_DEFAULT = 600
-/** How far the reversed-order round shifts the two packets against each other, in RSTU — the
- * draft's 600 RSTU ranging slot again. 4ab draft 15-25/0556r2 */
-export const MMS_REVERSED_OFFSET_RSTU = 600
+/** Just the four draft features of `MmsPhy`, without the train they sit beside. */
+export type MmsDraftPhy = Pick<MmsPhy, 'control' | 'nonInterleaved' | 'predictedReplyTime' | 'uwbdControl'>
 
 /**
- * The five draft features at the settings that reproduce the session this engine has always
- * run: Config 2 with its narrowband control plane, interleaved trains, no fixed reply time,
- * the initiator first, no SFD after an RSF, and an SP0 control phase.
+ * The four draft features at the settings that reproduce the session this engine has always
+ * run: Config 2 with its narrowband control plane, interleaved trains, a RESP at Message Control 0
+ * (no predicted reply time), and an SP0 control phase.
  *
  * Every place that builds an `MmsPhy` spreads this, so a feature the draft added is off
  * everywhere until a scenario names it — which is what keeps every stored plan replaying
@@ -371,9 +339,7 @@ export const MMS_REVERSED_OFFSET_RSTU = 600
 export const MMS_DRAFT_DEFAULTS: MmsDraftPhy = {
   control: 'nba',
   nonInterleaved: false,
-  fixedReplyRstu: null,
-  reversedOrder: false,
-  rsfSfd: false,
+  predictedReplyTime: false,
   uwbdControl: 'sp0',
 }
 
@@ -396,48 +362,6 @@ export const MMS_DRAFT_DEFAULTS: MmsDraftPhy = {
  */
 export function rifStartMs(rsfs: number, gapMs: number, index: number): number {
   return rsfs > 0 ? rsfs + gapMs - 1 + index : index
-}
-
-/**
- * The fragments of one MMS packet in transmission order: what each one is, how long after the
- * packet's own RMARKER it starts, and how long it lasts.
- *
- * The layout already answers this in *slots* (`fragmentSlot` / `slotFragment`); this answers it in
- * nanoseconds from the RMARKER, which is what a device needs when the packet does **not** start on
- * a slot boundary — the draft's fixed reply time, where the responder's packet starts a pre-agreed
- * interval after it finished receiving the initiator's and so lands wherever the flight time put
- * it. The two are the same arithmetic over the same milliseconds (RSF-m at m, the RIFs at
- * `rifStartMs`); `fragGapNs` is what the round actually spaces them by, so nothing here assumes
- * the nominal millisecond either. 4ab draft 15-25/0224r2, 15-25/0556r2
- */
-export function mmsPacketFragments(
-  phy: MmsPhy, fragGapNs: number,
-): { kind: 'rsf' | 'rif'; index: number; offsetNs: Ns; lenNs: Ns }[] {
-  const out: { kind: 'rsf' | 'rif'; index: number; offsetNs: Ns; lenNs: Ns }[] = []
-  const rsf = rsfNs(phy.nMsr, phy.gap)
-  const rif = rifNs(phy.stsLen)
-  for (let i = 0; i < phy.rsfs; i++) out.push({ kind: 'rsf', index: i, offsetNs: i * fragGapNs, lenNs: rsf })
-  for (let j = 0; j < phy.rifs; j++) {
-    out.push({ kind: 'rif', index: j, offsetNs: rifStartMs(phy.rsfs, phy.gapMs, j) * fragGapNs, lenNs: rif })
-  }
-  return out
-}
-
-/**
- * How long one MMS packet occupies: from the RMARKER of its first fragment to the end of its
- * last. Zero for the empty train the schema refuses.
- *
- * It is the span the fixed reply time is measured *from the end of*, so both ends need it and
- * neither may work it out for itself: the responder waits the pre-agreed interval after this span
- * has passed at its antenna, and the initiator — which sent the packet and therefore never
- * received it — adds the same span to the reply it already knows. One number, read from both
- * sides of the round. 4ab draft 15-25/0556r2, 15-25/0681r1 (the reply runs from the reception of
- * the MMS packet, not of its first fragment)
- */
-export function mmsPacketSpanNs(phy: MmsPhy, fragGapNs: number): Ns {
-  const frags = mmsPacketFragments(phy, fragGapNs)
-  const last = frags[frags.length - 1]
-  return last === undefined ? 0 : last.offsetNs + last.lenNs
 }
 
 export type MmsSetId =
@@ -482,167 +406,94 @@ export function mmsSet(id: MmsSetId): MmsPhy {
   return { ...MMS_SETS[id] }
 }
 
-/**
- * One RSF **on the air**: the sequence itself, plus the SFD the draft appends to every RSF when
- * `rsfSfd` is set.
- *
- * That SFD is 8 preamble symbols — the one every BPRF parameter set of Table 16-31 carries
- * (Table 16-11's SFD #2), and at Table 16-10's 364-chip symbol for the length-91 code it is
- * 5 833 ns. The draft's own acquisition table gives the same cell as 5.8 µs, and that cell is
- * already in this file as `MMS_SP0_SEGMENT_NS.sfd`: the two derivations agree to 0.57%, so this
- * takes the one the engine holds rather than adding a second constant for one duration. It is
- * the same SFD the packet's own head carries, which is why the draft allows the attribute only
- * where the fragment length equals a SYNC preamble repetition the code family must support
- * (`MMS_RSF_SFD_N_MSR`).
- *
- * `rsfNs` stays what it was — how long the sequence itself is — because that is what the
- * mandatory parameter sets, the editor's own fragment arithmetic and `mmsPacketFragments` are
- * asking for. This is what the *frame* occupies: `uwb/frames.ts#makeRsf` sizes the fragment off
- * it, so `mmsFragmentDbm` drops with it, and `mmsLongestFragmentNs` sizes the ranging slot off
- * it. It moves no timestamp: the packet's RMARKER is still fragment 0's first pulse and the
- * fragments are still spaced start to start, so `rmarkerFromFragment`'s walk-back is untouched
- * (reading the stamp after a trailing SFD instead would bias every range by 5 800 ns, which is
- * 1 739 m). 4ab draft 15-25/0066r1 (the attribute), 15-25/0194r0 (the SFD's duration)
- */
-export function rsfAirNs(phy: MmsPhy): Ns {
-  return rsfNs(phy.nMsr, phy.gap) + (phy.rsfSfd ? MMS_SP0_SEGMENT_NS.sfd : 0)
-}
-
 /** The longest fragment the train actually carries — what a ranging slot has to hold. An empty
- * train (the schema refuses one) carries no fragment at all, and so needs no room. The RSF is
- * taken at its length on the air (`rsfAirNs`): a slot sized off the bare sequence would clip the
- * SFD of every fragment it is meant to hold. */
+ * train (the schema refuses one) carries no fragment at all, and so needs no room. */
 export function mmsLongestFragmentNs(phy: MmsPhy): Ns {
   return Math.max(
-    phy.rsfs > 0 ? rsfAirNs(phy) : 0,
+    phy.rsfs > 0 ? rsfNs(phy.nMsr, phy.gap) : 0,
     phy.rifs > 0 ? rifNs(phy.stsLen) : 0,
   )
 }
 
 // --- The round's slot layout ----------------------------------------------------
 
-/** Where every fragment and every report of one MMS round sits, in slots counted from the start
- * of the round. The interleaved round is control + ranging (`rpSlots`) + report, and a pair round
- * — one initiator, one responder — is the R = 1 case of all of it: control 4, report 4. The
- * non-interleaved round of §10.39.7 is `subRounds` copies of (control window + ranging phase),
- * one per device, and then the same report phase. */
+/**
+ * Where every fragment and every control and report window of one MMS round sits, in slots counted
+ * from the start of the round. A round is cut into **sub-rounds**:
+ *
+ * - interleaved: one sub-round per responder, each a complete pairwise exchange — the initiator's
+ *   POLL window, that responder's RESP window, the ranging phase in which the two interleave (the
+ *   responder 500 µs after the initiator, each a fragment per millisecond), and the two report
+ *   windows. A pair round is the one-sub-round case. 4ab draft: 15-25/0213r2 (CID 474) for one
+ *   sub-round per responder, each with its own One-to-many Poll; 15-24/0633r1 and 15-24/0664r2 for
+ *   the 500 µs interleave;
+ * - non-interleaved (§10.39.7): one sub-round per device — the initiator's, then each responder's —
+ *   each its owner's control window and its owner's whole train, followed by the report phase.
+ */
 export interface MmsLayout {
   /** How many responders this round holds: 1 in a pair round, N in a one-to-many one. */
   responders: number
   /** What one **control** window of this round costs, in slots: `mmsWindowSlots` of the
    * session's control plane. Two for a narrowband window, one for an SP0 window, and **zero**
-   * when the control phase is zero-length — which is what every number below is derived from,
-   * rather than each of them knowing which control plane the round runs. */
+   * when the control phase is zero-length. */
   windowSlots: number
-  /** What one **report** window costs, in slots: `mmsReportWindowSlots`. Two narrowband, one on
-   * the UWB PHY, and never zero — the report phase is not the control phase's dependent, and a
-   * round whose poll and response are the packet itself still has a window to report in. */
+  /** What one **report** window costs, in slots: `mmsReportWindowSlots`. Never zero. */
   reportWindowSlots: number
-  /** Slots 0–1 the initiator's narrowband POLL, then two slots per responder's RESP.
-   * 4ab draft 0381r5 §1.1 (RcpPollSlot 2 + RcpResponseSlot 2 per responder)
-   *
-   * It counts the round's control windows whichever shape the round has, but only the interleaved
-   * round gathers them into a phase at the top: non-interleaved scatters one into the head of
-   * each sub-round, so there `controlSlots` is a total and not a prefix.
-   *
-   * `mmsControlSlots` is the one place the length is decided, so a UWB-driven round's control
-   * phase is one slot per device and a zero-length one is **0** — a round with no control phase
-   * at all, whose POLL and RESP are the ranging packet's own leading SYNC+SFD fragment. */
+  /** Every control window of the round together, in slots (`mmsControlSlots`): scattered one or two
+   * to a sub-round, never a single prefix once a round has more than one sub-round. Zero when the
+   * control phase is zero-length — a round with no POLL and no RESP at all. */
   controlSlots: number
-  /** The ranging phase: the draft's RpDuration default of 20 slots, grown to fit the train.
-   * Non-interleaved, this is **one sub-round's** phase — the same phase every sub-round gets,
-   * not the round's whole ranging time. */
+  /** One sub-round's ranging phase: the draft's RpDuration floor of 20 slots, grown to fit the
+   * train (`MMS_RP_MIN_SLOTS`). */
   rpSlots: number
   /** How many ranging slots one millisecond of this round's cycle takes, at the slot length the
    * session was laid out with — `mmsSlotsPerMs`, and 2 at the draft's 600 RSTU default. */
   slotsPerMs: number
   /**
-   * How many slots this round puts between two neighbouring fragments of one train. **The one
+   * How many slots this round puts between two neighbouring fragments of one train — **the one
    * place that spacing is decided**: `MmsRoundPlan.fragGapNs` is this times the slot, and the
-   * receiver walks its RMARKER back over that — a second opinion anywhere else is a receiver
-   * reading the wrong clock ratio.
+   * receiver walks its RMARKER back over that.
    *
-   * A millisecond is a millisecond whoever is transmitting. Interleaved, the device count happens
-   * to set it — R + 1 slots, which at the draft's 600 RSTU slot lands the pairwise round on
-   * exactly 1 ms and stretches a three-responder round to 2 ms. A non-interleaved sub-round has
-   * one transmitter, so nothing about the device count applies and the spacing comes from the
-   * slot length instead: `slotsPerMs`, steady however many responders the round holds.
-   * 4ab draft 15-23/0100r2 §2.3.2 for the millisecond; model for taking it from the slot.
+   * A millisecond either way. Interleaved, the responder's fragment sits half-way between two of the
+   * initiator's, so the gap needs at least two slots — `max(2, slotsPerMs)`, a true millisecond at
+   * 600 and 300 RSTU. Non-interleaved, one transmitter to a sub-round: `slotsPerMs`.
    */
   fragGapSlots: number
-  /** How many sub-rounds the round is cut into: 1 interleaved, and one per device — R + 1 —
-   * in the non-interleaved shape, where each device sends its whole train in a stretch of the
-   * round nobody else transmits in. 4ab draft 15-25/0292r1 (§10.39.7) */
+  /** Interleaved: how many slots after the initiator's fragment the responder's follows —
+   * `fragGapSlots / 2`, one slot (500 µs) at 600 RSTU. 0 in the non-interleaved shape. */
+  respOffsetSlots: number
+  /** How many sub-rounds the round is cut into: R interleaved, R + 1 non-interleaved. */
   subRounds: number
-  /** Slot index, within the round, where sub-round `i` begins — that is, at its own narrowband
-   * control window, with its ranging phase `NB_WINDOW_SLOTS` later. Interleaved there is one
-   * sub-round and it begins at 0. */
+  /** Slot index, within the round, where sub-round `i` begins. */
   subRoundStart(i: number): number
-  /** Two report windows per responder: the responder's own, then the initiator's answer to it.
-   * A pair round is the R = 1 case — the draft's MrpFirstSlot + MrpSecondSlot.
-   * 4ab draft 0381r5 §1.1; 15-22/0381r5 Table 1.6.3.1 gives one-to-many ranging a REPORT from
-   * each end (0x12, 0x13), each carrying the one time its sender measured.
-   *
-   * `mmsReportSlots` decides it, so a UWB-driven round reports in SP0 windows of one slot — and
-   * a zero-length control phase keeps the phase, because the draft gives it a pair of parameters
-   * of its own. 4ab draft 15-25/0194r0 */
+  /** The report phase in slots: two windows per responder (`mmsReportSlots`). */
   reportSlots: number
   slots: number
-  /**
-   * Slot index, within the round, of the narrowband RESP window responder `responder` owns.
-   *
-   * Interleaved, that window sits in the round's shared control phase, two slots per responder
-   * after the initiator's POLL. Non-interleaved there **is** no shared control phase: each
-   * device's control window is the head of its own sub-round, so `respSlot(r)` is
-   * `subRoundStart` of the sub-round responder `r` owns — which under `reversedOrder` can be
-   * slot 0 of the round, ahead of the initiator's own window. 4ab draft 15-25/0292r1
-   *
-   * It **throws** when `controlSlots` is 0: a round whose control phase is zero-length has no
-   * RESP window, and answering with the slot the first fragment sits in would hand the schedule
-   * a narrowband message to put on the air where the packet itself belongs.
-   */
+  /** How many POLL windows the round has: one per sub-round interleaved (the first One-to-many Poll
+   * at Message Control 1 names the responders, the later ones are Message Control 0), and one in
+   * the non-interleaved round, whose initiator sub-round polls them all. 0 with no control phase. */
+  polls: number
+  /** Which POLL opens responder `responder`'s exchange: its own sub-round's interleaved, POLL 0
+   * non-interleaved. */
+  pollFor(responder: number): number
+  /** Slot index of POLL window `poll` (0 ≤ poll < `polls`). Throws with no control phase. */
+  pollSlot(poll?: number): number
+  /** Slot index of responder `responder`'s RESP window. Throws with no control phase. */
   respSlot(responder: number): number
-  /**
-   * Slot index, within the round, of the initiator's narrowband POLL window — slot 0 interleaved,
-   * and the head of the sub-round the initiator owns non-interleaved, which `reversedOrder` moves
-   * to the **end** of the round.
-   *
-   * It takes no sub-round argument because a round has exactly one POLL however many sub-rounds
-   * it is cut into: the initiator opens the round once, and the other sub-rounds' windows are
-   * RESPs that `respSlot` names. The schedule asks for it rather than assuming slot 0, which is
-   * only the initiator's when nothing reversed the order. 4ab draft 15-25/0556r2
-   *
-   * It throws when `controlSlots` is 0, for the reason `respSlot` gives.
-   */
-  pollSlot(): number
-  /** Slot index, within the round, of fragment `index` of `kind` for `side`. Each millisecond of
-   * the ranging phase is R + 1 slots: the initiator's first, then one per responder in responder
-   * order, so every train of the round interleaves inside the same millisecond (model; the
-   * draft's one-to-many POLL allots `SlotsPerResponder` slots to each responder address it
-   * lists — 4ab draft 15-22/0381r5 Table 1.6.3.1, message 0x10 — but does not fix the
-   * interleave, so the order here is this engine's).
-   *
-   * Non-interleaved, only one device transmits in a sub-round, so a millisecond of its ranging
-   * phase is a single slot and the train lands in consecutive ones (bar the idle milliseconds Z
-   * asks for) from `subRoundStart(dev) + NB_WINDOW_SLOTS`. */
+  /** Slot index of fragment `index` of `kind` for `side`, in responder `responder`'s exchange. In
+   * the non-interleaved round the initiator's train is one train for all responders and
+   * `responder` is ignored for it. */
   fragmentSlot(side: 'initiator' | 'responder', kind: 'rsf' | 'rif', index: number, responder?: number): number
   /**
-   * The inverse of `fragmentSlot`: which fragment, if any, sits in slot `slot` of the round.
-   * Null for every slot no fragment owns — the control and report windows, the idle
-   * milliseconds between the two trains, and the tail of a ranging phase the draft sizes at
-   * 20 slots whatever the train is.
-   *
-   * It exists so that the schedule (`slotAction`) and the devices read **one** map rather than
-   * two: a second copy of this arithmetic is a second chance for the two ends of a round to
-   * disagree about where a fragment is.
+   * The inverse of `fragmentSlot`: which fragment, if any, sits in slot `slot` of the round, and in
+   * whose exchange (`responder`). Null for every slot no fragment owns. The schedule and the devices
+   * read this one map, so the two ends of a round cannot disagree about where a fragment is.
    */
   slotFragment(slot: number): {
     side: 'initiator' | 'responder'; kind: 'rsf' | 'rif'; index: number; responder: number
   } | null
-  /** Slot index of the REPORT: responder `responder`'s own window, or the initiator's answer to
-   * that responder one window later, counted in `reportWindowSlots` and not in the control
-   * plane's window — the draft sizes the two phases separately. Every round this engine lays out
-   * has a report phase, so unlike `pollSlot` and `respSlot` this one has nothing to refuse. */
+  /** Slot index of the REPORT: responder `responder`'s own window, or the initiator's answer to it
+   * one window later. */
   reportSlot(side: 'initiator' | 'responder', responder?: number): number
 }
 
@@ -659,114 +510,74 @@ export const NB_WINDOW_SLOTS = 2
  * A narrowband window is two slots because a 608 µs REPORT does not fit one. An SP0 packet is
  * `MMS_SP0_NS` — 117.6 µs — and the shortest ranging slot the draft's own rule allows is
  * 300 RSTU (250 µs), so one slot holds it plus the flight guard at **every** slot length an MMS
- * session may legally use. The UWB-driven control plane is therefore cheaper in slots than the
- * narrowband one, and dearer in decibels (`MMS_SP0_PENALTY_DB`) — which is the trade the draft
- * is making. derived (4ab draft 15-25/0194r0 for the frame, 15-22/0381r5 §1.1.1 for the slot)
+ * session may legally use. derived (4ab draft 15-25/0194r0 for the frame, 15-22/0381r5 §1.1.1 for
+ * the slot)
  */
 export const MMS_SP0_WINDOW_SLOTS = 1
 
 /**
- * How many ranging slots one control- or report-phase window of this round takes.
- *
- * Config 2's windows are narrowband, Config 1's are SP0 packets on the UWB PHY, and Config 1 at
- * a zero-length control phase has no window at all: the draft zeroes both of its slot counts,
- * the SP0 frames are skipped, and the ranging packet's own leading SYNC+SFD fragment is the poll
- * and the response. Zero is the honest answer there, and everything the layout derives from a
- * window — where a RESP sits, where the ranging phase starts, how long the round is — falls out
- * of it. 4ab draft 15-25/0194r0
+ * How many ranging slots one control-phase window of this round takes: two narrowband, one SP0,
+ * and zero for Config 1's zero-length control phase, where the ranging packet's own leading
+ * SYNC+SFD fragment is the poll and the response. 4ab draft 15-25/0194r0
  */
 export function mmsWindowSlots(phy: MmsPhy): number {
   if (phy.control === 'nba') return NB_WINDOW_SLOTS
   return phy.uwbdControl === 'sp0' ? MMS_SP0_WINDOW_SLOTS : 0
 }
 
-/** The round's control phase, in slots: the initiator's POLL window and one RESP window per
- * responder, at whatever a window costs this control plane — and nothing at all when the control
- * phase is zero-length. `mmsLayout` reads this; nobody recomputes it. */
+/** The round's control windows, in slots. Interleaved: a POLL and a RESP window in each of the R
+ * sub-rounds. Non-interleaved: the initiator's one POLL window and one RESP window per responder.
+ * Both are two windows for a pair. Nothing at all when the control phase is zero-length. */
 export function mmsControlSlots(phy: MmsPhy, responders = 1): number {
-  return mmsWindowSlots(phy) * (1 + responders)
+  const windows = phy.nonInterleaved ? 1 + responders : 2 * responders
+  return mmsWindowSlots(phy) * windows
 }
 
 /**
  * How many ranging slots one **report** window of this round takes — read off a pair of draft
- * parameters of its own, which is the whole reason it is not `mmsWindowSlots`.
- *
- * The draft's own figures for a zero-length control phase disagree with each other:
- * 15-25/0194r0 slide 13 (interleaved, no SP0) draws no Report at all, while slide 17
- * (non-interleaved, no SP0) draws `macMms1stReportNSlots`, **Report (optional)** and
- * `macMms2ndReportNSlots` (D05's names; CRG Motion #35 carried 15-26/0437r0 on 2026-10-20, which
- * renames the pair `mmsInitiatorReportNSlots` / `mmsResponderReportNSlots` and frees a field for
- * the Final message's own slot count). The report phase has its own pair of slot counts, so zeroing the
- * control phase's pair says nothing about it — and this engine does not special-case slide 13's
- * shape. The supported way to spend nothing on a report is the draft's fixed reply time, which
- * makes the reply a pre-agreed constant so the initiator holds both times already and the
- * responder's report has nothing left to carry (`MmsPhy.fixedReplyRstu`). A phase that vanished
- * with the control phase would be a second, silent way of doing the same thing.
- * 4ab draft 15-25/0194r0 for the two figures, 15-25/0376r2 for avoiding the report itself.
+ * parameters of its own (macMms1stReportNSlots / macMms2ndReportNSlots, renamed by 15-26/0437r0),
+ * which is why a zero-length control phase still has a report phase. Two narrowband, one SP0.
+ * 4ab draft 15-25/0194r0
  */
 export function mmsReportWindowSlots(phy: MmsPhy): number {
   return phy.control === 'nba' ? NB_WINDOW_SLOTS : MMS_SP0_WINDOW_SLOTS
 }
 
-/** The round's report phase, in slots: a pair of windows per responder — its own REPORT, then the
- * initiator's answer to it — at whatever `mmsReportWindowSlots` says one window costs.
- * `mmsLayout` reads this; nobody recomputes it. */
+/** The round's report windows, in slots: a pair per responder — its own REPORT, then the
+ * initiator's answer to it. */
 export function mmsReportSlots(phy: MmsPhy, responders = 1): number {
   return 2 * mmsReportWindowSlots(phy) * responders
 }
+
 /**
  * A floor under the ranging phase, in slots (model).
  *
- * 15-22/0381r5 Table 1.2.3.3 gave RpDuration as a default of 20, and that is where this number
- * came from. The draft has since changed its nature rather than its value: macMmsRpDuration
- * "shall be set at minimum to the required duration for all RSF and RIF fragments to be
- * transmitted and received but may be longer" (quoted in comment resolution 15-25/0282r1), so
- * it is derived, not defaulted. `mmsRoundPlan` already computes that derived length and takes
- * the larger of the two, which is the draft's rule; the 20 is this simulator's floor under it,
- * and no longer a number the draft states.
+ * 15-22/0381r5 Table 1.2.3.3 gave RpDuration as a default of 20. The draft has since changed its
+ * nature rather than its value: macMmsRpDuration "shall be set at minimum to the required duration
+ * for all RSF and RIF fragments to be transmitted and received but may be longer" (quoted in
+ * comment resolution 15-25/0282r1), so it is derived, not defaulted; the 20 is this simulator's
+ * floor under the derived length.
  */
 export const MMS_RP_MIN_SLOTS = 20
 
 /**
- * The fixed shape of one round (the table of the spec's "The ranging cycle"), for an initiator
- * and `responders` responders. A pair round is `responders = 1`, and every number below reduces
- * to the pairwise one there — control 4, two slots to a millisecond, report 4 — which is what
- * keeps the pairwise cycle byte-identical to the one that shipped before one-to-many existed.
+ * The fixed shape of one round for an initiator and `responders` responders (see `MmsLayout`).
  *
- * Every device in the round sends a fragment per millisecond, and a millisecond is therefore
- * R + 1 slots — the initiator's, then one per responder — so the ranging phase needs
- * `(R + 1)·(X + Y)` slots, plus `(R + 1)·(Z − 1)` for the idle milliseconds before the RIFs.
- * The draft's RpDuration default of 20 slots is a floor under that, not a cap: a short train
- * still pays for the phase the draft sizes (model).
+ * Interleaved, every sub-round is the pairwise round: control (POLL + RESP), a ranging phase of
+ * `max(20, gap × train milliseconds)` slots in which the initiator's fragment opens each millisecond
+ * and the responder's follows `respOffsetSlots` later, and the two report windows. At the draft's
+ * 600 RSTU slot a pair round is control 4, two slots to a millisecond, report 4 — the round that
+ * shipped before one-to-many existed, slot for slot.
  *
- * The control phase is the initiator's POLL window and one RESP window per responder, and the
- * report phase a pair of windows per responder — its own REPORT, then the initiator's answer to
- * it. That is the shape the draft's one-to-many POLL describes when it carries `Number of
- * Responders`, `SlotsPerResponder` and a responder address list, together with its one-to-many
- * REPORTs from each end, each carrying the single time its sender measured (4ab draft
- * 15-22/0381r5 Table 1.6.3.1, messages 0x10/0x11/0x12/0x13).
+ * 2026-11-11 (audit #22): a one-to-many interleaved round used to share one control phase and one
+ * initiator train among all R responders, with an (R + 1)-slot "millisecond" — 2 ms between
+ * fragments at R = 3. The draft gives each responder a sub-round of its own (15-25/0213r2, CID 474),
+ * so the initiator's train goes out once per sub-round and every fragment gap is a millisecond.
  *
- * One narrowband window is two slots whatever the round, so the **POLL has to fit two of them**:
- * it grows by three octets per responder, and `uwbNbSlotFitNs` is where that rule is checked.
- *
- * How wide a window is, and whether there is one at all, is the *control plane's* business and
- * not this function's: `mmsWindowSlots` answers it once and everything here counts in that unit.
- * Config 2's narrowband window is two slots; Config 1 carries the same three messages as SP0
- * packets on the UWB PHY, which fit one; and Config 1 at a zero-length control phase has no
- * control phase and no report phase at all, so the round is nothing but its ranging phase and the
- * ranging packet's own leading SYNC+SFD fragment does the work the POLL and the RESP did.
- * 4ab draft 15-25/0194r0
- *
- * All of that is the *interleaved* round, and `phy.nonInterleaved` asks for the other shape the
- * draft defines (§10.39.7): sub-rounds, one per device, each with its own control window and its
- * own ranging phase, and only its owner transmitting. The two branches below share nothing but
- * the responder bounds check and the train's fragment counts — the interleaved arithmetic is left
- * exactly as it was, because every stored plan in `tests/fixtures/` replays off it.
- *
- * `slotsPerMs` is how many slots a millisecond of the cycle costs at the session's slot length —
- * `mmsSlotsPerMs`, and the draft's 600 RSTU default is the 2 this defaults to. Only the
- * non-interleaved branch reads it: interleaved, the device count sets the spacing instead, and a
- * pairwise interleaved round at 600 RSTU is the case where the two agree.
+ * Non-interleaved (§10.39.7, 15-25/0292r1): R + 1 sub-rounds — the initiator's own control window
+ * and train, then each responder's — and the report phase after them. How a one-to-many round is cut
+ * in this shape the draft has not finished defining (15-25/0213r2, CIDs 205/207: "Need extra work
+ * for such mode"), so the order here is this engine's.
  */
 export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PER_MS): MmsLayout {
   if (!Number.isInteger(responders) || responders < 1) {
@@ -778,136 +589,115 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
   const x = phy.rsfs
   const y = phy.rifs
   const z = phy.gapMs
-  // One window's width, and the two phase lengths built from it. Every slot index below is
-  // counted in `win`s rather than in the narrowband two, so the UWB-driven control plane's
-  // one-slot windows — and the zero-length control phase's absence of them — move the whole
-  // round without a second reading of `phy.control` anywhere in here.
   const win = mmsWindowSlots(phy)
-  // The report window is the control window only under Config 2. Read separately because the
-  // draft sizes the two phases separately, which is why a zero-length control phase still has a
-  // report phase to put a time in (`mmsReportWindowSlots`).
   const rwin = mmsReportWindowSlots(phy)
   const control = mmsControlSlots(phy, responders)
   const report = mmsReportSlots(phy, responders)
   const count = (kind: 'rsf' | 'rif'): number => (kind === 'rsf' ? x : y)
+  // The train's length in milliseconds: the RSFs' X, and — with RIFs — up to the last one, which
+  // `rifStartMs` puts at X + Z − 1 + (Y − 1).
+  const trainMs = y > 0 ? rifStartMs(x, z, y - 1) + 1 : x
   const checkResponder = (r: number): void => {
     if (!Number.isInteger(r) || r < 0 || r >= responders) {
       throw new Error(`mmsLayout: this round has ${responders} responders, asked for ${r}`)
     }
   }
-  /** A round whose control phase is zero-length has no POLL and no RESP window to name: the
-   * caller asked for a slot that does not exist, which is a bug in the caller and not a slot
-   * index to invent. The report phase needs no such guard — every round has one. */
+  const checkIndex = (kind: 'rsf' | 'rif', index: number): void => {
+    if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {
+      throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
+    }
+  }
+  /** A round whose control phase is zero-length has no POLL and no RESP window to name. */
   const needControl = (what: string): void => {
     if (control === 0) throw new Error(`mmsLayout: this round has no control phase, asked for its ${what}`)
   }
+  /** Which fragment sits `ms` milliseconds into a train, or null for the idle milliseconds. */
+  const fragAtMs = (ms: number): { kind: 'rsf' | 'rif'; index: number } | null => {
+    if (ms < x) return { kind: 'rsf', index: ms }
+    const firstRif = rifStartMs(x, z, 0)
+    if (y > 0 && ms >= firstRif && ms < firstRif + y) return { kind: 'rif', index: ms - firstRif }
+    return null
+  }
+  const msOf = (kind: 'rsf' | 'rif', index: number): number => (kind === 'rsf' ? index : rifStartMs(x, z, index))
+
   if (phy.nonInterleaved) {
-    // §10.39.7: a sub-round is one device's own control window plus its own ranging phase, and
-    // that device is the only one transmitting in it — so it sends its whole train contiguously
-    // and a millisecond of the phase costs one slot, not R + 1. There is one sub-round per
-    // device, so a one-to-many round holds R + 1 of them: the device count grows the *round*
-    // here, where interleaved it grew the one shared ranging phase, and the round therefore ends
-    // up the longer of the two. That extra ranging duration, and the channel coherence time it
-    // has to fit inside, are the price a (later withdrawn) comment named for this mode.
-    // 4ab draft 15-25/0292r1, 15-25/0331r1
-    //
-    // A millisecond of that phase is `slotsPerMs` slots, not one: the sub-round's sole transmitter
-    // sends a fragment per millisecond like everybody else, and it is the slot length that says
-    // how many slots a millisecond is. Spacing them one slot apart would send a fragment every
-    // half millisecond at the draft's 600 RSTU slot while each still spent a millisecond's
-    // regulatory energy budget — twice the permitted mean power, and the premise the whole
-    // multi-millisecond packet rests on gone.
-    const trainMs = y > 0 ? rifStartMs(x, z, y - 1) + 1 : x
+    // One transmitter to a sub-round, so a millisecond of its phase is `slotsPerMs` slots and the
+    // device count says nothing about the spacing.
     const rpOne = Math.max(MMS_RP_MIN_SLOTS, slotsPerMs * trainMs)
     const subRounds = 1 + responders
     const subRound = win + rpOne
-    /** Which sub-round a device owns: the initiator opens the round and the responders follow in
-     * responder order, unless `reversedOrder` sends the responders' packets first and leaves the
-     * initiator's sub-round last. 4ab draft 15-25/0556r2 */
+    const ranging = subRounds * subRound
     const devOf = (side: 'initiator' | 'responder', responder: number): number =>
-      side === 'initiator'
-        ? (phy.reversedOrder ? responders : 0)
-        : (phy.reversedOrder ? responder : 1 + responder)
-    /** The same map read backwards, for `slotFragment`. The initiator answers with responder 0,
-     * as the interleaved branch does: its train belongs to no one responder. */
-    const sideOf = (dev: number): { side: 'initiator' | 'responder'; responder: number } => {
-      const initiator = phy.reversedOrder ? responders : 0
-      if (dev === initiator) return { side: 'initiator', responder: 0 }
-      return { side: 'responder', responder: phy.reversedOrder ? dev : dev - 1 }
-    }
+      side === 'initiator' ? 0 : 1 + responder
     const start = (i: number): number => {
       if (!Number.isInteger(i) || i < 0 || i >= subRounds) {
         throw new Error(`mmsLayout: this round has ${subRounds} sub-rounds, asked for ${i}`)
       }
       return i * subRound
     }
-    const ranging = subRounds * subRound
     return {
       responders,
       windowSlots: win,
       reportWindowSlots: rwin,
-      // Still one control window per device, but scattered one to a sub-round rather than
-      // gathered into a phase at the top of the round — and `mmsControlSlots` counts the same
-      // 1 + R windows, so the two agree by construction rather than by arithmetic repeated here.
       controlSlots: control,
       rpSlots: rpOne,
       reportSlots: report,
       slotsPerMs,
-      // One transmitter in a sub-round, so the device count says nothing about the spacing and
-      // the slot length says all of it.
       fragGapSlots: slotsPerMs,
+      respOffsetSlots: 0,
       subRounds,
       slots: ranging + report,
       subRoundStart: start,
+      polls: control > 0 ? 1 : 0,
+      pollFor(responder) {
+        checkResponder(responder)
+        return 0
+      },
+      pollSlot(poll = 0) {
+        needControl('POLL')
+        if (poll !== 0) throw new Error(`mmsLayout: a non-interleaved round has one POLL, asked for ${poll}`)
+        return start(0)
+      },
       respSlot(responder) {
         needControl(`responder ${responder}'s RESP`)
         checkResponder(responder)
-        // No shared control phase to sit in: this responder's window is the head of its own
-        // sub-round, which under `reversedOrder` can be slot 0 of the whole round.
         return start(devOf('responder', responder))
       },
-      pollSlot() {
-        needControl('POLL')
-        return start(devOf('initiator', 0))
-      },
       fragmentSlot(side, kind, index, responder = 0) {
-        if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {
-          throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
-        }
+        checkIndex(kind, index)
         checkResponder(responder)
-        // The same millisecond arithmetic as interleaved — RSF-m at m, the RIFs at `rifStartMs`
-        // (§10.39.5) — counted in the sub-round's own slots per millisecond.
-        const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
-        return start(devOf(side, responder)) + win + slotsPerMs * ms
+        return start(devOf(side, responder)) + win + slotsPerMs * msOf(kind, index)
       },
       slotFragment(slot) {
         if (!Number.isInteger(slot) || slot < 0 || slot >= ranging) return null
         const off = slot % subRound
-        if (off < win) return null // the sub-round's own control window
-        // A fragment sits on a millisecond boundary of the phase; the slots between two of them
-        // belong to nobody, which is what `slotsPerMs` > 1 buys the regulator.
+        if (off < win) return null
         if ((off - win) % slotsPerMs !== 0) return null
-        const ms = (off - win) / slotsPerMs
-        const { side, responder } = sideOf((slot - off) / subRound)
-        if (ms < x) return { side, kind: 'rsf', index: ms, responder }
-        const firstRif = rifStartMs(x, z, 0)
-        if (y > 0 && ms >= firstRif && ms < firstRif + y) {
-          return { side, kind: 'rif', index: ms - firstRif, responder }
-        }
-        return null
+        const f = fragAtMs((off - win) / slotsPerMs)
+        if (!f) return null
+        const dev = (slot - off) / subRound
+        return dev === 0
+          ? { side: 'initiator', ...f, responder: 0 }
+          : { side: 'responder', ...f, responder: dev - 1 }
       },
       reportSlot(side, responder = 0) {
         checkResponder(responder)
-        // The report phase is the interleaved one, after the last sub-round: §10.39.7's figure
-        // marks it optional but does not move it. 4ab draft 15-25/0194r0
         return ranging + 2 * rwin * responder + (side === 'initiator' ? rwin : 0)
       },
     }
   }
-  const perMs = responders + 1
-  // The phase has to hold every fragment: the RSFs' X milliseconds, and — when the train has
-  // RIFs — up to the last one, which `rifStartMs` puts at X + Z − 1 + (Y − 1).
-  const rp = Math.max(MMS_RP_MIN_SLOTS, perMs * (y > 0 ? rifStartMs(x, z, y - 1) + 1 : x))
+
+  // Interleaved: R pairwise sub-rounds.
+  const gap = Math.max(2, slotsPerMs)
+  const off = Math.floor(gap / 2)
+  const rp = Math.max(MMS_RP_MIN_SLOTS, gap * trainMs)
+  const subRound = 2 * win + rp + 2 * rwin
+  const start = (i: number): number => {
+    if (!Number.isInteger(i) || i < 0 || i >= responders) {
+      throw new Error(`mmsLayout: this round has ${responders} sub-rounds, asked for ${i}`)
+    }
+    return i * subRound
+  }
   return {
     responders,
     windowSlots: win,
@@ -916,54 +706,44 @@ export function mmsLayout(phy: MmsPhy, responders = 1, slotsPerMs = MMS_SLOTS_PE
     rpSlots: rp,
     reportSlots: report,
     slotsPerMs,
-    // Interleaved, every device sends inside the same millisecond, so the millisecond is R + 1
-    // slots wide and the device count is what spaces one train's fragments. At R = 1 and the
-    // draft's 600 RSTU slot that is `slotsPerMs` and a true millisecond; above R = 1 it is longer,
-    // and no legal slot length brings it back.
-    fragGapSlots: perMs,
-    subRounds: 1,
-    slots: control + rp + report,
-    subRoundStart(i) {
-      if (i !== 0) throw new Error(`mmsLayout: an interleaved round is one sub-round, asked for ${i}`)
-      return 0
+    fragGapSlots: gap,
+    respOffsetSlots: off,
+    subRounds: responders,
+    slots: responders * subRound,
+    subRoundStart: start,
+    polls: control > 0 ? responders : 0,
+    pollFor(responder) {
+      checkResponder(responder)
+      return responder
+    },
+    pollSlot(poll = 0) {
+      needControl('POLL')
+      return start(poll)
     },
     respSlot(responder) {
       needControl(`responder ${responder}'s RESP`)
       checkResponder(responder)
-      return win * (1 + responder)
-    },
-    pollSlot() {
-      needControl('POLL')
-      return 0
+      return start(responder) + win
     },
     fragmentSlot(side, kind, index, responder = 0) {
-      if (!Number.isInteger(index) || index < 0 || index >= count(kind)) {
-        throw new Error(`mmsLayout: this train has ${count(kind)} ${kind.toUpperCase()} fragments, asked for ${index}`)
-      }
+      checkIndex(kind, index)
       checkResponder(responder)
-      // RSF-m starts m ms into the ranging phase; the RIFs follow `rifStartMs` (§10.39.5).
-      const ms = kind === 'rsf' ? index : rifStartMs(x, z, index)
-      return control + perMs * ms + (side === 'responder' ? 1 + responder : 0)
+      return start(responder) + 2 * win + gap * msOf(kind, index) + (side === 'responder' ? off : 0)
     },
     slotFragment(slot) {
-      if (!Number.isInteger(slot) || slot < control || slot >= control + rp) return null
-      const off = slot - control
-      // R + 1 slots to a millisecond: the initiator's, then the responders' in order — the same
-      // offset `fragmentSlot` adds, read the other way round.
-      const within = off % perMs
-      const side = within === 0 ? 'initiator' : 'responder'
-      const responder = within === 0 ? 0 : within - 1
-      const ms = (off - within) / perMs
-      if (ms < x) return { side, kind: 'rsf', index: ms, responder }
-      const firstRif = rifStartMs(x, z, 0)
-      if (y > 0 && ms >= firstRif && ms < firstRif + y) {
-        return { side, kind: 'rif', index: ms - firstRif, responder }
-      }
-      return null
+      if (!Number.isInteger(slot) || slot < 0 || slot >= responders * subRound) return null
+      const sub = Math.floor(slot / subRound)
+      const at = slot - sub * subRound - 2 * win
+      if (at < 0 || at >= rp) return null
+      const within = at % gap
+      const side = within === 0 ? 'initiator' : within === off ? 'responder' : null
+      if (side === null) return null
+      const f = fragAtMs((at - within) / gap)
+      return f ? { side, ...f, responder: sub } : null
     },
     reportSlot(side, responder = 0) {
       checkResponder(responder)
-      return control + rp + 2 * rwin * responder + (side === 'initiator' ? rwin : 0)
+      return start(responder) + 2 * win + rp + (side === 'initiator' ? rwin : 0)
     },
   }
 }

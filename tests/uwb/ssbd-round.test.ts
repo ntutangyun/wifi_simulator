@@ -3,12 +3,11 @@
  * clause; see `phy.ts`'s `ssbdBoundNs` and design doc
  * `docs/superpowers/specs/2026-10-03-ssbd-design.md` §0.1 for why it is tagged "draft").
  *
- * **What this slice replaces.** `ssbd` off, a busy narrowband reading is not a back-off at all:
- * `device.mms.ts#nbClear` sets the device's `nbSkipBlock`, and that device sends nothing
- * narrowband for the rest of a 200 ms ranging block — no POLL, no cycle, the block gone. The
- * first test below pins that behaviour, because it must not move. Every test after it is the
- * per-slot channel access §10.39.8.3 actually asks for: one of CSMA-CA or SSBD, run by initiator
- * and responder independently, **in every transmission slot**.
+ * **Both paths are per slot now** (2026-11-11, audit #19): `ssbd` off runs CSMA-CA (standard
+ * §6.3.2.1), `ssbd` on runs §10.45, and either one is applied by initiator and responder
+ * independently **in every transmission slot**, as §10.39.8.3 asks. (The engine used to latch a busy
+ * reading for the rest of the 200 ms block when `ssbd` was off.) Every CCA lasts phyCcaDuration,
+ * 128 µs (audit #20), so at the defaults `ssbdBoundNs` (788 µs) is longer than a POLL's window.
  *
  * **The instrument, said out loud.** A `Spectrum` with one Wi-Fi emission parked over the control
  * channel for the whole run, at an EIRP chosen so the two questions come apart:
@@ -35,7 +34,7 @@ import {
 } from '../../src/model/scenario'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  nbBand, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, NB_REPORT_BYTES, nbLbtRequired,
+  nbBand, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES, nbLbtRequired,
 } from '../../src/uwb/nb'
 import { nbSlotSlackNs, rstuNs, ssbdBoundNs, SSBD_BF_UNIT_MAX, UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 
@@ -149,117 +148,57 @@ function lesson(variant: 'pairwise' | 'noLbt', ssbd: Partial<UwbSsbdCfg> | null)
 
 /** The five fields at the draft's own defaults — what `ssbd: {}` parses to. */
 const DEFAULTS: UwbSsbdCfg = UwbMmsSchema.parse({ ...DEFAULT_UWB_SESSION.mms, ssbd: {} }).ssbd!
-/** The algorithm's own worst-case latency at those defaults: 74 µs, computed, never typed. */
+/** The algorithm's own worst-case latency at those defaults: 788 µs, computed, never typed. */
 const BOUND_NS = ssbdBoundNs(DEFAULTS)
 /** The room a POLL's own two-slot window leaves once the PPDU is paid for: 424 µs, computed. */
 const POLL_SLACK_NS = nbSlotSlackNs(SLOT_NS, NB_POLL_BYTES)
 
-/**
- * Every record but the SSBD ones, with the instant dropped and **grouped by the device it
- * belongs to** — "the same devices doing the same things in the same order, only later inside
- * their slots". The instants are compared separately, against a computed bound.
- *
- * Per node rather than one flat list, and that is a measured distinction rather than a
- * convenience: a transmission that moves `backoffNs` into its own window is still the same
- * transmission, but it now falls *after* the far end's listen window opened in that same slot
- * instead of before it. The two runs hold the same records, node for node and in each node's own
- * order; what the backoff reorders is only which of two devices appears first at one instant.
- */
-const shape = (rs: TLRecord[]): Record<string, unknown[]> => {
-  const by: Record<string, unknown[]> = {}
-  for (const r of rs) {
-    if (r.type === 'UWB_SSBD') continue
-    const { t, seq, ...rest } = r as { t: number; seq?: number; node?: string }
-    const key = rest.node ?? '—'
-    by[key] = [...(by[key] ?? []), rest as unknown]
-  }
-  return by
-}
-
 describe('SSBD over a round — standard §10.45 (draft)', () => {
-  it('still goes silent for the whole block when ssbd is off', () => {
-    // Two whole blocks and no more: block 2 would open exactly at 2 × 200 ms.
+  it('runs CSMA-CA in every slot when ssbd is off, instead of silencing the block', () => {
     const rs = run({ eirpDbm: BUSY_EIRP_DBM, runNs: 2 * BLOCK_NS - 1 })
     const lbt = of(rs, 'UWB_NB_LBT')
-    // One busy reading per device per block, and nothing per slot: the device stops asking.
-    expect(lbt.map((r) => [r.node, r.block])).toEqual([['tag-1', 0], ['tag-1', 1]])
     expect(of(rs, 'UWB_SSBD')).toEqual([])
-    for (const l of lbt) {
+    // Every pair round of both blocks tries its POLL again (no latch): three rounds a block.
+    for (const b of [0, 1]) {
+      const rounds = new Set(lbt.filter((r) => r.block === b).map((r) => r.round))
+      expect(rounds.size).toBe(3)
+    }
+    for (const l of lbt.filter((r) => r.outcome !== 'noRoom')) {
       expect(l.foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
       expect(l.thresholdDbm).toBe(NB_LBT_THRESHOLD_DBM)
-      // …and after it, no narrowband transmission of that node for the rest of its block.
-      const after = nbTx(rs, l.node).filter((x) => x.t > l.t && x.t < (l.block + 1) * BLOCK_NS)
-      expect(after).toEqual([])
     }
-    // The whole block is gone with the POLL, at both ends.
+    // The channel never clears, so every attempt ends without sending: no cycle, no range.
     expect(nbTx(rs)).toEqual([])
     expect(of(rs, 'UWB_RANGE')).toEqual([])
   })
 
   it('runs once per narrowband slot, not once per block', () => {
     const on = run({ eirpDbm: BUSY_EIRP_DBM, ssbd: {} })
-    const off = run({ eirpDbm: BUSY_EIRP_DBM })
-    // The per-block path is not taken at all: no UWB_NB_LBT, and the record it is replaced by
-    // appears once for every narrowband transmission the block really holds.
     expect(of(on, 'UWB_NB_LBT')).toEqual([])
     const recs = of(on, 'UWB_SSBD')
-    const tx = nbTx(on)
-    expect(tx.length).toBeGreaterThan(of(off, 'UWB_NB_LBT').length)
-    expect(recs).toHaveLength(tx.length)
-    // Each record is its own transmission's: same node, and the transmission follows it inside
-    // the algorithm's computed bound.
-    recs.forEach((r, i) => {
-      expect(r.node).toBe(tx[i].node)
-      expect(tx[i].t - r.t).toBeGreaterThanOrEqual(0)
-      expect(tx[i].t - r.t).toBeLessThanOrEqual(BOUND_NS)
-    })
-    // …and no two of one device's attempts share a slot of one round, while a round holds more
-    // than one of them — which is the whole of "per slot, not per block".
+    expect(recs.length).toBeGreaterThan(0)
+    // No two of one device's attempts share a slot of one round, and a block holds an attempt in
+    // every one of its rounds — which is the whole of "per slot, not per block".
     const perRound = new Map<string, number[]>()
     for (const r of recs) {
       const key = `${r.node}|${r.block}|${r.round}`
       perRound.set(key, [...(perRound.get(key) ?? []), r.slot])
     }
-    for (const [key, slots] of perRound) {
-      expect(new Set(slots).size, key).toBe(slots.length)
-    }
-    const tagRound = [...perRound].filter(([k]) => k.startsWith('tag-1|0|'))
-    expect(tagRound.length).toBeGreaterThan(1)
-    expect(Math.max(...tagRound.map(([, s]) => s.length))).toBeGreaterThan(1)
+    for (const [key, slots] of perRound) expect(new Set(slots).size, key).toBe(slots.length)
+    expect([...perRound.keys()].filter((k) => k.startsWith('tag-1|0|'))).toHaveLength(3)
   })
 
-  it('is the same transmissions as turning listen-before-talk off, at the defaults', () => {
-    // The lesson's first sentence: 74 µs cannot outwait anything, so the backoffs are exhausted
-    // and the default end action transmits regardless.
+  it('runs the window out at the defaults against a channel that never clears', () => {
+    // Six CCAs of 128 µs (maxBackoffs + 1) are more than a POLL's 424 µs of room: the attempt
+    // ends `noRoom` before the end action is ever reached, so nothing is sent — where with a
+    // 9 µs instantaneous CCA the defaults ran out of backoffs and transmitted anyway (TxOnEnd).
+    expect(BOUND_NS).toBeGreaterThan(POLL_SLACK_NS)
     const ssbd = run({ eirpDbm: BUSY_EIRP_DBM, ssbd: {} })
-    const noLbt = run({ eirpDbm: BUSY_EIRP_DBM, nbLbt: 'off' })
-    const lbtOn = run({ eirpDbm: BUSY_EIRP_DBM })
-    expect(shape(ssbd)).toEqual(shape(noLbt))
-    expect(shape(lbtOn)).not.toEqual(shape(noLbt))
-    // Nothing was prevented: no attempt ended in a channel-access failure, and the ones that did
-    // find the channel busy ran out of backoffs and transmitted anyway. Both outcomes appear
-    // because the CCA is each device's own reading at its own position — the emission is 1.4 m
-    // from the tag and 5.7 m from the far anchors, so the two ends of this round genuinely
-    // disagree about the channel, which is §10.39.8.3's "independently at initiator and
-    // responder" showing up as data.
     const outcomes = of(ssbd, 'UWB_SSBD')
-    expect(outcomes.filter((r) => r.outcome === 'failOnEnd')).toEqual([])
-    expect(outcomes.filter((r) => r.outcome === 'clamped')).toEqual([])
-    expect(outcomes.filter((r) => r.outcome === 'txOnEnd').length).toBeGreaterThan(0)
-    for (const r of outcomes.filter((x) => x.outcome === 'txOnEnd')) {
-      expect(r.nb).toBe(DEFAULTS.maxBackoffs)
-      expect(r.foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
-    }
-    // The one thing that did move is where inside its slot each message went out, and it moved
-    // by less than the algorithm's own bound.
-    const a = nbTx(ssbd)
-    const b = nbTx(noLbt)
-    expect(a).toHaveLength(b.length)
-    a.forEach((x, i) => {
-      expect(x.t - b[i].t).toBeGreaterThanOrEqual(0)
-      expect(x.t - b[i].t).toBeLessThanOrEqual(BOUND_NS)
-    })
-    expect(Math.max(...a.map((x, i) => x.t - b[i].t))).toBeGreaterThan(0)
+    expect([...new Set(outcomes.map((r) => r.outcome))]).toEqual(['noRoom'])
+    expect(nbTx(ssbd)).toEqual([])
+    // Not listening at all is what still ranges.
+    expect(of(run({ eirpDbm: BUSY_EIRP_DBM, nbLbt: 'off' }), 'UWB_RANGE').length).toBeGreaterThan(0)
   })
 
   it('moves the transmission inside its slot as the backoff unit rises', () => {
@@ -314,37 +253,21 @@ describe('SSBD over a round — standard §10.45 (draft)', () => {
     for (const r of of(rs, 'UWB_SSBD')) expect(r.backoffNs).toBeLessThanOrEqual(POLL_SLACK_NS)
   })
 
-  it('still loses to the longest Wi-Fi frame in the scene', () => {
-    // The coexistence scene itself, not the synthetic emission: a Wi-Fi 7 router and a saturated
-    // laptop on 6 GHz channel 71, with the control channel inside their 80 MHz, over 1.3 s.
+  // 2026-11-11 (audit #19, #20): in the coexistence scene every CCA averages the router's traffic
+  // over 128 µs and reads busy; the window runs out before any end action, with SSBD or CSMA-CA.
+  it('still loses to the router in the coexistence scene, whatever the backoff', () => {
     const BF = 7
     const biggest = Math.floor(POLL_SLACK_NS / US / BF)
     const off = lesson('noLbt', null)
-    const perBlock = lesson('pairwise', null)
+    const csma = lesson('pairwise', null)
     const defaults = lesson('pairwise', {})
     const maxWait = lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest })
     const ranges = (rs: TLRecord[]): number => of(rs, 'UWB_RANGE').length
-    // What the per-block rule costs, which is what this slice replaces: almost every cycle.
-    expect(ranges(perBlock)).toBeLessThan(ranges(off) / 10)
-    // At the defaults SSBD recovers them — because it defers nothing it cannot outwait and the
-    // end action transmits regardless, which is the same thing as not listening.
-    expect(ranges(defaults)).toBeGreaterThan(ranges(perBlock) * 10)
-    expect(Math.abs(ranges(defaults) - ranges(off))).toBeLessThan(ranges(off) / 10)
-    // And the biggest backoff that fits its own window does **not** improve on that. It is paid
-    // inside the window the message still has to fit in, so the message goes out at the end of
-    // its window instead of the start — against a neighbour whose longest frame is longer than
-    // the whole window's room.
-    const longest = Math.max(...of(off, 'TX_START')
-      .filter((r) => r.frame.kind === 'data').map((r) => r.frame.txTimeNs))
-    expect(longest).toBeGreaterThan(POLL_SLACK_NS)
-    expect(longest).toBeGreaterThan(BF * biggest * US)
-    expect(ranges(maxWait)).toBeLessThanOrEqual(ranges(off))
-    expect(ranges(maxWait)).toBeLessThan(ranges(defaults))
-    // …and a backoff sized for the POLL's window does not even fit the REPORT's, the REPORT being
-    // the longer message of the two: 392 µs of room against 424 µs, both computed.
-    const clamped = of(maxWait, 'UWB_SSBD').filter((r) => r.outcome === 'clamped')
-    expect(clamped.length).toBeGreaterThan(0)
-    expect(BF * biggest * US).toBeGreaterThan(nbSlotSlackNs(SLOT_NS, NB_REPORT_BYTES))
+    expect(ranges(off)).toBeGreaterThan(0)
+    expect([ranges(csma), ranges(defaults), ranges(maxWait)]).toEqual([0, 0, 0])
+    expect(new Set(of(defaults, 'UWB_SSBD').map((r) => r.outcome))).toEqual(new Set(['noRoom']))
+    // the biggest backoff that fits the POLL's window is still clamped against the room CCAs leave
+    expect(of(maxWait, 'UWB_SSBD').filter((r) => r.outcome === 'clamped').length).toBeGreaterThan(0)
   })
 
   it('leaves UWB_RANGE field-for-field identical when the channel is always clear', () => {
@@ -376,15 +299,13 @@ describe('SSBD over a round — standard §10.45 (draft)', () => {
   })
 
   it('reports a channel-access failure, and sends nothing, when the end action is FailOnEnd', () => {
-    const fail = run({ eirpDbm: BUSY_EIRP_DBM, ssbd: { txOnEnd: false } })
+    // maxBackoffs 1: two 128 µs CCAs fit the POLL's window, so the end action is reached.
+    const fail = run({ eirpDbm: BUSY_EIRP_DBM, ssbd: { txOnEnd: false, maxBackoffs: 1 } })
     const recs = of(fail, 'UWB_SSBD')
     expect(recs.length).toBeGreaterThan(0)
     expect([...new Set(recs.map((r) => r.outcome))]).toEqual(['failOnEnd'])
     expect(nbTx(fail)).toEqual([])
-    // …and it is still not the per-block path: that one asks once a block, this one asks in
-    // every slot it had a message for.
     expect(of(fail, 'UWB_NB_LBT')).toEqual([])
-    expect(recs.length).toBeGreaterThan(of(run({ eirpDbm: BUSY_EIRP_DBM }), 'UWB_NB_LBT').length)
   })
 
   it('sends no UWB_SSBD at all when ssbd is null', () => {

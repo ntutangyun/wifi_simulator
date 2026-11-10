@@ -191,8 +191,10 @@ describe('uwb-capstone · ③ every figure the labs print is the run', () => {
     expect(count(V_FAST, 'UWB_TIMEOUT')).toBe(2 * count(undefined, 'UWB_TIMEOUT'))
     expect(count(V_FAST, 'UWB_INTERFERED')).toBe(2 * count(undefined, 'UWB_INTERFERED'))
     expect(e).toContain('恰好翻倍')
-    expect(Math.floor(onAir(V_OTM).n / onAir().n)).toBe(6)
-    expect(e).toContain('六倍以上')
+    // 2026-11-11 (audit #22): the one-to-many round is a sub-round per anchor, the tag's train sent once
+    // to each — nine times the transmissions, where the shared-train round was six.
+    expect(Math.floor(onAir(V_OTM).n / onAir().n)).toBe(9)
+    expect(e).toContain('九倍以上')
     // every fix that is not a three-range fix is one anchor's range plus its bearing
     for (const v of [undefined, V_FAR, V_FAST]) {
       expect(ofType(recs(v), 'UWB_POSITION').filter((f) => f.anchors.length !== 3).every((f) => f.method === 'aoa' && f.anchors.length === 1), String(v)).toBe(true)

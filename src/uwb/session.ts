@@ -200,19 +200,12 @@ export interface MmsRoundPlan {
    * readings of the spacing (the slots the fragments are placed in, and the ruler the receiver
    * measures with) have to be the same reading.
    *
-   * An interleaved round spaces them (R + 1) slots, the width of one "millisecond" of its shared
-   * ranging phase. A true millisecond (`MS_NS`) is the **pairwise round at the draft's 600 RSTU
-   * slot** — which every shipped scene runs — and nothing else: an MMS slot must be a multiple of
-   * 300 RSTU and two of them must hold the 608.2 µs REPORT, so 600 RSTU is the shortest legal slot
-   * and no legal slot makes (R + 1) of them a millisecond for R > 1. A one-to-many interleaved
-   * round's fragments are therefore always further apart than the draft's millisecond, and the
-   * answer is to say so rather than to look for a slot that fixes it.
-   *
-   * A non-interleaved round has one transmitter per sub-round, so the device count drops out and
-   * the gap is a millisecond's worth of slots whatever R is — the one thing that shape is better
-   * at. It is never *less* than a millisecond either, which matters: the gap is what earns a
-   * fragment its millisecond of regulatory energy budget, and half the gap would be twice the
-   * permitted mean power.
+   * A millisecond at the draft's 600 RSTU slot, in every round shape: interleaved, each responder
+   * has a sub-round of its own and its fragment sits 500 µs after the initiator's
+   * (`MmsLayout.respOffsetSlots`); non-interleaved, one transmitter to a sub-round. 2026-11-11
+   * (audit #22): a one-to-many interleaved round used to space them (R + 1) slots. It is never
+   * *less* than a millisecond, which matters: the gap is what earns a fragment its millisecond of
+   * regulatory energy budget, and half the gap would be twice the permitted mean power.
    *
    * The receiver measures its clock ratio and walks its RMARKER back over *this* span rather
    * than over the nominal millisecond, because this is the span the schedule really produced —
@@ -234,9 +227,8 @@ export interface MmsRoundPlan {
    * narrowband radio and listen-before-talk to run it against.
    *
    * Copied, not referenced — the same reason `srrr` above is: a plan outlives the scenario object
-   * it was built from. No device reads this field yet; `nbClear`'s per-block discontinuation
-   * (`src/uwb/device.mms.ts`) is still the only narrowband listen-before-talk path, and replacing
-   * it with SSBD's own per-slot algorithm is a later task's own work.
+   * it was built from. `device.mms.ts#nbAccess` reads it: SSBD when set, CSMA-CA otherwise — both
+   * per transmission slot (4ab draft §10.39.8.3).
    */
   ssbd: UwbSsbdCfg | null
 }
@@ -382,14 +374,16 @@ export type SlotAction =
   | { kind: 'uwbM2m'; tx: 'peer'; phase: 'init' | 'resp' | 'final'; index: number }
   // P802.15.4ab, the pairwise MMS cycle. The pair's anchor is always `anchor: 0` — a pair round
   // holds exactly one responder, and the network is what maps round t·A + k to anchor k.
-  | { kind: 'nbPoll'; tx: 'tag' }
+  // `anchor` on a POLL: the responder whose sub-round it opens, set only past the first sub-round
+  // of an interleaved one-to-many round (15-25/0213r2).
+  | { kind: 'nbPoll'; tx: 'tag'; anchor?: number }
   | { kind: 'nbResp'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbRsf' | 'uwbRif'; tx: 'tag' | 'anchor'; anchor: number; index: number }
   | { kind: 'nbReport'; tx: 'tag' | 'anchor'; anchor: number }
   // …and the same three messages under Config 1, which has no narrowband radio: one SP0 packet
   // format on the UWB PHY, with the role that names it. The slot is the same slot — it is the
   // radio underneath that changed. 4ab draft 15-25/0194r0
-  | { kind: 'uwbSp0'; role: 'poll'; tx: 'tag' }
+  | { kind: 'uwbSp0'; role: 'poll'; tx: 'tag'; anchor?: number }
   | { kind: 'uwbSp0'; role: 'resp'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbSp0'; role: 'report'; tx: 'tag' | 'anchor'; anchor: number }
   /** Nobody transmits: the second slot of each two-slot narrowband window, a ranging slot the
@@ -843,8 +837,12 @@ function mmsSlotAction(p: RoundPlan, slot: number): SlotAction {
   // and no RESP window at all, so the layout is not asked where they are. The ranging packet's
   // own leading SYNC+SFD fragment is doing their work, and it is a fragment slot like any other.
   if (layout.controlSlots > 0) {
-    if (slot === layout.pollSlot()) {
-      return sp0 ? { kind: 'uwbSp0', role: 'poll', tx: 'tag' } : { kind: 'nbPoll', tx: 'tag' }
+    // One POLL per sub-round in an interleaved one-to-many round (15-25/0213r2, CID 474); `anchor`
+    // names the sub-round's responder, and is left off the first so a pair round's action is as it was.
+    for (let k = 0; k < layout.polls; k++) {
+      if (slot !== layout.pollSlot(k)) continue
+      const which = k === 0 ? {} : { anchor: k }
+      return sp0 ? { kind: 'uwbSp0', role: 'poll', tx: 'tag', ...which } : { kind: 'nbPoll', tx: 'tag', ...which }
     }
     for (let k = 0; k < layout.responders; k++) {
       if (slot === layout.respSlot(k)) {

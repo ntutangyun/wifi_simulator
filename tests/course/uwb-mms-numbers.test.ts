@@ -5,7 +5,7 @@
  * 802.15.4-2024 each point comes from, and says the proposals leave the combining, the verdict
  * and the clock-ratio estimate open; ② labels each of those as the simulator's own and is checked
  * against the engine's exports; ③'s figures — the six-step budget, the three trains, the clock
- * ratio over 14 ms and the split of the 19.57 dB — are read back out of the lesson and compared
+ * ratio over 7 ms and the split of the 19.57 dB — are read back out of the lesson and compared
  * with a run, so a figure edited without the engine agreeing turns this red.
  */
 import { describe, expect, it } from 'vitest'
@@ -184,9 +184,11 @@ describe('uwb-mms-numbers · ③ every figure the labs print is the run', () => 
     expect(Math.round(firstTrains('rsf1')[0].marginDb)).toBe(6)
   })
 
-  it('lab 3: the ratio over 14 ms, and what it leaves on a 0.5 ms reply', () => {
-    const l = lab('十四毫秒跨度上的时钟比值')
-    expect(plan.mms!.fragGapNs).toBe(2 * MS)
+  // 2026-11-11 (audit #22): the one-to-many round spaces fragments 1 ms apart (a sub-round per
+  // responder), so the span is 7 ms, not 14.
+  it('lab 3: the ratio over 7 ms, and what it leaves on a 0.5 ms reply', () => {
+    const l = lab('七毫秒跨度上的时钟比值')
+    expect(plan.mms!.fragGapNs).toBe(MS)
     const note = blockOf(l, 'formula', '比值与它的不确定度（本仿真器的取法）').note!
     expect(note).toContain(`相隔 ${plan.mms!.fragGapNs / MS} ms`)
     expect(note).toContain(`是 ${SPAN_MS} ms`)
@@ -195,7 +197,7 @@ describe('uwb-mms-numbers · ③ every figure the labs print is the run', () => 
     const rows = blockOf(l, 'table', '这个比值用于 0.5 ms 的回复').rows
     const ts = firstTrains('base')
     expect(rows[0][1]).toBe(`${ts.map((t) => t.ratioPpm!.toFixed(3)).join(', ')} ppm`)
-    for (const t of ts) expect(Math.abs(t.ratioPpm! - (TAG_POS.ppm - MMS_ANCHORS.find((a) => a.id === t.peer)!.ppm))).toBeLessThan(0.02)
+    for (const t of ts) expect(Math.abs(t.ratioPpm! - (TAG_POS.ppm - MMS_ANCHORS.find((a) => a.id === t.peer)!.ppm))).toBeLessThan(0.04)
     // the reply really is half a millisecond
     const reply = ofType(recs('base'), 'TX_START').map((r) => r.frame.uwb?.nb?.replyRctu).find((x) => x !== undefined)!
     expect((reply * RCTU_NS / MS).toFixed(3)).toBe('0.500')

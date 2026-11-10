@@ -7,7 +7,7 @@
  * correction of §10.29.1.2.2 — and that none of the proposals says how a receiver combines a
  * train or estimates a clock ratio from it; ② the simulator's own budget, combining rule,
  * threshold and ratio estimate, each labelled for what it is; ③ four guided runs: one fragment's
- * budget item by item, three trains in one room, the clock ratio over a 14 ms span, and the
+ * budget item by item, three trains in one room, the clock ratio over a 7 ms span, and the
  * honest split of the 19.57 dB a train beats a 4z poll by.
  *
  * It loads exactly the scene `uwb-mms` loads, so the split adds no new scenario. Every figure the
@@ -21,7 +21,7 @@ export const uwbMmsNumbers: Lesson = {
   id: 'uwb-mms-numbers',
   module: 28,
   title: '片段、预算，和那 12 dB',
-  why: '多毫秒（multi-millisecond, MMS）测距的链路预算可以逐项算清。法规按一毫秒平均限制超宽带（ultra-wideband, UWB）发射，于是一毫秒里只有 37 nJ 的能量；一个片段（fragment）只有 82.051 µs，把这 37 nJ 集中在其中，功率就是 −3.46 dBm。提案给出了片段的构成与可选的参数集（parameter set），但没有规定接收机怎样合并一串片段，也没有规定怎样由它估计时钟；这两步都是本仿真器的取法：理想的合成增益（combining gain）为 10·log10(片段数)，余量不为负即判为检出。在本课的房间里，每个片段到达时是 −100.26 dBm，八个片段合起来是 −91.23 dBm，比 −93 dBm 的灵敏度（sensitivity）高 1.77 dB；四个片段只差 3.01 dB，余量变为负值，整段运行一次测距也没有。一串片段跨越 14 ms，接收方用它测得两块晶振（crystal）之间的时钟比值（clock ratio），以百万分之几（parts per million, ppm）计，残余误差只有 0.0101 ppm，所以单边测距不必再做第二次往返。一串片段比一帧普通 Poll 强 19.57 dB，其中只有 9.03 dB 来自合成增益，其余 10.54 dB 来自发射功率（transmit power）：片段更短，以及本仿真器的 4z 发射机没有用满它的能量额度。',
+  why: '多毫秒（multi-millisecond, MMS）测距的链路预算可以逐项算清。法规按一毫秒平均限制超宽带（ultra-wideband, UWB）发射，于是一毫秒里只有 37 nJ 的能量；一个片段（fragment）只有 82.051 µs，把这 37 nJ 集中在其中，功率就是 −3.46 dBm。提案给出了片段的构成与可选的参数集（parameter set），但没有规定接收机怎样合并一串片段，也没有规定怎样由它估计时钟；这两步都是本仿真器的取法：理想的合成增益（combining gain）为 10·log10(片段数)，余量不为负即判为检出。在本课的房间里，每个片段到达时是 −100.26 dBm，八个片段合起来是 −91.23 dBm，比 −93 dBm 的灵敏度（sensitivity）高 1.77 dB；四个片段只差 3.01 dB，余量变为负值，整段运行一次测距也没有。一串片段跨越 7 ms，接收方用它测得两块晶振（crystal）之间的时钟比值（clock ratio），以百万分之几（parts per million, ppm）计，残余误差只有 0.0202 ppm，所以单边测距不必再做第二次往返。一串片段比一帧普通 Poll 强 19.57 dB，其中只有 9.03 dB 来自合成增益，其余 10.54 dB 来自发射功率（transmit power）：片段更短，以及本仿真器的 4z 发射机没有用满它的能量额度。',
   outcomes: [
     '分清预算中哪些数来自法规与提案，哪些是本仿真器的取值或取法',
     '算出一串片段合成后的电平与余量，并说明片段数减半为什么使整个房间测不到距离',
@@ -98,24 +98,24 @@ export const uwbMmsNumbers: Lesson = {
       meaning: '片段数与参数集出自提案（①）；「差一点就一个也测不到」来自本仿真器的硬判决（②）。',
     },
     {
-      heading: '十四毫秒跨度上的时钟比值',
+      heading: '七毫秒跨度上的时钟比值',
       jump: 1,
       steps: [
         '在判定记录里读出标签测得的比值，与设定的晶振对照。',
         '对照下表，看这个比值用于 0.5 ms 的回复时延后还剩多少误差。',
       ],
       blocks: [
-        { kind: 'formula', heading: '比值与它的不确定度（本仿真器的取法）', text: '比值 = 实测跨度 / ((j − i) × 间隔)      σ = √2 · σ_ts / ((j − i) × 间隔)', note: '这一轮里同一台设备的片段相隔 2 ms，从第一个片段到第八个是 14 ms；σ_ts = 100 ps 时，σ = 0.0101 ppm。' },
+        { kind: 'formula', heading: '比值与它的不确定度（本仿真器的取法）', text: '比值 = 实测跨度 / ((j − i) × 间隔)      σ = √2 · σ_ts / ((j − i) × 间隔)', note: '这一轮里同一台设备的片段相隔 1 ms，从第一个片段到第八个是 7 ms；σ_ts = 100 ps 时，σ = 0.0202 ppm。' },
         { kind: 'table', heading: '这个比值用于 0.5 ms 的回复', head: ['修正方式', '剩余误差'], rows: [
-          ['第 0 轮测得，真值为 40 / 20 / 10 ppm', '39.985, 19.996, 9.984 ppm'],
+          ['第 0 轮测得，真值为 40 / 20 / 10 ppm', '39.970, 19.992, 9.967 ppm'],
           ['不修正，相差 40 ppm', '3.00 m'],
           ['一块晶振偏到 ±20 ppm 的极限', '1.5 m'],
           ['4z 的载波估计，残差 0.2 ppm', '1.5 cm'],
-          ['这一串的 0.0101 ppm', '0.76 mm'],
+          ['这一串的 0.0202 ppm', '1.51 mm'],
           ['两个接收时间戳带来的下限，21 次测距的均方根', '2.10 cm'],
         ] },
       ],
-      expect: '三个比值与真值相差都在 0.02 ppm 以内；用于半毫秒的回复后只留下 0.76 mm，远小于两个接收时间戳本身带来的 2.10 cm。',
+      expect: '三个比值与真值相差都在 0.04 ppm 以内；用于半毫秒的回复后只留下 1.51 mm，远小于两个接收时间戳本身带来的 2.10 cm。',
       meaning: '用测得的时钟偏差修正 Treply 是标准给出的做法（①，§10.29.1.2.2）；用整串片段的跨度去测，是本仿真器的取法（②）。',
     },
     {

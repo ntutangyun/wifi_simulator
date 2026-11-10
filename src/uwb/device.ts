@@ -495,12 +495,6 @@ export class UwbDevice implements UwbRadio {
   /** The round set `attemptsUsed` belongs to, as `setKey` writes it; '' before the first draw. */
   private attemptsSet = ''
   /**
-   * P802.15.4ab: the ranging block this device found the narrowband channel busy in, or null.
-   * The draft's listen-before-talk rule is not per frame but per block — a busy check stops
-   * every narrowband transmission until the next block — and that is what this remembers.
-   */
-  nbSkipBlock: number | null = null
-  /**
    * standard §10.45's own random stream (a P802.15.4ab **draft** clause — see `phy.ts`'s
    * `ssbdBoundNs`), forked from this device's stream on the first backoff it draws.
    *
