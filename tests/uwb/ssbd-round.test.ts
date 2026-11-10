@@ -327,9 +327,19 @@ describe('SSBD over a round — standard §10.45 (draft)', () => {
     // What the per-block rule costs, which is what this slice replaces: almost every cycle.
     expect(ranges(perBlock)).toBeLessThan(ranges(off) / 10)
     // At the defaults SSBD recovers them — because it defers nothing it cannot outwait and the
-    // end action transmits regardless, which is the same thing as not listening.
+    // end action transmits regardless, which is the same thing as not listening: every POLL and
+    // RESPONSE the session schedules goes out, exactly as with listening off.
+    //
+    // 2026-11-11: this used to read |defaults − off| < off / 10 (50 against 47). Since the access
+    // point keeps the MPDUs of an A-MPDU that passed their FCS and answers with a BlockAck
+    // (IEEE Std 802.11-2024 §10.12, §9.7), the BlockAck lands in the tag's narrowband reception
+    // and both runs lose most rounds: 12 with SSBD, 8 without. Which receptions that BlockAck
+    // spoils depends on where each message sits in its slot (SSBD moves it by up to its backoff),
+    // so the claim is the structural one — no message withheld — and SSBD not below no-listening.
     expect(ranges(defaults)).toBeGreaterThan(ranges(perBlock) * 10)
-    expect(Math.abs(ranges(defaults) - ranges(off))).toBeLessThan(ranges(off) / 10)
+    const sentOf = (rs: TLRecord[], kind: string): number => of(rs, 'TX_START').filter((r) => r.frame.kind === kind).length
+    for (const kind of ['nbPoll', 'nbResp']) expect(sentOf(defaults, kind), kind).toBe(sentOf(off, kind))
+    expect(ranges(defaults)).toBeGreaterThanOrEqual(ranges(off))
     // And the biggest backoff that fits its own window does **not** improve on that. It is paid
     // inside the window the message still has to fit in, so the message goes out at the end of
     // its window instead of the start — against a neighbour whose longest frame is longer than

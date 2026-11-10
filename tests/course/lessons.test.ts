@@ -84,31 +84,27 @@ describe('jump targets occur in their lesson simulations', () => {
     expect(rts.some((r) => r.type === 'TX_START' && r.frame.kind === 'rts')).toBe(true)
   })
 
-  it('txop-protect: boundary protection cuts collisions and drops versus the single-protection variant', () => {
+  it('txop-protect: single protection (Acks relaying each next exchange) collides less than multiple protection here', () => {
+    // 2026-11-11 (W7a): the scene's base is multiple protection, the variant single protection —
+    // §9.2.5.2's two classes. With every Ack relaying its data frame's Duration (§9.2.5.6), the
+    // hidden station is kept quiet exchange by exchange under single protection, and in this
+    // hallway that beats one reservation to the TXOP end followed by a CF-End.
     const lesson = LESSONS.find((l) => l.id === 'txop-protect')!
-    const prot = recordsFor(lesson.scenario(), 300)
+    const multiple = recordsFor(lesson.scenario(), 300)
     const single = recordsFor(lesson.variants![0].scenario(), 300)
     const count = (recs: TLRecord[], type: TLRecord['type']) => recs.filter((r) => r.type === type).length
-    // Both variants protect the first exchange (the lesson's RTS threshold is 500 B, below the
-    // 1500-byte frames), so what boundary protection adds is reach, not the RTS itself: it
-    // roughly halves the collisions and trebles the deliveries.
-    expect(count(single, 'COLLISION')).toBeGreaterThan(2 * count(prot, 'COLLISION'))
-    expect(count(prot, 'DROP')).toBeLessThan(count(single, 'DROP'))
-    expect(count(single, 'DROP')).toBeGreaterThan(0)
+    expect(count(multiple, 'COLLISION')).toBeGreaterThan(2 * count(single, 'COLLISION'))
     const delivered = (recs: TLRecord[]) =>
       recs.filter((r) => r.type === 'RX_OK' && r.node === 'ap' && r.frame.kind === 'data').length
-    expect(delivered(prot)).toBeGreaterThan(2.5 * delivered(single))
-    // the AP relays every CF-End a station sends. A CF-End near the tail of
-    // the 300 ms window has its AP relay land microseconds after the cutoff
-    // (frame lengths now vary slightly with rate adaptation), so this specific
-    // check runs a hair longer to avoid counting a truncated last relay as a
-    // dropped one.
-    const protForCf = recordsFor(lesson.scenario(), 350)
-    const cf = protForCf.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'cfend')
+    expect(delivered(single)).toBeGreaterThan(1.5 * delivered(multiple))
+    // the AP relays every CF-End a station sends (run a hair longer so a relay landing just
+    // after 300 ms is not counted as dropped)
+    const forCf = recordsFor(lesson.scenario(), 350)
+    const cf = forCf.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'cfend')
+    expect(cf.length).toBeGreaterThan(0)
     expect(cf.filter((r) => r.node === 'ap').length).toBe(cf.filter((r) => r.node !== 'ap').length)
-    // the multiple-protection variant puts the TXOP remainder on data frames
-    const multi = recordsFor(lesson.variants![1].scenario(), 100)
-    expect(multi.some((r) => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.durationFieldNs > 500_000)).toBe(true)
+    // multiple protection puts the TXOP remainder on data frames
+    expect(multiple.some((r) => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.durationFieldNs > 500_000)).toBe(true)
   })
 
   it('hidden: the stations are genuinely hidden from each other', () => {

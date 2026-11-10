@@ -189,13 +189,24 @@ describe('frame-anatomy · ② says what the engine does, and the engine does it
     expect(Number.isInteger(legacy.frame.durationFieldNs)).toBe(true)
   })
 
-  it('Address 3 is always the AP in the field view', () => {
-    expect(implRow('地址 3').kind).toBe('differs')
-    for (const r of txs.filter((x) => x.frame.kind === 'data' && x.frame.ampdu === undefined)) {
-      expect(field(firstMpdu(r.frame), 'addr3').node).toBe('ap')
+  // 2026-11-11 (W7a): this pinned an Address 3 that was always the AP. It now pins Table 9-60:
+  // the DA when To DS is 1, the SA when From DS is 1 (§9.3.2.1).
+  it('Address 3 is Table 9-60\'s: the DA going up, the SA coming down', () => {
+    expect(implRow('地址 3').kind).toBe('faithful')
+    let n = 0
+    for (const r of txs.filter((x) => x.frame.kind === 'data')) {
+      for (const [i, sf] of decode(r.frame).users[0].subframes.entries()) {
+        const h = r.frame.mpdus?.[i]
+        const a3 = field(sf.mpdu, 'addr3')
+        if (r.frame.dst === 'ap') expect([a3.node, a3.roles]).toEqual([h?.da ?? 'ap', ['DA']])
+        else expect([a3.node, a3.roles]).toEqual([h?.sa ?? 'ap', ['SA']])
+        n++
+      }
     }
-    // the old laptop's traffic ends at the AP, so on this frame the two agree
+    expect(n).toBeGreaterThan(100)
+    // the old laptop's traffic ends at the AP, so on this frame Address 3 is the router
     expect(legacy.frame.dst).toBe('ap')
+    expect(field(firstMpdu(legacy.frame), 'addr3').node).toBe('ap')
   })
 
   it('no fourth address and no management frame', () => {
@@ -205,20 +216,33 @@ describe('frame-anatomy · ② says what the engine does, and the engine does it
     for (const r of txs) expect(['data', 'ack', 'rts', 'cts', 'ba']).toContain(r.frame.kind)
   })
 
-  it('one counter per peer and access category, modulo 4096', () => {
-    expect(implRow('序号计数器').kind).toBe('differs')
+  // 2026-11-11 (W7a): this pinned one counter per peer and access category. It now pins Table 10-5:
+  // one modulo-4096 counter per <Address 1, TID> for QoS Data, one baseline counter for the rest.
+  it('sequence numbers: one counter per <Address 1, TID> for QoS Data, one baseline counter otherwise', () => {
+    expect(implRow('序号计数器').kind).toBe('faithful')
     const src = readFileSync(new URL('../../src/engine/queues.ts', import.meta.url), 'utf8')
-    expect(src).toContain('const key = `${dst}|${ac}`')
+    expect(src).toContain("const key = tid === null ? 'baseline' : `${dst}|${tid}`")
     expect(src).toContain('(n + 1) % 4096')
+    // the old laptop sends plain Data: its first transmissions number 0, 1, 2 … off the one counter
+    const firsts = txs.filter((r) => r.frame.kind === 'data' && r.frame.src === 'sta-1' && !r.frame.retryFlag).map((r) => r.frame.seqNo)
+    expect(firsts.length).toBeGreaterThan(5)
+    expect(firsts).toEqual(firsts.map((_, i) => i))
   })
 
-  it('a retransmission keeps its number and sets the Retry bit; duplicates are filtered by msdu id', () => {
+  // 2026-11-11 (W7a): this pinned duplicate filtering by the engine's own MSDU id. It now pins
+  // §10.3.2.14.3: a cache by <TA, TID, SN>, consulted when the Retry bit is 1.
+  it('a retransmission keeps its number and sets the Retry bit; duplicates are filtered by <TA, TID, SN>', () => {
     expect(implRow('重发时的序号').kind).toBe('faithful')
-    expect(implRow('重复帧的识别').kind).toBe('differs')
+    expect(implRow('重复帧的识别').kind).toBe('faithful')
     expect(retry.frame.seqNo).toBe(orig.frame.seqNo)
     expect(bitOf(firstMpdu(retry.frame), 'retry')).toBe('1')
+    const q = readFileSync(new URL('../../src/engine/queues.ts', import.meta.url), 'utf8')
+    expect(q).toContain('rxDuplicate(ta: string, tid: number | null, sn: number, retry: boolean): boolean')
+    expect(q).toContain('if (retry && seen.includes(sn)) return true')
+    const [keep] = (implRow('重复帧的识别').sim.match(/保留最近 (\d+) 个序号/) ?? []).slice(1).map(Number)
+    expect(q).toContain(`if (seen.length > ${keep}) seen.shift()`)
     const mac = readFileSync(new URL('../../src/engine/mac.ts', import.meta.url), 'utf8')
-    expect(mac).toContain('private noteDelivered(id: number): boolean')
+    expect(mac).toContain('this.queues.rxDuplicate(from, tid, h.sn, h.retry)')
   })
 })
 
@@ -327,6 +351,8 @@ describe('frame-anatomy · every figure the lesson prints is one this file measu
       '0', '1', '00', '01', '10', '11', '0000', '1000', '1011', '1100', '1101', '1001', '4', '12', '4096', '32', '767', '48',
       // the address numbers, and lab 3's coordinates
       '3', '5',
+      // the duplicate cache's depth, read back out of src/engine/queues.ts in ②'s test
+      '64',
     ])
     const stray: string[] = []
     for (const s of readerTexts(frameAnatomy)) {

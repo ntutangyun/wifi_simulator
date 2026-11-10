@@ -8,8 +8,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  airtime, exchangeTiming, giNumbers, ACK_US, DATA_US, EXCHANGE_US, PREAMBLE_US, SIFS_US,
+  airtime, exchangeTiming, giNumbers, ACK_US, APEP_BYTES, DATA_US, EXCHANGE_US, PREAMBLE_US, SIFS_US,
 } from '../../src/course/tier1/airtime'
+import { psduLengthFor } from '../../src/model/frames'
+import { decodeFrame } from '../../src/model/frameFields'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import type { TimingSpec } from '../../src/course/diagram'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
@@ -17,7 +19,7 @@ import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import {
-  MANDATORY_MBPS, NONHT_REF_MBPS, PHY_MODES, RATES, SIFS_NS, TGI_NS, ctrlRespRateFor, ctrlRespRateForMode,
+  AMPDU_DELIMITER_BYTES, MANDATORY_MBPS, NONHT_REF_MBPS, PHY_MODES, RATES, SIFS_NS, TGI_NS, ctrlRespRateFor, ctrlRespRateForMode,
   mcsRateMbps, preambleNsFor, symNsFor, txTimeModeNs, txTimeNs,
 } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
@@ -135,6 +137,29 @@ describe('airtime · ② says what the engine does, and the engine does it', () 
     expect(implRow('四倍保护间隔的前导码部分').standard).toContain(`${(36 + 12.8 + 3.2).toFixed(1)} µs`)
   })
 
+  // 2026-11-11 (W7a): an HE PSDU is always an A-MPDU (§9.7.3, §10.12.5); one MPDU goes out as an
+  // S-MPDU with a 4-octet delimiter (§10.12.7), the symbols are counted from APEP_LENGTH and the EOF
+  // padding fills the last one (§10.12.6). This used to price the bare 1430-octet MPDU.
+  it('one MPDU is an S-MPDU: APEP_LENGTH 1434 sets the six symbols, the EOF padding makes 1459', () => {
+    const f = txs('data')[0]!.frame
+    expect(f.smpdu).toBe(true)
+    expect(f.apepBytes).toBe(APEP_BYTES)
+    const mpdu = APEP_BYTES - AMPDU_DELIMITER_BYTES
+    expect(f.bytes).toBe(psduLengthFor(APEP_BYTES, PHY_MODES.he.ndbps[11]!))
+    expect(f.txTimeNs).toBe(txTimeModeNs('he', APEP_BYTES, 11))
+    const u = decodeFrame(f, { apId: 'ap', isEdca: true }).users[0]!
+    expect(u.subframes).toHaveLength(1)
+    expect(u.subframes[0]!.eof).toBe(true)
+    expect(u.subframes[0]!.mpdu.bytes).toBe(mpdu)
+    expect(u.bytes).toBe(f.bytes)
+    const sim = implRow('数据符号的个数').sim
+    expect(sim).toContain(`字节数照 ① 取 APEP_LENGTH：${mpdu} 字节的 MPDU 加 ${AMPDU_DELIMITER_BYTES} 字节定界符，即 ${APEP_BYTES} 字节，6 个符号；补上 EOF 填充，PSDU 为 ${f.bytes} 字节。`)
+    for (const c of ['§9.7.3', '§10.12.6', '§10.12.7', '§10.12.8']) expect(stdText(), c).toContain(c)
+    // and that frame is still answered by an Ack (§10.12.8)
+    expect(new Set(txs('ack').map((r) => r.frame.kind))).toEqual(new Set(['ack']))
+    expect(txs('ba')).toEqual([])
+  })
+
   it('the Ack is 14 octets, at the highest of 6/12/24 not above the reference rate, 54 for MCS 11', () => {
     expect(new Set(txs('ack').map((r) => r.frame.bytes))).toEqual(new Set([14]))
     expect(MANDATORY_MBPS).toEqual([6, 12, 24])
@@ -180,7 +205,7 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     expect(us(rows[0]![1]!)).toBe(pre)
     expect(rows[1]![0]).toBe(`${nsym} 个数据符号 × ${PHY_MODES.he.symNs / US} µs`)
     expect(us(rows[1]![1]!)).toBe(nsym * PHY_MODES.he.symNs / US)
-    expect(rows[2]![0]).toBe(`整个数据帧（${data.bytes} 字节，第 ${data.mcs} 级）`)
+    expect(rows[2]![0]).toBe(`整个数据帧（PSDU ${data.bytes} 字节，第 ${data.mcs} 级）`)
     expect(us(rows[2]![1]!)).toBe(data.txTimeNs / US)
     expect(rows[3]![1]).toBe(`${SIFS_NS / US} µs`)
     expect(rows[4]![0]).toBe(`确认帧（${ack.bytes} 字节，${ack.mbps} Mb/s）`)
@@ -192,7 +217,8 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     expect(rows[5]![2]).toBe(`固定开销 ${fixed.toFixed(1)} µs，载荷 ${payload.toFixed(1)} µs`)
     // the frame really is the same one every time
     expect(new Set(txs('data').map((r) => r.frame.txTimeNs))).toEqual(new Set([data.txTimeNs]))
-    expect(new Set(txs('data').map((r) => r.frame.bytes))).toEqual(new Set([1430]))
+    expect(new Set(txs('data').map((r) => r.frame.bytes))).toEqual(new Set([data.bytes]))
+    expect(new Set(txs('data').map((r) => r.frame.apepBytes! - AMPDU_DELIMITER_BYTES))).toEqual(new Set([1430]))
   })
 
   it('lab 1: the counts, the gap and the payload share in 「你应该看到」', () => {
@@ -200,7 +226,7 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     const data = txs('data')
     const acks = txs('ack')
     expect(e).toContain(`前 100 ms 里有 ${data.length} 个数据帧、${acks.length} 个确认帧`)
-    expect(e).toContain(`${data[0]!.frame.bytes} 字节、${data[0]!.frame.txTimeNs / US} µs`)
+    expect(e).toContain(`一个 ${data[0]!.frame.apepBytes! - AMPDU_DELIMITER_BYTES} 字节的 MPDU，PSDU 是 ${data[0]!.frame.bytes} 字节、${data[0]!.frame.txTimeNs / US} µs`)
     expect(e).toContain(`结束后 ${SIFS_NS / US} µs 开始，持续 ${acks[0]!.frame.txTimeNs / US} µs`)
     expect(e).toContain(`${EXCHANGE_US.toFixed(1)} µs 的交互中只有 ${(6 * 13.6).toFixed(1)} µs`)
     expect(lab('一次收发交互的四段').meaning).toContain(`${(PHY_MODES.he.preambleNs / US).toFixed(1)} µs`)
@@ -239,18 +265,24 @@ describe('airtime · ③ every figure the labs print is the run', () => {
       const gi = tiers[i]!
       expect(row[0]!.startsWith(`${gi / US} µs`)).toBe(true)
       expect(row[1]).toBe(`${symNsFor('he', gi) / US} µs`)
-      expect(row[2]).toBe(`${txTimeModeNs('he', 1430, 11, { widthMhz: 20, giNs: gi }) / US} µs`)
+      expect(row[2]).toBe(`${txTimeModeNs('he', APEP_BYTES, 11, { widthMhz: 20, giNs: gi }) / US} µs`)
       expect(row[3]).toBe(`${mcsRateMbps('he', 11, gi)} Mb/s`)
-      expect((txTimeModeNs('he', 1430, 11, { widthMhz: 20, giNs: gi }) - preambleNsFor('he', gi)) / symNsFor('he', gi)).toBe(6)
+      expect((txTimeModeNs('he', APEP_BYTES, 11, { widthMhz: 20, giNs: gi }) - preambleNsFor('he', gi)) / symNsFor('he', gi)).toBe(6)
     })
     expect(giNumbers()[0]!.frameUs).toBe(DATA_US)
+    // the column heading's length is the run's APEP_LENGTH
+    expect(tableOf(lab('加长保护间隔'), '同一帧，三档保护间隔').head[2]).toBe(`这一帧（APEP_LENGTH ${txs('data')[0]!.frame.apepBytes} 字节，6 个符号）`)
     // Table 27-86's three columns for HE-MCS 11, one stream, 242-tone RU
     expect(giNumbers().map((r) => r.mbps)).toEqual([143.4, 135.4, 121.9])
   })
 
   it('lab 4: 150 ms under each guard interval — same frames, same octets, more air', () => {
     const ppdus = (rs: TLRecord[]) => ofType(rs, 'TX_START').map((r) => r.frame).filter((f) => !f.amp && !f.uwb)
-    const octets = (rs: TLRecord[]) => ofType(rs, 'RX_OK').reduce((s, r) => s + (r.frame.kind === 'data' ? r.frame.bytes : 0), 0)
+    // 2026-11-11 (W7a): `frame.bytes` of an HE PPDU is PSDU_LENGTH, EOF padding included (§10.12.6);
+    // the octets delivered are the MPDUs', so the S-MPDU's delimiter and the padding are taken out.
+    const mpduOctets = (f: Extract<TLRecord, { type: 'RX_OK' }>): number =>
+      (f.frame.apepBytes ?? f.frame.bytes) - (f.frame.smpdu ? AMPDU_DELIMITER_BYTES : 0)
+    const octets = (rs: TLRecord[]) => ofType(rs, 'RX_OK').reduce((s, r) => s + (r.frame.kind === 'data' ? mpduOctets(r) : 0), 0)
     const ms = (rs: TLRecord[]) => (ppdus(rs).reduce((s, f) => s + f.txTimeNs, 0) / MS).toFixed(2)
     const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, ' ')
     const rows = tableOf(lab('加长保护间隔'), '150 ms 内两种保护间隔').rows

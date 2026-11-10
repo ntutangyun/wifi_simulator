@@ -89,10 +89,15 @@ describe('uwb-nba-coexist · the lesson', () => {
     expect(Math.min(...margins)).toBeGreaterThan(30)
     expect(why).toContain('余量超过 30 dB')
     expect(skippedBlocks(undefined, TAG)).toHaveLength(BLOCKS)
-    expect(why).toContain(`只测得 ${tagRanges().length} 个距离`)
+    // 2026-11-11: none, where it was four. Since the router answers an A-MPDU it received in part
+    // with a BlockAck (IEEE Std 802.11-2024 §10.12), its BlockAck and CTS land in the tag's
+    // narrowband receptions — and with listening off the tag gets none either (21 before).
+    expect(tagRanges()).toEqual([])
+    expect(why).toContain('整段 1.3 秒一个距离也没有测得')
     expect(fixes()).toEqual([])
     expect(fixes(V_OUT)).toHaveLength(BLOCKS)
-    expect(why).toContain(`会话得到 ${tagRanges(V_NOLBT).length} 个距离`)
+    expect(why).toContain(`关掉先听后发，手机仍然得到 ${tagRanges(V_NOLBT).length} 个距离`)
+    expect(why).toContain(`有 ${ofType(recs(V_NOLBT), 'UWB_INTERFERED').length} 条与路由器发出的块确认`)
     const was = mbps(recs(V_OUT), 'laptop#6g')
     const now = mbps(recs(V_NOLBT), 'laptop#6g')
     expect(why).toContain(`下降 ${((was - now) / was * 100).toFixed(2)} %`)
@@ -163,6 +168,7 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     const e = lab('控制信道的四种配置').expect
     expect(e).toContain(`跳变恢复了${['', '一', '两', '三'][fixes(V_HOP).length]}个块`)
     expect(e).toContain(`得到 ${tagRanges(V_NOLBT).length} 个距离、${fixes(V_NOLBT).length} 次定位`)
+    expect(skippedBlocks(V_NOLBT, TAG)).toEqual([])
     expect(uwbNbaScenario('base').nodes.filter((n) => n.uwb?.role === 'anchor')).toHaveLength(3)
     expect(uwbNbaScenario('outside').nodes.filter((n) => n.uwb?.role === 'anchor')).toHaveLength(4)
     expect(uwbNbaScenario('base').uwb!.mms.oneToMany).toBe(true)
@@ -186,7 +192,7 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     expect(e).toContain(`第 ${fixBlocks.join('、')} 块在外，各解出一次定位`)
   })
 
-  it('lab 4: the rule off — 108 messages, 87 Wi-Fi failures, 10.95 % of the laptop’s goodput', () => {
+  it('lab 4: the rule off — 72 messages, 64 Wi-Fi failures, 7.22 % of the laptop’s goodput', () => {
     const l = lab('关掉先听后发，代价转给 Wi-Fi')
     const rows = tableOf(l, '规则开与关，Wi-Fi 一侧的变化').rows
     expect(rows[0].slice(1)).toEqual([String(nbFrames().length), String(wifiRxFail(recs()).length)])
@@ -208,6 +214,8 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     const levels = [...new Set(hit.map((i) => i.foreignDbm.toFixed(2)))]
     expect(levels).toHaveLength(1)
     expect(l.expect).toContain(`有 ${hit.length} 条窄带消息接收失败`)
+    expect(tagRanges(V_NOLBT)).toEqual([])
+    expect(l.expect).toContain('手机因此一个距离也没有得到')
     expect(l.expect).toContain(`外来功率 ${neg(levels[0])} dBm`)
   })
 })
@@ -225,6 +233,7 @@ describe('uwb-nba-coexist · the quiz repeats the run', () => {
     const now = mbps(recs(V_NOLBT), 'laptop#6g')
     expect(text).toContain(`下降 ${((was - now) / was * 100).toFixed(2)} %`)
     expect(text).toContain(`从 ${was.toFixed(3)} Mb/s 降到 ${now.toFixed(3)} Mb/s`)
-    expect(text).toContain(`七个块里只测得${['', '', '', '', '四'][tagRanges().length]}个距离`)
+    expect(tagRanges()).toEqual([])
+    expect(text).toContain('七个块里一个距离也没有测得')
   })
 })

@@ -16,14 +16,14 @@
  * It loads exactly the scene `uwb-nba` loads. Every figure the labs print is read back out of the
  * lesson and compared with a run in tests/course/uwb-nba-coexist.test.ts.
  */
-import { J, firstNbLbt, firstNbPoll, firstUwbRange, type Lesson } from '../lessonKit'
+import { J, firstNbLbt, firstNbPoll, type Lesson } from '../lessonKit'
 import { uwbNbaScenario } from './uwb-nba'
 
 export const uwbNbaCoexist: Lesson = {
   id: 'uwb-nba-coexist',
   module: 29,
   title: '窄带射频也共享 6 GHz',
-  why: 'P802.15.4ab 草案把窄带（narrowband, NB）控制信道放在 UNII-3 与 UNII-5 两个频段，后者就是 6 GHz 的 Wi-Fi 频段。是否先听后发（listen before talk, LBT），各份文稿的说法不同：早期提案 15-22/0381r5 要求在 UNII-5 一律执行，每次发送前至少评估 9 µs，能量高于 −75 dBm/MHz 就不发送，并在这个测距块（ranging block）余下的时间里不再发送；草案后来的 §10.39.8.3 改为只在法规要求时执行，执行时由收发两端在每个发射时隙上各自用 CSMA-CA 或频谱感知延后做一次信道接入。本仿真器目前仍按早期提案的做法：UNII-5 一律执行，一次瞬时读数判忙就跳过整个块——这是待改正的偏差。本课的场景里手机离一台 Wi-Fi 7 路由器 1.5 m，几步之外有一台笔记本满负荷上传；超宽带（ultra-wideband, UWB）一侧的余量超过 30 dB，可是手机在七个块里每块都判忙一次，整段 1.3 秒只测得 4 个距离，一次定位也没有。把控制信道移出路由器的 80 MHz，每块都能定位；在四个信道间跳变（channel hopping），恢复的正好是落在路由器信道之外的那几个块；关掉先听后发，会话得到 21 个距离，代价转给 Wi-Fi：笔记本的吞吐下降 10.95 %。',
+  why: 'P802.15.4ab 草案把窄带（narrowband, NB）控制信道放在 UNII-3 与 UNII-5 两个频段，后者就是 6 GHz 的 Wi-Fi 频段。是否先听后发（listen before talk, LBT），各份文稿的说法不同：早期提案 15-22/0381r5 要求在 UNII-5 一律执行，每次发送前至少评估 9 µs，能量高于 −75 dBm/MHz 就不发送，并在这个测距块（ranging block）余下的时间里不再发送；草案后来的 §10.39.8.3 改为只在法规要求时执行，执行时由收发两端在每个发射时隙上各自用 CSMA-CA 或频谱感知延后做一次信道接入。本仿真器目前仍按早期提案的做法：UNII-5 一律执行，一次瞬时读数判忙就跳过整个块——这是待改正的偏差。本课的场景里手机离一台 Wi-Fi 7 路由器 1.5 m，几步之外有一台笔记本满负荷上传；超宽带（ultra-wideband, UWB）一侧的余量超过 30 dB，可是手机在七个块里每块都判忙一次，整段 1.3 秒一个距离也没有测得，一次定位也没有。把控制信道移出路由器的 80 MHz，每块都能定位；在四个信道间跳变（channel hopping），恢复的正好是落在路由器信道之外的那几个块；关掉先听后发，手机仍然得到 0 个距离：它要接收的窄带消息有 28 条与路由器发出的块确认（block acknowledgement, BlockAck）或允许发送（clear to send, CTS）帧重叠（overlap）而丢失，代价同时转给 Wi-Fi：笔记本的吞吐下降 7.22 %。',
   outcomes: [
     '分清早期提案、现行草案与法规各自对先听后发的要求，以及本仿真器按的是哪一种',
     '解释在本仿真器的规则下，为什么一次判忙损失的是整个测距块',
@@ -70,7 +70,7 @@ export const uwbNbaCoexist: Lesson = {
         '载入本课场景，跳到终止这个块的那次判忙。',
         '读出测得的电平与门限，再看这个块余下的时隙里谁还在发送。',
       ],
-      expect: '第一次判忙是 2.000 ms 的「anchor-2 NB LBT busy on ch 200: -69.6 dBm ≥ -71.0 — skipping the block」。手机自己在七个块里各判忙一次，七次读到的都是 −63.72 dBm，比门限高 7.3 dB；七个块全部被跳过，空着的时隙里共记下 21 次超时。',
+      expect: '第一次判忙是 2.000 ms 的「anchor-2 NB LBT busy on ch 200: -69.6 dBm ≥ -71.0 — skipping the block」。手机自己在七个块里各判忙一次，七次读到的都是 −63.72 dBm，比门限高 7.3 dB；七个块全部被跳过，空着的时隙里共记下 25 次超时。',
       meaning: '判忙后跳过整个块与一次瞬时读数，都是本仿真器按早期提案的做法，与现行草案不同（②）。',
     },
     {
@@ -82,13 +82,13 @@ export const uwbNbaCoexist: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '控制信道的四种配置', head: ['场景', '窄带信道', '手机跳过的块', '手机测距', '定位'], rows: [
-          ['落在路由器的信道之内', '200 · 6301.25 MHz', '7 of 7', '4', '0'],
+          ['落在路由器的信道之内', '200 · 6301.25 MHz', '7 of 7', '0', '0'],
           ['避开路由器的信道', '100 · 6051.25 MHz', '0', '28', '7'],
           ['在四个信道间跳变', '100 / 150 / 200 / 210', '4 of 7', '13', '3'],
-          ['落在之内，且不执行先听后发', '200 · 6301.25 MHz', '0', '21', '5'],
+          ['落在之内，且不执行先听后发', '200 · 6301.25 MHz', '0', '0', '0'],
         ] },
       ],
-      expect: '控制信道移到 100 号，一次判忙也没有，七个块都解出定位；跳变恢复了三个块；关掉先听后发得到 21 个距离、5 次定位。基准场景是三个锚点（anchor）的一对多轮次，三个变体是四个锚点的成对轮次。',
+      expect: '控制信道移到 100 号，一次判忙也没有，七个块都解出定位；跳变恢复了三个块；关掉先听后发，手机一次也没有判忙，却仍然只得到 0 个距离、0 次定位，原因见下面「关掉先听后发，代价转给 Wi-Fi」那一节。基准场景是三个锚点（anchor）的一对多轮次，三个变体是四个锚点的成对轮次。',
       meaning: '控制信道不必放在 Wi-Fi 所在的频段里；在本仿真器的规则下，一个块要么完整完成，要么完全失败（②）。',
     },
     {
@@ -111,11 +111,11 @@ export const uwbNbaCoexist: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '规则开与关，Wi-Fi 一侧的变化', head: ['场景', '窄带消息', 'Wi-Fi 接收失败'], rows: [
-          ['落在之内，执行先听后发', '10', '6'],
-          ['落在之内，不执行先听后发', '108', '87'],
+          ['落在之内，执行先听后发', '10', '7'],
+          ['落在之内，不执行先听后发', '72', '64'],
         ] },
       ],
-      expect: '笔记本的吞吐从 407.215 Mb/s 降到 362.631 Mb/s，减少 44.58 Mb/s，即 10.95 %。反方向也有损失：手机处有 7 条窄带消息接收失败，每一次都恰逢路由器发出控制帧（control frame），外来功率 −42.21 dBm。',
+      expect: '笔记本的吞吐从 407.215 Mb/s 降到 377.815 Mb/s，减少 29.40 Mb/s，即 7.22 %。反方向的损失更大：手机处有 28 条窄带消息接收失败，每一次都恰逢路由器发出控制帧（control frame），外来功率 −42.21 dBm；手机因此一个距离也没有得到。',
       meaning: '先听后发减少的是窄带消息的条数，而不是每条消息对 Wi-Fi 的影响；这个影响的大小取决于本仿真器的矩形频谱与 Wi-Fi 侧的能量检测方式（②）。',
     },
   ],
@@ -136,7 +136,7 @@ export const uwbNbaCoexist: Lesson = {
   jumps: [
     J('终止这个块的那次判忙', firstNbLbt),
     J('唯一成功发出的那帧窄带 Poll', firstNbPoll),
-    J('整段运行中得出的第一个距离', firstUwbRange),
+    J('窄带消息被 Wi-Fi 干扰而丢失', (r) => r.type === 'UWB_INTERFERED'),
   ],
   observe: [],
   tryThis: [],
@@ -152,7 +152,7 @@ export const uwbNbaCoexist: Lesson = {
       explain: '「UNII-5 一律执行」是早期提案 15-22/0381r5 的写法；经 15-25/0307r1、15-25/0427r4 处置后，草案只在法规要求时才要求。本仿真器目前仍按早期提案。',
     },
     {
-      q: '手机离路由器只有 1.50 m，片段（fragment）的余量超过 30 dB。为什么基准场景七个块里只测得四个距离？',
+      q: '手机离路由器只有 1.50 m，片段（fragment）的余量超过 30 dB。为什么基准场景七个块里一个距离也没有测得？',
       options: [
         '片段受到路由器猝发的干扰而无法解调',
         '每个块里都有一次窄带判忙，而本仿真器的规则让一次判忙跳过整个块',
@@ -165,11 +165,11 @@ export const uwbNbaCoexist: Lesson = {
       q: '关掉先听后发之后，Wi-Fi 一侧付出了什么代价？',
       options: [
         '没有可测的代价',
-        '87 个帧接收失败，笔记本的吞吐下降 10.95 %',
+        '64 个帧接收失败，笔记本的吞吐下降 7.22 %',
         '只是退避（backoff），没有帧丢失',
       ],
       answer: 1,
-      explain: '窄带消息从 10 条增加到 108 条，Wi-Fi 接收失败从 6 帧增加到 87 帧；吞吐从 407.215 Mb/s 降到 362.631 Mb/s。',
+      explain: '窄带消息从 10 条增加到 72 条，Wi-Fi 接收失败从 7 帧增加到 64 帧；吞吐从 407.215 Mb/s 降到 377.815 Mb/s。',
     },
   ],
 }

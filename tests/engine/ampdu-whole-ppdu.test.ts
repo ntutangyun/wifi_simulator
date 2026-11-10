@@ -1,24 +1,14 @@
 /**
- * **A-MPDU in this engine is all-or-nothing, and until now nothing asserted it.**
+ * **An A-MPDU whose BlockAck never arrives is retried whole.**
  *
- * `docs/wifi-feature-coverage.md` §3 and `@ampdu`'s `limits` both say it — "整 PPDU 解码模型,
- * 一次交换要么全成功要么全失败" — and `mac.ts` says it in a comment of its own ("no
- * per-subframe bitmap to partially fail on", the `'ba'` branch of `onRxOk`). Three statements,
- * zero assertions. That is exactly the shape `docs/wifi-feature-coverage.md:174` warns about:
- * a guarantee that lives in prose is the same guarantee as a comment.
- *
- * So this file pins the half of it that can be observed from outside: **after an aggregate
- * fails, what comes back is the WHOLE set of subframes, never a subset.** `failMsdus` counts a
- * retry for every MSDU of the attempt and `queues.restore` unshifts every survivor back to the
- * queue head, so the next attempt is the same MSDUs in the same order — and when the retry
- * limit is reached, all of them are dropped together.
- *
- * **Why it is worth a file even though A-MSDU was not built** (design 2026-10-07-amsdu §5.4):
- * the backlog and the coverage table both claimed A-MSDU's price here is "一丢全丢, while
- * A-MPDU can rescue subframes one at a time". That is true of the standard and false of this
- * engine, and the reason it stayed unnoticed for so long is that nothing measured it. The day
- * a second aggregation layer is built, this file is already one half of the equivalence test it
- * will need; today it is the pin under a sentence three documents repeat.
+ * 2026-11-11 (W7a): this file used to pin "A-MPDU in this engine is all-or-nothing". That is no
+ * longer the engine: an A-MPDU is received MPDU by MPDU and the BlockAck bitmap reports each one,
+ * so a BlockAck that does arrive retires the acknowledged MPDUs and sends only the rest again
+ * (§9.7, §10.12, §10.25; pinned in tests/engine/w7a-frames.test.ts). What this file still pins is
+ * the other half, which is the standard's too: when NO valid response arrives, every MPDU of the
+ * attempt has failed (§10.23.2.2's definition of failure), so what comes back is the WHOLE set of
+ * subframes — `failMsdus` counts a retry for each and `queues.restore` unshifts them in order —
+ * and at the retry limit all of them are dropped together.
  *
  * **The ruler, and the proof that it is one.** `violations()` walks the TX_START stream and
  * reports every retransmission whose `msduIds` is not identical to the attempt before it. The
@@ -118,7 +108,7 @@ function violations(runs: number[][]): string[] {
   return out
 }
 
-describe('A-MPDU fails whole, not per subframe', () => {
+describe('an A-MPDU with no BlockAck fails whole (§10.23.2.2)', () => {
   const recs = run()
   const runs = attempts(recs)
 

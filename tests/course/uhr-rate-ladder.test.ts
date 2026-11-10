@@ -47,7 +47,12 @@ const dataTx = (rs: TLRecord[]) => rs.filter((r): r is Extract<TLRecord, { type:
 const rungsUsed = (rs: TLRecord[]): number[] => [...new Set(dataTx(rs).flatMap((r) => (r.frame.mcs === undefined ? [] : [r.frame.mcs])))].sort((a, b) => a - b)
 const failures = (rs: TLRecord[]): number => rs.filter((r) => r.type === 'RX_FAIL').length
 
-/** Goodput in Mb/s: each MSDU counted once, on the first PPDU that carried it successfully. */
+/**
+ * Goodput in Mb/s: each MSDU counted once, on the first PPDU that carried it successfully.
+ * 2026-11-11 (W7a): an A-MPDU is now received MPDU by MPDU (§10.12, §10.23.2.2 — only the MPDUs
+ * the BlockAck bitmap reports were received), so an MSDU whose MPDU failed its FCS (`mpduOk[i]`
+ * false) is not delivered by that PPDU.
+ */
 function goodputMbps(rs: TLRecord[], ns: number): number {
   const seen = new Set<number>()
   let bytes = 0
@@ -55,7 +60,7 @@ function goodputMbps(rs: TLRecord[], ns: number): number {
     if (r.type !== 'RX_OK' || r.frame.kind !== 'data') continue
     const ids = r.frame.ampdu?.msduIds ?? (r.frame.msduId === undefined ? [] : [r.frame.msduId])
     const sizes = r.frame.msduBytes ?? []
-    ids.forEach((id, i) => { if (!seen.has(id)) { seen.add(id); bytes += sizes[i] ?? 0 } })
+    ids.forEach((id, i) => { if (r.mpduOk?.[i] !== false && !seen.has(id)) { seen.add(id); bytes += sizes[i] ?? 0 } })
   }
   return (bytes * 8) / (ns / 1e9) / 1e6
 }
@@ -330,7 +335,7 @@ describe('uhr-rate-ladder · ③ every figure the labs print is the run', () => 
     const near = ab('near', 'shadow')
     expect(lab('打开起伏之后').expect).toContain(`${near.eFail} 对 ${near.uFail}`)
     expect(L.quiz[1].options[1]).toContain(`${near.eFail} 对 ${near.uFail}`)
-    // why: 「+33.33 % 缩小到 +11.78 %」
+    // why: 「+33.33 % 缩小到 +11.64 %」
     expect(L.why).toContain(`缩小到 ${t.rows[2]![4]!.split('（')[0]}`)
   }, 900_000)
 

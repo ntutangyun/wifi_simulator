@@ -337,7 +337,7 @@ export function Guide() {
       <h4 style={h}>7 · OFDMA（Wi-Fi 6）</h4>
       <p style={p}>
         AP 可以把信道切分成资源单元（RU），<i>同时</i>服务多个终端：
-        一个下行宽 MU PPDU（由各终端同时发出的 BlockAck 确认），或者一个
+        一个下行宽 MU PPDU（每个 MPDU 携带 TRS 控制子字段，各终端在一个 SIFS 之后以 TB PPDU 在各自的 RU 上同时回 BlockAck，§10.3.2.13.2），或者一个
         {chip('#facc15')}<b>触发帧（Trigger）</b>调度多个终端在同一瞬间上行发送，
         再由一个多站点 BlockAck 统一确认。整组传输只需竞争一次。每个终端回应的是
         <b>TB PPDU</b>（trigger-based，基于触发）：其 RU、MCS、长度与功率都由触发帧规定，
@@ -1614,17 +1614,18 @@ export function Guide() {
           <tr><th style={cellHead}>设置</th><th style={cellHead}>测距成功次数</th></tr>
         </thead>
         <tbody>
-          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>47</td></tr>
-          <tr><td style={cell}>本仿真器既有的规则（一次忙检测封住整个测距块；草案没有这条规则）</td><td style={cell}><b>1</b></td></tr>
-          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}>50</td></tr>
-          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>3</b></td></tr>
+          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>8</td></tr>
+          <tr><td style={cell}>本仿真器既有的规则（一次忙检测封住整个测距块；草案没有这条规则）</td><td style={cell}><b>0</b></td></tr>
+          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}>12</td></tr>
+          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>1</b></td></tr>
         </tbody>
       </table>
       <p style={p}>
         第二行是 SSBD 要替代的那条规则：一次忙检测就封住整个测距块剩余时间的窄带发射，
-        47 次周期里丢了 46 次。SSBD 的缺省参数把它们基本都要了回来——不是因为它等得过任何干扰，
+        1.3 s 里一个距离也没有测得。SSBD 的缺省参数要回了 12 个——不是因为它等得过任何干扰，
         而是因为 {SSBD_BOUND_US} µs 等不过任何一帧，退避总会用尽，收尾动作缺省又是照发，于是
-        它和完全不先听后发几乎没有分别。而把退避单位调到最大反而更差：那段更长的等待仍然要从
+        它一条消息也不扣下，结果不少于完全不先听后发的 8 个。两者都不多：路由器对只收到一部分的
+        A-MPDU 照样回 BlockAck，它离手机很近，这些 BlockAck 与 CTS 落在手机的窄带接收里。而把退避单位调到最大反而更差：那段更长的等待仍然要从
         消息自己的窗口里扣，窗口之外的那一帧仍然挤得进来，于是发送的时机被推到窗口末尾，
         反而更容易撞上邻道一帧更长的 Wi-Fi 帧。
       </p>

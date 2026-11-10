@@ -172,16 +172,21 @@ describe('rate-cost · ② says what the engine does, and the engine does it', (
     for (const m of [0, 1, 2]) expect(holdBehind(m)).toBeGreaterThan(airAt(m))
   })
 
-  it('一帧的空口时间: 48 µs plus 13.6 µs a symbol, no PE — 524.0, 768.8 and 1,476.0 µs', () => {
+  it('一帧的空口时间: 48 µs plus 13.6 µs a symbol, no PE — 537.6, 768.8 and 1,489.6 µs', () => {
     const sim = implRow('一帧的空口时间').sim
     const [pre, sym] = grab(sim, /前导码取代表值 ([\d.]+) µs，加上 ([\d.]+) µs 乘以数据符号数/, '② on the formula').map(val)
+    // 2026-11-11 (W7a): an EHT PSDU is always an A-MPDU (§10.12.5); the one 1530-octet MPDU goes out
+    // as an S-MPDU (§10.12.7) behind a 4-octet delimiter, and the airtime is computed from that
+    // APEP_LENGTH (§10.12.6), 1534 octets.
+    const [mpdu, bytes, a2, a1, a0] = grab(sim, /(\d+) 字节的帧连同 4 字节的定界符（MPDU delimiter）共 (\d+) 字节，在 MCS 2、1、0 上分别是 ([\d.]+)、([\d.]+)、([\d,.]+) µs/, '② on the three airtimes')
+    expect(val(bytes)).toBe(val(mpdu) + 4)
     const ndbps = [117, 234, 351]
     for (const mcs of [0, 1, 2]) {
-      const nsym = Math.ceil((16 + 8 * 1530 + 6) / ndbps[mcs])
-      expect(airAt(mcs), `MCS ${mcs}`).toBe((pre + sym * nsym) * 1000)
+      const nsym = Math.ceil((16 + 8 * val(bytes) + 6) / ndbps[mcs])
+      expect(airAt(mcs), `MCS ${mcs}`).toBe(Math.round((pre + sym * nsym) * 1000))
     }
-    const [bytes, a2, a1, a0] = grab(sim, /(\d+) 字节的帧在 MCS 2、1、0 上分别是 ([\d.]+)、([\d.]+)、([\d,.]+) µs/, '② on the three airtimes')
-    expect(new Set(far.map((r) => r.frame.bytes))).toEqual(new Set([val(bytes)]))
+    expect(new Set(far.map((r) => r.frame.smpdu))).toEqual(new Set([true]))
+    expect(new Set(far.map((r) => r.frame.apepBytes))).toEqual(new Set([val(bytes)]))
     expect([a2, a1, a0]).toEqual([us1(airAt(2)), us1(airAt(1)), us1(airAt(0))])
   })
 
@@ -255,7 +260,8 @@ describe('rate-cost · ③ every figure the labs print is the run', () => {
     expect(airShare).toBe(pct(air(below), air(far)))
     expect(extraMs).toBe(round1(extra / MS))
     expect(runShare).toBe(pct(extra, RUN_NS))
-    expect(new Set(far.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
+    // 2026-11-11 (W7a): the printed size is the MPDU; the S-MPDU adds its 4-octet delimiter (§10.12.7).
+    expect(new Set(far.map((r) => r.frame.apepBytes! - 4))).toEqual(new Set([bytes]))
     const atRung = (mcs: number): number => far.filter((r) => r.frame.mcs === mcs).length
     expect([n1, n0]).toEqual([atRung(1), atRung(0)])
     const over = (ns: number): number => Math.round((ns / atCeiling - 1) * 100)

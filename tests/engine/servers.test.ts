@@ -19,7 +19,7 @@ describe('a station gaming against a cloud server', () => {
   const vs = initViewState(sc)
   for (const r of recs) applyRecord(vs, r)
 
-  it('its uplink ticks reach the server half an RTT after the AP acknowledges them', () => {
+  it('its uplink ticks reach the server half an RTT after the AP receives them', () => {
     const rx = recs.filter((r) => r.type === 'WAN_RX')
     expect(rx.length).toBeGreaterThan(20)
     for (const r of rx) {
@@ -27,8 +27,10 @@ describe('a station gaming against a cloud server', () => {
       expect(r.server).toBe('srv-game')
       expect(r.t - r.sentNs).toBeGreaterThanOrEqual(12_500_000)
       expect(r.t - r.sentNs).toBeLessThanOrEqual(12_500_000 + 1_500_000) // + half the 3 ms jitter
-      // the frame was acknowledged at the station before it left for the server
-      expect(recs.some((x) => x.type === 'DEQUEUE' && x.node === 'sta-1' && x.msduId === r.msduId && x.t === r.sentNs)).toBe(true)
+      // 2026-11-11: the AP hands the MSDU to the distribution system when it receives it — the
+      // end of the station's data frame — not when the station hears the Ack (§10.3.2.14.3)
+      expect(recs.some((x) => x.type === 'RX_OK' && x.node === 'ap' && x.from === 'sta-1' && x.t === r.sentNs
+        && (x.frame.ampdu?.msduIds ?? [x.frame.msduId]).includes(r.msduId))).toBe(true)
     }
   })
 

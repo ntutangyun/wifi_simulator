@@ -17,15 +17,15 @@ import { type Lesson, firstData, firstRetry, J } from '../lessonKit'
 import { rateScenario } from '../wifiScenes'
 
 /**
- * This run's first excursion, to scale: the far station's attempts 190 to 204
- * (counting from one), drawn from the start of the fourth-last frame that was
- * still at the ceiling. Every span is a `TX_START` of the base run, taken
- * relative to the one at 176.1974 ms; the two 'muted' ones are the pair that
- * went unanswered, and the rung lane underneath is when the working rung was 2,
- * 1 and 2 again.
+ * This run's first excursion, to scale: the far station's attempts 8 to 26
+ * (counting from one), drawn from the start of the third frame before the pair
+ * that went unanswered. Every span is a `TX_START` of the base run, taken
+ * relative to the one at 7.353 ms; the three 'muted' ones are that pair and the
+ * lone loss on the way back up (attempt 15), which cleared the success count,
+ * and the rung lane underneath is when the working rung was 2, 1 and 2 again.
  *
  * The gaps are real: they are the near station's own frames and the waiting
- * between them, which is why fifteen frames of 524–768.8 µs span 15.9 ms.
+ * between them, which is why nineteen frames of 537.6–768.8 µs span 21.8 ms.
  *
  * It replaces nothing in prose — it replaces the reader's need to take the
  * worked table on trust. The table says two failures cost a rung and ten
@@ -37,29 +37,33 @@ export function fallbackExcursionTiming(): TimingSpec {
     kind: 'timing',
     lanes: [
       { label: '远端站点', spans: [
-        { fromUs: 0, toUs: 524 },
-        { fromUs: 890.2, toUs: 1414.2 },
-        { fromUs: 1541.2, toUs: 2065.2, label: '这里连续丢失两帧', tone: 'muted' },
-        { fromUs: 2669, toUs: 3193, tone: 'muted' },
-        { fromUs: 4108, toUs: 4876.8, tone: 'accent' },
-        { fromUs: 5721.4, toUs: 6490.2, tone: 'accent' },
-        { fromUs: 6599.2, toUs: 7368, tone: 'accent' },
-        { fromUs: 7797.2, toUs: 8566, tone: 'accent' },
-        { fromUs: 8657, toUs: 9425.8, tone: 'accent' },
-        { fromUs: 9774, toUs: 10542.8, tone: 'accent' },
-        { fromUs: 10990, toUs: 11758.8, tone: 'accent' },
-        { fromUs: 11849.8, toUs: 12618.6, tone: 'accent' },
-        { fromUs: 12763.6, toUs: 13532.4, tone: 'accent' },
-        { fromUs: 14359, toUs: 15127.8, tone: 'accent' },
-        { fromUs: 15335.8, toUs: 15859.8 },
+        { fromUs: 0, toUs: 537.6 },
+        { fromUs: 664.6, toUs: 1202.2 },
+        { fromUs: 1649.4, toUs: 2187, label: '这里连续丢失两帧', tone: 'muted' },
+        { fromUs: 3417.6, toUs: 3955.2, tone: 'muted' },
+        { fromUs: 4919.6, toUs: 5688.4, tone: 'accent' },
+        { fromUs: 5833.4, toUs: 6602.2, tone: 'accent' },
+        { fromUs: 7216.6, toUs: 7985.4, tone: 'accent' },
+        { fromUs: 8148.4, toUs: 8917.2, tone: 'muted' },
+        { fromUs: 9046, toUs: 9814.8, tone: 'accent' },
+        { fromUs: 10217, toUs: 10985.8, tone: 'accent' },
+        { fromUs: 11112.8, toUs: 11881.6, tone: 'accent' },
+        { fromUs: 12717.2, toUs: 13486, tone: 'accent' },
+        { fromUs: 13879.2, toUs: 14648, tone: 'accent' },
+        { fromUs: 14748, toUs: 15516.8, tone: 'accent' },
+        { fromUs: 15883, toUs: 16651.8, tone: 'accent' },
+        { fromUs: 17284.2, toUs: 18053, tone: 'accent' },
+        { fromUs: 18879.6, toUs: 19648.4, tone: 'accent' },
+        { fromUs: 19820.4, toUs: 20589.2, tone: 'accent' },
+        { fromUs: 21230.6, toUs: 21768.2 },
       ] },
       { label: '级别', spans: [
-        { fromUs: 0, toUs: 4108, label: 'MCS 2' },
-        { fromUs: 4108, toUs: 15335.8, label: 'MCS 1' },
-        { fromUs: 15335.8, toUs: 15859.8, label: 'MCS 2' },
+        { fromUs: 0, toUs: 4919.6, label: 'MCS 2' },
+        { fromUs: 4919.6, toUs: 21230.6, label: 'MCS 1' },
+        { fromUs: 21230.6, toUs: 21768.2, label: 'MCS 2' },
       ] },
     ],
-    axis: { fromUs: 0, toUs: 16000, ticks: [0, 4000, 8000, 12000], unit: 'µs（0 为跌落前那一帧的起点）' },
+    axis: { fromUs: 0, toUs: 22000, ticks: [0, 6000, 12000, 18000], unit: 'µs（0 为跌落前第三帧的起点）' },
   }
 }
 
@@ -67,7 +71,7 @@ export const rateFallback: Lesson = {
   id: 'rate-fallback',
   module: 8,
   title: '速率回退——发送端如何降级、如何恢复',
-  why: 'IEEE 802.11-2024 不规定发送端怎样选择速率：§10.6.1 明确说速率切换的算法不在标准范围之内，标准只要求所用的速率或调制与编码方式（modulation and coding scheme, MCS）是接收方声明支持的，并规定了一次发送怎样判为失败：发完一帧后在 ACK 超时（ACK timeout）之内没有收到答复，这次尝试（attempt）就失败了，随后退避（backoff）并重传（retry）。本仿真器在这些规定之上采用了一条文献中的简单规则（自动速率回退，ARF）：连续两次失败降一级，连续十次成功升一级，中间任何一次相反的结果都使计数清零，每次只调整一级。所以一次跌落最快也要十帧才能回到上限，回升途中再丢一帧就会持续更久。本课场景里，使远端站点（station, STA）降到上限以下的不是信号变弱，而是碰撞：两台站点的退避计数器在同一个时隙（slot time）减到零、同时开始发送，在接入点（access point, AP）处被解出的是较强的近端那一帧。帧变长也不会使它丢得更多：三个级别上每次尝试的失败率几乎相同，因为其他站点的退避计数器在它发帧期间不递减，一次失败在两帧发出之前就已确定。',
+  why: 'IEEE 802.11-2024 不规定发送端怎样选择速率：§10.6.1 明确说速率切换的算法不在标准范围之内，标准只要求所用的速率或调制与编码方式（modulation and coding scheme, MCS）是接收方声明支持的，并规定了一次发送怎样判为失败：发完一帧后在 ACK 超时（ACK timeout）之内没有收到答复，这次尝试（attempt）就失败了，随后退避（backoff）并重传（retry）。本仿真器在这些规定之上采用了一条文献中的简单规则（自动速率回退，ARF）：连续两次失败降一级，连续十次成功升一级，中间任何一次相反的结果都使计数清零，每次只调整一级。所以一次跌落最快也要十帧才能回到上限，回升途中再丢一帧就会持续更久。本课场景里，使远端站点（station, STA）降到上限以下的不是信号变弱，而是碰撞：两台站点的退避计数器在同一个时隙（slot time）减到零、同时开始发送，在接入点（access point, AP）处被解出的是较强的近端那一帧。帧变长也不会使它明显丢得更多：三个级别上每次尝试的失败率在 11% 到 15% 之间，差别在统计波动之内，因为其他站点的退避计数器在它发帧期间不递减，一次失败在两帧发出之前就已确定。',
   outcomes: [
     '说出标准对速率选择规定了什么、没有规定什么',
     '按本仿真器的回退规则逐帧推演，说出下一帧使用哪一级',
@@ -98,7 +102,7 @@ export const rateFallback: Lesson = {
     { topic: '可用的级别与上限', standard: '只能使用接收方声明支持的速率或 MCS（§10.6.5.8）', sim: '每条链路有一个上限：静态链路表的平均信噪比（signal-to-noise ratio, SNR）减去 3 dB 之后仍满足的最高一级；各级所需的信噪比由最低输入灵敏度（sensitivity）表（IEEE Std 802.11be-2024 表 36-67）减去噪声得到。工作级别从上限开始，永不超过上限；本课远端站点的上限是 MCS 2。', kind: 'choice' },
     { topic: '失败的判定', standard: '超时间隔 aSIFSTime + aSlotTime + aRxPHYStartDelay；期间检测到帧的开始，就等它接收完再判断（§10.3.2.11，§10.23.2.2）', sim: '照此判定，超时间隔取第 17 章的值，共 45 µs；超时与「接收完另一帧、其中没有答复」两种失败都计入回退规则。', kind: 'faithful' },
     { topic: '失败之后', standard: '调用退避过程并重传，帧重传计数加一（§10.23.2.2，§10.23.2.12）', sim: '照此重传；本课三秒内远端站点没有一帧因达到重传上限（retry limit）而被丢弃。', kind: 'faithful' },
-    { topic: '介质忙时退避不递减', standard: '只在仲裁帧间间隔之后的空闲时隙边界上递减（§10.23.2.4）', sim: '照此处理：介质一变忙计数就停在当前值，空闲满间隔之后从原值继续；本课三秒内近端站点 2,666 次冻结，全部以冻结前的数值恢复。', kind: 'faithful' },
+    { topic: '介质忙时退避不递减', standard: '只在仲裁帧间间隔之后的空闲时隙边界上递减（§10.23.2.4）', sim: '照此处理：介质一变忙计数就停在当前值，空闲满间隔之后从原值继续；本课三秒内近端站点 2,454 次冻结，全部以冻结前的数值恢复。', kind: 'faithful' },
     { topic: '两帧重叠时的接收', standard: '标准未规定接收机怎样处理两帧重叠', sim: '先在无干扰条件下检测到的前导码（preamble），只要整帧期间信干噪比（signal-to-interference-plus-noise ratio, SINR）始终满足该级的要求就被解出。本场景近端站点在接入点处强得多，所以两帧同时开始时被解出的总是近端那一帧，丢失的只有远端那一帧。', kind: 'choice' },
     { topic: 'MCS 反馈', standard: '可选的 HLA／ELA 控制子字段：请求并回报建议的 MCS（§26.13；802.11be-2024 §35.19）', sim: '未实现：发送端不请求、也不接收任何 MCS 反馈，只依据有没有收到答复。', kind: 'absent' },
     { topic: '链路电平', standard: '标准不定义信道模型', sim: '本课场景没有打开时变链路（衰落），链路电平由几何位置与墙一次性确定，三秒内保持不变，所以这里的失败全部来自碰撞，没有一次来自链路变差。编辑器的「时变链路（衰落）」一节可以打开它，「衰落」那一课就在单链路上这样做。', kind: 'choice' },
@@ -112,17 +116,17 @@ export const rateFallback: Lesson = {
         '找到第一次连续两次没有答复的位置，数一数之后要经过多少帧方块才重新变短；对照下图与下表。',
       ],
       blocks: [
-        { kind: 'diagram', heading: '本轮第一次跌落，按记录等比例绘制', spec: fallbackExcursionTiming(), caption: '远端站点在上限上连续两帧没有收到答复，下一帧就降到 MCS 1：每帧从 524.0 µs 变为 768.8 µs。此后十帧全部收到答复，它才回到上限。中间的空隙是近端站点的帧和等待时间。' },
+        { kind: 'diagram', heading: '本轮第一次跌落，按记录等比例绘制', spec: fallbackExcursionTiming(), caption: '远端站点在上限上连续两帧没有收到答复，下一帧就降到 MCS 1：每帧从 537.6 µs 变为 768.8 µs。回升途中又丢一帧，成功计数清零；此后十帧全部收到答复，它才回到上限。中间的空隙是近端站点的帧和等待时间。' },
         { kind: 'table', heading: '一次降到最低一级的逐步过程', head: ['发生了什么', '之后的级别', '此时每帧时长'], rows: [
-          ['在上限上，每帧都收到答复', 'MCS 2', '524.0 µs'],
+          ['在上限上，每帧都收到答复', 'MCS 2', '537.6 µs'],
           ['连续两次尝试没有答复', 'MCS 1', '768.8 µs'],
-          ['再连续两次没有答复', 'MCS 0', '1,476.0 µs'],
+          ['再连续两次没有答复', 'MCS 0', '1,489.6 µs'],
           ['连续十次收到答复', 'MCS 1', '768.8 µs'],
-          ['再连续十次收到答复', 'MCS 2', '524.0 µs'],
+          ['再连续十次收到答复', 'MCS 2', '537.6 µs'],
         ] },
       ],
-      expect: '远端站点第 192 与第 193 次尝试连续没有答复，第 194 次以 MCS 1 发送，每帧从 524.0 µs 变为 768.8 µs；此后十帧全部收到答复，第 204 次回到 MCS 2。单独丢一帧时，下一帧的级别不变。',
-      meaning: '两次降、十次升是本仿真器的取法与取值（②），标准不规定任何速率切换算法（①）。两帧失败降掉的一级，要连续成功十帧才能恢复。',
+      expect: '远端站点第 10 与第 11 次尝试连续没有答复，第 12 次以 MCS 1 发送，每帧从 537.6 µs 变为 768.8 µs；回升途中第 15 次又没有答复，成功计数清零，此后十帧全部收到答复，第 26 次回到 MCS 2。单独丢一帧时，下一帧的级别不变。',
+      meaning: '两次降、十次升是本仿真器的取法与取值（②），标准不规定任何速率切换算法（①）。两帧失败降掉的一级，要连续成功十帧才能恢复；这一次回升途中丢了一帧，用了十四帧。',
     },
     {
       heading: '三秒内的失败率与跌落',
@@ -132,18 +136,18 @@ export const rateFallback: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '远端站点的三秒：尝试次数与其中的失败次数', head: ['级别', '尝试次数', '失败次数', '每次尝试的失败率'], rows: [
-          ['MCS 2——它的上限', '2,396', '266', '11.1%'],
-          ['MCS 1', '517', '61', '11.8%'],
-          ['MCS 0——最低一级', '90', '10', '11.1%'],
+          ['MCS 2——它的上限', '1,931', '218', '11.3%'],
+          ['MCS 1', '602', '71', '11.8%'],
+          ['MCS 0——最低一级', '246', '36', '14.6%'],
         ] },
         { kind: 'table', heading: '同样这三秒内，以低于上限的级别发送的情况', head: ['项目', '数值'], rows: [
-          ['降到上限以下的次数', '25'],
-          ['其中一直降到最低一级的', '6'],
-          ['这六次各持续了多少帧', '10, 10, 10, 13, 19, 28'],
+          ['降到上限以下的次数', '29'],
+          ['其中一直降到最低一级的', '9'],
+          ['这九次各持续了多少帧', '10, 10, 20, 21, 32, 33, 38, 41, 41'],
           ['规则允许的最短回升', '10 帧'],
         ] },
       ],
-      expect: '三个级别上每次尝试的失败率是 11.1%、11.8% 与 11.1%，几乎相同；最长的帧并不是失败最多的。25 次跌落里有 6 次降到最低一级，其中三次用了规则允许的最短十帧，另外三次因为回升途中又丢了一帧而持续 13、19、28 帧。每一次级别变化都只相差一级。',
+      expect: '三个级别上每次尝试的失败率是 11.3%、11.8% 与 14.6%。最低一级略高，但它只有 246 次尝试：按二项分布，这么多次尝试的失败率标准差约 2.0 个百分点，14.6% 与三秒内的总失败率 11.7% 相差不到 1.5 个标准差，看不出帧长的影响。29 次跌落里有 9 次降到最低一级，其中两次用了规则允许的最短十帧，另外七次因为回升途中又丢了帧而持续 20、21、32、33、38、41、41 帧。每一次级别变化都只相差一级。',
       meaning: '帧变长不会使失败变多，因为介质忙时其他站点的退避计数器不递减（①，§10.23.2.4；② 照此实现）：一次失败取决于两个计数器会不会在同一个时隙减到零，在两帧发出之前就已确定。',
     },
     {
@@ -153,7 +157,7 @@ export const rateFallback: Lesson = {
         '跳到第一次重传，看它之前那一次尝试是以 ACK 超时记录结束的，还是在接收另一帧结束时判定的。',
         '统计三秒内远端站点的全部失败与其中的 ACK 超时记录，再看近端站点有没有 ACK 超时。',
       ],
-      expect: '远端站点三秒内 337 次尝试失败：254 次以一条 ACK 超时记录结束，另外 83 次是在答复应到时它正在接收另一帧，接收完毕发现其中没有给自己的答复。近端站点三秒内发出 4,010 帧，没有一次 ACK 超时；时间轴上没有任何碰撞标记。',
+      expect: '远端站点三秒内 325 次尝试失败：244 次以一条 ACK 超时记录结束，另外 81 次是在答复应到时它正在接收另一帧，接收完毕发现其中没有给自己的答复。近端站点三秒内发出 3,866 帧，没有一次 ACK 超时；时间轴上没有任何碰撞标记。',
       meaning: '两种形式正是 §10.3.2.11 的两个分支（①）：超时之内没有检测到帧的开始，或检测到了但收到的不是答复。近端站点从不失败，是本仿真器接收机的取法（②）：两帧同时开始时，接入点解出的总是较强的那一帧。',
     },
   ],
@@ -186,11 +190,11 @@ export const rateFallback: Lesson = {
       q: '远端站点在最低一级的帧，长度几乎是它 MCS 1 帧的两倍。这两者中，哪一种每次尝试更容易失败？',
       options: [
         '最低一级的——它们在空口上停留得更久，期间会有更多退避计数器来得及减到零',
-        '如果一定要比较，是 MCS 1 的：11.8% 对 11.1%。决定每次尝试失败率的不是帧长',
+        '表中最低一级高一些，14.6% 对 11.8%，但它只有 246 次尝试，差别在统计波动之内；决定每次尝试失败率的不是帧长',
         '两者完全一样——失败只取决于有多少台站点',
       ],
       answer: 1,
-      explain: '表中的数几乎相同：11.1%、11.8%、11.1%。介质忙时其他站点的退避计数器不递减，所以一次失败取决于两个计数器会不会在同一时隙减到零，与帧的长度无关。',
+      explain: '表中的数是 11.3%、11.8%、14.6%，最低一级的样本最少，差别在统计波动之内。介质忙时其他站点的退避计数器不递减，所以一次失败取决于两个计数器会不会在同一时隙减到零，与帧的长度无关。',
     },
     {
       q: '「连续两次失败降一级、连续十次成功升一级」出自哪里？',

@@ -206,6 +206,20 @@ describe('edca-tamper · ② says what the engine does, and the engine does it',
     expect(cheat.length).toBeGreaterThan(0)
     for (const d of cheat) expect(d).toBeGreaterThan(pad)
     expect(Math.max(...cheat) - Math.max(...honest)).toBe(pad)
+    // 2026-11-11: the access point's BlockAck relays the data frame's Duration too — the data
+    // frame's Duration minus SIFS minus its own airtime, floored at 0 (IEEE Std 802.11-2024
+    // §9.2.5.6) — so the cheater's 3 000 µs rides on it as well. It ends where the CTS's NAV ends,
+    // which is why sta-2's NAV records still name only the CTS (lab 3).
+    const tx = rs.filter((x): x is Extract<TLRecord, { type: 'TX_START' }> => x.type === 'TX_START')
+    const bas = tx.filter((x) => x.node === 'ap' && x.frame.kind === 'ba' && x.frame.dst === 'sta-1')
+    expect(bas.length).toBeGreaterThan(0)
+    for (const ba of bas) {
+      const data = tx.filter((x) => x.node === 'sta-1' && x.frame.kind === 'data' && x.t < ba.t).pop()!
+      expect(ba.frame.durationFieldNs).toBe(Math.max(0, data.frame.durationFieldNs! - SIFS_NS - ba.frame.txTimeNs))
+    }
+    expect(Math.max(...bas.map((b) => b.frame.durationFieldNs!))).toBe(pad)
+    const navB = ofType(rs, 'NAV_SET').filter((r) => r.node === 'sta-2')
+    expect(new Set(navB.map((r) => r.source))).toEqual(new Set(['cts:ap']))
   })
 
   it('the placement row: a tamper on the access point is refused, and so are three presets on a DCF link', () => {

@@ -6,11 +6,11 @@
  * limits — the recipient's Maximum A-MPDU Length Exponent (§10.12.2), aPPDUMaxTime (§10.13,
  * Table 21-28) and the TXOP (§10.23.2.8) — padding in a VHT PPDU (§10.12.6), and the block ack
  * agreement and BlockAck frame (§10.25.1, §9.3.1.8, §10.25.6.7). ② says what the engine does:
- *  - it decodes an A-MPDU as ONE unit, so the BlockAck carries no per-MPDU bitmap and a failure
- *    retries every MPDU of the attempt (`failMsdus` in src/engine/mac.ts) — differs;
- *  - the final subframe is never padded (the HT rule), where the scene's VHT PPDU pads it and
- *    fills the PSDU with EOF padding (§10.12.6) — differs;
- *  - the ADDBA handshake, the delimiter CRC and the deaggregation it enables are absent;
+ *  - since W7a (2026-11-11) it receives an A-MPDU MPDU by MPDU, the BlockAck bitmap reports
+ *    exactly the MPDUs received and only the unacknowledged ones are retried; the final subframe
+ *    is padded and the PSDU filled with EOF padding (§10.12.6) — all faithful now;
+ *  - the delimiter CRC is counted but never computed, so the deaggregation it enables is not
+ *    modelled — differs; the ADDBA handshake is absent;
  *  - 64 MPDUs is an engine constant standing in for the negotiated buffer size, and 3000 octets
  *    the engine's RTS threshold (dot11RTSThreshold defaults to 6 500 631, i.e. off).
  *
@@ -23,7 +23,7 @@ import { type Lesson, oneRoom, node, sc, firstBa, firstAmpdu, J } from '../lesso
 /**
  * One subframe of this run's first batch, to scale: the engine's own `ampduSubframeBytes(1500)`
  * broken into the four parts it sums and the padding it rounds up with. 4 + 26 + 1500 + 4 = 1534,
- * padded to 1536, which is why the batch is 21 502 bytes and not 14 × 1 530.
+ * padded to 1536, which is why the batch is 21 502 bytes before its EOF padding and not 14 × 1 530.
  */
 export function ampduSubframeFields(): FieldsSpec {
   return {
@@ -36,7 +36,7 @@ export function ampduSubframeFields(): FieldsSpec {
       { label: '填充', size: 2 },
     ],
     unit: 'B',
-    total: '一个子帧 1 536 B；十四个首尾相接是 21 502 B',
+    total: '一个子帧 1 536 B；十四个，EOF 填充前 21 502 B',
   }
 }
 
@@ -44,7 +44,7 @@ export const ampdu: Lesson = {
   id: 'ampdu',
   module: 7,
   title: 'A-MPDU——竞争一次，发一批',
-  why: '站点（station, STA）每取得一次信道都有一段与数据量无关的固定开销：等待、倒数、前导码（preamble）、末尾的确认帧（acknowledgement, ACK）。电台速率越高，数据所占的时间越短，这段固定开销所占的比例就越大。IEEE 802.11-2024 的办法是把发往同一个接收端的多个 MPDU（MAC protocol data unit）首尾相接，放在一个 PPDU（PHY protocol data unit）里一次发出，这叫聚合 MPDU（aggregate MPDU, A-MPDU）。每个 MPDU 保留自己的帧头（MAC header）、载荷（payload）和帧校验序列（frame check sequence, FCS），前面加一个 4 字节的定界符（MPDU delimiter），组成一个子帧（subframe）；接收端只回一个块确认（block acknowledgement, BlockAck），用其中的位图（bitmap）逐个报告收到了哪些帧，发送方只重传（retry）没有被确认的帧。一批能装多少帧，受接收端声明的最大长度、PPDU 的最长时长和这一次传输机会（transmit opportunity, TXOP）的剩余时间限制。本课的场景里先起限制作用的是 TXOP：一批 14 帧。同样的编码、距离和字节，每送达一帧占用的空口时间（airtime）从 228.3 µs 降到 168.9 µs，整轮送达的帧数约为不聚合时的一倍半。本仿真器把一批当作一个整体判定，块确认里没有逐帧的位图，任何一处失败都整批重传；本场景里没有发生失败，所以看不到这一差别。',
+  why: '站点（station, STA）每取得一次信道都有一段与数据量无关的固定开销：等待、倒数、前导码（preamble）、末尾的确认帧（acknowledgement, ACK）。电台速率越高，数据所占的时间越短，这段固定开销所占的比例就越大。IEEE 802.11-2024 的办法是把发往同一个接收端的多个 MPDU（MAC protocol data unit）首尾相接，放在一个 PPDU（PHY protocol data unit）里一次发出，这叫聚合 MPDU（aggregate MPDU, A-MPDU）。每个 MPDU 保留自己的帧头（MAC header）、载荷（payload）和帧校验序列（frame check sequence, FCS），前面加一个 4 字节的定界符（MPDU delimiter），组成一个子帧（subframe）；接收端只回一个块确认（block acknowledgement, BlockAck），用其中的位图（bitmap）逐个报告收到了哪些帧，发送方只重传（retry）没有被确认的帧。一批能装多少帧，受接收端声明的最大长度、PPDU 的最长时长和这一次传输机会（transmit opportunity, TXOP）的剩余时间限制。本课的场景里先起限制作用的是 TXOP：一批 14 帧。同样的编码、距离和字节，每送达一帧占用的空口时间（airtime）从 228.3 µs 降到 168.9 µs，整轮送达的帧数约为不聚合时的一倍半。本仿真器照标准逐帧判定、用位图逐帧确认，只重传没有确认的帧；本场景里没有发生一次失败。',
   outcomes: [
     '说出 A-MPDU 子帧的组成，以及一批的长度受哪几条约束',
     '说明块确认怎样逐帧报告接收结果，并指出本仿真器在哪里与标准不同',
@@ -78,13 +78,13 @@ export const ampdu: Lesson = {
   ],
   implementation: [
     { topic: '子帧的组成', standard: '定界符 4 字节 + MPDU，非最后一个子帧补齐到 4 字节（§9.7.1）', sim: '4 + 26（QoS 帧头）+ 1500 + 4 = 1534 字节，补齐到 1536。', kind: 'faithful' },
-    { topic: '最后一个子帧与 EOF 填充', standard: 'VHT PPDU 里按 §10.12.6 补齐并加 EOF 填充，A-MPDU 长度等于 PSDU 长度', sim: '按 HT 的规则处理：最后一个子帧不补齐，也不加 EOF 填充，所以一批是 13 × 1536 + 1534 字节。本场景的上传站点用的是 VHT。', kind: 'differs' },
-    { topic: '定界符的内容', standard: '长度、CRC 与签名，用于在出错后恢复结构（§9.7.2）', sim: '只计入 4 字节，不生成字段内容，也不做出错后的解聚合。', kind: 'absent' },
+    { topic: '最后一个子帧与 EOF 填充', standard: 'VHT PPDU 里按 §10.12.6 补齐并加 EOF 填充，A-MPDU 长度等于 PSDU 长度', sim: '照此：时长按 EOF 填充之前的 13 × 1536 + 1534 = 21 502 字节计算；然后最后一个子帧补齐 2 字节，再加 5 个 EOF 填充子帧与 1 个填充字节，PSDU 共 21 525 字节。本场景的上传站点用的是 VHT。', kind: 'faithful' },
+    { topic: '定界符的内容', standard: '长度、CRC 与签名，用于在出错后恢复结构（§9.7.2）', sim: 'EOF/Tag 与 MPDU Length 照标准填写；CRC 只计入长度，并不实际计算，也不做出错后的解聚合。', kind: 'differs' },
     { topic: '块确认协议的建立', standard: '先用 ADDBA 请求与响应建立协议，接收端给出缓存数量（§10.25.1）', sim: '直接假定协议已经存在，时间轴上没有 ADDBA 帧。', kind: 'absent' },
     { topic: '一批最多几帧', standard: '受接收端声明的最大长度与协议的缓存数量约束（§10.12.2）', sim: '固定为 64 帧，与接收端无关。', kind: 'value' },
     { topic: 'PPDU 时长与 TXOP', standard: '不超过 aPPDUMaxTime 5.484 ms（§10.13）；A-MPDU 加块确认短于 TXOP 剩余时间（§10.23.2.8）', sim: '照此逐帧加入，下一帧会超出任一约束就停在它之前。', kind: 'faithful' },
-    { topic: '逐帧确认', standard: '接收端逐个检查 MPDU，位图逐帧报告（§9.3.1.8.2）', sim: '把一批当作一个整体判定：块确认的长度是 32 字节，与带 8 字节位图的压缩块确认相同，但没有位图的内容；收到块确认就是整批成功，没有收到就是整批失败。', kind: 'differs' },
-    { topic: '失败之后', standard: '只重传位图里没有确认的帧；块确认丢失时可以发块确认请求，也可以重传数据帧（§10.25.6.7.1）', sim: '一次尝试失败时，这次尝试里的每一帧都记一次重传（retry），一起回到队头，窗口加倍。', kind: 'differs' },
+    { topic: '逐帧确认', standard: '接收端逐个检查 MPDU，位图逐帧报告（§9.3.1.8.2）', sim: '照此：每个 MPDU 按它在数据字段中所占那一段期间的信干噪比（signal-to-interference-plus-noise ratio, SINR）各自判定（不计算 FCS）；块确认是 32 字节的压缩块确认，位图只标出收到的帧。', kind: 'faithful' },
+    { topic: '失败之后', standard: '只重传位图里没有确认的帧；块确认丢失时可以发块确认请求，也可以重传数据帧（§10.25.6.7.1）', sim: '照此：收到块确认，这次发送就算成功，竞争窗口（contention window, CW）复位（§10.23.2.2），位图里没有确认的帧各记一次重传、置重发比特（Retry bit）、回到队头；收不到块确认时，这一批每一帧都记一次重传，窗口加倍，之后直接重传数据帧，不发块确认请求。', kind: 'faithful' },
     { topic: '请求发送（request to send, RTS）的门限', standard: 'dot11RTSThreshold 的默认值为 6 500 631 字节，即默认不做 RTS 交换（附录 C）', sim: 'RTS 门限（RTS threshold）取 3000 字节，所以每一批之前都先有一次 RTS 与允许发送（clear to send, CTS）的交换。', kind: 'value' },
   ],
   labs: [
@@ -100,15 +100,16 @@ export const ampdu: Lesson = {
         { kind: 'table', heading: '第一批，逐项累加', head: ['步骤', '数值'], rows: [
           ['这一批的帧数，上限是 64', '14'],
           ['前十三个子帧，每个 4 + 26 + 1 500 + 4，补齐', '1 536 B'],
-          ['最后一个子帧，不补齐', '1 534 B'],
+          ['最后一个子帧，先不补齐', '1 534 B'],
           ['13 × 1 536 + 1 534', '21 502 B'],
+          ['EOF 填充：最后一个子帧补齐，加 EOF 填充子帧与填充字节', '21 525 B'],
           ['这一批的时长', '2 248 µs'],
           ['整次交换：RTS、CTS、三段 SIFS、这一批、块确认', '2 384 µs'],
           ['BE 的 TXOP 上限（TXOP limit）', '2 528 µs'],
           ['剩余时间；多加一个子帧，这一批要长', '144 µs；156 µs'],
         ] },
       ],
-      expect: '你应该看到：0 µs 发出 RTS，44 µs 收到 CTS，88 µs 起发出一个 21 502 字节、14 帧的 A-MPDU，时长 2 248 µs。多加第十五个子帧会使这一批长 156 µs，超出 TXOP 剩下的 144 µs，所以停在 14 帧。',
+      expect: '你应该看到：0 µs 发出 RTS，44 µs 收到 CTS，88 µs 起发出一个 21 525 字节、14 帧的 A-MPDU，时长 2 248 µs，按 EOF 填充之前的 21 502 字节计算。多加第十五个子帧会使这一批长 156 µs，超出 TXOP 剩下的 144 µs，所以停在 14 帧。',
       meaning: '这说明：一批的长度受 TXOP 约束（①），本仿真器照此逐帧加入（②）；64 帧的上限在这里没有起作用。',
     },
     {
@@ -119,7 +120,7 @@ export const ampdu: Lesson = {
         '查看它与那一批之间的间隔，以及它的长度与时长。',
       ],
       expect: '你应该看到：那一批在 2 336 µs 结束，16 µs 之后接入点（access point, AP）发出块确认，32 字节、32 µs。',
-      meaning: '这说明：一次 SIFS、一个块确认代替了十四次 SIFS 加确认帧（①）。本仿真器的块确认只有长度，没有位图的内容（②）。',
+      meaning: '这说明：一次 SIFS、一个块确认代替了十四次 SIFS 加确认帧（①）。本仿真器的块确认照标准逐帧标出收到的帧，这一次 14 帧全部标出（②）。',
     },
     {
       heading: '聚合与不聚合',
@@ -139,12 +140,12 @@ export const ampdu: Lesson = {
         ] },
       ],
       expect: '你应该看到：两种方式赢得的 TXOP 数几乎相同，但聚合时送达 1 120 帧，不聚合时 738 帧，约为 1.5 倍。不聚合并不是一个 TXOP 只发一帧：它在 TXOP 里同样连续发送八九帧，只是每帧都有自己的前导码和确认帧。两边都没有一次重传。',
-      meaning: '这说明：收益来自固定开销分摊到更多帧上，与速率无关（①）。实测值比算式略高，是因为 200 ms 结束时最后一批已经发出、还没有送达。这里只有一台站点，没有失败，所以本仿真器整批判定的简化（②）在这里看不出代价。',
+      meaning: '这说明：收益来自固定开销分摊到更多帧上，与速率无关（①）。实测值比算式略高，是因为 200 ms 结束时最后一批已经发出、还没有送达。这里只有一台站点，没有一次失败，所以逐帧重传（②）在这里没有出现。',
     },
   ],
   sources: [
-    'IEEE Std 802.11-2024：§9.7.1（A-MPDU 格式与填充）、图 9-1329 与表 9-659（MPDU 定界符）、§9.7.2（定界符的用途，附录 O.2）、§9.7.3（同一 RA、同一 TA）、§10.12.2（最大 A-MPDU 长度）、§10.12.6（VHT、HE PPDU 的填充）、§10.13 与表 21-28（aPPDUMaxTime 5.484 ms）、§10.23.2.8（A-MPDU 加块确认短于 TXOP 剩余时间）、§10.25.1（块确认协议）、§9.3.1.8 与 §9.3.1.8.2（块确认帧与压缩块确认的位图）、§10.25.6.7.1（发送方的处理）、附录 C 的 dot11RTSThreshold。',
-    '本仿真器的取值与取法：64 帧上限、3000 字节的 RTS 门限、整批判定、最后一个子帧不补齐。唯一的上传站点、1500 字节的帧与本轮采用的编码都是本仿真器的场景，可以复现。',
+    'IEEE Std 802.11-2024：§9.7.1（A-MPDU 格式与填充）、图 9-1329 与表 9-659（MPDU 定界符）、§9.7.2（定界符的用途，附录 O.2）、§9.7.3（同一 RA、同一 TA）、§10.12.2（最大 A-MPDU 长度）、§10.12.6（VHT、HE PPDU 的填充）、§10.13 与表 21-28（aPPDUMaxTime 5.484 ms）、§10.23.2.8（A-MPDU 加块确认短于 TXOP 剩余时间）、§10.25.1（块确认协议）、§9.3.1.8 与 §9.3.1.8.2（块确认帧与压缩块确认的位图）、§10.25.6.7.1（发送方的处理）、§10.23.2.2（收到块确认即视为发送成功）、附录 C 的 dot11RTSThreshold。',
+    '本仿真器的取值与取法：64 帧上限、3000 字节的 RTS 门限、按每个 MPDU 所占那一段的信干噪比判定接收、定界符的 CRC 只计入长度。唯一的上传站点、1500 字节的帧与本轮采用的编码都是本仿真器的场景，可以复现。',
   ],
   limits: [],
   scenario: () => sc(oneRoom(), [
@@ -185,7 +186,7 @@ export const ampdu: Lesson = {
         '接收端另发一个请求，专门要求重传这一帧',
       ],
       answer: 1,
-      explain: '§9.3.1.8.2：位图逐帧报告接收结果。本仿真器把一批当作一个整体判定，会整批重传。',
+      explain: '§9.3.1.8.2：位图逐帧报告接收结果。本仿真器也照此逐帧判定，只重传这一帧。',
     },
     {
       q: '本课场景里，一批停在 14 帧的原因是什么？',

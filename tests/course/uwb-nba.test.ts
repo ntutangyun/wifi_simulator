@@ -85,7 +85,11 @@ describe('uwb-nba · the lesson', () => {
     expect(why).toContain(`只容得下${['', '一', '两', '三'][NBA_ANCHOR_COUNT('base')]}个应答方`)
     expect(why).toContain(`四个应答方的 Poll 是 ${nbPpduNs(proposalOtmPoll(4)) / 1000} µs`)
     const blocksWithRanges = new Set(ofType(recs('base'), 'UWB_RANGE').map((r) => r.block)).size
-    expect(why).toContain(`七个块里只有${['', '一', '两'][blocksWithRanges]}个完成了消息交换`)
+    // 2026-11-11: none since the W7a Wi-Fi changes (the router now answers a partly received
+    // A-MPDU with a BlockAck, IEEE Std 802.11-2024 §10.12): its frames spoil the tag's narrowband
+    // receptions; two before.
+    expect(blocksWithRanges).toBe(0)
+    expect(why).toContain('七个块里没有一个完成了消息交换')
     expect(ofType(recs('base'), 'UWB_ROUND')).toHaveLength(BLOCKS)
   })
 })
@@ -181,9 +185,13 @@ describe('uwb-nba · ③ every figure the labs print is the run', () => {
     const e = lab('距离要等窄带 Report').expect
     const rs = recs('base')
     const report = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'nbReport')!
-    const range = ofType(rs, 'UWB_RANGE')[0]
-    expect(e).toContain(`第一条 Report 在 ${(report.t / MS).toFixed(3)} ms 发出，${report.frame.txTimeNs / 1000} µs 后的 ${(range.t / MS).toFixed(3)} ms`)
-    expect(e).toContain(`「${fmtRecord(range)}」`)
+    // 2026-11-11: the Report is lost at the tag to the router's transmissions, so the lab shows the range
+    // waiting for a Report that never arrives: no range in the whole run.
+    expect(ofType(rs, 'UWB_RANGE')).toEqual([])
+    const lost = ofType(rs, 'UWB_INTERFERED').find((r) => r.from === report.node && Math.abs(r.t - (report.t + report.frame.txTimeNs)) < 1000)! // + propagation
+    expect(lost.node).toBe(TAG)
+    expect(e).toContain(`第一条 Report 在 ${(report.t / MS).toFixed(3)} ms 发出，${report.frame.txTimeNs / 1000} µs 后的 ${(lost.t / MS).toFixed(3)} ms`)
+    expect(e).toContain(`「${fmtRecord(lost)}」，这一轮没有得出距离`)
     const trains = ofType(rs, 'UWB_MMS_TRAIN').filter((t) => t.node !== TAG && t.block === 0)
     expect(trains.every((t) => t.heard === t.fragments && t.fragments === 8)).toBe(true)
     expect(e).toContain(`余量 ${trains.map((t) => t.marginDb.toFixed(1)).join(' dB 与 ')} dB`)
@@ -215,8 +223,13 @@ describe('uwb-nba · ③ every figure the labs print is the run', () => {
     expect(l.expect).toContain(`只指定 ${poll.frame.dst}，${poll.frame.bytes} B、${us(poll.frame.txTimeNs)} µs`)
     const rounds = ofType(rs, 'UWB_ROUND')
     expect(l.expect).toContain(`一轮 ${rounds[0].slots} 个时隙、${(rounds[1].t - rounds[0].t) / MS} ms，一块容纳 ${rounds.length / BLOCKS} 轮`)
-    const range = ofType(rs, 'UWB_RANGE')[0]
-    expect(l.expect).toContain(`第一个距离在 ${(range.t / MS).toFixed(3)} ms 得出`)
+    // 2026-11-11: the first Response is lost at the tag to Wi-Fi, so block 0 has no range at all.
+    const resp = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'nbResp')!
+    const lost = ofType(rs, 'UWB_INTERFERED')[0]
+    expect([lost.node, lost.from]).toEqual([TAG, resp.node])
+    expect(Math.abs(lost.t - (resp.t + resp.frame.txTimeNs)), 'at the end of that Response, plus propagation').toBeLessThan(1000)
+    expect(ofType(rs, 'UWB_RANGE').filter((r) => r.block === 0)).toEqual([])
+    expect(l.expect).toContain(`${resp.node} 在 ${(resp.t / MS).toFixed(3)} ms 发回的 Response 在手机处被 Wi-Fi 干扰而丢失，第一轮没有得出距离`)
     const busy = ofType(rs, 'UWB_NB_LBT')[0]
     expect(busy.node).toBe(TAG)
     expect(l.expect).toContain(`${(busy.t / MS).toFixed(3)} ms 处手机判定信道忙`)

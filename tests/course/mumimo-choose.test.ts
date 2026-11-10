@@ -7,7 +7,8 @@
  * variants, and every one is read back out of the lesson and compared with that run.
  *
  * What the audit added, and this file pins: the 1,000-byte threshold is real in the engine and
- * inert in this scene — every member of every multi-user send here carries at least 1,434 bytes,
+ * inert in this scene — every member of every multi-user send here carries an A-MPDU of at least
+ * 1,438 bytes,
  * so the two variants differ only in whether MU-MIMO was negotiated.
  */
 import { describe, it, expect } from 'vitest'
@@ -18,6 +19,7 @@ import { mumimoScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { PHY_MODES, toneRatio } from '../../src/engine/phy'
+import { psduPlan } from '../../src/model/frames'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -32,9 +34,17 @@ const PHY_SRC = readFileSync(new URL('../../src/engine/phy.ts', import.meta.url)
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const muSends = (rs: TLRecord[]): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts !== undefined)
-const cleanSend = (rs: TLRecord[], members: number, bytes: number): Tx => {
-  const hit = muSends(rs).find((r) => r.frame.muParts!.length === members && r.frame.muParts!.every((p) => p.bytes === bytes))
-  expect(hit, `a clean ${members}-member send of ${bytes} B each`).toBeDefined()
+type Part = NonNullable<Tx['frame']['muParts']>[number]
+// 2026-11-11 (W7a): a member's `bytes` is now its PSDU_LENGTH — the A-MPDU padded to the PPDU's
+// symbol count (IEEE Std 802.11-2024 §10.12.6) — and every MPDU carries a 4-octet HT Control
+// field with the TRS Control subfield (§9.2.4.7.1, §10.3.2.13.2). The lesson prints the A-MPDU
+// itself (the pre-EOF length the airtime is computed from), recomputed here from the MSDUs.
+const apepOf = (p: Part): number => psduPlan(p.msduBytes!, { mu: true, trs: true }).psduBytes
+const apepSum = (r: Tx): number => r.frame.muParts!.reduce((s, p) => s + apepOf(p), 0)
+const cleanSend = (rs: TLRecord[], members: number, mpdus: number): Tx => {
+  const hit = muSends(rs).find((r) => r.frame.muParts!.length === members
+    && r.frame.muParts!.every((p) => p.mpduCount === mpdus && p.msduBytes!.every((b) => b === r.frame.muParts![0].msduBytes![0])))
+  expect(hit, `a clean ${members}-member send of ${mpdus} equal MPDUs each`).toBeDefined()
   return hit!
 }
 const runs = [runOf(mumimo, 0, RUN_NS), runOf(mumimo, 1, RUN_NS)]
@@ -46,7 +56,7 @@ const same = (printed: string, measured: number, what: string): void => {
   expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`).toBe(Number(measured.toFixed(dp)))
 }
 const symbolsOf = (r: Tx): number => (r.frame.txTimeNs - OPENING_NS) / PHY_MODES.eht.symNs
-const rateOf = (r: Tx): number => (r.frame.muParts![0].bytes * 8) / (r.frame.txTimeNs / 1000)
+const rateOf = (r: Tx): number => (apepOf(r.frame.muParts![0]) * 8) / (r.frame.txTimeNs / 1000)
 
 const lab = (heading: string): Lab => {
   const l = mumimoChoose.labs!.find((x) => x.heading === heading)
@@ -127,8 +137,8 @@ describe('mumimo-choose · ② says what the engine does, and the engine does it
     const f = /⌈\((\d+) \+ (\d) × 字节数 \+ (\d)\) ÷ 每符号比特数⌉/.exec(implRow('数据符号数').sim)!
     const e = /Math\.ceil\(\((\d+) \+ (\d) \* lengthBytes \+ (\d)\) \/ ndbps\)/.exec(PHY_SRC)!
     expect(f.slice(1)).toEqual(e.slice(1))
-    // 「本课的多用户发送使用 MCS 12 与 13，都只能用 LDPC」: EHT-MCS 10 to 14 are LDPC-only (§36.3.13.3.3)
-    const printed = /使用 MCS (\d+) 与 (\d+)，都只能用 LDPC/.exec(implRow('数据符号数').standard)!.slice(1).map(Number)
+    // 「本课的多用户发送都使用 MCS 13，只能用 LDPC」: EHT-MCS 10 to 14 are LDPC-only (§36.3.13.3.3)
+    const printed = /都使用 MCS (\d+)，只能用 LDPC/.exec(implRow('数据符号数').standard)!.slice(1).map(Number)
     const used = new Set(runs.flatMap((rs) => muSends(rs).flatMap((r) => r.frame.muParts!.map((p) => p.mcs))))
     expect([...used].sort((x, y) => x - y)).toEqual(printed)
     for (const m of used) expect(m >= 10 && m <= 14, `MCS ${m} is LDPC-only`).toBe(true)
@@ -146,8 +156,8 @@ describe('mumimo-choose · ② says what the engine does, and the engine does it
 })
 
 describe('mumimo-choose · ③ every figure the labs print is the run', () => {
-  const ofdma = cleanSend(runs[0], 3, 4_306)
-  const mimo = cleanSend(runs[1], 2, 4_306)
+  const ofdma = cleanSend(runs[0], 3, 3)
+  const mimo = cleanSend(runs[1], 2, 3)
   const sendOf = (label: string): Tx => (label.includes('频率') ? ofdma : mimo)
 
   it('lab 1: the two rows, the formula and its note, and the deliveries in `expect`', () => {
@@ -161,7 +171,7 @@ describe('mumimo-choose · ③ every figure the labs print is the run', () => {
     for (const [label, members, payload, symbols, length, rate] of tb.rows) {
       const s = sendOf(label)
       expect(Number(members), label).toBe(s.frame.muParts!.length)
-      for (const p of s.frame.muParts!) expect(val(payload), label).toBe(p.bytes)
+      for (const p of s.frame.muParts!) expect(val(payload), label).toBe(apepOf(p))
       expect(Number(symbols), label).toBe(symbolsOf(s))
       same(length.replace(' µs', ''), s.frame.txTimeNs / US, `${label}: length`)
       same(rate.replace(' Mb/s', ''), rateOf(s), `${label}: per-member rate`)
@@ -178,24 +188,28 @@ describe('mumimo-choose · ③ every figure the labs print is the run', () => {
     // the same ratio in `why` and in an outcome
     expect(/整帧却?只相差 ([\d.]+) 倍/.exec(mumimoChoose.why!)![1]).toBe(ratio)
     expect(/整帧为什么只相差 ([\d.]+) 倍/.exec(mumimoChoose.outcomes!.join(''))![1]).toBe(ratio)
-    // 「4,306 字节需要三个数据符号，整帧 92.8 µs；…只需要一个，整帧 65.6 µs。三个成员一次交付 12,918 字节，两个成员是 8,612 字节」
+    // 「4,318 字节需要三个数据符号，整帧 92.8 µs；…只需要一个，整帧 65.6 µs。三个成员一次交付 12,954 字节，两个成员是 8,636 字节」
     const e = /([\d,]+) 字节需要(.)个数据符号，整帧 ([\d.]+) µs；.*只需要(.)个，整帧 ([\d.]+) µs。(.)个成员一次交付 ([\d,]+) 字节，(.)个成员是 ([\d,]+) 字节/.exec(l.expect)!
-    expect(val(e[1])).toBe(ofdma.frame.muParts![0].bytes)
+    expect(val(e[1])).toBe(apepOf(ofdma.frame.muParts![0]))
     expect([zh(e[2]), zh(e[4])]).toEqual([symbolsOf(ofdma), symbolsOf(mimo)])
     same(e[3], ofdma.frame.txTimeNs / US, 'the wider send')
     same(e[5], mimo.frame.txTimeNs / US, 'the narrower send')
-    expect([zh(e[6]), val(e[7])]).toEqual([ofdma.frame.muParts!.length, ofdma.frame.bytes])
-    expect([e[8] === '两' ? 2 : zh(e[8]), val(e[9])]).toEqual([mimo.frame.muParts!.length, mimo.frame.bytes])
+    expect([zh(e[6]), val(e[7])]).toEqual([ofdma.frame.muParts!.length, apepSum(ofdma)])
+    expect([e[8] === '两' ? 2 : zh(e[8]), val(e[9])]).toEqual([mimo.frame.muParts!.length, apepSum(mimo)])
+    // 「每个 MPDU 都带 4 字节的 HT Control 字段 … 都再填充到 4,897 字节」: the PSDU_LENGTH the UI's member table shows
+    expect(Number(/带 (\d) 字节的 HT Control 字段/.exec(l.expect)![1])).toBe(apepOf(ofdma.frame.muParts![0]) - psduPlan(ofdma.frame.muParts![0].msduBytes!, { mu: true }).psduBytes - 8)
+    const padded = val(/都再填充到 ([\d,]+) 字节/.exec(l.expect)![1])
+    for (const s of [ofdma, mimo]) for (const p of s.frame.muParts!) expect(p.bytes).toBe(padded)
     // and `why` prints the same four
-    const w = /同样的 ([\d,]+) 字节，按频率划分需要(.)个数据符号，按空间划分只需要(.)个.*交付 ([\d,]+) 字节.*交付 ([\d,]+) 字节/.exec(mumimoChoose.why!)!
+    const w = /同样是 ([\d,]+) 字节的聚合 MPDU[^，]*，按频率划分需要(.)个数据符号，按空间划分只需要(.)个.*交付 ([\d,]+) 字节.*交付 ([\d,]+) 字节/.exec(mumimoChoose.why!)!
     expect([val(w[1]), zh(w[2]), zh(w[3]), val(w[4]), val(w[5])])
-      .toEqual([ofdma.frame.muParts![0].bytes, symbolsOf(ofdma), symbolsOf(mimo), ofdma.frame.bytes, mimo.frame.bytes])
+      .toEqual([apepOf(ofdma.frame.muParts![0]), symbolsOf(ofdma), symbolsOf(mimo), apepSum(ofdma), apepSum(mimo)])
   })
 
   it('lab 2: the step-by-step table, its arithmetic cells read as arithmetic', () => {
-    const l = lab('同一份 4,306 字节，两种方式各计算一遍')
+    const l = lab('同一份 4,318 字节，两种方式各计算一遍')
     const tb = blockOf(l, 'table')
-    expect(tb.heading).toContain(`${ofdma.frame.muParts![0].bytes.toLocaleString('en-US')} 字节`)
+    expect(tb.heading).toContain(`${apepOf(ofdma.frame.muParts![0]).toLocaleString('en-US')} 字节`)
     const cell = (needle: string): string[] => tb.rows.find((r) => r[0].includes(needle))!.slice(1)
     const queued = (s: Tx): number => new Set(muSends(runs[s === ofdma ? 0 : 1]).flatMap((r) => r.frame.muParts!.map((p) => p.dst))).size
     for (const [c, label] of tb.head.slice(1).entries()) {
@@ -210,7 +224,7 @@ describe('mumimo-choose · ③ every figure the labs print is the run', () => {
       expect([o * US, p * US, n]).toEqual([OPENING_NS, PHY_MODES.eht.symNs, symbolsOf(s)])
       same(String(total), s.frame.txTimeNs / US, `${label}: length`)
       expect(Number((o + p * n).toFixed(1))).toBe(total)
-      expect(val(cell('这一次合计交付')[c]), label).toBe(s.frame.bytes)
+      expect(val(cell('这一次合计交付')[c]), label).toBe(apepSum(s))
     }
     expect(val(/队首都有 ([\d,]+) 字节/.exec(tb.rows.find((r) => r[0].includes('都协商过'))![0])![1]))
       .toBe(Number(/const MUMIMO_MIN_BYTES = ([\d_]+)/.exec(MAC_SRC)![1]))
@@ -232,10 +246,10 @@ describe('mumimo-choose · ③ every figure the labs print is the run', () => {
       const sends = muSends(runs[v])
       expect(Number(row[1]), label).toBe(sends.length)
       expect(Number(row[2]), label).toBe(sends.filter((r) => r.frame.muKind === 'mumimo').length)
-      expect(val(row[3]), label).toBe(Math.min(...sends.flatMap((r) => r.frame.muParts!.map((p) => p.bytes))))
+      expect(val(row[3]), label).toBe(Math.min(...sends.flatMap((r) => r.frame.muParts!.map(apepOf))))
     }
     const thr = Number(/const MUMIMO_MIN_BYTES = ([\d_]+)/.exec(MAC_SRC)![1])
-    const min = Math.min(...runs.flatMap((rs) => muSends(rs).flatMap((r) => r.frame.muParts!.map((p) => p.bytes))))
+    const min = Math.min(...runs.flatMap((rs) => muSends(rs).flatMap((r) => r.frame.muParts!.map(apepOf))))
     expect(min).toBeGreaterThanOrEqual(thr)
     const e = /最小的成员都是 ([\d,]+) 字节，从未低于 ([\d,]+) 字节/.exec(l.expect)!
     expect([val(e[1]), val(e[2])]).toEqual([min, thr])

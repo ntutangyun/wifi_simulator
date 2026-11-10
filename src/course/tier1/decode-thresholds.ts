@@ -13,6 +13,10 @@
  * ③ is `radio-primer`'s own scene, plus the far wall at 80 and 160 MHz.
  *
  * Every figure is read back out of the lesson text in tests/course/decode-thresholds.test.ts.
+ *
+ * 2026-11-11 (W7a): an A-MPDU is received MPDU by MPDU (②「聚合帧」 is faithful now), and every
+ * EHT PSDU of this scene is an S-MPDU (§9.7.3, §10.12.7): four delimiter octets more per frame
+ * cost the study's MCS 10 frames one more symbol, so its 100 ms holds 322 Acks instead of 337.
  */
 import { J, firstAck, firstData, type Lesson } from '../lessonKit'
 import { primerScenario, primerVariants } from './radioLink'
@@ -56,7 +60,7 @@ export const decodeThresholds: Lesson = {
     { topic: '能量检测（energy detection, ED）', standard: '20 MHz 信道上 −62 dBm（§17.3.10.6）；HE 按主 20 MHz 信道与各次信道分别比较（§27.3.22.6）', sim: '把所有正在发送的信号功率相加，与 −62 dBm 比较一次，不区分主 20 MHz 信道与次信道，按整个信道宽度比较。本课的场景里只有一对设备，这一项不起作用。', kind: 'differs' },
     { topic: '帧校验序列', standard: 'MAC 用 32 位 CRC 检查（§9.2.4.9）', sim: '未实现：引擎不产生比特，也不计算 CRC；判决结果直接记为 RX_OK 或 RX_FAIL（原因为 lowSinr、collision 等）。', kind: 'absent' },
     { topic: '确认与 EIFS', standard: 'SIFS 后确认；出错后用 EIFS（§10.3.2.11，§10.3.2.3.7）', sim: '照此：解码成功后 16 µs 发出确认帧；接收失败之后，下一次发送前等待 EIFS。', kind: 'faithful' },
-    { topic: '聚合帧', standard: '每个 MPDU（MAC protocol data unit）各有帧校验序列，块确认（BlockAck）用位图（bitmap）逐个确认', sim: '一个 PPDU 只有一个判决：聚合 MPDU（aggregate MPDU, A-MPDU）要么全部收到，要么全部丢失。本课的场景没有聚合。', kind: 'differs' },
+    { topic: '聚合帧', standard: '每个 MPDU（MAC protocol data unit）各有帧校验序列，块确认（BlockAck）用位图（bitmap）逐个确认', sim: '照此逐个判定：聚合 MPDU（aggregate MPDU, A-MPDU）中的每个 MPDU 按它在数据字段中所占那一段期间最差时刻的 SINR 各自判定，块确认的位图只标出收到的 MPDU。本课场景的每个 PSDU 都是只装一个 MPDU 的 A-MPDU，由确认帧回复。', kind: 'faithful' },
     { topic: '速率余量', standard: '标准不规定留多少余量（§3.1）', sim: '发送端选级时要求信噪比（signal-to-noise ratio, SNR）≥ 所需 SINR + 3 dB；接收端解码时只用所需 SINR，不计入这 3 dB。', kind: 'value' },
   ],
   labs: [
@@ -89,7 +93,7 @@ export const decodeThresholds: Lesson = {
       blocks: [
         { kind: 'table', heading: '四个位置，100 ms', head: ['位置', 'MCS', '所需 SINR', 'SNR', '接收失败', '确认帧'], rows: [
           ['书桌，1 m', '13', '44.99 dB', '62.3 dB', '0', '353'],
-          ['书房，5 m', '10', '36.99 dB', '41.3 dB', '0', '337'],
+          ['书房，5 m', '10', '36.99 dB', '41.3 dB', '0', '322'],
           ['客厅，9 m + 砖墙', '3', '16.99 dB', '21.7 dB', '0', '175'],
           ['远端墙边，14 m + 砖墙', '1', '11.99 dB', '15.9 dB', '0', '107'],
         ] },

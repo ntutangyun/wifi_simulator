@@ -5,8 +5,8 @@
  * definitions of STA, AP, BSS, SSID, DS and ESS, the BSSID field (§9.2.4.3.4), joining and
  * association (§4.3.4, §4.3.5.1), the To DS / From DS address table (Tables 9-3 and 9-60) and
  * intra-BSS distribution (§4.5.2.1). ② marks this simulator against it: one BSS per scene, node
- * names for addresses, no management frames, no TDLS, and — found in this pass — a field view
- * whose Address 3 is the AP itself rather than the DA / SA the table requires. ③ reads the run.
+ * names for addresses, no management frames, no TDLS; since W7a (2026-11-11) Address 3 is the DA /
+ * SA Table 9-60 requires, and the AP hands an MSDU to the DS when it receives it. ③ reads the run.
  *
  * The scenario builder and the jump predicates are untouched (`relay-hops` loads this scene),
  * so the recorded timeline hash is the one the fixture already holds. Every figure is read back
@@ -84,7 +84,7 @@ export const rolesStack: Lesson = {
   outcomes: [
     '按标准的定义说出站点与接入点的区别',
     '区分一个网络的名称（SSID）与标识这个网络的地址（BSSID）',
-    '读出一个上行（uplink, UL）数据帧的三个地址各填的是谁，并指出本仿真器与标准不同的那一处',
+    '读出一个上行（uplink, UL）数据帧的三个地址各填的是谁，并与表 9-60 逐项对照',
   ],
   // decode-thresholds owns `rate margin`, which this lesson's opening sentence uses
   // to recall where the last one ended: naming it in `needs` is what makes that honest.
@@ -118,8 +118,8 @@ export const rolesStack: Lesson = {
     { topic: '信标、扫描、认证与关联', standard: '加入基本服务集要同步并关联（§4.3.4）', sim: '未实现：能放上空口的帧种类里没有信标、Probe Request、Probe Response、认证与关联帧；每个站点从 0 时刻起就已关联。', kind: 'absent' },
     { topic: 'SSID', standard: '0 到 32 个八位组的名称', sim: '未实现：没有任何帧携带 SSID。', kind: 'absent' },
     { topic: '几个基本服务集', standard: '可以有多个基本服务集，经分发系统连成扩展服务集（§4.3.5）', sim: '未实现：一个场景只有一个基本服务集，取节点表里第一个接入点，其余站点都以它为对端；没有扩展服务集，也没有同信道的邻居网络。', kind: 'absent' },
-    { topic: '同一基本服务集内的转发', standard: '输入与输出是同一个接入点（§4.5.2.1）', sim: '照此：手机之间的载荷入队时接收方就写为接入点，最终目的地另外记录；接入点确认第一跳之后，把载荷排进自己的队列（queue），按最终目的地发送第二跳。', kind: 'faithful' },
-    { topic: '上行帧的地址 3', standard: 'To DS = 1 时地址 3 是最终目的地 DA（表 9-60）', sim: '字段视图把地址 3 填为接入点自己，并标为 DA；手机发给手机的载荷，最终目的地并没有出现在这个位置。下行（downlink, DL）帧的地址 3（SA）同样填为接入点，而不是原始发送方。这是待改正的偏差。', kind: 'differs' },
+    { topic: '同一基本服务集内的转发', standard: '输入与输出是同一个接入点（§4.5.2.1）', sim: '照此：手机之间的载荷入队时接收方就写为接入点，最终目的地写在地址 3；接入点收到第一跳时就把载荷交给分发系统，再排进自己的队列（queue），按最终目的地发送第二跳。', kind: 'faithful' },
+    { topic: '上行帧的地址 3', standard: 'To DS = 1 时地址 3 是最终目的地 DA（表 9-60）', sim: '照此：手机发给手机的载荷，第一跳的地址 3 是另一部手机（DA）；下行（downlink, DL）帧的地址 3 是原始发送方（SA），由接入点自己发起的载荷则是接入点。', kind: 'faithful' },
     { topic: '隧道直连链路', standard: 'To DS = 0、From DS = 0 的直连路径（表 9-3）', sim: '未实现：引擎里没有站点到站点直接发送数据帧的路径。', kind: 'absent' },
     { topic: '业务', standard: '标准不涉及', sim: '每台设备发送什么、包多大、间隔多久，都来自本仿真器编写的到达模型，不是抓包数据。', kind: 'value' },
   ],
@@ -137,16 +137,16 @@ export const rolesStack: Lesson = {
           caption: '图中的位置就是本场景中的位置。每一条实线的另一端都是接入点；手机到手机的那条虚线上从来没有直接传送过，载荷只能经第一跳、第二跳传送。',
         },
         { kind: 'table', heading: '1 s 内的数据帧，按发送方与接收方', head: ['发送方 → 接收方', '数据帧数'], rows: [
-          ['接入点 → 电视', '1072'],
-          ['手机 B → 接入点', '651'],
-          ['手机 A → 接入点', '653'],
-          ['接入点 → 手机 A', '580'],
-          ['接入点 → 手机 B', '574'],
+          ['接入点 → 电视', '1061'],
+          ['手机 B → 接入点', '662'],
+          ['手机 A → 接入点', '644'],
+          ['接入点 → 手机 A', '588'],
+          ['接入点 → 手机 B', '598'],
           ['笔记本 → 接入点', '16'],
           ['站点 → 站点', '0'],
         ] },
       ],
-      expect: '1 s 内共有 3546 个数据帧，每一个的一端都是接入点；没有一个数据帧从站点直接发给站点。电视只接收数据：1 s 内它发出了 1053 帧，没有一个是数据帧，全部是对接入点的应答。',
+      expect: '1 s 内共有 3569 个数据帧，每一个的一端都是接入点；没有一个数据帧从站点直接发给站点。电视只接收数据：1 s 内它发出了 1053 帧，没有一个是数据帧，全部是对接入点的应答。',
       meaning: '接入点为两部手机转发，符合 §4.5.2.1（①、②）；站点之间没有直连路径，是因为本仿真器没有实现隧道直连链路（②）。',
     },
     {
@@ -162,7 +162,7 @@ export const rolesStack: Lesson = {
           ['手机 B（15 dBm，相距 6 m）', '−55.04 dBm'],
         ] },
       ],
-      expect: '1 s 内，手机 A 收到手机 B 发给接入点的帧却解不出来，记了 434 次 RX_FAIL（原因 lowSinr）；手机 B 发出的 651 个数据帧里有 470 个用 MCS 11，它的所需 SINR 是 38.99 dB，而这条路径只有 38.95 dB。',
+      expect: '1 s 内，手机 A 收到手机 B 发给接入点的帧却解不出来，记了 417 次 RX_FAIL（原因 lowSinr）；手机 B 发出的 662 个数据帧里有 470 个用 MCS 11，它的所需 SINR 是 38.99 dB，而这条路径只有 38.95 dB。',
       meaning: '这说明手机 A 解不出手机 B 当时用的等级；直接发送是否可行，这个场景并没有测试，因为本仿真器根本没有那条路径（②）。按标准，两部手机要直接通信，也要先建立隧道直连链路（①）。',
     },
     {
@@ -177,11 +177,11 @@ export const rolesStack: Lesson = {
           ['To DS / From DS', '1 / 0', '1 / 0'],
           ['地址 1', 'ap（RA、BSSID）', 'BSSID'],
           ['地址 2', 'sta-4（TA、SA）', '手机 B'],
-          ['地址 3', 'ap（DA）', '手机 A（DA）'],
+          ['地址 3', 'sta-3（DA）', '手机 A（DA）'],
         ] },
       ],
-      expect: 'To DS 为 1，地址 1 与地址 2 符合表 9-60；地址 3 填的是接入点自己，而不是最终目的地手机 A。',
-      meaning: '这是本仿真器与标准不同的一处（②）：最终目的地只记录在引擎内部，没有写进地址 3。',
+      expect: 'To DS 为 1，三个地址都符合表 9-60：地址 1 是接入点（BSSID），地址 2 是手机 B，地址 3 是最终目的地手机 A。',
+      meaning: '接入点正是读取第一跳的地址 3，才知道这份载荷要交给分发系统、再发给手机 A（①）；本仿真器照此填写（②）。',
     },
   ],
   sources: [

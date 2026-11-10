@@ -61,15 +61,20 @@ export interface Room {
 export type ProfileId = 'video' | 'voice' | 'gaming' | 'p2pvideo' | 'backup' | 'browsing' | 'iot' | 'saturated' | 'idle'
 
 /**
- * How a TXOP holder announces its burst (§9.2.5.2 / §10.23.2.8):
- *  - single:   every frame's Duration covers only its own response (default).
- *  - boundary: an RTS/CTS opens a multi-exchange burst and its Duration covers
- *              the whole planned burst; data frames inside keep single protection.
- *  - multiple: as boundary, and every data frame also carries the TXOP remainder.
- * A burst that ends early is truncated with CF-End (§10.23.2.9).
+ * The class of Duration setting a TXOP holder uses (IEEE Std 802.11-2024 §9.2.5.2, which defines
+ * exactly these two):
+ *  - single:   each frame protects up to the end of the following frame and its response
+ *              (default); the final frame of the TXOP only its own response.
+ *  - multiple: each frame protects up to the end of the TXOP (TTXOP − TPPDU on the first,
+ *              TTXOP-REMAINING − TPPDU after it — the upper bound of the range b) allows).
+ * A TXOP that ends before the NAV its holder announced is truncated with CF-End (§10.23.2.10).
+ *
+ * 2026-11-11: the third value `'boundary'` (RTS to the end of the TXOP, data frames single) was
+ * removed — it is not a class the standard defines. A saved scenario that still says
+ * `'boundary'` loads as `'multiple'`, the class its opening RTS already used.
  */
-export type TxopProtection = 'single' | 'boundary' | 'multiple'
-export const TXOP_PROTECTIONS: TxopProtection[] = ['single', 'boundary', 'multiple']
+export type TxopProtection = 'single' | 'multiple'
+export const TXOP_PROTECTIONS: TxopProtection[] = ['single', 'multiple']
 export const PROFILE_IDS: ProfileId[] = ['video', 'voice', 'gaming', 'p2pvideo', 'backup', 'browsing', 'iot', 'saturated', 'idle']
 
 /**
@@ -852,7 +857,7 @@ const NodeCfgSchema = z.preprocess(
       nss: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
     }),
     linkId: z.enum(['2g', '5g', '6g']).optional(),
-    txopProtection: z.enum(['single', 'boundary', 'multiple']).optional(),
+    txopProtection: z.preprocess((v) => (v === 'boundary' ? 'multiple' : v), z.enum(['single', 'multiple'])).optional(),
     servers: z.record(ProfileSchema, z.string()).optional(),
     gameAccel: z.boolean().optional(),
     p2pTarget: z.string().min(1).optional(),

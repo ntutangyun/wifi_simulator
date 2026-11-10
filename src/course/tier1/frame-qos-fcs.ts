@@ -70,7 +70,7 @@ export const frameQosFcs: Lesson = {
     { topic: '确认策略', standard: '单独的帧 Normal Ack，A-MPDU 中的帧 Implicit BAR（表 9-13）', sim: '照此写入，并照此回复确认帧或块确认；不使用 No Ack 等其他策略。', kind: 'faithful' },
     { topic: 'QoS 控制的其他子字段', standard: 'A-MSDU Present、TXOP Duration Requested、Queue Size 等（表 9-10）', sim: '未建模：字段视图只显示 TID 与确认策略。', kind: 'absent' },
     { topic: 'FCS 的计算', standard: '32 位 CRC（§9.2.4.9）', sim: '不计算：FCS 只计入 4 B 的长度，src/engine 中没有任何一处计算 CRC。', kind: 'differs' },
-    { topic: '接收的判定', standard: '无差错交付并通过 FCS 校验（§9.2.2）', sim: '按整帧期间最差时刻的信干噪比是否达到该速率等级的要求判定。失败原因只记录为碰撞、信号太弱、接收端正在发送、接收机已转去同步更强的帧四种，不会出现“信干噪比足够而校验失败”的帧。', kind: 'differs' },
+    { topic: '接收的判定', standard: '无差错交付并通过 FCS 校验（§9.2.2）', sim: '按整帧期间最差时刻的信干噪比是否达到该速率等级的要求判定；A-MPDU 中的每个 MPDU 按它自己所占的那一段各自判定。失败原因只记录为碰撞、信号太弱、接收端正在发送、接收机已转去同步更强的帧四种，不会出现“信干噪比足够而校验失败”的帧。', kind: 'differs' },
     { topic: '没有收到确认帧之后', standard: '判定失败，退避后重发，重发比特置 1（§10.3.2.11，§10.23.2.12.1）', sim: '照此处理：确认超时后退避，重发时序号不变、重发比特置 1。', kind: 'faithful' },
   ],
   labs: [

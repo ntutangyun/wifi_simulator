@@ -57,7 +57,7 @@ Wi-Fi 这一侧没有这个难题——IEEE Std 802.11-2024 与 IEEE Std 802.11b
   因为 W0 那个测试只检查得到导出名——写成 `#` 形会让它看起来被检查过而其实没有。
 - 课程编号写作 `` `@airtime` ``，就是 `COURSE_ORDER` 里的那个 id。
 
-**全表 105 处 `#` 形引用（去重 96 个符号）与 56 个课号由 `tests/course/wifi-coverage.test.ts`
+**全表 108 处 `#` 形引用（去重 98 个符号）与 56 个课号由 `tests/course/wifi-coverage.test.ts`
 逐个核对**，而且上面这三个数本身也由它核对——它不自带数字，它把这一行写出来的数和它量到的数比。
 下面这段脚本是它的前身，留着当重跑的配方（2026-10-05 跑过，零失败），**但它只是配方，判据在那个测试里**：
 
@@ -115,10 +115,10 @@ CDMG、CMMG、EDMG、WUR、NGV、LC、增强广播）。**把它们逐节列出�
 
 | 标准依据（按前缀归并） | 行数 |
 | --- | --- |
-| 已发布 · 802.11-2024 | 78 |
+| 已发布 · 802.11-2024 | 79 |
 | 已发布 · be-2024 | 12 |
 | 已发布 · 其他修正案 | 6 |
-| 标准不规定 | 24 |
+| 标准不规定 | 23 |
 | 标准里查不到 | 3 |
 
 三行是**混合**的（例如「分格单位出自标准，每格的起伏标准不规定」），按前缀归到「已发布」里，
@@ -126,8 +126,8 @@ CDMG、CMMG、EDMG、WUR、NGV、LC、增强广播）。**把它们逐节列出�
 
 | 本仿真器 | 行数 |
 | --- | --- |
-| 已建模 | 78 |
-| 部分建模 | 10 |
+| 已建模 | 79 |
+| 部分建模 | 9 |
 | 未建模 | 35 |
 
 | 第四列的裁定 | 行数 |
@@ -227,7 +227,7 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 | 响应超时：AckTimeout / CTSTimeout（§10.3.2.9） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#ACK_TIMEOUT_NS` = 45 000 = SIFS + 时隙 + aRxPHYStartDelay；记录 `ACK_TIMEOUT` / `CTS_TIMEOUT`。`@collisions-cw`、`@rts-cts` |
 | 超时之后下一个 IFS 从超时末尾起算（标准对齐 A6） | 已发布 · 802.11-2024 | 已建模 | `@collisions-cw` |
 | 重传计数与 dot11ShortRetryLimit = 7（2020 版之后的单计数器模型） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#SHORT_RETRY_LIMIT` = 7，每个 MSDU 自己记；记录 `RETRY`、`DROP.reason === 'retryLimit'`。**2016 版的 SRC/LRC 双计数器已删**（标准对齐 A3）。`@retries-queues` |
-| 序列号跨重传保持、重复检测（§10.3.2.14） | 已发布 · 802.11-2024 | 已建模 | MSDU 第一次发送时取号，重传复用，模 4096（标准对齐 A2）。`@small-frames`（序号字段）、`@frame-anatomy`（重复帧） |
+| 序列号跨重传保持、重复检测（§10.3.2.14） | 已发布 · 802.11-2024 | 已建模 | MSDU 第一次发送时取号，重传复用，模 4096（标准对齐 A2）；QoS 数据按 <Address 1, TID> 计数、非 QoS 数据用一个基线计数器（表 10-5）；接收端按 <TA, TID, SN> 与 Retry 位丢弃重复帧（表 10-6，`engine/queues.ts#AcQueues`，W7a 2026-11-11）。`@small-frames`（序号字段）、`@frame-anatomy`（重复帧） |
 | 捕获效应：先到的帧在信噪比够时解得出（§17.3.10 的接收过程，正文不给捕获规则） | 标准不规定 | 已建模 | `engine/channel.ts` 的 `Channel`：逐次发送累加干扰，按 `engine/phy.ts#reqSinrDb` 判决。**「两帧重叠就都丢」是本仿真器明确不采用的那个简化。** `@decode-thresholds`、`@collisions-cw` |
 | 分片与重组（§10.4、§10.5） | 已发布 · 802.11-2024 | 未建模 | **范围决定。** 一个 MSDU 永远是一个 MPDU；分片的收益（短帧更不容易被干扰打断）在这个引擎里由 A-MPDU 的粒度代替，而分片阈值会多出一整条与聚合相互作用的路径。**已记进课程**，而且记得比这一行准：`@frame-anatomy` 有一条 `unmodelled` 说帧控制里六个比特恒为 0（协议版本、更多分片、电源管理、更多数据、受保护帧、+HTC），**于是分片、省电、加密与 HT 控制这四件事在整个课程里都不可能出现**——一条 `limits` 同时交代四个缺口，`model/frameFields.ts` 作证。`@frame-anatomy` |
 | No Ack（§10.26） | 已发布 · 802.11-2024 | 未建模 | **范围决定。** 每一次数据发送都要一个 Ack 或 BA；没有 QoS 的「不要确认」这一档。 |
@@ -252,16 +252,16 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 
 | 特性 | 标准依据 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
-| A-MPDU 与分隔符（§10.12、§9.8） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#AMPDU_DELIMITER_BYTES` = 4、`engine/phy.ts#QOS_HDR_BYTES` = 26、`engine/phy.ts#MAX_AMPDU_MPDUS` = 64。**填充只加在子帧之间、不加在最后一个之后**（标准对齐 A17）。`@ampdu`、`@small-frames` |
-| 压缩 BlockAck（§9.3.1.9、§10.25） | 已发布 · 802.11-2024 | 部分建模 | 帧长有：`engine/phy.ts#BA_BYTES` = 32（`model/frameFields.ts` 把它拆成 SSC + 位图两格）。**没建的是位图本身**：`engine/mac.ts` 是整 PPDU 解码模型，一次交换要么全成功要么全失败，没有逐子帧失败这回事（代码注释自己说「no per-subframe bitmap to partially fail on」）。`@ampdu` |
+| A-MPDU 与分隔符（§10.12、§9.8） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#AMPDU_DELIMITER_BYTES` = 4、`engine/phy.ts#QOS_HDR_BYTES` = 26、`engine/phy.ts#MAX_AMPDU_MPDUS` = 64。**填充只加在子帧之间、不加在最后一个之后**（标准对齐 A17）；VHT/HE/EHT 的 PSDU 一律是 A-MPDU，单个 MSDU 为 S-MPDU（`model/frames.ts#psduPlan`，§10.12.7），末子帧填充与 EOF 填充补到 PSDU_LENGTH（`model/frames.ts#eofPadding`，§10.12.6，W7a 2026-11-11）。`@ampdu`、`@small-frames` |
+| 压缩 BlockAck（§9.3.1.9、§10.25） | 已发布 · 802.11-2024 | 已建模 | 帧长 `engine/phy.ts#BA_BYTES` = 32；位图如实报告收到的 MPDU（`FrameDesc.ba`），接收端逐个 MPDU 判定（`engine/channel.ts` 的 `mpduOutcome`），发送端只重传未确认的 MPDU（W7a 2026-11-11，`tests/engine/w7a-frames.test.ts`）。没有块确认时整组重传（`tests/engine/ampdu-whole-ppdu.test.ts`）。`@ampdu` |
 | BA 协商（ADDBA/DELBA，§10.25.2） | 已发布 · 802.11-2024 | 未建模 | **未偿的债**，标准对齐程序的 C 项（「BA agreements, bitmap and partial retransmission」）。没有协商，所以也没有「协商下的重传不计数」这条规则。 |
 | 部分重传与重排序（§10.25.3） | 已发布 · 802.11-2024 | 未建模 | **未偿的债**，同上一行，同一个 C 项。 |
 | 多站 BlockAck（§9.3.1.9 的 Multi-STA 变体） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#multiStaBaBytes` = 32 + 8·(n−1)。`@ofdma-dl` |
-| A-MSDU（§10.11） | 已发布 · 802.11-2024 | 未建模 | **未偿的债**，标准对齐程序的 C 项点名要它（`grep -rni amsdu src/engine src/model` 今天只命中两处设计文档引用，没有一个标识符）。**而它和 A-MPDU 的取舍在这个引擎里只有省的那一半：**省的是每多一个子帧 20 字节（26 字节 QoS 帧头 + 4 字节 FCS + 4 字节定界符，减去 14 字节 A-MSDU 子帧头），而「一丢全丢」那个代价今天 A-MPDU 已经在付（见本节「压缩 BlockAck」那一行；这件事的断言在 `tests/engine/ampdu-whole-ppdu.test.ts`）。**所以 W8b 立案并建议不批**，四条理由在 backlog 的 W8 一节。 |
+| A-MSDU（§10.11） | 已发布 · 802.11-2024 | 未建模 | **未偿的债**，标准对齐程序的 C 项点名要它（`grep -rni amsdu src/engine src/model` 今天只命中两处设计文档引用，没有一个标识符）。**而它和 A-MPDU 的取舍在这个引擎里只有省的那一半：**省的是每多一个子帧 20 字节（26 字节 QoS 帧头 + 4 字节 FCS + 4 字节定界符，减去 14 字节 A-MSDU 子帧头），而「一丢全丢」那个代价自 2026-11-11 起 A-MPDU 不再付（见本节「压缩 BlockAck」那一行：逐个 MPDU 判定、只重传未确认的）。**所以 W8b 立案并建议不批**，四条理由在 backlog 的 W8 一节。 |
 | PPDU 时长上限（§10.13） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#MAX_PPDU_NS` = 5 484 000（aPPDUMaxTime）。`@ampdu` |
 | TXOP 内的聚合时间预算（标准对齐 A12/A13） | 已发布 · 802.11-2024 | 已建模 | 第一帧按 `txopLimit −（RTS+SIFS+CTS+SIFS）− SIFS − 响应时长` 来裁；**200 µs 的下限已删**。`@txop`、`@txop-protect` |
-| CF-End 把没用完的 TXOP 还回去（§9.3.1.? 的 CF-End 帧、§10.23.2.9） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#CF_END_BYTES` = 20，24 Mb/s 发出；`engine/mac.ts` 收到时清 NAV。`@protect-policies` |
-| 突发保护的三种策略 | 标准不规定 | 已建模 | `model/scenario.ts#TXOP_PROTECTIONS` = `single` / `boundary` / `multiple`，**三个名字是本仿真器起的**，标准只给机制不给策略。`@txop-protect`、`@protect-policies` |
+| CF-End 把没用完的 TXOP 还回去（§9.3.1.6 的 CF-End 帧、§10.23.2.10） | 已发布 · 802.11-2024 | 已建模 | `engine/phy.ts#CF_END_BYTES` = 20，24 Mb/s 发出；`engine/mac.ts` 收到时清 NAV。`@protect-policies` |
+| 单次保护与多重保护（§9.2.5.2、§9.2.5.6） | 已发布 · 802.11-2024 | 已建模 | `model/scenario.ts#TXOP_PROTECTIONS` = `single` / `multiple`，即标准的两类 Duration 设置；单次保护的数据帧覆盖下一次交互，应答帧转述 Duration，多重保护取上限。自创的 `boundary` 已于 2026-11-11 删除（W7a）。`@txop-protect`、`@protect-policies` |
 
 ## 四、多速率与控制响应（§10.6）
 
@@ -342,7 +342,7 @@ UWB 那份文档漏掉的那一行（§10.47），在这里是一条会打印出
 | 触发帧与触发式上行（§26.5.2、§9.3.1.22） | 已发布 · 802.11-2024 | 部分建模 | `engine/phy.ts#triggerBytes` = 28 + 6n；§10.3.2.9 的响应超时建了（触发末尾 + 45 µs）。**没建的是 BSRP/BSR 与上行功控**：接入点读的是 `model/scenario.ts` 里那个站点侧的积压替身，不是空口上报的缓冲状态。`@ofdma-ul` |
 | 被触发之后恢复 EDCA 时不动 CW、不动退避计数 | 已发布 · 802.11-2024 | 已建模 | 标准对齐 A9。`@ofdma-ul` |
 | 触发帧要过 NAV 与载波侦听（§10.3.2.9、§26.2.?） | 已发布 · 802.11-2024 | 已建模 | 标准对齐 A10：第三方设的 NAV 不会被触发帧清掉，站点此时沉默。`@ofdma-ul` |
-| 下行 MU 的部分成功（标准对齐 A8） | 已发布 · 802.11-2024 | 已建模 | 只要有一个成员确认，这次交换就算成功：CW 复位、TXOP 可以继续；没确认的成员各自走重传。`@ofdma-dl` |
+| 下行 MU 的部分成功（标准对齐 A8） | 已发布 · 802.11-2024 | 已建模 | 只要有一个成员确认，这次交换就算成功：CW 复位、TXOP 可以继续；没确认的 MPDU 各自走重传。确认由每个 MPDU 里的 TRS 控制子字段征询，成员以 HE/EHT TB PPDU 回块确认（§10.3.2.13.2，W7a 2026-11-11）。`@ofdma-dl` |
 | MU-MIMO 分组（§26.5.3） | 已发布 · 802.11-2024 | 部分建模 | `engine/mac.ts` 的私有方法 `buildMuParts`（`mumimo` 为 true 的那一支）加 `fitsStreams`：成员数按接入点的流数装得下为止，装不下就逐个砍。**没建的是探测代价**（NDP sounding，§26.7）与 VHT MU-MIMO。`@mumimo`、`@mumimo-choose` |
 | 探测 PPDU 与 NDP 探测（§10.30、§10.35、§26.7） | 已发布 · 802.11-2024 | 未建模 | **未偿的债**，标准对齐程序的 F 项。MU-MIMO 在这里是免费的，而真实设备每一轮要付一次探测的空口时间——这正是 `@mumimo-choose` 那个「按频率还是按空间」的选择在现实里真正的天平。 |
 | 发射波束成形（§10.33）、天线选择（§10.34） | 已发布 · 802.11-2024 | 未建模 | **范围决定。** 引擎里一对节点之间只有一个电平数（`engine/propagation.ts#buildLinkTable`），没有信道矩阵，也就没有可成形的东西。已写进 `@streams` 的 `limits`。 |
@@ -678,7 +678,7 @@ Wi-Fi 轨现在有一门课读的就是 TGbn 的动议号，所以这一条已�
 | --- | --- | --- |
 | **A** 正确性（A1–A19） | 有 | **已完成**，19 项全部在引擎里（本表第一、二、三、七节逐项引了 A1–A17） |
 | **B** PHY 保真 | 没有 | **五项里四项已交付，但是交在另一个程序的名下。** A 的「Out of scope for B」原文列的是「width penalty on the noise floor, noise figure, PER tables, preamble SNR detection, CCA after own TX」。其中带宽噪声惩罚（`noiseDbm(W)`）、噪声系数（`NOISE_FIGURE_DB` = 7）、前导码信噪比检测（`PREAMBLE_DETECT_SINR_DB` = 4）都在，而且**是零到一百那份设计的 S1 这一刀交的**——S1 的交付清单里逐字写着这几项。**没交的是 PER 表**（本表第六节最后一行），而「CCA after own TX」查不到对应标识符（`grep -rn 'own TX\|ownTx' src/engine` 零命中），**存疑**。 |
-| **C** MAC 数据路径 | 没有 | **开始了一步，而那一步不是拆文件。** 它的开场动作原定是拆 `mac.ts`，而 `mac.ts` 今天 1777 行，一行没拆；W8a（2026-10-07）做的是另一件：把「把队列里的 MSDU 装成一个 PSDU」这个散在五处的决定收成了一个函数（`model/frames.ts#psduPlan`），于是下一层聚合从改五处变成改一处。**而这个行数现在由 `tests/engine/psdu-plan.test.ts` 读出来再和这一行比，不再是一句写在文档里的数。**清单里只有「queue limits and lifetime」落地了（又是 S1 交的）；BA 协商、位图与部分重传、A-MSDU、PIFS 恢复全部没有（本表第三节四行「未偿的债」）。 |
+| **C** MAC 数据路径 | 没有 | **开始了一步，而那一步不是拆文件。** 它的开场动作原定是拆 `mac.ts`，而 `mac.ts` 今天 1957 行，一行没拆；W8a（2026-10-07）做的是另一件：把「把队列里的 MSDU 装成一个 PSDU」这个散在五处的决定收成了一个函数（`model/frames.ts#psduPlan`），于是下一层聚合从改五处变成改一处。**而这个行数现在由 `tests/engine/psdu-plan.test.ts` 读出来再和这一行比，不再是一句写在文档里的数。**清单里只有「queue limits and lifetime」落地了（又是 S1 交的）；BA 协商、位图与部分重传、A-MSDU、PIFS 恢复全部没有（本表第三节四行「未偿的债」）。 |
 | **D** 传统 PHY 与频段 | 没有 | **建了一半，教了四分之一。** 2.4 GHz 的 ERP 时序、频段损耗差、40 MHz 上限全部建好并有专门测试，**而且那是为 AMP 那一刀建的**（AMP 标签只活在 2.4 GHz 上）；DSSS 与混合 BSS 的保护没建。课程这一侧：SIFS/时隙/信号扩展被两门 AMP 课教了，别的没有。**它是这张表里投入产出比最高的那一刀。** |
 | **E** 管理与省电 | 没有 | **没开始。** 信标、关联、安全、漫游、省电、TWT 一个也没有（本表第十二节六行）。 |
 | **F** HE/EHT 进阶 | 没有 | **零碎地推进了，没有一次是以 F 的名义。** 「real RU sizes」= UWB backlog 的切片 4d，**已立案且建议不批**；26 音调的分格单位已经为频率选择性建了（`engine/selectivity.ts`）。per-stream LTF、触发式 MU 确认、VHT MU-MIMO、MU EDCA、intra-BSS NAV 全部没有。 |
@@ -735,7 +735,7 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 三侧表比的是一个还在的字段和两个已不存在的字段。**把上限降到 0、把表里填上 0，
 得到的是一排什么也证明不了的绿勾**，所以这一行和这张表连同它们的仪器
 （`tests/course/coverageNumbers.ts` 的 `limitsRatchet()`、`sideDebts()`、`criterionP()`，
-以及 `tests/course/coverageNumbers.test.ts`）一起删掉了，历史在 `git log -p` 里。
+以及专门测这三个函数的那个测试文件）一起删掉了，历史在 `git log -p` 里。
 **现在看着可读性的是这几样**：② 每一行都在括号规则读的主路径上、也在 `lessonMinutes` 计时的主路径上
 （`tests/course/readability.test.ts` 逐课断言）；`limits`、`observe`、`tryThis` 在每门课里都是空的，
 `picture`、`numbers`、`deeper` 不存在（`tests/course/limits.test.ts` 逐课断言，
@@ -746,11 +746,11 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 
 | 量 | 实测 | 断言在哪 | 余量 |
 | --- | --- | --- | --- |
-| 全课程主路径汉字 | **253 277** | `tests/course/readability.test.ts`：逐课下限 700，总和 > 100 000 且 < 300 000 | 无上沿（2026-11-10 起长度只是软上限：超过一次学完的课标「可分两次学」，不拒绝） |
-| 分钟数合计 | **2 515** | 只由本表对照，不再有等式 | — |
+| 全课程主路径汉字 | **255 107** | `tests/course/readability.test.ts`：逐课下限 700，总和 > 100 000 且 < 300 000 | 无上沿（2026-11-10 起长度只是软上限：超过一次学完的课标「可分两次学」，不拒绝） |
+| 分钟数合计 | **2 525** | 只由本表对照，不再有等式 | — |
 | 课数 | 91（Wi-Fi 52、AMP 5、UWB 34） | 同文件，`toBe(91)`，**精确** | — |
 | 模块数 | 32 | 同文件，`toBe(32)`，**精确**（切片 W12b 的 `@uhr-rate-ladder` 新开 M13，所以这个数又跟着动了一次；上一次是切片 W3 的 `@link-2g` 新开 M12。切片 W13 的 `@claim-to-contribution` 进的是**已存在的** M13，所以这个数没动——一个阶段一个模块买的就是这个，见 §15；2026-10-11 把 `@uwb-ancillary` 拆成两门时它又没动，理由是第三种：M24 本来就有两门，拆课加的是课不是模块） | — |
-| 场景数（含 variants） | **293** | `tests/fixtures/lesson-hashes.json` 共 **300** 条 = 293 + 7 个编辑器家庭 | — |
+| 场景数（含 variants） | **291** | `tests/fixtures/lesson-hashes.json` 共 **298** 条 = 291 + 7 个编辑器家庭 | — |
 
 **「余量」这一列也被核了（2026-10-09）。** 2026-11-11 之前这一列里有两个不同义的 `0`：
 棘轮那个是 `上限 − 实测债务`，可以非 0；分钟数合计那个是结构性的（当时那条判据是等式）。
@@ -760,10 +760,10 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 另外第一行的「逐课下限 700」和 `tests/course/coverageNumbers.ts` 的 `MAIN_PATH_BAND` 比。
 那一格原来还写着上沿 4 400 和离它最近的那门课；2026-11-10 长度改成软上限后，上沿撤了，那一格改写「无上沿」。
 
-**一门新课的典型主路径是 2 000–3 500 字**（全课程 91 门的均值 2 783 = 253 277 / 91；
-最近九门新课，最新的在前：`uwb-ancillary-loss` 2 639、`claim-to-contribution` 3 113、`uhr-rate-ladder` 2 891、`link-2g` 3 274、
-`amp-backscatter` 2 860、`uwb-ancillary-request` 2 826、`wan-rtt` 3 186、`edca-tamper` 3 366、
-`ru-diversity` 2 903）。
+**一门新课的典型主路径是 2 000–3 500 字**（全课程 91 门的均值 2 803 = 255 107 / 91；
+最近九门新课，最新的在前：`uwb-ancillary-loss` 2 639、`claim-to-contribution` 3 137、`uhr-rate-ladder` 2 891、`link-2g` 3 294、
+`amp-backscatter` 2 860、`uwb-ancillary-request` 2 826、`wan-rtt` 3 201、`edca-tamper` 3 526、
+`ru-diversity` 3 067）。
 **逐课只剩下限 700，离它最近的课也有它的两倍半以上**，所以一门新课碰不到它。
 
 这张清单 2026-10-09 之前写的是「最近**五**门」，而它漏掉的恰好是最新的那一门：`@link-2g`
@@ -780,6 +780,7 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 一张警告着不存在的危险的表，正是教读者忽略警告的那种表。
 同一天起每门课的开头一段（`why`）改写成直接陈述结论的摘要（先 UWB，再 Wi-Fi 与 AMP），上面几个字数因此变了；
 2026-11-11 Wi-Fi 与 AMP 的 57 门课也改成「标准 → 实现 → 动手」之后，主路径总字数 234 079 → 253 277，分钟数合计 2 255 → 2 515，场景数 290 → 293。
+同一天 W7a 按引擎改正重测各课之后：主路径总字数 255 107，分钟数合计 2 525，场景数 291（`txop-protect` 与 `protect-policies` 去掉了与基础场景重复的多重保护变体）。
 
 重跑这一整节：
 

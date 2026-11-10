@@ -20,8 +20,9 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import { decodeFrame, ppduLayout, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
+import { psduLengthFor } from '../../src/model/frames'
 import {
-  ACK_BYTES, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, QOS_HDR_BYTES, TGI_NS, symNsFor, txTimeModeNs, txTimeNs,
+  ACK_BYTES, AMPDU_DELIMITER_BYTES, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, QOS_HDR_BYTES, TGI_NS, symNsFor, txTimeModeNs, txTimeNs,
 } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -136,8 +137,15 @@ describe('frame-anatomy-bytes · ② says what the engine does, and the engine d
     expect(txTimeModeNs('he', 1430, 11, { nss: 2 }) - txTimeModeNs('he', 1430, 11, { nss: 1 }))
       .toBe(PHY_MODES.he.symNs * (Math.ceil(bits(1430) / (2 * PHY_MODES.he.ndbps[11])) - Math.ceil(bits(1430) / PHY_MODES.he.ndbps[11])))
     expect(implRow('包扩展').kind).toBe('absent')
-    expect(qos.frame.txTimeNs).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.symNs * Math.ceil(bits(qos.frame.bytes) / PHY_MODES.he.ndbps[qos.frame.mcs!]))
+    // 2026-11-11 (W7a): the HE frame is an S-MPDU (§9.7.3, §10.12.7); the symbols are counted from
+    // APEP_LENGTH, and `frame.bytes` is the PSDU after EOF padding (§10.12.6).
+    expect(qos.frame.smpdu).toBe(true)
+    expect(qos.frame.apepBytes).toBe(AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + 200 + FCS_BYTES)
+    expect(qos.frame.bytes).toBe(psduLengthFor(qos.frame.apepBytes!, PHY_MODES.he.ndbps[qos.frame.mcs!]))
+    expect(qos.frame.txTimeNs).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.symNs * Math.ceil(bits(qos.frame.apepBytes!) / PHY_MODES.he.ndbps[qos.frame.mcs!]))
     expect(implRow('HE 的符号数').kind).toBe('differs')
+    expect(implRow('HE 的符号数').sim).toContain(`LENGTH 取 APEP_LENGTH`)
+    expect(implRow('HE 的符号数').sim).toContain(`${AMPDU_DELIMITER_BYTES} B 定界符`)
   })
 
   it('the payloads are the scene\'s: 1500 B for the old laptop, 200 B for the phone', () => {
@@ -181,22 +189,28 @@ describe('frame-anatomy-bytes · ③ every figure the labs print is the run', ()
     expect(he.spans[0].toUs * US).toBe(PHY_MODES.he.preambleNs)
     expect(he.spans[1].toUs - he.spans[1].fromUs).toBeCloseTo(PHY_MODES.he.symNs / US, 9)
     expect(spec.axis.toUs).toBe(LEGACY_FRAME_US)
-    expect(d.caption).toBe(`上面是旧笔记本 ${legacy.frame.bytes} B 的一帧：${NONHT.preambleNs / US} µs 的前导码与 SIGNAL，后面 ${(a.spans[1].toUs - a.spans[1].fromUs) * US / NONHT.symNs} 个符号。下面是手机 ${qos.frame.bytes} B 的一帧：本仿真器取 ${PHY_MODES.he.preambleNs / US} µs 的前导码，后面只有一个 ${PHY_MODES.he.symNs / US} µs 的符号。`)
+    expect(d.caption).toBe(`上面是旧笔记本 ${legacy.frame.bytes} B 的一帧：${NONHT.preambleNs / US} µs 的前导码与 SIGNAL，后面 ${(a.spans[1].toUs - a.spans[1].fromUs) * US / NONHT.symNs} 个符号。下面是手机装着 ${decode(qos.frame).bytes} B MPDU 的一帧：本仿真器取 ${PHY_MODES.he.preambleNs / US} µs 的前导码，后面只有一个 ${PHY_MODES.he.symNs / US} µs 的符号。`)
   })
 
   it('lab 2: the phone\'s Wi-Fi 6 frame, cell by cell', () => {
     const rows = tableOf(lab('手机的一帧：大部分是前导码').blocks!, '手机第一帧的计算').rows
+    // 2026-11-11 (W7a): an S-MPDU — the worked LENGTH is APEP_LENGTH, delimiter first (§10.12.6).
     const ndbps = PHY_MODES.he.ndbps[qos.frame.mcs!]
-    const w = workedRows(qos.frame, ndbps)
+    const m = decode(qos.frame)
+    const apep = qos.frame.apepBytes!
+    const nsym = Math.ceil(bits(apep) / ndbps)
     expect(qos.frame.mode).toBe('he')
+    expect(rows[0][0]).toBe('APEP_LENGTH（八位组）')
     expect(rows[2][0]).toBe(`HE MCS ${qos.frame.mcs} 的 N_DBPS`)
     expect(rows.map((r) => r[1])).toEqual([
-      w.len, w.bits, String(ndbps), String(w.nsym),
-      `${PHY_MODES.he.preambleNs / US} + ${w.nsym} × ${PHY_MODES.he.symNs / US} = ${qos.frame.txTimeNs / US} µs`,
+      `${AMPDU_DELIMITER_BYTES} + ${hdrOf(m)} + ${bodyOf(m)} + ${FCS_BYTES} = ${apep}`, `16 + 8 × ${apep} + 6 = ${grouped(bits(apep))}`,
+      String(ndbps), String(nsym),
+      `${PHY_MODES.he.preambleNs / US} + ${nsym} × ${PHY_MODES.he.symNs / US} = ${qos.frame.txTimeNs / US} µs`,
+      String(qos.frame.bytes),
     ])
     expect(ppduLayout(qos.frame)[0].durNs).toBe(PHY_MODES.he.preambleNs)
     expect(lab('手机的一帧：大部分是前导码').expect)
-      .toBe(`${qos.frame.txTimeNs / US} µs 中有 ${PHY_MODES.he.preambleNs / US} µs 是前导码，载荷只占一个符号。`)
+      .toBe(`${qos.frame.txTimeNs / US} µs 中有 ${PHY_MODES.he.preambleNs / US} µs 是前导码，载荷只占一个符号；这个符号余下的位置由 EOF 填充补满，PSDU 共 ${qos.frame.bytes} B。`)
     expect(lab('手机的一帧：大部分是前导码').meaning).toContain(`${PHY_MODES.he.symNs / US} µs`)
     expect(lab('手机的一帧：大部分是前导码').meaning).toContain(`${PHY_MODES.he.preambleNs / US} µs`)
   })
@@ -252,7 +266,8 @@ describe('frame-anatomy-bytes · every figure the lesson prints is one this file
       String(ACK_BYTES), String(bits(ACK_BYTES)), String(ack.frame.txTimeNs / US),
       '1400', '100', '800', '53', '6.7',
       // the phone's frame
-      '200', String(qos.frame.bytes), String(bits(qos.frame.bytes)), String(PHY_MODES.he.ndbps[qos.frame.mcs!]),
+      '200', String(decode(qos.frame).bytes), String(qos.frame.apepBytes), String(bits(qos.frame.apepBytes!)), String(qos.frame.bytes),
+      String(PHY_MODES.he.ndbps[qos.frame.mcs!]),
       String(PHY_MODES.he.preambleNs / US), String(PHY_MODES.he.symNs / US), String(qos.frame.txTimeNs / US),
       // HE guard intervals and symbols; the other generations' representative preambles
       '0.8', '1.6', '3.2', '14.4', String(PHY_MODES.vht.preambleNs / US), String(PHY_MODES.eht.preambleNs / US),

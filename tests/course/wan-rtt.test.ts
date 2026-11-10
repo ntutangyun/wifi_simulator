@@ -143,14 +143,14 @@ describe('wan-rtt · the ratio, which is the lesson', () => {
     expect(meanMs(base.txLatency), 'the MAC queue-to-ack mean').toBeLessThan(0.2)
     expect(meanMs(base.appRtt) / meanMs(base.txLatency),
       'the claim is a ratio, not two decimals').toBeGreaterThan(100)
-    // 0.106 / 28.688 = 0.0037, which is the 千分之四 of the title
+    // 0.106 / 28.644 = 0.0037, which is the 千分之四 of the title
     expect(meanMs(base.txLatency) / meanMs(base.appRtt)).toBeLessThan(0.004)
   })
 
   it('prints the figures the lesson prints', () => {
     const base = phoneStats()
-    expect(meanMs(base.appRtt)).toBeCloseTo(28.688, 3)
-    expect(maxMs(base.appRtt)).toBeCloseTo(29.964, 3)
+    expect(meanMs(base.appRtt)).toBeCloseTo(28.644, 3)
+    expect(maxMs(base.appRtt)).toBeCloseTo(29.920, 3)
     // every one of the 210 frames took the same 0.106 ms: an empty room has no variance
     expect(meanMs(base.txLatency)).toBeCloseTo(0.106, 3)
     expect(maxMs(base.txLatency)).toBeCloseTo(0.106, 3)
@@ -171,38 +171,59 @@ describe('wan-rtt · the ratio, which is the lesson', () => {
 })
 
 describe('wan-rtt · the air appears only when something competes for it', () => {
-  it('multiplies the MAC latency by a hundred and the round trip by half', () => {
+  it('multiplies the MAC latency by fifty and the round trip by half', () => {
     const quiet = phoneStats()
     const busy = phoneStats(BUSY)
-    expect(meanMs(busy.txLatency), 'the design document asked for 20×; it is 101×')
+    expect(meanMs(busy.txLatency), 'the design document asked for 20×; it is 50× (2026-11-11)')
       .toBeGreaterThan(20 * meanMs(quiet.txLatency))
     expect(meanMs(busy.appRtt)).toBeGreaterThan(meanMs(quiet.appRtt))
     // and the printed pair
-    expect(meanMs(busy.txLatency)).toBeCloseTo(10.717, 3)
-    expect(meanMs(busy.appRtt)).toBeCloseTo(44.483, 3)
-    expect(maxMs(busy.appRtt)).toBeCloseTo(94.223, 3)
+    expect(meanMs(busy.txLatency)).toBeCloseTo(5.301, 3)
+    expect(meanMs(busy.appRtt)).toBeCloseTo(44.118, 3)
+    expect(maxMs(busy.appRtt)).toBeCloseTo(64.927, 3)
   })
 
   /**
    * The WAN constant contributed nothing to the rise, and this is how that is shown rather
-   * than asserted: a round trip crosses the air TWICE — the phone's uplink and the access
-   * point's answer — so the 15.795 ms the round trip gained has to be the phone's own 10.611
-   * plus the access point's 5.775, and it is, to within 0.6 ms. The first draft of this
-   * assertion compared the rise against the phone's end alone and was red by 5.2 ms, which is
-   * the access point's downlink queue: a number the phone's own counter cannot see.
+   * than asserted: a round trip crosses the air TWICE — the probe's uplink and the echo's
+   * downlink — so every probe's round trip splits exactly into (probe enqueued → the access point
+   * receives it and hands it to the distribution system, `WAN_RX.sentNs`), the WAN and server in
+   * the middle, and (echo enters the access point → its Ack, the DEQUEUE the round trip is
+   * stamped at). The 15.474 ms the round trip gained is the uplink's 7.747 plus the downlink's
+   * 7.876; the middle moved by −0.150 ms, which is the jitter draws and nothing else.
+   *
+   * 2026-11-11: this used to compare the rise against the two ends' whole-run enqueue-to-ack
+   * means (every frame, not only the probes) and allow 1.5 ms. Once the access point hands an
+   * uplink MSDU on at reception (IEEE Std 802.11-2024 §4.5.2.1: the frames are received by the input AP,
+   * which gives the MSDU to the distribution system service) that proxy was 3.9 ms off, because the probes are a different sample from the
+   * stream's frames. The per-probe split is exact, so it is held to the jitter's width.
    */
   it('and the whole of that rise is the air at the two ends, not the WAN', () => {
-    const ap = (variant?: number): number => {
-      const sc: Scenario = variant === undefined ? wanRtt.scenario() : wanRtt.variants![variant].scenario()
-      const vs = initViewState(sc)
-      for (const r of runOf(wanRtt, variant, RUN_NS)) applyRecord(vs, r)
-      return meanMs(vs.nodes['ap'].stats.txLatency)
+    const split = (variant?: number): { rtt: number; up: number; down: number; mid: number } => {
+      const rs = runOf(wanRtt, variant, RUN_NS)
+      const probeBorn = new Map<number, number>()
+      for (const r of ofType(rs, 'ENQUEUE')) if (r.node === 'sta-1' && r.bytes === 64) probeBorn.set(r.t, r.msduId)
+      const handedOn = new Map<number, number>()
+      for (const r of ofType(rs, 'WAN_RX')) handedOn.set(r.msduId, r.sentNs)
+      const echoIn = new Map<number, { t: number; born: number }>()
+      for (const r of ofType(rs, 'ENQUEUE')) if (r.node === 'ap' && r.rttFromNs !== undefined) echoIn.set(r.msduId, { t: r.t, born: r.rttFromNs })
+      let n = 0, rtt = 0, up = 0, down = 0, mid = 0
+      for (const r of ofType(rs, 'DEQUEUE')) {
+        const e = echoIn.get(r.msduId)
+        if (!e) continue
+        const sent = handedOn.get(probeBorn.get(e.born)!)!
+        n++; rtt += r.t - e.born; up += sent - e.born; down += r.t - e.t; mid += e.t - sent
+      }
+      return { rtt: rtt / n / MS, up: up / n / MS, down: down / n / MS, mid: mid / n / MS }
     }
-    const quiet = phoneStats()
-    const busy = phoneStats(BUSY)
-    const rise = meanMs(busy.appRtt) - meanMs(quiet.appRtt)
-    const bothEnds = (meanMs(busy.txLatency) - meanMs(quiet.txLatency)) + (ap(BUSY) - ap())
-    expect(Math.abs(rise - bothEnds), 'the two ends account for the rise').toBeLessThan(1.5)
+    const quiet = split(), busy = split(BUSY)
+    expect(quiet.rtt).toBeCloseTo(meanMs(phoneStats().appRtt), 9)
+    expect(busy.rtt).toBeCloseTo(meanMs(phoneStats(BUSY).appRtt), 9)
+    expect(busy.up - quiet.up).toBeCloseTo(7.747, 3)
+    expect(busy.down - quiet.down).toBeCloseTo(7.876, 3)
+    const rise = busy.rtt - quiet.rtt
+    const bothEnds = (busy.up - quiet.up) + (busy.down - quiet.down)
+    expect(Math.abs(rise - bothEnds), 'the two ends account for the rise').toBeLessThan(0.25)
   })
 })
 
@@ -218,13 +239,18 @@ describe('wan-rtt · the router’s boolean is one field, and it moves the tail 
     const busy = phoneStats(BUSY)
     const accel = phoneStats(ACCEL)
     expect(meanMs(accel.txLatency)).toBeLessThan(meanMs(busy.txLatency))
-    expect(meanMs(accel.txLatency)).toBeCloseTo(2.339, 3)
-    expect(meanMs(accel.appRtt)).toBeCloseTo(33.114, 3)
+    expect(meanMs(accel.txLatency)).toBeCloseTo(2.166, 3)
+    expect(meanMs(accel.appRtt)).toBeCloseTo(32.681, 3)
     expect(maxMs(accel.appRtt)).toBeCloseTo(39.976, 3)
-    // 「尾巴收得比均值狠得多」: the mean falls by 26 %, the maximum by 58 %
+    // 「尾部降得比均值多」. 2026-11-11: since the access point hands an uplink MSDU to the
+    // distribution system on reception, the busy room's worst round trip is 64.927 ms, not 94.223,
+    // so the round trip's mean falls by 26 % and its maximum by 38 % — more, but no longer twice as
+    // much. The enqueue-to-ack tail (48.726 → 10.246 ms, against a mean of 5.301 → 2.166) is the
+    // figure lab 3 prints, and there the tail still falls about twice as hard as the mean.
     const meanDrop = 1 - meanMs(accel.appRtt) / meanMs(busy.appRtt)
     const maxDrop = 1 - maxMs(accel.appRtt) / maxMs(busy.appRtt)
-    expect(maxDrop).toBeGreaterThan(2 * meanDrop)
+    expect(maxDrop).toBeGreaterThan(meanDrop)
+    expect(maxMs(busy.txLatency) / maxMs(accel.txLatency)).toBeGreaterThan(1.9 * (meanMs(busy.txLatency) / meanMs(accel.txLatency)))
   })
 })
 
@@ -233,7 +259,7 @@ describe('wan-rtt · the overseas endpoint turns a config value into arithmetic'
    * The design document asked for the difference to land in `(80 − 25) ± 5`. It does not, and
    * the document was wrong rather than the engine: it forgot the jitter, which is 20 ms there
    * against 3 ms here and contributes half of itself to a round trip. The prediction is
-   * `(80 − 25) + (20 − 3) / 2 = 63.5`, and the measurement is 65.1.
+   * `(80 − 25) + (20 − 3) / 2 = 63.5`, and the measurement is 64.5.
    */
   it('differs from the domestic one by its own RTT plus its own jitter', () => {
     const near = wanRtt.scenario().servers[0]
@@ -247,7 +273,7 @@ describe('wan-rtt · the overseas endpoint turns a config value into arithmetic'
 
   it('leaves the air exactly where it was, because the air never moved', () => {
     const over = phoneStats(OVERSEAS)
-    expect(meanMs(over.appRtt)).toBeCloseTo(93.783, 3)
+    expect(meanMs(over.appRtt)).toBeCloseTo(93.148, 3)
     expect(meanMs(over.txLatency)).toBeCloseTo(0.106, 3)
     expect(maxMs(over.txLatency)).toBeCloseTo(0.106, 3)
   })
@@ -431,10 +457,12 @@ describe('wan-rtt · ③ every figure the labs print is the run', () => {
   it('lab 2: 「你应该看到」', () => {
     const e = lab('五种配置').expect
     const quiet = phoneStats(), busy = phoneStats(BUSY), over = phoneStats(OVERSEAS), none = phoneStats(NO_SERVERS)
-    const [q, b, tq, tb, wan] = grab(e, /手机那一段从 ([\d.]+) 毫秒增加到 ([\d.]+) 毫秒，是原来的一百倍；应用往返只从 ([\d.]+) 增加到 ([\d.]+) 毫秒，因为广域网那 (\d+) 毫秒保持不变/, 'lab 2 on the busy room')
+    const [q, b, times, tq, tb, wan] = grab(e, /手机那一段从 ([\d.]+) 毫秒增加到 ([\d.]+) 毫秒，是原来的(\S+)倍；应用往返只从 ([\d.]+) 增加到 ([\d.]+) 毫秒，因为广域网那 (\d+) 毫秒保持不变/, 'lab 2 on the busy room')
     same(q, meanMs(quiet.txLatency), 'quiet air')
     same(b, meanMs(busy.txLatency), 'busy air')
-    expect(Math.round(meanMs(busy.txLatency) / meanMs(quiet.txLatency) / 100) * 100).toBe(100)
+    // 2026-11-11: fifty times since the W7a frame changes (re-measured); a hundred before
+    expect(times).toBe('五十')
+    expect(Math.round(meanMs(busy.txLatency) / meanMs(quiet.txLatency) / 10) * 10).toBe(50)
     same(tq, meanMs(quiet.appRtt), 'quiet round trip')
     same(tb, meanMs(busy.appRtt), 'busy round trip')
     expect(Number(wan)).toBe(game.rttMs)

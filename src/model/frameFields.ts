@@ -25,7 +25,7 @@ import {
 } from '../engine/phy'
 import { uwbFrameFields, uwbPpduLayout } from '../uwb/frameFields'
 import type { UwbFrameKind } from '../uwb/frames'
-import type { FrameDesc, FrameKind } from './frames'
+import { HT_CONTROL_BYTES, TID_FOR_AC, eofPadding, type FrameDesc, type FrameKind, type MpduHdr } from './frames'
 import type { Ns } from './types'
 
 export type AddrRole = 'RA' | 'TA' | 'DA' | 'SA' | 'BSSID'
@@ -35,7 +35,7 @@ export type FcBitKey =
   | 'retry' | 'pwrMgt' | 'moreData' | 'protected' | 'htc'
 
 export type FieldKey =
-  | 'fc' | 'duration' | 'addr1' | 'addr2' | 'addr3' | 'seqCtl' | 'qos'
+  | 'fc' | 'duration' | 'addr1' | 'addr2' | 'addr3' | 'seqCtl' | 'qos' | 'htc'
   | 'body' | 'baControl' | 'baInfo' | 'commonInfo' | 'userInfo' | 'fcs'
   | 'ampId' | 'ampTdc' | 'ampStaList'
   // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
@@ -94,11 +94,28 @@ export interface Mpdu {
 
 /** An MPDU as carried in the PSDU: bare, or inside an A-MPDU subframe. */
 export interface Subframe {
-  /** A-MPDU delimiter octets (0 for a bare MPDU). */
+  /**
+   * A-MPDU delimiter octets (0 for a bare MPDU): EOF/Tag (1 bit), Reserved (1), MPDU Length (14),
+   * CRC (8) and Delimiter Signature 0x4E (8) — Figure 9-1329 / Table 9-659. The CRC value itself is
+   * not computed here; its 8 bits are counted.
+   */
   delimiterBytes: number
+  /** The delimiter's EOF/Tag bit: 1 in an S-MPDU's delimiter (§10.12.7). */
+  eof?: boolean
   mpdu: Mpdu
-  /** Padding to a 4-octet boundary (0 on the last subframe). */
+  /** Padding to a 4-octet boundary (0 on the last subframe: its Padding subfield belongs to the EOF padding). */
   padBytes: number
+}
+
+/**
+ * The EOF padding that fills a VHT/HE/EHT A-MPDU to PSDU_LENGTH (§10.12.6): the final subframe's
+ * Padding subfield, EOF padding subframes (a 4-octet delimiter each, MPDU Length 0, EOF 1) and
+ * EOF padding octets.
+ */
+export interface EofPad {
+  finalPad: number
+  eofSubframes: number
+  eofOctets: number
 }
 
 /** The PSDU addressed to one receiver (several in a DL MU PPDU). */
@@ -106,6 +123,8 @@ export interface UserPsdu {
   dst: string
   aggregated: boolean
   subframes: Subframe[]
+  /** VHT/HE/EHT PSDUs: the EOF padding after the last subframe. */
+  eofPad?: EofPad
   bytes: number
 }
 
@@ -142,8 +161,7 @@ export interface DecodeCtx {
   isEdca: boolean
 }
 
-/** Table 10-1: AC index (0 BK, 1 BE, 2 VI, 3 VO) → TID of its lowest user priority used here. */
-export const TID_FOR_AC = [1, 0, 5, 6] as const
+export { TID_FOR_AC }
 
 /** 802.11 subtype names. The UWB kinds are absent on purpose: they never reach
  * this decoder, and uwb/frameFields.ts owns the one table that names them. */
@@ -165,7 +183,7 @@ const bit = (b: boolean | undefined) => (b ? '1' : '0')
 const usOf = (ns: Ns) => `${Math.round(ns / 100) / 10} µs`
 
 function fcField(
-  typeName: 'Control' | 'Data', subtypeName: string, toDs: boolean, fromDs: boolean, retry: boolean,
+  typeName: 'Control' | 'Data', subtypeName: string, toDs: boolean, fromDs: boolean, retry: boolean, htc = false,
 ): FrameField {
   return {
     key: 'fc', bytes: 2,
@@ -180,7 +198,7 @@ function fcField(
       { key: 'pwrMgt', value: '0' },
       { key: 'moreData', value: '0' },
       { key: 'protected', value: '0' },
-      { key: 'htc', value: '0' },
+      { key: 'htc', value: bit(htc) },
     ],
   }
 }
@@ -200,23 +218,32 @@ interface DataArgs {
   retry: boolean
   qos: boolean
   ac: number | undefined
-  inAmpdu: boolean
+  /** The ack policy the QoS Control field carries (Table 9-13). */
+  ackPolicy: 'Normal Ack' | 'Implicit BAR' | 'HETP Ack'
   seqNo: number | undefined
   payloadBytes: number
   msduId?: number
+  /** The end-to-end DA / SA when it is neither the RA nor the TA (Table 9-60). */
+  da?: string
+  sa?: string
+  /** An HT Control field carrying a TRS Control subfield (§9.2.4.7.1). */
+  trs?: { ulDataSymbols: number; mcs: number }
 }
 
-/** One data MPDU, addresses per the To DS / From DS rules (§9.2.4.1.4, Table 9-26). */
+/**
+ * One data MPDU, addresses per the To DS / From DS rules of Table 9-60: with To DS 1 Address 3 is
+ * the DA, with From DS 1 it is the SA, and with both 0 it is the BSSID.
+ */
 function dataMpdu(a: DataArgs, apId: string): Mpdu {
   const toDs = a.dst === apId && a.src !== apId
   const fromDs = a.src === apId
   let addrs: FrameField[]
-  if (fromDs) addrs = [addr('addr1', a.dst, ['RA', 'DA']), addr('addr2', apId, ['TA', 'BSSID']), addr('addr3', apId, ['SA'])]
-  else if (toDs) addrs = [addr('addr1', apId, ['RA', 'BSSID']), addr('addr2', a.src, ['TA', 'SA']), addr('addr3', apId, ['DA'])]
+  if (fromDs) addrs = [addr('addr1', a.dst, ['RA', 'DA']), addr('addr2', apId, ['TA', 'BSSID']), addr('addr3', a.sa ?? apId, ['SA'])]
+  else if (toDs) addrs = [addr('addr1', apId, ['RA', 'BSSID']), addr('addr2', a.src, ['TA', 'SA']), addr('addr3', a.da ?? apId, ['DA'])]
   else addrs = [addr('addr1', a.dst, ['RA', 'DA']), addr('addr2', a.src, ['TA', 'SA']), addr('addr3', apId, ['BSSID'])]
   const subtype = a.qos ? 'QoS Data' : 'Data'
   const fields: FrameField[] = [
-    fcField('Data', subtype, toDs, fromDs, a.retry),
+    fcField('Data', subtype, toDs, fromDs, a.retry, a.trs !== undefined),
     { key: 'duration', bytes: 2, value: usOf(a.durationNs) },
     ...addrs,
     { key: 'seqCtl', bytes: 2, value: a.seqNo !== undefined ? `SN ${a.seqNo} · FN 0` : 'FN 0' },
@@ -224,7 +251,13 @@ function dataMpdu(a: DataArgs, apId: string): Mpdu {
   if (a.qos) {
     fields.push({
       key: 'qos', bytes: QOS_HDR_BYTES - MAC_HDR_BYTES,
-      value: `TID ${TID_FOR_AC[a.ac ?? 1]} · ${a.inAmpdu ? 'Implicit BAR' : 'Normal Ack'}`,
+      value: `TID ${TID_FOR_AC[a.ac ?? 1]} · ${a.ackPolicy}`,
+    })
+  }
+  if (a.trs !== undefined) {
+    fields.push({
+      key: 'htc', bytes: HT_CONTROL_BYTES,
+      value: `HE · TRS: UL Data Symbols ${a.trs.ulDataSymbols - 1} · UL HE-MCS ${a.trs.mcs}`,
     })
   }
   fields.push({ key: 'body', bytes: a.payloadBytes, value: `${a.payloadBytes} B` })
@@ -232,18 +265,27 @@ function dataMpdu(a: DataArgs, apId: string): Mpdu {
   return mpduOf('data', 'Data', subtype, fields, a.msduId)
 }
 
-/** A-MPDU subframes with the engine's padding rule (every subframe but the last). */
-function aggregate(mpdus: Mpdu[]): Subframe[] {
+/**
+ * A-MPDU subframes (§9.7.1): every subframe but the last padded to a 4-octet boundary. A lone
+ * subframe of a VHT/HE/EHT PSDU is an S-MPDU, its delimiter's EOF bit 1 (§10.12.7).
+ */
+function aggregate(mpdus: Mpdu[], smpdu = false): Subframe[] {
   return mpdus.map((mpdu, i) => ({
     delimiterBytes: AMPDU_DELIMITER_BYTES,
+    eof: smpdu && mpdus.length === 1,
     mpdu,
     padBytes: i === mpdus.length - 1 ? 0 : Math.ceil(mpdu.bytes / 4) * 4 - mpdu.bytes,
   }))
 }
 
-function userPsdu(dst: string, subframes: Subframe[], aggregated: boolean): UserPsdu {
-  return { dst, aggregated, subframes, bytes: sum(subframes.map((s) => s.delimiterBytes + s.mpdu.bytes + s.padBytes)) }
+function userPsdu(dst: string, subframes: Subframe[], aggregated: boolean, psduLength?: number): UserPsdu {
+  const apep = sum(subframes.map((s) => s.delimiterBytes + s.mpdu.bytes + s.padBytes))
+  if (psduLength === undefined || psduLength <= apep) return { dst, aggregated, subframes, bytes: apep }
+  return { dst, aggregated, subframes, eofPad: eofPadding(apep, psduLength), bytes: psduLength }
 }
+
+/** The MPDU header of the i-th MPDU, when the frame recorded one. */
+const hdrOf = (hdrs: MpduHdr[] | undefined, i: number): MpduHdr | undefined => hdrs?.[i]
 
 function controlMpdu(f: FrameDesc, apId: string): Mpdu {
   if (f.uwb) throw new Error('unreachable: UWB frames are decoded by uwb/frameFields.ts')
@@ -272,7 +314,10 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
     case 'ba':
       fields = head([addr('addr1', dst, ['RA']), addr('addr2', f.src, ['TA'])])
       fields.push({ key: 'baControl', bytes: 2, value: 'Compressed' })
-      fields.push({ key: 'baInfo', bytes: BA_BYTES - CTRL_HDR_BYTES - 2 - FCS_BYTES, value: 'SSC + bitmap' })
+      fields.push({
+        key: 'baInfo', bytes: BA_BYTES - CTRL_HDR_BYTES - 2 - FCS_BYTES,
+        value: f.ba ? `SSN ${f.ba.ssn} · bitmap: ${f.ba.acked.length} received` : 'SSC + bitmap',
+      })
       fields.push({ key: 'fcs', bytes: FCS_BYTES })
       checkSize(fields, BA_BYTES)
       break
@@ -397,29 +442,40 @@ function decodeData(f: FrameDesc, ctx: DecodeCtx): UserPsdu[] {
   if (f.muParts) {
     return f.muParts.map((p) => {
       const sizes = p.msduBytes ?? []
-      const mpdus = sizes.map((b, i) => dataMpdu({
-        src: f.src, dst: p.dst, durationNs: f.durationFieldNs, retry: !!p.retryFlag, qos: true, ac: p.ac ?? f.ac,
-        inAmpdu: true, seqNo: undefined, payloadBytes: b, msduId: p.msduIds[i],
-      }, ctx.apId))
-      return userPsdu(p.dst, aggregate(mpdus), true)
+      const mpdus = sizes.map((b, i) => {
+        const h = hdrOf(p.mpdus, i)
+        return dataMpdu({
+          src: f.src, dst: p.dst, durationNs: f.durationFieldNs, retry: h?.retry ?? !!p.retryFlag, qos: true, ac: p.ac ?? f.ac,
+          ackPolicy: p.trs ? 'HETP Ack' : 'Implicit BAR', seqNo: h?.sn, payloadBytes: b, msduId: p.msduIds[i],
+          da: h?.da, sa: h?.sa, trs: p.trs,
+        }, ctx.apId)
+      })
+      return userPsdu(p.dst, aggregate(mpdus), true, p.bytes)
     })
   }
   const ids = f.ampdu?.msduIds ?? (f.msduId !== undefined ? [f.msduId] : [])
   if (f.ampdu) {
     const sizes = f.msduBytes ?? []
-    const mpdus = sizes.map((b, i) => dataMpdu({
-      src: f.src, dst: f.dst, durationNs: f.durationFieldNs, retry: !!f.retryFlag, qos: true, ac: f.ac,
-      inAmpdu: true, seqNo: i === 0 ? f.seqNo : undefined, payloadBytes: b, msduId: ids[i],
-    }, ctx.apId))
-    return [userPsdu(f.dst, aggregate(mpdus), true)]
+    const mpdus = sizes.map((b, i) => {
+      const h = hdrOf(f.mpdus, i)
+      return dataMpdu({
+        src: f.src, dst: f.dst, durationNs: f.durationFieldNs, retry: h?.retry ?? !!f.retryFlag, qos: f.qos !== false, ac: f.ac,
+        ackPolicy: 'Implicit BAR', seqNo: h?.sn ?? (i === 0 ? f.seqNo : undefined), payloadBytes: b, msduId: ids[i],
+        da: h?.da, sa: h?.sa,
+      }, ctx.apId)
+    })
+    // The PSDU is PSDU_LENGTH when the frame recorded its pre-EOF-padding length separately.
+    return [userPsdu(f.dst, aggregate(mpdus), true, f.apepBytes !== undefined ? f.bytes : undefined)]
   }
   const qosFrame = f.qos ?? ctx.isEdca
   const hdr = qosFrame ? QOS_HDR_BYTES : MAC_HDR_BYTES
-  const payload = f.msduBytes?.[0] ?? f.bytes - hdr - FCS_BYTES
+  const h = hdrOf(f.mpdus, 0)
+  const payload = f.msduBytes?.[0] ?? f.bytes - hdr - FCS_BYTES - (f.smpdu ? AMPDU_DELIMITER_BYTES : 0)
   const mpdu = dataMpdu({
-    src: f.src, dst: f.dst, durationNs: f.durationFieldNs, retry: !!f.retryFlag, qos: qosFrame, ac: f.ac,
-    inAmpdu: false, seqNo: f.seqNo, payloadBytes: payload, msduId: ids[0],
+    src: f.src, dst: f.dst, durationNs: f.durationFieldNs, retry: h?.retry ?? !!f.retryFlag, qos: qosFrame, ac: f.ac,
+    ackPolicy: 'Normal Ack', seqNo: h?.sn ?? f.seqNo, payloadBytes: payload, msduId: ids[0], da: h?.da, sa: h?.sa,
   }, ctx.apId)
+  if (f.smpdu) return [userPsdu(f.dst, aggregate([mpdu], true), true, f.bytes)]
   return [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu, padBytes: 0 }], false)]
 }
 
@@ -509,8 +565,12 @@ export function ppduLayout(f: FrameDesc): PpduSegment[] {
 
 export function decodeFrame(f: FrameDesc, ctx: DecodeCtx): DecodedFrame {
   if (f.uwb) return uwbFrameFields(f)
+  // A control frame in an HE/EHT TB PPDU (the BlockAck that answers a TRS Control subfield) is
+  // carried in an A-MPDU like every HE PSDU (§9.7.3); one in a non-HT PPDU is a bare MPDU.
   const users = f.kind === 'data'
     ? decodeData(f, ctx)
-    : [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu: controlMpdu(f, ctx.apId), padBytes: 0 }], false)]
+    : f.apepBytes !== undefined
+      ? [userPsdu(f.dst, aggregate([controlMpdu(f, ctx.apId)], true), true, f.bytes)]
+      : [userPsdu(f.dst, [{ delimiterBytes: 0, mpdu: controlMpdu(f, ctx.apId), padBytes: 0 }], false)]
   return { users, ppdu: ppduLayout(f), bytes: sum(users.map((u) => u.bytes)) }
 }

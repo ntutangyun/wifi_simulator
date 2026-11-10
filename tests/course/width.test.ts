@@ -34,8 +34,13 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 30 * MS
-/** 1500 bytes of payload leave the station as 1530 octets on the air. */
-const OCTETS = 1530
+/**
+ * 1500 bytes of payload leave the station as a 1530-octet MPDU. 2026-11-11 (W7a): an EHT PSDU is
+ * always an A-MPDU (§10.12.5), so the one MPDU goes out as an S-MPDU (§10.12.7) behind a 4-octet
+ * delimiter, and the airtime is computed from APEP_LENGTH = 1534 octets (§10.12.6).
+ */
+const MPDU = 1530
+const OCTETS = MPDU + 4
 const WIDTHS = [20, 40, 80, 160] as const
 const TONES_20 = 234
 
@@ -233,7 +238,8 @@ describe('width · ③ every figure the labs print is the run', () => {
     WIDTHS.forEach((w, i) => {
       const rs = runOf(width, i, RUN_NS)
       const data = bigData(rs)
-      expect(one(data.map((r) => r.frame.bytes))).toBe(OCTETS)
+      expect(one(data.map((r) => r.frame.smpdu))).toBe(true)
+      expect(one(data.map((r) => r.frame.apepBytes))).toBe(OCTETS)
       const t = one(data.map((r) => r.frame.txTimeNs))
       air.push(t)
       const [label, tones, mcs, rate, syms, airtime] = rows[i]

@@ -19,7 +19,7 @@ import { Simulation } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
-  ACK_BYTES, CCA_ED_DBM, CCA_PD_DBM, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
+  ACK_BYTES, AMPDU_DELIMITER_BYTES, CCA_ED_DBM, CCA_PD_DBM, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
   RX_START_DELAY_NS, ctrlRespRateForMode, mcsRateMbps, noiseDbm, reqSinrDb, txTimeModeNs, txTimeNs, EIFS_NS,
 } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
@@ -36,8 +36,10 @@ const PARAMS = { W: 16, m: 6, attempts: 7 } as const
 const STUDY = 'sta-1'
 const LIVING = 'sta-2'
 
+// 2026-11-11: one MSDU in an EHT PPDU is a one-subframe A-MPDU (802.11be §9.7.3): its 4-octet MPDU
+// delimiter counts towards the airtime, as tier1-project.test.ts says.
 function times(mcs: number): { dataNs: number; tsNs: number; tcNs: number } {
-  const dataNs = txTimeModeNs('eht', MSDU + MAC_HDR_BYTES + FCS_BYTES, mcs, { widthMhz: 20 })
+  const dataNs = txTimeModeNs('eht', AMPDU_DELIMITER_BYTES + MSDU + MAC_HDR_BYTES + FCS_BYTES, mcs, { widthMhz: 20 })
   const ackNs = txTimeNs(ACK_BYTES, ctrlRespRateForMode('eht', mcs, mcsRateMbps('eht', mcs)))
   return { dataNs, tsNs: dataNs + SIFS_NS + ackNs + DIFS_NS, tcNs: dataNs + ACK_TIMEOUT_NS + DIFS_NS }
 }
@@ -307,7 +309,7 @@ describe('tier1-project-review · ③ every figure the labs print is the run', (
     same(aS!, mbps(vAlone(), STUDY), 'alone S'); same(aR!, 100 * pooled(vAlone(), [STUDY], vAlone().retries), 'alone retries')
   })
 
-  it('lab 2: the late start in the first millisecond, and 1,342 of 2,399', () => {
+  it('lab 2: the late start in the first millisecond, and 1,255 of 2,276', () => {
     const l = lab('第一次碰撞之后：没有听到开头的帧')
     expect(l.jump).toBe(1)
     const s = base()
@@ -355,7 +357,7 @@ describe('tier1-project-review · ③ every figure the labs print is the run', (
     expect(atAp(STUDY) - atAp(LIVING)).toBeGreaterThan(PREAMBLE_DETECT_SINR_DB)
   })
 
-  it('lab 4: the three waits after one frame: 45, 94 (9,499 of them) and 34 µs', () => {
+  it('lab 4: the three waits after one frame: 45, 94 (9,282 of them) and 34 µs', () => {
     const s = base()
     expect(figs(rowOf('同一帧之后，各自要等多久', '碰撞的一方')[2]!, /^(\d+) µs$/, 'ack timeout')[0]! * 1000).toBe(ACK_TIMEOUT_NS)
     const eifsRow = rowOf('同一帧之后，各自要等多久', '客厅笔记本')

@@ -15,7 +15,7 @@
  */
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
-import { J, LESSON_6G_WIDTH_MHZ, anchor, firstNbPoll, firstNbReport, firstUwbRange, firstUwbTrain, node, oneRoom, uwbSc, uwbTag, wifi6g, type Lesson } from '../lessonKit'
+import { J, LESSON_6G_WIDTH_MHZ, anchor, firstNbPoll, firstNbReport, firstUwbTrain, node, oneRoom, uwbSc, uwbTag, wifi6g, type Lesson } from '../lessonKit'
 
 /** Which scene the lesson runs: one control channel inside the router's 80 MHz, one outside,
  * an allow list of four, or the inside channel with the listen-before-talk rule switched off. */
@@ -97,7 +97,7 @@ export const uwbNba: Lesson = {
   id: 'uwb-nba',
   module: 29,
   title: '控制消息走另一部射频',
-  why: 'TG4ab 提案 15-22/0381r5 的窄带辅助方式让一部窄带（narrowband, NB）射频承担测距周期里的全部控制消息：发起方用 Poll 开启一轮，应答方用 Response 确认，测距阶段结束后应答方用 Report 送回回复时延（reply time）；在 Report 到达之前，发起方无法算出距离。宽带射频在这期间只发送不含任何数据的片段（fragment）。窄带射频用的是 IEEE Std 802.15.4-2024 第 13 章的 O-QPSK（offset quadrature phase-shift keying）物理层（physical layer, PHY），250 kb/s：每个符号（symbol）16 µs、承载 4 个比特，消息前还有 12 个符号的同步头与物理头（PHY header, PHR），所以一条 12 字节的消息也要 576 µs，比任何一个片段都长。提案把消息压缩成一个字节的消息号加必需的字段：成对的 Poll 与 Response 各 12 字节，Report 13 字节。一对多的 Poll 要列出每个应答方的 3 字节地址，按提案的字段表是 12 + 3N 字节；本仿真器算成 14 + 3N 字节，多出两个字节，于是在本课 500 µs 的时隙下，两个时隙只容得下三个应答方，房间第四个角落的锚点（anchor）不参加这一轮——按提案的长度，四个应答方的 Poll 是 960 µs，本来放得下。本课的场景里窄带信道与一台 Wi-Fi 路由器共用频谱，七个块里只有两个完成了消息交换，原因在下一课。',
+  why: 'TG4ab 提案 15-22/0381r5 的窄带辅助方式让一部窄带（narrowband, NB）射频承担测距周期里的全部控制消息：发起方用 Poll 开启一轮，应答方用 Response 确认，测距阶段结束后应答方用 Report 送回回复时延（reply time）；在 Report 到达之前，发起方无法算出距离。宽带射频在这期间只发送不含任何数据的片段（fragment）。窄带射频用的是 IEEE Std 802.15.4-2024 第 13 章的 O-QPSK（offset quadrature phase-shift keying）物理层（physical layer, PHY），250 kb/s：每个符号（symbol）16 µs、承载 4 个比特，消息前还有 12 个符号的同步头与物理头（PHY header, PHR），所以一条 12 字节的消息也要 576 µs，比任何一个片段都长。提案把消息压缩成一个字节的消息号加必需的字段：成对的 Poll 与 Response 各 12 字节，Report 13 字节。一对多的 Poll 要列出每个应答方的 3 字节地址，按提案的字段表是 12 + 3N 字节；本仿真器算成 14 + 3N 字节，多出两个字节，于是在本课 500 µs 的时隙下，两个时隙只容得下三个应答方，房间第四个角落的锚点（anchor）不参加这一轮——按提案的长度，四个应答方的 Poll 是 960 µs，本来放得下。本课的场景里窄带信道与一台 Wi-Fi 路由器共用频谱，七个块里没有一个完成了消息交换，原因在下一课。',
   outcomes: [
     '说出窄带射频的物理层出自标准哪一章，以及控制消息的格式出自哪一份提案',
     '按顺序说出一轮里窄带射频发送的三种消息，并算出一条消息占用多少微秒',
@@ -170,11 +170,11 @@ export const uwbNba: Lesson = {
       heading: '距离要等窄带 Report',
       jump: 2,
       steps: [
-        '跳到收尾的那帧窄带 Report，再看它之后的第一条测距记录。',
+        '跳到收尾的那帧窄带 Report，再看它结束时手机记下的那条记录。',
         '对照前面两串片段的判定，读出余量。',
       ],
-      expect: '第一条 Report 在 20.000 ms 发出，608 µs 后的 20.608 ms 得出第一个距离「uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)」。两串片段都是 8/8 收到，余量 34.5 dB 与 33.4 dB。',
-      meaning: '宽带一侧没有问题；距离要等 Report 送来回复时延才能算出（① 报告阶段），这是单边双向测距本身的要求。',
+      expect: '第一条 Report 在 20.000 ms 发出，608 µs 后的 20.608 ms 手机因信干比（signal-to-interference ratio, SIR）不足记下「uwb-1 UWB frame from anchor-1 lost to Wi-Fi: SIR -9.8 dB (foreign -42.2 dBm)」，这一轮没有得出距离。两串片段都是 8/8 收到，余量 34.5 dB 与 33.4 dB。',
+      meaning: '宽带一侧没有问题；Report 丢了，回复时延没有送到，距离就算不出来（① 报告阶段），这是单边双向测距本身的要求。丢失的原因在下一课。',
     },
     {
       heading: '一对多 Poll 能列出几个应答方',
@@ -198,7 +198,7 @@ export const uwbNba: Lesson = {
         '载入「每次只与一个锚点测距」，看第 0 块的第一轮。',
         '这一课与下一课《窄带射频也共享 6 GHz》共用同一份变体菜单：菜单里有三项是那一课的题目——避开路由器用着的那个信道、在四个信道间跳变（channel hopping）、关掉先听后发（listen before talk, LBT）；本课自己只用第四项「每次只与一个锚点测距」。',
       ],
-      expect: '成对的 Poll 只指定 anchor-1，12 B、576.0 µs；一轮 28 个时隙、14 ms，一块容纳 4 轮。第一个距离在 12.608 ms 得出；13.000 ms 处手机判定信道忙，这个块余下的三轮里它不再发出任何窄带消息。',
+      expect: '成对的 Poll 只指定 anchor-1，12 B、576.0 µs；一轮 28 个时隙、14 ms，一块容纳 4 轮。anchor-1 在 1.000 ms 发回的 Response 在手机处被 Wi-Fi 干扰而丢失，第一轮没有得出距离；14.000 ms 处手机判定信道忙，从这一轮起，这个块余下的两轮里它也不再发出任何窄带消息。',
       meaning: '成对与一对多用的是同一套周期（①）；判忙之后跳过整个块是本仿真器的规则，与草案不同（②），下一课讲。',
     },
   ],
@@ -219,7 +219,7 @@ export const uwbNba: Lesson = {
     J('开启这一轮的窄带 Poll', firstNbPoll),
     J('对端如何判定这一串片段', firstUwbTrain),
     J('收尾的那帧窄带 Report', firstNbReport),
-    J('整段运行中得出的第一个距离', firstUwbRange),
+    J('窄带消息被 Wi-Fi 干扰而丢失', (r) => r.type === 'UWB_INTERFERED'),
   ],
   observe: [],
   tryThis: [],

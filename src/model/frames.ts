@@ -145,6 +145,26 @@ export interface MuPart {
   msduBytes?: number[]
   /** This member's MPDUs are a retransmission (§9.2.4.1.6). */
   retryFlag?: boolean
+  /** Each MPDU's sequence number, Retry bit and Table 9-60 end-to-end address, in msduIds order. */
+  mpdus?: MpduHdr[]
+  /**
+   * DL MU PPDU only: the TRS Control subfield every MPDU of this member's A-MPDU carries in its
+   * HT Control field (§9.2.4.7.1) — the HE/EHT TB PPDU this member answers in: its data symbol
+   * count (UL Data Symbols + 1), its resource unit (this member's place and share) and its
+   * HE-MCS 0–3. Without it the member does not answer (§10.3.2.13.2).
+   */
+  trs?: { ulDataSymbols: number; mcs: number; ruFraction: number; partIdx: number }
+  /** Multi-STA BlockAck only: the sequence numbers acknowledged for this STA (Per AID TID Info bitmap). */
+  ba?: BaInfo
+}
+
+/**
+ * The block ack starting sequence number and the sequence numbers the bitmap marks received
+ * (§9.3.1.8.2, compressed BlockAck). Kept as the list of set bits rather than as the bitmap words.
+ */
+export interface BaInfo {
+  ssn: number
+  acked: number[]
 }
 
 export interface FrameDesc {
@@ -191,6 +211,18 @@ export interface FrameDesc {
   ac?: number // 0..3 EDCA access category of the exchange
   /** A-MPDU aggregation info (single-user). */
   ampdu?: { mpduCount: number; msduIds: number[] }
+  /** The PSDU is an S-MPDU: one MPDU in an A-MPDU subframe with EOF = 1 (§10.12.7), answered by an Ack. */
+  smpdu?: boolean
+  /**
+   * VHT/HE/EHT PPDUs: the A-MPDU pre-EOF padding length (APEP_LENGTH, §10.12.6) the duration was
+   * computed from. `bytes` is then PSDU_LENGTH, and the difference is the EOF padding. Per member
+   * of a MU PPDU the same pair is `MuPart.bytes` against this PPDU's symbol count.
+   */
+  apepBytes?: number
+  /** Each MPDU's sequence number, Retry bit and Table 9-60 end-to-end address, in msdu order. */
+  mpdus?: MpduHdr[]
+  /** BlockAck frames: the starting sequence number and the acknowledged sequence numbers. */
+  ba?: BaInfo
   /** OFDMA MU PPDU parts (DL MU data, or per-user context of triggers/M-BA). */
   muParts?: MuPart[]
   /** Frames sharing a group are RU-orthogonal: no mutual interference. */
@@ -247,25 +279,86 @@ export function dataPsduBytes(msduBytes: number): number {
   return MAC_HDR_BYTES + msduBytes + FCS_BYTES
 }
 
-/** A-MPDU subframe: delimiter + QoS data MPDU, padded to 4 octets. */
-export function ampduSubframeBytes(msduBytes: number): number {
-  const mpdu = QOS_HDR_BYTES + msduBytes + FCS_BYTES
-  return AMPDU_DELIMITER_BYTES + Math.ceil(mpdu / 4) * 4
+/**
+ * Table 10-1: AC index (0 BK, 1 BE, 2 VI, 3 VO) → the TID this engine gives a frame of that AC
+ * (the lowest user priority of the AC's pair, except AC_BE whose UP 0 is the default).
+ * The engine has one traffic stream per AC, so the mapping is one to one.
+ */
+export const TID_FOR_AC = [1, 0, 5, 6] as const
+
+/**
+ * The HT Control field (§9.2.4.6): 4 octets, present when the frame's +HTC bit is 1. This engine
+ * puts one in a QoS Data frame only to carry a TRS Control subfield (§9.2.4.7.1) — the HE variant
+ * of the field, whose A-Control holds the triggered-response scheduling for the HE/EHT TB PPDU
+ * that acknowledges a DL MU PPDU (§10.3.2.13.2).
+ */
+export const HT_CONTROL_BYTES = 4
+
+/**
+ * One MPDU's own header fields that differ between the MPDUs of an A-MPDU: its sequence number,
+ * its Retry bit (§9.2.4.1.6, set on a retransmission of that MPDU) and the end-to-end addresses
+ * Table 9-60 puts in Address 3 — the DA when To DS is 1, the SA when From DS is 1. `da`/`sa` are
+ * absent when the MSDU starts or ends at the transmitter or receiver itself.
+ */
+export interface MpduHdr {
+  sn: number
+  retry: boolean
+  da?: string
+  sa?: string
 }
 
-/** A-MPDU PSDU: every subframe but the last is padded to a 4-octet boundary. */
-export function ampduPsduBytes(msduBytesList: number[]): number {
+/** QoS Data / Data MPDU size: header (+ HT Control) + body + FCS. */
+export function mpduBytes(msduBytes: number, qos: boolean, htc = false): number {
+  return (qos ? QOS_HDR_BYTES : MAC_HDR_BYTES) + (htc ? HT_CONTROL_BYTES : 0) + msduBytes + FCS_BYTES
+}
+
+/** A-MPDU subframe: delimiter + QoS data MPDU, padded to 4 octets. */
+export function ampduSubframeBytes(msduBytes: number, htc = false): number {
+  return AMPDU_DELIMITER_BYTES + Math.ceil(mpduBytes(msduBytes, true, htc) / 4) * 4
+}
+
+/**
+ * A-MPDU pre-EOF padding (§10.12.2): every subframe but the last is padded to a 4-octet boundary;
+ * the last subframe's Padding subfield is added only by the EOF padding step (§10.12.6), so it is
+ * not part of the length the PPDU's duration is computed from (APEP_LENGTH).
+ */
+export function ampduPsduBytes(msduBytesList: number[], htc = false, qos = true): number {
   return msduBytesList.reduce((s, b, i) => i === msduBytesList.length - 1
-    ? s + AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + b + FCS_BYTES
-    : s + ampduSubframeBytes(b), 0)
+    ? s + AMPDU_DELIMITER_BYTES + mpduBytes(b, qos, htc)
+    : s + AMPDU_DELIMITER_BYTES + Math.ceil(mpduBytes(b, qos, htc) / 4) * 4, 0)
+}
+
+/**
+ * Where each MPDU sits in an A-MPDU: octet offset of its delimiter and the subframe's length up to
+ * the end of the MPDU (delimiter + MPDU, without the trailing padding). Used by the receiver to
+ * find which part of the data field carried which MPDU.
+ */
+export function ampduLayout(msduBytesList: number[], qos = true, htc = false): { off: number; len: number }[] {
+  let off = 0
+  return msduBytesList.map((b) => {
+    const mpdu = mpduBytes(b, qos, htc)
+    const at = { off, len: AMPDU_DELIMITER_BYTES + mpdu }
+    off += AMPDU_DELIMITER_BYTES + Math.ceil(mpdu / 4) * 4
+    return at
+  })
 }
 
 /** What a run of claimed MSDUs costs as one PSDU, and what frame answers it. */
 export interface PsduPlan {
-  /** Octets the PHY has to carry. */
+  /**
+   * Octets the PHY's duration is computed from: the PSDU of a non-HT PPDU, or the A-MPDU pre-EOF
+   * padding — APEP_LENGTH — of a VHT/HE/EHT one (§10.12.6). The EOF padding that fills the last
+   * symbol is added afterwards (`psduLengthFor`) and costs no airtime.
+   */
   psduBytes: number
-  /** True when this PSDU is an A-MPDU — the same bit that picks the response frame. */
+  /** True when this PSDU is an A-MPDU of more than one MPDU — the same bit that picks a BlockAck. */
   aggregate: boolean
+  /**
+   * True when the PSDU is an A-MPDU holding one MPDU with EOF = 1, an S-MPDU (§10.12.7). Every
+   * VHT/HE/EHT PSDU is an A-MPDU (§9.7.3, §10.12.5); an S-MPDU follows the non-A-MPDU rules
+   * (§10.12.8) and solicits an Ack.
+   */
+  smpdu: boolean
   /** The response this PPDU solicits: a compressed BlockAck, or an ACK. */
   respBytes: number
 }
@@ -278,39 +371,64 @@ export interface PsduPlan {
  * first one. `{ mu: true }` takes no `qos`, no `ampdu` and no `mode` because it reads none.
  */
 export type PsduOpts =
-  /** Single-user path: an A-MPDU only if the link can carry one AND there is more than one MSDU. */
+  /** Single-user path: an A-MPDU of several MPDUs only if the link can aggregate AND there is more than one MSDU. */
   | { mu?: undefined; qos: boolean; ampdu: boolean; mode: PhyMode }
   /**
-   * DL MU and trigger-based UL: this engine builds an A-MPDU unconditionally here, even for a
-   * single MSDU (`buildMuParts` and `respondToTrigger` have always called `ampduPsduBytes`
-   * straight, with no length or mode test), so the MSDU count must NOT be consulted — doing so
-   * would reprice every one-MSDU RU from b+34 to b+30.
+   * DL MU and trigger-based UL: the PSDU of an HE/EHT MU or TB PPDU is an A-MPDU whatever the
+   * MSDU count (§9.7.3). `trs` puts an HT Control field carrying a TRS Control subfield in every
+   * MPDU — the DL MU PPDU's way of soliciting its acknowledgement (§10.3.2.13.2).
    */
-  | { mu: true }
+  | { mu: true; trs?: boolean }
 
 /**
  * How claimed MSDUs become one PSDU: aggregate or not, how many octets, and which response.
  *
  * **This is one decision that used to be written out five times** — `transmitFor`,
- * `exchangeNs`, `planBurstNs`, `buildMuParts` and `respondToTrigger` in `engine/mac.ts`, each
- * with its own copy of the three-way byte arithmetic, and `ampduPsduBytes` reached ten times
- * because every one of them also tried the sum inside a `fits` closure. The "is this an
- * aggregate" predicate had drifted into three spellings across those five
- * (design 2026-10-07-amsdu §2.2), which is the real reason a second aggregation layer is
- * expensive here: the decision had no name, so every new value for it cost five edits.
+ * `exchangeNs`, `planBurstNs`, `buildMuParts` and `respondToTrigger` in `engine/mac.ts`
+ * (design 2026-10-07-amsdu §2.2).
  *
- * It is a pure extraction. No branch, no constant and no order of evaluation is new; the
- * evidence is the 263 timeline hashes plus a record-by-record diff of 6 686 785 records over
- * every shipped scenario, which came back byte-identical.
+ * 2026-11-11 (W7a): a VHT/HE/EHT PSDU is always an A-MPDU (§9.7.3, §10.12.5), so one MSDU on
+ * such a link goes out as an S-MPDU — 4 octets of delimiter dearer than the bare MPDU this used to
+ * price it at — and is still answered by an Ack (§10.12.8). Only a non-HT PPDU carries a bare MPDU.
  */
 export function psduPlan(msduBytes: number[], opts: PsduOpts): PsduPlan {
-  const asAmpdu = (): PsduPlan =>
-    ({ psduBytes: ampduPsduBytes(msduBytes), aggregate: true, respBytes: BA_BYTES })
-  if (opts.mu) return asAmpdu()
-  if (opts.ampdu && opts.mode !== 'nonht' && msduBytes.length > 1) return asAmpdu()
-  return {
-    psduBytes: opts.qos ? QOS_HDR_BYTES + msduBytes[0] + FCS_BYTES : dataPsduBytes(msduBytes[0]),
-    aggregate: false,
-    respBytes: ACK_BYTES,
+  if (opts.mu) {
+    return { psduBytes: ampduPsduBytes(msduBytes, opts.trs === true), aggregate: true, smpdu: false, respBytes: BA_BYTES }
   }
+  if (opts.mode !== 'nonht' && opts.ampdu && msduBytes.length > 1) {
+    // An A-MPDU answered by a BlockAck carries QoS Data (implicit BAR ack policy lives in the QoS
+    // Control field, §9.2.4.5.4, §10.25), so its MPDUs have the 26-octet header whatever `qos` says.
+    return { psduBytes: ampduPsduBytes(msduBytes), aggregate: true, smpdu: false, respBytes: BA_BYTES }
+  }
+  const mpdu = mpduBytes(msduBytes[0], opts.qos)
+  if (opts.mode !== 'nonht') {
+    return { psduBytes: AMPDU_DELIMITER_BYTES + mpdu, aggregate: false, smpdu: true, respBytes: ACK_BYTES }
+  }
+  return { psduBytes: mpdu, aggregate: false, smpdu: false, respBytes: ACK_BYTES }
+}
+
+/**
+ * PSDU_LENGTH of a VHT/HE/EHT PPDU whose A-MPDU pre-EOF padding is `apepBytes` octets: the octets
+ * the data symbols hold once the MAC has padded the A-MPDU to fill them (§10.12.6 — the final
+ * subframe's Padding subfield, then 4-octet EOF padding subframes, then EOF padding octets). It is
+ * the inverse of the symbol count `txTimeModeNs` takes from the same length: the service field and
+ * tail are taken out of N_SYM × N_DBPS and what is left, in whole octets, is the PSDU.
+ */
+export function psduLengthFor(apepBytes: number, ndbps: number): number {
+  const nsym = Math.ceil((16 + 8 * apepBytes + 6) / ndbps)
+  return Math.max(apepBytes, Math.floor((nsym * ndbps - 16 - 6) / 8))
+}
+
+/**
+ * The EOF padding §10.12.6 adds to an A-MPDU of `apepBytes` to make it `psduLength` octets:
+ * first the final subframe's Padding subfield up to a 4-octet boundary, then EOF padding
+ * subframes (4-octet delimiters with MPDU Length 0 and EOF 1), then EOF padding octets.
+ */
+export function eofPadding(apepBytes: number, psduLength: number): { finalPad: number; eofSubframes: number; eofOctets: number } {
+  let len = apepBytes
+  let finalPad = 0
+  while (len < psduLength && len % 4 !== 0) { finalPad++; len++ }
+  let eofSubframes = 0
+  while (len + AMPDU_DELIMITER_BYTES <= psduLength) { eofSubframes++; len += AMPDU_DELIMITER_BYTES }
+  return { finalPad, eofSubframes, eofOctets: psduLength - len }
 }

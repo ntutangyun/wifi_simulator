@@ -94,8 +94,15 @@ describe('uwb-ssbd · the lesson', () => {
     expect(why).toContain(`延迟上界是 ${BOUND / US} µs`)
     expect(why).toContain(`${STALE / US} µs 是按两条已经改掉的旧前提算出的`)
     expect(why).toContain(`测距恢复到 ${rangesOf()} 次`)
-    expect(why).toContain(`只测得 ${rangesOf(V_PER_BLOCK)} 次`)
-    expect(why).toContain(`只测得 ${rangesOf(V_BIGGEST)} 次`)
+    expect(why).toContain(`按块跳过的规则测得 ${rangesOf(V_PER_BLOCK)} 次`)
+    expect(why).toContain(`等待要从消息自己的窗口里扣除，测得 ${rangesOf(V_BIGGEST)} 次`)
+    // 2026-11-11: with listen-before-talk off the tag still loses most rounds, to the access point's
+    // BlockAck answering an A-MPDU it received only in part (IEEE Std 802.11-2024 §10.12, the
+    // MPDUs before the narrowband message began pass their FCS) and to its CTS.
+    expect(why).toContain(`完全不听也只测得 ${rangesOf(V_OFF)} 次`)
+    const hitByAp = ofType(recs(V_OFF), 'UWB_INTERFERED')
+    expect(hitByAp.length).toBeGreaterThan(0)
+    expect(new Set(hitByAp.map((r) => r.node))).toEqual(new Set([TAG]))
   })
 })
 
@@ -162,12 +169,17 @@ describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
       expect(rows[i][3], String(v)).toBe(ssbd ? String(ssbdOf(v).length) : '—')
     })
     const lbt = ofType(recs(V_PER_BLOCK), 'UWB_NB_LBT')
-    expect(l.expect).toContain(`按块规则判了 ${lbt.length} 次忙，其中 ${lbt.filter((x) => x.node === TAG).length} 次是手机的，只测得 ${rangesOf(V_PER_BLOCK)} 次`)
-    expect(l.expect).toContain(`缺省的 SSBD 测得 ${rangesOf()} 次，与关闭先听后发的 ${rangesOf(V_OFF)} 次相当`)
+    expect(l.expect).toContain(`按块规则判了 ${lbt.length} 次忙，其中 ${lbt.filter((x) => x.node === TAG).length} 次是手机的，测得 ${rangesOf(V_PER_BLOCK)} 次`)
+    // 2026-11-11: 「不少于」, not 「相当」 — 12 against 8 since the access point's BlockAck to a partly
+    // received A-MPDU spoils the tag's narrowband receptions; the defaults withhold no message.
+    expect(l.expect).toContain(`缺省的 SSBD 测得 ${rangesOf()} 次，不少于关闭先听后发的 ${rangesOf(V_OFF)} 次`)
+    expect(rangesOf()).toBeGreaterThanOrEqual(rangesOf(V_OFF))
+    expect([undefined, V_PER_BLOCK, V_BIGGEST, V_OFF].map(fixesOf)).toEqual([0, 0, 0, 0])
+    expect(l.expect).toContain('四种设置都没有解算出定位')
     expect(l.expect).toContain(`只有 ${rangesOf(V_BIGGEST)} 次`)
   })
 
-  it('lab 3: the bound, the slack and the Wi-Fi frames; 63 of 110 sent on the end action', () => {
+  it('lab 3: the bound, the slack and the Wi-Fi frames; 45 of 76 sent on the end action', () => {
     const l = lab('缺省值靠收尾动作，不靠等待')
     const rows = blockOf(l, 'table', '上界、余量与需要等待的那些帧').rows
     const times = wifiData(recs()).map((r) => r.frame.txTimeNs)
@@ -195,7 +207,7 @@ describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
     expect(l.meaning).toContain(`最多 ${moved / US} µs`)
   })
 
-  it('lab 4: the biggest backoff that fits — 80 of 128 cut down, 52 to nothing, 53 timeouts, 3 ranges', () => {
+  it('lab 4: the biggest backoff that fits — 75 of 113 cut down, 50 to nothing, 55 timeouts, 1 range', () => {
     const l = lab('退避调大，测距反而更少')
     expect(l.variant).toBe(V_BIGGEST)
     const s = uwbSsbdScenario('biggest').uwb!.mms.ssbd!

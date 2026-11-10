@@ -39,7 +39,10 @@ const tbPpdus = (rs: TLRecord[]): Tx[] =>
   txs(rs, (r) => r.frame.kind === 'data' && r.frame.orthogonalGroup !== undefined)
 const contended = (rs: TLRecord[]): Tx[] =>
   txs(rs, (r) => r.frame.kind === 'data' && r.frame.orthogonalGroup === undefined)
-const bytes = (xs: Tx[]): number => xs.reduce((a, r) => a + r.frame.bytes, 0)
+// 2026-11-11 (W7a): `frame.bytes` of an HE PPDU is its PSDU_LENGTH — the A-MPDU padded to the last
+// symbol (IEEE Std 802.11-2024 §10.12.6); `apepBytes` is the A-MPDU itself, which the lesson counts.
+const apep = (r: Tx): number => r.frame.apepBytes ?? r.frame.bytes
+const bytes = (xs: Tx[]): number => xs.reduce((a, r) => a + apep(r), 0)
 const one = <T>(xs: T[]): T => {
   expect(new Set(xs.map((x) => JSON.stringify(x))).size).toBe(1)
   return xs[0]
@@ -209,7 +212,9 @@ describe('ofdma-ul · ③ every figure the labs print is the run', () => {
     const mba = txs(rs, (r) => r.frame.kind === 'mba')[0]
     const ans = one(answers.map((a) => a.t))
     const dur = one(answers.map((a) => a.frame.txTimeNs))
-    const each = one(answers.map((a) => a.frame.bytes))
+    const each = one(answers.map(apep))
+    // the padding the worked table prints is the EOF padding that fills the TB PPDU (§10.12.6)
+    expect(one(answers.map((a) => a.frame.bytes))).toBe(maxPsduBytesFor('he', 11, 1 / t.frame.muParts!.length, 2 * MS, 20, 1))
     const l = lab('一次触发交换')
     expect(l.expect).toContain(`${usText(t.t)} 接入点发出 ${t.frame.txTimeNs / US} µs 的触发帧，它的 Duration 字段是 ${usText(t.frame.durationFieldNs)}`)
     expect(l.expect).toContain(`${usText(ans)} 两台上传设备同时开始应答，各 ${usText(dur)}、各 ${grouped(each)} 字节`)

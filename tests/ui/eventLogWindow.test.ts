@@ -153,7 +153,8 @@ const CASES: JumpCase[] = (() => {
 describe('the event log renders the row a jump landed on', () => {
   it('found every jump of every lesson, so the census below covers the course', () => {
     // If a jump stops firing this drops, and the claims below would quietly
-    // cover less of the course than they say. 279 since 2026-11-10's standard-first restructure of
+    // cover less of the course than they say. 278 since 2026-11-11 (W7a): `@uwb-ssbd` dropped a
+    // jump its re-measured labs no longer use. 279 since 2026-11-10's standard-first restructure of
     // 34 UWB lessons: their new labs dropped the jumps they no longer used (302 → 279).
     // 302 since 2026-11-10: `@uwb-contention`'s sit-out
     // jump went with the sit-out itself, which the standard does not have (§10.32.9.6). 303 since
@@ -163,11 +164,11 @@ describe('the event log renders the row a jump landed on', () => {
     // record went with the countdown it belongs to instead of being copied.
     // 301 since slice W13: `@claim-to-contribution` brought four jumps and all four fire in its
     // own base scene; 297 after W12b's `@uhr-rate-ladder`, 293 on 2026-10-09.
-    expect(CASES.length).toBe(279)
+    expect(CASES.length).toBe(278)
     expect(new Set(CASES.map((c) => c.lesson)).size).toBeLessThanOrEqual(LESSONS.length)
   })
 
-  it('every one of the 279 clicked rows is among the rows drawn', () => {
+  it('every one of the 278 clicked rows is among the rows drawn', () => {
     const missing = CASES.filter((c) => {
       const win = windowedRecords(c.store, c.target.t)
       const { rows } = pickLogRows(win, c.target.t, c.target.seq)
@@ -186,7 +187,7 @@ describe('the event log renders the row a jump landed on', () => {
     expect(silent).toEqual([])
   })
 
-  it('names the three jumps the old "newest 160" rule cut, so the defect stays described', () => {
+  it('names the four jumps the old "newest 160" rule cut, so the defect stays described', () => {
     // The point of the fix, stated as the measurement that found it. If a lesson
     // edit makes one of these windows sparse the list shrinks and this fails —
     // which is the right outcome: the example in the docblocks would be stale.
@@ -194,7 +195,9 @@ describe('the event log renders the row a jump landed on', () => {
       const win = windowedRecords(c.store, c.target.t)
       return !win.slice(-LOG_ROWS).some((r) => r.seq === c.target.seq)
     }).map((c) => `${c.lesson}#${c.idx}`)
-    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2'])
+    // `capstone#1` (the first Trigger frame) joined on 2026-11-11 (W7a): it now fires early in a
+    // dense stretch of the run, behind more than 160 records of the same instant's window.
+    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2', 'capstone#1'])
   })
 
   it('keeps the row budget at 160, so the per-frame cost cannot have moved', () => {
@@ -244,13 +247,16 @@ describe('the event log renders the row a jump landed on', () => {
     // The two that are past the LOOKAHEAD, named: they are the reason the
     // search exists, and if a lesson edit adds a third the list says so.
     const pastLookahead = CASES.filter((c) => c.target.t > LOOKAHEAD_NS).map((c) => `${c.lesson}#${c.idx}`)
-    expect(pastLookahead).toEqual(['queues#2', 'capstone#1'])
+    // `capstone#1` left this list on 2026-11-11 (W7a): the first Trigger frame now fires inside the
+    // lookahead.
+    expect(pastLookahead).toEqual(['queues#2'])
     // The debt, measured, and its margin — the same shape `tests/course`'s
-    // ratchets use. 2.453 384 778 s is `capstone#1`, the furthest jump in the
-    // course; 546 615 222 ns is what is left of the 3 s horizon above it.
+    // ratchets use. Since 2026-11-11 (W7a) 2.182 806 360 s is `queues#2`, the furthest jump in
+    // the course (it was `capstone#1` at 2.453 384 778 s, which now fires inside the lookahead);
+    // 817 193 640 ns is what is left of the 3 s horizon above it.
     const furthest = Math.max(...CASES.map((c) => c.target.t))
-    expect(furthest).toBe(2_453_384_778)
-    expect(JUMP_SEARCH_NS - furthest).toBe(546_615_222)
+    expect(furthest).toBe(2_182_806_360)
+    expect(JUMP_SEARCH_NS - furthest).toBe(817_193_640)
   })
 
   /**
@@ -309,7 +315,6 @@ describe('the event log renders the row a jump landed on', () => {
     expect(named('immediate').length).toBe(275)
     expect(named('extend')).toEqual([
       'queues#2 AP 第一次因生存期丢帧',
-      'capstone#1 第一个触发帧',
     ])
     expect(named('miss')).toEqual([
       'amp-slots#3 第一次轮空（ACWE 3 变体）',

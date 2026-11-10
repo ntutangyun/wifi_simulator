@@ -140,7 +140,10 @@ describe('mcs-ladder · ③ every figure the labs print is the run', () => {
       const s = L.variants![i].scenario()
       const f = firstData(runOf(L, i, RUN_NS))
       const rx = upDbm(s)
-      expect(f.frame.bytes).toBe(1530)
+      // 2026-11-11 (W7a): an EHT PSDU is always an A-MPDU (§10.12.5); the one 1530-octet MPDU goes out
+      // as an S-MPDU (§10.12.7), so the airtime is computed from 4 + 1530 octets (APEP_LENGTH, §10.12.6).
+      expect(f.frame.smpdu).toBe(true)
+      expect(f.frame.apepBytes).toBe(4 + 1530)
       expect(row[1]).toBe(`${neg(rx, 1)} dBm`)
       expect(row[2]).toBe(`${(rx - noiseDbm(20)).toFixed(1)} dB`)
       expect(row[3]).toBe(String(f.frame.mcs))

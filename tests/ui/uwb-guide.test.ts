@@ -1830,7 +1830,11 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const BF = 7
     const biggest = Math.floor(pollSlackUs / BF)
     const maxFit = ranges(lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest }))
-    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 47, perBlock: 1, defaults: 50, maxFit: 3 })
+    // 2026-11-11: 8 / 0 / 12 / 1, where it was 47 / 1 / 50 / 3 — the router now answers an A-MPDU it
+    // received in part with a BlockAck (IEEE Std 802.11-2024 §10.12), and that BlockAck spoils the
+    // tag's narrowband receptions. The defaults still withhold nothing, so they stay at or above off.
+    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 8, perBlock: 0, defaults: 12, maxFit: 1 })
+    expect(defaults).toBeGreaterThanOrEqual(off)
     for (const n of [off, perBlock, defaults, maxFit]) expect(section).toContain(String(n))
     // The sharper reading the design doc's §5.4 insists on: the per-block rule costs nearly every
     // cycle, the defaults recover them, and turning the knob up makes it worse, not better.

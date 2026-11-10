@@ -21,6 +21,10 @@
  * Every figure the lesson prints is read back out of its text and compared
  * with a run or with the engine's own function in
  * tests/course/frame-anatomy-bytes.test.ts.
+ *
+ * 2026-11-11 (W7a): the phone's HE frame is an S-MPDU now (§9.7.3, §10.12.7): its
+ * symbols are counted from APEP_LENGTH = 4 + 230 = 234 octets and the EOF padding fills
+ * the one symbol to a 241-octet PSDU (§10.12.6). Still one symbol, still 57.6 µs.
  */
 import { PHY_MODES } from '../../engine/phy'
 import type { TimingSpec } from '../diagram'
@@ -33,7 +37,7 @@ export const HE_FRAME_US = 57.6
 
 /**
  * The same two blocks the timeline shows, drawn to scale against each other:
- * the old laptop's 1528 B frame at 802.11a, and the phone's 230 B frame at
+ * the old laptop's 1528 B frame at 802.11a, and the phone's 230 B MPDU at
  * Wi-Fi 6. Every duration comes from `PHY_MODES` or from the run, and the test
  * reads each one back out of this spec, so the picture cannot drift.
  */
@@ -85,7 +89,7 @@ export const frameAnatomyBytes: Lesson = {
       '换算成要发送的比特：16 位服务字段，加上 8 × LENGTH，再加 6 个尾比特（§17.3.2.2）。',
       '除以 N_DBPS 并向上取整，得到符号数 N_SYM；最后一个符号不满时用填充比特补满（§17.3.5.4）。',
       '加上前导码与 SIGNAL：TXTIME = 16 + 4 + N_SYM × 4 µs（式 17-29）。',
-      '新一代物理层沿用同样的结构，但前导码更长、符号时长不同：HE 的数据符号在基本保护间隔下是 13.6 µs，在 1.6 µs 与 3.2 µs 的保护间隔下是 14.4 µs 与 16 µs（表 27-13）；HE 的 TXTIME 还包括 HE-LTF 与包扩展等项（§27.4.3）。',
+      '新一代物理层沿用同样的结构，但前导码更长、符号时长不同：HE 的数据符号在基本保护间隔下是 13.6 µs，在 1.6 µs 与 3.2 µs 的保护间隔下是 14.4 µs 与 16 µs（表 27-13）；HE 的 TXTIME 还包括 HE-LTF 与包扩展等项（§27.4.3）。HE 的 PSDU 总是聚合 MPDU（aggregate MPDU, A-MPDU），只有一个 MPDU 时前面也有一个 4 个八位组的定界符（MPDU delimiter）（§9.7.3，§10.12.7）；符号数按加 EOF 填充之前的长度 APEP_LENGTH 计算，最后一个符号余下的位置由 EOF 填充补满（§10.12.6）。',
       '帧头多出的八位组，只有使 16 + 8 × LENGTH + 6 越过 N_DBPS 的整数倍时，才会多出一个符号。',
     ] },
   ],
@@ -94,7 +98,7 @@ export const frameAnatomyBytes: Lesson = {
     { topic: 'N_DBPS', standard: '表 17-4', sim: '照表取值：54 Mb/s 为 216，24 Mb/s 为 96。', kind: 'faithful' },
     { topic: 'HE 的数据符号', standard: '基本保护间隔下 T_SYM1 = 13.6 µs（表 27-13）', sim: '照此取 13.6 µs；保护间隔取哪一档由场景编写者选定，本课用基本档。', kind: 'faithful' },
     { topic: '新一代的前导码', standard: '随 HE-LTF 数、空间流（spatial stream）数与用户数变化（表 27-13，§27.4.3）', sim: '每一代只取一个代表值：VHT 40 µs、HE 44 µs、EHT 48 µs，多用户（multi-user, MU）帧另加 4 µs；不随空间流数增长。', kind: 'value' },
-    { topic: 'HE 的符号数', standard: 'BCC 与 LDPC 编码各有公式，含编码前的填充（式 27-66 等）', sim: '套用第 17 章的同一个式子 ⌈(16 + 8 × LENGTH + 6) ÷ N_DBPS⌉，是一种简化。', kind: 'differs' },
+    { topic: 'HE 的符号数', standard: 'BCC 与 LDPC 编码各有公式，含编码前的填充（式 27-66 等）', sim: '套用第 17 章的同一个式子 ⌈(16 + 8 × LENGTH + 6) ÷ N_DBPS⌉，LENGTH 取 APEP_LENGTH，是一种简化。单个 MPDU 照 ① 装成带 4 B 定界符的 A-MPDU，并用 EOF 填充补满最后一个符号。', kind: 'differs' },
     { topic: '包扩展', standard: 'HE 的 TXTIME 包括包扩展 T_PE（§27.4.3）', sim: '未计入。', kind: 'absent' },
     { topic: '载荷大小', standard: '由上层决定', sim: '旧笔记本的业务每份 1500 B，手机的语音业务每份 200 B。', kind: 'value' },
   ],
@@ -116,7 +120,7 @@ export const frameAnatomyBytes: Lesson = {
         ] },
         {
           kind: 'diagram', heading: '两帧，按同一时间刻度绘制', spec: preambleTiming(),
-          caption: '上面是旧笔记本 1528 B 的一帧：20 µs 的前导码与 SIGNAL，后面 57 个符号。下面是手机 230 B 的一帧：本仿真器取 44 µs 的前导码，后面只有一个 13.6 µs 的符号。',
+          caption: '上面是旧笔记本 1528 B 的一帧：20 µs 的前导码与 SIGNAL，后面 57 个符号。下面是手机装着 230 B MPDU 的一帧：本仿真器取 44 µs 的前导码，后面只有一个 13.6 µs 的符号。',
         },
       ],
       expect: '色块长 248 µs：前 20 µs 是前导码与 SIGNAL，其余是 57 个 4 µs 的符号。',
@@ -127,18 +131,19 @@ export const frameAnatomyBytes: Lesson = {
       jump: 1,
       steps: [
         '跳到第一个 QoS 数据帧（data frame），即手机发出的 Wi-Fi 6 帧，读出它的时长与前导码；它使用的调制与编码方式（modulation and coding scheme, MCS）是 HE MCS 11。',
-        '用同样的六步计算一遍。',
+        '用同样的六步计算一遍，LENGTH 换成第五步的 APEP_LENGTH：定界符加上这个 MPDU。',
       ],
       blocks: [
         { kind: 'table', heading: '手机第一帧的计算', head: ['步骤', '数值'], rows: [
-          ['LENGTH（八位组）', '26 + 200 + 4 = 230'],
-          ['要发送的比特', '16 + 8 × 230 + 6 = 1862'],
+          ['APEP_LENGTH（八位组）', '4 + 26 + 200 + 4 = 234'],
+          ['要发送的比特', '16 + 8 × 234 + 6 = 1894'],
           ['HE MCS 11 的 N_DBPS', '1950'],
           ['N_SYM（向上取整）', '1'],
           ['时长', '44 + 1 × 13.6 = 57.6 µs'],
+          ['EOF 填充之后的 PSDU（八位组）', '241'],
         ] },
       ],
-      expect: '57.6 µs 中有 44 µs 是前导码，载荷只占一个符号。',
+      expect: '57.6 µs 中有 44 µs 是前导码，载荷只占一个符号；这个符号余下的位置由 EOF 填充补满，PSDU 共 241 B。',
       meaning: '13.6 µs 的符号照表 27-13（①）；44 µs 是本仿真器给 HE 取的代表值，符号数也套用了第 17 章的式子，包扩展没有计入（②）。',
     },
     {
@@ -159,7 +164,7 @@ export const frameAnatomyBytes: Lesson = {
     },
   ],
   sources: [
-    'IEEE Std 802.11-2024：§17.3.2.1、§17.3.2.2 与图 17-1（非 HT 的 PPDU 及其编码过程）、表 17-4（N_DBPS）、表 17-5（时间参数）、§17.3.5.4（填充比特）、§17.4.3 与式 17-29（TXTIME）、表 27-13（HE 的时间常数）、§27.4.3 与式 27-66（HE 的 TXTIME 与符号数）；IEEE Std 802.11be-2024 §36.3.12.7（U-SIG）。',
+    'IEEE Std 802.11-2024：§17.3.2.1、§17.3.2.2 与图 17-1（非 HT 的 PPDU 及其编码过程）、表 17-4（N_DBPS）、表 17-5（时间参数）、§17.3.5.4（填充比特）、§17.4.3 与式 17-29（TXTIME）、表 27-13（HE 的时间常数）、§27.4.3 与式 27-66（HE 的 TXTIME 与符号数）、§9.7.3 与 §10.12.6、§10.12.7（HE 的 PSDU 总是 A-MPDU、APEP_LENGTH、EOF 填充与 S-MPDU）；IEEE Std 802.11be-2024 §36.3.12.7（U-SIG）。',
     '本仿真器的取值与取法：VHT、HE、EHT 的前导码各取一个代表值（src/engine/phy.ts 的 PHY_MODES）；HE 的符号数套用第 17 章的式子，不计包扩展；载荷大小由场景的业务决定。各帧的时长都是本课场景的实测值。',
   ],
   limits: [],

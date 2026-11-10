@@ -241,9 +241,10 @@ describe('a tamper preset that prints a number and changes nothing else', () => 
    */
   it('5c · an inflated Duration with no neighbour moves the announcement and no outcome', () => {
     const d = diff(run(cloudGameScenario()), run(cloudGameScenario({ cheat: 'navInflate' })))
-    // 348 records = the same 87 frames seen four times over, as the sender's TX_START and
-    // TX_END and the access point's RX_START and RX_OK. One announcement, four records.
-    expect(d.n).toBe(348)
+    // 696 records = the same 87 exchanges, each data frame and the Ack that repeats its Duration
+    // (§9.2.5.6: the eliciting frame's Duration less SIFS and the Ack — so the padding rides in
+    // the Ack too, 2026-11-11), each seen four times over: TX_START, TX_END, RX_START, RX_OK.
+    expect(d.n).toBe(696)
     expect(d.n % 4).toBe(0)
     expect(d.types).toEqual(['RX_OK', 'RX_START', 'TX_END', 'TX_START'])
     expect(d.fields, 'the announced Duration rides in `frame`, and nothing else moved').toEqual(['frame'])

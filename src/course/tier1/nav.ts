@@ -83,7 +83,7 @@ export const nav: Lesson = {
   ],
   implementation: [
     { topic: '数据帧的 Duration', standard: '一个 SIFS 加一个确认帧的时长（§9.3.2.1.5）', sim: '照此：16 µs 的 SIFS 加 28 µs 的确认帧，本课场景里 200 ms 内的 576 个数据帧都写 44 µs。', kind: 'faithful' },
-    { topic: '确认帧的 Duration', standard: '0（§9.3.1.4）', sim: '照此写 0；NAV 只在 Duration 大于 0 时更新。', kind: 'faithful' },
+    { topic: '确认帧的 Duration', standard: '0（§9.3.1.4）', sim: '照此写 0：确认帧的 Duration 按 §9.2.5.6 取被确认那一帧的 Duration 减去一个 SIFS 与确认帧自身，不足 0 时取 0，对这样的数据帧恰好是 0；NAV 只在 Duration 大于 0 时更新。', kind: 'faithful' },
     { topic: '确认帧的速率', standard: '基本速率集中不高于前一帧速率的最高速率，没有时取强制速率（§10.6.6.5.2）', sim: '本仿真器没有基本速率集，相当于取空集：一律在强制速率 6、12、24 Mb/s 中取不高于前一帧速率的最高一档。本课 576 个数据帧中 546 个以 54 Mb/s、30 个以 48 Mb/s 发送，确认帧都是 24 Mb/s、14 个字节、28 µs。', kind: 'value' },
     { topic: 'Duration 的单位与取整', standard: '以微秒为单位的整数，向上取整，最大 32 767（§9.2.4.2，§9.3.2.1.5）', sim: '本仿真器以纳秒整数记录 Duration，不取整到微秒，也不检查上限；NAV 在全局事件队列的那一纳秒到期，全场时钟一致。本课的时长恰好都是整微秒，所以数值与取整后相同。', kind: 'differs' },
     { topic: '哪些帧更新 NAV', standard: '接收端地址不是本站、且 Duration 大于当前 NAV（§10.3.2.4）', sim: '照此：正确解出、发给别的站点的帧才更新 NAV，新的到期时刻晚于当前到期时刻才采用。', kind: 'faithful' },

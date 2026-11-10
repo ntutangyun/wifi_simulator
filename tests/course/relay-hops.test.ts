@@ -11,6 +11,10 @@
  * The last block sweeps every figure in every string a reader reads and demands that each one is
  * a figure this file measured or a constant it checked: a figure added to the prose without a
  * measurement behind it fails there even when no table read reaches it.
+ *
+ * 2026-11-11 (W7a): the AP now hands an MSDU to the DS when it receives it (it used to wait for the
+ * sender's Ack), Address 3 follows Table 9-60 on both hops and duplicates are filtered by
+ * <TA, TID, SN> (§10.3.2.14.3). The assertions that pinned the old behaviour pin those instead.
  */
 import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
@@ -25,11 +29,11 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import type { LatencyStats, ViewState } from '../../src/model/view'
-import { ACK_BYTES, FCS_BYTES, QOS_HDR_BYTES, SIFS_NS } from '../../src/engine/phy'
+import { ACK_BYTES, AMPDU_DELIMITER_BYTES, EDCA_PARAMS, FCS_BYTES, QOS_HDR_BYTES, SIFS_NS, aifsNs } from '../../src/engine/phy'
 import { decodeFrame, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import { MODULES } from '../../src/course/curriculum'
-import { lessonShapeSuite } from './kit'
+import { lessonShapeSuite, ofType } from './kit'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const MS = 1_000_000
@@ -94,6 +98,28 @@ function onePayload(rs: TLRecord[]) {
   const arrAp = rs.find((r) => r.type === 'ARRIVAL' && r.node === 'ap' && r.msduId === id)!
   const deqAp = rs.find((r) => r.type === 'DEQUEUE' && r.node === 'ap' && r.msduId === id)!
   return { hop1, hop2, id, arrivalB, rxAp, ack1, deqB, arrAp, deqAp }
+}
+
+/**
+ * For every phone-to-phone payload: when the AP first received it whole (an RX_OK of a phone's
+ * data frame whose MPDU for it passed), when it reached the AP's own queue, and the start of the
+ * sender's last transmission of it.
+ */
+function relayLog(rs: TLRecord[]) {
+  const born = new Set<number>()
+  const rxAt = new Map<number, number>()
+  const lastTx = new Map<number, number>()
+  const apArrivals = new Map<number, number[]>()
+  for (const r of rs) {
+    if (r.type === 'ARRIVAL' && PHONES.includes(r.node)) born.add(r.msduId)
+    else if (r.type === 'ARRIVAL' && r.node === 'ap' && born.has(r.msduId)) apArrivals.set(r.msduId, [...(apArrivals.get(r.msduId) ?? []), r.t])
+    else if (r.type === 'TX_START' && PHONES.includes(r.node) && r.frame.kind === 'data') for (const id of ids(r)) lastTx.set(id, r.t)
+    else if (r.type === 'RX_OK' && r.node === 'ap' && r.frame.kind === 'data' && PHONES.includes(r.from)) {
+      const got = r.frame.ampdu?.msduIds ?? (r.frame.msduId !== undefined ? [r.frame.msduId] : [])
+      got.forEach((id, i) => { if ((r.mpduOk === undefined || r.mpduOk[i]) && !rxAt.has(id)) rxAt.set(id, r.t) })
+    }
+  }
+  return { rxAt, lastTx, apArrivals }
 }
 
 const base = run(rolesStackScenario(), 1000)
@@ -163,28 +189,20 @@ describe('relay-hops · ② says what the engine does, and the engine does it', 
     expect(p.hop2.frame.dst).toBe('sta-3')
   })
 
-  it('the forward is a fixed 50 µs, written in simulation.ts as RELAY_FWD_NS', () => {
+  // 2026-11-11 (W7a): the forward used to start when the sender saw the Ack. It now starts when
+  // the AP receives the MSDU (§4.5.2.1: the AP that receives it hands it to the DS).
+  it('the forward is a fixed 50 µs from the AP\'s reception, written in simulation.ts as RELAY_FWD_NS', () => {
     expect(implRow('转发时延').kind).toBe('value')
     expect(implRow('转发时延').sim).toContain(`${RELAY_FWD_US} µs`)
     const src = readFileSync(new URL('../../src/engine/simulation.ts', import.meta.url), 'utf8')
     expect(src).toMatch(new RegExp(`RELAY_FWD_NS = ${RELAY_FWD_US}_000\\b`))
-    // every relayed payload of the second: hop 1 + 50 µs + hop 2
-    const arr = new Map<string, number>()
-    const born = new Map<number, number>()
-    const hop1Ns = new Map<number, number>()
+    // every relayed payload of the second enters the AP's queue 50 µs after the AP received it
+    const { rxAt, apArrivals } = relayLog(base.records)
     let checked = 0
-    for (const r of base.records) {
-      if (r.type === 'ARRIVAL') {
-        arr.set(`${r.node}/${r.msduId}`, r.t)
-        if (PHONES.includes(r.node)) born.set(r.msduId, r.t)
-      } else if (r.type === 'DEQUEUE') {
-        const a = arr.get(`${r.node}/${r.msduId}`)!
-        if (PHONES.includes(r.node)) hop1Ns.set(r.msduId, r.t - a)
-        else if (r.node === 'ap' && born.has(r.msduId)) {
-          expect(r.t - born.get(r.msduId)!).toBe(hop1Ns.get(r.msduId)! + RELAY_FWD_US * US + (r.t - a))
-          checked++
-        }
-      }
+    for (const [id, at] of apArrivals) {
+      expect(at, `payload ${id} reaches the AP's queue once`).toHaveLength(1)
+      expect(at[0]! - rxAt.get(id)!, `payload ${id}`).toBe(RELAY_FWD_US * US)
+      checked++
     }
     expect(checked).toBeGreaterThan(1000)
   })
@@ -196,30 +214,43 @@ describe('relay-hops · ② says what the engine does, and the engine does it', 
     expect(p.ack1.t - p.rxAp.t).toBe(SIFS_NS)
   })
 
-  it('Address 3 shows the AP on both hops, where table 9-60 puts DA and SA', () => {
-    expect(implRow('第一跳的地址 3').kind).toBe('differs')
-    expect(implRow('第二跳的地址 3').kind).toBe('differs')
+  // 2026-11-11 (W7a): this pinned the AP in Address 3 on both hops. It now pins Table 9-60: the DA
+  // (Phone A) on the first hop, the SA (Phone B) on the second.
+  it('Address 3 is the DA on the first hop and the SA on the second, as table 9-60 says', () => {
+    expect(implRow('第一跳的地址 3').kind).toBe('faithful')
+    expect(implRow('第二跳的地址 3').kind).toBe('faithful')
     const m1 = decode(p.hop1.frame)
     const m2 = decode(p.hop2.frame)
     expect([bitOf(m1, 'toDs'), bitOf(m1, 'fromDs')]).toEqual(['1', '0'])
     expect([bitOf(m2, 'toDs'), bitOf(m2, 'fromDs')]).toEqual(['0', '1'])
-    expect(field(m1, 'addr3').node).toBe('ap')
+    expect(field(m1, 'addr3').node).toBe('sta-3')
     expect(field(m1, 'addr3').roles).toEqual(['DA'])
-    expect(field(m2, 'addr3').node).toBe('ap')
+    expect(field(m2, 'addr3').node).toBe('sta-4')
     expect(field(m2, 'addr3').roles).toEqual(['SA'])
-    // …while the real far ends are Phone A and Phone B
     expect(p.hop2.frame.dst).toBe('sta-3')
     expect(p.hop1.node).toBe('sta-4')
   })
 
-  it('a payload is forwarded only once its uplink was acknowledged, and dropped otherwise', () => {
-    expect(implRow('确认帧丢失之后').kind).toBe('differs')
+  // 2026-11-11 (W7a): this pinned "forwarded only once the uplink was acknowledged, dropped
+  // otherwise". It now pins §4.5.2.1 / §10.3.2.14.3: forwarded on reception, whatever happens to the
+  // Ack; a retransmission the AP already holds is a duplicate (<TA, TID, SN> + Retry) and not forwarded.
+  it('a payload is forwarded when the AP receives it, once, and a duplicate is discarded', () => {
+    expect(implRow('确认帧丢失之后').kind).toBe('faithful')
     const src = readFileSync(new URL('../../src/engine/simulation.ts', import.meta.url), 'utf8')
-    expect(src).toContain('if (!acked) relayPending.delete(msduId)')
+    const onRx = src.slice(src.indexOf('onMsduDelivered: n.kind === \'ap\''), src.indexOf('queuesOf.get(n.id),'))
+    expect(onRx).toContain('const fwd = at + RELAY_FWD_NS')
+    expect(src).not.toContain('if (!acked) relayPending.delete(msduId)')
+    const mac = readFileSync(new URL('../../src/engine/mac.ts', import.meta.url), 'utf8')
+    expect(mac).toContain('if (!this.queues.rxDuplicate(from, tid, h.sn, h.retry)) this.hooks.onMsduDelivered?.(id, t, from)')
     // each payload goes out on the second hop at most once as a first transmission
     const firstHop2 = dataTx(base.records).filter((r) => r.node === 'ap' && PHONES.includes(r.frame.dst) && !r.frame.retryFlag)
     const seen = firstHop2.flatMap(ids)
     expect(new Set(seen).size).toBe(seen.length)
+    // 「本课场景一秒内没有出现确认帧丢失」: no payload was sent again after the AP already had it
+    const { rxAt, lastTx } = relayLog(base.records)
+    const lostAck = [...rxAt].filter(([id, t]) => t < lastTx.get(id)!)
+    expect(lostAck).toEqual([])
+    expect(implRow('确认帧丢失之后').sim).toContain('本课场景一秒内没有出现确认帧丢失')
   })
 
   it('no direct link: TDLS is absent', () => {
@@ -233,19 +264,29 @@ describe('relay-hops · ② says what the engine does, and the engine does it', 
 
 describe('relay-hops · ③ every figure the labs print is the run', () => {
   it('lab 1: the five instants of one payload, value by value', () => {
-    const rows = tableOf(lab('一份载荷的全程'), '同一份载荷的五个时刻').rows
-    expect(rows.map((r) => r[0])).toEqual([asMs(p.arrivalB.t), asMs(p.rxAp.t), asMs(p.deqB.t), asMs(p.arrAp.t), asMs(p.deqAp.t)])
+    // 2026-11-11 (W7a): six instants — the AP hands the payload to the DS at its reception, 1.5413 ms,
+    // and the second hop waits for the medium after the Ack (it used to start the moment the
+    // forward, counted from the sender's Ack, ended).
+    const rows = tableOf(lab('一份载荷的全程'), '同一份载荷的六个时刻').rows
+    expect(rows.map((r) => r[0])).toEqual([asMs(p.arrivalB.t), asMs(p.rxAp.t), asMs(p.deqB.t), asMs(p.arrAp.t), asMs(p.hop2.t), asMs(p.deqAp.t)])
     expect(p.arrivalB.t).toBe(p.hop1.t) // 「立即发出」
-    expect(p.hop2.t).toBe(p.arrAp.t) // 「并立即发出」
+    expect(p.rxAp.t).toBe(p.hop1.t + p.hop1.frame.txTimeNs) // 「接收完毕」
+    expect(p.arrAp.t - p.rxAp.t).toBe(RELAY_FWD_US * US) // 「自接收完毕起转发 50 µs」
+    expect(p.arrAp.t).toBeLessThan(p.hop2.t) // the forward is done before the second hop could start
+    // 「介质自确认帧结束起空闲满 34 µs，即一个仲裁帧间间隔」: the AIFS of the access category the AP sends at
+    expect(p.hop2.t - p.deqB.t).toBe(aifsNs(EDCA_PARAMS[p.hop2.frame.ac!]!.aifsn))
+    expect(ofType(base.records, 'TX_START').some((r) => r.t > p.deqB.t && r.t < p.hop2.t)).toBe(false)
     const figs = (s: string): string[] => s.match(/\d+(?:\.\d+)?(?= µs)/g) ?? []
     expect(figs(rows[0][1])).toEqual([us(p.hop1.frame.txTimeNs)])
     expect(figs(rows[1][1])).toEqual([us(p.ack1.t - p.rxAp.t), us(p.ack1.frame.txTimeNs)])
     expect(figs(rows[2][1])).toEqual([us(p.deqB.t - p.hop1.t)])
-    expect(figs(rows[3][1])).toEqual([us(p.arrAp.t - p.deqB.t)])
-    expect(figs(rows[4][1])).toEqual([us(p.deqAp.t - p.hop2.t)])
-    // the frame behind 125.6 µs: 1400 B of payload in a 1430 B QoS frame, and the answer is an ACK
-    expect(p.hop1.frame.bytes).toBe(QOS_HDR_BYTES + RELAY_PAYLOAD_BYTES + FCS_BYTES)
-    expect(p.hop1.frame.bytes).toBe(RELAY_FRAME_BYTES)
+    expect(figs(rows[3][1])).toEqual([us(p.arrAp.t - p.rxAp.t)])
+    expect(figs(rows[4][1])).toEqual([us(p.hop2.t - p.deqB.t)])
+    expect(figs(rows[5][1])).toEqual([us(p.deqAp.t - p.hop2.t)])
+    // the frame behind 125.6 µs: 1400 B of payload in a 1430 B QoS frame — an S-MPDU on this HE link
+    // (§10.12.7), so the PSDU adds a 4-octet delimiter and the EOF padding — and the answer is an ACK
+    expect(p.hop1.frame.apepBytes! - AMPDU_DELIMITER_BYTES).toBe(QOS_HDR_BYTES + RELAY_PAYLOAD_BYTES + FCS_BYTES)
+    expect(decode(p.hop1.frame).bytes).toBe(RELAY_FRAME_BYTES)
     expect(p.hop1.frame.txTimeNs).toBe(RELAY_FRAME_US * US)
     expect(p.ack1.frame.bytes).toBe(ACK_BYTES)
   })
@@ -258,11 +299,16 @@ describe('relay-hops · ③ every figure the labs print is the run', () => {
     expect([RELAY_HOP1_AT, RELAY_HOP2_AT, RELAY_DONE_AT]).toEqual([asMs(p.hop1.t), asMs(p.hop2.t), asMs(p.deqAp.t)])
     expect(d.caption).toContain(`${RELAY_FWD_US} µs`)
     const ex = lab('一份载荷的全程').expect
-    const [hop, fwd, total] = (ex.match(/\d+(?:\.\d+)?(?= µs)/g) ?? [])
+    const [hop, gap, fwd, total] = (ex.match(/\d+(?:\.\d+)?(?= µs)/g) ?? [])
     expect(hop).toBe(us(p.deqB.t - p.hop1.t))
     expect(hop).toBe(us(p.deqAp.t - p.hop2.t))
-    expect(fwd).toBe(us(p.arrAp.t - p.deqB.t))
+    expect(gap).toBe(us(p.hop2.t - p.deqB.t))
+    expect(fwd).toBe(us(p.arrAp.t - p.rxAp.t))
     expect(total).toBe(us(p.deqAp.t - p.arrivalB.t))
+    expect(p.deqAp.t - p.arrivalB.t).toBe((p.deqB.t - p.hop1.t) + (p.hop2.t - p.deqB.t) + (p.deqAp.t - p.hop2.t))
+    // 「转发在接入点回复确认帧、等待介质空闲的这段时间里已经完成」
+    expect(p.rxAp.t + RELAY_FWD_US * US).toBeLessThanOrEqual(p.hop2.t)
+    expect(lab('一份载荷的全程').meaning).toContain(`等介质空闲 ${gap} µs`)
     expect(lab('一份载荷的全程').meaning).toContain(`${RELAY_FWD_US} µs`)
   })
 
@@ -321,7 +367,10 @@ describe('relay-hops · every figure the lesson prints is one this file measured
     const fwd = String(RELAY_FWD_US)
     expect(relayHops.why).toContain(`${fwd} µs`)
     const quiz = relayHops.quiz.map((q) => [q.q, ...q.options, q.explain].join(' ')).join(' ')
-    expect(quiz).toContain(`${us(p.deqAp.t - p.arrivalB.t)} µs 里的 ${fwd} µs`)
+    expect(quiz).toContain(`全程 ${us(p.deqAp.t - p.arrivalB.t)} µs 里两跳各占 ${us(p.deqB.t - p.hop1.t)} µs`)
+    expect(quiz).toContain(`${fwd} µs 的转发与接入点回复确认帧的时间重叠`)
+    // the overlap is real: the forward starts at the reception, the Ack a SIFS later
+    expect(p.rxAp.t + RELAY_FWD_US * US).toBeGreaterThan(p.ack1.t)
   })
 
   it('sweeps every string a reader reads: no figure without a measurement behind it', () => {
@@ -333,8 +382,8 @@ describe('relay-hops · every figure the lesson prints is one this file measured
     ]).map((s) => s.replace(' ms', ''))
     const allowed = new Set<string>([
       // instants and durations of lab 1
-      ...[p.arrivalB.t, p.rxAp.t, p.deqB.t, p.arrAp.t, p.deqAp.t].map((t) => (t / MS).toFixed(4)),
-      us(p.hop1.frame.txTimeNs), us(SIFS_NS), us(p.ack1.frame.txTimeNs), us(p.deqB.t - p.hop1.t),
+      ...[p.arrivalB.t, p.rxAp.t, p.deqB.t, p.arrAp.t, p.hop2.t, p.deqAp.t].map((t) => (t / MS).toFixed(4)),
+      us(p.hop1.frame.txTimeNs), us(SIFS_NS), us(p.ack1.frame.txTimeNs), us(p.deqB.t - p.hop1.t), us(p.hop2.t - p.deqB.t),
       String(RELAY_FWD_US), us(p.deqAp.t - p.arrivalB.t),
       // the bits and the address numbers of the tables
       '0', '1', '2', '3',

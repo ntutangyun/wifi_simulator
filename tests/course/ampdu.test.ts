@@ -13,7 +13,8 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { AMPDU_DELIMITER_BYTES, BA_BYTES, EDCA_PARAMS, FCS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, QOS_HDR_BYTES, txTimeModeNs } from '../../src/engine/phy'
-import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
+import { ampduPsduBytes, ampduSubframeBytes, eofPadding } from '../../src/model/frames'
+import { readFileSync } from 'node:fs'
 import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
@@ -87,7 +88,35 @@ describe('ampdu · ② says what the engine does, and the engine does it', () =>
     expect(ampduSubframeBytes(1500)).toBe(1536)
     expect(implRow('子帧的组成').sim).toContain('4 + 26（QoS 帧头）+ 1500 + 4 = 1534 字节，补齐到 1536')
     expect(ampduPsduBytes(Array(14).fill(1500))).toBe(13 * 1536 + 1534)
-    expect(implRow('最后一个子帧与 EOF 填充').kind).toBe('differs')
+  })
+
+  // 2026-11-11 (W7a): this pinned an unpadded final subframe and no EOF padding in the scene's VHT
+  // PPDU. It now pins §10.12.6: the airtime from APEP_LENGTH, the PSDU filled to PSDU_LENGTH.
+  it('the final subframe is padded and EOF padding fills the PSDU, at no cost in airtime', () => {
+    expect(implRow('最后一个子帧与 EOF 填充').kind).toBe('faithful')
+    const batch = ofType(agg(), 'TX_START').find((r) => r.frame.kind === 'data')!.frame
+    expect(batch.apepBytes).toBe(ampduPsduBytes(Array(batch.ampdu!.mpduCount).fill(1500)))
+    const pad = eofPadding(batch.apepBytes!, batch.bytes)
+    expect(pad.finalPad + pad.eofSubframes * AMPDU_DELIMITER_BYTES + pad.eofOctets).toBe(batch.bytes - batch.apepBytes!)
+    expect(implRow('最后一个子帧与 EOF 填充').sim).toContain(
+      `13 × 1536 + 1534 = ${thousands(batch.apepBytes!)} 字节计算；然后最后一个子帧补齐 ${pad.finalPad} 字节，再加 ${pad.eofSubframes} 个 EOF 填充子帧与 ${pad.eofOctets} 个填充字节，PSDU 共 ${thousands(batch.bytes)} 字节`)
+    expect(txTimeModeNs(batch.mode!, batch.bytes, batch.mcs!, { widthMhz: batch.widthMhz })).toBe(batch.txTimeNs)
+  })
+
+  // 2026-11-11 (W7a): these pinned one decision per A-MPDU and a whole-batch retry. They now pin
+  // §9.3.1.8.2 and §10.25.6.7.1: a bitmap of the MPDUs received, and only the others retried.
+  it('the BlockAck bitmap reports the MPDUs received; a BlockAck is a success and only the unmarked are retried', () => {
+    expect(implRow('逐帧确认').kind).toBe('faithful')
+    expect(implRow('失败之后').kind).toBe('faithful')
+    const tx = ofType(agg(), 'TX_START')
+    const batch = tx.find((r) => r.frame.kind === 'data')!
+    const ba = tx.find((r) => r.frame.kind === 'ba')!
+    expect(ba.frame.ba!.acked).toEqual(batch.frame.mpdus!.map((m) => m.sn))
+    const mac = readFileSync(new URL('../../src/engine/mac.ts', import.meta.url), 'utf8')
+    const ok = mac.slice(mac.indexOf('private succeedAttempt('), mac.indexOf('private continueOrRelease('))
+    expect(ok).toContain('this.resetQsrc(e)')
+    expect(ok).toContain('!ba.acked.includes(m.seqNo)')
+    expect(ok).toContain('this.failMsdus(e, aw.ac, failed)')
   })
 
   it('the cap is the engine\'s 64, and the BlockAck is 32 octets — a compressed BlockAck\'s size', () => {
@@ -95,7 +124,7 @@ describe('ampdu · ② says what the engine does, and the engine does it', () =>
     expect(implRow('一批最多几帧').sim).toContain(`固定为 ${MAX_AMPDU_MPDUS} 帧`)
     // FC 2 + Duration 2 + RA 6 + TA 6 + BA Control 2 + SSC 2 + bitmap 8 + FCS 4
     expect(BA_BYTES).toBe(2 + 2 + 6 + 6 + 2 + 2 + 8 + 4)
-    expect(implRow('逐帧确认').sim).toContain(`长度是 ${BA_BYTES} 字节`)
+    expect(implRow('逐帧确认').sim).toContain(`块确认是 ${BA_BYTES} 字节的压缩块确认`)
   })
 
   it('RTS threshold 3000 octets: every batch is preceded by RTS/CTS', () => {
@@ -126,11 +155,13 @@ describe('ampdu · ③ every figure the labs print is the run', () => {
     expect(rows[1][1]).toBe(`${thousands(ampduSubframeBytes(1500))} B`)
     expect(rows[2][1]).toBe(`${thousands(AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + 1500 + FCS_BYTES)} B`)
     expect(rows[3][0]).toBe(`${n - 1} × 1 536 + 1 534`)
-    expect(rows[3][1]).toBe(`${thousands(batch.frame.bytes)} B`)
-    expect(rows[4][1]).toBe(`${thousands(batch.frame.txTimeNs / US)} µs`)
-    expect(rows[5][1]).toBe(`${thousands((end - t0.t) / US)} µs`)
+    expect(rows[3][1]).toBe(`${thousands(batch.frame.apepBytes!)} B`)
+    // 2026-11-11 (W7a): the PSDU after EOF padding (§10.12.6); the airtime is the pre-EOF length's
+    expect(rows[4][1]).toBe(`${thousands(batch.frame.bytes)} B`)
+    expect(rows[5][1]).toBe(`${thousands(batch.frame.txTimeNs / US)} µs`)
+    expect(rows[6][1]).toBe(`${thousands((end - t0.t) / US)} µs`)
     expect(end - t0.t).toBe(rts.frame.txTimeNs + cts.frame.txTimeNs + batch.frame.txTimeNs + ba.frame.txTimeNs + 3 * OFDM_5G.sifsNs)
-    expect(rows[6][1]).toBe(`${thousands((t0.untilNs - t0.t) / US)} µs`)
+    expect(rows[7][1]).toBe(`${thousands((t0.untilNs - t0.t) / US)} µs`)
     expect(t0.untilNs - t0.t).toBe(EDCA_PARAMS.find((p) => p.name === 'BE')!.txopLimitNs)
     // the fifteenth subframe would lengthen the batch by more than what is left
     const f = batch.frame
@@ -138,9 +169,9 @@ describe('ampdu · ③ every figure the labs print is the run', () => {
     expect(air(n)).toBe(f.txTimeNs) // the same PHY parameters the batch was timed with
     const longer = air(n + 1) - f.txTimeNs
     const left = t0.untilNs - end
-    expect(rows[7][1]).toBe(`${left / US} µs；${longer / US} µs`)
+    expect(rows[8][1]).toBe(`${left / US} µs；${longer / US} µs`)
     expect(longer).toBeGreaterThan(left)
-    expect(l.expect).toContain(`${rts.t / US} µs 发出 RTS，${cts.t / US} µs 收到 CTS，${batch.t / US} µs 起发出一个 ${thousands(f.bytes)} 字节、${n} 帧的 A-MPDU，时长 ${thousands(f.txTimeNs / US)} µs`)
+    expect(l.expect).toContain(`${rts.t / US} µs 发出 RTS，${cts.t / US} µs 收到 CTS，${batch.t / US} µs 起发出一个 ${thousands(f.bytes)} 字节、${n} 帧的 A-MPDU，时长 ${thousands(f.txTimeNs / US)} µs，按 EOF 填充之前的 ${thousands(f.apepBytes!)} 字节计算`)
     expect(l.expect).toContain(`这一批长 ${longer / US} µs，超出 TXOP 剩下的 ${left / US} µs，所以停在 ${n} 帧`)
     expect(new Set(ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data').map((r) => r.frame.ampdu?.mpduCount))).toEqual(new Set([n]))
   })

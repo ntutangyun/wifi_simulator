@@ -26,7 +26,13 @@ const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 30 * MS
 const TRACE_NS = 200 * MS
-const OCTETS = 1530
+/**
+ * The 1530-octet MPDU. 2026-11-11 (W7a): an EHT PSDU is always an A-MPDU (§10.12.5), so it goes
+ * out as an S-MPDU (§10.12.7) behind a 4-octet delimiter: APEP_LENGTH 1534 (§10.12.6) is what the
+ * airtime is computed from.
+ */
+const MPDU = 1530
+const OCTETS = MPDU + 4
 /** Table 36-43: initial EHT-LTF symbols per total stream count. */
 const LTF_FOR_NSS = [0, 1, 2, 4, 4, 6, 6, 8, 8]
 
@@ -170,7 +176,8 @@ describe('streams · ③ every figure the labs print is the run', () => {
       const d = bigData(rs)
       const nss = linkNss(v)
       const t = one(d.map((r) => r.frame.txTimeNs))
-      expect(one(d.map((r) => r.frame.bytes))).toBe(OCTETS)
+      expect(one(d.map((r) => r.frame.smpdu))).toBe(true)
+      expect(one(d.map((r) => r.frame.apepBytes))).toBe(OCTETS)
       expect(rows[i]).toEqual([String(nss), String(one(d.map((r) => r.frame.mcs))),
         String(PHY_MODES.eht.ndbps[13] * nss), String((t - PHY_MODES.eht.preambleNs) / PHY_MODES.eht.symNs), `${us1(t)} µs`])
       expect(one(ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ack').map((r) => r.frame.txTimeNs))).toBe(28 * US)

@@ -12,8 +12,14 @@
  * Standard-first shape (2026-11-10): ① what IEEE Std 802.11-2024 says about a
  * payload between two stations of one BSS (§4.5.2.1, the address table 9-60,
  * the direct link of §11.20), ② where this simulator follows it and where it
- * does not — the forwarding delay is its own value, the field view prints the
- * AP as Address 3 on both hops, there is no TDLS — and ③ three runs.
+ * does not — the forwarding delay is its own value, there is no TDLS — and ③
+ * three runs.
+ *
+ * 2026-11-11 (W7a): the AP hands the MSDU to the DS when it RECEIVES the first hop
+ * (previously only after the sender saw the Ack), Address 3 follows Table 9-60 and
+ * duplicates are filtered by <TA, TID, SN> (§10.3.2.14.3). The labs are rewritten
+ * around that: the 50 µs forward now runs while the AP answers and waits for the
+ * medium, so the second hop starts 34 µs after the Ack and the whole trip is 373.2 µs.
  *
  * Every figure the lesson prints is read back out of its text and compared
  * with a run in tests/course/relay-hops.test.ts.
@@ -31,12 +37,13 @@ export const RELAY_FRAME_US = 125.6
 export const RELAY_FWD_US = 50
 /** The instants the figure prints, exactly as the lab's table writes them. */
 export const RELAY_HOP1_AT = '1.4157 ms'
-export const RELAY_HOP2_AT = '1.6353 ms'
-export const RELAY_DONE_AT = '1.8049 ms'
+export const RELAY_HOP2_AT = '1.6193 ms'
+export const RELAY_DONE_AT = '1.7889 ms'
 
 /**
  * One payload, from Phone B to Phone A: the two transmissions, the two answers
- * and the forward between them. Every instant printed in the gutter is read
+ * and the hand-over to the DS, which starts the moment the AP has received the
+ * first hop — before its own Ack. Every instant printed in the gutter is read
  * back out of the run by the test, so the figure cannot drift from the timeline.
  */
 export function relayHopsSequence(): SequenceSpec {
@@ -49,8 +56,8 @@ export function relayHopsSequence(): SequenceSpec {
     ],
     messages: [
       { from: 'sta-4', to: 'ap', label: '数据帧', at: RELAY_HOP1_AT, tone: 'accent' },
-      { from: 'ap', to: 'sta-4', label: '确认' },
       { from: 'ap', to: 'ap', label: `转发 ${RELAY_FWD_US} µs` },
+      { from: 'ap', to: 'sta-4', label: '确认' },
       { from: 'ap', to: 'sta-3', label: '数据帧', at: RELAY_HOP2_AT, tone: 'accent' },
       { from: 'sta-3', to: 'ap', label: '确认', at: RELAY_DONE_AT },
     ],
@@ -61,7 +68,7 @@ export const relayHops: Lesson = {
   id: 'relay-hops',
   module: 1,
   title: '手机之间的数据也要经过两跳',
-  why: '在同一个基本服务集（basic service set, BSS）里，两部手机之间没有建立直连时，每一份载荷（payload）都要在空口上传送两次：先发给接入点（access point, AP），由接入点交给分发系统（distribution system, DS），再由同一台接入点发出。IEEE 802.11-2024 §4.5.2.1 写明：目的站点（station, STA）与发送站点属于同一个 BSS 时，接收载荷的“输入”接入点与发出载荷的“输出”接入点是同一台。第二次发送与任何一次发送相同，要重新排队、重新竞争信道、发送并等待确认帧（acknowledgement, ACK），所以第二跳与第一跳用时相同；接入点转发这一步只占全程的一小部分，它需要多长时间，标准没有规定，本仿真器取 50 µs。运行满一秒，手机互传的平均时延约为接入点直接发给电视的两倍；把两部手机移到一起，时延也不会缩短，因为路径由网络结构决定，而不由距离决定。标准另外定义了站点之间的直连，本仿真器没有实现。',
+  why: '在同一个基本服务集（basic service set, BSS）里，两部手机之间没有建立直连时，每一份载荷（payload）都要在空口上传送两次：先发给接入点（access point, AP），由接入点交给分发系统（distribution system, DS），再由同一台接入点发出。IEEE 802.11-2024 §4.5.2.1 写明：目的站点（station, STA）与发送站点属于同一个 BSS 时，接收载荷的“输入”接入点与发出载荷的“输出”接入点是同一台。第二次发送与任何一次发送相同，要重新排队、重新竞争信道、发送并等待确认帧（acknowledgement, ACK），所以第二跳与第一跳用时相同。接入点收完第一跳就把载荷交给分发系统，不等自己的确认帧发完；转发需要多长时间，标准没有规定，本仿真器取 50 µs，这段时间落在接入点回复确认帧、等待介质（medium）空闲的那一段里，并不推迟第二跳。运行满一秒，手机互传的平均时延约为接入点直接发给电视的两倍；把两部手机移到一起，时延也不会缩短，因为路径由网络结构决定，而不由距离决定。标准另外定义了站点之间的直连，本仿真器没有实现。',
   outcomes: [
     '说出标准对同一 BSS 内两台站点之间的载荷规定了什么路径，以及两跳各自的方向比特与地址',
     '跟踪一份载荷的全程，指出多出的时间消耗在哪一步',
@@ -90,14 +97,14 @@ export const relayHops: Lesson = {
     { heading: '重复帧的识别（§10.3.2.14）', text: '接入点已经收到一帧、但它的确认帧丢失时，发送站点会重发同一帧。接收端为每一帧记录序列号等信息；收到重发比特（Retry bit）为 1 的帧时查找记录，找到相同的就判为重复帧并丢弃，但仍回复确认帧。' },
   ],
   implementation: [
-    { topic: '两跳的路径', standard: '同一 BSS 内的载荷由同一台接入点接收并再次发出（§4.5.2.1）', sim: '手机之间的每一份载荷都先发给接入点；接入点确认这一帧之后，把同一份载荷放入发往目的手机的队列（queue），再发送一次。', kind: 'faithful' },
+    { topic: '两跳的路径', standard: '同一 BSS 内的载荷由同一台接入点接收并再次发出（§4.5.2.1）', sim: '照此：手机之间的每一份载荷都先发给接入点；接入点收到这一帧就把载荷交给分发系统，再放入发往目的手机的队列（queue），发送第二次。', kind: 'faithful' },
     { topic: '第二跳的发送', standard: '接入点再次在空口上发送（§4.5.2.1）', sim: '接入点为这份载荷重新排队、重新竞争信道、发送并等待确认，流程与第一跳相同。', kind: 'faithful' },
-    { topic: '转发时延', standard: '标准未规定', sim: '固定为 50 µs（RELAY_FWD_NS）：接入点确认第一跳的帧之后 50 µs，载荷进入发往目的手机的队列；任何负载下都不变。', kind: 'value' },
+    { topic: '转发时延', standard: '标准未规定', sim: '固定为 50 µs（RELAY_FWD_NS）：接入点收完第一跳的帧之后 50 µs，载荷进入发往目的手机的队列；任何负载下都不变。', kind: 'value' },
     { topic: '分发系统的内部', standard: '标准不规定其实现（§4.3.5.1）', sim: '只有上面那一个固定时延：没有转发表，没有地址学习，也没有网桥自身的丢弃。', kind: 'choice' },
     { topic: '短帧间间隔', standard: 'aSIFSTime 为 16 µs（表 17-24；HE 物理层在 5 GHz、6 GHz 频段，表 27-61）', sim: '照此取 16 µs。', kind: 'faithful' },
-    { topic: '第一跳的地址 3', standard: 'To DS 为 1 时，地址 3 是 DA，即最终的目的站点（表 9-60）', sim: '字段视图里的地址 3 显示的是接入点；最终目的手机只记录在引擎内部。', kind: 'differs' },
-    { topic: '第二跳的地址 3', standard: 'From DS 为 1 时，地址 3 是 SA，即源站点（表 9-60）', sim: '字段视图里的地址 3 显示的也是接入点。', kind: 'differs' },
-    { topic: '确认帧丢失之后', standard: '站点重发，接收端依据序列号与重发比特丢弃重复帧（§10.3.2.14）', sim: '只有第一跳的帧被确认之后才转发，第一跳失败的载荷直接丢弃，所以同一份载荷不会被转发两次；接收端去重不读序列号，而用引擎内部的载荷编号。', kind: 'differs' },
+    { topic: '第一跳的地址 3', standard: 'To DS 为 1 时，地址 3 是 DA，即最终的目的站点（表 9-60）', sim: '照此：地址 3 是目的手机。', kind: 'faithful' },
+    { topic: '第二跳的地址 3', standard: 'From DS 为 1 时，地址 3 是 SA，即源站点（表 9-60）', sim: '照此：地址 3 是源手机。', kind: 'faithful' },
+    { topic: '确认帧丢失之后', standard: '站点重发，接收端依据序列号与重发比特丢弃重复帧（§10.3.2.14）', sim: '照此：接入点收到帧就转发，不看发送站点有没有收到确认帧；确认帧丢失时发送站点重发，接入点按〈发送端地址（transmitter address, TA）, 业务标识（traffic identifier, TID）, 序列号〉与重发比特把它判为重复帧丢弃，仍回复确认，同一份载荷只转发一次。本课场景一秒内没有出现确认帧丢失。', kind: 'faithful' },
     { topic: '直连', standard: 'TDLS（§11.20）', sim: '未实现：手机之间没有直连路径，所有载荷都经接入点。', kind: 'absent' },
   ],
   labs: [
@@ -109,17 +116,18 @@ export const relayHops: Lesson = {
         '依次读出这份载荷在手机 B、接入点、手机 A 三处的记录；再跳到第二跳，确认载荷编号相同。',
       ],
       blocks: [
-        { kind: 'diagram', heading: '同一份载荷，两次发送', spec: relayHopsSequence(), caption: '图中的时刻就是时间轴上的时刻：两次发送各带一个确认帧，中间是接入点 50 µs 的转发。' },
-        { kind: 'table', heading: '同一份载荷的五个时刻', head: ['时刻', '事件'], rows: [
+        { kind: 'diagram', heading: '同一份载荷，两次发送', spec: relayHopsSequence(), caption: '图中的时刻就是时间轴上的时刻：两次发送各带一个确认帧；接入点收完第一跳就把载荷交给分发系统，50 µs 的转发与它的确认帧同时进行。' },
+        { kind: 'table', heading: '同一份载荷的六个时刻', head: ['时刻', '事件'], rows: [
           ['1.4157 ms', '载荷到达手机 B，信道空闲，手机 B 立即发出一个 125.6 µs 的数据帧'],
-          ['1.5413 ms', '接入点接收完毕，16 µs 后回复一个 28 µs 的确认帧'],
-          ['1.5853 ms', '第一跳结束，用时 169.6 µs'],
-          ['1.6353 ms', '转发 50 µs 后，载荷进入发往手机 A 的队列，并立即发出'],
-          ['1.8049 ms', '手机 A 应答完毕；第二跳同样用时 169.6 µs'],
+          ['1.5413 ms', '接入点接收完毕，当即把载荷交给分发系统；16 µs 后回复一个 28 µs 的确认帧'],
+          ['1.5853 ms', '确认帧结束，第一跳用时 169.6 µs'],
+          ['1.5913 ms', '自接收完毕起转发 50 µs，载荷进入发往手机 A 的队列'],
+          ['1.6193 ms', '介质自确认帧结束起空闲满 34 µs，即一个仲裁帧间间隔（arbitration interframe space, AIFS），接入点发出第二跳'],
+          ['1.7889 ms', '手机 A 应答完毕；第二跳同样用时 169.6 µs'],
         ] },
       ],
-      expect: '两跳各用 169.6 µs，中间是 50 µs 的转发；从载荷到达手机 B 到手机 A 应答完毕，全程 389.2 µs。',
-      meaning: '路径与标准一致（①）：同一 BSS 内的载荷由同一台接入点发送两次。50 µs 是本仿真器取的转发时延（②）；即使把它计为零，全程也仍是一跳的两倍，代价在于第二次排队与竞争，而不在于转发。',
+      expect: '两跳各用 169.6 µs，中间只隔 34 µs；50 µs 的转发在接入点回复确认帧、等待介质空闲的这段时间里已经完成。从载荷到达手机 B 到手机 A 应答完毕，全程 373.2 µs。',
+      meaning: '路径与标准一致（①）：同一 BSS 内的载荷由同一台接入点发送两次，接入点收到载荷就交给分发系统，不等确认帧（②）。50 µs 是本仿真器取的转发时延（②），它没有推迟第二跳：第二跳开始之前，接入点本来就要发完确认帧、再等介质空闲 34 µs。代价在于第二次接入信道，而不在于转发。',
     },
     {
       heading: '两跳的方向比特与地址',
@@ -130,12 +138,12 @@ export const relayHops: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '两跳的方向比特与地址：本仿真器显示的内容', head: ['哪一跳', 'To DS / From DS', '地址 1', '地址 2', '地址 3'], rows: [
-          ['第一跳', '1 / 0', '接入点', '手机 B', '接入点'],
-          ['第二跳', '0 / 1', '手机 A', '接入点', '接入点'],
+          ['第一跳', '1 / 0', '接入点', '手机 B', '手机 A'],
+          ['第二跳', '0 / 1', '手机 A', '接入点', '手机 B'],
         ] },
       ],
-      expect: '两跳的方向比特、地址 1（Address 1）与地址 2 都与表 9-60 相符；两跳的地址 3 显示的都是接入点。',
-      meaning: '按表 9-60，第一跳的地址 3 应是手机 A（DA），第二跳的地址 3 应是手机 B（SA）（①）。这是本仿真器的字段视图与标准不同之处（②）：在标准中，接入点正是读取第一跳的地址 3 才知道这份载荷要转发给谁。',
+      expect: '两跳的方向比特与三个地址都与表 9-60 相符：第一跳的地址 3 是手机 A（DA），第二跳的地址 3 是手机 B（SA）；地址 1（Address 1）与地址 2 是这一跳的两端。',
+      meaning: '接入点正是读取第一跳的地址 3，才知道这份载荷要转发给谁（①）；第二跳的地址 3 让手机 A 知道载荷原本来自手机 B。本仿真器照此填写（②）。',
     },
     {
       heading: '一跳与两跳的平均时延',
@@ -146,9 +154,9 @@ export const relayHops: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '运行一秒的平均时延', head: ['场景', '电视（一跳）', '手机 A（两跳）', '手机 B（两跳）'], rows: [
-          ['本课场景', '0.73 ms', '1.31 ms', '1.33 ms'],
-          ['笔记本改为 idle', '0.32 ms', '0.68 ms', '0.70 ms'],
-          ['手机 B 移到手机 A 旁边', '0.67 ms', '1.28 ms', '1.27 ms'],
+          ['本课场景', '0.74 ms', '1.30 ms', '1.37 ms'],
+          ['笔记本改为 idle', '0.33 ms', '0.67 ms', '0.70 ms'],
+          ['手机 B 移到手机 A 旁边', '0.74 ms', '1.31 ms', '1.31 ms'],
         ] },
       ],
       expect: '每一行里手机互传的时延都约为电视的两倍；两部手机相距 0.5 m 时，时延没有缩短。',
@@ -157,7 +165,7 @@ export const relayHops: Lesson = {
   ],
   sources: [
     'IEEE Std 802.11-2024：§4.3.5.1（接入点与分发系统）、§4.5.2.1（同一 BSS 内的分发，输入与输出接入点相同）、§9.2.4.1.4 与表 9-3（To DS / From DS）、§9.3.2.1 与表 9-60（数据帧的地址字段）、§10.3.2.3.3、表 17-24 与表 27-61（SIFS，16 µs）、§10.3.2.14（重复帧的识别）、§11.20（TDLS）。',
-    '本仿真器的取值与取法：接入点转发时延 50 µs（src/engine/simulation.ts 的 RELAY_FWD_NS）、只在第一跳的帧被确认之后转发、字段视图里的地址 3 一律显示接入点。125.6 µs、28 µs、169.6 µs 与各个时刻都是本课场景的实测值。',
+    '本仿真器的取值与取法：接入点转发时延 50 µs（src/engine/simulation.ts 的 RELAY_FWD_NS），自接入点收完第一跳的帧起算。125.6 µs、28 µs、34 µs、169.6 µs 与各个时刻都是本课场景的实测值。',
   ],
   limits: [],
   scenario: rolesStackScenario,
@@ -186,7 +194,7 @@ export const relayHops: Lesson = {
         '因为第二跳的帧更长——多了一层帧头（MAC header）',
       ],
       answer: 1,
-      explain: '转发只占全程 389.2 µs 里的 50 µs，而且 50 µs 是本仿真器的取值。第二跳的开销来自它是一次完整的发送。',
+      explain: '50 µs 的转发与接入点回复确认帧的时间重叠，并没有推迟第二跳，而且 50 µs 是本仿真器的取值。全程 373.2 µs 里两跳各占 169.6 µs：第二跳的开销来自它是一次完整的发送。',
     },
     {
       q: '按表 9-60，第一跳（站点 → 接入点）的数据帧里，地址 3 应当填什么？',
@@ -196,7 +204,7 @@ export const relayHops: Lesson = {
         '发送站点自己（SA）',
       ],
       answer: 1,
-      explain: 'To DS 为 1 时地址 3 是 DA。本仿真器的字段视图在这里显示接入点，与标准不同（②）。',
+      explain: 'To DS 为 1 时地址 3 是 DA；本仿真器照此在第一跳的地址 3 写出目的手机（②）。',
     },
   ],
 }

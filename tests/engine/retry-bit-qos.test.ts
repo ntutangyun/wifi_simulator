@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { defaultFeatures } from '../../src/model/caps'
 import { defaultScenario, type Scenario } from '../../src/model/scenario'
-import { QOS_HDR_BYTES, MAC_HDR_BYTES, FCS_BYTES } from '../../src/engine/phy'
+import { AMPDU_DELIMITER_BYTES, QOS_HDR_BYTES, MAC_HDR_BYTES, FCS_BYTES } from '../../src/engine/phy'
 import type { TLRecord } from '../../src/model/records'
 
 const MS = 1_000_000
@@ -76,7 +76,9 @@ describe('QoS framing needs a QoS station at both ends (§9.2.4.5)', () => {
     expect(qos.length).toBeGreaterThan(0)
     for (const d of qos.slice(0, 20)) {
       expect(d.frame.qos).toBe(true)
-      expect(d.frame.bytes - (d.frame.msduBytes?.[0] ?? 0)).toBe(QOS_HDR_BYTES + FCS_BYTES)
+      // 2026-11-11: an HE PSDU is an S-MPDU (§10.12.7) — one A-MPDU delimiter ahead of the MPDU
+      expect(d.frame.smpdu).toBe(true)
+      expect(d.frame.apepBytes! - (d.frame.msduBytes?.[0] ?? 0)).toBe(AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + FCS_BYTES)
     }
   })
 })

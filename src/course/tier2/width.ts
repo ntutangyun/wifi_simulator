@@ -20,7 +20,7 @@ import { type Lesson, firstData, firstAck, J } from '../lessonKit'
 import { widthScenario } from '../wifiScenes'
 
 /**
- * The same 1530-octet frame at the four widths, to scale. Every span is this lesson's own run:
+ * The same 1530-octet MPDU at the four widths, to scale. Every span is this lesson's own run:
  * a fixed 48 µs preamble (`PHY_MODES.eht.preambleNs`) and then the data, which is all that
  * moves — 81.6, 40.8, 27.2 and 13.6 µs, the four airtimes of lab 1 less that opening.
  */
@@ -88,7 +88,7 @@ export const width: Lesson = {
     { topic: '数据子载波数', standard: '234、468、980、1960、3920 根（表 36-19）', sim: '照此取值，每符号比特数按「20 MHz 的 N_DBPS × 数据子载波数之比」计算：80 MHz 是 980 ÷ 234 = 4.19 倍。', kind: 'faithful' },
     { topic: '数据符号的时长', standard: '12.8 µs 加保护间隔，0.8 µs 时为 13.6 µs（表 36-18）', sim: '照此取值；本课用 0.8 µs 保护间隔。', kind: 'faithful' },
     { topic: '前导码的时长', standard: '20 µs 加 T_EHT-PREAMBLE，逐个字段相加，EHT-SIG 与 EHT-LTF 的符号数随 PPDU 变化（式 36-110，表 36-18）', sim: '取单一常数 48 µs，不随带宽、空间流数与 EHT-SIG 符号数变化；一个 EHT-SIG 符号、一个 2× EHT-LTF（6.4 µs 加 0.8 µs 保护间隔）时逐个字段相加是 47.2 µs。', kind: 'differs' },
-    { topic: '数据符号的个数', standard: 'MCS 10 到 13 只用 LDPC，尾比特为 0，另有前向纠错之前的填充（padding）（§36.3.13.3.3，§36.3.13.3.5）', sim: '一律按 ⌈(16 + 8 × 字节数 + 6) ÷ N_DBPS⌉ 计数，这是 BCC 编码的算法，含 6 个尾比特。本课 1530 字节的帧按 LDPC 的 12256 位或按 BCC 的 12262 位计，四档的符号数都是 6、3、2、1，没有差别。', kind: 'differs' },
+    { topic: '数据符号的个数', standard: 'MCS 10 到 13 只用 LDPC，尾比特为 0，另有前向纠错之前的填充（padding）（§36.3.13.3.3，§36.3.13.3.5）', sim: '一律按 ⌈(16 + 8 × 字节数 + 6) ÷ N_DBPS⌉ 计数，这是 BCC 编码的算法，含 6 个尾比特。本课 1530 字节的帧连同 4 字节的定界符（MPDU delimiter）共 1534 字节，按 LDPC 的 12288 位或按 BCC 的 12294 位计，四档的符号数都是 6、3、2、1，没有差别。', kind: 'differs' },
     { topic: '包扩展', standard: '式 36-110 含包扩展，0 到 20 µs（表 36-18）', sim: '不加包扩展。', kind: 'absent' },
     { topic: '噪声随带宽', standard: '灵敏度表每加倍提高 3 dB（表 36-67）；标准不规定接收机噪声', sim: '噪声地板 = −174 dBm/Hz + 10·log10(带宽) + 7 dB，带宽每加倍升高 3.01 dB；20 MHz 上是 −93.99 dBm。', kind: 'value' },
     { topic: '每一级所需的信噪比', standard: '标准只给灵敏度电平与 10 % 误包率（§36.3.21.2）', sim: '所需信噪比（signal-to-noise ratio, SNR）= 20 MHz 灵敏度 −（20 MHz 的热噪声 + 10 dB 噪声系数），与带宽无关：MCS 13 是 44.99 dB；选级时再加 3 dB 速率余量。带宽只通过噪声地板起作用。', kind: 'value' },
@@ -159,7 +159,7 @@ export const width: Lesson = {
           ['它的要求（含余量）', '13.99 + 3 = 16.99 dB', '8.99 + 3 = 11.99 dB'],
           ['上一级的要求', '16.99 + 3 = 19.99 dB', '11.99 + 3 = 14.99 dB'],
           ['每符号比特数', '351 × 4.19 = 1470', '117 × 8.38 = 980'],
-          ['数据符号：⌈12262 ÷ 每符号比特数⌉', '9', '13'],
+          ['数据符号：⌈12294 ÷ 每符号比特数⌉', '9', '13'],
           ['空口时间：48 + 13.6 × 符号数', '170.4 µs', '224.8 µs'],
         ] },
       ],
@@ -176,7 +176,7 @@ export const width: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '笔记本在最远的角落', head: ['带宽', 'MCS', '空口时间', '200 ms 内收到的确认帧'], rows: [
-          ['20 MHz', '2', '524.0 µs', '293'],
+          ['20 MHz', '2', '537.6 µs', '287'],
           ['40 MHz', '0', '768.8 µs', '213'],
           ['80 MHz', '0', '401.6 µs', '350'],
           ['160 MHz', '0', '224.8 µs', '0'],
