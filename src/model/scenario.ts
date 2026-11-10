@@ -585,7 +585,7 @@ const UWB_DEFAULT_SLOT_RSTU = 2400
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_SLOT_RSTU,
   blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
-  schedule: 'time', contentionSlots: 8, maxAttempts: 3,
+  schedule: 'time', contentionSlots: 8, maxAttempts: 1,
   rcmValidityRounds: 1, rmnr: false, mmrcr: false,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   sp3: false, srrr: { ...DEFAULT_UWB_SRRR },
@@ -1659,7 +1659,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       nlos: z.boolean(),
       schedule: z.enum(['time', 'contention']).default('time'),
       contentionSlots: z.number().int().min(2).max(32).default(8),
-      maxAttempts: z.number().int().min(1).max(10).default(3),
+      maxAttempts: z.number().int().min(1).max(10).default(1),
       // Both default: an existing scenario carries neither key and must read back byte for byte,
       // same discipline as `replyTime`/`fixedReplyRstu` above. 1…64 is this simulator's "how many
       // rounds" count of the ARC IE's six-bit RCM Validity Rounds field (standard §10.32.9.1); see
@@ -1876,6 +1876,15 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // default to today's behaviour (rcmValidityRounds 1, rmnr false), so an existing scenario
         // reads back unchanged.
         const { rcmValidityRounds, rmnr } = sc.uwb
+        // Standard §10.32.9.6: the RCMA IE's maximum number of contention attempts shall be no
+        // larger than the RCM Validity Rounds. Checked only where the RCMA IE is sent at all.
+        if (sc.uwb.schedule === 'contention' && sc.uwb.maxAttempts > rcmValidityRounds) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: `竞争式测距的最大尝试次数（${sc.uwb.maxAttempts}）不得超过控制消息的有效轮数（${rcmValidityRounds}）：这是 IEEE 802.15.4-2024 §10.32.9.6 的要求`,
+          })
+        }
         // Ruling 2 — the one refusal in this slice that exists to teach a mechanism rather than to
         // block a misconfiguration. Scoped to 'twr' only: 'dl-tdoa' gets its own unconditional
         // rmnr refusal below instead of this one, fixing a round-1 defect — this message's remedy

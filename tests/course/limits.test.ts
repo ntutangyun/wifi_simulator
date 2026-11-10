@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs'
 import { STRINGS } from '../../src/ui/i18n'
 import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER } from '../../src/course/curriculum'
-import type { Lesson, LimitKind } from '../../src/course/lessonKit'
+import { isStandardFirst, type Lesson, type LimitKind } from '../../src/course/lessonKit'
 
 const KINDS: LimitKind[] = ['threshold', 'unmodelled', 'model-value', 'out-of-scope']
 
@@ -35,18 +35,33 @@ const KINDS: LimitKind[] = ['threshold', 'unmodelled', 'model-value', 'out-of-sc
 const PAUSED_AMP = ['amp-intro', 'amp-ppdu']
 const graded = (l: Lesson): boolean => !PAUSED_AMP.includes(l.id)
 
-const done = LESSONS.filter(graded)
+const done = LESSONS.filter(graded).filter((l) => !isStandardFirst(l))
+/**
+ * The standard-first shape (2026-11-10) has no `limits` section: what it held lives in
+ * `implementation`, next to the standard rule it departs from. Those lessons owe the same thing
+ * there instead: at least one row, and at least one row that is not simply `faithful` — a
+ * simulator that claims to follow the standard in every respect is the claim this guards.
+ */
+const standardFirst = LESSONS.filter(graded).filter(isStandardFirst)
 
 describe('the one exception is honest about itself', () => {
   it('excludes exactly these two AMP lessons, and they are the only ones with no limits', () => {
     const excluded = LESSONS.filter((l) => !graded(l)).map((l) => l.id).sort()
     expect(excluded).toEqual([...PAUSED_AMP].sort())
-    const empty = LESSONS.filter((l) => l.limits.length === 0).map((l) => l.id).sort()
+    const empty = LESSONS.filter((l) => l.limits.length === 0 && !isStandardFirst(l)).map((l) => l.id).sort()
     expect(empty, 'a lesson declares no limits').toEqual([...PAUSED_AMP].sort())
   })
 
   it('has something to check, so the rules below are not vacuous', () => {
     expect(done.length).toBeGreaterThan(0)
+  })
+})
+
+describe('a standard-first lesson says, row by row, where the simulator follows the standard', () => {
+  it.each(standardFirst)('$id has implementation rows, and not every one is faithful', (l) => {
+    expect(l.implementation!.length).toBeGreaterThan(0)
+    expect(l.implementation!.some((it) => it.kind !== 'faithful')).toBe(true)
+    expect(l.limits, 'the standard-first shape has no limits section').toEqual([])
   })
 })
 
@@ -251,7 +266,7 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
       '站点数 1 → 4。源课那条限制的主语就是「只有一台站点」，而换掉的正是它，不是任何一个特性标志'],
     ['uwb-intro', 'uwb-sstwr', '两端晶振的频率偏差都设为 0 ppm',
       '逐节点的 ppm 实参 0 → ±10，于是单边测距的偏差以米计（那一课真的给出 6.01 m）'],
-    ['uwb-blocks', 'uwb-contention', '「调度式应答要先有名单」',
+    ['uwb-blocks', 'uwb-contention', '「按时间调度时，控制器知道所有受控设备」',
       '会话旋钮：竞争窗口与名单。那一课讲的正是手里根本没有名单的标签'],
     // The five `fading` sites, added 2026-10-05 with that lesson. One axis for all five, and it
     // is a top-level scenario section rather than anything on a node: `fadingScenario` is

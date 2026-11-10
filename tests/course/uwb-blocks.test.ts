@@ -118,7 +118,7 @@ describe('uwb-blocks · what its `until` promises', () => {
     expect(withUntil).toHaveLength(1)
     expect(withUntil[0].until).toBe('uwb-contention')
     const promised = withUntil[0].text
-    expect(promised).toContain('「调度式应答要先有名单」')
+    expect(promised).toContain('「按时间调度时，控制器知道所有受控设备」')
     // the three things it must NOT also promise
     for (const notPromised of ['没有加入', '没有离开', '参数协商']) {
       expect(promised, notPromised).not.toContain(notPromised)
@@ -135,7 +135,7 @@ describe('uwb-blocks · what its `until` promises', () => {
   it('uwb-contention really does answer the provenance question, and only that', () => {
     const contention = LESSONS.find((l) => l.id === 'uwb-contention')!
     const text = lessonStrings(contention).join(' / ')
-    expect(text).toContain('调度式应答要先有名单')
+    expect(text).toContain('控制器知道所有受控设备')
     // the restatement five lessons on: uwb-m2m says the same thing in its own words, which is
     // what "never lifted" looks like from the other end
     const m2m = LESSONS.find((l) => l.id === 'uwb-m2m')!

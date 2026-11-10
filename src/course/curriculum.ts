@@ -543,6 +543,8 @@ export function citedBases(l: Lesson): StandardBasis[] {
  * main path and is never included.
  */
 export function lessonBlocks(l: Lesson): Block[] {
+  // The standard-first shape: ① the standard's blocks, then the blocks each lab carries.
+  if (l.standard !== undefined) return [...l.standard, ...(l.labs ?? []).flatMap((x) => x.blocks ?? [])]
   return l.body ?? [...(l.picture ?? []), ...(l.numbers ?? [])]
 }
 
@@ -602,8 +604,9 @@ export const CHARS_PER_MINUTE = 220
  * reader can plan two sittings — see {@link isLongLesson}.
  */
 export function lessonMinutes(l: Lesson): number {
+  // A lab of the standard-first shape is a guided run: it costs what a try-this item costs.
   const raw = lessonChars(l) / CHARS_PER_MINUTE
-    + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+    + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * (l.tryThis.length + (l.labs?.length ?? 0))
   return Math.max(5, Math.round(raw / 5) * 5)
 }
 

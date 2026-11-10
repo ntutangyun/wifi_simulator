@@ -136,6 +136,59 @@ export interface Limit {
   seeAlso?: string
 }
 
+/**
+ * **The third lesson shape (2026-11-10), standard → implementation → hands-on.**
+ *
+ * The reader's request, after an audit found simulator inventions taught as if they were
+ * IEEE 802.15.4: first say what the standard (or draft) specifies, then say how this simulator
+ * implements it — item by item, what is faithful and what is not — and only then guide the
+ * reader through runs. The old end-of-lesson `limits` section is gone from this shape: the
+ * reader said they never read it, so what it held now lives in `implementation`, next to the
+ * standard rule it departs from. See docs/superpowers/plans/2026-11-10-uwb-standard-alignment.md.
+ *
+ * A lesson is in this shape exactly when it has `standard` ({@link isStandardFirst}).
+ */
+export type ImplKind =
+  /** The simulator does what the standard (or draft) says. */
+  | 'faithful'
+  /** A number the simulator picked where the standard fixes none (a default, a threshold). */
+  | 'value'
+  /** A method the simulator picked where the standard leaves the method open. */
+  | 'choice'
+  /** The simulator deliberately does something other than the standard says. */
+  | 'differs'
+  /** Specified by the standard, not implemented here. */
+  | 'absent'
+
+export interface ImplItem {
+  /** What this row is about, a few words: 「尝试次数上限」. */
+  topic: string
+  /** What the standard or draft says about it, with the clause; 「标准未规定」 when it is silent. */
+  standard: string
+  /** What this simulator does. */
+  sim: string
+  kind: ImplKind
+}
+
+/** One guided run: load a scene, go somewhere, read something, and know what it shows. */
+export interface Lab {
+  heading: string
+  /** Index into `variants`; omitted means the lesson's base scenario. */
+  variant?: number
+  /** Index into `jumps`, when the lab starts at a particular moment. */
+  jump?: number
+  /** Further variants this lab compares against (indices into `variants`), each its own load button. */
+  more?: number[]
+  /** What to do, in order. */
+  steps: string[]
+  /** What the reader should see — the measured numbers. */
+  expect: string
+  /** What it shows, pointing back at ① (the standard) or ② (this simulator). */
+  meaning: string
+  /** Optional tables, formulas or diagrams that belong to this run. */
+  blocks?: Block[]
+}
+
 export interface Lesson {
   id: string
   module: number
@@ -156,6 +209,12 @@ export interface Lesson {
   numbers?: Block[]
   /** Optional professional depth, collapsed; never needed to pass the quiz. */
   deeper?: Block[]
+  /** ① What the standard or draft specifies — the standard-first shape; see {@link ImplItem}. */
+  standard?: Block[]
+  /** ② How this simulator implements each part of ①, faithful or not. Replaces `limits` in this shape. */
+  implementation?: ImplItem[]
+  /** ③ Guided runs. Replace `picture`'s watch call-outs, `observe` and `tryThis` in this shape. */
+  labs?: Lab[]
   /** Where the numbers come from: clauses, contributions, model choices. Collapsed. */
   sources?: string[]
   /**
@@ -173,6 +232,9 @@ export interface Lesson {
   tryThis: string[]
   quiz: Quiz[]
 }
+
+/** True when a lesson is in the standard-first shape (① standard, ② implementation, ③ labs). */
+export const isStandardFirst = (l: Lesson): boolean => l.standard !== undefined
 
 /** True once a lesson carries the new shape. */
 export const isMigrated = (l: Lesson): boolean => l.why !== undefined

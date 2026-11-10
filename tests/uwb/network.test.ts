@@ -695,7 +695,7 @@ const TAG_AT_ORIGIN: Place = { x: 0, y: 0, z: 1, ppm: 0 }
 
 describe('UwbNetwork — contention rounds, two anchors of equal strength', () => {
   const sc = uwbScenario(circle(2), [TAG_AT_ORIGIN], TIGHT)
-  // Six rounds: three collisions spend the whole retry budget, the fourth is sat out.
+  // Six rounds under one control message each (RCM Validity Rounds 1), so the RCMA cap is 1.
   const rs = run(sc, 6 * TIGHT_ROUND_NS - 1)
   const inRound = <T extends TLRecord['type']>(type: T, k: number, node?: string) =>
     of(rs, type, node).filter((r) => r.t >= k * TIGHT_ROUND_NS && r.t < (k + 1) * TIGHT_ROUND_NS)
@@ -706,7 +706,7 @@ describe('UwbNetwork — contention rounds, two anchors of equal strength', () =
     expect(of(rs, 'UWB_SLOT').filter((r) => r.t < TIGHT_ROUND_NS).map((r) => r.slot)).toEqual([0, 1, 2])
     const poll = of(rs, 'TX_START', 'tag-1')[0].frame
     expect(poll.uwb?.ies).toEqual(['ARC', 'RCPS', 'RCMA', 'RRMC'])
-    expect(poll.uwb?.contention).toEqual({ firstSlot: 1, lastSlot: 2, maxAttempts: 3 })
+    expect(poll.uwb?.contention).toEqual({ firstSlot: 1, lastSlot: 2, maxAttempts: 1 })
     expect(poll.uwb?.schedule).toBeUndefined() // nobody is assigned a slot
   })
 
@@ -721,24 +721,32 @@ describe('UwbNetwork — contention rounds, two anchors of equal strength', () =
     expect(inRound('UWB_CONTEND_COLLISION', 0).map((r) => [r.node, r.slot])).toEqual([['tag-1', 2]])
   })
 
-  it('spends one attempt per unheard round, then sits exactly one round out', () => {
-    // maxAttempts is 3: attempts 1, 2 and 3 all collide, the fourth round is silent
-    // (slot null, attempt 0), and the fifth starts a fresh budget at attempt 1.
+  it('answers once per round under a one-round control message, and nothing is silenced', () => {
+    // Standard §10.32.9.6: the RCMA IE caps the attempts under ONE control message, and with a
+    // control message every round the cap is 1. There is no feedback (§10.32.1 NOTE), so a
+    // collision costs nothing later: every round both anchors draw again, attempt 1.
     expect(of(rs, 'UWB_CONTEND', 'anc-1').map((r) => [r.slot, r.attempt]))
-      .toEqual([[2, 1], [1, 2], [1, 3], [null, 0], [1, 1], [2, 2]])
+      .toEqual([[2, 1], [1, 1], [1, 1], [1, 1], [2, 1], [2, 1]])
     expect(of(rs, 'UWB_CONTEND', 'anc-2').map((r) => [r.slot, r.attempt]))
-      .toEqual([[2, 1], [1, 2], [1, 3], [null, 0], [1, 1], [1, 2]])
-    // Nothing at all is transmitted in the round both anchors sit out…
-    expect(inRound('TX_START', 3).map((r) => r.node)).toEqual(['tag-1'])
-    // …and the fifth round, drawn from a refilled budget, collides once more.
-    expect(inRound('UWB_RANGE', 4)).toEqual([])
-    // The sixth separates them, and both are heard — so both go back to attempt 1 after it.
-    expect(inRound('UWB_RANGE', 5).map((r) => r.peer)).toEqual(['anc-2', 'anc-1'])
+      .toEqual([[2, 1], [1, 1], [1, 1], [2, 1], [1, 1], [2, 1]])
+    expect([0, 1, 2, 3, 4, 5].map((k) => inRound('UWB_RANGE', k).map((r) => r.peer)))
+      .toEqual([[], [], [], ['anc-1', 'anc-2'], ['anc-2', 'anc-1'], []])
+  })
+
+  it('caps the answers per control message, success or not, and starts again at the next one', () => {
+    // Validity 3, cap 2: in each three-round window an anchor answers twice and then stays silent
+    // (slot null, attempt 0), whether its answers were heard or not; the next control message
+    // starts the count again.
+    const capped = run(uwbScenario(circle(2), [TAG_AT_ORIGIN], { ...TIGHT, rcmValidityRounds: 3, maxAttempts: 2 }), 6 * TIGHT_ROUND_NS - 1)
+    expect(of(capped, 'UWB_CONTEND', 'anc-1').map((r) => [r.slot, r.attempt]))
+      .toEqual([[2, 1], [1, 2], [null, 0], [1, 1], [1, 2], [null, 0]])
+    expect(of(capped, 'UWB_CONTEND', 'anc-2').map((r) => [r.slot, r.attempt]))
+      .toEqual([[2, 1], [1, 2], [null, 0], [2, 1], [1, 2], [null, 0]])
   })
 
   it('never reports a silent contention slot as a timeout: the slot belongs to nobody', () => {
-    // Round 3 is silent in both response slots and round 5 fills both; neither is a
-    // peer that failed to answer, so no UWB_TIMEOUT is emitted anywhere in the run.
+    // A response slot nobody answered in, or two answers that collided, is not a peer that
+    // failed to answer, so no UWB_TIMEOUT is emitted anywhere in the run.
     expect(of(rs, 'UWB_TIMEOUT')).toEqual([])
   })
 })
@@ -755,8 +763,8 @@ describe('UwbNetwork — a contention anchor that never heard the Poll', () => {
   it('draws nothing, spends nothing, and leaves the near anchor’s rounds alone', () => {
     expect(of(rs, 'UWB_CONTEND', 'anc-2')).toEqual([])
     expect(of(rs, 'TX_START').some((r) => r.node === 'anc-2')).toBe(false)
-    // the near anchor is ranged every round, so its budget is refilled every round: attempt 1
-    // throughout, which is exactly what a spent attempt at the far anchor could not produce
+    // one control message per round, so the near anchor's count starts again every round:
+    // attempt 1 throughout
     const near = of(rs, 'UWB_CONTEND', 'anc-1')
     expect(near).toHaveLength(6)
     expect(near.map((r) => r.attempt)).toEqual([1, 1, 1, 1, 1, 1])
@@ -841,17 +849,17 @@ describe('UwbNetwork — six anchors contending, the numbers the lesson quotes',
   }
 
   it.each([
-    { S: 4, ranges: 50, collisions: 45, sitOuts: 20, fixes: 5 },
-    { S: 8, ranges: 90, collisions: 36, sitOuts: 8, fixes: 19 },
-    { S: 16, ranges: 125, collisions: 25, sitOuts: 4, fixes: 25 },
+    { S: 4, ranges: 50, collisions: 50, sitOuts: 0, fixes: 5 },
+    { S: 8, ranges: 97, collisions: 35, sitOuts: 0, fixes: 21 },
+    { S: 16, ranges: 135, collisions: 21, sitOuts: 0, fixes: 28 },
   ])('S = $S: $ranges responses heard in 30 rounds', ({ S, ranges, collisions, sitOuts, fixes }) => {
     const m = measure(S)
     expect(m.rounds).toBe(30)
     expect(m).toEqual({ rounds: 30, ranges, collisions, sitOuts, fixes })
     // The analytic model of the lesson: N anchors, S slots, an anchor is alone in its
     // slot with probability (1 − 1/S)^(N−1), so N·(1 − 1/S)^(N−1) are heard per round.
-    // The measurement runs a little above it at small S, because an anchor that has
-    // just spent its budget sits the next round out and thins the field for the others.
+    // With no feedback and a cap of one per round, every anchor answers every round, so the
+    // measurement is the model's experiment itself, within the scatter of 30 rounds.
     const analytic = 6 * (1 - 1 / S) ** 5
     expect(m.ranges / 30).toBeGreaterThan(analytic - 0.5)
     expect(m.ranges / 30).toBeLessThan(analytic + 0.5)

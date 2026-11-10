@@ -111,11 +111,19 @@ describe('uwbSessionIssue', () => {
 
   it('accepts what the session fields save for a contention round', () => {
     // The three fields the editor adds, at the bounds its inputs clamp to.
-    const sc = withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 16, maxAttempts: 5 })
+    // maxAttempts may not exceed rcmValidityRounds (standard §10.32.9.6), so each is paired with
+    // a validity window at least that long.
+    const sc = withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 16, maxAttempts: 5, rcmValidityRounds: 5 })
     expect(uwbSessionIssue(sc)).toBeNull()
     expect(ScenarioSchema.safeParse(sc).success).toBe(true)
     expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 2, maxAttempts: 1 }))).toBeNull()
-    expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 32, maxAttempts: 10 }))).toBeNull()
+    expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 32, maxAttempts: 10, rcmValidityRounds: 10 }))).toBeNull()
+  })
+
+  it('refuses more contention attempts than the control message is valid for (§10.32.9.6)', () => {
+    const sc = withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 8, maxAttempts: 3 })
+    expect(ScenarioSchema.safeParse(sc).success).toBe(false)
+    expect(uwbSessionIssue(sc)).toMatch(/最大尝试次数/)
   })
 
   it('refuses a contention round on DS-TWR, which the method select is what keeps apart', () => {

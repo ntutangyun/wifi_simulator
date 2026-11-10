@@ -171,6 +171,24 @@ export interface Strings {
     back: string
     openInEditor: string
     loadHint: string
+    /** The standard-first shape (2026-11-10): ① standard, ② implementation, ③ labs. */
+    stdFirst: {
+      standard: string
+      implementation: string
+      implementationNote: string
+      kinds: Record<'faithful' | 'value' | 'choice' | 'differs' | 'absent', string>
+      stdLabel: string
+      simLabel: string
+      labs: string
+      labsNote: string
+      lab: (n: number) => string
+      loadBase: string
+      loadVariant: (label: string) => string
+      jumpTo: (label: string) => string
+      loadFirst: string
+      expect: string
+      meaning: string
+    }
     /** The section naming where a lesson's model is not the radio. */
     limits: string
     limitKind: Record<'threshold' | 'unmodelled' | 'model-value' | 'out-of-scope', string>
@@ -985,6 +1003,29 @@ export const STRINGS: Strings = {
     back: '☰ 课程目录',
     openInEditor: '✎ 在编辑器中打开本课场景',
     loadHint: '载入预设场景（会替换当前场景；离开课程模式时会恢复你自己的场景）。',
+    stdFirst: {
+      standard: '① 标准怎么规定',
+      implementation: '② 本仿真器怎么实现',
+      implementationNote: '上面每一条，本仿真器是照做、自己取值、自己选了做法、与标准不同，还是没有实现。',
+      kinds: {
+        faithful: '✓ 照标准',
+        value: '◐ 本仿真器取的值',
+        choice: '◐ 本仿真器的取法',
+        differs: '✗ 与标准不同',
+        absent: '∅ 没有实现',
+      },
+      stdLabel: '标准：',
+      simLabel: '本仿真器：',
+      labs: '③ 动手仿真',
+      labsNote: '按顺序做：先载入场景，再跳到那一刻，读出数，对照上面两节。',
+      lab: (n) => `实验 ${n}`,
+      loadBase: '▶ 载入本课场景',
+      loadVariant: (label) => `▶ 载入「${label}」`,
+      jumpTo: (label) => `⚡ 跳到：${label}`,
+      loadFirst: '先载入上面的场景，再跳转',
+      expect: '你应该看到：',
+      meaning: '这说明：',
+    },
     limits: '这一课的模型在哪里不是真实的无线电',
     limitKind: {
       threshold: '硬门限代替曲线：',

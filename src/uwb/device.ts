@@ -65,16 +65,14 @@ export interface UwbDeviceCfg {
   pos: Vec3
   tsNoisePs: number
   cfoNoisePpm: number
-  /** Contention rounds only: this anchor's retry budget. The Poll's RCMA IE advertises the same
-   * number, but the anchor reads it from here - every device in a session is configured from the
-   * one session config, so the two cannot disagree today. An anchor spends one attempt per round
-   * its response is not acknowledged by a range, and sits a round out when the budget is empty.
-   * Ignored entirely by a time-scheduled round.
+  /** Contention rounds only: the RCMA IE's maximum number of response attempts (standard
+   * §10.32.9.6), counted per control-message validity window and never refilled by success or
+   * failure. The Poll's RCMA IE advertises the same number; the anchor reads it from here because
+   * every device in a session is configured from the one session config. The schema refuses a
+   * value above `rcmValidityRounds`, as the standard requires. Ignored by a time-scheduled round.
    *
-   * Model: the budget is **one per anchor across every tag's rounds**, not one per (anchor, tag).
-   * With several tags in a session, a miss in tag A's round can sit the anchor out of tag B's next
-   * round. Nothing shipped is affected (the contention lesson has one tag); keying `attemptsLeft`
-   * by tag id is the change a multi-tag contention lesson would need. */
+   * Model: the count is one per anchor across every tag's rounds, not one per (anchor, tag); the
+   * contention lesson has one tag, so nothing shipped depends on the difference. */
   maxAttempts: number
   /**
    * Two-way ranging, responder: when this device holds a still-valid control message but did not
@@ -366,13 +364,17 @@ export class UwbDevice implements UwbRadio {
   /** The MHR's Sequence Number: one 8-bit counter per device, wrapping at 256. */
   private seqNo = 0
   /**
-   * Contention rounds, anchor: what is left of the RCMA retry budget. SS-TWR gives a responder
-   * no acknowledgement of its own — the exchange ends at the tag — so the anchor cannot know
-   * whether it was heard. The model closes that loop at the round's end (see `endRound`): a
-   * round that produced a range for this anchor refills the budget, a round that did not spends
-   * one attempt of it, and an empty budget buys one silent round before the anchor tries again.
+   * Contention rounds, anchor: how many responses this device has sent under the control message
+   * it currently holds, and which validity window that count belongs to. Standard §10.32.9.6: the
+   * RCMA IE gives only the MAXIMUM number of attempts at responding, supplied by the upper layer
+   * and no larger than the RCM Validity Rounds; §10.32.1's NOTE adds that collisions are possible
+   * and the upper layer filters wrong results. Nothing tells a responder whether it was received,
+   * so nothing here refills or spends on success or failure: the count only resets when a new
+   * control message opens a new window. (Until 2026-11-10 the engine closed a feedback loop at
+   * each round's end and made an exhausted anchor sit a round out; neither is in the standard.)
    */
-  private attemptsLeft: number
+  private attemptsUsed = 0
+  private attemptsWindow = -1
   /**
    * P802.15.4ab: the ranging block this device found the narrowband channel busy in, or null.
    * The draft's listen-before-talk rule is not per frame but per block — a busy check stops
@@ -506,9 +508,7 @@ export class UwbDevice implements UwbRadio {
     public ch: UwbChannel,
     public emit: EmitFn,
     public geometry: UwbGeometry,
-  ) {
-    this.attemptsLeft = cfg.maxAttempts
-  }
+  ) {}
 
   get role(): 'anchor' | 'tag' {
     return this.cfg.role
@@ -731,12 +731,9 @@ export class UwbDevice implements UwbRadio {
    * model an SS-TWR responder has no frame for (standard §10.32.1 NOTE leaves the filtering of a
    * ranging result to the upper layer; here the upper layer is the network).
    *
-   * Anchor: spend or refill the contention retry budget, and return nothing. Only an anchor that
-   * actually drew a slot this round spends an attempt — a round it sat out is the price it has
-   * already paid, and a round whose Poll it never heard is not its doing.
-   *
-   * `heard` is required rather than defaulting: false is the failure-shaped value (it spends an
-   * attempt), and a caller that forgot the argument would quietly burn a responder's budget.
+   * Anchor: return nothing. A responder learns nothing about whether it was received (standard
+   * §10.32.1 NOTE), so the round's end changes no contention state; `heard` is the network's
+   * record of which anchors the tag ranged and is no longer handed to the anchors' budgets.
    */
   endRound(heard: boolean): string[] {
     this.closeSlot(null)
@@ -756,9 +753,7 @@ export class UwbDevice implements UwbRadio {
       return []
     }
     if (this.cfg.role !== 'tag') {
-      if (r.plan.schedule === 'contention' && r.contendSlot !== null) {
-        this.attemptsLeft = heard ? this.cfg.maxAttempts : Math.max(0, this.attemptsLeft - 1)
-      }
+      void heard
       return []
     }
     // Standard §10.35: the ancillary message's own deadline, which is this round's end — the
@@ -1127,22 +1122,27 @@ export class UwbDevice implements UwbRadio {
 
   /**
    * Anchor, on the Poll of a contention round: draw the response slot to answer in, uniformly
-   * over the window the round plan sets - the same window the Poll's RCPS IE advertises, since
-   * both come from the one session config (standard §10.32.2 schedule mode 0). An anchor whose
-   * RCMA budget is spent answers in no slot at all this round — the one back-off a responder
-   * that cannot hear the other responders has — and starts the next round with a full budget.
+   * over the window the round plan sets, the same window the Poll's RCPS IE advertises, since
+   * both come from the one session config (standard §10.32.2 schedule mode 0). Uniform choice is
+   * this simulator's; the standard does not say how a responder picks its slot.
+   *
+   * Standard §10.32.9.6: at most `maxAttempts` responses under one control message. The count
+   * resets when the round opens a new validity window (`blockCarriesRcm`); a responder that has
+   * used them all stays silent until then, and records that as a contend record with no slot.
    */
   private drawContentionSlot(r: RoundState): void {
-    if (this.attemptsLeft === 0) {
-      this.attemptsLeft = this.cfg.maxAttempts
+    const window = r.block - (r.block % r.plan.rcmValidityRounds)
+    if (window !== this.attemptsWindow) { this.attemptsWindow = window; this.attemptsUsed = 0 }
+    if (this.attemptsUsed >= this.cfg.maxAttempts) {
       this.emit({ t: this.now(), type: 'UWB_CONTEND', node: this.id, slot: null, attempt: 0 })
       return
     }
+    this.attemptsUsed += 1
     const slot = 1 + this.rng.int(r.plan.contentionSlots - 1)
     r.contendSlot = slot
     this.emit({
       t: this.now(), type: 'UWB_CONTEND', node: this.id, slot,
-      attempt: this.cfg.maxAttempts - this.attemptsLeft + 1,
+      attempt: this.attemptsUsed,
     })
   }
 

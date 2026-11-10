@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
+import { isStandardFirst, type ImplItem, type Lab } from './lessonKit'
 import { layoutDiagram, type Paint, type Shape } from './diagram'
 import {
   BASES, CONTRIBUTIONS, MODULES, TIERS, TRACKS, basisOf, citedDocs, isLongLesson, lessonBlocks, lessonMinutes,
@@ -13,6 +14,14 @@ import { McsLadder } from './widgets/McsLadder'
 type Progress = Record<string, { done?: boolean; obs?: number[] }>
 
 const LS_KEY = 'wifi-sim.course'
+
+/**
+ * Standard-first lessons: which lab's scene was loaded last, per lesson. Module-level, not
+ * component state, because on the folded screen loading a scene switches to the view pane and
+ * unmounts this panel; coming back must still know the scene is there, or every lab's jump
+ * button would be disabled on the one screen that needs it most. Gated by `loaded` at use.
+ */
+const labSceneOf = new Map<string, string>()
 
 function loadProgress(): Progress {
   try {
@@ -230,6 +239,12 @@ export function CoursePanel() {
   /** The panel's own scroll box. The next lesson renders into the same box, so a jump from the
    * bottom row would otherwise open it already scrolled to the end. */
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** Standard-first lessons: which lab's scene is loaded, so its jump button knows it can fire. */
+  const [labScene, setLabSceneState] = useState<string | null>(() => (courseLessonId ? labSceneOf.get(courseLessonId) ?? null : null))
+  const setLabScene = (k: string | null) => {
+    if (courseLessonId) { if (k === null) labSceneOf.delete(courseLessonId); else labSceneOf.set(courseLessonId, k) }
+    setLabSceneState(k)
+  }
 
   const save = (p: Progress) => {
     setProgress(p)
@@ -248,6 +263,7 @@ export function CoursePanel() {
     setQuizPick({})
     setQuizResult({})
     if (scrollRef.current) scrollRef.current.scrollTop = 0
+    setLabSceneState(courseLessonId ? labSceneOf.get(courseLessonId) ?? null : null)
   }, [courseLessonId])
 
   const doneCount = LESSONS.filter((l) => progress[l.id]?.done).length
@@ -427,6 +443,65 @@ export function CoursePanel() {
     </div>
   ))
 
+  const SF = L.stdFirst
+  const implRow = (it: ImplItem, i: number) => (
+    <div key={`${lesson.id}:impl:${i}`} style={{
+      margin: '6px 0', padding: '6px 8px', borderRadius: 4, background: 'var(--panel2)',
+      borderLeft: `3px solid ${it.kind === 'faithful' ? '#4ade80' : it.kind === 'differs' ? '#f87171' : it.kind === 'absent' ? '#8a93a3' : '#e0a83a'}`,
+    }}>
+      <div style={{ fontSize: 11.5, fontWeight: 600 }}>
+        <span style={{ color: 'var(--dim)', fontWeight: 400 }}>{SF.kinds[it.kind]}　</span>{it.topic}
+      </div>
+      <div style={{ fontSize: 11.5, marginTop: 2 }}><span style={dim}>{SF.stdLabel}</span>{it.standard}</div>
+      <div style={{ fontSize: 11.5, marginTop: 2 }}><span style={dim}>{SF.simLabel}</span>{it.sim}</div>
+    </div>
+  )
+  const labCard = (lab: Lab, i: number) => {
+    const sceneKey = lab.variant === undefined ? 'base' : `v${lab.variant}`
+    const variant = lab.variant === undefined ? undefined : lesson.variants?.[lab.variant]
+    const target = lab.jump === undefined ? undefined : lesson.jumps[lab.jump]
+    const ready = loaded && labScene === sceneKey
+    return (
+      <div key={`${lesson.id}:lab:${i}`} style={{ margin: '8px 0 12px', padding: 8, borderRadius: 5, border: '1px solid var(--border)' }}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{SF.lab(i + 1)} · {lab.heading}</div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+          <button
+            className={ready ? 'active' : ''}
+            onClick={() => {
+              loadCourseScenario((variant ?? lesson).scenario(), lesson.id)
+              setLabScene(sceneKey)
+            }}
+          >
+            {variant ? SF.loadVariant(variant.label) : SF.loadBase}
+          </button>
+          {(lab.more ?? []).map((vi) => {
+            const v = lesson.variants?.[vi]
+            if (!v) return null
+            const key = `v${vi}`
+            return (
+              <button key={key} className={loaded && labScene === key ? 'active' : ''}
+                onClick={() => { loadCourseScenario(v.scenario(), lesson.id); setLabScene(key) }}>
+                {SF.loadVariant(v.label)}
+              </button>
+            )
+          })}
+          {target && (
+            <button disabled={!ready} title={ready ? undefined : SF.loadFirst} onClick={() => jump(target.find, target.label)}>
+              {SF.jumpTo(target.label)}
+            </button>
+          )}
+        </div>
+        <ol style={{ margin: '2px 0', paddingLeft: 18, color: '#c3c9d4' }}>
+          {lab.steps.map((x, k) => <li key={k} style={{ marginBottom: 2 }}>{x}</li>)}
+        </ol>
+        {lab.blocks && blocks(lab.blocks, `lab${i}`)}
+        <div style={{ marginTop: 4 }}><span style={dim}>{SF.expect}</span>{lab.expect}</div>
+        <div style={{ marginTop: 2 }}><span style={dim}>{SF.meaning}</span>{lab.meaning}</div>
+        {ready && jumpMsg && <div style={{ color: '#eab308', fontSize: 11, marginTop: 3 }}>{jumpMsg}</div>}
+      </div>
+    )
+  }
+
   /** Catalogue / previous / next — printed above the lesson and again under it, so finishing one
    * does not mean scrolling all the way back up to reach the next. */
   const navRow = (where: 'top' | 'bottom') => (
@@ -545,6 +620,21 @@ export function CoursePanel() {
             </>
           )}
 
+          {isStandardFirst(lesson) && (
+            <>
+              <h4 style={{ ...h4, fontSize: 13 }}>{SF.standard}</h4>
+              {blocks(lesson.standard!, 'standard')}
+
+              <h4 style={{ ...h4, fontSize: 13 }}>{SF.implementation}</h4>
+              <div style={{ ...dim, fontSize: 11 }}>{SF.implementationNote}</div>
+              {(lesson.implementation ?? []).map(implRow)}
+
+              <h4 style={{ ...h4, fontSize: 13 }}>{SF.labs}</h4>
+              <div style={{ ...dim, fontSize: 11 }}>{SF.labsNote}</div>
+              {(lesson.labs ?? []).map(labCard)}
+            </>
+          )}
+
           {blocks(lesson.picture ?? [], 'picture')}
 
           {(lesson.numbers ?? []).length > 0 && (
@@ -563,6 +653,7 @@ export function CoursePanel() {
         </>
       )}
 
+      {!isStandardFirst(lesson) && (<>
       <div style={{ margin: '10px 0 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
         <button
           className="active"
@@ -612,6 +703,12 @@ export function CoursePanel() {
           <li key={i} style={{ marginBottom: 3 }}>{x}</li>
         ))}
       </ul>
+      </>)}
+      {isStandardFirst(lesson) && (
+        <button onClick={() => adoptCourseScenario(lesson.scenario())} style={{ fontSize: 11.5, margin: '4px 0' }}>
+          {L.openInEditor}
+        </button>
+      )}
 
       <h4 style={h4}>{L.quiz}</h4>
       {lesson.quiz.map((q, qi) => (

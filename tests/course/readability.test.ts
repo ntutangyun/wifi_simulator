@@ -25,9 +25,9 @@ import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import {
   CHARS_PER_MINUTE, COURSE_ORDER, MODULES, SITTING_MINUTES,
-  isLongLesson, lessonMinutes, needsClosure, trackOf,
+  isLongLesson, lessonBlocks, lessonMinutes, needsClosure, trackOf,
 } from '../../src/course/curriculum'
-import { isMigrated, type Block, type Lesson } from '../../src/course/lessonKit'
+import { isMigrated, isStandardFirst, type Block, type Lesson } from '../../src/course/lessonKit'
 import {
   cellTexts, gradedProseTexts, lessonStrings, lessonTexts, mainPathChars, paragraphTexts, readerTexts,
   ZH_TERMS, ZH_TERMS_EXCLUDED, bracketedAtFirstZhUse, brackets, zhAkaViolations, zhTermFailure, type ZhTerm,
@@ -69,6 +69,23 @@ if (migrated.length) {
       expect(l.why!.trim()).not.toBe('')
       expect(l.outcomes!.length).toBeGreaterThanOrEqual(2); expect(l.outcomes!.length).toBeLessThanOrEqual(4)
       expect(l.terms!.length).toBeGreaterThan(0)
+      if (isStandardFirst(l)) {
+        // The standard-first shape (2026-11-10): ① standard, ② implementation, ③ labs, and every
+        // lab points at a variant and a jump that exist and says what to see and what it shows.
+        expect(l.standard!.length).toBeGreaterThan(0)
+        expect(l.implementation!.length).toBeGreaterThan(0)
+        expect(l.labs!.length).toBeGreaterThan(0)
+        expect(l.sources!.length).toBeGreaterThan(0)
+        for (const lab of l.labs!) {
+          expect(lab.steps.length, lab.heading).toBeGreaterThan(0)
+          expect(lab.expect.trim(), lab.heading).not.toBe('')
+          expect(lab.meaning.trim(), lab.heading).not.toBe('')
+          if (lab.variant !== undefined) expect(l.variants?.[lab.variant], lab.heading).toBeDefined()
+          if (lab.jump !== undefined) expect(l.jumps[lab.jump], lab.heading).toBeDefined()
+          for (const vi of lab.more ?? []) expect(l.variants?.[vi], lab.heading).toBeDefined()
+        }
+        return
+      }
       expect(l.picture!.length).toBeGreaterThan(0); expect(l.numbers!.length).toBeGreaterThan(0)
       expect(l.picture!.some((b) => b.kind === 'watch')).toBe(true)
       expect(l.sources!.length).toBeGreaterThan(0)
@@ -134,7 +151,9 @@ describe('readability · a rule is carried as a procedure', () => {
   })
 
   it.each(migrated.map((l) => [l.id, l] as const))('%s writes its procedure out as steps', (_id, l) => {
-    const steps = [...(l.picture ?? []), ...(l.numbers ?? [])].filter((b) => b.kind === 'steps')
+    // `lessonBlocks` is the main path in either shape; in the standard-first shape it is ① and the
+    // labs' blocks, so the rule is carried as a procedure in the standard's own section.
+    const steps = lessonBlocks(l).filter((b) => b.kind === 'steps')
     expect(steps.length, `${l.id}: a lesson that states a rule carries the rule as a steps block`).toBeGreaterThan(0)
     for (const b of steps) expect((b as Extract<Block, { kind: 'steps' }>).items.length).toBeGreaterThanOrEqual(3)
   })
@@ -203,7 +222,9 @@ describe('readability · the graded-prose selector is the walk it replaced', () 
     .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
     .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
 
-  it.each(ordered.map((l) => [l.id, l] as const))('%s is graded on exactly the same strings, in the same order', (_id, l) => {
+  // The retired walk predates the standard-first shape, which it never knew; those lessons are
+  // graded by the selector alone, over the sections that shape adds.
+  it.each(ordered.filter((l) => !isStandardFirst(l)).map((l) => [l.id, l] as const))('%s is graded on exactly the same strings, in the same order', (_id, l) => {
     expect(gradedProseTexts(l)).toEqual(retired(l))
   })
 
@@ -958,7 +979,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
  *    named in the field and never named on that lesson's graded main path.
  *
- * **This ratchet is criterion Q, and the number is 275.** It is NOT the same
+ * **This ratchet is criterion Q, and the number is 273.** It is NOT the same
  * criterion as P, even though the two coincided at 296 before slice 3d — and the
  * fact that they coincide here is precisely why the distinction is spelled out
  * rather than assumed. They are measurably different criteria: on `sources` Q is
@@ -994,7 +1015,7 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    * **The number itself is `LIMITS_DEBT_CEILING` in `./coverageNumbers`**, so this `it`'s title, the
    * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
    *
-   * **This number is the ceiling AND the current value: the debt stands at exactly 275 (287 until the 2026-11-10 `why` rewrites, the UWB simulator-internals cleanup, the standard-wording pass over both tracks, the content fixes and the UWB standard audit paid twelve pairs).** There
+   * **This number is the ceiling AND the current value: the debt stands at exactly 273 (287 until the 2026-11-10 `why` rewrites, the UWB simulator-internals cleanup, the standard-wording pass over both tracks, the content fixes, the UWB standard audit and the first standard-first lesson — which has no `limits` at all — took fourteen pairs off).** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
    * adds a `limits` entry:
@@ -1005,8 +1026,8 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    *    bigger number here;
    *  - if that sentence will not fit, the other legal move is to pay one of the existing 287
    *    back, which is the same work on a different lesson — and since W17 it costs nothing else:
-   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 78
-   *    and 186), so a repayment that does not also pay the same (lesson, term) pair on the other
+   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 76
+   *    and 184), so a repayment that does not also pay the same (lesson, term) pair on the other
    *    side no longer spends anybody's margin;
    *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
    *    build is red.

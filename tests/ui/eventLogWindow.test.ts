@@ -153,17 +153,19 @@ const CASES: JumpCase[] = (() => {
 describe('the event log renders the row a jump landed on', () => {
   it('found every jump of every lesson, so the census below covers the course', () => {
     // If a jump stops firing this drops, and the claims below would quietly
-    // cover less of the course than they say. 303 since 2026-10-11, when `@uwb-ancillary` was
+    // cover less of the course than they say. 302 since 2026-11-10: `@uwb-contention`'s sit-out
+    // jump went with the sit-out itself, which the standard does not have (§10.32.9.6). 303 since
+    // 2026-10-11, when `@uwb-ancillary` was
     // split in two: the first half kept three of its four jumps and `@uwb-ancillary-loss` carries
     // three, so the census moved by +2 rather than by a whole lesson's worth — the completion
     // record went with the countdown it belongs to instead of being copied.
     // 301 since slice W13: `@claim-to-contribution` brought four jumps and all four fire in its
     // own base scene; 297 after W12b's `@uhr-rate-ladder`, 293 on 2026-10-09.
-    expect(CASES.length).toBe(303)
+    expect(CASES.length).toBe(302)
     expect(new Set(CASES.map((c) => c.lesson)).size).toBeLessThanOrEqual(LESSONS.length)
   })
 
-  it('every one of the 303 clicked rows is among the rows drawn', () => {
+  it('every one of the 302 clicked rows is among the rows drawn', () => {
     const missing = CASES.filter((c) => {
       const win = windowedRecords(c.store, c.target.t)
       const { rows } = pickLogRows(win, c.target.t, c.target.seq)
@@ -293,13 +295,14 @@ describe('the event log renders the row a jump landed on', () => {
 
     const named = (cls: JumpCost['cls']) =>
       COSTS.filter((c) => c.cls === cls).map((c) => `${c.lesson}#${c.idx} ${c.label}`)
+    // 298 since 2026-11-10: `@uwb-contention`'s sit-out jump is gone with the sit-out.
     // 299 since 2026-10-11: `@uwb-ancillary-loss`'s three jumps all answer from the base batch
     // and the half it was cut from gave up one, so +2.
     // 297 since slice W13 added four more jumps that all answer from the base batch; 293 after
     // W12b's four, 289 before them.
     // 289, not the 291 the first draft of this said: the two `amp-slots` misses
     // were counted as synchronous AND as the 「没有」 case, in one breath.
-    expect(named('immediate').length).toBe(299)
+    expect(named('immediate').length).toBe(298)
     expect(named('extend')).toEqual([
       'queues#2 AP 第一次因生存期丢帧',
       'capstone#1 第一个触发帧',

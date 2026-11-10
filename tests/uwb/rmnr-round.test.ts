@@ -376,7 +376,9 @@ describe('the same exchange in the shapes scene B does not use', () => {
     // What survives here is the half that is still reachable, and it is the more interesting one:
     // **one control message governing several contention blocks.** The anchors draw their slot off
     // each block's opener, whichever of the two messages that opener was.
-    const rs = sceneB({ schedule: 'contention', contentionSlots: 8, rmnr: false })
+    // maxAttempts 4 = the validity window, the most §10.32.9.6 allows: with the default cap of 1
+    // an anchor would answer only the window's first block and stay silent for the rest.
+    const rs = sceneB({ schedule: 'contention', contentionSlots: 8, rmnr: false, maxAttempts: 4 })
     const blocks = of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map((r) => r.block)
     expect(blocks).toEqual([0, 1, 2, 3])
     expect(openers(rs).map((o) => o.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])

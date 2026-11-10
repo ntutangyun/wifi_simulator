@@ -32,7 +32,7 @@ import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import type { Scenario } from '../../src/model/scenario'
-import { isMigrated, type Lesson } from '../../src/course/lessonKit'
+import { isMigrated, isStandardFirst, type Lesson } from '../../src/course/lessonKit'
 import { LESSONS } from '../../src/course/lessons'
 import {
   CHARS_PER_MINUTE, OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes,
@@ -124,6 +124,14 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions = {}): void {
   describe(`${l.id} · lesson shape`, () => {
     it('is written to the zero-to-hero contract', () => {
       expect(isMigrated(l)).toBe(true)
+      if (isStandardFirst(l)) {
+        // ① standard, ② implementation, ③ labs; the first lab sends the reader to the simulator.
+        expect(l.standard!.length).toBeGreaterThan(0)
+        expect(l.implementation!.length).toBeGreaterThan(0)
+        expect(l.labs!.length).toBeGreaterThan(0)
+        expect(l.sources!.length).toBeGreaterThan(0)
+        return
+      }
       expect(l.picture!.length).toBeGreaterThan(0)
       expect(l.numbers!.length).toBeGreaterThan(0)
       expect(l.sources!.length).toBeGreaterThan(0)
@@ -134,18 +142,21 @@ export function lessonShapeSuite(l: Lesson, o: LessonShapeOptions = {}): void {
     })
 
     it('states the minutes the formula gives', () => {
-      expect(lessonBlocks(l).length).toBe(l.picture!.length + l.numbers!.length)
+      expect(lessonBlocks(l).length).toBe(isStandardFirst(l)
+        ? l.standard!.length + l.labs!.reduce((n, x) => n + (x.blocks?.length ?? 0), 0)
+        : l.picture!.length + l.numbers!.length)
       const raw = lessonChars(l) / CHARS_PER_MINUTE
-        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * (l.tryThis.length + (l.labs?.length ?? 0))
       expect(lessonMinutes(l)).toBe(Math.max(5, Math.round(raw / 5) * 5))
     })
 
     it('every jump target occurs in the base run', () => {
       const rs = runOf(l, undefined, ns)
       for (const j of l.jumps) expect(rs.some(j.find), j.label).toBe(true)
-      for (const b of l.picture!) {
+      for (const b of l.picture ?? []) {
         if (b.kind === 'watch' && b.jump !== undefined) expect(l.jumps[b.jump]).toBeDefined()
       }
+      for (const lab of l.labs ?? []) if (lab.jump !== undefined) expect(l.jumps[lab.jump], lab.heading).toBeDefined()
     })
 
     it('every string a learner reads is there', () => {

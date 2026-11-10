@@ -344,7 +344,11 @@ describe('lessonTexts · the census over the whole course', () => {
 
   it('counts one string per role the blocks say there is', () => {
     const role = (r: Role): number => all.filter((t) => t.role === r).length
-    const blocksOf = (l: Lesson): Block[] => [...(l.picture ?? []), ...(l.numbers ?? []), ...(l.deeper ?? []), ...(l.body ?? [])]
+    const blocksOf = (l: Lesson): Block[] => [
+      ...(l.picture ?? []), ...(l.numbers ?? []), ...(l.deeper ?? []), ...(l.body ?? []),
+      // the standard-first shape's blocks: ① standard and the blocks each lab carries
+      ...(l.standard ?? []), ...(l.labs ?? []).flatMap((x) => x.blocks ?? []),
+    ]
     expect(role('label')).toBe(count('title') + count('variantLabel') + count('jumpLabel'))
     expect(role('figure')).toBe(sum((l) => blocksOf(l)
       .filter((b) => b.kind === 'diagram')
@@ -723,7 +727,9 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'uwb-position':            [3, 1, 3, 3, 2, 3, 5, 5],
     'uwb-geometry':            [3, 2, 3, 3, 3, 3, 4, 4],
     'uwb-coexist':             [2, 2, 2, 3, 5, 5, 5, 5],
-    'uwb-contention':          [2, 2, 2, 3, 4, 4, 4, 5],
+    // standard-first since 2026-11-10: observe, tryThis and limits are 0 by design (labs and
+    // implementation carry them); the sit-out jump went with the sit-out.
+    'uwb-contention':          [0, 0, 4, 3, 3, 2, 0, 4],
     'uwb-m2m':                 [3, 2, 4, 4, 4, 3, 5, 4],
     'uwb-rcm-validity':        [3, 2, 4, 4, 4, 3, 5, 4],
     'uwb-receipt':             [3, 2, 4, 4, 4, 3, 5, 5],

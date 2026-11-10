@@ -148,6 +148,8 @@ export type Section =
   | 'title' | 'why' | 'outcomes' | 'terms' | 'body' | 'picture' | 'numbers'
   | 'deeper' | 'sources' | 'limits' | 'observe' | 'tryThis' | 'quiz'
   | 'variantLabel' | 'jumpLabel'
+  // The standard-first shape (2026-11-10): ① standard, ② implementation, ③ labs.
+  | 'standard' | 'implementation' | 'labs'
 
 /** One string a lesson shows a reader, and where it came from. */
 export interface LessonText {
@@ -182,6 +184,9 @@ const SECTION_OF: Record<keyof Lesson, Section | null> = {
   why: 'why',
   outcomes: 'outcomes',
   terms: 'terms',
+  standard: 'standard',
+  implementation: 'implementation',
+  labs: 'labs',
   body: 'body',
   picture: 'picture',
   numbers: 'numbers',
@@ -205,6 +210,7 @@ const SECTION_OF: Record<keyof Lesson, Section | null> = {
  */
 const SECTION_KEY: readonly (readonly [Section, keyof Lesson])[] = [
   ['title', 'title'], ['why', 'why'], ['outcomes', 'outcomes'], ['terms', 'terms'],
+  ['standard', 'standard'], ['implementation', 'implementation'], ['labs', 'labs'],
   ['body', 'body'], ['picture', 'picture'], ['numbers', 'numbers'],
   ['deeper', 'deeper'], ['sources', 'sources'], ['limits', 'limits'],
   ['observe', 'observe'], ['tryThis', 'tryThis'], ['quiz', 'quiz'],
@@ -320,7 +326,7 @@ const pick = (l: Partial<Lesson>, want: readonly Section[]): string[] => {
 
 /** The sections `lessonStrings` has always returned: everything but the chrome and `limits`. */
 const LESSON_STRING_SECTIONS: readonly Section[] = [
-  'why', 'outcomes', 'terms', 'body', 'picture', 'numbers',
+  'why', 'outcomes', 'terms', 'standard', 'implementation', 'labs', 'body', 'picture', 'numbers',
   'deeper', 'sources', 'observe', 'tryThis', 'quiz',
 ]
 
@@ -372,7 +378,7 @@ export function readerTexts(l: Partial<Lesson>): string[] {
 
 /** The sections a reader is assumed to read at reading speed. */
 const MAIN_PATH_SECTIONS: readonly Section[] = [
-  'why', 'outcomes', 'terms', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz',
+  'why', 'outcomes', 'terms', 'standard', 'implementation', 'labs', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz',
 ]
 
 /**
@@ -435,7 +441,7 @@ export function chromeTexts(l: Partial<Lesson>): string[] {
 
 /** The sections the first-use bracket rule grades. */
 const GRADED_SECTIONS: readonly Section[] = [
-  'why', 'outcomes', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz',
+  'why', 'outcomes', 'standard', 'implementation', 'labs', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz',
 ]
 
 /**
@@ -718,7 +724,7 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '品质因数', en: 'figure of merit', abbr: 'FoM', aka: ['品质因子', '品质字节'] },
   { zh: '信干比', en: 'signal-to-interference ratio', abbr: 'SIR' },
   { zh: '重叠', en: 'overlap', track: 'uwb' },
-  { zh: '应答窗口', en: 'response window' },
+  { zh: '竞争阶段', en: 'contention phase' },
   { en: 'ranging contention phase structure IE', abbr: 'RCPS' },
   { en: 'ranging contention maximum attempts IE', abbr: 'RCMA' },
   { zh: '到达时间差', en: 'time difference of arrival', abbr: 'TDoA' },

@@ -8,7 +8,7 @@ import { Simulation } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { widthOf } from '../../src/model/caps'
 import { CCA_PD_DBM, sinrThreshDb } from '../../src/engine/phy'
-import type { Lesson } from '../../src/course/lessonKit'
+import { isStandardFirst, type Lesson } from '../../src/course/lessonKit'
 import type { TLRecord } from '../../src/model/records'
 import { recordsToSpans } from '../../src/ui/laneLayout'
 
@@ -33,7 +33,9 @@ describe('course structure', () => {
         expect(q.answer).toBeGreaterThanOrEqual(0)
         expect(q.answer).toBeLessThan(q.options.length)
       }
-      expect(l.observe.length).toBeGreaterThan(0)
+      // The standard-first shape guides its runs in `labs` instead of `observe`.
+      if (isStandardFirst(l)) expect(l.labs!.length).toBeGreaterThan(0)
+      else expect(l.observe.length).toBeGreaterThan(0)
       expect(lessonBlocks(l).length).toBeGreaterThan(0)
     }
   })
@@ -370,8 +372,11 @@ describe('module 4 lessons', () => {
   it('every lesson still has a quiz, observations and things to try', () => {
     for (const l of LESSONS) {
       expect(l.quiz.length).toBeGreaterThan(0)
-      expect(l.observe.length).toBeGreaterThan(0)
-      expect(l.tryThis.length).toBeGreaterThan(0)
+      if (isStandardFirst(l)) expect(l.labs!.length).toBeGreaterThan(0)
+      else {
+        expect(l.observe.length).toBeGreaterThan(0)
+        expect(l.tryThis.length).toBeGreaterThan(0)
+      }
       expect(l.title.length).toBeGreaterThan(0)
     }
   })
@@ -447,7 +452,7 @@ describe('course structure (tiers, order, study time)', () => {
   it('study time is reading time plus time at the simulator, rounded to 5 minutes', () => {
     for (const l of LESSONS) {
       const raw = lessonChars(l) / CHARS_PER_MINUTE
-        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * l.tryThis.length
+        + OBSERVE_MINUTES * l.observe.length + TRY_MINUTES * (l.tryThis.length + (l.labs?.length ?? 0))
       expect(lessonMinutes(l), l.id).toBe(Math.max(5, Math.round(raw / 5) * 5))
       expect(lessonMinutes(l) % 5, l.id).toBe(0)
     }
