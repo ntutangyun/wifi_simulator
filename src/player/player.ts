@@ -237,6 +237,9 @@ export class Player {
    * Pause and seek to the first record matching pred, **simulating further if
    * the recording has not reached it yet**, and hand that record to `done`.
    *
+   * (2026-11-11, W7b: the split is now **273 / 0 / 1** of 274 — `queues#2` went with its lifetime
+   * drop, `capstone#1` fires inside the lookahead since W7a, and `amp-slots#3` now fires on the base
+   * scene; the figures below are the 2026-10-10 snapshot.)
    * On a freshly loaded lesson the course's 293 jumps split **289 / 2 / 2**, and
    * `tests/ui/eventLogWindow.test.ts` names each side of that split:
    *

@@ -5,11 +5,13 @@
  * IEEE Std 802.11-2024 clauses behind each rule; ② says what the engine does about each, checked
  * against the runs here; every figure the labs print is read back out of the lesson's own text
  * and compared with the run the lab loads. Measured over two seconds: twenty rounds at 100 ms.
+ * Since 2026-11-11 (W7b) every AMP TXOP fits the AP's AC_BK TXOP limit (§10.23.2.9, Table 9-194),
+ * so each round is two TXOPs, each behind its own CTS-to-self: forty of them in two seconds.
  */
 import { describe, expect, it } from 'vitest'
 import { ampCoexist, ampCoexistScenario } from '../../src/course/amp/amp-coexist'
 import { ScenarioSchema } from '../../src/model/scenario'
-import { CCA_ED_DBM, CTS_BYTES, EDCA_PARAMS, ERP_2G, aifsNs } from '../../src/engine/phy'
+import { CCA_ED_DBM, CTS_BYTES, EDCA_PARAMS, ERP_2G, QAP_EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { widthOf } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
@@ -21,6 +23,8 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 const MS = 1_000_000
 const US = 1_000
 const ROUNDS = 20
+/** Two AC_BK TXOPs a round at 250 kb/s. */
+const TXOPS = 2 * ROUNDS
 const RUN_NS = 2000 * MS
 const AP = 'ap#2g'
 const CAM = 'cam#2g'
@@ -54,7 +58,15 @@ function mbps(rs: TLRecord[], node: string): number {
   return bits / (RUN_NS / 1e9) / 1e6
 }
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
-const lateNs = (rs: TLRecord[], pollMs: number) => roundCts(rs).map((c, i) => c.t - i * pollMs * MS)
+/** Each poll's first CTS-to-self against the poll clock's instant. */
+const lateNs = (rs: TLRecord[], pollMs: number) => {
+  const out: number[] = []
+  for (let k = 0; k < RUN_NS / (pollMs * MS); k++) {
+    const c = roundCts(rs).find((x) => x.t >= k * pollMs * MS && x.t < (k + 1) * pollMs * MS)
+    if (c) out.push(c.t - k * pollMs * MS)
+  }
+  return out
+}
 const unprotected = (rs: TLRecord[]) => {
   const nav = camNav(rs)
   return roundCts(rs).filter((c) => !nav.some((n) => n.t === c.t + c.frame.txTimeNs))
@@ -122,10 +134,10 @@ describe('amp-coexist · ② says what the engine does, and the engine does it',
     expect(implRow('接入类别').sim).toBe(`轮询走 AC_BK，AIFS = 10 + 7 × 9 = ${aifsNs(7, ERP_2G) / US} µs；摄像头的上传走 AC_BE，AIFS = 10 + 3 × 9 = ${aifsNs(3, ERP_2G) / US} µs。`)
   })
 
-  it('the CTS-to-self: 14 octets, 6 Mb/s, 50 µs, Duration = the round + one SIFS', () => {
+  it('the CTS-to-self: 14 octets, 6 Mb/s, 50 µs, one per TXOP, Duration = that TXOP + one SIFS', () => {
     expect(implRow('轮前的保护').kind).toBe('choice')
     const cts = roundCts(rs)
-    expect(cts.length).toBe(ROUNDS)
+    expect(cts.length).toBe(TXOPS)
     for (const c of cts) {
       expect([c.frame.bytes, c.frame.mbps, c.frame.txTimeNs]).toEqual([CTS_BYTES, 6, 50 * US])
     }
@@ -133,14 +145,19 @@ describe('amp-coexist · ② says what the engine does, and the engine does it',
     expect(roundCts(recs(NONE))).toEqual([])
   })
 
-  it('the round runs 4190 µs, past the 2.528 ms AC_BK TXOP limit (differs)', () => {
-    expect(implRow('一轮的长度').kind).toBe('differs')
-    const c = roundCts(rs)[0]
-    const round = c.frame.txTimeNs + c.frame.durationFieldNs
-    expect(round).toBe(4190 * US)
-    expect(implRow('一轮的长度').sim).toContain(`${round / US} µs`)
-    expect(round).toBeGreaterThan(EDCA_PARAMS[0].txopLimitNs)
-    expect(EDCA_PARAMS[0].txopLimitNs).toBe(2_528_000)
+  // 2026-11-11 (W7b): was `differs` — the round ran 4190 µs as one exchange past the limit.
+  it('each TXOP runs 2434 µs, inside the 2.528 ms AC_BK TXOP limit; a round is two of them', () => {
+    expect(implRow('一次传输机会的长度').kind).toBe('faithful')
+    const ackEnds = ofType(rs, 'TX_END').filter((r) => r.node === AP && r.frame.kind === 'ampAck').map((r) => r.t)
+    for (const c of roundCts(rs)) {
+      const txop = c.frame.txTimeNs + c.frame.durationFieldNs
+      expect(txop).toBe(2434 * US)
+      expect(ackEnds.includes(c.t + txop)).toBe(true)
+      expect(txop).toBeLessThanOrEqual(QAP_EDCA_PARAMS[0].txopLimitNs)
+    }
+    expect(implRow('一次传输机会的长度').sim).toContain('从 CTS-to-self 起长 2434 µs')
+    expect(QAP_EDCA_PARAMS[0].txopLimitNs).toBe(2_528_000)
+    expect(new Set(ofType(rs, 'AMP_ROUND').map((r) => r.slots))).toEqual(new Set([2]))
   })
 
   it('an RTS that met an AMP Ack inside its timeout window fails on the spot (§10.3.2.9)', () => {
@@ -168,10 +185,11 @@ describe('amp-coexist · ② says what the engine does, and the engine does it',
     expect(ampCoexist.why).toContain(`低于 −${-CCA_ED_DBM} dBm 的能量检测门限`)
   })
 
-  it('the same seed misses the same three rounds every time', () => {
+  it('the same seed misses the same seven TXOPs every time', () => {
     const again = runOf({ ...ampCoexist, id: 'amp-coexist-rerun' }, undefined, RUN_NS)
     expect(unprotected(again).map((c) => c.t)).toEqual(unprotected(rs).map((c) => c.t))
-    expect(unprotected(rs).length).toBe(3)
+    expect(unprotected(rs).length).toBe(7)
+    expect(implRow('传播').sim).toContain('同样的七次传输机会里')
   })
 })
 
@@ -184,24 +202,29 @@ describe('amp-coexist · ③ every figure the labs print is the run', () => {
     expect([Number(m[5]), Number(m[6]), Number(m[7]), Number(m[8])]).toEqual([ERP_2G.sifsNs / US, 3, ERP_2G.slotNs / US, aifsNs(3, ERP_2G) / US])
     expect(f.note).toContain(`晚 ${(aifsNs(7, ERP_2G) - aifsNs(3, ERP_2G)) / US} µs`)
     const rs = recs()
-    const e = /两秒里轮询时钟要求 (\d+) 轮，也发出了 (\d+) 轮；CTS-to-self 平均比预定时刻晚 ([\d.]+) ms，最晚晚 ([\d.]+) ms。只有两轮准时：t = 0 的第一轮（路由器的 CTS-to-self 与摄像头的 RTS 同在 0 µs 开始），以及 ([\d.]+) s 那一轮/.exec(l.expect)!
+    const e = /两秒里轮询时钟要求 (\d+) 轮，也发出了 (\d+) 轮，共 (\d+) 次传输机会；每一轮的第一帧 CTS-to-self 平均比预定时刻晚 ([\d.]+) ms，最晚晚 ([\d.]+) ms。只有 t = 0 的第一轮准时（路由器的 CTS-to-self 与摄像头的 RTS 同在 0 µs 开始）。一轮的第二次传输机会要重新竞争：第一轮里它在第一次开始后 (\d+) µs 开始，其他各轮晚得更多/.exec(l.expect)!
     expect(Number(e[1])).toBe(ROUNDS)
-    expect(Number(e[2])).toBe(ofType(rs, 'AMP_ROUND').length)
     const late = lateNs(rs, 100)
-    expect(e[3]).toBe((mean(late) / MS).toFixed(2))
-    expect(e[4]).toBe((Math.max(...late) / MS).toFixed(2))
+    expect(Number(e[2])).toBe(late.length)
+    expect(Number(e[3])).toBe(ofType(rs, 'AMP_ROUND').length)
+    expect(Number(e[3])).toBe(roundCts(rs).length)
+    expect(e[4]).toBe((mean(late) / MS).toFixed(2))
+    expect(e[5]).toBe((Math.max(...late) / MS).toFixed(2))
     const onTime = late.map((x, i) => [i, x] as const).filter(([, x]) => x === 0).map(([i]) => i)
-    expect(onTime.length).toBe(2)
-    expect(roundCts(rs)[onTime[0]].t).toBe(0)
+    expect(onTime).toEqual([0])
+    expect(roundCts(rs)[0].t).toBe(0)
     expect(txs(rs).filter((r) => r.node === CAM && r.t === 0).map((r) => r.frame.kind)).toEqual(['rts'])
-    expect(roundCts(rs)[onTime[1]].t).toBe(Number(e[5]) * 1000 * MS)
+    const cts = roundCts(rs)
+    const gaps = cts.filter((_, i) => i % 2 === 1).map((c, k) => c.t - cts[2 * k].t)
+    expect(gaps[0]).toBe(Number(e[6]) * US)
+    for (const g of gaps.slice(1)) expect(g).toBeGreaterThan(gaps[0])
     expect(ampCoexist.why).toContain(`它在开始退避（backoff）之前要等的仲裁帧间间隔（arbitration interframe space, AIFS）是 ${aifsNs(7, ERP_2G) / US} µs，AC_BE 只等 ${aifsNs(3, ERP_2G) / US} µs`)
   })
 
   it('lab 2: the NAVs, the three missed rounds, the nine frames in a slot and the forty responses', () => {
     const rs = recs()
-    const e = lab('保护帧漏收的三轮').expect
-    const m = /摄像头在 (\d+) 轮里有 (\d+) 轮按 Duration 设了 (\d+) µs 的 NAV；漏收的三轮里，它的 RTS 都与 CTS-to-self 在同一时刻开始。整个运行里有 (\d+) 帧摄像头的帧落在时隙内，全是 RTS，都在这三轮里：(\d+) 帧以 CTS 超时告终，(\d+) 帧因超时窗口内收到一帧 AMP Ack 提前判失败。(\d+) 次作答有 (\d+) 次被确认（([\d.]+) %）；丢失的 (\d+) 次里，(\d+) 次是两个标签选中同一个时隙（共 (\d+) 次），(\d+) 次是与摄像头的帧相撞/.exec(e)!
+    const e = lab('保护帧漏收的七次传输机会').expect
+    const m = /摄像头在 (\d+) 次传输机会里有 (\d+) 次按 Duration 设了 (\d+) µs 的 NAV；漏收的七次里，它的 RTS 都与 CTS-to-self 在同一时刻开始。整个运行里有 (\d+) 帧摄像头的帧落在时隙内，全是 RTS，都在这七次传输机会里：(\d+) 帧以 CTS 超时告终，(\d+) 帧因超时窗口内收到一帧 AMP Ack 提前判失败。(\d+) 次作答有 (\d+) 次被确认（([\d.]+) %）；丢失的 (\d+) 次里，(\d+) 次是两个标签选中同一个时隙（共 (\d+) 次），(\d+) 次是与摄像头的帧相撞/.exec(e)!
     const n = m.slice(1).map(Number)
     const nav = camNav(rs)
     expect(n[0]).toBe(roundCts(rs).length)
@@ -250,11 +273,11 @@ describe('amp-coexist · ③ every figure the labs print is the run', () => {
 
   it('lab 3: the airtime, the cost, the unprotected run, the 20 ms run and the phone', () => {
     const e = lab('四种配置的代价').expect
-    const m = /每轮 (\d+) µs 里实际有帧在空口的只有 (\d+) µs，占信道的 ([\d.]+) %，摄像头却损失 ([\d.]+) % 的吞吐。去掉保护，摄像头无人回应的 RTS 从 (\d+) 次增加到 (\d+) 次，路由器记下的 collision 从 (\d+) 次增加到 (\d+) 次。每 20 ms 轮询一次时，摄像头比只有 Wi-Fi 时低 ([\d.]+) %。四种配置下手机都送达 (\d+) 帧/.exec(e)!
+    const m = /每次传输机会长 (\d+) µs，一轮两次里实际有帧在空口的平均只有 ([\d.]+) µs，占信道的 ([\d.]+) %，摄像头却损失 ([\d.]+) % 的吞吐。去掉保护，摄像头无人回应的 RTS 从 (\d+) 次增加到 (\d+) 次，路由器记下的 collision 从 (\d+) 次增加到 (\d+) 次。每 20 ms 轮询一次时，摄像头比只有 Wi-Fi 时低 ([\d.]+) %。四种配置下手机都送达 (\d+) 帧/.exec(e)!
     const rs = recs()
     const c = roundCts(rs)[0]
     expect(Number(m[1])).toBe((c.frame.txTimeNs + c.frame.durationFieldNs) / US)
-    expect(Number(m[2]) * ROUNDS * US).toBe(ampAirNs(rs))
+    expect(Math.round(Number(m[2]) * ROUNDS * US)).toBe(ampAirNs(rs))
     expect(m[3]).toBe((ampAirNs(rs) / RUN_NS * 100).toFixed(3))
     const wifi = delivered(recs(WIFI_ONLY), CAM)
     expect(m[4]).toBe(((1 - delivered(rs, CAM) / wifi) * 100).toFixed(2))
@@ -269,12 +292,13 @@ describe('amp-coexist · ③ every figure the labs print is the run', () => {
   it('the why\'s own figures', () => {
     const w = ampCoexist.why!
     const pct = (x: TLRecord[]) => (acked(x) / results(x).length * 100).toFixed(1)
-    expect(w).toContain(`漏收了二十帧 CTS-to-self 中的三帧`)
-    expect(roundCts(recs()).length).toBe(20)
-    expect(unprotected(recs()).length).toBe(3)
+    expect(w).toContain(`漏收了四十帧 CTS-to-self 中的七帧`)
+    expect(roundCts(recs()).length).toBe(40)
+    expect(unprotected(recs()).length).toBe(7)
+    expect(w).toContain('每次 2434 µs')
     expect(w).toContain(`读数的确认率从 ${pct(recs())} % 降到 ${pct(recs(NONE))} %，摄像头的吞吐也从 ${mbps(recs(), CAM).toFixed(2)} Mb/s 降到 ${mbps(recs(NONE), CAM).toFixed(2)} Mb/s`)
     const wifi = delivered(recs(WIFI_ONLY), CAM)
-    expect(w).toContain(`只占 ${(ampAirNs(recs()) / RUN_NS * 100).toFixed(3)} % 的空口时间（airtime），摄像头却损失 ${((1 - delivered(recs(), CAM) / wifi) * 100).toFixed(2)} % 的吞吐`)
+    expect(w).toContain(`轮询发送的帧只占 ${(ampAirNs(recs()) / RUN_NS * 100).toFixed(3)} % 的空口时间（airtime），摄像头却损失 ${((1 - delivered(recs(), CAM) / wifi) * 100).toFixed(2)} % 的吞吐`)
     expect(w).toContain(`损失到 ${((1 - delivered(recs(POLL20), CAM) / wifi) * 100).toFixed(2)} %`)
     expect(ampCoexistScenario().nodes[0].ampAp!.pollIntervalMs / ampCoexistScenario({ pollIntervalMs: 20 }).nodes[0].ampAp!.pollIntervalMs).toBe(5)
   })

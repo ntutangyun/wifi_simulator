@@ -601,6 +601,19 @@ export const EDCA_PARAMS: AcParams[] = [
   { ac: 2, name: 'VI', aifsn: 2, cwMin: 7, cwMax: 15, txopLimitNs: 4_096_000 },
   { ac: 3, name: 'VO', aifsn: 2, cwMin: 3, cwMax: 7, txopLimitNs: 2_080_000 },
 ]
+/**
+ * The AP's own EDCA parameters: the defaults of dot11QAPEDCATable (802.11-2024 Annex C MIB,
+ * dot11QAPEDCATableCWmin/CWmax/AIFSN/TXOPLimit; §10.2.3.2 "defined by dot11QAPEDCATable at the
+ * AP and by dot11EDCATable at the non-AP STA"). CWmin as Table 9-194; CWmax aCWmax, 4·(aCWmin+1)−1,
+ * aCWmin, (aCWmin+1)/2−1; AIFSN 7, 3, 1, 1 (an AP may use AIFSN 1, §10.23.2.4); TXOP limit as
+ * Table 9-194.
+ */
+export const QAP_EDCA_PARAMS: AcParams[] = [
+  { ac: 0, name: 'BK', aifsn: 7, cwMin: 15, cwMax: 1023, txopLimitNs: 2_528_000 },
+  { ac: 1, name: 'BE', aifsn: 3, cwMin: 15, cwMax: 63, txopLimitNs: 2_528_000 },
+  { ac: 2, name: 'VI', aifsn: 1, cwMin: 7, cwMax: 15, txopLimitNs: 4_096_000 },
+  { ac: 3, name: 'VO', aifsn: 1, cwMin: 3, cwMax: 7, txopLimitNs: 2_080_000 },
+]
 /** Legacy DCF modeled as a single pseudo-AC (AIFSN 2 ⇒ DIFS, no TXOP). */
 export const DCF_PARAMS: AcParams = { ac: 1, name: 'BE', aifsn: 2, cwMin: CW_MIN, cwMax: CW_MAX, txopLimitNs: 0 }
 
@@ -620,3 +633,18 @@ export const AMPDU_DELIMITER_BYTES = 4
 export const QOS_HDR_BYTES = 26
 export const MAX_AMPDU_MPDUS = 64
 export const MAX_PPDU_NS = 5_484_000 // aPPDUMaxTime (HT-MF/VHT/HE/EHT)
+
+/** ERP long slot time (Table 18-5): 20 µs. */
+export const LONG_SLOT_NS: Ns = 20_000
+
+/**
+ * The same link timing with the MAC variable aSlotTime set to the long slot time (§10.3.2.16):
+ * an AP that supports Clause 18 uses the long slot unless every STA of the BSS supports the short
+ * one (§11.1.3.2), and announces it with Short Slot Time = 0. Every slot-derived interval moves
+ * with it — DIFS (§10.3.2.3.5), the AckTimeout/CTSTimeout (§10.3.2.9) and EIFS, which contains a
+ * DIFS (§10.3.2.3.7) — and nothing else does.
+ */
+export function withLongSlot(T: PhyTiming): PhyTiming {
+  const d = LONG_SLOT_NS - T.slotNs
+  return { ...T, slotNs: LONG_SLOT_NS, difsNs: T.difsNs + 2 * d, ackTimeoutNs: T.ackTimeoutNs + d, eifsNs: T.eifsNs + 2 * d }
+}

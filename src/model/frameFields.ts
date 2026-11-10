@@ -13,11 +13,11 @@
 import {
   AMP_ACK_BYTES, AMP_DL_SIG_BYTES, AMP_DL_SYNC_NS, AMP_FCS_BYTES, AMP_LEGACY_PREAMBLE_NS, AMP_PADDING_NS,
   AMP_READING_BYTES, AMP_STA_ID_BYTES, AMP_TRIGGER_BODY_BYTES, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS,
-  ampBitsNs, ampId16, type AmpUlKbps,
+  AMP_SCRAMBLER_INIT, ampBitsNs, ampId16, type AmpUlKbps,
 } from '../engine/amp'
 import {
   AMP_BS_DL_KBPS, AMP_BS_DL_SYNC_NS, AMP_BS_UL_CHIP_NS, AMP_BS_UL_SYNC_CHIPS, AMP_RFID_FCS_BYTES,
-  GEN2_CMD_BYTES, GEN2_CMD_NAME, GEN2_REPLY_BYTES, crc16Epc, epcOf, type AmpBsUlKbps,
+  BS_CMD_BODY_BYTES, BS_CMD_NAME, BS_REPLY_BODY_BYTES, crc16Epc, epcOf, type AmpBsUlKbps,
 } from '../engine/ampBs'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
@@ -347,7 +347,7 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       fields = [
         { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP Trigger' }, { key: 'protected', value: '0' }] },
         { key: 'ampId', bytes: 2, value: `AP ${ampId16(f.src).toString(16).padStart(4, '0')} (broadcast trigger)` },
-        { key: 'ampTdc', bytes: 2, value: `${a.phase} · UL ${a.ulKbps ?? a.kbps} kb/s · seed 0` },
+        { key: 'ampTdc', bytes: 2, value: `${a.phase} · UL ${a.ulKbps ?? a.kbps} kb/s · channel ${a.channel ?? '—'} · UL shift ${a.ulShiftMhz ?? 0} MHz · seed index ${a.seedIdx ?? 0} (0x${(AMP_SCRAMBLER_INIT[a.seedIdx ?? 0] ?? 0).toString(16)})` },
         { key: 'body', bytes: AMP_TRIGGER_BODY_BYTES, value: `Session ${a.sessionId} · ACWE ${a.acwe} (ACW ${2 ** (a.acwe ?? 0) - 1}) · ${a.slots} slots × ${usOf(a.slotNs ?? 0)} · ${a.reading ? 'reading' : 'id only'}` },
       ]
       if (ids.length) fields.push({ key: 'ampStaList', bytes: AMP_STA_ID_BYTES * ids.length, value: ids.map((id) => ampId16(id).toString(16).padStart(4, '0')).join(' ') })
@@ -375,57 +375,57 @@ function controlMpdu(f: FrameDesc, apId: string): Mpdu {
       checkSize(fields, f.bytes)
       break
     }
-    // Backscatter (slice A2). The downlink carries one EPC Gen2 command in an AMP RFID frame;
-    // the id field is the addressed tag's 16-bit identifier, which SFD FM-25 defines as the
-    // CRC-16 of its EPC, and the TDC carries the UL Rate field (FM-24).
+    // Mono-static backscatter (PDT 11-26/1519r5 §39.3.3, 11-26/1520r3). The downlink is either a
+    // broadcast AMP Trigger (ID 0xFFFF; its layout as the Active Tx trigger's) or an AMP RFID frame
+    // carrying the UHF Read command, whose 16-bit ID is the addressed tag's — the CRC-16 of its EPC
+    // (SFD FM-25) — with a 32-bit MAC header and a 16-bit FCS.
     case 'ampRfid': {
       const r = f.amp!.rfid!
-      const broadcast = f.dst.startsWith('*')
-      fields = [
-        { key: 'fc', bytes: 1, bits: [{ key: 'type', value: `AMP RFID (${GEN2_CMD_NAME[r.cmd]})` }, { key: 'protected', value: '0' }] },
-        {
-          // FM-25's 16-bit id is the CRC-16 of the tag's EPC, so it has to be the EPC the tag
-          // actually carries: the one the scenario configured when there is one, and only then
-          // the one derived from the node id. Otherwise a tag with a custom EPC shows an id its
-          // own reply contradicts.
-          key: 'ampId', bytes: 2, node: broadcast ? undefined : f.dst,
-          value: broadcast ? 'broadcast (inventory)' : crc16Epc(r.epc ?? epcOf(f.dst)).toString(16).padStart(4, '0'),
-        },
-        { key: 'ampTdc', bytes: 2, value: `session ${r.session} · UL ${r.ulKbps} kb/s${r.q !== undefined ? ` · Q ${r.q}` : ''}` },
-        {
-          key: 'body', bytes: GEN2_CMD_BYTES[r.cmd],
-          value: `${GEN2_CMD_NAME[r.cmd]}${r.rn16 !== undefined ? ` · RN16 ${r.rn16.toString(16).padStart(4, '0')}` : ''}`,
-        },
-        { key: 'fcs', bytes: AMP_RFID_FCS_BYTES, value: 'CRC-16' },
-      ]
+      if (r.cmd === 'trigger') {
+        fields = [
+          { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP Trigger' }, { key: 'protected', value: '0' }] },
+          { key: 'ampId', bytes: 2, value: 'ffff (broadcast)' },
+          { key: 'ampTdc', bytes: 2, value: `random access · UL ${r.ulKbps} kb/s` },
+          { key: 'body', bytes: BS_CMD_BODY_BYTES.trigger, value: `Session ${r.session} · ACWE ${r.acwe ?? 0} (ACW ${2 ** (r.acwe ?? 0) - 1}) · 1 slot` },
+          { key: 'fcs', bytes: AMP_FCS_BYTES, value: 'CRC-16' },
+        ]
+      } else {
+        fields = [
+          { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP RFID' }, { key: 'protected', value: '0' }] },
+          {
+            // FM-25's 16-bit id is the CRC-16 of the tag's EPC, so it has to be the EPC the tag
+            // actually carries: the one the scenario configured when there is one, and only then
+            // the one derived from the node id.
+            key: 'ampId', bytes: 2, node: f.dst,
+            value: crc16Epc(r.epc ?? epcOf(f.dst)).toString(16).padStart(4, '0'),
+          },
+          { key: 'ampTdc', bytes: 1, value: `body ${BS_CMD_BODY_BYTES.read} octets · UL ${r.ulKbps} kb/s` },
+          { key: 'body', bytes: BS_CMD_BODY_BYTES.read, value: `UHF ${BS_CMD_NAME[r.cmd]} (EPC bank)` },
+          { key: 'fcs', bytes: AMP_RFID_FCS_BYTES, value: 'CRC-16' },
+        ]
+      }
       checkSize(fields, f.bytes)
       break
     }
-    // …and the uplink keeps Gen2's own reply shapes, which have no AMP MAC header at all: a bare
-    // RN16, or a payload closed by Gen2's CRC-16.
+    // …and the uplink: an AMP Response carrying the tag's ID, or an AMP RFID frame with the Read
+    // reply (the EPC) in its body.
     case 'ampBsReply': {
       const b = f.amp!.bs!
-      const rn16 = b.rn16 !== undefined ? b.rn16.toString(16).padStart(4, '0') : '—'
-      fields = b.reply === 'rn16'
-        ? [{ key: 'body', bytes: GEN2_REPLY_BYTES.rn16, value: `RN16 ${rn16}` }]
-        : b.reply === 'epc'
-          ? [
-            { key: 'body', bytes: 2, value: 'PC (protocol control)' },
-            { key: 'body', bytes: 12, value: `EPC ${b.epc ?? epcOf(f.src)}` },
-            { key: 'fcs', bytes: 2, value: 'CRC-16' },
-          ]
-          : b.reply === 'read'
-            ? [
-              { key: 'body', bytes: 1, value: 'header (0 = success)' },
-              { key: 'body', bytes: AMP_READING_BYTES, value: 'memory words' },
-              { key: 'body', bytes: 2, value: `RN16 ${rn16}` },
-              { key: 'fcs', bytes: 2, value: 'CRC-16' },
-            ]
-            : [
-              { key: 'body', bytes: 1, value: 'header (0 = success)' },
-              { key: 'body', bytes: 2, value: `RN16 ${rn16}` },
-              { key: 'fcs', bytes: 2, value: 'CRC-16' },
-            ]
+      const id = crc16Epc(b.epc ?? epcOf(f.src)).toString(16).padStart(4, '0')
+      fields = b.reply === 'id'
+        ? [
+          { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP Response' }, { key: 'protected', value: '0' }] },
+          { key: 'ampId', bytes: 2, node: f.src, value: id },
+          { key: 'ampTdc', bytes: 2, value: `slot ${b.slot}` },
+          { key: 'fcs', bytes: AMP_FCS_BYTES, value: 'CRC-16' },
+        ]
+        : [
+          { key: 'fc', bytes: 1, bits: [{ key: 'type', value: 'AMP RFID' }, { key: 'protected', value: '0' }] },
+          { key: 'ampId', bytes: 2, node: f.src, value: id },
+          { key: 'ampTdc', bytes: 1, value: `body ${BS_REPLY_BODY_BYTES.read} octets` },
+          { key: 'body', bytes: BS_REPLY_BODY_BYTES.read, value: `Read reply · EPC ${b.epc ?? epcOf(f.src)}` },
+          { key: 'fcs', bytes: AMP_RFID_FCS_BYTES, value: 'CRC-16' },
+        ]
       checkSize(fields, f.bytes)
       break
     }

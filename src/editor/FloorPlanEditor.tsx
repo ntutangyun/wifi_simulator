@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, type FadingCfg } from '../engine/fading'
 import { Rng } from '../engine/rng'
 import { GEN_FEATURES, GEN_RANK, physicalId, type LinkId } from '../model/caps'
-import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, ampApRefusals, driverRefusalsFor, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
+import { DEFAULT_AMP_AP, DEFAULT_AMP_BS, DEFAULT_SIX_GHZ_CENTER_MHZ, ampApRefusals, driverRefusalsFor, supportsShortSlot, normalizeProfiles, PROFILE_IDS, SERVER_KINDS, sixGhzChannelNo, TAMPER_KINDS, TAMPER_PRESETS, TXOP_PROTECTIONS, serverFor, serverKindFor, tamperKindOf, type AmpApCfg, type AmpBackscatterCfg, type AmpTagMode, type GuardIntervalCfg, type Material, type NodeCfg, type ProfileId, type Scenario, type SelectivityCfg, type ServerCfg, type ServerKind, type TamperKind, type TxopProtection, type UwbSessionCfg } from '../model/scenario'
 import { HOUSEHOLDS } from '../model/households'
 import { nonht } from '../model/scenario'
 import { BRANDS, STATION_PRESETS, applyPreset } from '../model/presets'
@@ -974,11 +974,11 @@ export function FloorPlanEditor() {
                           </select>
                         </label>
                       )}
-                      {selNode.kind === 'ap' && (
-                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }} title={E.gameAccelHint}>
-                          <input type="checkbox" checked={selNode.gameAccel === true}
-                            onChange={(e) => updateNode(selNode.id, { gameAccel: e.target.checked || undefined })} />
-                          {E.gameAccel}
+                      {((selNode.kind === 'sta' && selNode.linkId === '2g') || (selNode.kind === 'ap' && scenario.nodes.some((x) => x.linkId === '2g'))) && (
+                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }} title={E.shortSlotHint}>
+                          <input type="checkbox" checked={supportsShortSlot(selNode)}
+                            onChange={(e) => updateNode(selNode.id, { shortSlot: e.target.checked })} />
+                          {E.shortSlot}
                         </label>
                       )}
                       {selNode.kind === 'sta' && (
@@ -1187,9 +1187,16 @@ export function FloorPlanEditor() {
                                   <>
                                     <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsQHint}>
                                       {E.ampBsQ}{' '}
-                                      <input type="number" min={0} max={8} value={selNode.ampAp.backscatter.q} style={{ width: 56 }}
+                                      <input type="number" min={0} max={4} value={selNode.ampAp.backscatter.acwe} style={{ width: 56 }}
                                         onChange={(e) => updateNode(selNode.id, {
-                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, q: clampField(e.target.value, 0, 8, true) } },
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, acwe: clampField(e.target.value, 0, 4, true) } },
+                                        })} />
+                                    </label>
+                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsSlotsHint}>
+                                      {E.ampBsSlots}{' '}
+                                      <input type="number" min={1} max={256} value={selNode.ampAp.backscatter.slots} style={{ width: 56 }}
+                                        onChange={(e) => updateNode(selNode.id, {
+                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, slots: clampField(e.target.value, 1, 256, true) } },
                                         })} />
                                     </label>
                                     <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsUlHint}>
@@ -1223,28 +1230,12 @@ export function FloorPlanEditor() {
                                           ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, bsDbm: clampField(e.target.value, -10, 30) } },
                                         })} /> dBm
                                     </label>
-                                    <label style={{ display: 'block', marginBottom: 4 }} title={E.ampBsTxopHint}>
-                                      {E.ampBsTxop}{' '}
-                                      <input type="number" min={1} max={10} value={selNode.ampAp.backscatter.txopMs} style={{ width: 56 }}
-                                        onChange={(e) => updateNode(selNode.id, {
-                                          // the schema allows a fraction here (unlike `q`/`slots`/`acwe`), so this is
-                                          // not int-clamped: an imported plan with e.g. txopMs 4.5 is never rounded
-                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, txopMs: clampField(e.target.value, 1, 10) } },
-                                        })} /> ms
-                                    </label>
                                     <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }} title={E.ampBsReadHint}>
                                       <input type="checkbox" checked={selNode.ampAp.backscatter.read}
                                         onChange={(e) => updateNode(selNode.id, {
                                           ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, read: e.target.checked } },
                                         })} />
                                       {E.ampBsRead}
-                                    </label>
-                                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }} title={E.ampBsWriteHint}>
-                                      <input type="checkbox" checked={selNode.ampAp.backscatter.write}
-                                        onChange={(e) => updateNode(selNode.id, {
-                                          ampAp: { ...selNode.ampAp!, backscatter: { ...selNode.ampAp!.backscatter!, write: e.target.checked } },
-                                        })} />
-                                      {E.ampBsWrite}
                                     </label>
                                   </>
                                 )}

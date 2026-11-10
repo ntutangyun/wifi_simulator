@@ -1,7 +1,7 @@
 /**
  * IEEE P802.11bp Ambient Power (AMP), **backscatter** mode in 2.4 GHz: the propagation law a
- * reflected signal travels, the reader's own noise floor, the EPC Gen2 commands the draft
- * tunnels, and the two excitation fields that keep a tag alive while it answers.
+ * reflected signal travels, the reader's own noise floor, the mono-static frames (AMP Trigger,
+ * AMP RFID carrying UHF commands), and the two excitation fields that keep a tag alive while it answers.
  *
  * This is slice A2's model half; `amp.ts` next door is the Active Tx tier, where the tag makes
  * its own carrier. The two share the legacy preamble and the Manchester-OOK bit timing and
@@ -17,7 +17,7 @@
  *
  * Nothing of the draft's text is reproduced: field names and numbers only.
  */
-import { AMP_LEGACY_PREAMBLE_NS, ampBitsNs } from './amp'
+import { AMP_FCS_BYTES, AMP_HDR_BYTES, AMP_LEGACY_PREAMBLE_NS, AMP_TRIGGER_BODY_BYTES, ampBitsNs } from './amp'
 import { hashStr } from './hash'
 import { freeSpacePl0Db } from '../uwb/units'
 import type { FrameDesc } from '../model/frames'
@@ -45,11 +45,13 @@ export const AMP_BS_REQ_SNR_DB: Record<AmpBsUlKbps, number> = { 250: 3, 1000: 9 
 
 export const AMP_BS_T1_NS: Ns = 16_000 // SFD PM-75 immediate response time
 export const AMP_BS_T2_NS: Ns = 16_000 // TGbp 11-26/0120r0 AP turnaround (contribution)
-export const AMP_BS_WRITE_T3_NS: Ns = 2_000_000 // TGbp 11-26/0120r0 (contribution): Write ≥ 2 ms
+/** A Write's processing time: ≥ 2 ms. Not sent by this reader — 1.1 × 2 ms of BST-Excitation alone
+ * is longer than the AC_BK TXOP limit (2.528 ms, Table 9-194) less the PPDU around it. */
+export const AMP_BS_WRITE_T3_NS: Ns = 2_000_000 // TGbp 11-26/0120r0 (contribution)
 export const AMP_BS_WUP_MIN_NS: Ns = 1_000_000 // SFD PM-73
 export const AMP_BS_BST_MIN_NS: Ns = 16_000 // SFD PM-74
 export const AMP_BS_DL_SYNC_NS: Ns = 16_000 // SFD PM-63: 8 chips × 2 µs (PM-10)
-export const AMP_BS_DL_KBPS = 250 // TGbp 11-25/0061r0: single DL rate for backscatter (contribution)
+export const AMP_BS_DL_KBPS = 250 // SFD: 250 kb/s DL (#16); one DL rate for mono-static (model)
 export const AMP_BS_UL_SYNC_CHIPS = 24 // SFD PM-57: [S,S,S], S = 8 chips
 export const AMP_BS_UL_CHIP_NS: Record<AmpBsUlKbps, Ns> = { 250: 2000, 1000: 500 } // model reading of PM-35 (Manchester, no FEC)
 /**
@@ -128,30 +130,57 @@ export function activationReachM(chargeDbm: number, wallsDb = 0): number {
   return 10 ** ((maxPlDb - freeSpacePl0Db(FREQ_24G_MHZ) - wallsDb) / 20)
 }
 
-// --- EPC Gen2 frames -------------------------------------------------------------
+// --- Mono-static frames ----------------------------------------------------------
 
-export type Gen2Cmd = 'query' | 'queryRep' | 'ack' | 'read' | 'write' | 'select'
-/** Command bodies rounded up from the Gen2 bit lengths: Query 22 bits, QueryRep 4, ACK 18 (the
- * RN16), Read and Write their bank/pointer/RN16/CRC, Select the mask of a 96-bit EPC.
- * EPC Gen2 → octets (model rounding) */
-export const GEN2_CMD_BYTES: Record<Gen2Cmd, number> = { query: 3, queryRep: 1, ack: 3, read: 8, write: 8, select: 18 }
-/** The Gen2 names, which are the same in every language the UI speaks. EPC Gen2 */
-export const GEN2_CMD_NAME: Record<Gen2Cmd, string> = {
-  query: 'Query', queryRep: 'QueryRep', ack: 'ACK', read: 'Read', write: 'Write', select: 'Select',
+/**
+ * The downlink frames a mono-static reader sends (PDT 11-26/1519r5 §39.3.3; PDT 11-26/1520r3).
+ *
+ *  - `trigger`: a broadcast **AMP Trigger** frame for random access — ID 0xFFFF, one slot, UL data
+ *    rate, slot duration, Session ID and ACWE (§39.3.3). The tags it solicits answer with an AMP
+ *    Response frame carrying their 16-bit identifier.
+ *  - `read`: an individually addressed **AMP RFID** frame (Motion #239) whose frame body carries
+ *    the UHF Read command (ISO/IEC 18000-63, MM-29); the tag answers with an AMP RFID frame
+ *    carrying the Read reply. This reader reads the EPC memory bank, which is how it learns a
+ *    tag's EPC (the global identifier, Motion #241).
+ *
+ * Until 2026-11-11 the reader tunnelled EPC Gen2's own inventory — Query, QueryRep, ACK and the
+ * 2^Q slot counter — after proposal 11-25/0061r0, which TGbp never adopted. Select, Write and
+ * Authenticate (MM-29) are not sent: see `ampReader.ts`.
+ */
+export type BsCmd = 'trigger' | 'read'
+/** Frame body octets: the AMP Trigger body as the Active Tx trigger's (`AMP_TRIGGER_BODY_BYTES`,
+ * model — the draft gives the fields, not their widths); the Read command's Gen2 bits (8-bit
+ * code, MemBank, WordPtr, WordCount, RN, CRC-16: 58 bits) rounded up to octets (model rounding). */
+export const BS_CMD_BODY_BYTES: Record<BsCmd, number> = { trigger: AMP_TRIGGER_BODY_BYTES, read: 8 }
+export const BS_CMD_NAME: Record<BsCmd, string> = { trigger: 'AMP Trigger', read: 'Read' }
+
+/**
+ * The uplink a tag reflects. `id`: an AMP Response frame (Table 9-742 type 3, PDT 11-25/1678r2)
+ * with no frame body — the answer to a random-access trigger is the tag's identifier (§39.3.3).
+ * `read`: an AMP RFID frame whose body is the Gen2 Read reply for the EPC bank — header bit,
+ * six 16-bit EPC words, the RN and a CRC-16, 129 bits rounded up to 17 octets (model rounding).
+ */
+export type BsReply = 'id' | 'read'
+export const BS_REPLY_BODY_BYTES: Record<BsReply, number> = { id: 0, read: 17 }
+export const BS_REPLY_NAME: Record<BsReply, string> = { id: 'AMP Response', read: 'Read reply' }
+
+/** AMP RFID frame: MAC header 32 bits (Frame Control 8, ID 16, Type Dependent Control 8) and a
+ * 16-bit FCS. PDT 11-26/1520r3 Figure 9-155x1/x2 */
+export const AMP_RFID_HDR_BYTES = 4
+export const AMP_RFID_FCS_BYTES = 2
+
+/** Octets of a downlink frame: an AMP Trigger in the Active Tx trigger's layout, an AMP RFID frame in its own. */
+export function bsCmdBytes(cmd: BsCmd): number {
+  return cmd === 'trigger'
+    ? AMP_HDR_BYTES + BS_CMD_BODY_BYTES.trigger + AMP_FCS_BYTES
+    : AMP_RFID_HDR_BYTES + BS_CMD_BODY_BYTES.read + AMP_RFID_FCS_BYTES
 }
 
-export type Gen2Reply = 'rn16' | 'epc' | 'read' | 'write'
-/** Gen2's reply shapes: RN16 bare (no header, no FCS), the EPC reply PC 2 + EPC 12 + CRC-16 2,
- * a Read reply header 1 + 8 data + RN16 2 + CRC 2, a Write reply header 1 + RN16 2 + CRC 2.
- * EPC Gen2 → octets (model rounding) */
-export const GEN2_REPLY_BYTES: Record<Gen2Reply, number> = { rn16: 2, epc: 16, read: 13, write: 5 }
-export const GEN2_REPLY_NAME: Record<Gen2Reply, string> = { rn16: 'RN16', epc: 'EPC', read: 'Read', write: 'Write' } // EPC Gen2
-
-export const AMP_RFID_HDR_BYTES = 5 // SFD FM-15/FM-20 (widths model as slice 1): FC 1 + ID 2 + TDC 2
-export const AMP_RFID_FCS_BYTES = 2 // SFD FM-15/FM-20 (widths model as slice 1)
-
-export function ampRfidBytes(cmd: Gen2Cmd): number {
-  return AMP_RFID_HDR_BYTES + GEN2_CMD_BYTES[cmd] + AMP_RFID_FCS_BYTES
+/** Octets of a reflected frame: an AMP Response in the Active Tx layout (id only), an AMP RFID frame in its own. */
+export function bsReplyBytes(reply: BsReply): number {
+  return reply === 'id'
+    ? AMP_HDR_BYTES + AMP_FCS_BYTES
+    : AMP_RFID_HDR_BYTES + BS_REPLY_BODY_BYTES.read + AMP_RFID_FCS_BYTES
 }
 
 /**
@@ -159,9 +188,9 @@ export function ampRfidBytes(cmd: Gen2Cmd): number {
  * `AMP_BS_UL_SYNC_CHIPS` chips, then Manchester-OOK data with no FEC — two chips to a bit, so
  * 4 µs a bit at 250 kb/s and 1 µs at 1 Mb/s. SFD PM-57, PM-35, PM-20
  */
-export function bsReplyNs(reply: Gen2Reply, kbps: AmpBsUlKbps): Ns {
+export function bsReplyNs(reply: BsReply, kbps: AmpBsUlKbps): Ns {
   const chipNs = AMP_BS_UL_CHIP_NS[kbps]
-  return AMP_BS_UL_SYNC_CHIPS * chipNs + GEN2_REPLY_BYTES[reply] * 8 * 2 * chipNs
+  return AMP_BS_UL_SYNC_CHIPS * chipNs + bsReplyBytes(reply) * 8 * 2 * chipNs
 }
 
 /**
@@ -169,12 +198,13 @@ export function bsReplyNs(reply: Gen2Reply, kbps: AmpBsUlKbps): Ns {
  * to reflect and something to think with.
  *
  * Three cases. An immediate response is stretched over `1.2·T1 + 1.1·T4`, T4 being the reply's
- * own airtime; a delayed one — Write, which answers after T3 = 2 ms — over `1.1·T3 + 1 µs +
- * 1.1·T4`; and a command expecting nothing back still holds the carrier for the stretched T1.
- * The first and third never drop below `AMP_BS_BST_MIN_NS`. SFD PM-74, PM-75, PM-86…PM-88; T3 from
- * TGbp 11-26/0120r0 (contribution)
+ * own airtime; a delayed one — a command whose processing time T3 the upper layer gives the MAC
+ * (PDT 11-26/1798r1) — over `1.1·T3 + 1 µs + 1.1·T4`; and a command expecting nothing back still
+ * holds the carrier for the stretched T1. The first and third never drop below
+ * `AMP_BS_BST_MIN_NS`. SFD PM-74, PM-75, PM-86…PM-88. This reader sends no delayed command
+ * (`ampReader.ts`), so the second case is kept for the formula's sake only.
  */
-export function bstNs(reply: Gen2Reply | null, kbps: AmpBsUlKbps, delayedT3Ns?: Ns): Ns {
+export function bstNs(reply: BsReply | null, kbps: AmpBsUlKbps, delayedT3Ns?: Ns): Ns {
   if (reply === null) return Math.max(AMP_BS_BST_MIN_NS, Math.round(BST_T1_MARGIN * AMP_BS_T1_NS))
   const replyNs = bsReplyNs(reply, kbps)
   if (delayedT3Ns !== undefined) {
@@ -194,7 +224,7 @@ export function ampBsSyncEndNs(wupNs: Ns): Ns {
 }
 
 /**
- * Where AMP-Data ends: the sync, then the command at 250 kb/s Manchester OOK. There is no
+ * Where AMP-Data ends: the sync, then the frame at 250 kb/s Manchester OOK. There is no
  * AMP-SIG in mono-static and no padding field.
  *
  * This is the instant the BST-Excitation starts, the tag's answer becomes due (T1 later) and the
@@ -202,8 +232,8 @@ export function ampBsSyncEndNs(wupNs: Ns): Ns {
  * airtime does, and both take it from here rather than each composing the prefix for itself.
  * SFD PM-65 note; 11-25/0061r0 (single DL rate)
  */
-export function ampBsDataEndNs(cmd: Gen2Cmd, wupNs: Ns): Ns {
-  return ampBsSyncEndNs(wupNs) + ampBitsNs(ampRfidBytes(cmd) * 8, AMP_BS_DL_KBPS)
+export function ampBsDataEndNs(cmd: BsCmd, wupNs: Ns): Ns {
+  return ampBsSyncEndNs(wupNs) + ampBitsNs(bsCmdBytes(cmd) * 8, AMP_BS_DL_KBPS)
 }
 
 /**
@@ -211,29 +241,29 @@ export function ampBsDataEndNs(cmd: Gen2Cmd, wupNs: Ns): Ns {
  * L-SIG LENGTH covers all of this, so Wi-Fi defers for the lot), the BST-Excitation and the
  * signal extension. SFD PM-38, PM-63, PM-65 note, PM-72, PM-73
  */
-export function ampBsDlPpduNs(cmd: Gen2Cmd, wupNs: Ns, bstNs: Ns, signalExtNs: Ns): Ns {
+export function ampBsDlPpduNs(cmd: BsCmd, wupNs: Ns, bstNs: Ns, signalExtNs: Ns): Ns {
   return ampBsDataEndNs(cmd, wupNs) + bstNs + signalExtNs
 }
 
 export interface AmpRfidArgs {
-  src: string; dst: string; cmd: Gen2Cmd; session: number; q?: number; rn16?: number; slot: number
+  src: string; dst: string; cmd: BsCmd; session: number; acwe?: number; slot: number
   ulKbps: AmpBsUlKbps; wupNs: Ns; bstNs: Ns; chargeDbm: number; bsDbm: number; signalExtNs: Ns
   /** The addressed tag's EPC, when the scenario configured one. Left out for a broadcast command
    * and for a tag that takes the EPC `epcOf` derives from its node id. */
   epc?: string
 }
 
-/** An AMP RFID frame: one EPC Gen2 command inside a downlink PPDU with its two excitations.
- * SFD FM-44, FM-45, FM-24 */
+/** A mono-static downlink PPDU — an AMP Trigger or an AMP RFID frame — with its two excitations.
+ * SFD FM-44, FM-45, FM-24; PDT 11-26/1519r5 §39.3.3, 11-26/1520r3 */
 export function ampRfidFrame(a: AmpRfidArgs): FrameDesc {
-  const bytes = ampRfidBytes(a.cmd)
+  const bytes = bsCmdBytes(a.cmd)
   return {
     kind: 'ampRfid', src: a.src, dst: a.dst, bytes, mbps: AMP_BS_DL_KBPS / 1000,
     durationFieldNs: 0, txTimeNs: ampBsDlPpduNs(a.cmd, a.wupNs, a.bstNs, a.signalExtNs),
     amp: {
       dir: 'dl', kbps: AMP_BS_DL_KBPS,
       rfid: {
-        cmd: a.cmd, session: a.session, q: a.q, rn16: a.rn16, epc: a.epc, slot: a.slot,
+        cmd: a.cmd, session: a.session, acwe: a.acwe, epc: a.epc, slot: a.slot,
         wupNs: a.wupNs, bstNs: a.bstNs, chargeDbm: a.chargeDbm, bsDbm: a.bsDbm, ulKbps: a.ulKbps,
       },
     },
@@ -241,16 +271,16 @@ export function ampRfidFrame(a: AmpRfidArgs): FrameDesc {
 }
 
 export interface AmpBsReplyArgs {
-  src: string; dst: string; reply: Gen2Reply; kbps: AmpBsUlKbps; slot: number; rn16?: number; epc?: string
+  src: string; dst: string; reply: BsReply; kbps: AmpBsUlKbps; slot: number; epc?: string
 }
 
 /** A tag's backscattered answer. It carries no power of its own: `amp.bs.incidentDbm` is filled
  * in by whoever knows the geometry, and the medium reads it back out. SFD PM-24, FM-35 */
 export function ampBsReplyFrame(a: AmpBsReplyArgs): FrameDesc {
   return {
-    kind: 'ampBsReply', src: a.src, dst: a.dst, bytes: GEN2_REPLY_BYTES[a.reply], mbps: a.kbps / 1000,
+    kind: 'ampBsReply', src: a.src, dst: a.dst, bytes: bsReplyBytes(a.reply), mbps: a.kbps / 1000,
     durationFieldNs: 0, txTimeNs: bsReplyNs(a.reply, a.kbps),
-    amp: { dir: 'ul', kbps: a.kbps, bs: { reply: a.reply, slot: a.slot, rn16: a.rn16, epc: a.epc } },
+    amp: { dir: 'ul', kbps: a.kbps, bs: { reply: a.reply, slot: a.slot, epc: a.epc } },
   }
 }
 

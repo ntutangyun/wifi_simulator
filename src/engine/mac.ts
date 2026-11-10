@@ -2,8 +2,10 @@
  * Wi-Fi MAC per IEEE Std 802.11-2024, feature-configurable per node:
  *  - DCF (§10.3): CS + NAV, DIFS/EIFS, binary-exponential backoff,
  *    freeze/resume, post-TX backoff, 802.11-2020 retries (per-MSDU count + QSRC), ACK, RTS/CTS.
- *  - EDCA (§10.23): four EDCAFs with AIFS/CWmin/CWmax per Table 9-194,
- *    internal-collision arbitration (higher AC wins, losers double CW).
+ *  - EDCA (§10.23): four EDCAFs with AIFS/CWmin/CWmax per Table 9-194 at a non-AP STA and
+ *    per the dot11QAPEDCATable defaults at the AP (§10.2.3.2), internal-collision arbitration
+ *    (higher AC wins; the loser's QSRC/CW move as for a failure, §10.23.2.2 d), and the MSDUs
+ *    involved count a retry, §10.23.2.12.1).
  *  - TXOP bursting: SIFS-separated exchanges until the AC's TXOP limit.
  *  - A-MPDU + BlockAck: aggregated PPDUs acknowledged by a single BA whose bitmap reports each
  *    MPDU; only the unacknowledged ones are sent again (§10.12, §10.25).
@@ -26,7 +28,7 @@ import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
-  EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
+  EDCA_PARAMS, QAP_EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
   RTS_BYTES, SHORT_RETRY_LIMIT,
   GI_MODES, TGI_NS,
   aifsNs, ctrlRespRateFor, ctrlRespRateForMode, lowestMode, mcsInMode, mcsRateMbps,
@@ -34,7 +36,7 @@ import {
   type AcParams, type PhyMode, type PhyTiming, type TxTimeOpts,
 } from './phy'
 import { Rng } from './rng'
-import { AcQueues, DEFAULT_MSDU_LIFETIME_NS } from './queues'
+import { AcQueues, DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS, DEFAULT_MSDU_LIFETIME_NS } from './queues'
 import type { Msdu } from './traffic'
 
 export interface MacHooks {
@@ -81,7 +83,10 @@ export interface WifiMacCfg {
   /** MSDUs per access-category queue (default 500), for a MAC that builds its own queues.
    * Simulation always passes shared MLD queues, so this is a test-only knob; scenarios set `queue.limit`. */
   queueLimit?: number
-  /** MSDU lifetime in the transmit queue (default 500 ms). */
+  /**
+   * MSDU lifetime: dot11EDCATableMSDULifetime under EDCA (default 500 TU, from enqueue), or
+   * dot11MaxTransmitMSDULifetime under DCF (default 512 TU, from the first attempt).
+   */
   msduLifetimeNs?: Ns
   /**
    * The data field's guard interval this scenario selects, ns; absent (or a method returning
@@ -263,6 +268,8 @@ export class WifiMac implements PhyListener {
   /** Whether the next AC_BK TXOP is a poll, and which of the two rounds it runs. */
   private ampPending = false
   private ampNext: AmpApRound | AmpInventoryRound | null = null
+  /** The round whose TXOP ran last, which is the one that may ask to be continued. */
+  private ampLast: AmpApRound | AmpInventoryRound | null = null
   /** Polls taken so far, which is what two tiers sharing one reader alternate on. */
   private ampPolls = 0
   private readonly T: PhyTiming
@@ -280,7 +287,7 @@ export class WifiMac implements PhyListener {
   ) {
     this.T = cfg.timing ?? OFDM_5G
     this.queues = sharedQueues ?? new AcQueues(cfg.queueLimit)
-    this.edcafs = effectiveParams(cfg.edca ? EDCA_PARAMS : [DCF_PARAMS], cfg.tamper).map((params) => ({
+    this.edcafs = effectiveParams(cfg.edca ? (cfg.isAp ? QAP_EDCA_PARAMS : EDCA_PARAMS) : [DCF_PARAMS], cfg.tamper).map((params) => ({
       params, cw: params.cwMin, backoff: null, needDraw: false,
       qsrc: 0, ifsHandle: 0, tickHandle: 0,
     }))
@@ -293,9 +300,10 @@ export class WifiMac implements PhyListener {
     // Which tiers exist decides which rounds this MAC owns. An unstated `ampTiers` is Active Tx
     // alone: that is every AMP scenario written before the backscatter tier.
     const tiers = cfg.ampTiers ?? { active: true, backscatter: false }
-    this.ampRound = cfg.ampAp && tiers.active ? new AmpApRound(cfg.ampAp, ampDeps) : null
+    const bkLimit = () => this.ampTxopLimitNs()
+    this.ampRound = cfg.ampAp && tiers.active ? new AmpApRound(cfg.ampAp, ampDeps, bkLimit) : null
     this.ampInventory = cfg.ampAp?.backscatter && tiers.backscatter
-      ? new AmpInventoryRound({ ...cfg.ampAp, backscatter: cfg.ampAp.backscatter }, ampDeps)
+      ? new AmpInventoryRound({ ...cfg.ampAp, backscatter: cfg.ampAp.backscatter }, ampDeps, bkLimit)
       : null
     if (this.ampRound || this.ampInventory) this.scheduleAmpPoll(0)
   }
@@ -357,6 +365,7 @@ export class WifiMac implements PhyListener {
       // owed slots — on the air, or waiting for the TXOP that resumes it — is let finish first;
       // the round itself holds the request until then.
       if (round !== null && round === this.ampInventory) round.newInventory()
+      if (round !== null && round === this.ampRound) round.newRound()
       this.ampNext = round
       this.ampPending = true
       this.startAccessAc(this.edcafs[this.efIndex(0)])
@@ -364,14 +373,16 @@ export class WifiMac implements PhyListener {
     })
   }
 
-  /** The round is over: close the TXOP and take a post-transmission backoff (§10.23.2.2). */
+  /** This TXOP of a round is over: close it and take a post-transmission backoff (§10.23.2.2). */
   private onAmpDone(): void {
     const e = this.edcafs[this.efIndex(0)]
     this.endTxop()
-    // An inventory that ran out of TXOP before it ran out of slots asks for another one straight
-    // away, with the same session: the tags are holding their counters for it.
-    if (this.ampInventory?.resumable) {
-      this.ampNext = this.ampInventory
+    // A round or an inventory that reached the TXOP limit before it ran out of work asks for
+    // another AC_BK TXOP straight away, with the same session (§10.23.2.9: no TXOP is longer
+    // than the limit, so the rest has to wait for the next one).
+    const last = this.ampLast
+    if (last !== null && last.resumable) {
+      this.ampNext = last
       this.ampPending = true
     }
     e.backoff = null
@@ -445,6 +456,16 @@ export class WifiMac implements PhyListener {
 
   private mediumBusy(): boolean {
     return this.ch.isCcaBusy(this.nodeId) || this.now() < this.navUntil
+  }
+
+  /**
+   * The TXOP limit an AMP round must fit: the AP's AC_BK limit, dot11QAPEDCATableTXOPLimit
+   * (2.528 ms by default, Table 9-194; §10.23.2.9). An AP whose link runs without EDCA has no
+   * AC_BK EDCAF of its own, so the round keeps to the same default bound.
+   */
+  private ampTxopLimitNs(): Ns {
+    const own = this.cfg.edca ? this.edcafs[this.efIndex(0)].params.txopLimitNs : 0
+    return own > 0 ? own : QAP_EDCA_PARAMS[0].txopLimitNs
   }
 
   /** Is either AMP round on the air? Both hold the medium on their own timers. */
@@ -606,9 +627,12 @@ export class WifiMac implements PhyListener {
         continue
       }
       this.emit({ t, type: 'INTERNAL_COLLISION', node: this.nodeId, winnerAc: winner.params.ac, loserAc: loser.params.ac })
-      // 802.11-2020 §10.23.2.12.1: an internal collision is a failed attempt
-      // for the lower AC — its frame counts a retry, QSRC and CW move as for
-      // an external collision, and a new backoff is drawn.
+      // 802.11-2024 §10.23.2.2 d): the losing EDCAF invokes the backoff procedure with QSRC
+      // and CW updated as for a failed attempt, and draws a new backoff. §10.23.2.12.1: "For
+      // internal collisions, the frame retry counts associated with the MSDUs ... involved in
+      // the internal collision shall be incremented" — so the head MSDU counts a retry and is
+      // discarded at dot11ShortRetryLimit like any other (checked 2026-11-11 against the
+      // corpus: the retry count is the standard's, not an extra of this engine).
       const head = this.queues.head(i, this.reach)
       const lost = head ? this.queues.claim(i, head.dst, 1, () => true) : []
       if (lost.length) {
@@ -624,10 +648,15 @@ export class WifiMac implements PhyListener {
 
   // ---------- transmission paths ----------
 
-  /** Discard MSDUs that outlived dot11EDCATableMSDULifetime before building a transmission from this queue. */
+  /**
+   * Discard MSDUs whose transmit timer has expired, before building a transmission from this
+   * queue: under EDCA dot11EDCATableMSDULifetime (dot11QAPEDCATableMSDULifetime at the AP) from
+   * enqueue (§10.23.2.12.1); under DCF dot11MaxTransmitMSDULifetime from the first attempt (§10.4).
+   */
   private purgeExpired(e: Edcaf, ei: number): void {
     const t = this.now()
-    for (const m of this.queues.purgeExpired(ei, t, this.cfg.msduLifetimeNs ?? DEFAULT_MSDU_LIFETIME_NS)) {
+    const lifetime = this.cfg.msduLifetimeNs ?? (this.cfg.edca ? DEFAULT_MSDU_LIFETIME_NS : DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS)
+    for (const m of this.queues.purgeExpired(ei, t, lifetime, this.cfg.edca ? 'enqueue' : 'firstTx')) {
       this.emit({ t, type: 'DROP', node: this.nodeId, msduId: m.id, reason: 'lifetime', ac: this.acTag(e) })
       this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(ei), ac: this.acTag(e) })
       this.hooks.onDequeue?.(m.id, false)
@@ -639,12 +668,14 @@ export class WifiMac implements PhyListener {
     const t = this.now()
     this.purgeExpired(e, ei)
 
-    // AMP: this AC_BK TXOP is a polling round, not a queued frame. It is one
-    // exchange the round itself times out, exempt from the AC's TXOP limit.
+    // AMP: this AC_BK TXOP carries (part of) a polling round instead of a queued frame. The
+    // round keeps every frame inside the AC_BK TXOP limit itself (`ampTxopLimitNs`), and asks
+    // for another TXOP when it has more to do — no exemption from §10.23.2.9.
     if (this.cfg.isAp && this.ampNext && this.ampPending && ei === this.efIndex(0) && !inTxopBurst) {
       const round = this.ampNext
       this.ampPending = false
       this.ampNext = null
+      this.ampLast = round
       round.start()
       return
     }
@@ -852,8 +883,10 @@ export class WifiMac implements PhyListener {
    * Table 9-60 puts in Address 3 when the MSDU's end-to-end address differs from the RA / TA.
    */
   private mpduHdrs(peer: string, ac: number, msdus: Msdu[]): MpduHdr[] {
-    const tid = this.qosWith(peer) ? TID_FOR_AC[Math.max(0, Math.min(3, ac))] : null
+    const qos = this.qosWith(peer)
     return msdus.map((m) => {
+      // A QoS Data frame's TID is the MSDU's own user priority (§10.2.3.2, Table 10-1).
+      const tid = qos ? (m.up ?? TID_FOR_AC[Math.max(0, Math.min(3, ac))]) : null
       if (m.seqNo === undefined) m.seqNo = this.queues.nextSeq(peer, tid)
       const da = m.finalDst ?? m.server
       const sa = m.sa ?? (this.cfg.isAp ? m.server : undefined)
@@ -861,6 +894,7 @@ export class WifiMac implements PhyListener {
       // the MSDU but never put it on the air, so the bit follows "has been transmitted", not the
       // retry counter — and it is the MPDU's own, not the A-MPDU's.
       const h: MpduHdr = { sn: m.seqNo, retry: m.sent === true }
+      if (tid !== null) h.tid = tid
       if (!this.cfg.isAp && da !== undefined && da !== peer) h.da = da
       if (this.cfg.isAp && sa !== undefined && sa !== this.nodeId) h.sa = sa
       return h
@@ -877,7 +911,7 @@ export class WifiMac implements PhyListener {
     const aggregate = plan.aggregate
     const txTime = this.airModeNs(mode, psdu, mcs, { widthMhz, nss })
     const retryFlag = mpdus.some((h) => h.retry)
-    for (const m of msdus) m.sent = true
+    for (const m of msdus) { m.sent = true; m.firstTxNs ??= this.now() }
     const now = this.now()
     let duration: Ns
     if (this.multiProt && this.txopEndNs > 0) {
@@ -994,7 +1028,7 @@ export class WifiMac implements PhyListener {
     }
     // Only now, with the PPDU going out, have these MSDUs been on the air; a
     // group that fell apart above restored its claims untouched.
-    for (const c of claims) for (const m of c.msdus) m.sent = true
+    for (const c of claims) for (const m of c.msdus) { m.sent = true; m.firstTxNs ??= this.now() }
     const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Map(), resolveHandle: 0 }
     this.muState = mu
     this.transmitFrame(frame, false)
@@ -1289,14 +1323,34 @@ export class WifiMac implements PhyListener {
     this.failAttemptCore(this.edcafs[aw.ac], aw.ac, aw.msdus)
   }
 
-  /** §10.23.2.2: one failed attempt — QSRC++ and CW doubles; at the retry limit CW resets. */
+  /**
+   * One failed attempt.
+   *
+   * EDCA, §10.23.2.2 backoff for reasons c), d), f), i), j): while QSRC[AC] is less than
+   * dot11ShortRetryLimit it is incremented and CW doubles toward CWmax; a failure that finds QSRC
+   * already AT the limit sets QSRC to 0 and CW to CWmin. (Until 2026-11-11 the EDCAFs used the DCF
+   * rule below and reset on reaching the limit — one failure early.)
+   *
+   * DCF, §10.3.3: SSRC is incremented and CW takes the next value up to aCWmax; CW is reset to
+   * aCWmin "when SSRC reaches dot11ShortRetryLimit", i.e. on the failure that brings it there.
+   */
   private bumpQsrc(e: Edcaf): void {
-    e.qsrc++
-    if (e.qsrc >= SHORT_RETRY_LIMIT) {
-      e.qsrc = 0
-      e.cw = e.params.cwMin
+    if (this.cfg.edca) {
+      if (e.qsrc < SHORT_RETRY_LIMIT) {
+        e.qsrc++
+        e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
+      } else {
+        e.qsrc = 0
+        e.cw = e.params.cwMin
+      }
     } else {
-      e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
+      e.qsrc++
+      if (e.qsrc >= SHORT_RETRY_LIMIT) {
+        e.qsrc = 0
+        e.cw = e.params.cwMin
+      } else {
+        e.cw = Math.min(2 * e.cw + 1, e.params.cwMax)
+      }
     }
     this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, qsrc: e.qsrc, ac: this.acTag(e) })
   }
@@ -1329,7 +1383,7 @@ export class WifiMac implements PhyListener {
   }
 
   /** RETRY record for a failed attempt; qsrc defaults to the value the attempt's failure brings QSRC to. */
-  private emitRetry(e: Edcaf, msdus: Msdu[], qsrc = e.qsrc + 1): void {
+  private emitRetry(e: Edcaf, msdus: Msdu[], qsrc = this.cfg.edca ? (e.qsrc < SHORT_RETRY_LIMIT ? e.qsrc + 1 : 0) : e.qsrc + 1): void {
     this.emit({
       t: this.now(), type: 'RETRY', node: this.nodeId, msduId: msdus[0]?.id ?? 0,
       retries: msdus.reduce((mx, m) => Math.max(mx, (m.retries ?? 0) + 1), 0),
@@ -1552,7 +1606,7 @@ export class WifiMac implements PhyListener {
    * included, since a recipient acknowledges a duplicate it discards (§10.3.2.14.3 NOTE).
    */
   private receiveMpdus(t: Ns, from: string, qos: boolean, ac: number | undefined, ids: number[], hdrs: MpduHdr[] | undefined, mpduOk?: boolean[]): number[] {
-    const tid = qos ? TID_FOR_AC[Math.max(0, Math.min(3, ac ?? 1))] : null
+    const acTid = qos ? TID_FOR_AC[Math.max(0, Math.min(3, ac ?? 1))] : null
     const got: number[] = []
     ids.forEach((id, i) => {
       if (mpduOk !== undefined && mpduOk[i] !== true) return
@@ -1563,6 +1617,7 @@ export class WifiMac implements PhyListener {
         return
       }
       got.push(h.sn)
+      const tid = acTid === null ? null : (h.tid ?? acTid)
       if (!this.queues.rxDuplicate(from, tid, h.sn, h.retry)) this.hooks.onMsduDelivered?.(id, t, from)
     })
     return got
@@ -1773,7 +1828,7 @@ export class WifiMac implements PhyListener {
         // the two travel as one object so that a share can never arrive without its position.
         ru: { fraction: frac, partIdx },
       }
-      for (const m of msdus) m.sent = true
+      for (const m of msdus) { m.sent = true; m.firstTxNs ??= this.now() }
       const mbaTime = this.airNs(multiStaBaBytes(n), 24)
       this.staMuAwait = {
         ac, msdus,

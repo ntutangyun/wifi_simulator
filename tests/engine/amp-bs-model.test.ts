@@ -7,8 +7,9 @@ import { describe, it, expect } from 'vitest'
 import {
   AMP_BS_ACTIVATION_DBM, AMP_BS_BST_MIN_NS, AMP_BS_DL_KBPS, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB,
   AMP_BS_READER_DR_DB, AMP_BS_REQ_SNR_DB, AMP_BS_UL_CHIP_NS, AMP_BS_WRITE_T3_NS, AMP_BS_WUP_MIN_NS,
-  FREQ_24G_MHZ, GEN2_CMD_BYTES, GEN2_REPLY_BYTES, activationReachM, ampBsDlPpduNs, ampBsReplyFrame,
-  ampRfidBytes, ampRfidFrame, bsDecodes, bsPathLossDb, bsReplyDbm, bsReplyNs, bstNs, crc16Epc, epcOf,
+  AMP_RFID_FCS_BYTES, AMP_RFID_HDR_BYTES, BS_CMD_BODY_BYTES, BS_REPLY_BODY_BYTES,
+  FREQ_24G_MHZ, activationReachM, ampBsDlPpduNs, ampBsReplyFrame, bsCmdBytes, bsReplyBytes,
+  ampRfidFrame, bsDecodes, type BsCmd, bsPathLossDb, bsReplyDbm, bsReplyNs, bstNs, crc16Epc, epcOf,
   freeSpacePl0Db, monoLeakDbm, monoReachM, readerFloorDbm,
 } from '../../src/engine/ampBs'
 
@@ -94,85 +95,102 @@ describe('reach', () => {
   })
 })
 
+/**
+ * 2026-11-11 (W7b): the mono-static frames are the draft's — a broadcast AMP Trigger allocating one
+ * slot (PDT 11-26/1519r5 §39.3.3) answered by an AMP Response carrying the tag's ID, and an AMP
+ * RFID frame (PDT 11-26/1520r3: 32-bit MAC header, 16-bit FCS) carrying the UHF Read command,
+ * answered by an AMP RFID frame with the Read reply (the EPC). The EPC Gen2 Query/QueryRep/ACK/RN16
+ * shapes of proposal 11-25/0061r0 (not adopted) are gone.
+ */
 describe('AMP RFID frames and the two excitations', () => {
-  it('sizes a DL command as header + Gen2 body + FCS', () => {
-    expect(GEN2_CMD_BYTES).toEqual({ query: 3, queryRep: 1, ack: 3, read: 8, write: 8, select: 18 })
-    expect(ampRfidBytes('query')).toBe(10)
-    expect(ampRfidBytes('queryRep')).toBe(8)
-    expect(ampRfidBytes('ack')).toBe(10)
-    expect(ampRfidBytes('read')).toBe(15)
-    expect(ampRfidBytes('write')).toBe(15)
-    expect(ampRfidBytes('select')).toBe(25)
+  it('sizes a DL frame: the AMP Trigger in the Active Tx layout, the AMP RFID frame as 4 + body + 2', () => {
+    expect(AMP_RFID_HDR_BYTES).toBe(4)
+    expect(AMP_RFID_FCS_BYTES).toBe(2)
+    expect(BS_CMD_BODY_BYTES).toEqual({ trigger: 6, read: 8 })
+    expect(bsCmdBytes('trigger')).toBe(13)
+    expect(bsCmdBytes('read')).toBe(14)
   })
 
   it('times a backscattered reply as 24 sync chips plus two chips a Manchester bit', () => {
-    expect(GEN2_REPLY_BYTES).toEqual({ rn16: 2, epc: 16, read: 13, write: 5 })
+    expect(BS_REPLY_BODY_BYTES).toEqual({ id: 0, read: 17 })
+    expect(bsReplyBytes('id')).toBe(7)
+    expect(bsReplyBytes('read')).toBe(23)
     expect(AMP_BS_UL_CHIP_NS).toEqual({ 250: 2000, 1000: 500 })
-    expect(bsReplyNs('rn16', 250)).toBe(112 * US)
-    expect(bsReplyNs('epc', 250)).toBe(560 * US)
-    expect(bsReplyNs('read', 250)).toBe(464 * US)
-    expect(bsReplyNs('write', 250)).toBe(208 * US)
-    expect(bsReplyNs('rn16', 1000)).toBe(28 * US)
-    expect(bsReplyNs('epc', 1000)).toBe(140 * US)
-    expect(bsReplyNs('read', 1000)).toBe(116 * US)
-    expect(bsReplyNs('write', 1000)).toBe(52 * US)
+    expect(bsReplyNs('id', 250)).toBe(272 * US)
+    expect(bsReplyNs('read', 250)).toBe(784 * US)
+    expect(bsReplyNs('id', 1000)).toBe(68 * US)
+    expect(bsReplyNs('read', 1000)).toBe(196 * US)
   })
 
   it('sizes the BST-Excitation to hold the reply it expects', () => {
-    expect(bstNs('rn16', 250)).toBe(142.4 * US)
-    expect(bstNs('epc', 250)).toBe(635.2 * US)
-    expect(bstNs('read', 250)).toBe(529.6 * US)
-    // A command that expects no response still carries the immediate-response minimum.
+    expect(bstNs('id', 250)).toBe(318.4 * US)
+    expect(bstNs('read', 250)).toBe(881.6 * US)
+    expect(bstNs('id', 1000)).toBe(94 * US)
+    expect(bstNs('read', 1000)).toBe(234.8 * US)
+    // A frame that expects no response still carries the immediate-response minimum.
     expect(bstNs(null, 250)).toBe(19.2 * US)
     expect(bstNs(null, 250)).toBeGreaterThanOrEqual(AMP_BS_BST_MIN_NS)
-    // Write answers after T3 = 2 ms, so its excitation has to stay on that long.
-    expect(bstNs('write', 250, AMP_BS_WRITE_T3_NS)).toBe(2429.8 * US)
-    expect(bstNs('write', 1000, AMP_BS_WRITE_T3_NS)).toBe(2258.2 * US)
+    // The delayed form (PM-88): a command with a processing time T3 stretches the excitation
+    // over 1.1·T3 + 1 µs + 1.1·T4. A Write's 2 ms T3 alone is longer than the AC_BK TXOP limit
+    // allows around it, which is why the reader sends none.
+    expect(bstNs('id', 250, AMP_BS_WRITE_T3_NS)).toBe(2500.2 * US)
+    expect(bstNs('id', 250, AMP_BS_WRITE_T3_NS)).toBeGreaterThan(2_528 * US - 500 * US)
   })
 
-  it('pins the DL PPDU of every command at both uplink rates', () => {
+  it('pins the DL PPDU of every frame at both uplink rates', () => {
     expect(AMP_BS_DL_KBPS).toBe(250)
     const ext = 6 * US
-    const dl = (cmd: Parameters<typeof ampRfidBytes>[0], wupNs: number, bst: number) => ampBsDlPpduNs(cmd, wupNs, bst, ext)
+    const dl = (cmd: BsCmd, wupNs: number, bst: number) => ampBsDlPpduNs(cmd, wupNs, bst, ext)
     // 250 kb/s uplink
-    expect(dl('query', AMP_BS_WUP_MIN_NS, bstNs('rn16', 250))).toBe(1516.4 * US)
-    expect(dl('queryRep', 0, bstNs('rn16', 250))).toBe(452.4 * US)
-    expect(dl('ack', 0, bstNs('epc', 250))).toBe(1009.2 * US)
-    expect(dl('read', 0, bstNs('read', 250))).toBe(1063.6 * US)
-    expect(dl('write', 0, bstNs('write', 250, AMP_BS_WRITE_T3_NS))).toBe(2963.8 * US)
+    expect(dl('trigger', AMP_BS_WUP_MIN_NS, bstNs('id', 250))).toBe(1788.4 * US)
+    expect(dl('trigger', 0, bstNs('id', 250))).toBe(788.4 * US)
+    expect(dl('read', AMP_BS_WUP_MIN_NS, bstNs('read', 250))).toBe(2383.6 * US)
+    expect(dl('read', 0, bstNs('read', 250))).toBe(1383.6 * US)
     // 1 Mb/s uplink — only the excitation shrinks; the 250 kb/s downlink does not.
-    expect(dl('query', AMP_BS_WUP_MIN_NS, bstNs('rn16', 1000))).toBe(1424.0 * US)
-    expect(dl('queryRep', 0, bstNs('rn16', 1000))).toBe(360.0 * US)
-    expect(dl('ack', 0, bstNs('epc', 1000))).toBe(547.2 * US)
-    expect(dl('read', 0, bstNs('read', 1000))).toBe(680.8 * US)
-    expect(dl('write', 0, bstNs('write', 1000, AMP_BS_WRITE_T3_NS))).toBe(2792.2 * US)
+    expect(dl('trigger', AMP_BS_WUP_MIN_NS, bstNs('id', 1000))).toBe(1564 * US)
+    expect(dl('trigger', 0, bstNs('id', 1000))).toBe(564 * US)
+    expect(dl('read', 0, bstNs('read', 1000))).toBe(736.8 * US)
+    // Every first PPDU of a TXOP fits the AC_BK TXOP limit (2.528 ms, Table 9-194) with the
+    // CTS-to-self (50 µs) and SIFS (10 µs) in front of it.
+    expect(60 * US + dl('read', AMP_BS_WUP_MIN_NS, bstNs('read', 250))).toBeLessThanOrEqual(2_528 * US)
   })
 
-  it('builds a DL RFID frame and a UL backscatter reply', () => {
-    const bst = bstNs('rn16', 250)
+  it('builds a DL trigger, a DL Read and the two UL replies', () => {
+    const bst = bstNs('id', 250)
     const f = ampRfidFrame({
-      src: 'ap', dst: '*amp', cmd: 'query', session: 1, q: 2, slot: 1, ulKbps: 250,
+      src: 'ap', dst: '*tags', cmd: 'trigger', session: 1, acwe: 2, slot: 1, ulKbps: 250,
       wupNs: AMP_BS_WUP_MIN_NS, bstNs: bst, chargeDbm: 10, bsDbm: 0, signalExtNs: 6 * US,
     })
     expect(f.kind).toBe('ampRfid')
-    expect(f.bytes).toBe(10)
+    expect(f.bytes).toBe(13)
     expect(f.mbps).toBe(0.25)
-    expect(f.txTimeNs).toBe(1516.4 * US)
+    expect(f.txTimeNs).toBe(1788.4 * US)
     expect(f.amp?.dir).toBe('dl')
     expect(f.amp?.kbps).toBe(250)
     expect(f.amp?.rfid).toEqual({
-      cmd: 'query', session: 1, q: 2, rn16: undefined, slot: 1, wupNs: AMP_BS_WUP_MIN_NS,
+      cmd: 'trigger', session: 1, acwe: 2, epc: undefined, slot: 1, wupNs: AMP_BS_WUP_MIN_NS,
       bstNs: bst, chargeDbm: 10, bsDbm: 0, ulKbps: 250,
     })
 
-    const r = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'epc', kbps: 1000, slot: 3, epc: epcOf('tag-1') })
+    const rd = ampRfidFrame({
+      src: 'ap', dst: 'tag-1', cmd: 'read', session: 1, slot: 1, ulKbps: 250, epc: epcOf('tag-1'),
+      wupNs: 0, bstNs: bstNs('read', 250), chargeDbm: 10, bsDbm: 0, signalExtNs: 6 * US,
+    })
+    expect(rd.bytes).toBe(14)
+    expect(rd.txTimeNs).toBe(1383.6 * US)
+
+    const id = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'id', kbps: 250, slot: 3, epc: epcOf('tag-1') })
+    expect(id.bytes).toBe(7)
+    expect(id.txTimeNs).toBe(272 * US)
+
+    const r = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'read', kbps: 1000, slot: 3, epc: epcOf('tag-1') })
     expect(r.kind).toBe('ampBsReply')
-    expect(r.bytes).toBe(16)
+    expect(r.bytes).toBe(23)
     expect(r.mbps).toBe(1)
-    expect(r.txTimeNs).toBe(140 * US)
+    expect(r.txTimeNs).toBe(196 * US)
     expect(r.amp?.dir).toBe('ul')
-    expect(r.amp?.bs).toEqual({ reply: 'epc', slot: 3, rn16: undefined, epc: epcOf('tag-1') })
-    // Task 2/3 fill the incident power in; the field exists from here.
+    expect(r.amp?.bs).toEqual({ reply: 'read', slot: 3, epc: epcOf('tag-1') })
+    // The channel fills the incident power in; the field exists from here.
     expect(r.amp?.bs?.incidentDbm).toBeUndefined()
   })
 })

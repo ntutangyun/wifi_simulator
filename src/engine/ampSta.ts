@@ -62,6 +62,12 @@ export class AmpStaMac implements PhyListener {
   private onTrigger(t: Ns, frame: FrameDesc): void {
     const a = frame.amp!
     this.closeRound()
+    // §39.4: an Active Tx STA answers on the channel the Channel Indication field names, and
+    // never to a trigger whose Channel Indication is 14 or 15 (the bistatic values). This
+    // simulator's 2.4 GHz link is one channel, the one the AP writes, so the answer goes out on
+    // the medium the trigger came in on; a 250 kb/s answer follows the indicated UL frequency
+    // shift, which this AP always sets to 0 (`ampAp.ts`).
+    if (a.channel !== undefined && a.channel >= 14) { this.settle(); return }
     let slot: number | null
     let aboc: number | undefined
     let acw = 0

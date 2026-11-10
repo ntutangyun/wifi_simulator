@@ -16,7 +16,7 @@ import { ampSlots } from '../../src/course/amp/amp-slots'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { AMP_STA_ID_BYTES, AMP_UL_CHIP_NS, AMP_UL_SYNC_CHIPS, ampRespBytes } from '../../src/engine/amp'
-import { EDCA_PARAMS } from '../../src/engine/phy'
+import { QAP_EDCA_PARAMS } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 import type { TLRecord } from '../../src/model/records'
 import { MODULES, CHARS_PER_MINUTE, OBSERVE_MINUTES, TRY_MINUTES, lessonBlocks, lessonChars, lessonMinutes } from '../../src/course/curriculum'
@@ -33,6 +33,12 @@ const AP = 'ap#2g'
 const TAGS = [1, 2, 3, 4, 5, 6].map((i) => `tag-${i}#2g`)
 const ACWE1 = 0, ACWE3 = 1, TWO_PHASE = 2
 const ALL_RUNS: (number | undefined)[] = [undefined, ACWE1, ACWE3, TWO_PHASE]
+/**
+ * Slots per random-access trigger at 250 kb/s with a reading in every answer: 2026-11-11 (W7b)
+ * every AMP TXOP fits the AP's AC_BK TXOP limit (§10.23.2.9, Table 9-194), and two slots are all
+ * that fit after the CTS-to-self and the trigger, so a round of four is two triggers of two.
+ */
+const N = 2
 const CAPTURE_MARGIN_DB = Number(/const CAPTURE_MARGIN_DB = (\d+)/.exec(readFileSync('src/engine/channel.ts', 'utf8'))![1])
 
 const memo = new Map<string, TLRecord[]>()
@@ -145,11 +151,14 @@ describe('amp-slots · ② says what the engine does, and the engine does it', (
         if (d.acw === 0 && d.slot !== null && v === TWO_PHASE) continue // scheduled phase: slot from the list
         expect(d.acw, `variant ${v}`).toBe(2 ** acwe - 1)
         expect(d.aboc).toBeLessThanOrEqual(d.acw)
-        expect(d.slot).toBe(d.aboc < 4 ? d.aboc + 1 : null)
+        expect(d.slot).toBe(d.aboc < N ? d.aboc + 1 : null)
       }
       expect(ofType(recs(v), 'AMP_ABOC').length).toBeGreaterThan(0)
     }
-    expect(ofType(recs(), 'AMP_ABOC').length).toBe(6 * ROUNDS)
+    // six tags, two triggers a round
+    expect(ofType(recs(), 'AMP_ABOC').length).toBe(6 * 2 * ROUNDS)
+    expect(new Set(ofType(recs(), 'AMP_ROUND').map((r) => r.slots))).toEqual(new Set([N]))
+    expect(implRow('ABOC 的抽取').sim).toContain(`每帧 N = ${N}`)
   })
 
   it('the draw is fresh every round: no window doubles, and each tag uses all four values', () => {
@@ -173,12 +182,19 @@ describe('amp-slots · ② says what the engine does, and the engine does it', (
     expect(implRow('两阶段的名单').kind).toBe('faithful')
     const rs = recs(TWO_PHASE)
     const sched = txs(rs, 'ampTrigger').filter((r) => r.frame.amp!.phase === 'scheduled')
-    for (const s of sched) {
-      const heard = txs(rs, 'ampAck').filter((a) => a.t < s.t && a.t > s.t - 4 * MS && a.frame.dst !== a.frame.src)
-      expect(s.frame.amp!.staIds).toEqual(heard.map((a) => a.frame.dst))
+    // per poll: the scheduled triggers, in order, list exactly the tags the random phase heard
+    for (let k = 0; k < ROUNDS; k++) {
+      const t0 = k * 20 * MS, t1 = t0 + 20 * MS
+      const heard = [...new Set(txs(rs, 'ampAck').filter((a) => a.t >= t0 && a.t < t1 && a.frame.dst !== a.frame.src
+        && a.t < (sched.find((s) => s.t >= t0 && s.t < t1)?.t ?? t1)).map((a) => a.frame.dst))]
+      const listed = sched.filter((s) => s.t >= t0 && s.t < t1).flatMap((s) => s.frame.amp!.staIds!)
+      expect(listed, `poll ${k}`).toEqual(heard)
     }
-    expect(sched.length).toBe(26)
-    expect(ofType(rs, 'AMP_ROUND').filter((r) => r.phase === 'random').length).toBe(ROUNDS)
+    // each scheduled trigger lists one tag: two would not fit the TXOP limit
+    for (const s of sched) expect(s.frame.amp!.staIds!.length).toBe(1)
+    expect(sched.length).toBe(40)
+    expect(ofType(rs, 'AMP_ROUND').filter((r) => r.phase === 'random').length).toBe(2 * ROUNDS)
+    expect(implRow('一轮分几次传输机会').kind).toBe('choice')
   })
 
   it('the two-phase widths are 2 octets an ID, 7 octets an identity answer, 15 with a reading', () => {
@@ -186,13 +202,21 @@ describe('amp-slots · ② says what the engine does, and the engine does it', (
     expect(implRow('两阶段的字段宽度').sim).toBe(`名单里每个标签 ${AMP_STA_ID_BYTES} 个字节；随机阶段只报身份的作答 ${ampRespBytes(false)} 个字节，调度阶段带读数的作答 ${ampRespBytes(true)} 个字节。`)
   })
 
-  it('the two-phase round is longer than the AC_BK TXOP limit and the engine sends it whole (differs)', () => {
-    expect(implRow('两阶段的保护与长度').kind).toBe('differs')
-    const rs = recs(TWO_PHASE)
-    const cts = txs(rs, 'cts')[0]
-    const last = ofType(rs, 'TX_END').filter((r) => r.t < 20 * MS).pop()!
-    expect(last.t - cts.t).toBeGreaterThan(EDCA_PARAMS[0].txopLimitNs)
-    expect(EDCA_PARAMS[0].txopLimitNs).toBe(2_528_000)
+  // 2026-11-11 (W7b): was `differs` — the two-phase round ran 6620 µs as one exchange.
+  it('every TXOP of every run fits the AC_BK TXOP limit, and each CTS-to-self covers exactly its TXOP', () => {
+    expect(implRow('两阶段的保护与长度').kind).toBe('faithful')
+    expect(QAP_EDCA_PARAMS[0].txopLimitNs).toBe(2_528_000)
+    for (const v of ALL_RUNS) {
+      const rs = recs(v)
+      const cts = txs(rs, 'cts')
+      const ackEnds = ofType(rs, 'TX_END').filter((r) => r.frame.kind === 'ampAck').map((r) => r.t)
+      for (const [i, c] of cts.entries()) {
+        const end = ackEnds.filter((e) => e > c.t && (i + 1 >= cts.length || e < cts[i + 1].t)).pop()
+        if (end === undefined) continue
+        expect(end - c.t, `variant ${v} TXOP at ${c.t}`).toBeLessThanOrEqual(QAP_EDCA_PARAMS[0].txopLimitNs)
+        expect(c.t + c.frame.txTimeNs + c.frame.durationFieldNs).toBe(end)
+      }
+    }
   })
 
   it('a collided slot is lost whole: no capture in any run, and the tags sit within 0.01 dB', () => {
@@ -214,24 +238,33 @@ describe('amp-slots · ③ every figure the labs print is the run', () => {
     const rs = recs()
     const rows = tableOf(lab('第一轮，逐时隙'), '第一轮的四个时隙').rows
     const slots = ofType(rs, 'AMP_SLOT').filter((s) => s.t < 20 * MS)
-    const draws = ofType(rs, 'AMP_ABOC').filter((d) => d.t < 20 * MS)
-    const res = results(rs).filter((r) => r.t < 20 * MS)
+    const trigs = txs(rs, 'ampTrigger').filter((r) => r.t < 20 * MS).map((r) => r.t)
     const name = (n: string) => n.replace(/^tag-(\d)#2g$/, '$1')
+    expect(rows).toHaveLength(slots.length)
     for (const [i, s] of slots.entries()) {
       const row = rows[i]
-      expect(row[0]).toBe(String(s.slot))
-      expect(us(row[1])).toBe(s.t / US)
+      const txop = trigs.filter((t) => t < s.t).length
+      const tEnd = trigs[txop] ?? 20 * MS
+      const draws = ofType(rs, 'AMP_ABOC').filter((d) => d.t > trigs[txop - 1] && d.t < tEnd)
+      const res = results(rs).filter((r) => r.t > s.t && r.t < tEnd)
+      expect(row[0]).toBe(String(txop))
+      expect(row[1]).toBe(String(s.slot))
+      expect(us(row[2])).toBe(s.t / US)
       const who = draws.filter((d) => d.slot === s.slot)
+      const ack = txs(rs, 'ampAck').find((a) => a.t > s.t)!
       if (who.length === 1) {
-        expect(row[2]).toBe(`Tag ${name(who[0].node)}（ABOC ${who[0].aboc}）`)
+        expect(row[3]).toBe(`Tag ${name(who[0].node)}（ABOC ${who[0].aboc}）`)
         const r = res.find((x) => x.node === who[0].node)!
         expect(r.acked).toBe(true)
-        expect(row[3]).toBe(`${r.t / US} µs 被确认`)
+        expect(row[4]).toBe(`${r.t / US} µs 被确认`)
+      } else if (who.length === 0) {
+        expect(row[3]).toBe('无人')
+        expect(row[4]).toBe('Ack 写的是路由器自己')
+        expect(ack.frame.dst).toBe(ack.frame.src)
       } else {
-        expect(row[2]).toBe(`Tag ${who.map((d) => name(d.node)).join('、')}（都是 ABOC ${who[0].aboc}）`)
+        expect(row[3]).toBe(`Tag ${who.map((d) => name(d.node)).join('、')}（都是 ABOC ${who[0].aboc}）`)
         expect(new Set(who.map((d) => d.aboc)).size).toBe(1)
-        expect(row[3]).toBe('碰撞；Ack 写的是路由器自己')
-        const ack = txs(rs, 'ampAck').find((a) => a.frame.amp!.ackFor === s.slot && a.t < 20 * MS)!
+        expect(row[4]).toBe('碰撞；Ack 写的是路由器自己')
         expect(ack.frame.dst).toBe(ack.frame.src)
       }
     }
@@ -240,11 +273,11 @@ describe('amp-slots · ③ every figure the labs print is the run', () => {
   it('lab 1: the collided slot\'s records, and the thirty rounds\' Ack census', () => {
     const rs = recs()
     const e = lab('第一轮，逐时隙').expect
-    const m = /三个标签在 (\d+) µs 同时开始发送，路由器记下三条原因为 preambleSinr 的 RX_MISS、没有 RX_FAIL，并在时隙结束的 (\d+) µs 记下一条 COLLISION；(\d+) µs 那帧 Ack 写的是路由器自己，三个标签在 (\d+) µs 收到它。三十轮里 (\d+) 帧 Ack 中 (\d+) 帧写的是某个标签，(\d+) 帧写的是路由器自己/.exec(e)!
+    const m = /两个标签在 (\d+) µs 同时开始发送，路由器记下两条原因为 preambleSinr 的 RX_MISS、没有 RX_FAIL，并在时隙结束的 (\d+) µs 记下一条 COLLISION；(\d+) µs 那帧 Ack 写的是路由器自己，两个标签在 (\d+) µs 收到它。三十轮、(\d+) 次传输机会里 (\d+) 帧 Ack 中 (\d+) 帧写的是某个标签，(\d+) 帧写的是路由器自己/.exec(e)!
     const coll = ofType(rs, 'COLLISION')[0]
     const together = txs(rs, 'ampResp').filter((r) => r.t === Number(m[1]) * US)
-    expect(together.length).toBe(3)
-    expect(ofType(rs, 'RX_MISS').filter((r) => r.node === AP && r.t < 20 * MS).map((r) => r.reason)).toEqual(['preambleSinr', 'preambleSinr', 'preambleSinr'])
+    expect(together.length).toBe(2)
+    expect(ofType(rs, 'RX_MISS').filter((r) => r.node === AP && r.t === Number(m[1]) * US).map((r) => r.reason)).toEqual(['preambleSinr', 'preambleSinr'])
     expect(ofType(rs, 'RX_FAIL').filter((r) => r.node === AP).length).toBe(0)
     expect(coll.t).toBe(Number(m[2]) * US)
     const ack = txs(rs, 'ampAck').find((a) => a.t > coll.t)!
@@ -252,10 +285,11 @@ describe('amp-slots · ③ every figure the labs print is the run', () => {
     expect(ack.frame.dst).toBe(ack.frame.src)
     expect(ack.t + ack.frame.txTimeNs).toBe(Number(m[4]) * US)
     const acks = txs(rs, 'ampAck')
-    expect(ofType(rs, 'AMP_ROUND').length).toBe(ROUNDS)
-    expect(acks.length).toBe(Number(m[5]))
-    expect(acks.filter((a) => a.frame.dst !== a.frame.src).length).toBe(Number(m[6]))
-    expect(acks.filter((a) => a.frame.dst === a.frame.src).length).toBe(Number(m[7]))
+    expect(ofType(rs, 'AMP_ROUND').filter((r) => r.t < RUN_NS).length).toBe(Number(m[5]))
+    expect(txs(rs, 'cts').filter((r) => r.t < RUN_NS).length).toBe(Number(m[5]))
+    expect(acks.length).toBe(Number(m[6]))
+    expect(acks.filter((a) => a.frame.dst !== a.frame.src).length).toBe(Number(m[7]))
+    expect(acks.filter((a) => a.frame.dst === a.frame.src).length).toBe(Number(m[8]))
   })
 
   const ROWS = [
@@ -265,16 +299,16 @@ describe('amp-slots · ③ every figure the labs print is the run', () => {
   ]
 
   it('lab 2: the model table, both halves of every cell, and the readings a round', () => {
-    const rows = tableOf(lab('窗口的宽窄'), '公式 / 三十轮实测（M = 6，N = 4）').rows
+    const rows = tableOf(lab('窗口的宽窄'), `公式 / 三十轮实测（M = 6，每帧 N = ${N}）`).rows
     const pct = (x: number) => `${(x * 100).toFixed(1)} %`
     for (const [i, r] of ROWS.entries()) {
       const acw = 2 ** r.acwe - 1
-      const m = model(6, acw, 4)
+      const m = model(6, acw, N)
       const c = slotCensus(recs(r.variant), m.reachable)
       const row = rows[i]
       expect(row[0]).toBe(`${r.acwe}（ACW ${acw}）`)
-      expect(row[1]).toBe(`${m.reachable} / 4`)
-      expect(c.slots).toBe(m.reachable * ROUNDS)
+      expect(row[1]).toBe(`${m.reachable} / ${N}`)
+      expect(c.slots).toBe(m.reachable * 2 * ROUNDS)
       expect(row[2]).toBe(`${pct(m.empty)} / ${pct(c.empty / c.slots)}`)
       expect(row[3]).toBe(`${pct(m.success)} / ${pct(c.success / c.slots)}`)
       expect(row[4]).toBe(`${pct(m.collision)} / ${pct(c.collision / c.slots)}`)
@@ -287,78 +321,94 @@ describe('amp-slots · ③ every figure the labs print is the run', () => {
     const e = lab('窗口的宽窄').expect
     let worst = 0, worstAt = ''
     for (const r of ROWS) {
-      const m = model(6, 2 ** r.acwe - 1, 4)
+      const m = model(6, 2 ** r.acwe - 1, N)
       const c = slotCensus(recs(r.variant), m.reachable)
       for (const k of ['empty', 'success', 'collision'] as const) {
         const d = Math.abs(c[k] / c.slots - m[k])
         if (d > worst) { worst = d; worstAt = `${r.acwe} ${k}` }
       }
     }
-    const g = /最大相差 ([\d.]+) 个百分点（ACWE (\d) 的成功一列）/.exec(e)!
+    const g = /最大相差 ([\d.]+) 个百分点（ACWE (\d) 的空闲一列）/.exec(e)!
     expect(g[1]).toBe((worst * 100).toFixed(2))
-    expect(worstAt).toBe(`${g[2]} success`)
+    expect(worstAt).toBe(`${g[2]} empty`)
     const perTag = (rs: TLRecord[]) => TAGS.map((t) => results(rs).filter((r) => r.node === t && r.acked).length)
-    expect(e).toContain('ACWE 1 下有两个标签一次也没被确认')
-    expect(perTag(recs(ACWE1)).filter((n) => n === 0).length).toBe(2)
+    expect(e).toContain('ACWE 1 下有一个标签一次也没被确认')
+    expect(perTag(recs(ACWE1)).filter((n) => n === 0).length).toBe(1)
     const s = /ACWE 3 下 (\d+) 次抽取中 (\d+) 次落在时隙之外，占 ([\d.]+) %/.exec(e)!
     const d3 = ofType(recs(ACWE3), 'AMP_ABOC')
     expect(Number(s[1])).toBe(d3.length)
     expect(Number(s[2])).toBe(d3.filter((d) => d.slot === null).length)
     expect(s[3]).toBe((Number(s[2]) / Number(s[1]) * 100).toFixed(1))
-    expect(model(6, 7, 4).p).toBe(0.5)
-    expect(ampSlots.why).toContain(`碰撞占可达时隙的 ${(slotCensus(recs(ACWE1), 2).collision / (2 * ROUNDS) * 100).toFixed(1)} %`)
+    expect(model(6, 7, N).p).toBe(0.25)
+    expect(e).toContain('公式给的是四分之三')
+    expect(ampSlots.why).toContain(`碰撞占可达时隙的 ${(slotCensus(recs(ACWE1), 2).collision / (2 * 2 * ROUNDS) * 100).toFixed(1)} %`)
     expect(ampSlots.why).toContain('相差不到五个百分点')
     expect(worst).toBeLessThan(0.05)
   })
 
-  it('lab 3: both phases\' arithmetic, term by term, against the first two-phase round', () => {
+  // 2026-11-11 (W7b): the two-phase round is now four TXOPs (two random, two scheduled), each
+  // inside the AC_BK TXOP limit; the formula is per TXOP.
+  it('lab 3: both phases\' arithmetic, term by term, against the first two-phase poll', () => {
     const rs = recs(TWO_PHASE)
-    const f = blockOf(lab('两阶段：先报身份，再送读数'), 'formula', '第一轮的两个阶段')
-    const m = /随机阶段 = (\d+) \+ (\d+) \+ (\d+) \+ (\d) × \((\d+) \+ (\d+) \+ (\d+) \+ (\d+)\) = (\d+) µs\n调度阶段 = (\d+) \+ (\d+) \+ (\d) × \((\d+) \+ (\d+) \+ (\d+) \+ (\d+)\) = (\d+) µs {3}→ {2}(\d+) µs/.exec(f.text)!
+    const f = blockOf(lab('两阶段：先报身份，再送读数'), 'formula', '第一轮的两个阶段，每次传输机会')
+    const m = /随机阶段 = (\d+) \+ (\d+) \+ (\d+) \+ (\d) × \((\d+) \+ (\d+) \+ (\d+) \+ (\d+)\) = (\d+) µs\n调度阶段 = (\d+) \+ (\d+) \+ (\d+) \+ (\d) × \((\d+) \+ (\d+) \+ (\d+) \+ (\d+)\) = (\d+) µs/.exec(f.text)!
     const n = m.slice(1).map(Number)
-    const cts = txs(rs, 'cts')[0]
+    const cts = txs(rs, 'cts').filter((r) => r.t < 20 * MS)
     const trig = txs(rs, 'ampTrigger').filter((r) => r.t < 20 * MS)
     const acks = txs(rs, 'ampAck').filter((r) => r.t < 20 * MS)
     const resp = txs(rs, 'ampResp').filter((r) => r.t < 20 * MS)
     const rRand = resp.filter((r) => r.frame.amp!.reading === false), rSched = resp.filter((r) => r.frame.amp!.reading === true)
-    expect(n[0]).toBe(cts.frame.txTimeNs / US)
-    expect([n[1], n[4], n[6], n[9], n[12], n[14]].every((x) => x === 10)).toBe(true)
-    expect(n[2]).toBe(trig[0].frame.txTimeNs / US)
-    expect(n[3]).toBe(ofType(rs, 'AMP_ROUND')[0].slots)
+    const sched = trig.filter((r) => r.frame.amp!.phase === 'scheduled')
+    const rand = trig.filter((r) => r.frame.amp!.phase === 'random')
+    const ackEnds = ofType(rs, 'TX_END').filter((r) => r.frame.kind === 'ampAck').map((r) => r.t)
+    const span = (c: typeof cts[number]) => ackEnds.filter((e) => e > c.t && e < c.t + QAP_EDCA_PARAMS[0].txopLimitNs).pop()! - c.t
+    expect(n[0]).toBe(cts[0].frame.txTimeNs / US)
+    expect(n[9]).toBe(cts[0].frame.txTimeNs / US)
+    expect([n[1], n[4], n[6], n[10], n[13], n[15]].every((x) => x === 10)).toBe(true)
+    expect(n[2]).toBe(rand[0].frame.txTimeNs / US)
+    expect(n[3]).toBe(rand[0].frame.amp!.slots)
     expect(n[5]).toBe(rRand[0].frame.txTimeNs / US)
     expect(n[7]).toBe(acks[0].frame.txTimeNs / US)
     expect(n[8]).toBe(n[0] + n[1] + n[2] + n[3] * (n[4] + n[5] + n[6] + n[7]))
-    expect(n[10]).toBe(trig[1].frame.txTimeNs / US)
-    expect(n[11]).toBe(trig[1].frame.amp!.staIds!.length)
-    expect(n[13]).toBe(rSched[0].frame.txTimeNs / US)
-    expect(n[15]).toBe(acks[acks.length - 1].frame.txTimeNs / US)
-    expect(n[16]).toBe(n[9] + n[10] + n[11] * (n[12] + n[13] + n[14] + n[15]))
-    expect(n[17]).toBe(n[8] + n[16])
-    const last = ofType(rs, 'TX_END').filter((r) => r.t < 20 * MS).pop()!
-    expect(last.t - cts.t).toBe(n[17] * US)
-    const note = /时隙 (\d+) µs；调度阶段的作答带读数，时隙 (\d+) µs/.exec(f.note!)!
+    expect(n[8] * US).toBe(span(cts[0]))
+    expect(n[11]).toBe(sched[0].frame.txTimeNs / US)
+    expect(n[12]).toBe(sched[0].frame.amp!.staIds!.length)
+    expect(n[14]).toBe(rSched[0].frame.txTimeNs / US)
+    expect(n[16]).toBe(acks[acks.length - 1].frame.txTimeNs / US)
+    expect(n[17]).toBe(n[9] + n[10] + n[11] + n[12] * (n[13] + n[14] + n[15] + n[16]))
+    const schedCts = cts.filter((c) => c.t < sched[0].t).pop()!
+    expect(n[17] * US).toBe(span(schedCts))
+    const note = /时隙 (\d+) µs；调度阶段的作答带读数，时隙 (\d+) µs。名单列两个标签时，调度阶段一次要 (\d+) µs，超过 (\d+) µs/.exec(f.note!)!
     expect(Number(note[1])).toBe(ofType(rs, 'AMP_ROUND').find((r) => r.phase === 'random')!.slotNs / US)
     expect(Number(note[2])).toBe(ofType(rs, 'AMP_ROUND').find((r) => r.phase === 'scheduled')!.slotNs / US)
+    // two tags in the list: the trigger grows by one 2-octet ID (64 µs at 250 kb/s) and one more slot is added
+    const two = n[9] + n[10] + n[11] + AMP_STA_ID_BYTES * 8 * 4 + 2 * (n[13] + n[14] + n[15] + n[16])
+    expect(Number(note[3])).toBe(two)
+    expect(Number(note[4])).toBe(QAP_EDCA_PARAMS[0].txopLimitNs / US)
+    expect(two * US).toBeGreaterThan(QAP_EDCA_PARAMS[0].txopLimitNs)
   })
 
-  it('lab 3: the list, the reservation, the readings and the air', () => {
+  it('lab 3: the list, the reservations, the readings and the air', () => {
     const rs = recs(TWO_PHASE)
     const e = lab('两阶段：先报身份，再送读数').expect
-    const m = /随机阶段收到 (Tag \d)、(Tag \d) 和 (Tag \d)，调度型触发帧按这个顺序列出它们，长 (\d+) 个字节、(\d+) µs；这一轮的 CTS-to-self 预留 (\d+) µs。三十轮里两种方式都送达 (\d+) 个读数，同一轮内联方式只用 (\d+) µs；空口时间内联方式 ([\d ]+) µs，两阶段 ([\d ]+) µs，多 ([\d.]+) %/.exec(e)!
-    const sched = txs(rs, 'ampTrigger').find((r) => r.frame.amp!.phase === 'scheduled')!
-    expect(sched.frame.amp!.staIds!.map((id) => `Tag ${id.slice(4)}`)).toEqual([m[1], m[2], m[3]])
-    expect(Number(m[4])).toBe(sched.frame.bytes)
-    expect(Number(m[5])).toBe(sched.frame.txTimeNs / US)
-    expect(Number(m[6])).toBe(txs(rs, 'cts')[0].frame.durationFieldNs / US)
+    const m = /随机阶段用两次传输机会，收到 (Tag \d) 和 (Tag \d)；调度阶段按这个顺序发两帧调度型触发帧，每帧列一个标签，长 (\d+) 个字节、(\d+) µs。CTS-to-self 在随机阶段预留 (\d+) µs，在调度阶段预留 (\d+) µs。三十轮里两阶段送达 (\d+) 个读数，内联方式送达 (\d+) 个；空口时间内联方式 ([\d ]+) µs，两阶段 ([\d ]+) µs，多 ([\d.]+) %/.exec(e)!
+    const first = (r: TLRecord) => r.t < 20 * MS
+    const sched = txs(rs, 'ampTrigger').filter((r) => first(r) && r.frame.amp!.phase === 'scheduled')
+    const rand = txs(rs, 'ampTrigger').filter((r) => first(r) && r.frame.amp!.phase === 'random')
+    expect(rand.length).toBe(2)
+    expect(sched.length).toBe(2)
+    expect(sched.map((s) => `Tag ${s.frame.amp!.staIds![0].slice(4)}`)).toEqual([m[1], m[2]])
+    expect(Number(m[3])).toBe(sched[0].frame.bytes)
+    expect(Number(m[4])).toBe(sched[0].frame.txTimeNs / US)
+    const cts = txs(rs, 'cts').filter(first)
+    expect(Number(m[5])).toBe(cts.find((c) => c.t < rand[0].t)!.frame.durationFieldNs / US)
+    expect(Number(m[6])).toBe(cts.filter((c) => c.t < sched[0].t).pop()!.frame.durationFieldNs / US)
     expect(Number(m[7])).toBe(readingsDelivered(rs))
-    expect(Number(m[7])).toBe(readingsDelivered(recs()))
-    const inline = recs()
-    const inlineRound = ofType(inline, 'TX_END').filter((r) => r.t < 20 * MS).pop()!.t - txs(inline, 'cts')[0].t
-    expect(Number(m[8])).toBe(inlineRound / US)
+    expect(Number(m[8])).toBe(readingsDelivered(recs()))
     const air = (x: TLRecord[]) => ofType(x, 'TX_START').reduce((s, r) => s + r.frame.txTimeNs, 0) / US
-    expect(num(m[9])).toBe(air(inline))
+    expect(num(m[9])).toBe(air(recs()))
     expect(num(m[10])).toBe(air(rs))
-    expect(m[11]).toBe(((air(rs) / air(inline) - 1) * 100).toFixed(1))
-    expect(ampSlots.why).toContain(`空口时间（airtime）增加 ${m[11]} %`)
+    expect(m[11]).toBe(((air(rs) / air(recs()) - 1) * 100).toFixed(1))
+    expect(ampSlots.why).toContain(`空口时间（airtime）增加 ${m[11]} %，送达的读数反而少 ${readingsDelivered(recs()) - readingsDelivered(rs)} 个`)
   })
 })

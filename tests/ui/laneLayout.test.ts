@@ -268,29 +268,29 @@ describe('topSpanAt', () => {
     expect(lines[0]).toContain(STRINGS.tooltips.ampWait)
   })
 
-  it('a bsWait state opens its own slot span, and the two backscatter frames get their own names', () => {
+  // 2026-11-11 (W7b): the backscatter frames are the draft's — AMP Trigger and AMP RFID (Read)
+  // down, AMP Response and the Read reply up (PDT 11-26/1519r5 §39.3.3, 11-26/1520r3) — and the
+  // tag's `bsWait` countdown state is gone with EPC Gen2's slot counter.
+  it('the two backscatter frames get their own names', () => {
     const recs: TLRecord[] = [
-      { t: 0, seq: 0, type: 'MAC_STATE', node: 'tag-1#2g', state: 'bsWait' },
+      { t: 0, seq: 0, type: 'MAC_STATE', node: 'tag-1#2g', state: 'rx' },
       { t: 452_400, seq: 1, type: 'MAC_STATE', node: 'tag-1#2g', state: 'tx' },
     ]
     const spans = recordsToSpans(recs, ['tag-1#2g'], 0, 600_000)
-    expect(spans[0]).toMatchObject({ kind: 'slot', state: 'bsWait', startNs: 0, endNs: 452_400 })
-    const lines = spanTooltip(spans[0], STRINGS.tooltips)
-    expect(lines[0]).toContain(STRINGS.tooltips.bsWait)
-    expect(lines[0]).not.toContain(STRINGS.tooltips.ampWait)
-    expect(lines[1]).toBe(STRINGS.tooltips.bsWaitNote)
-
-    // …and the reader's command and the tag's reflection each name their Gen2 message
     const cmd = ampRfidFrame({
-      src: 'ap', dst: '*tags', cmd: 'queryRep', session: 1, slot: 2, ulKbps: 250,
-      wupNs: 0, bstNs: 142_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
+      src: 'ap', dst: '*tags', cmd: 'trigger', session: 1, acwe: 2, slot: 2, ulKbps: 250,
+      wupNs: 0, bstNs: 318_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
     })
     const dl: LaneSpan = { ...spans[0], kind: 'tx', frame: cmd, frameKind: cmd.kind }
-    expect(spanTooltip(dl, STRINGS.tooltips)[0]).toContain('QueryRep')
-    expect(spanTooltip(dl, STRINGS.tooltips)[0]).toContain('QueryRep')
-    const rep = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'rn16', kbps: 250, slot: 2, rn16: 0x1234 })
+    expect(spanTooltip(dl, STRINGS.tooltips)[0]).toContain('AMP Trigger')
+    const read = ampRfidFrame({
+      src: 'ap', dst: 'tag-1', cmd: 'read', session: 1, slot: 2, ulKbps: 250,
+      wupNs: 0, bstNs: 881_600, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
+    })
+    expect(spanTooltip({ ...dl, frame: read }, STRINGS.tooltips)[0]).toContain('Read')
+    const rep = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'id', kbps: 250, slot: 2 })
     const ul: LaneSpan = { ...spans[0], kind: 'tx', frame: rep, frameKind: rep.kind }
-    expect(spanTooltip(ul, STRINGS.tooltips)[0]).toContain('RN16')
+    expect(spanTooltip(ul, STRINGS.tooltips)[0]).toContain('AMP Response')
     expect(spanTooltip(ul, STRINGS.tooltips)[1]).toContain('250 kb/s OOK')
   })
 })

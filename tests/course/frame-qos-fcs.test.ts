@@ -189,8 +189,10 @@ describe('frame-qos-fcs · ② says what the engine does, and the engine does it
     expect(implRow('FCS 的计算').sim).toContain(`${FCS_BYTES} B`)
     const dir = new URL('../../src/engine/', import.meta.url)
     for (const f of readdirSync(dir)) {
-      // ampBs.ts carries crc16Epc for AMP tag ids, which is not an 802.11 MPDU check.
-      if (!f.endsWith('.ts') || f === 'ampBs.ts') continue
+      // ampBs.ts carries crc16Epc for AMP tag ids, which is not an 802.11 MPDU check. 2026-11-11
+      // (W7b): ampReader.ts calls it to name the 16-bit ID an AMP Response carried (SFD FM-25,
+      // ID = CRC-16 of the EPC) — an identity, not a frame check, so it is exempt for the same reason.
+      if (!f.endsWith('.ts') || f === 'ampBs.ts' || f === 'ampReader.ts') continue
       const src = readFileSync(new URL(f, dir), 'utf8').replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '')
       expect(src.match(/crc/gi), `${f} computes a CRC`).toBeNull()
     }

@@ -147,16 +147,16 @@ describe('edca-cost · ③ every figure the labs print is the run', () => {
     }
     const call = queueWaits(rs, 'sta-1')
     const back = queueWaits(rs, 'sta-3')
-    expect(Math.round(meanMs(back) / meanMs(call))).toBe(7)
+    expect(Math.round(meanMs(back) / meanMs(call))).toBe(6) // 2026-11-11: seven before the AP took dot11QAPEDCATable and frames their UP
     expect(l.expect).toContain(`只抽取了 ${draws(rs, 'sta-3').length} 次`)
-    expect(l.expect).toContain(`平均排队时延 ${meanMs(back).toFixed(2)} ms，约为通话站点 ${meanMs(call).toFixed(2)} ms 的七倍`)
+    expect(l.expect).toContain(`平均排队时延 ${meanMs(back).toFixed(2)} ms，约为通话站点 ${meanMs(call).toFixed(2)} ms 的六倍`)
     expect(l.expect).toContain(`最长的一次排队是 ${(Math.max(...call) / MS).toFixed(2)} ms`)
     expect(Math.floor(Math.max(...call) / MS / meanMs(call))).toBe(2)
     // the figures `why` repeats
     expect(edcaCost.why).toContain(`只抽取了 ${draws(rs, 'sta-3').length} 次退避（backoff）值，第一帧等了 ${Math.round(firstData(rs, 'sta-3').t / MS)} ms`)
   })
 
-  it('lab 3: seven EIFS, all the uploader\'s; the first behind the two simultaneous voice frames', () => {
+  it('lab 3: three EIFS, all the uploader\'s; the first behind the two simultaneous voice frames', () => {
     const l = lab('上传站点的 EIFS')
     const eifs = ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS')
     expect(new Set(eifs.map((e) => e.node))).toEqual(new Set(['sta-2']))
@@ -166,7 +166,9 @@ describe('edca-cost · ③ every figure the labs print is the run', () => {
     expect(fail.t).toBe(first.t)
     expect(fail.reason).toBe('collision')
     expect(l.expect).toContain(`在 ${(fail.t / MS).toFixed(4)} ms 接收失败`)
-    const voice = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data' && r.frame.ac === 3 && r.t < fail.t)
+    // the voice frames whose end is the failure instant (2026-11-11: the AP's and the caller's, at the
+    // AP's first internal collision)
+    const voice = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data' && r.frame.ac === 3 && r.t + r.frame.txTimeNs === fail.t)
     expect(voice.map((r) => r.node).sort()).toEqual(['ap', 'sta-1'])
     expect(new Set(voice.map((r) => r.t)).size).toBe(1)
     expect(voice[0].t + voice[0].frame.txTimeNs).toBe(fail.t)
@@ -181,7 +183,7 @@ describe('edca-cost · ③ every figure the labs print is the run', () => {
     }
   })
 
-  it('lab 4: EDCA off on the caller — DIFS 34 µs, windows from 15, about 2.4× the wait', () => {
+  it('lab 4: EDCA off on the caller — DIFS 34 µs, windows from 15, about 3.2× the wait', () => {
     const l = lab('关掉通话站点的 EDCA')
     const sc: Scenario = edcaCost.scenario()
     const caller = sc.nodes.find((n) => n.id === 'sta-1')!

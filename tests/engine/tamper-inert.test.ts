@@ -43,7 +43,7 @@ import { cloudGameScenario, oneRoom, sc, tamperScenario } from '../../src/course
 import { node } from '../../src/course/lessonKit'
 import {
   DEFAULT_SERVERS, TAMPER_PRESETS, driverRefusals,
-  type ProfileId, type Scenario, type ServerCfg, type TamperKind,
+  type NodeCfg, type ProfileId, type Scenario, type ServerCfg, type TamperKind,
 } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 
@@ -104,7 +104,7 @@ function legacyDcf(cheat?: TamperKind): Scenario {
 /** A busy room with no `gaming` stream anywhere in it. */
 function noGameFlow(accel: boolean): Scenario {
   const ap = node('ap', 'Router', 'ap', 5, 1, 'eht', 'idle', FEATS)
-  if (accel) ap.gameAccel = true
+  if (accel) (ap as NodeCfg & { gameAccel?: boolean }).gameAccel = true
   return sc(oneRoom(), [ap,
     node('sta-1', 'A', 'sta', 3, 5, 'eht', 'browsing', FEATS),
     node('sta-2', 'B', 'sta', 5, 5, 'eht', 'browsing', FEATS),
@@ -116,7 +116,7 @@ function noGameFlow(accel: boolean): Scenario {
 function accelOnSta(onSta: boolean): Scenario {
   const ap = node('ap', 'Router', 'ap', 5, 1, 'eht', 'idle', FEATS)
   const phones = [3, 5, 7].map((x, i) => node(`sta-${i + 1}`, `Phone ${i + 1}`, 'sta', x, 5, 'eht', 'gaming', FEATS))
-  if (onSta) phones[0].gameAccel = true
+  if (onSta) (phones[0] as NodeCfg & { gameAccel?: boolean }).gameAccel = true
   const lap = node('sta-4', 'Laptop', 'sta', 8, 6, 'eht', 'saturated', FEATS)
   return sc(oneRoom(), [ap, ...phones, lap], { servers: [GAME] })
 }
@@ -269,23 +269,26 @@ describe('a field the schema accepts on a node that never reads it', () => {
    * router's box before adding the phone's stream is a reasonable intermediate state in the
    * editor, so it is pinned here instead.
    */
-  it('6 · game acceleration with no game stream in the room', () => {
+  /**
+   * 2026-11-11 (W7b): the router game-mode boolean is gone from the schema and the engine — the
+   * standard has no such switch (an AP-side priority for a station's downlink is MSCS, IEEE Std
+   * 802.11-2024 §11.25.3, not implemented). A plan saved with it still loads, because zod strips
+   * the unknown key, and so it is inert everywhere: on the AP, on a station, with or without a
+   * game stream. Items 6 and 7 now pin exactly that, and nothing refuses it.
+   */
+  it('6 · a saved game-mode boolean on the access point is stripped: byte-identical', () => {
     expect(same(noGameFlow(false), noGameFlow(true))).toBe(true)
-  })
-
-  it('7 · game acceleration on a station instead of the access point is refused', () => {
-    const refusals = driverRefusals(accelOnSta(true))
-    expect(refusals.length).toBe(1)
-    expect(refusals[0]).toContain('gameAccel')
-    expect(() => new Simulation(accelOnSta(true))).toThrow()
-    // the live control, and it is what makes this a rule about WHERE rather than a ban: the same
-    // boolean on the access point of the same room is accepted, and it is not inert
-    const apOn: Scenario = {
+    const apOn = {
       ...accelOnSta(false),
       nodes: accelOnSta(false).nodes.map((n) => (n.kind === 'ap' ? { ...n, gameAccel: true } : n)),
-    }
+    } as Scenario
     expect(driverRefusals(apOn)).toEqual([])
-    expect(same(accelOnSta(false), apOn)).toBe(false)
+    expect(same(accelOnSta(false), apOn)).toBe(true)
+  })
+
+  it('7 · …and on a station, where it used to be refused, it is stripped too', () => {
+    expect(driverRefusals(accelOnSta(true))).toEqual([])
+    expect(same(accelOnSta(false), accelOnSta(true))).toBe(true)
   })
 
   /**

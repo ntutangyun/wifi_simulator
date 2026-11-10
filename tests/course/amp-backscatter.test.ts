@@ -1,25 +1,28 @@
 /**
  * `@amp-backscatter`, in the standard-first shape (2026-11-11).
  *
- * ① cites the TGbp motions and the two adopted PDTs behind each mono-static backscatter rule; ②
- * says what the engine does about each — the inventory itself `differs`, being an EPC Gen2
- * slot-counter round after an unadopted proposal — and the rows are checked against the engine;
- * every figure the labs print is read back out of the lesson's own text and compared with a run.
+ * ① cites the TGbp motions and the PDTs behind each mono-static backscatter rule; ② says what
+ * the engine does about each and the rows are checked against the engine; every figure the labs
+ * print is read back out of the lesson's own text and compared with a run.
  *
- * It also keeps this slice's inert-config ruling (docs/inert-config-contract.md): the reader's
- * `write` flag is byte-for-byte inert at the default `txopMs: 4`, and it is PINNED rather than
- * refused, because at 10 ms of TXOP the Writes appear.
+ * Rewritten 2026-11-11 (W7b) with the engine: the inventory used to be an EPC Gen2
+ * Query/QueryRep/ACK slot-counter round (proposal 11-25/0061r0, not adopted) in a 4 ms TXOP, and
+ * ② said `differs`. It is now PDT 11-26/1519r5 §39.3.3: a broadcast single-slot AMP Trigger with
+ * ACWE, AMP Responses carrying the 16-bit ID, and AMP RFID frames carrying the UHF Read command —
+ * each TXOP inside the AP's AC_BK TXOP limit (§10.23.2.9). The old `write`/`txopMs` inert-config
+ * pin went with the fields: a Write's 2 ms response time cannot fit any AC_BK TXOP, so the engine
+ * does not send one (② `absent`).
  */
 import { describe, expect, it } from 'vitest'
 import { ampBackscatter, ampBackscatterScenario } from '../../src/course/amp/amp-backscatter'
-import { Simulation } from '../../src/engine/simulation'
 import { DEFAULT_AMP_BS, ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import {
   AMP_BS_ACTIVATION_DBM, AMP_BS_ISOLATION_DB, AMP_BS_LOSS_DB, AMP_BS_READER_DR_DB, AMP_BS_REQ_SNR_DB,
   AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_UL_CHIP_NS, AMP_BS_UL_SYNC_CHIPS, AMP_BS_WRITE_T3_NS, AMP_BS_WUP_MIN_NS,
-  activationReachM, ampBsDlPpduNs, bstNs, freeSpacePl0Db, monoReachM, FREQ_24G_MHZ, AMP_BS_DL_KBPS,
+  AMP_RFID_FCS_BYTES, AMP_RFID_HDR_BYTES, BS_CMD_BODY_BYTES, BS_REPLY_BODY_BYTES,
+  activationReachM, ampBsDlPpduNs, bstNs, crc16Epc, epcOf, freeSpacePl0Db, monoReachM, FREQ_24G_MHZ, AMP_BS_DL_KBPS,
 } from '../../src/engine/ampBs'
-import { EDCA_PARAMS, ERP_2G } from '../../src/engine/phy'
+import { CTS_BYTES, ERP_2G, QAP_EDCA_PARAMS, txTimeNs } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import type { TLRecord } from '../../src/model/records'
@@ -29,20 +32,22 @@ const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 1000 * MS
 const TAGS = ['tag-1#2g', 'tag-2#2g', 'tag-3#2g', 'tag-4#2g', 'tag-5#2g', 'tag-6#2g'] as const
-const CHARGE20 = 0, Q0 = 2, WRITE = 3
+const CHARGE20 = 0, ACWE0 = 2
+const LIMIT = QAP_EDCA_PARAMS[0].txopLimitNs
 
 const recs = (variant?: number): TLRecord[] => runOf(ampBackscatter, variant, RUN_NS)
-const run = (s: Scenario): TLRecord[] => [...new Simulation(s).runUntil(RUN_NS).records]
 const inv = (rs: TLRecord[]) => ofType(rs, 'AMP_INVENTORY')
 const replies = (rs: TLRecord[], kind: string) => ofType(rs, 'AMP_BS_REPLY').filter((r) => r.kind === kind)
-const epcCount = (rs: TLRecord[], node: string): number => replies(rs, 'epc').filter((r) => r.node === node).length
+const epcCount = (rs: TLRecord[], node: string): number => replies(rs, 'read').filter((r) => r.node === node).length
 const rfidAirtimeNs = (rs: TLRecord[]): number => ofType(rs, 'TX_START')
   .filter((r) => r.frame.kind === 'ampRfid').reduce((n, r) => n + r.frame.txTimeNs, 0)
 const tally = (rs: TLRecord[]) => inv(rs).reduce(
-  (a, x) => ({ off: a.off + x.slotsOffered, read: a.read + x.read.length, col: a.col + x.collisions, emp: a.emp + x.empties }),
-  { off: 0, read: 0, col: 0, emp: 0 },
+  (a, x) => ({ off: a.off + x.slotsOffered, ids: a.ids + x.ids.length, read: a.read + x.read.length, col: a.col + x.collisions, emp: a.emp + x.empties }),
+  { off: 0, ids: 0, read: 0, col: 0, emp: 0 },
 )
 const val = (cell: string): number => Number(cell.replace(/−/g, '-').replace(/[^\d.-]/g, ''))
+const sigExt = ERP_2G.signalExtNs
+const ctsNs = txTimeNs(CTS_BYTES, 6) + sigExt
 
 const lab = (heading: string): Lab => {
   const l = ampBackscatter.labs!.find((x) => x.heading === heading)
@@ -73,14 +78,13 @@ describe('amp-backscatter · the lesson', () => {
     expect(ampBackscatter.tryThis).toEqual([])
   })
 
-  it('the scene and its four variants pass the schema, unchanged', () => {
+  it('the scene and its three variants pass the schema', () => {
     expect(ampBackscatter.scenario()).toEqual(ampBackscatterScenario())
     expect(() => ScenarioSchema.parse(ampBackscatter.scenario())).not.toThrow()
     for (const v of ampBackscatter.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
     const bsOf = (s: Scenario) => s.nodes[0].ampAp!.backscatter!
     expect(ampBackscatter.variants!.map((v) => bsOf(v.scenario()))).toEqual([
-      { ...DEFAULT_AMP_BS, chargeDbm: 20 }, { ...DEFAULT_AMP_BS, ulKbps: 1000 },
-      { ...DEFAULT_AMP_BS, q: 0 }, { ...DEFAULT_AMP_BS, write: true },
+      { ...DEFAULT_AMP_BS, chargeDbm: 20 }, { ...DEFAULT_AMP_BS, ulKbps: 1000 }, { ...DEFAULT_AMP_BS, acwe: 0 },
     ])
     const s = ampBackscatter.scenario()
     const ap = s.nodes[0].pos
@@ -88,9 +92,10 @@ describe('amp-backscatter · the lesson', () => {
     expect([1, 2, 3, 4, 5, 6].map(d)).toEqual([15, 15, 15, 15, 28, 40])
   })
 
-  it('① names the motion behind each rule, and the two adopted PDTs', () => {
+  it('① names the motion behind each rule, and the PDTs', () => {
     const std = ampBackscatter.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
-    for (const ref of ['11-24/1613r20', '11-26/1519r5', '11-26/1798r1', '11-25/1692r50', '§39.3.3', '#87', '#98',
+    for (const ref of ['11-24/1613r20', '11-26/1519r5', '11-26/1798r1', '11-26/1889r4', '11-26/1520r3', '11-25/1692r50',
+      '§39.3.3', '§39.4', '§10.23.2.9', '表 9-194', 'dot11QAPEDCATable', '#87', '#90', '#98', '#105',
       '#15', '#29', '#72', '#167', '#168', '#169', '#170', '#199', '#200', '#201', '#16', '#140', '#18', '#149', '#31',
       '#40', '#134', '#52', '#111', '#112', '#239', '#241', '#145', '#210']) {
       expect(std, ref).toContain(ref)
@@ -103,55 +108,98 @@ describe('amp-backscatter · the lesson', () => {
 describe('amp-backscatter · ② says what the engine does, and the engine does it', () => {
   const rs = recs()
 
-  it('the inventory is a Gen2 Query / QueryRep / ACK round tunnelled in AMP RFID frames (differs)', () => {
-    expect(implRow('清点过程').kind).toBe('differs')
-    const cmds = new Set(ofType(rs, 'AMP_RFID').map((r) => r.cmd))
-    expect([...cmds].sort()).toEqual(['ack', 'query', 'queryRep', 'read'])
-    expect(ofType(rs, 'AMP_BS_COUNTER').every((r) => r.q === DEFAULT_AMP_BS.q && r.counter < 2 ** DEFAULT_AMP_BS.q)).toBe(true)
-    expect(implRow('清点过程').sim).toContain('读 8 个字节')
+  it('the inventory is the draft\'s: single-slot AMP Triggers, AMP Responses, AMP RFID Reads (faithful)', () => {
+    expect(implRow('征求标识').kind).toBe('faithful')
+    expect(implRow('读回 EPC').kind).toBe('faithful')
+    const cmds = ofType(rs, 'AMP_RFID')
+    expect([...new Set(cmds.map((r) => r.cmd))].sort()).toEqual(['read', 'trigger'])
+    const frames = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ampRfid')
+    for (const f of frames.filter((r) => r.frame.amp!.rfid!.cmd === 'trigger')) {
+      expect(f.frame.dst.startsWith('*')).toBe(true)
+      expect(f.frame.amp!.rfid!.acwe).toBe(DEFAULT_AMP_BS.acwe)
+    }
+    // every draw is fresh in [0, ACW] and only ABOC 0 answers, in the trigger's single slot
+    const acw = 2 ** DEFAULT_AMP_BS.acwe - 1
+    for (const d of ofType(rs, 'AMP_ABOC')) {
+      expect(d.acw).toBe(acw)
+      expect(d.slot).toBe(d.aboc === 0 ? 1 : null)
+    }
+    // a Read goes to a tag whose AMP Response the reader decoded, and its reply carries the EPC
+    for (const r of frames.filter((x) => x.frame.amp!.rfid!.cmd === 'read')) {
+      const id = crc16Epc(r.frame.amp!.rfid!.epc ?? epcOf(r.frame.dst)).toString(16).padStart(4, '0')
+      expect(inv(rs).some((x) => x.t < r.t && x.ids.includes(id)), `Read to ${r.frame.dst}`).toBe(true)
+    }
+    expect(replies(rs, 'read').every((r) => r.rxDbmAtAp !== undefined)).toBe(true)
+    expect(BS_CMD_BODY_BYTES.read).toBe(8)
+    expect(BS_REPLY_BODY_BYTES.read).toBe(17)
+    expect(implRow('Read 读什么').sim).toContain(`命令帧体 ${BS_CMD_BODY_BYTES.read} 个字节，应答帧体 ${BS_REPLY_BODY_BYTES.read} 个字节`)
+    expect([AMP_RFID_HDR_BYTES, AMP_RFID_FCS_BYTES]).toEqual([4, 2])
+    expect(implRow('帧头宽度').sim).toContain(`AMP RFID 帧照此取 ${AMP_RFID_HDR_BYTES} + ${AMP_RFID_FCS_BYTES} 个字节`)
   })
 
-  it('a session spans TXOPs with the counters held; each TXOP is 4 ms behind a CTS-to-self (differs)', () => {
-    expect(implRow('一轮跨传输机会').kind).toBe('choice')
-    const first = inv(rs).filter((r) => r.session === 1)
-    expect(first.map((r) => r.complete)).toEqual([false, false, false, true])
-    expect(implRow('传输机会的长度').kind).toBe('differs')
-    expect(DEFAULT_AMP_BS.txopMs).toBe(4)
-    expect(DEFAULT_AMP_BS.txopMs * MS).toBeGreaterThan(EDCA_PARAMS[0].txopLimitNs)
+  it('no Select, no Write, no Authenticate: a Write\'s excitation alone outlasts the TXOP limit (absent)', () => {
+    expect(implRow('Select、Write 与 Authenticate').kind).toBe('absent')
+    for (const v of [undefined, CHARGE20, 1, ACWE0]) {
+      expect(ofType(recs(v), 'AMP_RFID').every((r) => r.cmd === 'trigger' || r.cmd === 'read')).toBe(true)
+    }
+    expect(AMP_BS_WRITE_T3_NS).toBe(2 * MS)
+    // 1.1 × T3 + 1 µs of BST before the reply itself is even counted
+    expect(1.1 * AMP_BS_WRITE_T3_NS + 1 * US).toBeGreaterThan(2.2 * MS)
+    expect(ampBsDlPpduNs('read', 0, Math.round(1.1 * AMP_BS_WRITE_T3_NS + US), sigExt)).toBeGreaterThan(LIMIT)
+    expect(implRow('Select、Write 与 Authenticate').sim).toContain(`Write 的应答时延取 ${AMP_BS_WRITE_T3_NS / MS} ms`)
+  })
+
+  it('every TXOP fits the AC_BK TXOP limit; a CTS-to-self reserves the rest of it; one frame a TXOP at 250 kb/s', () => {
+    expect(implRow('一次传输机会的长度').kind).toBe('faithful')
+    expect(LIMIT).toBe(2_528_000)
     const cts = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'cts')
-    // one CTS-to-self a TXOP; the last TXOP may still be on the air when the second ends
-    expect(cts.length - inv(rs).length).toBeGreaterThanOrEqual(0)
-    expect(cts.length - inv(rs).length).toBeLessThanOrEqual(1)
-    for (const c of cts) expect(c.frame.durationFieldNs).toBe(DEFAULT_AMP_BS.txopMs * MS)
+    for (const c of cts) expect(c.frame.durationFieldNs).toBe(LIMIT - ctsNs)
+    expect(implRow('一次传输机会的长度').sim).toContain(`CTS-to-self 预留 ${(LIMIT - ctsNs) / US} µs`)
+    const frames = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ampRfid')
+    for (const [i, c] of cts.entries()) {
+      const next = cts[i + 1]?.t ?? Infinity
+      const inside = frames.filter((f) => f.t > c.t && f.t < next)
+      if (inside.length === 0) continue
+      expect(inside.length, `TXOP at ${c.t}`).toBe(1)
+      const last = inside[inside.length - 1]
+      expect(last.t + last.frame.txTimeNs - c.t).toBeLessThanOrEqual(LIMIT)
+    }
+    for (const x of inv(rs)) expect(x.txopNs).toBeLessThanOrEqual(LIMIT)
+    expect(implRow('一次盘点跨传输机会').kind).toBe('choice')
+    expect(DEFAULT_AMP_BS.slots).toBe(4)
+    expect(implRow('一次盘点跨传输机会').sim).toContain(`一次盘点发 ${DEFAULT_AMP_BS.slots} 帧触发帧`)
   })
 
-  it('WUP-Excitation on the first PPDU of a TXOP only; BST sized by the draft formula; 16 µs and 2 ms model gaps', () => {
+  it('WUP-Excitation on the first PPDU of a TXOP only; BST sized by the draft formula; 16 µs between frames', () => {
     expect(AMP_BS_WUP_MIN_NS).toBe(MS)
     expect(DEFAULT_AMP_BS.wupMs).toBe(1)
     expect(AMP_BS_T1_NS).toBe(16 * US)
     expect(implRow('BST-Excitation').sim).toBe(`照此计算，T1 = ${AMP_BS_T1_NS / US} µs。`)
-    expect(implRow('命令间隔与写入时延').sim).toBe(`两帧命令之间 ${AMP_BS_T2_NS / US} µs（取自 11-26/0120r0）；Write 的应答时延 ${AMP_BS_WRITE_T3_NS / MS} ms（同一文稿）。`)
-    // the first command of every TXOP is the long one
-    const rfid = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ampRfid')
-    const sigExt = ERP_2G.signalExtNs
-    const query = ampBsDlPpduNs('query', MS, bstNs('rn16', 250), sigExt)
-    expect(rfid[0].frame.txTimeNs).toBe(query)
-    // the first command after each CTS-to-self is 1 ms longer than the same command later in a TXOP
+    expect(implRow('帧间间隔').sim).toBe(`两帧之间 ${AMP_BS_T2_NS / US} µs（取自 11-26/0120r0）。`)
+    const frames = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ampRfid')
     const cts = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'cts')
     for (const c of cts) {
-      const firstCmd = rfid.find((r) => r.t > c.t)
-      if (!firstCmd) continue
-      const cmd = firstCmd.frame.amp!.rfid!.cmd as 'query' | 'queryRep'
-      expect(['query', 'queryRep']).toContain(cmd)
-      expect(firstCmd.frame.txTimeNs).toBe(ampBsDlPpduNs(cmd, MS, bstNs('rn16', 250), sigExt))
+      const first = frames.find((r) => r.t > c.t)
+      if (!first) continue
+      const cmd = first.frame.amp!.rfid!.cmd
+      expect(first.frame.amp!.rfid!.wupNs).toBe(MS)
+      expect(first.frame.txTimeNs).toBe(ampBsDlPpduNs(cmd, MS, bstNs(cmd === 'trigger' ? 'id' : 'read', 250), sigExt))
     }
-    const later = rfid.filter((r) => r.frame.amp!.rfid!.cmd === 'queryRep' && !cts.some((c) => rfid.find((x) => x.t > c.t) === r))
-    for (const r of later) expect(r.frame.txTimeNs).toBe(ampBsDlPpduNs('queryRep', 0, bstNs('rn16', 250), sigExt))
   })
 
-  it('no AMP Ack, ever: the reader sends commands and a CTS-to-self, the tags reflect', () => {
+  it('no AMP Ack, ever: the reader sends triggers, Reads and a CTS-to-self, the tags reflect', () => {
     expect(implRow('不回 Ack').kind).toBe('faithful')
     expect([...new Set(ofType(rs, 'TX_START').map((r) => r.frame.kind))].sort()).toEqual(['ampBsReply', 'ampRfid', 'cts'])
+  })
+
+  it('a tag does not look at the session: one already read still answers (choice)', () => {
+    expect(implRow('会话号').kind).toBe('choice')
+    const s1 = inv(rs).filter((x) => x.session === 1)
+    const readIds = new Set(s1.flatMap((x) => x.read).map((epc) => crc16Epc(epc).toString(16).padStart(4, '0')))
+    const lastS1 = s1[s1.length - 1].t
+    // after its EPC went out, some tag still sends AMP Responses to later triggers of later sessions
+    const ids = inv(rs).filter((x) => x.t > lastS1).flatMap((x) => x.ids)
+    expect(ids.some((id) => readIds.has(id))).toBe(true)
   })
 
   it('250 kb/s down; 24 chips of uplink sync at 2 µs or 0.5 µs', () => {
@@ -177,12 +225,6 @@ describe('amp-backscatter · ② says what the engine does, and the engine does 
         expect(rs.filter((r) => r.type === type && 'node' in r && r.node === t), `${t} / ${type}`).toEqual([])
       }
     }
-  })
-
-  it('`write: true` is inert at the default 4 ms TXOP, and not at 10 ms (pinned, not refused)', () => {
-    expect(JSON.stringify(recs(WRITE))).toBe(JSON.stringify(recs()))
-    const longer = run(ampBackscatterScenario({ write: true, txopMs: 10 }))
-    expect(ofType(longer, 'AMP_RFID').filter((r) => r.cmd === 'write').length).toBe(13)
   })
 })
 
@@ -219,7 +261,6 @@ describe('amp-backscatter · ③ every figure the labs print is the run', () => 
       const nodes = i === 0 ? TAGS.slice(0, 4) : [node]
       expect(row[5].replace(/\s*次$/, '').split('、').map(Number)).toEqual(nodes.map((t) => epcCount(rs, t)))
     }
-    // five boot at the same instant
     const firstBoots = ofType(rs, 'AMP_BS_BOOT').filter((r) => r.t === ofType(rs, 'AMP_BS_BOOT')[0].t)
     expect(firstBoots.length).toBe(5)
   })
@@ -236,73 +277,80 @@ describe('amp-backscatter · ③ every figure the labs print is the run', () => 
   it('lab 2: twenty dBm wakes Tag 6, never hears it, and costs one reading', () => {
     const loud = recs(CHARGE20)
     const e = lab('提高激励功率').expect
-    const m = /上电的距离移到 ([\d.]+) m，Tag 6 醒来，一秒钟抽取 (\d+) 次计数、反射 (\d+) 次 RN16；可读取的距离仍是 ([\d.]+) m，Tag 6 的余量是 −([\d.]+) dB，一次也没有被解出。它占用的槽使这一秒读到的次数从 (\d+) 降到 (\d+)/.exec(e)!
+    const m = /上电的距离移到 ([\d.]+) m，Tag 6 醒来，一秒钟抽取 (\d+) 次 ABOC、反射 (\d+) 次 AMP Response；可读取的距离仍是 ([\d.]+) m，Tag 6 的余量是 −([\d.]+) dB，一次也没有被解出。它的反射与别的标签相撞，使这一秒读回的 EPC 从 (\d+) 个降到 (\d+) 个/.exec(e)!
     const strong = ampBackscatter.variants![CHARGE20].scenario().nodes[0].ampAp!.backscatter!.chargeDbm
     expect(m[1]).toBe(activationReachM(strong).toFixed(3))
-    expect(Number(m[2])).toBe(ofType(loud, 'AMP_BS_COUNTER').filter((r) => r.node === TAGS[5]).length)
-    expect(Number(m[3])).toBe(replies(loud, 'rn16').filter((r) => r.node === TAGS[5]).length)
+    expect(Number(m[2])).toBe(ofType(loud, 'AMP_ABOC').filter((r) => r.node === TAGS[5]).length)
+    expect(Number(m[3])).toBe(replies(loud, 'id').filter((r) => r.node === TAGS[5]).length)
     expect(m[4]).toBe(monoReachM(DEFAULT_AMP_BS.bsDbm, 250).toFixed(3))
     expect(-Number(m[5])).toBe(Number(ofType(loud, 'AMP_BS_REPLY').find((r) => r.node === TAGS[5])!.snrDb.toFixed(2)))
     expect(epcCount(loud, TAGS[5])).toBe(0)
+    expect(replies(loud, 'read').length).toBe(tally(loud).read)
     expect([Number(m[6]), Number(m[7])]).toEqual([tally(recs()).read, tally(loud).read])
-    // the why's 「唤醒距离增大到三倍多」
     expect(Math.floor(activationReachM(strong) / activationReachM(DEFAULT_AMP_BS.chargeDbm))).toBe(3)
   })
 
-  it('lab 3: the slot formula, term by term, and the reserve that pushes the next slot out', () => {
-    const f = blockOf(lab('一个传输机会只容纳一个槽'), 'formula', '一个槽的三帧命令')
-    const m = /Query (\d+) \+ (\d+) \+ ACK (\d+) \+ (\d+) \+ Read (\d+) \+ (\d+) = (\d+) µs/.exec(f.text)!
+  it('lab 3: the TXOP arithmetic, term by term', () => {
+    const f = blockOf(lab('一个传输机会只容纳一帧'), 'formula', '250 kb/s 下一个传输机会里的帧')
+    const m = /(\d+) \+ (\d+) \+ 触发帧 ([\d.]+) = ([\d.]+) µs；再加 (\d+) \+ 不带 WUP 的触发帧 ([\d.]+) = ([\d.]+) µs > (\d+) µs\n(\d+) \+ (\d+) \+ Read ([\d.]+) = ([\d.]+) µs/.exec(f.text)!
     const n = m.slice(1).map(Number)
-    const sigExt = ERP_2G.signalExtNs
-    const q = ampBsDlPpduNs('query', MS, bstNs('rn16', 250), sigExt)
-    const a = ampBsDlPpduNs('ack', 0, bstNs('epc', 250), sigExt)
-    const r = ampBsDlPpduNs('read', 0, bstNs('read', 250), sigExt)
-    expect([n[0], n[2], n[4]]).toEqual([q, a, r].map((x) => Math.round(x / US)))
-    expect([n[1], n[3], n[5]]).toEqual([AMP_BS_T2_NS / US, AMP_BS_T2_NS / US, AMP_BS_T2_NS / US])
-    expect(n[6]).toBe(Math.round((q + a + r + 3 * AMP_BS_T2_NS) / US))
-    const note = /带 (\d+) ms 的 WUP-Excitation。开启下一个槽之前还要为可能到来的 RN16 预留 (\d+) \+ (\d+) µs，(\d+) ms 不够/.exec(f.note!)!
-    expect(Number(note[1]) * MS).toBe(AMP_BS_WUP_MIN_NS)
-    expect(Number(note[2])).toBe(AMP_BS_T2_NS / US)
-    expect(Number(note[3])).toBe(n[2])
-    expect(Number(note[4])).toBe(DEFAULT_AMP_BS.txopMs)
-    const queryRep = ampBsDlPpduNs('queryRep', 0, bstNs('rn16', 250), sigExt)
-    expect(q + a + r + 3 * AMP_BS_T2_NS + queryRep + AMP_BS_T2_NS + a).toBeGreaterThan(DEFAULT_AMP_BS.txopMs * MS)
+    const trigW = ampBsDlPpduNs('trigger', MS, bstNs('id', 250), sigExt) / US
+    const trig = ampBsDlPpduNs('trigger', 0, bstNs('id', 250), sigExt) / US
+    const read = ampBsDlPpduNs('read', MS, bstNs('read', 250), sigExt) / US
+    expect([n[0], n[1], n[2]]).toEqual([ctsNs / US, ERP_2G.sifsNs / US, trigW])
+    expect(n[3]).toBeCloseTo(n[0] + n[1] + n[2], 6)
+    expect([n[4], n[5]]).toEqual([AMP_BS_T2_NS / US, trig])
+    expect(n[6]).toBeCloseTo(n[3] + n[4] + n[5], 6)
+    expect(n[7]).toBe(LIMIT / US)
+    expect(n[6] * US).toBeGreaterThan(LIMIT)
+    expect([n[8], n[9], n[10]]).toEqual([ctsNs / US, ERP_2G.sifsNs / US, read])
+    expect(n[11]).toBeCloseTo(n[8] + n[9] + n[10], 6)
+    expect(n[11] * US).toBeLessThanOrEqual(LIMIT)
+    // the first frame of the run is that trigger
+    const first = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'ampRfid')!
+    expect(first.frame.txTimeNs).toBe(trigW * US)
   })
 
-  it('lab 3: four TXOPs, 14.9 ms, and the command airtime of the second', () => {
+  it('lab 3: seven TXOPs, 15.6 ms, and the airtime of a second', () => {
     const rs = recs()
-    const e = lab('一个传输机会只容纳一个槽').expect
-    const m = /Q = (\d) 的一轮要(.)个传输机会、([\d.]+) ms 才清点完毕。一秒钟内 (\d+) 帧命令占用 ([\d.]+) ms，也就是 ([\d.]+) %。每个传输机会 (\d+) ms，长于 AC_BK 缺省的 ([\d.]+) ms TXOP 限制/.exec(e)!
-    expect(Number(m[1])).toBe(DEFAULT_AMP_BS.q)
+    const e = lab('一个传输机会只容纳一帧').expect
+    const m = /第一次盘点用 (\d+) 个传输机会、([\d.]+) ms 才完成：(\d+) 帧触发帧各占一个，听到的 (\d+) 个标识各用一个读回 EPC。一秒钟内 (\d+) 帧占用 ([\d.]+) ms，也就是 ([\d.]+) %。每个传输机会都在 AC_BK 的 ([\d.]+) ms TXOP 限制之内/.exec(e)!
     const first = inv(rs).filter((r) => r.session === 1)
-    expect('一二三四五'.indexOf(m[2]) + 1).toBe(first.length)
-    expect(m[3]).toBe((first[first.length - 1].t / MS).toFixed(1))
-    expect(Number(m[4])).toBe(ofType(rs, 'AMP_RFID').length)
-    expect(m[5]).toBe((rfidAirtimeNs(rs) / MS).toFixed(1))
-    expect(m[6]).toBe((rfidAirtimeNs(rs) / RUN_NS * 100).toFixed(1))
-    expect(Number(m[7])).toBe(DEFAULT_AMP_BS.txopMs)
-    expect(Number(m[8]) * MS).toBe(EDCA_PARAMS[0].txopLimitNs)
+    expect(Number(m[1])).toBe(first.length)
+    expect(first[first.length - 1].complete).toBe(true)
+    expect(m[2]).toBe((first[first.length - 1].t / MS).toFixed(1))
+    expect(Number(m[3])).toBe(first.reduce((n, x) => n + x.slotsOffered, 0))
+    expect(Number(m[3])).toBe(DEFAULT_AMP_BS.slots)
+    expect(Number(m[4])).toBe(first.reduce((n, x) => n + x.read.length, 0))
+    expect(Number(m[3]) + Number(m[4])).toBe(first.length)
+    expect(Number(m[5])).toBe(ofType(rs, 'AMP_RFID').length)
+    expect(m[6]).toBe((rfidAirtimeNs(rs) / MS).toFixed(1))
+    expect(m[7]).toBe((rfidAirtimeNs(rs) / RUN_NS * 100).toFixed(1))
+    expect(Number(m[8]) * MS).toBe(LIMIT)
   })
 
-  it('lab 4: forty slots, the RN16s, the 10.8 dB pair, and Q = 0', () => {
+  it('lab 4: forty triggers, the AMP Responses, the 10.8 dB pair, and ACWE = 0', () => {
     const rs = recs()
-    const e = lab('读不出与空槽').expect
-    const m = /一秒钟 (\d+) 个槽里读到 (\d+) 个、读不出 (\d+) 个、空 (\d+) 个；标签一共反射 (\d+) 次 RN16。15 cm 与 28 cm 的两张标签同在一个槽里时，近的那张强 ([\d.]+) dB，读写器解出它，这一槽记为读到。Q = 0 时五张醒着的标签都抽到 0，(\d+) 个槽全部读不出，一次也没读到/.exec(e)!
+    const e = lab('读不出与空时隙').expect
+    const m = /一秒钟 (\d+) 帧触发帧里，听到标识 (\d+) 次、读不出 (\d+) 次、空 (\d+) 次；标签一共反射 (\d+) 次 AMP Response。15 cm 与 28 cm 的两张标签在同一时隙作答时，近的那张强 ([\d.]+) dB，读写器解出它，这一时隙记为听到标识。ACWE = 0 时五张醒着的标签每帧都抽到 0，(\d+) 帧触发帧全部读不出，一个标识也没听到/.exec(e)!
     const t = tally(rs)
-    expect([Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])]).toEqual([t.off, t.read, t.col, t.emp])
-    expect(Number(m[5])).toBe(replies(rs, 'rn16').length)
+    expect([Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])]).toEqual([t.off, t.ids, t.col, t.emp])
+    expect(t.ids + t.col + t.emp).toBe(t.off)
+    expect(Number(m[5])).toBe(replies(rs, 'id').length)
     const near = ofType(rs, 'AMP_BS_REPLY').find((r) => r.node === TAGS[0])!
     const far = ofType(rs, 'AMP_BS_REPLY').find((r) => r.node === TAGS[4])!
     expect(m[6]).toBe((near.snrDb - far.snrDb).toFixed(1))
-    const z = recs(Q0)
-    expect(ofType(z, 'AMP_BS_COUNTER').every((r) => r.counter === 0)).toBe(true)
-    expect(new Set(ofType(z, 'AMP_BS_COUNTER').map((r) => r.node)).size).toBe(5)
-    expect(tally(z)).toEqual({ off: Number(m[7]), read: 0, col: Number(m[7]), emp: 0 })
+    const z = recs(ACWE0)
+    expect(ofType(z, 'AMP_ABOC').every((r) => r.aboc === 0 && r.acw === 0)).toBe(true)
+    expect(new Set(ofType(z, 'AMP_ABOC').map((r) => r.node)).size).toBe(5)
+    expect(tally(z)).toEqual({ off: Number(m[7]), ids: 0, read: 0, col: Number(m[7]), emp: 0 })
   })
 
   it('the why\'s own figures', () => {
     const w = ampBackscatter.why!
     expect(w).toContain(`至少 ${AMP_BS_WUP_MIN_NS / MS} ms 的 WUP-Excitation`)
-    expect(w).toContain(`命令结束后 ${AMP_BS_T1_NS / US} µs（±20 %）应答`)
+    expect(w).toContain(`帧结束后 ${AMP_BS_T1_NS / US} µs（±20 %）应答`)
+    expect(w).toContain(`TXOP 限制 ${LIMIT / MS} ms`)
+    expect(w).toContain(`Write 的应答要等 ${AMP_BS_WRITE_T3_NS / MS} ms`)
   })
 })

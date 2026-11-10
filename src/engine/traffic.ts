@@ -5,6 +5,7 @@
 import type { EmitFn } from '../model/records'
 import type { ProfileId } from '../model/scenario'
 import type { Ns } from '../model/types'
+import { acForUp } from '../model/frames'
 import { EventQueue } from './events'
 import { Rng } from './rng'
 
@@ -14,14 +15,24 @@ export interface Msdu {
   src: string
   dst: string
   bornNs: Ns
-  /** EDCA access category of the stream that produced this MSDU. */
+  /**
+   * EDCA access category, derived from `up` by Table 10-1 (`acForUp`). Kept on the MSDU because
+   * every queue, record and test reads it; whoever builds an MSDU with a `up` sets it from there.
+   */
   ac: number
+  /**
+   * User priority 0…7 handed down with the MSDU (the MA-UNITDATA.request priority, §10.2.3.2):
+   * it is the frame's TID, and its AC follows from it (Table 10-1).
+   */
+  up?: number
   /** 802.11 sequence number, assigned on the first transmission and kept on retries (§10.3.2.14). */
   seqNo?: number
   /** Retry count of this MSDU (802.11-2020: one counter per MSDU, limit dot11ShortRetryLimit). */
   retries?: number
-  /** When the MAC accepted it into a transmit queue; its lifetime counts from here. */
+  /** When the MAC accepted it into a transmit queue; an EDCA MSDU's lifetime counts from here (§10.23.2.12.1). */
   enqueuedNs?: Ns
+  /** When it first went on the air; a DCF MSDU's lifetime counts from here (§10.4). */
+  firstTxNs?: Ns
   /** Has this MSDU been on the air at least once? Only then may a frame carrying it set Retry (§9.2.4.1.6). */
   sent?: boolean
   /** Cloud server this MSDU came from / goes to (unset for purely local streams). */
@@ -54,8 +65,6 @@ export interface TrafficOpts {
   /** Null/unset: a purely local stream (course lessons): no WAN delay, no server events, no pings. */
   server?: ServerLink | null
   emit?: EmitFn | null
-  /** The router's game acceleration: game flows marked AC_VI instead of unmarked AC_BE. */
-  gameAccel?: boolean
   /** p2pvideo: the station the video is for. */
   p2pTarget?: string
 }
@@ -73,29 +82,29 @@ export function resetMsduIds(): void {
 }
 
 /**
- * EDCA access category for a traffic profile, in the spirit of the UP-to-AC mapping of
- * Table 10-1 (§10.2.3.2 HCF contention based channel access). **Not §10.2.4.2**, which this
- * comment said until 2026-10-05: §10.2.4 is the mesh coordination function and has no such
- * subclause.
+ * The user priority an application of this profile hands its MSDUs down with. Which application
+ * gets which UP is outside the standard (the priority comes from above the MAC; Table 10-1's
+ * Designation column is "general usage and guidance"), so this is the simulator's choice, taken
+ * from that column: voice UP 6 (Voice), video UP 5 (Video), bulk transfers UP 1 (Background),
+ * the rest — browsing, a saturating source, and an online game, which marks nothing — UP 0
+ * (Best Effort). The AC every MSDU is queued in then follows from its UP by Table 10-1
+ * (`acForUp`), not from the profile.
  *
- * `'gaming'` never reaches this function — `TrafficSource.ac` answers that profile from the
- * AP's `gameAccel` boolean and returns before calling here — so the `case 'gaming'` below is
- * unreachable in today's engine. It is left in place because deleting it is an engine change
- * and the `wan-rtt`/`edca-tamper` slice was a course-only one. The REACHABLE answer is pinned
- * instead, in `tests/course/wan-rtt.test.ts`: every `ENQUEUE.ac` of a gaming station is 1
- * without the access point's boolean and 2 with it, and never anything else.
+ * (Until 2026-11-11 this mapped profile → AC directly, and an invented router "game mode" moved a
+ * game's uplink and downlink to AC_VI with no frame exchange at all. The standard's way for an AP
+ * to prioritise a station's downlink is MSCS, §11.25.3, which is not implemented.)
  */
-export function acForProfile(profile: ProfileId): number {
+export function upForProfile(profile: ProfileId): number {
   switch (profile) {
-    case 'voice': return 3 // AC_VO
+    case 'voice': return 6
     case 'video':
-    case 'p2pvideo':
-    case 'gaming': return 2 // AC_VI (where WMM-aware routers and consoles put game traffic)
+    case 'p2pvideo': return 5
     case 'browsing':
-    case 'saturated': return 1 // AC_BE
+    case 'saturated':
+    case 'gaming': return 0
     case 'backup':
     case 'iot':
-    case 'idle': return 0 // AC_BK
+    case 'idle': return 1
   }
 }
 
@@ -148,7 +157,6 @@ export class TrafficSource {
   ) {
     this.server = opts.server ?? null
     this.emit = opts.emit ?? null
-    this.gameAccel = opts.gameAccel ?? false
     this.p2pTarget = opts.p2pTarget ?? null
   }
 
@@ -156,14 +164,17 @@ export class TrafficSource {
 
   private readonly server: ServerLink | null
   private readonly emit: EmitFn | null
-  private readonly gameAccel: boolean
   /** Uplink MSDUs of this stream still travelling: id -> birth time and size. */
   private pendingUl = new Map<number, { bornNs: Ns; bytes: number }>()
 
-  /** Access category every MSDU of this stream is queued in. */
+  /** The user priority every MSDU of this stream carries. */
+  get up(): number {
+    return upForProfile(this.profile)
+  }
+
+  /** Access category every MSDU of this stream is queued in: its UP's, by Table 10-1. */
   get ac(): number {
-    if (this.profile === 'gaming') return this.gameAccel ? 2 : 1 // marked AC_VI by the router, else unmarked AC_BE
-    return acForProfile(this.profile)
+    return acForUp(this.up)
   }
 
   start(): void {
@@ -211,7 +222,7 @@ export class TrafficSource {
     const id = nextMsduId++
     const bornNs = this.now()
     if (this.server) this.pendingUl.set(id, { bornNs, bytes })
-    this.enqueue(this.staId, { id, bytes, src: this.staId, dst: this.apId, bornNs, ac: this.ac, server: this.server?.id })
+    this.enqueue(this.staId, { id, bytes, src: this.staId, dst: this.apId, bornNs, up: this.up, ac: this.ac, server: this.server?.id })
   }
 
   /**
@@ -223,14 +234,14 @@ export class TrafficSource {
     const id = nextMsduId++
     const t = this.now()
     if (!this.server) {
-      this.enqueue(this.apId, { id, bytes, src: this.apId, dst: this.staId, bornNs: t, ac: this.ac })
+      this.enqueue(this.apId, { id, bytes, src: this.apId, dst: this.staId, bornNs: t, up: this.up, ac: this.ac })
       return
     }
     const { id: server } = this.server
     const arriveNs = t + this.oneWayNs()
     this.emit?.({ t, type: 'WAN_TX', server, msduId: id, bytes, to: this.staId, arriveNs })
     this.q.schedule(arriveNs, () => {
-      this.enqueue(this.apId, { id, bytes, src: this.apId, dst: this.staId, bornNs: arriveNs, ac: this.ac, server, rttFromNs })
+      this.enqueue(this.apId, { id, bytes, src: this.apId, dst: this.staId, bornNs: arriveNs, up: this.up, ac: this.ac, server, rttFromNs })
     })
   }
 
@@ -314,7 +325,7 @@ export class TrafficSource {
     const next = t + 1_400 * US + Math.floor(this.rng.next() * 300 * US)
     this.q.schedule(next, () => {
       const id = nextMsduId++
-      this.enqueue(this.staId, { id, bytes: 1400, src: this.staId, dst: this.apId, bornNs: this.now(), ac: this.ac, finalDst: this.p2pTarget! })
+      this.enqueue(this.staId, { id, bytes: 1400, src: this.staId, dst: this.apId, bornNs: this.now(), up: this.up, ac: this.ac, finalDst: this.p2pTarget! })
       this.scheduleP2pVideo(next)
     })
   }

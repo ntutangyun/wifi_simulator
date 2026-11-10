@@ -152,7 +152,9 @@ describe('ampApRefusals refuses nothing this repository ships', () => {
       .filter((n) => n.ampAp !== undefined)
       .map((n) => `${s.label}:${n.id} ${n.kind}/${n.caps.generation}`))
     // anti-vacuity: there really are scenes to count, and they are the five AMP lessons'
-    expect(carriers.length, 'scenes carrying ampAp').toBe(16)
+    // 16 → 15 on 2026-11-11 (W7b): amp-backscatter lost its 「打开 Write」 variant — the reader no
+    // longer sends a Write, whose 2 ms response time does not fit the AC_BK TXOP limit.
+    expect(carriers.length, 'scenes carrying ampAp').toBe(15)
     expect([...new Set(carriers.map((c) => c.split(' ')[1]))]).toEqual(['ap/eht'])
     expect([...new Set(carriers.map((c) => c.split(':')[0]!.split('#')[0]))].sort())
       .toEqual(['amp-backscatter', 'amp-coexist', 'amp-intro', 'amp-ppdu', 'amp-slots'])

@@ -397,7 +397,11 @@ describe('AMP records in the view', () => {
     expect(vs.nodes['ap#2g'].ampRound!.received).toEqual(['tag-1', 'tag-2'])
   })
 
-  it('a backscatter tag lane tracks its counter, its session flag and its margin; the AP lane the inventory', () => {
+  // 2026-11-11 (W7b): the inventory is the draft's (PDT 11-26/1519r5 §39.3.3) — a tag's `counter`
+  // is the ABOC it drew for the trigger on the air (AMP_ABOC, §39.4), `inventoried` means its EPC
+  // went out in a Read reply, and the reader's tally is identified / collisions / empties per
+  // trigger plus the EPCs read. EPC Gen2's AMP_BS_COUNTER and its RN16/EPC replies are gone.
+  it('a backscatter tag lane tracks its ABOC, its EPC read and its margin; the AP lane the inventory', () => {
     const sc = bsScenario({}, [bsTag('tag-1', 0.2)])
     const vs = initViewState(sc)
     // An Active Tx tag never grows the `bs` block; a backscatter one starts with it empty.
@@ -405,31 +409,31 @@ describe('AMP records in the view', () => {
     let n = 0
     const rec = (r: Parameters<EmitFn>[0]) => applyRecord(vs, { ...r, seq: n++ } as TLRecord)
 
-    rec({ t: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'query', session: 1, q: 2, slot: 1, bstNs: 142_400, untilNs: 1_516_400 })
-    expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 1, slots: 4, inventory: { session: 1, slot: 1, read: 0, collisions: 0, empties: 0 } })
-    rec({ t: 1_368_000, type: 'AMP_BS_BOOT', node: 'tag-1#2g', powered: true, incidentDbm: -16.2 })
-    rec({ t: 1_368_000, type: 'AMP_BS_COUNTER', node: 'tag-1#2g', counter: 0, q: 2 })
+    rec({ t: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'trigger', session: 1, acwe: 2, slot: 1, bstNs: 318_400, untilNs: 1_788_400 })
+    expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 1, slots: 1, inventory: { session: 1, slot: 1, identified: 0, collisions: 0, empties: 0, read: 0 } })
+    rec({ t: 1_464_000, type: 'AMP_BS_BOOT', node: 'tag-1#2g', powered: true, incidentDbm: -16.2 })
+    rec({ t: 1_464_000, type: 'AMP_ABOC', node: 'tag-1#2g', aboc: 0, acw: 3, slot: 1 })
     expect(vs.nodes['tag-1#2g'].amp!.bs!.counter).toBe(0)
-    rec({ t: 1_384_000, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'rn16', slot: 1, rxDbmAtAp: -58.4, snrDb: 11.6 })
+    rec({ t: 1_480_000, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'id', slot: 1, rxDbmAtAp: -58.4, snrDb: 11.6 })
     expect(vs.nodes['tag-1#2g'].amp!.bs).toMatchObject({ counter: null, replies: 1, lastSnrDb: 11.6, inventoried: false })
-    rec({ t: 2_600_000, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'epc', slot: 1, rxDbmAtAp: -58.4, snrDb: 11.6 })
+    rec({ t: 3_600_000, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'read', slot: 1, rxDbmAtAp: -58.4, snrDb: 11.6 })
     expect(vs.nodes['tag-1#2g'].amp!.bs!.inventoried).toBe(true)
-    rec({ t: 2_600_001, type: 'COLLISION', nodes: ['tag-1#2g'] })
+    rec({ t: 3_600_001, type: 'COLLISION', nodes: ['tag-1#2g'] })
     expect(vs.nodes['tag-1#2g'].amp!.bs!.collisions).toBe(1)
 
-    // A QueryRep of the same session keeps the announced slot count and moves the slot on.
-    rec({ t: 3_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'queryRep', session: 1, slot: 2, bstNs: 142_400, untilNs: 3_452_400 })
-    expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 2, slots: 4, untilNs: 3_452_400 })
-    rec({ t: 3_700_000, type: 'AMP_INVENTORY', node: 'ap#2g', session: 1, slotsOffered: 2, read: ['aa'.repeat(12)], collisions: 0, empties: 1, txopNs: 3_697_200, complete: false })
-    expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ read: 1, collisions: 0, empties: 1 })
+    // The next trigger of the same session moves the slot on.
+    rec({ t: 5_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'trigger', session: 1, acwe: 2, slot: 2, bstNs: 318_400, untilNs: 6_788_400 })
+    expect(vs.nodes['ap#2g'].ampRound).toMatchObject({ slot: 2, slots: 2, untilNs: 6_788_400 })
+    rec({ t: 6_804_400, type: 'AMP_INVENTORY', node: 'ap#2g', session: 1, slotsOffered: 1, ids: ['abcd'], read: [], collisions: 0, empties: 0, txopNs: 1_804_400, complete: false })
+    expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ identified: 1, collisions: 0, empties: 0, read: 0 })
     // …and the reader defers in that same instant, which is what clears the round: the tally
     // has to be kept beside it or it could never be read.
-    rec({ t: 3_700_000, type: 'MAC_STATE', node: 'ap#2g', state: 'defer' })
+    rec({ t: 6_804_400, type: 'MAC_STATE', node: 'ap#2g', state: 'defer' })
     expect(vs.nodes['ap#2g'].ampRound).toBeNull()
-    expect(vs.nodes['ap#2g'].ampInventoryLast).toMatchObject({ session: 1, slot: 2, read: 1, collisions: 0, empties: 1 })
+    expect(vs.nodes['ap#2g'].ampInventoryLast).toMatchObject({ session: 1, slot: 2, identified: 1, collisions: 0, empties: 0, read: 0 })
     // A new session starts a fresh inventory block rather than adding to the old one.
-    rec({ t: 9_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'query', session: 2, q: 2, slot: 1, bstNs: 142_400, untilNs: 10_516_400 })
-    expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ session: 2, slot: 1, read: 0, empties: 0 })
+    rec({ t: 9_000_000, type: 'AMP_RFID', node: 'ap#2g', cmd: 'trigger', session: 2, acwe: 2, slot: 1, bstNs: 318_400, untilNs: 10_788_400 })
+    expect(vs.nodes['ap#2g'].ampRound!.inventory).toMatchObject({ session: 2, slot: 1, identified: 0, empties: 0 })
   })
 
   it('the tally survives the reader’s own defer, which lands in the same instant', () => {
@@ -455,10 +459,10 @@ describe('AMP records in the view', () => {
     expect(vs.nodes['ap#2g'].ampInventoryLast).toEqual(tally)
     const closed = inv as Extract<TLRecord, { type: 'AMP_INVENTORY' }>
     expect(tally).toMatchObject({
-      session: closed.session, read: closed.read.length,
+      session: closed.session, identified: closed.ids.length, read: closed.read.length,
       collisions: closed.collisions, empties: closed.empties,
     })
-    expect(tally!.read + tally!.collisions + tally!.empties).toBe(closed.slotsOffered)
+    expect(tally!.identified + tally!.collisions + tally!.empties).toBe(closed.slotsOffered)
   })
 
   it('live and replayed views agree over a whole backscatter inventory', () => {

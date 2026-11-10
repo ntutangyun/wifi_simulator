@@ -31,19 +31,23 @@ function caught(json: string): unknown {
   }
 }
 
-/** A plan that breaks two of this slice's three rules at once. */
+/**
+ * A plan that breaks two rules at once. 2026-11-11 (W7b): the station-side half used to be the
+ * router game-mode boolean, which is gone (stripped on load, never refused); it is now `shortSlot`
+ * on stations that are not on the 2.4 GHz link (§11.1.3.2 — `shortSlotRefusals`).
+ */
 function twoRefusals(): string {
   const base = defaultScenario()
   const nodes = base.nodes.map((n) => (n.kind === 'ap'
     ? { ...n, tamper: { ...TAMPER_PRESETS.greedy } }
-    : { ...n, gameAccel: true }))
+    : { ...n, shortSlot: false }))
   return scenarioToJson({ ...base, nodes } as Scenario)
 }
 
 describe('a refused plan is rendered as sentences', () => {
   it('prints one line per reason, and nothing around them', () => {
     const lines = scenarioLoadIssues(caught(twoRefusals()))
-    expect(lines.length, 'one AP-side tamper and two station-side game-mode booleans').toBe(3)
+    expect(lines.length, 'one AP-side tamper and two short-slot flags off the 2.4 GHz link').toBe(3)
     for (const line of lines) {
       expect(line, 'a serialised issue object leaked into the line').not.toContain('"code"')
       expect(line).not.toContain('"path"')
@@ -51,7 +55,7 @@ describe('a refused plan is rendered as sentences', () => {
       expect(line.startsWith('['), 'the whole array was stringified').toBe(false)
     }
     expect(lines.some((l) => l.includes('tamper'))).toBe(true)
-    expect(lines.some((l) => l.includes('gameAccel'))).toBe(true)
+    expect(lines.some((l) => l.includes('shortSlot'))).toBe(true)
   })
 
   /** The regression in its own right: `String(err)` is what this replaced, and it is unreadable. */

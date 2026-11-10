@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   AMP_BS_LOSS_DB, AMP_BS_T1_NS, AMP_BS_T2_NS, ampRfidFrame, bstNs, crc16Epc, epcOf, monoLeakDbm,
-  readerFloorDbm, type Gen2Cmd, type Gen2Reply,
+  readerFloorDbm, type BsCmd, type BsReply,
 } from '../../src/engine/ampBs'
 import { AmpBsStaMac, AMP_BS_POWER_HOLD_NS } from '../../src/engine/ampBsSta'
 import { Channel, type PhyListener } from '../../src/engine/channel'
@@ -47,12 +47,12 @@ function bench(tags: Record<string, number>, seed = 7) {
     now = t
   }
   let slot = 0
-  const cmd = (c: Gen2Cmd, o: { wupMs?: number; q?: number; rn16?: number; dst?: string; reply?: Gen2Reply | null; t3?: number; slot?: number } = {}): FrameDesc =>
+  const cmd = (c: BsCmd, o: { wupMs?: number; acwe?: number; dst?: string; epc?: string; reply?: BsReply | null; slot?: number } = {}): FrameDesc =>
     ampRfidFrame({
-      src: 'ap', dst: o.dst ?? '*', cmd: c, session: 1, q: o.q, rn16: o.rn16,
-      slot: o.slot ?? (slot = c === 'query' || c === 'queryRep' ? slot + 1 : slot),
+      src: 'ap', dst: o.dst ?? '*tags', cmd: c, session: 1, acwe: c === 'trigger' ? (o.acwe ?? 0) : undefined,
+      epc: o.epc, slot: o.slot ?? (slot = c === 'trigger' ? slot + 1 : slot),
       ulKbps: 250, wupNs: (o.wupMs ?? 0) * MS,
-      bstNs: bstNs(o.reply === undefined ? 'rn16' : o.reply, 250, o.t3),
+      bstNs: bstNs(o.reply === undefined ? (c === 'trigger' ? 'id' : 'read') : o.reply, 250),
       chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
     })
   /** Send `f` at `at` and return the instant its AMP-Data ends (where the tag decodes it). */
@@ -76,10 +76,17 @@ function bench(tags: Record<string, number>, seed = 7) {
   return { q, ch, records, heard, macs, run, cmd, send, recs, wifi, pos }
 }
 
+/**
+ * 2026-11-11 (W7b): the tag of PDT 11-26/1519r5 §39.3.3 / 11-26/1889r4 §39.4 — a broadcast AMP
+ * Trigger with one slot makes it draw a NEW ABOC in [0, 2^ACWE − 1] and answer (an AMP Response
+ * with its ID) only when ABOC is 0; an AMP RFID frame with the UHF Read addressed to its ID makes
+ * it reflect the Read reply with its EPC. No slot counter survives a trigger, and nothing is kept
+ * across TXOPs. The EPC Gen2 Query/QueryRep/ACK tag of proposal 11-25/0061r0 (not adopted) is gone.
+ */
 describe('AmpBsStaMac — a tag with no radio', () => {
-  it('boots on a WUP it can hear, draws its slot counter and answers slot 0 at AMP-Data end + T1', () => {
+  it('boots on a WUP it can hear, draws its ABOC and answers ABOC 0 at AMP-Data end + T1 with its ID', () => {
     const b = bench({ t1: 0.2 }, 3)
-    const dataEnd = b.send(0, b.cmd('query', { wupMs: 1, q: 0 }))
+    const dataEnd = b.send(0, b.cmd('trigger', { wupMs: 1, acwe: 0 }))
     b.run(3 * MS)
     const boot = b.recs('AMP_BS_BOOT', 't1')
     expect(boot.length).toBe(1)
@@ -88,174 +95,137 @@ describe('AmpBsStaMac — a tag with no radio', () => {
     // 10 dBm charge, free space at 2.44 GHz over 0.2 m: 40.196 + 20·log10(0.2) = 26.2 dB
     expect(boot[0].incidentDbm).toBeCloseTo(10 - (40.196 + 20 * Math.log10(0.2)), 2)
 
-    const counter = b.recs('AMP_BS_COUNTER', 't1')
-    expect(counter.length).toBe(1)
-    expect(counter[0]).toMatchObject({ counter: 0, q: 0 })
+    // §39.4: ABOC in [0, ACW], ACW = 2^ACWE − 1 = 0; a single slot (§39.3.3), so ABOC 0 answers.
+    const aboc = b.recs('AMP_ABOC', 't1')
+    expect(aboc.length).toBe(1)
+    expect(aboc[0]).toMatchObject({ aboc: 0, acw: 0, slot: 1 })
 
     const tx = b.recs('TX_START', 't1')[0]
     expect(tx.t).toBe(dataEnd + AMP_BS_T1_NS)
     expect(tx.frame.kind).toBe('ampBsReply')
-    expect(tx.frame.amp!.bs!.reply).toBe('rn16')
-    expect(tx.frame.txTimeNs).toBe(112_000) // 48 µs sync + 64 µs of RN16
-    expect(b.heard.map((h) => h.frame.amp!.bs!.reply)).toEqual(['rn16'])
+    expect(tx.frame.amp!.bs!.reply).toBe('id')
+    expect(tx.frame.bytes).toBe(7)
+    expect(tx.frame.txTimeNs).toBe(272_000) // 48 µs sync + 7 octets × 32 µs
+    expect(b.heard.map((h) => h.frame.amp!.bs!.reply)).toEqual(['id'])
   })
 
   it('reports the reply’s power at the reader and its margin over the reader’s own floor', () => {
     const b = bench({ t1: 0.2 }, 3)
-    b.send(0, b.cmd('query', { wupMs: 1, q: 0 }))
+    b.send(0, b.cmd('trigger', { wupMs: 1, acwe: 0 }))
     b.run(3 * MS)
     const rep = b.recs('AMP_BS_REPLY', 't1')[0]
     const pl = 40.196 + 20 * Math.log10(0.2)
     expect(rep.rxDbmAtAp).toBeCloseTo(0 - 2 * pl - AMP_BS_LOSS_DB, 2)
     expect(rep.snrDb).toBeCloseTo(rep.rxDbmAtAp - readerFloorDbm(monoLeakDbm(0)), 6)
-    expect(rep.kind).toBe('rn16')
+    expect(rep.kind).toBe('id')
     expect(rep.slot).toBe(1)
   })
 
-  it('counts down on QueryRep and answers in the slot it drew, not before', () => {
+  it('draws a fresh ABOC on every trigger and answers exactly the triggers it drew 0 for (§39.4)', () => {
     const b = bench({ t1: 0.2 }, 3)
     let t = 0
-    const q = b.cmd('query', { wupMs: 1, q: 2 })
-    b.send(t, q)
-    t += q.txTimeNs + AMP_BS_T2_NS
-    const reps: number[] = []
-    for (let i = 0; i < 3; i++) {
-      const f = b.cmd('queryRep')
+    const n = 12
+    for (let i = 0; i < n; i++) {
+      const f = b.cmd('trigger', { wupMs: i === 0 ? 1 : 0, acwe: 2 })
       b.send(t, f)
-      reps.push(t)
       t += f.txTimeNs + AMP_BS_T2_NS
     }
-    b.run(t + 3 * MS)
-    const drawn = b.recs('AMP_BS_COUNTER', 't1')[0].counter
-    const tx = b.recs('TX_START', 't1')
-    expect(tx.length).toBe(1)
-    // counter c means: answer in the (c+1)-th slot — the Query itself is slot 1.
-    const opened = drawn === 0 ? 0 : reps[drawn - 1]
-    const ppdu = drawn === 0 ? q : b.records.find((r) => r.type === 'TX_START' && r.t === opened)!
-    expect(ppdu).toBeDefined()
-    expect(tx[0].frame.amp!.bs!.slot).toBe(drawn + 1)
-    // …and the tag is in `bsWait` from the draw until the slot it chose opens
-    if (drawn > 0) {
-      expect(b.recs('MAC_STATE', 't1').some((s) => s.state === 'bsWait')).toBe(true)
-    }
+    b.run(t + MS)
+    const abocs = b.recs('AMP_ABOC', 't1')
+    expect(abocs.length).toBe(n)
+    // Replayed from the tag's own stream, forked the way the bench forks it: one draw per trigger.
+    const rng = new Rng(3).fork(1)
+    expect(abocs.map((r) => r.aboc)).toEqual(Array.from({ length: n }, () => rng.int(3)))
+    for (const r of abocs) expect(r.slot).toBe(r.aboc === 0 ? 1 : null)
+    const replies = b.recs('TX_START', 't1').map((r) => r.frame.amp!.bs!.slot)
+    expect(replies).toEqual(abocs.map((r, i) => (r.aboc === 0 ? i + 1 : null)).filter((x) => x !== null))
+    expect(replies.length).toBeGreaterThan(0)
+    // The tag never sits in a multi-slot countdown any more: between frames it is idle.
+    expect(new Set(b.recs('MAC_STATE', 't1').map((s) => s.state))).toEqual(new Set(['rx', 'tx', 'idle']))
   })
 
-  it('ACK → EPC → Read: the EPC reply carries the tag’s own EPC and sets the session flag', () => {
-    const b = bench({ t1: 0.2 }, 3)
+  it('Read → its EPC: an AMP RFID frame addressed to its ID gets the Read reply, the other tag stays silent', () => {
+    const b = bench({ t1: 0.2, t2: 0.2 }, 3)
     let t = 0
-    const q = b.cmd('query', { wupMs: 1, q: 0 })
-    b.send(t, q)
-    t += q.txTimeNs + AMP_BS_T2_NS
+    const rd = b.cmd('read', { wupMs: 1, dst: 't1', epc: epcOf('t1') })
+    const rdEnd = b.send(t, rd)
+    t += rd.txTimeNs + AMP_BS_T2_NS
     b.run(t)
-    const rn16 = b.heard[0].frame.amp!.bs!.rn16!
-    const ack = b.cmd('ack', { rn16, dst: 't1', reply: 'epc' })
-    const ackEnd = b.send(t, ack)
-    t += ack.txTimeNs + AMP_BS_T2_NS
-    b.run(t)
-    expect(b.heard[1].frame.amp!.bs).toMatchObject({ reply: 'epc', epc: epcOf('t1') })
-    expect(b.records.find((r) => r.type === 'TX_START' && r.node === 't1' && r.t === ackEnd + AMP_BS_T1_NS)).toBeDefined()
-
-    const read = b.cmd('read', { rn16, dst: 't1', reply: 'read' })
-    const readEnd = b.send(t, read)
-    t += read.txTimeNs + AMP_BS_T2_NS
-    b.run(t)
-    expect(b.heard[2].frame.amp!.bs!.reply).toBe('read')
-    expect(b.heard[2].t).toBeGreaterThan(readEnd)
-
-    // A second Query in the same session finds the tag inventoried: it stays silent.
-    const again = b.cmd('query', { wupMs: 1, q: 0 })
-    b.send(t, again)
-    b.run(t + again.txTimeNs + 3 * MS)
-    expect(b.recs('AMP_BS_COUNTER', 't1').length).toBe(1)
-    expect(b.heard.length).toBe(3)
-  })
-
-  it('ignores an ACK carrying somebody else’s RN16', () => {
-    const b = bench({ t1: 0.2 }, 3)
-    let t = 0
-    const q = b.cmd('query', { wupMs: 1, q: 0 })
-    b.send(t, q)
-    t += q.txTimeNs + AMP_BS_T2_NS
-    b.run(t)
-    const mine = b.heard[0].frame.amp!.bs!.rn16!
-    b.send(t, b.cmd('ack', { rn16: (mine ^ 0x5555) & 0xffff, dst: 't1', reply: 'epc' }))
-    b.run(t + 3 * MS)
     expect(b.heard.length).toBe(1)
+    expect(b.heard[0].from).toBe('t1')
+    expect(b.heard[0].frame.amp!.bs).toMatchObject({ reply: 'read', epc: epcOf('t1') })
+    expect(b.heard[0].frame.bytes).toBe(23)
+    expect(b.records.find((r) => r.type === 'TX_START' && r.node === 't1' && r.t === rdEnd + AMP_BS_T1_NS)).toBeDefined()
+    expect(b.recs('TX_START', 't2')).toEqual([])
   })
 
   it('a tag out of activation range hears nothing and emits nothing', () => {
     const b = bench({ near: 0.2, far: 0.35 }, 3)
-    b.send(0, b.cmd('query', { wupMs: 1, q: 0 }))
+    b.send(0, b.cmd('trigger', { wupMs: 1, acwe: 0 }))
     b.run(3 * MS)
     expect(b.recs('AMP_BS_BOOT', 'near').length).toBe(1)
     expect(b.recs('AMP_BS_BOOT', 'far')).toEqual([])
-    expect(b.recs('AMP_BS_COUNTER', 'far')).toEqual([])
+    expect(b.recs('AMP_ABOC', 'far')).toEqual([])
     expect(b.recs('RX_OK', 'far')).toEqual([])
   })
 
-  it('an unpowered tag cannot act on a command that carries no wake-up preamble', () => {
+  it('an unpowered tag cannot act on a frame that carries no wake-up preamble', () => {
     const b = bench({ t1: 0.2 }, 3)
-    b.send(0, b.cmd('queryRep'))
+    b.send(0, b.cmd('trigger', { acwe: 0 }))
     b.run(3 * MS)
     const boot = b.recs('AMP_BS_BOOT', 't1')
     expect(boot.length).toBe(1)
     expect(boot[0].powered).toBe(false)
-    expect(b.recs('AMP_BS_COUNTER', 't1')).toEqual([])
+    expect(b.recs('AMP_ABOC', 't1')).toEqual([])
     expect(b.recs('TX_START', 't1')).toEqual([])
-    // …and it says so once, not once per command it cannot use
-    b.send(3 * MS, b.cmd('queryRep'))
+    // …and it says so once, not once per frame it cannot use
+    b.send(3 * MS, b.cmd('trigger', { acwe: 0 }))
     b.run(7 * MS)
     expect(b.recs('AMP_BS_BOOT', 't1').length).toBe(1)
   })
 
   it('falls unpowered when the carrier stops for longer than T2 + 8 µs, and re-boots on the next WUP', () => {
     const b = bench({ t1: 0.2 }, 3)
-    const q1 = b.cmd('query', { wupMs: 1, q: 2 })
-    const end = 0 + q1.txTimeNs
-    b.send(0, q1)
+    const f1 = b.cmd('trigger', { wupMs: 1, acwe: 2 })
+    const end = 0 + f1.txTimeNs
+    b.send(0, f1)
     b.run(end + AMP_BS_POWER_HOLD_NS + 1000)
     expect(b.recs('MAC_STATE', 't1').pop()!.state).toBe('idle')
-    // a QueryRep arriving after the gap finds an unpowered tag …
-    b.send(end + AMP_BS_POWER_HOLD_NS + 2000, b.cmd('queryRep'))
+    // a trigger arriving after the gap, with no WUP, finds an unpowered tag …
+    b.send(end + AMP_BS_POWER_HOLD_NS + 2000, b.cmd('trigger', { acwe: 2 }))
     b.run(end + 5 * MS)
     expect(b.recs('AMP_BS_BOOT', 't1').map((r) => r.powered)).toEqual([true, false])
-    // … and the counter it drew survives the power cut (11-25/0061r0's "Extend", model)
-    // Replayed from the tag's own stream, forked the way the bench forks it: the counter is the
-    // same one it drew before the power cut, and it is still the only one it ever drew.
-    const drawn = b.recs('AMP_BS_COUNTER', 't1')[0].counter
-    expect(drawn).toBe(new Rng(3).fork(1).int(3))
-    expect(b.recs('AMP_BS_COUNTER', 't1').length).toBe(1)
+    expect(b.recs('AMP_ABOC', 't1').length).toBe(1)
+    // … and one with a WUP boots it again
+    b.send(end + 5 * MS, b.cmd('trigger', { wupMs: 1, acwe: 2 }))
+    b.run(end + 9 * MS)
+    expect(b.recs('AMP_BS_BOOT', 't1').map((r) => r.powered)).toEqual([true, false, true])
   })
 
   it('stays powered across a whole TXOP: consecutive PPDUs are exactly T2 apart', () => {
     const b = bench({ t1: 0.2 }, 3)
     let t = 0
-    const q1 = b.cmd('query', { wupMs: 1, q: 2 })
-    b.send(t, q1)
-    t += q1.txTimeNs + AMP_BS_T2_NS
-    for (let i = 0; i < 3; i++) {
-      const f = b.cmd('queryRep')
+    for (let i = 0; i < 4; i++) {
+      const f = b.cmd('trigger', { wupMs: i === 0 ? 1 : 0, acwe: 2 })
       b.send(t, f)
       t += f.txTimeNs + AMP_BS_T2_NS
     }
     b.run(t + MS)
     expect(b.recs('AMP_BS_BOOT', 't1').map((r) => r.powered)).toEqual([true])
+    expect(b.recs('AMP_ABOC', 't1').length).toBe(4)
     expect(AMP_BS_POWER_HOLD_NS).toBeGreaterThan(AMP_BS_T2_NS)
   })
 
   it('a Wi-Fi frame across the BST-Excitation destroys the reflection', () => {
-    // The end-to-end coexistence test shows a deferring station can never *get* into a BST
-    // window; this is what happens to a reply if one does, which is the spec's `none` variant.
     const clean = bench({ t1: 0.2 }, 3)
-    clean.send(0, clean.cmd('query', { wupMs: 1, q: 0 }))
+    clean.send(0, clean.cmd('trigger', { wupMs: 1, acwe: 0 }))
     clean.run(3 * MS)
     expect(clean.heard.length).toBe(1)
 
     const b = bench({ t1: 0.2 }, 3)
-    const q = b.cmd('query', { wupMs: 1, q: 0 })
-    const dataEnd = b.send(0, q)
+    const dataEnd = b.send(0, b.cmd('trigger', { wupMs: 1, acwe: 0 }))
     // A Wi-Fi station a metre from the reader, on the air right through the reply.
-    b.wifi('cam', dataEnd + AMP_BS_T1_NS - 4_000, 200_000)
+    b.wifi('cam', dataEnd + AMP_BS_T1_NS - 4_000, 400_000)
     b.run(3 * MS)
     expect(b.recs('TX_START', 't1').length).toBe(1) // the tag still answers
     expect(b.heard.length).toBe(0) // the reader gets nothing out of it

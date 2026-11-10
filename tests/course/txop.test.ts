@@ -13,7 +13,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { EDCA_PARAMS, OFDM_5G, aifsNs } from '../../src/engine/phy'
+import { EDCA_PARAMS, OFDM_5G, QAP_EDCA_PARAMS, aifsNs } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
@@ -23,6 +23,9 @@ const AP = 'ap'
 
 const recs = (): TLRecord[] => runOf(txop, undefined, RUN_NS)
 const by = (name: string) => EDCA_PARAMS.find((p) => p.name === name)!
+// 2026-11-11 (W7b): the AP contends with dot11QAPEDCATable (§10.2.3.2) — AIFSN 1 for AC_VI, so
+// its post-TXOP AIFS is 16 + 9 = 25 µs, not the non-AP 34 µs. The TXOP limits are the same values.
+const byAp = (name: string) => QAP_EDCA_PARAMS.find((p) => p.name === name)!
 const thousands = (n: number): string => n.toLocaleString('en-US').replace(/,/g, ' ')
 
 const lab = (heading: string): Lab => {
@@ -107,8 +110,8 @@ describe('txop · ② says what the engine does, and the engine does it', () => 
     const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === AP)
     expect(draws).toHaveLength(ends.length)
     for (const [i, d] of draws.entries()) {
-      expect(d.t - ends[i].t, `draw ${i}`).toBe(aifsNs(by('VI').aifsn, OFDM_5G))
-      expect(d.cw).toBe(by('VI').cwMin)
+      expect(d.t - ends[i].t, `draw ${i}`).toBe(aifsNs(byAp('VI').aifsn, OFDM_5G))
+      expect(d.cw).toBe(byAp('VI').cwMin)
     }
   })
 
@@ -186,7 +189,7 @@ describe('txop · ③ every figure the labs print is the run', () => {
     const bs = bursts(rs)
     const first = bs[0]
     const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === AP)!
-    expect(draw.t - first.end!).toBe(aifsNs(by('VI').aifsn, OFDM_5G))
+    expect(draw.t - first.end!).toBe(aifsNs(byAp('VI').aifsn, OFDM_5G))
     const second = bs[1]
     const arrival = ofType(rs, 'ENQUEUE').filter((r) => r.node === AP && r.t > first.end!)[0]
     expect(arrival.t).toBe(second.start)
@@ -195,7 +198,7 @@ describe('txop · ③ every figure the labs print is the run', () => {
     // the countdown is finished before the frame arrives
     const lastDec = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === AP && r.t < arrival.t).at(-1)!
     expect(lastDec.value).toBe(0)
-    expect(l.expect).toContain(`第一串突发在 ${(first.end! / MS).toFixed(3)} ms 结束，队列已空；${aifsNs(2, OFDM_5G) / US} µs 之后接入点抽到 ${draw.value} 并倒数完毕`)
+    expect(l.expect).toContain(`第一串突发在 ${(first.end! / MS).toFixed(3)} ms 结束，队列已空；${aifsNs(byAp('VI').aifsn, OFDM_5G) / US} µs 之后接入点抽到 ${draw.value} 并倒数完毕`)
     expect(l.expect).toContain(`下一帧在 ${(arrival.t / MS).toFixed(3)} ms 到达，在同一纳秒发出`)
     const atArrival = bs.filter((b) => ofType(rs, 'ENQUEUE').some((e) => e.node === AP && e.t === b.start)).length
     const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === AP).length

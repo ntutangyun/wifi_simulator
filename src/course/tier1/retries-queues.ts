@@ -10,16 +10,21 @@
  * node of this scene is a non-QoS (DCF) station, so ① cites the DCF clauses and
  * not EDCA's §10.23.2.
  *
- * Two findings of that check are in ② as `choice`/`differs`: the engine resets
- * its queue counter at the limit (EDCA's rule — the DCF text only resets CW),
- * and it starts every frame's lifetime clock at enqueue, which is EDCA's rule;
- * for a DCF station §10.4 starts it at the first transmission attempt.
+ * One finding of that check is in ② as `choice`: the engine resets its queue
+ * counter at the limit (the DCF text only resets CW). The other — every frame's
+ * lifetime clock started at enqueue, EDCA's rule — was fixed in the engine on
+ * 2026-11-11 (W7b): a DCF station's clock now starts at the first transmission
+ * attempt (§10.4) with dot11MaxTransmitMSDULifetime, and the row is faithful.
+ * With that, no frame of the default run outlives its lifetime (a hidden
+ * station's frame reaches the retry limit within 65 ms of its first attempt),
+ * so the short-lifetime variant moved from 100 ms — byte-identical to the
+ * default once the clock starts at the first attempt — to 20 ms, which is where
+ * lab 3 now shows the two counts coming apart.
  *
  * The first half of the old `retries-queues`, split on 2026-09-25; `queues`
- * loads this lesson's scene and both its variants unchanged
- * (`sameSceneAs: 'retries-queues'`), so the recorded timeline hashes stay
- * identical. Every figure printed below is read back out of the text and
- * compared with a run in tests/course/retries-queues.test.ts.
+ * loads this lesson's scene and both its variants (`sameSceneAs:
+ * 'retries-queues'`). Every figure printed below is read back out of the text
+ * and compared with a run in tests/course/retries-queues.test.ts.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'
@@ -105,7 +110,7 @@ export const retriesQueues: Lesson = {
     { topic: '长帧的计数', standard: '超过 dot11RTSThreshold 的帧用 LRC 与 SLRC（§10.3.4.4）', sim: '没有长重传计数，所有帧都按短重传计数与 7 次的上限处理。本课场景的 RTS 门限（RTS threshold）是 3000 字节，没有一帧超过它，所以不涉及这一条。', kind: 'absent' },
     { topic: '失败之后的速率', standard: '标准未规定调整方法（§10.6.5.8）', sim: '对同一个对端连续失败两次降一档，连续成功十次升一档，且不超过按信噪比（signal-to-noise ratio, SNR）查表得到的上限。它无法区分失败来自碰撞还是信号变弱。', kind: 'choice' },
     { topic: '退避的随机数', standard: '从 [0, CW] 均匀选取，各站点的随机序列应当统计独立（§10.3.3 NOTE 1）', sim: '由场景种子生成的确定序列，同一场景每次运行结果相同；本课的链路（link）电平也不随时间变化。', kind: 'choice' },
-    { topic: '生存期从何时起算', standard: '非 QoS 站点的发送计时器从第一次尝试发送时起算，上限 dot11MaxTransmitMSDULifetime，缺省 512 TU（§10.4，附录 C）', sim: '一律从入队时起算，取 500 ms，即 EDCA 的规则（§10.23.2.12.1）；所以一帧可以在一次也没有发送的情况下超过生存期。下一课详细讨论。', kind: 'differs' },
+    { topic: '生存期从何时起算', standard: '非 QoS 站点的发送计时器从第一次尝试发送时起算，上限 dot11MaxTransmitMSDULifetime，缺省 512 TU（§10.4，附录 C）', sim: '照此计时：从这一帧第一次发送时起算；本课场景把上限设为 500 ms，变体「短生存期」设为 20 ms。一次也没有发送过的帧不会因生存期被丢弃。下一课详细讨论。', kind: 'faithful' },
   ],
   labs: [
     {
@@ -137,29 +142,30 @@ export const retriesQueues: Lesson = {
         '跳到第一次因重传上限丢帧。',
         '读出同一时刻的失败记录、丢弃记录与 CW 记录，再看 Hidden B 的下一帧。',
       ],
-      expect: '27 689 µs 处最后一次失败记作 “retry #id (retries=7 QSRC=7)”，紧接着一行 “DROP #id (retryLimit)”，同一时刻 CW 恢复为 15。下一帧在 27 741 µs 发出，序列号为 1，重发比特为 0。三秒内 Hidden A 送达 76 帧、因重传上限丢弃 62 帧，Hidden B 分别是 69 帧与 61 帧。',
+      expect: '27 689 µs 处最后一次失败记作 “retry #id (retries=7 QSRC=7)”，紧接着一行 “DROP #id (retryLimit)”，同一时刻 CW 恢复为 15。下一帧在 27 741 µs 发出，序列号为 1，重发比特为 0。三秒内 Hidden A 送达 76 帧、因重传上限丢弃 64 帧，Hidden B 分别是 69 帧与 64 帧。',
       meaning: '这一帧的 SRC 等于 7，按 §10.3.4.4 被丢弃；SSRC 达到上限，CW 按 §10.3.3 恢复为 aCWmin（①）。计数同时清零是本仿真器的取法（②）。',
     },
     {
       heading: '两个计数不再一致',
+      variant: 1,
       steps: [
-        '在事件日志里找到 504 465 µs：Hidden B 在这一时刻丢弃三帧，原因是生存期超时。',
-        '读出紧接着那一帧前三次失败记录中的 retries 与 QSRC，以及每次之后的 CW。',
+        '载入「短生存期：500 个 MSDU，生存期 20 ms」，在事件日志里找到 26 940 µs：Hidden B 在这一时刻丢弃一帧，原因是生存期超时。',
+        '读出被丢弃那一帧的失败次数，再读出紧接着那一帧前三次失败记录中的 retries 与 QSRC，以及每次之后的 CW。',
       ],
       blocks: [
-        { kind: 'table', heading: '504 465 µs 之后那一帧的前三次失败', head: ['第几次失败', 'retries（这一帧）', 'QSRC（站点）', '之后的 CW'], rows: [
-          ['1', '1', '6', '1023'],
-          ['2', '2', '7', '15'],
-          ['3', '3', '1', '31'],
+        { kind: 'table', heading: '26 940 µs 之后那一帧的前三次失败', head: ['第几次失败', 'retries（这一帧）', 'QSRC（站点）', '之后的 CW'], rows: [
+          ['1', '1', '7', '15'],
+          ['2', '2', '1', '31'],
+          ['3', '3', '2', '63'],
         ] },
       ],
-      expect: '被丢弃的三帧中排在最前面的那一帧（序列号 17）已失败 5 次，站点的计数随之停在 5；它们因生存期被丢弃时，站点计数并不清零。下一帧（序列号 18）第一次失败时读数是 1 对 6，第二次是 2 对 7——此时 CW 恢复为 15，尽管这一帧的七次机会才用掉两次。',
-      meaning: '这一帧的计数决定何时丢弃它，站点的计数决定窗口，标准只在成功时把两者一起清零（①）。生存期从入队起算是本仿真器与标准不同之处（②）。',
+      expect: '被丢弃的是 Hidden B 的第一帧（序列号 0）：它从 0 µs 第一次发送起已失败 6 次，正要第七次发送时，计时器超过了 20 ms；站点的计数停在 6，并不因这次丢弃而清零。下一帧（序列号 1）第一次失败时读数是 1 对 7——站点计数达到上限，CW 恢复为 15，尽管这一帧的七次机会才用掉一次；第二次是 2 对 1。默认设置（500 ms）下三秒里一次也没有发生这种情况：每一帧从第一次发送到发满七次，最长只用 65 ms。',
+      meaning: '这一帧的计数决定何时丢弃它，站点的计数决定窗口，标准只在成功时把两者一起清零（①）。生存期从第一次发送起算（§10.4，②），所以只有生存期短于一帧发满七次所需的时间，它才会先于重传上限起作用。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§10.3.2.11（ACK 超时 = aSIFSTime + aSlotTime + aRxPHYStartDelay）、§10.3.3 与式 (10-1)（SRC、SSRC、CW 序列与复位）、§10.3.4.3（失败之后的退避）、§10.3.4.4（重发比特、重传上限与生存期）、§10.3.2.14（序列号与重复检测）、§10.4（DCF 的发送计时器从第一次尝试起算）、§10.6.5.8（单播数据帧的速率）、§10.23.2.2 与 §10.23.2.12.1（EDCA 的 QSRC 与生存期）、§17.4.4 表 17-24（OFDM 物理层的 aSlotTime、aSIFSTime、aRxPHYStartDelay、aCWmin、aCWmax）、附录 C（dot11ShortRetryLimit 缺省 7，dot11MaxTransmitMSDULifetime 缺省 512 TU）。',
-    '本仿真器的取值与取法：7 次的固定上限、到达上限时计数清零、连续两次失败降一档与连续十次成功升一档、由种子生成的退避序列、从入队起算的 500 ms 生存期、500 个 MSDU 的队列上限，以及隐藏节点户型与 13.2 Mb/s 的视频源。',
+    '本仿真器的取值与取法：7 次的固定上限、到达上限时计数清零、连续两次失败降一档与连续十次成功升一档、由种子生成的退避序列、场景设置的 500 ms 与 20 ms 生存期、500 个 MSDU 的队列上限，以及隐藏节点户型与 13.2 Mb/s 的视频源。',
   ],
   limits: [],
   scenario: () => retriesScenario({ limit: 500, lifetimeMs: 500 }),
@@ -169,8 +175,10 @@ export const retriesQueues: Lesson = {
       scenario: () => retriesScenario({ limit: 100, lifetimeMs: 500 }),
     },
     {
-      label: '短生存期：500 个 MSDU，生存期 100 ms',
-      scenario: () => retriesScenario({ limit: 500, lifetimeMs: 100 }),
+      // 2026-11-11: 100 ms before the DCF lifetime clock started at the first attempt (§10.4); at
+      // 100 ms the run is now byte-identical to the default, so the variant moved to 20 ms.
+      label: '短生存期：500 个 MSDU，生存期 20 ms',
+      scenario: () => retriesScenario({ limit: 500, lifetimeMs: 20 }),
     },
   ],
   jumps: [

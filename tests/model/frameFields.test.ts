@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { LESSONS } from '../../src/course/lessons'
 import { ampAckFrame, ampRespFrame, ampTriggerFrame } from '../../src/engine/amp'
 import {
-  AMP_BS_WRITE_T3_NS, ampBsReplyFrame, ampRfidBytes, ampRfidFrame, bstNs, crc16Epc, epcOf,
-  type AmpBsUlKbps, type Gen2Cmd, type Gen2Reply,
+  ampBsReplyFrame, ampRfidFrame, bsCmdBytes, bstNs, crc16Epc, epcOf,
+  type AmpBsUlKbps, type BsCmd, type BsReply,
 } from '../../src/engine/ampBs'
 import { Simulation } from '../../src/engine/simulation'
 import { hasFeature } from '../../src/model/caps'
@@ -176,23 +176,29 @@ describe('AMP frames decode to their P802.11bp fields and PPDU layout', () => {
   })
 })
 
-describe('backscatter frames decode to their EPC Gen2 fields and excitation layout', () => {
+/**
+ * 2026-11-11 (W7b): the mono-static frames are the draft's — an AMP Trigger (PDT 11-26/1519r5
+ * §39.3.3) answered by an AMP Response, and an AMP RFID frame (PDT 11-26/1520r3: Frame Control 8,
+ * ID 16, Type Dependent Control 8, body, FCS 16) carrying the UHF Read, answered by an AMP RFID
+ * frame with the Read reply. EPC Gen2's Query/QueryRep/ACK/Write and their bare RN16/EPC replies
+ * (proposal 11-25/0061r0, not adopted) are gone.
+ */
+describe('backscatter frames decode to their AMP fields and excitation layout', () => {
   const ctx = { apId: 'ap', isEdca: true }
-  const CMDS: Gen2Cmd[] = ['query', 'queryRep', 'ack', 'read', 'write']
+  const CMDS: BsCmd[] = ['trigger', 'read']
   const RATES: AmpBsUlKbps[] = [250, 1000]
 
-  /** The command PPDU the AP would send for `cmd`, its BST sized for the reply it expects. */
-  function rfid(cmd: Gen2Cmd, kbps: AmpBsUlKbps, wupNs: number) {
-    const reply: Gen2Reply = cmd === 'ack' ? 'epc' : cmd === 'read' ? 'read' : cmd === 'write' ? 'write' : 'rn16'
-    const bst = cmd === 'write' ? bstNs(reply, kbps, AMP_BS_WRITE_T3_NS) : bstNs(reply, kbps)
+  /** The PPDU the AP would send for `cmd`, its BST sized for the reply it expects. */
+  function rfid(cmd: BsCmd, kbps: AmpBsUlKbps, wupNs: number) {
+    const reply: BsReply = cmd === 'read' ? 'read' : 'id'
     return ampRfidFrame({
-      src: 'ap', dst: cmd === 'query' || cmd === 'queryRep' ? '*amp' : 'tag-1', cmd, session: 1,
-      q: cmd === 'query' ? 2 : undefined, slot: 1, ulKbps: kbps, wupNs, bstNs: bst,
+      src: 'ap', dst: cmd === 'trigger' ? '*tags' : 'tag-1', cmd, session: 1,
+      acwe: cmd === 'trigger' ? 2 : undefined, slot: 1, ulKbps: kbps, wupNs, bstNs: bstNs(reply, kbps),
       chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
     })
   }
 
-  it('every command at both uplink rates and either wake-up: segments sum to the airtime', () => {
+  it('every frame at both uplink rates and either wake-up: segments sum to the airtime', () => {
     for (const cmd of CMDS) {
       for (const kbps of RATES) {
         for (const wupNs of [1_000_000, 2_000_000]) {
@@ -201,8 +207,6 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
           const where = `${cmd} @ ${kbps} kb/s, WUP ${wupNs / 1e6} ms`
           expect(d.ppdu.reduce((s, x) => s + x.durNs, 0), where).toBe(f.txTimeNs)
           for (const p of d.ppdu) expect(p.durNs, `${where} · ${p.key}`).toBeGreaterThan(0)
-          // Preamble, wake-up carrier, sync, command, reply carrier, extension — no AMP-SIG
-          // (SFD PM-65 note) and no padding field.
           expect(d.ppdu.map((x) => x.key), where).toEqual([
             'legacyPreamble', 'signal', 'usig', 'ampWup', 'ampSync', 'ampData', 'ampBst', 'signalExt',
           ])
@@ -215,7 +219,7 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
     }
   })
 
-  it('a command inside the TXOP has no wake-up field at all, and still sums', () => {
+  it('a frame inside the TXOP has no wake-up field at all, and still sums', () => {
     for (const cmd of CMDS) {
       for (const kbps of RATES) {
         const f = rfid(cmd, kbps, 0)
@@ -225,35 +229,38 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
         expect(d.ppdu.reduce((s, x) => s + x.durNs, 0), where).toBe(f.txTimeNs)
       }
     }
-    // The case the Active Tx arithmetic used to overrun by 92 µs: its fixed prefix alone
-    // (32 + 80 + 64 + 20 µs) is longer than this entire PPDU.
-    const qr = rfid('queryRep', 1000, 0)
-    expect(qr.txTimeNs).toBe(360_000)
-    expect(decodeFrame(qr, ctx).ppdu.reduce((s, x) => s + x.durNs, 0)).toBe(360_000)
+    const t = rfid('trigger', 1000, 0)
+    expect(t.txTimeNs).toBe(564_000)
+    expect(decodeFrame(t, ctx).ppdu.reduce((s, x) => s + x.durNs, 0)).toBe(564_000)
   })
 
-  it('the BST-Excitation dominates a Write and holds the 2 ms T3', () => {
-    const f = rfid('write', 250, 0)
-    expect(decodeFrame(f, ctx).ppdu.find((x) => x.key === 'ampBst')!.durNs).toBe(2_429_800)
-    expect(f.txTimeNs).toBe(2_963_800)
+  it('the trigger: FC, broadcast ID 0xffff, TDC, Session/ACWE body, FCS — 13 octets', () => {
+    const d = decodeFrame(rfid('trigger', 250, 0), ctx)
+    const fields = d.users[0].subframes[0].mpdu.fields
+    expect(fields.map((x) => [x.key, x.bytes])).toEqual([['fc', 1], ['ampId', 2], ['ampTdc', 2], ['body', 6], ['fcs', 2]])
+    expect(fields.find((x) => x.key === 'ampId')!.value).toBe('ffff (broadcast)')
+    expect(fields.find((x) => x.key === 'body')!.value).toContain('ACWE 2 (ACW 3) · 1 slot')
+    expect(d.bytes).toBe(bsCmdBytes('trigger'))
   })
 
-  it('sizes every Gen2 command and every reply, and replies lay out as sync then data', () => {
-    for (const cmd of CMDS) {
-      const d = decodeFrame(rfid(cmd, 250, 0), ctx)
-      expect(d.users[0].subframes[0].mpdu.fields.map((x) => x.key), cmd).toEqual(['fc', 'ampId', 'ampTdc', 'body', 'fcs'])
-      expect(d.bytes, cmd).toBe(ampRfidBytes(cmd))
-    }
-    for (const [reply, bytes] of [['rn16', 2], ['epc', 16], ['read', 13], ['write', 5]] as const) {
+  it('the AMP RFID frame: a 32-bit header (FC 8, ID 16, TDC 8), the Read body, a 16-bit FCS', () => {
+    const d = decodeFrame(rfid('read', 250, 0), ctx)
+    expect(d.users[0].subframes[0].mpdu.fields.map((x) => [x.key, x.bytes])).toEqual([['fc', 1], ['ampId', 2], ['ampTdc', 1], ['body', 8], ['fcs', 2]])
+    expect(d.bytes).toBe(14)
+    for (const [reply, bytes, keys] of [
+      ['id', 7, ['fc', 'ampId', 'ampTdc', 'fcs']],
+      ['read', 23, ['fc', 'ampId', 'ampTdc', 'body', 'fcs']],
+    ] as const) {
       const r = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply, kbps: 250, slot: 1 })
-      const d = decodeFrame(r, ctx)
-      expect(d.bytes, reply).toBe(bytes)
-      expect(d.ppdu.map((x) => x.key), reply).toEqual(['ampSync', 'ampData'])
-      expect(d.ppdu[0].durNs, reply).toBe(48_000) // 24 chips × 2 µs
-      expect(d.ppdu.reduce((s, x) => s + x.durNs, 0), reply).toBe(r.txTimeNs)
+      const dr = decodeFrame(r, ctx)
+      expect(dr.bytes, reply).toBe(bytes)
+      expect(dr.users[0].subframes[0].mpdu.fields.map((x) => x.key), reply).toEqual(keys)
+      expect(dr.ppdu.map((x) => x.key), reply).toEqual(['ampSync', 'ampData'])
+      expect(dr.ppdu[0].durNs, reply).toBe(48_000) // 24 chips × 2 µs
+      expect(dr.ppdu.reduce((s, x) => s + x.durNs, 0), reply).toBe(r.txTimeNs)
     }
     // A 1 Mb/s reply reads its own constants: 24 chips × 0.5 µs, not the Active Tx 48 × 0.25.
-    expect(decodeFrame(ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'epc', kbps: 1000, slot: 1 }), ctx).ppdu[0].durNs).toBe(12_000)
+    expect(decodeFrame(ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'read', kbps: 1000, slot: 1 }), ctx).ppdu[0].durNs).toBe(12_000)
   })
 
   it('the id field decodes the tag’s configured EPC, not one derived from its node id', () => {
@@ -266,12 +273,13 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
     expect(idOf(withEpc)).toBe(crc16Epc(epc).toString(16).padStart(4, '0'))
     expect(idOf(decodeFrame(rfid('read', 250, 0), ctx))).toBe(crc16Epc(epcOf('tag-1')).toString(16).padStart(4, '0'))
     expect(idOf(withEpc)).not.toBe(idOf(decodeFrame(rfid('read', 250, 0), ctx)))
-    // A broadcast command addresses no tag, so it carries no id to decode.
-    expect(idOf(decodeFrame(rfid('query', 250, 1_000_000), ctx))).toBe('broadcast (inventory)')
+    // The AMP Response carries the same ID, from the tag's own EPC.
+    const resp = decodeFrame(ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'id', kbps: 250, slot: 1, epc }), ctx)
+    expect(idOf(resp)).toBe(crc16Epc(epc).toString(16).padStart(4, '0'))
   })
 
   it('every backscatter frame a real inventory puts on the air decodes to its own sizes', () => {
-    const sc = bsScenario({ pollIntervalMs: 20, write: true, txopMs: 10 }, [bsTag('tag-1', 0.15), bsTag('tag-2', 0.25, 'y')])
+    const sc = bsScenario({ pollIntervalMs: 20 }, [bsTag('tag-1', 0.15), bsTag('tag-2', 0.25, 'y')])
     const sim = new Simulation(sc)
     const frames: FrameDesc[] = []
     for (let t = 20 * MS; t <= 200 * MS; t += 20 * MS) {
@@ -280,13 +288,10 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
       }
     }
     const bsCtx: DecodeCtx = { apId: 'ap', isEdca: true }
-    expect(frames.some((f) => f.kind === 'ampRfid')).toBe(true)
-    expect(frames.some((f) => f.kind === 'ampBsReply')).toBe(true)
-    // …and every Gen2 message the round can produce really passed through here
     const cmds = new Set(frames.flatMap((f) => (f.amp?.rfid ? [f.amp.rfid.cmd] : [])))
     const replies = new Set(frames.flatMap((f) => (f.amp?.bs ? [f.amp.bs.reply] : [])))
-    expect([...cmds].sort()).toEqual(['ack', 'query', 'queryRep', 'read', 'write'])
-    expect([...replies].sort()).toEqual(['epc', 'read', 'rn16', 'write'])
+    expect([...cmds].sort()).toEqual(['read', 'trigger'])
+    expect([...replies].sort()).toEqual(['id', 'read'])
     for (const f of frames) {
       const d = decodeFrame(f, bsCtx)
       const label = `${f.kind} ${f.amp?.rfid?.cmd ?? f.amp?.bs?.reply}`
@@ -294,10 +299,23 @@ describe('backscatter frames decode to their EPC Gen2 fields and excitation layo
       expect(d.ppdu.reduce((sum, x) => sum + x.durNs, 0), label).toBe(f.txTimeNs)
       expect(d.ppdu.every((x) => x.durNs > 0), label).toBe(true)
     }
-    // Only the first PPDU of each TXOP carries a WUP-Excitation segment.
-    const wups = frames.filter((f) => d1(f)).length
-    expect(wups).toBeGreaterThan(0)
-    expect(wups).toBeLessThan(frames.filter((f) => f.kind === 'ampRfid').length)
+    // Every first PPDU of a TXOP carries a WUP-Excitation segment; with a 1 ms WUP almost every
+    // TXOP holds one frame, but not every frame is first in its TXOP at 20 ms polls.
+    expect(frames.filter((f) => d1(f)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('the Active Tx trigger shows the fields §39.3.2.1–§39.3.2.2 make it carry', () => {
+  it('Channel Indication 6, UL shift 0 MHz, scrambling seed index 0 → SCRAMBLER_INITIAL_VALUE 0x5C (Table 39-1)', () => {
+    const f = ampTriggerFrame({ src: 'ap', dlKbps: 250, ulKbps: 250, phase: 'random', slots: 2, slotNs: 272_000, acwe: 2, sessionId: 1, staIds: [], reading: false, roundNs: 0, signalExtNs: 6_000 })
+    expect(f.amp).toMatchObject({ channel: 6, ulShiftMhz: 0, seedIdx: 0 })
+    const tdc = decodeFrame(f, { apId: 'ap', isEdca: true }).users[0].subframes[0].mpdu.fields.find((x) => x.key === 'ampTdc')!
+    expect(tdc.value).toContain('channel 6')
+    expect(tdc.value).toContain('UL shift 0 MHz')
+    expect(tdc.value).toContain('seed index 0 (0x5c)')
+    // …and an explicit seed index decodes to its own Table 39-1 value.
+    const g = ampTriggerFrame({ src: 'ap', dlKbps: 250, ulKbps: 250, phase: 'random', slots: 2, slotNs: 272_000, acwe: 2, sessionId: 1, staIds: [], reading: false, roundNs: 0, signalExtNs: 6_000, seedIdx: 3 })
+    expect(decodeFrame(g, { apId: 'ap', isEdca: true }).users[0].subframes[0].mpdu.fields.find((x) => x.key === 'ampTdc')!.value).toContain('seed index 3 (0x5f)')
   })
 })
 

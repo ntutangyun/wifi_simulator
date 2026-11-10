@@ -165,7 +165,9 @@ describe('the event log renders the row a jump landed on', () => {
     // record went with the countdown it belongs to instead of being copied.
     // 301 since slice W13: `@claim-to-contribution` brought four jumps and all four fire in its
     // own base scene; 297 after W12b's `@uhr-rate-ladder`, 293 on 2026-10-09.
-    expect(CASES.length).toBe(275)
+    // 274 since W7b (2026-11-11): `@queues` lost its jump to the AP's first lifetime drop — with
+    // the lifetime at 512 ms (§10.23.2.12.1) and the queue capped at 500, the AP no longer drops for lifetime.
+    expect(CASES.length).toBe(274)
     expect(new Set(CASES.map((c) => c.lesson)).size).toBeLessThanOrEqual(LESSONS.length)
   })
 
@@ -198,7 +200,9 @@ describe('the event log renders the row a jump landed on', () => {
     }).map((c) => `${c.lesson}#${c.idx}`)
     // `capstone#1` (the first Trigger frame) joined on 2026-11-11 (W7a): it now fires early in a
     // dense stretch of the run, behind more than 160 records of the same instant's window.
-    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2', 'capstone#1'])
+    // W7b (2026-11-11): the AP now contends with dot11QAPEDCATable (AIFSN 1 on AC_VO/AC_VI), which
+    // reshuffles the dense windows: `capstone#1` left the list and `edca-cost#1` joined it.
+    expect(cut).toEqual(['edca#1', 'edca-cost#1', 'mumimo#2', 'mumimo-choose#2'])
   })
 
   it('keeps the row budget at 160, so the per-frame cost cannot have moved', () => {
@@ -250,14 +254,16 @@ describe('the event log renders the row a jump landed on', () => {
     const pastLookahead = CASES.filter((c) => c.target.t > LOOKAHEAD_NS).map((c) => `${c.lesson}#${c.idx}`)
     // `capstone#1` left this list on 2026-11-11 (W7a): the first Trigger frame now fires inside the
     // lookahead.
-    expect(pastLookahead).toEqual(['queues#2'])
+    // W7b (2026-11-11): `queues#2` is gone with the lifetime drop it pointed at; nothing is past it now.
+    expect(pastLookahead).toEqual([])
     // The debt, measured, and its margin — the same shape `tests/course`'s
     // ratchets use. Since 2026-11-11 (W7a) 2.182 806 360 s is `queues#2`, the furthest jump in
     // the course (it was `capstone#1` at 2.453 384 778 s, which now fires inside the lookahead);
     // 817 193 640 ns is what is left of the 3 s horizon above it.
     const furthest = Math.max(...CASES.map((c) => c.target.t))
-    expect(furthest).toBe(2_182_806_360)
-    expect(JUMP_SEARCH_NS - furthest).toBe(817_193_640)
+    // W7b (2026-11-11): the furthest jump is now 1.963 851 557 s (`queues`' first queue-full drop at the AP).
+    expect(furthest).toBe(1_963_851_557)
+    expect(JUMP_SEARCH_NS - furthest).toBe(1_036_148_443)
   })
 
   /**
@@ -316,12 +322,12 @@ describe('the event log renders the row a jump landed on', () => {
     // W12b's four, 289 before them.
     // 289, not the 291 the first draft of this said: the two `amp-slots` misses
     // were counted as synchronous AND as the 「没有」 case, in one breath.
-    expect(named('immediate').length).toBe(272)
-    expect(named('extend')).toEqual([
-      'queues#2 AP 第一次因生存期丢帧',
-    ])
+    // 273 at W7b (2026-11-11): `queues#2` (the only `extend`) went with its lifetime drop.
+    expect(named('immediate').length).toBe(273)
+    expect(named('extend')).toEqual([])
     expect(named('miss')).toEqual([
-      'amp-slots#3 第一次轮空（ACWE 3 变体）',
+      // W7b (2026-11-11): `amp-slots#3` (first sit-out) now fires on the base scene — each trigger
+      // carries N = 2 slots to fit the AC_BK TXOP limit, so ABOC 2 and 3 sit out — and moved to `immediate`.
       'amp-slots#4 第一帧调度型触发帧（两阶段变体）',
     ])
 
@@ -336,7 +342,8 @@ describe('the event log renders the row a jump landed on', () => {
       return new Simulation(l.scenario()).runUntil(JUMP_SEARCH_NS).records.length
     })
     for (const [i, n] of horizon.entries()) expect(n, scenes[i]).toBeLessThan(MISS_RECORD_BUDGET)
-    expect(horizon).toEqual([30_718])
+    // 40 756 since W7b (2026-11-11): the round is split across AC_BK TXOPs, each with its own CTS-to-self and trigger.
+    expect(horizon).toEqual([40_756])
   })
 
   it('lets go of a stale anchor by itself, with nothing to clear', () => {

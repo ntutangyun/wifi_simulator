@@ -15,7 +15,7 @@ import { EventQueue } from '../../src/engine/events'
 import { ampRespFrame, ampTriggerFrame, AMP_BROADCAST } from '../../src/engine/amp'
 import {
   ampBsReplyFrame, ampRfidFrame, bstNs, activationReachM, monoReachM,
-  type AmpBsUlKbps, type Gen2Reply,
+  type AmpBsUlKbps, type BsReply,
 } from '../../src/engine/ampBs'
 import type { FrameDesc } from '../../src/model/frames'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
@@ -78,20 +78,26 @@ function world(
 
 const at = (x: number): Vec3 => ({ x, y: 0, z: 0 })
 
+/**
+ * 2026-11-11 (W7b): the mono-static downlink exercised here is the draft's broadcast AMP Trigger
+ * with a single slot (PDT 11-26/1519r5 §39.3.3) and the reply an AMP Response carrying the tag's
+ * ID — no longer EPC Gen2's Query and RN16 (proposal 11-25/0061r0, not adopted). The medium's
+ * physics, and every reach below, is unchanged; only the frame lengths moved.
+ */
 const query = (chargeDbm = 10, bsDbm = 0, ulKbps: AmpBsUlKbps = 250, wupNs: Ns = 1_000_000): FrameDesc =>
   ampRfidFrame({
-    src: 'ap', dst: AMP_BROADCAST, cmd: 'query', session: 1, q: 2, slot: 1, ulKbps,
-    wupNs, bstNs: bstNs('rn16', ulKbps), chargeDbm, bsDbm, signalExtNs: SIGNAL_EXT_NS,
+    src: 'ap', dst: AMP_BROADCAST, cmd: 'trigger', session: 1, acwe: 2, slot: 1, ulKbps,
+    wupNs, bstNs: bstNs('id', ulKbps), chargeDbm, bsDbm, signalExtNs: SIGNAL_EXT_NS,
   })
 
-const reply = (src: string, kind: Gen2Reply = 'rn16', kbps: AmpBsUlKbps = 250): FrameDesc =>
-  ampBsReplyFrame({ src, dst: 'ap', reply: kind, kbps, slot: 1, rn16: 0x1234 })
+const reply = (src: string, kind: BsReply = 'id', kbps: AmpBsUlKbps = 250): FrameDesc =>
+  ampBsReplyFrame({ src, dst: 'ap', reply: kind, kbps, slot: 1 })
 
 const bsTag: RadioOpts = { kind: 'bsTag', cca: false }
 const reader: RadioOpts = { ampCapable: true }
 
-/** The instant the command ends and the BST-Excitation starts, for a Query with a 1 ms WUP. */
-const DATA_END_NS = 32_000 + 1_000_000 + 16_000 + 320_000
+/** The instant the trigger ends and the BST-Excitation starts, with a 1 ms WUP: 13 octets at 250 kb/s. */
+const DATA_END_NS = 32_000 + 1_000_000 + 16_000 + 416_000
 
 describe('a downlink RFID PPDU on the medium', () => {
   it('radiates the charge power through its command and the BS power through its excitation', () => {
@@ -101,9 +107,9 @@ describe('a downlink RFID PPDU on the medium', () => {
     expect(txDbmAt(f, DATA_END_NS - 1)).toBe(10)
     expect(txDbmAt(f, DATA_END_NS)).toBe(0)
     expect(txDbmAt(f, f.txTimeNs - 1)).toBe(0)
-    // 1 516.4 µs with a 1 ms WUP, and the excitation is the 142.4 µs before the signal extension.
-    expect(f.txTimeNs).toBe(1_516_400)
-    expect(f.txTimeNs - SIGNAL_EXT_NS - DATA_END_NS).toBe(142_400)
+    // 1 788.4 µs with a 1 ms WUP, and the excitation is the 318.4 µs before the signal extension.
+    expect(f.txTimeNs).toBe(1_788_400)
+    expect(f.txTimeNs - SIGNAL_EXT_NS - DATA_END_NS).toBe(318_400)
     // Nothing else declares a power of its own.
     expect(txDbmAt(reply('t'), 0)).toBeNull()
     expect(bsDataEndNs(reply('t'))).toBeNull()
@@ -149,7 +155,7 @@ describe('a downlink RFID PPDU on the medium', () => {
 })
 
 describe('a backscatter tag under the excitation', () => {
-  it('boots and decodes the Query at 0.3 m and is unpowered at 0.35 m', () => {
+  it('boots and decodes the trigger at 0.3 m and is unpowered at 0.35 m', () => {
     // activationReachM(10 dBm) = 0.309 m: 0.30 is inside it, 0.35 outside.
     expect(activationReachM(10)).toBeCloseTo(0.3092, 3)
     const w = world([
@@ -222,7 +228,7 @@ function round(
     { id: 'tag', pos: at(tagM), opts: bsTag },
   ], {}, opts.walls ?? [])
   w.at(0, () => w.ch.startTx('ap', query(opts.chargeDbm ?? 10, opts.bsDbm ?? 0, kbps)))
-  w.at(DATA_END_NS + T1_NS, () => w.ch.startTx('tag', reply('tag', 'rn16', kbps)))
+  w.at(DATA_END_NS + T1_NS, () => w.ch.startTx('tag', reply('tag', 'id', kbps)))
   w.run(3_000_000)
   return { heard: w.heard.ap.some((h) => h.what === 'ampBsReply:tag'), records: w.records }
 }
@@ -267,7 +273,7 @@ describe('a backscattered reply at the reader', () => {
     // The last two start after the reader has stopped transmitting: nothing is being reflected
     // off anything, so an idle reader must not hear a reply however loud it claims to be.
     const f = query()
-    for (const startNs of [500_000, DATA_END_NS - 1, DATA_END_NS + 142_400, f.txTimeNs + 1]) {
+    for (const startNs of [500_000, DATA_END_NS - 1, DATA_END_NS + 318_400, f.txTimeNs + 1]) {
       const w = world([
         { id: 'ap', pos: at(0), opts: reader },
         { id: 'tag', pos: at(0.3), opts: bsTag },

@@ -5,12 +5,12 @@ import { TrafficSource, resetMsduIds, type Msdu, type ServerLink } from '../../s
 import type { ProfileId } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 
-function collect(profile: ProfileId, untilNs: number, seed = 1, gameAccel = false) {
+function collect(profile: ProfileId, untilNs: number, seed = 1) {
   const q = new EventQueue()
   let now = 0
   const out: { node: string; msdu: Msdu }[] = []
   const src = new TrafficSource(q, () => now, new Rng(seed), 'sta-1', 'ap', profile, (node, msdu) =>
-    out.push({ node, msdu }), { gameAccel })
+    out.push({ node, msdu }))
   src.start()
   for (;;) {
     const t = q.peekTime()
@@ -140,10 +140,30 @@ describe('gaming: the measured 王者荣耀 match shape (no server: both directi
     expect(updates.length + small.length).toBe(dl.length) // nothing in between
   })
 
-  it('is unmarked best effort (AC_BE) unless the router’s game acceleration marks it AC_VI', () => {
-    expect(collect('gaming', 200_000_000).every((o) => o.msdu.ac === 1)).toBe(true)
-    expect(collect('gaming', 200_000_000, 1, true).every((o) => o.msdu.ac === 2)).toBe(true)
+  // 2026-11-11 (W7b): the invented router game mode is gone. Every MSDU carries its own user
+  // priority and its AC follows from it by Table 10-1 (IEEE Std 802.11-2024 §10.2.3.2): a game
+  // marks nothing, so UP 0 → AC_BE, both directions.
+  it('is unmarked: UP 0, best effort (AC_BE) by Table 10-1, both directions', () => {
+    const all = collect('gaming', 200_000_000)
+    expect(all.length).toBeGreaterThan(0)
+    expect(all.every((o) => o.msdu.up === 0 && o.msdu.ac === 1)).toBe(true)
   })
+})
+
+describe('every MSDU carries a user priority, and its AC is that UP\'s (Table 10-1)', () => {
+  // 2026-11-11 (W7b): IEEE Std 802.11-2024 §10.2.3.2, Table 10-1. Which UP an application uses
+  // is outside the standard (the Designation column is guidance); the AC is not.
+  const TABLE_10_1 = [1, 0, 0, 1, 2, 2, 3, 3]
+  for (const [profile, up] of [['voice', 6], ['video', 5], ['browsing', 0], ['saturated', 0], ['backup', 1], ['iot', 1], ['gaming', 0]] as const) {
+    it(`${profile}: UP ${up} → AC ${TABLE_10_1[up]}`, () => {
+      const all = collect(profile, 20_000_000_000)
+      expect(all.length).toBeGreaterThan(0)
+      for (const o of all) {
+        expect(o.msdu.up).toBe(up)
+        expect(o.msdu.ac).toBe(TABLE_10_1[o.msdu.up!])
+      }
+    })
+  }
 })
 
 describe('streams that talk to a cloud server', () => {

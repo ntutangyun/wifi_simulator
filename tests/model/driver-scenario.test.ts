@@ -47,19 +47,21 @@ function pair(apGen: Generation, staGen: Generation, cheat?: TamperKind): Scenar
 const accepts = (sc: Scenario): boolean => ScenarioSchema.safeParse(sc).success
 
 describe('the tampered driver and the game switch · what the three rules refuse', () => {
-  it('refuses a game-mode boolean on anything but the access point, and says where it belongs', () => {
-    const sc = pair('eht', 'eht')
-    sc.nodes[1] = { ...sc.nodes[1], gameAccel: true }
-    const why = driverRefusalsFor(sc, sc.nodes[1])
-    expect(why.length).toBe(1)
-    expect(why[0]).toContain('gameAccel')
-    expect(why[0], 'a refusal that does not say where to put it is half a refusal').toContain('接入点')
-    expect(accepts(sc)).toBe(false)
-    // the same boolean one node over is the thing the engine actually reads
-    const ok = pair('eht', 'eht')
-    ok.nodes[0] = { ...ok.nodes[0], gameAccel: true }
-    expect(driverRefusalsFor(ok, ok.nodes[0])).toEqual([])
-    expect(accepts(ok)).toBe(true)
+  /**
+   * 2026-11-11 (W7b): the router "game mode" boolean is gone — the standard has no such switch;
+   * an AP-side priority for a station's downlink is MSCS (IEEE Std 802.11-2024 §11.25.3), which
+   * is not implemented. A plan saved with `gameAccel` still loads: zod strips the unknown key, on
+   * any node, and nothing refuses it any more.
+   */
+  it('strips a saved game-mode boolean on load, wherever it sits, and refuses nothing for it', () => {
+    for (const at of [0, 1]) {
+      const sc = pair('eht', 'eht')
+      const raw = { ...sc, nodes: sc.nodes.map((n, i) => (i === at ? { ...n, gameAccel: true } : n)) }
+      const parsed = ScenarioSchema.safeParse(raw)
+      expect(parsed.success).toBe(true)
+      if (parsed.success) for (const n of parsed.data.nodes) expect('gameAccel' in n).toBe(false)
+      expect(driverRefusals(raw as Scenario)).toEqual([])
+    }
   })
 
   it('refuses a tamper preset on anything but a station, and says where it belongs', () => {
@@ -191,9 +193,10 @@ describe('the three rules refuse nothing this repository ships', () => {
       ...plans[0].sc,
       nodes: plans[0].sc.nodes.map((n) => (n.kind === 'ap'
         ? { ...n, tamper: { ...TAMPER_PRESETS.aifs } }
-        : { ...n, gameAccel: true })),
+        : n)),
     }
-    expect(driverRefusals(planted).length).toBeGreaterThanOrEqual(2)
+    // 2026-11-11: one planted refusal, not two — the game-mode rule went with the boolean.
+    expect(driverRefusals(planted).length).toBeGreaterThanOrEqual(1)
   })
 })
 
@@ -237,17 +240,19 @@ describe('the refuse-or-pin criterion is in the repository and the code points a
     expect(doc).toContain('钉住现状')
   })
 
-  it('is pointed at from all six places a new refusal passes through', () => {
+  // 2026-11-11 (W7b): seven — `shortSlotRefusals` (shortSlot off the 2.4 GHz link, §11.1.3.2) is
+  // the sixth exported rule function.
+  it('is pointed at from all seven places a new refusal passes through', () => {
     const scenario = read('src/model/scenario.ts')
-    // one line in each of the five exported rule functions, and one in the superRefine itself
+    // one line in each of the six exported rule functions, and one in the superRefine itself
     const hits = scenario.split(DOC).length - 1
-    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says six — one per`
-      + ' exported rule function, plus the superRefine itself').toBe(6)
+    expect(hits, `${DOC} is named ${hits} times in scenario.ts; the contract says seven — one per`
+      + ' exported rule function, plus the superRefine itself').toBe(7)
     // and each one is actually inside the thing it is meant to introduce. Named rather than
     // counted: a count alone cannot tell six right pointers from five and one in the wrong place.
     const FNS = [
       'selectivityRefusals', 'guardIntervalRefusals', 'driverRefusalsFor',
-      'ancillaryRequestRefusals', 'ampApRefusals',
+      'ancillaryRequestRefusals', 'ampApRefusals', 'shortSlotRefusals',
     ]
     for (const fn of FNS) {
       const at = scenario.indexOf(`export function ${fn}`)
