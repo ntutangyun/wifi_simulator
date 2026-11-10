@@ -787,7 +787,7 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
     const shorter = rsfNs(val(shortN), GAP)
     same(atThatLength, mmsFragmentDbm(shorter) - mmsFragmentDbm(shorter + SFD_NS),
       'and the cost at the shorter one')
-    // 「那个包按 −89 dBm 判定，比片段严格 4 dB」
+    // 「那个包按 −89 dBm 判定，比片段严格 4 dB（两个数都是本课的取值）」
     const [sp0Sens, penalty] = figs(deeper, /那个包按 −(\d+) dBm 判定，比片段严格 (\d+) dB/,
       'the threshold an SP0 packet is judged by')
     expect(-sp0Sens, 'the SP0 sensitivity').toBe(MMS_SP0_RX_SENS_DBM)

@@ -733,8 +733,8 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     for (const [text, re, what] of [
       [NUMS, /每次发射之前至少评估 (\d+) µs/, 'the formula’s note'],
       [SRC, /能量检测门限与至少 (\d+) µs 的评估时间/, '`sources`, naming the regulation'],
-      [SRC, /草案要求至少评估 (\d+) µs/, '`sources`, listing the model values'],
-      [LIMITS, /代替草案要求的至少 (\d+) µs/, '`limits`'],
+      [SRC, /ETSI 规定至少评估 (\d+) µs/, '`sources`, listing the model values'],
+      [LIMITS, /代替 ETSI 规定（TG4ab 早期提案引用）的至少 (\d+) µs/, '`limits`'],
     ] as const) same(raw(text, re, what)[0]!, NB_LBT_CCA_US, `${what}: the evaluation time`)
   })
 
@@ -760,7 +760,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       [DEEP, /UNII-5——也就是 (\d) GHz Wi-Fi 频段/, '`deeper` naming the upper band'],
       [DEEP, /落在整个 (\d) GHz Wi-Fi 频段之下/, '`deeper` on where the default list sits'],
       [SRC, /log10 d，(\d) GHz 再加/, '`sources` on the Wi-Fi law'],
-      [SRC, /能量检测门限与 (\d) GHz 的信道编号/, '`sources` on the model values'],
+      [SRC, /；(\d) GHz 的信道编号同样按本课的模型换算/, '`sources` on the model values'],
       [LIMITS, /场景里没有 (\d) GHz Wi-Fi 链路/, '`limits` on a scene with no mediator'],
     ] as const) {
       expect(val(raw(text, re, what)[0]!), `${what}: the band this lesson runs in`)
@@ -904,7 +904,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(d, 'the ranges this run gets').toBe(tagRanges().length)
     expect(f, 'and the fixes').toBe(fixes().length)
     // step 1's two bands: one asks the device to listen first, the other does not
-    const [two] = raw(NUMS, /(.)个频段中，频率较高的那个要求，较低的那个不要求/, 'step 1')
+    const [two] = raw(NUMS, /(.)个频段中，频率较高的 UNII-5 要求，较低的 UNII-3 不要求/, 'step 1')
     const bands = [...new Set(Array.from({ length: NB_CHANNELS }, (_n, n) => nbBand(n).lo < 5850))]
     expect(bands, 'the plan really falls into that many bands').toHaveLength(zh(two!))
     expect(nbLbtRequired(NB_CHANNELS - 1, 'auto'), 'and the upper one asks').toBe(true)
@@ -1173,7 +1173,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect([val(clear!)], 'the channel that scene ships').toEqual(chansOf('outside'))
     same(gap!, SIX_LO - nbBand(val(clear!)).hi, 'and the empty spectrum between them')
     // `sources` counts the plan a second time
-    expect(val(raw(SRC, /(\d+) 个窄带信道、带“整块中止”/, '`sources` on the plan')[0]!),
+    expect(val(raw(SRC, /(\d+) 个窄带信道与按块跳变来自 P802\.15\.4ab/, '`sources` on the plan')[0]!),
       'the channels, again').toBe(NB_CHANNELS)
   })
 

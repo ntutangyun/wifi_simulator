@@ -225,9 +225,12 @@ export const MODULES: CourseModule[] = [
   // IEEE Std 802.15.4-2024 §16.2.4 — and nothing that moves between 4ab drafts. Declaring the
   // draft here would tell a reader that a length they can derive from the chip rate might change
   // under them.
-  { tier: 5, title: '感知' },
+  // 2026-11-10 standard audit: sensing as a protocol feature is clause 10.40 of the 4ab draft
+  // (15-26/0179r1), not IEEE Std 802.15.4-2024, and the lessons now say so in `sources` — so the
+  // module declares the draft. The echo geometry and the chip time are still the published figures.
+  { tier: 5, title: '感知', basis: ['ieee-802-15-4-2024', 'p802-15-4ab'] },
   { tier: 6, title: '多毫秒片段' },
-  { tier: 6, title: '窄带控制面' },
+  { tier: 6, title: '窄带控制面', basis: ['ieee-802-15-4-2024', 'p802-15-4ab', 'ieee-802-11'] },
   // The three lessons on the draft's other control planes do not belong under
   // 「窄带控制面」: one of them is about doing without the narrowband radio
   // altogether. The mode itself was renamed away from 「窄带辅助」 for the same
@@ -457,17 +460,22 @@ export const CONTRIBUTIONS: Record<string, string> = {
   '15-23/0502r3': '必选操作参数集（提案为 16.2.11.4）',
   '15-25/0066r1': 'RSF 带 SFD 的 PIB 属性 phyUwbMmsRsfSfd 及其适用条件，以及片段长度字段的改名',
   '15-25/0194r0': '两套控制面配置、SP0 与包首 SYNC+SFD 的捕获对比、零长度控制阶段',
-  '15-25/0224r2': '固定回复时间的两个 PIB 属性与它的 300…612000 RSTU 取值范围',
+  '15-25/0224r2': '固定回复时间的两个 PIB 属性与它的 300…612000 RSTU 取值范围（提案，已被 15-25/0681r1 取代）',
   '15-25/0292r1': '非交织子轮的结构（提案为 §10.39.7）',
   '15-25/0331r1': '非交织形态下的控制阶段，以及一条已撤回的反对意见给出的代价',
-  '15-25/0556r2': '反序的 MMS 轮次，以及把回复时间从报告里省掉',
+  '15-25/0556r2': '反序的 MMS 轮次，以及把回复时间从报告里省掉（提案；同一组意见最终按 15-25/0681r1 处理）',
+  '15-25/0681r1': '固定回复时间那几条意见的最终决议：不设固定回复时间参数，改由应答方在应答紧凑帧里携带预测回复时间，只用于非交织模式',
+  '15-26/0006r0': '电话会议纪要：15-25/0681r1 无异议通过',
   '15-22/0486r5': 'SSBD 的算法、属性表，以及附录里那两个延迟上界的例子',
   '15-24/0010r36': '把 SSBD 整节移入第 10 章的那一次获通过的编辑',
   '15-24/0121r2': 'CID 489/493（退避改抽一倍退避因子、取值范围放宽到 1…63）与 CID 490/495（删去 SSBD 自己的感知时长属性，改用物理层属性）',
   '15-25/0486r1': '§10.39.8.3 先听后发的适用范围：哪些条款、哪些窄带信道、哪两段频率上的发射',
   '15-25/0307r1': 'ETSI EN 303 687 对这一类设备的符合性推定被欧盟 2025/893 号决定撤销',
-  '15-26/0179r1': 'Annex E 的 PICS 插入项：MLF9.45 把 SSBD 记在 §10.45 名下，状态为可选',
-  '15-26/0244r1': 'D04 的评审决议表：十三条要把先听后发改成强制的意见，以及要求能量检测门限与最短感知时长的意见，全部被否决',
+  '15-26/0179r1': 'Annex E 的 PICS 插入项：MLF9.45 把 SSBD 记在 §10.45 名下，状态为可选；MLF9.40 把超宽带感知记在 §10.40 名下',
+  '15-26/0244r1': 'D04 的评审意见表：十三条要把先听后发改成强制的意见，以及要求能量检测门限与最短感知时长的意见；表中拟定的否决处置未获采纳（见 15-26/0348r1）',
+  '15-26/0348r1': '会议纪要：采纳 15-26/0244r1 中那些否决处置的动议以 25/14/1 未获通过',
+  '15-26/0061r0': 'LB227 意见的处理状态：未能达成共识',
+  '15-25/0427r4': '§10.39.8.3 窄带信道接入的修改提案：按发送时隙采用 CSMA-CA 或 SSBD',
   '15-26/0365r2': '频率域延后的提案正文（新增 §10.47 与它的能力位）：最初答复三条已被否决的 D04 意见，2026-10-20 的 r2 改为答复 D05 的 R1-35，延后时间与块长门限成了协商字段，延后信道改成允许清单里按偏移量取的那一条；这一版的动议以 5/4/7 被否',
   // P802.11bp (TGbp), the ambient-power draft
   '11-24/1613r20': 'TGbp 规范框架',

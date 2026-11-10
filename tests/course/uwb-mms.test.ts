@@ -141,17 +141,17 @@ describe('uwb-mms · the lesson', () => {
     expect(zh).toContain('P802.15.4ab')
     expect(zh).toContain('草案')
     expect(zh).toContain('15-22/0205r0')
-    // the narrowband radio really is Clause 12's: 32 chips a symbol at 0.5 µs, 4 bits a
+    // the narrowband radio really is Clause 13's (IEEE Std 802.15.4-2024 numbering): 32 chips a symbol at 0.5 µs, 4 bits a
     // symbol — 250 kb/s, and 576 µs for 12 octets
     expect(NB_SYMBOL_CHIPS * NB_CHIP_US).toBe(NB_SYMBOL_US)
     expect(4 / (NB_SYMBOL_US / 1000)).toBe(250)
     expect(nbPpduNs(NB_POLL_BYTES) / 1000).toBe(576)
-    // and the picture itself never says "draft": the word lives here, with the numbers
+    // and wherever the picture teaches the narrowband control plane it says, in place, that the
+    // mechanism is the draft's: a learner must never read draft material as the published standard
     expect(prose().includes('P802.15.4ab')).toBe(true)
     for (const b of uwbMms.picture!) {
       const t = (b as Extract<Block, { kind?: 'p' }>).text
-      expect(t, t.slice(0, 40)).not.toContain('draft')
-      expect(t, t.slice(0, 40)).not.toContain('草案')
+      if (t.includes('Poll')) expect(t, t.slice(0, 40)).toContain('草案')
     }
   })
 })
@@ -763,7 +763,7 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the wall’s bias through the arithmetic that makes it', () => {
-    const [metres, ns] = figs(NUMS, /每一次测距都偏长同样的 ([\d.]+) m：每道砖墙使首径延迟 ([\d.]+) ns/,
+    const [metres, ns] = figs(NUMS, /每一次测距都偏长同样的 ([\d.]+) m：本课取每道砖墙使首径延迟 ([\d.]+) ns/,
       '`numbers` on the bias and the brick that causes it')
     expect(ns, 'the extra delay one brick partition adds to the first path')
       .toBe(UWB_NLOS_NS.brick)
@@ -816,7 +816,7 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
      * holds: four bits per symbol, and the symbol's own length. (The clause number beside it is
      * a name — exempt, class (a): there is no corpus of 802.15.4 here.)
      */
-    const [srcKbps] = figs(SRC, /第 12 章(?:、|那部 )([\d]+) kb\/s/,
+    const [srcKbps] = figs(SRC, /第 13 章 O-QPSK PHY 的 ([\d]+) kb\/s/,
       '`sources` on the narrowband radio’s bit rate')
     same(String(srcKbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
   })
@@ -966,7 +966,7 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the three gates the slot has to pass, and the multiple they start from', () => {
-    const [rstu] = figs(NUMS, /它必须是 (\d+) RSTU（ranging slot time unit）的整数倍/,
+    const [rstu] = figs(NUMS, /它必须是 (\d+) RSTU（ranging scheduling time unit）的整数倍/,
       'the steps on the first gate')
     const slot = uwbMmsScenario('base').uwb!.slotRstu
     expect(slot % rstu!, 'the slot this session runs really is a multiple of it').toBe(0)

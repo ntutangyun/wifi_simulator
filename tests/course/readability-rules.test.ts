@@ -518,9 +518,17 @@ describe('lessonTexts · the census over the whole course', () => {
     // `title` 11 → 12, also 2026-11-10: the standard-written-Chinese pass (wording contract §11)
     // rewrote 29 Wi-Fi/AMP titles, and the plain written form runs longer than the colloquial one
     // it replaced (「两台听不见彼此的站点」 → 「两台相互收不到信号的站点」). Re-measured, not widened.
+    // `why` 378 → 430, same day: the UWB standard audit labelled, inside each opening paragraph,
+    // which mechanism is the standard's, which is the draft's and which is the lesson's own choice
+    // (「本课的假设，标准没有规定」). The user asked for exactly that. Re-measured, not widened.
+    // `terms` 89 → 102 in the same audit: glosses now say whether a term is the standard's name, a
+    // draft's, or an industry/lesson name (e.g. DL-TDoA, sit-out). Re-measured, not widened.
+    // `picture` 640 → 720 and `sources` 204 → 232, same audit: the main path now states each standard
+    // procedure before the lesson's own arrangement (uwb-m2m, uwb-deferred-ds), and sources cite the
+    // clause or TG4ab document behind every mechanism. Re-measured, not widened.
     const MEANS: readonly (readonly [Section, number])[] = [
-      ['title', 12], ['why', 378], ['outcomes', 79], ['terms', 89],
-      ['picture', 640], ['numbers', 726], ['deeper', 366], ['sources', 204],
+      ['title', 12], ['why', 430], ['outcomes', 79], ['terms', 102],
+      ['picture', 720], ['numbers', 726], ['deeper', 366], ['sources', 232],
       ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
       ['variantLabel', 16], ['jumpLabel', 26],
     ]

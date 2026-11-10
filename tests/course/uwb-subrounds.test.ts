@@ -446,7 +446,7 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
 
   it('reads each printing of 600 RSTU against the constant that printing means', () => {
     // The slot every figure in the lesson is counted in.
-    for (const [rstu] of every(PIC, /(\d+) RSTU(?:（ranging slot time unit）的时隙上| 上就是)/g,
+    for (const [rstu] of every(PIC, /(\d+) RSTU(?:（ranging scheduling time unit）的时隙上| 上就是)/g,
       'the slot length, printed twice in `picture`', 2)) {
       same(rstu!, SUBROUND_SLOT_RSTU, 'the slot length the lesson counts in')
     }

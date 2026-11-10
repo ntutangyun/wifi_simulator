@@ -201,8 +201,8 @@ describe('uwb-ssbd · four settings, one scene, 1.3 s', () => {
   it('the table`s own rows are what the four runs produce', () => {
     const measured = [
       ['完全关闭先听后发', String(rangesOf(V_OFF)), String(fixesOf(V_OFF)), '—'],
-      ['现行的按块规则', String(rangesOf(V_PER_BLOCK)), String(fixesOf(V_PER_BLOCK)), '—'],
-      ['SSBD，草案的缺省值', String(rangesOf()), String(fixesOf()), String(ssbdOf().length)],
+      ['上一课的按块规则', String(rangesOf(V_PER_BLOCK)), String(fixesOf(V_PER_BLOCK)), '—'],
+      ['SSBD，提案给出的缺省值', String(rangesOf()), String(fixesOf()), String(ssbdOf().length)],
       ['SSBD，退避取能容纳的最大值', String(rangesOf(V_BIGGEST)), String(fixesOf(V_BIGGEST)), String(ssbdOf(V_BIGGEST).length)],
     ]
     expect(tableRows('四种设置')).toEqual(measured)
@@ -421,8 +421,11 @@ describe('uwb-ssbd · the two rules this slice paid for', () => {
   })
 
   it('says listening first is optional in the draft and mandatory only by regulation', () => {
-    expect(uwbSsbd.why!).toContain('可选')
-    expect(uwbSsbd.why!).toContain('十三条')
+    // conditional in the draft (regulation or coexistence), never mandatory there; and the
+    // comments that wanted it mandatory were not "all rejected": the motion adopting that
+    // rejection failed 25/14/1 (15-26/0348r1), so the lesson must not claim a rejection vote
+    expect(uwbSsbd.why!).toContain('有条件')
+    expect(uwbSsbd.why!).not.toContain('全部被否决')
     expect(uwbSsbd.why!).toContain('管制')
     // …and the sources name the resolution table that is the evidence for it.
     expect(uwbSsbd.sources!.join('\n')).toContain('15-26/0244r1')
@@ -575,14 +578,14 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
 
   it('the appendix’s own figure, and the two premises that reproduce it', () => {
     const [appendix] = figs(NUMS, /附录给出的是 (\d+) µs/, '`numbers` on the appendix')
-    const [senseNow, senseThen] = figs(NUMS, /一次感知按 (\d) µs 计而不是 (\d) µs/,
+    const [senseNow, senseThen] = figs(NUMS, /记为 (\d) µs（[^）]*；本课代入 (\d) µs）/,
       '`numbers` on the second premise')
-    expect(senseThen, 'the sensing time the current text asks for').toBe(NB_LBT_CCA_US)
+    expect(senseThen, 'the sensing time this lesson substitutes for the PHY attribute').toBe(NB_LBT_CCA_US)
     const [again] = figs(NUMS, /同一个公式正好给出 (\d+) µs/, '`numbers` on the same sum')
     expect(again, 'the same figure, restated in the same paragraph').toBe(appendix)
     // and `deeper` reproduces both, naming the multiplier it puts back
     const [dCca, dBound, dSense, dAppendix] = figs(DEEP,
-      /（倍数一倍、感知 (\d) µs）它给出 (\d+) µs；把倍数改成两倍、感知改成 (\d) µs，它给出 (\d+) µs/,
+      /（倍数一倍）并代入本课的 (\d) µs 感知时长，它给出 (\d+) µs；把倍数改成两倍、感知改成 (\d) µs，它给出 (\d+) µs/,
       '`deeper` on how the appendix was checked')
     expect(dCca, '`deeper`: the current sensing time').toBe(NB_LBT_CCA_US)
     same(String(dBound), BOUND_NS / US, '`deeper`: the bound the current text gives')
@@ -678,7 +681,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       [/(\d+) µs 短于场景里任何一帧/, 'the second option'],
     ] as const) same(raw(QUIZ, re, what)[0]!, BOUND_NS / US, `${what}: the bound`)
     const [qSecs, qBlocks, qOne, qBack] = raw(QUIZ,
-      /按现行的按块规则，([\d.]+) 秒(.)个块里只测得(.)个距离；按草案缺省值启用 SSBD 之后，测距恢复到 (\d+) 次/,
+      /按上一课的按块规则，([\d.]+) 秒(.)个块里只测得(.)个距离；按提案给出的缺省值启用 SSBD 之后，测距恢复到 (\d+) 次/,
       'the first question')
     same(qSecs!, RUN_NS / 1e9, 'the quiz: the same window')
     // the blocks the window STARTS, which is what the run itself indexes: block 6 begins at
@@ -811,11 +814,11 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       ['2025/893 号决定', 3],
       ['CID 489/493', 1],
       ['CID 490/495', 1],
-      ['15-22/0486r5', 1],
+      ['15-22/0486r5', 3],
       ['15-26/0244r1', 1],
       ['§10.39.8.3', 1],
       ['§10.47', 2],
-      ['§10.45', 3],
+      ['§10.45', 4],
       ['spectrum sensing 与 10.45 中的任何一个', 1],
     ] as const) {
       expect(occurrences(needle), `「${needle}」 occurs exactly ${times} time(s)`).toBe(times)

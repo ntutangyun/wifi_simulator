@@ -690,7 +690,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     expect(DEMAND.dsEmbedded - DEMAND.ss, 'which is the Final a single-sided round never sends')
       .toBeGreaterThan(0)
     // 「一个 300 RSTU 的时隙有 X µs：装得下 9 个锚点的单边一轮，装不下六个锚点的双边嵌入式一轮」
-    const [slotRstu, slotUs] = figs(NUMS, /一个 (\d+) RSTU（ranging slot time unit）的时隙为 (\d+) µs/,
+    const [slotRstu, slotUs] = figs(NUMS, /一个 (\d+) RSTU（ranging scheduling time unit）的时隙为 (\d+) µs/,
       'the paragraph on the short slot')
     expect(rstuNs(slotRstu!), 'the slot the comparison is read against').toBe(SHORT_SLOT_NS)
     same(String(slotUs), SHORT_SLOT_NS / 1000, 'and what it comes to')

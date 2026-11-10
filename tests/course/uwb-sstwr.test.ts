@@ -917,7 +917,7 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
     expect(poll.t, 'which starts the round').toBe(0)
     // 「这里是 −20.24 ppm——两块晶振相差的 20 ppm，加上估计器弄错的 0.2 ppm」
     const [coffsPpm, crystals, noise] = raw(joined,
-      /这里是 (−[\d.]+) ppm——两个晶振相差的 (\d+) ppm，加上估计器 ([\d.]+) ppm 的误差/,
+      /这里是 (−[\d.]+) ppm——按本课的模型，它等于两个晶振相差的 (\d+) ppm，加上估计器 ([\d.]+) ppm 的误差/,
       'the steps on where Coffs comes from')
     expect(val(crystals!), 'the crystals’ own difference').toBe(Math.abs(BASE_PPM.delta))
     expect(val(noise!), 'and the estimator’s residual').toBe(SESSION.cfoNoisePpm)

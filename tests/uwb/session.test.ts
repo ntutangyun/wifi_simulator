@@ -8,7 +8,7 @@ const MS = 1_000_000
 const session = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, ...over })
 
 describe('rstuNs', () => {
-  it('converts ranging slot time units to nanoseconds (416 chips at 499.2 Mchip/s)', () => {
+  it('converts ranging scheduling time units to nanoseconds (416 chips at 499.2 Mchip/s)', () => {
     expect(rstuNs(2400)).toBe(2_000_000)
     expect(rstuNs(240_000)).toBe(200_000_000)
     expect(rstuNs(600)).toBe(500_000)

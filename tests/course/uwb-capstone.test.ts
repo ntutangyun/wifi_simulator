@@ -440,7 +440,7 @@ describe('uwb-capstone · echoes exist, and none of the four scenes has an objec
  *    A column is a scene (by the words of its heading, including the 「每 100 ms」 that is the
  *    variant's own block length) and a row is a figure that names where it is read — so each
  *    cell is counted with the record type printed in its own row label.
- *  - **「600 RSTU 是本仿真器允许 MMS 轮次使用的最短时隙」 is read by trying every shorter one.**
+ *  - **「600 RSTU 是本课的场景允许 MMS 轮次使用的最短时隙」 is read by trying every shorter one.**
  *    Every slot from 1 to 599 RSTU is rejected by the scenario schema and 600 is accepted, which
  *    is what makes that sentence a claim about this simulator rather than a number.
  *  - **「±90° 的视场」 is measured by sweeping the estimator.** The phase difference is swept
@@ -706,11 +706,11 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
     expect(rstuNs(uwbCapstone.scenario().uwb!.blockRstu), 'which is the scene’s own block')
       .toBe(blockMs! * MS)
     /*
-     * 「600 RSTU 是本仿真器允许 MMS 轮次使用的最短时隙，因为两个时隙必须装得下这一轮里最长的
+     * 「600 RSTU 是本课的场景允许 MMS 轮次使用的最短时隙，因为两个时隙必须装得下这一轮里最长的
      * 那条窄带消息」 — read by trying every shorter slot: the schema rejects all of them.
      */
     const [shortest, slotsCn] = raw(SRC,
-      /(\d+) RSTU 是本仿真器允许 MMS 轮次使用的最短时隙，因为(.)个时隙必须容纳得下/,
+      /(\d+) RSTU 是本课的场景允许 MMS 轮次使用的最短时隙，因为(.)个时隙必须容纳得下/,
       '`sources` on the shortest slot')
     const otm = uwbCapstone.variants![V_OTM]!.scenario()
     expect(otm.uwb!.slotRstu, 'the slot that variant really runs').toBe(val(shortest!))

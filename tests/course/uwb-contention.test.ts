@@ -1011,7 +1011,7 @@ describe('uwb-contention · every figure the prose prints, read back out of it',
     // 「6 dB 的捕获余量」 in `sources`, and once more in `deeper`, are the same threshold
     const [srcDb] = figs(SRC, /(\d+) dB 的捕获余量/, '`sources` on the same margin')
     expect(srcDb, 'the same margin again').toBe(UWB_CAPTURE_DB)
-    const [deepDb] = figs(DEEP, /只要较强的一路领先 (\d+) dB，接收机就解出它/,
+    const [deepDb] = figs(DEEP, /只要较强的一路领先 (\d+) dB（本课取的门限），接收机就解出它/,
       '`deeper` on the same margin')
     expect(deepDb, 'and a third time, where `deeper` explains why no capture happens here')
       .toBe(UWB_CAPTURE_DB)
@@ -1025,8 +1025,8 @@ describe('uwb-contention · every figure the prose prints, read back out of it',
   })
 
   it('reads the draw the steps describe, and the log line `observe` quotes', () => {
-    // 「应答窗口里有 8 个时隙，一个应答者可以尝试 3 次」
-    const [slots, tries] = figs(NUMS, /应答窗口里有 (\d+) 个时隙，一个应答者可以尝试 (\d+) 次/,
+    // 「应答窗口里有 8 个时隙，一个应答者最多可以尝试 3 次」
+    const [slots, tries] = figs(NUMS, /应答窗口里有 (\d+) 个时隙，一个应答者最多可以尝试 (\d+) 次/,
       'the steps on what the poll announces')
     expect(slots, 'the window this scene advertises')
       .toBe(uwbContentionScenario('base').uwb!.contentionSlots)

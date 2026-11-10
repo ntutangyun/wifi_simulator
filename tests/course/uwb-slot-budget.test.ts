@@ -668,7 +668,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     same(String(pct), (100 * ppdu!) / PLAN.slotNs, 'the share that frame takes of it')
     // step 1: 「Final，14 + 12N 字节：四个锚点时 62 字节，空口 236 603 ns」
     const [base, per, bytes, air] = figs(NUMS,
-      /Final，(\d+) \+ (\d+)N 字节：四个锚点时 (\d+) 字节，空口 ([\d ]+) ns/, 'step 1')
+      /Final，按本课的字段宽度是 (\d+) \+ (\d+)N 字节：四个锚点时 (\d+) 字节，空口 ([\d ]+) ns/, 'step 1')
     expect(base! + per! * n!, 'the bytes that formula gives four anchors').toBe(bytes)
     expect(bytes, 'which is the Final the engine builds').toBe(uwbFinalBytes(n!))
     expect(air, 'and its airtime').toBe(ppdu)
@@ -788,7 +788,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(rstuNs(rstu), 'which is past that floor at last').toBeGreaterThan(rstuNs(deepFloor!))
     // 「14 + 12N 在十个锚点时是 134 字节，超过了负载 127 字节的上限」
     const [base, per, atTen, cap] = figs(DEEP,
-      /(\d+) \+ (\d+)N 在十个锚点时是 (\d+) 字节，超过了负载 (\d+) 字节的上限/,
+      /(\d+) \+ (\d+)N 在十个锚点时是 (\d+) 字节，超过了 BPRF 模式下负载 (\d+) 字节的上限/,
       '`deeper` on the payload cap')
     expect(base! + per! * 10, 'what the formula gives ten anchors').toBe(atTen)
     expect(atTen, 'which is over the cap').toBeGreaterThan(cap!)
@@ -798,8 +798,12 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
   })
 
   it('reads `sources` against the units and the two model values it declares', () => {
-    // 「§10.32.2 规定块长与时隙长都以整数个 3 RSTU 计」
-    const [mult] = figs(SRC, /都以整数个 (\d+) RSTU 计/, '`sources` on the multiple')
+    // 「本课的场景另外要求块长与时隙长都是 3 RSTU 的整数倍，这一条是本课的规则，标准正文里没有」
+    // (corrected 2026-11-10: §10.32.2 only counts the lengths in RSTU; the multiple is the schema's)
+    const [mult] = figs(SRC, /块长与时隙长都是 (\d+) RSTU 的整数倍，这一条是本课的规则/,
+      '`sources` on the multiple')
+    expect(schemaIssues(PLAN.slotNs / rstuNs(1) + 1).join(' '), 'which the schema enforces')
+      .toContain(`${mult} RSTU 的整数倍`)
     expect(PLAN.slotNs % rstuNs(mult!), 'the slot really is a whole number of those').toBe(0)
     expect(PLAN.blockNs % rstuNs(mult!), 'and so is the block').toBe(0)
     // 「把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns」
@@ -826,10 +830,10 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
 
   it('reads `limits` on the two model values and on the power it never charges for', () => {
     const [guard, floor, mult] = figs(LIM,
-      /(\d+) ns 的飞行余量与 (\d+) RSTU 的下限都是本仿真器自己的数[^]*?标准只要求时隙是 (\d+) RSTU 的整数倍/,
+      /(\d+) ns 的飞行余量与 (\d+) RSTU 的下限都是本仿真器自己的数，时隙必须是 (\d+) RSTU 的整数倍这一条也是；标准只要求时隙至少能容纳一帧/,
       '`limits` on what is the model’s and what is the standard’s')
     expect(guard, 'the guard').toBe(UWB_SLOT_GUARD_NS)
-    expect(PLAN.slotNs % rstuNs(mult!), 'the multiple the standard does ask for').toBe(0)
+    expect(PLAN.slotNs % rstuNs(mult!), 'the multiple the schema asks for').toBe(0)
     const [again] = figs(LIM, /「本场景真正的最短时隙是 (\d+) RSTU」/, '`limits` quoting step 3')
     expect(again, 'the same floor the step concluded on').toBe(floor)
     // 「每一帧的发射功率是常数 −14 dBm」 and 「−41.3 dBm/MHz 的平均功率限制」

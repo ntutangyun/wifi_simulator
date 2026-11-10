@@ -100,9 +100,10 @@ describe('uwb-sensing · the lesson', () => {
     expect(MODULES[uwbSensing.module].title).toBe('感知')
     expect(MODULES[uwbSensing.module].tier).toBe(5)
     expect(TIERS[5].track).toBe('uwb')
-    // A published-standard module: the only clause behind it is the chip rate, and nothing
-    // here moves between 4ab drafts. `tests/course/basis.test.ts` holds the other end.
-    expect(MODULES[uwbSensing.module].basis).toBeUndefined()
+    // Since the 2026-11-10 standard audit the module declares the 4ab draft as well: the chip
+    // time is the published §16.2.4 figure, but sensing as a protocol feature is draft §10.40
+    // (15-26/0179r1), and the lessons say so. `tests/course/basis.test.ts` holds the other end.
+    expect(MODULES[uwbSensing.module].basis).toEqual(['ieee-802-15-4-2024', 'p802-15-4ab'])
     expect(COURSE_ORDER.indexOf('uwb-aoa')).toBeLessThan(COURSE_ORDER.indexOf('uwb-sensing'))
     expect(COURSE_ORDER.indexOf('uwb-sensing')).toBeLessThan(COURSE_ORDER.indexOf('uwb-sensing-resolution'))
     expect(COURSE_ORDER.indexOf('uwb-sensing-resolution')).toBeLessThan(COURSE_ORDER.indexOf('uwb-mms'))

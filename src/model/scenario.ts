@@ -1651,8 +1651,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       // `UwbSessionCfg` for the arithmetic.
       replyTime: z.enum(['embedded', 'deferred', 'fixed']).default('embedded'),
       fixedReplyRstu: z.number().int().min(0).default(UWB_DEFAULT_SLOT_RSTU),
-      blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'UWB 块长要是 3 RSTU 的整数倍'),
-      slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, '测距时隙要是 3 RSTU 的整数倍'),
+      blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'UWB 块长要是 3 RSTU 的整数倍（本仿真器的规则，不是标准的要求）'),
+      slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, '测距时隙要是 3 RSTU 的整数倍（本仿真器的规则，不是标准的要求）'),
       channel: z.union([z.literal(5), z.literal(9)]),
       tsNoisePs: z.number().min(0),
       cfoNoisePpm: z.number().min(0),
@@ -2335,8 +2335,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               message: '窄带信道允许列表要填 1…250 个互不相同的信道，编号 0…249',
             })
           }
-          // The draft's ranging slot is a multiple of 300 RSTU (0.25 ms), not of the 3 RSTU the
-          // core standard asks for: the cycle is laid out in milliseconds and the slot has to
+          // The draft's ranging slot is a multiple of 300 RSTU (0.25 ms), not of the 3 RSTU this
+          // simulator's own schema asks for (the 2026-11-10 standard audit found no 3 RSTU rule in
+          // IEEE Std 802.15.4-2024 — it is this simulator's convention, not the core standard's): the cycle is laid out in milliseconds and the slot has to
           // divide them. 4ab draft 15-22/0381r5 §1.1.1
           if (sc.uwb.slotRstu % 300 !== 0) {
             ctx.addIssue({

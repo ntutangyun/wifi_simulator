@@ -682,7 +682,7 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     // 「一个块 240 000 RSTU…200.0 ms，装得下十轮；一轮 24 000 RSTU，20.0 ms；…每个 2 400 RSTU，
     //   2 000.0 µs」
     const [blockRstu, blockMs] = figs(caption,
-      /一个块 ([\d ]+) RSTU（ranging slot time unit），([\d.]+) ms/, 'the caption on the block')
+      /一个块 ([\d ]+) RSTU（ranging scheduling time unit），([\d.]+) ms/, 'the caption on the block')
     same(String(blockMs), rstuNs(blockRstu!) / MS, 'the block this session really runs')
     expect(blockRstu, 'which is the session’s own figure').toBe(SESSION.blockRstu)
     const [roundsCn] = raw(caption, /可容纳(.)轮/, 'the caption on how many rounds fit')
@@ -929,16 +929,20 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     // the engine counts in whole nanoseconds, so its own RSTU is that figure rounded
     expect(rstuNs(1), 'which is the engine’s own conversion, to the nanosecond').toBe(Math.round(ns!))
     /*
-     * 「并规定块长与时隙长都以整数个 3 RSTU 计」 — **exempt, class (a): a clause's own
-     * granularity.** What the engine can say is that its two lengths satisfy the rule, and that
-     * is said below; it cannot say the rule's divisor is 3, because 240 000 and 2 400 RSTU are
-     * whole multiples of 2 and of 4 as well. The figure is §10.32.2's, not this engine's, and
-     * the only instrument that could move it is the clause.
+     * 「本课的场景另外要求块长与时隙长都是 3 RSTU 的整数倍，这一条是本课的规则，标准正文里没有」
+     * — corrected on 2026-11-10: the lesson used to attribute this multiple to §10.32.2, which
+     * only says the lengths are counted in RSTU (no 「3 RSTU」 rule exists anywhere in
+     * 802.15.4-2024). It is the scenario schema's rule, so it is read against the schema: this
+     * session's two lengths satisfy it, and a length one RSTU off is refused for exactly it.
      */
-    const [granule] = figs(SRC, /都以整数个 (\d) RSTU 计/, '`sources` on the granularity')
+    const [granule] = figs(SRC, /块长与时隙长都是 (\d) RSTU 的整数倍，这一条是本课的规则/,
+      '`sources` on the granularity')
     for (const n of [SESSION.blockRstu, SESSION.slotRstu]) {
       expect(n % granule!, `${n} RSTU is a whole number of them`).toBe(0)
     }
+    expect(() => ScenarioSchema.parse(
+      { ...uwbBlocksScenario(2400), uwb: { ...uwbBlocksScenario(2400).uwb!, slotRstu: 2401 } }),
+    'and the schema refuses a slot that is not').toThrow(new RegExp(`${granule} RSTU 的整数倍`))
     // 「2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值」
     const [slotMs, blkMs] = figs(SRC, /(\d+) ms 的测距时隙与 (\d+) ms 的测距块是 FiRa/,
       '`sources` on the two FiRa values')

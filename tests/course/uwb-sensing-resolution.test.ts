@@ -96,7 +96,10 @@ describe('uwb-sensing-resolution · the lesson', () => {
     const src = uwbSensingResolution.sources!.join('\n')
     expect(src).toContain('IEEE Std 802.15.4-2024')
     expect(src).toContain('§16.2.4')
-    expect(src).not.toContain('802.15.4ab')
+    // the draft is named only to say the lesson stands outside it: no line of `sources` leans on it
+    for (const line of uwbSensingResolution.sources!.filter((s) => s.includes('802.15.4ab'))) {
+      expect(line).toContain('不涉及')
+    }
     expect(src).toMatch(/取舍|模型取值/)
   })
 

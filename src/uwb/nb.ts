@@ -18,9 +18,9 @@ import { freeSpacePl0Db } from './units'
 
 // --- The PHY -------------------------------------------------------------------
 
-export const NB_CHIP_US = 0.5 // standard Clause 12: 2 Mchip/s O-QPSK
-export const NB_SYMBOL_CHIPS = 32 // standard Clause 12: 32 chips per symbol, 4 bits each
-export const NB_SYMBOL_US = 16 // standard Clause 12: 32 × 0.5 µs, i.e. 250 kb/s
+export const NB_CHIP_US = 0.5 // standard Clause 13: 2 Mchip/s O-QPSK
+export const NB_SYMBOL_CHIPS = 32 // standard Clause 13: 32 chips per symbol, 4 bits each
+export const NB_SYMBOL_US = 16 // standard Clause 13: 32 × 0.5 µs, i.e. 250 kb/s
 /** 8 preamble symbols + 2 SFD symbols. 4ab draft 15-23/0100r2 §2.3.1, PHY configuration #1 */
 export const NB_SHR_SYMBOLS = 10
 /** The PHY header. 4ab draft 15-23/0100r2 §2.3.1, PHY configuration #1 */
@@ -130,7 +130,7 @@ export const NB_DEFAULT_CHANNELS = [3]
 // --- Link budget ------------------------------------------------------------------
 
 export const NB_TX_DBM = 10 // model: a small module; both bands allow considerably more
-export const NB_RX_SENS_DBM = -100 // model: a typical 250 kb/s O-QPSK receiver (standard §12.3.4 floor: −85)
+export const NB_RX_SENS_DBM = -100 // model: a typical 250 kb/s O-QPSK receiver (standard §13.3.4 floor: −85)
 export const NB_SIR_MIN_DB = 0 // model: an NB frame is lost when in-band foreign power reaches its own
 
 /** Free-space loss at 1 m on narrowband channel `n`, the same law `uwbPl0Db` uses at the UWB

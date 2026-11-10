@@ -631,13 +631,13 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     same(String(wide), UWB_CHIP_HZ / 1e6, 'the ranging channel’s own width')
     same(String(kbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'against the control radio’s rate')
     /*
-     * 「第 12 章、250 kb/s 的 O-QPSK PHY」 — the 「第」 rule change of 2026-10-14 uncovered this
+     * 「第 13 章那部 250 kb/s 的 O-QPSK PHY」 — Clause 13 is the O-QPSK PHY in IEEE Std 802.15.4-2024 (Clause 12 there is PHY services); the 「第」 rule change of 2026-10-14 uncovered this
      * printing of the control radio's bit rate. It is a figure of the standard, and **this
      * repository can still answer it**, because the rate is a quotient of two things the engine
      * holds: four bits per symbol, and the symbol's own length. (The clause number beside it is
      * a name — exempt, class (a): there is no corpus of 802.15.4 here.)
      */
-    const [srcKbps] = figs(SRC, /第 12 章(?:、|那部 )([\d]+) kb\/s/,
+    const [srcKbps] = figs(SRC, /第 13 章那部 ([\d]+) kb\/s/,
       '`sources` on the narrowband radio’s bit rate')
     same(String(srcKbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
     // 「模型中的接收端可以接收 −100 dBm 的信号，发射端以 10 dBm 发射」, and `limits` names the constants
@@ -646,10 +646,10 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     expect(sens, 'the sensitivity `nb.ts` exports').toBe(NB_RX_SENS_DBM)
     expect(tx, 'and the transmit power').toBe(NB_TX_DBM)
     const [limTx, limSens, floor] = figs(LIM,
-      /窄带发射功率 (\d+) dBm 与接收灵敏度 (−\d+) dBm，而标准第 12 章给这部 PHY 的底线是 (−\d+)/,
+      /窄带发射功率 (\d+) dBm 与接收灵敏度 (−\d+) dBm，而标准 §13\.3\.4 给这部 PHY 的底线是 (−\d+)/,
       '`limits` on the same three')
     expect([limTx, limSens], 'the same two constants').toEqual([tx, sens])
-    const [srcFloor] = figs(SRC, /标准对这部 PHY 给出的底线是 (−\d+) dBm/, '`sources` on the floor')
+    const [srcFloor] = figs(SRC, /标准 §13\.3\.4 对这部 PHY 给出的底线是 (−\d+) dBm/, '`sources` on the floor')
     expect(floor, 'and the standard’s floor, which both sections print').toBe(srcFloor)
     expect(floor, 'a floor this model is more generous than').toBeGreaterThan(sens!)
     // 「本课对窄带只替换了 1 m 处的自由空间项，指数与每道墙的损耗仍沿用宽带一侧的取值」
@@ -680,7 +680,7 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     // 「接收端 −100 dBm 的灵敏度（标准对这部 PHY 给出的底线是 −85 dBm）；以及一次控制发射
     //   所用的 10 dBm」 — the same two model values `deeper` and `limits` print
     const [srcSens, srcTx] = figs(SRC,
-      /接收端 (−\d+) dBm 的灵敏度（标准对这部 PHY 给出的底线是 −\d+ dBm）；以及一次控制发射所用的 (\d+) dBm/,
+      /接收端 (−\d+) dBm 的灵敏度（标准 §13\.3\.4 对这部 PHY 给出的底线是 −\d+ dBm）；以及一次控制发射所用的 (\d+) dBm/,
       '`sources` on the same budget')
     expect(srcSens, 'the sensitivity, a third time').toBe(NB_RX_SENS_DBM)
     expect(srcTx, 'and the transmit power').toBe(NB_TX_DBM)

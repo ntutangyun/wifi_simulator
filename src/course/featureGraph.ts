@@ -191,7 +191,7 @@ const UWB_SPINE: GroupSpec[] = [
   { id: 'units', title: '单位与计数器', note: 'RCTU、RSTU、测距计数器 §10.29.1.3–.5',
     intro: '测距量的是时间，而时间要有刻度。标准给了两把：RCTU（ranging '
       + 'counter time unit，测距计数器时间单位）用来读一帧到达的那个瞬间，'
-      + '细；RSTU（ranging slot time unit，测距时隙时间单位）'
+      + '细；RSTU（ranging scheduling time unit，测距调度时间单位）'
       + '用来排时隙与块，粗。两把尺怎么换算、计数器多宽、多久回绕一次，是后面每一个数的地基。',
     family: 'core', needs: [],
     match: (r) => sec(r, '一') && has(r, /计数器|时间单位|调度时间单位/) },
