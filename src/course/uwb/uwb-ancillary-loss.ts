@@ -47,11 +47,11 @@
  */
 import { J, txOf, type Lesson } from '../lessonKit'
 import {
-  FRAMES, MS, NS, SENDER_ID, SLOTS, VALIDITY, WINDOW_ROUNDS, ms, uwbAncillaryWindowScenario,
+  FRAMES, MS, NS, SENDER_ID, SLOTS, VALIDITY, WINDOW_ROUNDS, WINDOW_ROUNDS_PER_BLOCK, ms, uwbAncillaryWindowScenario,
   uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from './uwb-ancillary'
 
-/** The first frame of the message: Frames Remaining `FRAMES − 1`, in the first appended slot. */
+/** The first frame of the message: Frames Remaining `FRAMES − 1`, in the ancillary round's slot 1. */
 const firstFragment = txOf((r) => r.frame.kind === 'uwbAncillary')
 /** The frame that says zero: the last one, after which the receiver has the whole message. */
 const lastFragment = txOf((r) =>
@@ -110,14 +110,14 @@ export const uwbAncillaryLoss: Lesson = {
   numbers: [
     {
       heading: '先给出用于对照的时间基准',
-      text: `一个测距时隙（ranging slot）${MS.slot} ms，一个测距块（ranging block）${MS.block} ms。测距那一轮占 ${SLOTS.ranging} 个时隙，这条消息再占 ${SLOTS.window} 个（把消息的时隙接在测距时隙之后是本课的排法；标准只说辅助信息在一轮测距之中、占用其中的测距时隙交换），于是包含这个交换的块是 ${SLOTS.block} 个时隙、${SLOTS.block * MS.slot} ms。标准没有为这条消息规定截止时刻；本课把它定为这条消息所在那一轮的末尾——下文中每一个「提前多少」「推迟多少」，都是相对这一时刻而言。`,
+      text: `一个测距时隙（ranging slot）${MS.slot} ms，一个测距块（ranging block）${MS.block} ms。块式结构中每一轮一样长（§10.32.3.3），本课是 ${SLOTS.round} 个时隙。测距轮（ranging round）之后是辅助信息轮（ARC 信息单元的测距轮用途为 3）：第 0 个时隙是控制消息，这条消息占后面 ${SLOTS.window} 个（这一轮排在测距轮之后是本课的安排），于是标签（tag）在一块里用掉 ${SLOTS.used} 个时隙、${SLOTS.used * MS.slot} ms。标准没有为这条消息规定截止时刻；本课把它定为辅助信息轮的末尾——下文中每一个「提前多少」「推迟多少」，都是相对这一时刻而言。`,
     },
     {
       kind: 'table', heading: `丢失中间那一帧：三个时刻`,
       head: ['时刻', '事件'],
       rows: [
-        [`第 ${SLOTS.ranging + 1} 个时隙`, `本应写入 ${FRAMES - 2} 的那一帧已发出，但接收端没有收到`],
-        [`第 ${SLOTS.ranging + 2} 个时隙的那一次接收`, `记录中写入「缺少 ${FRAMES - 2} 号」——恰好发生在这一次接收中`],
+        [`辅助信息轮第 ${SLOTS.firstSlot + 1} 个时隙`, `本应写入 ${FRAMES - 2} 的那一帧已发出，但接收端没有收到`],
+        [`第 ${SLOTS.firstSlot + 2} 个时隙的那一次接收`, `记录中写入「缺少 ${FRAMES - 2} 号」——恰好发生在这一次接收中`],
         ['这一轮的末尾', `这条消息的截止时刻，比上面那一刻晚 ${ms(NS.lead)} ms`],
       ],
     },
@@ -135,13 +135,13 @@ export const uwbAncillaryLoss: Lesson = {
     },
     {
       heading: '测距结果没有任何变化',
-      text: `打开这个交换前后，测距结果完全相同——距离、块号、时刻，没有一个数值改变。原因是辅助信息那几帧不带任何时间量：接收端不为它记时间戳，它也就不进测距的任何一个算式；增加的时隙排在一轮之后，不插入轮中。`,
+      text: `打开这个交换前后，测距结果完全相同——距离、块号、时刻，没有一个数值改变。原因是辅助信息那几帧不带任何时间量：接收端不为它记时间戳，它也就不进测距的任何一个算式；它们在单独的辅助信息轮里，不插入测距轮中。`,
     },
   ],
   deeper: [
     {
       heading: '那次丢帧是如何测量的',
-      text: '本课给出的那两个时刻并非来自本课的四个场景，原因在模型上：本课的收发判决只比较功率，没有逐帧的衰落起伏（真实信道有），所以同一个静止场景里要么每一帧都收到、要么一帧也收不到——在静止场景中无法复现「只丢中间那一帧」。那次测量的做法是：在一次运行中途把发送端移开，持续一个时隙的时间。辅助信息帧排在一轮的末尾、测距相位之后，所以这次移动不会影响任何一帧测距帧——这样「只有这一帧丢失」才是确定的事实，而不是一种期望。而课文那个提前量是由时隙长度和帧长直接算出来的，与那次运行只差一次飞行时间（本课大厅里是 22 ns），两者在毫秒的两位小数上一致。',
+      text: '本课给出的那两个时刻并非来自本课的四个场景，原因在模型上：本课的收发判决只比较功率，没有逐帧的衰落起伏（真实信道有），所以同一个静止场景里要么每一帧都收到、要么一帧也收不到——在静止场景中无法复现「只丢中间那一帧」。那次测量的做法是：在一次运行中途把发送端移开，持续一个时隙的时间。辅助信息帧在单独的辅助信息轮里、测距轮之后，所以这次移动不会影响任何一帧测距帧——这样「只有这一帧丢失」才是确定的事实，而不是一种期望。而课文那个提前量是由时隙长度和帧长直接算出来的，与那次运行只差一次飞行时间（本课大厅里是 22 ns），两者在毫秒的两位小数上一致。',
     },
   ],
   limits: [
@@ -161,7 +161,7 @@ export const uwbAncillaryLoss: Lesson = {
   scenario: () => uwbAncillaryScenario(),
   variants: [
     { label: `竞争式排程：窗口宽 ${SLOTS.contendWindow} 个时隙，起点抽出来`, scenario: () => uwbAncillaryScenario({ schedule: 'contention' }) },
-    { label: `一条控制消息管 ${VALIDITY} 轮：只在第一轮发`, scenario: () => uwbAncillaryWindowScenario() },
+    { label: `一条控制消息管 ${VALIDITY} 轮：辅助信息另有一轮`, scenario: () => uwbAncillaryWindowScenario() },
     { label: '关闭辅助信息交换', scenario: () => uwbAncillaryOffScenario() },
   ],
   jumps: [
@@ -173,7 +173,7 @@ export const uwbAncillaryLoss: Lesson = {
     `四帧的剩余帧数依次是 ${FRAMES - 1}、${FRAMES - 2}、1、0。写入 0 的那一帧到达之后，接收端将这条消息记为收齐；在此之前每一条记录都标为「未收齐」。而整块中没有发生一次超时——是否缺帧不通过超时判断。`,
   ],
   tryThis: [
-    `载入「一条控制消息管 ${VALIDITY} 轮」变体，逐轮查看辅助信息帧（每块 ${VALIDITY} 轮，轮次跨块连续数）：第 ${WINDOW_ROUNDS[0]} 轮有 ${FRAMES} 帧、剩余帧数从 ${FRAMES - 1} 递减到 0，第 1、2、3 轮一帧也没有，到第 ${WINDOW_ROUNDS[1]} 轮——下一块的第一轮——又有 ${FRAMES} 帧。要关注的是第 1 轮：那里不但没有帧，接收端连一条「未收齐」的记录也没有——「这一轮没有消息」和「这一轮的消息未收齐」是两件事，而只有后者才是本课所说的丢失。`,
+    `载入「一条控制消息管 ${VALIDITY} 个测距轮」变体，逐轮查看辅助信息帧（每块 ${WINDOW_ROUNDS_PER_BLOCK} 轮，轮次跨块连续数）：第 0 至 ${VALIDITY - 1} 轮是测距轮，一帧辅助信息也没有；第 ${WINDOW_ROUNDS[0]} 轮是辅助信息轮，有 ${FRAMES} 帧、剩余帧数从 ${FRAMES - 1} 递减到 0；到第 ${WINDOW_ROUNDS[1]} 轮——下一块的辅助信息轮——又有 ${FRAMES} 帧。要关注的是测距轮：那里不但没有帧，接收端连一条「未收齐」的记录也没有——「这一轮没有消息」和「这一轮的消息未收齐」是两件事，而只有后者才是本课所说的丢失。`,
   ],
   quiz: [
     {
@@ -199,7 +199,7 @@ export const uwbAncillaryLoss: Lesson = {
     {
       q: '丢失的是第一帧时，这个办法为什么无法指出缺的是哪一帧？',
       options: [
-        '因为第一帧中不含剩余帧数字段，对应的存在位置 0',
+        '因为第一帧中不含剩余帧数字段',
         '因为 RAICT 里只有剩余帧数可用来判断缺帧，既没有总帧数也没有这一帧的序数，所以第一次读数之前的缺口没有可以相减的对象',
         '因为第一帧丢失之后整条消息都会被丢弃',
       ],

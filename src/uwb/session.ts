@@ -2,17 +2,16 @@
  * The ranging session schedule (standard §10.32.2): a session is a train of ranging blocks, each
  * block is split into ranging rounds, and each round into ranging slots.
  *
- * The block and slot lengths are fixed before the session starts, in every mode. **The round's
- * length is not, and since slice 3d it is not even fixed by the session's own configuration.** Two
- * features append slots to particular rounds — §10.36's receipt confirmation on the
- * round that closes a ranging round set, §10.35's ancillary message on the round that opens one — so
- * `roundSlots` is the length that is actually run, and it moves with the round's place in its round set. And with
- * §10.35.2.1's Request field a *device* can ask for more of them: the sender of an ancillary
- * message asks the controller to schedule a number of slots for the next exchange, the controller
- * answers by what a block holds (`ancillaryGrantFits`), and the width that comes back is handed to
- * `ancillarySlots`/`roundSlots`/`blockSlotStartNs`/`roundSlotAction` as their optional last
- * argument. That argument defaults to the session's own figure, so every session without a request
- * is laid out exactly as it was; where one exists, the round's length is settled a block at a time.
+ * The block, round and slot lengths are fixed before the session starts, in every mode: standard
+ * §10.32.3.3's block-based structure has one round duration, so every round of a session is
+ * `plan.slots` long (`uwbRoundSlotCount`). A round that needs fewer slots leaves the rest idle.
+ * §10.36's receipt confirmations take slots inside the round that closes a ranging round set, and
+ * §10.35's ancillary information exchange runs in a round of its own (ARC Ranging Round Usage = 3,
+ * Table 10-164) after each initiator's ranging rounds. Until 2026-11-10 both were appended to
+ * particular ranging rounds, which made rounds different lengths. §10.35.2.1's Request field lets the
+ * ancillary sender ask the controller for slots for the next exchange; the controller grants what
+ * the ancillary round holds (`ancillaryGrantFits`) and assigns them with the RDM IE of that round's
+ * RCM (§10.32.9.8), so a grant changes what a device sends, never the slot layout.
  *
  * What the schedule decides is who owns a slot. In a **time-scheduled** session (§10.32.3) every slot
  * belongs to exactly one device: no device ever contends for the medium, so a ranging exchange
@@ -48,7 +47,7 @@ import type {
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
 import {
-  mmsResponders, rstuNs, uwbAncillarySlots, uwbMmrcmSlots, uwbSlotsPerTag, type UwbReplyTime,
+  mmsResponders, rstuNs, uwbAncillarySlots, uwbMmrcmSlots, uwbRoundSlotCount, uwbSlotsPerTag, type UwbReplyTime,
 } from './phy'
 
 export { rstuNs }
@@ -76,7 +75,15 @@ export interface RoundPlan {
    * Meaningless outside `'m2m'`; no other reader touches it.
    */
   participants: number
+  /**
+   * The fixed length of every round of the session, in slots (standard §10.32.3.3: one round
+   * duration in block-based mode) — `uwbRoundSlotCount(rangingSlots, receipt slots, ancillary window)`.
+   */
   slots: number
+  /** The slots a ranging round's own exchange takes (`uwbSlotsPerTag`): Poll, responses, Final,
+   * reports. Slots `rangingSlots … slots − 1` of a ranging round are the receipt confirmations of a
+   * set-closing round, or idle. */
+  rangingSlots: number
   slotNs: Ns
   roundNs: Ns
   blockNs: Ns
@@ -153,19 +160,14 @@ export interface RoundPlan {
    * are: whichever device later decides what to put in a round's slots reads one settled value
    * rather than re-deriving the same conclusion from its own copy of `cfg.ancillary`.
    *
-   * The window this exchange is bounded to is `rcmValidityRounds` above, not a field of its own —
-   * see that field's own doc comment, and `UwbSessionCfg.ancillary`'s.
-   *
-   * Carried straight through by `roundPlan`, which by itself changes nothing here: no device or
-   * network wiring reads this field yet (that is a later task's own decision, same as `sp3`'s own
-   * doc comment says of itself above).
+   * When on, each initiator gets an ancillary-information round of its own after its ranging rounds
+   * (`roundsPerInitiator`, `roundCarriesAncillary`; standard §10.35, ARC Ranging Round Usage = 3).
    */
   ancillary: boolean
   /** How many consecutive slots one ancillary message is segmented across; see
    * `UwbSessionCfg.ancillaryFrames`'s own doc comment for the bound the scenario schema already
-   * checks this against (whether the **block** holds the round the appended window makes — slice 3d
-   * removed the tighter `≤ plan.slots` one, which stated the wrong mechanism). Meaningful only when
-   * `ancillary` is true. */
+   * checks this against (whether the block holds the tag's rounds at the round length the ancillary
+   * round needs). Meaningful only when `ancillary` is true. */
   ancillaryFrames: number
   /**
    * Ranging ancillary information, **Request = 1** (standard §10.35.1's last sentence and
@@ -173,18 +175,14 @@ export interface RoundPlan {
    * `docs/superpowers/specs/2026-10-05-ancillary-request-design.md`): whether the exchange's own
    * sender asks the controller to schedule the next exchange's slots.
    *
-   * **This is the one field of this plan that something downstream is allowed to override.** The
-   * plan itself is still settled once, in `UwbNetwork`'s constructor, for the whole session — what
-   * varies by block is the *granted* width, which `UwbNetwork` holds beside the plan and passes
-   * into `ancillarySlots`/`roundSlots`/`blockSlotStartNs`/`roundSlotAction` as their optional last
-   * argument. So the plan stays immutable and the block-varying quantity has one owner, rather than
-   * the plan becoming mutable and every reader having to know when it last changed.
+   * The plan is settled once for the session; a granted request changes only what the controller
+   * writes in the next ancillary round's RCM (its RDM IE, or its RCPS phase), never the slot layout.
    */
   ancillaryRequest: boolean
   /** How many slots the request asks for (standard §10.35.2.1: Frames Remaining's second meaning).
    * Meaningful only when `ancillaryRequest` is true. Unbounded by the scenario schema on purpose —
-   * `ancillaryGrantFits` below is what answers whether a block holds it, at run time, because that
-   * answer is the controller's to give. */
+   * `ancillaryGrantFits` below is what answers whether the ancillary round holds it, at run time,
+   * because that answer is the controller's to give. */
   ancillaryRequestSlots: number
   /** Set exactly when `mode` is 'mms': everything an MMS pair round is laid out from, resolved
    * once here so that no device re-derives it — the two ends of a round must agree on the slot
@@ -262,19 +260,29 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   // How many slots a millisecond of the MMS cycle costs at this session's slot length: the layout
   // needs it, and so does the slot count below, which is the same layout measured.
   const slotsPerMs = mmsSlotsPerMs(cfg.slotRstu)
-  const slots = uwbSlotsPerTag(
+  const rangingSlots = uwbSlotsPerTag(
     cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, slotsPerMs, cfg.replyTime,
     // SP3's round carries two slots an SP1 round does not — the initiator's own marker always, and
     // its own measurement report when some responder asked for the round trip (design §4.1). Handed
     // over only when the feature is on, so every other session's slot count is the one it was.
     cfg.sp3 && cfg.mode === 'twr' ? { rrtt: cfg.srrr.rrtt } : undefined,
   )
+  // The one round length (standard §10.32.3.3): the ranging round plus its receipt confirmations, or
+  // the ancillary round, whichever is longer.
+  const slots = uwbRoundSlotCount(
+    rangingSlots,
+    uwbMmrcmSlots(cfg.mode, anchors, cfg.mmrcr),
+    uwbAncillarySlots(
+      cfg.mode, cfg.schedule, cfg.contentionSlots, cfg.ancillary, cfg.ancillaryFrames,
+      cfg.ancillary && cfg.ancillaryRequest,
+    ),
+  )
   const slotNs = rstuNs(cfg.slotRstu)
   const layout = cfg.mode === 'mms' ? mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors), slotsPerMs) : null
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
   return {
-    method: cfg.method, anchors, participants: anchors, slots, slotNs, roundNs, blockNs,
+    method: cfg.method, anchors, participants: anchors, slots, rangingSlots, slotNs, roundNs, blockNs,
     // One round per block in the two modes whose round belongs to the whole group rather than to
     // one tag: DL-TDoA's anchor round, which every tag positions itself from, and a many-to-many
     // round, which holds every participant at once (design §5). In both, a second copy of the
@@ -309,9 +317,9 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   }
 }
 
-/** Absolute start of one slot of one round of one block, for a round plan whose rounds all have
- * the same length (`plan.slots`) — every round of every session with neither `mmrcr` nor
- * `ancillary` on. `blockSlotStartNs` is the general form. */
+/** Absolute start of one slot of one round of one block. Every round of a session is `plan.slots`
+ * long (standard §10.32.3.3), so this is the whole answer; `blockSlotStartNs` is the same thing
+ * under its older name. */
 export function slotStartNs(p: RoundPlan, block: number, round: number, slot: number): Ns {
   return block * p.blockNs + round * p.roundNs + slot * p.slotNs
 }
@@ -428,12 +436,27 @@ export interface RoundSetPos {
 export function roundSetOf(plan: RoundPlan, round: number): RoundSetPos {
   if (plan.mode !== 'twr') return { first: round, length: 1, index: 0 }
   const n = Math.max(1, plan.initiatorRounds)
-  const r = Math.max(1, Math.min(plan.rcmValidityRounds, n))
-  const runStart = round - (round % n)
+  const per = roundsPerInitiator(plan)
+  const runStart = round - (round % per)
   const j = round - runStart
+  // The ancillary-information round (standard §10.35) has an RCM of its own, valid for that round
+  // alone: a one-round set.
+  if (j >= n) return { first: round, length: 1, index: 0 }
+  const r = Math.max(1, Math.min(plan.rcmValidityRounds, n))
   const first = runStart + j - (j % r)
   const length = Math.min(r, runStart + n - first)
   return { first, length, index: round - first }
+}
+
+/**
+ * How many rounds one initiator owns per block: its `initiatorRounds` ranging rounds, plus — when the
+ * ancillary information exchange is on — one ancillary-information round after them (standard
+ * §10.35.1: "A ranging block may have one or more ranging rounds during which ranging ancillary
+ * information can be exchanged"; ARC Ranging Round Usage = 3). Tag k owns rounds
+ * `k·per … k·per + per − 1`.
+ */
+export function roundsPerInitiator(plan: RoundPlan): number {
+  return plan.mode === 'twr' ? Math.max(1, plan.initiatorRounds) + (plan.ancillary ? 1 : 0) : 1
 }
 
 /**
@@ -468,7 +491,7 @@ export function roundCarriesRcm(plan: RoundPlan, round: number): boolean {
  * the two can never disagree about where a set's edges are.
  */
 export function roundCarriesMmrcm(plan: RoundPlan, round: number): boolean {
-  if (!plan.mmrcr) return false
+  if (!plan.mmrcr || roundCarriesAncillary(plan, round)) return false
   const set = roundSetOf(plan, round)
   return set.index === set.length - 1
 }
@@ -499,38 +522,30 @@ export function mmrcmResponders(plan: RoundPlan): number {
   return uwbMmrcmSlots(plan.mode, plan.mode === 'm2m' ? plan.participants : plan.anchors, plan.mmrcr)
 }
 
-// --- Ranging ancillary information, Request = 0 (standard §10.35; design doc
-// 2026-10-02-ancillary-design.md, task 3) ----------------------------------------------------
+// --- Ranging ancillary information (standard §10.35) ------------------------------------------
 
 /**
- * True on the rounds the ancillary exchange runs in: **the first round of each ranging round set**
- * (standard §10.35.1, design §3).
+ * True on the ancillary-information round: each initiator's round after its `initiatorRounds` ranging
+ * rounds, when the exchange is on (standard §10.35.1: "A ranging block may have one or more ranging
+ * rounds during which ranging ancillary information can be exchanged"). That round's RCM sets the ARC
+ * IE's Ranging Round Usage to 3 (Table 10-164), is valid for that round alone, and gives out the
+ * round's slots with an RDM IE (time schedule) or an RCPS phase (contention schedule).
  *
- * §10.35.1 bounds the exchange to the current ranging round plus the rounds this RCM still governs,
- * and the field that says how many those are is the ARC IE's RCM Validity Rounds (§10.32.9.1) — the
- * round set. So the boundary is read off `roundCarriesRcm` rather than given a second expression of
- * its own: this is that set's third reuse, after §10.34's RMNR (`holdsValidRcm`) and §10.36's
- * receipt bitmap (`roundCarriesMmrcm`).
+ * Until 2026-11-10 the exchange ran in slots appended to the first ranging round of each ranging round
+ * set — a ranging round carrying ancillary frames under Ranging Round Usage 1 or 2 (audit #12).
  *
- * One message per set, at the set's first round. With `rcmValidityRounds: 1` — the default — every
- * round opens its own set and the exchange runs in every one of them; with R = 4 and four rounds a
- * block the message goes out in the block's first round and in none of the three after it.
- *
- * False whenever `plan.ancillary` is off (the default), and false in every mode but `'twr'` — the
- * schema refuses the exchange in each of the others because none of them sends an ARC IE at all.
+ * False whenever `plan.ancillary` is off (the default), and false in every mode but `'twr'`.
  */
 export function roundCarriesAncillary(plan: RoundPlan, round: number): boolean {
-  return plan.ancillary && plan.mode === 'twr' && roundCarriesRcm(plan, round)
+  if (!plan.ancillary || plan.mode !== 'twr') return false
+  return round % roundsPerInitiator(plan) === Math.max(1, plan.initiatorRounds)
 }
 
 /**
- * How many slots this round appends for the ancillary message, from the one definition in
- * `phy.ts#uwbAncillarySlots` — one per fragment under a time schedule, the round's own contention
- * window under a contention one, and 0 whenever the exchange is off. See that function for why the
- * two schedules differ and why the count cannot live in this file.
- *
- * It does **not** ask which round: the count is a property of the session's shape, and whether a
- * given round spends it is `roundCarriesAncillary`'s question.
+ * The ancillary round's window, in slots after its RCM, from the one definition in
+ * `phy.ts#uwbAncillarySlots` — one per fragment (plus the request frame's) under a time schedule, at
+ * least the session's contention window under a contention one, and 0 whenever the exchange is off.
+ * `frames` is the message length a grant gave (default: the session's own).
  */
 export function ancillarySlots(plan: RoundPlan, frames: number | null = null): number {
   return uwbAncillarySlots(
@@ -540,84 +555,47 @@ export function ancillarySlots(plan: RoundPlan, frames: number | null = null): n
 }
 
 /**
- * How many slots a block holds in total: its own length divided by a slot's. The one expression for
- * it in this file, read by `ancillaryGrantFits` below and nowhere else — the scenario schema
- * computes the identical thing in RSTU, before `rstuNs` rounds.
- */
-function slotsPerBlock(plan: RoundPlan): number {
-  return Math.floor(plan.blockNs / plan.slotNs)
-}
-
-/**
  * **Whether the controller can grant a request of `frames` message frames** (standard §10.35.2.1's
- * Request field; design §3.5) — and the whole of why no new constant was invented for it.
+ * Request field).
  *
  * §10.35 defines the request and nothing else: no grant, no refusal, no response. So *whether* to
- * grant is this engine's decision (model), and the only honest place to anchor it is the arithmetic
- * the engine and the schema already each do once — does the block hold the initiator's rounds,
- * each with whatever receipt-confirmation and ancillary slots its place in its round set appends, at
- * the granted width. Every term is already on the plan; nothing here is a threshold somebody chose.
+ * grant is this engine's decision (model): does the ancillary round — `plan.slots` long like every
+ * round, slot 0 its RCM — hold the window the message needs at the granted length. A grant is then
+ * conveyed with the standard's own elements: the next ancillary round's RCM assigns the slots with its
+ * RDM IE (§10.32.9.8) or, under contention, opens a wide enough RCPS phase.
  *
- * One initiator per block, because `ancillaryRequestRefusals` refuses the request outright for a
- * session with more than one tag — one tag, one controller, one grant.
- *
- * So in the shipped lesson hall (a 200 ms block of 2 ms slots, a 5-slot SS round, one round a block,
- * no `mmrcr`) a request is granted up to 94 and refused at 95 and above: 100 − 5 − 1 for the next
- * request's own slot. That number is `blockNs`, `slotNs` and `plan.slots` talking, not a figure in a
- * lesson.
+ * Until 2026-11-10 the test was whether the *block* held a wider appended window.
  */
 export function ancillaryGrantFits(plan: RoundPlan, frames: number): boolean {
-  let total = 0
-  for (let r = 0; r < plan.initiatorRounds; r++) total += roundSlots(plan, r, frames)
-  return total <= slotsPerBlock(plan)
+  // The ancillary round is `plan.slots` long like every other round (standard §10.32.3.3); slot 0 is
+  // its RCM, so the granted window has to fit the other `plan.slots − 1`. Under a time schedule the
+  // grant is written into that RCM's RDM IE, one list element per assigned slot, and the RDM List
+  // Length field is 6 bits (§10.32.9.8, Figure 10-253): at most 63 slots.
+  const window = ancillarySlots(plan, frames)
+  if (plan.schedule === 'time' && window > RDM_MAX_ELEMENTS) return false
+  return window <= plan.slots - 1
 }
 
+/** The most elements one RDM IE lists: its RDM List Length field is 6 bits (standard §10.32.9.8,
+ * Figure 10-253). */
+export const RDM_MAX_ELEMENTS = 63
+
 /**
- * How many slots round `round` actually runs: `plan.slots`, plus the set-closing MMRCM slots `mmrcr`
- * adds (design §3.3 of the receipt-confirmation doc), plus the ancillary message's own slots on a
- * set-opening round (standard §10.35.1, ancillary design §4.2).
- *
- * Rounds that carry neither are `plan.slots` exactly, which is every round of every session with
- * both features off (both default off).
- *
- * **The two batches are ordered, here, once.** `mmrcr`'s slots come first and the ancillary
- * message's after them. The two are independently sized and appended for unrelated reasons, so
- * *something* has to decide; what must not happen is each caller deciding. (The schema refuses
- * `sp3` + `ancillary` for exactly this reason — SP3's report phase is a third such batch, and that
- * slice did not define where it sits relative to this one.) With a set of more than one round the
- * two never even meet: `mmrcr` spends its slots on the set's **last** round and `ancillary` on its
- * **first** one.
- *
- * Until 2026-11-10 this was `blockSlots(plan, block, …)`, keyed by the block index, for the reason
- * `roundCarriesRcm`'s own note gives.
+ * How many slots round `round` runs: `plan.slots`, for every round (standard §10.32.3.3: in block-based
+ * mode the round duration is one value). Until 2026-11-10 the receipt confirmations and the ancillary
+ * window were appended to particular rounds, which made rounds different lengths.
  */
-export function roundSlots(plan: RoundPlan, round: number, frames: number | null = null): number {
+export function roundSlots(plan: RoundPlan, round: number): number {
+  void round
   return plan.slots
-    + (roundCarriesMmrcm(plan, round) ? mmrcmResponders(plan) : 0)
-    + (roundCarriesAncillary(plan, round) ? ancillarySlots(plan, frames) : 0)
 }
 
 /**
- * Absolute start of one slot of one round of one block, `mmrcr` and `ancillary` included — the form
- * the scheduler lays a block out with.
- *
- * A round starts where the rounds before it in the block end, so the start is the block's own start
- * plus the **actual** lengths of every earlier round (`roundSlots`), not `round × plan.roundNs`: on a
- * session whose rounds carry appended slots the rounds are not all one length any more, and a fixed
- * stride would put one round's extra slots on top of the next round's slots 0…A−1 — two transmitters
- * in one slot, and nothing downstream able to notice.
- *
- * **Identical to `slotStartNs` wherever every round is `plan.slots` long**, which is every round of
- * every session with `mmrcr` and `ancillary` off (the defaults) and every round of the modes the
- * schema refuses both for — `'mms'` among them, which is why `device.mms.ts` reading its round's
- * start through `slotStartNs` stays exact.
+ * Absolute start of one slot of one round of one block: rounds are all `plan.slots` long, so this is
+ * `slotStartNs`.
  */
-export function blockSlotStartNs(
-  p: RoundPlan, block: number, round: number, slot: number, frames: number | null = null,
-): Ns {
-  let before = 0
-  for (let r = 0; r < round; r++) before += roundSlots(p, r, frames)
-  return block * p.blockNs + (before + slot) * p.slotNs
+export function blockSlotStartNs(p: RoundPlan, block: number, round: number, slot: number): Ns {
+  return slotStartNs(p, block, round, slot)
 }
 
 /** One MMRCM slot (design §3.2/§3.3): `index` is **which responder** this slot belongs to, in
@@ -631,60 +609,44 @@ export interface MmrcmSlotAction {
 }
 
 /**
- * One slot of the ancillary message's appended window (standard §10.35.1, design §4.2): `index` is
- * the slot's place **inside that window**, 0…`ancillarySlots(plan) − 1`, not its place in the round.
+ * One slot of the ancillary-information round after its RCM (standard §10.35.1): `index` is the slot's
+ * place after the RCM (slot − 1).
  *
- * It names a position and **not a device**, which is the one thing that separates it from
- * `MmrcmSlotAction` above. An MMRCM slot belongs to the responder its index names, every time. An
- * ancillary slot belongs to whichever window index the sender's run happens to cover — under a time
- * schedule the run starts at index 0, under a contention one wherever the sender drew (§10.32.2
- * schedule mode 0) — so the schedule cannot name the transmitter here even in principle, and this
- * action deliberately does not pretend to. Which device sends, and which window indices its run
- * covers, is `device.ancillary.ts`'s decision.
- *
- * Kept apart from `SlotAction` rather than added as one more member of it, for the reason
- * `MmrcmSlotAction` is: every member of that union is a ranging frame with a `tx`/`anchor` shape,
- * and this is not one.
+ * It names a position and **not a device**: which device sends in it is in the round's RCM (the RDM
+ * IE's assignments, or the RCPS phase the sender draws in), which `device.ancillary.ts` reads.
  */
 export interface AncillarySlotAction {
   kind: 'uwbAncillary'
   index: number
   /**
-   * **The slot the Request = 1 frame was appended for** (standard §10.35.2.1; slice 3d), and it is
-   * named here only where the schedule is entitled to name it.
-   *
-   * Under a **time** schedule the window is exactly the message plus the request, so the request's
-   * index is the last one and the slot table knows it. Under a **contention** schedule it is not:
-   * the run starts wherever the sender drew, so the request sits after *that* run and the schedule
-   * cannot say where any more than it can say who transmits (see this interface's own note above).
-   * `false` everywhere in that case, and `device.ancillary.ts` places the frame from its own draw.
-   *
-   * `false` for every slot of every session with the request off — the default — so a session
-   * written before this slice reads back action for action as it was.
+   * **The slot of the Request = 1 frame** (standard §10.35.2.1), named only where the schedule is
+   * entitled to name it: under a time schedule the request follows the message's `frames` slots
+   * (`frames` being the length passed to `roundSlotAction`, default the session's), under a contention
+   * schedule the run starts wherever the sender drew, so `false` everywhere and `device.ancillary.ts`
+   * places the frame from its own draw. `false` whenever the request is off.
    */
   request: boolean
 }
 
 /**
- * One slot of round `round`, `slotAction`'s own answer unchanged for every slot below `plan.slots`,
- * then one `MmrcmSlotAction` per set-closing slot and one `AncillarySlotAction` per set-opening slot
- * above it (design §3.3). This is the function that actually moves with the round's place in its
- * round set, unlike `slotAction` itself (pinned unmoved by `rcmValidityRounds`/`rmnr`).
+ * One slot of round `round`. In the ancillary-information round: its RCM in slot 0, then
+ * `AncillarySlotAction`s. In a ranging round: `slotAction`'s own answer for the ranging exchange's
+ * slots, then — in the round that closes a ranging round set, with `mmrcr` on — one `MmrcmSlotAction`
+ * per responder (standard §10.36), then idle to the end of the fixed-length round.
  */
 export function roundSlotAction(
   plan: RoundPlan, round: number, slot: number, frames: number | null = null,
-): SlotAction | MmrcmSlotAction | AncillarySlotAction {
-  if (slot < plan.slots) return slotAction(plan, slot)
-  // The appended slots, in the one order `roundSlots` above budgets them in: the receipt
-  // confirmation's first, the ancillary message's after. Walked by subtracting each batch's width
-  // rather than compared against a running sum, so the two cannot disagree about where the second
-  // batch begins.
-  let index = slot - plan.slots
-  const mmrcm = roundCarriesMmrcm(plan, round) ? mmrcmResponders(plan) : 0
-  if (index < mmrcm) return { kind: 'uwbMmrcm', index }
-  index -= mmrcm
-  const ancillary = roundCarriesAncillary(plan, round) ? ancillarySlots(plan, frames) : 0
-  if (index < ancillary) {
+): SlotAction | MmrcmSlotAction | AncillarySlotAction | AncillaryRcmSlotAction {
+  if (slot < 0 || slot >= plan.slots) {
+    throw new Error(`roundSlotAction: round ${round} has ${plan.slots} slots, asked for ${slot}`)
+  }
+  if (roundCarriesAncillary(plan, round)) {
+    // The ancillary-information round (standard §10.35): the controller's RCM in slot 0, and every
+    // later slot available to the exchange. Which of them carry the message is in that RCM (its RDM
+    // IE's assignments, or its RCPS phase), which a granted request changes from block to block, so
+    // the slot table names them all and the devices act on what the RCM said.
+    if (slot === 0) return { kind: 'uwbAncillaryRcm' }
+    const index = slot - 1
     // The request's own slot, named only where a time-scheduled table is entitled to name it —
     // see `AncillarySlotAction.request`. `frames ?? plan.ancillaryFrames` is the message's length
     // in this block, so the index after it is the request's.
@@ -692,7 +654,37 @@ export function roundSlotAction(
       && index === (frames ?? plan.ancillaryFrames)
     return { kind: 'uwbAncillary', index, request }
   }
-  throw new Error(`roundSlotAction: round ${round} has ${roundSlots(plan, round, frames)} slots, asked for ${slot}`)
+  if (slot < plan.rangingSlots) return slotAction(plan, slot)
+  // Inside the fixed round, after the ranging exchange: the receipt confirmations of a set-closing
+  // round (standard §10.36), one per responder, then idle.
+  const index = slot - plan.rangingSlots
+  if (roundCarriesMmrcm(plan, round) && index < mmrcmResponders(plan)) return { kind: 'uwbMmrcm', index }
+  return { kind: 'idle' }
+}
+
+/**
+ * The slot of the ancillary-information round that carries its RCM (standard §10.32.2: an RCM goes
+ * in slot 0; §10.35, ARC Ranging Round Usage = 3). Sent by the controller (the round's tag).
+ */
+export interface AncillaryRcmSlotAction {
+  kind: 'uwbAncillaryRcm'
+}
+
+/**
+ * The slots of the ranging round set `round` belongs to that a receipt confirmation acknowledges
+ * (standard §10.36.2.1: one bitmap bit per slot, "The first bit in time sent in the field refers to
+ * the first time slot"): every slot of the set's rounds before the confirmations themselves — the
+ * whole of each earlier round, and the last round up to its first MMRCM slot.
+ */
+export function mmrcmAckSlots(plan: RoundPlan, round: number): number {
+  const set = roundSetOf(plan, round)
+  return (set.length - 1) * plan.slots + plan.rangingSlots
+}
+
+/** Which bit of a set's receipt bitmap slot `slot` of round `round` is (see `mmrcmAckSlots`). */
+export function mmrcmBitIndex(plan: RoundPlan, round: number, slot: number): number {
+  const set = roundSetOf(plan, round)
+  return set.index * plan.slots + slot
 }
 
 /**
@@ -708,12 +700,18 @@ function sp3ReportAction(p: RoundPlan, index: number, slot: number): SlotAction 
     if (index < p.anchors) return { kind: 'uwbSsDefer', tx: 'anchor', anchor: index }
     throw new Error(`slotAction: SP3 SS round has ${p.slots} slots, asked for ${slot}`)
   }
+  // SP3 is always deferred: the Final, the initiator's deferred report (§10.29.6.6), then one report
+  // per responder.
   if (index === 0) return { kind: 'uwbFinal', tx: 'tag' }
-  if (index <= p.anchors) return { kind: 'uwbReport', tx: 'anchor', anchor: index - 1 }
+  if (index === 1) return { kind: 'uwbReport', tx: 'tag' }
+  if (index <= p.anchors + 1) return { kind: 'uwbReport', tx: 'anchor', anchor: index - 2 }
   throw new Error(`slotAction: SP3 DS round has ${p.slots} slots, asked for ${slot}`)
 }
 
 export function slotAction(p: RoundPlan, slot: number): SlotAction {
+  // Inside the fixed round but past the ranging exchange (standard §10.32.3.3: every round is one
+  // length): nobody transmits.
+  if (slot >= p.rangingSlots && slot < p.slots) return { kind: 'idle' }
   if (p.mode === 'dl-tdoa') {
     // N + 1 slots: anchor 0's Poll, one Response per other anchor in its own slot, anchor 0's
     // Final. The responder in slot i is anchor i, which is what lets the Final list its RX times
@@ -774,7 +772,14 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
     throw new Error(`slotAction: SS round has ${p.slots} slots, asked for ${slot}`)
   }
   if (slot === p.anchors + 1) return { kind: 'uwbFinal', tx: 'tag' }
-  if (slot <= 2 * p.anchors + 1) return { kind: 'uwbReport', tx: 'anchor', anchor: slot - p.anchors - 2 }
+  // Deferred (standard §10.29.6.6, §10.32.5 Figure 10-237): the initiator's own deferred report —
+  // the first round-trip time and the second reply time for every responder — right after the
+  // Final, then the responders' reports.
+  const deferredReport = p.replyTime === 'deferred' ? 1 : 0
+  if (deferredReport && slot === p.anchors + 2) return { kind: 'uwbReport', tx: 'tag' }
+  if (slot <= 2 * p.anchors + 1 + deferredReport) {
+    return { kind: 'uwbReport', tx: 'anchor', anchor: slot - p.anchors - 2 - deferredReport }
+  }
   throw new Error(`slotAction: DS round has ${p.slots} slots, asked for ${slot}`)
 }
 

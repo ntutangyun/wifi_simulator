@@ -10,12 +10,17 @@
  *     `FIRST_FRAMES − 1 … 0` and every block after it counts `REQUEST − 1 … 0`. If a grant only
  *     widened the window the first number would never move, and the whole feature would be a
  *     schedule that got longer while the air stayed the same.
- *  2. **A refusal has no frame.** In the wide-slot hall the same request is refused, no record
- *     carries a granted width, and every block's countdown stays at the session's own figure — so
- *     the asker learns the answer from the width of the window it is given and from nothing else.
+ *  2. **A refusal has no frame.** A request for one slot more than the ancillary round holds is
+ *     refused, no record carries a granted width, and every block's countdown stays at the session's
+ *     own figure — the asker reads the answer off the next ancillary RCM's RDM IE.
  *  3. **The policy invents no constant.** The largest grantable width is walked out of
- *     `ancillaryGrantFits` rather than subtracted, and the two halls answer 94 and 4 for one reason:
- *     one of them divides a 200 ms block by a 2 ms slot and the other by a 20 ms slot.
+ *     `ancillaryGrantFits` rather than subtracted: the round length less the RCM's slot and the
+ *     request's own slot.
+ *
+ * Rewritten 2026-11-10 (W2): every round is one length (standard §10.32.3.3), the exchange runs in
+ * an ancillary round of its own (ARC Ranging Round Usage = 3, §10.35), and a grant is conveyed by the
+ * next ancillary round's RDM IE (§10.32.9.8) — it no longer widens an appended window, and the slot
+ * length no longer decides it.
  *
  * **This file is also the ruler for the `until` promise `uwb-ancillary` now carries.** That
  * lesson's `out-of-scope` limit says the Request = 1 half is a later cut and names this lesson as
@@ -26,20 +31,18 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  ANCHORS, ASKER_ID, BYTES, CAPS, FIRST_FRAMES, MS, PLACES, REQUEST, SLOTS, TAG, TAG_ID,
-  WIDE_SLOT_RSTU, idOf, uwbAncillaryRequest, uwbAncillaryRequestOffScenario,
-  uwbAncillaryRequestScenario,
+  ANCHORS, ASKER_ID, BYTES, CAPS, FIRST_FRAMES, MS, OVER_REQUEST, PLACES, REQUEST, SLOTS, TAG, TAG_ID,
+  idOf, uwbAncillaryRequest, uwbAncillaryRequestOffScenario, uwbAncillaryRequestScenario,
 } from '../../src/course/uwb/uwb-ancillary-request'
 import { MODULES, basisOf } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
-import { uwbAncillaryScenario } from '../../src/course/uwb/uwb-ancillary'
-import { raictIeBytes, uwbAncillaryBytes, uwbPpduNs } from '../../src/uwb/phy'
-// `blockSlots(plan, block, …)` became `roundSlots(plan, round, …)` on 2026-11-10 (audit #23); every
-// session here runs one round a block, so round 0 of a block is the block's whole round.
-import { ancillaryGrantFits, ancillarySlots, roundPlan, roundSlots } from '../../src/uwb/session'
+import { raictIeBytes, uwbAncillaryBytes, uwbAncillaryRcmBytes, uwbPpduNs } from '../../src/uwb/phy'
+import {
+  ancillaryGrantFits, ancillarySlots, roundPlan, roundsPerInitiator,
+} from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS_NS = 1_000_000
@@ -55,7 +58,6 @@ const run = (sc: Scenario, ns: number = RUN_NS): TLRecord[] => {
 
 /** The plan the lesson's base scene lays out — the same `roundPlan` call `UwbNetwork` makes. */
 const PLAN = roundPlan(uwbAncillaryRequestScenario().uwb!, ANCHORS)
-const WIDE_PLAN = roundPlan(uwbAncillaryRequestScenario({ slotRstu: WIDE_SLOT_RSTU }).uwb!, ANCHORS)
 const CONTEND_PLAN = roundPlan(uwbAncillaryRequestScenario({ schedule: 'contention' }).uwb!, ANCHORS)
 
 /** Every ancillary record of a run, as the controller wrote it. */
@@ -82,6 +84,7 @@ const sent = (rs: TLRecord[]) => ofType(rs, 'TX_START')
   .map((r) => ({
     node: r.node,
     block: r.frame.uwb?.block ?? -1,
+    round: r.frame.uwb?.round ?? -1,
     slot: r.frame.uwb?.slot ?? -1,
     bytes: r.frame.bytes,
     txNs: r.frame.txTimeNs,
@@ -89,6 +92,11 @@ const sent = (rs: TLRecord[]) => ofType(rs, 'TX_START')
     number: r.frame.uwb?.raict?.messageNumber,
     remaining: r.frame.uwb?.raict?.framesRemaining,
   }))
+
+/** The RDM element count of every ancillary RCM on the air, by block (standard §10.32.9.8). */
+const rdmByBlock = (rs: TLRecord[]): Map<number, number> => new Map(ofType(rs, 'TX_START')
+  .filter((r) => r.frame.kind === 'uwbRcm')
+  .map((r) => [r.frame.uwb!.block, r.frame.uwb?.rdm?.length ?? 0]))
 
 /** One source file of the engine, for the claims the limits make about it. */
 async function readSrc(rel: string): Promise<string> {
@@ -126,7 +134,7 @@ describe('uwb-ancillary-request · where it sits in the course', () => {
     expect(text).toContain('这个数直接是场景中给定的整数')
     expect(text).toContain('原语')
     // the grant/refusal policy is the model's, because the clause defines none
-    expect(text).toContain('这一块能容纳就批准')
+    expect(text).toContain('辅助信息轮放得下就批准')
     expect(text).toContain('§10.35')
     // and one asker per round, one controller per session
     expect(text).toContain('发消息的始终是第 0 个响应方')
@@ -182,21 +190,25 @@ describe('uwb-ancillary-request · the scenes are the ones the lesson describes'
     }
     expect(uwbAncillaryRequest.variants!.map((v) => v.scenario().uwb!.schedule))
       .toEqual(['contention', 'time', 'time'])
-    expect(uwbAncillaryRequest.variants![1].scenario().uwb!.slotRstu).toBe(WIDE_SLOT_RSTU)
+    expect(uwbAncillaryRequest.variants![1].scenario().uwb!.ancillaryRequestSlots).toBe(OVER_REQUEST)
     expect(uwbAncillaryRequest.variants![2].scenario().uwb!.ancillaryRequest).toBe(false)
   })
 
-  it(`lays out ${SLOTS.block} slots before the grant and ${SLOTS.blockGranted} after it`, () => {
-    expect(SLOTS.ranging).toBe(PLAN.slots)
+  it(`assigns ${SLOTS.window} slots before the grant and ${SLOTS.windowGranted} after it, in rounds of one length`, () => {
+    expect(SLOTS.ranging).toBe(PLAN.rangingSlots)
+    expect(SLOTS.round).toBe(PLAN.slots)
     // the window is the message plus the request's own slot, and the request's slot is what the
     // off variant does not have
     expect(SLOTS.window).toBe(FIRST_FRAMES + 1)
     expect(SLOTS.off).toBe(FIRST_FRAMES)
     expect(SLOTS.windowGranted).toBe(REQUEST + 1)
-    expect(SLOTS.block).toBe(roundSlots(PLAN, 0))
-    expect(SLOTS.blockGranted).toBe(roundSlots(PLAN, 0, REQUEST))
-    expect(SLOTS.block).toBe(SLOTS.ranging + SLOTS.window)
-    expect(SLOTS.blockGranted).toBe(SLOTS.ranging + SLOTS.windowGranted)
+    // both windows fit the ancillary round after its RCM slot, which never changes length
+    expect(SLOTS.windowGranted).toBeLessThanOrEqual(SLOTS.round - 1)
+    expect(SLOTS.used).toBe(roundsPerInitiator(PLAN) * PLAN.slots)
+    // and the RCM grows by one RDM element (3 octets) per assigned slot
+    expect(BYTES.rcm).toBe(uwbAncillaryRcmBytes('time', SLOTS.window))
+    expect(BYTES.rcmGranted).toBe(uwbAncillaryRcmBytes('time', SLOTS.windowGranted))
+    expect(BYTES.rcmGranted - BYTES.rcm).toBe(3)
   })
 })
 
@@ -212,6 +224,10 @@ describe('uwb-ancillary-request · the grant changes the message, which is the l
     // the whole countdown of block 1, in order, read off the air rather than off the records
     const block1 = sent(rs).filter((f) => f.block === 1 && !f.request).map((f) => f.remaining)
     expect(block1).toEqual([...Array(REQUEST).keys()].map((i) => REQUEST - 1 - i))
+    // 2026-11-10: the grant rides the next ancillary round's RCM — its RDM IE assigns one more slot
+    const rdm = rdmByBlock(rs)
+    expect(rdm.get(0)).toBe(SLOTS.window)
+    for (const block of [1, 2, 3, 4, 5, 6]) expect(rdm.get(block), `block ${block}`).toBe(SLOTS.windowGranted)
   })
 
   it('the request is one frame, in the window’s last slot, and it reports no message number', () => {
@@ -228,10 +244,10 @@ describe('uwb-ancillary-request · the grant changes the message, which is the l
       expect(BYTES.requestIe).toBe(raictIeBytes(false, true))
       expect(BYTES.request).toBe(BYTES.fragment - 1)
     }
-    // block 0's request sits in the window's last slot, which is the round's last slot
+    // block 0's request sits in the last slot the ancillary RCM assigned the asker
     const first = reqs[0]
     expect(first.block).toBe(0)
-    expect(first.slot).toBe(SLOTS.block - 1)
+    expect(first.slot).toBe(SLOTS.window)
   })
 
   it('the controller grants, and says both numbers in one record', () => {
@@ -265,49 +281,39 @@ describe('uwb-ancillary-request · the grant changes the message, which is the l
 })
 
 describe('uwb-ancillary-request · the refusal, and the arithmetic behind it', () => {
-  it('walks the largest grantable width out of the predicate, in both halls', () => {
-    // The two numbers the lesson prints, and the one reason they differ: a 200 ms block divided by
-    // a 2 ms slot against the same block divided by a 20 ms slot.
-    expect(CAPS.perBlock).toBe(Math.floor(PLAN.blockNs / PLAN.slotNs))
-    expect(CAPS.widePerBlock).toBe(Math.floor(WIDE_PLAN.blockNs / WIDE_PLAN.slotNs))
-    expect(PLAN.blockNs).toBe(WIDE_PLAN.blockNs)
-    expect(MS.wideSlot).toBe(MS.slot * 10)
-    // and the caps are the predicate's own boundary, not a subtraction
-    for (const [p, cap] of [[PLAN, CAPS.grant], [WIDE_PLAN, CAPS.wideGrant]] as const) {
-      expect(ancillaryGrantFits(p, cap)).toBe(true)
-      expect(ancillaryGrantFits(p, cap + 1)).toBe(false)
-    }
-    // the base hall grants the lesson's request; the wide one does not, which is the variant
-    expect(CAPS.grant).toBeGreaterThan(REQUEST)
-    expect(CAPS.wideGrant).toBeLessThan(REQUEST)
+  it('walks the largest grantable width out of the predicate', () => {
+    // 2026-11-10: the ancillary round is as long as every round (§10.32.3.3); slot 0 is its RCM, and
+    // the request frame takes one more.
+    expect(CAPS.grant).toBe(SLOTS.round - 1 - 1)
+    expect(ancillaryGrantFits(PLAN, CAPS.grant)).toBe(true)
+    expect(ancillaryGrantFits(PLAN, CAPS.grant + 1)).toBe(false)
+    expect(ancillaryGrantFits(CONTEND_PLAN, CAPS.contendGrant)).toBe(true)
+    expect(ancillaryGrantFits(CONTEND_PLAN, CAPS.contendGrant + 1)).toBe(false)
+    // the base hall grants the lesson's request; the variant asks one slot more and is refused
+    expect(CAPS.grant).toBeGreaterThanOrEqual(REQUEST)
+    expect(OVER_REQUEST).toBe(CAPS.grant + 1)
   })
 
-  it('refuses the same request in the wide-slot hall, with no frame and no change of width', () => {
-    const rs = run(uwbAncillaryRequestScenario({ slotRstu: WIDE_SLOT_RSTU }))
+  it('refuses the over-long request, with no frame and no change of assignment', () => {
+    const rs = run(uwbAncillaryRequestScenario({ ancillaryRequestSlots: OVER_REQUEST }))
     const grants = requests(rs)
     expect(grants.length).toBeGreaterThan(4)
     for (const g of grants) {
-      expect(g.requestedSlots).toBe(REQUEST)
+      expect(g.requestedSlots).toBe(OVER_REQUEST)
       expect(g.grantedSlots, 'a refusal is a null grant, not a smaller one').toBeNull()
     }
-    // every block stays at the session's own figure — the asker reads the answer off its window
+    // every block stays at the session's own figure — the asker reads it off the next RCM
     for (const [, first] of firstCountdown(rs)) expect(first).toBe(FIRST_FRAMES - 1)
-    // …and no frame travels back: the only ancillary frames on the air are the asker's own
+    for (const [, n] of rdmByBlock(rs)) expect(n).toBe(SLOTS.window)
+    // …and no ancillary frame travels back: the only ones on the air are the asker's own
     expect(new Set(sent(rs).map((f) => f.node))).toEqual(new Set([ASKER_ID]))
-  })
-
-  it('grants the wide hall’s own cap, so the refusal is about the width and not about the hall', () => {
-    const rs = run(uwbAncillaryRequestScenario({
-      slotRstu: WIDE_SLOT_RSTU, ancillaryRequestSlots: CAPS.wideGrant,
-    }))
-    for (const g of requests(rs)) expect(g.grantedSlots).toBe(CAPS.wideGrant)
-    expect(firstCountdown(rs).get(1)).toBe(CAPS.wideGrant - 1)
   })
 })
 
 describe('uwb-ancillary-request · contention: the window does not move and the message does', () => {
   it('prints the same window width before and after the grant, and it is measured', () => {
-    expect(SLOTS.contendRanging).toBe(CONTEND_PLAN.slots)
+    expect(SLOTS.contendRanging).toBe(CONTEND_PLAN.rangingSlots)
+    expect(SLOTS.contendRound).toBe(CONTEND_PLAN.slots)
     expect(SLOTS.contendWindow).toBe(ancillarySlots(CONTEND_PLAN))
     expect(SLOTS.contendWindowGranted).toBe(ancillarySlots(CONTEND_PLAN, REQUEST))
     // the claim the lesson's last table row makes, as an equality rather than as a remark
@@ -324,8 +330,14 @@ describe('uwb-ancillary-request · contention: the window does not move and the 
     const byBlock = firstCountdown(rs)
     expect(byBlock.get(0)).toBe(FIRST_FRAMES - 1)
     expect(byBlock.get(3)).toBe(REQUEST - 1)
-    // and the block really is laid out at one width throughout
-    expect(roundSlots(CONTEND_PLAN, 0)).toBe(roundSlots(CONTEND_PLAN, 0, REQUEST))
+    // and the RCM's RCPS phase (Phase Indicator 0, §10.32.9.5) really is one width throughout
+    const phases = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRcm')
+      .map((r) => r.frame.uwb?.contention)
+    expect(phases.length).toBeGreaterThan(3)
+    for (const p of phases) {
+      expect(p?.phase).toBe(0)
+      expect(p!.lastSlot - p!.firstSlot + 1).toBe(SLOTS.contendWindow)
+    }
   })
 })
 
@@ -341,14 +353,13 @@ describe('uwb-ancillary-request · every number in the prose is the engine’s',
 
   it('quotes the four figures that could have been invented, and each one is computed', () => {
     // the request frame's own length, the two capacities, and the two caps
-    for (const n of [BYTES.request, CAPS.perBlock, CAPS.grant, CAPS.widePerBlock, CAPS.wideGrant]) {
+    for (const n of [BYTES.request, CAPS.grant, CAPS.contendGrant, OVER_REQUEST]) {
       expect(typeof n).toBe('number')
     }
     expect(BYTES.request).toBe(uwbAncillaryBytes(false, true))
-    expect(CAPS.grant).toBe(CAPS.perBlock - SLOTS.ranging - 1)
-    expect(CAPS.wideGrant).toBe(CAPS.widePerBlock - SLOTS.ranging - 1)
+    expect(CAPS.grant).toBe(SLOTS.round - 2)
     // the prose names the mechanism rather than the number where the number is the model's
-    expect(text).toContain('按这一块能否容纳来批准')
+    expect(text).toContain('辅助信息轮放得下就批准')
   })
 
   it('says which figures are the standard’s and which are this simulator’s', () => {
@@ -403,7 +414,6 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     return mm!.slice(1)
   }
   const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
   const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
     uwbAncillaryRequest.numbers!.filter((b) => b.kind === 'table') as unknown as
       { heading?: string; head: string[]; rows: string[][] }[]
@@ -443,7 +453,7 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
   it('reads the window as the split the sentence makes of it, and the two tables', () => {
     // 「本课的第一条消息是 2 帧，所以窗口是 3 个测距时隙：2 个用于消息，1 个用于请求」
     const [frames, window, msgSlots, reqSlots] = figs(PIC,
-      /本课的第一条消息是 (\d+) 帧，所以窗口是 (\d+) 个测距时隙（ranging slot）：(\d+) 个用于消息，(\d+) 个用于请求/,
+      /本课的第一条消息是 (\d+) 帧，所以辅助信息轮的控制消息给发送方指定 (\d+) 个测距时隙（ranging slot）：(\d+) 个用于消息，(\d+) 个用于请求/,
       '`picture` on the window')
     expect(frames, 'the frames the first message really has').toBe(FIRST_FRAMES)
     expect(msgSlots, 'one slot per frame').toBe(frames)
@@ -456,19 +466,23 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     expect(ctrl, 'the control message’s own slot').toBe(0)
     expect(anchors, 'and one slot per anchor').toBe(ANCHORS)
     // slot 0 plus one each: 「第 0 个时隙」 is an index, so the round is one more than the last index
-    expect(ctrl! + 1 + anchors!, 'which is the round this plan lays out').toBe(PLAN.slots)
-    // 「窗口从 3 个时隙变为 4 个，一块从 8 个时隙变为 9 个」
-    const [wFrom, wTo, bFrom, bTo] = figs(PIC,
-      /窗口从 (\d+) 个时隙变为 (\d+) 个，一块从 (\d+) 个时隙变为 (\d+) 个/, '`picture` on what the grant changes')
-    expect([wFrom, wTo], 'the window before and after the grant')
+    expect(ctrl! + 1 + anchors!, 'which is the ranging exchange this plan lays out').toBe(PLAN.rangingSlots)
+    // 「RDM 信息单元给 anc-1 指定 4 个时隙，而不再是 3 个；控制消息从 36 字节变为 39 字节。每一轮的长度不变，仍是 5 个时隙」
+    const [wTo, wFrom, rFrom, rTo, round] = figs(PIC,
+      /指定 (\d+) 个时隙，而不再是 (\d+) 个；控制消息从 (\d+) 字节变为 (\d+) 字节。每一轮的长度不变，仍是 (\d+) 个时隙/,
+      '`picture` on what the grant changes')
+    expect([wFrom, wTo], 'the assignment before and after the grant')
       .toEqual([ancillarySlots(PLAN), ancillarySlots(PLAN, REQUEST)])
-    expect([bFrom, bTo], 'and the block before and after')
-      .toEqual([roundSlots(PLAN, 0), roundSlots(PLAN, 0, REQUEST)])
-    // the per-block table: frames, countdown, window and block width, block by block
+    const rdm = rdmByBlock(rs)
+    expect([rdm.get(0), rdm.get(1)], 'and the RDM IEs really on the air').toEqual([wFrom, wTo])
+    const rcmBytes = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRcm').map((r) => r.frame.bytes)
+    expect([rcmBytes[0], rcmBytes[1]], 'the two RCMs as long as the sentence says').toEqual([rFrom, rTo])
+    expect(round, 'the round length that does not move').toBe(PLAN.slots)
+    // the per-block table: frames, countdown, assigned slots and RCM length, block by block
     const tb = tables().find((x) => x.head[0] === '块')!
     const counts = firstCountdown(rs)
     for (const row of tb.rows) {
-      const [label, msgFrames, countdown, win, block] = row as [string, string, string, string, string]
+      const [label, msgFrames, countdown, win, rcm] = row as [string, string, string, string, string]
       const [blockNo] = figs(label, /块 (\d+)/, `${label}: its own block number`)
       const granted = blockNo! > 0
       /*
@@ -487,10 +501,10 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
       expect(counts.get(blockNo!), `${label}: and the countdown it starts at`).toBe(want - 1)
       const [from, to] = figs(countdown, /(\d+) → (\d+)/, `${label}: its countdown`)
       expect([from, to], `${label}: printed from that figure down to zero`).toEqual([want - 1, 0])
-      expect(val(win.replace(' 个时隙', '')), `${label}: its window`)
+      expect(val(win.replace(' 个', '')), `${label}: the slots its RCM assigns`)
         .toBe(granted ? ancillarySlots(PLAN, REQUEST) : ancillarySlots(PLAN))
-      expect(val(block.replace(' 个时隙', '')), `${label}: and its block`)
-        .toBe(granted ? roundSlots(PLAN, 0, REQUEST) : roundSlots(PLAN, 0))
+      expect(val(rcm.replace(' 字节', '')), `${label}: and that RCM's length`)
+        .toBe(granted ? BYTES.rcmGranted : BYTES.rcm)
     }
     // the two-frame table: the request is one octet shorter, because it reports no number
     const bt = tables().find((x) => x.head[0] === '帧类型')!
@@ -506,78 +520,36 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     }
   })
 
-  it('reads the capacity arithmetic, and the refusal the wider slot causes', () => {
+  // Rewritten 2026-11-10: the grant is decided by the ancillary round's length (§10.32.3.3), not by
+  // the block and the slot length.
+  it('reads the capacity arithmetic, and the refusal one slot more causes', () => {
     /*
-     * 「一块 200 ms、一个时隙 2 ms，所以一块能容纳 100 个时隙；测距那一轮占 5 个，请求本身占 1 个，
-     * 于是可批准的最大宽度是 94」 — every figure of that line, against the plan it describes.
+     * 「本课的会话里是 5 个时隙；辅助信息轮的第 0 个时隙是控制消息，请求帧本身占 1 个，于是可批准的最大
+     * 宽度是 3」 and 「请求 4 个时隙就放不下了」.
      */
-    const [blockMs, slotMs, perBlock, ranging, reqSlot, grant] = figs(NUMS,
-      /一块 ([\d.]+) ms、一个时隙 ([\d.]+) ms，所以一块能容纳 (\d+) 个时隙；测距那一轮占 (\d+) 个，请求本身占 (\d+) 个，于是可批准的最大宽度是 (\d+)/,
+    const [round, ctrl, reqSlot, grant, over] = figs(NUMS,
+      /本课的会话里是 (\d+) 个时隙；辅助信息轮的第 (\d) 个时隙是控制消息，请求帧本身占 (\d+) 个，于是可批准的最大宽度是 (\d+)。这里没有引入任何新数：它由轮长算出。请求 (\d+) 个时隙就放不下了/,
       '`numbers` on the capacity')
-    expect(blockMs, 'the block this scene runs').toBe(MS.block)
-    expect(slotMs, 'and its slot').toBe(MS.slot)
-    expect(perBlock, 'so this many slots fit a block').toBe(CAPS.perBlock)
-    expect(Math.floor(blockMs! / slotMs!), 'which is the division the sentence shows').toBe(perBlock)
-    expect(ranging, 'the ranging round’s own slots').toBe(PLAN.slots)
+    expect(round, 'the one round length').toBe(PLAN.slots)
+    expect(ctrl, 'the RCM’s own slot').toBe(0)
     expect(reqSlot, 'the request’s own slot').toBe(1)
     expect(grant, 'and the widest grant that leaves').toBe(CAPS.grant)
-    expect(perBlock! - ranging! - reqSlot!, 'read as the subtraction it is').toBe(grant)
+    expect(round! - 1 - reqSlot!, 'read as the subtraction it is').toBe(grant)
+    expect(over, 'the refusal variant asks one more').toBe(grant! + 1)
     expect(ancillaryGrantFits(PLAN, grant!), 'the engine accepts that width').toBe(true)
-    expect(ancillaryGrantFits(PLAN, grant! + 1), 'and refuses one more').toBe(false)
-    /*
-     * 「把时隙加宽十倍（20 ms）而块长保持不变，同一块就只能容纳 10 个时隙，可批准的最大宽度降至 4——
-     * 于是同一个 3 在这个大厅里被拒绝」
-     */
-    const [timesCn, wideMsS, widePerS, wideGrantS, sameS] = raw(NUMS,
-      /把时隙加宽(.)倍（([\d.]+) ms）而块长保持不变，同一块就只能容纳 (\d+) 个时隙，可批准的最大宽度降至 (\d+)——于是同一个 (\d+) 在这个大厅里被拒绝/,
-      '`numbers` on the wide slot')
-    const [wideMs, widePer, wideGrant, same] = [wideMsS, widePerS, wideGrantS, sameS].map((x) => val(x!))
-    expect(wideMs / MS.slot, 'as many times as wide as the character says').toBe(cn(timesCn!))
-    expect(widePer, 'the slots that block then holds').toBe(CAPS.widePerBlock)
-    expect(wideGrant, 'and the widest grant left').toBe(CAPS.wideGrant)
-    expect(same, 'while the request is unchanged').toBe(REQUEST)
-    expect(ancillaryGrantFits(WIDE_PLAN, same), 'so the wide scene refuses it').toBe(false)
-    expect(ancillaryGrantFits(PLAN, same), 'and this one grants it').toBe(true)
+    expect(ancillaryGrantFits(PLAN, over!), 'and refuses one more').toBe(false)
+    expect(ancillaryGrantFits(PLAN, REQUEST), 'so the lesson’s own request is granted').toBe(true)
   })
 
-  it('reads `deeper`’s per-round widths, the hall and the sender', () => {
-    /*
-     * 「一条控制消息覆盖四轮、标签每块跑四轮时，同一个会话按标签自己的轮次数，轮 0 与轮 4 是九个时隙，轮
-     * 1、2、3 是五个时隙」 — the widths of the rounds it names, on a session whose control message
-     * governs that many. (Until 2026-11-10 this read blocks 0 and 4 of a four-block window: a control
-     * message never governs a round of the next block, standard §10.32.9.1, audit #23.)
-     */
-    const [blocksCn, wideA, wideB, wideCn, narrowA, narrowB, narrowC, narrowCn] = raw(DEEP,
-      /一条控制消息覆盖(.)轮、标签每块跑.轮时，同一个会话按标签自己的轮次数，轮 (\d) 与轮 (\d) 是(.)个时隙，轮 (\d)、(\d)、(\d) 是(.)个时隙/,
-      '`deeper` on the per-round widths')
-    /*
-     * 「同一个会话」 is the lesson before this one: `deeper` measured it there, on the four-frame
-     * message, which is why the wide blocks are nine slots and not this lesson's eight.
-     */
-    const validity = cn(blocksCn!)
-    const plan = roundPlan(uwbAncillaryScenario({ rcmValidityRounds: validity, initiatorRounds: validity }).uwb!, ANCHORS)
-    for (const b of [wideA, wideB]) {
-      expect(roundSlots(plan, val(b!) % validity), `round ${b} is the wider one`).toBe(cn(wideCn!))
-    }
-    /*
-     * The three narrow blocks are the ones BETWEEN the two wide ones, consecutively — which is
-     * what makes 「块 1、2、3」 a reading of the window rather than three numbers that happen to
-     * be narrow.
-     */
-    expect([narrowA, narrowB, narrowC].map((b) => val(b!)),
-      'the blocks between the two wide ones, in order')
-      .toEqual([val(wideA!) + 1, val(wideA!) + 2, val(wideA!) + 3])
-    expect(val(wideB!), 'and the second wide block closes that window')
-      .toBe(val(narrowC!) + 1)
-    for (const b of [narrowA, narrowB, narrowC]) {
-      expect(roundSlots(plan, val(b!) % validity), `round ${b} is the narrower one`).toBe(cn(narrowCn!))
-    }
-    expect(cn(wideCn!), 'and the wide blocks really are the wider').toBeGreaterThan(cn(narrowCn!))
+  it('reads `deeper` on the RCM growth, the hall and the sender', () => {
+    // 「批准之后多一个元素，控制消息长 3 字节」
+    const [grew] = figs(DEEP, /批准之后多一个元素，控制消息长 (\d+) 字节/, '`deeper` on the RCM')
+    expect(grew, 'one RDM list element (§10.32.9.8)').toBe(BYTES.rcmGranted - BYTES.rcm)
     // 「本课四个场景是同一个 22 × 8 m 大厅」
     const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
     for (const sc of [uwbAncillaryRequestScenario(),
       uwbAncillaryRequestScenario({ schedule: 'contention' }),
-      uwbAncillaryRequestScenario({ slotRstu: WIDE_SLOT_RSTU }),
+      uwbAncillaryRequestScenario({ ancillaryRequestSlots: OVER_REQUEST }),
       uwbAncillaryRequestOffScenario()]) {
       expect([sc.rooms[0]!.w, sc.rooms[0]!.h], 'every scene runs in the same hall').toEqual([wide, deep])
     }

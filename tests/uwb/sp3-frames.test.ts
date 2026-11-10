@@ -8,7 +8,16 @@
  * timestamp or an address — the time it measures has to come back later, in a data report phase.
  */
 import { describe, expect, it } from 'vitest'
-import { makeSp3 } from '../../src/uwb/frames'
+import { EventQueue } from '../../src/engine/events'
+import { Rng } from '../../src/engine/rng'
+import { makeEmitter } from '../../src/model/records'
+import { DEFAULT_UWB_SESSION, type NodeCfg } from '../../src/model/scenario'
+import { UwbChannel } from '../../src/uwb/channel'
+import { UwbClock } from '../../src/uwb/clock'
+import { UwbDevice } from '../../src/uwb/device'
+import { sp3ReplyTimeRequested, sp3ReportBearing } from '../../src/uwb/device.sp3'
+import { makePoll, makeSp3 } from '../../src/uwb/frames'
+import { roundPlan } from '../../src/uwb/session'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
   SRRR_IE_BYTES, UWB_SS_DEFER_BYTES, UWB_STS_CHIPS, UWB_SHR_CHIPS,
@@ -28,8 +37,10 @@ describe('an SP3 marker is SHR + STS and nothing else — no PHR, no PSDU', () =
     expect(savedNs).toBeGreaterThan(0)
     // Pinned to the number task 1's report quotes, so a retune of the PHY constants moves this
     // test rather than silently drifting away from what the report claims.
-    expect(savedNs).toBe(40256)
-    expect(savedNs / 1000).toBeCloseTo(40.256, 3)
+    // 2026-11-10: 42 051 ns — the PHR is 21 symbols (standard Table 16-2), 896 chips more than the
+    // old 19, and every SP1 frame carries it while an SP3 marker does not.
+    expect(savedNs).toBe(42051)
+    expect(savedNs / 1000).toBeCloseTo(42.051, 3)
   })
 })
 
@@ -66,13 +77,16 @@ describe('makeSp3 carries no information unit at all', () => {
 })
 
 describe('SRRR_IE_BYTES and srrrIeBytes cost the RCM, exactly opposite of §10.36 MMRCR', () => {
-  it('one SRRR IE is header 2 + one control octet = 3', () => {
-    expect(SRRR_IE_BYTES).toBe(3)
+  // 2026-11-10 (audit #14): standard §10.32.9.9, Figure 10-255 — one SRRR IE names one
+  // requester–provider pair. The requester (the initiator, which is the controller) may be omitted,
+  // the provider's 2-octet short address may not: header 2 + control 1 + provider address 2.
+  it('one SRRR IE is header 2 + one control octet + the provider short address = 5', () => {
+    expect(SRRR_IE_BYTES).toBe(5)
   })
 
-  it('makes the RCM longer by 3 per responder — a request is not free', () => {
+  it('makes the RCM longer by 5 per responder — a request is not free', () => {
     expect(srrrIeBytes(1)).toBe(SRRR_IE_BYTES)
-    expect(srrrIeBytes(4) - srrrIeBytes(3)).toBe(3)
+    expect(srrrIeBytes(4) - srrrIeBytes(3)).toBe(5)
     expect(srrrIeBytes(0)).toBe(0)
   })
 })
@@ -126,6 +140,82 @@ describe('there is no crossover: a whole SP3 grouped round costs more air time t
     const savedNs = uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns()
     const multiple = reportNs / savedNs
     expect(multiple).toBeGreaterThan(1)
-    expect(multiple).toBeCloseTo(4.578, 3)
+    // 2026-11-10: the report is now an RMI IE (§10.29.6.3), 19 octets, and the PHR is 21 symbols.
+    expect(multiple).toBeCloseTo(4.474, 3)
+  })
+})
+
+/**
+ * 2026-11-10 (W2): a responder acts on the IEs of the RCM it actually decoded, not on the session
+ * config. Pinned at the device: the RCM is handed to `holdRcm` exactly as a reception would, and what
+ * the responder then holds — and therefore does — is read back.
+ */
+describe('a responder acts on the RCM it decoded (standard §10.32.9.1, §10.32.9.5/.6, §10.32.9.9)', () => {
+  const anchor = (): UwbDevice => {
+    const q = new EventQueue()
+    const now = (): number => 0
+    const emit = makeEmitter(() => undefined)
+    const nodes: NodeCfg[] = [{
+      id: 'anc-1', kind: 'uwb', name: 'anc-1', pos: { x: 1, y: 0, z: 1 }, txPowerDbm: -14,
+      profiles: ['idle'], caps: { generation: 'nonht', features: {} }, uwb: { role: 'anchor' },
+    }]
+    const ch = new UwbChannel(q, now, nodes, [], { channel: 9, nlos: false }, () => 0, emit)
+    return new UwbDevice(
+      'anc-1',
+      {
+        role: 'anchor', pos: { x: 1, y: 0, z: 1 }, tsNoisePs: 100, cfoNoisePpm: 0.2, maxAttempts: 3, rmnr: false,
+        tdoaClockCorrection: true, syncOffsetNs: 0, syncErrorNs: 0, aoa: false, yawDeg: 0, channel: 9,
+      },
+      new UwbClock(0, 0), new Rng(1), q, now, ch, emit,
+      { trueDistM: () => 1, anchorPos: (id) => ({ id, x: 0, y: 0, z: 1 }) },
+    )
+  }
+  const sp3Session = { ...DEFAULT_UWB_SESSION, method: 'ss' as const, replyTime: 'deferred' as const, sp3: true }
+
+  // §10.32.9.9: "The RRT field indicates that a report of reply time is required when the RRT field is
+  // one, and not required when the RRT field is zero." The reply time goes back only on RRT.
+  it('sends its reply time only when its own SRRR IE set RRT, and its bearing only on RAOA', () => {
+    for (const rrt of [true, false]) {
+      for (const raoa of [true, false]) {
+        const dev = anchor()
+        const plan = roundPlan(sp3Session, 2)
+        dev.beginRound(0, 0, plan, 'tag-1', ['anc-1', 'anc-2'], {})
+        const r = dev.round!
+        r.aoaThetaDeg = 12.5
+        const poll = makePoll('tag-1', ['anc-1', 'anc-2'], 'ss', 0, 0, {
+          srrr: [
+            { provider: 'anc-1', raoa, rrt, rrtt: false, rtof: false },
+            { provider: 'anc-2', raoa: !raoa, rrt: !rrt, rrtt: false, rtof: false },
+          ],
+        })
+        dev.holdRcm(r, poll)
+        expect(sp3ReplyTimeRequested(dev, r), `rrt=${rrt}`).toBe(rrt)
+        expect(sp3ReportBearing(dev, r), `raoa=${raoa}`).toBe(raoa ? 12.5 : undefined)
+      }
+    }
+  })
+
+  // §10.32.9.6: "Upon reception, the value shall be used as the maximum number of contention
+  // attempts"; §10.32.9.5: the phase's slot indices come from the RCPS IE.
+  it('holds the contention phase and attempt cap of the RCPS/RCMA it decoded, and the set its ARC IE gave', () => {
+    const dev = anchor()
+    const plan = roundPlan({ ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention' }, 2)
+    dev.beginRound(3, 0, plan, 'tag-1', ['anc-1', 'anc-2'], {})
+    const r = dev.round!
+    const poll = makePoll('tag-1', ['anc-1', 'anc-2'], 'ss', 3, 0, {
+      schedule: 'contention', contentionSlots: 5, maxAttempts: 1,
+      arc: {
+        multiNode: 1, roundUsage: 1, stsConfig: 1, scheduleMode: 0, deferred: 0, timeStructure: 1,
+        validityRounds: 2, mmrcr: 1,
+      },
+    })
+    dev.holdRcm(r, poll)
+    const held = dev.heldRcmFor(r)!
+    expect(held.contention).toEqual({ firstSlot: 1, lastSlot: 5, maxAttempts: 1 })
+    expect(held.mmrcr).toBe(true)
+    // RCM Validity Rounds 2: this round and the next, in this block only.
+    expect(dev.heldRcm(3, 1, 'tag-1')).not.toBeNull()
+    expect(dev.heldRcm(3, 2, 'tag-1')).toBeNull()
+    expect(dev.heldRcm(4, 0, 'tag-1')).toBeNull()
   })
 })

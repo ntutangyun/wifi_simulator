@@ -16,15 +16,16 @@ import {
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../uwb/nb'
 import {
-  RMMRC_ADDR_BYTES, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS,
+  RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS,
   UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES,
   UWB_TX_POWER_DBM, rmmrcBitmapBytes, rstuNs, uwbAncillaryBytes, uwbFinalBytes, uwbInitBytes,
-  uwbM2mBytes, uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPollBytes,
+  uwbDsDeferredReportBytes, uwbM2mBytes, uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants,
+  uwbMmrcmBytes, uwbPollBytes,
   UWB_MAX_PSDU_BYTES,
   uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
   uwbSp3ReportBytes, nbSlotSlackNs, ssbdBoundNs,
 } from '../uwb/phy'
-import { roundPlan } from '../uwb/session'
+import { mmrcmAckSlots, roundPlan } from '../uwb/session'
 import { ELLIPSE_DRAW_SCALE } from '../uwb/view'
 import {
   ECHO_IDEAL_10M_UNDER_FLOOR_DB, ECHO_IDEAL_2M_OVER_FLOOR_DB, ECHO_NEAR_LINE, ECHO_OFF_LINE,
@@ -57,15 +58,16 @@ const AOA_SIGMA_60_DEG = aoaSigmaDeg(60).toFixed(1)
 // --- Section 15: reply time / round-trip time, standard §10.29.6.3–.7 ------------------------
 // Every frame size and every anchor cap below is read off the engine's own frame builders and
 // `uwbMaxAnchors`, so the table cannot drift from what a round actually sends.
-const RT_SS_RESP_EMBEDDED = uwbRespBytes('ss', 'embedded') // 20
+const RT_SS_RESP_EMBEDDED = uwbRespBytes('ss', 'embedded') // 21 (RRTI IE with its 1-octet content header, 2026-11-10)
 const RT_SS_RESP_FIXED = uwbRespBytes('ss', 'fixed') // 14
-const RT_SS_DEFER_MSG = UWB_SS_DEFER_BYTES // 17
+const RT_SS_DEFER_MSG = UWB_SS_DEFER_BYTES // 19 (RMI IE, §10.29.6.3, 2026-11-10)
 /** The anchor count the design doc's own worked example uses for the DS Final row. */
 const RT_DS_ANCHORS = 9
-const RT_DS_FINAL_EMBEDDED = uwbFinalBytes(RT_DS_ANCHORS, 'embedded') // 122
-const RT_DS_FINAL_DEFERRED = uwbFinalBytes(RT_DS_ANCHORS, 'deferred') // 32
+const RT_DS_FINAL_EMBEDDED = uwbFinalBytes(RT_DS_ANCHORS, 'embedded') // 126 = 18 + 12A
+const RT_DS_FINAL_DEFERRED = uwbFinalBytes(RT_DS_ANCHORS, 'deferred') // 11: no IE at all (§10.29.6.6)
+const RT_DS_DEFERRED_REPORT = uwbDsDeferredReportBytes(RT_DS_ANCHORS) // 105 = 15 + 10A
 const RT_CAP_DS_EMBEDDED = uwbMaxAnchors('twr', 'ds', 'embedded', 'time') // 9
-const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 32
+const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 11: the initiator's deferred report binds
 const RT_CAP_SS = uwbMaxAnchors('twr', 'ss', 'embedded', 'time') // 32 — same for all three SS shapes (33 before the 2026-11-10 ARC/RR IE correction)
 /**
  * The same ceiling for an SP3 session, which is a different number because the RCM is a different
@@ -116,12 +118,20 @@ const RMNR_BYTES = uwbRmnrBytes() // 13
 // in the text is section 17's own R = 4 (`RCM_ANCHORS` above); `tests/ui/uwb-guide.test.ts` also
 // runs a many-to-many round at R = 1 (the window `'m2m'` is always pinned to) and checks the same
 // N = 1/3/6 figures against the frames that round actually sends.
-const MMRCM_WINDOW = 4
-const MMRCM_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_WINDOW) // 1
-const MMRCM_ENTRY_BYTES = RMMRC_ADDR_BYTES + MMRCM_BITMAP_BYTES // 3
+/** The most acknowledged slots a one-octet bitmap covers (standard §10.36.2.1: one bit per slot). */
+const MMRCM_SLOTS = 8
+const MMRCM_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SLOTS) // 1
+const MMRCM_ENTRY_BYTES = RMMRC_ADDR_BYTES + RMMRC_BITMAP_LEN_BYTES + MMRCM_BITMAP_BYTES // 4
 const MMRCM_NS = [1, 3, 6] as const
-const mmrcmBytes = (n: number): number => uwbMmrcmBytes(n, MMRCM_WINDOW)
-const MMRCM_MAX_INITIATORS = uwbMaxMmrcmInitiators(MMRCM_WINDOW) // 37
+const mmrcmBytes = (n: number): number => uwbMmrcmBytes(n, MMRCM_SLOTS)
+const MMRCM_MAX_INITIATORS = uwbMaxMmrcmInitiators(MMRCM_SLOTS)
+/** Section 17's four-round set (four anchors, SS-TWR, MMRCR on): the slots one bitmap acknowledges —
+ * every slot of the set before the confirmations — and the octets that takes. */
+const MMRCM_SET_PLAN = roundPlan(
+  { ...DEFAULT_UWB_SESSION, method: 'ss', rcmValidityRounds: 4, initiatorRounds: 4, mmrcr: true }, 4,
+)
+const MMRCM_SET_SLOTS = mmrcmAckSlots(MMRCM_SET_PLAN, 0) // 32
+const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS) // 4
 
 // --- Section 19: SP3 grouped ranging, standard §10.32.8 / SRRR IE §10.32.9.9 -------------------
 // sp3-design §2.3 (the fix round that gave the initiator its own marker and its own RRTT report):
@@ -428,8 +438,9 @@ export function Guide() {
         但 FiRa 规范不在核对所用的资料里，无法核实。
         时间调度的轮次里，每个时隙事先分配给确定的设备（RDM IE，§10.32.9.8），不经过退避，也没有 NAV；
         本仿真器的 UWB 侧完全不做 CCA（标准 §11.2.8 要求 HRP UWB PHY 实现一种 CCA 模式，只是时间调度的测距不依赖它）。
-        N 个锚点的 DS 轮在本仿真器里占 2N + 2 个时隙（Poll、N 个 Response、Final、N 个 Report）——这是
-        本仿真器的轮次安排：标准里应答方只在发起方请求时才发测量报告（§10.32.5）。
+        N 个锚点的 DS 轮在本仿真器里占 2N + 2 个时隙（Poll、N 个 Response、Final、N 个 Report；延后形态在 Final
+        之后再加发起方的一帧延后报告）——这是本仿真器的轮次安排：标准里应答方只在发起方请求时才发测量报告
+        （§10.32.5），本仿真器的轮询帧总是请求。
         在本轮结束到下一个块之间，标签的射频是关闭的——这正是一颗纽扣电池能用很久的原因。
       </p>
       <p style={p}>
@@ -908,8 +919,10 @@ export function Guide() {
         回复时间 T<sub>reply</sub>（从收到发起帧的 RMARKER 到自己应答帧的 RMARKER）是双方事先约定的已知量，
         可以事先用 RRTN IE（§10.29.8.6）商定；一对多时每个应答方各有一个固定回复时间 FRT<sub>i</sub>，
         都从发起消息的 RMARKER 量到各自应答帧的 RMARKER（§10.32.2 图 10-226）——这个数不在空口传送，
-        帧最短，但要求转移成了“应答方必须精确控制这个发送时刻”。本仿真器的固定形态与此不同：从收完 Poll 起算，
-        所有应答方共用一个数，第 k 个应答方再加 k 个时隙（见本节后文）。DS-TWR 没有“固定”这一种：
+        帧最短，但要求转移成了“应答方必须精确控制这个发送时刻”。本仿真器照此实现：会话给出第一个应答方的
+        FRT<sub>1</sub>（RMARKER 到 RMARKER），第 i 个应答方取 FRT<sub>1</sub> + (i − 1) 个时隙——满足
+        FRT<sub>i</sub> &gt; FRT<sub>j</sub>（i &gt; j），这组取值由双方上层约定，本仿真器经会话配置（带外）给出，
+        不发 RRTN IE。DS-TWR 没有“固定”这一种：
         标准的五种过程里，双边双向测距只定义了嵌入与延后两种时间信息形态。
       </p>
       <table style={table}>
@@ -931,35 +944,40 @@ export function Guide() {
           <tr>
             <td style={cell}>SS 延后报文</td>
             <td style={cell}>—</td>
-            <td style={cell}>{RT_SS_DEFER_MSG}（MHR + RRTI IE + FCS）</td>
+            <td style={cell}>{RT_SS_DEFER_MSG}（MHR + RMI IE + FCS）</td>
             <td style={cell}>—</td>
           </tr>
           <tr>
             <td style={cell}>DS Final</td>
-            <td style={cell}>14 + 12A（{RT_DS_ANCHORS} 锚点 = {RT_DS_FINAL_EMBEDDED}）</td>
-            <td style={cell}>14 + 2A（{RT_DS_ANCHORS} 锚点 = {RT_DS_FINAL_DEFERRED}）</td>
+            <td style={cell}>18 + 12A（{RT_DS_ANCHORS} 锚点 = {RT_DS_FINAL_EMBEDDED}）</td>
+            <td style={cell}>{RT_DS_FINAL_DEFERRED}（不带信息单元）</td>
+            <td style={cell}>—</td>
+          </tr>
+          <tr>
+            <td style={cell}>DS 发起方的延后报告</td>
+            <td style={cell}>—</td>
+            <td style={cell}>15 + 10A（{RT_DS_ANCHORS} 锚点 = {RT_DS_DEFERRED_REPORT}）</td>
             <td style={cell}>—</td>
           </tr>
         </tbody>
       </table>
       <p style={p}>
-        上表是本仿真器各帧的字节数，有两处与标准不同。其一，标准的 SS 延后形态用 RMI IE 携带回复时间
-        （§10.29.6.3），本仿真器的延后报文用的是 RRTI IE。其二，本仿真器的延后 Final <b>不是空的</b>：
-        锚点要靠它得知标签究竟有没有收到自己的 Response，因此它仍带响应方名单——RMI IE 的固定部分加每个
-        响应方 2 字节的短地址——只是不再带那 4 字节的往返时间，也完全没有 RRTI IE，于是每多一个锚点只长
-        2 字节而不是 12。标准的 DS 延后形态（§10.29.6.6）里，发起方随后用一帧数据帧把第一次往返时间与
-        第二次回复时间放进 RMI IE 发给应答方；只带地址、不带任何测量的 RMI IE 并不符合标准。
+        上表是本仿真器各帧的字节数，信息单元按标准的格式计算：RRTI IE 有 1 字节内容头，后面每个回复时间
+        4 字节（广播帧再加 2 字节地址，§10.29.8.1）；RMI IE 的内容头 2 字节，后面每个列表元素按存在位带若干个
+        4 字节的时间，广播帧再加地址（§10.29.8.4）。SS 延后报文按 §10.29.6.3 用 RMI IE 携带回复时间。
+        DS 延后形态按 §10.29.6.6 与 §10.32.5 图 10-237：Final 不带任何信息单元，发起方随后在测量报告阶段
+        用一帧延后数据帧（RMI IE，Deferred Mode 置 1）把第一次往返时间与第二次回复时间连同各应答方的地址发出，
+        每个应答方 10 字节，于是这一轮比嵌入形态多一个时隙。
         <b>127 字节的 PSDU 上限（§16.2.7）由此换来一个可以算出来的锚点上限</b>——不是写死的常数，
-        而是轮里最长的那一帧还能塞进 127 字节的最大锚点数：嵌入式 DS Final 曾经是拖住每一种形态的
-        那根绳，所以它换来的上限最紧，只有 <b>{RT_CAP_DS_EMBEDDED}</b> 个锚点；一旦 Final 不再随锚点数
-        暴涨（延后），或者轮里根本没有 Final（SS-TWR 的三种形态都是），上限跳到 Poll 帧自己的长度
-        （30 + 3A）能撑住的 <b>{RT_CAP_DS_DEFERRED}</b> 个——DS 延后与 SS 嵌入、SS 延后、SS 固定
-        这四种形态，锚点上限都是同一个 <b>{RT_CAP_SS}</b>。
+        而是轮里最长的那一帧还能塞进 127 字节的最大锚点数：嵌入式 DS Final 每个锚点长 12 字节，
+        所以它换来的上限最紧，只有 <b>{RT_CAP_DS_EMBEDDED}</b> 个锚点；DS 延后时随锚点数增长的是发起方的
+        延后报告（15 + 10A），上限是 <b>{RT_CAP_DS_DEFERRED}</b> 个；SS-TWR 的三种形态轮里根本没有 Final，
+        上限是 Poll 帧自己的长度（30 + 3A）能撑住的 <b>{RT_CAP_SS}</b> 个。
       </p>
       <p style={p}>
         <b>打开 SP3 之后这个数会变小，而变小的不是物理上限，是那一帧。</b>上面这个
         <b>{RT_CAP_SS}</b> 算的是轮询帧（poll）自己的长度；SP3 的控制消息在同样的内容之外，
-        还要为每个响应方挂一个 SRRR 信息单元（3 字节），于是它比轮询帧长 3A，
+        还要为每个响应方挂一个 SRRR 信息单元（{SRRR_IE_BYTES} 字节：控制字节加这个响应方的短地址），于是它比轮询帧长 {SRRR_IE_BYTES}A，
         127 字节在第 <b>{RT_CAP_SP3 + 1}</b> 个锚点上被撑破——所以一个 SP3 会话的锚点上限是
         <b>{RT_CAP_SP3}</b>，不是 <b>{RT_CAP_SS}</b>。两个数由两个不同的函数算出来，
         场景校验用的是后一个。第 19 节讲 SP3 的那一段把这笔开销逐项算了出来。
@@ -980,31 +998,30 @@ export function Guide() {
           <tr><td style={cell}>SS 固定</td><td style={cell}>✓ 收到 Response 时</td><td style={cell}>✗</td></tr>
           <tr><td style={cell}>SS 延后</td><td style={cell}>✓ 收到延后报文时</td><td style={cell}>✗</td></tr>
           <tr><td style={cell}>DS 嵌入</td><td style={cell}>✓ 收到报告时</td><td style={cell}>✓ 收到 Final 时</td></tr>
-          <tr><td style={cell}>DS 延后</td><td style={cell}>✓ 收到报告时</td><td style={cell}>✗</td></tr>
+          <tr><td style={cell}>DS 延后</td><td style={cell}>✓ 收到报告时</td><td style={cell}>✓ 收到发起方的延后报告时</td></tr>
         </tbody>
       </table>
       <p style={p}>
-        标签在全部五种里都拿得到距离——在本仿真器里它既是控制方也是发起方（第 11 节）。但<b>只有 DS 嵌入</b>
-        让锚点也拿到：Final 把标签的两个时间（tround1、treply2）带给了它，锚点才能自己算出同一个
-        tof。一旦把 Final 延后，本仿真器的锚点就只收到一份地址名单，从没见过算距离所需的那两个数——
-        它成了一个单纯的<b>应答器</b>（transponder）。这是本仿真器的简化，不是标准的做法：标准的 DS 延后形态
-        （§10.29.6.6、§10.32.5）里，发起方随后在测量报告阶段用一帧延后数据帧把这两个时间发给应答方，
-        由应答方算出距离——本仿真器没有实现这一帧。单边测距的三种形态也一样：标准的 RMI IE 有 TOF 字段
+        标签在全部五种里都拿得到距离——在本仿真器里它既是控制方也是发起方（第 11 节）；它的轮询帧里 RRMC IE
+        的回复时间请求位与往返时间请求位置 1，所以 DS 的应答方都发报告（§10.29.8.3、§10.32.5 图 10-238）。
+        <b>DS 的两种形态</b>都让锚点也拿到距离：嵌入时 Final 把标签的两个时间（tround1、treply2）带给它；
+        延后时 Final 不带这两个数，发起方随后在测量报告阶段用一帧延后数据帧把它们发给应答方，由应答方算出距离
+        （§10.29.6.6、§10.32.5）。单边测距的三种形态里锚点拿不到距离：标准的 RMI IE 有 TOF 字段
         （§10.29.8.4），应答方请求时，发起方可以把算出的距离报告给它（§10.32.4），本仿真器不发这一帧。
       </p>
       <p style={p}>
         <b>五种走法量出同一个距离。</b>同一个场景——5 m、单锚点、两端晶振相差 35 ppm
         （锚点 +20 ppm、标签 −15 ppm）——五种 replyTime/method 组合各跑一轮，量出的距离是：
         SS 嵌入与 SS 延后 <b>4.998803 m</b>（一模一样，因为走的是同一套算术，只是换了一条载波）；
-        SS 固定 <b>4.998352 m</b>（不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
+        SS 固定 <b>4.999345 m</b>（FRT<sub>1</sub> 取 1.1 个时隙；不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
         <code>ssTwrCorrected</code> 的 (1 − coffs) 修正项照样乘它——ppm 误差从另一扇门进来）；
-        DS 嵌入与 DS 延后 <b>4.999075 m</b>（五者中最接近真实值——这正是 DS-TWR 存在的全部理由）。
+        DS 嵌入与 DS 延后 <b>4.999075 m</b>（比 SS 嵌入与 SS 延后都更接近真实值——这正是 DS-TWR 存在的理由）。
         两端晶振对准时，五者在时间戳噪声之内<b>逐位相同</b>，都是 <b>5.001420 m</b>——
         搬运路线只决定谁在何时拿到这几个时间量，不决定算出来的是哪个距离。
       </p>
       <p style={p}>
         <b>固定回复时间，唯一不对齐时隙的发送。</b>本仿真器其余四种形态里，每一帧都在自己时隙的边界起发；
-        固定形态里应答方却是在<i>收完 Poll 之后的一个固定时延处</i>发送（本仿真器的取法，见上文与标准的差别），这个时刻不由时隙边界决定，
+        固定形态里应答方却让自己应答帧的 RMARKER 出现在<i>收到 Poll 的 RMARKER 之后 FRT<sub>i</sub> 处</i>（§10.32.2 图 10-226），这个时刻不由时隙边界决定，
         于是编辑器把它当成一个独立的数字框（RSTU）暴露出来——调得太小，应答方会在自己的时隙还没
         开始时发送；调得太大，会被自己时隙的边界切掉——两种越界整轮都以超时收场，这正是这一形态
         真实的脆弱之处，而不是一处需要修的故障。
@@ -1224,19 +1241,20 @@ export function Guide() {
           <tr>
             <td style={cell}>MMRC List</td>
             <td style={cell}>变长</td>
-            <td style={cell}>每个条目：地址 + 一张收妥位图</td>
+            <td style={cell}>每个条目：地址 + 1 字节位图长度 + 一张收妥位图（图 10-274）</td>
           </tr>
         </tbody>
       </table>
       <p style={p}>
-        <b>位图说的是「你发来的那几条，我收到了哪几条」。</b>标准的位图<b>每个时隙一位</b>：按时间顺序对应
-        被确认的各个时隙，长度是时隙数除以 8 向上取整（§10.36.2.1）。<b>本仿真器按轮一位</b>（轮次组里每轮的开场消息一位），
-        与标准不同；每一位都来自响应方自己的接收经历——这一轮有没有 RX_OK——不是对已有记录的复述：哪一轮的开场丢了，
-        位图里那一位就是 0。下面的帧长都按本仿真器的位图计算：
-        窗口不超过 8 轮时位图都是 <b>{MMRCM_BITMAP_BYTES}</b> 字节（含第 17 节的 R = {MMRCM_WINDOW}
-        和多对多测距固定的 R = 1），一个条目（地址 {RMMRC_ADDR_BYTES} 字节 + 位图）是
-        <b> {MMRCM_ENTRY_BYTES}</b> 字节，整帧是 MHR + 信元头部 + 控制字节 + 列表长度字节 +
-        N 个条目 + FCS，合起来是 <b>15 + 3N</b> 字节。多对多测距里每个参与者都要在同一帧里
+        <b>位图说的是「你发来的那几条，我收到了哪几条」。</b>位图<b>每个时隙一位</b>（§10.36.2.1）：按时间顺序
+        对应这一组轮次里、收妥确认之前的每一个时隙，这个时隙里收到了该发起方发来的消息就是 1，没收到、或者那个
+        时隙的消息不是发给它的，就是 0；位图长度是时隙数除以 8 向上取整，每个条目还带 1 字节的位图长度
+        （图 10-274）。每一位都来自响应方自己的接收经历——这个时隙有没有 RX_OK——不是对已有记录的复述。
+        被确认的时隙不超过 {MMRCM_SLOTS} 个时位图是 <b>{MMRCM_BITMAP_BYTES}</b> 字节，一个条目（地址
+        {' '}{RMMRC_ADDR_BYTES} 字节 + 长度 {RMMRC_BITMAP_LEN_BYTES} 字节 + 位图）是 <b>{MMRCM_ENTRY_BYTES}</b> 字节，
+        整帧是 MHR + 信元头部 + 控制字节 + 列表长度字节 + N 个条目 + FCS，合起来是 <b>15 + 4N</b> 字节；
+        第 17 节那组四轮（4 个锚点的单边测距）要确认 {MMRCM_SET_SLOTS} 个时隙，位图就是 {MMRCM_SET_BITMAP_BYTES} 字节。
+        多对多测距里一轮只有 N 个发送时隙，每个参与者都要在同一帧里
         列出它这一轮听到的每一个在它之前发送的参与者，N 个发起方的帧长依次是：
       </p>
       <table style={table}>
@@ -1255,7 +1273,7 @@ export function Guide() {
       </table>
       <p style={p}>
         和每一个按帧长算出来的上限一样，这个上限也是搜出来的，不是写死的字面量——127 字节的
-        PSDU 上限下，窗口为 {MMRCM_WINDOW} 轮时一帧最多能列 <b>{MMRCM_MAX_INITIATORS}</b>
+        PSDU 上限下，被确认的时隙不超过 {MMRCM_SLOTS} 个时一帧最多能列 <b>{MMRCM_MAX_INITIATORS}</b>
         个发起方。
       </p>
       <p style={p}>
@@ -1310,7 +1328,7 @@ export function Guide() {
           <tr>
             <td style={cell}>说的是什么</td>
             <td style={cell}>本轮的测距启动消息没收到</td>
-            <td style={cell}>窗口里我发出的那几条开场消息，你收到了哪几条</td>
+            <td style={cell}>窗口里我发出的那几条消息，你在哪几个时隙收到了</td>
           </tr>
         </tbody>
       </table>
@@ -1318,7 +1336,9 @@ export function Guide() {
         两者回答的是同一件事（某一条消息收没收到）的不同粒度，而不是互相替代：第 16 节那个
         「排在最后的参与者不知道自己有没有被听见」的问题，RMNR 答不了——多对多测距里没有
         控制消息可以「仍然持有」（本仿真器的多对多安排不发控制消息），RMNR 的前提就不存在；能答的只有收妥位图。<b>打开收妥确认
-        不影响测距结果：</b>同一个场景打开 MMRCR 前后，每一条 UWB_RANGE 记录逐字段相同——
+        不影响测距：</b>同一个场景打开 MMRCR 前后，UWB_RANGE 记录一一对应——块式结构中每一轮
+        一样长（§10.32.3.3），收妥确认的时隙使每一轮都变长，所以测距发生的时刻后移，计数器在不同的时刻读数，
+        距离只差测距计数器的一个计数单位以内；
         它是一条额外的消息，不是测量的一部分；<b>不请求就没有回答：</b>MMRCR 为 0 时一帧
         MMRCM 也不会发。
       </p>
@@ -1329,14 +1349,16 @@ export function Guide() {
         时间标记。一轮 SP3 分组测距分三个相位（§10.32.8.2）：控制消息（RCM）、SP3 测距、测量报告。
         RCM 里可以带 <b>SRRR</b> IE（SP3 Ranging Request Reports IE，标准 §10.32.9.9），按「请求方—提供方」
         成对地请求报告，共有四个请求位：RAOA（到达角）、RRT（回复时间）、RRTT（往返时间）、RTOF（飞行时间）。
-        本仿真器的取法更简单：每个应答方挂一个 SRRR IE、不带地址，只实现 RAOA 与 RRTT 两位，回复时间总是报告。
+        本仿真器按（发起方，应答方）成对地给每个应答方一个 SRRR IE：发起方就是控制器，按 §10.32.9.9 省略请求方地址，
+        只带提供方（应答方）的短地址，共 {SRRR_IE_BYTES} 字节；RRT 总是置 1（延后的单边测距没有别的办法得到回复时间），
+        RAOA 与 RRTT 由会话设定，RTOF 不置。应答方按它收到的那个 SRRR IE 行事：RRT 置 1 才报回复时间，RAOA 置 1 才带方位角。
         随后是测距相位，发起方与每个应答方都改发 SP3 标记；最后是测量报告阶段，在本仿真器里每个应答方
         各自发一帧回答，而一旦有应答方请求了往返时间（RRTT），发起方自己也发一帧，把它测到的
         每个应答方的往返时间报回去。SP3 帧本身不带任何可以识别发送者的字段——这一帧属于谁，
         由它所在的时隙决定，不由帧里的内容决定；所以标准规定 SP3 测距只能用时间调度（§10.32.2）。
       </p>
       <p style={p}>
-        每个测距帧因此省下 <b>{us3(SP3_SAVING_EMBEDDED_NS)} µs</b>（对着 20 字节的嵌入式 SS
+        每个测距帧因此省下 <b>{us3(SP3_SAVING_EMBEDDED_NS)} µs</b>（对着 {RT_SS_RESP_EMBEDDED} 字节的嵌入式 SS
         响应）或 <b>{us3(SP3_SAVING_SHORTEST_NS)} µs</b>（对着本仿真器里最短的 SP1
         帧——14 字节的 DS 响应）。但测量报告阶段要求的那一帧，每个应答方要花
         <b> {us3(SP3_REPORT_NS)} µs</b>——这笔开销是测距帧省下的时间的 <b>{SP3_MULTIPLE_EMBEDDED}</b> 倍
@@ -1388,7 +1410,7 @@ export function Guide() {
         已经在走延后那条路、又凑够了应答方数量的场景，才是 SP3 真正合适的地方。</b>
       </p>
       <p style={p}>
-        本仿真器实现的两个请求位都对应引擎已有的量：<b>RAOA</b> 对应 <code>aoa</code> 会话开关算出的
+        会话可以设定的两个请求位都对应引擎已有的量：<b>RAOA</b> 对应 <code>aoa</code> 会话开关算出的
         方位角，<b>RRTT</b> 对应 DS-TWR 已经算出的往返时间。本仿真器只在单边双向（SS-TWR）下提供这两位：
         本仿真器里双边双向的报告相位是终结帧与报告帧自己的交换，它无条件带着一个往返
         时间、也不会因为方位角而变长，请求放在那里没有一帧能回答它。这是本仿真器的限制——标准
@@ -1410,7 +1432,7 @@ export function Guide() {
         <tbody>
           <tr>
             <td style={cell}>请求本身的开销</td>
-            <td style={cell}>本仿真器里每个应答方新增 {SRRR_IE_BYTES} 字节的信息单元，随应答方数量线性增长</td>
+            <td style={cell}>每个应答方新增一个 {SRRR_IE_BYTES} 字节的信息单元（控制字节加应答方的短地址），随应答方数量线性增长</td>
             <td style={cell}>0 字节——借用 RCM 本来就要发送的那个控制字里的一位</td>
           </tr>
           <tr>
@@ -1430,16 +1452,18 @@ export function Guide() {
         这一节单独给辅助信息交换定义了两个角色名，而它们与测距本身用的那一对词不是一回事
         （标准 §10.35.1）：测距里的发起方是开启一次测距的那一端，响应方是作答的那一端；辅助
         信息交换里反过来——<b>发辅助信息的那一端叫发起方，收的那一端叫响应方</b>。于是一台在
-        测距里作答的设备（锚点），在这里可以是发起方：本引擎排时隙用的仍是测距角色
-        （§10.32.2 的时隙表），辅助信息交换只是借用同一张时隙表，进行一次角色相反的交换（本仿真器的安排）。
+        测距里作答的设备（锚点），在这里可以是发起方：辅助信息轮的控制消息用 RDM 信息单元把时隙指定给这个锚点，
+        角色为发起方（§10.32.9.8）；由哪个锚点发送是本仿真器的安排。
         读者第一次看到「响应方」在发消息，容易当成实现错了——其实是这一节把名字换了。
       </p>
       <p style={p}>
         一条辅助信息消息往往比一帧能容纳的多，于是连续分装进若干个测距时隙：每一帧带
         一个 RAICT 信息元（Ranging Ancillary Information Message Counter and Type IE，标准
         §10.35.2.1），其中 Frames Remaining 字段从消息的帧数减一开始，逐帧倒数到 0。标准用 ARC IE 的
-        Ranging Round Usage = 3 标出专用于辅助信息交换的轮次（表 10-164）；本仿真器则把辅助帧接在测距轮
-        之后的追加时隙里，这是本仿真器的安排。分几帧由
+        Ranging Round Usage = 3 标出专用于辅助信息交换的轮次（表 10-164），本仿真器照此在每个标签的测距轮之后
+        安排这样一轮：第 0 个时隙是控制消息，按时间调度时用 RDM 信息单元逐个指定时隙，竞争时用 RCPS 信息单元
+        给出一个发起方竞争阶段（阶段指示 0，§10.32.9.5）；这一轮排在测距轮之后是本仿真器的安排。块式结构中
+        每一轮一样长（§10.32.3.3），所以这一轮放不下时，所有的轮都随之变长。分几帧由
         场景直接给出（<code>ancillaryFrames</code>，model）——本仿真没有上层应用来把这个数
         算出来，标准把这件事留给了一个本引擎没有的层，所以场景直接写明这个数，照
         <code>rcmValidityRounds</code> 已有的那条理由办。
@@ -1473,7 +1497,7 @@ export function Guide() {
           <tr>
             <td style={cell}>回答的问题</td>
             <td style={cell}>本轮的测距启动消息我没收到</td>
-            <td style={cell}>你那几块的开场消息，我收到了哪几条</td>
+            <td style={cell}>你在那一组轮次里发来的消息，我在哪几个时隙收到了</td>
             <td style={cell}><b>这条消息还有几帧没来</b></td>
           </tr>
         </tbody>
@@ -1487,7 +1511,7 @@ export function Guide() {
       <p style={p}>
         量出来是什么样子：一条分 4 帧发出的消息，若丢的是第二帧（本该报「还剩 2 帧」的那
         一帧），接收端在紧接着到达的下一帧（报「还剩 1 帧」）那一刻——与那一帧的接收同一
-        纳秒——就确定缺的是哪一帧，比这条消息自己的最后期限（第 4 帧收完的那一刻）早了约
+        纳秒——就确定缺的是哪一帧，比这条消息自己的最后期限（辅助信息轮结束的那一刻）早了约
         <b> {ANCILLARY_LEAD_MS} ms</b>（默认测距时隙 {ANCILLARY_SLOT_MS} ms，两个时隙减去这
         一帧自己的收发时间）；若丢的是最后一帧，没有再下一帧来揭穿它，这件事就只能等到消息
         自己的最后期限才被发现——晚了整整一个时隙。读到的第一帧如果就缺了前面的编号，这个
@@ -1495,11 +1519,11 @@ export function Guide() {
         只认得出两次读数之间丢的那一帧。
       </p>
       <p style={p}>
-        这个交换发生在当前这一轮，以及 RCM 仍然有效的那几轮里——用的是第 17 节已经建好的
-        那个窗口（ARC IE 的 RCM 有效轮次，标准 §10.32.9.1），与收妥位图共用同一个边界，这是
-        它第三次被用到，没有再发明一个新的窗口。调度方式两种都能跑：竞争调度下，这条消息
-        改成在本轮的竞争窗口内抽时隙，不是预先指定的那几个。打开这项交换不改变任何一条
-        <b> UWB_RANGE</b> 记录：它是一条独立于测距之外的消息，默认关闭，关闭时一帧 RAICT
+        这个交换发生在辅助信息轮里：§10.35.1 把它限定在当前这一轮以及 RCM 仍然有效的那几轮（ARC IE 的
+        RCM 有效轮次，§10.32.9.1），而辅助信息轮有它自己的 RCM，有效轮数为 1，不借用测距轮的那条控制消息；
+        没有收到这条 RCM 的发送端，这一轮不发送。调度方式两种都能跑：竞争调度下，这条消息在 RCPS 给出的
+        竞争阶段内自己抽起点，不是预先指定的那几个时隙。打开这项交换不改变任何一条
+        <b> UWB_RANGE</b> 记录测得的距离：它是一条独立于测距之外的消息，默认关闭，关闭时一帧 RAICT
         都不发。
       </p>
 

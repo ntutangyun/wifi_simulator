@@ -274,7 +274,9 @@ describe('uwb-sp3 · the frame lengths, against the engine', () => {
     expect(BYTES.rcmSp3).toBe(uwbPollBytes(ANCHORS) + srrrIeBytes(ANCHORS))
     expect(BYTES.rcmSp3 - BYTES.rcmSp1).toBe(BYTES.srrrAll)
     expect(BYTES.srrrAll).toBe(ANCHORS * SRRR_IE_BYTES)
-    expect(BYTES.srrrIe).toBe(UWB_IE_HDR_BYTES + 1)
+    // 2026-11-10 (standard §10.32.9.9, Figure 10-255; audit #14): one SRRR IE per requester–provider
+    // pair — control octet plus the provider's short address (the requester, the controller, omitted).
+    expect(BYTES.srrrIe).toBe(UWB_IE_HDR_BYTES + 1 + 2)
     expect(BYTES.respDeferred).toBe(uwbRespBytes('ss', 'deferred'))
     expect(BYTES.respEmbedded).toBe(uwbRespBytes('ss', 'embedded'))
     expect(BYTES.report).toBe(UWB_SS_DEFER_BYTES)
@@ -292,21 +294,23 @@ describe('uwb-sp3 · the frame lengths, against the engine', () => {
     // the shortest SP1 ranging frame this engine sends really is the deferred Response
     expect(BYTES.respDeferred).toBe(uwbRespBytes('ds'))
     expect(SAVE.embedded).toBeGreaterThan(SAVE.shortest)
-    expect(us(SAVE.shortest)).toBe('40.256')
-    expect(us(SAVE.embedded)).toBe('46.410')
+    // 2026-11-10: every PPDU is 2 PHR-rate symbols longer (Table 16-2), and the embedded Response
+    // carries the RRTI content header (§10.29.8.1) — 40.256 / 46.410 before.
+    expect(us(SAVE.shortest)).toBe('42.051')
+    expect(us(SAVE.embedded)).toBe('49.230')
     // the two multiples, each against the baseline the prose names for it (design §2.2)
     expect(MULT.embedded).toBe((NS.report / SAVE.embedded).toFixed(3))
     expect(MULT.shortest).toBe((NS.report / SAVE.shortest).toFixed(3))
-    expect([MULT.embedded, MULT.shortest]).toEqual(['3.971', '4.578'])
+    expect([MULT.embedded, MULT.shortest]).toEqual(['3.822', '4.474'])
   })
 
   it('「到第几个响应方才能抵消」: the arithmetic, and the crossover it predicts', () => {
     // the SRRR term is the MARGINAL cost of one responder's IE, which is what the note says
     expect(PAY.srrrPerResponder).toBe(uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1)))
     expect(PAY.net).toBe(PAY.perResponder - PAY.srrrPerResponder)
-    expect(us(PAY.net)).toBe('37.179')
+    expect(us(PAY.net)).toBe('36.923')
     expect(PAY.responders).toBe((NS.marker / PAY.net).toFixed(2))
-    expect(PAY.responders).toBe('3.79')
+    expect(PAY.responders).toBe('3.82')
     // the crossover is SEARCHED against the round totals, and the arithmetic above predicts it
     expect(PAY.crossover).toBe(crossoverAnchors(false))
     expect(PAY.crossover).toBe(Math.ceil(NS.marker / PAY.net))
@@ -317,7 +321,7 @@ describe('uwb-sp3 · the frame lengths, against the engine', () => {
     // reusing the RRTT-only one: every responder's report is a bearing item longer there
     expect(PAY.crossoverBoth).toBe(crossoverAnchors(true, true))
     expect(PAY.crossoverBoth).toBeGreaterThan(PAY.crossoverRrtt)
-    expect(PAY.crossoverBoth).toBe(13)
+    expect(PAY.crossoverBoth).toBe(14) // 13 before the 2026-11-10 SRRR / PHR corrections
     expect(sp3RoundNs(PAY.crossoverBoth - 1, true, true))
       .toBeGreaterThan(sp1DeferredRoundNs(PAY.crossoverBoth - 1))
     expect(sp3RoundNs(PAY.crossoverBoth, true, true))
@@ -359,16 +363,16 @@ describe('uwb-sp3 · the round totals, measured from rounds that ran', () => {
     expect(roundNs(run(uwbSp3Scenario({ raoa: true, rrtt: true }), ONE_ROUND_NS)))
       .toBeCloseTo(ROUND.sp3Both, 6)
     expect(ROUND.sp3Both - ROUND.sp3Rrtt).toBeCloseTo(ANCHORS * (NS.reportRaoa - NS.report), 6)
-    // 956.347 / 1668.911 / 1667.311 / 1889.552 until 2026-11-10: every RCM grew three octets (ARC IE to
-    // the standard's content, plus the RR IE — audit #9), and at four anchors the SP1 Poll crosses into
-    // a second Reed–Solomon block while the longer SP3 RCM was already in its second.
+    // 965.578 / 1678.142 / 1670.387 / 1892.628 before the W2 corrections of 2026-11-10: 21 PHR-rate
+    // symbols (Table 16-2), RRTI/RMI content headers (§10.29.8.1/.4), the SS deferred message as an RMI
+    // IE (§10.29.6.3), SRRR as requester–provider pairs (§10.32.9.9).
     expect([us(ROUND.embedded), us(ROUND.deferred), us(ROUND.sp3), us(ROUND.sp3Both)])
-      .toEqual(['965.578', '1678.142', '1670.387', '1892.628'])
-    // the observe line: the base scene sits 7.755 µs (1.600 before the 2026-11-10 RCM correction) the right side of the deferred round
-    expect(us(Math.abs(GAP.vsDeferred[ANCHORS - 1]))).toBe('7.755')
+      .toEqual(['978.653', '1702.501', '1695.771', '1920.837'])
+    // the observe line: the base scene sits 6.730 µs the right side of the deferred round
+    expect(us(Math.abs(GAP.vsDeferred[ANCHORS - 1]))).toBe('6.730')
     expect(GAP.vsDeferred[ANCHORS - 1]).toBeLessThan(0)
     // and the tryThis line: with both request bits on it is longer again
-    expect(us(ROUND.sp3Both - ROUND.deferred)).toBe('214.486') // 220.641 before the 2026-11-10 RCM correction
+    expect(us(ROUND.sp3Both - ROUND.deferred)).toBe('218.336')
   })
 
   it('「报告相位 … 整轮最长的一段」: the figure sums to the round, phase by phase', () => {
@@ -399,8 +403,9 @@ describe('uwb-sp3 · both SRRR request bits really change the air', () => {
     expect(reports(on).map((f) => f.bytes)).toEqual(Array(ANCHORS).fill(BYTES.reportRaoa))
     expect(reports(off)[0].ns).toBe(NS.report)
     expect(reports(on)[0].ns).toBe(NS.reportRaoa)
-    expect(reports(on)[0].ies).toEqual(['RRTI', 'RAOA'])
-    expect(reports(off)[0].ies).toEqual(['RRTI'])
+    // 2026-11-10 (standard §10.29.6.3, audit #4): the reply time rides an RMI IE
+    expect(reports(on)[0].ies).toEqual(['RMI', 'RAOA'])
+    expect(reports(off)[0].ies).toEqual(['RMI'])
     // the octets are not empty: the bearing arrives exactly when the bit asked for it
     const atTag = (rs: TLRecord[]) => ofType(rs, 'UWB_SP3_REPORT').filter((r) => r.node === TAG_ID)
     expect(atTag(on)).toHaveLength(ANCHORS)

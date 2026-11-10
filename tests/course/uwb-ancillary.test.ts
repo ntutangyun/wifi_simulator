@@ -35,13 +35,13 @@ import { diagramTexts } from '../../src/course/diagram'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
-import { ANCILLARY_MESSAGE_KIND, ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
+import { ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
 import {
   RAICT_IE_MIN_BYTES, UWB_FCS_BYTES, UWB_IE_HDR_BYTES, UWB_MHR_BYTES,
-  raictIeBytes, uwbAncillaryBytes, uwbAncillarySlots, uwbPpduNs, uwbSlotsPerTag,
+  raictIeBytes, uwbAncillaryBytes, uwbAncillaryRcmBytes, uwbAncillarySlots, uwbPpduNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import {
-  ancillarySlots, roundPlan, roundSlotAction, roundSlots,
+  ancillarySlots, roundCarriesAncillary, roundPlan, roundSlotAction, roundsPerInitiator,
 } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { uwbAncillaryRequest } from '../../src/course/uwb/uwb-ancillary-request'
@@ -60,12 +60,13 @@ const run = (sc: Scenario, ns: number): TLRecord[] => {
 const PLAN = roundPlan(uwbAncillaryScenario().uwb!, ANCHORS)
 
 /** Every ancillary frame that went on the air, in order, as `TX_START` saw it. */
-const sent = (rs: TLRecord[]): { node: string; block: number; slot: number; bytes: number; remaining: number | undefined; ies: string[] }[] =>
+const sent = (rs: TLRecord[]): { node: string; block: number; round: number; slot: number; bytes: number; remaining: number | undefined; ies: string[] }[] =>
   ofType(rs, 'TX_START')
     .filter((r) => r.frame.kind === 'uwbAncillary')
     .map((r) => ({
       node: r.node,
       block: r.frame.uwb?.block ?? -1,
+      round: r.frame.uwb?.round ?? -1,
       slot: r.frame.uwb?.slot ?? -1,
       bytes: r.frame.bytes,
       remaining: r.frame.uwb?.raict?.framesRemaining,
@@ -109,15 +110,16 @@ describe('uwb-ancillary · where it sits in the course', () => {
   it('declares four limits, each about something this engine does not do', () => {
     expect(uwbAncillary.limits).toHaveLength(4)
     expect(uwbAncillary.limits.map((l) => l.kind))
-      .toEqual(['unmodelled', 'model-value', 'model-value', 'out-of-scope'])
+      .toEqual(['unmodelled', 'unmodelled', 'model-value', 'out-of-scope'])
     const text = uwbAncillary.limits.map((l) => l.text).join('\n')
     // the frame count is scenario configuration: no MAC primitive, the same reason
     // `rcmValidityRounds`'s own limit gives
     expect(text).toContain('MCPS')
     expect(text).toContain('帧数直接是场景中给定的整数')
-    expect(text).toContain('上限是这一块能否容纳这一轮')
-    // the message type is a constant rather than a value table
-    expect(text).toContain('类型始终是同一个数')
+    expect(text).toContain('上限是这一块能否容纳因此变长的各轮')
+    // 2026-11-10: the message type is not built at all — Figure 10-271 has no type field
+    expect(text).toContain('消息类型没有建')
+    expect(text).toContain('Figure 10-271 的内容字段里没有类型字段')
     // and who sends is a model decision
     expect(text).toContain('这个选择是模型定的')
     // Request = 1 is a later cut, for scope and NOT for lack of evidence — the mechanism is
@@ -125,7 +127,7 @@ describe('uwb-ancillary · where it sits in the course', () => {
     expect(text).toContain('Request')
     expect(text).toContain('见 @uwb-ancillary-request')
     expect(text).toContain('排程能不能被请求改变')
-    expect(text).toContain('轮里测距那一段的排布不变')
+    expect(text).toContain('不是时隙表，而是下一次辅助信息轮的控制消息给发送端指定几个时隙')
     // 「不许写『本仿真器有简化』」, in both spellings, and no limit calls the standard a draft
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')
@@ -137,7 +139,6 @@ describe('uwb-ancillary · where it sits in the course', () => {
     // a sentence about nothing.
     const symbols: [string, string][] = [
       ['uwb/phy.ts', 'uwbSlotsPerTag'],
-      ['uwb/device.ancillary.ts', 'ANCILLARY_MESSAGE_KIND'],
       ['uwb/device.ancillary.ts', 'ANCILLARY_SENDER_INDEX'],
       ['uwb/session.ts', 'roundPlan'],
     ]
@@ -151,7 +152,8 @@ describe('uwb-ancillary · where it sits in the course', () => {
     expect(await readSrc('model/scenario.ts')).toContain('ancillaryFrames')
     // the two model values the limits pin, by value
     expect(ANCILLARY_SENDER_INDEX).toBe(0)
-    expect(ANCILLARY_MESSAGE_KIND).toBeTypeOf('number')
+    // 2026-11-10: the engine no longer exports a message-type constant (no such field, Fig 10-271)
+    expect(await readSrc('uwb/device.ancillary.ts')).not.toContain('ANCILLARY_MESSAGE_KIND')
   })
 })
 
@@ -183,30 +185,40 @@ describe('uwb-ancillary · the scene is the one the lesson describes', () => {
     expect(MS.block).toBe(PLAN.blockNs / 1e6)
   })
 
-  it(`lays out ${SLOTS.block} slots: ${SLOTS.ranging} of ranging, then ${SLOTS.window} appended`, () => {
-    expect(SLOTS.ranging).toBe(PLAN.slots)
+  // Rewritten 2026-11-10: every round is one length (standard §10.32.3.3) and the exchange runs in an
+  // ancillary-information round of its own (ARC Ranging Round Usage = 3, §10.35), not in slots
+  // appended to the ranging round.
+  it(`lays out a ${SLOTS.ranging}-slot ranging round, then an ancillary round of ${SLOTS.round} slots`, () => {
+    expect(SLOTS.ranging).toBe(PLAN.rangingSlots)
     expect(SLOTS.ranging).toBe(uwbSlotsPerTag('ss', ANCHORS))
+    expect(SLOTS.round).toBe(PLAN.slots)
     expect(SLOTS.window).toBe(ancillarySlots(PLAN))
     expect(SLOTS.window).toBe(FRAMES)
-    expect(SLOTS.block).toBe(roundSlots(PLAN, 0))
-    expect(SLOTS.block).toBe(SLOTS.ranging + SLOTS.window)
-    // slot for slot, off the engine's own answer rather than off the lesson's description: the
-    // control message, one Response per anchor, then one appended slot per frame
+    // the ancillary round needs its RCM slot plus the window, and the round length holds it
+    expect(SLOTS.round).toBeGreaterThanOrEqual(1 + SLOTS.window)
+    expect(SLOTS.ancRound).toBe(1)
+    expect(roundCarriesAncillary(PLAN, 0)).toBe(false)
+    expect(roundCarriesAncillary(PLAN, SLOTS.ancRound)).toBe(true)
+    expect(SLOTS.used).toBe(roundsPerInitiator(PLAN) * PLAN.slots)
+    expect(SLOTS.used).toBe(2 * SLOTS.round)
+    // slot for slot, off the engine's own answer: the ranging round's control message and one
+    // Response per anchor; then the ancillary round's RCM and one slot per frame
     expect(roundSlotAction(PLAN, 0, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
     for (let i = 0; i < ANCHORS; i++) {
       expect(roundSlotAction(PLAN, 0, 1 + i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
     }
+    expect(roundSlotAction(PLAN, SLOTS.ancRound, 0)).toEqual({ kind: 'uwbAncillaryRcm' })
     for (let i = 0; i < FRAMES; i++) {
-      // `request: false` on every one of them: this lesson's four scenes never ask the controller
-      // for slots (that is `uwb-ancillary-request`'s subject), so the Request = 1 slot slice 3d
-      // added to this action is absent from every window of this lesson.
-      expect(roundSlotAction(PLAN, 0, SLOTS.ranging + i))
+      // `request: false`: this lesson's four scenes never ask the controller for slots
+      expect(roundSlotAction(PLAN, SLOTS.ancRound, SLOTS.firstSlot + i))
         .toEqual({ kind: 'uwbAncillary', index: i, request: false })
     }
-    // and the exchange off appends nothing at all, at any frame count
+    // the RCM's size: ARC + RR + an RDM IE with one element per assigned slot (§10.32.9.8)
+    expect(BYTES.rcm).toBe(uwbAncillaryRcmBytes('time', FRAMES))
+    // and the exchange off has no ancillary round at all
     expect(SLOTS.off).toBe(0)
     expect(uwbAncillarySlots('twr', 'time', 8, false, FRAMES)).toBe(0)
-    expect(roundSlots(roundPlan(uwbAncillaryOffScenario().uwb!, ANCHORS), 0)).toBe(SLOTS.ranging)
+    expect(roundsPerInitiator(roundPlan(uwbAncillaryOffScenario().uwb!, ANCHORS))).toBe(1)
   })
 })
 
@@ -261,8 +273,9 @@ describe('uwb-ancillary · the base run the fixture replays', () => {
       const mine = tx.filter((f) => f.block === b)
       expect(mine.map((f) => f.remaining), `block ${b}`)
         .toEqual(Array.from({ length: FRAMES }, (_v, i) => FRAMES - 1 - i))
-      expect(mine.map((f) => f.slot - SLOTS.ranging), `block ${b}`)
+      expect(mine.map((f) => f.slot - SLOTS.firstSlot), `block ${b}`)
         .toEqual(Array.from({ length: FRAMES }, (_v, i) => i))
+      expect(mine.every((f) => f.round === SLOTS.ancRound), `block ${b}: all in the ancillary round`).toBe(true)
     }
     // every frame is the longest of the four shapes, with one RAICT IE and nothing else
     for (const f of tx) {
@@ -279,13 +292,14 @@ describe('uwb-ancillary · the base run the fixture replays', () => {
     const first = ofType(at(0), 'TX_START')[0]
     expect(first.frame.kind).toBe('uwbAncillary')
     expect(first.node).toBe(SENDER_ID)
-    expect(first.frame.uwb?.slot).toBe(SLOTS.ranging)
+    expect(first.frame.uwb?.slot).toBe(SLOTS.firstSlot)
+    expect(first.frame.uwb?.round).toBe(SLOTS.ancRound)
     expect(first.frame.bytes).toBe(BYTES.frame)
     expect(first.frame.uwb?.raict?.framesRemaining).toBe(FRAMES - 1)
     // 1: the frame that says zero, three slots later in the same block
     const last = ofType(at(1), 'TX_START')[0]
     expect(last.frame.uwb?.raict?.framesRemaining).toBe(0)
-    expect(last.frame.uwb?.slot).toBe(SLOTS.ranging + FRAMES - 1)
+    expect(last.frame.uwb?.slot).toBe(SLOTS.firstSlot + FRAMES - 1)
     expect(last.frame.uwb?.block).toBe(first.frame.uwb?.block)
     // 2: the first ranging row, which is a record rather than a transmission. The completion
     // record this list used to end on went to `uwb-ancillary-loss` with the countdown it belongs
@@ -299,16 +313,16 @@ describe('uwb-ancillary · what its own experiment changes, and what it must not
   it('「起点抽出来」: a contention run draws a different window, and a different start per block', () => {
     const plan = roundPlan(uwbAncillary.variants![0].scenario().uwb!, ANCHORS)
     // The window is a genuinely different width, read off `uwbAncillarySlots` and never a literal
-    expect(SLOTS.contendRanging).toBe(plan.slots)
+    expect(SLOTS.contendRanging).toBe(plan.rangingSlots)
+    expect(SLOTS.contendRound).toBe(plan.slots)
     expect(SLOTS.contendWindow).toBe(ancillarySlots(plan))
-    expect(SLOTS.contendBlock).toBe(roundSlots(plan, 0))
     expect(SLOTS.contendWindow).not.toBe(SLOTS.window)
     expect(SLOTS.contendWindow).toBeGreaterThan(FRAMES)
 
     const rs = run(uwbAncillary.variants![0].scenario(), 4 * 200 * MS_NS - MS_NS)
     const blocks = [0, 1, 2, 3]
     const startOf = (b: number): number => {
-      const mine = sent(rs).filter((f) => f.block === b).map((f) => f.slot - plan.slots)
+      const mine = sent(rs).filter((f) => f.block === b).map((f) => f.slot - SLOTS.firstSlot)
       // four consecutive slots each time — the message is still one message
       expect(mine, `block ${b}`).toEqual([0, 1, 2, 3].map((k) => mine[0] + k))
       expect(mine[0], `block ${b}`).toBeGreaterThanOrEqual(0)
@@ -322,7 +336,7 @@ describe('uwb-ancillary · what its own experiment changes, and what it must not
     // …against the time-scheduled run, where frame k is in appended slot k in every block
     const timed = run(uwbAncillaryScenario(), 4 * 200 * MS_NS - MS_NS)
     for (const b of blocks) {
-      expect(sent(timed).filter((f) => f.block === b).map((f) => f.slot - PLAN.slots), `block ${b}`)
+      expect(sent(timed).filter((f) => f.block === b).map((f) => f.slot - SLOTS.firstSlot), `block ${b}`)
         .toEqual([0, 1, 2, 3])
     }
     // and the message the receiver read is the same one either way
@@ -348,13 +362,14 @@ describe('uwb-ancillary · no number typed twice', () => {
     expect(from, 'sources').toBeGreaterThan(0)
     expect(to, 'scenario after sources').toBeGreaterThan(from)
     const code = whole.slice(0, from) + whole.slice(to)
-    for (const n of [BYTES.frame, BYTES.shortest, SLOTS.block, SLOTS.contendWindow, NS.frame]) {
+    for (const n of [BYTES.frame, BYTES.shortest, BYTES.rcm, SLOTS.used, SLOTS.contendWindow, NS.frame]) {
+      // `-` excluded too (2026-11-10): 「Figure 10-271」 is a figure number, not a slot count of 10
       expect(code, `${n} is typed where the engine can compute it`)
-        .not.toMatch(new RegExp(String.raw`(?<![\d.])${n}(?![\d.])`))
+        .not.toMatch(new RegExp(String.raw`(?<![\d.\-])${n}(?![\d.\-])`))
     }
     // and the engine functions it asks instead, by name
     for (const fn of ['raictIeBytes', 'uwbAncillaryBytes', 'uwbPpduNs', 'roundPlan',
-      'ancillarySlots', 'roundSlots', 'roundCarriesAncillary']) {
+      'ancillarySlots', 'roundsPerInitiator', 'roundCarriesAncillary', 'uwbAncillaryRcmBytes']) {
       expect(code, fn).toContain(fn)
     }
   })
@@ -404,12 +419,19 @@ describe('uwb-ancillary · the `until` it carries is measured, not merely writte
     expect(target.uwb!.ancillaryRequestSlots).toBeGreaterThan(1)
   })
 
-  it('has one round length per block where the target has two, which is the axis', () => {
-    // Here: every block's appended window is the session's own frame count, block after block.
-    for (const block of [0, 1, 2, 3]) {
-      // one round a block here, so round 0 is each block's whole round
-      expect(roundSlots(PLAN, 0), `block ${block}`).toBe(PLAN.slots + FRAMES)
-    }
+  // Rewritten 2026-11-10: a grant no longer widens an appended window; the next ancillary round's RCM
+  // assigns more slots with its RDM IE (standard §10.32.9.8). So the axis is the RDM element count.
+  it('assigns one slot count in every block where the target assigns two, which is the axis', () => {
+    // Here: every block's ancillary RCM assigns the session's own frame count.
+    const here = runOf(uwbAncillary, undefined, RUN_NS)
+    const rdmHere = ofType(here, 'TX_START').filter((r) => r.frame.kind === 'uwbRcm')
+      .map((r) => r.frame.uwb?.rdm?.length)
+    expect(rdmHere.length).toBeGreaterThan(1)
+    expect(new Set(rdmHere)).toEqual(new Set([FRAMES]))
+    const there = runOf(uwbAncillaryRequest, undefined, RUN_NS)
+    const rdmThere = ofType(there, 'TX_START').filter((r) => r.frame.kind === 'uwbRcm')
+      .map((r) => r.frame.uwb?.rdm?.length)
+    expect(new Set(rdmThere).size, 'two assignments, before and after the grant').toBe(2)
     // There: block 0 runs at the session's figure and every block after it at the granted width,
     // read off the countdown's first number rather than off the plan.
     const rs = runOf(uwbAncillaryRequest, undefined, RUN_NS)
@@ -427,9 +449,9 @@ describe('uwb-ancillary · the `until` it carries is measured, not merely writte
     // 「就得把轮的排布变成每块重算一次」 described work that was already done.
     const text = uwbAncillary.limits.map((l) => l.text).join('\n')
     expect(text).not.toContain('就得把轮的排布变成每块重算一次')
-    expect(text).toContain('轮的长度本来就随块变')
-    // …and the half of that sentence that IS true is still said: the ranging part is laid out once.
-    expect(text).toContain('轮里测距那一段的排布不变')
+    // 2026-11-10: rounds are one length (§10.32.3.3), so the limit says the request changes the RCM
+    expect(text).not.toContain('轮的长度本来就随块变')
+    expect(text).toContain('块式结构中每一轮一样长')
   })
 })
 /**
@@ -500,7 +522,7 @@ describe('uwb-ancillary · every figure the prose prints, read back out of it', 
     expect(jumpZero, 'the jump names the same frame').toBe(downTo)
     // 「跳到第一帧辅助信息，它在第 5 个时隙，其后还有 3 帧。每帧 16 字节。」
     const [slot, behind, bytes] = figs(PIC,
-      /它在第 (\d+) 个时隙，其后还有 (\d+) 帧。每帧 (\d+) 字节/, '`picture` on the first frame')
+      /它在这一轮的第 (\d+) 个时隙，其后还有 (\d+) 帧。每帧 (\d+) 字节/, '`picture` on the first frame')
     expect(firstBlock[0]!.slot, 'the slot the first fragment really takes').toBe(slot)
     expect(firstBlock[0]!.remaining, 'how many follow it').toBe(behind)
     for (const f of frames) expect(f.bytes, 'and every frame is that long').toBe(bytes)
@@ -520,8 +542,8 @@ describe('uwb-ancillary · every figure the prose prints, read back out of it', 
       '`limits` on the type field')
     expect(limMine, 'the same half as the term names').toBe(mine)
     for (const r of anc(rs)) {
-      expect(r.messageKind, 'and the type is the one constant this engine has')
-        .toBe(ANCILLARY_MESSAGE_KIND)
+      // 2026-11-10: no type is reported anywhere — Figure 10-271 has no type field
+      expect('messageKind' in r, 'and no record claims a type').toBe(false)
     }
     // 「Request 置 1 的那一半不在本课里」, and 「剩余帧数那个字段在置 1 时装的是请求的时隙数」
     const [limOther, fieldWhen] = figs(LIM,
@@ -581,7 +603,7 @@ describe('uwb-ancillary · every figure the prose prints, read back out of it', 
         .toEqual([wide, deep])
     }
     // 「竞争式排的是这一轮自己那一段竞争时隙，本课的设置下是 8 个」
-    const [contend] = figs(DEEP, /本课的设置下是 (\d+) 个/, '`deeper` on the contention window')
+    const [contend] = figs(DEEP, /本课的设置下宽 (\d+) 个时隙/, '`deeper` on the contention window')
     const contendPlan = roundPlan(uwbAncillaryScenario({ schedule: 'contention' }).uwb!, ANCHORS)
     expect(ancillarySlots(contendPlan), 'the window that schedule really gives').toBe(contend)
     expect(contend, 'which is wider than the scheduled one').toBeGreaterThan(SLOTS.window)

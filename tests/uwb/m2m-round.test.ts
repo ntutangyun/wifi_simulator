@@ -292,7 +292,8 @@ describe('determinism, and every other mode byte-identical (design §8.7)', () =
     // Re-captured 2026-11-10 for the three modes that send an RCM: its ARC IE shrank to the
     // standard's three content octets and the RR IE (block and round indices) joined it, so every
     // Poll is three octets longer (audit #9). UL-TDoA sends no RCM and did not move.
-    'twr/ss': 'c6b5007f', 'twr/ds': 'f3a0bb8c', 'dl-tdoa': 'cf2c6c65', 'ul-tdoa': 'f1136783',
+    // Re-captured again 2026-11-10 (W2), all four: every PPDU is 896 chips longer (PHR 21 symbols, standard Table 16-2), which moves every instant in every mode; the RRTI and RMI content headers (§10.29.8.1/§10.29.8.4) lengthen the SS Response and the DS Final and reports.
+    'twr/ss': '8a632d1c', 'twr/ds': '97fa4a89', 'dl-tdoa': '3ca6d9d3', 'ul-tdoa': 'f7339e40',
   }
 
   const streamOf = (sc: Scenario): string => hashStr(JSON.stringify(

@@ -155,7 +155,7 @@ describe('uwb-ul-tdoa · the lesson’s own place in the track', () => {
     // difference and the fix close the slot at 2 ms
     expect(rs[idx[0]].t).toBe(0)
     expect(rs[idx[1]].t).toBe(0)
-    expect(rs[idx[2]].t).toBe(181_234)
+    expect(rs[idx[2]].t).toBe(183_029)
     expect(rs[idx[3]].t).toBe(2 * MS)
     expect(rs[idx[4]].t).toBe(2 * MS)
     // the watch call-out sends the reader to the fix, which is the point of the lesson
@@ -239,12 +239,12 @@ describe('uwb-ul-tdoa · the scene', () => {
     // "240 000 RSTU ÷ 2 400 RSTU per slot" = "100 badges"
     expect(plan.roundsPerBlock).toBe(Math.floor(DEFAULT_UWB_SESSION.blockRstu / DEFAULT_UWB_SESSION.slotRstu))
     expect(plan.roundsPerBlock).toBe(100)
-    expect(cell(0, 3, 1)).toBe('100 badges (240 000 ÷ 2 400 RSTU), 9.06 %')
+    expect(cell(0, 3, 1)).toBe('100 badges (240 000 ÷ 2 400 RSTU), 9.15 %')
     expect(DEFAULT_UWB_SESSION.blockRstu).toBe(240_000)
     expect(DEFAULT_UWB_SESSION.slotRstu).toBe(2_400)
     expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBe(2 * MS)
-    // 9.06 %: a hundred blinks in one block
-    expect((100 * uwbPpduNs(UWB_BLINK_BYTES) / plan.blockNs * 100).toFixed(2)).toBe('9.06')
+    // 9.15 %: a hundred blinks in one block
+    expect((100 * uwbPpduNs(UWB_BLINK_BYTES) / plan.blockNs * 100).toFixed(2)).toBe('9.15')
     // one round per badge per block, each one slot long, all seven blocks of them
     for (const v of ['base', 'sync'] as UwbUlTdoaVariant[]) {
       const rounds = ofType(recs(v), 'UWB_ROUND')
@@ -272,7 +272,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(tx.every((r) => r.node.startsWith('badge-'))).toBe(true)
     // "a short broadcast with no times inside it", at the size and duration the table prints
     expect(UWB_BLINK_BYTES).toBe(14)
-    expect(uwbPpduNs(UWB_BLINK_BYTES)).toBe(181_218)
+    expect(uwbPpduNs(UWB_BLINK_BYTES)).toBe(183_013)
     expect(tx.every((r) => r.frame.bytes === UWB_BLINK_BYTES)).toBe(true)
     expect(tx.every((r) => r.frame.txTimeNs === uwbPpduNs(UWB_BLINK_BYTES))).toBe(true)
     expect(tx.every((r) => r.frame.dst === '*')).toBe(true)
@@ -280,7 +280,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(tx.map((r) => r.frame.src).slice(0, 3)).toEqual(BADGES.slice(0, 3))
     expect(tx[0].frame.uwb?.ies).toEqual(['BLINK'])
     // "14 B (9 + 3 + 2)": MHR, blink IE, FCS
-    expect(cell(0, 0, 1)).toBe('14 B (9 + 3 + 2), 181.218 µs')
+    expect(cell(0, 0, 1)).toBe('14 B (9 + 3 + 2), 183.013 µs')
     expect(9 + 3 + 2).toBe(UWB_BLINK_BYTES)
     // no round trip exists in this mode, so nothing is ever measured as a distance or timed out
     expect(ofType(rs, 'UWB_RANGE')).toEqual([])
@@ -291,21 +291,21 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
   it('"then goes idle until the next block": tx, idle, and nothing for 199.8 ms', () => {
     const states = ofType(rs, 'MAC_STATE').filter((r) => r.node === 'badge-1')
     expect(states.map((r) => [r.t, r.state])).toEqual(
-      Array.from({ length: BLOCKS }, (_, b) => [[b * 200 * MS, 'tx'], [b * 200 * MS + 181_218, 'idle']]).flat(),
+      Array.from({ length: BLOCKS }, (_, b) => [[b * 200 * MS, 'tx'], [b * 200 * MS + 183_013, 'idle']]).flat(),
     )
     // and the badge never opens a receiver: no arrival is ever stamped at a badge
     expect(ofType(rs, 'UWB_TS').filter((r) => r.node.startsWith('badge-')).every((r) => r.dir === 'tx')).toBe(true)
   })
 
-  it('ten badges cost a block 0.906 %, and seven blocks 12.685 260 ms of air', () => {
+  it('ten badges cost a block 0.915 %, and seven blocks 12.810 910 ms of air', () => {
     const airNs = (records: TLRecord[]): number =>
       ofType(records, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
     expect(airNs(rs)).toBe(BLOCKS * BADGES.length * uwbPpduNs(UWB_BLINK_BYTES))
-    expect(airNs(rs)).toBe(12_685_260)
+    expect(airNs(rs)).toBe(12_810_910)
     const perBlock = airNs(rs) / BLOCKS
-    expect(perBlock).toBe(1_812_180)
-    expect((perBlock / (200 * MS) * 100).toFixed(3)).toBe('0.906')
-    expect(cell(0, 2, 1)).toBe('1.812 180 ms, 0.906 %')
+    expect(perBlock).toBe(1_830_130)
+    expect((perBlock / (200 * MS) * 100).toFixed(3)).toBe('0.915')
+    expect(cell(0, 2, 1)).toBe('1.830 130 ms, 0.915 %')
     expect(tablesOf(uwbUlTdoa.numbers!)[0].head).toHaveLength(2)
     // the air is identical in the 1 ns scene: a calibration error changes nothing a radio does
     expect(airNs(recs('sync'))).toBe(airNs(rs))
@@ -316,7 +316,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(round.t).toBe(0)
     expect(cell(2, 0, 1)).toBe('badge-1 UWB round 0 of block 0 (UL-TDoA): 1 slots × 2000.0 µs')
     expect(fmtRecord(round)).toBe(cell(2, 0, 1))
-    expect(cell(2, 1, 1)).toBe('badge-1 → * UWBBLINK 14 B @6.81 Mbps (181.2 µs)')
+    expect(cell(2, 1, 1)).toBe('badge-1 → * UWBBLINK 14 B @6.81 Mbps (183.0 µs)')
     expect(fmtRecord(ofType(rs, 'TX_START')[0])).toBe(cell(2, 1, 1))
     /*
      * **The two headings that say which block they are of**, uncovered by the 「第」 rule change
@@ -342,7 +342,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
   it('four stamps, in distance order, eight nanoseconds apart end to end', () => {
     const stamps = ofType(rs, 'UWB_TS').filter((r) => r.dir === 'rx' && r.t < 2 * MS)
     expect(stamps.map((r) => r.node)).toEqual([REF, 'anchor-3', 'anchor-2', 'anchor-4'])
-    expect(stamps.map((r) => r.t)).toEqual([181_234, 181_237, 181_240, 181_242])
+    expect(stamps.map((r) => r.t)).toEqual([183_029, 183_032, 183_035, 183_037])
     expect(stamps.every((r) => r.peer === 'badge-1')).toBe(true)
     expect(stamps[3].t - stamps[0].t).toBe(8)
     // "in order of each anchor's distance from the badge"
@@ -353,7 +353,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     const byDistance = stamps.map((r) => d(r.node))
     expect(byDistance).toEqual([...byDistance].sort((a, b) => a - b))
     const o2 = uwbUlTdoa.observe[1]
-    for (const s of ['181.234', '181.237', '181.240', '181.242']) expect(o2).toContain(s)
+    for (const s of ['183.029', '183.032', '183.035', '183.037']) expect(o2).toContain(s)
   })
 })
 
@@ -577,10 +577,10 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
 })
 
 describe('uwb-ul-tdoa · blink, or listen', () => {
-  it('"a listening round costs the anchors 0.507 % of the block", on the listen-only scene', () => {
+  it('"a listening round costs the anchors 0.511 % of the block", on the listen-only scene', () => {
     const dl = runExtra('dl-ten', () => uwbDlTdoaScenario('ten'))
     const air = ofType(dl, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
-    expect((air / BLOCKS / (200 * MS) * 100).toFixed(3)).toBe('0.507')
+    expect((air / BLOCKS / (200 * MS) * 100).toFixed(3)).toBe('0.511')
     // "whether three badges hear it or three thousand": the same air for three listeners
     const three = runExtra('dl-three', () => uwbDlTdoaScenario('base'))
     expect(ofType(three, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)).toBe(air)
@@ -897,7 +897,7 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('reads what a listening round costs the anchors against what ten blinks cost', () => {
-    // 「锚点都只占用块的 0.507 %；而十个发送闪发的胸牌，七个块中要占用 12.685 260 ms 的空口时间」
+    // 「锚点都只占用块的 0.511 %；而十个发送闪发的胸牌，七个块中要占用 12.810 910 ms 的空口时间」
     const air = (rs: TLRecord[]): number =>
       ofType(rs, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
     const [listening] = figs(DEEP, /锚点都只占用块的 ([\d.]+) %/, '`deeper` on the listening round')
@@ -944,7 +944,7 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('reads the four arrival stamps `observe` sends the reader to', () => {
-    // 「四个到达时间戳，分别在 181.234、181.237、181.240 与 181.242 µs」
+    // 「四个到达时间戳，分别在 183.029、183.032、183.035 与 183.037 µs」
     const stamps = ofType(recs('base'), 'UWB_TS').filter((r) => r.dir === 'rx' && r.t < 2 * MS)
     const printed = figs(OBS, /分别在 ([\d.]+)、([\d.]+)、([\d.]+) 与 ([\d.]+) µs/,
       '`observe` on the four stamps')

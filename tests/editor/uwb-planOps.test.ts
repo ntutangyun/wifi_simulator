@@ -1968,16 +1968,21 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       }
     })
 
-    it('the block-fit term binds the cap below the round\'s own slot count when the block is tight', () => {
-      // 5 ranging slots (SS-TWR, 4 anchors) at the session default slot; a block that holds the
-      // round plus exactly two more slots, not five.
+    // 2026-11-10 (W2): the exchange has a round of its own (standard §10.35, ARC Ranging Round Usage
+    // = 3) and every round is one length (§10.32.3.3), so a tag's share of the block holds its ranging
+    // round(s) plus the ancillary round at one length, and the ancillary round spends slot 0 on its RCM.
+    it('the block-fit term binds the cap: two rounds of a tight block, less the ancillary RCM\'s slot', () => {
+      // 5 ranging slots (SS-TWR, 4 anchors); a block of 14 slots holds two rounds of 7.
       const slots = uwbSlotsPerTag('ss', WALK_ANCHORS, 'time', 8, 'twr')
       expect(slots).toBe(5)
-      const tight: UwbSessionCfg = { ...base, blockRstu: (slots + 2) * DEFAULT_UWB_SESSION.slotRstu }
+      const tight: UwbSessionCfg = { ...base, blockRstu: 14 * DEFAULT_UWB_SESSION.slotRstu }
       const cap = uwbAncillaryFramesCapFor(tight, WALK_ANCHORS)
-      expect(cap).toBe(2) // the block-fit term, not `slots` (5) — the smaller of the two ceilings
-      expect(uwbSessionIssue(scene({ ...tight, ancillaryFrames: 2 }))).toBeNull()
-      expect(uwbSessionIssue(scene({ ...tight, ancillaryFrames: 3 }))).not.toBeNull()
+      expect(cap).toBe(6)
+      expect(uwbSessionIssue(scene({ ...tight, ancillaryFrames: 6 }))).toBeNull()
+      expect(uwbSessionIssue(scene({ ...tight, ancillaryFrames: 7 }))).not.toBeNull()
+      // …and a block too small for two rounds that hold even the ranging exchange has no legal cap.
+      expect(uwbAncillaryFramesCapFor({ ...base, blockRstu: (slots + 2) * DEFAULT_UWB_SESSION.slotRstu }, WALK_ANCHORS))
+        .toBeNull()
     })
 
     it('a contention window already too wide for the block makes every ancillaryFrames value illegal — the cap says so by being null, not by lying about a value that would still be refused', () => {
@@ -1997,16 +2002,17 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     })
 
     it('uwbSessionRepair retargets ancillaryFrames, never deletes it, when method/schedule/replyTime shrink the cap it was legal under', () => {
-      // **The direction reversed in slice 3d, and that is the whole content of this edit.** The cap
-      // is now the block's budget less the round, so a LONGER round leaves FEWER appended slots:
-      // ss → ds used to raise the cap (5 → 10) and now lowers it (95 → 90). So the shrinking move
-      // is committed at method 'ss' and then turning the method up, not down — same five sites,
-      // same mechanism, opposite sign.
-      const ssCap = uwbAncillaryFramesCapFor({ ...base, method: 'ss' }, WALK_ANCHORS)!
-      const afterMode: UwbSessionCfg = { ...base, method: 'ds', ancillaryFrames: ssCap }
-      expect(uwbAncillaryFramesCapFor(afterMode, WALK_ANCHORS)!, 'a ds round is longer, so it leaves'
-        + ' fewer appended slots — if this ever stops being true the test above it is vacuous')
-        .toBeLessThan(ssCap)
+      // 2026-11-10 (W2): the ranging round's shape no longer moves the cap (the message has a round of
+      // its own), so the shrinking move is the schedule: under a time schedule the ancillary round's
+      // RCM assigns every slot with an RDM IE, whose list length field is 6 bits (standard §10.32.9.8)
+      // — at most 63 — while a contention phase is bounded by the round alone. In a block of 260
+      // slots (two rounds of 130) contention allows 129 and time 63.
+      const roomy: UwbSessionCfg = { ...base, blockRstu: 260 * DEFAULT_UWB_SESSION.slotRstu }
+      const contentionCap = uwbAncillaryFramesCapFor({ ...roomy, schedule: 'contention' }, WALK_ANCHORS)!
+      expect(contentionCap).toBe(129)
+      const afterMode: UwbSessionCfg = { ...roomy, schedule: 'time', ancillaryFrames: contentionCap }
+      expect(uwbAncillaryFramesCapFor(afterMode, WALK_ANCHORS)!, 'the RDM IE lists at most 63 slots')
+        .toBe(63)
       expect(uwbSessionIssue(scene(afterMode))).not.toBeNull() // the merge alone is illegal…
       const repaired = uwbSessionRepair(afterMode, WALK_ANCHORS)
       expect(repaired).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(afterMode, WALK_ANCHORS) })
@@ -2020,8 +2026,9 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       // panel lying by a factor of the tag count.
       const one = uwbAncillaryFramesCapFor(base, WALK_ANCHORS, 1)!
       const two = uwbAncillaryFramesCapFor(base, WALK_ANCHORS, 2)!
-      expect(one).toBe(95)
-      expect(two).toBe(45) // floor(100 / 2) - 5, not floor(100) - 5
+      // 2026-11-10: a tag owns its ranging round and its ancillary round, one length each.
+      expect(one).toBe(49) // floor(100 / 2) − 1 for the ancillary RCM
+      expect(two).toBe(24) // floor(floor(100 / 2) / 2) − 1
       // and the schema is the referee, at the boundary, in a two-tag scene
       const twoTags = newUwbTag(walkBase, { x: 2, y: 2 }).sc
       expect(twoTags.nodes.filter((n) => n.uwb?.role === 'tag')).toHaveLength(2)
@@ -2036,14 +2043,13 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       // window leaves no legal frame count at all, not merely a smaller one).
       const contentionBase: UwbSessionCfg = { ...base, schedule: 'contention' }
       const atCap: UwbSessionCfg = { ...contentionBase, ancillaryFrames: uwbAncillaryFramesCapFor(contentionBase, WALK_ANCHORS)! }
-      // 91 = the block's 100 slots less the contention round's own 9, where before slice 3d this
-      // was 9 — the round's own slot count, which was then the smaller of the two ceilings.
-      expect(atCap.ancillaryFrames).toBe(91)
+      // 2026-11-10: 49 = two rounds of 50 in the block's 100 slots, less the ancillary round's RCM.
+      expect(atCap.ancillaryFrames).toBe(49)
       expect(uwbSessionIssue(scene(atCap))).toBeNull()
 
       // blockRstu shrunk: the block-fit budget drops with it, and the repair — not the raw input's
       // own onChange — is what pulls the committed frame count back under the new, smaller cap.
-      const shrunkBlock: UwbSessionCfg = { ...atCap, blockRstu: 40_800 }
+      const shrunkBlock: UwbSessionCfg = { ...atCap, blockRstu: 30 * DEFAULT_UWB_SESSION.slotRstu }
       expect(uwbSessionIssue(scene(shrunkBlock))).not.toBeNull()
       const blockRepair = uwbSessionRepair(shrunkBlock, WALK_ANCHORS)
       expect(blockRepair).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(shrunkBlock, WALK_ANCHORS) })
@@ -2052,7 +2058,7 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
 
       // slotRstu raised: the same block (in RSTU) now holds far fewer of the wider slots — the
       // identical block-fit effect, through a different field.
-      const widerSlot: UwbSessionCfg = { ...atCap, slotRstu: 14_001 } // a multiple of 3, like blockRstu
+      const widerSlot: UwbSessionCfg = { ...atCap, slotRstu: 7_200 } // 33 slots a block, two rounds of 16
       expect(uwbSessionIssue(scene(widerSlot))).not.toBeNull()
       const slotRepair = uwbSessionRepair(widerSlot, WALK_ANCHORS)
       expect(slotRepair).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(widerSlot, WALK_ANCHORS) })

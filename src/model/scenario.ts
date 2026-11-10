@@ -26,7 +26,7 @@ import { NB_CHANNELS } from '../uwb/nb'
 import {
   C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX,
   UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS,
-  uwbAncillarySlots, uwbInitiatorBlockSlots, uwbM2mSlotFitNs,
+  uwbAncillarySlots, uwbInitiatorBlockSlots, uwbM2mSlotFitNs, uwbRoundSlotCount,
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
@@ -364,10 +364,12 @@ export interface UwbSessionCfg {
    */
   replyTime: UwbReplyTime
   /**
-   * `replyTime: 'fixed'` only: the first responder's fixed reply delay, in RSTU, counted from
-   * *its own* reception of the Poll — not from when the tag sent it, because a device with no
-   * shared clock has no other reference to measure from (design §6). Responder k's own delay is
-   * this plus k × `slotRstu`.
+   * `replyTime: 'fixed'` only: the first responder's fixed reply time FRT1, in RSTU, measured from
+   * the RMARKER of the Poll **as that responder received it** to the RMARKER of its Response
+   * (standard §10.32.2, Figure 10-226). Responder i is given its own value FRTi = FRT1 + (i − 1) ×
+   * `slotRstu` — the higher layers' choice of values (FRTi > FRTj for i > j), exchanged out of band
+   * here (the standard allows the RRTN IE or an out-of-band mechanism). Until 2026-11-10 this delay
+   * was counted from the end of the Poll (audit #5).
    *
    * This is a *different* setting from `UwbMmsCfg.fixedReplyRstu` (the P802.15.4ab draft's
    * `macMmsFixedReplyTime`, nullable, 300–612 000 RSTU): the two share a name because they are
@@ -375,13 +377,9 @@ export interface UwbSessionCfg {
    * different documents (the published standard's §10.29.6.5 here, the draft's own field there),
    * for two different round shapes. Setting one does nothing to the other.
    *
-   * Default is one whole `slotRstu` (design §6.1 — a corrected two-sided bound, not the
-   * one-sided rule this field first shipped with): the first responder's nominal, zero-flight
-   * transmission then lands 237.2 RSTU into slot 1 — one Poll's airtime past that slot's own
-   * boundary — with room on both sides for the schema's `fixed` slot-fit rule to check against
-   * (below). Half a slot, this field's original default, sits *below* the lower bound at the
-   * default slot length: the first responder would transmit at 1.18 ms, still inside slot 0,
-   * before its own slot has even opened — the "too early" failure §6.1 added a rule for.
+   * Default is one slot plus 240 RSTU (`UWB_DEFAULT_FIXED_REPLY_RSTU`): the first responder's Response
+   * then starts about 200 µs into slot 1, inside the two-sided bound the schema's `fixed` slot-fit
+   * rule checks (below), with margin for crystal error.
    */
   fixedReplyRstu: number
   /** Ranging block duration in RSTU (standard §10.32.2). */
@@ -594,9 +592,17 @@ export const DEFAULT_UWB_MMS: UwbMmsCfg = {
  * field from a sibling's own (possibly overridden) value at parse time, so this is as close to
  * "derived from slotRstu" as a single object's per-field defaults can get. model */
 const UWB_DEFAULT_SLOT_RSTU = 2400
+/**
+ * Default FRT1 (`fixedReplyRstu`): one slot plus 240 RSTU (200 µs). FRT is measured RMARKER to
+ * RMARKER (standard §10.32.2, Figure 10-226), so FRT1 = one slot would start the first Response one
+ * flight time after its slot opens, with no margin for a fast crystal (±20 ppm over 2 ms is ±40 ns).
+ * 200 µs keeps the Response about where it sat when the delay was counted from the end of the Poll.
+ * The value is the simulator's (the standard leaves FRT values to the higher layers).
+ */
+const UWB_DEFAULT_FIXED_REPLY_RSTU = UWB_DEFAULT_SLOT_RSTU + 240
 
 export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
-  method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_SLOT_RSTU,
+  method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_FIXED_REPLY_RSTU,
   blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 1,
   rcmValidityRounds: 1, initiatorRounds: 1, rmnr: false, mmrcr: false,
@@ -1659,11 +1665,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     uwb: z.object({
       method: z.enum(['ss', 'ds']),
       // Both default: an existing scenario carries neither key and must read back byte for byte
-      // (task-2-brief.md). `fixedReplyRstu`'s default is `UWB_DEFAULT_SLOT_RSTU` — one whole
-      // slot's worth (design §6.1) — not guessed: see the field's own doc comment on
-      // `UwbSessionCfg` for the arithmetic.
+      // (task-2-brief.md). `fixedReplyRstu`'s default is `UWB_DEFAULT_FIXED_REPLY_RSTU` — one
+      // slot plus 240 RSTU — see the field's own doc comment on `UwbSessionCfg` for why.
       replyTime: z.enum(['embedded', 'deferred', 'fixed']).default('embedded'),
-      fixedReplyRstu: z.number().int().min(0).default(UWB_DEFAULT_SLOT_RSTU),
+      fixedReplyRstu: z.number().int().min(0).default(UWB_DEFAULT_FIXED_REPLY_RSTU),
       // Lengths in whole RSTU (standard §10.32.2) and nothing more: the "multiple of 3 RSTU" rule this
       // schema used to apply is not in the standard (audit #10) and is gone.
       blockRstu: z.number().int().positive(),
@@ -2136,9 +2141,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: '每轮一条控制消息时，窗口只有一块，位图也只有一位，而这一位说的正是“这一帧收到了没有”——'
-              + '响应方发没发 Response，已经当场说明了同一件事，不必再发一帧去确认它：请把 rcmValidityRounds '
-              + '调到 2 以上，让窗口真的跨出一块以上，或者把 mmrcr 关掉',
+            message: '本仿真器只在一条控制消息管辖多轮（rcmValidityRounds 至少为 2）时开放收妥确认（这是本仿真器的规则，'
+              + '标准没有这一限制）：每轮一条控制消息时，这组只有一轮，应答方发没发 Response 已经当场说明它收到了'
+              + '发起方的开场消息。请把 rcmValidityRounds 调到 2 以上，或者把 mmrcr 关掉',
           })
         }
         // m2m (task-2-brief.md's hint, checked rather than taken on faith: design §2 points at this
@@ -2352,10 +2357,21 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'SP3的报告相位（标准§10.32.8.2，design doc §4.1）是这一轮已经追加在测距帧之后'
-              + '的一段，追加几帧由SRRR的两个请求位决定。辅助信息消息另外要追加的帧数'
-              + '（ancillaryFrames）是场景单独设置的一个数，这一刀没有规定两段追加该怎样排在一起：'
+            message: '本仿真器没有为 SP3 分组测距的会话实现辅助信息交换轮（ARC 测距轮用途 = 3，标准 §10.35）：'
               + '请把 sp3 关掉，或者把 ancillary 关掉',
+          })
+        }
+        // Under a time schedule the ancillary round's RCM assigns the message's slots with an RDM IE
+        // (standard §10.32.9.8, SIU = 1), one list element per slot, and the RDM List Length field is
+        // 6 bits: at most 63 slots, the request frame's included.
+        if (ancillary && mode === 'twr' && sc.uwb.schedule === 'time'
+          && ancillaryFrames + (sc.uwb.ancillaryRequest ? 1 : 0) > 63) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: `辅助信息消息 ${ancillaryFrames} 帧${sc.uwb.ancillaryRequest ? '加上请求帧' : ''}超过 63：`
+              + '按时间调度时，辅助信息轮的 RCM 用 RDM 信息元逐个时隙指定给发送方，而 RDM 列表长度字段只有 6 位'
+              + '（标准 §10.32.9.8）。请减少 ancillaryFrames',
           })
         }
         // The P802.15.4ab rules. They read only `sc.uwb.mms`, and only in MMS mode: a two-way
@@ -2618,10 +2634,15 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // definition `UwbNetwork` and `session.ts#roundSlots` lay the same slots out from. With one
           // round a block this is `slots + mmrcrSlots + ancillarySlotCount`, the figure every message
           // below quoted before round sets existed.
+          //
+          // 2026-11-10: every round is one length (standard §10.32.3.3, block-based mode), the longest
+          // round the session runs — the ranging round with its receipt confirmations, or the
+          // ancillary-information round (§10.35, its own round after the tag's ranging rounds) —
+          // `uwbRoundSlotCount`; and a tag's rounds per block are its ranging rounds plus that
+          // ancillary round (`uwbInitiatorBlockSlots`).
           const runRounds = mode === 'twr' ? sc.uwb.initiatorRounds : 1
-          const roundSlots = uwbInitiatorBlockSlots(
-            slots, runRounds, mode === 'twr' ? sc.uwb.rcmValidityRounds : 1, mmrcrSlots + ancillarySlotCount,
-          )
+          const roundLength = uwbRoundSlotCount(slots, mmrcrSlots, ancillarySlotCount)
+          const roundSlots = uwbInitiatorBlockSlots(roundLength, runRounds, ancillarySlotCount > 0)
           const fits = Math.floor(sc.uwb.blockRstu / (roundSlots * sc.uwb.slotRstu))
           // Which extras this block spends, and which switch turns each of them off, named only when
           // it is actually spending them.
@@ -2736,18 +2757,20 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                   flightMaxNs = Math.max(flightMaxNs, tofNs)
                 }
               }
+              // 2026-11-10 (audit #5): FRT1 is measured RMARKER to RMARKER (standard §10.32.2, Figure
+              // 10-226), so the Poll's airtime drops out of both bounds.
               const fixedReplyNs = rstuNs(sc.uwb.fixedReplyRstu)
-              const pollNs = uwbPpduNs(uwbPollBytes(anchors, sc.uwb.schedule))
               const respNs = uwbPpduNs(uwbRespBytes(sc.uwb.method, 'fixed'))
-              const lowerNeededNs = slotNs - pollNs - flightMinNs
-              const upperAllowedNs = 2 * slotNs - pollNs - respNs - UWB_SLOT_GUARD_NS - flightMaxNs
+              const lowerNeededNs = slotNs - flightMinNs
+              const upperAllowedNs = 2 * slotNs - respNs - UWB_SLOT_GUARD_NS - flightMaxNs
               if (fixedReplyNs > upperAllowedNs) {
                 ctx.addIssue({
                   code: z.ZodIssueCode.custom,
                   path: ['uwb'],
-                  message: `固定回复时间下，第一个响应方的固定时延 ${(fixedReplyNs / 1000).toFixed(1)} µs 超过了上限 `
-                    + `${(upperAllowedNs / 1000).toFixed(1)} µs（两个时隙 ${(2 * slotNs / 1000).toFixed(1)} µs − Poll `
-                    + `空口时间 ${(pollNs / 1000).toFixed(1)} µs − 响应帧空口时间 ${(respNs / 1000).toFixed(1)} µs − 时隙`
+                  message: `固定回复时间下，第一个响应方的固定回复时间 FRT1（从轮询帧的 RMARKER 到响应帧的 RMARKER）`
+                    + `${(fixedReplyNs / 1000).toFixed(1)} µs 超过了上限 `
+                    + `${(upperAllowedNs / 1000).toFixed(1)} µs（两个时隙 ${(2 * slotNs / 1000).toFixed(1)} µs − `
+                    + `响应帧空口时间 ${(respNs / 1000).toFixed(1)} µs − 时隙`
                     + `守卫 ${(UWB_SLOT_GUARD_NS / 1000).toFixed(1)} µs − 最远飞行时间 ${(flightMaxNs / 1000).toFixed(1)} `
                     + 'µs）：响应会被自己那个时隙的边界切掉，接收窗口关闭后整轮以超时收场——而 Poll 明明收到了：'
                     + '请减小 fixedReplyRstu，或者加大 slotRstu',
@@ -2756,9 +2779,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                 ctx.addIssue({
                   code: z.ZodIssueCode.custom,
                   path: ['uwb'],
-                  message: `固定回复时间下，第一个响应方的固定时延 ${(fixedReplyNs / 1000).toFixed(1)} µs 低于下限 `
-                    + `${(lowerNeededNs / 1000).toFixed(1)} µs（一个时隙 ${(slotNs / 1000).toFixed(1)} µs − Poll `
-                    + `空口时间 ${(pollNs / 1000).toFixed(1)} µs − 最近飞行时间 ${(flightMinNs / 1000).toFixed(1)} µs）：`
+                  message: `固定回复时间下，第一个响应方的固定回复时间 FRT1（从轮询帧的 RMARKER 到响应帧的 RMARKER）`
+                    + `${(fixedReplyNs / 1000).toFixed(1)} µs 低于下限 `
+                    + `${(lowerNeededNs / 1000).toFixed(1)} µs（一个时隙 ${(slotNs / 1000).toFixed(1)} µs − `
+                    + `最近飞行时间 ${(flightMinNs / 1000).toFixed(1)} µs）：`
                     + '响应会落进还没轮到它的那个时隙——自己的时隙其实还没开始：请加大 fixedReplyRstu',
                 })
               }

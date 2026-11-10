@@ -5,7 +5,7 @@
  * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md §2 · M15): that
  * lesson read the timetable, this one asks how long one line of it may be. §2
  * gives this half the 0.5 ms variant, both experiments, both quiz questions and
- * the minimum-slot rule — "engine-enforced, the editor snaps 285 RSTU to 300,
+ * the minimum-slot rule — "engine-enforced, the editor snaps 295 RSTU to 300,
  * and prose today" — written out as its `steps` block.
  *
  * It loads `uwb-blocks`' own scene and its one variant, unchanged, so the
@@ -16,9 +16,9 @@
  *
  * What arrived here from tests/course/uwb-blocks.test.ts, with the sentences
  * that carry it: the slot-fit formula and `uwbSlotFitNs`, the 300 RSTU floor the
- * scenario schema puts under any slot, the 11.8 % the Final fills its own slot,
- * the 20 ppm across a block, the radio-on figures (1 943 565 ns and
- * 2 476 239 ns, 0.97 % and 1.24 %), the whole 0.5 ms variant and the editor's
+ * scenario schema puts under any slot, the 12.1 % the Final fills its own slot,
+ * the 20 ppm across a block, the radio-on figures (1 961 517 ns and
+ * 2 507 010 ns, 0.98 % and 1.25 %), the whole 0.5 ms variant and the editor's
  * clamp. Nothing was dropped in the move.
  *
  * NOT registered yet — the controller adds the `lessons.ts` entry, the
@@ -46,7 +46,7 @@ export const FIG = {
   /** The window both rows are drawn in: the base round, 20 ms. */
   windowUs: 20_000,
   /** Radio-on inside one 200 ms block, in ns, as the MAC_STATE lane measures it. */
-  radioOnNs: 1_943_565,
+  radioOnNs: 1_961_517,
 } as const
 
 export function uwbSlotBudgetTiming(): TimingSpec {
@@ -86,43 +86,43 @@ export const uwbSlotBudget: Lesson = {
     { heading: '射频开启的时间与分配到的时间不是一回事', text: '一台设备的射频开销由空口时间（airtime）决定，而不是由时间表分配给它的时间决定：本课的设备只在“预期有帧到来”的时隙起点打开接收机，那一帧接收完毕即关闭——标准允许上层这样只在预期有帧的时隙打开接收机（§10.32.3.4），但不强制。因此参与十轮中三轮的锚点（anchor），射频开启时长也只占整块的百分之一左右。' },
     {
       kind: 'diagram', heading: '两种时隙，同一个比例', spec: uwbSlotBudgetTiming(),
-      caption: '同一场景的两条时间轴，同一个比例。上一行是本课的 2 ms 时隙：十个时隙占满 20 ms，深色的十道细线才是真正发送的帧。下一行把时隙缩短到 0.5 ms，同样十帧落在前 5 ms 之内——深色部分的总时长完全相同，两行都是 1 943 565 ns。缩短时隙改善的是时延与容量，不是功耗。',
+      caption: '同一场景的两条时间轴，同一个比例。上一行是本课的 2 ms 时隙：十个时隙占满 20 ms，深色的十道细线才是真正发送的帧。下一行把时隙缩短到 0.5 ms，同样十帧落在前 5 ms 之内——深色部分的总时长完全相同，两行都是 1 961 517 ns。缩短时隙改善的是时延与容量，不是功耗。',
     },
   ],
   numbers: [
-    { kind: 'formula', heading: '时隙最短能有多短', text: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4', note: '时隙要容纳本轮最长的那一帧，再加本课取的 200 ns 飞行余量，相当于 60 m 的传播距离；这条容量规则本身也是本课的。所以 2 ms 不是算出来的下限，而是 FiRa 规范档案里的取值；它让那一帧只占自己时隙的 11.8 %。' },
+    { kind: 'formula', heading: '时隙最短能有多短', text: 'slot ≥ PPDU(Final, N anchors) + 200 ns = 242 500 + 200 = 242 700 ns at N = 4', note: '时隙要容纳本轮最长的那一帧，再加本课取的 200 ns 飞行余量，相当于 60 m 的传播距离；这条容量规则本身也是本课的。所以 2 ms 不是算出来的下限，而是 FiRa 规范档案里的取值；它让那一帧只占自己时隙的 12.1 %。' },
     { kind: 'steps', heading: '本课对时隙长度设的几条约束（标准只要求能容纳一帧）', items: [
-      '取本轮最长的那一帧。双边双向测距（DS-TWR）里是 Final，按本课的字段宽度是 14 + 12N 字节：四个锚点时 62 字节，空口 236 603 ns。',
-      '加 200 ns 飞行余量：这个场景的容量下限是 236 803 ns，合 285 个 RSTU（ranging scheduling time unit）还多一点。',
-      '本课另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 13.2 µs；标准不规定这个数。所以本场景真正的最短时隙是 300 RSTU，不是那条容量规则。',
-      '时隙长度以整数个 RSTU 计，标准对它没有别的要求；285 与 282 都是整数个 RSTU，使它们不合法的是上一条。',
-      '输入框失去焦点时，编辑器按这几条约束把输入值修正到合法值：输入 285，它变为 300。',
+      '取本轮最长的那一帧。双边双向测距（DS-TWR）里是 Final，按标准的字段宽度是 18 + 12N 字节：四个锚点时 66 字节，空口 242 500 ns。',
+      '加 200 ns 飞行余量：这个场景的容量下限是 242 700 ns，合 291 个 RSTU（ranging scheduling time unit）还多一点，所以至少要 292 个 RSTU。',
+      '本课另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 7.3 µs；标准不规定这个数。所以本场景真正的最短时隙是 300 RSTU，不是那条容量规则。',
+      '时隙长度以整数个 RSTU 计，标准对它没有别的要求；295 与 290 都是整数个 RSTU，使它们不合法的是上一条。',
+      '输入框失去焦点时，编辑器按这几条约束把输入值修正到合法值：输入 295，它变为 300。',
       '块长不随时隙改变，因此每块的轮数随之改变：轮长 = 时隙数 × 时隙长，每块轮数 = 块长 ÷ 轮长。时隙缩短到四分之一，每块就从十轮变为四十轮。',
     ] },
     { kind: 'table', heading: '射频真正的开销', head: [
       '设备', '参与的轮次', '唤醒的时隙',
       '块内射频开启时长', '占比',
     ], rows: [
-      ['uwb-1（三部之一）', '1 of 10', '10 of 10', '1 943 565 ns', '0.97 %'],
-      ['anchor-1（四个之一）', '3 of 10', '4 of 10 × 3', '2 476 239 ns', '1.24 %'],
+      ['uwb-1（三部之一）', '1 of 10', '10 of 10', '1 961 517 ns', '0.98 %'],
+      ['anchor-1（四个之一）', '3 of 10', '4 of 10 × 3', '2 507 010 ns', '1.25 %'],
     ] },
     { text: '时间表分配给手机的是十轮中的一轮，分配给锚点的是三轮；状态泳道显示的却是射频实际开启的时间。两种占比相差十倍以上。' },
     { kind: 'table', heading: '同一场景，两种时隙长度', head: [
       '测距时隙', '一轮', '每块轮数',
       '三部手机全部完成', '每部手机射频开启',
     ], rows: [
-      ['2 400 RSTU · 2 ms', '20.0 ms', '10', '60 ms', '1 943 565 ns'],
-      ['600 RSTU · 0.5 ms', '5.0 ms', '40', '15 ms', '1 943 565 ns'],
+      ['2 400 RSTU · 2 ms', '20.0 ms', '10', '60 ms', '1 961 517 ns'],
+      ['600 RSTU · 0.5 ms', '5.0 ms', '40', '15 ms', '1 961 517 ns'],
     ] },
   ],
   deeper: [
-    { heading: '2 ms 的余量留给了什么', text: '四个锚点的 Final 是 62 字节、空口 236 603 ns，所以 2 ms 的时隙里将近九成时间是静默。这份余量留给的是：接收机在判定 RMARKER（ranging marker）之前要做的首径（first path）搜索、锚点从收到发的转换时间，以及调度漂移——这里的时隙边界是精确的，但 20 ppm 的偏差在一个 200 ms 的块内累积为每边 4 µs。' },
-    { heading: '1 943 565 ns 由什么组成', text: '手机参与自己那一轮的全部十个时隙，它的 1 943 565 ns 恰好是这一轮的空口时间 1 943 461 ns，再加上它接收的八帧、每帧 13 ns 的飞行时间。锚点的开启时间更短：它接收 Poll、发送 Response、接收 Final、发送 Report——十个时隙里唤醒四次，第一轮 825 411 ns——在其他锚点的时隙里接收机是关闭的。三轮之间因飞行时间不同而相差几纳秒，合计 2 476 239 ns。' },
-    { heading: '容量规则什么时候才起作用', text: '只有当那一帧变长，容量规则才超过 300 RSTU 的下限：六个锚点时 Final 要 267 572 ns，即 324 RSTU。而按本课的字段宽度，一帧 Final 最多列九个锚点，这不是任意选定的——14 + 12N 在十个锚点时是 134 字节，超过了 BPRF 模式下负载 127 字节的上限。' },
+    { heading: '2 ms 的余量留给了什么', text: '四个锚点的 Final 是 66 字节、空口 242 500 ns，所以 2 ms 的时隙里将近九成时间是静默。这份余量留给的是：接收机在判定 RMARKER（ranging marker）之前要做的首径（first path）搜索、锚点从收到发的转换时间，以及调度漂移——这里的时隙边界是精确的，但 20 ppm 的偏差在一个 200 ms 的块内累积为每边 4 µs。' },
+    { heading: '1 961 517 ns 由什么组成', text: '手机参与自己那一轮的全部十个时隙，它的 1 961 517 ns 恰好是这一轮的空口时间 1 961 413 ns，再加上它接收的八帧、每帧 13 ns 的飞行时间。锚点的开启时间更短：它接收 Poll、发送 Response、接收 Final、发送 Report——十个时隙里唤醒四次，第一轮 835 668 ns——在其他锚点的时隙里接收机是关闭的。三轮之间因飞行时间不同而相差几纳秒，合计 2 507 010 ns。' },
+    { heading: '容量规则什么时候才起作用', text: '只有当那一帧变长，容量规则才超过 300 RSTU 的下限：五个锚点时 Final 要 255 008 ns，即 307 RSTU。而按标准的字段宽度，一帧 Final 最多列九个锚点，这不是任意选定的——18 + 12N 在十个锚点时是 138 字节，超过了 BPRF 模式下负载 127 字节的上限。' },
   ],
   limits: [
     { kind: 'unmodelled', text: '那份余量留给的三样东西，本课均未建模：首径搜索（帧一到达即视为收到，不计搜索时间）、收发转换（从接收转为发送的耗时为零）、以及设备之间的调度漂移（时隙边界对每台设备都是同一纳秒）。所以把余量减到恰好容纳那一帧，本课的结果没有任何一项会因此变差——而真实设备在这种情况下已经没有任何余量。' },
-    { kind: 'model-value', text: '200 ns 的飞行余量与 300 RSTU 的下限都是本仿真器自己的数；标准只要求时隙至少能容纳一帧、长度以 RSTU 为单位。所以「本场景真正的最短时隙是 300 RSTU」是这两个模型取值的结论，不是标准的结论；改变其中任一个，第三步的结论和编辑器把 285 修正为 300 的结果就都不再成立。' },
+    { kind: 'model-value', text: '200 ns 的飞行余量与 300 RSTU 的下限都是本仿真器自己的数；标准只要求时隙至少能容纳一帧、长度以 RSTU 为单位。所以「本场景真正的最短时隙是 300 RSTU」是这两个模型取值的结论，不是标准的结论；改变其中任一个，第三步的结论和编辑器把 295 修正为 300 的结果就都不再成立。' },
     { kind: 'unmodelled', text: '那两个「射频开启时长」是状态泳道上各段时长之和，不是功耗模型：每种状态的电流、开机与关机各自的能量、以及待机功耗都没有数。真实的 UWB 标签里唤醒并稳定晶振往往比收一帧本身耗能更多，所以「射频开启的总时长不变」不等于「电池耗电没有增加」——本课能测量前者，无法测量后者。' },
     { kind: 'out-of-scope', text: '把时隙缩短到四分之一，帧的密度就提高到四倍，而本课的结果并不因此付出任何代价：每一帧的发射功率是常数 −14 dBm，没有占空比、没有平均等效全向辐射功率的上限，同一空间里也没有第二个会话共享这段空口时间。真实的超宽带必须遵守 −41.3 dBm/MHz 的平均功率限制，所以「缩短时隙只改善时延与容量」这句话在本模型之外还要受这条监管限制的约束。' },
   ],
@@ -141,15 +141,15 @@ export const uwbSlotBudget: Lesson = {
     J('第一部手机的定位', firstUwbPosition),
   ],
   observe: [
-    '打开 uwb-1 的状态泳道。整轮二十毫秒里，它只在十个时隙的开头各唤醒一次，每次不到 0.24 ms；这些深色段加起来是 1.94 ms，也就是整块 200 ms 的 0.97 %。',
+    '打开 uwb-1 的状态泳道。整轮二十毫秒里，它只在十个时隙的开头各唤醒一次，每次不到 0.25 ms；这些深色段加起来是 1.96 ms，也就是整块 200 ms 的 0.98 %。',
   ],
   tryThis: [
     '载入“0.5 ms 时隙”，可以看到块内大部分时间空闲下来：三个轮次在 15 ms 时就全部完成，定位结果出现在 5、10、15 ms，编辑器规划出每块 40 轮而不是十轮。射频开启总时长不变。',
-    '打开场景编辑器，在时隙那一栏输入 285 再移开焦点：它变为 300，282 也一样。两个都是整数个 RSTU，而只有 285 超过容量规则的要求，282 还差 1.8 µs——起限制作用的都是那条 300 RSTU 下限。',
+    '打开场景编辑器，在时隙那一栏输入 295 再移开焦点：它变为 300，290 也一样。两个都是整数个 RSTU，而只有 295 超过容量规则的要求，290 还差 1.0 µs——起限制作用的都是那条 300 RSTU 下限。',
   ],
   quiz: [
     {
-      q: '一部手机占了块的十分之一，锚点占十分之三，可泳道上实测的射频开启时间只有 0.97 % 与 1.24 %。为什么？',
+      q: '一部手机占了块的十分之一，锚点占十分之三，可泳道上实测的射频开启时间只有 0.98 % 与 1.25 %。为什么？',
       options: [
         '状态泳道是对射频采样的，短的区间会被漏掉',
         '设备在时隙边界打开接收机，并在预期的那一帧接收完毕后立即关闭：它的射频开销由空口时间决定，不是由所占的时隙决定',

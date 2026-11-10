@@ -81,13 +81,15 @@ export type UwbRecord =
    *
    * `received` is **this** initiator's own entry of the MMRC list, not the whole list: one frame
    * may answer several initiators at once (`initiators` counts them), and each of them learns only
-   * its own row. `windowRounds` is the window's length R, carried so a reader can check the bitmap
-   * covers exactly the window it claims to rather than take `received.length` on trust.
+   * its own row. `ackSlots` is how many slots the bitmap acknowledges — one bit per slot of the
+   * ranging round set before the confirmations (standard §10.36.2.1; until 2026-11-10 one bit per
+   * round, `windowRounds`) — carried so a reader can check the bitmap rather than take
+   * `received.length` on trust.
    *
    * It carries no measurement, because the frame carries none: a receipt confirmation is an extra
    * message, not part of the ranging (`src/uwb/ranging.ts` is untouched by this slice).
    */
-  | { type: 'UWB_MMRCM'; node: string; peer: string; slot: number; block: number; round: number; windowRounds: number; received: boolean[]; initiators: number }
+  | { type: 'UWB_MMRCM'; node: string; peer: string; slot: number; block: number; round: number; ackSlots: number; received: boolean[]; initiators: number }
   /**
    * Standard §10.32.8.2: an SP3 marker arrived, and **which responder it came from was read off the
    * slot it arrived in** — the only place that answer exists. An SP3 packet is SYNC + SFD + STS: no
@@ -138,9 +140,9 @@ export type UwbRecord =
    * at all (`src/uwb/ranging.ts` is untouched by this slice), which is also why switching the
    * exchange on leaves every `UWB_RANGE` of the round field for field as it was.
    *
-   * `messageKind` is the §10.35.2.1 message type the Request = 0 half also reports. This engine
-   * builds one kind of ancillary message, so it is a constant rather than a value table
-   * (`ANCILLARY_MESSAGE_KIND`, design §6). model
+   * There is no message-type field: the RAICT IE (standard §10.35.2.1, Figure 10-271) carries only
+   * the Request bit, the message-number presence bit, the message number and Frames Remaining.
+   * (Until 2026-11-10 this record carried a `messageKind`, which corresponded to nothing on the air.)
    *
    * **A third shape, and the two fields that are its whole difference** (Request = 1,
    * §10.35.2.1; slice 3d): a controller that has just read a slot request emits this record with
@@ -162,7 +164,7 @@ export type UwbRecord =
    * grant it earns changes how many slots the *next* exchange gets — which the reader sees as the
    * first number of the next block's Frames Remaining countdown, not as anything in this record.
    */
-  | { type: 'UWB_ANCILLARY'; node: string; peer: string; slot: number | null; block: number; round: number; messageNumber: number; messageKind: number; framesRemaining: number | null; missing: number[]; complete: boolean; requestedSlots?: number; grantedSlots?: number | null }
+  | { type: 'UWB_ANCILLARY'; node: string; peer: string; slot: number | null; block: number; round: number; messageNumber: number; framesRemaining: number | null; missing: number[]; complete: boolean; requestedSlots?: number; grantedSlots?: number | null }
   | { type: 'UWB_SP3'; node: string; peer: string; slot: number; block: number; round: number }
   /**
    * Standard §10.32.8.1's third phase, arriving: **one frame of the data report phase, as the

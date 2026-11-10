@@ -192,12 +192,14 @@ describe('UwbNetwork — DS-TWR with ±10 ppm crystals', () => {
     expect(of(rs, 'UWB_POSITION')[0].t).toBe(20 * MS)
   })
 
-  it('sends a 62-octet Final in slot 5, 236 603 ns of air', () => {
+  // 2026-11-10: 18 + 12 × 4 = 66 octets (RMI and RRTI content headers, standard §10.29.8.4/.1), and
+  // the PHR is 21 symbols (Table 16-2).
+  it('sends a 66-octet Final in slot 5, 242 500 ns of air', () => {
     const final = of(rs, 'TX_START').find((r) => r.frame.kind === 'uwbFinal')!
     expect(final.t).toBe(10 * MS)
     expect(final.frame.uwb?.slot).toBe(5)
-    expect(final.frame.bytes).toBe(62)
-    expect(final.frame.txTimeNs).toBe(236_603)
+    expect(final.frame.bytes).toBe(66)
+    expect(final.frame.txTimeNs).toBe(242_500)
     expect(final.frame.uwb?.finalTimes).toHaveLength(4)
   })
 })
@@ -586,7 +588,8 @@ describe('UwbNetwork — UL-TDoA blinks', () => {
     expect(tx.filter((r) => r.t < 200 * MS).map((r) => [r.node, r.frame.kind, r.frame.uwb?.slot]))
       .toEqual(TAG_IDS.map((id) => [id, 'uwbBlink', 0]))
     expect(tx).toHaveLength(2 * TAG_IDS.length)
-    expect(tx.every((r) => r.frame.bytes === 14 && r.frame.txTimeNs === 181_218)).toBe(true)
+    // 2026-11-10: 183 013 ns — the PHR is 21 symbols (standard Table 16-2), 896 chips more.
+    expect(tx.every((r) => r.frame.bytes === 14 && r.frame.txTimeNs === 183_013)).toBe(true)
     expect(tx[0].frame.dst).toBe('*')
     expect(tx[0].frame.uwb?.ies).toEqual(['BLINK'])
     // No round trip exists in this mode, so no anchor and no tag ever reports a distance.

@@ -13,9 +13,10 @@ import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from './nb'
 import {
-  UWB_BLINK_BYTES, uwbAncillaryBytes, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes, uwbDlPollBytes,
-  uwbDlRespBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
-  uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
+  UWB_BLINK_BYTES, uwbAncillaryBytes, uwbAncillaryRcmBytes, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes,
+  uwbDlPollBytes, uwbDlRespBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
+  uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns,
+  uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -70,6 +71,12 @@ export type UwbFrameKind =
   // a piece of a message the round's actual ranging has nothing to do with. See `makeAncillary`
   // below.
   | 'uwbAncillary'
+  // A ranging control message on its own (standard §10.32.2: "A message transmitted by a controller in
+  // slot zero, the first slot of a ranging round to configure ranging parameters") — the RCM of the
+  // ancillary-information round (ARC Ranging Round Usage = 3, §10.35). A two-way round fuses its RCM
+  // with the ranging initiation message (the Poll, `'uwbPoll'`); this round has no ranging initiation
+  // to fuse it with, so it carries ARC + RR + RDM (or RCPS) and no RRMC IE.
+  | 'uwbRcm'
 
 // Both predicates take the whole `FrameKind` union, not just the UWB half: their callers hold a
 // `FrameDesc.kind` (a lane, the timeline, a decoder), and narrowing at the call site would only
@@ -125,20 +132,37 @@ export interface UwbM2mTimes {
 }
 
 /**
- * One MMRC list entry of an RMMRC IE (standard §10.36.2.1): the initiator this entry answers and
- * which of that initiator's openers inside the current ranging round set this responder
- * actually received. `received[i]` is round i of the window in round order — index 0 the
- * control message that opened it, indices 1.. the initiation-only messages after it
- * (`uwb/session.ts#roundCarriesRcm`) — not a packed bitmap: `uwbMmrcmBytes`/`rmmrcEntryBytes`
- * price the packed form separately, so this type carries the bits a device would read off the
- * air rather than the octets that got them there.
+ * One MMRC list element of an RMMRC IE (standard §10.36.2.1, Figure 10-274): the initiator this
+ * element answers, and **one bit per slot** of the ranging round set acknowledged
+ * (`uwb/session.ts#mmrcmAckSlots`) — set where this responder received a message from that initiator
+ * in that slot, clear where it received none or the slot's message was not addressed to it
+ * ("The first bit in time sent in the field refers to the first time slot"). Not a packed bitmap:
+ * `uwbMmrcmBytes`/`rmmrcEntryBytes` price the packed form (address + MMRC Bitmap Length + bitmap)
+ * separately. Until 2026-11-10 this was one bit per round (audit #11).
  */
 export interface UwbMmrcEntry {
   /** The initiator's short address. Always 2 octets (`RMMRC_ADDR_BYTES`, model: the standard
    * allows two address sizes and this engine builds the shorter one). */
   initiator: string
-  /** True at index i when this responder received window-round i's opener. */
+  /** True at index i when this responder received a message from the initiator in acknowledged slot i. */
   received: boolean[]
+}
+
+/**
+ * One SRRR IE (standard §10.32.9.9, Figure 10-255) of an SP3 round's RCM: the request for one
+ * requester–provider pair. The requester is the initiator, which is also the controller, so its
+ * address is omitted (§10.32.9.9 allows that); `provider` is the responder the request goes to.
+ */
+export interface UwbSrrrEntry {
+  provider: string
+  /** RAOA: a report of AOA is required. */
+  raoa: boolean
+  /** RRT: a report of reply time is required. */
+  rrt: boolean
+  /** RRTT: a report of round-trip time is required. */
+  rrtt: boolean
+  /** RTOF: a report of TOF is required. Never set by this engine. */
+  rtof: boolean
 }
 
 /**
@@ -244,20 +268,27 @@ export interface UwbInfo {
   /** Poll (time schedule): the anchors' ids in slot order (RDM IE). */
   schedule?: string[]
   /** Poll (contention schedule): the response phase any anchor may answer in (RCPS IE) and its
-   * retry budget (RCMA IE). */
-  contention?: { firstSlot: number; lastSlot: number; maxAttempts: number }
-  /** Response (SS, embedded) or the SS deferred reply-time message: RRTI reply time in RCTU. */
+   * retry budget (RCMA IE). On the ancillary round's RCM (`uwbRcm`), the initiators' contention phase
+   * (RCPS Phase Indicator 0) instead, with `phase: 0` and no RCMA IE (`maxAttempts` absent). */
+  contention?: { firstSlot: number; lastSlot: number; maxAttempts?: number; phase?: 0 | 1 | 2 }
+  /** The ancillary round's RCM (`uwbRcm`, time schedule): its RDM IE with SIU = 1 (standard
+   * §10.32.9.8) — one element per slot the controller assigns, each naming the device, its role
+   * (1 = initiator: the sender of ancillary information, §10.35.1) and the slot index. */
+  rdm?: { id: string; slot: number; initiator: boolean }[]
+  /** Response (SS, embedded): the RRTI IE's reply time in RCTU; the SS deferred reply-time message:
+   * the RMI IE's RX-to-TX Reply Time. */
   replyRctu?: number
-  /** SP3 grouped ranging, RCM: the two request bits of §10.32.9.9's SRRR IE, present exactly when
-   * the frame carries those IEs at all (one per responder — see `PollOpts.srrr`). */
-  srrr?: { raoa: boolean; rrtt: boolean }
+  /** SP3 grouped ranging, RCM: one SRRR IE per responder (standard §10.32.9.9), present exactly when
+   * the frame carries those IEs at all. */
+  srrr?: UwbSrrrEntry[]
   /** SP3 grouped ranging, data report phase: the bearing the responder measured, present exactly
    * when the round's SRRR IE asked for it (RAOA, standard §10.32.9.9). Never on an SP3 marker —
    * that frame has no payload at all (`makeSp3`) — only on the report frame that follows it. */
   aoaThetaDeg?: number
-  /** Final (DS): per anchor. Embedded carries { id, tround1, treply2 } (RMI + RRTI IEs); deferred
-   * carries { id } only — the round trip and reply time move out of this frame entirely (design
-   * §5) — so `tround1`/`treply2` are absent, not present-but-zero. */
+  /** Final (DS, embedded): per anchor { id, tround1, treply2 } (RMI + RRTI IEs). The initiator's
+   * deferred report of a deferred DS round (`uwbReport` from the tag, standard §10.29.6.6) carries the
+   * same two times per anchor in one RMI IE; an SP3 initiator report carries { id, tround1 }. A
+   * deferred Final carries none (it has no IE at all). */
   finalTimes?: { id: string; tround1?: number; treply2?: number }[]
   /** Report (DS): the responder's treply1 and tround2 (RMI IE). */
   reportTimes?: { treply1: number; tround2: number }
@@ -341,7 +372,7 @@ export interface PollOpts {
    * same reason the Poll's own `maxAttempts` is read off the sender's config rather than per
    * responder. The IE's *length* does not depend on the bits either way.
    */
-  srrr?: { raoa: boolean; rrtt: boolean }
+  srrr?: UwbSrrrEntry[]
 }
 
 /**
@@ -385,7 +416,7 @@ export function makePoll(
     ies: srrr ? ['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'] : ['ARC', 'RR', 'RDM', 'RRMC'],
     arc: { ...arcBits },
     schedule: [...anchors],
-    ...(srrr ? { srrr: { ...srrr } } : {}),
+    ...(srrr ? { srrr: srrr.map((e) => ({ ...e })) } : {}),
   })
 }
 
@@ -445,10 +476,12 @@ export function makeResp(
   })
 }
 
-/** The deferred reply-time message of SS-TWR (standard §10.29.6.3): follows the Response, once
- * the anchor has read its own transmit timestamp back, carrying nothing but that one reply time —
- * MHR + RRTI IE + FCS, 17 octets (`UWB_SS_DEFER_BYTES`). It is the frame `replyTime: 'deferred'`
- * exists to send; without it the tag would never learn `Treply` at all.
+/** The deferred reply-time message of SS-TWR (standard §10.29.6.3, Figure 10-203): follows the
+ * Response, once the anchor has read its own transmit timestamp back, carrying that one reply time in
+ * an RMI IE (Reply Time Present, Deferred Mode = 1, one list element, unicast so no address) —
+ * MHR + RMI IE + FCS, 19 octets (`UWB_SS_DEFER_BYTES`). It is the frame `replyTime: 'deferred'`
+ * exists to send; without it the tag would never learn `Treply` at all. Until 2026-11-10 it carried
+ * an RRTI IE instead (audit #4).
  *
  * Its own `FrameKind` (`'uwbSsDefer'`), not a second use of `'uwbResp'`: the teaching point of the
  * deferred shape is that the reply time arrives in a message of its own, in a slot of its own —
@@ -472,7 +505,7 @@ export function makeSsDefer(
 ): FrameDesc {
   const raoa = aoaThetaDeg !== undefined
   return uwbFrame('uwbSsDefer', anchor, tag, raoa ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES, {
-    sp: 1, method: 'ss', block, round, slot, ies: raoa ? ['RRTI', 'RAOA'] : ['RRTI'], replyRctu,
+    sp: 1, method: 'ss', block, round, slot, ies: raoa ? ['RMI', 'RAOA'] : ['RMI'], replyRctu,
     ...(raoa ? { aoaThetaDeg } : {}),
   })
 }
@@ -551,17 +584,17 @@ export function makeRmnr(anchor: string, tag: string, block: number, round: numb
  */
 export function makeMmrcm(
   src: string, dst: string, block: number, round: number, slot: number,
-  windowRounds: number, entries: UwbMmrcEntry[],
+  ackSlots: number, entries: UwbMmrcEntry[],
 ): FrameDesc {
   for (const e of entries) {
-    if (e.received.length !== windowRounds) {
+    if (e.received.length !== ackSlots) {
       throw new Error(
-        `makeMmrcm: ${e.initiator}'s receipt bitmap is ${e.received.length} long in a `
-        + `${windowRounds}-round window — a bitmap must cover exactly the window it reports on`,
+        `makeMmrcm: ${e.initiator}'s receipt bitmap is ${e.received.length} long over `
+        + `${ackSlots} acknowledged slots — a bitmap must cover exactly the slots it reports on`,
       )
     }
   }
-  return uwbFrame('uwbMmrcm', src, dst, uwbMmrcmBytes(entries.length, windowRounds), {
+  return uwbFrame('uwbMmrcm', src, dst, uwbMmrcmBytes(entries.length, ackSlots), {
     sp: 1, method: 'ss', block, round, slot, ies: ['RMMRC'],
     mmrc: entries.map((e) => ({ initiator: e.initiator, received: [...e.received] })),
   })
@@ -628,6 +661,34 @@ export function makeAncillary(
 }
 
 /**
+ * The RCM of an ancillary-information round (standard §10.35.1; ARC Ranging Round Usage = 3,
+ * Table 10-164): sent by the controller (the tag) in slot 0, ARC IE + RR IE, and then how the round's
+ * slots are given out:
+ *
+ * - time schedule: an RDM IE with SIU = 1 (§10.32.9.8) assigning each slot of the sender's message —
+ *   and, when it asks, of its request — to the sender, role initiator (§10.35.1: the device that sends
+ *   ancillary information is the initiator). This is where a granted request (§10.35.2.1) lands: the
+ *   controller writes as many elements as it scheduled, and the sender reads them.
+ * - contention schedule: an RCPS IE with one CP Table Element, Phase Indicator 0 (initiators contend),
+ *   slots `firstSlot … lastSlot` (§10.32.9.5).
+ */
+export function makeAncillaryRcm(
+  tag: string, block: number, round: number, arc: UwbArcFields,
+  assign: { kind: 'time'; sender: string; slots: number[] } | { kind: 'contention'; firstSlot: number; lastSlot: number },
+): FrameDesc {
+  if (assign.kind === 'time') {
+    return uwbFrame('uwbRcm', tag, UWB_BROADCAST, uwbAncillaryRcmBytes('time', assign.slots.length), {
+      sp: 1, method: 'ss', block, round, slot: 0, ies: ['ARC', 'RR', 'RDM'], arc: { ...arc },
+      rdm: assign.slots.map((slot) => ({ id: assign.sender, slot, initiator: true })),
+    })
+  }
+  return uwbFrame('uwbRcm', tag, UWB_BROADCAST, uwbAncillaryRcmBytes('contention', 0), {
+    sp: 1, method: 'ss', block, round, slot: 0, ies: ['ARC', 'RR', 'RCPS'], arc: { ...arc },
+    contention: { firstSlot: assign.firstSlot, lastSlot: assign.lastSlot, phase: 0 },
+  })
+}
+
+/**
  * One SP3 marker, in its own slot (standard §10.32.8.2): SYNC + SFD + STS and nothing else — no
  * PHR, no PSDU, so `bytes: 0` and `mbps: 0` exactly as `mmsFrame` gives a multi-millisecond
  * fragment below, and for the same reason: its airtime is `uwbSp3Ns()`, never bytes ÷ rate.
@@ -649,11 +710,11 @@ export function makeSp3(
   }
 }
 
-/** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor when embedded.
- * When deferred it carries neither (Ruling 1 of design §5): the Final is not empty even then,
- * because `device.ts`'s `finalListedMe` reads this very responder list to decide whether an
- * anchor may report at all — only the round trip and reply time move out, to nowhere in this
- * frame at all (the anchor's own report carries what it needs; §10.29.6.6).
+/** The tag's Final (DS-TWR only): broadcast, carrying tround1/treply2 per anchor when embedded (one
+ * RMI IE with the round-trip times, one RRTI IE with the reply times, §10.32.5 Figure 10-236).
+ * When deferred it carries no IE at all — `{Ranging}` in §10.32.5 Figure 10-237 — and the two times
+ * follow in the initiator's deferred report (`makeDsDeferredReport`, §10.29.6.6). Until 2026-11-10
+ * the deferred Final carried an address-only RMI list, which §10.29.8.4 forbids (audit #3).
  * In DL-TDoA the Final is anchor 0's instead, and `times` is empty: it closes the round with
  * anchor 0's own TX time - which is what a listening tag measures its clock rate over - and its
  * RX time of every Response. The RX times are carried because a FiRa DL-TDoA Final carries them
@@ -670,7 +731,7 @@ export function makeFinal(
   }
   if (replyTime === 'deferred') {
     return uwbFrame('uwbFinal', tag, '*', uwbFinalBytes(times.length, 'deferred'), {
-      sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], finalTimes: times.map((t) => ({ id: t.id })),
+      sp: 1, method: 'ds', block, round, slot, ies: [],
     })
   }
   return uwbFrame('uwbFinal', tag, '*', uwbFinalBytes(times.length), {
@@ -678,7 +739,25 @@ export function makeFinal(
   })
 }
 
-/** An anchor's measurement report (DS-TWR only): its own treply1 and tround2. */
+/**
+ * The initiator's deferred Data frame of a deferred DS-TWR round (standard §10.29.6.6, §10.32.5
+ * Figure 10-237): broadcast in the measurement report phase, one RMI IE (Reply Time Present, Round-trip
+ * Time Present, Deferred Mode = 1) with, per responder whose Response it received, the first round-trip
+ * time, the second reply time and the responder's address — 15 + 10N octets. A responder that reads
+ * its own element holds all four times and computes the range.
+ */
+export function makeDsDeferredReport(
+  tag: string, times: { id: string; tround1: number; treply2: number }[], block: number, round: number,
+  slot: number,
+): FrameDesc {
+  return uwbFrame('uwbReport', tag, UWB_BROADCAST, uwbDsDeferredReportBytes(times.length), {
+    sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], finalTimes: times.map((t) => ({ ...t })),
+  })
+}
+
+/** An anchor's measurement report (DS-TWR only): its own treply1 and tround2, unicast to the
+ * initiator in one RMI IE — requested by the Reply Time Request and Round-trip Time Request bits of
+ * the Poll's RRMC IE (§10.29.8.3, §10.32.5 Figure 10-238). */
 export function makeReport(
   anchor: string, tag: string, treply1: number, tround2: number, block: number, round: number, slot: number,
 ): FrameDesc {

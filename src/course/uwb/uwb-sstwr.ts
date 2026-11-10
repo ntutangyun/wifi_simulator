@@ -62,9 +62,9 @@ export function uwbSstwrScenario(ppm: { tag: number; anchors: number }): Scenari
  * tests/course/uwb-sstwr.test.ts, so the figure cannot drift from it.
  */
 export const FIG = {
-  pollTx: 0, pollTxEnd: 216.09,
-  /** Slot i starts at i × 2000 µs; the answer is 187.372 µs long and lands 12 ns later. */
-  slotUs: 2000, respUs: 187.372, flightUs: 0.012,
+  pollTx: 0, pollTxEnd: 217.885,
+  /** Slot i starts at i × 2000 µs; the answer is 190.192 µs long and lands 12 ns later. */
+  slotUs: 2000, respUs: 190.192, flightUs: 0.012,
   windowUs: 8400,
   /** The raw error of each anchor's range, as the table's last column prints it. */
   rawErrM: ['+6.01 m', '+11.97 m', '+17.99 m', '+23.92 m'],

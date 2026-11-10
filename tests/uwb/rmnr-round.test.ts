@@ -408,12 +408,13 @@ describe('determinism, and every other mode byte-identical', () => {
   // standard's content plus the RR IE, audit #9), and the two-way sessions here now run `ROUNDS`
   // rounds in their one block (audit #23). The run is one block rather than four now, which is why
   // ul-tdoa and m2m — untouched by either change — were re-captured with them.
+  // All five re-captured again 2026-11-10 (W2): every PPDU is 896 chips longer (PHR 21 symbols, standard Table 16-2), which moves every instant in every mode; the RRTI and RMI content headers (§10.29.8.1/§10.29.8.4) lengthen the SS Response and the DS Final and reports.
   const BEFORE: Record<string, string> = {
-    'twr-ss': '5c0c99af',
-    'twr-ds': 'e9b77bb7',
-    'dl-tdoa': 'd0686895',
-    'ul-tdoa': 'b381d1e0',
-    m2m: 'e19f0cd3',
+    'twr-ss': 'f102a9db',
+    'twr-ds': '46dcfd97',
+    'dl-tdoa': '5faa07e9',
+    'ul-tdoa': 'fa986dce',
+    m2m: '624bea16',
   }
 
   const streamOf = (session: Partial<UwbSessionCfg>): string => {

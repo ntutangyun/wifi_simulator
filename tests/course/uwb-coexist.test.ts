@@ -178,7 +178,7 @@ describe('uwb-coexist · the lesson’s own place in the track', () => {
     // the Poll opens the run; the loss and its timeout are 1.809 ms apart, and the fix that
     // then has to manage on three anchors is at the same instant as the timeout
     expect(rs[at[0]].t).toBe(0)
-    expect(rs[at[3]].t - rs[at[2]].t).toBe(1_808_502)
+    expect(rs[at[3]].t - rs[at[2]].t).toBe(1_807_732)
     expect(rs[at[4]].t).toBe(rs[at[3]].t)
   })
 
@@ -470,10 +470,10 @@ describe('uwb-coexist · the base run', () => {
     expect(ofType(recs(), 'UWB_ROUND_END')).toHaveLength(BLOCKS)
     expect(wifiAirPct().toFixed(2)).toBe('3.07')
     expect(cell(2, 0, 1)).toBe('3.07 %')
-    // deeper: "The whole session is on the air for 48.8 ms of the five seconds", and its own
+    // deeper: "The whole session is on the air for 49.3 ms of the five seconds", and its own
     // share is 0.97 % — a number the lesson prints exactly once, for the saturated run's cost
-    expect(uwbAirPct().toFixed(2)).toBe('0.98') // 0.97 before the 2026-11-10 RCM correction (the lesson does not print this share)
-    expect((airNs(recs(), (id) => UWB_IDS.has(id)) / 1e6).toFixed(1)).toBe('48.8')
+    expect(uwbAirPct().toFixed(2)).toBe('0.99') // 0.97 before the 2026-11-10 RCM correction, 0.98 before the PHR one (the lesson does not print this share)
+    expect((airNs(recs(), (id) => UWB_IDS.has(id)) / 1e6).toFixed(1)).toBe('49.3')
     expect(prose().match(/0\.97 %/g)).toHaveLength(1)
   })
 
@@ -501,7 +501,7 @@ describe('uwb-coexist · the base run', () => {
     for (const f of fails) expect([f.node, f.reason]).toEqual(['uwb-1', 'lowSinr'])
     const timeouts = ofType(recs(), 'UWB_TIMEOUT')
     expect(timeouts).toHaveLength(8)
-    for (const [i, t] of timeouts.entries()) expect(t.t - hit[i].t).toBe(1_808_502)
+    for (const [i, t] of timeouts.entries()) expect(t.t - hit[i].t).toBe(1_807_732)
   })
 
   it('92 of 100 ranges survive and all 25 fixes are made, eight of them on three anchors', () => {
@@ -533,8 +533,8 @@ describe('uwb-coexist · the base run', () => {
     const line = 'uwb-1 UWB frame from anchor-4 lost to Wi-Fi: SIR -30.8 dB (foreign -48.7 dBm)'
     expect(fmtRecord(interfered()[0])).toBe(line)
     expect(uwbCoexist.observe[0]).toContain(line)
-    expect((interfered()[0].t / 1e6).toFixed(3)).toBe('418.191')
-    expect(uwbCoexist.observe[0]).toContain('418.191')
+    expect((interfered()[0].t / 1e6).toFixed(3)).toBe('418.192')
+    expect(uwbCoexist.observe[0]).toContain('418.192')
     // the two position lines of the deeper table
     expect(fmtRecord(fixes()[0])).toBe(deepCell(1, 0, 1))
     expect(deepCell(1, 0, 1))

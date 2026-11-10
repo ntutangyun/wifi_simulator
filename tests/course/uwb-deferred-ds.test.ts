@@ -1,18 +1,16 @@
 /**
- * Every empirical claim in 「延后之后，锚点就只是一个应答器」, measured against the lesson's
- * own two scenarios. Each assertion names the sentence it guards.
+ * Every empirical claim in 「延后形态：发起方的两个时间晚一帧送到锚点」, measured against the
+ * lesson's own two scenarios.
  *
- * The three things this file has to keep honest, because the lesson rests its
- * whole argument on them: the Final's two lengths (read off `TX_START`, not off
- * `uwbFinalBytes`), the anchor cap each of them earns (searched against the PSDU
- * limit, so the "9 → 33" claim is derived rather than asserted), and design §7's
- * table of who ends up holding a range — which is read from the `node` field of
- * every `UWB_RANGE` the two rounds produced.
+ * 2026-11-10 (audit #3): rewritten with the engine — the deferred DS round now follows standard
+ * §10.29.6.6 / §10.32.5 Figure 10-237 (bare Final, then the initiator's deferred RMI report, then the
+ * anchors compute). The Final's lengths and the deferred report are read off `TX_START`, the caps are
+ * searched against the PSDU limit, and who holds a range is read from every `UWB_RANGE`.
  */
 import { describe, expect, it } from 'vitest'
 import {
-  BYTES, DEMAND, DROPPED_BYTES, FIG, FIG_ANCHORS, uwbDeferredDs, uwbDeferredDsFields,
-  uwbDeferredDsScenario,
+  BYTES, DEMAND, DROPPED_BYTES, FIG, FIG_ANCHORS, GROWTH, RRTI_FIXED_BYTES, dsSlots, uwbDeferredDs,
+  uwbDeferredDsFields, uwbDeferredDsScenario,
 } from '../../src/course/uwb/uwb-deferred-ds'
 import { BENCH_M, CAP, RANGE_M } from '../../src/course/uwb/uwb-reply-time'
 import { Simulation } from '../../src/engine/simulation'
@@ -22,9 +20,9 @@ import { MODULES, basisOf } from '../../src/course/curriculum'
 import { fmtRecord } from '../../src/ui/format'
 import { anchor } from '../../src/course/lessonKit'
 import {
-  C_M_PER_NS, RMI_FINAL_DEFERRED_ENTRY_BYTES, RMI_FINAL_ENTRY_BYTES, RMI_FINAL_FIXED_BYTES,
-  RRTI_IE_BYTES, UWB_FCS_BYTES, UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES, UWB_SLOT_GUARD_NS, rstuNs,
-  uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbSlotFitNs, uwbSlotsPerTag,
+  C_M_PER_NS, RMI_FIXED_BYTES, RMI_TIME_BYTES, UWB_FCS_BYTES, UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES,
+  UWB_SHORT_ADDR_BYTES, UWB_SLOT_GUARD_NS, rstuNs, uwbDsDeferredReportBytes, uwbFinalBytes,
+  uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbSlotFitNs,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -82,42 +80,46 @@ describe('uwb-deferred-ds · where it sits in the course', () => {
   })
 })
 
-describe('uwb-deferred-ds · the Final, on the air', () => {
-  it('is 16 octets deferred and 26 embedded at this one anchor', () => {
-    // 「它只有 16 字节，而嵌入形态同一个场景里的 Final 有 26 字节」
+describe('uwb-deferred-ds · the Final and the deferred report, on the air', () => {
+  // 2026-11-10 (audit #3, standard §10.29.6.6, §10.32.5 Figure 10-237): the deferred Final carries
+  // no IE at all, and the initiator's two times follow in a deferred Data frame (one RMI IE).
+  it('is an 11-octet bare Final deferred and 30 octets embedded at this one anchor', () => {
     expect(txOf(run('deferred'), 'uwbFinal').map((r) => r.frame.bytes)).toEqual([BYTES.finalDeferredOne])
     expect(txOf(run('embedded'), 'uwbFinal').map((r) => r.frame.bytes)).toEqual([BYTES.finalEmbeddedOne])
-    expect(BYTES.finalDeferredOne).toBe(16)
-    expect(BYTES.finalEmbeddedOne).toBe(26)
-    // observe: 「多出来的 10 个字节」
-    expect(BYTES.finalEmbeddedOne - BYTES.finalDeferredOne).toBe(10)
-  })
-
-  it('still lists the responder when deferred, and carries no time for it', () => {
-    // 「延后的 Final 不是空的……走掉的只是……往返时间，和那一整串装着标签自己那段等待的小节」
+    expect(BYTES.finalDeferredOne).toBe(UWB_MHR_BYTES + UWB_FCS_BYTES)
+    expect(BYTES.finalDeferredOne).toBe(11)
+    expect(BYTES.finalEmbeddedOne).toBe(30)
     const deferred = txOf(run('deferred'), 'uwbFinal')[0]
+    expect(deferred.frame.uwb!.ies).toEqual([])
+    expect(deferred.frame.uwb!.finalTimes).toBeUndefined()
     const embedded = txOf(run('embedded'), 'uwbFinal')[0]
-    expect(deferred.frame.uwb!.finalTimes!.map((e) => e.id)).toEqual(['anchor-1'])
-    expect(deferred.frame.uwb!.finalTimes![0].tround1).toBeUndefined()
-    expect(deferred.frame.uwb!.finalTimes![0].treply2).toBeUndefined()
-    expect(embedded.frame.uwb!.finalTimes![0].tround1).toBeGreaterThan(0)
-    expect(embedded.frame.uwb!.finalTimes![0].treply2).toBeGreaterThan(0)
-    // 「RRTI IE」 is in the embedded Final and gone from the deferred one.
-    expect(embedded.frame.uwb!.ies).toContain('RRTI')
-    expect(deferred.frame.uwb!.ies).not.toContain('RRTI')
-    expect(deferred.frame.uwb!.ies).toContain('RMI')
+    expect(embedded.frame.uwb!.ies).toEqual(['RMI', 'RRTI'])
   })
 
-  it('grows by 2 octets an anchor deferred and 12 embedded, so 122 against 32 at nine', () => {
-    expect(uwbFinalBytes(2, 'deferred') - uwbFinalBytes(1, 'deferred')).toBe(RMI_FINAL_DEFERRED_ENTRY_BYTES)
-    expect(RMI_FINAL_DEFERRED_ENTRY_BYTES).toBe(2)
-    expect(uwbFinalBytes(2, 'embedded') - uwbFinalBytes(1, 'embedded'))
-      .toBe(RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES)
-    expect(RMI_FINAL_ENTRY_BYTES + RRTI_IE_BYTES).toBe(12)
+  it('sends the two times in the slot after the Final, one RMI element per anchor', () => {
+    const fromTag = txOf(run('deferred'), 'uwbReport').filter((r) => r.node === 'tag-1')
+    expect(fromTag.map((r) => r.frame.bytes)).toEqual([BYTES.deferredReportOne])
+    expect(BYTES.deferredReportOne).toBe(25)
+    const f = fromTag[0]!
+    expect(f.frame.uwb!.ies).toEqual(['RMI'])
+    expect(f.frame.uwb!.finalTimes!.map((e) => e.id)).toEqual(['anchor-1'])
+    expect(f.frame.uwb!.finalTimes![0].tround1).toBeGreaterThan(0)
+    expect(f.frame.uwb!.finalTimes![0].treply2).toBeGreaterThan(0)
+    const final = txOf(run('deferred'), 'uwbFinal')[0]!
+    expect(f.t - final.t).toBe(FIG.slotUs * 1000)
+    // and the embedded round sends no such frame
+    expect(txOf(run('embedded'), 'uwbReport').filter((r) => r.node === 'tag-1')).toHaveLength(0)
+  })
+
+  it('grows by 12 octets an anchor embedded and 10 deferred, so 126 against 105 at nine', () => {
+    expect(GROWTH.finalEmbedded).toBe(12)
+    expect(GROWTH.deferredReport).toBe(10)
+    expect(uwbFinalBytes(2, 'deferred')).toBe(uwbFinalBytes(1, 'deferred'))
     expect(FIG_ANCHORS).toBe(CAP.dsEmbedded)
-    expect(BYTES.finalEmbeddedMany).toBe(122)
-    expect(BYTES.finalDeferredMany).toBe(32)
-    expect(DROPPED_BYTES).toBe(90)
+    expect(BYTES.finalEmbeddedMany).toBe(126)
+    expect(BYTES.deferredReportMany).toBe(105)
+    expect(BYTES.finalDeferredMany).toBe(11)
+    expect(DROPPED_BYTES).toBe(115)
   })
 })
 
@@ -130,54 +132,49 @@ describe('uwb-deferred-ds · the fields figure', () => {
     expect(spec.unit).toBe('B')
   })
 
-  it('the four boxes the deferred Final keeps add up to the deferred Final', () => {
-    // 「延后留下第一、二、三、六格，共 32 字节——中间两格的 90 字节就是它拿掉的」
-    const kept = [0, 1, 2, 5].reduce((n, i) => n + spec.fields[i].size, 0)
-    const dropped = [3, 4].reduce((n, i) => n + spec.fields[i].size, 0)
+  it('the deferred Final keeps the first and last box; the six between are the two IEs', () => {
+    const kept = spec.fields[0].size + spec.fields[spec.fields.length - 1].size
+    const dropped = spec.fields.slice(1, -1).reduce((n, f) => n + f.size, 0)
     expect(kept).toBe(BYTES.finalDeferredMany)
     expect(dropped).toBe(DROPPED_BYTES)
     expect(spec.total).toContain(`延后 ${BYTES.finalDeferredMany} 字节`)
-    expect(spec.total).toContain(`差 ${DROPPED_BYTES} 在中间两格`)
-    // Half the dropped octets are round trips, half are the initiator's own waits.
-    expect(spec.fields[3].size).toBe(36)
-    expect(spec.fields[4].size).toBe(54)
+    expect(spec.total).toContain(`差 ${DROPPED_BYTES} 在中间六格`)
+    // RMI: 4 + 6·9; RRTI: 3 + 6·9 (standard §10.29.8.4 / §10.29.8.1)
+    expect(spec.fields.slice(1, 4).reduce((n, f) => n + f.size, 0)).toBe(4 + 6 * FIG_ANCHORS)
+    expect(spec.fields.slice(4, 7).reduce((n, f) => n + f.size, 0)).toBe(3 + 6 * FIG_ANCHORS)
   })
 })
 
-describe('uwb-deferred-ds · the cap and the slot move with the Final', () => {
-  it('earns 9 embedded and 33 deferred, each searched against the 127-octet PSDU', () => {
+describe('uwb-deferred-ds · the cap and the slot move with the shape', () => {
+  it('earns 9 embedded and 11 deferred, each searched against the 127-octet PSDU', () => {
     expect(CAP.dsEmbedded).toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
     expect(CAP.dsDeferred).toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
     expect(CAP.dsEmbedded).toBe(9)
-    expect(CAP.dsDeferred).toBe(32) // 33 before the 2026-11-10 ARC/RR IE correction: the Poll is 30 + 3A
+    expect(CAP.dsDeferred).toBe(11)
     expect(BYTES.psdu).toBe(UWB_MAX_PSDU_BYTES)
     for (const [rt, cap] of [['embedded', CAP.dsEmbedded], ['deferred', CAP.dsDeferred]] as const) {
       expect(uwbLongestFrameBytes(cap, 'twr', 'time', 'ds', rt), rt).toBeLessThanOrEqual(BYTES.psdu)
       expect(uwbLongestFrameBytes(cap + 1, 'twr', 'time', 'ds', rt), rt).toBeGreaterThan(BYTES.psdu)
     }
-    // 「延后之后……卡住这一轮的换成了 Poll」
+    // 「延后数据帧……是轮中最长的一帧」
     expect(uwbLongestFrameBytes(CAP.dsDeferred, 'twr', 'time', 'ds', 'deferred'))
-      .toBe(uwbPollBytes(CAP.dsDeferred))
+      .toBe(uwbDsDeferredReportBytes(CAP.dsDeferred))
     expect(BYTES.pollMany).toBe(uwbPollBytes(FIG_ANCHORS))
   })
 
-  it('shortens the slot at nine anchors and moves not one slot out of the round', () => {
+  it('needs one slot more deferred: 2A + 3 against 2A + 2', () => {
     expect(DEMAND.dsEmbedded).toBe(uwbSlotFitNs(FIG_ANCHORS, 'twr', 'time', undefined, 'ds', 'embedded'))
     expect(DEMAND.dsDeferred).toBe(uwbSlotFitNs(FIG_ANCHORS, 'twr', 'time', undefined, 'ds', 'deferred'))
-    expect(DEMAND.dsEmbedded).toBe(304_495)
-    expect(DEMAND.dsDeferred).toBe(231_674)
-    // 「时隙数一个都没省：两种形态都是 2A + 2 个」
-    expect(uwbSlotsPerTag('ds', FIG_ANCHORS)).toBe(2 * FIG_ANCHORS + 2)
-    expect(uwbSlotsPerTag('ds', FIG_ANCHORS)).toBe(20)
+    expect(dsSlots(FIG_ANCHORS, 'embedded')).toBe(2 * FIG_ANCHORS + 2)
+    expect(dsSlots(FIG_ANCHORS, 'deferred')).toBe(2 * FIG_ANCHORS + 3)
     for (const rt of ['embedded', 'deferred'] as const) {
       const rounds = ofType(run(rt), 'UWB_ROUND')
-      expect(rounds.map((r) => r.slots), rt).toEqual([uwbSlotsPerTag('ds', 1)])
-      expect(fmtRecord(rounds[0])).toContain(`${uwbSlotsPerTag('ds', 1)} slots`)
+      expect(rounds.map((r) => r.slots), rt).toEqual([dsSlots(1, rt)])
+      expect(fmtRecord(rounds[0])).toContain(`${dsSlots(1, rt)} slots`)
     }
   })
 
   it('refuses ten anchors embedded and accepts them deferred', () => {
-    // tryThis: 「把锚点加到十个，仍用嵌入形态：场景会被拒……改成延后就通过了」
     const many = (replyTime: 'embedded' | 'deferred'): Scenario => {
       const base = uwbDeferredDsScenario(replyTime)
       const extra: NodeCfg[] = Array.from({ length: CAP.dsEmbedded }, (_v, i) =>
@@ -187,39 +184,37 @@ describe('uwb-deferred-ds · the cap and the slot move with the Final', () => {
     expect(many('embedded').nodes.filter((n) => n.uwb!.role === 'anchor')).toHaveLength(CAP.dsEmbedded + 1)
     const refused = ScenarioSchema.safeParse(many('embedded'))
     expect(refused.success).toBe(false)
-    // …and refused for the cap, not for some other rule that happens to bite first
     expect(refused.success ? '' : refused.error.issues.map((i) => i.message).join(''))
       .toContain(`最多容纳 ${CAP.dsEmbedded} 个 anchor`)
     expect(() => ScenarioSchema.parse(many('deferred'))).not.toThrow()
-    // and the Final that would not fit is the number the lesson prints
-    expect(uwbFinalBytes(CAP.dsEmbedded + 1, 'embedded')).toBe(134)
+    expect(uwbFinalBytes(CAP.dsEmbedded + 1, 'embedded')).toBe(138)
     expect(uwbFinalBytes(CAP.dsEmbedded + 1, 'embedded')).toBeGreaterThan(BYTES.psdu)
   })
 })
 
-describe('uwb-deferred-ds · who ends up holding the range (design §7)', () => {
-  it('gives the anchor a range in the embedded round only', () => {
-    expect(ofType(run('deferred'), 'UWB_RANGE').map((r) => r.node)).toEqual(['tag-1'])
+describe('uwb-deferred-ds · who ends up holding the range', () => {
+  it('gives the anchor a range in both DS rounds (standard §10.29.6.6)', () => {
+    expect(ofType(run('deferred'), 'UWB_RANGE').map((r) => r.node).sort()).toEqual(['anchor-1', 'tag-1'])
     expect(ofType(run('embedded'), 'UWB_RANGE').map((r) => r.node).sort()).toEqual(['anchor-1', 'tag-1'])
   })
 
-  it('prints the two instants, and the same distance on both lanes', () => {
-    // 「嵌入形态的锚点在 4.194 ms 就算出了 4.999075 m……标签要等到 6.191 ms」
-    const emb = ofType(run('embedded'), 'UWB_RANGE')
-    const atAnchor = emb.find((r) => r.node === 'anchor-1')!
-    const atTag = emb.find((r) => r.node === 'tag-1')!
-    expect((atAnchor.t / 1e6).toFixed(3)).toBe(FIG.anchorRangeUs)
-    expect((atTag.t / 1e6).toFixed(3)).toBe(FIG.tagRangeUs)
-    expect(atAnchor.distM).toBe(atTag.distM)
-    expect(atAnchor.distM.toFixed(6)).toBe(RANGE_M.ds)
-    // …and deferring the Final leaves the tag's own line untouched, to the last digit.
-    const def = ofType(run('deferred'), 'UWB_RANGE')[0]
-    expect(def.distM).toBe(atTag.distM)
-    expect((def.t / 1e6).toFixed(3)).toBe(FIG.tagRangeUs)
+  it('prints the four instants, and the same distance on every lane', () => {
+    const at = (rt: 'embedded' | 'deferred', node: string) =>
+      ofType(run(rt), 'UWB_RANGE').find((r) => r.node === node)!
+    expect((at('embedded', 'anchor-1').t / 1e6).toFixed(3)).toBe(FIG.anchorRangeUs)
+    expect((at('embedded', 'tag-1').t / 1e6).toFixed(3)).toBe(FIG.tagRangeUs)
+    expect((at('deferred', 'anchor-1').t / 1e6).toFixed(3)).toBe(FIG.anchorDeferredUs)
+    expect((at('deferred', 'tag-1').t / 1e6).toFixed(3)).toBe(FIG.tagDeferredUs)
+    for (const rt of ['embedded', 'deferred'] as const) {
+      for (const n of ['anchor-1', 'tag-1']) expect(at(rt, n).distM.toFixed(6), `${rt} ${n}`).toBe(RANGE_M.ds)
+    }
+    // the deferred anchor range lands right after the initiator's deferred report
+    const rep = txOf(run('deferred'), 'uwbReport').find((r) => r.node === 'tag-1')!
+    expect(at('deferred', 'anchor-1').t).toBeGreaterThan(rep.t)
+    expect(at('deferred', 'anchor-1').t - rep.t).toBeLessThan(FIG.slotUs * 1000)
   })
 
-  it('reproduces the whole §7 column the lesson tabulates', () => {
-    // The five rows of 「谁手里有距离」: only DS-TWR embedded ever gives the anchor one.
+  it('reproduces the whole column the lesson tabulates', () => {
     const anchorRanges = (method: 'ss' | 'ds', replyTime: 'embedded' | 'deferred' | 'fixed'): number => {
       const sc = uwbDeferredDsScenario('deferred')
       const built: Scenario = { ...sc, uwb: { ...sc.uwb!, method, replyTime } }
@@ -231,27 +226,10 @@ describe('uwb-deferred-ds · who ends up holding the range (design §7)', () => 
     expect(anchorRanges('ss', 'fixed')).toBe(0)
     expect(anchorRanges('ss', 'deferred')).toBe(0)
     expect(anchorRanges('ds', 'embedded')).toBe(1)
-    expect(anchorRanges('ds', 'deferred')).toBe(0)
+    expect(anchorRanges('ds', 'deferred')).toBe(1)
   })
 })
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * Almost every figure of this lesson is interpolated from its own module (`BYTES`, `CAP`,
- * `DEMAND`, `FIG`) and the file above measures those against runs. What is typed is the rest:
- * the PSDU ceiling in two places, the six field widths `sources` lists, the two instants in
- * `FIG`, the diagram's own labels and a few figures in `limits`.
- *
- * **The reads worth naming:**
- *
- *  - **the two instants are read as the two runs they belong to.** 「嵌入形态的锚点在 4.194 ms
- *    就算出了…而标签要等到 6.191 ms」 is the anchor's range record in the embedded round and the
- *    tag's in both — and 「把 Final 延后，那一行就整行消失」 is read as the absence of it.
- *  - **the 「谁手里有距离」 table is read as five runs' worth of presence and absence**, for the
- *    two this lesson can run: a ✓ means a range record on that lane, a ✗ means none.
- *  - **the six field widths are read off the constants `sources` names**, and their sum is the
- *    frame the run really sends.
- */
+
 describe('uwb-deferred-ds · every figure the prose prints, read back out of it', () => {
   const blockText = (b: unknown): string => {
     const out: string[] = []
@@ -290,31 +268,20 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
   const TAG = uwbDeferredDsScenario('deferred').nodes.find((n) => n.uwb!.role === 'tag')!.id
   const ANC = uwbDeferredDsScenario('deferred').nodes.find((n) => n.uwb!.role === 'anchor')!.id
 
-  it('reads the two instants, and the row that disappears when the Final is deferred', () => {
-    // 「嵌入形态的锚点在 4.194 ms 就算出了 4.99… m…而标签要等到 6.191 ms 才算出同一个数」
+  it('reads the four instants', () => {
     const [anchorMs, tagMs] = raw(NUMS,
       /嵌入形态的锚点在 ([\d.]+) ms 就算出了 [\d.]+ m（真值 [\d.]+ m），而标签要等到 ([\d.]+) ms/,
-      '`numbers` on the two instants')
-    const anchorRange = rangesOf('embedded', ANC)
-    const tagRange = rangesOf('embedded', TAG)
-    expect(anchorRange, 'the embedded round really gives the anchor one').toHaveLength(1)
-    same(anchorMs!, anchorRange[0]!.t / MS, 'when the anchor really has it')
-    same(tagMs!, tagRange[0]!.t / MS, 'and when the tag does')
-    expect(anchorRange[0]!.distM.toFixed(6), 'and they are the same number to the last digit')
-      .toBe(tagRange[0]!.distM.toFixed(6))
-    // 「把 Final 延后，4.194 ms 那一行就整行消失，标签那一行一个字都不变」
-    const [goneMs] = raw(NUMS, /把 Final 改为延后，([\d.]+) ms 那一行就整行消失/,
-      '`numbers` on the row that goes')
-    expect(goneMs, 'the row that disappears is the anchor’s').toBe(anchorMs)
-    expect(rangesOf('deferred', ANC), 'and in the deferred round there is none').toHaveLength(0)
-    expect(fmtRecord(rangesOf('deferred', TAG)[0]!), 'while the tag’s line is unchanged')
-      .toBe(fmtRecord(tagRange[0]!))
-    // `observe` prints both instants again
-    const [obsTag, obsAnchor] = raw(OBS,
-      /在 ([\d.]+) ms、手机那条泳道上。载入「嵌入」，锚点那条泳道会在 ([\d.]+) ms 多出一条/,
-      '`observe` on the same two')
-    expect([obsTag, obsAnchor], 'the same two instants, a second time').toEqual([tagMs, anchorMs])
-    // 「Final 在 4 ms 处发出」
+      '`numbers` on the embedded instants')
+    same(anchorMs!, rangesOf('embedded', ANC)[0]!.t / MS, 'when the embedded anchor has it')
+    same(tagMs!, rangesOf('embedded', TAG)[0]!.t / MS, 'and the embedded tag')
+    const [defAnchorMs, defTagMs] = raw(NUMS, /锚点的那一行推迟到 ([\d.]+) ms，标签的那一行推迟到 ([\d.]+) ms/,
+      '`numbers` on the deferred instants')
+    same(defAnchorMs!, rangesOf('deferred', ANC)[0]!.t / MS, 'when the deferred anchor has it')
+    same(defTagMs!, rangesOf('deferred', TAG)[0]!.t / MS, 'and the deferred tag')
+    const [o1, o2, o3, o4] = raw(OBS,
+      /锚点那条泳道的测距行在 ([\d.]+) ms，手机那条在 ([\d.]+) ms。载入「嵌入」，两行分别提前到 ([\d.]+) ms 与 ([\d.]+) ms/,
+      '`observe` on the same four')
+    expect([o1, o2, o3, o4]).toEqual([defAnchorMs, defTagMs, anchorMs, tagMs])
     const [finalMs] = figs(OBS, /Final 在 (\d+) ms 处发出/, '`observe` on the Final')
     same(String(finalMs), txOf(run('deferred'), 'uwbFinal')[0]!.t / MS, 'when the Final really leaves')
   })
@@ -328,16 +295,13 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
       const rt = shape.includes('嵌入') ? 'embedded' : 'deferred'
       expect(tagCell.startsWith('✓'), `${shape}: the tag’s cell`).toBe(rangesOf(rt, TAG).length > 0)
       expect(ancCell.startsWith('✓'), `${shape}: the anchor’s cell`).toBe(rangesOf(rt, ANC).length > 0)
-      // the tag's cell says WHEN, and in both rounds that is when the report lands
-      expect(tagCell, `${shape}: and what the tag waits for`).toContain('报告')
-      const report = txOf(run(rt), 'uwbReport').at(-1)!
-      expect(rangesOf(rt, TAG)[0]!.t, `${shape}: the tag’s range follows the report`)
-        .toBeGreaterThanOrEqual(report.t)
+      expect(tagCell).toContain('报告')
+      const report = txOf(run(rt), 'uwbReport').filter((r) => r.node === ANC).at(-1)!
+      expect(rangesOf(rt, TAG)[0]!.t).toBeGreaterThanOrEqual(report.t)
     }
   })
 
-  it('reads the PSDU ceiling, the two caps and the two growths', () => {
-    // 「一帧中实际承载消息的部分，最长 127 字节」 (a term) and 「一帧最长 127 字节的 PSDU」
+  it('reads the PSDU ceiling, the two caps and the growths', () => {
     for (const [text, re, what] of [
       [TERMS, /最长 (\d+) 字节/, 'the term on the PSDU'],
       [SRC, /一帧最长 (\d+) 字节的 PSDU/, '`sources` on the same'],
@@ -346,93 +310,60 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
     }
     const tb = tables().find((x) => x.head[0] === '这一帧')!
     const cell = (needle: string): string[] => tb.rows.find((r) => r[0]!.includes(needle))!.slice(1)
-    // 「Final 长度」: `base + nA` for each shape, read against the engine's own Final
     const [emb, def] = cell('Final 长度')
-    for (const [printed, rt] of [[emb!, 'embedded'], [def!, 'deferred']] as const) {
-      const [base, growth] = figs(printed, /(\d+) \+ (\d+)A/, `the ${rt} Final’s growth`)
-      expect(uwbFinalBytes(0, rt), `${rt}: the Final with no anchor in it`).toBe(base)
-      expect(uwbFinalBytes(1, rt) - uwbFinalBytes(0, rt), `${rt}: what one anchor adds`).toBe(growth)
-    }
-    // 「A = 1（本课这一轮）」 — the anchors this lesson's own scene really has
-    const [oneRow] = raw(tb.rows.find((r) => r[0]!.startsWith('A = '))![0]!, /A = (\d+)（本课这一轮）/,
-      'the row’s own anchor count')
-    expect(uwbDeferredDsScenario('deferred').nodes.filter((n) => n.uwb!.role === 'anchor').length,
-      'the anchors this round really asks').toBe(val(oneRow!))
-    // 「锚点上限」 for the two shapes
+    const [base, growth] = figs(emb!, /(\d+) \+ (\d+)A/, 'the embedded Final’s growth')
+    expect(uwbFinalBytes(0, 'embedded')).toBe(base)
+    expect(uwbFinalBytes(1, 'embedded') - uwbFinalBytes(0, 'embedded')).toBe(growth)
+    const [defFinal] = figs(def!, /^(\d+)/, 'the deferred Final')
+    expect(uwbFinalBytes(5, 'deferred')).toBe(defFinal)
+    const [, rep] = cell('延后数据帧')
+    const [rb, rg] = figs(rep!, /(\d+) \+ (\d+)A/, 'the deferred report’s growth')
+    expect(uwbDsDeferredReportBytes(0)).toBe(rb)
+    expect(uwbDsDeferredReportBytes(1) - uwbDsDeferredReportBytes(0)).toBe(rg)
     const [capEmb, capDef] = cell('锚点上限')
-    expect(val(capEmb!), 'the embedded cap').toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
-    expect(val(capDef!), 'and the deferred one').toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
-    // 「轮中最长的一帧」: a frame name, and for the deferred shape the Poll's own length
-    const [longEmb, longDef] = cell('轮中最长的一帧')
-    expect(longEmb, 'the embedded round’s longest frame').toBe('Final')
-    const [pollBytes] = figs(longDef!, /Poll，(\d+) B/, 'the deferred round’s longest frame')
-    expect(pollBytes, 'which is the Poll at the figure’s own anchor count')
-      .toBe(uwbPollBytes(FIG_ANCHORS))
-    expect(uwbLongestFrameBytes(FIG_ANCHORS, 'twr', 'time', 'ds', 'deferred'),
-      'and the engine agrees it is the longest').toBe(pollBytes)
+    expect(val(capEmb!)).toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
+    expect(val(capDef!)).toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
   })
 
-  it('reads the six field widths `sources` lists, and the two model values beside them', () => {
-    // 「2 ms 的测距时隙…时隙末尾 200 ns 的飞行守卫」
+  it('reads the field widths `sources` lists, and the two model values beside them', () => {
     const [slotMs] = figs(SRC, /(\d+) ms 的测距时隙/, '`sources` on the slot')
-    expect(rstuNs(uwbDeferredDsScenario('deferred').uwb!.slotRstu), 'the slot this scene runs')
-      .toBe(slotMs! * MS)
+    expect(rstuNs(uwbDeferredDsScenario('deferred').uwb!.slotRstu)).toBe(slotMs! * MS)
     const [guardNs] = figs(SRC, /时隙末尾 (\d+) ns 的飞行守卫/, '`sources` on the guard')
-    expect(guardNs, 'the guard the engine keeps').toBe(UWB_SLOT_GUARD_NS)
-    /*
-     * 「帧头 9、RMI 表头 3、嵌入式每响应方 6、延后每响应方 2、每段回复时延 6、帧校验 2」 — six
-     * widths, each read off the constant the same sentence names, and their sum is the frame the
-     * run really sends at one anchor.
-     */
+    expect(guardNs).toBe(UWB_SLOT_GUARD_NS)
     const six = figs(SRC,
-      /帧头 (\d+)、RMI 表头 (\d+)、嵌入式每响应方 (\d+)、延后每响应方 (\d+)、每段回复时延 (\d+)、帧校验 (\d+)/,
+      /帧头 (\d+)、RMI 表头 (\d+)、每个时间 (\d+)、短地址 (\d+)、RRTI 表头 (\d+)、帧校验 (\d+)/,
       '`sources` on the field widths')
-    expect(six, 'the six widths this engine really uses').toEqual([
-      UWB_MHR_BYTES, RMI_FINAL_FIXED_BYTES, RMI_FINAL_ENTRY_BYTES,
-      RMI_FINAL_DEFERRED_ENTRY_BYTES, RRTI_IE_BYTES, UWB_FCS_BYTES,
-    ])
-    const [mhr, hdr, embEntry, defEntry, rrti, fcs] = six
-    expect(mhr! + hdr! + embEntry! + rrti! + fcs!, 'their sum is the embedded Final at one anchor')
+    expect(six).toEqual([UWB_MHR_BYTES, RMI_FIXED_BYTES, RMI_TIME_BYTES, UWB_SHORT_ADDR_BYTES, RRTI_FIXED_BYTES, UWB_FCS_BYTES])
+    const [mhr, rmi, t, a, rrti, fcs] = six
+    expect(mhr! + rmi! + (t! + a!) + rrti! + (t! + a!) + fcs!, 'embedded Final at one anchor')
       .toBe(txOf(run('embedded'), 'uwbFinal')[0]!.frame.bytes)
-    expect(mhr! + hdr! + defEntry! + fcs!, 'and the deferred one')
-      .toBe(txOf(run('deferred'), 'uwbFinal')[0]!.frame.bytes)
-    // 「那段等待错 1 ns 就是约 15 cm 的距离误差」
+    expect(mhr! + fcs!, 'the deferred Final').toBe(txOf(run('deferred'), 'uwbFinal')[0]!.frame.bytes)
+    expect(mhr! + rmi! + 2 * t! + a! + fcs!, 'the deferred report')
+      .toBe(txOf(run('deferred'), 'uwbReport').find((r) => r.node === TAG)!.frame.bytes)
     const [errNs, errCm] = figs(LIM, /等待时间偏差 (\d+) ns 就是约 (\d+) cm 的距离误差/,
       '`limits` on what a nanosecond costs')
     same(String(errCm), (errNs! / 2) * C_M_PER_NS * 100, 'half the error, times the speed of light')
   })
 
   it('reads the figure’s own labels, and the anchors it is drawn at', () => {
-    // 「9 个锚点的 Final，一格一格看」
     const diagram = uwbDeferredDs.numbers!.find((b) => b.kind === 'diagram') as unknown as
       { heading: string; caption: string }
     const [anchors] = figs(diagram.heading, /(\d+) 个锚点的 Final/, 'the figure’s own heading')
-    expect(anchors, 'the anchor count the figure is drawn at').toBe(FIG_ANCHORS)
-    /*
-     * Every label of the drawing carries its own width, and the widths have to add up to the
-     * frame the engine builds at that anchor count — so a planted label breaks the sum.
-     */
+    expect(anchors).toBe(FIG_ANCHORS)
     const spec = uwbDeferredDsFields()
-    const labels = spec.fields.map((f) => f.label)
-    const sizes = spec.fields.map((f) => f.size)
-    for (const [i, label] of labels.entries()) {
-      // a label is either 「name N」 (its own width) or 「name ×N」 (one box per anchor)
+    for (const [i, label] of spec.fields.map((f) => f.label).entries()) {
       const times = /×(\d+)$/.exec(label!)
       if (times) {
-        expect(val(times[1]!), `the label 「${label}」 counts the anchors`).toBe(anchors)
-        expect(sizes[i]! % val(times[1]!), `and its width is that many equal entries`).toBe(0)
+        expect(val(times[1]!)).toBe(anchors)
+        expect(spec.fields[i]!.size % val(times[1]!)).toBe(0)
         continue
       }
       const m = /(\d+)$/.exec(label!)
-      if (!m) continue
-      expect(val(m[1]!), `the label 「${label}」 names its own width`).toBe(sizes[i])
+      if (m) expect(val(m[1]!), label).toBe(spec.fields[i]!.size)
     }
-    expect(sizes.reduce((a, b) => a + b, 0), 'and the fields add up to the embedded Final')
-      .toBe(uwbFinalBytes(anchors!, 'embedded'))
-    // 「DROPPED_BYTES 个字节里，一半是…往返时间，一半是…回复时延」
-    const [dropped] = figs(diagram.caption, /(\d+) 个字节中，一半是/, 'the caption on what goes')
-    expect(dropped, 'the octets the deferred Final does without')
-      .toBe(uwbFinalBytes(anchors!, 'embedded') - uwbFinalBytes(anchors!, 'deferred'))
-    expect(dropped, 'and that is what the module computes').toBe(DROPPED_BYTES)
+    const [dropped] = figs(diagram.caption, /去掉的 (\d+) 个字节/, 'the caption on what goes')
+    expect(dropped).toBe(uwbFinalBytes(anchors!, 'embedded') - uwbFinalBytes(anchors!, 'deferred'))
+    const [rep] = figs(diagram.caption, /共 (\d+) 字节/, 'the caption on the deferred report')
+    expect(rep).toBe(uwbDsDeferredReportBytes(anchors!))
   })
 })

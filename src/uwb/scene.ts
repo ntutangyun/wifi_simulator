@@ -148,8 +148,9 @@ export class UwbOverlay {
    * mistake the residual for exactness.
    */
   private roundEndNs(block: number, round: number, granted: number | null): Ns {
-    // The round's own start (the sum of the rounds before it in the block) plus its own length.
-    return blockSlotStartNs(this.plan, block, round, roundSlots(this.plan, round, granted), granted)
+    // Every round is `plan.slots` long (standard §10.32.3.3), so the grant no longer moves it.
+    void granted
+    return blockSlotStartNs(this.plan, block, round, roundSlots(this.plan, round))
   }
 
   /**

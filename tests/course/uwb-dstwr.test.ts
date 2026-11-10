@@ -29,7 +29,7 @@ import { dsTwr, metresToNs, rctuToMetres, ssTwrRaw } from '../../src/uwb/ranging
 import { roundPlan } from '../../src/uwb/session'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
-  C_M_PER_NS, COUNTER_BITS, RCTU_NS, RMI_REPORT_IE_BYTES, RRTI_IE_BYTES, RS_BLOCK_BITS, UWB_FCS_BYTES,
+  C_M_PER_NS, COUNTER_BITS, RCTU_NS, RMI_REPORT_IE_BYTES, rrtiIeBytes, RS_BLOCK_BITS, UWB_FCS_BYTES,
   UWB_MHR_BYTES, UWB_NLOS_NS, UWB_PPM_MAX, UWB_REPORT_BYTES, rmiFinalIeBytes, uwbFinalBytes, uwbPollBytes,
   uwbPpduNs, uwbRespBytes,
 } from '../../src/uwb/phy'
@@ -181,8 +181,8 @@ describe('uwb-dstwr · the figure', () => {
     // the two self-messages: the anchor finishes when the Final lands, the phone at the report
     expect(FIG.anchorRange).toBe(ms(anchorRanges().find((r) => r.node === 'anchor-1')!.t))
     expect(FIG.tagRange).toBe(ms(tagRanges().find((r) => r.peer === 'anchor-1')!.t))
-    expect(FIG.anchorRange).toBe('10.237 ms')
-    expect(FIG.tagRange).toBe('12.191 ms')
+    expect(FIG.anchorRange).toBe('10.243 ms')
+    expect(FIG.tagRange).toBe('12.192 ms')
     // and both print the same distance, which is the one number on the figure
     const a1 = anchorRanges().find((r) => r.node === 'anchor-1')!
     const t1 = tagRanges().find((r) => r.peer === 'anchor-1')!
@@ -246,10 +246,11 @@ describe('uwb-dstwr · the lesson’s own place in the track', () => {
     for (const s of ['100 ps', 'FiRa']) expect(src, s).toContain(s)
     expect(SESSION.tsNoisePs).toBe(100)
     expect(PLAN.slotNs).toBe(2 * MS)
-    // "the Final’s RMI is 3 + 6N octets, one reply-time field 6, a report’s RMI 13"
-    for (const n of [3, 4, 5]) expect(rmiFinalIeBytes(n), `RMI ${n}`).toBe(3 + 6 * n)
-    expect(RRTI_IE_BYTES).toBe(6)
-    expect(RMI_REPORT_IE_BYTES).toBe(13)
+    // 2026-11-10 (§10.29.8.1/§10.29.8.4: RMI content header 2 octets, RRTI 1): "the Final’s RMI is
+    // 4 + 6N octets, its RRTI 3 + 6N, a report’s RMI 12"
+    for (const n of [3, 4, 5]) expect(rmiFinalIeBytes(n), `RMI ${n}`).toBe(4 + 6 * n)
+    for (const n of [3, 4, 5]) expect(rrtiIeBytes(n, true), `RRTI ${n}`).toBe(3 + 6 * n)
+    expect(RMI_REPORT_IE_BYTES).toBe(12)
     // "the 40-bit ranging counter, where the standard asks for at least 32"
     expect(COUNTER_BITS).toBe(40)
     expect(COUNTER_BITS).toBeGreaterThanOrEqual(32)
@@ -351,8 +352,9 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
       ['Report', UWB_REPORT_BYTES, ANCHORS],
     ]
     // Poll 39 → 42 on 2026-11-10: ARC IE to the standard's content plus the RR IE (audit #9).
-    expect(rows.map((r) => r[1])).toEqual([42, 14, 62, 24])
-    expect(rows.map((r) => uwbPpduNs(r[1]))).toEqual([216_090, 181_218, 236_603, 191_474])
+    // 2026-11-10: Final 62 → 66 and Report 24 → 23 (IE content headers, §10.29.8.1/§10.29.8.4).
+    expect(rows.map((r) => r[1])).toEqual([42, 14, 66, 23])
+    expect(rows.map((r) => uwbPpduNs(r[1]))).toEqual([217_885, 183_013, 242_500, 192_244])
     rows.forEach(([label, octets, count], i) => {
       expect(cell(1, i, 0), `${label} name`).toBe(label)
       expect(cell(1, i, 1), `${label} count`).toBe(String(count))
@@ -363,22 +365,22 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     const octets = rows.reduce((sum, [, b, n]) => sum + b * n, 0)
     expect(octets).toBe(256)
     const airtime = ofType(recs(), 'TX_START').reduce((sum, r) => sum + r.frame.txTimeNs, 0)
-    expect(airtime).toBe(216_090 + 4 * 181_218 + 236_603 + 4 * 191_474)
-    expect(airtime).toBe(1_943_461)
+    expect(airtime).toBe(217_885 + 4 * 183_013 + 242_500 + 4 * 192_244)
+    expect(airtime).toBe(1_961_413)
     expect(cell(1, 4, 1)).toBe(String(PLAN.slots))
     expect(cell(1, 4, 2)).toBe(String(octets))
-    expect(cell(1, 4, 3)).toBe('1 943.46 µs')
-    expect((airtime / 1000).toFixed(2)).toBe('1943.46')
+    expect(cell(1, 4, 3)).toBe('1 961.41 µs')
+    expect((airtime / 1000).toFixed(2)).toBe('1961.41')
   })
 
   it('the round radiates 9.72 % of its 20 ms, against 9.66 % for the single-sided round', () => {
     // "1 943.46 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for the
     //  single-sided round of the lesson before."
     const airtime = ofType(recs(), 'TX_START').reduce((sum, r) => sum + r.frame.txTimeNs, 0)
-    expect((airtime / PLAN.roundNs * 100).toFixed(2)).toBe('9.72')
+    expect((airtime / PLAN.roundNs * 100).toFixed(2)).toBe('9.81')
     const ssPlan = roundPlan({ ...SESSION, method: 'ss' }, ANCHORS)
     const ssAir = uwbPpduNs(uwbPollBytes(ANCHORS)) + ANCHORS * uwbPpduNs(uwbRespBytes('ss'))
-    expect((ssAir / ssPlan.roundNs * 100).toFixed(2)).toBe('9.66')
+    expect((ssAir / ssPlan.roundNs * 100).toFixed(2)).toBe('9.79')
     expect(ssPlan.roundNs).toBe(10 * MS)
     // the picture's claim that the share "barely moves": under a tenth of a point apart
     expect(Math.abs(airtime / PLAN.roundNs - ssAir / ssPlan.roundNs) * 100).toBeLessThan(0.2)
@@ -389,9 +391,9 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     //  blocks … A fifth anchor would add 12 octets to the Final and two slots, 4 ms, to the round."
     const sizes = [uwbPollBytes(ANCHORS), uwbRespBytes('ds'), uwbFinalBytes(ANCHORS), UWB_REPORT_BYTES]
     expect(Math.max(...sizes)).toBe(uwbFinalBytes(ANCHORS))
-    expect(uwbFinalBytes(ANCHORS)).toBe(62)
+    expect(uwbFinalBytes(ANCHORS)).toBe(66)
     for (const n of [3, 4, 5]) {
-      expect(uwbFinalBytes(n), `final ${n}`).toBe(14 + 12 * n)
+      expect(uwbFinalBytes(n), `final ${n}`).toBe(18 + 12 * n)
       expect(uwbPollBytes(n), `poll ${n}`).toBe(30 + 3 * n)
     }
     // the Poll grows too — 3 octets an anchor — but the Final grows four times faster
@@ -399,9 +401,9 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     expect(uwbFinalBytes(5) - uwbFinalBytes(4)).toBe(12)
     // the Response and the report do not grow at all
     expect(uwbRespBytes('ds')).toBe(14)
-    expect(UWB_REPORT_BYTES).toBe(24)
-    expect(8 * uwbFinalBytes(ANCHORS)).toBe(496)
-    expect(Math.ceil(496 / RS_BLOCK_BITS)).toBe(2)
+    expect(UWB_REPORT_BYTES).toBe(23)
+    expect(8 * uwbFinalBytes(ANCHORS)).toBe(528)
+    expect(Math.ceil(528 / RS_BLOCK_BITS)).toBe(2)
     const five = roundPlan(SESSION, 5)
     expect(five.slots - PLAN.slots).toBe(2)
     expect(five.roundNs - PLAN.roundNs).toBe(4 * MS)
@@ -411,21 +413,22 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
     // try-this 2: "an RMI listing four anchors, then one short field per anchor holding the
     //  phone’s second interval. Then open a report: one RMI with the anchor’s two."
     const final = finalFrame(recs())
-    expect(final.bytes).toBe(62)
+    expect(final.bytes).toBe(66)
     const fields = uwbFrameFields(final).users[0].subframes[0].mpdu.fields
     const ies = fields.filter((f) => f.key.startsWith('ie')).map((f) => ({ key: f.key, bytes: f.bytes }))
+    // 2026-11-10 (§10.29.8.1, Figure 10-208): one RRTI IE carries the whole list — four reply times,
+    // each with its anchor's address — not one IE per anchor.
     expect(ies).toEqual([
-      { key: 'ieRmi', bytes: 27 },
-      ...Array.from({ length: ANCHORS }, () => ({ key: 'ieRrti', bytes: RRTI_IE_BYTES })),
+      { key: 'ieRmi', bytes: 28 },
+      { key: 'ieRrti', bytes: rrtiIeBytes(ANCHORS, true) },
     ])
     expect(ies[0].bytes).toBe(rmiFinalIeBytes(ANCHORS))
-    expect(ies.filter((x) => x.key === 'ieRrti')).toHaveLength(ANCHORS)
-    // one reply time per row, named for the anchor it belongs to
-    fields.filter((f) => f.key === 'ieRrti').forEach((f, i) => {
-      const head = STRINGS.frameDetail.fields.uwbValue.finalReply(`anchor-${i + 1}`, '')
-      expect(f.value!.startsWith(head)).toBe(true)
-    })
-    expect(UWB_MHR_BYTES + 27 + ANCHORS * RRTI_IE_BYTES + UWB_FCS_BYTES).toBe(62)
+    // every reply time in that one row is named for the anchor it belongs to
+    const rrti = fields.find((f) => f.key === 'ieRrti')!
+    for (let i = 0; i < ANCHORS; i++) {
+      expect(rrti.value).toContain(STRINGS.frameDetail.fields.uwbValue.finalReply(`anchor-${i + 1}`, ''))
+    }
+    expect(UWB_MHR_BYTES + 28 + rrtiIeBytes(ANCHORS, true) + UWB_FCS_BYTES).toBe(66)
     // "Then open a report: one RMI with the anchor’s two."
     const report = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbReport')!.frame
     expect(report.bytes).toBe(UWB_REPORT_BYTES)
@@ -644,12 +647,12 @@ describe('uwb-dstwr · the same number on two lanes', () => {
     //  and 18 ms, each pair alike."
     expect(anchorRanges()).toHaveLength(ANCHORS)
     expect(tagRanges()).toHaveLength(ANCHORS)
-    expect(anchorRanges().map((r) => r.t)).toEqual([10_236_615, 10_236_615, 10_236_615, 10_236_615])
-    expect(tagRanges().map((r) => r.t)).toEqual([12_191_486, 14_191_486, 16_191_486, 18_191_486])
+    expect(anchorRanges().map((r) => r.t)).toEqual([10_242_512, 10_242_512, 10_242_512, 10_242_512])
+    expect(tagRanges().map((r) => r.t)).toEqual([12_192_256, 14_192_256, 16_192_256, 18_192_256])
     expect(tagRanges()[0].t - anchorRanges()[0].t).toBeGreaterThan(1.9 * MS)
     expect(tagRanges()[0].t - anchorRanges()[0].t).toBeLessThan(2 * MS)
-    expect(uwbDstwr.observe[2]).toContain('10 236 615 ns')
-    expect(deeperProse()).toContain('12 191 486 ns')
+    expect(uwbDstwr.observe[2]).toContain('10 242 512 ns')
+    expect(deeperProse()).toContain('12 192 256 ns')
   })
 
   it('each pair carries the same distance, identical to the last digit of tofRctu', () => {
@@ -906,7 +909,7 @@ describe('uwb-dstwr · the quiz', () => {
   it('the quiz keys its answers to the numbers the lesson prints', () => {
     // every distractor that quotes a figure quotes one the main path also carries
     const text = prose()
-    for (const s of ['9.72 %', '9.66 %', '−5.49 m', '9.51', '−20.49', '3.51 m']) {
+    for (const s of ['9.81 %', '9.79 %', '−5.49 m', '9.51', '−20.49', '3.51 m']) {
       expect(text, s).toContain(s)
     }
     expect(uwbDstwr.quiz.map((q) => q.answer)).toEqual([1, 1, 1])
@@ -1180,21 +1183,23 @@ describe('uwb-dstwr · every figure the prose prints, read back out of it', () =
      * separately and then required to agree. 「这个数在别处读过了」 is not read; two printings of
      * one width are two sites.
      */
+    // 2026-11-10: the widths are the standard's now (§10.29.8.1, §10.29.8.4); read both printings.
     const inLimits = figs(limitsText,
-      /RMI 为 (\d+) \+ (\d+)N 字节、单个回复时延 (\d+) 字节、Report 的 RMI (\d+) 字节/,
-      '`limits` on the three widths it owns')
+      /Final 的 RMI 为 (\d+) \+ (\d+)N 字节[^]*?Final 的 RRTI 为 (\d+) \+ (\d+)N 字节[^]*?Report 的 RMI (\d+) 字节/,
+      '`limits` on the widths it owns')
     const inSources = figs(srcText,
-      /RMI 为 (\d+) \+ (\d+)N 字节，单个应答时延字段为 (\d+) 字节，报告的 RMI 为 (\d+) 字节/,
-      '`sources` on the same three')
+      /Final 的 RMI 为 (\d+) \+ (\d+)N 字节，RRTI 为 (\d+) \+ (\d+)N 字节，报告的 RMI 为 (\d+) 字节/,
+      '`sources` on the same widths')
     expect(inSources, 'and the two statements agree, figure for figure').toEqual(inLimits)
-    const [rmiBase, rmiPer, replyBytes, reportRmi] = inLimits
-    // the Final's own body is the RMI plus one reply-time field per anchor
+    const [rmiBase, rmiPer, rrtiBase, rrtiPer, reportRmi] = inLimits
+    expect([rmiBase! + rmiPer! * ANCHORS, rrtiBase! + rrtiPer! * ANCHORS], 'the two IEs of a four-anchor Final')
+      .toEqual([rmiFinalIeBytes(ANCHORS), rrtiIeBytes(ANCHORS, true)])
     const final = finalFrame(recs())
-    expect(rmiBase! + rmiPer! * ANCHORS, 'the RMI of a four-anchor Final')
-      .toBeLessThanOrEqual(final.bytes!)
-    expect(rmiPer, 'and the per-anchor part of it').toBe(replyBytes)
+    expect(UWB_MHR_BYTES + rmiBase! + rmiPer! * ANCHORS + rrtiBase! + rrtiPer! * ANCHORS + UWB_FCS_BYTES,
+      'which with the MHR and FCS are the Final').toBe(final.bytes)
     const report = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbReport')!.frame
-    expect(reportRmi, 'the RMI a report carries').toBeLessThanOrEqual(report.bytes!)
+    expect(reportRmi, 'the RMI a report carries').toBe(RMI_REPORT_IE_BYTES)
+    expect(UWB_MHR_BYTES + reportRmi! + UWB_FCS_BYTES, 'and the report itself').toBe(report.bytes)
     // 「砖 2.0 ns」 and 「一堵砖墙会给每一个距离加上 60 cm」
     const [wallNs] = figs(limitsText, /砖 ([\d.]+) ns/, '`limits` on the wall’s own delay')
     expect(wallNs, 'the delay `channel.ts` gives a brick wall').toBe(UWB_NLOS_NS.brick)

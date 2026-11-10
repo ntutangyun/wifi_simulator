@@ -1,42 +1,37 @@
 /**
- * UWB Tier 5 · M22 测距辅助信息 · The schedule can be asked to change.
+ * UWB Tier 5 · M22 测距辅助信息 · The next exchange's slots can be asked for.
  *
  * IEEE Std 802.15.4-2024 §10.35.1's last sentence and §10.35.2.1's Request field, which is
  * `docs/superpowers/specs/2026-10-05-ancillary-request-design.md`. The Request = 0 half is
  * `uwb-ancillary`, and this lesson is the other half of the same clause and the same module — the
- * split is the design's §8: that lesson's raw figure was already 31.12 minutes, past the length
- * (`SITTING_MINUTES`, a soft guideline past which a lesson is marked long rather than refused) that
- * one sitting is meant to hold, so this material got its own lesson.
+ * split is the design's §8.
  *
- * **The one sentence this lesson exists for is that a device can change the schedule.** Every other
- * lesson of this tier teaches a grid that is settled before the session starts: `roundPlan` is
- * called once, in `UwbNetwork`'s constructor, and both file headers used to say so in their first
- * paragraph. Here a ranging *responder* asks the controller for the next exchange's slots, and from
- * the next block the message really is that long. Measured on this lesson's own scene: block 0's
- * Frames Remaining counts 1, 0 and every block after it counts 5, 4, 3, 2, 1, 0.
+ * **The one sentence this lesson exists for is that a device can ask the controller for slots.**
+ * Here a ranging *responder* asks the controller for the next exchange's slots, and from the next
+ * block the message really is that long. Measured on this lesson's own scene: block 0's Frames
+ * Remaining counts 1, 0 and every block after it counts 2, 1, 0.
  *
- * **Why that is the right thing to measure, and the trap it was built to avoid.** A grant that only
- * widened the *window* would buy empty slots — the schedule would get longer and not one octet more
- * would go on the air, which is `docs/inert-config-contract.md`'s own failure shape. So the granted
- * slot count **is** the next message's frame count, and the reader sees it as the first number of
- * the next block's countdown rather than as a slot total they have to trust.
+ * **Rewritten 2026-11-10 (W2 of the UWB standard alignment).** Every round of a block-based session
+ * is one length (standard §10.32.3.3), and the exchange runs in an ancillary-information round of
+ * its own (ARC Ranging Round Usage = 3, §10.35). So a grant changes no slot table: the controller
+ * conveys it with the standard's own element — the RDM IE of the next ancillary round's RCM, one list
+ * element per assigned slot (§10.32.9.8), or under contention that RCM's RCPS phase — and the sender
+ * acts on the RCM it decoded. Until then the grant widened an appended window and was read from a
+ * slot table both ends shared, which no frame carried.
  *
  * **The clause defines no grant, no refusal and no response at all**, so the controller's policy is
- * `model` and the lesson says so twice: in the prose and in its own `limits`. The policy invents no
- * constant — it is the block-fit arithmetic the engine and the scenario schema already each do
- * (`uwb/session.ts#ancillaryGrantFits`), which in this hall grants up to 94 and in the wide-slot
- * variant grants up to 4. And a refusal has **no frame**: both ends read one slot table, so the
- * asker learns the answer from the width of the window it is given. That is a property of this
- * engine rather than of the clause, and the lesson is explicit about which.
+ * `model` and the lesson says so: grant when the ancillary round holds the requested window
+ * (`uwb/session.ts#ancillaryGrantFits`), which in this hall grants up to 3. A refusal has no frame:
+ * the next RCM simply assigns the session's own number of slots.
  *
  * The scenes. The same 22 × 8 m hall as `uwb-ancillary`, four anchors and one tag, SS-TWR with the
  * reply time on the Response. Four runs differing only in session switches: the base (a two-frame
  * first message asking for `REQUEST` slots), a contention-scheduled run (where the window width
- * provably does not move while the message length does), a wide-slot run whose block cannot hold
- * the same request and therefore refuses it, and one with the request off.
+ * provably does not move while the message length does), a run that asks for one slot more than the
+ * ancillary round holds and is therefore refused, and one with the request off.
  *
- * Every number is computed, never typed: `raictIeBytes`, `uwbAncillaryBytes`, `uwbPpduNs`,
- * `roundPlan`, `ancillarySlots`, `roundSlots` and `ancillaryGrantFits` are called, and
+ * Every number is computed, never typed: `raictIeBytes`, `uwbAncillaryBytes`, `uwbAncillaryRcmBytes`,
+ * `uwbPpduNs`, `roundPlan`, `ancillarySlots` and `ancillaryGrantFits` are called, and
  * tests/course/uwb-ancillary-request.test.ts re-measures each figure against whole blocks.
  */
 import type { Scenario, UwbSessionCfg } from '../../model/scenario'
@@ -44,8 +39,8 @@ import {
   J, anchor, firstUwbRange, rangingLab, txOf, uwbSc, uwbTag, type Lesson,
 } from '../lessonKit'
 import type { TLRecord } from '../../model/records'
-import { raictIeBytes, uwbAncillaryBytes, uwbPpduNs } from '../../uwb/phy'
-import { ancillaryGrantFits, ancillarySlots, roundPlan, roundSlots } from '../../uwb/session'
+import { raictIeBytes, uwbAncillaryBytes, uwbAncillaryRcmBytes, uwbPpduNs } from '../../uwb/phy'
+import { ancillaryGrantFits, ancillarySlots, roundPlan, roundsPerInitiator } from '../../uwb/session'
 
 /** Anchors of every scene here, and the tag — the same hall `uwb-ancillary` uses, so a reader
  * arriving from it is looking at the same floor plan with one switch added. */
@@ -54,14 +49,10 @@ export const ANCHORS = 4
  * still counts: the whole point is that the next message is longer, and a first message as long as
  * the grant would hide the change. */
 export const FIRST_FRAMES = 2
-/** Slots the request asks for. Six: three times the first message, well inside what this block
- * holds (`GRANT_CAP`), and far enough from `FIRST_FRAMES` that the countdown's first number cannot
- * be mistaken for the one before it. model — the scenario states it, for want of an upper layer. */
-export const REQUEST = 6
-/** The wide-slot variant's ranging slot, in RSTU: ten times the session default, so the same 200 ms
- * block holds ten slots instead of a hundred and the same request no longer fits. The block is left
- * alone on purpose — one number moves, and it is the one the capacity is divided by. */
-export const WIDE_SLOT_RSTU = 24_000
+/** Slots the request asks for. Three: one more than the first message, and the most the ancillary
+ * round of this hall holds beside the request frame (`CAPS.grant`). model — the scenario states it,
+ * for want of an upper layer. */
+export const REQUEST = 3
 
 /** Where the anchors stand, in metres — `uwb-ancillary`'s own places, so the two lessons' scenes
  * differ in session switches alone. */
@@ -108,7 +99,6 @@ export function uwbAncillaryRequestOffScenario(): Scenario {
 const SESSIONS = {
   base: uwbAncillaryRequestScenario().uwb!,
   contend: uwbAncillaryRequestScenario({ schedule: 'contention' }).uwb!,
-  wide: uwbAncillaryRequestScenario({ slotRstu: WIDE_SLOT_RSTU }).uwb!,
   off: uwbAncillaryRequestOffScenario().uwb!,
 } as const
 
@@ -116,55 +106,49 @@ const SESSIONS = {
 const PLANS = {
   base: roundPlan(SESSIONS.base, ANCHORS),
   contend: roundPlan(SESSIONS.contend, ANCHORS),
-  wide: roundPlan(SESSIONS.wide, ANCHORS),
   off: roundPlan(SESSIONS.off, ANCHORS),
 } as const
 
 /**
  * The slot arithmetic of each scene, asked of the engine rather than counted off the device list.
  *
- * `windowGranted` is the width the same plan lays out once `REQUEST` has been granted — the one
- * number in this lesson that a `roundPlan` built from the session alone cannot answer, which is why
- * it is asked with the granted width as an argument.
+ * `round` is every round's one length (standard §10.32.3.3) and does not move with a grant; `window`
+ * is the slots the ancillary round's RCM assigns the sender (its message and its request frame), and
+ * `windowGranted` the same once `REQUEST` has been granted. `used` is the tag's share of a block: its
+ * ranging round and its ancillary round, before and after the grant alike.
  */
 export const SLOTS = {
-  ranging: PLANS.base.slots,
+  ranging: PLANS.base.rangingSlots,
+  round: PLANS.base.slots,
   window: ancillarySlots(PLANS.base),
   windowGranted: ancillarySlots(PLANS.base, REQUEST),
-  block: roundSlots(PLANS.base, 0),
-  blockGranted: roundSlots(PLANS.base, 0, REQUEST),
+  used: roundsPerInitiator(PLANS.base) * PLANS.base.slots,
   /** The window with no request at all: the message's own frames and nothing else. */
   off: ancillarySlots(PLANS.off),
-  contendRanging: PLANS.contend.slots,
+  contendRanging: PLANS.contend.rangingSlots,
+  contendRound: PLANS.contend.slots,
   contendWindow: ancillarySlots(PLANS.contend),
   contendWindowGranted: ancillarySlots(PLANS.contend, REQUEST),
 } as const
 
-/** How many ranging slots a block holds, per scene — the divisor the controller's answer comes out
- * of, and the only thing the wide-slot variant changes. */
-const perBlock = (p: typeof PLANS.base): number => Math.floor(p.blockNs / p.slotNs)
-
 /**
  * The largest request each hall grants, walked rather than subtracted: `ancillaryGrantFits` is
- * asked about every width from 1 upwards and the last `true` is the answer.
- *
- * Walked because the closed form is a subtraction that is easy to get wrong by one — the request's
- * own slot is in it — and because what the lesson claims is 「this width is granted and that one is
- * not」, which is the predicate's own answer rather than a rearrangement of it.
+ * asked about every width from 1 up to the round's length and the last `true` is the answer.
  */
 const grantCap = (p: typeof PLANS.base): number => {
   let last = 0
-  for (let w = 1; w <= perBlock(p); w++) if (ancillaryGrantFits(p, w)) last = w
+  for (let w = 1; w <= p.slots; w++) if (ancillaryGrantFits(p, w)) last = w
   return last
 }
 
-/** What each hall holds, and what it therefore grants. */
+/** What the ancillary round holds, and what it therefore grants. */
 export const CAPS = {
-  perBlock: perBlock(PLANS.base),
   grant: grantCap(PLANS.base),
-  widePerBlock: perBlock(PLANS.wide),
-  wideGrant: grantCap(PLANS.wide),
+  contendGrant: grantCap(PLANS.contend),
 } as const
+
+/** The request of the refusal variant: one slot more than the ancillary round holds. */
+export const OVER_REQUEST = CAPS.grant + 1
 
 /** Every length the lesson prints, in octets, and the airtime of the request's own frame. */
 export const BYTES = {
@@ -172,13 +156,15 @@ export const BYTES = {
   fragment: uwbAncillaryBytes(true, true),
   requestIe: raictIeBytes(false, true),
   fragmentIe: raictIeBytes(true, true),
+  /** The ancillary round's RCM before and after the grant: its RDM IE lists one element per slot. */
+  rcm: uwbAncillaryRcmBytes('time', SLOTS.window),
+  rcmGranted: uwbAncillaryRcmBytes('time', SLOTS.windowGranted),
 } as const
 
 /** Milliseconds: the slot and the block of each hall, read off the plans the engine lays out. */
 export const MS = {
   slot: PLANS.base.slotNs / 1e6,
   block: PLANS.base.blockNs / 1e6,
-  wideSlot: PLANS.wide.slotNs / 1e6,
   requestFrame: uwbPpduNs(uwbAncillaryBytes(false, true)) / 1e6,
 } as const
 
@@ -198,10 +184,10 @@ export const uwbAncillaryRequest: Lesson = {
   id: 'uwb-ancillary-request',
   module: 24,
   title: '设备请求时隙，控制器是否批准',
-  why: '上一课的时隙表是在会话开始前一次性确定的：一轮几个时隙、一块几轮，确定之后在整个会话中保持不变。这一课是同一节标准的另一半：一台设备可以请求修改这张表。办法就在上一课那个信息单元里：把它的第一位置 1，同一个「还剩几帧」的字段承载的就不再是剩余帧数，而是「请为下一次交换安排这么多个测距时隙（ranging slot）」。一个字段容纳不下两个量，所以一个信息单元只能承担其中一种用途；本课让这个请求单独占用一帧，排在消息之后，不带消息编号，比一帧消息短一个字节——这三点都是本课的排法，标准没有规定请求帧放在哪里、是否带消息编号。标准给这种用法附加的条件是：发送消息的一端不是控制器时，可以用这个信息单元向控制器请求时隙。本课的场景里，发出请求的是在测距（ranging）中只负责作答的一端，接收请求的是确定时隙表的标签（tag），所以这个条件自然成立。标准只规定到这里：没有批复、没有拒绝，也没有任何应答。因此以下都是本课自行选取的规则：这一块能容纳就批准，而可批准的最大宽度完全由块长、时隙长和轮长算出，时隙一加宽，同一个请求就被拒绝；批准之后，下一次交换的消息确实变为相应的帧数，而不只是窗口变宽，否则增加的时隙全是空的；拒绝时不发送任何帧，请求方同样知道结果，因为本课的两端读取的是同一张时隙表，窗口宽度本身就是答复。按本课竞争式排程的窗口算法，窗口宽度保持不变，消息仍然变长；测距结果在打开这个请求前后完全相同。',
+  why: '上一课的辅助信息轮由控制器的控制消息分配时隙：按时间调度时，RDM 信息单元把消息的每个时隙逐个指定给发送方。这一课是同一节标准的另一半：发送方可以请求控制器为下一次交换安排更多时隙。办法就在上一课那个信息单元里：把它的第一位置 1，同一个「还剩几帧」的字段承载的就不再是剩余帧数，而是「请为下一次交换安排这么多个测距时隙（ranging slot）」。一个字段容纳不下两个量，所以一个信息单元只能承担其中一种用途；本课让这个请求单独占用一帧，排在消息之后，不带消息编号，比一帧消息短一个字节——这三点都是本课的排法，标准没有规定请求帧放在哪里、是否带消息编号。标准给这种用法附加的条件是：发送消息的一端不是控制器时，可以用这个信息单元向控制器请求时隙。本课的场景里，发出请求的是在测距（ranging）中只负责作答的一端，接收请求的是分配时隙的标签（tag），所以这个条件自然成立。标准只规定到这里：没有批复、没有拒绝，也没有任何应答。因此是否批准是本课自行选取的规则：辅助信息轮放得下就批准。块式结构中每一轮一样长，辅助信息轮的第 0 个时隙是控制消息，余下的时隙要放下消息与请求帧，所以可批准的最大宽度由轮长算出。批准的结果用标准的信息单元传达：下一块辅助信息轮的控制消息里，RDM 信息单元多指定几个时隙，发送方按它收到的控制消息发送，消息随之变为相应的帧数。拒绝时不发送任何帧，下一次的控制消息仍按原来的帧数指定时隙，请求方从中即可得知结果。按本课竞争式排程的取法，竞争阶段（contention phase）宽度保持不变，消息仍然变长；测距结果在打开这个请求前后完全相同。',
   outcomes: [
     '说清同一个字段在两种用法下承载两个不同的量，以及为什么一帧不能同时承担两种用途',
-    '说明批复究竟改变了什么：下一次交换的消息帧数，而不只是窗口宽度',
+    '说明批复究竟改变了什么：下一次交换的消息帧数，而不只是分到的时隙数',
     '说清为什么「拒绝」在这里没有对应的帧，而请求方仍然知道结果',
     '指出这一课中哪些数是标准给定的、哪些是本课设定的',
   ],
@@ -209,40 +195,40 @@ export const uwbAncillaryRequest: Lesson = {
   terms: [
     { term: 'Request', plain: '该信息单元控制字节中的第一位：置 0 是上一课的用法，置 1 是向控制器请求时隙' },
     { term: 'slot request', plain: '向控制器提出的请求：请为下一次交换安排这么多个时隙。这是本课的叫法，标准里它就是 Request 位置 1 的那个信息单元；标准只定义了这个请求本身' },
-    { term: 'controller', plain: '确定时隙分配的一端；在本课的场景里它是接收消息的一方，也是处理请求的一方（标准没有规定它如何答复）' },
-    { term: 'grant', plain: '控制器批准的宽度。标准中没有这个词的定义，本课把它规定为「这一块能否容纳」' },
+    { term: 'controller', plain: '分配时隙的一端；在本课的场景里它是接收消息的一方，也是处理请求的一方（标准没有规定它如何答复）' },
+    { term: 'grant', plain: '控制器批准的宽度。标准中没有这个词的定义，本课把它规定为「辅助信息轮能否放下」' },
   ],
   picture: [
     {
       heading: '同一个字段，两个不同的量',
-      text: `上一课那个信息单元中有一位称为 Request。置 0 时，「还剩几帧」表示这条消息还有几帧未发送；置 1 时，同一个字段表示「请为下一次交换安排这么多个时隙」。标准把这两种用法并列为两种不同的用法，所以一个信息单元不能同时承担这两种用途——那一个字节只能容纳一个量。本课的做法是让这个请求单独占用一帧、单独占用一个时隙，排在这条消息各帧之后；请求帧放在哪个时隙，标准没有规定。请求的时隙数在本课中是直接给定的：真实设备中它取决于上层下一条消息的长度，而本课没有媒体访问控制（MAC）之上的那一层。本课的第一条消息是 ${FIRST_FRAMES} 帧，所以窗口是 ${SLOTS.window} 个测距时隙（ranging slot）：${FIRST_FRAMES} 个用于消息，1 个用于请求。`,
+      text: `上一课那个信息单元中有一位称为 Request。置 0 时，「还剩几帧」表示这条消息还有几帧未发送；置 1 时，同一个字段表示「请为下一次交换安排这么多个时隙」。标准把这两种用法并列为两种不同的用法，所以一个信息单元不能同时承担这两种用途——那一个字节只能容纳一个量。本课的做法是让这个请求单独占用一帧、单独占用一个时隙，排在这条消息各帧之后；请求帧放在哪个时隙，标准没有规定。请求的时隙数在本课中是直接给定的：真实设备中它取决于上层下一条消息的长度，而本课没有媒体访问控制（MAC）之上的那一层。本课的第一条消息是 ${FIRST_FRAMES} 帧，所以辅助信息轮的控制消息给发送方指定 ${SLOTS.window} 个测距时隙（ranging slot）：${FIRST_FRAMES} 个用于消息，1 个用于请求。`,
     },
     {
       kind: 'watch', jump: 0,
-      heading: `窗口的最后一个时隙，${BYTES.request} 字节`,
-      text: `载入仿真并播放。一个测距块（ranging block）中前 ${SLOTS.ranging} 个时隙仍是一轮常规测距（ranging）：第 0 个时隙是控制消息，后面 ${ANCHORS} 个时隙是每个锚点（anchor）各作答一次。再往后 ${SLOTS.window} 个时隙是这个交换的窗口。跳到请求帧，它位于窗口的最后一个时隙。点开它的信息单元那一列，与前面两帧比较：它不带消息编号——消息编号字段在标准里是可选的，本课认为请求不属于任何一条消息，所以不带——于是它比一帧消息短一个字节，${BYTES.request} 字节对 ${BYTES.fragment} 字节，${ms(MS.requestFrame)} ms 的空口时间（airtime）。`,
+      heading: `辅助信息轮的最后一个指定时隙，${BYTES.request} 字节`,
+      text: `载入仿真并播放。一个测距块（ranging block）中第一轮仍是一轮常规测距（ranging），${SLOTS.ranging} 个时隙：第 0 个时隙是控制消息，后面 ${ANCHORS} 个时隙是每个锚点（anchor）各作答一次。下一轮是辅助信息轮：第 0 个时隙是标签的控制消息，后面 ${SLOTS.window} 个时隙指定给 ${ASKER_ID}。跳到请求帧，它位于指定给它的最后一个时隙。点开它的信息单元那一列，与前面两帧比较：它不带消息编号——消息编号字段在标准里是可选的，本课认为请求不属于任何一条消息，所以不带——于是它比一帧消息短一个字节，${BYTES.request} 字节对 ${BYTES.fragment} 字节，${ms(MS.requestFrame)} ms 的空口时间（airtime）。`,
     },
     {
       heading: '它能发出请求，是因为它不是控制器',
-      text: `上一课讲过，这一节中两个角色名的含义与测距相反：发送消息的一端在测距中恰恰是作答的一端。这一课中，这种角色反转第一次带来一项具体的权利。标准给 Request 这一位附加了一个条件——它说的是：发送消息的一端不是控制器时，可以用这个信息单元向控制器请求时隙。本课的场景中这个条件始终成立：发送消息的是 ${ASKER_ID}，它在测距中是作答的一端；接收消息的是标签（tag），而标签正是确定时隙表的一端，也就是控制器。所以本课的场景里无需另行判断。`,
+      text: `上一课讲过，这一节中两个角色名的含义与测距相反：发送消息的一端在测距中恰恰是作答的一端。这一课中，这种角色反转第一次带来一项具体的权利。标准给 Request 这一位附加了一个条件——它说的是：发送消息的一端不是控制器时，可以用这个信息单元向控制器请求时隙。本课的场景中这个条件始终成立：发送消息的是 ${ASKER_ID}，它在测距中是作答的一端；接收消息的是标签（tag），而标签正是发出控制消息、分配时隙的一端，也就是控制器。所以本课的场景里无需另行判断。`,
     },
     {
-      kind: 'steps', heading: '一次请求，从发出到生效（第一步之后都是本课的规则，标准只定义了第一步里的请求本身）',
+      kind: 'steps', heading: '一次请求，从发出到生效（批不批、何时生效是本课的规则；请求本身与 RDM 信息单元出自标准）',
       items: [
-        `${ASKER_ID} 发完这条 ${FIRST_FRAMES} 帧的消息，然后在窗口的最后一个时隙再发送一帧：Request 置 1，字段中写入 ${REQUEST}。`,
-        '标签在同一时隙收到这一帧。它读出这个数，按「这一块能否容纳」判定一次（本课的批准规则），并在本端记录批准的宽度。这一步不回送任何内容——标准没有定义任何答复。',
-        '这一块的其余部分照常进行。批准的宽度不改变这一块的时隙表，从下一块开始才生效（本课的取法），所以两端都来得及按新的宽度排列。',
-        `下一块的时隙表按标签批准的宽度排列，批准了 ${REQUEST} 就按 ${REQUEST} 排列：窗口从 ${SLOTS.window} 个时隙变为 ${SLOTS.windowGranted} 个，一块从 ${SLOTS.block} 个时隙变为 ${SLOTS.blockGranted} 个。`,
-        `${ASKER_ID} 在下一块发送的这条消息就是 ${REQUEST} 帧。在本课的场景里它与标签读取的是同一张时隙表，所以无需收到任何答复就知道请求已获批准；真实设备如何得知结果，标准没有规定。`,
+        `${ASKER_ID} 发完这条 ${FIRST_FRAMES} 帧的消息，然后在指定给它的最后一个时隙再发送一帧：Request 置 1，字段中写入 ${REQUEST}。`,
+        '标签在同一时隙收到这一帧。它读出这个数，按「辅助信息轮能否放下」判定一次（本课的批准规则），并在本端记录批准的宽度。这一步不回送任何内容——标准没有定义任何答复。',
+        '这一块的其余部分照常进行。批准的宽度从下一块的辅助信息轮开始生效（本课的取法）。',
+        `下一块辅助信息轮的控制消息里，RDM 信息单元（§10.32.9.8）给 ${ASKER_ID} 指定 ${SLOTS.windowGranted} 个时隙，而不再是 ${SLOTS.window} 个；控制消息从 ${BYTES.rcm} 字节变为 ${BYTES.rcmGranted} 字节。每一轮的长度不变，仍是 ${SLOTS.round} 个时隙。`,
+        `${ASKER_ID} 按它收到的这条控制消息发送：下一块的消息就是 ${REQUEST} 帧。请求方从控制消息就知道请求已获批准，不需要任何另加的答复。`,
       ],
     },
     {
-      heading: '批准带来的不是更宽的窗口，而是更长的消息',
-      text: `这一点必须说准确，否则这个请求就没有意义。如果批复只是把窗口加宽，而消息仍然是 ${FIRST_FRAMES} 帧，那么增加的那几个时隙全是空的：排程变长了，空口上传送的数据却一个字节也没有增加。于是「这个请求带来了什么」的答案是「什么也没有」。所以本课的取法是：批准几个时隙，下一次交换的消息就是几帧。读者在时间线上能看到的就是倒数的第一个数——块 0 的消息从 ${FIRST_FRAMES - 1} 递减到 0，块 1 起从 ${REQUEST - 1} 递减到 0。`,
+      heading: '批准带来的不是更多的时隙，而是更长的消息',
+      text: `这一点必须说准确，否则这个请求就没有意义。如果批复只是多指定几个时隙，而消息仍然是 ${FIRST_FRAMES} 帧，那么多出来的那几个时隙全是空的：空口上传送的数据一个字节也没有增加。于是「这个请求带来了什么」的答案是「什么也没有」。所以本课的取法是：批准几个时隙，下一次交换的消息就是几帧。读者在时间线上能看到的就是倒数的第一个数——块 0 的消息从 ${FIRST_FRAMES - 1} 递减到 0，块 1 起从 ${REQUEST - 1} 递减到 0。`,
     },
     {
       heading: '拒绝没有对应的帧，而请求方同样知道结果',
-      text: '标准既没有定义批复，也没有定义拒绝，更没有定义任何应答。所以本课不另加拒绝帧——那是标准中没有的语义。控制器拒绝时不采取任何动作：下一次交换仍然按会话原来的帧数排列。而请求方与控制器读取的是同一张时隙表，所以请求方从自己得到的窗口宽度，就知道请求未获批准。两端共用一张时隙表是本课的设定，而不是这一节规定的内容，两者要区分清楚。',
+      text: '标准既没有定义批复，也没有定义拒绝，更没有定义任何应答。所以本课不另加拒绝帧——那是标准中没有的语义。控制器拒绝时不采取任何动作：下一次辅助信息轮的控制消息仍然按会话原来的帧数指定时隙。请求方收到这条控制消息，从指定给自己的时隙数就知道请求未获批准。',
     },
   ],
   numbers: [
@@ -256,39 +242,39 @@ export const uwbAncillaryRequest: Lesson = {
     },
     {
       kind: 'table', heading: '倒数的第一个数，就是这个请求的全部效果',
-      head: ['块', '消息帧数', '倒数', '窗口', '每块时隙数'],
+      head: ['块', '消息帧数', '倒数', '指定给发送方的时隙', '辅助信息轮的控制消息'],
       rows: [
-        ['块 0', `${FIRST_FRAMES}`, `${FIRST_FRAMES - 1} → 0`, `${SLOTS.window} 个时隙`, `${SLOTS.block} 个时隙`],
-        ['块 1 及以后', `${REQUEST}`, `${REQUEST - 1} → 0`, `${SLOTS.windowGranted} 个时隙`, `${SLOTS.blockGranted} 个时隙`],
+        ['块 0', `${FIRST_FRAMES}`, `${FIRST_FRAMES - 1} → 0`, `${SLOTS.window} 个`, `${BYTES.rcm} 字节`],
+        ['块 1 及以后', `${REQUEST}`, `${REQUEST - 1} → 0`, `${SLOTS.windowGranted} 个`, `${BYTES.rcmGranted} 字节`],
       ],
     },
     {
-      heading: '「能否容纳」是计算出来的，不是人为规定的',
-      text: `控制器按这一块能否容纳来判定，这个判据是本课选取的，而它用到的量都是已有的：一块 ${MS.block} ms、一个时隙 ${MS.slot} ms，所以一块能容纳 ${CAPS.perBlock} 个时隙；测距那一轮占 ${SLOTS.ranging} 个，请求本身占 1 个，于是可批准的最大宽度是 ${CAPS.grant}。这里没有引入任何新数：它由块长、时隙长和轮长算出。把时隙加宽十倍（${MS.wideSlot} ms）而块长保持不变，同一块就只能容纳 ${CAPS.widePerBlock} 个时隙，可批准的最大宽度降至 ${CAPS.wideGrant}——于是同一个 ${REQUEST} 在这个大厅里被拒绝。`,
+      heading: '「能否放下」是计算出来的，不是人为规定的',
+      text: `控制器按辅助信息轮能否放下来判定，这个判据是本课选取的，而它用到的量都是已有的：块式结构中每一轮一样长（§10.32.3.3），本课的会话里是 ${SLOTS.round} 个时隙；辅助信息轮的第 0 个时隙是控制消息，请求帧本身占 1 个，于是可批准的最大宽度是 ${CAPS.grant}。这里没有引入任何新数：它由轮长算出。请求 ${OVER_REQUEST} 个时隙就放不下了，控制器不批准——这就是「请求 ${OVER_REQUEST} 个」那个变体。`,
     },
     {
-      kind: 'table', heading: '竞争式：窗口宽度不变，消息仍然变长',
-      head: ['排程方式', '测距轮（ranging round）', '窗口', '消息'],
+      kind: 'table', heading: '竞争式：竞争阶段宽度不变，消息仍然变长',
+      head: ['排程方式', '每一轮', '辅助信息的时隙', '消息'],
       rows: [
-        ['排程式，批复前', `${SLOTS.ranging} 个时隙`, `${SLOTS.window} 个时隙`, `${FIRST_FRAMES} 帧`],
-        ['排程式，批复后', `${SLOTS.ranging} 个时隙`, `${SLOTS.windowGranted} 个时隙`, `${REQUEST} 帧`],
-        ['竞争式，批复前', `${SLOTS.contendRanging} 个时隙`, `${SLOTS.contendWindow} 个时隙`, `${FIRST_FRAMES} 帧`],
-        ['竞争式，批复后', `${SLOTS.contendRanging} 个时隙`, `${SLOTS.contendWindowGranted} 个时隙`, `${REQUEST} 帧`],
+        ['排程式，批复前', `${SLOTS.round} 个时隙`, `${SLOTS.window} 个时隙`, `${FIRST_FRAMES} 帧`],
+        ['排程式，批复后', `${SLOTS.round} 个时隙`, `${SLOTS.windowGranted} 个时隙`, `${REQUEST} 帧`],
+        ['竞争式，批复前', `${SLOTS.contendRound} 个时隙`, `${SLOTS.contendWindow} 个时隙`, `${FIRST_FRAMES} 帧`],
+        ['竞争式，批复后', `${SLOTS.contendRound} 个时隙`, `${SLOTS.contendWindowGranted} 个时隙`, `${REQUEST} 帧`],
       ],
     },
     {
       heading: '最后一行没有写错',
-      text: `在竞争式排程下，窗口宽度在批复前后相同。原因见上一课：本课的竞争式窗口取「消息所需的时隙数」与「这一轮本身的竞争时隙数」中较大的一个（这是本课的排法，标准没有规定窗口宽度），而本课的设置下后者是 ${SLOTS.contendWindow}，消息加上请求一共 ${REQUEST + 1} 个时隙，仍未超过它。所以窗口宽度不变——而消息确实从 ${FIRST_FRAMES} 帧变为 ${REQUEST} 帧。这就是「这个请求带来了什么」在竞争式下的准确答案：带来的是消息长度的变化，决定窗口宽度的是竞争时隙的预算，而不是这个请求。`,
+      text: `在竞争式排程下，辅助信息轮的控制消息不逐个指定时隙，而是用 RCPS（ranging contention phase structure IE）信息单元给出一个发起方竞争阶段（§10.32.9.5），宽度在批复前后相同。原因见上一课：本课的竞争阶段取「消息所需的时隙数」与「会话的竞争时隙数」中较大的一个（这是本课的取法，标准没有规定阶段宽度），而本课的设置下后者是 ${SLOTS.contendWindow}，消息加上请求一共 ${REQUEST + 1} 个时隙，仍未超过它。发送方看到这个阶段放得下它请求的帧数，就发送那么多帧——消息确实从 ${FIRST_FRAMES} 帧变为 ${REQUEST} 帧。这就是「这个请求带来了什么」在竞争式下的准确答案：带来的是消息长度的变化，决定阶段宽度的是竞争时隙的预算，而不是这个请求。`,
     },
     {
       heading: '测距结果没有任何变化',
-      text: '打开这个请求前后，测距结果完全相同——距离、块号、时刻，没有一个数值改变。原因与上一课相同：请求帧排在测距相位之后追加的窗口中，不插入轮中，也不带任何时间量，所以它不进入测距的任何算式。这一节带来的是「下一次为我多安排几个时隙」这项能力，而不是更准确的距离。',
+      text: '打开这个请求前后，测距结果完全相同——距离、块号、时刻，没有一个数值改变。原因与上一课相同：请求帧在单独的辅助信息轮里，不插入测距轮（ranging round）中，也不带任何时间量，所以它不进入测距的任何算式。这一节带来的是「下一次为我多安排几个时隙」这项能力，而不是更准确的距离。',
     },
   ],
   deeper: [
     {
-      heading: '轮的长度本来就随块变化',
-      text: '让一个请求改变后续排程，听上去需要把整张时隙表重新排列，其实不必。前面的课中已经有两处使某些轮比其他轮长——按本课的排法，收妥确认在一组轮的最后一轮之后增加几个时隙，辅助信息消息在一组轮的第一轮之后增加几个时隙，所以「这一轮有几个时隙」本来就是一个随轮在组里的位置变化的量。实测结果：一条控制消息覆盖四轮、标签每块跑四轮时，同一个会话按标签自己的轮次数，轮 0 与轮 4 是九个时隙，轮 1、2、3 是五个时隙。所以这个请求改变的不是轮中测距那一段的排布，而是追加部分的宽度——而上一块最后一帧与下一块开头之间有一百八十多毫秒的余量。',
+      heading: '时隙表不变，变的是控制消息',
+      text: `让一个请求改变后续排程，听上去需要把整张时隙表重新排列，其实不必，也不能：块式结构中每一轮一样长（§10.32.3.3），时隙表在会话开始时就确定了。请求改变的是下一块辅助信息轮的控制消息——它的 RDM 信息单元每个列表元素指定一个时隙，批准之后多一个元素，控制消息长 ${BYTES.rcmGranted - BYTES.rcm} 字节。发送方按自己收到的那条控制消息行事；没有收到它的发送方，这一轮不发送。上一块最后一帧与下一块辅助信息轮之间有将近两百毫秒，控制器来得及把批准的宽度写进下一条控制消息。`,
     },
     {
       heading: '为什么不把请求附带在最后一帧上',
@@ -296,9 +282,9 @@ export const uwbAncillaryRequest: Lesson = {
     },
   ],
   sources: [
-    'IEEE Std 802.15.4-2024 §10.35.1 的最后一句与 §10.35.2.1 一起给出这一半的全部语义：Request 这一位置 1 表示这个信息单元是在向控制器请求时隙，这时「还剩几帧」那个字段承载的是请求的时隙数，而标准把这种用法放在「发送消息的一端不是控制器」这一情形下。请求帧单独成帧、排在消息之后、不带消息编号，都是本课的排法。本课完全不依赖任何草案。',
-    '正文到此为止：批复、拒绝、应答都没有任何规定，所以「按这一块能否容纳来批准」是本仿真器的取值，而它只用块长、时隙长与轮长计算，没有引入任何新常数。请求的时隙数本身也是本仿真器的取值，理由与上一课的帧数相同：本仿真器没有任何媒体访问控制（MAC）原语，也就没有上层来计算下一条消息应有多长。',
-    `字节宽度与空口时间沿用上一课的取值，时隙数与能批的最大宽度都由块长、时隙长与轮长算出。本课四个场景是同一个 22 × 8 m 大厅、同样 ${ANCHORS} 个锚点与一个标签、同样的种子，只有会话上的开关不同：基础场景、竞争式排程、时隙加宽到 ${MS.wideSlot} ms（于是同一个请求被拒绝），以及关闭这个请求功能。四个场景都关掉非视距。`,
+    'IEEE Std 802.15.4-2024 §10.35.1 的最后一句与 §10.35.2.1 一起给出这一半的全部语义：Request 这一位置 1 表示这个信息单元是在向控制器请求时隙，这时「还剩几帧」那个字段承载的是请求的时隙数，而标准把这种用法放在「发送消息的一端不是控制器」这一情形下。控制器分配时隙用的是 §10.32.9.8 的 RDM 信息单元（SIU 置 1 时每个列表元素指定一个时隙）与 §10.32.9.5 的 RCPS 信息单元；每一轮一样长出自 §10.32.3.3。请求帧单独成帧、排在消息之后、不带消息编号，都是本课的排法。本课完全不依赖任何草案。',
+    '正文到此为止：批复、拒绝、应答都没有任何规定，所以「辅助信息轮放得下就批准」是本仿真器的取值，而它只用轮长计算，没有引入任何新常数；批准从下一块生效也是本仿真器的取法。请求的时隙数本身也是本仿真器的取值，理由与上一课的帧数相同：本仿真器没有任何媒体访问控制（MAC）原语，也就没有上层来计算下一条消息应有多长。',
+    `字节宽度与空口时间沿用上一课的取值，时隙数与能批的最大宽度都由轮长算出。本课四个场景是同一个 22 × 8 m 大厅、同样 ${ANCHORS} 个锚点与一个标签、同样的种子，只有会话上的开关不同：基础场景、竞争式排程、请求 ${OVER_REQUEST} 个时隙（于是被拒绝），以及关闭这个请求功能。四个场景都关掉非视距。`,
   ],
   limits: [
     {
@@ -307,17 +293,17 @@ export const uwbAncillaryRequest: Lesson = {
     },
     {
       kind: 'model-value',
-      text: '是否批准、按什么规则批准，都由本仿真器设定，因为标准正文只规定到请求为止。§10.35 通篇只定义这个请求本身：控制器收到之后做什么、能否不处理、是否要告知对方处理结果，都没有任何规定，所以一台丢弃请求的控制器也是合规的。本仿真器设定的是「这一块能容纳就批准」，而它只用块长、时隙长与轮长计算。后果是读者看不到其他策略——按优先级分配、按历史用量分配、批准一个比请求值小的数——而真实实现完全可以采用其中任何一种。',
+      text: '是否批准、按什么规则批准，都由本仿真器设定，因为标准正文只规定到请求为止。§10.35 通篇只定义这个请求本身：控制器收到之后做什么、能否不处理、是否要告知对方处理结果，都没有任何规定，所以一台丢弃请求的控制器也是合规的。本仿真器设定的是「辅助信息轮放得下就批准」，而它只用轮长计算；会话的轮长不会因为请求而变长。后果是读者看不到其他策略——按优先级分配、按历史用量分配、批准一个比请求值小的数、为此加长轮——而真实实现完全可以采用其中任何一种。',
     },
     {
       kind: 'model-value',
-      text: '一轮只有一个请求方，一个会话也只有一个控制器。发消息的始终是第 0 个响应方（上一课那条限制已经说明），所以也只有它会发出请求；而两个标签就是两个控制器，批准的宽度却是每块一个数，于是本仿真器不接受两个标签与这个请求同时启用的配置。后果是读者看不到两台设备在同一个窗口中各发出一个请求、而控制器只能容纳其中一个的情形——那是这一节之外的后续工作。',
+      text: '一轮只有一个请求方，一个会话也只有一个控制器。发消息的始终是第 0 个响应方（上一课那条限制已经说明），所以也只有它会发出请求；本仿真器不接受两个标签与这个请求同时启用的配置。后果是读者看不到两台设备在同一个辅助信息轮中各发出一个请求、而控制器只能容纳其中一个的情形——那是这一节之外的后续工作。',
     },
   ],
   scenario: () => uwbAncillaryRequestScenario(),
   variants: [
-    { label: `竞争式排程：窗口 ${SLOTS.contendWindow} 格不动，消息仍从 ${FIRST_FRAMES} 帧变成 ${REQUEST} 帧`, scenario: () => uwbAncillaryRequestScenario({ schedule: 'contention' }) },
-    { label: `时隙加宽到 ${MS.wideSlot} ms：一块只装得下 ${CAPS.widePerBlock} 格，同一个请求被拒`, scenario: () => uwbAncillaryRequestScenario({ slotRstu: WIDE_SLOT_RSTU }) },
+    { label: `竞争式：竞争阶段 ${SLOTS.contendWindow} 格不动，消息仍变成 ${REQUEST} 帧`, scenario: () => uwbAncillaryRequestScenario({ schedule: 'contention' }) },
+    { label: `请求 ${OVER_REQUEST} 个时隙：放不下，被拒`, scenario: () => uwbAncillaryRequestScenario({ ancillaryRequestSlots: OVER_REQUEST }) },
     { label: '关闭这个请求：每个块都采用会话自身的帧数', scenario: () => uwbAncillaryRequestOffScenario() },
   ],
   jumps: [
@@ -327,12 +313,12 @@ export const uwbAncillaryRequest: Lesson = {
     J('第一条测距记录', firstUwbRange),
   ],
   observe: [
-    `块 0 的窗口是 ${SLOTS.window} 个时隙：前 ${FIRST_FRAMES} 个是消息帧，倒数为 ${FIRST_FRAMES - 1}、0，最后一个是请求帧。块 1 的窗口是 ${SLOTS.windowGranted} 个时隙，倒数从 ${REQUEST - 1} 开始。整块中没有发生一次超时——这个请求不等待任何答复。`,
+    `块 0 的辅助信息轮里，控制消息给发送方指定 ${SLOTS.window} 个时隙：前 ${FIRST_FRAMES} 个是消息帧，倒数为 ${FIRST_FRAMES - 1}、0，最后一个是请求帧。块 1 的控制消息指定 ${SLOTS.windowGranted} 个，倒数从 ${REQUEST - 1} 开始。整块中没有发生一次超时——这个请求不等待任何答复。`,
     `请求帧的对端是标签，而批复记录位于标签一侧：其中记录请求了 ${REQUEST} 个时隙、批准了 ${REQUEST} 个时隙。再看块 1 的那一条：请求的数没有变，批准的数也没有变：本课的场景让发送方每一块都重新请求一次同一个宽度。`,
   ],
   tryThis: [
-    `载入「时隙加宽」变体，逐块查看倒数的第一个数：每一块都是 ${FIRST_FRAMES - 1}，没有一块变长。再看批复记录——请求了 ${REQUEST} 个时隙，批准一栏为空。这一块只能容纳 ${CAPS.widePerBlock} 个时隙，测距那一轮占 ${SLOTS.ranging} 个、请求占 1 个，所以可批准的最大宽度是 ${CAPS.wideGrant}。把请求改为 ${CAPS.wideGrant} 再运行一遍：这一次获得批准。`,
-    `载入「竞争式排程」变体，先查看窗口：批复前后都是 ${SLOTS.contendWindow} 个时隙，没有变化。再查看消息：从 ${FIRST_FRAMES} 帧变为 ${REQUEST} 帧。最后载入「关闭这个请求」变体：窗口恢复为 ${SLOTS.off} 个时隙，没有请求帧，每一块的倒数都从 ${FIRST_FRAMES - 1} 开始，而测距结果与基础场景逐字段相同。`,
+    `载入「请求 ${OVER_REQUEST} 个时隙」变体，逐块查看倒数的第一个数：每一块都是 ${FIRST_FRAMES - 1}，没有一块变长。再看批复记录——请求了 ${OVER_REQUEST} 个时隙，批准一栏为空：辅助信息轮 ${SLOTS.round} 个时隙，控制消息占 1 个、请求帧占 1 个，可批准的最大宽度是 ${CAPS.grant}。`,
+    `载入「竞争式排程」变体，先查看辅助信息轮控制消息里的竞争阶段：批复前后都是 ${SLOTS.contendWindow} 个时隙，没有变化。再查看消息：从 ${FIRST_FRAMES} 帧变为 ${REQUEST} 帧。最后载入「关闭这个请求」变体：控制消息只指定 ${SLOTS.off} 个时隙，没有请求帧，每一块的倒数都从 ${FIRST_FRAMES - 1} 开始，而测距结果与基础场景逐字段相同。`,
   ],
   quiz: [
     {
@@ -340,7 +326,7 @@ export const uwbAncillaryRequest: Lesson = {
       options: [
         '因为一帧的长度不足以再容纳一个字段',
         '因为那一个字段在两种用法下承载两个不同的量，标准把这两种用法并列，所以一个信息单元只能承担其中一种用途；一帧能否放两个这样的信息单元，标准没有说明，本课不这样做',
-        '因为控制器只在窗口的最后一个时隙才打开接收机',
+        '因为控制器只在辅助信息轮的最后一个时隙才打开接收机',
       ],
       answer: 1,
       explain: `置 0 时它表示「这条消息还剩几帧」，置 1 时它表示「请安排这么多个时隙」。一个字节容纳不下两个量。至于「在同一帧中放两个这样的信息单元」——标准正文没有说明，所以本课不这样做，代价是多一帧 ${BYTES.request} 字节。`,
@@ -348,22 +334,22 @@ export const uwbAncillaryRequest: Lesson = {
     {
       q: '控制器批准之后，下一次交换有什么变化？',
       options: [
-        '只有窗口变宽，消息仍是原来的帧数',
-        '窗口变宽，消息也变为批准的帧数——倒数的第一个数随之改变',
-        '没有任何变化，批复只是记录下来备查',
+        '只是控制消息多指定几个时隙，消息仍是原来的帧数',
+        '控制消息多指定几个时隙，消息也变为批准的帧数——倒数的第一个数随之改变',
+        '每一轮都变长，以便放下更长的消息',
       ],
       answer: 1,
-      explain: `如果只有窗口变宽，增加的时隙全是空的，这个请求就等于没有带来任何效果。所以本课把批准的时隙数规定为下一次交换的消息帧数：块 0 的倒数从 ${FIRST_FRAMES - 1} 开始，块 1 起从 ${REQUEST - 1} 开始。`,
+      explain: `如果只多指定时隙，增加的时隙全是空的，这个请求就等于没有带来任何效果。所以本课把批准的时隙数规定为下一次交换的消息帧数：块 0 的倒数从 ${FIRST_FRAMES - 1} 开始，块 1 起从 ${REQUEST - 1} 开始。每一轮的长度不变（§10.32.3.3）。`,
     },
     {
       q: '控制器拒绝时，请求方如何得知？',
       options: [
         '控制器回送一帧拒绝消息，其中写明它能分配几个时隙',
         '请求方等不到批复即超时，并据此判定被拒绝',
-        '它根据下一次交换的窗口宽度即可得知：两端读取的是同一张时隙表，而窗口仍然是会话原有的宽度',
+        '从下一次辅助信息轮的控制消息得知：RDM 信息单元指定给它的时隙仍是会话原有的数目',
       ],
       answer: 2,
-      explain: '标准没有定义拒绝，也没有定义任何应答，所以本课不另加拒绝帧。而本课的设定使拒绝帧没有必要：两端读取的是同一张时隙表，所以窗口宽度本身就是答复。',
+      explain: '标准没有定义拒绝，也没有定义任何应答，所以本课不另加拒绝帧。分配时隙本来就由控制消息里的 RDM 信息单元完成，所以下一条控制消息本身就是答复。',
     },
   ],
 }

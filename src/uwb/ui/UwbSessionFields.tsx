@@ -17,10 +17,10 @@ import { DEFAULT_UWB_MMS, UwbSsbdSchema, ancillaryRequestRefusals } from '../../
 import type {
   NbLbt, NbReportMode, UwbMmsCfg, UwbMode, UwbSessionCfg, UwbSrrrCfg, UwbSsbdCfg,
 } from '../../model/scenario'
-import { ancillarySlots, mmrcmResponders, roundPlan } from '../session'
+import { roundPlan } from '../session'
 import {
   mmsResponders, rstuNs, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX, uwbFixedReplyWindowRstu,
-  uwbInitiatorBlockSlots, uwbMmrcmSlots, uwbSlotsPerTag,
+  uwbInitiatorBlockSlots, uwbMmrcmSlots, uwbRoundSlotCount, uwbSlotsPerTag,
 } from '../phy'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
@@ -130,25 +130,26 @@ export function uwbAncillaryFramesCapFor(
   // `Math.max(1, tags)` because a scene can hold anchors and no tag at all while the panel is being
   // filled in, and a division by zero there would print `Infinity` as a cap.
   const rounds = Math.max(1, tags)
-  // Each tag runs `initiatorRounds` rounds and the appended windows come once per ranging round set
-  // (`uwbInitiatorBlockSlots`, the schema's own budget): what one set's appended slots may grow to is
-  // the tag's share of the block, less every round's own slots, shared out over the sets. With one
-  // round a block this is the share less one round, as before round sets existed.
-  const sets = Math.ceil(
-    session.initiatorRounds / Math.max(1, Math.min(session.rcmValidityRounds, session.initiatorRounds)),
-  )
+  // 2026-11-10: every round is one length (standard §10.32.3.3) and the exchange runs in a round of
+  // its own after each tag's ranging rounds (§10.35), so one tag's share of the block holds
+  // `initiatorRounds + 1` rounds of the session's round length (`uwbInitiatorBlockSlots`). The
+  // longest round length the block allows is therefore its share divided by that many rounds, and
+  // the ancillary round spends slot 0 on its RCM.
   const tagShare = Math.floor(session.blockRstu / (rounds * session.slotRstu))
-  const ownSlots = uwbInitiatorBlockSlots(slots, session.initiatorRounds, session.rcmValidityRounds, 0)
-  const blockBudget = Math.floor((tagShare - ownSlots) / sets) - mmrcrSlots
+  const perRound = uwbInitiatorBlockSlots(1, session.initiatorRounds, true)
+  const roundMax = Math.floor(tagShare / perRound)
+  // The ranging round, with its receipt confirmations, has to fit that length too.
+  if (uwbRoundSlotCount(slots, mmrcrSlots, 0) > roundMax) return null
+  const windowMax = roundMax - 1
   const floor = session.schedule === 'contention' ? session.contentionSlots : 0
-  // The floor is checked against the whole appended budget, not against the message's share of it:
-  // a draw window that fits the block is legal at every frame count below its own width, because
-  // `uwbAncillarySlots` prices the window at the larger of the two.
-  if (blockBudget < floor) return null
-  // …and then the message's share is the budget less the request's own slot when the session asks
-  // for slots (standard §10.35.2.1): the two halves of the RAICT IE are different uses of one
-  // field, so the request cannot ride a fragment and costs a slot of its own.
-  const cap = blockBudget - (session.ancillaryRequest ? 1 : 0)
+  // A contention window is priced at `max(frames, contentionSlots)` (`uwbAncillarySlots`), so no
+  // frame count is legal once `contentionSlots` alone overruns the round.
+  if (windowMax < floor) return null
+  // …less the request's own slot when the session asks for slots (standard §10.35.2.1): the two
+  // halves of the RAICT IE are different uses of one field, so the request costs a slot of its own.
+  // Under a time schedule the window is also an RDM IE's list (§10.32.9.8): at most 63 elements.
+  const request = session.ancillaryRequest ? 1 : 0
+  const cap = Math.min(windowMax, session.schedule === 'time' ? 63 : Infinity) - request
   return cap >= 1 ? cap : null
 }
 
@@ -955,8 +956,9 @@ export function UwbSessionFields(
   // How many slots a block that spends both appended batches adds to its round — §10.36's receipt
   // confirmation and §10.35's ancillary message — from the two functions the scenario schema
   // budgets with, so the note and the refusal cannot disagree about the number.
-  const appendedSlots = plan === null ? 0
-    : mmrcmResponders(plan) + ancillarySlots(plan)
+  // 2026-11-10: every round is one length (standard §10.32.3.3); the slots a round has beyond its own
+  // ranging exchange are the receipt confirmations' (in a set-closing round) or the ancillary round's.
+  const appendedSlots = plan === null ? 0 : plan.slots - plan.rangingSlots
   return (
     <div>
       <div style={{ color: 'var(--dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>

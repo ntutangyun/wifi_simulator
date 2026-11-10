@@ -175,10 +175,10 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
   })
 
   it('the last two columns are what the session puts on the air, scene by scene', () => {
-    // Review I1: one round for all three is NOT fewer transmissions. 44 → 294, 8.5 → 62.5 ms.
+    // Review I1: one round for all three is NOT fewer transmissions. 44 → 294, 8.6 → 62.5 ms (2026-11-10: PHR 21 symbols, Table 16-2).
     const rows: [number | undefined, string, string][] = [
-      [undefined, '44', '8.5 ms'], [V_FAR, '34', '6.6 ms'],
-      [V_FAST, '81', '15.7 ms'], [V_OTM, '294', '62.5 ms'],
+      [undefined, '44', '8.6 ms'], [V_FAR, '34', '6.7 ms'],
+      [V_FAST, '81', '15.9 ms'], [V_OTM, '294', '62.5 ms'],
     ]
     for (const [i, [variant, n, ms]] of rows.entries()) {
       const air = onAir(variant)

@@ -46,9 +46,9 @@ describe('UwbSessionCfg.replyTime / fixedReplyRstu — the schema fields and the
     const sc: unknown = { ...uwbScenario(twoAnchorsOneTag()), uwb: legacy }
     const parsed = ScenarioSchema.parse(sc)
     expect(parsed.uwb?.replyTime).toBe('embedded')
-    // One whole slot (design §6.1's corrected default — half a slot, this field's first default,
-    // sits below the lower bound the two-sided rule below checks).
-    expect(parsed.uwb?.fixedReplyRstu).toBe(2400)
+    // 2026-11-10: FRT1 is RMARKER to RMARKER (§10.32.2), so the default is one slot plus 240 RSTU —
+    // one slot exactly would leave no margin for a fast crystal at the lower bound.
+    expect(parsed.uwb?.fixedReplyRstu).toBe(2640)
     expect(parsed.uwb).toEqual(DEFAULT_UWB_SESSION)
   })
 
@@ -91,17 +91,18 @@ describe('UwbSessionCfg.replyTime / fixedReplyRstu — the schema fields and the
   })
 
   it('the schema parses its own output for a non-default reply-time session (round-trip)', () => {
-    // 2200 RSTU: a non-default value that still clears both sides of the §6.1 budget for this
-    // scenario's own geometry (two anchors ~5.66 m from the tag, contention Poll 31 octets) —
-    // verified against `lowerNeededNs`/`upperAllowedNs` the same way the schema computes them.
+    // 2600 RSTU: a non-default value that still clears both sides of the budget for this scenario's
+    // own geometry. 2026-11-10 (audit #5): FRT1 is RMARKER to RMARKER (standard §10.32.2, Figure
+    // 10-226), so the bound is S − ToF ≤ FRT1 ≤ 2S − Ar − guard − ToF and the old 2200 (below one slot)
+    // is now too early.
     const cfg: UwbSessionCfg = {
-      ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention', replyTime: 'fixed', fixedReplyRstu: 2200,
+      ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention', replyTime: 'fixed', fixedReplyRstu: 2600,
     }
     const once = ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), cfg))
     const twice = ScenarioSchema.parse(once)
     expect(twice).toEqual(once)
     expect(twice.uwb?.replyTime).toBe('fixed')
-    expect(twice.uwb?.fixedReplyRstu).toBe(2200)
+    expect(twice.uwb?.fixedReplyRstu).toBe(2600)
 
     // And the deferred/embedded shapes round-trip too, on a plain time-scheduled DS-TWR session.
     for (const replyTime of ['embedded', 'deferred'] as const) {
@@ -134,6 +135,11 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
   //
   //   S − Ap − ToF_min   ≤   F   ≤   2S − Ap − Ar − guard − ToF_max
   //
+  // 2026-11-10 (audit #5): FRT1 is now measured RMARKER to RMARKER (standard §10.32.2, Figure
+  // 10-226), so the Poll airtime Ap drops out of both sides:
+  //
+  //   S − ToF_min   ≤   FRT1   ≤   2S − Ar − guard − ToF_max
+  //
   // (S = slotNs, Ap = Poll airtime, Ar = Response airtime, guard = UWB_SLOT_GUARD_NS, ToF the
   // flight time to the nearest/furthest anchor). A near anchor (5 m) and a far one (250 m) give
   // the lower and upper bound their own, different, anchor — proving the rule picks the right one
@@ -158,12 +164,12 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
     if (!result.success) {
       const msg = result.error.issues.map((i) => i.message).join('\n')
       expect(msg).not.toMatch(/暂不支持/)
-      // Names its own terms: the fixed delay, the lower bound, the slot, the Poll airtime, and
-      // the *nearest* anchor's flight time — not the furthest, which is the other side's term.
-      expect(msg).toMatch(/固定时延 1000\.0 µs/)
-      expect(msg).toMatch(/低于下限 1796\.2 µs/)
+      // Names its own terms: FRT1 and its reference points, the lower bound, the slot, and the
+      // *nearest* anchor's flight time — not the furthest, which is the other side's term.
+      expect(msg).toMatch(/FRT1（从轮询帧的 RMARKER 到响应帧的 RMARKER）1000\.0 µs/)
+      expect(msg).toMatch(/低于下限 2000\.0 µs/)
       expect(msg).toMatch(/一个时隙 2000\.0 µs/)
-      expect(msg).toMatch(/Poll 空口时间 203\.8 µs/)
+      expect(msg).not.toMatch(/Poll 空口时间/)
       expect(msg).toMatch(/最近飞行时间 0\.0 µs/)
       expect(msg).toMatch(/还没轮到它/)
       // Not the "too late" message: a reader must be able to tell which mistake they made.
@@ -179,11 +185,12 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
     if (!result.success) {
       const msg = result.error.issues.map((i) => i.message).join('\n')
       expect(msg).not.toMatch(/暂不支持/)
-      expect(msg).toMatch(/固定时延 3833\.3 µs/)
-      expect(msg).toMatch(/超过了上限 3614\.0 µs/)
+      expect(msg).toMatch(/FRT1（从轮询帧的 RMARKER 到响应帧的 RMARKER）3833\.3 µs/)
+      // 2026-11-10: 4000 − 183.0 (14-octet Response, 21-symbol PHR) − 0.2 − 0.8.
+      expect(msg).toMatch(/超过了上限 3816\.0 µs/)
       expect(msg).toMatch(/两个时隙 4000\.0 µs/)
-      expect(msg).toMatch(/Poll 空口时间 203\.8 µs/)
-      expect(msg).toMatch(/响应帧空口时间 181\.2 µs/)
+      expect(msg).not.toMatch(/Poll 空口时间/)
+      expect(msg).toMatch(/响应帧空口时间 183\.0 µs/)
       expect(msg).toMatch(/时隙守卫 0\.2 µs/)
       // The *furthest* anchor's flight time, not the nearest.
       expect(msg).toMatch(/最远飞行时间 0\.8 µs/)
@@ -194,9 +201,9 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
     }
   })
 
-  it('the default (one whole slot) clears both sides of the budget', () => {
-    expect(DEFAULT_UWB_SESSION.fixedReplyRstu).toBe(2400)
-    expect(() => ScenarioSchema.parse(uwbScenario(nearFarNodes(), nearFarCfg(2400)))).not.toThrow()
+  it('the default (one slot + 240 RSTU, 2026-11-10) clears both sides of the budget', () => {
+    expect(DEFAULT_UWB_SESSION.fixedReplyRstu).toBe(2640)
+    expect(() => ScenarioSchema.parse(uwbScenario(nearFarNodes(), nearFarCfg(2640)))).not.toThrow()
     // …and so does the contention + fixed combination design calls out as the one most worth
     // allowing, at the far single-anchor geometry the earlier (one-sided) version of this test used.
     const farNode = (): NodeCfg[] => [uwbNode('anc-1', 'anchor', 0, 0, 0), uwbNode('tag-1', 'tag', 200, 0, 0)]

@@ -29,7 +29,7 @@
  * decision rather than of two scenes: SP3 (base), the SP1 deferred round it is built out of, the
  * SP1 embedded round that needs no report phase at all, and SP3 with both SRRR request bits on.
  * **Four anchors is the crossover itself**, which is why the base scene has that many: the SP3
- * round is 7.755 µs shorter than the deferred round it replaces — the whole of what the initiator's
+ * round is 6.730 µs shorter than the deferred round it replaces — the whole of what the initiator's
  * marker has just finished paying off.
  *
  * Every number is computed, never typed: `uwbSp3Ns`, `uwbSp3PollBytes`, `uwbSp3ReportBytes`,
@@ -322,8 +322,8 @@ export const uwbSp3: Lesson = {
     { term: 'SP3 format packet', plain: '只有三段、没有物理头也没有载荷的那种包；它只是一个时间标记' },
     { term: 'ranging initiation', plain: '发起方自己的那个标记：本轮的时间从它起算' },
     { term: 'data report phase', plain: '测距相位之后的那一段时隙：标记测得的时间在这里被传回；标准的一般说法是测量报告相位' },
-    { term: 'SRRR IE (SP3 Ranging Request Reports IE)', plain: '控制消息里的信息单元，按请求方与提供方成对声明要报告哪几项；本课为每个响应方各放一个' },
-    { term: 'RAOA / RRTT', plain: '那个信息单元四个请求位中的两个：一个请求到达角，一个请求往返时间；另两个请求回复时延与飞行时间，本课没有使用' },
+    { term: 'SRRR IE (SP3 Ranging Request Reports IE)', plain: '控制消息里的信息单元，按请求方与提供方成对声明要报告哪几项；本课为发起方与每个响应方这一对各放一个' },
+    { term: 'RAOA / RRTT', plain: '那个信息单元四个请求位中的两个：一个请求到达角，一个请求往返时间；另两个：RRT 请求回复时延（本仿真器的发起方总是置一），RTOF 请求飞行时间（本课没有使用）' },
   ],
   picture: [
     {
@@ -338,10 +338,10 @@ export const uwbSp3: Lesson = {
     {
       kind: 'steps', heading: '一轮 SP3 测距的完整过程',
       items: [
-        `发起方先发控制消息：ARC 与 RDM 两个信息单元规定「哪个时隙归谁」，后面跟着每个响应方各一个 SRRR 信息单元，声明报告相位里这个响应方与发起方之间要报告哪几项（每个响应方一个是本课的安排）。`,
+        `发起方先发控制消息：ARC 与 RDM 两个信息单元规定「哪个时隙归谁」，后面跟着每对「发起方—响应方」各一个 SRRR 信息单元（§10.32.9.9），声明报告相位里这个响应方与发起方之间要报告哪几项；发起方即控制器，所以每个信息单元只带响应方的地址。`,
         '发起方发送自己的 SP3 标记。本轮两端的时间都从这个标记起算，而不是从控制消息起算：控制消息带有载荷，不能作为标记。',
         '每个响应方在自己的时隙里各发送一个 SP3 标记。两端各记录一个时刻，而这个标记属于谁，由时隙决定。',
-        `报告相位：每个响应方发一帧，把自己的回复时延传回发起方——这一帧正是延后那条路本来就要发的那一帧（标准里回复时延由 SRRR 的 RRT 位请求；本课总是上报，不经这一位）。若有响应方请求了往返时间（RRTT），发起方也发一帧，逐个响应方报告。`,
+        `报告相位：每个响应方发一帧，把自己的回复时延传回发起方——这一帧正是延后那条路本来就要发的那一帧（回复时延由 SRRR 的 RRT 位请求，§10.32.9.9；本仿真器的发起方总是置这一位，响应方按收到的这一位上报）。若有响应方请求了往返时间（RRTT），发起方也发一帧，逐个响应方报告。`,
         '发起方要等报告接收完毕才能算出距离。测距相位结束的那一刻，它还没有任何一条距离。',
       ],
     },
@@ -413,9 +413,9 @@ export const uwbSp3: Lesson = {
       kind: 'table', heading: 'SRRR 与多消息收妥确认：开销在请求一侧',
       head: ['比较项', `SRRR（§10.32.9.9）`, `MMRCR（§10.36）`],
       rows: [
-        ['请求本身', `本课每个响应方 ${BYTES.srrrIe} 字节，随响应方数变长`, '0 字节：那一位在控制消息原有的控制字段里'],
+        ['请求本身', `每对请求方与提供方 ${BYTES.srrrIe} 字节，随响应方数变长`, '0 字节：那一位在控制消息原有的控制字段里'],
         ['回复', '一整帧报告', '一整帧收妥确认'],
-        ['控制消息为此增加的长度', `${BYTES.srrrAll} 字节，也就是 3A——而且在本课里无论两个请求位是开还是关，这 ${BYTES.srrrAll} 字节都存在：本课请求位全关时也照样发送这些信息单元`, '0 字节'],
+        ['控制消息为此增加的长度', `${BYTES.srrrAll} 字节，也就是 ${BYTES.srrrIe}A——而且在本课里无论 RAOA 与 RRTT 两位是开还是关，这 ${BYTES.srrrAll} 字节都存在：回复时延总要请求（RRT 位总是置一），这些信息单元总要发送`, '0 字节'],
       ],
     },
     {
@@ -434,7 +434,7 @@ export const uwbSp3: Lesson = {
     },
     {
       heading: 'RRTT 这一位要发起方自己发帧才有效果',
-      text: 'RRTT 这一位请求的是往返时间，而回复它的是发起方自己的那一帧报告。假如发起方在报告相位里没有自己的时隙，这一位就只是随帧发送而不起任何作用：控制消息里那 3 个字节确实发了出去，而整个报告相位在它置位与不置位时逐字节相同。一个可以置位、却不产生任何效果的请求位没有意义，所以让它起作用的是 Figure 10-242 里发起方自己那两帧：一个标记和一帧报告。有了这两帧，交叉点才出现在 A = 11——而这也是本课那个「发起方先多发一个标记」的前提，没有它们，本课会得出另一个结论。',
+      text: 'RRTT 这一位请求的是往返时间，而回复它的是发起方自己的那一帧报告。假如发起方在报告相位里没有自己的时隙，这一位就只是随帧发送而不起任何作用：控制消息里那 5 个字节确实发了出去，而整个报告相位在它置位与不置位时逐字节相同。一个可以置位、却不产生任何效果的请求位没有意义，所以让它起作用的是 Figure 10-242 里发起方自己那两帧：一个标记和一帧报告。有了这两帧，交叉点才出现在 A = 11——而这也是本课那个「发起方先多发一个标记」的前提，没有它们，本课会得出另一个结论。',
     },
   ],
   limits: [
@@ -460,8 +460,8 @@ export const uwbSp3: Lesson = {
     },
   ],
   sources: [
-    'IEEE Std 802.15.4-2024 §10.32.8 是 SP3 分组下的测距过程——§10.32.8.2 给出三个相位（控制消息、SP3 测距、数据报告），连同它的 Figure 10-242 给出时隙的指派、调度由控制器的上层决定这一条，以及测量报告相位里两个方向的帧；§10.32.2 规定 SP3 测距只能用时间调度，以区分不同设备的消息；§10.32.9.9 是 SRRR 信息单元与它的 RAOA、RRT、RRTT、RTOF 四个请求位，本课用其中 RAOA 与 RRTT 两个。报告相位走的那条路是 §10.29.6.3 的「回复时间延后」，发起方那一帧报告的内容形状取自 §10.29.8.4 的 RMI 信息单元。本课完全不依赖任何草案。',
-    `一个 SP3 包的时长是同步字段与帧起始定界符这两段加上加扰时间戳序列，即 ${grp(CHIPS.shr)} + ${grp(CHIPS.sts)} = ${grp(CHIPS.marker)} 个码片，没有物理头那 ${grp(CHIPS.phr)} 个，也没有载荷。课文里每一个时长都由码片数与字节数算出，交叉点是对锚点数逐个比较得出的。SRRR 信息单元 ${BYTES.srrrIe} 字节（单元头 ${UWB_IE_HDR_BYTES} 加控制 ${BYTES.srrrIe - UWB_IE_HDR_BYTES}）与报告里方位角那一项 ${BYTES.raoaItem} 字节是本仿真器的取值。${MS.slot} ms 的测距时隙与 ${MS.block} ms 的测距块（ranging block）来自 FiRa 的缺省配置，不是标准正文。`,
+    'IEEE Std 802.15.4-2024 §10.32.8 是 SP3 分组下的测距过程——§10.32.8.2 给出三个相位（控制消息、SP3 测距、数据报告），连同它的 Figure 10-242 给出时隙的指派、调度由控制器的上层决定这一条，以及测量报告相位里两个方向的帧；§10.32.2 规定 SP3 测距只能用时间调度，以区分不同设备的消息；§10.32.9.9 是 SRRR 信息单元与它的 RAOA、RRT、RRTT、RTOF 四个请求位，本课用其中 RAOA、RRT 与 RRTT 三个（RRT 总是置一）。报告相位走的那条路是 §10.29.6.3 的「回复时间延后」，发起方那一帧报告的内容形状取自 §10.29.8.4 的 RMI 信息单元。本课完全不依赖任何草案。',
+    `一个 SP3 包的时长是同步字段与帧起始定界符这两段加上加扰时间戳序列，即 ${grp(CHIPS.shr)} + ${grp(CHIPS.sts)} = ${grp(CHIPS.marker)} 个码片，没有物理头那 ${grp(CHIPS.phr)} 个，也没有载荷。课文里每一个时长都由码片数与字节数算出，交叉点是对锚点数逐个比较得出的。SRRR 信息单元 ${BYTES.srrrIe} 字节（单元头 ${UWB_IE_HDR_BYTES} 加控制 1 加提供方的短地址 ${BYTES.srrrIe - UWB_IE_HDR_BYTES - 1}）按标准的格式，短地址是本仿真器的取值；报告里方位角那一项 ${BYTES.raoaItem} 字节是本仿真器的取值。${MS.slot} ms 的测距时隙与 ${MS.block} ms 的测距块（ranging block）来自 FiRa 的缺省配置，不是标准正文。`,
     `本课四个场景是同一个 22 × 8 m 大厅、同样 ${ANCHORS} 个锚点与一个标签（tag）、同样的种子，只有会话上的开关不同：SP3、延后的 SP1、嵌在帧里的 SP1，以及两个请求位都打开的 SP3。${ANCHORS} 个锚点不是随意选取的，它正好是交叉点那一个数。四个场景都把非视距与载波频偏估计的残差关掉（残差取 0），这是本课的取值：延后那条路的回复时延长达几个时隙，0.2 ppm 的残差在最后几个时隙上值几十厘米的距离，会掩盖本课唯一要读者核对的那件事——距离仍然能算出而且与几何一致。空口时间与它无关，时间戳噪声仍然保留。A 从 1 到 6 那两行由上面那些长度算出，并对着 1 到 6 个锚点各运行一轮仿真核对过，逐个 A 完全相等。`,
   ],
   scenario: () => uwbSp3Scenario(),

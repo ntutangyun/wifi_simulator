@@ -12,6 +12,7 @@ import { STRINGS } from '../../src/ui/i18n'
 import {
   ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES,
+  rrtiIeBytes,
   rxTimesIeBytes, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_BLINK_BYTES,
   uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbRespBytes,
 } from '../../src/uwb/phy'
@@ -66,9 +67,10 @@ describe('uwbFrameFields', () => {
     expect(fields(POLL).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieArc', 'ieRr', 'ieRdm', 'ieRrmc'])
     expect(fields(RESP).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc', 'ieRrti'])
     expect(fields(RESP_DS).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc'])
-    // one RRTI IE per anchor, each holding that anchor's reply time (standard §10.29.8.1)
+    // 2026-11-10: ONE RRTI IE listing every anchor's reply time — standard §10.29.8.1, Figure 10-208:
+    // an RRTI List Length and one RRTI List element per reply time (it used to be one IE per anchor).
     expect(fields(FINAL).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
-      .toEqual(['ieRmi', 'ieRrti', 'ieRrti', 'ieRrti', 'ieRrti'])
+      .toEqual(['ieRmi', 'ieRrti'])
     expect(fields(REPORT).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRmi'])
   })
 
@@ -79,17 +81,21 @@ describe('uwbFrameFields', () => {
     expect(keyed(RESP, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
     expect(keyed(RESP, 'ieRrti')!.bytes).toBe(RRTI_IE_BYTES)
     expect(keyed(RESP_DS, 'ieRrmc')!.bytes).toBe(RRMC_IE_BYTES)
-    // The Final carries one reply time per anchor: MHR 9 + (3 + 6N) + N × 6 + FCS 2 = 14 + 12N.
+    // 2026-11-10: MHR 9 + RMI (4 + 6N) + RRTI (3 + 6N) + FCS 2 = 18 + 12N — the RMI content header is 2
+    // octets (§10.29.8.4) and the RRTI IE has a 1-octet content header and one element of reply time +
+    // address per anchor (§10.29.8.1).
     expect(keyed(FINAL, 'ieRmi')!.bytes).toBe(rmiFinalIeBytes(4))
+    expect(keyed(FINAL, 'ieRmi')!.bytes).toBe(4 + 6 * 4)
     const rrti = fields(FINAL).filter((x) => x.key === 'ieRrti')
-    expect(rrti).toHaveLength(4)
-    expect(rrti.every((x) => x.bytes === RRTI_IE_BYTES)).toBe(true)
-    expect(rrti.reduce((s, x) => s + x.bytes, 0)).toBe(4 * RRTI_IE_BYTES)
+    expect(rrti).toHaveLength(1)
+    expect(rrti[0].bytes).toBe(rrtiIeBytes(4, true))
+    expect(rrti[0].bytes).toBe(3 + 6 * 4)
+    expect(RRTI_IE_BYTES).toBe(2 + 1 + 4)
     expect(keyed(REPORT, 'ieRmi')!.bytes).toBe(RMI_REPORT_IE_BYTES)
   })
 
   it('refuses to decode a frame whose engine size the fields cannot account for', () => {
-    expect(() => uwbFrameFields({ ...FINAL, bytes: 60 })).toThrow(/62 B decoded, engine size 60 B/)
+    expect(() => uwbFrameFields({ ...FINAL, bytes: 60 })).toThrow(/66 B decoded, engine size 60 B/)
   })
 
   it('spells the IE contents out in words', () => {
@@ -99,8 +105,8 @@ describe('uwbFrameFields', () => {
     expect(keyed(REPORT, 'ieRmi')!.value).toContain('treply1')
     expect(keyed(FINAL, 'ieRmi')!.value).toContain('a1')
     expect(keyed(FINAL, 'ieRmi')!.value).not.toContain('treply2') // that is the RRTI IEs' job
-    expect(fields(FINAL).filter((x) => x.key === 'ieRrti').map((x) => x.value!.split('：')[0]))
-      .toEqual(['a1', 'a2', 'a3', 'a4'])
+    const rrtiValue = keyed(FINAL, 'ieRrti')!.value!
+    for (const id of ['a1', 'a2', 'a3', 'a4']) expect(rrtiValue).toContain(`${id}：treply2`)
   })
 
   it('is what decodeFrame returns for a UWB frame', () => {
@@ -208,7 +214,8 @@ describe('uwbFrameFields', () => {
     expect(keyed(cPoll, 'ieRr')!.value).toBe(V.rr(0, 0))
     expect(keyed(cPoll, 'ieRcps')!.bytes).toBe(RCPS_IE_BYTES)
     expect(keyed(cPoll, 'ieRcma')!.bytes).toBe(RCMA_IE_BYTES)
-    expect(keyed(cPoll, 'ieRcps')!.value).toBe(V.rcps(1, 8))
+    // Phase Indicator 1, the responders' contention phase (§10.32.9.5, Table 10-170).
+    expect(keyed(cPoll, 'ieRcps')!.value).toBe(V.rcps(1, 8, 1))
     expect(keyed(cPoll, 'ieRcma')!.value).toBe(V.rcma(3))
   })
 })
@@ -221,7 +228,8 @@ describe('uwbPpduLayout', () => {
   const PHR = chipsToNs(PHR_SYMBOLS * PHR_SYMBOL_CHIPS)
 
   it('uses the SP1 chip constants for the five segments before the PSDU', () => {
-    expect([SYNC, SFD, GAP, STS, PHR]).toEqual([65_128, 8_141, 1_026, 65_641, 19_487])
+    // 2026-11-10: PHR 21 symbols × 512 chips (standard Table 16-2) = 21 538 ns.
+    expect([SYNC, SFD, GAP, STS, PHR]).toEqual([65_128, 8_141, 1_026, 65_641, 21_538])
     expect(uwbPpduLayout(POLL).map((s) => s.key)).toEqual(['sync', 'sfd', 'stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
     expect(uwbPpduLayout(POLL).slice(0, 6).map((s) => s.durNs)).toEqual([SYNC, SFD, GAP, STS, GAP, PHR])
   })
@@ -234,12 +242,13 @@ describe('uwbPpduLayout', () => {
     }
   })
 
-  it('the 62-octet Final spends 236 603 ns, all but the SHR, STS and PHR of it on the PSDU', () => {
-    expect(FINAL.bytes).toBe(62)
-    expect(FINAL.txTimeNs).toBe(236_603)
+  // 2026-11-10: 66 octets (RMI/RRTI content headers) and a 21-symbol PHR (Table 16-2).
+  it('the 66-octet Final spends 242 500 ns, all but the SHR, STS and PHR of it on the PSDU', () => {
+    expect(FINAL.bytes).toBe(66)
+    expect(FINAL.txTimeNs).toBe(242_500)
     const psdu = uwbPpduLayout(FINAL).find((s) => s.key === 'psdu')!
-    // SHR 73 269 + STS (2 × 1 026 + 65 641) + PHR 19 487; each segment rounds to the nearest ns on its own.
-    expect(psdu.durNs).toBe(236_603 - 73_269 - 67_693 - 19_487)
+    // SHR 73 269 + STS (2 × 1 026 + 65 641) + PHR 21 538; each segment rounds to the nearest ns on its own.
+    expect(psdu.durNs).toBe(242_500 - 73_269 - 67_693 - 21_538)
   })
 
   it('marks where the RMARKER falls: the first chip after the SFD', () => {

@@ -160,17 +160,17 @@ describe('uwb-mms-numbers · what a millisecond buys', () => {
     expect(cell(0, 0, 1)).toBe('37 nJ')
   })
 
-  it('"39 octets, 206.859 µs, 8.24 nJ" is what an ordinary poll spends of it', () => {
+  it('"39 octets, 208.654 µs, 8.31 nJ" is what an ordinary poll spends of it', () => {
     expect(uwbPollBytes(ANCHORS.length)).toBe(39)
-    expect(uwbPpduNs(uwbPollBytes(ANCHORS.length))).toBe(206_859)
+    expect(uwbPpduNs(uwbPollBytes(ANCHORS.length))).toBe(208_654)
     const nJ = 10 ** (UWB_TX_POWER_DBM / 10) * (uwbPpduNs(uwbPollBytes(ANCHORS.length)) / 1000)
-    expect(nJ.toFixed(2)).toBe('8.24')
+    expect(nJ.toFixed(2)).toBe('8.31')
     expect(UWB_TX_POWER_DBM).toBe(-14)
-    expect(cell(0, 1, 1)).toBe('39 octets, 206.859 µs, 8.24 nJ')
+    expect(cell(0, 1, 1)).toBe('39 octets, 208.654 µs, 8.31 nJ')
     // and the run's own 4z poll is that frame
     const poll = ofType(recs('twr'), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!
     expect(poll.frame.bytes).toBe(39)
-    expect(poll.frame.txTimeNs).toBe(206_859)
+    expect(poll.frame.txTimeNs).toBe(208_654)
   })
 
   it('"40 × 4 × (128 + 2 × 64) = 40 960 chips, 82.051 µs, −3.46 dBm", and rsf-1’s shorter one', () => {
@@ -434,15 +434,15 @@ describe('uwb-mms-numbers · being honest about the gain', () => {
     const burstDb = 10 * Math.log10(UWB_MS_BUDGET_NJ / (10 ** (UWB_TX_POWER_DBM / 10) * (pollNs / 1000)))
     const shorterDb = mmsFragmentDbm(rsfNs(40, 64)) - mmsFragmentDbm(pollNs)
     expect(combineGainDb(8).toFixed(2)).toBe('9.03')
-    expect(shorterDb.toFixed(2)).toBe('4.02')
-    expect(burstDb.toFixed(2)).toBe('6.53')
+    expect(shorterDb.toFixed(2)).toBe('4.05')
+    expect(burstDb.toFixed(2)).toBe('6.49')
     expect(burstDb + shorterDb + combineGainDb(8)).toBeCloseTo(train - poll, 6)
-    expect([cell(3, 0, 1), cell(3, 1, 1), cell(3, 2, 1)]).toEqual(['9.03 dB', '4.016 dB', '6.525 dB'])
-    // "together 10.54 dB, and an older burst-mode radio could hold −7.47 dBm and be as legal" — the two
-    // transmitter rows print three decimals since 2026-11-10 (4.016 + 6.525), because at two decimals
+    expect([cell(3, 0, 1), cell(3, 1, 1), cell(3, 2, 1)]).toEqual(['9.03 dB', '4.053 dB', '6.488 dB'])
+    // "together 10.54 dB, and an older burst-mode radio could hold −7.51 dBm and be as legal" — the two
+    // transmitter rows print three decimals since 2026-11-10 (4.053 + 6.488), because at two decimals
     // their rounded values no longer added up to the rounded totals once the poll grew three octets.
     expect((burstDb + shorterDb).toFixed(2)).toBe('10.54')
-    expect(mmsFragmentDbm(pollNs).toFixed(2)).toBe('-7.47')
+    expect(mmsFragmentDbm(pollNs).toFixed(2)).toBe('-7.51')
   })
 
   it('"Going deeper": the ordinary radio fails completely, at −110.80 dBm and 42 timeouts', () => {

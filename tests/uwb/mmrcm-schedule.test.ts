@@ -94,72 +94,77 @@ describe('mmrcmResponders', () => {
   })
 })
 
+// Rewritten 2026-11-10 (W2): standard §10.32.3.3 — in block-based mode every round of the block has
+// one duration ("number of ranging slots in a ranging round = round duration / slot duration"), so
+// a set-closing round cannot be longer than the others. `plan.slots` is that one length: the ranging
+// exchange (`plan.rangingSlots`) plus one receipt-confirmation slot per responder when `mmrcr` is on.
+// The confirmations ride those slots in the round that closes a set; in every other round they are
+// idle. Until 2026-11-10 they were appended to the set-closing round only, which made it longer.
 describe('roundSlots', () => {
-  it('equals plan.slots on every round when mmrcr is off', () => {
-    const p = roundPlan(sets(4, 8, { mmrcr: false }), 4)
-    for (let round = 0; round < 8; round++) expect(roundSlots(p, round)).toBe(p.slots)
-  })
-
-  it('grows by mmrcmResponders only on the set-closing round, twr', () => {
-    const p = roundPlan(sets(4, 8, { mmrcr: true, mode: 'twr' }), 2)
-    for (let round = 0; round < 8; round++) {
-      // +2, one per anchor — not +1. See `mmrcmResponders`' own test above.
-      const expected = round % 4 === 3 ? p.slots + 2 : p.slots
-      expect(roundSlots(p, round), `round=${round}`).toBe(expected)
+  it('equals plan.slots on every round, mmrcr on or off', () => {
+    for (const mmrcr of [false, true]) {
+      const p = roundPlan(sets(4, 8, { mmrcr }), 4)
+      for (let round = 0; round < 8; round++) expect(roundSlots(p, round)).toBe(p.slots)
     }
   })
 
-  it('grows by participants every round for m2m (rcmValidityRounds pinned at 1)', () => {
+  it('twr: the fixed round holds the ranging exchange plus one confirmation slot per responder', () => {
+    const off = roundPlan(sets(4, 8, { mmrcr: false, mode: 'twr' }), 2)
+    const on = roundPlan(sets(4, 8, { mmrcr: true, mode: 'twr' }), 2)
+    expect(on.rangingSlots).toBe(off.rangingSlots)
+    expect(off.slots).toBe(off.rangingSlots)
+    // +2, one per anchor — not +1. See `mmrcmResponders`' own test above.
+    expect(on.slots).toBe(on.rangingSlots + 2)
+    expect(on.roundNs).toBe(on.slots * on.slotNs)
+  })
+
+  it('m2m: the one round holds every participant once more (rcmValidityRounds pinned at 1)', () => {
     const p = roundPlan(session({ mmrcr: true, mode: 'm2m', rcmValidityRounds: 1 }), 3)
-    expect(roundSlots(p, 0)).toBe(p.slots + 3)
+    expect(p.slots).toBe(p.rangingSlots + 3)
   })
 })
 
-describe('rounds 0…R−2 of a set are identical to mmrcr: false, slot for slot (task-2-brief.md)', () => {
-  it('twr: same slot count and same slotAction answers below plan.slots', () => {
+describe('rounds 0…R−2 of a set carry the ranging exchange and leave the confirmation slots idle', () => {
+  it('twr: the ranging slots answer as with mmrcr off, the rest are idle', () => {
     for (const r of [2, 4, 8]) {
       const off = roundPlan(sets(r, r, { mmrcr: false }), 3)
       const on = roundPlan(sets(r, r, { mmrcr: true }), 3)
       for (let round = 0; round < r - 1; round++) {
-        // The slot count itself must not have grown yet.
-        expect(roundSlots(on, round), `r=${r} round=${round}`).toBe(roundSlots(off, round))
-        expect(roundSlots(on, round), `r=${r} round=${round}`).toBe(on.slots)
-        for (let slot = 0; slot < on.slots; slot++) {
+        for (let slot = 0; slot < on.rangingSlots; slot++) {
           expect(roundSlotAction(on, round, slot), `r=${r} round=${round} slot=${slot}`)
             .toEqual(roundSlotAction(off, round, slot))
           expect(roundSlotAction(on, round, slot), `r=${r} round=${round} slot=${slot}`)
             .toEqual(slotAction(on, slot))
         }
+        for (let slot = on.rangingSlots; slot < on.slots; slot++) {
+          expect(roundSlotAction(on, round, slot), `r=${r} round=${round} slot=${slot}`).toEqual({ kind: 'idle' })
+        }
       }
     }
   })
 
-  it('the set-closing round (R−1) is where the two plans finally differ', () => {
+  it('the set-closing round (R−1) puts one confirmation per responder in those slots, in order', () => {
     for (const r of [2, 4]) {
-      const off = roundPlan(sets(r, r, { mmrcr: false }), 3)
       const on = roundPlan(sets(r, r, { mmrcr: true }), 3)
       const closing = r - 1
-      // Three anchors, so three new slots — one per responder.
-      expect(roundSlots(on, closing), `r=${r}`).toBe(roundSlots(off, closing) + 3)
-      // Every slot below plan.slots still agrees...
-      for (let slot = 0; slot < on.slots; slot++) {
-        expect(roundSlotAction(on, closing, slot)).toEqual(roundSlotAction(off, closing, slot))
+      for (let slot = 0; slot < on.rangingSlots; slot++) {
+        expect(roundSlotAction(on, closing, slot)).toEqual(slotAction(on, slot))
       }
-      // ...and each new slot answers for one responder, in order, none of them present in the
-      // off plan at all.
+      // Three anchors, so three confirmation slots — one per responder.
       for (let i = 0; i < 3; i++) {
-        expect(roundSlotAction(on, closing, on.slots + i)).toEqual({ kind: 'uwbMmrcm', index: i })
+        expect(roundSlotAction(on, closing, on.rangingSlots + i)).toEqual({ kind: 'uwbMmrcm', index: i })
       }
-      expect(() => roundSlotAction(off, closing, off.slots)).toThrow()
+      // The round is no longer than the others: one past its fixed length throws.
+      expect(() => roundSlotAction(on, closing, on.slots)).toThrow()
     }
   })
 })
 
 describe('roundSlotAction', () => {
-  it('passes every slot below plan.slots straight through to slotAction, in every round', () => {
+  it('passes every ranging slot straight through to slotAction, in every round', () => {
     const p = roundPlan(sets(4, 8, { mmrcr: true }), 2)
     for (let round = 0; round < 8; round++) {
-      for (let slot = 0; slot < p.slots; slot++) {
+      for (let slot = 0; slot < p.rangingSlots; slot++) {
         expect(roundSlotAction(p, round, slot)).toEqual(slotAction(p, slot))
       }
     }
@@ -168,59 +173,48 @@ describe('roundSlotAction', () => {
   it('one MMRCM slot per responder, indexed in order, on the m2m round', () => {
     const p = roundPlan(session({ mmrcr: true, mode: 'm2m', rcmValidityRounds: 1 }), 3)
     for (let i = 0; i < 3; i++) {
-      expect(roundSlotAction(p, 0, p.slots + i)).toEqual({ kind: 'uwbMmrcm', index: i })
+      expect(roundSlotAction(p, 0, p.rangingSlots + i)).toEqual({ kind: 'uwbMmrcm', index: i })
     }
-    // One past the last responder: no more MMRCM slots to hand out.
-    expect(() => roundSlotAction(p, 0, p.slots + 3)).toThrow()
+    // One past the last responder is past the round itself.
+    expect(() => roundSlotAction(p, 0, p.rangingSlots + 3)).toThrow()
   })
 
-  it('throws asking for an MMRCM-range slot on a round that does not close a set', () => {
+  it('a confirmation-slot index of a round that does not close a set is idle, not a confirmation', () => {
     const p = roundPlan(sets(4, 4, { mmrcr: true, mode: 'twr' }), 2)
-    expect(() => roundSlotAction(p, 0, p.slots)).toThrow()
-    expect(() => roundSlotAction(p, 1, p.slots)).toThrow()
-    expect(() => roundSlotAction(p, 2, p.slots)).toThrow()
+    for (const round of [0, 1, 2]) expect(roundSlotAction(p, round, p.rangingSlots)).toEqual({ kind: 'idle' })
     // Round 3 (= R − 1) is the one that does.
-    expect(roundSlotAction(p, 3, p.slots)).toEqual({ kind: 'uwbMmrcm', index: 0 })
+    expect(roundSlotAction(p, 3, p.rangingSlots)).toEqual({ kind: 'uwbMmrcm', index: 0 })
   })
 
-  it('throws asking for any slot at all when mmrcr is off and slot >= plan.slots', () => {
-    const p = roundPlan(sets(4, 4, { mmrcr: false }), 2)
-    expect(() => roundSlotAction(p, 3, p.slots)).toThrow()
+  it('throws asking for any slot at or past plan.slots', () => {
+    for (const mmrcr of [false, true]) {
+      const p = roundPlan(sets(4, 4, { mmrcr }), 2)
+      expect(() => roundSlotAction(p, 3, p.slots)).toThrow()
+    }
   })
 })
 
-describe('blockSlotStartNs: rounds start where the rounds before them end', () => {
-  it('is slotStartNs exactly, slot for slot, whenever mmrcr is off', () => {
-    for (const r of [1, 2, 4]) {
-      const p = roundPlan(sets(r, r, { mmrcr: false }), 3)
-      for (let block = 0; block < 2; block++) {
-        for (let round = 0; round < r; round++) {
-          for (let slot = 0; slot < p.slots; slot++) {
-            expect(blockSlotStartNs(p, block, round, slot), `r=${r} b=${block} round=${round} s=${slot}`)
-              .toBe(slotStartNs(p, block, round, slot))
+describe('blockSlotStartNs: every round has one length, so it is slotStartNs', () => {
+  it('is slotStartNs exactly, slot for slot, mmrcr on or off', () => {
+    for (const mmrcr of [false, true]) {
+      for (const r of [1, 2, 4]) {
+        const p = roundPlan(sets(r, r, { mmrcr }), 3)
+        for (let block = 0; block < 2; block++) {
+          for (let round = 0; round < r; round++) {
+            for (let slot = 0; slot < p.slots; slot++) {
+              expect(blockSlotStartNs(p, block, round, slot), `r=${r} b=${block} round=${round} s=${slot}`)
+                .toBe(slotStartNs(p, block, round, slot))
+            }
           }
         }
       }
     }
   })
 
-  it('keeps the round after a set-closing round clear of its extra slots, which plan.roundNs could not', () => {
-    // The collision this function exists to prevent: with the extra slots appended to a round and the
-    // stride left at `plan.roundNs`, the set-closing round's MMRCM slots land exactly on the next
-    // round's slots 0…A−1 — two transmitters in one slot, and nothing downstream able to notice.
-    // Two sets of two rounds a block: round 1 closes the first set, round 2 opens the second.
+  it('starts the round after a set-closing round right after it, and the next block on its boundary', () => {
     const p = roundPlan(sets(2, 4, { mmrcr: true }), 3)
-    const closing = 1
-    const slots = roundSlots(p, closing)
-    expect(slots, 'three anchors, so three extra slots').toBe(p.slots + 3)
-    const endOfClosing = blockSlotStartNs(p, 0, closing, slots - 1) + p.slotNs
-    expect(blockSlotStartNs(p, 0, closing + 1, 0)).toBe(endOfClosing)
-    // …and the stride a `plan.roundNs` layout would have used is *inside* the closing round, which is
-    // precisely the overlap.
-    expect(slotStartNs(p, 0, closing + 1, 0)).toBeLessThan(endOfClosing)
-    // Rounds before the first set closes are untouched: the same instants as `slotStartNs`.
-    expect(blockSlotStartNs(p, 0, 1, 0)).toBe(slotStartNs(p, 0, 1, 0))
-    // And the next block starts on the block boundary, whatever the rounds of this one appended.
+    const endOfClosing = blockSlotStartNs(p, 0, 1, p.slots - 1) + p.slotNs
+    expect(blockSlotStartNs(p, 0, 2, 0)).toBe(endOfClosing)
     expect(blockSlotStartNs(p, 1, 0, 0)).toBe(p.blockNs)
   })
 })

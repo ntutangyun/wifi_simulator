@@ -71,5 +71,5 @@ structure. you're going to change the content anyway」——引擎改了，课�
 ## 进度
 
 - [x] 第一阶段（试点第 70 课，见提交记录；等用户看过新结构再铺开）
-- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [ ] W2　- [ ] W3　- [ ] W4　- [ ] W5　- [ ] W6
+- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [ ] W3　- [ ] W4　- [ ] W5　- [ ] W6
 - [ ] 第三阶段

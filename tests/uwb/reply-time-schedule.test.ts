@@ -19,7 +19,9 @@ const SHAPES: { method: 'ss' | 'ds'; replyTime: UwbReplyTime; slots: (a: number)
   { method: 'ss', replyTime: 'fixed', slots: (a) => a + 1 },
   { method: 'ss', replyTime: 'deferred', slots: (a) => 2 * a + 1 },
   { method: 'ds', replyTime: 'embedded', slots: (a) => 2 * a + 2 },
-  { method: 'ds', replyTime: 'deferred', slots: (a) => 2 * a + 2 },
+  // 2026-11-10 (audit #3): one slot more — the initiator's deferred report between the Final and the
+  // responders' reports (standard §10.29.6.6, §10.32.5 Figure 10-237).
+  { method: 'ds', replyTime: 'deferred', slots: (a) => 2 * a + 3 },
 ]
 
 describe('uwbSlotsPerTag lays out the five shapes with the slot counts design §4 tabulates', () => {
@@ -104,12 +106,16 @@ describe('the embedded and fixed shapes are slot-for-slot identical to today', (
     }
   })
 
-  it('DS deferred, 4 anchors: same 2A+2 slots and the same layout as embedded — only the Final’s payload moves', () => {
+  // 2026-11-10 (audit #3): standard §10.29.6.6 / Figure 10-237 — after the bare Final the initiator
+  // sends the first round-trip time and second reply time in a deferred data frame, then the
+  // responders report.
+  it('DS deferred, 4 anchors: 2A+3 slots — Final, the initiator deferred report, then the four reports', () => {
     const p = roundPlan(session({ replyTime: 'deferred' }), 4)
-    expect(p.slots).toBe(10)
+    expect(p.slots).toBe(11)
     expect(slotAction(p, 5)).toEqual({ kind: 'uwbFinal', tx: 'tag' })
+    expect(slotAction(p, 6)).toEqual({ kind: 'uwbReport', tx: 'tag' })
     for (let i = 0; i < 4; i++) {
-      expect(slotAction(p, 6 + i)).toEqual({ kind: 'uwbReport', tx: 'anchor', anchor: i })
+      expect(slotAction(p, 7 + i)).toEqual({ kind: 'uwbReport', tx: 'anchor', anchor: i })
     }
   })
 })

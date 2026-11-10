@@ -25,7 +25,17 @@ export const SYNC_SYMBOLS = 64 // standard Table 16-31 set 3 (SYNC PSR 64)
 export const SFD_SYMBOLS = 8 // standard Table 16-31 set 3 (SFD #2)
 export const STS_ACTIVE_CHIPS = 64 * 512 // standard Table 16-17 BPRF: 64 × 512 chips
 export const STS_GAP_CHIPS = 512 // standard §16.2.9.1
-export const PHR_SYMBOLS = 19 // standard §16.2.7.1
+/**
+ * Symbols sent at the PHR symbol rate (standard Table 16-2/16-3, "21 symbols of PHY header at the PHR
+ * symbol rate"): the 19 PHR bits H0–H18 plus two more — with Viterbi rate 0.5 the PSDU's first two
+ * bits D0, D1 (symbols 19–20). Until 2026-11-10 this was 19 and those two bits were counted at the
+ * data rate, which made every PPDU 2 × (512 − 64) = 896 chips (about 1.8 µs) short (audit #7).
+ */
+export const PHR_SYMBOLS = 21
+/** The PHR's own bits, H0–H18 (standard §16.2.7.1). */
+export const PHR_BITS = 19
+/** PSDU bits that ride the PHR-rate symbols 19–20 (standard Table 16-2: D0, D1). */
+export const PSDU_BITS_AT_PHR_RATE = PHR_SYMBOLS - PHR_BITS
 export const PHR_SYMBOL_CHIPS = 512 // standard Table 16-4/16-14 (850 kb/s nominal)
 export const DATA_SYMBOL_CHIPS = 64 // standard Table 16-4 (6.8 Mb/s)
 export const RS_PARITY_BITS = 48 // standard §16.3.3.2
@@ -36,7 +46,7 @@ export const UWB_SHR_CHIPS = (SYNC_SYMBOLS + SFD_SYMBOLS) * PSYM_CHIPS // 36 576
 export const UWB_RMARKER_CHIPS = UWB_SHR_CHIPS // standard §10.29.1.1: first chip after the SFD
 export const UWB_RMARKER_NS = UWB_RMARKER_CHIPS * UWB_CHIP_NS // 73 269.23 ns, exact (float)
 export const UWB_STS_CHIPS = STS_GAP_CHIPS + STS_ACTIVE_CHIPS + STS_GAP_CHIPS // 33 792
-export const UWB_PHR_CHIPS = PHR_SYMBOLS * PHR_SYMBOL_CHIPS // 9 728
+export const UWB_PHR_CHIPS = PHR_SYMBOLS * PHR_SYMBOL_CHIPS // 10 752
 
 /**
  * An SP3 packet (standard §10.32.8.2): SYNC + SFD + STS and nothing else — no PHR, no PSDU. It is
@@ -55,13 +65,14 @@ export function uwbSp3Ns(): Ns {
   return chipsToNs(uwbSp3Chips())
 }
 
-/** PSDU symbol count: 8·octets data bits, plus 48 parity bits per RS(63,55)
- * block (each block covers up to 330 data bits), plus a 2-symbol tail.
- * standard §16.3.3.2 */
+/** PSDU symbols sent at the **data** rate: 8·octets data bits plus 48 parity bits per RS(63,55)
+ * block (each block covers up to 330 data bits), less the two bits D0, D1 that already went out at
+ * the PHR rate (`PSDU_BITS_AT_PHR_RATE`), plus the 2-symbol tail T0, T1. Table 16-2 numbers these
+ * symbols 21 … N + 20: N symbols for N coded bits. standard §16.3.3.2, Table 16-2 */
 export function psduSymbols(octets: number): number {
   const dataBits = 8 * octets
   const blocks = Math.ceil(dataBits / RS_BLOCK_BITS)
-  return dataBits + RS_PARITY_BITS * blocks + TAIL_SYMBOLS
+  return dataBits + RS_PARITY_BITS * blocks - PSDU_BITS_AT_PHR_RATE + TAIL_SYMBOLS
 }
 
 export function uwbPpduChips(octets: number): number {
@@ -192,10 +203,11 @@ export function uwbInBandDbm(txPowerDbm: number, overlapMhz: number): number {
 
 // --- Frame sizes --------------------------------------------------------------
 
-// The MHR and the FCS are the standard's frame format; every IE's content width is a model
-// choice made from the field lists of §10.29.8 and §10.32.9, so each one is written out as the
-// sum of the fields it stands for, and the frame helpers below add those constants up rather
-// than restating the arithmetic.
+// The MHR and the FCS are the standard's frame format, and every IE's content is written out as the
+// sum of the fields its content-field figure in §10.29.8 / §10.32.9 / §10.34–§10.36 gives (field
+// widths verified against IEEE Std 802.15.4-2024 on 2026-11-10); the frame helpers below add those
+// constants up rather than restating the arithmetic. Where a figure leaves a choice open (address
+// size, which optional fields are carried) the choice is stated beside the constant.
 
 /**
  * Which of the standard's five two-way ranging procedures carries a reply time or round-trip
@@ -243,8 +255,30 @@ export const ARC_IE_BYTES = UWB_IE_HDR_BYTES + 2 + 1
 export const RR_IE_BYTES = UWB_IE_HDR_BYTES + 2 + 2 + 2
 /** RRMC IE (§10.29.8.3): header + one control octet (what the round asks the responder for). */
 export const RRMC_IE_BYTES = UWB_IE_HDR_BYTES + 1
-/** RRTI IE (§10.29.8.1): header + one reply time of 4 octets. One IE holds one reply time. */
-export const RRTI_IE_BYTES = UWB_IE_HDR_BYTES + 4
+/**
+ * RRTI IE (standard §10.29.8.1, Figures 10-208/10-209): header + a 1-octet content header (Address
+ * Size Specifier 2 bits, RRTI List Length 6 bits) + one list element per reply time: RX-to-TX Reply
+ * Time 4 octets, plus a 0/2/8-octet Address. One IE carries the whole list.
+ * Until 2026-11-10 this engine priced it as header + 4 with no content header, and a broadcast Final
+ * carried one such IE per responder (audit #8).
+ */
+export const RRTI_CONTENT_HDR_BYTES = 1
+/** One RRTI List element's reply time (Figure 10-209). */
+export const RRTI_REPLY_BYTES = 4
+/** The short (16-bit) address every addressed list element in this engine carries (Table 10-149
+ * value 2). Short addressing throughout is the model's choice, as in the MHR. */
+export const UWB_SHORT_ADDR_BYTES = 2
+/** The RRTI IE's width for `elements` reply times, with or without the per-element address.
+ * §10.29.8.1: unicast omits the address (the MHR's destination says who); a broadcast list with
+ * several responders carries it — the standard allows omitting it when the order is pre-negotiated,
+ * and this engine does not use that option. */
+export function rrtiIeBytes(elements: number, addressed: boolean): number {
+  return UWB_IE_HDR_BYTES + RRTI_CONTENT_HDR_BYTES
+    + elements * (RRTI_REPLY_BYTES + (addressed ? UWB_SHORT_ADDR_BYTES : 0))
+}
+/** The RRTI IE an embedded SS-TWR Response carries: unicast to the initiator, one reply time, no
+ * address — 2 + 1 + 4 = 7 octets. */
+export const RRTI_IE_BYTES = rrtiIeBytes(1, false)
 /** One CP Table Element of the RCPS IE (standard §10.32.9.5, Figure 10-251): Phase Indicator 2 bits
  * + Ranging Slot Index to Start 7 bits + Ranging Slot Index to End 7 bits = 2 octets. */
 export const RCPS_CP_ELEMENT_BYTES = 2
@@ -262,14 +296,21 @@ export function rcpsIeBytes(phases: number): number {
 export const RCPS_IE_BYTES = rcpsIeBytes(1)
 /** RCMA IE (§10.32.9.6): header + max attempts 1. standard §10.32.9.6; content sizing model */
 export const RCMA_IE_BYTES = UWB_IE_HDR_BYTES + 1
-/** SRRR IE (§10.32.9.9): header + one control octet — the responder's own request for what the
- * data report phase should give it back. The standard's RAOA and RRTT bits map onto things this
- * engine already computes (the `aoa` session switch's bearing, DS-TWR's round-trip time), so the
- * control octet's width is the only new thing here. standard §10.32.9.9; octet width model */
-export const SRRR_IE_BYTES = UWB_IE_HDR_BYTES + 1
-/** The RCM's SRRR content: one SRRR IE per responder (the standard's own example addresses one
- * responder's request at a time) — 3A octets. A request is not free, the mirror image of §10.36's
- * MMRCR bit, which rides in a control octet the RCM carries regardless and so costs nothing extra. */
+/**
+ * SRRR IE (standard §10.32.9.9, Figure 10-255): header + one control octet (Requester Address Size
+ * Specifier 2 bits, Provider Address Size Specifier 2 bits, RAOA, RRT, RRTT, RTOF) + the Requester
+ * Address (0/2/8) + the Provider Address (0/2/8). One IE names one requester–provider pair.
+ *
+ * In this engine's SP3 round the controller is the initiator, and §10.32.9.9 lets an RCM from a
+ * controller that is also the initiator omit the requester's address ("responders implicitly know
+ * that requests are from the controller"), so each IE is the pair (initiator, responder k): the
+ * control octet plus the responder's 2-octet short address — 5 octets.
+ * Until 2026-11-10 this was header + one octet with no address at all (audit #14).
+ */
+export const SRRR_IE_BYTES = UWB_IE_HDR_BYTES + 1 + UWB_SHORT_ADDR_BYTES
+/** The RCM's SRRR content: one SRRR IE per responder (one pair each) — 5A octets. A request is not
+ * free, the mirror image of §10.36's MMRCR bit, which rides in a control octet the RCM carries
+ * regardless and so costs nothing extra. */
 export function srrrIeBytes(responders: number): number {
   return SRRR_IE_BYTES * responders
 }
@@ -284,33 +325,39 @@ export const UWB_SP3_RAOA_ITEM_BYTES = UWB_IE_HDR_BYTES + 2
 export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
 /** One RDM entry: the device's short address 2 + the slot index it is given 1. */
 export const RDM_ENTRY_BYTES = 3
-/** RMI IE (§10.29.8.4) in a Final, fixed part: header + the responder count. */
-export const RMI_FINAL_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
+/**
+ * RMI IE (standard §10.29.8.4, Figures 10-212/10-213), fixed part: header + the 2-octet content
+ * header (Reply Time / Round-trip Time / TOF / AOA Azimuth / AOA Elevation / AOA FOM Present bits,
+ * Address Size Specifier, Deferred Mode, RMI List Length 7 bits). Until 2026-11-10 the content header
+ * was priced at 1 octet (audit #8).
+ */
+export const RMI_FIXED_BYTES = UWB_IE_HDR_BYTES + 2
+/** One RMI list element's ranging time — RX-to-TX Reply Time, TX-to-RX Round-trip Time or TOF are
+ * each 4 octets (Figure 10-213). */
+export const RMI_TIME_BYTES = 4
+/** The RMI IE's width: the fixed part plus `elements` list elements, each carrying `times` 4-octet
+ * times and — in a broadcast frame, where §10.29.8.4 requires it — the 2-octet short address. A
+ * unicast frame carries exactly one element with no address (the MHR's destination names the device).
+ * §10.29.8.4: "At least one measurement shall be present", so `times` is never 0. */
+export function rmiIeBytes(elements: number, times: number, addressed: boolean): number {
+  if (times < 1) throw new Error('rmiIeBytes: an RMI IE carries at least one measurement')
+  return RMI_FIXED_BYTES + elements * (times * RMI_TIME_BYTES + (addressed ? UWB_SHORT_ADDR_BYTES : 0))
+}
 /** One RMI entry in an embedded Final: the responder's short address 2 + its round-trip time 4. */
-export const RMI_FINAL_ENTRY_BYTES = 6
-/** One RMI entry in a *deferred* Final: the responder's short address only. Ruling of design §5 —
- * `docs/superpowers/specs/2026-09-29-reply-time-design.md` — the deferred Final is not empty: an
- * anchor's `finalListedMe` (device.ts) reads this very list to decide whether it may report at
- * all, so the address stays. What goes is the 4-octet round-trip time this entry also carries when
- * embedded, and the whole RRTI IE that would need it before it exists (§10.29.6.6). */
-export const RMI_FINAL_DEFERRED_ENTRY_BYTES = 2
-/** RMI IE in a measurement report: header + control 1 + address 2 + reply time 4 + round-trip time 4. */
-export const RMI_REPORT_IE_BYTES = UWB_IE_HDR_BYTES + 11
+export const RMI_FINAL_ENTRY_BYTES = UWB_SHORT_ADDR_BYTES + RMI_TIME_BYTES
+/** RMI IE in a responder's measurement report to the initiator (unicast): the fixed part + one
+ * element of reply time and round-trip time, no address — 4 + 8 = 12 octets. */
+export const RMI_REPORT_IE_BYTES = rmiIeBytes(1, 2, false)
 
 /** The Poll's RDM IE: one entry per anchor, 3 + 3N octets. */
 export function rdmIeBytes(anchors: number): number {
   return RDM_IE_FIXED_BYTES + RDM_ENTRY_BYTES * anchors
 }
 
-/** The Final's RMI IE when embedded: one entry per responder, 3 + 6N octets. */
+/** The Final's RMI IE when embedded (broadcast): one round-trip time and address per responder,
+ * 4 + 6N octets. */
 export function rmiFinalIeBytes(anchors: number): number {
-  return RMI_FINAL_FIXED_BYTES + RMI_FINAL_ENTRY_BYTES * anchors
-}
-
-/** The Final's RMI IE when deferred: the same fixed part, an address-only entry per responder,
- * 3 + 2N octets. */
-export function rmiFinalDeferredIeBytes(anchors: number): number {
-  return RMI_FINAL_FIXED_BYTES + RMI_FINAL_DEFERRED_ENTRY_BYTES * anchors
+  return rmiIeBytes(anchors, 1, true)
 }
 
 /** MHR + ARC IE (5) + RR IE (8) + RDM IE (3 + 3N) + RRMC IE + FCS = 30 + 3N (time-scheduled); a
@@ -327,32 +374,52 @@ export function uwbPollBytes(anchors: number, schedule: 'time' | 'contention' = 
 }
 
 /** MHR + RRMC IE + FCS, plus the RRTI IE that carries the reply time — only when SS-TWR embeds
- * it in this very frame: 20 (SS embedded) / 14 (SS deferred or fixed, DS always). DS-TWR never
- * carries a reply time here at all: its Final does, or its report does (design §5). */
+ * it in this very frame: 21 (SS embedded) / 14 (SS deferred or fixed, DS always). DS-TWR never
+ * carries a reply time here at all: its Final does, or the initiator's deferred report does. */
 export function uwbRespBytes(method: 'ss' | 'ds', replyTime: UwbReplyTime = 'embedded'): number {
   const carriesRrti = method === 'ss' && replyTime === 'embedded'
   return UWB_MHR_BYTES + RRMC_IE_BYTES + (carriesRrti ? RRTI_IE_BYTES : 0) + UWB_FCS_BYTES
 }
 
-/** MHR + RMI IE + FCS: embedded is 3 + 6N per-anchor (address + round trip) plus N × RRTI IE 6
- * for treply2 = 14 + 12N; deferred drops both the round trip and the RRTI IEs and keeps only the
- * address list = 14 + 2N (ruling of design §5 — the deferred Final is not empty, see
- * `RMI_FINAL_DEFERRED_ENTRY_BYTES`). */
+/**
+ * The DS-TWR Final (broadcast). Embedded (standard §10.32.5, Figure 10-236): MHR + an RMI IE with
+ * each responder's round-trip time and address (4 + 6N) + one RRTI IE listing each responder's reply
+ * time and address (3 + 6N) + FCS = 18 + 12N.
+ *
+ * Deferred (§10.29.6.6, §10.32.5 Figure 10-237): the Final is a bare ranging frame — `{Ranging}` in
+ * the figure, no IE at all — so MHR + FCS = 11 octets. Its two times go out afterwards in the
+ * initiator's deferred report (`uwbDsDeferredReportBytes`). Until 2026-11-10 the deferred Final
+ * carried an address-only RMI list, which §10.29.8.4 forbids ("At least one measurement shall be
+ * present"; audit #3).
+ */
 export function uwbFinalBytes(anchors: number, replyTime: UwbReplyTime = 'embedded'): number {
-  if (replyTime === 'deferred') {
-    return UWB_MHR_BYTES + rmiFinalDeferredIeBytes(anchors) + UWB_FCS_BYTES
-  }
-  return UWB_MHR_BYTES + rmiFinalIeBytes(anchors) + anchors * RRTI_IE_BYTES + UWB_FCS_BYTES
+  if (replyTime === 'deferred') return UWB_MHR_BYTES + UWB_FCS_BYTES
+  return UWB_MHR_BYTES + rmiFinalIeBytes(anchors) + rrtiIeBytes(anchors, true) + UWB_FCS_BYTES
 }
 
-/** MHR + the report's RMI IE 13 + FCS. */
+/**
+ * The initiator's deferred Data frame of a deferred DS-TWR round (standard §10.29.6.6, §10.32.5
+ * Figure 10-237): broadcast in the measurement report phase, one RMI IE (Deferred Mode = 1) whose
+ * list element per responder carries the first round-trip time, the second reply time and the
+ * responder's address. MHR + (4 + 10N) + FCS = 15 + 10N. With it each responder holds all four
+ * times and computes its own range (§10.29.6.6: "the responder ... has sufficient information to
+ * calculate the TOF").
+ */
+export function uwbDsDeferredReportBytes(anchors: number): number {
+  return UWB_MHR_BYTES + rmiIeBytes(anchors, 2, true) + UWB_FCS_BYTES
+}
+
+/** MHR + the report's RMI IE 12 + FCS = 23: a responder's own reply time and second round trip,
+ * unicast to the initiator, requested by the Reply Time Request and Round-trip Time Request bits of
+ * the Poll's RRMC IE (§10.29.8.3, Figure 10-238). */
 export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BYTES
 
-/** The deferred reply-time message of SS-TWR (standard §10.29.6.3): an anchor whose Response
- * could not embed `Treply` — it did not know its own future send time — follows up, once it has
- * read that send timestamp back, with a frame carrying nothing else. MHR + RRTI IE + FCS = 17
- * octets (`makeSsDefer` in frames.ts). */
-export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES
+/** The deferred reply-time message of SS-TWR (standard §10.29.6.3, Figure 10-203): an anchor whose
+ * Response could not embed `Treply` — it did not know its own future send time — follows up, once it
+ * has read that send timestamp back, with "the RMI IE ... carried by a subsequent message":
+ * MHR + an RMI IE with one reply time, unicast (no address; 4 + 4) + FCS = 19 octets
+ * (`makeSsDefer` in frames.ts). Until 2026-11-10 this message carried an RRTI IE (audit #4). */
+export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + rmiIeBytes(1, 1, false) + UWB_FCS_BYTES
 
 /**
  * The RCM of an SP3 grouped round (standard §10.32.8.1's first phase): today's Poll plus one SRRR
@@ -361,7 +428,7 @@ export const UWB_SS_DEFER_BYTES = UWB_MHR_BYTES + RRTI_IE_BYTES + UWB_FCS_BYTES
  *
  * **A request is not free here**, and that is the point the lesson pairs against §10.36's MMRCR
  * bit, which rides a control octet the RCM carries regardless and costs nothing extra: this one
- * costs 3 octets a responder. A function rather than a term folded into `uwbPollBytes` so that no
+ * costs 5 octets a responder (`SRRR_IE_BYTES`). A function rather than a term folded into `uwbPollBytes` so that no
  * existing caller's number moves — every scenario with `sp3` off asks the same question it always
  * did and gets the same answer.
  */
@@ -563,33 +630,39 @@ export const RMMRC_FIXED_BYTES = UWB_IE_HDR_BYTES + 2
 export const RMMRC_ADDR_BYTES = 2
 
 /**
- * Width, in octets, of one initiator's receipt bitmap: one bit per opener the current RCM
- * validity window carries (design §3.3), rounded up to a whole octet. The window is the one
- * `uwb/session.ts#roundCarriesRcm` already has both ends agreeing on, so covering exactly it
- * needs no new negotiation — a model choice, not a standard-mandated width. model
+ * The MMRC Bitmap Length field (standard §10.36.2.1, Figure 10-274): one octet in every list
+ * element, giving the bitmap's own length in octets. Until 2026-11-10 this engine left it out
+ * (audit #24).
  */
-export function rmmrcBitmapBytes(windowRounds: number): number {
-  return Math.ceil(windowRounds / 8)
+export const RMMRC_BITMAP_LEN_BYTES = 1
+
+/**
+ * Width, in octets, of one initiator's receipt bitmap: standard §10.36.2.1 — "ceiling of ((Number of
+ * slots being acknowledged)/8)", **one bit per slot**, the first bit the first slot. The slots
+ * acknowledged are every slot of the ranging round set before the receipt confirmations themselves
+ * (`uwb/session.ts#mmrcmAckSlots`). Until 2026-11-10 this was one bit per *round* (audit #11).
+ */
+export function rmmrcBitmapBytes(slots: number): number {
+  return Math.ceil(slots / 8)
 }
 
-/** One MMRC list entry: the initiator's address plus its receipt bitmap. */
-export function rmmrcEntryBytes(windowRounds: number): number {
-  return RMMRC_ADDR_BYTES + rmmrcBitmapBytes(windowRounds)
+/** One MMRC list element (Figure 10-274): the initiator's address, the bitmap length octet, the
+ * bitmap. */
+export function rmmrcEntryBytes(slots: number): number {
+  return RMMRC_ADDR_BYTES + RMMRC_BITMAP_LEN_BYTES + rmmrcBitmapBytes(slots)
 }
 
 /** The RMMRC IE's own width: the fixed part plus one entry per initiator the MMRCM lists. */
-export function rmmrcIeBytes(initiators: number, windowRounds: number): number {
-  return RMMRC_FIXED_BYTES + initiators * rmmrcEntryBytes(windowRounds)
+export function rmmrcIeBytes(initiators: number, slots: number): number {
+  return RMMRC_FIXED_BYTES + initiators * rmmrcEntryBytes(slots)
 }
 
 /**
  * The MMRCM frame (standard §10.36, Figure 10-272 "Many-to-Many Messages"): MHR + RMMRC IE +
- * FCS. At a window of eight rounds or fewer the bitmap is one octet, so each initiator costs 3
- * octets and the whole frame is 15 + 3N (design §3.3); past eight rounds the bitmap — and so
- * every entry — widens by one octet each time the window crosses another multiple of 8.
+ * FCS = 15 + N × (3 + ⌈slots / 8⌉), one bit per acknowledged slot.
  */
-export function uwbMmrcmBytes(initiators: number, windowRounds: number): number {
-  return UWB_MHR_BYTES + rmmrcIeBytes(initiators, windowRounds) + UWB_FCS_BYTES
+export function uwbMmrcmBytes(initiators: number, slots: number): number {
+  return UWB_MHR_BYTES + rmmrcIeBytes(initiators, slots) + UWB_FCS_BYTES
 }
 
 /**
@@ -599,78 +672,72 @@ export function uwbMmrcmBytes(initiators: number, windowRounds: number): number 
  * and the same `UWB_ANCHOR_SEARCH_CEILING` loop bound, for the same reason (nothing about this
  * frame's own arithmetic stops the search on its own if the ceiling were left out).
  */
-export function uwbMaxMmrcmInitiators(windowRounds: number): number {
+export function uwbMaxMmrcmInitiators(slots: number): number {
   let cap = 0
   for (let n = 1; n <= UWB_ANCHOR_SEARCH_CEILING; n++) {
-    if (uwbMmrcmBytes(n, windowRounds) > UWB_MAX_PSDU_BYTES) break
+    if (uwbMmrcmBytes(n, slots) > UWB_MAX_PSDU_BYTES) break
     cap = n
   }
   return cap
 }
 
-// --- Ranging ancillary information, Request = 0 (standard §10.35) --------------
-// design docs/superpowers/specs/2026-10-02-ancillary-design.md §4.1. Request = 1 (scheduling a
-// slot by request) is out of scope for this slice — see the design doc §6 — so every RAICT IE
-// this engine builds carries Request = 0 and nothing reads the bit back.
+// --- Ranging ancillary information (standard §10.35) ---------------------------------------
 
 /**
  * RAICT IE (§10.35.2.1, Figure 10-271), smallest possible content: the one control octet alone
- * (Request, the message-number presence bit, 6 reserved bits), with neither optional octet
- * present. This is the one width `raictIeBytes` cannot compute from its own two booleans — it is
- * what those booleans are counted relative to. standard §10.35.2.1
+ * (Request, the Ranging Or Ancillary Message Number Present bit, 6 reserved bits), with neither
+ * optional octet present. standard §10.35.2.1
  */
 export const RAICT_IE_MIN_BYTES = UWB_IE_HDR_BYTES + 1
 
 /**
- * The RAICT IE's own width (§10.35.2.1): the one control octet, plus one more octet for each of
- * the two optional fields the control octet's own presence bits claim — the Ranging Or Ancillary
- * Message Number and the Frames Remaining count. This is this engine's first information unit
- * whose length is **decided by presence bits** rather than fixed or carried by a count, so unlike
- * every other `*IeBytes` function in this file it takes no numeric argument at all: there is
- * nothing here to count, only two yes/no questions to add up. standard §10.35.2.1
+ * The RAICT IE's own width (§10.35.2.1): the one control octet, plus the Ranging Or Ancillary Message
+ * Number octet when the control octet's one presence bit says it is there, plus the Frames Remaining
+ * octet when the IE carries it. **Frames Remaining has no presence bit** (Figure 10-271: Request bit,
+ * Message Number Present bit, reserved): whether it is there is read from the IE's length in its
+ * header. Until 2026-11-10 this engine's documentation described a second, "frames remaining present"
+ * bit, which the standard does not have (audit #12). standard §10.35.2.1
  */
 export function raictIeBytes(numberPresent: boolean, framesRemainingPresent: boolean): number {
   return RAICT_IE_MIN_BYTES + (numberPresent ? 1 : 0) + (framesRemainingPresent ? 1 : 0)
 }
 
 /**
- * The ancillary-information frame (Request = 0 half of standard §10.35): MHR + RAICT IE + FCS.
- * One frame carries one fragment of a larger ancillary message — segmentation across several
- * slots is a later task's job (design §4.2) — so this prices exactly one RAICT IE, at whichever
- * of the four presence-bit combinations this fragment uses.
+ * One ancillary-information frame (standard §10.35): MHR + RAICT IE + FCS. One frame carries one
+ * fragment of a larger ancillary message (or, with Request = 1, the request for the next exchange's
+ * slots).
  */
 export function uwbAncillaryBytes(numberPresent: boolean, framesRemainingPresent: boolean): number {
   return UWB_MHR_BYTES + raictIeBytes(numberPresent, framesRemainingPresent) + UWB_FCS_BYTES
 }
 
 /**
- * How many slots a round appends for the ancillary exchange when it runs in it (standard §10.35.1,
- * design §4.2) — **the one definition**, read by the scenario schema's block-fit rule, by
- * `UwbNetwork`'s own guard in nanoseconds, and by `session.ts#roundSlots`, which is what lays the
- * slots out. It lives here rather than in `session.ts` for the reason `uwbMmrcmSlots` above does:
- * the schema cannot import `session.ts` without an import cycle, and three copies of a slot count
- * is three chances to drift.
+ * The RCM of the ancillary-information round (standard §10.35.1, ARC Ranging Round Usage = 3): MHR +
+ * ARC IE + RR IE + either an RDM IE assigning `assigned` slots (time schedule, SIU = 1, §10.32.9.8:
+ * 3 + 3·assigned) or an RCPS IE with one contention phase (§10.32.9.5: 5) + FCS. It carries no RRMC IE:
+ * this round starts no ranging exchange.
+ */
+export function uwbAncillaryRcmBytes(schedule: 'time' | 'contention', assigned: number): number {
+  const slotsIe = schedule === 'time' ? rdmIeBytes(assigned) : rcpsIeBytes(1)
+  return UWB_MHR_BYTES + ARC_IE_BYTES + RR_IE_BYTES + slotsIe + UWB_FCS_BYTES
+}
+
+/**
+ * The ancillary round's window — the slots after its RCM the exchange may use (standard §10.35.1) —
+ * **the one definition**, read by the scenario schema, the editor and `session.ts`. It lives here
+ * rather than in `session.ts` because the schema cannot import `session.ts` without an import cycle.
  *
- * **The two schedules answer differently, and that is the point** (§10.35.1 allows the exchange to
- * be scheduling-based or contention-based):
+ * **The two schedules answer differently** (§10.35.1 allows the exchange to be scheduling-based or
+ * contention-based):
  *
- * - `'time'` — exactly one slot per fragment. The slot table names their owner, so the message
- *   needs no more room than it occupies.
- * - `'contention'` — the round's **own** contention window (§10.32.2 schedule mode 0). Nothing
- *   names an owner there, so the sender has to *draw* where its run of fragments starts, and a
- *   window exactly as wide as the message leaves nothing to draw. The width is read off the
- *   session's own `contentionSlots` — the one number this session already states for "how wide is
- *   a window devices draw from" — never a literal of its own.
+ * - `'time'` — exactly one slot per fragment, plus the request frame's: the RCM's RDM IE assigns
+ *   each of them to the sender (§10.32.9.8).
+ * - `'contention'` — at least the session's own contention window (§10.32.2 schedule mode 0): the
+ *   RCM's RCPS IE opens an initiators' contention phase (Phase Indicator 0, §10.32.9.5) that wide, and
+ *   the sender draws where its run of fragments starts. `Math.max`, because a message longer than the
+ *   draw window is legal; there the window is the message and the draw has a single position.
  *
- * `Math.max` rather than `contentionSlots` alone: a message longer than the draw window is a legal
- * configuration — the only ceiling on `ancillaryFrames` is whether the block holds the round
- * (slice 3d removed the `ancillaryFrames ≤ slots` one; see `UwbSessionCfg.ancillaryFrames`) — and
- * there the window is the message and the draw has a single position: degenerate, documented, and
- * not broken. Below that, every frame count from 1 to `contentionSlots` gets the same window, which
- * is an interval this engine pins rather than refuses (`tests/engine/ancillary-request-inert.test.ts`).
- *
- * 0 whenever the exchange is off, and 0 in every mode the schema refuses it for, so that a session
- * written before this slice is laid out slot for slot as it was.
+ * 0 whenever the exchange is off, and 0 in every mode the schema refuses it for.
  */
 export function uwbAncillarySlots(
   mode: UwbMode, schedule: 'time' | 'contention', contentionSlots: number,
@@ -703,23 +770,32 @@ export function uwbAncillarySlots(
 }
 
 /**
- * How many slots one initiator's rounds take out of a block (standard §10.32.2, §10.32.3.2,
- * §10.32.9.1): `initiatorRounds` rounds of `slots` each, plus — once per **ranging round set** —
- * the receipt confirmation's appended slots on the set's last round (§10.36) and the ancillary
- * message's on its first (§10.35.1). A set is `rcmValidityRounds` consecutive rounds, the last one
- * cut short where the initiator's rounds in this block run out (an RCM's validity never exceeds the
- * rounds remaining in the block), so there are `ceil(initiatorRounds / rcmValidityRounds)` sets.
+ * The fixed length, in slots, of every round of a session (standard §10.32.3.3: in block-based mode
+ * "the number of ranging slots in a ranging round" is one value, round duration / slot duration, for
+ * every round of the block). It has to hold the longest round the session runs:
  *
- * **The one definition** the scenario schema's block-fit rule, the editor's ancillary cap and
- * `UwbNetwork`'s nanosecond guard all budget with; `session.ts#roundSlots` lays the very same slots
- * out round by round. With one round per block (the default) it is `slots + extras`, exactly the
- * per-round budget every scene was checked against before round sets existed.
+ * - a ranging round: its ranging slots, plus — when `mmrcr` is on — one receipt-confirmation slot per
+ *   responder (§10.36), spent in the round that closes a ranging round set and left idle in the
+ *   others; and
+ * - when the ancillary exchange is on, the ancillary-information round (ARC Ranging Round Usage = 3,
+ *   §10.35, Table 10-164): its RCM in slot 0 plus the message's window (`uwbAncillarySlots`).
+ *
+ * Until 2026-11-10 rounds were not one length: the MMRCM slots and the ancillary window were appended
+ * to particular ranging rounds, which a block-based structure (one round duration) does not allow.
+ * **The one definition** the scenario schema, the editor and `session.ts#roundPlan` read.
  */
-export function uwbInitiatorBlockSlots(
-  slots: number, initiatorRounds: number, rcmValidityRounds: number, perSetExtraSlots: number,
-): number {
-  const sets = Math.ceil(initiatorRounds / Math.max(1, Math.min(rcmValidityRounds, initiatorRounds)))
-  return initiatorRounds * slots + sets * perSetExtraSlots
+export function uwbRoundSlotCount(rangingSlots: number, mmrcmSlots: number, ancillaryWindow: number): number {
+  return Math.max(rangingSlots + mmrcmSlots, ancillaryWindow > 0 ? 1 + ancillaryWindow : 0)
+}
+
+/**
+ * How many slots one initiator's rounds take out of a block (standard §10.32.2, §10.32.3.3):
+ * `initiatorRounds` ranging rounds, plus the ancillary-information round when the exchange is on —
+ * every one of them `roundSlots` (`uwbRoundSlotCount`) long. **The one definition** the scenario
+ * schema's block-fit rule, the editor and `UwbNetwork`'s nanosecond guard budget with.
+ */
+export function uwbInitiatorBlockSlots(roundSlots: number, initiatorRounds: number, ancillaryRound: boolean): number {
+  return (initiatorRounds + (ancillaryRound ? 1 : 0)) * roundSlots
 }
 
 // --- Ranging schedule units ----------------------------------------------------
@@ -861,10 +937,14 @@ export function uwbSlotsPerTag(
   // double-sided exchange. The schema refuses both SRRR request bits outside SS, so the `rrtt` term
   // and the `ds` term never both fire.
   if (sp3 !== undefined) {
-    return 2 * anchors + 2 + (method === 'ds' ? 1 : 0) + (sp3.rrtt ? 1 : 0)
+    // DS: the Final, then (SP3 is always deferred) the initiator's deferred report — two slots.
+    return 2 * anchors + 2 + (method === 'ds' ? 2 : 0) + (sp3.rrtt ? 1 : 0)
   }
   if (method === 'ss') return replyTime === 'deferred' ? 2 * anchors + 1 : anchors + 1
-  return 2 * anchors + 2
+  // DS-TWR: Poll, A Responses, the Final, then A reports — and, deferred, the initiator's own deferred
+  // report between the Final and the responders' reports (standard §10.29.6.6, §10.32.5 Figure
+  // 10-237), one slot more.
+  return 2 * anchors + 2 + (replyTime === 'deferred' ? 1 : 0)
 }
 
 /** Guard between the end of a slot's PPDU and the slot boundary: 200 ns is 60 m of flight (model). */
@@ -879,7 +959,7 @@ export const UWB_SLOT_GUARD_NS = 200
  * `method` and `replyTime` only matter to the time-scheduled two-way branch: SS-TWR has no Final
  * at all, so its longest frame is the Poll (or, embedded, its own Response, which never catches
  * the Poll); DS-TWR's embedded Final overtakes the Poll a few anchors in, but a deferred Final is
- * an address list (14 + 2N, design §5) that never does, so DS-deferred is Poll-bound too — the
+ * bare 11 octets; a deferred round's growing frame is the initiator's deferred report (15 + 10N) — the
  * same bug the pre-Ruling-3 constant had for every SS round, now fixed by asking rather than
  * assuming a Final exists.
  *
@@ -907,13 +987,13 @@ export function uwbLongestFrameBytes(
   // the Poll carries RCPS + RCMA instead of the anchor list, so it is 35 octets whatever the
   // anchor count. At one anchor that Poll is longer than the Final the round never sends.
   // Unlike the time-scheduled SS branch below, this one takes no `UWB_SS_DEFER_BYTES` term: it is
-  // numerically inert (the 31-octet Poll always beats the 17-octet deferred message) and the
+  // numerically inert (the 35-octet Poll always beats the 19-octet deferred message) and the
   // combination cannot legally occur besides — a contention responder draws its slot, and the
   // deferred message has no fixed slot of its own to answer in, so `contention` + `deferred` is
   // refused by the schema (design §3.1).
   if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss', replyTime))
   // SP3's RCM carries the responders' SRRR IEs, so it grows twice as fast with the anchor count as
-  // an ordinary Poll (30 + 6A rather than 30 + 3A). The schema refuses `sp3` outside a
+  // an ordinary Poll (30 + 8A rather than 30 + 3A). The schema refuses `sp3` outside a
   // time-scheduled two-way round, which is why the contention branch above needs no term for it.
   const pollBytes = sp3 ? uwbSp3PollBytes(anchors) : uwbPollBytes(anchors)
   if (method === 'ss') {
@@ -925,7 +1005,12 @@ export function uwbLongestFrameBytes(
     const deferBytes = replyTime === 'deferred' ? (sp3 ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES) : 0
     return Math.max(pollBytes, uwbRespBytes('ss', replyTime), deferBytes)
   }
-  return Math.max(pollBytes, uwbFinalBytes(anchors, replyTime))
+  // DS deferred: the Final is bare, and the initiator's deferred report (15 + 10N) is the frame that
+  // grows; the responders' reports are a fixed 23.
+  if (replyTime === 'deferred') {
+    return Math.max(pollBytes, uwbFinalBytes(anchors, replyTime), uwbDsDeferredReportBytes(anchors), UWB_REPORT_BYTES)
+  }
+  return Math.max(pollBytes, uwbFinalBytes(anchors, replyTime), UWB_REPORT_BYTES)
 }
 
 /**
@@ -967,14 +1052,19 @@ export function uwbLongestFrameBytes(
 export function uwbFixedReplyWindowRstu(
   slotRstu: number, anchors: number, schedule: 'time' | 'contention', method: 'ss' | 'ds',
 ): { loRstu: number; hiRstu: number } {
+  void anchors
+  void schedule
   const slotNs = rstuNs(slotRstu)
-  const pollNs = uwbPpduNs(uwbPollBytes(anchors, schedule))
   const respNs = uwbPpduNs(uwbRespBytes(method, 'fixed'))
   // Rounded inwards on both sides: the window is in nanoseconds and the field is in whole RSTU,
   // so ceil the floor and floor the ceiling, or the rounding itself would leave the window.
+  //
+  // 2026-11-10 (audit #5): FRT1 is measured RMARKER to RMARKER (standard §10.32.2, Figure 10-226),
+  // so the Poll's own length drops out of both bounds — responder k's Response starts FRT1 + (k−1)·S
+  // after the Poll started, and has to start inside slot k and end, with the guard, before slot k+1.
   return {
-    loRstu: Math.ceil((slotNs - pollNs) / RSTU_NS),
-    hiRstu: Math.floor((2 * slotNs - pollNs - respNs - UWB_SLOT_GUARD_NS) / RSTU_NS),
+    loRstu: Math.ceil(slotNs / RSTU_NS),
+    hiRstu: Math.floor((2 * slotNs - respNs - UWB_SLOT_GUARD_NS) / RSTU_NS),
   }
 }
 

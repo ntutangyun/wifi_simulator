@@ -68,10 +68,10 @@ export const FIG = {
   slotRstu: 2_400, slotUs: 2_000, slots: 10,
   /** Each frame of the round: the slot it sits in and how long it is on the air, in µs. */
   frames: [
-    { slot: 0, airUs: 216.09 }, { slot: 1, airUs: 181.218 }, { slot: 2, airUs: 181.218 },
-    { slot: 3, airUs: 181.218 }, { slot: 4, airUs: 181.218 }, { slot: 5, airUs: 236.603 },
-    { slot: 6, airUs: 191.474 }, { slot: 7, airUs: 191.474 }, { slot: 8, airUs: 191.474 },
-    { slot: 9, airUs: 191.474 },
+    { slot: 0, airUs: 217.885 }, { slot: 1, airUs: 183.013 }, { slot: 2, airUs: 183.013 },
+    { slot: 3, airUs: 183.013 }, { slot: 4, airUs: 183.013 }, { slot: 5, airUs: 242.5 },
+    { slot: 6, airUs: 192.244 }, { slot: 7, airUs: 192.244 }, { slot: 8, airUs: 192.244 },
+    { slot: 9, airUs: 192.244 },
   ],
 } as const
 

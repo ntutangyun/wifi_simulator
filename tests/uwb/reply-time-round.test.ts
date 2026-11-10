@@ -18,7 +18,7 @@ import { makeEmitter, type TLRecord } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import { DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
 import type { UwbReplyTime } from '../../src/uwb/phy'
-import { RCTU_NS, UWB_TX_POWER_DBM, uwbPollBytes, uwbPpduNs } from '../../src/uwb/phy'
+import { RCTU_NS, UWB_TX_POWER_DBM, uwbFixedReplyWindowRstu } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { roundPlan } from '../../src/uwb/session'
 
@@ -128,8 +128,14 @@ describe('acceptance: five reply-time procedures measure one distance (design §
     // so `ssTwrCorrected`'s (1 − coffs) is still the right conversion. DS-TWR cancels the offset
     // by construction. At 20 ppm over a 2 ms reply an uncorrected reading is out by 6 m.
     const ppm = { anchor: 20, tag: -15 }
+    // 2026-11-10: FRT1 is now RMARKER to RMARKER (standard §10.32.2, Figure 10-226), so the session
+    // default (one slot) puts the Response exactly one flight time after its slot opens — a responder
+    // crystal 20 ppm fast then starts ~40 ns early, before the slot opens. Pick a FRT1 in the middle
+    // of the legal window instead, so the crystals are the only thing this test varies.
+    const { loRstu, hiRstu } = uwbFixedReplyWindowRstu(DEFAULT_UWB_SESSION.slotRstu, 1, 'time', 'ss')
+    const mid = Math.round((loRstu + hiRstu) / 2)
     for (const s of SHAPES) {
-      const ds = tagRangesOf(s, QUIET, ppm)
+      const ds = tagRangesOf(s, { ...QUIET, fixedReplyRstu: mid }, ppm)
       expect(ds, `${s.name}: no UWB_RANGE at the tag`).toHaveLength(1)
       expect(Math.abs(ds[0] - TRUE_DIST_M), s.name).toBeLessThan(0.05)
     }
@@ -157,35 +163,44 @@ describe('the frames the round actually put on the air (design §5, acceptance �
 
   it('puts the reply time in the Response only when it is embedded there', () => {
     const resp = (s: Shape): number[] => airOf(s).filter((f) => f.kind === 'uwbResp').map((f) => f.bytes)
-    // 20 octets embedded (MHR + RRMC + RRTI + FCS), 14 without the RRTI IE — the six octets the
-    // deferred and fixed shapes save on every Response of every round (design §5).
-    expect(resp(SHAPES[0])).toEqual([20])
+    // 21 octets embedded (MHR + RRMC + RRTI 2 + 1 + 4 + FCS — the RRTI content header, standard
+    // §10.29.8.1, 2026-11-10), 14 without the RRTI IE.
+    expect(resp(SHAPES[0])).toEqual([21])
     expect(resp(SHAPES[1])).toEqual([14])
     expect(resp(SHAPES[2])).toEqual([14])
   })
 
   it('sends one deferred reply-time message per anchor, and only when deferred', () => {
-    expect(airOf(SHAPES[2]).filter((f) => f.kind === 'uwbSsDefer')).toEqual([{ kind: 'uwbSsDefer', bytes: 17 }])
+    // 2026-11-10: the deferred message carries an RMI IE (standard §10.29.6.3): 9 + (2 + 2 + 4) + 2.
+    expect(airOf(SHAPES[2]).filter((f) => f.kind === 'uwbSsDefer')).toEqual([{ kind: 'uwbSsDefer', bytes: 19 }])
     for (const s of [SHAPES[0], SHAPES[1], SHAPES[3], SHAPES[4]]) {
       expect(airOf(s).filter((f) => f.kind === 'uwbSsDefer'), s.name).toHaveLength(0)
     }
   })
 
-  it('shrinks the deferred DS Final from 14 + 12A to 14 + 2A', () => {
+  // 2026-11-10 (audit #3): standard §10.32.5 Figure 10-237 — the deferred Final is bare and the
+  // initiator sends the two times afterwards in a deferred RMI report (§10.29.6.6).
+  it('sends a bare deferred Final, then the initiator deferred report, then the responder report', () => {
     const final = (s: Shape): number[] => airOf(s).filter((f) => f.kind === 'uwbFinal').map((f) => f.bytes)
-    expect(final(SHAPES[3])).toEqual([14 + 12]) // one anchor, embedded
-    expect(final(SHAPES[4])).toEqual([14 + 2]) // …and the same round with the times taken out
+    expect(final(SHAPES[3])).toEqual([18 + 12]) // one anchor, embedded: RMI 4 + 6, RRTI 3 + 6
+    expect(final(SHAPES[4])).toEqual([11]) // MHR + FCS, no IE
+    const reports = (s: Shape): number[] => airOf(s).filter((f) => f.kind === 'uwbReport').map((f) => f.bytes)
+    expect(reports(SHAPES[3])).toEqual([23]) // the responder report alone
+    expect(reports(SHAPES[4])).toEqual([15 + 10, 23]) // initiator deferred report, then the responder report
   })
 })
 
 describe('who ends up holding the range (design §7)', () => {
-  it('gives the anchor a range only in the embedded DS round', () => {
+  // 2026-11-10 (audit #3): in deferred DS-TWR the responder computes too — standard §10.29.6.6, "When
+  // the responder receives the second MCPS-DATA.indication primitive (with the RMI IE), it has
+  // sufficient information to calculate the TOF". Before, the deferred anchor got no range.
+  it('gives the anchor a range in both DS rounds, embedded and deferred, and in no SS round', () => {
     for (const s of SHAPES) {
       const rs = run(scenario({ method: s.method, replyTime: s.replyTime, ...QUIET }))
       const nodes = of(rs, 'UWB_RANGE').map((r) => r.node)
       expect(nodes.filter((n) => n === 'tag-1'), `${s.name}: the tag always ranges`).toHaveLength(1)
       const anchorRanges = nodes.filter((n) => n === 'anc-1').length
-      const expected = s.method === 'ds' && s.replyTime === 'embedded' ? 1 : 0
+      const expected = s.method === 'ds' ? 1 : 0
       expect(anchorRanges, `${s.name}: anchor-side ranges`).toBe(expected)
     }
   })
@@ -253,22 +268,20 @@ describe('fixed reply time: the one transmission that is not slot-aligned (desig
   it('answers a fixed interval after the Poll arrived, not at the slot boundary', () => {
     const ok = fixedRun(DEFAULT_UWB_SESSION.fixedReplyRstu)
     const plan = roundPlan({ ...DEFAULT_UWB_SESSION, method: 'ss', replyTime: 'fixed' }, 1)
-    const pollNs = uwbPpduNs(uwbPollBytes(1))
     const rxPoll = of(ok, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'rx' && r.frameKind === 'uwbPoll')
     const txResp = of(ok, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'tx' && r.frameKind === 'uwbResp')
     expect(rxPoll).toBeDefined()
     expect(txResp).toBeDefined()
-    // Its own counter, its own crystal: exactly the configured constant plus the Poll's airtime,
-    // to the RCTU, and nothing that varies with the geometry. That is what makes `Treply` a number
-    // the tag already knows without being told it. (The constant is counted from the *end* of the
-    // Poll's reception — design §6.1 — and the tail of the Poll after its own RMARKER is the
-    // airtime term; both ends know it because both handled that PPDU.)
-    expect(txResp!.counter - rxPoll!.counter).toBe(Math.round((pollNs + plan.fixedReplyNs) / RCTU_NS))
-    // Design §6.1's own worked number: with F = one slot, the Response starts one Poll airtime
-    // into slot 1 — at neither edge of the slot it belongs to.
-    const startNs = txResp!.t
-    expect(startNs - plan.slotNs).toBeGreaterThan(0.9 * pollNs)
-    expect(startNs - plan.slotNs).toBeLessThan(1.1 * pollNs)
+    // 2026-11-10 (audit #5): standard §10.32.2, Figure 10-226 — "FRTj is measured from the RMARKER
+    // of the ranging initiation message P1 to the RMARKER of the response message". Its own
+    // counter, its own crystal: exactly FRT1, to the RCTU, with no Poll airtime term (that term was
+    // the old "from the end of the Poll" reference).
+    expect(txResp!.counter - rxPoll!.counter).toBe(Math.round(plan.fixedReplyNs / RCTU_NS))
+    // The default FRT1 is one slot + 240 RSTU (200 µs): the Response starts FRT1 − slot plus one flight
+    // time (5 m ≈ 16.7 ns) after slot 1 opens.
+    const intoSlotNs = txResp!.t - plan.slotNs - (plan.fixedReplyNs - plan.slotNs)
+    expect(intoSlotNs).toBeGreaterThan(0)
+    expect(intoSlotNs).toBeLessThan(100)
   })
 })
 
@@ -280,7 +293,10 @@ describe('the embedded shapes are byte-identical to what they were before this s
    * not the goal. */
   // Re-captured 2026-11-10: the Poll is three octets longer (ARC IE to the standard's content plus
   // the RR IE, audit #9), which moves every instant after it.
-  const BEFORE: Record<'ss' | 'ds', string> = { ss: '28b51058', ds: 'ee0f2511' }
+  // Re-captured again 2026-11-10 (W2): every PPDU is 896 chips longer (PHR 21 symbols, Table 16-2),
+  // the SS Response carries RRTI's content header (§10.29.8.1) and the DS Final and report the RMI
+  // content header (§10.29.8.4).
+  const BEFORE: Record<'ss' | 'ds', string> = { ss: 'afa9572c', ds: 'a057bb1' }
 
   it('is deterministic and byte-identical in the embedded shapes', () => {
     const got: Record<string, string> = {}
@@ -335,10 +351,6 @@ describe('contention + fixed: a responder that chose its own slot (design §3.1)
     const plan = roundPlan(
       { ...DEFAULT_UWB_SESSION, method: 'ss', replyTime: 'fixed', schedule: 'contention' }, 1,
     )
-    // A contention Poll carries RCPS + RCMA instead of the anchor list, so it is a flat 31 octets
-    // whatever the anchor count — a different airtime from the time-scheduled Poll, and the fixed
-    // reply time is counted from the end of *this* one.
-    const pollNs = uwbPpduNs(uwbPollBytes(1, 'contention'))
 
     it('ranges it, once, to the same 5 m as every other shape', () => {
       const ranges = of(rs, 'UWB_RANGE')
@@ -355,17 +367,19 @@ describe('contention + fixed: a responder that chose its own slot (design §3.1)
       expect(slot).toBeGreaterThan(1)
       const txResp = of(rs, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'tx' && r.frameKind === 'uwbResp')
       expect(txResp).toBeDefined()
-      const intoSlot = txResp!.t - slot * plan.slotNs
-      expect(intoSlot).toBeGreaterThan(0.9 * pollNs)
-      expect(intoSlot).toBeLessThan(1.1 * pollNs)
+      // 2026-11-10: FRT RMARKER to RMARKER (§10.32.2) — one flight time into the slot it drew.
+      const intoSlot = txResp!.t - slot * plan.slotNs - (plan.fixedReplyNs - plan.slotNs)
+      expect(intoSlot).toBeGreaterThan(0)
+      expect(intoSlot).toBeLessThan(100)
     })
 
     it('and the tag subtracts the very number the anchor aimed at', () => {
       const rxPoll = of(rs, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'rx' && r.frameKind === 'uwbPoll')
       const txResp = of(rs, 'UWB_TS').find((r) => r.node === 'anc-1' && r.dir === 'tx' && r.frameKind === 'uwbResp')
-      // `fixedReplyRctu(plan, slot, pollNs)`, rebuilt here from the session and the announced draw:
-      // the responder hit it on its own counter, and the range above proves the tag subtracted it.
-      const expected = Math.round((pollNs + plan.fixedReplyNs + (slot - 1) * plan.slotNs) / RCTU_NS)
+      // `fixedReplyRctu(plan, slot)`, rebuilt here from the session and the announced draw — FRT_slot =
+      // FRT1 + (slot − 1) slots, RMARKER to RMARKER (2026-11-10, §10.32.2): the responder hit it on
+      // its own counter, and the range above proves the tag subtracted it.
+      const expected = Math.round((plan.fixedReplyNs + (slot - 1) * plan.slotNs) / RCTU_NS)
       expect(txResp!.counter - rxPoll!.counter).toBe(expected)
     })
   })

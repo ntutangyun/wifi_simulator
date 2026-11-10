@@ -3,7 +3,7 @@
  *
  * The previous lesson gave the round to the anchors and left the tag listening.
  * This one turns it over again: the badge is the only thing that transmits — one
- * fourteen-octet blink of 181.218 µs per 200 ms block, carrying no times at all —
+ * fourteen-octet blink of 183.013 µs per 200 ms block, carrying no times at all —
  * and the anchors are the only things that listen. The reference anchor
  * differences the four arrival stamps and solves the fix, so the position exists
  * on the infrastructure side and never reaches the badge that caused it.
@@ -109,10 +109,10 @@ export const uwbUlTdoa: Lesson = {
     { kind: 'table', heading: '一个胸牌的开销，一个块的容量（本课的帧长与时隙排法）', head: [
       '项目', '数值',
     ], rows: [
-      ['一帧闪发', '14 B (9 + 3 + 2), 181.218 µs'],
+      ['一帧闪发', '14 B (9 + 3 + 2), 183.013 µs'],
       ['一个胸牌，一个块', '1 个 2 ms 时隙，1 帧'],
-      ['十个胸牌，一个块', '1.812 180 ms, 0.906 %'],
-      ['一个块的上限', '100 badges (240 000 ÷ 2 400 RSTU), 9.06 %'],
+      ['十个胸牌，一个块', '1.830 130 ms, 0.915 %'],
+      ['一个块的上限', '100 badges (240 000 ÷ 2 400 RSTU), 9.15 %'],
     ] },
     { kind: 'formula', heading: '全部的算术', text: 'arrival_i = t_闪发 + d(胸牌, a_i)/c + noise_i + offset_i\nΔ_i = arrival_i − arrival_参考', note: '发送时刻 t_闪发 未知，但它在两项中完全相同，相减即被消去。把十个胸牌全部设到晶振容差的两端，七十次定位的误差完全相同。唯一会变化的，是胸牌写入自身发送时间戳记录的计数值，而定位不使用它。' },
     { text: '1 ns 对应 29.98 cm 的伪距，而每个时间差中都包含两个锚点各自的同步误差；默认的 0 ns 意味着锚点完全同步，而变体把它设为 1 ns。' },
@@ -133,7 +133,7 @@ export const uwbUlTdoa: Lesson = {
       ['属于这个胸牌的那一轮',
         'badge-1 UWB round 0 of block 0 (UL-TDoA): 1 slots × 2000.0 µs'],
       ['它在这一轮中发出的闪发',
-        'badge-1 → * UWBBLINK 14 B @6.81 Mbps (181.2 µs)'],
+        'badge-1 → * UWBBLINK 14 B @6.81 Mbps (183.0 µs)'],
       ['第一个时间差',
         'anchor-1 TDoA of badge-1 anchor-2 − anchor-1: 5.33 ns (true 5.39 ns)'],
       ['由它解出的位置',
@@ -177,7 +177,7 @@ export const uwbUlTdoa: Lesson = {
       ['4 ns', '70.4 cm', '135.3 cm'],
     ] },
     { heading: '误差椭圆的可信程度', text: '它是一阶近似，而偏差并不是白噪声，所以请把它读作“定位可能偏离多远”，而不是 68 % 置信区间。两个场景中，长半轴至少是七十次中最大误差的一半，最多也不过是它的几倍——一阶近似的数字，所能说明的大致也就是这些。' },
-    { heading: '两种方式各占用多少空口时间', text: '只接收的那一轮，无论是三个胸牌还是三千个胸牌在接收，锚点都只占用块的 0.507 %；而十个发送闪发的胸牌，七个块中要占用 12.685 260 ms 的空口时间，每个标签一个时隙，一个块达到一百个就满了。所以四百个标签需要四个块的时隙，或者更短的时隙，或者再增加一个信道。上行形态换来的是胸牌本身的简化：不需要接收机、不需要时钟速率修正、不需要解算器。' },
+    { heading: '两种方式各占用多少空口时间', text: '只接收的那一轮，无论是三个胸牌还是三千个胸牌在接收，锚点都只占用块的 0.511 %；而十个发送闪发的胸牌，七个块中要占用 12.810 910 ms 的空口时间，每个标签一个时隙，一个块达到一百个就满了。所以四百个标签需要四个块的时隙，或者更短的时隙，或者再增加一个信道。上行形态换来的是胸牌本身的简化：不需要接收机、不需要时钟速率修正、不需要解算器。' },
   ],
   limits: [
     { kind: 'model-value', text: '那条「公共时基」在本课中是理想化的。每个锚点记录的到达时刻，就是真实 RMARKER 时刻加上这台接收机的时间戳噪声，再加上它自身的校准剩余误差——锚点自身的晶振根本不参与，所谓有线同步就是将其完全消除。而那个剩余误差只取值一次，此后在整个会话中保持不变。真实的同步残差会随温度、线缆与回程路径缓慢漂移，所以在现实中它既是偏差，也在持续变化。' },
@@ -203,7 +203,7 @@ export const uwbUlTdoa: Lesson = {
   ],
   observe: [
     'badge-1 开启这个块中属于它的那一轮，在其中发出一帧闪发，然后空闲到下一个块。整段运行中每一次发送都来自某个胸牌——一共七十次，每个胸牌每块一次。',
-    '跟随这帧闪发进入房间：四个到达时间戳，分别在 181.234、181.237、181.240 与 181.242 µs，顺序正是各锚点到胸牌的距离次序。首尾相差八纳秒，而确定它位置的，就只有这八纳秒。',
+    '跟随这帧闪发进入房间：四个到达时间戳，分别在 183.029、183.032、183.035 与 183.037 µs，顺序正是各锚点到胸牌的距离次序。首尾相差八纳秒，而确定它位置的，就只有这八纳秒。',
     '在检视面板中打开 badge-1：没有距离，只有三个到达时间差和一次定位，而它们都是在其他节点上算出的。再打开参考锚点——这些运算全部由它完成，它自己的泳道上却是空的。',
   ],
   tryThis: [

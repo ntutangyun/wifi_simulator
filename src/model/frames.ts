@@ -57,6 +57,9 @@ export const FRAME_KINDS = [
   // frame answers no request and times nothing — it only carries a slice of a message too large
   // for one frame. docs/superpowers/specs/2026-10-02-ancillary-design.md §4.1/§4.2
   'uwbAncillary',
+  // A ranging control message on its own (standard §10.32.2): the RCM of the ancillary-information
+  // round (ARC Ranging Round Usage = 3, §10.35), which has no ranging initiation to fuse with.
+  'uwbRcm',
 ] as const
 
 export type FrameKind = typeof FRAME_KINDS[number]

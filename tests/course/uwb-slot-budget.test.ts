@@ -182,21 +182,22 @@ describe('uwb-slot-budget · the lesson itself', () => {
 
 describe('uwb-slot-budget · the slot-fit rule', () => {
   it('the printed rule is the engine’s uwbSlotFitNs, term for term', () => {
-    // "slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4"
+    // "slot ≥ PPDU(Final, N anchors) + 200 ns = 242 500 + 200 = 242 700 ns at N = 4"
+    // 2026-11-10: 21 PHR-rate symbols (Table 16-2) and the RMI/RRTI content headers (§10.29.8.1/.4)
     expect(formulas()).toHaveLength(1)
     expect(formulas()[0].text)
-      .toBe('slot ≥ PPDU(Final, N anchors) + 200 ns = 236 603 + 200 = 236 803 ns at N = 4')
-    expect(uwbFinalBytes(ANCHORS)).toBe(62)
-    expect(uwbPpduNs(uwbFinalBytes(ANCHORS))).toBe(236_603)
-    expect(uwbSlotFitNs(ANCHORS)).toBe(236_603 + UWB_SLOT_GUARD_NS)
-    expect(uwbSlotFitNs(ANCHORS)).toBe(236_803)
+      .toBe('slot ≥ PPDU(Final, N anchors) + 200 ns = 242 500 + 200 = 242 700 ns at N = 4')
+    expect(uwbFinalBytes(ANCHORS)).toBe(66)
+    expect(uwbPpduNs(uwbFinalBytes(ANCHORS))).toBe(242_500)
+    expect(uwbSlotFitNs(ANCHORS)).toBe(242_500 + UWB_SLOT_GUARD_NS)
+    expect(uwbSlotFitNs(ANCHORS)).toBe(242_700)
     // "a 200 ns flight guard, which is 60 m of air"
     expect((UWB_SLOT_GUARD_NS * 0.299792458).toFixed(0)).toBe('60')
   })
 
-  it('a 2 ms slot leaves the Final on 11.8 % of it, and 20 ppm over a block is 4 µs', () => {
-    expect((uwbPpduNs(uwbFinalBytes(ANCHORS)) / PLAN.slotNs * 100).toFixed(1)).toBe('11.8')
-    expect(formulas()[0].note!).toContain('11.8 %')
+  it('a 2 ms slot leaves the Final on 12.1 % of it, and 20 ppm over a block is 4 µs', () => {
+    expect((uwbPpduNs(uwbFinalBytes(ANCHORS)) / PLAN.slotNs * 100).toFixed(1)).toBe('12.1')
+    expect(formulas()[0].note!).toContain('12.1 %')
     expect((PLAN.blockNs * 20e-6 / 1000).toFixed(0)).toBe('4')
     expect(deeperProse()).toContain('4 µs')
     // "nearly nine tenths silence": the Final is under a seventh of its slot
@@ -206,31 +207,31 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
     for (const r of ofType(recs(), 'TX_START')) expect(r.t % PLAN.slotNs, `${r.node}@${r.t}`).toBe(0)
   })
 
-  it('the schema refuses 282 twice, refuses 285 on the floor alone, and takes 300', () => {
-    // step 3: "场景 schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 13.2 µs"
+  it('the schema refuses 290 twice, refuses 295 on the floor alone, and takes 300', () => {
+    // step 3: "本课另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 7.3 µs"
     const floor = 'Number must be greater than or equal to 300'
-    expect(rstuNs(282)).toBe(235_000)
-    expect(rstuNs(285)).toBe(237_500)
+    expect(rstuNs(290)).toBe(241_667)
+    expect(rstuNs(295)).toBe(245_833)
     expect(rstuNs(300)).toBe(250_000)
-    const at282 = schemaIssues(282)
-    expect(at282).toHaveLength(2)
-    expect(at282).toContain(floor)
-    expect(at282.some((m) => m.includes('235.0 µs') && m.includes('236.8 µs'))).toBe(true)
-    expect(rstuNs(282)).toBeLessThan(uwbSlotFitNs(ANCHORS))
-    const at285 = schemaIssues(285)
-    expect(at285).toEqual([floor])
-    expect(rstuNs(285) - uwbSlotFitNs(ANCHORS)).toBe(697)
+    const at290 = schemaIssues(290)
+    expect(at290).toHaveLength(2)
+    expect(at290).toContain(floor)
+    expect(at290.some((m) => m.includes('241.7 µs') && m.includes('242.7 µs'))).toBe(true)
+    expect(rstuNs(290)).toBeLessThan(uwbSlotFitNs(ANCHORS))
+    const at295 = schemaIssues(295)
+    expect(at295).toEqual([floor])
+    expect(rstuNs(295) - uwbSlotFitNs(ANCHORS)).toBe(3133)
     expect(schemaIssues(300)).toEqual([])
     expect(schemaIssues(297)).toContain(floor)
     // step 4: 285 and 282 are both whole numbers of RSTU, which is all the standard asks of a length
     // (§10.32.2) — so that is not what refuses them. Until 2026-11-10 this step stated a 「3 RSTU 的整
     // 数倍」 rule of the schema's own, which is not in the standard and is gone (audit #10).
-    expect(Number.isInteger(285)).toBe(true)
-    expect(Number.isInteger(282)).toBe(true)
+    expect(Number.isInteger(295)).toBe(true)
+    expect(Number.isInteger(290)).toBe(true)
     expect(steps().items[3]).toContain('整数个 RSTU')
     expect(steps().items[3]).not.toContain('3 RSTU 的整数倍')
-    // and the 13.2 µs the step quotes is the gap between the two rules
-    expect(((rstuNs(300) - uwbSlotFitNs(ANCHORS)) / 1000).toFixed(1)).toBe('13.2')
+    // and the 7.3 µs the step quotes is the gap between the two rules
+    expect(((rstuNs(300) - uwbSlotFitNs(ANCHORS)) / 1000).toFixed(1)).toBe('7.3')
     /*
      * **`limits` names that jump, and the 「第」 rule change of 2026-10-14 uncovered both of its
      * figures**: 「改变其中任一个，第三步的结论和编辑器把 285 修正为 300 的结果就都不再成立」. The pair
@@ -252,13 +253,14 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
   })
 
   it('the capacity rule only overtakes the floor once the Final grows', () => {
-    // deeper: "六个锚点时 Final 要 267 572 ns，即 324 RSTU"
-    expect(uwbSlotFitNs(6)).toBe(267_572)
-    expect(rstuNs(324)).toBeGreaterThanOrEqual(uwbSlotFitNs(6))
-    expect(rstuNs(321)).toBeLessThan(uwbSlotFitNs(6))
-    expect(rstuNs(324)).toBeGreaterThan(rstuNs(300))
-    for (const n of [1, 2, 3, 4, 5]) expect(uwbSlotFitNs(n), `fit ${n}`).toBeLessThanOrEqual(rstuNs(300))
-    for (const s of ['267 572', '324 RSTU']) expect(deeperProse(), s).toContain(s)
+    // deeper: "五个锚点时 Final 要 255 008 ns，即 307 RSTU" — five, not six, since the 2026-11-10 PHR
+    // and IE content-header corrections lengthened the Final (six anchors: 267 572 ns before)
+    expect(uwbSlotFitNs(5)).toBe(255_008)
+    expect(rstuNs(307)).toBeGreaterThanOrEqual(uwbSlotFitNs(5))
+    expect(rstuNs(306)).toBeLessThan(uwbSlotFitNs(5))
+    expect(rstuNs(307)).toBeGreaterThan(rstuNs(300))
+    for (const n of [1, 2, 3, 4]) expect(uwbSlotFitNs(n), `fit ${n}`).toBeLessThanOrEqual(rstuNs(300))
+    for (const s of ['255 008', '307 RSTU']) expect(deeperProse(), s).toContain(s)
     // and the nine-anchor cap is arithmetic, not a choice: 14 + 12N at ten anchors overruns the
     // 127-octet payload, which is where src/uwb/phy.ts's uwbMaxAnchors derives it from — for
     // DS-TWR embedded, the shape this lesson's default scenario uses. (SS-TWR and deferred DS-TWR
@@ -266,21 +268,22 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
     // matter — task-1-report.md, feat/uwb-ranging.)
     const dsEmbeddedCap = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
     expect(dsEmbeddedCap).toBe(9)
-    expect(14 + 12 * 10).toBe(134)
-    expect(14 + 12 * dsEmbeddedCap).toBeLessThanOrEqual(127)
-    expect(14 + 12 * (dsEmbeddedCap + 1)).toBeGreaterThan(127)
-    for (const s of ['134 字节', '127 字节']) expect(deeperProse(), s).toContain(s)
+    expect(uwbFinalBytes(10)).toBe(138)
+    expect(18 + 12 * 10).toBe(138)
+    expect(18 + 12 * dsEmbeddedCap).toBeLessThanOrEqual(127)
+    expect(18 + 12 * (dsEmbeddedCap + 1)).toBeGreaterThan(127)
+    for (const s of ['138 字节', '127 字节']) expect(deeperProse(), s).toContain(s)
   })
 
-  it('typing 285 into the editor’s slot field really does snap to 300', () => {
+  it('typing 295 into the editor’s slot field really does snap to 300', () => {
     // the second experiment, and step 5. The field is an RstuInput with lo = 300 that clamps on
     // blur (src/uwb/ui/UwbSessionFields.tsx); since 2026-11-10 it no longer rounds to a 3-RSTU grid.
-    expect(clampField('285', 300, 60_000, true)).toBe(300)
-    expect(clampField('282', 300, 60_000, true)).toBe(300)
+    expect(clampField('295', 300, 60_000, true)).toBe(300)
+    expect(clampField('290', 300, 60_000, true)).toBe(300)
     expect(clampField('2401', 300, 60_000, true)).toBe(2401)
-    expect(uwbSlotBudget.tryThis[1]).toContain('285')
+    expect(uwbSlotBudget.tryThis[1]).toContain('295')
     expect(uwbSlotBudget.tryThis[1]).toContain('300')
-    expect(steps().items[4]).toContain('285')
+    expect(steps().items[4]).toContain('295')
   })
 })
 
@@ -292,26 +295,26 @@ describe('uwb-slot-budget · what the radio costs', () => {
     expect(cell(0, 1, 1)).toBe('3 of 10')
   })
 
-  it('the two shares differ tenfold and more: 10.3× on the phone, 24.2× on the anchor', () => {
+  it('the two shares differ tenfold and more: 10.2× on the phone, 23.9× on the anchor', () => {
     const tagRatio = PLAN.roundNs / radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
     const ancRatio = TAGS.length * PLAN.roundNs / radioOnNs(recs(), 'anchor-1', PLAN.blockNs)
-    expect(tagRatio.toFixed(1)).toBe('10.3')
-    expect(ancRatio.toFixed(1)).toBe('24.2')
+    expect(tagRatio.toFixed(1)).toBe('10.2')
+    expect(ancRatio.toFixed(1)).toBe('23.9')
     for (const r of [tagRatio, ancRatio]) expect(r).toBeGreaterThanOrEqual(10)
     expect(ancRatio).toBeGreaterThan(tagRatio)
   })
 
-  it('the radio-on share of the block is 0.97 % for the phone and 1.22 % for the anchor', () => {
+  it('the radio-on share of the block is 0.98 % for the phone and 1.25 % for the anchor', () => {
     const tag = radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
     const anc = radioOnNs(recs(), 'anchor-1', PLAN.blockNs)
-    expect(tag).toBe(1_943_565)
-    expect(anc).toBe(2_476_239)
+    expect(tag).toBe(1_961_517)
+    expect(anc).toBe(2_507_010)
     expect(tag).toBe(FIG.radioOnNs)
-    expect((tag / PLAN.blockNs * 100).toFixed(2)).toBe('0.97')
-    expect((anc / PLAN.blockNs * 100).toFixed(2)).toBe('1.24')
+    expect((tag / PLAN.blockNs * 100).toFixed(2)).toBe('0.98')
+    expect((anc / PLAN.blockNs * 100).toFixed(2)).toBe('1.25')
     const rows: [string, string, string, string, string][] = [
-      ['uwb-1（三部之一）', '1 of 10', '10 of 10', '1 943 565 ns', '0.97 %'],
-      ['anchor-1（四个之一）', '3 of 10', '4 of 10 × 3', '2 476 239 ns', '1.24 %'],
+      ['uwb-1（三部之一）', '1 of 10', '10 of 10', '1 961 517 ns', '0.98 %'],
+      ['anchor-1（四个之一）', '3 of 10', '4 of 10 × 3', '2 507 010 ns', '1.25 %'],
     ]
     rows.forEach((row, i) => row.forEach((v, j) => expect(cell(0, i, j), `${row[0]} ${j}`).toBe(v)))
     expect(Number(rows[0][3].replace(/[\sn]|s$/g, ''))).toBe(tag)
@@ -326,26 +329,26 @@ describe('uwb-slot-budget · what the radio costs', () => {
   })
 
   it('the phone’s radio time is its round’s airtime plus 13 ns of flight per reception', () => {
-    // deeper: "它的 1 943 565 ns 恰好是这一轮的空口时间 1 943 461 ns，再加上它接收的八帧、
+    // deeper: "它的 1 961 517 ns 恰好是这一轮的空口时间 1 961 413 ns，再加上它接收的八帧、
     //  每帧 13 ns 的飞行时间"
     const airtime = ofType(recs(), 'TX_START')
       .filter((r) => r.t < PLAN.roundNs)
       .reduce((sum, r) => sum + r.frame.txTimeNs, 0)
-    expect(airtime).toBe(1_943_461)
+    expect(airtime).toBe(1_961_413)
     const rxCount = ofType(recs(), 'UWB_TS').filter((r) => r.node === 'uwb-1' && r.dir === 'rx' && r.t < PLAN.roundNs)
     expect(rxCount).toHaveLength(8)
     expect(radioOnNs(recs(), 'uwb-1', PLAN.blockNs)).toBe(airtime + 8 * 13)
-    for (const s of ['1 943 461', '八帧', '13 ns']) expect(deeperProse(), s).toContain(s)
+    for (const s of ['1 961 413', '八帧', '13 ns']) expect(deeperProse(), s).toContain(s)
   })
 
-  it('the anchor wakes four times in a ten-slot round: 825 411 ns in the first, 2 476 239 over three', () => {
-    expect(radioOnNs(recs(), 'anchor-1', PLAN.roundNs)).toBe(825_411)
+  it('the anchor wakes four times in a ten-slot round: 835 668 ns in the first, 2 507 010 over three', () => {
+    expect(radioOnNs(recs(), 'anchor-1', PLAN.roundNs)).toBe(835_668)
     const states = ofType(recs(), 'MAC_STATE').filter((r) => r.node === 'anchor-1' && r.t < PLAN.roundNs)
     expect(states.map((r) => `${r.t}:${r.state}`)).toEqual([
-      '0:uwbWait', '13:rx', '216103:idle',
-      '2000000:tx', '2181218:idle',
-      '10000000:uwbWait', '10000013:rx', '10236616:idle',
-      '12000000:tx', '12191474:idle',
+      '0:uwbWait', '13:rx', '217898:idle',
+      '2000000:tx', '2183013:idle',
+      '10000000:uwbWait', '10000013:rx', '10242513:idle',
+      '12000000:tx', '12192244:idle',
     ])
     // deaf in the other anchors' slots: it never leaves idle there
     expect(states.filter((r) => r.state !== 'idle').map((r) => Math.floor(r.t / PLAN.slotNs)))
@@ -354,11 +357,11 @@ describe('uwb-slot-budget · what the radio costs', () => {
     // the measured sum and not three times the first round. The prose says exactly that.
     const perRound = [0, 1, 2].map((k) =>
       radioOnNs(recs(), 'anchor-1', (k + 1) * PLAN.roundNs, k * PLAN.roundNs))
-    expect(perRound).toEqual([825_411, 825_425, 825_403])
-    expect(perRound.reduce((a, b) => a + b, 0)).toBe(2_476_239)
+    expect(perRound).toEqual([835_668, 835_682, 835_660])
+    expect(perRound.reduce((a, b) => a + b, 0)).toBe(2_507_010)
     expect(Math.max(...perRound) - Math.min(...perRound)).toBeLessThan(100)
     expect(perRound.some((v) => v !== perRound[0])).toBe(true)
-    expect(deeperProse()).toContain('825 411 ns')
+    expect(deeperProse()).toContain('835 668 ns')
   })
 
   it('the observation is the phone’s own lane, in the figures the lane shows', () => {
@@ -371,10 +374,10 @@ describe('uwb-slot-budget · what the radio costs', () => {
     const longest = ofType(recs(), 'TX_START')
       .filter((r) => r.t < PLAN.roundNs)
       .reduce((m, r) => Math.max(m, r.frame.txTimeNs), 0)
-    expect(longest / MS).toBeLessThan(0.24)
-    expect((radioOnNs(recs(), 'uwb-1', PLAN.blockNs) / MS).toFixed(2)).toBe('1.94')
-    expect(uwbSlotBudget.observe[0]).toContain('1.94 ms')
-    expect(uwbSlotBudget.observe[0]).toContain('0.97 %')
+    expect(longest / MS).toBeLessThan(0.25)
+    expect((radioOnNs(recs(), 'uwb-1', PLAN.blockNs) / MS).toFixed(2)).toBe('1.96')
+    expect(uwbSlotBudget.observe[0]).toContain('1.96 ms')
+    expect(uwbSlotBudget.observe[0]).toContain('0.98 %')
   })
 })
 
@@ -387,8 +390,8 @@ describe('uwb-slot-budget · the 0.5 ms variant', () => {
     expect(vplan.blockNs).toBe(PLAN.blockNs)
     expect(vplan.roundsPerBlock).toBe(40)
     const vrows: [string, string, string, string, string][] = [
-      ['2 400 RSTU · 2 ms', '20.0 ms', '10', '60 ms', '1 943 565 ns'],
-      ['600 RSTU · 0.5 ms', '5.0 ms', '40', '15 ms', '1 943 565 ns'],
+      ['2 400 RSTU · 2 ms', '20.0 ms', '10', '60 ms', '1 961 517 ns'],
+      ['600 RSTU · 0.5 ms', '5.0 ms', '40', '15 ms', '1 961 517 ns'],
     ]
     vrows.forEach((row, i) => row.forEach((v, j) => expect(cell(1, i, j), `${row[0]} ${j}`).toBe(v)))
     expect(ofType(recs(0), 'UWB_ROUND_END').slice(0, 3).map((r) => `${r.node}@${r.t / MS}`))
@@ -405,13 +408,13 @@ describe('uwb-slot-budget · the 0.5 ms variant', () => {
     expect(uwbSlotBudget.tryThis[0]).toContain('40 轮')
   })
 
-  it('the radio-on total does not move: 1 943 565 ns, 0.97 %, on both scenes', () => {
-    expect(radioOnNs(recs(0), 'uwb-1', PLAN.blockNs)).toBe(1_943_565)
-    expect((radioOnNs(recs(0), 'uwb-1', PLAN.blockNs) / PLAN.blockNs * 100).toFixed(2)).toBe('0.97')
+  it('the radio-on total does not move: 1 961 517 ns, 0.97 %, on both scenes', () => {
+    expect(radioOnNs(recs(0), 'uwb-1', PLAN.blockNs)).toBe(1_961_517)
+    expect((radioOnNs(recs(0), 'uwb-1', PLAN.blockNs) / PLAN.blockNs * 100).toFixed(2)).toBe('0.98')
     expect(cell(1, 0, 4)).toBe(cell(1, 1, 4))
     for (const t of TAGS) {
       expect(radioOnNs(recs(0), t, PLAN.blockNs), t).toBe(radioOnNs(recs(), t, PLAN.blockNs))
-      expect(Math.abs(radioOnNs(recs(0), t, PLAN.blockNs) - 1_943_565), t).toBeLessThan(100)
+      expect(Math.abs(radioOnNs(recs(0), t, PLAN.blockNs) - 1_961_517), t).toBeLessThan(100)
     }
     // the round's own share of the block is what moved: 10 % to 2.5 %
     const vplan = roundPlan(uwbSlotBudget.variants![0].scenario().uwb!, ANCHORS)
@@ -439,25 +442,26 @@ describe('uwb-slot-budget · the procedure, step by step', () => {
   })
 
   it('step 1: the longest frame of a DS round is the Final, 14 + 12N octets', () => {
-    expect(uwbFinalBytes(ANCHORS)).toBe(14 + 12 * ANCHORS)
-    expect(uwbFinalBytes(ANCHORS)).toBe(62)
-    expect(uwbPpduNs(62)).toBe(236_603)
+    expect(uwbFinalBytes(ANCHORS)).toBe(18 + 12 * ANCHORS)
+    expect(uwbFinalBytes(ANCHORS)).toBe(66)
+    expect(uwbPpduNs(66)).toBe(242_500)
     // it really is the longest frame of this round, measured rather than asserted
     const longest = ofType(recs(), 'TX_START')
       .filter((r) => r.t < PLAN.roundNs)
       .reduce((m, r) => (r.frame.bytes > m.frame.bytes ? r : m))
     expect(longest.frame.kind).toBe('uwbFinal')
-    expect(longest.frame.bytes).toBe(62)
-    for (const s of ['14 + 12N', '62 字节', '236 603 ns']) expect(steps().items[0], s).toContain(s)
+    expect(longest.frame.bytes).toBe(66)
+    for (const s of ['18 + 12N', '66 字节', '242 500 ns']) expect(steps().items[0], s).toContain(s)
   })
 
   it('step 2: the capacity floor is that frame plus the 200 ns guard', () => {
     expect(uwbSlotFitNs(ANCHORS)).toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)) + UWB_SLOT_GUARD_NS)
-    expect(uwbSlotFitNs(ANCHORS)).toBe(236_803)
+    expect(uwbSlotFitNs(ANCHORS)).toBe(242_700)
     // "合 285 RSTU 还多一点": 285 RSTU is 237 500 ns, which clears it by 697 ns
-    expect(rstuNs(285)).toBeGreaterThan(uwbSlotFitNs(ANCHORS))
-    expect(rstuNs(282)).toBeLessThan(uwbSlotFitNs(ANCHORS))
-    for (const s of ['200 ns', '236 803 ns', '285 个 RSTU']) expect(steps().items[1], s).toContain(s)
+    expect(rstuNs(292)).toBeGreaterThan(uwbSlotFitNs(ANCHORS))
+    expect(rstuNs(291)).toBeLessThan(uwbSlotFitNs(ANCHORS))
+    expect(rstuNs(290)).toBeLessThan(uwbSlotFitNs(ANCHORS))
+    for (const s of ['200 ns', '242 700 ns', '291 个 RSTU']) expect(steps().items[1], s).toContain(s)
   })
 
   it('step 6: the block length does not move, so the rounds per block do', () => {
@@ -522,7 +526,7 @@ describe('uwb-slot-budget · the figure', () => {
     const dark = (lane: TimingSpec['lanes'][number]): number =>
       lane.spans.filter((s) => s.tone === 'accent').reduce((n, s) => n + (s.toUs - s.fromUs), 0)
     expect(dark(lanes[1])).toBeCloseTo(dark(lanes[0]), 9)
-    expect(Math.round(dark(lanes[0]) * 1000)).toBe(1_943_461)
+    expect(Math.round(dark(lanes[0]) * 1000)).toBe(1_961_413)
     expect(fig().axis).toEqual({ fromUs: 0, toUs: FIG.windowUs, ticks: [0, 10_000, 20_000], unit: 'µs' })
     expect(FIG.windowUs * 1000).toBe(PLAN.roundNs)
   })
@@ -530,8 +534,8 @@ describe('uwb-slot-budget · the figure', () => {
   it('the caption quotes the radio-on total, and it is the run’s own', () => {
     const cap = uwbSlotBudget.picture!
       .find((b): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram')!.caption!
-    expect(cap).toContain('1 943 565 ns')
-    expect(radioOnNs(recs(), 'uwb-1', PLAN.blockNs)).toBe(1_943_565)
+    expect(cap).toContain('1 961 517 ns')
+    expect(radioOnNs(recs(), 'uwb-1', PLAN.blockNs)).toBe(1_961_517)
     expect(cap).toContain('0.5 ms')
     expect(cap).toContain('5 ms')
   })
@@ -564,7 +568,7 @@ describe('uwb-slot-budget · the figure', () => {
  * **Every figure the prose prints, read back out of it.**
  *
  * Everything above measures the right thing and then compares it with a figure typed on **this**
- * side — `expect(radioOnNs(...)).toBe(1_943_565)`, with the lesson's sentence in a comment above
+ * side — `expect(radioOnNs(...)).toBe(1_961_517)`, with the lesson's sentence in a comment above
  * it. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12 scored this
  * lesson 3 of 6, and the three it reached were all in prose. This describe parses each figure out
  * of the shipped string and compares *that* with the measurement.
@@ -640,7 +644,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
       'the caption on the short row')
     same(String(shortSlot), VPLAN.slotNs / MS, 'the variant’s slot')
     same(String(shortRound), VPLAN.roundNs / MS, 'and the round it falls to')
-    // 「两行都是 1 943 565 ns」
+    // 「两行都是 1 961 517 ns」
     const [capRadio] = figs(PIC, /两行都是 ([\d ]+) ns/, 'the caption on the radio-on total')
     expect(capRadio, 'the phone’s radio time, which both scenes share')
       .toBe(radioOnNs(recs(), 'uwb-1', PLAN.blockNs))
@@ -670,7 +674,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     same(String(pct), (100 * ppdu!) / PLAN.slotNs, 'the share that frame takes of it')
     // step 1: 「Final，14 + 12N 字节：四个锚点时 62 字节，空口 236 603 ns」
     const [base, per, bytes, air] = figs(NUMS,
-      /Final，按本课的字段宽度是 (\d+) \+ (\d+)N 字节：四个锚点时 (\d+) 字节，空口 ([\d ]+) ns/, 'step 1')
+      /Final，按标准的字段宽度是 (\d+) \+ (\d+)N 字节：四个锚点时 (\d+) 字节，空口 ([\d ]+) ns/, 'step 1')
     expect(base! + per! * n!, 'the bytes that formula gives four anchors').toBe(bytes)
     expect(bytes, 'which is the Final the engine builds').toBe(uwbFinalBytes(n!))
     expect(air, 'and its airtime').toBe(ppdu)
@@ -678,9 +682,11 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     const [stepGuard, stepFit, rstu] = figs(NUMS,
       /加 (\d+) ns 飞行余量：这个场景的容量下限是 ([\d ]+) ns，合 (\d+) 个 RSTU/, 'step 2')
     expect([stepGuard, stepFit], 'the same guard and the same floor').toEqual([guard, fit])
-    expect(rstuNs(rstu!), 'the RSTU count it comes to, and 「还多一点」')
-      .toBeGreaterThan(stepFit!)
-    expect(rstuNs(rstu! - 3), 'while three RSTU less would not hold it').toBeLessThan(stepFit!)
+    // 2026-11-10: read as written — 「合 291 个 RSTU 还多一点，所以至少要 292 个」
+    expect(rstuNs(rstu!), 'the RSTU count it comes to, and 「还多一点」').toBeLessThan(stepFit!)
+    expect(rstuNs(rstu! + 1), 'one RSTU more holds it').toBeGreaterThan(stepFit!)
+    const [atLeast] = figs(NUMS, /所以至少要 (\d+) 个 RSTU/, 'step 2 on the whole RSTU')
+    expect(atLeast, 'the first whole RSTU that holds it').toBe(rstu! + 1)
     // step 3: 「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 13.2 µs」
     const [floor, floorUs, over] = figs(NUMS,
       /设了 (\d+) RSTU 的下限，即 ([\d.]+) µs，比上一步的结果还长 ([\d.]+) µs/, 'step 3')
@@ -747,7 +753,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     const [headNs] = figs(head, /^([\d ]+) ns 由什么组成/, 'the paragraph’s own heading')
     const tag = radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
     expect(headNs, 'the figure the paragraph takes apart').toBe(tag)
-    // 「它的 1 943 565 ns 恰好是这一轮的空口时间 1 943 461 ns，再加上它接收的八帧、每帧 13 ns」
+    // 「它的 1 961 517 ns 恰好是这一轮的空口时间 1 961 413 ns，再加上它接收的八帧、每帧 13 ns」
     const [total, airtime, flight] = figs(DEEP,
       /它的 ([\d ]+) ns 恰好是这一轮的空口时间 ([\d ]+) ns，再加上它接收的八帧、每帧 (\d+) ns/,
       '`deeper` on how it adds up')
@@ -759,7 +765,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
       .filter((r) => r.node === 'uwb-1' && r.dir === 'rx' && r.t < PLAN.roundNs)
     expect(rx, 'the eight receptions 「八帧」 names').toHaveLength(8)
     expect(airtime! + rx.length * flight!, 'the sum those three make').toBe(total)
-    // 「第一轮 825 411 ns」 and 「合计 2 476 239 ns」
+    // 「第一轮 835 668 ns」 and 「合计 2 507 010 ns」
     const [firstRound] = figs(DEEP, /十个时隙里唤醒四次，第一轮 ([\d ]+) ns/,
       '`deeper` on the anchor’s first round')
     expect(firstRound, 'what the anchor spends in the first round')
@@ -781,7 +787,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     const rstu = val(rstuRaw!)
     expect(needs, 'what six anchors make the rule ask for').toBe(uwbSlotFitNs(n6))
     expect(rstuNs(rstu), 'the RSTU count that comes to').toBeGreaterThanOrEqual(needs)
-    expect(rstuNs(rstu - 3), 'and the one below it does not hold the frame').toBeLessThan(needs)
+    expect(rstuNs(rstu - 1), 'and the one below it does not hold the frame').toBeLessThan(needs)
     // 「容量规则才超过 300 RSTU 的下限」 — that floor is the sentence's own figure.
     const [deepFloor] = figs(DEEP, /容量规则才超过 (\d+) RSTU 的下限/, '`deeper` on the floor')
     expect(schemaIssues(deepFloor!), 'the floor the schema really takes').toEqual([])

@@ -97,14 +97,17 @@ describe('the slot shape sp3 changes, and the shapes it does not (design §4.1)'
     expect(() => slotAction(p, p.slots)).toThrow(/asked for/)
   })
 
-  it('DS-TWR: one slot more again, because its report phase opens with the Final', () => {
+  // 2026-11-10 (audit #3): SP3 is always deferred, and a deferred DS report phase opens with the
+  // Final and then the initiator's deferred report (standard §10.29.6.6, Figure 10-237).
+  it('DS-TWR: two slots more again — the Final, then the initiator deferred report', () => {
     const anchors = 3
     const p = roundPlan(session({ method: 'ds', sp3: true }), anchors)
-    expect(p.slots).toBe(2 * anchors + 3)
+    expect(p.slots).toBe(2 * anchors + 4)
     expect(slotAction(p, 1)).toEqual({ kind: 'uwbSp3', tx: 'tag' })
     expect(slotAction(p, anchors + 2)).toEqual({ kind: 'uwbFinal', tx: 'tag' })
+    expect(slotAction(p, anchors + 3)).toEqual({ kind: 'uwbReport', tx: 'tag' })
     for (let k = 0; k < anchors; k++) {
-      expect(slotAction(p, anchors + 3 + k), `report ${k}`)
+      expect(slotAction(p, anchors + 4 + k), `report ${k}`)
         .toEqual({ kind: 'uwbReport', tx: 'anchor', anchor: k })
     }
     expect(() => slotAction(p, p.slots)).toThrow(/asked for/)

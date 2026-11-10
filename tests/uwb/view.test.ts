@@ -132,7 +132,7 @@ describe('the UWB view reducer', () => {
     const vs = initViewState(uwbScenario())
     const confirmation: Parameters<EmitFn>[0] = {
       t: 8_000_000, type: 'UWB_MMRCM', node: 'tag-1', peer: 'anc-2', slot: 6, block: 3, round: 0,
-      windowRounds: 4, received: [true, false, true, true], initiators: 1,
+      ackSlots: 4, received: [true, false, true, true], initiators: 1,
     }
     for (const r of seq([...RECORDS, confirmation])) applyRecord(vs, r)
     const u = vs.nodes['tag-1'].uwb!
@@ -446,10 +446,10 @@ describe('applyUwbRecord claims every UWB record type', () => {
     UWB_POSITION: { type: 'UWB_POSITION', node: 'tag-1', x: 4, y: 4, trueX: 4, trueY: 4, gdop: 1.8, ellipse: { a: 0.1, b: 0.1, thetaRad: 0 }, anchors: ['anc-1', 'anc-2'], block: 1, method: 'twr' },
     UWB_TIMEOUT: { type: 'UWB_TIMEOUT', node: 'tag-1', slot: 2, peer: 'anc-2', expected: 'uwbResp' },
     UWB_RMNR: { type: 'UWB_RMNR', node: 'tag-1', peer: 'anc-2', slot: 2, block: 1, round: 0 },
-    UWB_MMRCM: { type: 'UWB_MMRCM', node: 'tag-1', peer: 'anc-2', slot: 5, block: 1, round: 0, windowRounds: 2, received: [true, false], initiators: 1 },
+    UWB_MMRCM: { type: 'UWB_MMRCM', node: 'tag-1', peer: 'anc-2', slot: 5, block: 1, round: 0, ackSlots: 2, received: [true, false], initiators: 1 },
     UWB_SP3: { type: 'UWB_SP3', node: 'tag-1', peer: 'anc-1', slot: 2, block: 1, round: 0 },
     UWB_SP3_REPORT: { type: 'UWB_SP3_REPORT', node: 'tag-1', peer: 'anc-1', slot: 4, block: 1, round: 0 },
-    UWB_ANCILLARY: { type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 6, block: 1, round: 0, messageNumber: 1, messageKind: 1, framesRemaining: 1, missing: [2], complete: false },
+    UWB_ANCILLARY: { type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 6, block: 1, round: 0, messageNumber: 1, framesRemaining: 1, missing: [2], complete: false },
     UWB_CONTEND: { type: 'UWB_CONTEND', node: 'anc-1', slot: 2, attempt: 1 },
     UWB_CONTEND_COLLISION: { type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 2 },
     UWB_ROUND_END: { type: 'UWB_ROUND_END', node: 'tag-1', block: 1, round: 0 },
@@ -547,9 +547,9 @@ describe('the two halves of an ancillary message, through the reducer and into t
   /** One message of four fragments, with the one that would have said 2 lost — so the third
    * reception names it, which is exactly what `UwbNodeView.ancillaryMissing` counts. */
   const MESSAGE: Parameters<EmitFn>[0][] = [
-    { t: 10_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 5, block: 0, round: 0, messageNumber: 0, messageKind: 1, framesRemaining: 3, missing: [], complete: false },
-    { t: 14_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 7, block: 0, round: 0, messageNumber: 0, messageKind: 1, framesRemaining: 1, missing: [2], complete: false },
-    { t: 16_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 8, block: 0, round: 0, messageNumber: 0, messageKind: 1, framesRemaining: 0, missing: [], complete: true },
+    { t: 10_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 5, block: 0, round: 0, messageNumber: 0, framesRemaining: 3, missing: [], complete: false },
+    { t: 14_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 7, block: 0, round: 0, messageNumber: 0, framesRemaining: 1, missing: [2], complete: false },
+    { t: 16_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: 8, block: 0, round: 0, messageNumber: 0, framesRemaining: 0, missing: [], complete: true },
   ]
 
   it('counts the fragments that arrived and the ones the countdown proved missing, separately', () => {
@@ -577,7 +577,7 @@ describe('the two halves of an ancillary message, through the reducer and into t
     const vs = initViewState(uwbScenario())
     const deadline: Parameters<EmitFn>[0] = {
       t: 18_000_000, type: 'UWB_ANCILLARY', node: 'tag-1', peer: 'anc-1', slot: null, block: 0,
-      round: 0, messageNumber: 0, messageKind: 1, framesRemaining: null, missing: [0], complete: false,
+      round: 0, messageNumber: 0, framesRemaining: null, missing: [0], complete: false,
     }
     for (const r of seq([...MESSAGE.slice(0, 1), deadline])) applyRecord(vs, r)
     const u = vs.nodes['tag-1'].uwb!

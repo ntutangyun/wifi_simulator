@@ -419,7 +419,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | 残差 | 统计 | 最小二乘的统计词 | 1 | 0 | — |
 | 估计量 | 统计 | 测量统计词 | 0 | 0 | — |
 | 链路预算 | 工程 | 射频工程词，不属于 802.11 | 1 | 0 | — |
-| 余量 | 模型取值 | 一个词底下压着三个不同的仿真器量（词表清单 §3.10） | 6 | 1 | `@tier1-project` · `margin`；`@selectivity` · `margin`；`@uwb-slot-budget` · `margin`；`@uwb-mms` · `margin`；`@uwb-ssbd` · `slack` |
+| 余量 | 模型取值 | 一个词底下压着三个不同的仿真器量（词表清单 §3.10） | 5 | 1 | `@tier1-project` · `margin`；`@selectivity` · `margin`；`@uwb-slot-budget` · `margin`；`@uwb-mms` · `margin`；`@uwb-ssbd` · `slack` |
 | 队头阻塞 | 工程 | 计算机科学词 | 0 | 0 | — |
 | 突发 | 模型取值 | 课程用它指一次 TXOP 里的那几帧 | 3 | 2 | — |
 | 瓶颈 | 工程 | 普通工程词 | 1 | 0 | — |
@@ -534,7 +534,6 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | `@link-2g` | 链路预算 | `picture[4].text` | 从未 |
 | `@uwb-frame` | 上限 | `quiz[2].options[2]` | 从未 |
 | `@uwb-reply-time` | 上限 | `numbers[3].heading` | 从未 |
-| `@uwb-reply-time` | 余量 | `numbers[10].note` | 从未 |
 | `@uwb-deferred-ds` | 上限 | `why` | 从未 |
 | `@uwb-coexist` | 饱和 | `why` | 从未 |
 | `@uwb-contention` | 尝试 | `why` | 从未 |
@@ -874,7 +873,7 @@ W18 记下、留给我定的是：定义这个概念的那一课用 `门限`／`
 | 量 | 实测 | 怎么量 |
 | --- | --- | --- |
 | 豁免词 | 25 | `ZH_TERMS_EXCLUDED` 的行数 |
-| 主路径存量债（课，词） | 50 | §10.5 的判据 |
+| 主路径存量债（课，词） | 49 | §10.5 的判据 |
 | 其中落在前段 | 16 | 同上 |
 | 债涉及的课 | 41 | 同上 |
 | 债涉及的词 | 11 | 同上 |

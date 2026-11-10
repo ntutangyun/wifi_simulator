@@ -359,11 +359,11 @@ describe('uwb-intro · the four lines to subtract', () => {
 describe('uwb-intro · the range the log reports', () => {
   it('the range line reads 4.95 m against a true 5.00 m, with raw 5.02 m beside it', () => {
     // the numbers formula "What the range line says": "tag-1 range → anchor-1 (SS): 4.95 m
-    //  (true 5.00 m, raw 5.02 m)" / observe: "Find the UWB_RANGE line at 2 187 389 ns."
+    //  (true 5.00 m, raw 5.02 m)" / observe: "Find the UWB_RANGE line at 2 190 209 ns."
     const rs = recs()
     const ranges = ofType(rs, 'UWB_RANGE')
     expect(ranges).toHaveLength(1)
-    expect(ranges[0].t).toBe(2_187_389)
+    expect(ranges[0].t).toBe(2_190_209)
     expect(ranges[0].node).toBe('tag-1')
     expect(ranges[0].peer).toBe('anchor-1')
     expect(ranges[0].method).toBe('ss')
@@ -729,7 +729,7 @@ describe('uwb-intro · every figure the prose prints, read back out of it', () =
     const [movedCm] = figs(NUMS, /结果仍然改变了 (\d+) cm/, '`numbers` on what the correction moves')
     expect(movedCm, 'the correction’s own residual, in centimetres')
       .toBe(Math.round(100 * Math.abs(rctuToMetres(range.tofRawRctu!) - range.distM)))
-    // 「找到 2 187 389 ns 处的 UWB_RANGE」
+    // 「找到 2 190 209 ns 处的 UWB_RANGE」
     const [atNs] = figs(OBS, /找到 ([\d ]+) ns 处的 UWB_RANGE/, '`observe` on when the line appears')
     expect(atNs, 'when the round reports').toBe(range.t)
   })

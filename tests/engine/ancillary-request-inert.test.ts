@@ -119,15 +119,16 @@ describe('ancillary request · off by default, and off means the stream is uncha
    * in this slice, and the whole of the structural identity is that not passing it restores the
    * expression that was there.
    */
-  it('the four schedule functions answer the same without the new argument as with the session figure', () => {
+  // 2026-11-10 (W2): the slot layout no longer depends on a grant at all — every round is one length
+  // (standard §10.32.3.3) and a grant changes what the ancillary round's RCM assigns (its RDM IE,
+  // §10.32.9.8), never the schedule. What is pinned is that the window of a request-less session is
+  // the message exactly, and that the one round length holds it after the ancillary RCM's slot.
+  it('the schedule does not take a grant: every round is plan.slots, and the window is the message', () => {
     const plan = roundPlan(scene({}).uwb!, 4)
     expect(ancillarySlots(plan)).toBe(ancillarySlots(plan, plan.ancillaryFrames))
-    for (const round of [0, 1, 4, 7]) {
-      expect(roundSlots(plan, round)).toBe(roundSlots(plan, round, plan.ancillaryFrames))
-    }
-    // and the appended window of a request-less session is the message, exactly
+    for (const round of [0, 1, 4, 7]) expect(roundSlots(plan, round)).toBe(plan.slots)
     expect(ancillarySlots(plan)).toBe(FRAMES)
-    expect(roundSlots(plan, 0)).toBe(plan.slots + FRAMES)
+    expect(plan.slots).toBe(Math.max(plan.rangingSlots, 1 + FRAMES))
   })
 
   /**
@@ -253,17 +254,32 @@ describe('ancillary request · what the request buys is the next exchange’s me
    * `ancillaryFrames`, and from the block after the grant every message is the granted width — read
    * off the first number of each block's countdown, which is what a reader sees on the timeline.
    */
+  // 2026-11-10 (W2): a grant is what the ancillary round holds (`ancillaryGrantFits`: the window
+  // after the RCM's slot 0), so a one-frame first message and the largest grant the round holds are
+  // what make the change visible. The controller writes the grant into the next ancillary round's RCM
+  // as RDM elements (standard §10.32.9.8), and the sender reads its length off them.
   it('changes the first number of the next block’s countdown, and block 0’s not at all', () => {
-    const granted = 8
-    const byBlock = firstCountdownByBlock(run(scene({ ancillaryRequest: true, ancillaryRequestSlots: granted })))
-    expect(byBlock.get(0), 'block 0 asked before it could be answered').toBe(FRAMES - 1)
+    const first = 1
+    const sess = { ancillaryFrames: first, ancillaryRequest: true }
+    const plan = roundPlan(scene(sess).uwb!, 4)
+    let granted = 0
+    for (let w = 1; w < plan.slots; w++) if (ancillaryGrantFits(plan, w)) granted = w
+    expect(granted).toBe(plan.slots - 2) // the round, less the RCM's slot and the request's slot
+    expect(granted).toBeGreaterThan(first)
+    const rs = run(scene({ ...sess, ancillaryRequestSlots: granted }))
+    const byBlock = firstCountdownByBlock(rs)
+    expect(byBlock.get(0), 'block 0 asked before it could be answered').toBe(first - 1)
     for (const block of [1, 2, 3, 4, 5, 6]) {
       expect(byBlock.get(block), `block ${block}`).toBe(granted - 1)
     }
-    // …and the window the schedule laid out grew with it, by the message plus the request's slot
-    const plan = roundPlan(scene({ ancillaryRequest: true, ancillaryRequestSlots: granted }).uwb!, 4)
-    expect(roundSlots(plan, 0, granted)).toBe(plan.slots + granted + 1)
-    expect(roundSlots(plan, 0, null)).toBe(plan.slots + FRAMES + 1)
+    // …and the grant really travelled in the RCM: from block 1 on, its RDM IE assigns the sender the
+    // granted slots plus the request's.
+    const rcms = rs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'uwbRcm')
+      .map((r) => (r as Extract<TLRecord, { type: 'TX_START' }>).frame)
+    expect(rcms[0].uwb!.rdm).toHaveLength(first + 1)
+    for (const f of rcms.slice(1)) expect(f.uwb!.rdm).toHaveLength(granted + 1)
+    // the slot table itself never moved
+    for (const round of [0, 1]) expect(roundSlots(plan, round)).toBe(plan.slots)
   })
 
   it('leaves every UWB_RANGE field for field what it was with the request off, seq aside', () => {
@@ -277,9 +293,10 @@ describe('ancillary request · what the request buys is the next exchange’s me
      * whole-stream comparisons in this file are over a prefix rather than over the whole run.
      */
     const ranges = (rs: TLRecord[]) => rs.filter((r) => r.type === 'UWB_RANGE')
-      .map(({ seq: _seq, ...rest }) => rest)
-    // The ranging phase is slots 0…plan.slots−1 and the appended window comes after it, so the
-    // request cannot move a ranging frame — the same reason task 3's own §5.5 gives.
+      .map(({ seq: _seq, t: _t, ...rest }) => rest)
+    // The request's slot lengthens the session's one round length by one slot (5 → 6 here, standard
+    // §10.32.3.3), which moves when each round ends but not a single measurement: the ranges are the
+    // same field for field apart from `seq` and the instant `t` they are reported at.
     expect(ranges(on).length).toBe(ranges(off).length)
     expect(ranges(on).length).toBeGreaterThan(20)
     expect(JSON.stringify(ranges(on))).toBe(JSON.stringify(ranges(off)))
@@ -340,19 +357,19 @@ describe('ancillary request · pinned, not refused — four configurations state
   })
 
   /**
-   * Pin 3 · **a request the block cannot hold**, which the controller refuses — and this is teaching
-   * content rather than a defect, so the schema must not refuse it instead (design §6.3's last row).
+   * Pin 3 · **a request the ancillary round cannot hold**, which the controller refuses — and this is
+   * teaching content rather than a defect, so the schema must not refuse it instead.
    *
-   * The boundary is arithmetic the engine and the schema each already do:
-   * `plan.slots + mmrcr + window(frames)` against `blockNs / slotNs`. In this hall that is
-   * 5 + 0 + (frames + 1) ≤ 100, so 94 is granted and 95 is not — a number nothing in this file or
-   * in any lesson writes down.
+   * 2026-11-10 (W2): the boundary is the ancillary round (standard §10.35, its own round of the
+   * session's one length, §10.32.3.3): slot 0 is its RCM, and the window — the message plus the
+   * request's slot — has to fit the rest. In this hall the round is 6 slots, so 4 is granted and 5 is
+   * not. (It used to be the block, 94 and 95, when the window was appended to a ranging round.)
    */
-  it('a request past the block’s own capacity is refused by the controller, not by the schema', () => {
+  it('a request past the ancillary round’s own capacity is refused by the controller, not by the schema', () => {
     const plan = roundPlan(scene({ ancillaryRequest: true, ancillaryRequestSlots: 1 }).uwb!, 4)
     // the boundary, from the engine's own predicate
-    const edge = Math.floor(plan.blockNs / plan.slotNs) - plan.slots - 1
-    expect(edge).toBe(94)
+    const edge = plan.slots - 1 - 1
+    expect(edge).toBe(4)
     expect(ancillaryGrantFits(plan, edge)).toBe(true)
     expect(ancillaryGrantFits(plan, edge + 1)).toBe(false)
     // the schema accepts both, because the refusal is the controller's to make
@@ -365,11 +382,10 @@ describe('ancillary request · pinned, not refused — four configurations state
     const okByBlock = firstCountdownByBlock(run(scene({ ancillaryRequest: true, ancillaryRequestSlots: edge })))
     expect(okByBlock.get(1)).toBe(edge - 1)
     // refused one past it: there is no refusal frame (the clause defines none) — the record says so,
-    // and the next exchange is the session's own width, which is how the asker learns the answer
+    // and the next ancillary RCM assigns the session's own width, which is how the asker learns it
     const refused = run(scene({ ancillaryRequest: true, ancillaryRequestSlots: edge + 1 }))
     const reqs = ancRecords(refused).filter((r) => r.requestedSlots !== undefined)
-    // The refusal first, then the count: a controller that granted this would overrun the block and
-    // the run would fall apart, so a count assertion alone would fail with a number nobody can read.
+    // The refusal first, then the count.
     expect(reqs[0]?.grantedSlots, 'the controller granted a width the block cannot hold').toBeNull()
     expect(reqs.length).toBeGreaterThan(5)
     for (const r of reqs) {
@@ -381,42 +397,51 @@ describe('ancillary request · pinned, not refused — four configurations state
   })
 
   /**
-   * Pin 4 · **the request on a round the exchange does not run in.** With `rcmValidityRounds` 4 (and
-   * four rounds a block, so the set fits one block — standard §10.32.9.1) the exchange runs in the
-   * set's first round and in none of the three after it (`roundCarriesAncillary`), so neither the
-   * message nor the request is on the air there — and the grant made in block 0 is in force from the
-   * next block's set on. Rewritten 2026-11-10 (audit #23): this used to be four one-round blocks, the
-   * request in blocks 0 and 4.
+   * Pin 4 · **the request in a session with a four-round ranging set.** Rewritten 2026-11-10 (W2):
+   * the exchange runs in its own ancillary-information round (standard §10.35, ARC Ranging Round
+   * Usage = 3) after the tag's four ranging rounds — round 4 of the block — and in none of the
+   * ranging rounds, so neither the message nor the request is on the air there; the grant made in
+   * block 0 is in force from block 1's ancillary round on.
    */
-  it('with a four-round set, the request rides the set\'s first round only and the grant holds from the next block', () => {
-    const granted = 7
-    const rs = run(scene({
-      rcmValidityRounds: 4, initiatorRounds: 4, ancillaryRequest: true, ancillaryRequestSlots: granted,
-    }))
+  it('with a four-round set, the request rides the ancillary round after it and the grant holds from the next block', () => {
+    const sess = { rcmValidityRounds: 4, initiatorRounds: 4, ancillaryFrames: 1, ancillaryRequest: true }
+    const plan = roundPlan(scene(sess).uwb!, 4)
+    let granted = 0
+    for (let w = 1; w < plan.slots; w++) if (ancillaryGrantFits(plan, w)) granted = w
+    expect(granted).toBeGreaterThan(1)
+    const rs = run(scene({ ...sess, ancillaryRequestSlots: granted }))
     const blocks = [...firstCountdownByBlock(rs).keys()].sort((a, b) => a - b)
     expect(blocks).toEqual([0, 1, 2, 3, 4, 5, 6])
-    expect(firstCountdownByBlock(rs).get(0)).toBe(FRAMES - 1)
+    expect(firstCountdownByBlock(rs).get(0)).toBe(0)
     for (const block of [1, 2, 3, 4, 5, 6]) expect(firstCountdownByBlock(rs).get(block), `block ${block}`).toBe(granted - 1)
     const req = ancRecords(rs).filter((r) => r.requestedSlots !== undefined)
     expect(req.map((r) => r.block)).toEqual([0, 1, 2, 3, 4, 5, 6])
-    expect(req.every((r) => r.round === 0), 'only the first round of each set').toBe(true)
+    expect(req.every((r) => r.round === 4), 'only the ancillary round after the four ranging rounds').toBe(true)
   })
 
   /**
-   * Pin 5 · **which records the request moves, and which it does not.** Stated as a diff rather than
-   * as a count, because 「the stream changed」 is not something anybody can act on. The streams are
-   * the same length here — the request adds frames but the two runs have the same number of records
-   * only by coincidence, so this is asserted rather than assumed and the test says so if it fails.
+   * Pin 5 · **what a request-equal-to-the-default moves, and what it leaves alone.**
+   *
+   * Rewritten 2026-11-10 (W2): the request frame needs a slot of its own in the ancillary round, and
+   * the session has one round length (standard §10.32.3.3), so switching the request on lengthens
+   * EVERY round by a slot here (5 → 6). That moves every round's end — `UWB_ROUND.untilNs`, the
+   * position fix at the round's end, the slot records — but not one ranging frame of block 0's
+   * ranging round, which starts at the same instant and carries the same bytes.
    */
-  it('names the record types a request-equal-to-the-default moves, and the ones it leaves alone', () => {
+  it('lengthens every round by the request’s slot, and leaves every ranging frame of the first round alone', () => {
+    const plan = (o: Partial<UwbSessionCfg>) => roundPlan(scene(o).uwb!, 4)
+    expect(plan({ ancillaryRequest: true }).slots).toBe(plan({}).slots + 1)
     const off = run(scene({}), 220 * MS)
     const on = run(scene({ ancillaryRequest: true, ancillaryRequestSlots: FRAMES }), 220 * MS)
-    // The extra frame means extra records, so the comparison is over the shared prefix: the ranging
-    // phase of block 0, which the appended window sits entirely after.
     expect(on.length).toBeGreaterThan(off.length)
-    const prefix = off.findIndex((r) => r.type === 'UWB_ANCILLARY')
-    expect(prefix).toBeGreaterThan(0)
-    const d = diff(off.slice(0, prefix), on.slice(0, prefix))
-    expect(d, 'nothing before the first ancillary record of block 0 moves').toEqual({ n: 0, types: [], fields: [] })
+    const round0 = (rs: TLRecord[]) => rs
+      .filter((r) => r.type === 'TX_START' && r.frame.uwb?.block === 0 && r.frame.uwb?.round === 0)
+      .map(({ seq: _seq, ...rest }) => rest)
+    expect(round0(off).length).toBeGreaterThan(0)
+    expect(JSON.stringify(round0(on))).toBe(JSON.stringify(round0(off)))
+    const d = diff(
+      off.filter((r) => r.type === 'UWB_ROUND').slice(0, 1), on.filter((r) => r.type === 'UWB_ROUND').slice(0, 1),
+    )
+    expect(d.fields, 'the first round is one slot longer, and nothing else about it moved').toEqual(['slots', 'untilNs'])
   })
 })

@@ -10,7 +10,7 @@ import {
 } from '../../src/uwb/frames'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
-  RMMRC_ADDR_BYTES, RMMRC_FIXED_BYTES, UWB_BLINK_BYTES, UWB_IE_HDR_BYTES, UWB_MAX_PSDU_BYTES,
+  RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, RMMRC_FIXED_BYTES, UWB_BLINK_BYTES, UWB_IE_HDR_BYTES, UWB_MAX_PSDU_BYTES,
   UWB_REPORT_BYTES, rmmrcEntryBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMaxMmrcmInitiators,
   uwbMmrcmBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
 } from '../../src/uwb/phy'
@@ -28,29 +28,33 @@ describe('RMMRC_FIXED_BYTES and rmmrcEntryBytes are the element header plus flag
     expect(RMMRC_FIXED_BYTES).toBe(4)
   })
 
-  it('one entry is the 2-octet short address plus a bitmap that grows with the window', () => {
+  // 2026-11-10 (audits #11/#24): standard §10.36.2.1, Figure 10-274 — a list element is Address +
+  // the 1-octet MMRC Bitmap Length + the bitmap, one bit per acknowledged slot.
+  it('one entry is the 2-octet short address, the 1-octet bitmap length and a bitmap of one bit per slot', () => {
     expect(RMMRC_ADDR_BYTES).toBe(2)
-    expect(rmmrcEntryBytes(4)).toBe(3) // 2 + ⌈4/8⌉
-    expect(rmmrcEntryBytes(8)).toBe(3) // 2 + ⌈8/8⌉
-    expect(rmmrcEntryBytes(9)).toBe(4) // 2 + ⌈9/8⌉
+    expect(RMMRC_BITMAP_LEN_BYTES).toBe(1)
+    expect(rmmrcEntryBytes(4)).toBe(4) // 2 + 1 + ⌈4/8⌉
+    expect(rmmrcEntryBytes(8)).toBe(4) // 2 + 1 + ⌈8/8⌉
+    expect(rmmrcEntryBytes(9)).toBe(5) // 2 + 1 + ⌈9/8⌉
   })
 })
 
-describe('uwbMmrcmBytes costs 15 + 3N octets at a window of eight rounds or fewer (design §3.3)', () => {
+// 2026-11-10: 15 + 4N, the bitmap-length octet included (standard §10.36.2.1, Figure 10-274).
+describe('uwbMmrcmBytes costs 15 + 4N octets over eight acknowledged slots or fewer', () => {
   it('matches for N = 1, 3, 6', () => {
-    for (const [n, want] of [[1, 18], [3, 24], [6, 33]] as const) {
+    for (const [n, want] of [[1, 19], [3, 27], [6, 39]] as const) {
       expect(uwbMmrcmBytes(n, 4)).toBe(want)
     }
   })
 
-  it('holds at the R = 8 boundary too, not only below it', () => {
-    expect(uwbMmrcmBytes(1, 8)).toBe(18)
-    expect(uwbMmrcmBytes(6, 8)).toBe(33)
+  it('holds at the 8-slot boundary too, not only below it', () => {
+    expect(uwbMmrcmBytes(1, 8)).toBe(19)
+    expect(uwbMmrcmBytes(6, 8)).toBe(39)
   })
 })
 
-describe('the bitmap — and so the whole frame — widens once the window passes eight rounds', () => {
-  it('one initiator costs one more octet at R = 9 than at R = 8', () => {
+describe('the bitmap — and so the whole frame — widens once the set passes eight acknowledged slots', () => {
+  it('one initiator costs one more octet at 9 slots than at 8', () => {
     expect(uwbMmrcmBytes(1, 9) - uwbMmrcmBytes(1, 8)).toBe(1)
   })
 
@@ -86,7 +90,7 @@ describe('makeMmrcm carries one list entry per initiator, each with an address a
     const f = makeMmrcm('b1', 'ctrl', 2, 1, 3, 4, entries)
     expect(f.kind).toBe('uwbMmrcm')
     expect(f.bytes).toBe(uwbMmrcmBytes(3, 4))
-    expect(f.bytes).toBe(24)
+    expect(f.bytes).toBe(27) // 2026-11-10: 15 + 3 × (2 + 1 + 1)
     expect(f.uwb!.ies).toEqual(['RMMRC'])
     expect(f.uwb!.mmrc).toEqual(entries)
     expect(f.uwb!.block).toBe(2)
@@ -117,9 +121,9 @@ describe('makeMmrcm carries one list entry per initiator, each with an address a
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
-  it('one initiator at a nine-round window costs 19 octets, not 18', () => {
+  it('one initiator over nine acknowledged slots costs 20 octets, not 19', () => {
     const f = makeMmrcm('b1', 'ctrl', 0, 0, 0, 9, [{ initiator: 'a1', received: allReceived(9) }])
-    expect(f.bytes).toBe(19)
+    expect(f.bytes).toBe(20)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 })
@@ -136,7 +140,7 @@ describe('leaves every existing frame byte-identical', () => {
   it('Response', () => {
     const f = makeResp('a1', 'tag', 'ss', 0, 0, 1, 127_803)
     expect(f.bytes).toBe(uwbRespBytes('ss'))
-    expect(f.bytes).toBe(20)
+    expect(f.bytes).toBe(21) // 2026-11-10: RRTI content header (§10.29.8.1)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
@@ -144,14 +148,14 @@ describe('leaves every existing frame byte-identical', () => {
     const times = [{ id: 'a1', tround1: 1_000, treply2: 2_000 }]
     const f = makeFinal('tag', times, 0, 0, 5)
     expect(f.bytes).toBe(uwbFinalBytes(1))
-    expect(f.bytes).toBe(26)
+    expect(f.bytes).toBe(30) // 2026-11-10: RMI and RRTI content headers (§10.29.8.4/.1)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
   it('Report', () => {
     const f = makeReport('a1', 'tag', 1_000, 2_000, 0, 0, 6)
     expect(f.bytes).toBe(UWB_REPORT_BYTES)
-    expect(f.bytes).toBe(24)
+    expect(f.bytes).toBe(23) // 2026-11-10: RMI content header 2, unicast so no address (§10.29.8.4)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
@@ -198,12 +202,12 @@ describe('the receipt bitmap must cover exactly the window it reports on', () =>
    */
   it('refuses a bitmap shorter than the window', () => {
     expect(() => makeMmrcm('b1', 'ctrl', 0, 0, 0, 4, [{ initiator: 'a1', received: allReceived(2) }]))
-      .toThrow(/a1.*2 long in a 4-round window/)
+      .toThrow(/a1.*2 long over 4 acknowledged slots/)
   })
 
   it('refuses a bitmap longer than the window', () => {
     expect(() => makeMmrcm('b1', 'ctrl', 0, 0, 0, 4, [{ initiator: 'a1', received: allReceived(9) }]))
-      .toThrow(/9 long in a 4-round window/)
+      .toThrow(/9 long over 4 acknowledged slots/)
   })
 
   it('names the offending initiator when only one of several disagrees', () => {

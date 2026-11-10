@@ -17,10 +17,13 @@
  * that *answers* in ranging (an anchor) is the one that *sends* here, and the tag — the ranging
  * initiator — is the receiver.
  *
- * **The window is the one the slice before built.** §10.35.1 bounds the exchange to the current
- * round plus the rounds the RCM still governs, which is the ARC IE's own Ranging Validity Rounds
- * field (§10.32.9.1) — `rcmValidityRounds` and `session.ts#blockCarriesRcm`. This is its third
- * reuse, after §10.34's RMNR and §10.36's receipt bitmap, and no second boundary is invented.
+ * **Rewritten 2026-11-10 (W2, audit #12).** The exchange used to ride slots appended after a
+ * ranging round. It now runs in a round of its own — the ancillary-information round, whose RCM
+ * sets ARC Ranging Round Usage = 3 (standard Table 10-164, §10.35.1) — after the tag's ranging rounds,
+ * and every round is one length (§10.32.3.3, block-based mode). The RCM assigns the sender its slots
+ * with an RDM IE (§10.32.9.8, time schedule) or opens an initiators' contention phase with an RCPS IE
+ * (Phase Indicator 0, §10.32.9.5). With one tag and one ranging round a block, the ancillary round is
+ * round 1 of each block: its slot 0 is the RCM and the fragments follow in slots 1, 2, ….
  */
 import { describe, expect, it } from 'vitest'
 import { hashStr } from '../../src/engine/hash'
@@ -30,7 +33,6 @@ import {
   DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM, uwbAncillaryBytes, uwbAncillarySlots, raictIeBytes } from '../../src/uwb/phy'
-import { ANCILLARY_MESSAGE_KIND } from '../../src/uwb/device.ancillary'
 import { ancillarySlots, roundCarriesAncillary, roundPlan, roundSlots } from '../../src/uwb/session'
 
 const MS = 1_000_000
@@ -119,17 +121,18 @@ describe('acceptance: one message spread across N slots, counting down to zero (
   it('spreads one message across N slots, counting down to zero', () => {
     const p = planOf(session)
     const rs = run(scenario(SCENE, session))
-    // The slots the fragments ride in are the ones the round appends after its ranging phase, in
-    // order — read off the plan, never retyped.
-    expect(ancillarySlots(p), 'a time-scheduled round appends exactly one slot per fragment')
-      .toBe(FRAMES)
-    const first = p.slots
-    const windows = [first, first + 1, first + 2, first + 3]
+    // 2026-11-10: the fragments ride slots 1…N of the ancillary-information round (round 1 here),
+    // right after its RCM in slot 0 — read off the plan, never retyped.
+    expect(ancillarySlots(p), 'a time-scheduled window is exactly one slot per fragment').toBe(FRAMES)
+    expect(roundCarriesAncillary(p, 1), 'the ancillary round follows the tag\'s one ranging round').toBe(true)
+    const windows = [1, 2, 3, 4]
 
     const tx = sent(rs)
     // Two blocks, one message each (rcmValidityRounds is 1 by default, so every block opens its
     // own window).
     expect(tx.map((f) => f.slot)).toEqual([...windows, ...windows])
+    expect(new Set(of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbAncillary').map((r) => r.frame.uwb?.round)))
+      .toEqual(new Set([1]))
     // §10.35.1's ancillary *initiator* is a ranging **responder**: an anchor sends, the tag
     // receives. This is the inversion the clause defines and the thing a reader mistakes for a bug.
     expect(new Set(tx.map((f) => f.node))).toEqual(new Set(['anc-1']))
@@ -154,7 +157,8 @@ describe('acceptance: one message spread across N slots, counting down to zero (
     // One message number per block, and the two blocks' messages are told apart by it — without
     // that, a receiver could not tell a new message's first fragment from a stale one.
     expect(new Set(got.map((r) => r.messageNumber)).size).toBe(2)
-    for (const r of got) expect(r.messageKind).toBe(ANCILLARY_MESSAGE_KIND)
+    // 2026-11-10: the RAICT IE has no message-type field (standard Figure 10-271), so neither has the record.
+    for (const r of got) expect('messageKind' in r).toBe(false)
   })
 
   it('does not disturb the ranging phase: every anchor still ranges in every block', () => {
@@ -189,8 +193,9 @@ function runLosing(lose: number, session: Partial<UwbSessionCfg> = {}): TLRecord
   if (!sender) throw new Error('runLosing: anc-1 is not in the scene')
   // Half a slot before the slot in question opens, and half a slot before the next one does. The
   // fragment radiates at its slot's start, so a position changed inside those two instants is the
-  // position that one fragment flies through and no other.
-  const at = (slot: number): number => (p.slots + slot) * p.slotNs - p.slotNs / 2
+  // position that one fragment flies through and no other. Fragment `slot` of the window sits in slot
+  // 1 + slot of the ancillary round (round 1, which starts `p.slots` slots into the block).
+  const at = (slot: number): number => (p.slots + 1 + slot) * p.slotNs - p.slotNs / 2
   const before = sim.runUntil(at(lose)).records
   sender.pos.y = 400
   const during = sim.runUntil(at(lose + 1)).records
@@ -229,7 +234,7 @@ describe('acceptance: the missing frame is named when the NEXT frame arrives, no
     // The only other instrument this receiver has is the message's own deadline — the end of the
     // round, which is where a receiver with no Frames Remaining field would first learn the message
     // never completed. The discovery beats it by the two slots the message still had to run.
-    const end = of(rs, 'UWB_ROUND_END').filter((r) => r.node === 'tag-1')
+    const end = of(rs, 'UWB_ROUND_END').filter((r) => r.node === 'tag-1' && r.round === 1)
     expect(end).toHaveLength(1)
     expect(named[0].t).toBeLessThan(end[0].t)
     expect(end[0].t - named[0].t).toBeGreaterThanOrEqual(2 * p.slotNs - p.slotNs / 2)
@@ -263,7 +268,7 @@ describe('acceptance: the missing frame is named when the NEXT frame arrives, no
     expect(deadline[0].framesRemaining).toBeNull()
     expect(deadline[0].missing, 'the one fragment still owed').toEqual([0])
     expect(deadline[0].complete).toBe(false)
-    const end = of(rs, 'UWB_ROUND_END').filter((r) => r.node === 'tag-1')
+    const end = of(rs, 'UWB_ROUND_END').filter((r) => r.node === 'tag-1' && r.round === 1)
     expect(deadline[0].t, 'at the round end, not before it').toBe(end[0].t)
   })
 
@@ -290,11 +295,10 @@ describe('acceptance: a contention run differs from a scheduled one, on the air 
     const timed = planOf({ ...over, schedule: 'time' })
     const drawn = planOf({ ...over, schedule: 'contention', contentionSlots: 8 })
 
-    // The window the fragments are placed in is itself a different width: a time-scheduled round
-    // appends exactly one slot per fragment, because the slot table names their owner; a contention
-    // round appends the round's own contention window, because nothing names one and the sender has
-    // to draw where its run starts (standard §10.32.2 schedule mode 0). Both read off
-    // `uwbAncillarySlots`, never a literal.
+    // The window the fragments are placed in is itself a different width: under a time schedule the
+    // RCM's RDM IE assigns exactly one slot per fragment; under contention the RCM's RCPS IE opens an
+    // initiators' contention phase as wide as the session's contention window, and the sender draws
+    // where its run starts (standard §10.32.9.5, schedule mode 0). Both read off `uwbAncillarySlots`.
     expect(ancillarySlots(timed)).toBe(FRAMES)
     expect(ancillarySlots(drawn)).toBe(8)
     expect(ancillarySlots(drawn)).not.toBe(ancillarySlots(timed))
@@ -310,8 +314,9 @@ describe('acceptance: a contention run differs from a scheduled one, on the air 
     // no longer the pre-assigned ones. A time-scheduled run puts fragment k in appended slot k,
     // every block; a contention run puts the run wherever the sender drew, and the draw moves from
     // block to block.
+    // Window index = slot − 1: slot 0 of the ancillary round is its RCM (2026-11-10).
     const windowIndex = (rs: TLRecord[], p: ReturnType<typeof roundPlan>): number[] =>
-      sent(rs).map((f) => f.slot - p.slots)
+      sent(rs).map((f) => { void p; return f.slot - 1 })
     expect(windowIndex(rsT, timed), 'time: slot k holds fragment k, always').toEqual([0, 1, 2, 3, 0, 1, 2, 3])
     const drawnIdx = windowIndex(rsC, drawn)
     expect(drawnIdx, 'contention: four consecutive slots, starting where the draw fell')
@@ -336,21 +341,19 @@ describe('acceptance: a contention run differs from a scheduled one, on the air 
   })
 
   it('still runs when the message is longer than the window it draws from — the degenerate case', () => {
-    // The scenario schema caps `ancillaryFrames` at the round's own slot count, which under
-    // contention is `1 + contentionSlots` — so a message one fragment longer than the draw window is
-    // a **permitted** configuration, and `uwbAncillarySlots` widens the window to the message rather
-    // than letting the draw reach past it. One start, no choice, and a round that still runs: a
-    // permitted configuration that threw at run time would be the same defect class as one that
-    // silently did nothing.
+    // A message one fragment longer than the contention window is a permitted configuration:
+    // `uwbAncillarySlots` widens the phase to the message, and since 2026-11-10 the session's one
+    // round length grows to hold the ancillary round (its RCM plus that phase, standard §10.32.3.3).
+    // One start, no choice, and a round that still runs.
     const over: Partial<UwbSessionCfg> = {
       ancillary: true, schedule: 'contention', contentionSlots: 2, ancillaryFrames: 3,
     }
     const p = planOf(over)
-    expect(p.slots, 'contention: 1 + contentionSlots').toBe(3)
-    expect(p.ancillaryFrames, 'the schema allows the message to fill the whole round').toBe(p.slots)
-    expect(ancillarySlots(p), 'so the window is the message').toBe(3)
+    expect(p.rangingSlots, 'contention ranging: 1 + contentionSlots').toBe(3)
+    expect(ancillarySlots(p), 'the window is the message').toBe(3)
+    expect(p.slots, 'the round holds the RCM plus the window').toBe(4)
     const rs = run(scenario(SCENE, over))
-    expect(sent(rs).map((f) => f.slot - p.slots), 'one start, and it is index 0').toEqual([0, 1, 2, 0, 1, 2])
+    expect(sent(rs).map((f) => f.slot - 1), 'one start, and it is index 0').toEqual([0, 1, 2, 0, 1, 2])
     expect(anc(rs).map((r) => r.framesRemaining)).toEqual([2, 1, 0, 2, 1, 0])
   })
 
@@ -364,7 +367,8 @@ describe('acceptance: a contention run differs from a scheduled one, on the air 
     const p = planOf(over)
     const startsFor = (seed: number): number[] => {
       const sc = { ...scenario(SCENE, over), seed }
-      return sent(run(sc)).map((f) => f.slot - p.slots).filter((_, i) => i % FRAMES === 0)
+      void p
+      return sent(run(sc)).map((f) => f.slot - 1).filter((_, i) => i % FRAMES === 0)
     }
     expect(startsFor(7)).not.toEqual(startsFor(99))
   })
@@ -376,9 +380,9 @@ describe('what switching the exchange on must not change', () => {
   const session = { ancillary: true, ancillaryFrames: FRAMES }
 
   it('leaves UWB_RANGE field-for-field identical with ancillary on', () => {
-    // One tag, so the appended slots cannot move another round's start instant: with a single round
-    // per block the ranging phase sits at exactly the instants it always did, and the identity holds
-    // including `t`. `seq` is a position in the record stream, not a field of the measurement.
+    // One tag, and a ranging round already as long as the ancillary round (5 slots), so the session's
+    // one round length does not move and the ranging round sits at exactly the instants it always
+    // did: the identity holds including `t`. `seq` is a position in the record stream.
     const off = run(scenario(SCENE, { ancillary: false }))
     const on = run(scenario(SCENE, session))
     const ranges = (rs: TLRecord[]): unknown[] => of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
@@ -431,12 +435,15 @@ describe('what switching the exchange on must not change', () => {
      */
     // twr-ss, twr-ds and dl-tdoa re-captured 2026-11-10: every RCM is three octets longer (ARC IE
     // to the standard's content, plus the RR IE — audit #9), which moves every later instant.
+    // All five re-captured again 2026-11-10 (W2): every PPDU is 896 chips longer (PHR 21 symbols,
+    // standard Table 16-2) and the SS Response / DS Final / reports carry the RRTI and RMI content
+    // headers (§10.29.8.1/§10.29.8.4) — every instant of every mode moves.
     const BEFORE: Record<string, string> = {
-      'twr-ss': '70844ca6',
-      'twr-ds': '635ca2e1',
-      'dl-tdoa': '852bd1f3',
-      'ul-tdoa': 'a54ed982',
-      m2m: '7e4b7a63',
+      'twr-ss': 'fb3fe7e',
+      'twr-ds': '31a49863',
+      'dl-tdoa': 'a2c21b25',
+      'ul-tdoa': '426206f8',
+      m2m: 'ba086737',
     }
     const CASES: [string, Partial<UwbSessionCfg>][] = [
       ['twr-ss', { method: 'ss' }],
@@ -453,30 +460,24 @@ describe('what switching the exchange on must not change', () => {
 
 // --- The window, reused a third time -------------------------------------------
 
-describe('the window is the ranging round set, reused — not a second boundary (design §3)', () => {
-  // Rewritten 2026-11-10 (audit #23): this used to pin R = 4 as four one-round BLOCKS, the exchange
-  // in blocks 0 and 4. A control message never governs a round of the next block (§10.32.9.1), so
-  // the set is now R rounds of one block: two sets of four rounds in a block of eight.
-  it('sends one message per ranging round set, at the set\'s first round', () => {
-    // §10.35.1 bounds the exchange to the current round plus the rounds the RCM still governs, and
-    // `roundCarriesRcm` is already the one expression for where such a set opens — this is its third
-    // reuse, after §10.34's RMNR and §10.36's receipt bitmap. With R = 4 and eight rounds a block
-    // the exchange runs in rounds 0 and 4 and in none of the three after each.
+describe('the exchange has a round of its own, after the tag\'s ranging rounds (2026-11-10, §10.35)', () => {
+  // Rewritten 2026-11-10 (W2, audit #12): the message used to ride slots appended to the first round
+  // of each ranging round set. §10.35.1 / Table 10-164 give the exchange its own round, marked by its
+  // RCM's ARC Ranging Round Usage = 3; this engine runs one such round per tag per block, after the
+  // tag's `initiatorRounds` ranging rounds. With eight ranging rounds in sets of four, the ancillary
+  // round is round 8 of the block, and every round is the one fixed length.
+  it('sends one message per block, in the ancillary round after the ranging rounds', () => {
     const over = { ancillary: true, ancillaryFrames: FRAMES, rcmValidityRounds: 4, initiatorRounds: 8 }
     const p = planOf(over)
-    expect([0, 1, 2, 3, 4, 5, 6, 7].map((r) => roundCarriesAncillary(p, r)))
-      .toEqual([true, false, false, false, true, false, false, false])
-    expect([0, 1, 2, 3, 4].map((r) => roundSlots(p, r)))
-      .toEqual([p.slots + FRAMES, p.slots, p.slots, p.slots, p.slots + FRAMES])
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 8].map((r) => roundCarriesAncillary(p, r)))
+      .toEqual([false, false, false, false, false, false, false, false, true])
+    for (let r = 0; r <= 8; r++) expect(roundSlots(p, r), `round ${r}`).toBe(p.slots)
 
     const rs = run(scenario(SCENE, over), 2 * BLOCK_NS - MS)
     const at = of(rs, 'TX_START')
       .filter((r) => r.frame.kind === 'uwbAncillary')
       .map((r) => [r.frame.uwb?.block, r.frame.uwb?.round])
-    expect(at).toEqual([
-      ...Array(FRAMES).fill([0, 0]), ...Array(FRAMES).fill([0, 4]),
-      ...Array(FRAMES).fill([1, 0]), ...Array(FRAMES).fill([1, 4]),
-    ])
+    expect(at).toEqual([...Array(FRAMES).fill([0, 8]), ...Array(FRAMES).fill([1, 8])])
     // …and the run really did range in every one of the sixteen rounds, so the four messages above
     // are not simply all the rounds there were.
     expect(of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map((r) => [r.block, r.round]))
@@ -484,10 +485,9 @@ describe('the window is the ranging round set, reused — not a second boundary 
   })
 
   it('does not send from a responder that never decoded the control message', () => {
-    // The same physical floor §10.34's RMNR frame and §10.36's confirmation both stand on: the slot
-    // the ancillary message rides in is appended to *this initiator's* round, and which round that
-    // is was settled by that initiator's RDM IE. A responder that never decoded one has no slot of
-    // its own there, so speaking would be speaking in somebody else's.
+    // 2026-11-10: the slots the message rides in are assigned by the ancillary round's own RCM (its
+    // RDM IE, standard §10.32.9.8). A responder that never decoded that RCM has no slot of its own
+    // there, so speaking would be speaking in somebody else's.
     //
     // The scene puts the tag 10 dB down and the sending anchor 400 m away, so no control message
     // ever reaches it while its own frames would still carry: its silence is a decision, not a dead
@@ -503,5 +503,42 @@ describe('the window is the ranging round set, reused — not a second boundary 
     expect(of(rs, 'RX_OK').filter((r) => r.node === 'anc-1'), 'anc-1 decoded nothing').toEqual([])
     expect(sent(rs), 'so it sent nothing either').toEqual([])
     expect(anc(rs)).toEqual([])
+  })
+})
+
+// --- The ancillary round's RCM (2026-11-10, W2) ------------------------------------
+
+describe('the ancillary round opens with an RCM of its own: ARC Ranging Round Usage = 3', () => {
+  const rcmOf = (rs: TLRecord[]) => of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRcm')
+
+  // Standard Table 10-164 (value 3: ranging ancillary information exchange) and §10.32.9.8 (RDM IE,
+  // SIU = 1, one element per assigned slot, role 1 = initiator — §10.35.1's sender).
+  it('time schedule: the RCM assigns slots 1…N to the sender with an RDM IE', () => {
+    const rs = run(scenario(SCENE, { ancillary: true, ancillaryFrames: FRAMES }))
+    const rcms = rcmOf(rs)
+    expect(rcms.map((r) => [r.node, r.frame.uwb?.block, r.frame.uwb?.round, r.frame.uwb?.slot]))
+      .toEqual([['tag-1', 0, 1, 0], ['tag-1', 1, 1, 0]])
+    const u = rcms[0].frame.uwb!
+    expect(u.ies).toEqual(['ARC', 'RR', 'RDM'])
+    expect(u.arc?.roundUsage).toBe(3)
+    expect(u.arc?.validityRounds).toBe(1)
+    expect(u.rdm).toEqual([1, 2, 3, 4].map((slot) => ({ id: 'anc-1', slot, initiator: true })))
+  })
+
+  // §10.32.9.5: Phase Indicator 0 — "This phase is used by the initiators to contend".
+  it('contention schedule: the RCM opens an initiators\' contention phase with an RCPS IE', () => {
+    const rs = run(scenario(SCENE, {
+      ancillary: true, ancillaryFrames: FRAMES, schedule: 'contention', contentionSlots: 8,
+    }))
+    const u = rcmOf(rs)[0].frame.uwb!
+    expect(u.ies).toEqual(['ARC', 'RR', 'RCPS'])
+    expect(u.arc?.roundUsage).toBe(3)
+    expect(u.arc?.scheduleMode).toBe(0)
+    expect(u.contention).toEqual({ firstSlot: 1, lastSlot: 8, phase: 0 })
+    // …and every fragment the sender put on the air sits inside that phase.
+    for (const f of sent(rs)) {
+      expect(f.slot).toBeGreaterThanOrEqual(1)
+      expect(f.slot).toBeLessThanOrEqual(8)
+    }
   })
 })

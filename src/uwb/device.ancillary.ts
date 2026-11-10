@@ -31,18 +31,8 @@
  */
 import type { FrameDesc } from '../model/frames'
 import type { RoundState, UwbDevice } from './device'
-import { makeAncillary } from './frames'
+import { makeAncillary, makeAncillaryRcm, type UwbArcFields } from './frames'
 import { ancillaryGrantFits, ancillarySlots } from './session'
-
-/**
- * The §10.35.2.1 message type every fragment this engine builds reports.
- *
- * One constant, not a value table: this simulator has one kind of ancillary message to carry, and
- * the clause's own type values describe upper-layer content it has no upper layer to produce
- * (design §6 — the same reason `ancillaryFrames` is a scenario setting rather than something
- * derived). model
- */
-export const ANCILLARY_MESSAGE_KIND = 1
 
 /**
  * Which of the round's ranging responders sends the ancillary message: the first one, in the very
@@ -87,34 +77,76 @@ export function freshAncillary(): AncillaryRoundState {
 
 /**
  * The message number this round's message carries (§10.35.2.1's Ranging Or Ancillary Message
- * Number): a running count of the initiator's ranging round sets, in one octet.
- *
- * The exchange runs once per ranging round set, at the set's first round (`roundCarriesAncillary`),
- * so counting sets *is* counting messages — successive messages get successive numbers, and the
- * receiver uses the change to tell a new message's first fragment from a stale reading of the last
- * one (`onAncillaryRx`). With one set a block (every shipped scene) the count is the block index, as
- * it was before round sets existed. Wrapped at 256 because the field is one octet wide, which
- * `raictIeBytes` is what prices. model (the width is the standard's; which number goes in it is
- * this engine's, for want of an upper layer to number anything)
+ * Number): the block index, in one octet. Each initiator has one ancillary-information round per
+ * block (`uwb/session.ts#roundsPerInitiator`), so counting blocks *is* counting messages — successive
+ * messages get successive numbers, and the receiver uses the change to tell a new message's first
+ * fragment from a stale reading of the last one (`onAncillaryRx`). Wrapped at 256 because the field
+ * is one octet wide. model (the width is the standard's; which number goes in it is this engine's,
+ * for want of an upper layer to number anything)
  */
 export function ancillaryMessageNumber(r: RoundState): number {
-  const n = Math.max(1, r.plan.initiatorRounds)
-  const setRounds = Math.max(1, Math.min(r.plan.rcmValidityRounds, n))
-  const setsPerBlock = Math.ceil(n / setRounds)
-  const setInBlock = Math.floor((r.round % n) / setRounds)
-  return (r.block * setsPerBlock + setInBlock) % 256
+  return r.block % 256
 }
 
 /**
- * One slot of the appended ancillary window (standard §10.35.1; `AncillarySlotAction`).
+ * Controller (the round's tag), slot 0 of the ancillary-information round: its RCM (standard
+ * §10.35.1, ARC Ranging Round Usage = 3). How the round's slots are given out is in the RCM itself:
+ *
+ * - time schedule — an RDM IE with SIU = 1 (§10.32.9.8) assigning slots 1 … F (+1 for the request
+ *   frame, when the sender asks for slots) to the sender, F being the session's message length or,
+ *   once the controller has granted a request (§10.35.2.1), the granted count;
+ * - contention schedule — an RCPS IE with one initiators' contention phase (Phase Indicator 0,
+ *   §10.32.9.5) over the window `ancillarySlots` gives for that length.
+ *
+ * The window the controller announced is also how long it listens (`RoundState.ancillaryWindow`).
+ */
+export function transmitAncillaryRcm(dev: UwbDevice, r: RoundState, arc: UwbArcFields): void {
+  const sender = ancillaryPeer(r)
+  const frames = dev.ancillaryGrant() ?? r.plan.ancillaryFrames
+  const requestFrames = r.plan.ancillaryRequest ? 1 : 0
+  const window = ancillarySlots(r.plan, frames)
+  r.ancillaryWindow = window
+  const frame = r.plan.schedule === 'contention'
+    ? makeAncillaryRcm(dev.id, r.block, r.round, arc, { kind: 'contention', firstSlot: 1, lastSlot: window })
+    : makeAncillaryRcm(dev.id, r.block, r.round, arc, {
+      kind: 'time', sender, slots: Array.from({ length: frames + requestFrames }, (_, i) => 1 + i),
+    })
+  dev.send(frame, null)
+}
+
+/**
+ * Sender, on the ancillary round's RCM: how long its message is this time, read off the RCM.
+ *
+ * - time schedule — the slots the RDM IE assigned it, less the request frame's slot when it asks;
+ * - contention schedule — the requested length if it has asked and the RCPS phase holds it plus the
+ *   request frame, otherwise the session's own length.
+ */
+export function onAncillaryRcm(dev: UwbDevice, r: RoundState, frame: FrameDesc): void {
+  if (dev.id !== ancillaryPeer(r)) return
+  const requestFrames = r.plan.ancillaryRequest ? 1 : 0
+  const u = frame.uwb
+  if (u?.contention) {
+    const window = u.contention.lastSlot - u.contention.firstSlot + 1
+    r.ancillaryWindow = window
+    const asked = dev.ancillaryAsked ? r.plan.ancillaryRequestSlots : null
+    r.ancillaryFrames = asked !== null && window >= asked + requestFrames ? asked : r.plan.ancillaryFrames
+    return
+  }
+  const assigned = (u?.rdm ?? []).filter((e) => e.id === dev.id).length
+  r.ancillaryWindow = assigned
+  r.ancillaryFrames = Math.max(0, assigned - requestFrames)
+}
+
+/**
+ * One slot of the ancillary-information round after its RCM (standard §10.35.1; `AncillarySlotAction`).
  *
  * Three devices' worth of behaviour, and the branch order is the role inversion made explicit:
  *
  * - **the sender** — a ranging *responder*, this exchange's initiator. At the window's first slot it
  *   decides whether it sends at all and, under a contention schedule, draws where its run starts;
  *   in every slot its run covers, it puts one fragment on the air.
- * - **the receiver** — the ranging *initiator*, this exchange's responder. It listens through every
- *   slot of the window.
+ * - **the receiver** — the ranging *initiator* (the controller), this exchange's responder. It
+ *   listens through every slot of the window it announced.
  * - **everyone else** — the round's other responders, which have nothing to do here and leave their
  *   receivers off, exactly as they do in each other's Response slots.
  */
@@ -123,19 +155,12 @@ export function onAncillarySlot(
   peers: { tag: string; anchors: string[] },
 ): void {
   const a = r.ancillary
-  // The schedule laid out a slot for an exchange this round is not running. `roundSlots` and
-  // `roundSlotAction` read the identical `roundCarriesAncillary`, so reaching this would mean the
-  // schedule and the round state disagree about which round this is — not a state the model can be
-  // in on purpose (slice ledger, Ruling 9).
   if (!a) {
     throw new Error(
       `onAncillarySlot: slot ${slot} carries an ancillary fragment, and this round holds no ancillary state`,
     )
   }
   const sender = peers.anchors[ANCILLARY_SENDER_INDEX]
-  // A round with no responder at all cannot run the exchange: there is no device §10.35.1's
-  // initiator could be. The scenario schema already demands anchors of a two-way session, so this is
-  // the same class of impossible-on-purpose as above rather than a case to fall through.
   if (sender === undefined) {
     throw new Error(
       `onAncillarySlot: slot ${slot} needs responder ${ANCILLARY_SENDER_INDEX}, and the round holds `
@@ -146,88 +171,51 @@ export function onAncillarySlot(
     transmitAncillary(dev, slot, index, r, a)
     return
   }
-  // The receiver — and only the receiver. The wait is **silent**: a fragment is one member of a
-  // message and the message is what evaluates it, which is the division a P802.15.4ab fragment train
-  // already follows (`Expectation.silent`). A `UWB_TIMEOUT` per lost fragment would also be the
-  // wrong instrument for this clause specifically: under a contention schedule most of the window is
-  // empty by design, so an empty slot there is the ordinary outcome rather than an unanswered one,
-  // and what names a loss is the countdown in the *next* fragment (`onAncillaryRx`).
-  if (dev.id === r.tagId) dev.listenFor(slot, sender, 'uwbAncillary', slot + 1, true)
+  // The receiver — and only the receiver, through the window it announced. The wait is **silent**:
+  // a fragment is one member of a message and the message is what evaluates it, and under a
+  // contention schedule most of the window is empty by design; what names a loss is the countdown in
+  // the *next* fragment (`onAncillaryRx`).
+  if (dev.id === r.tagId && index < (r.ancillaryWindow ?? 0)) {
+    dev.listenFor(slot, sender, 'uwbAncillary', slot + 1, true)
+  }
 }
 
 /**
  * Sender: decide once, then put one fragment on the air in each slot its run covers.
  *
- * **The decision is made at the window's first slot**, not when the round opened and not when the
- * opener arrived, and the instant matters: every ranging slot of the round has already run by then,
- * so the contention draw below cannot move a single ranging frame — which is what leaves `UWB_RANGE`
- * field for field what it was with the exchange off, draws included.
+ * **The floor it has to clear**: this device must hold this ancillary round's RCM — the RCM is what
+ * gave it slots at all (RDM) or opened the contention phase (RCPS). A sender that missed it stays
+ * silent.
  *
- * **The floor it has to clear is the one §10.34's RMNR frame and §10.36's confirmation both stand
- * on**: this device must still hold a valid control message from this initiator. The slots the
- * message rides in are appended to *that initiator's* round, and which round that is was settled by
- * that initiator's RDM IE (§10.32.9.8) — so a responder that never decoded one has no slot of its
- * own here, and speaking anyway would be speaking in somebody else's.
+ * **Where the run starts is where the two schedules part** (§10.35.1 allows either):
  *
- * **Where the run starts is where the two schedules part** (§10.35.1 allows either, and the design's
- * §5.4 asks for a difference that is visible on the air):
- *
- * - `'time'`: index 0. The window is exactly as wide as the message and the slot table names its
- *   owner, so there is nothing to decide.
- * - `'contention'`: drawn, uniformly over every start that still holds the whole run — the same shape
- *   `drawContentionSlot` draws a response slot with (§10.32.2 schedule mode 0), from this device's
- *   own stream. Nothing names an owner in a contention window, so a run that always began at index 0
- *   would be a scheduled placement wearing a contention label.
+ * - `'time'`: the first slot the RDM IE assigned it (index 0).
+ * - `'contention'`: drawn, uniformly over every start in the RCPS phase that still holds the whole
+ *   run, from this device's own stream.
  */
 function transmitAncillary(
   dev: UwbDevice, slot: number, index: number, r: RoundState, a: AncillaryRoundState,
 ): void {
-  // The message's length **in this round**, which is the session's figure until a request has been
-  // granted and the granted width after (`RoundState.ancillaryFrames`). Read here rather than off
-  // the plan so that the run and the window the schedule laid out are sized from one number.
   const frames = r.ancillaryFrames
-  // …and the run includes the request's own frame when the session asks for slots (§10.35.2.1):
-  // the two halves of the RAICT IE are different uses of one field, so the request cannot ride a
-  // fragment. 0 when nothing is being requested, which restores every expression below word for
-  // word.
+  // The run includes the request's own frame when the sender asks for slots (§10.35.2.1): the two
+  // halves of the RAICT IE are different uses of one field, so the request cannot ride a fragment.
   const requestFrames = r.plan.ancillaryRequest ? 1 : 0
   if (!a.decided) {
     a.decided = true
-    if (dev.holdsValidRcmFor(r)) {
-      // How many starts hold the whole run: the window's width less the run, plus one. Both read
-      // off the plan and this round's own width — `ancillarySlots` is the one definition of the
-      // width, and it is what `roundSlots` laid the slots out from — so the draw cannot reach past
-      // the window it was told about. One, exactly, under a time schedule and in the degenerate
-      // contention case the window's own doc comment describes.
-      const starts = ancillarySlots(r.plan, frames) - (frames + requestFrames) + 1
-      if (starts < 1) {
-        throw new Error(
-          `transmitAncillary: a ${frames}-fragment message plus ${requestFrames} request frame(s) `
-          + `does not fit the ${ancillarySlots(r.plan, frames)}-slot window this round appended for it`,
-        )
-      }
-      a.start = r.plan.schedule === 'contention' ? dev.rng.int(starts - 1) : 0
+    if (dev.holdsValidRcmFor(r) && r.ancillaryWindow !== null) {
+      const starts = r.ancillaryWindow - (frames + requestFrames) + 1
+      if (starts >= 1) a.start = r.plan.schedule === 'contention' ? dev.rng.int(starts - 1) : 0
     }
   }
   if (a.start === null) return
   const fragment = index - a.start
-  // **The request's own slot: the one straight after the run of fragments** (§10.35.2.1). Under a
-  // time schedule that is the window's last index, which is what `AncillarySlotAction.request`
-  // names; under a contention one it is wherever this device's drawn run ends, which no slot table
-  // can know — so the position is computed from the draw, here, in the one place that holds it.
   if (requestFrames > 0 && fragment === frames) {
     requestSlots(dev, slot, r)
     return
   }
   if (fragment < 0 || fragment >= frames) return
-  // Frames Remaining counts down to zero across the run (§10.35.2.1), so the last fragment says
-  // "none left" rather than being silent about it — which is what lets the receiver know the message
-  // is complete without waiting for the slot after.
+  // Frames Remaining counts down to zero across the run (§10.35.2.1).
   const framesRemaining = frames - 1 - fragment
-  // Both presence bits set, and both values supplied: `makeAncillary` checks the two against each
-  // other rather than reconciling them (Task 1), so the frame's declared width and its content
-  // cannot disagree. `null` for the ranging counter, exactly as an RMNR or MMRCM frame passes —
-  // nothing in this frame is timed.
   dev.send(
     makeAncillary(
       dev.id, r.tagId, r.block, r.round, slot, true, true,
@@ -239,23 +227,13 @@ function transmitAncillary(
 
 /**
  * Sender: one frame asking the controller to schedule `ancillaryRequestSlots` slots for the next
- * exchange (standard §10.35.1's last sentence, §10.35.2.1's Request field).
- *
- * **The presence bits are the third of `raictIeBytes`' four combinations, and not by coincidence.**
- * `framesRemainingPresent` is true because that field is where the clause puts the slot count;
- * `numberPresent` is false because a request is not part of any message and has no message number
- * to report — §10.35.2.1 lists the two uses of the IE as alternatives, and reporting a message
- * number here would be making one frame do both. 4 octets of IE, 15 of frame, all of it priced by
- * `raictIeBytes`/`uwbAncillaryBytes`, which this slice did not have to touch.
- *
- * **Why this device is allowed to ask at all is §10.35.1 rather than a model choice.** The clause
- * attaches the Request bit to the case 「the initiator is not the controller」, and in this engine
- * the ancillary sender is a ranging *responder* (`ANCILLARY_SENDER_INDEX`) while the controller is
- * the ranging initiator. So the condition holds by construction, which is why no rule anywhere
- * checks it — and it is the first concrete thing the role inversion this file's header describes
- * ever earns a device.
+ * exchange (standard §10.35.1's last sentence, §10.35.2.1's Request field). The RAICT IE carries
+ * Request = 1, no message number, and Frames Remaining — the field §10.35.2.1 puts the count in.
+ * The clause attaches the Request bit to the case "the initiator is not the controller", and here the
+ * ancillary sender is a ranging responder while the controller is the ranging initiator.
  */
 function requestSlots(dev: UwbDevice, slot: number, r: RoundState): void {
+  dev.ancillaryAsked = true
   dev.send(
     makeAncillary(
       dev.id, r.tagId, r.block, r.round, slot, false, true,
@@ -268,17 +246,15 @@ function requestSlots(dev: UwbDevice, slot: number, r: RoundState): void {
 /**
  * Controller, on a request frame: decide what the next exchange gets, and say so in the record.
  *
- * **What it decides on is the block, and only the block** (design §3.5). §10.35 defines no grant,
- * no refusal and no response, so a policy is the model's to choose and the only honest one is the
- * arithmetic the engine and the scenario schema already each do: does a block hold a round of
- * `plan.slots`, plus the receipt confirmation's batch, plus the window the asked-for message needs
- * (`ancillaryGrantFits`). Nothing here is a number somebody picked.
+ * **What it decides on is the ancillary round** (§10.35 defines no grant and no refusal, so the
+ * policy is the model's): does the round — `plan.slots` long like every round, slot 0 its RCM — hold
+ * the window the asked-for message needs (`ancillaryGrantFits`). Nothing here is a number somebody
+ * picked.
  *
- * **A refusal is silent, and visible anyway.** There is no frame to send back — the clause defines
- * none, and inventing one would put semantics in this repository that the standard does not have —
- * so a refused request leaves the grant as it was and the next exchange runs at the session's own
- * width. The asker reads the answer off the width of the window it is given, because both ends read
- * the same slot table. That is a property of this engine, not of the clause, and the lesson says so.
+ * **A grant is sent with standard elements, and a refusal is silent.** §10.35.1 has the controller
+ * "schedule" the slots, and the controller schedules slots with the RDM IE of the next ancillary
+ * round's RCM (§10.32.9.8) — or, under contention, with that RCM's RCPS phase. A refused request
+ * leaves the grant as it was; the asker reads the answer off the RCM it is given.
  */
 function grantRequest(dev: UwbDevice, r: RoundState, from: string, requested: number): void {
   const fits = ancillaryGrantFits(r.plan, requested)
@@ -289,8 +265,8 @@ function grantRequest(dev: UwbDevice, r: RoundState, from: string, requested: nu
     // A request reports no message number (§10.35.2.1's two uses are alternatives), so the record
     // carries the one this controller is already tracking for the block — the same number the
     // fragments of this very block used, which is what pairs the request with the message it
-    // follows. `messageKind` likewise: one kind in this engine.
-    messageNumber: ancillaryMessageNumber(r), messageKind: ANCILLARY_MESSAGE_KIND,
+    // follows.
+    messageNumber: ancillaryMessageNumber(r),
     // Frames Remaining is the requested count, and it is reported under its own name rather than
     // here: a reader who saw `framesRemaining: 6` on a request would read it as a countdown.
     framesRemaining: null, missing: [], complete: false,
@@ -369,7 +345,7 @@ export function onAncillaryRx(dev: UwbDevice, r: RoundState, from: string, frame
   a.lastRemaining = framesRemaining
   dev.emit({
     t: dev.now(), type: 'UWB_ANCILLARY', node: dev.id, peer: from, slot: r.slot,
-    block: r.block, round: r.round, messageNumber, messageKind: ANCILLARY_MESSAGE_KIND,
+    block: r.block, round: r.round, messageNumber,
     framesRemaining, missing, complete: framesRemaining === 0,
   })
 }
@@ -396,7 +372,7 @@ export function closeAncillary(dev: UwbDevice, r: RoundState): void {
   dev.emit({
     t: dev.now(), type: 'UWB_ANCILLARY', node: dev.id, peer: ancillaryPeer(r),
     slot: null, block: r.block, round: r.round,
-    messageNumber: a.messageNumber, messageKind: ANCILLARY_MESSAGE_KIND,
+    messageNumber: a.messageNumber,
     framesRemaining: null, missing, complete: false,
   })
 }

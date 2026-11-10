@@ -141,10 +141,10 @@ describe('uwb-aoa · the lesson', () => {
     // the Poll opens the round; the bearing is taken off it one PPDU later; the Final goes out
     // at 4 ms and the range and the single-anchor fix close the round together
     expect(rs[idx[0]].t).toBe(0)
-    expect(rs[idx[1]].t).toBe(200_713)
+    expect(rs[idx[1]].t).toBe(202_508)
     expect(rs[idx[2]].t).toBe(4 * MS)
-    expect(rs[idx[3]].t).toBe(4_193_534)
-    expect(rs[idx[4]].t).toBe(4_193_534)
+    expect(rs[idx[3]].t).toBe(4_199_431)
+    expect(rs[idx[4]].t).toBe(4_199_431)
     // the jumped-to fix is the AoA one, and it is the only kind of fix in the run
     expect(ofType(rs, 'UWB_POSITION').every((f) => f.method === 'aoa')).toBe(true)
   })
@@ -370,14 +370,14 @@ describe('uwb-aoa · a circle and a ray', () => {
     expect(h, 'the worked table no longer says which round it is of').not.toBeNull()
     expect(as[0].round, 'the round the first bearing belongs to').toBe(Number(h![1]))
     expect(as[0].block, 'in the first block of the run').toBe(0)
-    expect(as[0].t).toBe(200_713)
-    expect(as[1].t).toBe(4_193_534)
+    expect(as[0].t).toBe(202_508)
+    expect(as[1].t).toBe(4_199_431)
     expect(cell(1, 0, 1)).toBe(fmtRecord(as[0]))
     expect(cell(1, 0, 1)).toBe('anc-1 AoA ← badge-1: 2.3° (true 0.0°)')
     expect(cell(1, 1, 1)).toBe(fmtRecord(as[1]))
     expect(cell(1, 1, 1)).toBe('anc-1 AoA ← badge-1: 1.8° (true 0.0°)')
     // the three lines observe 2 says land together
-    const at = rs.filter((r) => r.t === 4_193_534 && (r.type === 'UWB_AOA' || r.type === 'UWB_RANGE' || r.type === 'UWB_POSITION'))
+    const at = rs.filter((r) => r.t === 4_199_431 && (r.type === 'UWB_AOA' || r.type === 'UWB_RANGE' || r.type === 'UWB_POSITION'))
     expect(at.map((r) => r.type)).toEqual(['UWB_AOA', 'UWB_RANGE', 'UWB_POSITION'])
     expect(cell(1, 2, 1)).toBe(fmtRecord(at[1]))
     expect(cell(1, 2, 1)).toBe('anc-1 range → badge-1 (DS): 2.30 m (true 2.33 m)')

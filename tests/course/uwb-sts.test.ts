@@ -209,7 +209,7 @@ describe('uwb-sts · with the sequence on, nothing is measured', () => {
     const rs = recs()
     expect(ofType(rs, 'UWB_STS_REJECT')).toHaveLength(0)
     const range = ofType(rs, 'UWB_RANGE')[0]
-    expect(range.t).toBe(2_187_389)
+    expect(range.t).toBe(2_190_209)
     expect(range.distM.toFixed(2)).toBe('4.95')
     expect(range.trueDistM).toBe(5)
   })
@@ -644,7 +644,7 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the observe lines, the experiments and the quiz’s four options', () => {
-    // 「读 2 187 389 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m」
+    // 「读 2 190 209 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m」
     const base = ofType(recs(), 'UWB_RANGE')[0]!
     const [atNs, got, truth] = figs(OBS, /读 ([\d ]+) ns 处的 UWB_RANGE：报出 ([\d.]+) m，真值 ([\d.]+) m/,
       '`observe` on the base scene')

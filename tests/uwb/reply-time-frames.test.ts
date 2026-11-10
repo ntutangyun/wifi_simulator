@@ -14,9 +14,12 @@ import { UwbChannel } from '../../src/uwb/channel'
 import { UwbClock } from '../../src/uwb/clock'
 import { UwbDevice, type RoundState } from '../../src/uwb/device'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
-import { makeFinal, makePoll, makeResp, makeSsDefer, type UwbDlTimes } from '../../src/uwb/frames'
 import {
-  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, UWB_SS_DEFER_BYTES, uwbFinalBytes,
+  makeDsDeferredReport, makeFinal, makePoll, makeResp, makeSsDefer, type UwbDlTimes,
+} from '../../src/uwb/frames'
+import {
+  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, UWB_SS_DEFER_BYTES, uwbDsDeferredReportBytes,
+  uwbFinalBytes,
   uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs,
 } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
@@ -26,20 +29,24 @@ const fieldSum = (f: ReturnType<typeof makeResp>) => fieldsOf(f).reduce((s, x) =
 
 describe('reply-time frame sizes (design §5)', () => {
   it('drops the reply time from a Response that does not carry one', () => {
-    expect(uwbRespBytes('ss', 'embedded')).toBe(20)
+    // 2026-11-10: the RRTI IE has a 1-octet content header (standard §10.29.8.1, Figure 10-208).
+    expect(uwbRespBytes('ss', 'embedded')).toBe(21)
     expect(uwbRespBytes('ss', 'fixed')).toBe(14)
     expect(uwbRespBytes('ss', 'deferred')).toBe(14)
     expect(uwbRespBytes('ds', 'embedded')).toBe(14) // today's value, unchanged
   })
 
-  it('stops the deferred Final growing with the anchor count — at 14 + 2A, not empty', () => {
-    // Ruling 1: a deferred Final still lists its responders (device.ts's finalListedMe reads this
-    // very list to decide whether an anchor may report at all); it drops the 4-octet round-trip
-    // time and the whole RRTI IE that time would need, so it grows by 2 octets per anchor, not 12.
-    const at1 = uwbFinalBytes(1, 'deferred')
-    expect(at1).toBe(16)
-    for (const a of [5, 9]) expect(uwbFinalBytes(a, 'deferred')).toBe(14 + 2 * a)
-    expect(uwbFinalBytes(9, 'embedded')).toBe(122) // today's value, unchanged
+  // 2026-11-10 (audit #3): the deferred Final is a bare ranging frame — `{Ranging}` in standard
+  // §10.32.5 Figure 10-237, no IE at all — and its two times follow in the initiator's deferred
+  // report, one RMI IE of 4 + 10N (§10.29.6.6). The old address-only RMI list broke §10.29.8.4's
+  // "At least one measurement shall be present".
+  it('makes the deferred Final bare (MHR + FCS) and moves its times into a 15 + 10A deferred report', () => {
+    for (const a of [1, 5, 9]) {
+      expect(uwbFinalBytes(a, 'deferred')).toBe(11)
+      expect(uwbDsDeferredReportBytes(a)).toBe(15 + 10 * a)
+    }
+    // Embedded: one RMI IE (4 + 6A) and one RRTI IE listing every responder (3 + 6A).
+    expect(uwbFinalBytes(9, 'embedded')).toBe(18 + 12 * 9)
   })
 })
 
@@ -59,7 +66,8 @@ describe('the anchor cap is derived, not written down (design §5, Ruling 3)', (
     // standard's content and the RR IE joined it — audit #9) — the old code under-sized that slot's
     // PPDU budget, silently, for every DS-TWR-embedded round of exactly one anchor.
     expect(uwbPollBytes(1)).toBe(33)
-    expect(uwbFinalBytes(1, 'embedded')).toBe(26)
+    // 2026-11-10: 18 + 12 at one anchor (RMI and RRTI content headers, §10.29.8.4/§10.29.8.1).
+    expect(uwbFinalBytes(1, 'embedded')).toBe(30)
     expect(uwbLongestFrameBytes(1, 'twr', 'time', 'ds', 'embedded')).toBe(33)
   })
 
@@ -121,8 +129,11 @@ describe('the slot-fit rule is derived from the round\'s own shape too (design �
     // the Poll — 54 octets — because an SS round has no Final at all and a deferred DS Final grows
     // 2 octets an anchor instead of 12.
     expect(uwbLongestFrameBytes(A, 'twr', 'time', 'ds', 'embedded')).toBe(uwbFinalBytes(A))
+    // 2026-11-10: a deferred DS round's growing frame is the initiator's deferred report (15 + 10A,
+    // standard §10.29.6.6), not the bare Final.
+    expect(uwbLongestFrameBytes(A, 'twr', 'time', 'ds', 'deferred')).toBe(uwbDsDeferredReportBytes(A))
     for (const [method, replyTime] of [
-      ['ss', 'embedded'], ['ss', 'deferred'], ['ss', 'fixed'], ['ds', 'deferred'],
+      ['ss', 'embedded'], ['ss', 'deferred'], ['ss', 'fixed'],
     ] as const) {
       expect(
         uwbLongestFrameBytes(A, 'twr', 'time', method, replyTime), `${method}/${replyTime}`,
@@ -178,32 +189,43 @@ describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wir
     const r = makeResp('a1', 'tag', 'ss', 0, 0, 1, 127_803)
     expect(r.uwb!.replyRctu).toBe(127_803)
     expect(r.uwb!.ies).toEqual(['RRMC', 'RRTI'])
-    expect(r.bytes).toBe(20)
+    expect(r.bytes).toBe(21) // 2026-11-10: RRTI 2 + 1 + 4 (§10.29.8.1)
+    expect(fieldSum(r)).toBe(r.bytes)
   })
 
-  it('the deferred reply-time message carries the reply time and nothing else', () => {
+  // 2026-11-10 (audit #4): standard §10.29.6.3 — "This reply time is communicated to the initiating
+  // side in the RMI IE ... carried by a subsequent message", not an RRTI IE. Unicast, so one list
+  // element without an address: 2 + 2 + 4.
+  it('the deferred reply-time message carries the reply time in an RMI IE and nothing else', () => {
     const d = makeSsDefer('a1', 'tag', 127_803, 0, 0, 2)
-    expect(d.uwb!.ies).toEqual(['RRTI'])
+    expect(d.uwb!.ies).toEqual(['RMI'])
     expect(d.uwb!.replyRctu).toBe(127_803)
     expect(d.bytes).toBe(UWB_SS_DEFER_BYTES)
-    expect(d.bytes).toBe(17)
-    expect(fieldSum(d)).toBe(d.bytes) // MHR + RRTI IE + FCS tiles the frame exactly
+    expect(d.bytes).toBe(19)
+    expect(fieldSum(d)).toBe(d.bytes) // MHR + RMI IE + FCS tiles the frame exactly
   })
 
-  it('a deferred Final keeps the responder list and drops the round trip entirely', () => {
+  // 2026-11-10 (audit #3): standard §10.32.5 Figure 10-237 — the deferred Final is `{Ranging}`, no IE.
+  it('a deferred Final carries no IE at all; the deferred report carries both times per responder', () => {
     const times = [
       { id: 'a1', tround1: 1_000, treply2: 2_000 },
       { id: 'a2', tround1: 1_100, treply2: 2_100 },
     ]
     const f = makeFinal('tag', times, 0, 0, 5, undefined, 'deferred')
     expect(f.bytes).toBe(uwbFinalBytes(2, 'deferred'))
-    expect(f.bytes).toBe(18)
-    expect(f.uwb!.ies).toEqual(['RMI']) // no RRTI IE at all — there is no time left to carry
-    expect(f.uwb!.finalTimes).toEqual([{ id: 'a1' }, { id: 'a2' }])
+    expect(f.bytes).toBe(11)
+    expect(f.uwb!.ies).toEqual([])
+    expect(f.uwb!.finalTimes).toBeUndefined()
     expect(fieldSum(f)).toBe(f.bytes)
-    const ieKeys = fieldsOf(f).filter((x) => x.key.startsWith('ie')).map((x) => x.key)
-    expect(ieKeys).toEqual(['ieRmi'])
-    const rmiValue = fieldsOf(f).find((x) => x.key === 'ieRmi')!.value
+    // …and the initiator's deferred report (§10.29.6.6): one RMI IE, reply time + round trip +
+    // address per responder.
+    const rep = makeDsDeferredReport('tag', times, 0, 0, 6)
+    expect(rep.kind).toBe('uwbReport')
+    expect(rep.bytes).toBe(15 + 10 * 2)
+    expect(rep.uwb!.ies).toEqual(['RMI'])
+    expect(rep.uwb!.finalTimes).toEqual(times)
+    expect(fieldSum(rep)).toBe(rep.bytes)
+    const rmiValue = fieldsOf(rep).find((x) => x.key === 'ieRmi')!.value
     expect(rmiValue).toContain('a1')
     expect(rmiValue).toContain('a2')
   })
@@ -212,8 +234,9 @@ describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wir
     const times = [{ id: 'a1', tround1: 1_000, treply2: 2_000 }]
     const f = makeFinal('tag', times, 0, 0, 5)
     expect(f.bytes).toBe(uwbFinalBytes(1, 'embedded'))
-    expect(f.bytes).toBe(26)
+    expect(f.bytes).toBe(30) // 2026-11-10: 9 + (4 + 6) + (3 + 6) + 2
     expect(f.uwb!.ies).toEqual(['RMI', 'RRTI'])
+    expect(fieldSum(f)).toBe(f.bytes)
     expect(f.uwb!.finalTimes).toEqual(times)
   })
 
@@ -237,10 +260,9 @@ describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wir
   })
 })
 
-describe('device.ts guards a deferred Final it cannot build yet (fix round 1, item 1)', () => {
+describe('deferred DS-TWR at the anchor: the range comes from the initiator deferred report (2026-11-10)', () => {
   /** A single anchor device, wired to a channel and clock but never scheduled through it: enough
-   * for a private handler to run against real `RoundState`, following the same construction
-   * `tests/uwb/network.test.ts`'s "UwbDevice.beginRound" group uses for the same reason. */
+   * for a private handler to run against real `RoundState`. */
   const anchorDevice = (records: TLRecord[]): UwbDevice => {
     const q = new EventQueue()
     const now = (): number => 0
@@ -261,44 +283,49 @@ describe('device.ts guards a deferred Final it cannot build yet (fix round 1, it
     )
   }
 
-  type FinalFrame = ReturnType<typeof makeFinal>
-
-  /** `onFinal` is private; this is the same "reach past the type" shape
-   * `tests/uwb/sensing.test.ts` already uses on this class, scoped to exactly the one method under
-   * test rather than casting the whole device to `any`. */
-  const callOnFinal = (dev: UwbDevice, r: RoundState, from: string, frame: FinalFrame, counter: number, fom: number): void => {
-    (dev as unknown as {
-      onFinal: (r: RoundState, from: string, frame: FinalFrame, counter: number, fom: number) => void
-    }).onFinal(r, from, frame, counter, fom)
+  type Frame = ReturnType<typeof makeFinal>
+  /** The two private handlers under test, reached past the type for exactly these two methods. */
+  const priv = (dev: UwbDevice) => dev as unknown as {
+    onFinal: (r: RoundState, from: string, frame: Frame, counter: number, fom: number) => void
+    onDsDeferredReport: (r: RoundState, from: string, frame: Frame) => void
   }
 
-  it('a deferred Final (per-anchor times absent) produces no UWB_RANGE and no NaN anywhere', () => {
-    const records: TLRecord[] = []
+  const setUp = (records: TLRecord[]): { anchor: UwbDevice; r: RoundState } => {
     const anchor = anchorDevice(records)
-    const plan = roundPlan(DEFAULT_UWB_SESSION, 1) // ds, time-scheduled, one anchor
+    const plan = roundPlan({ ...DEFAULT_UWB_SESSION, replyTime: 'deferred' }, 1)
     anchor.beginRound(0, 0, plan, 'tag-1', ['anc-1'], {})
     const r = anchor.round!
     r.rxPollCounter = 1_000
     r.txRespCounter = 2_000
-    // Exactly the shape frames.ts's makeFinal builds for replyTime: 'deferred' — the anchor is
-    // listed (an id), but tround1/treply2 are absent, not zero. No session built through
-    // device.ts produces this today (Task 4 wires `replyTime` into a device's own round), so this
-    // reaches past the type the same way the fix does: the field really is missing at runtime,
-    // which a `!` assertion cannot see and a real caller eventually will hand it.
-    const deferredFinal = makeFinal('tag-1', [{ id: 'anc-1', tround1: 0, treply2: 0 }], 0, 0, plan.slots - 2, undefined, 'deferred')
-    callOnFinal(anchor, r, 'tag-1', deferredFinal, 3_000, 0x16)
-    // Design §7: a deferred Final gives the anchor no range at all — that is the correct
-    // behaviour, not a failure — but the anchor is still listed, so it may still report later
-    // (transmitFor's uwbReport case reads exactly this flag).
-    expect(r.finalListedMe).toBe(true)
+    priv(anchor).onFinal(r, 'tag-1', makeFinal('tag-1', [], 0, 0, 2, undefined, 'deferred'), 3_000, 0x16)
+    return { anchor, r }
+  }
+
+  // Standard §10.29.6.6: "When the responder receives the second MCPS-DATA.indication primitive
+  // (with the RMI IE), it has sufficient information to calculate the TOF".
+  it('a bare deferred Final gives no range; the deferred report brings tround1 and treply2 and the anchor ranges', () => {
+    const records: TLRecord[] = []
+    const { anchor, r } = setUp(records)
+    expect(r.finalListedMe).toBe(false)
     expect(records.some((x) => x.type === 'UWB_RANGE')).toBe(false)
-    // Before the fix, `dsTwr(undefined, …, undefined)` returns NaN without throwing (arithmetic on
-    // `undefined` is NaN, not an exception), and `reportRange` banks it as a UWB_RANGE record with
-    // no error anywhere — so this loop is what actually catches the bug, not just the count above.
+    const report = makeDsDeferredReport('tag-1', [{ id: 'anc-1', tround1: 1_000, treply2: 1_000 }], 0, 0, 3)
+    priv(anchor).onDsDeferredReport(r, 'tag-1', report)
+    expect(r.finalListedMe).toBe(true)
+    expect(records.filter((x) => x.type === 'UWB_RANGE')).toHaveLength(1)
     for (const rec of records) {
       for (const [k, v] of Object.entries(rec)) {
         if (typeof v === 'number') expect(Number.isNaN(v), `${rec.type}.${k}`).toBe(false)
       }
     }
+  })
+
+  it('a deferred report that does not list this anchor leaves it unlisted and rangeless', () => {
+    const records: TLRecord[] = []
+    const { anchor, r } = setUp(records)
+    priv(anchor).onDsDeferredReport(
+      r, 'tag-1', makeDsDeferredReport('tag-1', [{ id: 'anc-9', tround1: 1, treply2: 1 }], 0, 0, 3),
+    )
+    expect(r.finalListedMe).toBe(false)
+    expect(records.some((x) => x.type === 'UWB_RANGE')).toBe(false)
   })
 })

@@ -33,23 +33,26 @@ describe('RoundPlan.ancillary / RoundPlan.ancillaryFrames', () => {
   })
 })
 
-describe('the slot table itself does not change with ancillary/ancillaryFrames (Task 2 is schema-only)', () => {
-  // This task deliberately does not wire any device or network behaviour to these two fields (see
-  // this file's own header, and `UwbSessionCfg.ancillary`'s own doc comment) — no slot is added,
-  // moved or removed because of them. Pinned here, the same discipline
-  // `rcm-validity-schedule.test.ts` applies to `rcmValidityRounds`, so a later task that *does*
-  // wire slot behaviour changes this expectation deliberately rather than by accident.
-  it("slotAction's result is identical whatever ancillary/ancillaryFrames are set to", () => {
+describe('the ranging exchange does not change with ancillary/ancillaryFrames; the round length does', () => {
+  // 2026-11-10: every round of a session is one length (standard §10.32.3.3, block-based mode), the
+  // longer of the ranging round and the ancillary-information round (its RCM plus the message's
+  // slots, §10.35). The ranging exchange itself — `rangingSlots` and what `slotAction` puts in each
+  // of them — is untouched; a longer round only adds idle slots after it.
+  it('keeps rangingSlots and every ranging slotAction, and sizes slots as max(ranging, 1 + frames)', () => {
     const base = roundPlan(session({ ancillary: false, ancillaryFrames: 1 }), 2)
     for (const over of [
       { ancillary: true, ancillaryFrames: 1 },
       { ancillary: true, ancillaryFrames: 3 },
       { ancillary: true, ancillaryFrames: 6 },
-    ]) {
+    ] as const) {
       const p = roundPlan(session(over), 2)
-      expect(p.slots, JSON.stringify(over)).toBe(base.slots)
-      for (let slot = 0; slot < p.slots; slot++) {
+      expect(p.rangingSlots, JSON.stringify(over)).toBe(base.rangingSlots)
+      expect(p.slots, JSON.stringify(over)).toBe(Math.max(base.rangingSlots, 1 + over.ancillaryFrames))
+      for (let slot = 0; slot < p.rangingSlots; slot++) {
         expect(slotAction(p, slot), `${JSON.stringify(over)} slot=${slot}`).toEqual(slotAction(base, slot))
+      }
+      for (let slot = p.rangingSlots; slot < p.slots; slot++) {
+        expect(slotAction(p, slot), `${JSON.stringify(over)} idle slot=${slot}`).toEqual({ kind: 'idle' })
       }
     }
   })

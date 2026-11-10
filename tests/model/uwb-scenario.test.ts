@@ -13,7 +13,7 @@ import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  rstuNs, UWB_BLINK_BYTES, uwbDlPollBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbNbSlotFitNs,
+  rstuNs, UWB_BLINK_BYTES, uwbDlPollBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbNbSlotFitNs,
   uwbPollBytes, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 
@@ -120,20 +120,23 @@ describe('UWB nodes and sessions in the schema', () => {
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)]))).toThrow(/10 .*tag.*11/)
   })
 
-  it('every frame must fit its slot: 300 RSTU carries five anchors, not six', () => {
-    // The Final is the round's longest frame: 14 + 12N octets, 248.910 µs at five anchors and
-    // 267.372 µs at six, plus 200 ns of flight guard, against a 300 RSTU slot of 250 µs.
-    expect(uwbSlotFitNs(5)).toBe(249_110)
-    expect(uwbSlotFitNs(6)).toBe(267_572)
+  // 2026-11-10: the Final is 18 + 12N octets (RMI/RRTI content headers, standard §10.29.8.4/.1) and
+  // every PPDU carries a 21-symbol PHR (Table 16-2), so the same 300 RSTU slot now carries four
+  // anchors' Final and not five.
+  it('every frame must fit its slot: 300 RSTU carries four anchors, not five', () => {
+    // The Final is the round's longest frame: 242.500 µs at four anchors and 254.808 µs at five,
+    // plus 200 ns of flight guard, against a 300 RSTU slot of 250 µs.
+    expect(uwbSlotFitNs(4)).toBe(242_700)
+    expect(uwbSlotFitNs(5)).toBe(255_008)
     expect(rstuNs(300)).toBe(250_000)
     const shortSlot = { ...DEFAULT_UWB_SESSION, slotRstu: 300 }
     const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
     const tag = uwbNode('tag-1', 'tag', 4, 4)
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], shortSlot))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(6), tag], shortSlot)))
-      .toThrow(/300 RSTU.*250\.0 µs.*267\.6 µs/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], shortSlot))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], shortSlot)))
+      .toThrow(/300 RSTU.*250\.0 µs.*255\.0 µs/)
     // and the engine refuses the same round in nanoseconds, so the two cannot drift apart
-    expect(() => network([...anchors(6), tag], shortSlot)).toThrow(/cannot carry a round of 6 anchors/)
+    expect(() => network([...anchors(5), tag], shortSlot)).toThrow(/cannot carry a round of 5 anchors/)
     expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(DS_EMBEDDED_CAP))
   })
 
@@ -159,24 +162,30 @@ describe('UWB nodes and sessions in the schema', () => {
     // …and so is the whole DS-embedded cap's worth of them, which that slot could never hold as DS.
     for (const replyTime of ['embedded', 'deferred', 'fixed'] as const) {
       // `fixed` needs its reply constant scaled to the slot as well, and that is a *different*
-      // rule: design §6.1's two-sided bound is measured in slots, so the 2400 RSTU default — one
-      // whole 2 ms slot — cannot live inside a 250 µs one whatever the slot-fit rule says. 60 RSTU
-      // (50 µs) sits inside the bound this geometry gives, [21.6 µs, 90.1 µs].
+      // rule: the two-sided bound is measured in slots, so the 2400 RSTU default — one whole 2 ms
+      // slot — cannot live inside a 250 µs one. 2026-11-10: FRT1 is RMARKER to RMARKER (standard
+      // §10.32.2), so the window at this slot is [S − ToF, 2S − Ar − guard − ToF] ≈ [300, 380] RSTU;
+      // 340 sits inside it.
       const sc = uwbScenario([...anchors(9), tag], {
-        ...shortSs, replyTime, ...(replyTime === 'fixed' ? { fixedReplyRstu: 60 } : {}),
+        ...shortSs, replyTime, ...(replyTime === 'fixed' ? { fixedReplyRstu: 340 } : {}),
       })
       expect(() => ScenarioSchema.parse(sc), `ss/${replyTime}`).not.toThrow()
     }
-    // A deferred DS Final is 32 octets at nine anchors, so that shape clears the same slot too —
-    // only the embedded DS round, whose Final really is the longest frame, is bound by it.
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], { ...shortDs, replyTime: 'deferred' })))
+    // 2026-11-10 (audit #3): a deferred DS round's longest frame is the initiator's deferred report,
+    // 15 + 10N octets (standard §10.29.6.6) — 105 at nine anchors, which this slot cannot hold either,
+    // while five anchors' 65-octet report fits. The bare deferred Final (11 octets) binds nothing.
+    expect(uwbLongestFrameBytes(9, 'twr', 'time', 'ds', 'deferred')).toBe(uwbDsDeferredReportBytes(9))
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], { ...shortDs, replyTime: 'deferred' })))
       .not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], { ...shortDs, replyTime: 'deferred' })))
+      .toThrow(/300 RSTU/)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], shortDs))).toThrow(/300 RSTU/)
   })
 
   it('a round takes at most nine anchors: the Final has to stay under 127 octets', () => {
-    expect(uwbFinalBytes(DS_EMBEDDED_CAP)).toBe(122)
-    expect(uwbFinalBytes(DS_EMBEDDED_CAP + 1)).toBe(134)
+    // 2026-11-10: 18 + 12N (RMI/RRTI content headers) — 126 at nine, 138 at ten; the cap is still nine.
+    expect(uwbFinalBytes(DS_EMBEDDED_CAP)).toBe(126)
+    expect(uwbFinalBytes(DS_EMBEDDED_CAP + 1)).toBe(138)
     const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
     const tag = uwbNode('tag-1', 'tag', 4, 4)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag]))).not.toThrow()

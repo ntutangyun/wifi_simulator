@@ -28,6 +28,7 @@ const KIND_SHORT: Record<UwbFrameKind, string> = {
   uwbMmrcm: 'mmrcm',
   uwbSp3: 'sp3',
   uwbAncillary: 'ancillary',
+  uwbRcm: 'rcm',
 }
 
 /** How a fix was solved, as the log names it. */
@@ -117,14 +118,14 @@ export function fmtUwbRecord(r: UwbTLRecord): string {
       return `${r.node} slot ${r.slot}: ${r.peer} still holds the RCM but missed the initiation `
         + `message of round ${r.round}, block ${r.block}`
     case 'UWB_MMRCM': {
-      // The bitmap as the window reads it, oldest round first: block `b − R + 1` on the left,
-      // this block on the right. Printed as the bits themselves rather than as a count, because
-      // *which* opener was lost is the whole thing §10.36 buys over a timeout.
+      // The bitmap one bit per slot, the set's first slot on the left (standard §10.36.2.1). Printed
+      // as the bits themselves rather than as a count, because *which* message was lost is the whole
+      // thing §10.36 buys over a timeout.
       const bits = r.received.map((b) => (b ? '1' : '0')).join('')
-      const lost = r.received.filter((b) => !b).length
+      const got = r.received.filter((b) => b).length
       const also = r.initiators > 1 ? ` (one of ${r.initiators} initiators in the frame)` : ''
-      return `${r.node} slot ${r.slot}: ${r.peer} received ${bits} of its ${r.windowRounds} window `
-        + `openers — ${lost} lost${also}`
+      return `${r.node} slot ${r.slot}: ${r.peer} received ${bits} — ${got} of its ${r.ackSlots} `
+        + `acknowledged slots carried a message to it${also}`
     }
     case 'UWB_ANCILLARY': {
       // The countdown as the receiver read it, then what the countdown proves. Printed as the

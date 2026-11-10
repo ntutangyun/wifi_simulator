@@ -26,7 +26,7 @@ import {
 } from './nb'
 import {
   ARC_IE_BYTES, RR_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
-  raictIeBytes, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
+  raictIeBytes, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalIeBytes, rmiIeBytes, rrtiIeBytes,
   RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
   SRRR_IE_BYTES, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES,
   UWB_MHR_BYTES, UWB_SP3_RAOA_ITEM_BYTES,
@@ -50,6 +50,7 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbMmrcm: 'UWB Multiple Message Receipt Confirmation (MMRCM)',
   uwbSp3: 'UWB SP3 Ranging Marker',
   uwbAncillary: 'UWB Ranging Ancillary Information',
+  uwbRcm: 'UWB Ranging Control Message (RCM)',
 }
 
 /** The prose half of every row below: standard tokens stay, the words around them are Chinese. */
@@ -104,6 +105,15 @@ function ies(u: UwbInfo): Ie[] {
         out.push({ key: 'ieRr', bytes: RR_IE_BYTES, value: V.rr(u.block, u.round) })
         break
       case 'RDM': {
+        // The ancillary round's RCM assigns slots explicitly (SIU = 1, standard §10.32.9.8); a
+        // ranging Poll's RDM lists the responders in slot order.
+        if (u.rdm) {
+          out.push({
+            key: 'ieRdm', bytes: rdmIeBytes(u.rdm.length),
+            value: V.rdm(u.rdm.length, u.rdm.map((e) => V.rdmSlot(e.id, e.slot)).join('、')),
+          })
+          break
+        }
         const sched = u.schedule ?? []
         out.push({
           key: 'ieRdm', bytes: rdmIeBytes(sched.length),
@@ -117,47 +127,60 @@ function ies(u: UwbInfo): Ie[] {
       case 'RCPS':
         out.push({
           key: 'ieRcps', bytes: RCPS_IE_BYTES,
-          value: V.rcps(u.contention?.firstSlot ?? 1, u.contention?.lastSlot ?? 8),
+          value: V.rcps(u.contention?.firstSlot ?? 1, u.contention?.lastSlot ?? 8, u.contention?.phase ?? 1),
         })
         break
       case 'RCMA':
         out.push({ key: 'ieRcma', bytes: RCMA_IE_BYTES, value: V.rcma(u.contention?.maxAttempts ?? 3) })
         break
       case 'RRTI': {
-        // One RRTI IE holds one reply time (standard §10.29.8.1), so a Response carries one
-        // and a Final carries N — N rows of 6 octets, not one row of 6N.
+        // One RRTI IE holds the whole list (standard §10.29.8.1, Figures 10-208/10-209): a 1-octet
+        // content header, then one element per reply time. A unicast Response's element has no
+        // address; a broadcast Final's elements each carry the responder's.
         if (u.replyRctu !== undefined) {
           out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: V.replyTime(rctuText(u.replyRctu)) })
           break
         }
-        // Only an embedded Final's ies list carries 'RRTI' at all — a deferred Final's is ['RMI']
-        // alone (frames.ts's makeFinal) — so every entry reached here has its treply2.
-        for (const t of u.finalTimes ?? []) {
-          out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: V.finalReply(t.id, rctuDur(t.treply2!)) })
-        }
+        const list = u.finalTimes ?? []
+        out.push({
+          key: 'ieRrti', bytes: rrtiIeBytes(list.length, true),
+          value: V.rmiFinal(list.length, list.map((t) => V.finalReply(t.id, rctuDur(t.treply2!))).join(' · ')),
+        })
         break
       }
       case 'RMI': {
+        // §10.29.8.4: a 2-octet content header, then one list element per device, each carrying the
+        // times its present bits say, and an address when the frame is broadcast.
         if (!u.finalTimes) {
-          out.push({
-            key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,
-            value: V.rmiReport(rctuText(u.reportTimes?.treply1 ?? 0), rctuText(u.reportTimes?.tround2 ?? 0)),
-          })
+          if (u.reportTimes) {
+            // A responder's report to the initiator: unicast, reply time + round-trip time.
+            out.push({
+              key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,
+              value: V.rmiReport(rctuText(u.reportTimes.treply1), rctuText(u.reportTimes.tround2)),
+            })
+          } else {
+            // SS-TWR's deferred reply-time message (§10.29.6.3): unicast, one reply time.
+            out.push({
+              key: 'ieRmi', bytes: rmiIeBytes(1, 1, false),
+              value: V.replyTime(rctuText(u.replyRctu ?? 0)),
+            })
+          }
           break
         }
-        // A deferred Final's entries carry an id and nothing else (Ruling 1, design §5): the round
-        // trip left with the RRTI IEs this frame no longer has. Every entry is built the same way
-        // by makeFinal, so checking the first is enough to tell the two shapes apart.
-        const deferred = u.finalTimes.length > 0 && u.finalTimes[0].tround1 === undefined
-        out.push(deferred
+        // A deferred DS round's initiator report carries both times in the RMI IE (§10.29.6.6); an
+        // embedded Final splits them, the reply times riding the RRTI IE beside it.
+        const both = !u.ies.includes('RRTI') && u.finalTimes.length > 0 && u.finalTimes[0].treply2 !== undefined
+        out.push(both
           ? {
-            key: 'ieRmi', bytes: rmiFinalDeferredIeBytes(u.finalTimes.length),
-            // No time rides here at all — just the responder list `finalListedMe` reads.
-            value: V.rmiFinal(u.finalTimes.length, u.finalTimes.map((t) => t.id).join('、')),
+            key: 'ieRmi', bytes: rmiIeBytes(u.finalTimes.length, 2, true),
+            value: V.rmiFinal(
+              u.finalTimes.length,
+              u.finalTimes.map((t) => `${V.rmiFinalEntry(t.id, rctuDur(t.tround1!))}，treply2 ${rctuDur(t.treply2!)}`)
+                .join(' · '),
+            ),
           }
           : {
             key: 'ieRmi', bytes: rmiFinalIeBytes(u.finalTimes.length),
-            // The RMI IE's entry is address + round-trip time; each treply2 rides in its own RRTI IE.
             value: V.rmiFinal(
               u.finalTimes.length,
               u.finalTimes.map((t) => V.rmiFinalEntry(t.id, rctuDur(t.tround1!))).join(' · '),
@@ -213,9 +236,9 @@ function ies(u: UwbInfo): Ie[] {
         // length (R) is read off the first entry's own bitmap width, which every entry shares —
         // `makeMmrcm` is the one place that invariant is kept.
         const entries = u.mmrc ?? []
-        const windowRounds = entries[0]?.received.length ?? 0
+        const ackSlots = entries[0]?.received.length ?? 0
         out.push({
-          key: 'ieRmmrc', bytes: rmmrcIeBytes(entries.length, windowRounds),
+          key: 'ieRmmrc', bytes: rmmrcIeBytes(entries.length, ackSlots),
           value: V.rmmrc(entries.length, entries.map((e) => V.rmmrcEntry(
             e.initiator, e.received.map((r) => (r ? '1' : '0')).join(''),
           )).join(' · ')),
@@ -227,11 +250,8 @@ function ies(u: UwbInfo): Ie[] {
       // of 6N. That is what "a request is not free" actually looks like in the payload, and it is why
       // this IE's cost grows with the responder count while §10.36's MMRCR bit's does not.
       case 'SRRR': {
-        for (const id of u.schedule ?? []) {
-          out.push({
-            key: 'ieSrrr', bytes: SRRR_IE_BYTES,
-            value: V.srrr(id, u.srrr?.raoa === true, u.srrr?.rrtt === true),
-          })
+        for (const e of u.srrr ?? []) {
+          out.push({ key: 'ieSrrr', bytes: SRRR_IE_BYTES, value: V.srrr(e.provider, e.raoa, e.rrt, e.rrtt) })
         }
         break
       }

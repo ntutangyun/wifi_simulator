@@ -87,7 +87,10 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     expect(twice.uwb).toEqual(once.uwb)
   })
 
-  it('twr: rcmValidityRounds 1 makes the bitmap one bit — refused, and says why', () => {
+  // 2026-11-10: the bitmap is one bit per slot now (standard §10.36.2.1), so "one bit" is no longer
+  // the reason; the refusal (a simulator rule, labelled as such) says a one-round set's confirmation
+  // re-states what the Response already showed.
+  it('twr: rcmValidityRounds 1 — refused, and says why', () => {
     const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'twr', mmrcr: true, rcmValidityRounds: 1 }
     const r = ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg))
     expect(r.success).toBe(false)
@@ -96,7 +99,7 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
       expect(msg).not.toMatch(/^不支持$/)
       expect(msg).not.toMatch(/^暂不支持$/)
       expect(msg).not.toMatch(/不支持。?$/)
-      expect(msg).toMatch(/一位/)
+      expect(msg).toMatch(/rcmValidityRounds/)
       expect(msg).toMatch(/Response/)
     }
     // rcmValidityRounds above 1 makes the same combination legal.
@@ -204,8 +207,14 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     // one slot per anchor; derived from the scene rather than written as a literal so it stays right
     // if the scene gains an anchor.
     const anchorsHere = twoAnchorsOneTag().filter((n) => n.uwb?.role === 'anchor').length
-    const roomy: UwbSessionCfg = {
+    // 2026-11-10: every round is one length (standard §10.32.3.3), so BOTH rounds carry the
+    // confirmation slots — room for them in the set-closing round alone no longer fits.
+    const closingOnly: UwbSessionCfg = {
       ...cfg, blockRstu: (2 * slots + anchorsHere) * DEFAULT_UWB_SESSION.slotRstu,
+    }
+    expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), closingOnly)).success).toBe(false)
+    const roomy: UwbSessionCfg = {
+      ...cfg, blockRstu: 2 * (slots + anchorsHere) * DEFAULT_UWB_SESSION.slotRstu,
     }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), roomy)).success).toBe(true)
   })

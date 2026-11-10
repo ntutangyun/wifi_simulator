@@ -10,7 +10,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  BENCH_M, BYTES, CAP, DEMAND, DEMAND_ANCHORS, FIG, PPM, RANGE_M, SHORT_SLOT_NS,
+  BENCH_M, BYTES, CAP, DEFERRED_REPORT_GROWTH, DEMAND, DEMAND_ANCHORS, FIG, FIXED_REPLY_RSTU, PPM, RANGE_M,
+  SHORT_SLOT_NS,
   fixedWindowRstu, uwbReplyTime, uwbReplyTimeScenario, uwbReplyTimeTiming,
 } from '../../src/course/uwb/uwb-reply-time'
 import { Simulation } from '../../src/engine/simulation'
@@ -21,7 +22,8 @@ import { MODULES, basisOf } from '../../src/course/curriculum'
 import { diagramTexts } from '../../src/course/diagram'
 import { fmtRecord } from '../../src/ui/format'
 import {
-  UWB_MAX_PSDU_BYTES, UWB_SS_DEFER_BYTES, rstuNs, uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes,
+  UWB_MAX_PSDU_BYTES, UWB_SS_DEFER_BYTES, rstuNs, uwbDsDeferredReportBytes, uwbLongestFrameBytes,
+  uwbMaxAnchors, uwbPollBytes,
   uwbPpduNs, uwbRespBytes, uwbSlotFitNs,
 } from '../../src/uwb/phy'
 import { ssTwrCorrected } from '../../src/uwb/ranging'
@@ -116,25 +118,28 @@ describe('uwb-reply-time · the scene', () => {
 
 describe('uwb-reply-time · the frames the three shapes put on the air (§5 of the design)', () => {
   it('reads the octet table off the run, not off the constants', () => {
-    // 「Response」 row: 20 embedded, 14 deferred, 14 fixed — and one deferred message of 17.
+    // 「Response」 row: 21 embedded, 14 deferred, 14 fixed — and one deferred message of 19.
+    // 2026-11-10 (standard §10.29.8.1, audit #8): the RRTI IE has a 1-octet content header — 7 octets.
     const resp = (rt: UwbReplyTime) => txOf(runShape(rt), 'uwbResp').map((r) => r.frame.bytes)
     expect(resp('embedded')).toEqual([BYTES.respEmbedded])
     expect(resp('deferred')).toEqual([BYTES.respDeferred])
     expect(resp('fixed')).toEqual([BYTES.respFixed])
-    expect(BYTES.respEmbedded).toBe(20)
+    expect(BYTES.respEmbedded).toBe(21)
     expect(BYTES.respDeferred).toBe(14)
     expect(BYTES.respFixed).toBe(14)
-    // 「Response 相差的六个字节就是那段等待自己那一小节」
-    expect(BYTES.respEmbedded - BYTES.respFixed).toBe(6)
+    // 「Response 相差的 7 个字节就是承载那段等待时间的信息单元（RRTI IE）」
+    expect(BYTES.respEmbedded - BYTES.respFixed).toBe(7)
     expect(BYTES.poll).toBe(uwbPollBytes(1))
     // 30 until 2026-11-10: ARC IE to the standard's content, plus the RR IE (audit #9).
     expect(BYTES.poll).toBe(33)
   })
 
-  it('sends the deferred message only in the deferred shape, and it is 17 octets', () => {
-    // 「延后报文 17 字节」 and 「那条只为一个数而发的报文」
-    expect(txOf(runShape('deferred'), 'uwbSsDefer').map((r) => r.frame.bytes)).toEqual([UWB_SS_DEFER_BYTES])
-    expect(BYTES.defer).toBe(17)
+  it('sends the deferred message only in the deferred shape, and it is 19 octets of RMI', () => {
+    // 2026-11-10 (standard §10.29.6.3, audit #4): the reply time travels in an RMI IE, not an RRTI IE.
+    const defer = txOf(runShape('deferred'), 'uwbSsDefer')
+    expect(defer.map((r) => r.frame.bytes)).toEqual([UWB_SS_DEFER_BYTES])
+    expect(defer[0]!.frame.uwb!.ies).toEqual(['RMI'])
+    expect(BYTES.defer).toBe(19)
     for (const rt of ['embedded', 'fixed'] as const) {
       expect(txOf(runShape(rt), 'uwbSsDefer'), rt).toHaveLength(0)
     }
@@ -181,11 +186,18 @@ describe('uwb-reply-time · the timing figure is the run', () => {
     expect(respFix.t).not.toBe(rstuNs(uwbReplyTime.scenario().uwb!.slotRstu))
   })
 
-  it('the fixed Response leaves one Poll airtime into its own slot', () => {
-    // tryThis: 「从 2.000 ms 挪到了 2.201 ms——正好晚了一个 Poll 的空口时间」
-    const slotNs = rstuNs(uwbReplyTime.scenario().uwb!.slotRstu)
-    const intoSlot = FIG.fixedStartUs * 1000 - slotNs
-    expect(intoSlot / uwbPpduNs(BYTES.poll)).toBeCloseTo(1, 3)
+  it('the fixed Response’s RMARKER is FRT1 after the Poll’s, as the anchor received it', () => {
+    // 2026-11-10 (standard §10.32.2, Figure 10-226; audit #5): FRT is RMARKER to RMARKER. Both
+    // RMARKERs sit the same SHR length into their frames, so the Response starts FRT1 + ToF after the
+    // Poll starts — less what the anchor's 20 ppm-fast crystal shortens FRT1 by.
+    const sc = uwbReplyTimeScenario('fixed')
+    expect(sc.uwb!.fixedReplyRstu).toBe(FIXED_REPLY_RSTU)
+    const frtNs = rstuNs(FIXED_REPLY_RSTU)
+    const tofNs = BENCH_M / C_M_PER_NS
+    const start = txOf(runShape('fixed'), 'uwbResp')[0]!.t
+    const expected = frtNs / (1 + 20e-6) + tofNs
+    expect(Math.abs(start - expected)).toBeLessThan(1)
+    expect(start).toBeGreaterThan(rstuNs(sc.uwb!.slotRstu))
   })
 
   it('labels four lanes — a slot ruler and one per shape — and names the octets on each', () => {
@@ -242,7 +254,10 @@ describe('uwb-reply-time · the cap each shape earns', () => {
     expect(CAP.dsDeferred).toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
     // The two numbers the prose and the quiz name.
     expect(CAP.dsEmbedded).toBe(9)
-    expect([CAP.ssEmbedded, CAP.ssDeferred, CAP.ssFixed, CAP.dsDeferred]).toEqual([32, 32, 32, 32]) // 33 before the 2026-11-10 ARC/RR IE correction: the Poll is 30 + 3A now
+    expect([CAP.ssEmbedded, CAP.ssDeferred, CAP.ssFixed]).toEqual([32, 32, 32])
+    // 2026-11-10 (standard §10.29.6.6, audit #3): the deferred DS round's longest frame is the
+    // initiator's deferred report, 15 + 10A — 11 anchors, not the Poll's 32.
+    expect(CAP.dsDeferred).toBe(11)
   })
 
   it('each cap really is the largest count whose longest frame fits the PSDU', () => {
@@ -257,14 +272,15 @@ describe('uwb-reply-time · the cap each shape earns', () => {
     }
   })
 
-  it('names the Poll as what binds every shape but the embedded DS-TWR Final', () => {
+  it('names the Poll as what binds the SS shapes, and the deferred report the deferred DS one', () => {
     // 「单边的三种形态轮里根本没有 Final，最长的是每锚点只长 3 字节的 Poll」
-    for (const [method, rt] of [
-      ['ss', 'embedded'], ['ss', 'deferred'], ['ss', 'fixed'], ['ds', 'deferred'],
-    ] as const) {
-      expect(uwbLongestFrameBytes(CAP.dsDeferred, 'twr', 'time', method, rt), `${method}/${rt}`)
-        .toBe(uwbPollBytes(CAP.dsDeferred))
+    for (const [method, rt] of [['ss', 'embedded'], ['ss', 'deferred'], ['ss', 'fixed']] as const) {
+      expect(uwbLongestFrameBytes(CAP.ssEmbedded, 'twr', 'time', method, rt), `${method}/${rt}`)
+        .toBe(uwbPollBytes(CAP.ssEmbedded))
     }
+    expect(uwbLongestFrameBytes(CAP.dsDeferred, 'twr', 'time', 'ds', 'deferred'))
+      .toBe(uwbDsDeferredReportBytes(CAP.dsDeferred))
+    expect(DEFERRED_REPORT_GROWTH).toBe(10)
     // …and the Poll grows by 3 octets an anchor, the embedded Final by 12.
     expect(uwbPollBytes(2) - uwbPollBytes(1)).toBe(3)
   })
@@ -275,10 +291,11 @@ describe('uwb-reply-time · the slot the shape asks for', () => {
     expect(DEMAND_ANCHORS).toBe(CAP.dsEmbedded)
     expect(DEMAND.ss).toBe(uwbSlotFitNs(DEMAND_ANCHORS, 'twr', 'time', undefined, 'ss', 'embedded'))
     expect(DEMAND.dsEmbedded).toBe(uwbSlotFitNs(DEMAND_ANCHORS, 'twr', 'time', undefined, 'ds', 'embedded'))
-    // the SS demand is the Poll's, three octets longer since 2026-11-10 (228 597 ns before)
-    expect(DEMAND.ss).toBe(231_674)
-    expect(DEMAND.dsEmbedded).toBe(304_495)
-    expect(DEMAND.dsEmbedded - DEMAND.ss).toBe(72_821)
+    // 2026-11-10: the PHR is 21 symbols (Table 16-2) and the Final carries the RMI/RRTI content
+    // headers (§10.29.8.1/.4) — 231 674 / 304 495 ns before.
+    expect(DEMAND.ss).toBe(233_469)
+    expect(DEMAND.dsEmbedded).toBe(316_546)
+    expect(DEMAND.dsEmbedded - DEMAND.ss).toBe(83_077)
   })
 
   it('a 300 RSTU slot holds nine anchors of SS-TWR and refuses six of embedded DS-TWR', () => {
@@ -294,11 +311,12 @@ describe('uwb-reply-time · the two-sided bound on the fixed reply time (design 
   const w = fixedWindowRstu(BENCH_M, session.slotRstu)
 
   it('prints the whole RSTU the schema accepts at this geometry', () => {
-    // 2163…4345 before 2026-11-10: both bounds subtract the Poll's airtime, three octets longer now
-    expect(w.lo).toBe(2160)
-    expect(w.hi).toBe(4341)
-    // 「会话的缺省值恰好是一整个时隙」, and it is comfortably inside.
-    expect(session.fixedReplyRstu).toBe(session.slotRstu)
+    // 2026-11-10 (standard §10.32.2, audit #5): FRT1 runs RMARKER to RMARKER, so the Poll's airtime
+    // left both bounds (2160…4341 before).
+    expect(w.lo).toBe(2400)
+    expect(w.hi).toBe(4580)
+    // The lesson's scene takes 2600 RSTU, inside the window and clear of its floor.
+    expect(session.fixedReplyRstu).toBe(FIXED_REPLY_RSTU)
     expect(session.fixedReplyRstu).toBeGreaterThan(w.lo)
     expect(session.fixedReplyRstu).toBeLessThan(w.hi)
   })
@@ -306,7 +324,7 @@ describe('uwb-reply-time · the two-sided bound on the fixed reply time (design 
   it('moves by exactly one RSTU between this bench and 200 m', () => {
     // 「把两台设备从 5 m 拉到 200 m，上界也只从 4345 降到 4344 RSTU，整整一个 RSTU」
     const far = fixedWindowRstu(200, session.slotRstu)
-    expect(far.hi).toBe(4340)
+    expect(far.hi).toBe(4579)
     expect(w.hi - far.hi).toBe(1)
     // Both bounds subtract the same flight time (667 ns at 200 m, under one RSTU), so each moves by at
     // most one RSTU; which of them crosses an RSTU edge is rounding. Until 2026-11-10 the lower bound
@@ -334,10 +352,11 @@ describe('uwb-reply-time · the two-sided bound on the fixed reply time (design 
   })
 
   it('and half a slot really does put the answer inside slot 0', () => {
-    // 「排头那个锚点就会在 1.20 ms 处发送，那时它自己的时隙还没开始」
+    // 「排在第一位的锚点会在 1.00 ms 处发送，那时它自己的时隙还没有开始」 (RMARKER to RMARKER: the
+    // Response starts FRT1 after the Poll starts, flight aside)
     const session2 = uwbReplyTime.scenario().uwb!
-    const at = (rstuNs(session2.slotRstu / 2) + uwbPpduNs(BYTES.poll)) / 1e6
-    expect(at.toFixed(2)).toBe('1.20')
+    const at = rstuNs(session2.slotRstu / 2) / 1e6
+    expect(at.toFixed(2)).toBe('1.00')
     expect(at * 1e6).toBeLessThan(rstuNs(session2.slotRstu))
   })
 })
@@ -346,7 +365,7 @@ describe('uwb-reply-time · the deferred shape, end to end', () => {
   const rs = runOf(uwbReplyTime, undefined, RUN_NS)
 
   it('has no range at the Response and one when the deferred message lands', () => {
-    // observe: 「测距行出现在 4.184 ms……不是 2.181 ms 的 Response 落地时」
+    // observe: 「测距行出现在 4.188 ms……不是 2.183 ms 的 Response 落地时」
     const stamps = ofType(rs, 'UWB_TS').filter((r) => r.node === 'tag-1' && r.dir === 'rx')
     const resp = stamps.find((r) => r.frameKind === 'uwbResp')!
     const defer = stamps.find((r) => r.frameKind === 'uwbSsDefer')!
@@ -355,8 +374,8 @@ describe('uwb-reply-time · the deferred shape, end to end', () => {
     expect(ranges[0].node).toBe('tag-1')
     expect(ranges[0].t).toBeGreaterThan(resp.t)
     expect(ranges[0].t).toBeGreaterThanOrEqual(defer.t)
-    expect((ranges[0].t / 1e6).toFixed(3)).toBe('4.184')
-    expect((resp.t / 1e6).toFixed(3)).toBe('2.181')
+    expect((ranges[0].t / 1e6).toFixed(3)).toBe('4.188')
+    expect((resp.t / 1e6).toFixed(3)).toBe('2.183')
   })
 
   it('stamps the deferred message at both ends, and no arithmetic reads those stamps', () => {
@@ -508,18 +527,19 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
      * the distance this scene runs.
      */
     const bound = formulas().find((f) => f.text.includes('≤  F  ≤') || f.text.includes('≤ F ≤'))!
-    const [slots] = figs(bound.text, /≤\s+(\d) × 时隙 − Poll − Response − 守卫 − 飞行时间/,
+    // 2026-11-10 (standard §10.32.2): FRT1 is RMARKER to RMARKER, so the Poll is gone from the bound.
+    const [slots] = figs(bound.text, /≤\s+(\d) × 时隙 − Response − 守卫 − 飞行时间/,
       'the bound’s upper line')
     const sc = uwbReplyTimeScenario('fixed')
     const slotNs = rstuNs(sc.uwb!.slotRstu)
     const tofNs = BENCH_M / C_M_PER_NS
-    const upperNs = slots! * slotNs - uwbPpduNs(uwbPollBytes(1))
+    const upperNs = slots! * slotNs
       - uwbPpduNs(uwbRespBytes('ss', 'fixed')) - UWB_SLOT_GUARD_NS - tofNs
     const hi = fixedWindowRstu(BENCH_M, sc.uwb!.slotRstu).hi
     expect(rstuNs(hi), 'the last whole RSTU that bound allows').toBeLessThanOrEqual(upperNs)
     expect(rstuNs(hi + 1), 'and one more is past it').toBeGreaterThan(upperNs)
     // the lower line is the same arithmetic one slot down, which is why the window is one slot wide
-    const lowerNs = slotNs - uwbPpduNs(uwbPollBytes(1)) - tofNs
+    const lowerNs = slotNs - tofNs
     const lo = fixedWindowRstu(BENCH_M, sc.uwb!.slotRstu).lo
     expect(rstuNs(lo), 'the first whole RSTU it allows').toBeGreaterThanOrEqual(lowerNs)
     expect(rstuNs(lo - 1), 'and one below is short of it').toBeLessThan(lowerNs)
@@ -589,8 +609,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     expect(highEdge, 'and the far edge is the one after it').toBe(slotOf + 1)
     // k = 0 for the one responder this scene runs, so the answer falls in slot k + slotOf
     const w = fixedWindowRstu(BENCH_M, uwbReplyTimeScenario('fixed').uwb!.slotRstu)
-    const sendAt = (f: number): number => uwbPpduNs(uwbPollBytes(1)) + BENCH_M / C_M_PER_NS
-      + rstuNs(f)
+    const sendAt = (f: number): number => BENCH_M / C_M_PER_NS + rstuNs(f)
     for (const f of [w.lo, w.hi]) {
       expect(sendAt(f), `a reply time of ${f} RSTU answers inside that slot`)
         .toBeGreaterThanOrEqual(lowEdge * slotNs)
@@ -641,12 +660,10 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
         } else same(String(bytes), respBytes(rt), `${lane.label}: Response`)
       }
     }
-    // 「Response 相差的六个字节就是那段等待自己那一小节」
-    const [sixCn] = raw(NUMS, /Response 相差的(.)个字节就是承载那段等待时间的信息单元/,
-      'the paragraph on the six octets')
-    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
-    expect(respBytes('embedded') - respBytes('fixed'), 'what those octets really come to')
-      .toBe(cn(sixCn!))
+    // 「Response 相差的 7 个字节就是承载那段等待时间的信息单元」
+    const [seven] = figs(NUMS, /Response 相差的 (\d+) 个字节就是承载那段等待时间的信息单元/,
+      'the paragraph on the seven octets')
+    expect(respBytes('embedded') - respBytes('fixed'), 'what those octets really come to').toBe(seven)
   })
 
   it('reads the two caps, what binds them and the PSDU they fit in', () => {
@@ -660,12 +677,12 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
       const method = shape.startsWith('DS') ? 'ds' : 'ss'
       const rt = shapeOf(shape)
       expect(val(cap), `the cap ${shape} really earns`).toBe(uwbMaxAnchors('twr', method, rt))
-      const binds = longest.includes('Final') ? 'Final' : 'Poll'
+      const binds = longest.includes('Final') ? 'Final' : longest.includes('延后数据帧') ? '延后数据帧' : 'Poll'
       expect(longest.startsWith(binds), `${shape}: the frame its own row names`).toBe(true)
       // the row prints the growth as `base + nA`: both figures are the engine's own arithmetic
       const [base, growth] = figs(longest, /(\d+) \+ (\d+)A/, `${shape}: how the frame grows`)
       const named = (a: number): number =>
-        binds === 'Final' ? uwbFinalBytes(a, rt) : uwbPollBytes(a)
+        binds === 'Final' ? uwbFinalBytes(a, rt) : binds === '延后数据帧' ? uwbDsDeferredReportBytes(a) : uwbPollBytes(a)
       expect(named(0), `${shape}: the frame its row names, with no anchor in it`).toBe(base)
       expect(named(1) - named(0), `${shape}: what one more anchor costs it`).toBe(growth)
       const longestAt = (a: number): number =>
@@ -742,11 +759,12 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
 
   it('reads `deeper`, `limits` and `sources` on the figures they carry', () => {
     /*
-     * 「它在 T0 + Ap + ToF + F + k·S 处发送，而这一刻必须落在第 k+1 个时隙之内：不早于
-     * T0 + (k+1)·S，也不晚到 T0 + (k+2)·S 减去 Ar 与守卫」 — the three T0 are one instant and
-     * the two offsets are consecutive slots, read against the round this scene really runs.
+     * 「它在 T0 + ToF + F + k·S 处开始发送，而这一时刻必须落在第 k+1 个时隙之内：不早于
+     * T0 + (k+1)·S，也不晚到 T0 + (k+2)·S 减去 Ar 与守卫」 — the T0 are one instant and the two
+     * offsets are consecutive slots, read against the round this scene really runs. (2026-11-10:
+     * no Ap term any more — FRT runs RMARKER to RMARKER, §10.32.2.)
      */
-    const zeros = [...DEEP.matchAll(/T(\d)(?=、| \+ Ap| \+ \(k)/g)].map((m) => val(m[1]!))
+    const zeros = [...DEEP.matchAll(/T(\d)(?=、| \+ ToF| \+ \(k)/g)].map((m) => val(m[1]!))
     expect(zeros.length, 'the round start, named four times').toBe(4)
     expect(new Set(zeros).size, 'and it is the same instant each time').toBe(1)
     const [lo, hi] = figs(DEEP, /不早于 T\d \+ \(k\+(\d)\)·S，也不晚到 T\d \+ \(k\+(\d)\)·S/,
@@ -764,28 +782,28 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
       '`limits` on what a nanosecond costs')
     same(String(errCm), (errNs! / 2) * C_M_PER_NS * 100, 'half the error, times the speed of light')
     /*
-     * 「2 ms 的测距时隙…时隙末尾 200 ns 的飞行守卫，以及各帧信息单元的宽度——帧头 9 字节、
-     * RRTI IE 6 字节、帧校验 2 字节」 — four model values, each read off the engine.
+     * 「2 ms 的测距时隙…时隙末尾 200 ns 的飞行守卫，以及 16 位短地址的帧头——帧头 9 字节；
+     * RRTI IE 7 字节与帧校验 2 字节是标准的宽度」 — read off the engine.
      */
     const [slotMs] = figs(SRC, /模型选择：(\d+) ms 的测距时隙/, '`sources` on the slot')
     expect(rstuNs(uwbReplyTimeScenario('deferred').uwb!.slotRstu), 'the slot this scene runs')
       .toBe(slotMs! * MS)
     const [guardNs] = figs(SRC, /时隙末尾 (\d+) ns 的飞行守卫/, '`sources` on the guard')
     expect(guardNs, 'the guard the engine keeps').toBe(UWB_SLOT_GUARD_NS)
-    const [mhr, ie, fcs] = figs(SRC, /帧头 (\d+) 字节、RRTI IE (\d+) 字节、帧校验 (\d+) 字节/,
+    const [mhr, ie, fcs] = figs(SRC, /帧头 (\d+) 字节；RRTI IE (\d+) 字节与帧校验 (\d+) 字节/,
       '`sources` on the three widths')
     expect([mhr, ie, fcs], 'the three widths this engine really uses')
       .toEqual([UWB_MHR_BYTES, RRTI_IE_BYTES, UWB_FCS_BYTES])
-    expect(mhr! + ie! + fcs!, 'and together they are the deferred message')
-      .toBe(txOf(runShape('deferred'), 'uwbSsDefer')[0]!.frame.bytes)
-    // `limits` prints the same three widths and the two conclusions they decide
-    const [limMhr, limIe, limFcs, limGuard] = figs(LIM,
-      /帧头 (\d+) 字节、那一小节 (\d+) 字节、帧校验 (\d+) 字节、时隙守卫 (\d+) ns/,
+    expect(mhr! + ie! + fcs!, 'and together with the 7-octet RRMC IE they are the embedded Response')
+      .toBe(txOf(runShape('embedded'), 'uwbResp')[0]!.frame.bytes - 3)
+    // `limits` prints the same widths and the conclusions they decide
+    const [limIe, limFcs, limMhr, limGuard] = figs(LIM,
+      /RRTI IE (\d+) 字节.*?帧校验 (\d+) 字节。帧头 (\d+) 字节.*?时隙守卫 (\d+) ns/s,
       '`limits` on the same four')
     expect([limMhr, limIe, limFcs, limGuard], 'the same four, a second time')
       .toEqual([mhr, ie, fcs, guardNs])
     const [diff, deferB, capFrom, capTo] = figs(LIM,
-      /「Response 相差 (\d+) 个字节」「延后报文 (\d+) 字节」「上限从 (\d+) 变为 (\d+)」/,
+      /「Response 相差 (\d+) 个字节」只取决于标准，「延后报文 (\d+) 字节」「上限从 (\d+) 变为 (\d+)」/,
       '`limits` on the three conclusions')
     expect(diff, 'the octets the two Responses differ by')
       .toBe(respBytes('embedded') - respBytes('fixed'))
@@ -796,8 +814,9 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
   })
 
   it('reads `observe` and `tryThis` against the two rounds they describe', () => {
-    // 「测距行出现在 4.184 ms…不是 2.181 ms 的 Response 落地时」
+    // 「测距行出现在 4.188 ms…不是 2.183 ms 的 Response 落地时」
     const rs = runShape('deferred')
+    const sc0 = uwbReplyTimeScenario('fixed')
     const [rangeMs, respMs] = figs(OBS, /测距行出现在 ([\d.]+) ms.*?不是 ([\d.]+) ms 的 Response 到达时/s,
       '`observe` on the two instants')
     const range = ofType(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1')[0]!
@@ -816,16 +835,13 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     const fixedResp = txOf(runShape('fixed'), 'uwbResp')[0]!
     same(String(nowMs), fixedResp.t / MS, 'and where the fixed shape puts it')
     /*
-     * 「正好晚了一个 Poll 的空口时间」 — read on the measured instants rather than on the two
-     * printed ones: the lesson prints them to the microsecond (2.000 and 2.198 ms), and the
-     * airtime they differ by is 197.601 µs, so the claim is a ratio of one, to the precision
-     * the two printed figures can carry.
+     * 「它的 RMARKER 在 Poll 的 RMARKER 之后 2600 RSTU」 — 2026-11-10 (standard §10.32.2): the fixed
+     * Response starts FRT1 after the Poll started, flight and the anchor's crystal aside.
      */
-    const movedNs = fixedResp.t - txOf(runShape('deferred'), 'uwbResp')[0]!.t
-    expect(movedNs / uwbPpduNs(uwbPollBytes(1)), 'which is one Poll airtime later')
-      .toBeCloseTo(1, 3)
-    expect(Math.round((nowMs! - wasMs!) * 1000), 'and the two printed figures say the same')
-      .toBe(Math.round(movedNs / 1000))
+    const [frt] = figs(TRY, /它的 RMARKER 在 Poll 的 RMARKER 之后 (\d+) RSTU/, '`tryThis` on FRT1')
+    expect(frt, 'the scene’s own FRT1').toBe(sc0.uwb!.fixedReplyRstu)
+    expect(Math.abs(fixedResp.t - rstuNs(frt!)), 'and the send is that far after the Poll’s start')
+      .toBeLessThan(100)
     // 「越过 WINDOW.hi 会被拒…退到半个时隙也会被拒，理由完全不同」
     const sc = uwbReplyTimeScenario('fixed')
     const window = fixedWindowRstu(BENCH_M, sc.uwb!.slotRstu)
@@ -841,6 +857,6 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     expect(why(hi! + 1), 'one past the top is refused').not.toBe('')
     expect(why(halfSlot!), 'and half a slot is refused too').not.toBe('')
     expect(why(hi! + 1), '「两种越界，两条不一样的错误消息」').not.toBe(why(halfSlot!))
-    expect(why(sc.uwb!.fixedReplyRstu), 'while the default is accepted').toBe('')
+    expect(why(sc.uwb!.fixedReplyRstu), 'while the scene’s own value is accepted').toBe('')
   })
 })

@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, BITS, BLOCKS, BYTES, CAP, ENTRY_BYTES, LIST, M2M, M2M_ENTRIES, PARTICIPANTS, PLACES,
+  ACK_SLOTS, ANCHORS, BITS, BLOCKS, BYTES, CAP, ENTRY_BYTES, LIST, M2M, M2M_ENTRIES, PARTICIPANTS, PLACES,
   QUIET_DB, QUIET_ID, RCM_BYTES, INIT_BYTES, SLOTS, TWR, TWR_ENTRIES, VALIDITY, idOf,
   uwbReceipt, uwbReceiptFields, uwbReceiptScenario, uwbReceiptTwrScenario,
 } from '../../src/course/uwb/uwb-receipt'
@@ -28,11 +28,11 @@ import type { TLRecord } from '../../src/model/records'
 import { MODULES, basisOf } from '../../src/course/curriculum'
 import { diagramTexts } from '../../src/course/diagram'
 import {
-  RMMRC_ADDR_BYTES, RMMRC_FIXED_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES, UWB_TX_POWER_DBM,
+  RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, RMMRC_FIXED_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES, UWB_TX_POWER_DBM,
   rmmrcBitmapBytes, rmmrcEntryBytes, uwbInitBytes, uwbMaxMmrcmInitiators, uwbMmrcmBytes,
   uwbMmrcmSlots, uwbPollBytes,
 } from '../../src/uwb/phy'
-import { mmrcmResponders, roundPlan } from '../../src/uwb/session'
+import { mmrcmAckSlots, mmrcmResponders, roundPlan } from '../../src/uwb/session'
 import { uwbRcmValidity } from '../../src/course/uwb/uwb-rcm-validity'
 import { uwbAncillary } from '../../src/course/uwb/uwb-ancillary'
 import { uwbAncillaryRequest } from '../../src/course/uwb/uwb-ancillary-request'
@@ -48,7 +48,7 @@ const ONE_BLOCK = BLOCK_NS - MS
 /** The four rounds of a two-way set (block 0) plus the round that opens the next (block 1's
  * first), ending a microsecond before block 1's second round would start. Until 2026-11-10 this
  * was five one-round blocks: a set now lives inside one block (standard §10.32.9.1, audit #23). */
-const TWR_NS = BLOCK_NS + roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS).roundNs - 1000
+const TWR_NS = BLOCK_NS + roundPlan(uwbReceiptTwrScenario(false).uwb!, ANCHORS).roundNs - 1000
 /** A two-way round's running number across blocks: the tag runs `VALIDITY` rounds a block. */
 const rn = (u: { block: number; round: number }): number => u.block * VALIDITY + u.round
 
@@ -104,11 +104,10 @@ describe('uwb-receipt · where it sits in the course', () => {
     expect(uwbReceipt.limits.map((l) => l.kind))
       .toEqual(['model-value', 'unmodelled', 'out-of-scope', 'out-of-scope', 'model-value'])
     const text = uwbReceipt.limits.map((l) => l.text).join('\n')
-    // the window is this simulator's choice, and the limit says the two things that make it so
-    // 「…按窗口的块数算」「…按块号算」 until 2026-11-10: the window is a ranging round set, counted in
-    // rounds inside one block (standard §10.32.9.1, audit #23).
-    expect(text).toContain('位图宽度按窗口的轮数算')
-    expect(text).toContain('窗口起点按块号与轮号算')
+    // 2026-11-10 (standard §10.36.2.1, audit #11): the bitmap is one bit per slot, as the standard
+    // has it; what stays this simulator's choice is WHICH slots a confirmation acknowledges.
+    expect(text).toContain('逐时隙确认')
+    expect(text).toContain('回复之前的全部时隙')
     // the short address is the only one built, though the standard allows two sizes
     expect(text).toContain('短地址')
     expect(text).toContain('Address Size')
@@ -161,8 +160,10 @@ describe('uwb-receipt · the base scene really is what the lesson says', () => {
 
   it(`「${SLOTS.m2mRound} 次发送之后，多出 ${SLOTS.m2mExtra} 个时隙」, one per responder`, () => {
     const plan = roundPlan(uwbReceiptScenario().uwb!, PARTICIPANTS)
-    expect(SLOTS.m2mRound).toBe(plan.slots)
+    expect(SLOTS.m2mRound).toBe(plan.rangingSlots)
     expect(SLOTS.m2mRound).toBe(PARTICIPANTS)
+    // 2026-11-10 (standard §10.32.3.3): the confirmations sit inside the one fixed round length
+    expect(plan.slots).toBe(SLOTS.m2mRound + SLOTS.m2mExtra)
     // one slot per RESPONDER, which in this mode is every participant (design §6.1)
     expect(SLOTS.m2mExtra).toBe(mmrcmResponders(plan))
     expect(SLOTS.m2mExtra).toBe(uwbMmrcmSlots('m2m', PARTICIPANTS, true))
@@ -175,32 +176,35 @@ describe('uwb-receipt · the base scene really is what the lesson says', () => {
     expect(frames).toHaveLength(M2M.frames)
   })
 
-  it(`「每帧 ${BYTES.m2m} 字节」, with ${M2M_ENTRIES} entries and one bit each`, () => {
+  it(`「每帧 ${BYTES.m2m} 字节」, with ${M2M_ENTRIES} entries and one bit per slot`, () => {
+    // 2026-11-10 (standard §10.36.2.1, Figure 10-274): one bit per acknowledged slot — the round's
+    // three — and a 1-octet bitmap length in each element (21 octets before).
     for (const f of sent(rs)) {
       expect(f.bytes, f.node).toBe(BYTES.m2m)
-      expect(f.bytes, f.node).toBe(uwbMmrcmBytes(M2M_ENTRIES, 1))
-      expect(f.bytes, f.node).toBe(21)
+      expect(f.bytes, f.node).toBe(uwbMmrcmBytes(M2M_ENTRIES, ACK_SLOTS.m2m))
+      expect(f.bytes, f.node).toBe(23)
       expect(f.ies, f.node).toEqual(['RMMRC'])
       expect(f.list.length, f.node).toBe(M2M_ENTRIES)
       for (const e of f.list) expect(e.bits.length, `${f.node} → ${e.initiator}`).toBe(BITS.m2m)
     }
-    expect(BITS.m2m).toBe(1)
+    expect(BITS.m2m).toBe(3)
     expect(M2M_ENTRIES).toBe(PARTICIPANTS - 1)
     // 「每个发起方一帧」 would need this many frames, and the round has `SLOTS.m2mExtra` slots
     expect(PARTICIPANTS * M2M_ENTRIES).toBe(6)
     expect(PARTICIPANTS * M2M_ENTRIES).toBeGreaterThan(SLOTS.m2mExtra)
   })
 
-  it('「两个条目一个是 1、一个是 0」: one frame, two entries, two different answers', () => {
+  it('「一个在 P2 发送的那个时隙记了 1、一个全是 0」: one frame, two entries, two different answers', () => {
     const mine = sent(rs).find((f) => f.node === M2M.frameFrom)
     expect(mine, M2M.frameFrom).toBeDefined()
+    // one bit per slot (standard §10.36.2.1): slot 1 is p-2's transmission, slot 2 p-3's
     expect(mine!.list).toEqual([
-      { initiator: idOf(1), bits: '1' },
-      { initiator: QUIET_ID, bits: '0' },
+      { initiator: idOf(1), bits: '010' },
+      { initiator: QUIET_ID, bits: '000' },
     ])
     // …and the bits are the receiver's own experience, compared against the medium's records
     for (const e of mine!.list) {
-      expect(e.bits === '1', `${M2M.frameFrom} ← ${e.initiator}`)
+      expect(e.bits.includes('1'), `${M2M.frameFrom} ← ${e.initiator}`)
         .toBe(decoded(rs, M2M.frameFrom, e.initiator) > 0)
     }
   })
@@ -208,14 +212,14 @@ describe('uwb-receipt · the base scene really is what the lesson says', () => {
   it(`「${QUIET_ID} 从另外两帧里各读到一个 0」, which no other frame in this mode ever tells it`, () => {
     const atQuiet = ofType(rs, 'UWB_MMRCM').filter((r) => r.node === QUIET_ID)
     expect(atQuiet.map((r) => r.peer).sort()).toEqual([idOf(0), idOf(1)])
-    for (const r of atQuiet) expect(r.received, r.peer).toEqual([false])
+    for (const r of atQuiet) expect(r.received, r.peer).toEqual([false, false, false])
     // its own frame went out and reached nobody, so only four of the nine answers land
     expect(sent(rs).some((f) => f.node === QUIET_ID)).toBe(true)
     expect(ofType(rs, 'UWB_MMRCM')).toHaveLength(M2M.confirmations)
     expect(M2M.confirmations).toBe(4)
     // the opposite bit, from the same mechanism, in the other direction
     const atFirst = ofType(rs, 'UWB_MMRCM').filter((r) => r.node === idOf(0))
-    expect(atFirst.map((r) => [r.peer, r.received])).toEqual([[idOf(1), [true]]])
+    expect(atFirst.map((r) => [r.peer, r.received])).toEqual([[idOf(1), [true, false, false]]])
   })
 
   it(`「整块只有 ${M2M.ranges} 条测距行，不是 ${M2M.pairs} 条」`, () => {
@@ -225,7 +229,7 @@ describe('uwb-receipt · the base scene really is what the lesson says', () => {
     // which is what says the missing two and the zero bits above are the same fact
     const open = run(uwbReceiptScenario(true, false), ONE_BLOCK)
     expect(ofType(open, 'UWB_RANGE')).toHaveLength(M2M.pairs)
-    for (const r of ofType(open, 'UWB_MMRCM')) expect(r.received, r.peer).toEqual([true])
+    for (const r of ofType(open, 'UWB_MMRCM')) expect(r.received.filter(Boolean), r.peer).toEqual([true])
     expect(ofType(open, 'UWB_MMRCM')).toHaveLength(PARTICIPANTS * M2M_ENTRIES)
   })
 })
@@ -248,6 +252,7 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
     expect(openers(off).map((o) => o.bytes)).toEqual([RCM_BYTES, INIT_BYTES, INIT_BYTES, INIT_BYTES, RCM_BYTES])
     // 36 until 2026-11-10: the ARC IE took the standard's content and the RR IE joined it (audit #9).
     expect(openers(off).map((o) => o.bytes)).toEqual([39, 14, 14, 14, 39])
+    void mmrcmAckSlots
     expect(RCM_BYTES).toBe(uwbPollBytes(ANCHORS))
     expect(INIT_BYTES).toBe(uwbInitBytes())
     // the request is a bit of a word the ARC IE already carries, so the frame does not grow
@@ -262,24 +267,35 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
     expect(TWR.confirmations).toBe(ANCHORS)
     for (const f of frames) {
       expect(f.bytes, f.node).toBe(BYTES.twr)
-      expect(f.bytes, f.node).toBe(uwbMmrcmBytes(TWR_ENTRIES, VALIDITY))
-      expect(f.bytes, f.node).toBe(18)
+      // 2026-11-10 (standard §10.36.2.1): 41 acknowledged slots, a 6-octet bitmap plus its length
+      // octet — 24 octets (18 before, one bit per round)
+      expect(f.bytes, f.node).toBe(uwbMmrcmBytes(TWR_ENTRIES, ACK_SLOTS.twr))
+      expect(f.bytes, f.node).toBe(24)
       expect(f.round, f.node).toBe(TWR.block)
       expect(f.round, f.node).toBe(VALIDITY - 1)
       // one entry — the round's single initiator — and it is addressed to it, not multicast
       expect(f.list.map((e) => e.initiator), f.node).toEqual(['uwb-1'])
-      expect(f.list[0].bits, f.node).toBe('1'.repeat(BITS.twr))
+      // a 1 where the tag sent this anchor something — each round's opener (slot 0) and Final
+      // (slot A + 1) — and a 0 in every other slot
+      const plan = roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS)
+      const want = Array.from({ length: ACK_SLOTS.twr }, (_v, i) =>
+        i % plan.slots === 0 || i % plan.slots === ANCHORS + 1 ? '1' : '0').join('')
+      expect(f.list[0].bits, f.node).toBe(want)
+      expect([...f.list[0].bits].filter((b) => b === '1')).toHaveLength(BITS.twrOnes)
       expect(f.dst, f.node).toBe('uwb-1')
     }
-    expect(BITS.twr).toBe(VALIDITY)
+    expect(BITS.twr).toBe(3 * 11 + 8)
     expect(TWR_ENTRIES).toBe(1)
     expect(sent(off)).toHaveLength(0)
     expect(ofType(off, 'UWB_MMRCM')).toHaveLength(0)
   })
 
-  it(`「轮走完之后多出 ${SLOTS.twrExtra} 个时隙」, and only on the set-closing round`, () => {
+  it(`「每一轮留给回复的时隙 ${SLOTS.twrExtra} 个」, used only in the set-closing round`, () => {
+    // 2026-11-10 (standard §10.32.3.3): one round duration, so every round carries the slots; only
+    // the set-closing round fills them.
     const plan = roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS)
-    expect(SLOTS.twrRound).toBe(plan.slots)
+    expect(SLOTS.twrRound).toBe(plan.rangingSlots)
+    expect(SLOTS.twrFixedRound).toBe(plan.slots)
     expect(SLOTS.twrExtra).toBe(mmrcmResponders(plan))
     expect(SLOTS.twrExtra).toBe(ANCHORS)
     const perBlock = (rs: TLRecord[]): number[] => {
@@ -294,41 +310,53 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
       return Array.from({ length: BLOCKS }, (_v, b) => (high.get(b) ?? -1) + 1)
     }
     expect(perBlock(off)).toEqual(Array(BLOCKS).fill(SLOTS.twrRound))
-    expect(perBlock(on)).toEqual([
-      SLOTS.twrRound, SLOTS.twrRound, SLOTS.twrRound,
-      SLOTS.twrRound + SLOTS.twrExtra, SLOTS.twrRound,
-    ])
+    // (the span ends inside the next set's first round for the longer rounds, so the set's four are read)
+    expect(perBlock(on).slice(0, VALIDITY)).toEqual(Array(VALIDITY).fill(SLOTS.twrRound + SLOTS.twrExtra))
+    // …and the confirmations themselves only in the set-closing round
+    expect([...new Set(sent(on).map((f) => f.round))]).toEqual([VALIDITY - 1])
   })
 
-  it(`「${TWR.ranges} 条测距结果逐字段相同」: the answer is not part of the measurement`, () => {
-    // `seq` is a position in the record stream rather than a field of the measurement; `t` is
-    // kept, because an MMRCM takes no ranging counter and no random draw, so it must not move a
-    // single instant of the ranging that came before it.
+  it(`「${TWR.ranges} 条测距结果」: the answer is not part of the measurement`, () => {
+    // `seq` is a position in the record stream rather than a field of the measurement. `t` is
+    // compared only in round 0: since 2026-11-10 every round is one fixed length (standard
+    // §10.32.3.3), so with the request on each round is three slots longer and later rounds start
+    // later — every other field, distances included, is identical.
+    // Later rounds start at different instants, so their counters quantise differently: the
+    // distances differ by under 3 mm, which is the figure the lesson prints.
     const ranges = (rs: TLRecord[]): unknown[] =>
-      ofType(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
+      ofType(rs, 'UWB_RANGE').map(({ seq, t, distM, tofRctu, ...rest }) => rest)
     expect(ranges(off)).toHaveLength(TWR.ranges)
     expect(TWR.ranges).toBe(2 * ANCHORS * BLOCKS)
     expect(TWR.ranges).toBe(30)
     expect(ranges(on)).toEqual(ranges(off))
+    const dOn = ofType(on, 'UWB_RANGE').map((r) => r.distM)
+    const dOff = ofType(off, 'UWB_RANGE').map((r) => r.distM)
+    for (const [i, d] of dOn.entries()) expect(Math.abs(d - dOff[i]!), `range ${i}`).toBeLessThan(0.003)
+    const round0 = (rs: TLRecord[]) => ofType(rs, 'UWB_RANGE').filter((r) => r.block === 0 && r.round === 0)
+      .map(({ seq, ...rest }) => rest)
+    expect(round0(on)).toEqual(round0(off))
     expect(ofType(on, 'UWB_TIMEOUT')).toHaveLength(0)
   })
 })
 
 describe('uwb-receipt · the frame-length law, and the figure of it', () => {
-  it('「15 + 3N」: the fixed part, one entry per initiator, and the cap', () => {
-    expect(uwbMmrcmBytes(0, VALIDITY)).toBe(UWB_MHR_BYTES + RMMRC_FIXED_BYTES + UWB_FCS_BYTES)
-    expect(uwbMmrcmBytes(0, VALIDITY)).toBe(15)
-    expect(ENTRY_BYTES.twr).toBe(rmmrcEntryBytes(VALIDITY))
-    expect(ENTRY_BYTES.twr).toBe(RMMRC_ADDR_BYTES + rmmrcBitmapBytes(VALIDITY))
-    expect(ENTRY_BYTES.twr).toBe(3)
-    expect(ENTRY_BYTES.m2m).toBe(3)
-    for (const n of LIST) expect(uwbMmrcmBytes(n, VALIDITY), `N=${n}`).toBe(15 + 3 * n)
-    expect(LIST.map((n) => uwbMmrcmBytes(n, VALIDITY))).toEqual([18, 21, 24, 33])
+  it('「15 + 9N」: the fixed part, one entry per initiator, and the cap', () => {
+    // 2026-11-10 (standard §10.36.2.1, Figure 10-274): entry = address + bitmap length + ⌈S/8⌉
+    expect(ACK_SLOTS.twr).toBe(mmrcmAckSlots(roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS), VALIDITY - 1))
+    expect(uwbMmrcmBytes(0, ACK_SLOTS.twr)).toBe(UWB_MHR_BYTES + RMMRC_FIXED_BYTES + UWB_FCS_BYTES)
+    expect(uwbMmrcmBytes(0, ACK_SLOTS.twr)).toBe(15)
+    expect(ENTRY_BYTES.twr).toBe(rmmrcEntryBytes(ACK_SLOTS.twr))
+    expect(ENTRY_BYTES.twr).toBe(RMMRC_ADDR_BYTES + RMMRC_BITMAP_LEN_BYTES + rmmrcBitmapBytes(ACK_SLOTS.twr))
+    expect(ENTRY_BYTES.twr).toBe(9)
+    expect(ENTRY_BYTES.m2m).toBe(4)
+    for (const n of LIST) expect(uwbMmrcmBytes(n, ACK_SLOTS.twr), `N=${n}`).toBe(15 + 9 * n)
+    expect(LIST.map((n) => uwbMmrcmBytes(n, ACK_SLOTS.twr))).toEqual([24, 33, 42, 69])
     // the cap is searched against the frame-size function, never typed
-    expect(CAP).toBe(uwbMaxMmrcmInitiators(VALIDITY))
-    expect(CAP).toBe(37)
-    expect(BITS.octets).toBe(rmmrcBitmapBytes(VALIDITY))
+    expect(CAP).toBe(uwbMaxMmrcmInitiators(ACK_SLOTS.twr))
+    expect(CAP).toBe(12)
+    expect(BITS.octets).toBe(rmmrcBitmapBytes(ACK_SLOTS.m2m))
     expect(BITS.octets).toBe(1)
+    expect(BITS.twrOctets).toBe(6)
   })
 
   it(`draws the base scene's own frame, ${BYTES.m2m} octets, with one box per entry`, () => {
@@ -356,7 +384,7 @@ describe('uwb-receipt · the base run the fixture replays', () => {
     expect(ofType(rs, 'UWB_MMRCM')).toHaveLength(7 * M2M.confirmations)
     // and the two bits never change, because nothing in the scene moves
     for (const f of sent(rs).filter((x) => x.node === M2M.frameFrom)) {
-      expect(f.list.map((e) => e.bits), `block ${f.block}`).toEqual(['1', '0'])
+      expect(f.list.map((e) => e.bits), `block ${f.block}`).toEqual(['010', '000'])
     }
   })
 
@@ -456,8 +484,8 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
   })
 
   it('reads the bitmap’s own convention against the medium’s records', () => {
-    // 「窗口的第一条开场消息在最左，一位一条，收到记 1」
-    const [got] = figs(TERMS, /一位一条，收到记 (\d)/, 'the term on the bitmap')
+    // 「一位对应一个时隙、按时间先后排列，收到那个时隙里发给它的消息记 1」
+    const [got] = figs(TERMS, /收到那个时隙里发给它的消息记 (\d)/, 'the term on the bitmap')
     /*
      * One block, because in this mode every block is its own validity window: the bitmap is one
      * bit wide, and that bit is 「收到记 1」 for the initiator the entry names. Read against the
@@ -483,7 +511,9 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
         const ones = [...e.bits].filter((b) => b === String(got)).length
         expect(zeros + ones, `${f.node} on ${e.initiator}: every bit is one or the other`)
           .toBe(e.bits.length)
-        expect(zeros > 0, `${f.node} on ${e.initiator}: a zero means it missed that opener`)
+        // 2026-11-10: one bit per slot, so zeros are everywhere the initiator did not transmit;
+        // all-zero means it missed every message from it
+        expect(zeros === e.bits.length, `${f.node} on ${e.initiator}: all zeros means it missed it`)
           .toBe(decoded(rs, f.node, e.initiator) === 0)
       }
     }
@@ -557,7 +587,7 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
       'and the rest of the boxes are the fixed part').toBe(fixed)
     expect(fixed, 'which is the engine’s own fixed part')
       .toBe(UWB_MHR_BYTES + RMMRC_FIXED_BYTES + UWB_FCS_BYTES)
-    expect(perEntry, 'and its own per-initiator entry').toBe(rmmrcEntryBytes(1))
+    expect(perEntry, 'and its own per-initiator entry').toBe(rmmrcEntryBytes(ACK_SLOTS.m2m))
     /*
      * 「Request 置 1 时那一帧是向控制器请求…」 — this lesson only mentions the ancillary clause's
      * bit, so every mention of it is read as one of that bit's two values, each on the lesson
@@ -590,8 +620,8 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
     const [fixed, perEntry] = figs(LIM, /而本课的 (\d+) \+ (\d)N 这条式子算不出那一种/,
       '`limits` on the formula it does fit')
     expect(perEntry, 'the entry that formula prices is the short-address one')
-      .toBe(rmmrcEntryBytes(1))
-    expect(uwbMmrcmBytes(1, 1), 'and one entry really prices that way').toBe(fixed! + perEntry!)
+      .toBe(rmmrcEntryBytes(ACK_SLOTS.twr))
+    expect(uwbMmrcmBytes(1, ACK_SLOTS.twr), 'and one entry really prices that way').toBe(fixed! + perEntry!)
   })
 
   it('reads the widths `limits` names and the figures `sources` lists', () => {
@@ -603,8 +633,8 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
       '`limits` on this lesson’s own formula')
     expect(fixed, 'the fixed part of a confirmation frame')
       .toBe(UWB_MHR_BYTES + RMMRC_FIXED_BYTES + UWB_FCS_BYTES)
-    expect(perEntry, 'and what one initiator adds to it').toBe(rmmrcEntryBytes(1))
-    expect(uwbMmrcmBytes(2, 1), 'so the formula really prices the frame')
+    expect(perEntry, 'and what one initiator adds to it').toBe(rmmrcEntryBytes(ACK_SLOTS.twr))
+    expect(uwbMmrcmBytes(2, ACK_SLOTS.twr), 'so the formula really prices the frame')
       .toBe(fixed! + 2 * perEntry!)
     // 「有效轮次只能是 1」 — the many-to-many constraint, read off the schema
     const [onlyOne] = figs(LIM, /有效轮次只能是 (\d)/, '`limits` on the m2m window')

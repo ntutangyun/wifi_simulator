@@ -95,6 +95,9 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // above, this frame is about the exchange itself rather than a range — it carries a slice of
     // a message the round's own ranging never reads — so it gets the same cool grey-blue.
     case 'uwbAncillary': return 0x94a3b8
+    // The ancillary round's stand-alone RCM (standard §10.32.2): the control plane's indigo, like
+    // the SP0 control frames above — it configures the round, it measures nothing.
+    case 'uwbRcm': return 0x818cf8
   }
 }
 

@@ -32,7 +32,7 @@ import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_PSDU_BYTES,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbAncillaryBytes, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes,
+  fomDecode, fomText, rstuNs, uwbAncillaryBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes,
   uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs,
   uwbRespBytes, uwbRmnrBytes, uwbSlotsPerTag, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
   nbSlotSlackNs, ssbdBoundNs,
@@ -40,7 +40,7 @@ import {
 } from '../../src/uwb/phy'
 import { rangeSigmaM } from '../../src/uwb/position'
 import { ELLIPSE_DRAW_SCALE } from '../../src/uwb/scene'
-import { roundPlan } from '../../src/uwb/session'
+import { blockSlotStartNs, mmrcmAckSlots, roundPlan } from '../../src/uwb/session'
 
 const README = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
 /** Pinning the panel's prose against the engine's live constants reads the source text
@@ -145,28 +145,33 @@ describe('Guide section 15: reply time / round-trip time', () => {
   })
 
   it('states the frame sizes off the engine’s own frame builders (design §5)', () => {
-    // SS Response: 20 embedded / 14 fixed (same octet count as deferred).
-    expect(uwbRespBytes('ss', 'embedded')).toBe(20)
+    // Updated 2026-11-10 (standard §10.29.8.1/§10.29.8.4 content headers, §10.29.6.3, §10.29.6.6):
+    // SS Response: 21 embedded (RRTI IE with its 1-octet content header) / 14 fixed (= deferred).
+    expect(uwbRespBytes('ss', 'embedded')).toBe(21)
     expect(uwbRespBytes('ss', 'fixed')).toBe(14)
     expect(uwbRespBytes('ss', 'deferred')).toBe(14)
-    expect(guide).toContain('>20<')
+    expect(guide).toContain('>21<')
     expect(guide).toContain('>14<')
-    // The deferred reply-time message: 17 octets.
-    expect(UWB_SS_DEFER_BYTES).toBe(17)
-    expect(guide).toContain('17（MHR + RRTI IE + FCS）')
-    // DS Final at nine anchors: 14 + 12A embedded (122) against 14 + 2A deferred (32).
-    expect(uwbFinalBytes(9, 'embedded')).toBe(122)
-    expect(uwbFinalBytes(9, 'deferred')).toBe(32)
-    expect(guide).toContain('14 + 12A（9 锚点 = 122）')
-    expect(guide).toContain('14 + 2A（9 锚点 = 32）')
+    // The deferred reply-time message: an RMI IE (§10.29.6.3), 19 octets.
+    expect(UWB_SS_DEFER_BYTES).toBe(19)
+    expect(guide).toContain('19（MHR + RMI IE + FCS）')
+    // DS Final at nine anchors: 18 + 12A embedded (126); deferred, no IE at all (11); the initiator's
+    // deferred report 15 + 10A (105).
+    expect(uwbFinalBytes(9, 'embedded')).toBe(126)
+    expect(uwbFinalBytes(9, 'deferred')).toBe(11)
+    expect(uwbDsDeferredReportBytes(9)).toBe(105)
+    expect(guide).toContain('18 + 12A（9 锚点 = 126）')
+    expect(guide).toContain('11（不带信息单元）')
+    expect(guide).toContain('15 + 10A（9 锚点 = 105）')
   })
 
-  // 33 until 2026-11-10: the Poll (the frame that binds every shape but DS embedded) grew from
-  // 27 + 3A to 30 + 3A when its ARC IE took the standard's content and the RR IE joined it (audit #9),
-  // so the 127-octet PSDU now holds 32 anchors' worth of RDM entries.
+  // 33 until 2026-11-10: the Poll (the frame that binds every SS shape) grew from 27 + 3A to 30 + 3A
+  // when its ARC IE took the standard's content and the RR IE joined it (audit #9), so the 127-octet
+  // PSDU now holds 32 anchors' worth of RDM entries. DS deferred is 11 since 2026-11-10: its binding
+  // frame is the initiator's deferred report, 15 + 10A (§10.29.6.6).
   it('derives the anchor cap rather than quoting a literal 32 anywhere in the engine', () => {
     expect(uwbMaxAnchors('twr', 'ds', 'embedded', 'time')).toBe(9)
-    expect(uwbMaxAnchors('twr', 'ds', 'deferred', 'time')).toBe(32)
+    expect(uwbMaxAnchors('twr', 'ds', 'deferred', 'time')).toBe(11)
     expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'time')).toBe(32)
     expect(uwbMaxAnchors('twr', 'ss', 'deferred', 'time')).toBe(32)
     expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'time')).toBe(32)
@@ -179,8 +184,10 @@ describe('Guide section 15: reply time / round-trip time', () => {
 
   it('states which end holds the range in every one of the five shapes (design §7)', () => {
     for (const row of ['SS 嵌入', 'SS 固定', 'SS 延后', 'DS 嵌入', 'DS 延后']) expect(guide).toContain(row)
-    // DS embedded alone hands the anchor a range too — the Final is what carries it.
-    expect(guide).toMatch(/只有 DS 嵌入[\s\S]{0,40}让锚点也拿到/)
+    // 2026-11-10: both DS shapes hand the anchor a range — the Final when embedded, the initiator's
+    // deferred report when deferred (§10.29.6.6).
+    expect(guide).toMatch(/DS 的两种形态<\/b>都让锚点也拿到距离/)
+    expect(guide).toContain('✓ 收到发起方的延后报告时')
   })
 
   /**
@@ -214,7 +221,13 @@ describe('Guide section 15: reply time / round-trip time', () => {
         walls: [],
         nodes: [node('anc-1', 0, 'anchor', ppm.a), node('tag-1', TRUE_M, 'tag', ppm.t)],
         servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
-        uwb: { ...DEFAULT_UWB_SESSION, ...s, tsNoisePs: 0, cfoNoisePpm: 0 },
+        // FRT1 a tenth of a slot past the boundary (2026-11-10): FRT is RMARKER to RMARKER now
+        // (§10.32.2), so the default of exactly one slot puts the Response on the slot edge, and the
+        // anchor's +20 ppm crystal moves it 23 ns early — into a slot the tag is not listening in.
+        uwb: {
+          ...DEFAULT_UWB_SESSION, ...s, tsNoisePs: 0, cfoNoisePpm: 0,
+          fixedReplyRstu: Math.round(DEFAULT_UWB_SESSION.slotRstu * 1.1),
+        },
       }
       const recs = new Simulation(sc).runUntil(40_000_000).records
       const r = recs.find((x) => x.type === 'UWB_RANGE' && x.node === 'tag-1')
@@ -330,8 +343,10 @@ describe('figures pinned to the engine', () => {
     // The README writes the Final as "14 + 12N" octets; that is uwbFinalBytes (embedded DS-TWR,
     // the default and the shape the README's "≤ 9 anchors" row is specifically about).
     const dsEmbeddedCap = uwbMaxAnchors('twr', 'ds', 'embedded', 'time')
-    for (const n of [1, 4, dsEmbeddedCap]) expect(uwbFinalBytes(n)).toBe(14 + 12 * n)
-    expect(README).toContain('14 + 12N')
+    // 18 + 12N since 2026-11-10: the RMI IE's 2-octet and the RRTI IE's 1-octet content headers
+    // (standard §10.29.8.4, §10.29.8.1), one RRTI IE listing every reply time.
+    for (const n of [1, 4, dsEmbeddedCap]) expect(uwbFinalBytes(n)).toBe(18 + 12 * n)
+    expect(README).toContain('18 + 12N')
     expect(README).toContain(`≤ ${dsEmbeddedCap} anchors`)
   })
 
@@ -1103,7 +1118,8 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
     expect(zh).toContain('响应方自己——没等到启动消息就主动发')
     expect(zh).toContain('控制器——在 ARC IE 里置位 MMRCR 请求')
     expect(zh).toContain('本轮的测距启动消息没收到')
-    expect(zh).toContain('窗口里我发出的那几条开场消息，你收到了哪几条')
+    // 2026-11-10: the bitmap is one bit per slot (§10.36.2.1), not one per round's opener
+    expect(zh).toContain('窗口里我发出的那几条消息，你在哪几个时隙收到了')
   })
 
   // --- Measured: the N = 1/3/6 frame-size table, read off real many-to-many rounds ------------
@@ -1136,7 +1152,10 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
     rs.filter((r) => r.type === type) as never
   const PARTICIPANTS_FOR_N: Record<number, number> = { 1: 2, 3: 4, 6: 7 }
 
-  it('the last participant’s MMRCM frame is 15 + 3N octets for N = 1, 3, 6, read off a real round', () => {
+  // 15 + 4N since 2026-11-10: each MMRC list element carries a 1-octet MMRC Bitmap Length
+  // (standard §10.36.2.1, Figure 10-274), and a round of at most eight acknowledged slots needs a
+  // one-octet bitmap.
+  it('the last participant’s MMRCM frame is 15 + 4N octets for N = 1, 3, 6, read off a real round', () => {
     for (const n of [1, 3, 6] as const) {
       const p = PARTICIPANTS_FOR_N[n]
       const sc = m2mScenario(p)
@@ -1153,9 +1172,13 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
       expect(zh).toContain(`>${uwbMmrcmBytes(n, 1)}<`)
     }
     // The Guide's own constants agree with the formula at the window it names.
-    expect(uwbMmrcmBytes(1, 4)).toBe(18)
-    expect(uwbMmrcmBytes(3, 4)).toBe(24)
-    expect(uwbMmrcmBytes(6, 4)).toBe(33)
+    expect(uwbMmrcmBytes(1, 8)).toBe(19)
+    expect(uwbMmrcmBytes(3, 8)).toBe(27)
+    expect(uwbMmrcmBytes(6, 8)).toBe(39)
+    expect(zh).toContain('15 + 4N')
+    // Section 17's four-round set acknowledges every slot before the confirmations: 32 of them
+    const setPlan = roundPlan({ ...DEFAULT_UWB_SESSION, method: 'ss', rcmValidityRounds: 4, initiatorRounds: 4, mmrcr: true }, 4)
+    expect(zh).toContain(`要确认 ${mmrcmAckSlots(setPlan, 0)} 个时隙`)
   })
 
   it('names the searched cap, not a literal', () => {
@@ -1202,13 +1225,22 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
     expect(openerBytes(true)).toEqual(openerBytes(false))
   })
 
-  it('leaves every UWB_RANGE record field-for-field the same whether or not MMRCR is set', () => {
-    const ranges = (mmrcr: boolean): unknown[] => {
+  // 2026-11-10: every round is one length (§10.32.3.3) and the MMRCM slots are inside it, so turning
+  // MMRCR on lengthens every round and moves each range's instant. The ranging counters are then read
+  // at different absolute times, so a range can move by the counter's own quantum — never more.
+  it('leaves every UWB_RANGE record the same whether or not MMRCR is set, but its instant and the counter quantum', () => {
+    const ranges = (mmrcr: boolean) => {
       const rs = new Simulation(twrScenario(mmrcr))
         .runUntil(4 * roundPlan(DEFAULT_UWB_SESSION, 4).blockNs - MS).records
-      return of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
+      return of(rs, 'UWB_RANGE')
     }
-    expect(ranges(true)).toEqual(ranges(false))
+    const on = ranges(true)
+    const off = ranges(false)
+    expect(on.length).toBeGreaterThan(0)
+    const keep = ({ seq: _seq, t: _t, tofRctu: _tof, distM: _d, ...rest }: (typeof on)[number]) => rest
+    expect(on.map(keep)).toEqual(off.map(keep))
+    on.forEach((r, i) => expect(Math.abs(r.tofRctu - off[i]!.tofRctu), `range ${i}`).toBeLessThanOrEqual(1))
+    expect(zh).toContain('距离只差测距计数器的一个计数单位以内')
   })
 })
 
@@ -1231,7 +1263,9 @@ describe('the MMRCM / receipt-bitmap glossary terms, each with a provenance (sta
 
   it('the MMRCM entry names the byte formula and the two counts', () => {
     const item = find('MMRCM')!
-    expect(item.def).toMatch(/15 \+ 3N/)
+    // 15 + 4N since 2026-11-10: the MMRC Bitmap Length octet (standard §10.36.2.1, Figure 10-274)
+    expect(item.def).toMatch(/15 \+ 4N/)
+    expect(item.def).toContain('位图长度 1 字节')
     expect(item.def).toContain('发起方')
     expect(item.def).toContain('响应方')
   })
@@ -1285,8 +1319,10 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
   })
 
   it('states the per-marker saving against both baselines, computed from the engine rather than retyped', () => {
-    expect(SAVING_SHORTEST_NS).toBe(40256)
-    expect(SAVING_EMBEDDED_NS).toBe(46410)
+    // 42 051 / 49 230 since 2026-11-10: every SP1 PPDU gained the two PHR-rate symbols of Table 16-2
+    // (21, not 19) and the embedded Response its RRTI content header; the SP3 marker has no PHR.
+    expect(SAVING_SHORTEST_NS).toBe(42051)
+    expect(SAVING_EMBEDDED_NS).toBe(49230)
     expect(SP3_MARKER_NS).toBe(140962)
     expect(zh).toContain(`${us3(SAVING_EMBEDDED_NS)} µs`)
     expect(zh).toContain(`${us3(SAVING_SHORTEST_NS)} µs`)
@@ -1294,8 +1330,8 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
 
   it('states the report-phase cost and the two multiples, naming which baseline each one is against', () => {
     expect(zh).toContain(`${us3(REPORT_NS)} µs`)
-    expect(MULTIPLE_EMBEDDED).toBe('3.971')
-    expect(MULTIPLE_SHORTEST).toBe('4.578')
+    expect(MULTIPLE_EMBEDDED).toBe('3.822')
+    expect(MULTIPLE_SHORTEST).toBe('4.474')
     expect(Number(MULTIPLE_SHORTEST)).toBeGreaterThan(Number(MULTIPLE_EMBEDDED))
     expect(zh).toContain(MULTIPLE_EMBEDDED)
     expect(zh).toContain(MULTIPLE_SHORTEST)
@@ -1317,12 +1353,11 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
 
   it('against SP1 deferred, there is a crossover at A = 4, and the pre-crossover gaps match the ones the report measured (sp3-design §2.3)', () => {
     const gap = (a: number): number => sp3RoundNs(a, false) - sp1DeferredRoundNs(a)
-    expect(Math.round(gap(1) / 100) / 10).toBeCloseTo(103.8, 1)
-    // 66.6 until 2026-11-10: both rounds' RCM grew three octets (ARC IE to the standard's content plus
-    // the RR IE, audit #9) and the two PPDUs cross a symbol-block boundary differently at A = 2. The
-    // crossover itself does not move.
-    expect(Math.round(gap(2) / 100) / 10).toBeCloseTo(72.8, 1)
-    expect(Math.round(gap(3) / 100) / 10).toBeCloseTo(35.6, 1)
+    // 104.0 / 73.3 / 36.3 since 2026-11-10 (W2: PHR 21 symbols, the RMI-carried deferred reply time,
+    // 5-octet SRRR IEs). The crossover itself does not move.
+    expect(Math.round(gap(1) / 100) / 10).toBeCloseTo(104.0, 1)
+    expect(Math.round(gap(2) / 100) / 10).toBeCloseTo(73.3, 1)
+    expect(Math.round(gap(3) / 100) / 10).toBeCloseTo(36.3, 1)
     expect(gap(1)).toBeGreaterThan(0)
     expect(gap(2)).toBeGreaterThan(0)
     expect(gap(3)).toBeGreaterThan(0)
@@ -1375,22 +1410,25 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
   })
 
   it('states the RAOA report-size difference exactly, and it is the bearing item alone', () => {
-    expect(REPORT_RAOA_NS - REPORT_NS).toBe(4102)
+    expect(REPORT_RAOA_NS - REPORT_NS).toBe(4103)
     expect(zh).toContain(us3(REPORT_NS))
     expect(zh).toContain(us3(REPORT_RAOA_NS))
   })
 
-  it('states the net-saving arithmetic that explains the crossover: 40.256 less the RCM cost is 37.179, and the marker pays back at the fourth responder', () => {
-    expect(RCM_PER_RESPONDER_NS).toBe(3077)
-    expect(NET_SAVING_NS).toBe(37179)
-    expect(PAYBACK).toBe('3.79')
+  // 42.051 − 5.128 = 36.923 since 2026-11-10: the SRRR IE carries the provider's address (5 octets,
+  // §10.32.9.9) and the PHR is 21 symbols (Table 16-2).
+  it('states the net-saving arithmetic that explains the crossover: 42.051 less the RCM cost is 36.923, and the marker pays back at the fourth responder', () => {
+    expect(RCM_PER_RESPONDER_NS).toBe(5128)
+    expect(NET_SAVING_NS).toBe(36923)
+    expect(PAYBACK).toBe('3.82')
     expect(zh).toContain(us3(SP3_MARKER_NS))
     expect(zh).toContain(us3(NET_SAVING_NS))
     expect(zh).toContain(PAYBACK)
   })
 
-  it('contrasts SRRR against MMRCR: the request costs 3 octets per responder, MMRCR costs none, both are answered by a whole frame', () => {
-    expect(SRRR_IE_BYTES).toBe(3)
+  it('contrasts SRRR against MMRCR: the request costs 5 octets per responder, MMRCR costs none, both are answered by a whole frame', () => {
+    // 5 since 2026-11-10: control octet + the provider's short address (§10.32.9.9, Figure 10-255)
+    expect(SRRR_IE_BYTES).toBe(5)
     expect(zh).toContain(`${SRRR_IE_BYTES} 字节`)
     expect(zh).toMatch(/MMRCR[\s\S]{0,350}0 字节/)
   })
@@ -1486,7 +1524,7 @@ describe('the SP3 / SRRR glossary terms, each with a provenance (sp3-design, tas
 
   it('the SRRR entry states the byte formula, the method restriction, and the exact RAOA size difference', () => {
     const item = find('SRRR IE')!
-    expect(item.def).toMatch(/3\s*字节/)
+    expect(item.def).toMatch(/共 5 字节/)
     expect(item.def).toMatch(/单边双向/)
     const noRaoa = uwbPpduNs(uwbSp3ReportBytes(false))
     const raoa = uwbPpduNs(uwbSp3ReportBytes(true))
@@ -1581,7 +1619,9 @@ describe('Guide section 20: ranging ancillary information (standard §10.35; des
     // Half a slot before the lost fragment's own slot opens, and half a slot before the next one
     // does — the same trick the acceptance test uses, so exactly fragment index 1 (Frames
     // Remaining 2) is lost.
-    const at = (slot: number): number => (plan.slots + slot) * plan.slotNs - plan.slotNs / 2
+    // 2026-11-10: the fragments ride slots 1… of the tag's ancillary round (§10.35, ARC Ranging Round
+    // Usage = 3), the round after its ranging round.
+    const at = (slot: number): number => blockSlotStartNs(plan, 0, plan.initiatorRounds, 1 + slot) - plan.slotNs / 2
     const before = sim.runUntil(at(1)).records
     sender.pos.y = 400
     const during = sim.runUntil(at(2)).records
@@ -1591,7 +1631,7 @@ describe('Guide section 20: ranging ancillary information (standard §10.35; des
     const named = rs.find((r): r is Extract<TLRecord, { type: 'UWB_ANCILLARY' }> =>
       r.type === 'UWB_ANCILLARY' && r.missing.length > 0)
     const end = rs.find((r): r is Extract<TLRecord, { type: 'UWB_ROUND_END' }> =>
-      r.type === 'UWB_ROUND_END' && r.node === 'tag-1')
+      r.type === 'UWB_ROUND_END' && r.node === 'tag-1' && r.round === plan.initiatorRounds)
     expect(named, 'the run actually names a gap').toBeDefined()
     expect(end, 'the run actually reaches a round end').toBeDefined()
     const measuredLeadNs = end!.t - named!.t
@@ -1611,10 +1651,14 @@ describe('Guide section 20: ranging ancillary information (standard §10.35; des
     expect(section).toMatch(/最后期限/)
   })
 
-  it('states the window reuse and that opening the exchange leaves every UWB_RANGE record unchanged', () => {
+  // 2026-11-10: the exchange has its own round with its own RCM (validity 1), not the ranging round
+  // set's window (§10.35.1, Table 10-164).
+  it('states the ancillary round has its own RCM, and that opening the exchange leaves every distance unchanged', () => {
     expect(section).toContain('UWB_RANGE')
     expect(section).toMatch(/RCM 有效轮次/)
-    expect(section).toMatch(/第三次被用到/)
+    expect(section).toMatch(/辅助信息轮有它自己的 RCM，有效轮数为 1/)
+    expect(section).not.toMatch(/第三次被用到/)
+    expect(section).toMatch(/Ranging Round Usage = 3/)
   })
 
   it('does not use any of the wording contract’s banned cost-framing words, even though no test polices this file by default', () => {

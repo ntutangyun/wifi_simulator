@@ -133,9 +133,9 @@ export const uwbAoa: Lesson = {
     { kind: 'table', heading: '基准场景的一轮，日志输出的内容', head: [
       '行', '内容',
     ], rows: [
-      ['首个方位角，200.713 µs 处',
+      ['首个方位角，202.508 µs 处',
         'anc-1 AoA ← badge-1: 2.3° (true 0.0°)'],
-      ['第二个，来自 Final，4.193 534 ms 处',
+      ['第二个，来自 Final，4.199 431 ms 处',
         'anc-1 AoA ← badge-1: 1.8° (true 0.0°)'],
       ['同一微秒内的距离',
         'anc-1 range → badge-1 (DS): 2.30 m (true 2.33 m)'],

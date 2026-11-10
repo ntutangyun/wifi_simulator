@@ -208,12 +208,10 @@ export function onM2mRx(
   }
   const pass = m.slotPass
   m.rxCounters[pass][from] = counter
-  // Standard §10.36's receipt bit, written at the one place a many-to-many frame is decoded. **Pass
-  // 0 only**: in this mode the opener is the question, and the question is the pass-0 transmission —
-  // a DS round's pass-1 frame is the answer half (design §3), and counting it as an opener would let
-  // a bit be set by a frame that is not what the bitmap reports on. Keyed by `from`, the initiator,
-  // which in this mode is every other participant in turn (`UwbDevice.openerReceipt`).
-  if (pass === 0) dev.noteOpener(from, r.block, r.round, r.plan)
+  // Standard §10.36's receipt bit, written at the one place a many-to-many frame is decoded: one bit
+  // per slot (§10.36.2.1), set for the slot this participant's frame arrived in, either pass. Keyed by
+  // `from`, the initiator, which in this mode is every other participant in turn.
+  dev.noteReceipt(from, r.block, r.round, r.slot, r.plan)
   // `T_j(i)` / `T2`: when the sender heard *this* device, in this same pass. Absent when it did
   // not hear it — or when this device is the later half of the pair, which is the same thing.
   const rxOfMe: number | undefined = times.rxCounters[dev.id]

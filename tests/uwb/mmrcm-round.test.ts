@@ -27,7 +27,9 @@ import {
   DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM, uwbMmrcmBytes } from '../../src/uwb/phy'
-import { blockSlotStartNs, mmrcmResponders, roundPlan, roundSlots } from '../../src/uwb/session'
+import {
+  blockSlotStartNs, mmrcmAckSlots, mmrcmBitIndex, mmrcmResponders, roundPlan, roundSlots,
+} from '../../src/uwb/session'
 
 const MS = 1_000_000
 
@@ -162,6 +164,25 @@ const openersDecoded = (rs: TLRecord[], node: string): boolean[] => {
   return Array.from({ length: R }, (_, i) => got.has(i))
 }
 
+/** The two-way plan every run below lays its rounds out from. */
+const TWR_PLAN = roundPlan({ ...DEFAULT_UWB_SESSION, ...twrSession(true) }, ANCHORS)
+/** How many slots of the set one bitmap acknowledges (standard §10.36.2.1: one bit per slot). */
+const ACK_SLOTS = mmrcmAckSlots(TWR_PLAN, R - 1)
+
+/**
+ * 2026-11-10 (audit #11): the RMMRC bitmap is one bit per slot of the ranging round set, "The first
+ * bit in time sent in the field refers to the first time slot" (standard §10.36.2.1). In these SS
+ * rounds the only frame the tag sends is the round's opener, in slot 0, so the per-round truth maps
+ * onto bit `mmrcmBitIndex(plan, round, 0)` and every other bit — the other anchors' Responses, which
+ * are "not addressed to the MMRC sender", and the idle slots — is zero. `firstRound` is the set's
+ * first round in the block (tag-2's set is rounds 4–7).
+ */
+const bitmapOf = (perRound: boolean[], firstRound = 0): boolean[] => {
+  const bits = Array.from({ length: ACK_SLOTS }, () => false)
+  perRound.forEach((got, i) => { if (got) bits[mmrcmBitIndex(TWR_PLAN, firstRound + i, 0)] = true })
+  return bits
+}
+
 describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit (design §5.1)', () => {
   // Heard, missed, heard, missed — and the MMRCM goes out from the far position in round 3, which
   // is the whole reason the link has to be asymmetric.
@@ -180,34 +201,39 @@ describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit 
 
     // The comparison, built from the run and not typed in.
     const truth = openersDecoded(rs, 'anc-walk')
-    expect(walked[0].received, 'the bitmap against the RX_OK records, bit for bit').toEqual(truth)
+    expect(walked[0].received, 'the bitmap against the RX_OK records, bit for bit').toEqual(bitmapOf(truth))
     // …and it is a comparison with something in it: a bitmap that is all ones or all zeros would
     // match a reducer that ignored the receptions entirely.
     expect(truth, 'the scene really did lose some openers and keep others').toEqual([true, false, true, false])
     expect(walked[0].received, 'some bit is zero').toContain(false)
     expect(walked[0].received, 'some bit is one').toContain(true)
-    // The width is the window's, which is what `makeMmrcm` refuses to let drift.
-    expect(walked[0].received).toHaveLength(R)
-    expect(walked[0].windowRounds).toBe(R)
+    // The width is one bit per acknowledged slot of the set (2026-11-10, §10.36.2.1): the R − 1 earlier
+    // rounds whole and the last one up to its first confirmation slot.
+    expect(ACK_SLOTS).toBe((R - 1) * TWR_PLAN.slots + TWR_PLAN.rangingSlots)
+    expect(walked[0].received).toHaveLength(ACK_SLOTS)
+    expect(walked[0].ackSlots).toBe(ACK_SLOTS)
   })
 
   it('reports all four bits set for the two responders that never moved', () => {
     for (const id of ['anc-1', 'anc-2']) {
       const seen = of(rs, 'UWB_MMRCM').filter((r) => r.peer === id)
       expect(seen.map((r) => r.round), id).toEqual([R - 1])
-      expect(seen[0].received, id).toEqual(openersDecoded(rs, id))
-      expect(seen[0].received, `${id} heard every opener`).toEqual([true, true, true, true])
+      expect(seen[0].received, id).toEqual(bitmapOf(openersDecoded(rs, id)))
+      expect(seen[0].received, `${id} heard every opener`).toEqual(bitmapOf([true, true, true, true]))
     }
   })
 
-  it('puts one 15 + 3N octet frame per responder on the air, in the set-closing round', () => {
+  // 2026-11-10 (audits #11/#24): 15 + N × (2 + 1 + ⌈slots / 8⌉) — address, MMRC Bitmap Length, one
+  // bit per acknowledged slot (standard §10.36.2.1, Figure 10-274).
+  it('puts one 15 + N·(3 + ⌈slots/8⌉) octet frame per responder on the air, in the set-closing round', () => {
     const sent = of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')
     expect(sent.map((r) => r.node).sort()).toEqual(['anc-1', 'anc-2', 'anc-walk'])
     for (const r of sent) {
-      // One initiator per two-way round, so one list entry: 15 + 3 × 1 octets at a window of
-      // eight rounds or fewer (design §3.3). Measured against `phy.ts`, not against a literal.
-      expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(1, R))
-      expect(r.frame.bytes, r.node).toBe(18)
+      // One initiator per two-way round, so one list element. Measured against `phy.ts`, and pinned:
+      // 25 acknowledged slots need a 4-octet bitmap, so 15 + 2 + 1 + 4.
+      expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(1, ACK_SLOTS))
+      expect(ACK_SLOTS).toBe(25)
+      expect(r.frame.bytes, r.node).toBe(22)
       expect(r.frame.uwb?.ies, r.node).toEqual(['RMMRC'])
       expect(r.frame.uwb?.round, r.node).toBe(R - 1)
       expect(r.frame.uwb?.mmrc?.map((e) => e.initiator), r.node).toEqual(['tag-1'])
@@ -242,19 +268,23 @@ describe('the request costs nothing on the air; the answer is what costs a frame
 })
 
 describe('a receipt confirmation is an extra message, not part of the measurement (design §5.4)', () => {
-  it('leaves every UWB_RANGE field-for-field identical', () => {
+  // 2026-11-10: every round is one length (standard §10.32.3.3), so with `mmrcr` on every round
+  // carries its confirmation slots (idle except in the set-closing round) and later rounds start
+  // later. The measurement itself is untouched: the same ranges, field for field, apart from the
+  // instant `t` they land at and their place `seq` in the record stream.
+  it('leaves every UWB_RANGE measurement field-for-field identical', () => {
     const WALK = [NEAR, FAR, NEAR, FAR]
-    // `seq` is a position in the record stream rather than a field of the measurement; `t` is
-    // kept, because an MMRCM takes no ranging counter and no random draw, so it must not move a
-    // single instant of the ranging that came before it (`src/uwb/ranging.ts` is untouched).
     const ranges = (mmrcr: boolean): unknown[] =>
-      of(runWalk(WALK, twrSession(mmrcr)), 'UWB_RANGE').map(({ seq, ...rest }) => rest)
+      of(runWalk(WALK, twrSession(mmrcr)), 'UWB_RANGE').map(({ seq, t, ...rest }) => rest)
     const off = ranges(false)
     expect(off.length, 'SS embedded: a range per heard anchor per round, at the tag').toBeGreaterThan(0)
     expect(ranges(true)).toEqual(off)
   })
 
-  it('adds slots only on the set\'s last round', () => {
+  // 2026-11-10 (W2): replaces "adds slots only on the set's last round" — a set-closing round may not
+  // be longer than the others in block-based mode (standard §10.32.3.3). Every round runs
+  // `plan.slots`, and only the set-closing round puts confirmations in the extra slots.
+  it('runs every round at one fixed length and puts the confirmations in the set-closing round only', () => {
     const slotsPerBlock = (mmrcr: boolean): number[] => {
       const rs = runWalk([NEAR], twrSession(mmrcr))
       // The slot records of the one node that emits them, grouped by the round they were in.
@@ -271,9 +301,30 @@ describe('a receipt confirmation is an extra message, not part of the measuremen
     const plan = roundPlan({ ...DEFAULT_UWB_SESSION, ...twrSession(true) }, ANCHORS)
     const extra = mmrcmResponders(plan)
     expect(extra, 'one slot per responder — an anchor is what sends an MMRCM').toBe(ANCHORS)
-    // Rounds 0…R−2 are the `mmrcr: false` round slot for slot; only round R−1 grows.
-    expect(slotsPerBlock(false)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots])
-    expect(slotsPerBlock(true)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots + extra])
+    const off = roundPlan({ ...DEFAULT_UWB_SESSION, ...twrSession(false) }, ANCHORS)
+    expect(plan.slots).toBe(off.slots + extra)
+    expect(slotsPerBlock(false)).toEqual([off.slots, off.slots, off.slots, off.slots])
+    expect(slotsPerBlock(true)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots])
+    const sentRounds = of(runWalk([NEAR], twrSession(true)), 'TX_START')
+      .filter((r) => r.frame.kind === 'uwbMmrcm').map((r) => r.frame.uwb?.round)
+    expect(sentRounds).toEqual([R - 1, R - 1, R - 1])
+  })
+})
+
+// 2026-11-10 (W2): the confirmation answers the MMRCR bit of the ARC IE a responder actually decoded
+// (standard §10.36.1: "The MMRCR field of the ARC IE is used to request the receipt confirmation";
+// §10.32.9.1), not the session's own switch. A responder that missed the set's RCM — round 0's Poll —
+// never saw the request, so it sends no MMRCM even though it heard the initiation messages after it.
+describe('confirms only on the MMRCR bit of an RCM it decoded', () => {
+  const rs = runWalk([FAR, NEAR, NEAR, NEAR], twrSession(true))
+
+  it('builds the scene it claims to: anc-walk missed round 0 (the RCM) and heard rounds 1–3', () => {
+    expect(openersDecoded(rs, 'anc-walk')).toEqual([false, true, true, true])
+  })
+
+  it('sends no MMRCM from anc-walk, while the anchors that decoded the RCM do', () => {
+    const senders = of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm').map((r) => r.node).sort()
+    expect(senders).toEqual(['anc-1', 'anc-2'])
   })
 })
 
@@ -322,7 +373,7 @@ describe('never answers an initiator it has not heard from', () => {
   it('still confirms tag-1\'s own window, all four bits', () => {
     const mine = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'tag-1')
     expect(mine.map((r) => r.peer).sort()).toEqual(['anc-1', 'anc-2', 'anc-3'])
-    for (const r of mine) expect(r.received, r.peer).toEqual([true, true, true, true])
+    for (const r of mine) expect(r.received, r.peer).toEqual(bitmapOf([true, true, true, true]))
   })
 
   it('does not run tag-far\'s round on top of tag-1\'s extra slots', () => {
@@ -390,8 +441,8 @@ describe('two initiators, one responder, two different bitmaps', () => {
       of(rs, 'UWB_MMRCM').filter((r) => r.peer === 'anc-walk').map((r) => [r.node, r.received]),
     )
     expect([...got.keys()].sort(), 'anc-walk confirmed both initiators').toEqual(['tag-1', 'tag-2'])
-    expect(got.get('tag-1')).toEqual(decoded('anc-walk', 'tag-1'))
-    expect(got.get('tag-2')).toEqual(decoded('anc-walk', 'tag-2'))
+    expect(got.get('tag-1')).toEqual(bitmapOf(decoded('anc-walk', 'tag-1')))
+    expect(got.get('tag-2')).toEqual(bitmapOf(decoded('anc-walk', 'tag-2'), R))
     // …and the two really do differ, so the assertions above are not one claim written twice.
     expect(got.get('tag-1')).not.toEqual(got.get('tag-2'))
     // The two anchors that never moved answer both initiators with every bit set, which is what
@@ -399,7 +450,8 @@ describe('two initiators, one responder, two different bitmaps', () => {
     for (const id of ['anc-1', 'anc-2']) {
       for (const tag of ['tag-1', 'tag-2']) {
         const seen = of(rs, 'UWB_MMRCM').filter((r) => r.peer === id && r.node === tag)
-        expect(seen.map((r) => r.received), `${id} → ${tag}`).toEqual([[true, true, true, true]])
+        expect(seen.map((r) => r.received), `${id} → ${tag}`)
+          .toEqual([bitmapOf([true, true, true, true], tag === 'tag-1' ? 0 : R)])
       }
     }
   })
@@ -438,27 +490,28 @@ describe('many-to-many: one frame per responder, one entry per initiator', () =>
   it('carries one entry per other participant, with the heard and the unheard side by side', () => {
     const sent = of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')
     expect(sent.map((r) => r.node).sort()).toEqual(['p-1', 'p-2', 'p-3'])
+    // 2026-11-10 (audit #11): one bit per slot of the round (standard §10.36.2.1) — the N slots the
+    // participants transmit in, participant j in slot j.
     for (const r of sent) {
-      // N − 1 entries, a one-bit bitmap each (the window is one round in this mode).
-      expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(2, 1))
+      expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(2, 3))
       expect(r.frame.uwb?.mmrc?.length, r.node).toBe(2)
-      for (const e of r.frame.uwb?.mmrc ?? []) expect(e.received, `${r.node} → ${e.initiator}`).toHaveLength(1)
+      for (const e of r.frame.uwb?.mmrc ?? []) expect(e.received, `${r.node} → ${e.initiator}`).toHaveLength(3)
     }
-    // p-1's own frame: it heard p-2 and not p-3, in the same frame, from the same state.
+    // p-1's own frame: it heard p-2 (slot 1) and not p-3 (slot 2), in the same frame, from the same state.
     const one = sent.find((r) => r.node === 'p-1')
     expect(one?.frame.uwb?.mmrc).toEqual([
-      { initiator: 'p-2', received: [true] },
-      { initiator: 'p-3', received: [false] },
+      { initiator: 'p-2', received: [false, true, false] },
+      { initiator: 'p-3', received: [false, false, false] },
     ])
   })
 
   it('tells p-3 what it could not learn any other way: nobody heard it', () => {
     const atFar = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'p-3')
     expect(atFar.map((r) => r.peer).sort(), 'both other participants answered it').toEqual(['p-1', 'p-2'])
-    for (const r of atFar) expect(r.received, r.peer).toEqual([false])
-    // …and the answer in the other direction is the opposite bit, from the same mechanism.
+    for (const r of atFar) expect(r.received, r.peer).toEqual([false, false, false])
+    // …and the answer in the other direction is the opposite bit — p-2 heard p-1 in slot 0.
     const atOne = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'p-1' && r.peer === 'p-2')
     expect(atOne).toHaveLength(1)
-    expect(atOne[0].received).toEqual([true])
+    expect(atOne[0].received).toEqual([true, false, false])
   })
 })

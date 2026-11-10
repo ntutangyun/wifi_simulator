@@ -148,7 +148,9 @@ describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () 
     expect(ScenarioSchema.safeParse(uwbScenario(m2mNodes(), off)).success).toBe(true)
   })
 
-  it('sp3: refused together — the round already appends its own batch of frames after the ranging phase', () => {
+  // 2026-11-10: still refused, for a different reason — this engine does not implement the ancillary
+  // round (ARC Ranging Round Usage = 3) in an SP3 session (未实现); the refusal says so.
+  it('sp3: refused together — no ancillary round is implemented for an SP3 session', () => {
     const cfg: UwbSessionCfg = {
       ...DEFAULT_UWB_SESSION, mode: 'twr', sp3: true, replyTime: 'deferred', ancillary: true,
     }
@@ -165,23 +167,28 @@ describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () 
   })
 
   /**
-   * The one ceiling `ancillaryFrames` has, computed the way the schema computes it rather than
-   * written down: the block's slots, less the ranging round, less the receipt confirmation's own
-   * appended batch, divided by the rounds the block has to hold. One tag here, so the divisor is 1.
+   * The ceiling `ancillaryFrames` has, computed the way the schema computes it rather than written
+   * down. 2026-11-10 (W2): the exchange runs in an ancillary-information round of its own (standard
+   * §10.35, ARC Ranging Round Usage = 3), every round is one length (§10.32.3.3), and a tag owns
+   * `initiatorRounds + 1` rounds a block — so the round length the block allows is its slots over
+   * that many rounds, the ancillary round spends slot 0 on its RCM, and under a time schedule the
+   * window is an RDM IE's list of at most 63 elements (§10.32.9.8). The ranging round must fit too.
    */
   const blockCapFor = (cfg: UwbSessionCfg, anchors: number, tags = 1): number => {
     const slots = uwbSlotsPerTag(
       cfg.method, anchors, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, undefined, cfg.replyTime,
     )
     const mmrcr = uwbMmrcmSlots(cfg.mode, anchors, cfg.mmrcr)
-    return Math.floor(cfg.blockRstu / (tags * cfg.slotRstu)) - slots - mmrcr
+    const roundMax = Math.floor(Math.floor(cfg.blockRstu / (tags * cfg.slotRstu)) / (cfg.initiatorRounds + 1))
+    if (slots + mmrcr > roundMax) return 0
+    return Math.min(roundMax - 1, cfg.schedule === 'time' ? 63 : Infinity) - (cfg.ancillaryRequest ? 1 : 0)
   }
 
   it("ancillaryFrames' upper bound is the block's own budget, computed, never a literal", () => {
     const base: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'twr', ancillary: true }
     const cap = blockCapFor(base, 2)
-    // The round's own slot count is NOT the bound any more, and this is the assertion that says
-    // so: the cap is many times it, because the window is appended rather than carved out.
+    // The ranging round's own slot count is NOT the bound: the message has a round of its own, whose
+    // length the block bounds (2026-11-10).
     const roundSlots = uwbSlotsPerTag(
       base.method, 2, base.schedule, base.contentionSlots, base.mode, base.mms, undefined, base.replyTime,
     )
@@ -194,20 +201,22 @@ describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () 
     if (!r.success) {
       const msg = r.error.issues.map((i) => i.message).join('\n')
       expect(msg).toMatch(/时隙/)
-      // the refusal names the appended batch, and the count it names is the one asked for
+      // the refusal names the ancillary window, and the count it names is the one asked for
       expect(msg).toContain('ancillary')
       expect(msg).toContain(String(cap + 1))
     }
   })
 
-  it('the cap moves with the round shape (method), and a LONGER round leaves FEWER appended slots', () => {
+  // 2026-11-10 (W2): replaces "a LONGER round leaves FEWER appended slots" — the window is no longer
+  // appended beside the ranging round but has a round of its own (§10.35), so as long as the ranging
+  // round fits, its shape does not move the cap; what does is how many rounds a tag owns per block.
+  it('the cap does not move with the ranging round shape, only with the rounds a block must hold', () => {
     const ss: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', ancillary: true }
     const ds: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ds', ancillary: true }
     const ssCap = blockCapFor(ss, 2)
     const dsCap = blockCapFor(ds, 2)
-    // The direction, as an assertion: before slice 3d this was `ssCap < dsCap`, because the cap
-    // WAS the round's own slot count. Now the round is what the window has to fit beside.
-    expect(ssCap).toBeGreaterThan(dsCap)
+    expect(ssCap).toBe(dsCap)
+    expect(blockCapFor({ ...ss, initiatorRounds: 3 }, 2)).toBeLessThan(ssCap)
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), { ...ss, ancillaryFrames: ssCap })).success).toBe(true)
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), { ...ss, ancillaryFrames: ssCap + 1 })).success).toBe(false)
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), { ...ds, ancillaryFrames: dsCap })).success).toBe(true)
@@ -226,8 +235,8 @@ describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () 
         ancillary: true,
       }
       const roundSlots = uwbSlotsPerTag(cfg.method, 2, cfg.schedule, cfg.contentionSlots, cfg.mode, cfg.mms, undefined, cfg.replyTime)
-      // 1 + contentionSlots, not the time-scheduled anchors + 1 — a different, real number, and
-      // it is what the appended window has to fit BESIDE rather than what bounds it.
+      // 1 + contentionSlots, not the time-scheduled anchors + 1 — the ranging round the session's
+      // one round length also has to hold.
       expect(roundSlots).toBe(1 + cfg.contentionSlots)
       const cap = blockCapFor(cfg, 2)
       expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), { ...cfg, ancillaryFrames: cap })).success).toBe(true)

@@ -203,7 +203,14 @@ export function onSp3Report(dev: UwbDevice, r: RoundState, slot: number, frame: 
  * responder that never heard the initiator has no bearing, and a report frame four octets longer
  * with nothing in those octets is the stated-versus-simulated gap this repository keeps finding.
  */
-export function sp3ReportBearing(r: RoundState): number | undefined {
-  if (!r.plan.srrr.raoa) return undefined
+export function sp3ReportBearing(dev: UwbDevice, r: RoundState): number | undefined {
+  // The RAOA bit of the SRRR IE this responder decoded for itself (standard §10.32.9.9), not the
+  // session config.
+  if (dev.heldRcmFor(r)?.srrr?.raoa !== true) return undefined
   return r.aoaThetaDeg ?? undefined
+}
+
+/** Whether this responder's SRRR IE asked it for its reply time (the RRT bit, §10.32.9.9). */
+export function sp3ReplyTimeRequested(dev: UwbDevice, r: RoundState): boolean {
+  return dev.heldRcmFor(r)?.srrr?.rrt === true
 }

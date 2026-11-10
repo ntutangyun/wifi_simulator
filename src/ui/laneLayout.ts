@@ -397,6 +397,8 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         // design.md: `tsc -b` cannot find this one, since `Strings['tooltips']` is a plain
         // object-literal type and not a Record<FrameKind, …>).
         f.kind === 'uwbMmrcm' ? T.uwbMmrcm(f.uwb?.mmrc?.length ?? 0) :
+        // The ancillary round's stand-alone RCM (standard §10.32.2, §10.35).
+        f.kind === 'uwbRcm' ? T.uwbRcm(f.uwb?.round ?? 0) :
         f.kind === 'uwbBlink' ? T.uwbBlink :
         f.kind === 'uwbRsf' || f.kind === 'uwbRif'
           ? T.uwbFragment(f.kind === 'uwbRsf' ? 'RSF' : 'RIF', (f.uwb?.mms?.index ?? 0) + 1, f.uwb?.mms?.of ?? 0) :

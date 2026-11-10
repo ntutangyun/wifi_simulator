@@ -35,7 +35,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, BYTES, FRAMES, MS, NS, SENDER_ID, SLOTS, TAG_ID, VALIDITY, WINDOW_ROUNDS, tagRoundOf,
+  ANCHORS, BYTES, FRAMES, MS, NS, SENDER_ID, SLOTS, TAG_ID, VALIDITY, WINDOW_ROUNDS, WINDOW_ROUNDS_PER_BLOCK, tagRoundOf,
   idOf, ms, uwbAncillary, uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from '../../src/course/uwb/uwb-ancillary'
 import { uwbAncillaryLoss } from '../../src/course/uwb/uwb-ancillary-loss'
@@ -43,9 +43,9 @@ import { MODULES, basisOf } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
-import { ANCILLARY_MESSAGE_KIND, ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
+import { ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
 import { C_M_PER_NS, uwbPpduNs } from '../../src/uwb/phy'
-import { roundCarriesAncillary, roundPlan, roundSlots } from '../../src/uwb/session'
+import { blockSlotStartNs, roundCarriesAncillary, roundPlan, roundsPerInitiator } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS_NS = 1_000_000
@@ -148,10 +148,14 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
   it('「先给出用于对照的时间基准」: every figure in it comes off the plan', () => {
     expect(MS.slot).toBe(PLAN.slotNs / 1e6)
     expect(MS.block).toBe(PLAN.blockNs / 1e6)
-    expect(SLOTS.ranging).toBe(PLAN.slots)
+    // 2026-11-10: one round length (§10.32.3.3); the message rides its own ancillary round
+    expect(SLOTS.ranging).toBe(PLAN.rangingSlots)
+    expect(SLOTS.round).toBe(PLAN.slots)
     expect(SLOTS.window).toBe(FRAMES)
-    expect(SLOTS.block).toBe(roundSlots(PLAN, 0))
-    expect(SLOTS.block).toBe(SLOTS.ranging + SLOTS.window)
+    expect(SLOTS.used).toBe(roundsPerInitiator(PLAN) * PLAN.slots)
+    // the window fills the ancillary round after its RCM, so the deadline is two slots after the
+    // frame that names a middle gap starts
+    expect(SLOTS.firstSlot + SLOTS.window).toBe(SLOTS.round)
     // the closed form the lesson prints, and the two decimals it rounds to
     expect(NS.frame).toBe(uwbPpduNs(BYTES.frame))
     expect(NS.lead).toBe(2 * PLAN.slotNs - uwbPpduNs(BYTES.frame))
@@ -164,7 +168,7 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
     for (const r of got) {
       expect([r.node, r.peer]).toEqual([TAG_ID, SENDER_ID])
       expect(r.missing, `slot ${r.slot}`).toEqual([])
-      expect(r.messageKind).toBe(ANCILLARY_MESSAGE_KIND)
+      expect('messageKind' in r, '2026-11-10: no message type exists (Fig 10-271)').toBe(false)
     }
     expect(SENDER_ID).toBe(idOf(ANCILLARY_SENDER_INDEX))
     // complete exactly at the frame that said zero, once per block, and never before it
@@ -184,11 +188,12 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
     // 0: the first frame of the message, which the watch block sends the reader to
     const first = ofType(at(0), 'TX_START')[0]
     expect(first.frame.uwb?.raict?.framesRemaining).toBe(FRAMES - 1)
-    expect(first.frame.uwb?.slot).toBe(SLOTS.ranging)
+    expect(first.frame.uwb?.slot).toBe(SLOTS.firstSlot)
+    expect(first.frame.uwb?.round).toBe(SLOTS.ancRound)
     // 1: the frame that says zero, in the same block
     const last = ofType(at(1), 'TX_START')[0]
     expect(last.frame.uwb?.raict?.framesRemaining).toBe(0)
-    expect(last.frame.uwb?.slot).toBe(SLOTS.ranging + FRAMES - 1)
+    expect(last.frame.uwb?.slot).toBe(SLOTS.firstSlot + FRAMES - 1)
     expect(last.frame.uwb?.block).toBe(first.frame.uwb?.block)
     // 2: the record that says the message is complete — written at the receiver
     const done = ofType(at(2), 'UWB_ANCILLARY')[0]
@@ -232,7 +237,10 @@ function runLosingOnce(lose: number): TLRecord[] {
   // Half a slot before the slot in question opens, and half a slot before the next one does. A
   // frame radiates at its slot's start, so a position changed between those two instants is the
   // position that one frame flies through and no other.
-  const at = (slot: number): number => (PLAN.slots + slot) * PLAN.slotNs - PLAN.slotNs / 2
+  // 2026-11-10: the window is slots 1… of the ancillary round (`SLOTS.ancRound`), not the ranging
+  // round's tail.
+  const at = (slot: number): number =>
+    blockSlotStartNs(PLAN, 0, SLOTS.ancRound, SLOTS.firstSlot + slot) - PLAN.slotNs / 2
   const before = sim.runUntil(at(lose)).records
   sender.pos.y = 400
   const during = sim.runUntil(at(lose + 1)).records
@@ -258,7 +266,7 @@ describe('uwb-ancillary-loss · the acceptance: WHEN the missing frame is named'
     expect(named).toHaveLength(1)
     expect(named[0].framesRemaining, 'discovered on the frame that said 1').toBe(1)
     expect(named[0].missing).toEqual([FRAMES - 2])
-    expect(named[0].slot).toBe(SLOTS.ranging + 2)
+    expect(named[0].slot).toBe(SLOTS.firstSlot + 2)
 
     // …and the instant. Simultaneous with that reception, to the nanosecond, because it IS that
     // reception — no timer, no deadline, no comparison against the slot table.
@@ -268,7 +276,7 @@ describe('uwb-ancillary-loss · the acceptance: WHEN the missing frame is named'
     expect(named[0].t).toBe(rx[1].t)
 
     // The only other instrument this receiver has is the message's own deadline: the round's end.
-    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID)
+    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID && r.round === SLOTS.ancRound)
     expect(end).toHaveLength(1)
     const lead = end[0].t - named[0].t
     expect(lead).toBeGreaterThan(0)
@@ -303,12 +311,12 @@ describe('uwb-ancillary-loss · the acceptance: WHEN the missing frame is named'
     expect(deadline[0].framesRemaining).toBeNull()
     expect(deadline[0].missing).toEqual([0])
     expect(deadline[0].complete).toBe(false)
-    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID)
+    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID && r.round === SLOTS.ancRound)
     expect(deadline[0].t, 'at the round end, not before it').toBe(end[0].t)
     // …and it really is NS.lead later than where the middle-frame case was discovered: the last
     // reception of this run is the frame that said 1, in the same slot as there.
     const lastRx = atSlot[atSlot.length - 1]
-    expect(lastRx.slot).toBe(SLOTS.ranging + FRAMES - 2)
+    expect(lastRx.slot).toBe(SLOTS.firstSlot + FRAMES - 2)
     expect(ms(deadline[0].t - lastRx.t)).toBe(ms(NS.lead))
   })
 
@@ -346,22 +354,25 @@ describe('uwb-ancillary-loss · what the exchange does not change, and what it d
     expect(anc(offVariant)).toEqual([])
   })
 
-  // Rewritten 2026-11-10 (audit #23): this read blocks 0 and 4 of a four-block window. A control
-  // message never governs a round of the next block (standard §10.32.9.1), so the variant's tag runs
-  // four rounds a block and the set is those four rounds; `tagRoundOf` numbers them across blocks.
+  // Rewritten 2026-11-10 (W2): the exchange has its own ancillary round (ARC Ranging Round Usage = 3,
+  // §10.35) after the tag's four ranging rounds, so a block holds five rounds of the tag's and only
+  // the fifth carries the message; `tagRoundOf` numbers them across blocks.
   it(`「这一轮没有消息」 is not 「这一轮的消息未收齐」: rounds ${WINDOW_ROUNDS.join(' and ')} only`, () => {
-    // The lesson's one experiment. A round outside the control message's ranging round set's first
-    // round carries no ancillary frame at all, and the point a reader is sent to check is that it
-    // also carries no record — an absent message is not an incomplete one, and only the latter is
-    // this lesson's subject.
+    // The lesson's one experiment. A ranging round carries no ancillary frame at all, and the point a
+    // reader is sent to check is that it also carries no record — an absent message is not an
+    // incomplete one, and only the latter is this lesson's subject.
     const plan = roundPlan(uwbAncillaryLoss.variants![1].scenario().uwb!, ANCHORS)
     expect(plan.rcmValidityRounds).toBe(VALIDITY)
     expect(plan.initiatorRounds).toBe(VALIDITY)
-    expect(WINDOW_ROUNDS).toEqual([0, 1, 2, 3, 4, 5].filter((g) => roundCarriesAncillary(plan, g % VALIDITY)))
-    expect(WINDOW_ROUNDS).toEqual([0, VALIDITY])
+    expect(WINDOW_ROUNDS_PER_BLOCK).toBe(roundsPerInitiator(plan))
+    expect(WINDOW_ROUNDS_PER_BLOCK).toBe(VALIDITY + 1)
+    const span = 2 * WINDOW_ROUNDS_PER_BLOCK
+    expect(WINDOW_ROUNDS).toEqual(Array.from({ length: span }, (_v, g) => g)
+      .filter((g) => roundCarriesAncillary(plan, g % WINDOW_ROUNDS_PER_BLOCK)))
+    expect(WINDOW_ROUNDS).toEqual([VALIDITY, 2 * VALIDITY + 1])
 
     const rs = run(uwbAncillaryLoss.variants![1].scenario(), 2 * 200 * MS_NS - MS_NS)
-    const firstSix = (g: number): boolean => g < 6
+    const firstSix = (g: number): boolean => g < span
     expect(sent(rs).map((f) => f.round).filter(firstSix))
       .toEqual(WINDOW_ROUNDS.flatMap((g) => Array(FRAMES).fill(g)))
     // the frames the set does carry count all the way down in each of those rounds
@@ -370,12 +381,13 @@ describe('uwb-ancillary-loss · what the exchange does not change, and what it d
         .toEqual(Array.from({ length: FRAMES }, (_v, i) => FRAMES - 1 - i))
     }
     // and the rounds in between hold no record at all — not an incomplete one, none
-    const quiet = anc(rs).filter((r) => r.round !== 0)
+    const quiet = anc(rs).filter((r) => !WINDOW_ROUNDS.includes(tagRoundOf(r)))
     expect(quiet, 'a round with no message has no ancillary record either').toEqual([])
-    // …and the run really did reach round 5, so the two above are not simply all the rounds there
-    // were
+    // …and the run really did range in every ranging round of both blocks, so the rounds above are
+    // not simply all the rounds there were
     expect(ofType(rs, 'UWB_RANGE').filter((r) => r.node === TAG_ID && r.peer === SENDER_ID)
-      .map(tagRoundOf).filter(firstSix)).toEqual([0, 1, 2, 3, 4, 5])
+      .map(tagRoundOf).filter(firstSix))
+      .toEqual(Array.from({ length: span }, (_v, g) => g).filter((g) => !WINDOW_ROUNDS.includes(g)))
   })
 
   it('names all three granularities with the clause each one comes from', () => {
@@ -566,23 +578,20 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
     expect(first.some((r) => r.complete), 'while the message still completes').toBe(true)
   })
 
-  it('reads the quiz option that says the presence bit is clear, which it is not', () => {
+  it('reads the quiz option that says the first frame lacks Frames Remaining, which it does not', () => {
     /*
-     * 「因为第一帧中不含剩余帧数字段，对应的存在位置 0」 — a wrong option, and what makes it
-     * wrong is a bit this engine always sets: every frame of every scene carries a Frames
-     * Remaining, so the figure the option prints is the complement of the real one. Read that
-     * way round, the option's own digit is pinned by the engine rather than by its own wording.
+     * 「因为第一帧中不含剩余帧数字段」 — a wrong option, and what makes it wrong is that every frame
+     * of every scene carries a Frames Remaining. (Rewritten 2026-11-10: the option used to print a
+     * presence-bit value, but Figure 10-271 gives Frames Remaining no presence bit — its presence is
+     * read from the IE length.)
      */
-    const [printed] = figs(QUIZ, /因为第一帧中不含剩余帧数字段，对应的存在位置 (\d)/,
-      'the quiz’s wrong option on the presence bit')
+    expect(QUIZ).toContain('因为第一帧中不含剩余帧数字段')
+    expect(QUIZ).not.toMatch(/剩余帧数[^。]*存在位/)
     const frames = sent(runOf(uwbAncillaryLoss, undefined, RUN_NS))
     expect(frames.length, 'the run really sends fragments').toBeGreaterThan(0)
     for (const f of frames) {
       expect(f.remaining, `the frame in slot ${f.slot} carries a Frames Remaining`).not.toBeUndefined()
     }
-    const present = frames.every((f) => f.remaining !== undefined)
-    expect(printed, 'so the option prints the value that bit does NOT have')
-      .toBe(1 - Number(present))
     // and the right answer's reason is the field's own content, which the record shows
     const first = anc(runLosing(0)).filter((r) => r.slot !== null)[0]!
     expect(first.framesRemaining, 'the first reading of the first-frame loss')
@@ -605,7 +614,7 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
     // and that is the difference between the closed form and the measured lead
     const rs = runLosing(1)
     const named = anc(rs).filter((r) => r.missing.length > 0)[0]!
-    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID)[0]!
+    const end = ofType(rs, 'UWB_ROUND_END').filter((r) => r.node === TAG_ID && r.round === SLOTS.ancRound)[0]!
     expect(Math.abs((end.t - named.t) - NS.lead), 'which is all the two differ by')
       .toBeLessThanOrEqual(flightNs! + 1)
     // 「同一个 22 × 8 m 大厅」

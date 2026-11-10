@@ -63,10 +63,10 @@ export function uwbIntroScenario(dM: 5 | 20): Scenario {
  * run in tests/course/uwb-intro.test.ts, so the figure cannot drift from it.
  */
 export const FIG = {
-  pollTx: 0, pollTxEnd: 200.705,
-  pollRx: 0.017, pollRxEnd: 200.722,
-  respTx: 2000, respTxEnd: 2187.372,
-  respRx: 2000.017, respRxEnd: 2187.389,
+  pollTx: 0, pollTxEnd: 202.5,
+  pollRx: 0.017, pollRxEnd: 202.517,
+  respTx: 2000, respTxEnd: 2190.192,
+  respRx: 2000.017, respRxEnd: 2190.209,
   windowUs: 2200,
 } as const
 
@@ -191,7 +191,7 @@ export const uwbIntro: Lesson = {
   observe: [
     '跳到 Poll 帧，把时间线放大到纳秒级：手机泳道上的 TX_START 在 0 ns，锚点泳道上的 RX_START 在 17 ns。五米的传播距离，这一次是按真实比例绘制的。',
     '按顺序读日志里的四条 UWB_TS：手机的 TX RMARKER、锚点的 RX RMARKER、锚点的 TX RMARKER、手机的 RX RMARKER。两条来自一个时钟，另两条来自另一个时钟。',
-    '找到 2 187 389 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m，旁边是 raw 的 5.02 m——相差几厘米，而单次读数的噪声标准差就是 2.1 cm。',
+    '找到 2 190 209 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m，旁边是 raw 的 5.02 m——相差几厘米，而单次读数的噪声标准差就是 2.1 cm。',
   ],
   tryThis: [
     '载入 20 m 变体。到达间隔从 17 ns 变成 67 ns——距离变为四倍，飞行时间也变为四倍。测距行报出 19.95 m，真值 20.00 m：误差仍是几厘米，因为时间戳噪声与飞行距离无关。',
