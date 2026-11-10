@@ -665,11 +665,11 @@ describe('uwb-mms · one round, step by step', () => {
  * **The reads worth naming:**
  *
  *  - **the round's airtime is read as the three shares it is.** 「整轮 7.106 ms 空口时间里的
- *    4.480 ms，而三十二个片段加起来才 2.626 ms」 is three figures and two counts, and the counts
+ *    4.480 ms，而三十二个片段加起来只有 2.626 ms」 is three figures and two counts, and the counts
  *    are **Chinese numerals** — 「七条消息」 and 「三十二个片段」 — which a planter cannot touch
  *    but a reader can check, so they are mapped back to numbers and counted off the run.
  *  - **the wall's bias is read through the arithmetic that makes it.** 「偏长同样的 1.199 m：
- *    砖墙给首径添 2 ns」 — the nanoseconds are `UWB_NLOS_NS.brick`, the metres are two walls'
+ *    每道砖墙使首径延迟 2 ns」 — the nanoseconds are `UWB_NLOS_NS.brick`, the metres are two walls'
  *    worth of them at the speed of light, and every range of the run has to sit that far long.
  *  - **the anchor that is not there is read as a pair of figures that hold each other up.**
  *    「只有 8.58 m 远、电平高 3.6 个分贝」 is one hypothetical position, so the distance and the
@@ -741,7 +741,7 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
 
   it('reads the round’s airtime as the three shares it is, Chinese counts and all', () => {
     const [whole, nb, frags] = figs(NUMS,
-      /整轮 ([\d.]+) ms 空口时间（airtime）里的 ([\d.]+) ms，而三十二个片段加起来才 ([\d.]+) ms/,
+      /整轮 ([\d.]+) ms 空口时间（airtime）中的 ([\d.]+) ms，而三十二个片段加起来只有 ([\d.]+) ms/,
       '`numbers` on the three shares')
     // the window is the round the comparison table gives this scene, read out of that table
     const [roundMs] = figs(comparison(1)[0]!, /^(\d+) ms$/, 'the comparison table on the round')
@@ -763,7 +763,7 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the wall’s bias through the arithmetic that makes it', () => {
-    const [metres, ns] = figs(NUMS, /每一次测距都偏长同样的 ([\d.]+) m：砖墙给首径添 ([\d.]+) ns/,
+    const [metres, ns] = figs(NUMS, /每一次测距都偏长同样的 ([\d.]+) m：每道砖墙使首径延迟 ([\d.]+) ns/,
       '`numbers` on the bias and the brick that causes it')
     expect(ns, 'the extra delay one brick partition adds to the first path')
       .toBe(UWB_NLOS_NS.brick)
@@ -878,8 +878,8 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
     expect(atMargin(0), 'a train with nothing to spare is still detected').toBe(true)
     expect(atMargin(-short!), 'one short by what the sentence names is not').toBe(false)
     expect(atMargin(-short! / 10), 'and nor is one short by a tenth of that').toBe(false)
-    // 「它取听到的第一个片段的电平当作整串的电平」 — the ordinal, read as the index it names
-    const [ord] = raw(LIM, /取听到的第(.)个片段的电平当作整串的电平/, '`limits` on the fragment it takes')
+    // 「它取收到的第一个片段的电平作为整串的电平」 — the ordinal, read as the index it names
+    const [ord] = raw(LIM, /取收到的第(.)个片段的电平作为整串的电平/, '`limits` on the fragment it takes')
     const idx = '一二三四五六七八'.indexOf(ord!)
     expect(idx, 'an ordinal this test can read').toBeGreaterThanOrEqual(0)
     expect(DEV_MMS_SRC, 'the index `evaluateTrain` really takes')
@@ -894,8 +894,8 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the instant `observe` sends the reader to, and the delay `tryThis` measures', () => {
-    // 「读一读 18.500 ms 处那条判定」
-    const [ms] = figs(OBS, /读一读 ([\d.]+) ms 处那条判定/, '`observe` on where the verdict is')
+    // 「查看 18.500 ms 处那条判定」
+    const [ms] = figs(OBS, /查看 ([\d.]+) ms 处那条判定/, '`observe` on where the verdict is')
     const verdict = ofType(recs('base'), 'UWB_MMS_TRAIN')[0]!
     same(String(ms), verdict.t / MS, 'the instant the first train is judged')
     // 「本块的定位也从 26 ms 推迟到 42 ms」
@@ -938,9 +938,9 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
     same(String(slotUs), round.slotNs / 1000, 'and the slot it counts them in')
     expect(figs(comparison(1)[0], /^(\d+) ms$/, 'the row’s own one-to-many cell')[0],
       'which is the product of the two').toBe((slots! * slotUs!) / 1000)
-    // 「两个 600 RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 3 字节」
+    // 「两个 600 RSTU 时隙要容纳 Poll，而 Poll 每增加一个应答者就增长 3 字节」
     const [rstu, perResponder] = figs(cell(2, 5, 3),
-      /两个 (\d+) RSTU 时隙要装下 Poll，而 Poll 每多一个应答者就长 (\d+) 字节/,
+      /两个 (\d+) RSTU 时隙要容纳 Poll，而 Poll 每增加一个应答者就增长 (\d+) 字节/,
       'the comparison table on the Poll window')
     expect(rstu, 'the slot this session runs').toBe(uwbMmsScenario('base').uwb!.slotRstu)
     expect(perResponder, 'what one more responder adds to the Poll')
@@ -956,9 +956,9 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the row label the worked table gives those gates', () => {
-    // 「三关，600 RSTU」 — a row LABEL, which no read of the value column ever looks at.
-    const row = table(3).rows.find((r) => r[0].includes('三关'))!
-    const [rstu] = figs(row[0], /三关，(\d+) RSTU/, 'the worked table’s own row label')
+    // 「三条约束，600 RSTU」 — a row LABEL, which no read of the value column ever looks at.
+    const row = table(3).rows.find((r) => r[0].includes('三条约束'))!
+    const [rstu] = figs(row[0], /三条约束，(\d+) RSTU/, 'the worked table’s own row label')
     expect(rstu, 'the slot those three gates are applied to')
       .toBe(uwbMmsScenario('base').uwb!.slotRstu)
     expect(figs(row[1], /^(\d+) % /, 'the value cell beside it')[0],
@@ -966,7 +966,7 @@ describe('uwb-mms · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the three gates the slot has to pass, and the multiple they start from', () => {
-    const [rstu] = figs(NUMS, /它要是 (\d+) RSTU（ranging slot time unit）的整数倍/,
+    const [rstu] = figs(NUMS, /它必须是 (\d+) RSTU（ranging slot time unit）的整数倍/,
       'the steps on the first gate')
     const slot = uwbMmsScenario('base').uwb!.slotRstu
     expect(slot % rstu!, 'the slot this session runs really is a multiple of it').toBe(0)

@@ -404,7 +404,7 @@ describe('uwb-capstone · echoes exist, and none of the four scenes has an objec
 
   it('says echoes are gated on the scenario and never enter ranging', () => {
     // the entry states this as what the scenes assume, without naming the engine's functions
-    expect(text).toContain('这套房子的四个场景里都没有回波')
+    expect(text).toContain('这套住宅的四个场景里都没有回波')
     expect(text).toContain('每个接收机收到的只有直射路径')
     expect(text).toContain('测距读到的永远只是直射的那一次到达')
     // the half that is still true, and the one the brief's hardest claim rests on
@@ -508,14 +508,14 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
   }
 
   it('reads the flat, and the half metre the brief asks for', () => {
-    // 「两个房间，中间夹着一条走廊，隔断全是砖」
+    // 「两个房间，中间夹着一条走廊，隔墙全是砖墙」
     const sc = uwbCapstone.scenario()
     const [roomsCn, hallsCn] = raw(PIC, /(.)个房间，中间夹着(.)条走廊/, '`picture` on the flat')
     const halls = sc.rooms.filter((r) => r.name.includes('Hallway'))
     expect(sc.rooms.length - halls.length, 'the rooms this flat really has').toBe(cn(roomsCn!))
     expect(halls.length, 'and the hallway between them').toBe(cn(hallsCn!))
-    // 「它对面的墙上已经装了两个锚点，一头一个，第三个立在走廊里」
-    const [pairCn, thirdCn] = raw(PIC, /已经装了(.)个锚点，一头一个，第(.)个立在走廊里/,
+    // 「它对面的墙上已经装了两个锚点，两端各一个，第三个设在走廊里」
+    const [pairCn, thirdCn] = raw(PIC, /已经装了(.)个锚点，两端各一个，第(.)个设在走廊里/,
       '`picture` on where the anchors are')
     const inRoomB = CAPSTONE_ANCHORS.filter((a) => a.x > TAG_POS.x - 2)
     expect(inRoomB.length, 'the anchors beside the phone').toBe(cn(pairCn!))
@@ -531,7 +531,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
     for (const [text, re, what] of [
       [WHY, /把一部手机定位到(.)米以内/, '`why` on the brief'],
       [PIC, /把手机定位到(.)米以内/, '`picture` on the brief'],
-      [blockText(steps()), /能把每一次定位都压在(.)米以内/, 'the method on the brief'],
+      [blockText(steps()), /能使每一次定位的误差都在(.)米以内/, 'the method on the brief'],
     ] as [string, RegExp, string][]) {
       const metres = cn(raw(text, re, what)[0]!)
       expect(Math.max(...threeRange().map((x) => x.err)), `${what}: and the flat misses it`)
@@ -549,8 +549,8 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
     // 「每 100 ms 一个块」 — the column heading carries the variant's own block length
     const [fastMs] = figs(tb.head.join('\n'), /每 (\d+) ms 一个块/, 'the fast column’s heading')
     expect(fastMs! * MS, 'the block that variant really runs').toBe(rstuNs(FAST_BLOCK_RSTU))
-    // 「一轮问遍三个」
-    const [askCn] = raw(tb.head.join('\n'), /一轮问遍(.)个/, 'the one-round column’s heading')
+    // 「一轮测完三个锚点」
+    const [askCn] = raw(tb.head.join('\n'), /一轮测完(.)个锚点/, 'the one-round column’s heading')
     expect(cn(askCn!), 'the anchors one round really asks').toBe(ANCHORS.length)
     for (const [c, head] of tb.head.slice(1).entries()) {
       const v = sceneOf(head)
@@ -570,7 +570,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
             'the anchors it counts').toBe(ANCHORS.length)
           expect(val(printed), `${label} · ${head}`).toBe(onAir(v).n)
         } else if (label.includes('三距离交汇')) {
-          const [threeCn] = raw(label, /记录里写着(.)个锚点的那些/, 'the row’s own label')
+          const [threeCn] = raw(label, /记录中列出(.)个锚点的那些/, 'the row’s own label')
           expect(val(printed), `${label} · ${head}`)
             .toBe(fixesOf(v).filter((f) => f.anchors.length === cn(threeCn!)).length)
           expect(cn(threeCn!), 'and that is every anchor of the flat').toBe(ANCHORS.length)
@@ -579,10 +579,10 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
         }
       }
     }
-    // 「每一列都是同一个 1300 ms 窗口」
-    const [windowMs] = figs(NUMS, /每一列都是同一个 (\d+) ms 窗口/, 'the paragraph on the window')
+    // 「每一列都对应同一个 1300 ms 窗口」
+    const [windowMs] = figs(NUMS, /每一列都对应同一个 (\d+) ms 窗口/, 'the paragraph on the window')
     expect(windowMs! * MS, 'the window every column is counted over').toBe(RUN_NS)
-    // 「凡不是三距离交汇的定位，都是某一个锚点单独测出的方位」
+    // 「凡不是三距离交汇的定位，都是由单个锚点测得的方位」
     for (const v of SCENES) {
       for (const f of fixesOf(v)) {
         if (f.anchors.length === ANCHORS.length) continue
@@ -614,7 +614,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
      */
     const [brickNs] = figs(LIM, /砖 ([\d.]+) ns/, '`limits` on the brick wall')
     expect(brickNs, 'the delay this engine charges a brick wall').toBe(UWB_NLOS_NS.brick)
-    const [limBias] = figs(LIM, /那 \+([\d.]+) m 是一个定数/, '`limits` on the bias')
+    const [limBias] = figs(LIM, /那 \+([\d.]+) m 是一个固定值/, '`limits` on the bias')
     same(String(limBias), brickNs! * C_M_PER_NS, 'the brick delay, in metres')
     same(String(limBias), mean(errsOf('anchor-3')), 'and the bias every block really carries')
     // 「平均误差 0.55 m，最差 0.57 m，GDOP 1.25」
@@ -631,20 +631,20 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
       'the spread the note calls very small').toBeLessThan(0.05)
   })
 
-  it('reads 「有谁达到要求了吗」 and the correction that does meet the brief', () => {
-    const [offsetM] = figs(NUMS, /光那个偏移就有 ([\d.]+) m/, 'the paragraph on the offset')
-    const [halfCn] = raw(NUMS, /压在(.)米以内/, 'the paragraph on the brief')
-    const [leftM] = figs(NUMS, /这个块就只差 ([\d.]+) m/, 'the paragraph on the corrected block')
+  it('reads 「是否有场景达到要求」 and the correction that does meet the brief', () => {
+    const [offsetM] = figs(NUMS, /仅那个偏移就有 ([\d.]+) m/, 'the paragraph on the offset')
+    const [halfCn] = raw(NUMS, /误差都在(.)米以内/, 'the paragraph on the brief')
+    const [leftM] = figs(NUMS, /这个块的误差就只有 ([\d.]+) m/, 'the paragraph on the corrected block')
     const bias = mean(errsOf('anchor-3'))
     same(String(offsetM), bias, 'the offset anchor-3 carries')
     expect(offsetM, 'which alone is more than the brief allows').toBeGreaterThan(cn(halfCn!))
-    // 「没有哪个场景能把每一次定位都压在半米以内」
+    // 「没有哪个场景能使每一次定位的误差都在半米以内」
     for (const v of SCENES) {
       const errs = threeRange(v).map((x) => x.err)
       if (errs.length === 0) continue
       expect(Math.max(...errs), `scene ${String(v)} misses the brief`).toBeGreaterThan(cn(halfCn!))
     }
-    // 「把这份偏移从 anchor-3 的距离里扣掉、再解一次，这个块就只差 0.02 m」
+    // 「从 anchor-3 的距离中扣除这一偏移、重新解算，这个块的误差就只有 0.02 m」
     const block = threeRange()[0]!.f.block
     const inBlock = tagRanges().filter((r) => r.block === block)
     expect(inBlock, 'the three ranges of that block').toHaveLength(ANCHORS.length)
@@ -678,7 +678,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
     expect(solvePosition(anchorsIn, inBlock, TAG_Z, 0.021),
       'and three are the fewest it answers').not.toBeNull()
     expect(inBlock.length - cn(unknownsCn!), '「多出一个测量」').toBe(1)
-    // 「要让解算器察觉到这一点，最便宜的办法就是加第四个锚点」, and `tryThis` says it again
+    // 「要让解算器察觉这一点，成本最低的办法就是增加第四个锚点」, and `tryThis` says it again
     for (const [text, what] of [[DEEP, '`deeper`'], [TRY, '`tryThis`']] as [string, string][]) {
       const [nth] = raw(text, /第(.)个锚点/, `${what} on the extra anchor`)
       expect(cn(nth!), `${what}: one more than the flat has`).toBe(ANCHORS.length + 1)
@@ -710,7 +710,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
      * 那条窄带消息」 — read by trying every shorter slot: the schema rejects all of them.
      */
     const [shortest, slotsCn] = raw(SRC,
-      /(\d+) RSTU 是本仿真器允许 MMS 轮次使用的最短时隙，因为(.)个时隙必须装得下/,
+      /(\d+) RSTU 是本仿真器允许 MMS 轮次使用的最短时隙，因为(.)个时隙必须容纳得下/,
       '`sources` on the shortest slot')
     const otm = uwbCapstone.variants![V_OTM]!.scenario()
     expect(otm.uwb!.slotRstu, 'the slot that variant really runs').toBe(val(shortest!))
@@ -730,7 +730,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
     const [noisePs] = figs(SRC, /每个时间戳 (\d+) ps 的 1σ 噪声/, '`sources` on the timestamp noise')
     expect(noisePs, 'the noise this session really carries')
       .toBe(uwbCapstone.scenario().uwb!.tsNoisePs)
-    const [sirDb] = figs(SRC, /打掉的 (−?\d+) dB 信干比门限/, '`sources` on the threshold')
+    const [sirDb] = figs(SRC, /干扰丢失的 (−?\d+) dB 信干比门限/, '`sources` on the threshold')
     expect(sirDb, 'the threshold the engine really uses').toBe(UWB_SIR_MIN_DB)
     /*
      * 「它 ±90° 的视场」 — swept rather than quoted: the phase difference is pushed well past
@@ -756,7 +756,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
       .map((n) => n.id)
     for (const [text, re, what] of [
       [table(0).head.join('\n'), /锚点 (\d) 挪远/, 'the column heading'],
-      [QUIZ, /把锚点 (\d) 挪到另一个房间/, 'the quiz'],
+      [QUIZ, /把锚点 (\d) 移到另一个房间/, 'the quiz'],
     ] as [string, RegExp, string][]) {
       const [n] = figs(text, re, what)
       expect(movedIds, `${what}: the only node this variant moves`).toEqual([`anchor-${n}`])
@@ -790,34 +790,34 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
     const train = ofType(recs(V_OTM), 'UWB_MMS_TRAIN')[0]!
     expect(train.responders!.length, 'the responders one train really names').toBe(cn(namesCn!))
     expect(train.responders, 'and they are the three anchors').toEqual(ANCHORS)
-    // 「先把三个决定写下来」 and 「把四个场景都跑一遍」
-    const [decisionsCn] = raw(TRY, /先把(.)个决定写下来/, '`tryThis` on the decisions')
+    // 「先把三项决定写下来」 and 「把四个场景都运行一遍」
+    const [decisionsCn] = raw(TRY, /先把(.)项决定写下来/, '`tryThis` on the decisions')
     expect(uwbCapstone.variants!.length, 'the decisions the brief offers').toBe(cn(decisionsCn!))
-    const [allCn] = raw(TRY, /把(.)个场景都跑一遍/, '`tryThis` on the scenes')
+    const [allCn] = raw(TRY, /把(.)个场景都运行一遍/, '`tryThis` on the scenes')
     expect(1 + uwbCapstone.variants!.length, 'and the scenes they make').toBe(cn(allCn!))
     /*
-     * 「定位次数少了一半，超时翻了一倍」 — the quiz's own explanation of the far anchor, read as
+     * 「定位次数减少了一半，超时增加了一倍」 — the quiz's own explanation of the far anchor, read as
      * the two ratios it claims: the fixes really halve, exactly, and the timeouts more than
      * double.
      */
-    const [halfCn, doubleCn] = raw(QUIZ, /定位次数少了一(.)，超时翻了一(.)/, 'the quiz on the far anchor')
+    const [halfCn, doubleCn] = raw(QUIZ, /定位次数减少了一(.)，超时增加了一(.)/, 'the quiz on the far anchor')
     expect(halfCn, 'the lesson says 「一半」').toBe('半')
     expect(fixesOf(V_FAR).length * 2, 'and the fixes really halve').toBe(fixesOf(undefined).length)
     expect(doubleCn, 'and 「一倍」').toBe('倍')
     expect(count(V_FAR, 'UWB_TIMEOUT'), 'while the timeouts more than double')
       .toBeGreaterThanOrEqual(2 * count(undefined, 'UWB_TIMEOUT'))
     /*
-     * 「超时数和被 Wi-Fi 打掉的接收都恰好翻倍；定位次数与空口占用则差一点」 — the rubric's own
+     * 「超时次数和受 Wi-Fi 干扰丢失的接收都恰好翻倍；定位次数与空口占用则略少于翻倍」 — the rubric's own
      * row, and the reason it cannot be exact is read too: the window holds fourteen blocks, and
      * the fourteenth starts at the very instant the window closes.
      */
-    const rubric = table(2).rows.find((r) => r[0]!.includes('节奏'))![1]!
+    const rubric = table(2).rows.find((r) => r[0]!.includes('频率'))![1]!
     expect(count(V_FAST, 'UWB_TIMEOUT'), 'the timeouts a faster block really doubles')
       .toBe(2 * count(undefined, 'UWB_TIMEOUT'))
     expect(count(V_FAST, 'UWB_INTERFERED'), 'and the receptions Wi-Fi really buries')
       .toBe(2 * count(undefined, 'UWB_INTERFERED'))
     expect(rubric, 'the row says those two are exact').toContain('恰好翻倍')
-    const [lastCn] = raw(rubric, /第(..)个块正好起在窗口末尾那一刻/, 'the rubric on the last block')
+    const [lastCn] = raw(rubric, /第(..)个块恰好在窗口结束的时刻开始/, 'the rubric on the last block')
     const rounds = ofType(recs(V_FAST), 'UWB_ROUND')
     expect(rounds.length, 'the blocks the faster rhythm really starts').toBe(cn(lastCn!))
     expect(rounds.at(-1)!.t, 'and the last of them starts as the window closes').toBe(RUN_NS)

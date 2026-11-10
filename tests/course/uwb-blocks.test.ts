@@ -118,7 +118,7 @@ describe('uwb-blocks · what its `until` promises', () => {
     expect(withUntil).toHaveLength(1)
     expect(withUntil[0].until).toBe('uwb-contention')
     const promised = withUntil[0].text
-    expect(promised).toContain('「点名要先有名单」')
+    expect(promised).toContain('「调度式应答要先有名单」')
     // the three things it must NOT also promise
     for (const notPromised of ['没有加入', '没有离开', '参数协商']) {
       expect(promised, notPromised).not.toContain(notPromised)
@@ -129,13 +129,13 @@ describe('uwb-blocks · what its `until` promises', () => {
     expect(membership.until, 'no lesson lifts "nobody joins, nobody leaves"').toBeUndefined()
     expect(membership.text).toContain('参数协商')
     // and it says so, naming the lesson that restates it rather than resolves it
-    expect(membership.text).toContain('一课也不解除')
+    expect(membership.text).toContain('没有一课解除这一条')
   })
 
   it('uwb-contention really does answer the provenance question, and only that', () => {
     const contention = LESSONS.find((l) => l.id === 'uwb-contention')!
     const text = lessonStrings(contention).join(' / ')
-    expect(text).toContain('点名要先有名单')
+    expect(text).toContain('调度式应答要先有名单')
     // the restatement five lessons on: uwb-m2m says the same thing in its own words, which is
     // what "never lifted" looks like from the other end
     const m2m = LESSONS.find((l) => l.id === 'uwb-m2m')!
@@ -476,7 +476,7 @@ describe('uwb-blocks · the figure', () => {
       expect(cap, s).toContain(s)
     }
     // the window is one round, and the caption says so rather than letting the block lane lie
-    expect(cap).toContain('装得下十轮')
+    expect(cap).toContain('可容纳十轮')
   })
 })
 
@@ -685,14 +685,14 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
       /一个块 ([\d ]+) RSTU（ranging slot time unit），([\d.]+) ms/, 'the caption on the block')
     same(String(blockMs), rstuNs(blockRstu!) / MS, 'the block this session really runs')
     expect(blockRstu, 'which is the session’s own figure').toBe(SESSION.blockRstu)
-    const [roundsCn] = raw(caption, /装得下(.)轮/, 'the caption on how many rounds fit')
+    const [roundsCn] = raw(caption, /可容纳(.)轮/, 'the caption on how many rounds fit')
     expect(Math.floor(rstuNs(blockRstu!) / PLAN.roundNs), 'the rounds a block really holds')
       .toBe(cn(roundsCn!))
     const [roundRstu, roundMs] = figs(caption, /一轮 ([\d ]+) RSTU，([\d.]+) ms/,
       'the caption on the round')
     same(String(roundMs), PLAN.roundNs / MS, 'the round this plan really lays out')
     expect(rstuNs(roundRstu!), 'and its RSTU').toBe(PLAN.roundNs)
-    const [slotsCn] = raw(caption, /轮里切成(.)个时隙/, 'the caption on the slots')
+    const [slotsCn] = raw(caption, /一轮划分为(.)个时隙/, 'the caption on the slots')
     expect(cn(slotsCn!), 'the slots a round really has').toBe(PLAN.slots)
     const [slotRstu, slotUs] = figs(caption, /每个 ([\d ]+) RSTU，([\d .]+) µs/,
       'the caption on the slot')
@@ -715,7 +715,7 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     expect(rounds - TAGS.length, 'the rounds nobody is given').toBe(cn(idleCn!))
     same(idleMs!, (rounds - TAGS.length) * PLAN.roundNs / MS, 'and what they come to')
     // 「要到第十一部，这个块才装不下」
-    const [capCn] = raw(NUMS, /要到第(..)部，这个块才装不下/, '`numbers` on the cap')
+    const [capCn] = raw(NUMS, /要到第(..)部，这个块才无法容纳/, '`numbers` on the cap')
     // 「十一」 is eleven: a leading 十 is one ten, and the digit after it the units
     const tens = (s: string): number => {
       const i = s.indexOf('十')
@@ -742,13 +742,13 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     expect(rounds1.map((r) => r.t / MS), 'and of the next block’s')
       .toEqual([starts[4], starts[5], starts[6]])
     // 「0, 20 000 000 and 40 000 000 ns」
-    const polls = figs(cellOf('第 0 块的三帧 Poll 何时离开'),
+    const polls = figs(cellOf('第 0 块的三帧 Poll 何时发出'),
       /^(\d+), ([\d ]+) and ([\d ]+) ns$/, 'the row on the Polls')
     const sent = ofType(rs, 'TX_START')
       .filter((r) => r.frame.kind === 'uwbPoll' && (r.frame.uwb?.block ?? -1) === 0)
     expect(sent.map((r) => r.t), 'when the three Polls really leave').toEqual(polls)
     // 「Poll, 39 octets」
-    const [pollBytes] = figs(cellOf('带着这张网格的那帧开场帧'), /Poll, (\d+) octets/,
+    const [pollBytes] = figs(cellOf('携带这张网格的开场帧'), /Poll, (\d+) octets/,
       'the row on the opener')
     expect(sent[0]!.frame.bytes, 'the Poll this round really sends').toBe(pollBytes)
     expect(uwbPollBytes(ANCHORS), 'which is what the engine prices it at').toBe(pollBytes)
@@ -816,7 +816,7 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     // 「每一次」 is every fix of every phone, so the worst of them all is where the figure is read
     expect(worstCm, 'the worst fix the three phones leave in the whole run').toBe(cm)
     // 「它的块号与轮号 | 0 · 1」, 「于是这一轮开始于 | 1 × 20.0 ms = 20 ms」, and the two instants
-    const at = tables().find((x) => x.heading?.includes('定在时间轴上'))!
+    const at = tables().find((x) => x.heading?.includes('在时间轴上的位置'))!
     const cellOf = (needle: string): string => at.rows.find((r) => r[0]!.includes(needle))![1]!
     const [blockNo, roundNo] = figs(cellOf('块号与轮号'), /^(\d) · (\d)$/, 'the row on the two numbers')
     // 「第 2 部手机的那一轮」 — the heading names a phone, and that phone really owns this round
@@ -907,12 +907,12 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
 
   it('reads the drift `limits` computes, the units `sources` cites and both experiments', () => {
     /*
-     * 「每台设备用自己的晶振去数这张表，20 ppm 跨过一个 200 ms 的块就是每边 4 µs」 — the one
+     * 「每台设备用自己的晶振按这张表计时，20 ppm 的偏差在一个 200 ms 的块内累积为每边 4 µs」 — the one
      * figure in `limits` that is not about this engine, and it is read as the multiplication it
      * is: the tolerance times the block.
      */
     const [ppm, blockMs, perSideUs] = figs(LIM,
-      /(\d+) ppm 跨过一个 (\d+) ms 的块就是每边 (\d+) µs/, '`limits` on the drift')
+      /(\d+) ppm 的偏差在一个 (\d+) ms 的块内累积为每边 (\d+) µs/, '`limits` on the drift')
     same(String(blockMs), rstuNs(SESSION.blockRstu) / MS, 'the block this session runs')
     expect(ppm! * 1e-6 * blockMs! * 1000, 'the drift that tolerance gives over it').toBe(perSideUs)
     // 「想知道 200 ms 够不够」 — the same block, named again
@@ -963,8 +963,8 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     const [variantMs] = figs(uwbBlocks.variants![0]!.label, /([\d.]+) ms 时隙/, 'the variant’s label')
     expect(rstuNs(uwbBlocks.variants![0]!.scenario().uwb!.slotRstu) / MS,
       'the slot that variant really runs').toBe(variantMs)
-    // 「一部手机的定位为什么每 200 ms 才落一次，而不是每 20 ms？」
-    const [quizBlock, quizRound] = figs(QUIZ, /每 (\d+) ms 才落一次，而不是每 (\d+) ms/,
+    // 「一部手机为什么每 200 ms 才得到一次定位，而不是每 20 ms？」
+    const [quizBlock, quizRound] = figs(QUIZ, /每 (\d+) ms 才得到一次定位，而不是每 (\d+) ms/,
       'the quiz on the two periods')
     expect([quizBlock, quizRound], 'the block and the round, as this plan has them')
       .toEqual([rstuNs(SESSION.blockRstu) / MS, PLAN.roundNs / MS])

@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "贴着连线站的人看不见", measured against the lesson's own scene
+ * Every empirical claim in "紧靠连线的人无法被察觉", measured against the lesson's own scene
  * and its two variants.
  *
  * The claim the whole slice exists for is one sentence — *the invisible echo is the louder
@@ -69,7 +69,7 @@ const rangeLine = (r: Extract<TLRecord, { type: 'UWB_RANGE' }>): string =>
 /** One echo, as the four columns of the lesson's table print it. */
 const row = (e: Echo, offM: string): string[] => [
   `${offM} m`, `${e.pathM.toFixed(2)} m`, `${e.excessM.toFixed(2)} m`,
-  e.resolvable ? '分得开' : '分不开', `${e.rssiDbm.toFixed(1).replace('-', '−')} dBm`,
+  e.resolvable ? '可分辨' : '不可分辨', `${e.rssiDbm.toFixed(1).replace('-', '−')} dBm`,
 ]
 
 lessonShapeSuite(uwbSensingResolution, { runNs: RUN_NS })
@@ -139,7 +139,7 @@ describe('uwb-sensing-resolution · the invisible echo is the loud one', () => {
     expect(echoes('pair')).toHaveLength(2 * 4 * BLOCKS)
     expect(off('pair', 'poster')).toHaveLength(4 * BLOCKS)
     expect(off('pair', 'wardrobe')).toHaveLength(4 * BLOCKS)
-    // "每一次发送后面跟着两条回波，相差三纳秒"
+    // "每一次发送之后有两条回波记录，相差三纳秒"
     const near = off('pair', 'poster')
     const far = off('pair', 'wardrobe')
     for (let i = 0; i < near.length; i++) expect(far[i].t - near[i].t).toBe(3)
@@ -255,10 +255,10 @@ describe('uwb-sensing-resolution · the blind spot widens with the baseline', ()
 
   it('reproduces the lesson’s own 2 m figure, and grows from there', () => {
     expect(flipM(PAIR_SPAN_M).toFixed(2)).toBe(ECHO_FLIP_OFFSET_M)
-    // "再把两台设备拉到四米远，重做一次——翻转的位置会往外跑"
+    // "再把两台设备拉开到四米远，重做一次——翻转位置会向外移动"
     expect(flipM(4)).toBeGreaterThan(flipM(PAIR_SPAN_M))
     expect(flipM(10)).toBeGreaterThan(flipM(4))
-    // "十米的连线上，物体要偏出将近一米八才分得开"
+    // "十米的连线上，物体要偏离将近一米八才可分辨"
     expect(flipM(10).toFixed(1)).toBe('1.8')
     expect(flipM(10)).toBeGreaterThan(1.7)
   })
@@ -348,7 +348,7 @@ describe('uwb-sensing-resolution · the multipath entry quotes a Wi-Fi sentence 
  *  - **「1/B」 is read as the length it becomes.** The numerator is parsed at all six printings
  *    and multiplied by the chip rate the lesson quotes: one over 499.2 Mchip/s, times c, is the
  *    0.60 m the same lesson prints twice and the `resolutionM` every echo record carries.
- *  - **the flip is read as a straddle.** 「0.56 米与 0.69 米之间并没有一道墙」 names the two
+ *  - **the flip is read as a straddle.** 「0.56 米与 0.69 米之间并不存在截然的分界」 names the two
  *    excesses of the two variants, and what makes them that pair is that the threshold lies
  *    between them — which is read, not assumed.
  *  - **「将近一米八」 is solved, not quoted**: the flip offset at a ten-metre baseline comes out
@@ -413,7 +413,7 @@ describe('uwb-sensing-resolution · every figure the prose prints, read back out
     same(String(chipNs), UWB_CHIP_NS, 'the chip itself')
     same(String(chipNs), (ones[0]! / rates[0]!) * 1000, 'which is one over that rate')
     // 「折成路程约 0.60 米」 in `picture`, and 「乘以光速得到的 0.60 米」 in `sources`
-    const lengths = [...ALL.matchAll(/([\d.]+) 米(?:是几何|。所以「分得开」)/g)].map((m) => m[1]!)
+    const lengths = [...ALL.matchAll(/([\d.]+) 米(?:是几何|。所以「可分辨」)/g)].map((m) => m[1]!)
     expect(lengths.length, 'the resolution, printed as a length twice').toBe(2)
     for (const printed of lengths) {
       expect(printed, 'the length one chip of flight comes to').toBe(ECHO_RESOLUTION_M)
@@ -430,12 +430,12 @@ describe('uwb-sensing-resolution · every figure the prose prints, read back out
 
   it('reads the straddle: the two excesses the flip lies between', () => {
     /*
-     * 「所以表里 0.56 米与 0.69 米之间并没有一道墙」 — in `deeper` and again in `limits`. The two
+     * 「所以表中 0.56 米与 0.69 米之间并不存在截然的分界」 — in `deeper` and again in `limits`. The two
      * figures are the two variants' own excesses, and what makes them this pair is that the
      * threshold falls between them: that is read here, and it is what the sentence is about.
      */
     for (const [text, what] of [[DEEP, '`deeper`'], [LIM, '`limits`']] as [string, string][]) {
-      const [under, over] = figs(text, /([\d.]+) 米与 ([\d.]+) 米之间(?:并)?没有一道墙/,
+      const [under, over] = figs(text, /([\d.]+) 米与 ([\d.]+) 米之间并不存在截然的分界/,
         `${what} on the two sides of the flip`)
       expect(String(under), `${what}: the excess of the station that cannot be separated`)
         .toBe(ECHO_FLIP_UNDER.excessM)
@@ -469,7 +469,7 @@ describe('uwb-sensing-resolution · every figure the prose prints, read back out
       .toBe(Number((Number(ECHO_FLIP_UNDER.excessM) / EXACT_M).toFixed(1)))
     /*
      * 「2·√((s/2)² + d²) − s = c × 1/B…对 d 解一次就得到 0.87 米（s = 2 米时）。…十米的连线上，
-     * 物体要偏出将近一米八才分得开」 — the inversion the lesson prints, read at both baselines.
+     * 物体要偏离将近一米八才可分辨」 — the inversion the lesson prints, read at both baselines.
      */
     const flipAt = (s: number): number => Math.sqrt(((EXACT_M + s) / 2) ** 2 - (s / 2) ** 2)
     const [spanCn] = raw(DEEP, /（s = (\d) 米时）/, '`deeper` on the baseline it solves at')
@@ -477,14 +477,14 @@ describe('uwb-sensing-resolution · every figure the prose prints, read back out
     expect(flipAt(val(spanCn!)).toFixed(2), 'the offset the inversion really gives there')
       .toBe(ECHO_FLIP_OFFSET_M)
     const [tenCn, oneCn, eightCn] = raw(DEEP,
-      /(.)米的连线上，物体要偏出将近(.)米(.)才分得开/, '`deeper` on the long baseline')
+      /(.)米的连线上，物体要偏离将近(.)米(.)才可分辨/, '`deeper` on the long baseline')
     const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
     const far = cn(tenCn!)
     const want = cn(oneCn!) + cn(eightCn!) / 10
     expect(Number(flipAt(far).toFixed(1)), 'the offset a ten-metre line really needs').toBe(want)
     expect(flipAt(far), 'which is further out than this lesson’s own').toBeGreaterThan(flipAt(PAIR_SPAN_M))
-    // 「再把两台设备拉到四米远…翻转的位置会往外跑」
-    const [fourCn] = raw(TRY, /把两台设备拉到(.)米远/, '`tryThis` on the wider pair')
+    // 「再把两台设备拉开到四米远…翻转位置会向外移动」
+    const [fourCn] = raw(TRY, /把两台设备拉开到(.)米远/, '`tryThis` on the wider pair')
     expect(flipAt(cn(fourCn!)), 'and four metres apart it is further out too')
       .toBeGreaterThan(flipAt(PAIR_SPAN_M))
   })

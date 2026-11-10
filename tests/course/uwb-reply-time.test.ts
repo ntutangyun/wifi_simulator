@@ -467,8 +467,8 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     // 「T3 是这一帧自己的发送时刻」 — the same subscript again, four more times
     for (const re of [
       /T(\d) 是它发出 Response 的时刻/,
-      /只有一件事不对劲——T(\d) 是这一帧自己的发送时刻/,
-      /能做到，T(\d) 就在封帧之前已经是个已知数/,
+      /唯一的问题是——T(\d) 是这一帧自身的发送时刻/,
+      /如果支持，T(\d) 在组帧之前就已知/,
       /此时 T(\d) 已是实测值/,
     ]) {
       expect(figs(PIC, re, '`picture` on the send instant')[0], 'the same instant as the formula’s')
@@ -520,7 +520,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     const [psdu] = figs(SRC, /一帧最长 (\d+) 字节的 PSDU/, '`sources` on the PSDU')
     expect(psdu, 'the PSDU this engine allows').toBe(UWB_MAX_PSDU_BYTES)
     expect(psdu, 'and the same figure `numbers` prints when it computes the caps')
-      .toBe(figs(NUMS, /还塞得进 (\d+) 字节 PSDU/, '`numbers` on the same PSDU')[0])
+      .toBe(figs(NUMS, /仍能容纳于 (\d+) 字节 PSDU/, '`numbers` on the same PSDU')[0])
     /*
      * 「±20 ppm 的晶振容差来自 §16.4.9」 — the standard's tolerance (class (a): no corpus ships
      * with this repo), and this scene was built to sit on it: the anchor's crystal is exactly
@@ -545,7 +545,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
      */
     const cap = [...(uwbReplyTime.picture ?? []), ...(uwbReplyTime.numbers ?? [])]
       .map((b) => (b as { caption?: string }).caption ?? '').join(' ')
-    const ord = /延后的 Response 在第 (\d) 个时隙的边界起发，第 (\d) 个时隙里还要再发一条延后报文；固定的那一条却落在第 (\d) 个时隙里面/
+    const ord = /延后的 Response 从第 (\d) 个时隙的边界开始发送，第 (\d) 个时隙中还要再发一条延后报文；固定的那一条则位于第 (\d) 个时隙内部/
       .exec(cap)
     expect(ord, 'the caption no longer says which slot each shape sends in').not.toBeNull()
     const [onEdge, nextSlot, inside] = ord!.slice(1).map(Number) as [number, number, number]
@@ -635,7 +635,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
       }
     }
     // 「Response 相差的六个字节就是那段等待自己那一小节」
-    const [sixCn] = raw(NUMS, /Response 相差的(.)个字节就是那段等待自己那一小节/,
+    const [sixCn] = raw(NUMS, /Response 相差的(.)个字节就是承载那段等待时间的信息单元/,
       'the paragraph on the six octets')
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
     expect(respBytes('embedded') - respBytes('fixed'), 'what those octets really come to')
@@ -644,7 +644,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
 
   it('reads the two caps, what binds them and the PSDU they fit in', () => {
     // 「还塞得进 127 字节 PSDU」
-    const [psdu] = figs(NUMS, /还塞得进 (\d+) 字节 PSDU/, 'the paragraph on the PSDU')
+    const [psdu] = figs(NUMS, /仍能容纳于 (\d+) 字节 PSDU/, 'the paragraph on the PSDU')
     expect(psdu, 'the PSDU this engine allows').toBe(UWB_MAX_PSDU_BYTES)
     // 「9 这个数属于双边嵌入式 Final…可单边…上限本该是 33」
     const tb = tables().find((x) => x.head[0] === '形态')!
@@ -674,14 +674,14 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
       'the quiz on the two caps')
     expect(ssCap, 'the single-sided cap').toBe(uwbMaxAnchors('twr', 'ss', 'embedded'))
     expect(dsCap, 'and the double-sided one').toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
-    const [qGrowth] = figs(QUIZ, /最长的是每锚点长 (\d+) 字节的 Poll/, 'the quiz on the Poll’s growth')
+    const [qGrowth] = figs(QUIZ, /最长的是每锚点增长 (\d+) 字节的 Poll/, 'the quiz on the Poll’s growth')
     expect(uwbPollBytes(1) - uwbPollBytes(0), 'what one more anchor adds to the Poll').toBe(qGrowth)
   })
 
   it('reads the slot demand at nine anchors, and the 300 RSTU slot', () => {
     // 「单边一轮最长的帧要 X µs 的时隙，双边嵌入式要 Y µs——多出的 Z µs」
     const [anchors, ssUs, dsUs, diffUs] = figs(NUMS,
-      /(\d+) 个锚点时，单边一轮最长的帧要 ([\d.]+) µs 的时隙，双边嵌入式要 ([\d.]+) µs——多出的 ([\d.]+) µs/,
+      /(\d+) 个锚点时，单边一轮最长的帧需要 ([\d.]+) µs 的时隙，双边嵌入式需要 ([\d.]+) µs——多出的 ([\d.]+) µs/,
       'the paragraph on the two demands')
     expect(anchors, 'the anchor count it is measured at').toBe(DEMAND_ANCHORS)
     same(String(ssUs), DEMAND.ss / 1000, 'the single-sided demand')
@@ -690,11 +690,11 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     expect(DEMAND.dsEmbedded - DEMAND.ss, 'which is the Final a single-sided round never sends')
       .toBeGreaterThan(0)
     // 「一个 300 RSTU 的时隙有 X µs：装得下 9 个锚点的单边一轮，装不下六个锚点的双边嵌入式一轮」
-    const [slotRstu, slotUs] = figs(NUMS, /一个 (\d+) RSTU（ranging slot time unit）的时隙有 (\d+) µs/,
+    const [slotRstu, slotUs] = figs(NUMS, /一个 (\d+) RSTU（ranging slot time unit）的时隙为 (\d+) µs/,
       'the paragraph on the short slot')
     expect(rstuNs(slotRstu!), 'the slot the comparison is read against').toBe(SHORT_SLOT_NS)
     same(String(slotUs), SHORT_SLOT_NS / 1000, 'and what it comes to')
-    const [fitsCn, failsCn] = raw(NUMS, /装得下 (\d+) 个锚点的单边一轮，装不下(.)个锚点的双边嵌入式一轮/,
+    const [fitsCn, failsCn] = raw(NUMS, /能容纳 (\d+) 个锚点的单边一轮，不能容纳(.)个锚点的双边嵌入式一轮/,
       'the paragraph on what it holds')
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
     expect(uwbSlotFitNs(val(fitsCn!), 'twr', 'time', undefined, 'ss', 'deferred'),
@@ -704,7 +704,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
   })
 
   it('reads the five-route table, and the reading the matched crystals give', () => {
-    const tb = tables().find((x) => x.heading?.includes('五种走法'))!
+    const tb = tables().find((x) => x.heading?.includes('五种方式'))!
     const [ppm] = figs(tb.head.join('\n'), /两端晶振相差 (\d+) ppm/, 'the table’s own column heading')
     expect(ppm, 'the gap between the two crystals this scene really runs')
       .toBe(PPM.anchor - PPM.tag)
@@ -753,7 +753,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
       .toBeGreaterThanOrEqual(lo! * slotNs)
     expect(resp.t - round.t, 'and before the next one').toBeLessThan(hi! * slotNs)
     // 「Treply 错 1 ns，距离就错约 15 cm（误差是它的一半乘光速）」
-    const [errNs, errCm] = figs(LIM, /Treply 错 (\d+) ns，距离就错约 (\d+) cm/,
+    const [errNs, errCm] = figs(LIM, /Treply 偏差 (\d+) ns，距离就偏差约 (\d+) cm/,
       '`limits` on what a nanosecond costs')
     same(String(errCm), (errNs! / 2) * C_M_PER_NS * 100, 'half the error, times the speed of light')
     /*
@@ -778,7 +778,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
     expect([limMhr, limIe, limFcs, limGuard], 'the same four, a second time')
       .toEqual([mhr, ie, fcs, guardNs])
     const [diff, deferB, capFrom, capTo] = figs(LIM,
-      /「Response 差 (\d+) 个字节」「延后报文 (\d+) 字节」「上限从 (\d+) 跳到 (\d+)」/,
+      /「Response 相差 (\d+) 个字节」「延后报文 (\d+) 字节」「上限从 (\d+) 变为 (\d+)」/,
       '`limits` on the three conclusions')
     expect(diff, 'the octets the two Responses differ by')
       .toBe(respBytes('embedded') - respBytes('fixed'))
@@ -791,7 +791,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
   it('reads `observe` and `tryThis` against the two rounds they describe', () => {
     // 「测距行出现在 4.184 ms…不是 2.181 ms 的 Response 落地时」
     const rs = runShape('deferred')
-    const [rangeMs, respMs] = figs(OBS, /测距行出现在 ([\d.]+) ms.*?不是 ([\d.]+) ms 的 Response 落地时/s,
+    const [rangeMs, respMs] = figs(OBS, /测距行出现在 ([\d.]+) ms.*?不是 ([\d.]+) ms 的 Response 到达时/s,
       '`observe` on the two instants')
     const range = ofType(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1')[0]!
     same(String(rangeMs), range.t / MS, 'when the range really appears')
@@ -803,7 +803,7 @@ describe('uwb-reply-time · every figure the prose prints, read back out of it',
      * 「它的发送时刻从 2.000 ms 挪到了 2.198 ms——正好晚了一个 Poll 的空口时间」 — the two sends
      * measured, and the difference read as the Poll's own airtime.
      */
-    const [wasMs, nowMs] = figs(TRY, /它的发送时刻从 ([\d.]+) ms 挪到了 ([\d.]+) ms/,
+    const [wasMs, nowMs] = figs(TRY, /它的发送时刻从 ([\d.]+) ms 推迟到了 ([\d.]+) ms/,
       '`tryThis` on the fixed Response’s send')
     same(String(wasMs), txOf(runShape('deferred'), 'uwbResp')[0]!.t / MS, 'where it leaves today')
     const fixedResp = txOf(runShape('fixed'), 'uwbResp')[0]!

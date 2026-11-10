@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "轮流发，还是穿插发": the two round shapes and what each one costs, the
+ * Every empirical claim in "轮流发送，还是穿插发送": the two round shapes and what each one costs, the
  * fragment gap inside one column, what the fixed reply time removes and what it brings forward, and
  * that a reversed round ranges this room rather than orbit.
  *
@@ -217,7 +217,7 @@ describe('uwb-subrounds · the figure is the layout', () => {
  * of lessons whose test never touched it (`tests/course/prose-readback.test.ts`). The figures were
  * all exact; this is the other half of each assertion.
  *
- * Two cells here are not numbers at all — 「都测得出」 twice in the last row of the second table —
+ * Two cells here are not numbers at all — 「都能测得」 twice in the last row of the second table —
  * and that is a claim about both ends ranging, which the option exists to preserve. It is read as
  * one rather than skipped, the same way `@amp-slots`' collided slot states no closing time.
  */
@@ -307,7 +307,7 @@ describe('uwb-subrounds · the two comparison tables are read back out of the le
     const onRecs = (): TLRecord[] => runOf(uwbSubrounds, FIXED, BLOCK_NS)
     const sp0In = (rs: TLRecord[]): number =>
       rs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'uwbSp0').length
-    const perRound = byLabel('固定回复时间', '一轮里的 SP0 包')
+    const perRound = byLabel('固定回复时间', '一轮中的 SP0 包')
     const rounds = 3
     expect(Number(/^(\d+)/.exec(perRound[1])![1]) * rounds, 'SP0 packets with the option off')
       .toBe(sp0In(offRecs()))
@@ -326,7 +326,7 @@ describe('uwb-subrounds · the two comparison tables are read back out of the le
     // the option's point: the range comes out earlier
     expect(on0.t, 'earlier with the option on').toBeLessThan(off0.t)
 
-    const raw = byLabel('固定回复时间', '没修正过的那个距离')
+    const raw = byLabel('固定回复时间', '未经修正的距离')
     expect(Number(/^([\d.]+) m$/.exec(raw[1])![1]), 'the uncorrected figure with it off')
       .toBe(Number(rctuToMetres(off0.tofRawRctu!).toFixed(2)))
     expect(Number(/^([\d.]+) m$/.exec(raw[2])![1]), 'and with it on')
@@ -342,9 +342,9 @@ describe('uwb-subrounds · the two comparison tables are read back out of the le
       .toBe(Number(on0.distM.toFixed(2)))
 
     // the last row is two words, not two numbers, and it is the claim the option rests on
-    const both = byLabel('固定回复时间', '两端都测得出吗')
+    const both = byLabel('固定回复时间', '两端能否都测得距离')
     expect([both[1], both[2]], 'the lesson says both ends range either way')
-      .toEqual(['都测得出', '都测得出'])
+      .toEqual(['都能测得', '都能测得'])
     for (const [name, rs] of [['off', offRecs()], ['on', onRecs()]] as [string, TLRecord[]][]) {
       const ends = new Set(ofType(rs, 'UWB_RANGE')
         .filter((r) => r.peer === 'anchor-1' || r.node === 'anchor-1').map((r) => r.node))
@@ -501,12 +501,12 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
       && r.node !== 'tag-1')!
     same(raw(PIC, /([\d.]+) ms 第一个锚点才开始发/, 'the first anchor’s own start')[0]!, first.t / MS,
       'when the second sub-round opens')
-    // 「整整两毫秒没有人发送」, in characters, against the gap the two instants leave.
-    const quiet = zh(raw(PIC, /然后整整(.+?)毫秒没有人发送/, 'the silence between the two columns')[0]!)
+    // 「整整两毫秒没有任何设备发送」, in characters, against the gap the two instants leave.
+    const quiet = zh(raw(PIC, /然后整整(.+?)毫秒没有任何设备发送/, 'the silence between the two columns')[0]!)
     /*
      * **Counted in fragment positions, which is what the sentence means.** The tag's last
      * fragment goes out at 7 ms and the first anchor's at 10, so the wall-clock silence is 2.92 ms
-     * — and 「整整两毫秒没有人发送」 is the two millisecond positions, 8 and 9, in which no
+     * — and 「整整两毫秒没有任何设备发送」 is the two millisecond positions, 8 and 9, in which no
      * fragment is sent at all. Both readings are asserted: the empty positions exactly, and the
      * silence as the inequality the adverb 「整整」 makes of it.
      */
@@ -522,7 +522,7 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
     const inter = planOf('interleaved').mms!.layout
     const non = planOf('base').mms!.layout
     const [gap, interSpan, nonSpan, round] = raw(cap,
-      /相邻两个片段隔(.+?)毫秒，一列拉到(.+?)毫秒；非交织时紧成一毫秒一个，一列只占(.+?)毫秒，代价是四列排成一队，整轮(.+?)毫秒/,
+      /相邻两个片段间隔(.+?)毫秒，一列延长到(.+?)毫秒；非交织时缩短为一毫秒一个，一列只占(.+?)毫秒，代价是四列依次排列，整轮(.+?)毫秒/,
       'the caption on the four figures it compares')
     expect(zh(gap!) * MS, 'the interleaved fragment gap, in the caption').toBe(inter.fragGapSlots * slotNs)
     const span = (v?: number): number => {
@@ -538,8 +538,8 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
 
   it('reads the row the table read-back above leaves: the block in its label, and the six distances', () => {
     const row = (uwbSubrounds.numbers!.filter((b) => b.kind === 'table')[0] as { rows: string[][] })
-      .rows.find((r) => r[0]!.includes('一块的距离数'))!
-    same(raw(row[0]!, /每 (\d+) ms 一块/, 'the block length in the row’s own label')[0]!, BLOCK_NS / MS,
+      .rows.find((r) => r[0]!.includes('块的距离数'))!
+    same(raw(row[0]!, /每个 (\d+) ms 块/, 'the block length in the row’s own label')[0]!, BLOCK_NS / MS,
       'the block every figure of this lesson is measured in')
     // Both columns, measured: one round to a block, and six ranges out of it either way.
     for (const [j, v] of [INTERLEAVED, undefined].entries()) {
@@ -552,15 +552,15 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
     /*
      * **The sweep of 2026-10-13 walked through this cell.** The describe above reads the
      * fixed-reply table row by row — but by the labels whose cells are numbers, and this row's
-     * cells are sentences with a number inside them: 「自己子轮的边界，第 20 个时隙」 against
+     * cells are sentences with a number inside them: 「自身子轮的边界，第 20 个时隙」 against
      * 「收完对方整个包之后 600 RSTU」. Both are figures, and both have an instrument.
      */
     const row = (uwbSubrounds.numbers!.filter((b) => b.kind === 'table')[1] as { rows: string[][] })
-      .rows.find((r) => r[0]!.includes('从哪里起算'))!
+      .rows.find((r) => r[0]!.includes('从何时起算'))!
     const non = planOf('base').mms!.layout
     expect(figs(row[1]!, /第 (\d+) 个时隙/, 'where the responder starts without the option')[0],
       'the slot its own sub-round opens in').toBe(non.rpSlots)
-    same(raw(row[2]!, /收完对方整个包之后 (\d+) RSTU/,
+    same(raw(row[2]!, /接收完对方整个包之后 (\d+) RSTU/,
       'where it starts with the option')[0]!, MMS_FIXED_REPLY_RSTU_DEFAULT,
       'the constant it waits out instead')
     expect(uwbSubroundsScenario('fixed').uwb!.mms!.fixedReplyRstu,
@@ -665,7 +665,7 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
   })
 
   it('reads the fixed reply time’s own range, in RSTU and in milliseconds', () => {
-    const [lo, hi] = figs(DEEP, /那个常量写在 (\d+) 到 ([\d ]+) RSTU 之间/, '`deeper` on the range')
+    const [lo, hi] = figs(DEEP, /这个常量的取值范围是 (\d+) 到 ([\d ]+) RSTU/, '`deeper` on the range')
     expect([lo, hi], 'the two bounds the engine enforces')
       .toEqual([MMS_FIXED_REPLY_RSTU_MIN, MMS_FIXED_REPLY_RSTU_MAX])
     const [loMs, hiMs] = raw(DEEP, /约合 ([\d.]+) 到 (\d+) ms/, '`deeper` on the same range in milliseconds')
@@ -686,12 +686,12 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
 
   it('reads what `deeper` says about the reversed order: it ranges within centimetres', () => {
     /*
-     * 「本场景里三个锚点一个不落，误差都在几厘米」. The entry used to quote two pre-fix readings
+     * 「本场景中三个锚点全部测得距离，误差都在几厘米以内」. The entry used to quote two pre-fix readings
      * (65 877.04 m and 65 898.41 m), the counter's modulus and the record's `trueDistM`; that was
      * simulator history, not course material, and the rows that read those figures left with the
      * sentence. The true distance is now taken off the scene's own geometry.
      */
-    expect(DEEP, 'the claim that is measured below').toContain('三个锚点一个不落，误差都在几厘米')
+    expect(DEEP, 'the claim that is measured below').toContain('三个锚点全部测得距离，误差都在几厘米以内')
     const truth = SUBROUND_ANCHORS[0]!.x - SUBROUND_TAG_X
     expect(truth, 'the nearest anchor is three metres from the tag').toBe(3)
     const rev = ofType(recs(REVERSED), 'UWB_RANGE')
@@ -741,18 +741,18 @@ describe('uwb-subrounds · every other figure the prose prints, read back out of
     // The three anchors' own evaluations, all at one instant.
     const trains = ofType(recs(), 'UWB_MMS_TRAIN').filter((r) => r.node !== 'tag-1')
     expect(new Set(trains.map((r) => r.t)).size, 'the three anchors decide together').toBe(1)
-    same(raw(OBS, /三个锚点的判定都落在 ([\d.]+) ms/, '`observe` on the anchors’ evaluation')[0]!,
+    same(raw(OBS, /三个锚点的判定都在 ([\d.]+) ms/, '`observe` on the anchors’ evaluation')[0]!,
       trains[0]!.t / MS, 'when the three anchors decide')
     // The tag's own three, ten milliseconds apart.
     const own = ofType(recs(), 'UWB_MMS_TRAIN').filter((r) => r.node === 'tag-1')
     const [a, b, c] = raw(OBS, /分别在 ([\d.]+)、([\d.]+)、([\d.]+) ms/, '`observe` on the tag’s three')
     expect(own.length, 'one evaluation per anchor').toBe(SUBROUND_RESPONDERS)
     ;[a, b, c].forEach((printed, i) => same(printed!, own[i]!.t / MS, `the tag’s evaluation ${i + 1}`))
-    const apart = zh(raw(OBS, /一个隔(.+?)毫秒/, '`observe` on the spacing between them')[0]!)
+    const apart = zh(raw(OBS, /每个相隔(.+?)毫秒/, '`observe` on the spacing between them')[0]!)
     expect(own[1]!.t - own[0]!.t, 'the spacing the line names').toBe(apart * MS)
     // The six ranges, all inside the report phase.
     const ranges = ofType(recs(), 'UWB_RANGE').filter((r) => r.t < BLOCK_NS)
-    const [lo, hi] = raw(OBS, /六个距离全落在 ([\d.]+) 到 ([\d.]+) ms 之间/, '`observe` on the ranges')
+    const [lo, hi] = raw(OBS, /六个距离全部落在 ([\d.]+) 到 ([\d.]+) ms 之间/, '`observe` on the ranges')
     same(lo!, Math.min(...ranges.map((r) => r.t)) / MS, 'the first of the six')
     same(hi!, Math.max(...ranges.map((r) => r.t)) / MS, 'and the last')
     expect(ranges.length, 'six of them').toBe(2 * SUBROUND_RESPONDERS)

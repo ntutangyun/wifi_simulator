@@ -926,7 +926,7 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
 
   it('the height correction, in metres and in the centimetres it would have cost', () => {
     const [slant, plan, off] = raw(NUMS,
-      /射频量到 ([\d.]+) m，平面图上是 ([\d.]+) m。原样平着走出去，会把点钉远 ([\d.]+) cm/,
+      /射频测得 ([\d.]+) m，平面图上是 ([\d.]+) m。如果直接在平面上延伸斜距，定位点会偏远 ([\d.]+) cm/,
       '`numbers` on the height correction')
     const dz = ANCHOR_Z - TAG_Z
     same(slant!, Math.hypot(SPOTS.off45.rangeM, dz), 'the slant range at that spot')
@@ -939,14 +939,14 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     // step 6: GDOP is 1.00 by construction, and the along term is the range σ
     for (const [text, re, what] of [
       [NUMS, /GDOP 按构造恒为 ([\d.]+)。/, 'step 6'],
-      [DEEP, /这里的 GDOP 恒为 ([\d.]+)、无话可说/, '`deeper`'],
+      [DEEP, /这里的 GDOP 恒为 ([\d.]+)、不提供任何信息/, '`deeper`'],
     ] as const) {
       const [g] = raw(text, re, `${what} on the GDOP`)
       for (const f of ofType(recs('base'), 'UWB_POSITION')) {
         same(g, f.gdop, `${what}: the GDOP every fix of one anchor carries`)
       }
     }
-    same(raw(NUMS, /沿射线是距离的 ([\d.]+) cm/, 'step 6 on the along term')[0]!,
+    same(raw(NUMS, /沿射线方向是距离的 ([\d.]+) cm/, 'step 6 on the along term')[0]!,
       SIGMA_R_M * 100, 'the range σ the ellipse’s short axis is')
     // `sources`: σ_r = c · σ_ts / √2 at 100 ps
     const [sigmaCm] = raw(SRC, /([\d.]+) cm 的测距 σ/, '`sources` on the range σ')
@@ -974,17 +974,17 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     for (const [text, re, what] of [
       [NUMS, /截断在 ±(\d+)°/, 'the formula'],
       [NUMS, /θ̂ = asin\(φ\/π\)，截断在 ±(\d+)°/, 'step 4'],
-      [DEEP, /读数被钉在 ±([\d.]+)° 时/, '`deeper`'],
-      [LIMITS, /读数被钉成 ±([\d.]+)°/, '`limits`'],
+      [DEEP, /读数被限定在 ±([\d.]+)° 时/, '`deeper`'],
+      [LIMITS, /读数被限定为 ±([\d.]+)°/, '`limits`'],
       [SRC, /反正弦及其 ±(\d+)° 截断/, '`sources`'],
-      [QUIZ, /是 ±(\d+)° 的截断把读数折了回来/, 'the third question’s first option'],
+      [QUIZ, /是 ±(\d+)° 的截断使读数折返/, 'the third question’s first option'],
     ] as const) {
       const [clamp] = raw(text, re, `${what} on the azimuth clamp`)
       same(clamp, azimuthFromPdoaDeg(Math.PI * 1.4, CH), `${what}: where the arc sine is pinned`)
       same(clamp, -azimuthFromPdoaDeg(-Math.PI * 1.4, CH), `${what}: and on the other side`)
     }
     // "azimuthFromPdoaDeg pins the arc sine's argument at ±1" — measured, not transcribed
-    const [arg] = figs(LIMITS, /把反正弦的自变量钉在 ±(\d)/, '`limits` on the argument clamp')
+    const [arg] = figs(LIMITS, /把反正弦的自变量限定在 ±(\d)/, '`limits` on the argument clamp')
     expect(azimuthFromPdoaDeg(Math.PI * arg!, CH),
       'at that argument the reading is already the clamp').toBe(90)
     let lo = 0
@@ -999,13 +999,13 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     for (const [text, re, what] of [
       [DEEP, /σ_θ 本身也截断在 (\d+)°/, '`deeper`'],
       [SRC, /σ_θ 的 (\d+)° 截断/, '`sources`'],
-      [LIMITS, /又把 σ_θ 钉在 (\d+)°/, '`limits`'],
+      [LIMITS, /又把 σ_θ 限定在 (\d+)°/, '`limits`'],
     ] as const) {
       const [clamp] = raw(text, re, `${what} on the σ_θ clamp`)
       same(clamp, aoaSigmaDeg(90), `${what}: what σ_θ is pinned at`)
       expect(val(clamp), 'which is the constant aoa.ts exports').toBe(AOA_SIGMA_CLAMP_DEG)
     }
-    const [cross] = raw(DEEP, /公式大约在偏离正前方 ±([\d.]+)° 处到达这个值/,
+    const [cross] = raw(DEEP, /公式大约在偏离正前方 ±([\d.]+)° 处达到这个值/,
       '`deeper` on where the formula reaches it')
     let clo = 0
     let chi = 90
@@ -1025,7 +1025,7 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     same(sx!, far.x, 'the x that spot really is')
     same(sy!, far.y, 'and the y')
     const [sigma, ofThem, pinned, clampedTo, maxA] = raw(DEEP,
-      /σ_θ 是 ([\d.]+)°，(.+?)个方位角里有(.)个被钉在 −([\d.]+)°，最差的那个椭圆半长轴达 ([\d.]+) m/,
+      /σ_θ 是 ([\d.]+)°，(.+?)个方位角中有(.)个被限定在 −([\d.]+)°，最差的那个椭圆半长轴达 ([\d.]+) m/,
       '`deeper` on what happens there')
     same(sigma!, aoaSigmaDeg(-val(sdeg!)), 'the σ_θ at that angle')
     const base = uwbAoaScenario('base')
@@ -1100,9 +1100,9 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     // the worked example's own two labels
     const ws = uwbAoa.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
     const label = (row: number): string => ws[ws.length - 1]!.rows[row]![0]!
-    same(raw(label(5), /扣掉 Δz = ([\d.]+) m/, 'the height row’s label')[0]!,
+    same(raw(label(5), /扣除 Δz = ([\d.]+) m/, 'the height row’s label')[0]!,
       ANCHOR_Z - TAG_Z, 'the height that comes out of the range')
-    const [facing] = figs(label(6), /沿 (\d+)° \+ θ̂ 走出去/, 'the leg row’s label')
+    const [facing] = figs(label(6), /沿 (\d+)° \+ θ̂ 方向延伸/, 'the leg row’s label')
     expect(facing, 'the Facing the leg is walked from')
       .toBe(uwbAoa.scenario().nodes[0]!.uwb!.yawDeg)
     expect(facing, 'which is the one the scene ships').toBe(YAW_IN)
@@ -1120,7 +1120,7 @@ describe('uwb-aoa · every figure the prose prints, read back out of it', () => 
     expect(row.error, 'and the difference between them').toBe(`-${diff} cm`)
     expect(row.rounds, 'over that many rounds').toBe(String(zh(rounds!)))
     // the second question: the mean fix error at the furthest spot, and its range error
-    const [fixCm, rangeCm] = figs(QUIZ, /定位平均偏 (\d+) cm，它的距离却准到 (\d+) cm/,
+    const [fixCm, rangeCm] = figs(QUIZ, /定位平均偏离 (\d+) cm，而距离误差只有 (\d+) cm/,
       'the second question')
     same(String(fixCm), mean(fixErrM(recs('off60'))) * 100, 'the mean fix error there')
     same(String(rangeCm), mean(ancRangeErrM(recs('off60'))) * 100, 'and its mean range error')

@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "不回话的物体留下的回波", measured against the lesson's own scene
+ * Every empirical claim in "不作应答的物体产生的回波", measured against the lesson's own scene
  * and its two variants.
  *
  * The lesson quotes no number it typed: each figure comes from `src/ui/echoFacts.ts`, which
@@ -281,7 +281,7 @@ describe('uwb-sensing · the experiments hold', () => {
   const echoesOf = (key: string, sc: () => Scenario) => ofType(run(key, sc), 'UWB_ECHO')
 
   it('drag it onto the line and its echo arrives in the same nanosecond as the direct ray', () => {
-    // "再把它拖到连线上去，看时延如何贴上直达路径"
+    // "再把它拖到连线上，观察时延如何趋近直达路径"
     const es = echoesOf('onLine', () => scene(PAIR_SPAN_M, 0, -10))
     expect(es.length).toBeGreaterThan(0)
     for (const e of es) {
@@ -292,7 +292,7 @@ describe('uwb-sensing · the experiments hold', () => {
   })
 
   it('walk it outwards and the path grows while the level falls, every step', () => {
-    // "看双站距离怎么涨，看电平怎么掉"
+    // "观察双站距离如何增大、电平如何降低"
     const steps = [0.5, 1, 1.5, 2].map((d) => echoesOf(`out${d}`, () => scene(PAIR_SPAN_M, d, -10))[0])
     for (let i = 1; i < steps.length; i++) {
       expect(steps[i].pathM).toBeGreaterThan(steps[i - 1].pathM)
@@ -301,7 +301,7 @@ describe('uwb-sensing · the experiments hold', () => {
   })
 
   it('0 dB costs exactly ten decibels and is still audible at two metres', () => {
-    // "回波弱了整整 10 dB，但仍然听得见"
+    // "回波减弱了整整 10 dB，但仍然可以接收"
     const wardrobe = echoesOf('w2', () => scene(PAIR_SPAN_M, 1, -10))[0]
     const ideal = echoesOf('i2', () => scene(PAIR_SPAN_M, 1, 0))
     expect(ideal.length).toBeGreaterThan(0)
@@ -309,11 +309,11 @@ describe('uwb-sensing · the experiments hold', () => {
   })
 
   it('nine metres apart, the square metre is gone and the wardrobe only just arrives', () => {
-    // "0 dB 的物体一条回波都不剩，而 −10 dB 的衣柜刚好卡在门限上还能进来"
+    // "0 dB 的物体没有留下任何回波，而 −10 dB 的衣柜恰好处于门限之上，仍能被接收"
     expect(echoesOf('i9', () => scene(9, 1, 0))).toHaveLength(0)
     const w = echoesOf('w9', () => scene(9, 1, -10))
     expect(w.length).toBeGreaterThan(0)
-    // inside the floor, and by less than a decibel: "刚好卡在门限上"
+    // inside the floor, and by less than a decibel: "恰好处于门限之上"
     expect(w[0].rssiDbm).toBeGreaterThanOrEqual(UWB_RX_SENS_DBM)
     expect(w[0].rssiDbm - UWB_RX_SENS_DBM).toBeLessThan(1)
   })
@@ -470,8 +470,8 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
         `「${m[0]}」 against the engine’s own aperture correction`)
         .toBeCloseTo(apertureCorrectionDb(LAMBDA_M), 9)
     }
-    // 「不退的话，回波会比该有的弱三十多分贝」 — and that is the size of the correction itself
-    const [tensCn] = raw(DEEP, /回波会比该有的弱(.)十多分贝/, '`deeper` on what forgetting it costs')
+    // 「如果不扣除，回波会比应有的电平弱三十多分贝」 — and that is the size of the correction itself
+    const [tensCn] = raw(DEEP, /回波会比应有的电平弱(.)十多分贝/, '`deeper` on what forgetting it costs')
     expect(Math.abs(apertureCorrectionDb(LAMBDA_M)), 'the correction this channel really carries')
       .toBeGreaterThan(cn(tensCn!) * 10)
     expect(Math.abs(apertureCorrectionDb(LAMBDA_M)), 'and it is in that decade')
@@ -486,9 +486,9 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
     same(String(halfDb), 10 * Math.log10(2), 'and half of one costs that much more loss')
     const [limZero] = figs(LIM, /(\d) dB 是一平方米/, '`limits` on the same zero')
     expect(limZero, 'the same zero, a second time').toBe(zeroDb)
-    // 「🪞 工具放置时写 −10 dB（一个衣柜）」, and `limits` says it again
+    // 「🪞 工具放置时设为 −10 dB（一个衣柜）」, and `limits` says it again
     for (const [text, re, what] of [
-      [SRC, /工具放置时写 −(\d+) dB（一个衣柜）/, '`sources` on the tool’s own object'],
+      [SRC, /工具放置时设为 −(\d+) dB（一个衣柜）/, '`sources` on the tool’s own object'],
       [LIM, /−(\d+) dB 是 🪞 工具默认的衣柜/, '`limits` on the same object'],
     ] as [string, RegExp, string][]) {
       expect(-figs(text, re, what)[0]!, 'the reflectivity the tool really writes')
@@ -499,7 +499,7 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
      * object is louder than a square metre by exactly that much. Measured on the same geometry
      * at the two reflectivities rather than argued from the sign.
      */
-    const [toolDb, overCn] = raw(DEEP, /工具写的 −(\d+) dB 比一平方米还强(.)个分贝/,
+    const [toolDb, overCn] = raw(DEEP, /工具设定的 −(\d+) dB 比一平方米还强(.)个分贝/,
       '`deeper` on the tool’s object')
     const wardrobe = echoDbmAt(PAIR_SPAN_M, 0.2, -val(toolDb!))
     const ideal = echoDbmAt(PAIR_SPAN_M, 0.2, 0)
@@ -523,8 +523,8 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
       '`sources` on the chip')
     same(String(chipNs), UWB_CHIP_NS, 'the chip this receiver really counts in')
     expect(String(resM.toFixed(2)), 'and what it is worth in metres').toBe(ECHO_RESOLUTION_M)
-    // 「这里只先记住那个数：0.60 米」 — `numbers` prints it again
-    const [numsRes] = figs(NUMS, /这里只先记住那个数：([\d.]+) 米/, '`numbers` on the same figure')
+    // 「这里只需先记住那个数：0.60 米」 — `numbers` prints it again
+    const [numsRes] = figs(NUMS, /这里只需先记住那个数：([\d.]+) 米/, '`numbers` on the same figure')
     expect(numsRes!.toFixed(2), 'the same resolution, a second time').toBe(ECHO_RESOLUTION_M)
     expect(echoes('base')[0]!.resolutionM.toFixed(2), 'and the record’s own figure for it')
       .toBe(ECHO_RESOLUTION_M)
@@ -547,7 +547,7 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
      * 米」 is an instruction, and 0.4 or 0.6 would teach the same thing. What is read is the
      * claim beside it — 「看双站距离怎么涨，看电平怎么降」 — at the steps it names.
      */
-    const [stepM] = figs(TRY, /往外拖，一次 ([\d.]+) 米/, '`tryThis` on the drag step')
+    const [stepM] = figs(TRY, /向外拖动，每次 ([\d.]+) 米/, '`tryThis` on the drag step')
     let lastPath = bistaticAt(PAIR_SPAN_M, 0)
     let lastDbm = echoDbmAt(PAIR_SPAN_M, 0, NEW_SCATTERER_EXTRA_LOSS_DB)
     for (let k = 1; k <= 4; k++) {
@@ -565,7 +565,7 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
      * 进来」 — four figures, and all four are the floor this engine really gates on.
      */
     const [fromDb, toDb, weakerDb] = figs(TRY,
-      /把衣柜的反射损耗从 −(\d+) dB 改成 (\d) dB.*?回波弱了整整 (\d+) dB，但仍然听得见/s,
+      /把衣柜的反射损耗从 −(\d+) dB 改为 (\d) dB.*?回波减弱了整整 (\d+) dB，但仍然可以接收/s,
       '`tryThis` on the ideal reflector')
     expect(-fromDb!, 'the reflectivity it starts from').toBe(NEW_SCATTERER_EXTRA_LOSS_DB)
     expect(toDb, 'and the one it is changed to').toBe(0)
@@ -575,7 +575,7 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
     expect(atSpan(PAIR_SPAN_M, toDb!), 'and it is still over the floor')
       .toBeGreaterThan(UWB_RX_SENS_DBM)
     const [farCn] = raw(TRY, /相距(.)米左右/, '`tryThis` on the long baseline')
-    const [goneDb, leftDb] = figs(TRY, /：(\d) dB 的物体一条回波都不剩，而 −(\d+) dB 的衣柜刚好卡在门限上/,
+    const [goneDb, leftDb] = figs(TRY, /：(\d) dB 的物体没有留下任何回波，而 −(\d+) dB 的衣柜恰好处于门限之上/,
       '`tryThis` on what survives at that baseline')
     const far = cn(farCn!)
     /*
@@ -592,7 +592,7 @@ describe('uwb-sensing · every figure the prose prints, read back out of it', ()
       .toBeLessThan(UWB_RX_SENS_DBM)
     expect(echoDbmAt(far, 0, -leftDb!), 'while the wardrobe is still over it')
       .toBeGreaterThan(UWB_RX_SENS_DBM)
-    expect(echoDbmAt(far, 0, -leftDb!) - UWB_RX_SENS_DBM, '「刚好卡在门限上」: by very little')
+    expect(echoDbmAt(far, 0, -leftDb!) - UWB_RX_SENS_DBM, '「恰好处于门限之上」: by very little')
       .toBeLessThan(leftDb!)
   })
 })

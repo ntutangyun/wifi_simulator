@@ -560,8 +560,8 @@ describe('uwb-position · every figure the prose prints, read back out of it', (
     expect(lessonProse(uwbIntro), 'the opening lesson really prints that figure')
       .toContain(`${opening} cm`)
     same(String(opening), SIGMA_R * 100, 'and it is this same sigma, to its own decimal')
-    // 「双边测距实际上散得略小一些，1.8 到 1.9 cm」, which `sources` gives the factors for
-    const [dsLo, dsHi] = figs(NUMS, /双边测距实际上散得略小一些，([\d.]+) 到 ([\d.]+) cm/,
+    // 「双边测距实际的离散程度略小一些，1.8 到 1.9 cm」, which `sources` gives the factors for
+    const [dsLo, dsHi] = figs(NUMS, /双边测距实际的离散程度略小一些，([\d.]+) 到 ([\d.]+) cm/,
       '`numbers` on the double-sided spread')
     const [fLo, fHi] = figs(SRC, /双边测距的取值是 ([\d.]+)–([\d.]+) · c · σ_ts/,
       '`sources` on the two factors')
@@ -623,8 +623,8 @@ describe('uwb-position · every figure the prose prints, read back out of it', (
   it('reads the worked table as the solve it describes, row by row', () => {
     const t = table(1)
     const row = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
-    // 「对上的那四条距离 | 4.7368, 6.3831, 5.4439, 6.8922 m」
-    const printed = raw(row('对上的那四条距离'), /^([\d., ]+) m$/, 'the four ranges')[0]!
+    // 「匹配上的四条距离 | 4.7368, 6.3831, 5.4439, 6.8922 m」
+    const printed = raw(row('匹配上的四条距离'), /^([\d., ]+) m$/, 'the four ranges')[0]!
       .split(', ').map(val)
     const block0 = tagRanges().filter((r) => r.block === 0)
     expect(printed, 'the four ranges the tag measured in that block')
@@ -633,11 +633,11 @@ describe('uwb-position · every figure the prose prints, read back out of it', (
     const [tx, ty] = figs(row('试探点起于'), /^\(([\d.]+), ([\d.]+)\) m$/, 'the trial point')
     same(String(tx), CORNERS.reduce((a, [, x]) => a + x, 0) / CORNERS.length, 'the anchors’ mean x')
     same(String(ty), CORNERS.reduce((a, [, , y]) => a + y, 0) / CORNERS.length, 'and their mean y')
-    // 「迭代停在 | (3.9933, 3.4981) m」 and 「该处残差的均方根 | 1.44 cm」
+    // 「迭代终止于 | (3.9933, 3.4981) m」 and 「该处残差的均方根 | 1.44 cm」
     const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
     const solved = solvePosition(anchors, block0.map((r) => ({ id: r.peer, distM: r.distM })),
       TAG.z, SIGMA_R)!
-    const [sx, sy] = figs(row('迭代停在'), /^\(([\d.]+), ([\d.]+)\) m$/, 'where the iteration stops')
+    const [sx, sy] = figs(row('迭代终止于'), /^\(([\d.]+), ([\d.]+)\) m$/, 'where the iteration stops')
     expect([sx, sy], 'where the solver really stops')
       .toEqual([Number(solved.x.toFixed(4)), Number(solved.y.toFixed(4))])
     same(raw(row('该处残差的均方根'), /^([\d.]+) cm$/, 'the residual there')[0]!,
@@ -645,8 +645,8 @@ describe('uwb-position · every figure the prose prints, read back out of it', (
     // 「标签的真实位置 | (4.00, 3.50) m」
     const [trueX, trueY] = figs(row('标签的真实位置'), /^\(([\d.]+), ([\d.]+)\) m$/, 'the truth')
     expect([trueX, trueY], 'where the tag really stands').toEqual([TAG.x, TAG.y])
-    // 「于是格式化后印出 | error 0.01 m — 0.69 cm」
-    const [errM, errCm] = figs(row('于是格式化后印出'), /error ([\d.]+) m — ([\d.]+) cm/,
+    // 「格式化后输出 | error 0.01 m — 0.69 cm」
+    const [errM, errCm] = figs(row('格式化后输出'), /error ([\d.]+) m — ([\d.]+) cm/,
       'the error as it is printed')
     const fix = fixes()[0]!
     same(String(errM), fixErr(fix), 'the error the log line prints')
@@ -668,7 +668,7 @@ describe('uwb-position · every figure the prose prints, read back out of it', (
     same(String(gdop), fix.gdop, 'the dilution the line quotes')
     expect(anchorsN, 'and the anchors behind it').toBe(fix.anchors.length)
     expect(fmtRecord(fix), 'which is the line the log really prints').toBe(line)
-    // 「检视面板印出的误差 | 0.7 cm」 and 「整段运行的七次定位 | 0.7, 3.3, … cm」
+    // 「检视面板显示的误差 | 0.7 cm」 and 「整段运行的七次定位 | 0.7, 3.3, … cm」
     const [panelCm] = figs(cell(0, 1, 1), /^([\d.]+) cm$/, 'the inspector’s own figure')
     const row = uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.uwb)
     expect(`${panelCm} cm`, 'what the panel shows after one block').toBe(row.error)
@@ -702,10 +702,10 @@ describe('uwb-position · every figure the prose prints, read back out of it', (
     const [cx, cy] = figs(NUMS, /就是四个角的中心，\(([\d.]+), ([\d.]+)\) m/, 'the steps on the centroid')
     same(String(cx), CORNERS.reduce((a, [, x]) => a + x, 0) / CORNERS.length, 'the anchors’ mean x')
     same(String(cy), CORNERS.reduce((a, [, , y]) => a + y, 0) / CORNERS.length, 'and their mean y')
-    // 「标签高度按配置值 1.00 m 固定不动」
-    const [heightM] = figs(NUMS, /标签高度按配置值 ([\d.]+) m 固定不动/, 'the steps on the height')
+    // 「标签高度固定为配置值 1.00 m」
+    const [heightM] = figs(NUMS, /标签高度固定为配置值 ([\d.]+) m/, 'the steps on the height')
     expect(heightM, 'the height the scene gives the tag').toBe(TAG.z)
-    // 「行列式小于 1e-9，说明这套布局定不出点来」
+    // 「行列式小于 1e-9，说明这套布局无法确定位置」
     const [det] = raw(NUMS, /行列式小于 (1e-\d+)/, 'the steps on the singular layout')
     expect(Number(det), 'a determinant floor the solver really refuses under').toBeGreaterThan(0)
     const inLine = solvePosition(

@@ -299,7 +299,7 @@ describe('uwb-uwbd · the printed tables and the formula are read back out of th
       expect(Number(round![2]), `${label}: and the same round in milliseconds`)
         .toBe(l.slots * PHY(over).gapMs / 2)
       // the paragraph under the table: the report phase never goes to zero, however the control
-      // phase is configured — 「把控制那一对置零，并不说明报告那一对也是零」
+      // phase is configured — 「把控制阶段的那一对置零，并不意味着报告阶段的那一对也为零」
       expect(l.reportSlots, `${label}: the report phase is never zero`).toBeGreaterThan(0)
     }
     // the round shrinks monotonically down the table, which is what it is a table of
@@ -373,7 +373,7 @@ describe('uwb-uwbd · the printed tables and the formula are read back out of th
   })
 
   it('the outcome table: what each control plane measured, and how many distances', () => {
-    const rows = rowsOf('三种控制面，各测出了什么')
+    const rows = rowsOf('三种控制面各自的测距结果')
     expect(rows.map((r) => r[0]), 'the same three planes, in the same order')
       .toEqual(PLANES.map(([label]) => label))
     for (const [i, [label, , variant]] of PLANES.entries()) {
@@ -486,14 +486,14 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
       expect([sp0Us, pollUs, reportUs, 170.1],
         `${us} µs is a packet this lesson sends — or the draft's other column`).toContain(us)
     }
-    // 「它在超宽带这条信道上，长 117.6 µs；而窄带那一帧 Poll 长 576 µs」
+    // 「它在超宽带信道上，长 117.6 µs；而窄带的 Poll 帧长 576 µs」
     const [sp0Printed, pollPrinted] = raw(pic,
-      /长 ([\d.]+) µs；而窄带那一帧 Poll 长 (\d+) µs/, '`picture` on the two opening packets')
+      /长 ([\d.]+) µs；而窄带的 Poll 帧长 (\d+) µs/, '`picture` on the two opening packets')
     same(sp0Printed!, sp0Us, 'the SP0 packet this run really sends')
     same(pollPrinted!, pollUs, 'and the narrowband Poll of the other plane')
-    // 「印的是 NBPOLL 与 NBRESP，各 576 µs，而收尾那两帧 NBREPORT 各 608 µs」
+    // 「显示的是 NBPOLL 与 NBRESP，各 576 µs，而收尾的两帧 NBREPORT 各 608 µs」
     const [obsPoll, obsReport] = figs(obs,
-      /印的是 NBPOLL 与 NBRESP，各 (\d+) µs，而收尾那两帧 NBREPORT 各 (\d+) µs/,
+      /显示的是 NBPOLL 与 NBRESP，各 (\d+) µs，而收尾的两帧 NBREPORT 各 (\d+) µs/,
       '`observe` on the narrowband frames of Config 2')
     expect(obsPoll! * 1000, 'the Poll').toBe(airOf(NBA, 'nbPoll')[0])
     expect(obsPoll! * 1000, 'and the Resp, the same length').toBe(airOf(NBA, 'nbResp')[0])
@@ -502,14 +502,14 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
     const spec = uwbUwbdHeadFields()
     expect(spec.fields.map((f) => f.size).slice(0, 4).reduce((a, b) => a + b, 0),
       'the four cells add up to the packet’s own length').toBeCloseTo(sp0Us, 6)
-    const [cells, forAcq] = raw(pic, /前(四)格是 SP0 包[\s\S]*?只有头(两)格用来捕获/,
+    const [cells, forAcq] = raw(pic, /前(四)格是 SP0 包[\s\S]*?只有前(两)格用于捕获/,
       'the caption on which cells are which')
     expect(zhNumeral(cells!), 'the SP0 packet is drawn in that many cells').toBe(4)
     expect(zhNumeral(forAcq!.replace(/两/g, '二')),
       'and acquisition uses the first two of them').toBe(2)
     expect(spec.fields, 'the figure draws those four and the leading fragment').toHaveLength(5)
-    // 「片段把整整一毫秒的能量花在自己这 82 µs 里」
-    const [fragUs] = figs(pic, /自己这 (\d+) µs 里/, 'the caption on a fragment’s own length')
+    // 「片段把整整一毫秒的能量集中在自身这 82 µs 内」
+    const [fragUs] = figs(pic, /自身这 (\d+) µs 内/, 'the caption on a fragment’s own length')
     expect(fragUs, 'the fragment, to the microsecond the caption rounds it to')
       .toBe(Math.round(FRAG_NS / 1000))
     expect(PHY().gapMs, 'and 「整整一毫秒」 is the energy budget it spends there').toBe(1)
@@ -524,7 +524,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
       .toBeGreaterThan(sp0!.windowSlots)
     expect(none!.controlSlots, 'and the zero-length plane spends no control slots at all').toBe(0)
     expect(none!.reportSlots, 'while its report phase survives').toBeGreaterThan(0)
-    // 「同一轮测距，28 个时隙、24 个、22 个」 — `picture`, and the table prints them again
+    // 「同一轮测距，分别为 28 个时隙、24 个、22 个」 — `picture`, and the table prints them again
     const [a, b, c] = figs(pic, /(\d+) 个时隙、(\d+) 个、(\d+) 个/, '`picture` on the three rounds')
     expect([a, b, c], 'the three rounds the three planes lay out')
       .toEqual(layouts.map((l) => l!.slots))
@@ -563,17 +563,17 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
       'the transmit-side difference', 3)) {
       same(v, txDiff, 'what an SP0 packet leaves the antenna behind a fragment by')
     }
-    // 「草案为此把它的门限抬高约 4 dB」 — `picture`, `deeper`, `limits`, `sources`, the quiz
+    // 「草案为此把它的门限提高约 4 dB」 — `picture`, `deeper`, `limits`, `sources`, the quiz
     for (const v of everyFig(
-      /抬高约 (\d+) dB|再差 (\d+) dB|那 (\d+) dB 是一个数|就是这 (\d+) dB|“约 (\d+) dB”|取值：(\d+) dB 这个数/g,
+      /提高约 (\d+) dB|再差 (\d+) dB|那 (\d+) dB 是一个数|就是这 (\d+) dB|“约 (\d+) dB”|取值：(\d+) dB 这个数/g,
       'the threshold penalty', 6)) {
       expect(val(v), 'the penalty `mms.ts` charges').toBe(MMS_SP0_PENALTY_DB)
     }
-    // 「一段链路上少了十四个多分贝」 — Chinese, and the claim is the whole of 14.54
+    // 「一条链路上少了十四个多分贝」 — Chinese, and the claim is the whole of 14.54
     const [tens] = raw(pic, /少了(十四)个多分贝/, '`picture` on the two halves together')
     expect(zhNumeral(tens!), 'the whole of it, rounded down the way the sentence rounds it')
       .toBe(Math.floor(txDiff + MMS_SP0_PENALTY_DB))
-    // 「两者相加 14.54 dB，就是同一条信道上 SP0 比片段少走的那一段」
+    // 「两者相加 14.54 dB，就是同一条信道上 SP0 相对于片段的功率损失」
     for (const v of everyFig(/相加 ([\d.]+) dB/g, 'the sum of the two halves', 1)) {
       same(v, txDiff + MMS_SP0_PENALTY_DB, 'the two halves added up')
     }
@@ -590,7 +590,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
         ]
       }),
     ])
-    // 「够不够 −89 / −93 dBm」 writes the first of the pair without its unit, and that is its
+    // 「是否达到 −89 / −93 dBm」 writes the first of the pair without its unit, and that is its
     // own site: a figure is not read because the same figure is read somewhere else
     for (const v of everyFig(/−([\d.]+)(?= dBm| \/ −| · −)/g,
       'a level or a threshold the prose names', 10)) {
@@ -602,16 +602,16 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
     // 「SP0 包在这条走廊上走到 16.80 m 就到顶了，而一个片段单独走得到 89.59 m，八个片段加起来
     //  走得到 253.41 m」
     const [sp0R, oneR, eightR] = raw(nums,
-      /走到 ([\d.]+) m 就到顶了，而一个片段单独走得到 ([\d.]+) m，八个片段加起来走得到 ([\d.]+) m/,
+      /最大作用距离是 ([\d.]+) m，单个片段可达 ([\d.]+) m，八个片段累加后可达 ([\d.]+) m/,
       '`numbers` on the three reaches')
     same(sp0R!, reach(UWB_TX_POWER_DBM, MMS_SP0_RX_SENS_DBM), 'how far an SP0 packet carries')
     same(oneR!, reach(FRAG_DBM, UWB_RX_SENS_DBM), 'how far one fragment carries')
     same(eightR!, reach(FRAG_DBM, UWB_RX_SENS_DBM - combineGainDb(8)), 'and how far eight do')
-    // 「二十米处那个锚点落在第一个数字之外、第二个之内——整堂课就系在这一段上」
+    // 「二十米处的锚点位于第一个距离之外、第二个距离之内——本课的全部结论都取决于这一区间」
     expect(FAR_M, 'the far anchor is past the SP0 reach').toBeGreaterThan(val(sp0R!))
     expect(FAR_M, 'and inside one fragment’s').toBeLessThan(val(oneR!))
-    // 「SP0 走到 16.80 m 就到顶」 and 「16.80 m 之内必成、之外必败」 — `limits` says it twice more
-    for (const v of everyFig(/走到 ([\d.]+) m 就到顶|([\d.]+) m 之内必成/g,
+    // 「SP0 的最大作用距离 16.80 m」 and 「16.80 m 之内必然成功、之外必然失败」 — `limits` says it twice more
+    for (const v of everyFig(/最大作用距离(?:是)? ([\d.]+) m|([\d.]+) m 之内必然成功/g,
       'the SP0 reach, wherever it is named', 2)) {
       same(v, reach(UWB_TX_POWER_DBM, MMS_SP0_RX_SENS_DBM), 'the line this whole lesson hangs on')
     }
@@ -628,7 +628,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
      * length at all, which is the same reason `limits` gives for taking one number instead of
      * three (「本课的模型里没有 SP0 包的前导重复数这个量」). What IS checkable is the arithmetic
      * the sentence does with each ratio, that the pulse ratio of each pair is the larger of the
-     * two (the sentence's own 「比的是脉冲数而不是时长」), and that the engine's single 4 dB falls
+     * two (the sentence's own 「比较的是脉冲数而不是时长」), and that the engine's single 4 dB falls
      * among the three values it stands in for — which is what 「提案的结论句把这三个数收成一句
      * “约 4 dB”」 claims.
      */
@@ -641,7 +641,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
      * dB」 — and the first printing is its own site. So the three 「倍」 pairs are read too: the
      * second of each pair is the number the logarithm is taken of, and the first is the LENGTH
      * ratio, which this repository has no corpus for. What that one is checked against is the
-     * sentence's own claim 「比的是脉冲数而不是时长」: in every pair the pulse ratio is the
+     * sentence's own claim 「比较的是脉冲数而不是时长」: in every pair the pulse ratio is the
      * larger of the two, which is the only reason the comparison is made in pulses at all.
      */
     const times = [...deep.matchAll(/长 ([\d.]+) 倍、脉冲多 ([\d.]+) 倍|是 ([\d.]+) 倍与 ([\d.]+) 倍/g)]
@@ -697,7 +697,7 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
 
   it('the step table’s six rows, and the three figures the prose names outside them', () => {
     const rows = (uwbUwbd.numbers!.find((x) => x.kind === 'table'
-      && (x.heading ?? '').includes('这六步，落在本场景上')) as { rows: string[][] }).rows
+      && (x.heading ?? '').includes('这六步在本场景中的取值')) as { rows: string[][] }).rows
     const byStep = (needle: string): string => {
       const row = rows.find((r) => r[0]!.includes(needle))
       expect(row, `no step row names 「${needle}」`).toBeDefined()
@@ -742,12 +742,12 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
     const [lo1, hi1, lo2, hi2] = ranges[0]!
     expect(lo1! < hi1! && hi1! < lo2! && lo2! < hi2!,
       'two ranges, ordered and disjoint').toBe(true)
-    // 「换到“窄带辅助（Config 2）”那个场景」 — the name of a variant this lesson really ships
-    const [named] = raw(obs, /换到“([^”]+)”那个场景/, '`observe` on which scene to switch to')
+    // 「换到“窄带辅助（Config 2）”场景」 — the name of a variant this lesson really ships
+    const [named] = raw(obs, /换到“([^”]+)”场景/, '`observe` on which scene to switch to')
     expect(uwbUwbd.variants!.map((v) => v.label), 'the scene it names is one this lesson ships')
       .toContain(named)
-    // 「每 200 ms 一块里各得出几个距离」 — the block this session runs on
-    const [blockMs] = figs(uwbUwbd.tryThis.join('\n'), /每 (\d+) ms 一块/,
+    // 「每个 200 ms 的块中各得出几个距离」 — the block this session runs on
+    const [blockMs] = figs(uwbUwbd.tryThis.join('\n'), /每个 (\d+) ms 的块/,
       '`tryThis` on the block every count is per')
     const session = uwbUwbd.scenario().uwb!
     expect(blockMs! * MS_RSTU, 'the block the session really runs').toBe(session.blockRstu)
@@ -772,8 +772,8 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
   it('`observe`: every instant, and the two windows that come up empty by name', () => {
     const rs = runOf(uwbUwbd, undefined, BLOCK_NS)
     const ms = (ns: number): number => ns / MS
-    // 「0.000 ms 标签发出一个 SP0 包，0.500 ms 锚点回一个」
-    const [t0, t1] = raw(obs, /([\d.]+) ms 标签发出一个 SP0 包，([\d.]+) ms 锚点回一个/,
+    // 「0.000 ms 标签发出一个 SP0 包，0.500 ms 锚点回复一个」
+    const [t0, t1] = raw(obs, /([\d.]+) ms 标签发出一个 SP0 包，([\d.]+) ms 锚点回复一个/,
       '`observe` on the two SP0 packets that open the round')
     const sp0s = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbSp0')
     same(t0!, ms(sp0s[0]!.t), 'when the tag sends its opening SP0 packet')
@@ -783,14 +783,14 @@ describe('uwb-uwbd · every figure the prose prints, read back out of it', () =>
     const [firstTrain] = raw(obs, /到 ([\d.]+) ms 才出现第一条判定/,
       '`observe` on the first train decision')
     same(firstTrain!, ms(ofType(rs, 'UWB_MMS_TRAIN')[0]!.t), 'the first train decision of the run')
-    // 「第二轮从 12.000 ms 起是二十米处那个锚点」
-    const [secondRound] = raw(obs, /第二轮从 ([\d.]+) ms 起/,
+    // 「第二轮从 12.000 ms 开始，对象是二十米处的锚点」
+    const [secondRound] = raw(obs, /第二轮从 ([\d.]+) ms 开始/,
       '`observe` on when the second round starts')
     const rounds = ofType(rs, 'UWB_ROUND').filter((r) => r.block === 0)
     same(secondRound!, ms(rounds[1]!.t), 'when the second round starts')
-    // 「12.500 ms 写着 “anchor-2 UWB slot 0: no sp0 from tag-1”，紧接着 13.000 ms 标签也等空了」
+    // 「12.500 ms 写着 “anchor-2 UWB slot 0: no sp0 from tag-1”，紧接着 13.000 ms 标签在自己的窗口中也没有收到任何消息」
     const [missAt, missLine, tagAt] = raw(obs,
-      /([\d.]+) ms 写着 “([^”]+)”，紧接着 ([\d.]+) ms 标签也等空了自己那个窗口/,
+      /([\d.]+) ms 写着 “([^”]+)”，紧接着 ([\d.]+) ms 标签在自己的窗口中也没有收到任何消息/,
       '`observe` on the window the far anchor sat out')
     const timeouts = ofType(rs, 'UWB_TIMEOUT')
     const quoted = timeouts.find((r) => fmtRecord(r).includes(missLine!))

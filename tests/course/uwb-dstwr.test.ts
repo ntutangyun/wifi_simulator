@@ -966,8 +966,8 @@ describe('uwb-dstwr · every figure the prose prints, read back out of it', () =
       .reduce((a, r) => a + r.frame.txTimeNs, 0) / 1000
 
   it('the two half-rounds, their average, and the answer that is neither', () => {
-    // 「把第一行的两个半场平均一下，得到 −5.49 m——也不是答案」
-    const [avg] = raw(numbersProse(), /两个半场平均一下，得到 (−[\d.]+) m/,
+    // 「把第一行的两个半场取平均，得到 −5.49 m——也不是答案」
+    const [avg] = raw(numbersProse(), /两个半场取平均，得到 (−[\d.]+) m/,
       '`numbers` on the average of the two halves')
     const [first, second] = halves(A1)
     same(avg!, (first! + second!) / 2, 'the average of the two half-rounds')
@@ -980,8 +980,8 @@ describe('uwb-dstwr · every figure the prose prints, read back out of it', () =
     same(ans!, ranges().find((r) => r.peer === A1 || r.node === A1)!.distM, 'and the answer')
     const [qAvg] = raw(quizText, /两者的平均是 (−[\d.]+) m/, 'the quiz on their average')
     expect(val(qAvg!), 'the same average the paragraph states').toBe(val(avg!))
-    // 「锚点 4 作答前等四个时隙，锚点 1 只等一个」 — the two the quiz compares
-    const [late, early] = figs(quizText, /锚点 (\d) 作答前等四个时隙，锚点 (\d) 只等一个/,
+    // 「锚点 4 作答前等待四个时隙，锚点 1 只等待一个」 — the two the quiz compares
+    const [late, early] = figs(quizText, /锚点 (\d) 作答前等待四个时隙，锚点 (\d) 只等待一个/,
       'the quiz on the two anchors it compares')
     expect([early, late], 'the first and the last to answer').toEqual([1, ANCHORS])
     const errs = ranges().filter((r) => r.node === 'tag-1').map((r) => Math.abs(r.distM - r.trueDistM))
@@ -1123,21 +1123,21 @@ describe('uwb-dstwr · every figure the prose prints, read back out of it', () =
     // 「测距噪声 1σ」 — the noise column's own heading
     const [sigma] = figs(table(2).head[2]!, /测距噪声 (\d)σ/, 'the noise column’s own heading')
     expect(sigma, 'one sigma').toBe(1)
-    // 「锚点 4 等了四倍长，拿到的数值一样准」 — the last anchor to answer
-    const [longest] = figs(numbersProse(), /锚点 (\d) 等了四倍长/,
+    // 「锚点 4 的等待时长是四倍，得到的数值却相同」 — the last anchor to answer
+    const [longest] = figs(numbersProse(), /锚点 (\d) 的等待时长是四倍/,
       '`numbers` on the anchor that waits longest')
     expect(longest, 'the last of them').toBe(ANCHORS)
     const resp = ofType(recs(), 'TX_START').filter((r) => r.frame.kind === 'uwbResp')
     expect(resp[longest! - 1]!.t, 'and it really answers last')
       .toBe(Math.max(...resp.map((r) => r.t)))
-    // 「时隙 0。手机给 Poll 离开时的 RMARKER 打一个戳」 — the slot the poll goes out in
-    const [slot0] = figs(numbersProse(), /时隙 (\d)。手机给 Poll 离开/,
+    // 「时隙 0。手机用自己的计数器为 Poll 的发出打时间戳」 — the slot the poll goes out in
+    const [slot0] = figs(numbersProse(), /时隙 (\d)。手机用自己的计数器为 Poll 的发出/,
       '`numbers` on which slot the poll is in')
     expect(ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.t,
       'the poll opens the round').toBe(slot0! * PLAN.slotNs)
     // 「锚点 1」 — the worked example's own anchor, wherever it is named
     const worked = figs(table(3).heading ?? '', /锚点 (\d)/, 'the worked table’s own heading')[0]!
-    for (const v of everyFig(/锚点 (\d) 的四个计数值|锚点 (\d)，照着步骤走一遍|锚点 (\d) 的两个半场/g,
+    for (const v of everyFig(/锚点 (\d) 的四个计数值|锚点 (\d) 的逐步计算|锚点 (\d) 的两个半场/g,
       'the anchor the worked example follows', 3)) {
       expect(val(v), 'the same anchor every time').toBe(worked)
     }

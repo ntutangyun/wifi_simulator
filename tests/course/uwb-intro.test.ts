@@ -495,7 +495,7 @@ describe('uwb-intro · echoes exist in the medium; this hall has nothing to refl
     // The limit now states the scene's property in plain words, with no engine names: one
     // direct arrival per receiver, and no echo in this room.
     expect(text).toContain('每个接收端只收到一条直射信号')
-    expect(text).toContain('房间里一条回波也没有')
+    expect(text).toContain('房间里没有任何回波')
     // the half of the old sentence that is still true, and the reason the limit exists at all
     expect(text).toContain('真实接收端要在一串先后到达的回波里判断哪一条是首径')
   })
@@ -726,7 +726,7 @@ describe('uwb-intro · every figure the prose prints, read back out of it', () =
     same(raw(OBS, /噪声标准差就是 ([\d.]+) cm/, '`observe` on the noise')[0]!, 100 * SIGMA_R,
       'one standard deviation of a single reading')
     // 「本来无事可修，可答案还是挪动了 7 cm」
-    const [movedCm] = figs(NUMS, /答案还是挪动了 (\d+) cm/, '`numbers` on what the correction moves')
+    const [movedCm] = figs(NUMS, /结果仍然改变了 (\d+) cm/, '`numbers` on what the correction moves')
     expect(movedCm, 'the correction’s own residual, in centimetres')
       .toBe(Math.round(100 * Math.abs(rctuToMetres(range.tofRawRctu!) - range.distM)))
     // 「找到 2 187 389 ns 处的 UWB_RANGE」
@@ -786,7 +786,7 @@ describe('uwb-intro · every figure the prose prints, read back out of it', () =
     // `limits`: the same noise, the same sigma, and the crystals this lesson pins.
     const [limPs] = figs(LIM, /那 (\d+) ps 是模型取值/, '`limits` on the noise')
     expect(limPs, 'the same figure').toBe(ps)
-    const [pinned] = figs(LIM, /把两端的晶振都钉在 (\d+) ppm/, '`limits` on the crystals')
+    const [pinned] = figs(LIM, /把两端晶振的频率偏差都设为 (\d+) ppm/, '`limits` on the crystals')
     expect(new Set(uwbIntro.scenario().nodes.map((n) => n.uwb?.ppm ?? 0)),
       'both crystals, as the scene sets them').toEqual(new Set([pinned]))
     // 「传播时延不过几十纳秒，而时隙是 9 µs」
@@ -810,7 +810,7 @@ describe('uwb-intro · every figure the prose prints, read back out of it', () =
     expect(gridCm, 'a nanosecond of flight, as the option rounds it')
       .toBe(Math.round(100 * C_M_PER_NS / 10) * 10)
     // 「计数器比 499.2 MHz 的码片速率再细 128 倍；一米是 213.1 格」
-    const [mhz, finer, perM] = figs(QUIZ, /比 ([\d.]+) MHz 的码片速率再细 (\d+) 倍；一米是 ([\d.]+) 格/,
+    const [mhz, finer, perM] = figs(QUIZ, /比 ([\d.]+) MHz 的码片速率再细 (\d+) 倍；一米对应 ([\d.]+) 格/,
       'the quiz on the counter')
     expect(mhz! * 1e6, 'the chip rate').toBe(UWB_CHIP_HZ)
     expect(finer, 'how much finer the counter is').toBe(Math.round(UWB_CHIP_NS / RCTU_NS))

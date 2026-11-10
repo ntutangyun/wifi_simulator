@@ -320,7 +320,7 @@ describe('uwb-ul-tdoa · one frame, and then nothing', () => {
     expect(fmtRecord(ofType(rs, 'TX_START')[0])).toBe(cell(2, 1, 1))
     /*
      * **The two headings that say which block they are of**, uncovered by the 「第」 rule change
-     * of 2026-10-14 — 「日志印出什么：badge-1，第 0 块」 and 「badge-1，第 0 块，对 anchor-…」.
+     * of 2026-10-14 — 「日志输出的内容：badge-1，第 0 块」 and 「badge-1，第 0 块，对 anchor-…」.
      * A heading is prose with a figure in it, and this figure is a claim about which records sit
      * below it: the round line and the difference both carry the block they belong to.
      */
@@ -766,11 +766,11 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
   }
 
   it('reads the pseudo-range sentence, and both scenes’ sync error wherever it is printed', () => {
-    // 「1 ns 就是 29.98 cm 的伪距」
-    const [ns, cm] = figs(NUMS, /(\d+) ns 就是 ([\d.]+) cm 的伪距/, '`numbers` on one nanosecond')
+    // 「1 ns 对应 29.98 cm 的伪距」
+    const [ns, cm] = figs(NUMS, /(\d+) ns 对应 ([\d.]+) cm 的伪距/, '`numbers` on one nanosecond')
     same(String(cm), ns! * C_M_PER_NS * 100, 'what a nanosecond of pseudo-range is worth')
-    // 「默认的 0 ns 意味着锚点完美无缺，而变体把它设成 1 ns」 — and the steps say it again.
-    const [dflt, variant] = figs(NUMS, /默认的 (\d+) ns 意味着锚点完美无缺，而变体把它设成 (\d+) ns/,
+    // 「默认的 0 ns 意味着锚点完全同步，而变体把它设为 1 ns」 — and the steps say it again.
+    const [dflt, variant] = figs(NUMS, /默认的 (\d+) ns 意味着锚点完全同步，而变体把它设为 (\d+) ns/,
       '`numbers` on the two scenes')
     expect(dflt, 'the session default this scene takes').toBe(DEFAULT_UWB_SESSION.syncErrorNs)
     expect(dflt, 'which is what the base scene runs on').toBe(scenarioOf('base').uwb!.syncErrorNs)
@@ -796,9 +796,9 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
     expect(perScene, 'the fixes one scene of this lesson produces').toBe(fixes('base'))
     expect(perScene, 'in either scene').toBe(fixes('sync'))
     expect(twoScenes.rows, 'and the table has one row per scene').toHaveLength(2)
-    // 「70 次里最差」 — a column heading of the sync-error walk, which is the same count.
+    // 「70 次中最差」 — a column heading of the sync-error walk, which is the same count.
     const walk = tablesOf(uwbUlTdoa.deeper!)[0]!
-    const [perRow] = figs(walk.head.join(' · '), /(\d+) 次里最差/, 'the walk’s own column heading')
+    const [perRow] = figs(walk.head.join(' · '), /(\d+) 次中最差/, 'the walk’s own column heading')
     expect(perRow, 'the fixes each row of the walk is measured over').toBe(perScene)
   })
 
@@ -860,15 +860,15 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('reads badge 1’s own two fixes, and the drift the whole room takes', () => {
-    // 「它自己的定位偏了 12.7 cm，而同步完好的那次只偏 2.1 cm」
-    const [withSyncErr, clean] = raw(DEEP, /它自己的定位偏了 ([\d.]+) cm，而同步完好的那次只偏 ([\d.]+) cm/,
+    // 「它自己的定位偏离了 12.7 cm，而同步完好时只偏离 2.1 cm」
+    const [withSyncErr, clean] = raw(DEEP, /它自己的定位偏离了 ([\d.]+) cm，而同步完好时只偏离 ([\d.]+) cm/,
       '`deeper` on badge 1’s two fixes')
     const errOf = (v: UwbUlTdoaVariant): string =>
       uwbFixRow(viewOf(v).nodes['badge-1']!.uwb!.position!, STRINGS.uwb).error
     expect(`${withSyncErr} cm`, 'the fix the inspector shows in the 1 ns scene').toBe(errOf('sync'))
     expect(`${clean} cm`, 'and the one it shows in the synchronised scene').toBe(errOf('base'))
-    // 「十个全都往东挪了 12 到 22 cm」
-    const [from, to] = figs(DEEP, /十个全都往东挪了 (\d+) 到 (\d+) cm/, '`deeper` on the drift')
+    // 「十个胸牌全部向东偏移了 12 到 22 cm」
+    const [from, to] = figs(DEEP, /十个胸牌全部向东偏移了 (\d+) 到 (\d+) cm/, '`deeper` on the drift')
     const dx = BADGES.map((id) => meanOffsetM(recs('sync'), id).dx * 100)
     expect([from, to], 'the least and the most any badge moves')
       .toEqual([Math.min(...dx), Math.max(...dx)].map((v) => Number(v.toFixed(0))))
@@ -876,8 +876,8 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('reads the geometry experiment, building its scene out of its own sentence', () => {
-    // 「把 badge-1 拖到 (9.8, 0.2)，即锚点矩形之外：GDOP 从 0.85 变成 3.43，椭圆从 32 cm 涨到
-    //   1.4 m，七次定位里最差的一次到 45.3 cm」
+    // 「把 badge-1 拖到 (9.8, 0.2)，即锚点矩形之外：GDOP 从 0.85 变成 3.43，椭圆从 32 cm 增大到
+    //   1.4 m，七次定位中最差的一次达到 45.3 cm」
     const [x, y] = figs(DEEP, /拖到 \(([\d.]+), ([\d.]+)\)，即锚点矩形之外/, '`deeper` on where it drags it')
     expect(x! > Math.max(...UL_ANCHORS.map((a) => a.x)) || y! < Math.min(...UL_ANCHORS.map((a) => a.y)),
       'a spot outside the anchor rectangle, as the sentence says').toBe(true)
@@ -888,22 +888,22 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
     const inside = ofType(recs('sync'), 'UWB_POSITION').filter((f) => f.of === 'badge-1')[0]!
     same(String(was), inside.gdop, 'the GDOP the badge has where it stands')
     same(String(now), outFix[0]!.gdop, 'and the one it has in the corner')
-    const [small, big] = figs(DEEP, /椭圆从 (\d+) cm 涨到 ([\d.]+) m/, '`deeper` on the two ellipses')
+    const [small, big] = figs(DEEP, /椭圆从 (\d+) cm 增大到 ([\d.]+) m/, '`deeper` on the two ellipses')
     expect(small, 'the semi-major axis where it stands, to the nearest centimetre')
       .toBe(Math.round(inside.ellipse.a * 100))
     same(String(big), outFix[0]!.ellipse.a, 'and the one in the corner, in metres')
-    const [worst] = figs(DEEP, /七次定位里最差的一次到 ([\d.]+) cm/, '`deeper` on the worst of the seven')
+    const [worst] = figs(DEEP, /七次定位中最差的一次达到 ([\d.]+) cm/, '`deeper` on the worst of the seven')
     same(String(worst), Math.max(...fixErrM(out, 'badge-1')) * 100, 'the worst fix that run makes')
   })
 
   it('reads what a listening round costs the anchors against what ten blinks cost', () => {
-    // 「锚点都只花掉块的 0.505 %；而十个闪发的胸牌，七个块里要花掉 12.685 260 ms 的空口时间」
+    // 「锚点都只占用块的 0.505 %；而十个发送闪发的胸牌，七个块中要占用 12.685 260 ms 的空口时间」
     const air = (rs: TLRecord[]): number =>
       ofType(rs, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
-    const [listening] = figs(DEEP, /锚点都只花掉块的 ([\d.]+) %/, '`deeper` on the listening round')
+    const [listening] = figs(DEEP, /锚点都只占用块的 ([\d.]+) %/, '`deeper` on the listening round')
     const dl = runExtra('dl-ten', () => uwbDlTdoaScenario('ten'))
     same(String(listening), (100 * air(dl)) / BLOCKS / (200 * MS), 'what one listening round costs')
-    const [blinks] = raw(DEEP, /七个块里要花掉 ([\d. ]+) ms 的空口时间/, '`deeper` on the blinks')
+    const [blinks] = raw(DEEP, /七个块中要占用 ([\d. ]+) ms 的空口时间/, '`deeper` on the blinks')
     same(blinks!, air(recs('base')) / MS, 'what ten blinking badges cost over the same blocks')
     expect(val(blinks!) / BLOCKS, 'which is ten blinks a block')
       .toBeCloseTo((BADGES.length * uwbPpduNs(UWB_BLINK_BYTES)) / MS, 9)
@@ -963,8 +963,8 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
       '`tryThis` on the two means')
     same(String(before), mean(fixErrM(recs('base'))) * 100, 'the mean fix error of the base scene')
     same(String(after), mean(fixErrM(recs('sync'))) * 100, 'and of the 1 ns scene')
-    // 「依次走过 0、1、2、4 ns」 — four scenes, and `deeper`'s table is their means.
-    const walkNs = figs(TRY, /依次走过 (\d+)、(\d+)、(\d+)、(\d+) ns/, '`tryThis` on the walk')
+    // 「依次设为 0、1、2、4 ns」 — four scenes, and `deeper`'s table is their means.
+    const walkNs = figs(TRY, /依次设为 (\d+)、(\d+)、(\d+)、(\d+) ns/, '`tryThis` on the walk')
     const walk = tablesOf(uwbUlTdoa.deeper!)[0]!
     expect(walkNs, 'the same four the walk’s table has rows for')
       .toEqual(walk.rows.map((r, i) => figs(r[0]!, /^(\d+) ns$/, `the walk’s row ${i}`)[0]))

@@ -110,7 +110,7 @@ describe('uwb-sstwr · the lesson’s own place in the track', () => {
      */
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
     const labelled = uwbSstwr.jumps.flatMap((j) => {
-      const m = /第(.)次测距：raw 长了 (\d+) m/.exec(j.label)
+      const m = /第(.)次测距：raw 偏长 (\d+) m/.exec(j.label)
       return m === null ? [] : [[cn(m[1]!), Number(m[2]), j] as const]
     })
     expect(labelled.length, 'the jump labels that quote a figure').toBe(2)
@@ -460,7 +460,7 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
     // step 7 names the byte and says what it is NOT; nothing on the main path or in the
     // depth decodes it any more, which is what §5.1 · 9 asked for.
     expect(stepItems()[6]).toContain('品质因数（figure of merit, FoM）')
-    expect(stepItems()[6]).toContain('从来没有误差棒')
+    expect(stepItems()[6]).toContain('不带误差棒')
     for (const s of ['0x16', '97 %', '7.5 cm', '置信']) expect(deeperProse(), s).not.toContain(s)
   })
 })
@@ -810,11 +810,11 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
       expect([...known], `${ppm} ppm is a crystal this lesson runs, or its estimator’s noise`)
         .toContain(ppm)
     }
-    // 「标准给的晶振容差是 ±20 ppm（§16.4.9）」, and the pair the scene picks inside it
-    const [tol] = figs(pic, /标准给的晶振容差是 ±(\d+) ppm/, '`picture` on the standard’s tolerance')
+    // 「标准规定的晶振容差是 ±20 ppm（§16.4.9）」, and the pair the scene picks inside it
+    const [tol] = figs(pic, /标准规定的晶振容差是 ±(\d+) ppm/, '`picture` on the standard’s tolerance')
     expect(tol, 'the tolerance `phy.ts` exports').toBe(UWB_PPM_MAX)
     const [tagPpm, anchorPpm, delta] = figs(pic,
-      /手机 \+(\d+) ppm，锚点 −(\d+) ppm，差出 (\d+) ppm/,
+      /手机 \+(\d+) ppm，锚点 −(\d+) ppm，相差 (\d+) ppm/,
       '`picture` on the pair it picks out of that range')
     expect(tagPpm, 'the tag’s own crystal').toBe(BASE_PPM.tag)
     expect(-anchorPpm!, 'the anchors’ own').toBe(BASE_PPM.anchors)
@@ -825,12 +825,12 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
 
   it('the two scale factors, which are the whole mechanism', () => {
     /*
-     * 「手机快 10 ppm……它量出来的往返是真值的 1.00001 倍……每个锚点慢 10 ppm，它量出来的灰条是
+     * 「手机快 10 ppm……它测得的往返时间是真值的 1.00001 倍……每个锚点慢 10 ppm，它测得的灰条时长是
      * 真值的 0.99999 倍」. **Neither factor had an equal literal anywhere under `tests/`** — the
      * one pair of numbers the whole lesson turns on was the one nothing was watching.
      */
     const [fastPpm, fast, slowPpm, slow] = raw(pic,
-      /手机快 (\d+) ppm[\s\S]*?它量出来的往返是真值的 ([\d.]+) 倍[\s\S]*?每个锚点慢 (\d+) ppm，它量出来的灰条是真值的 ([\d.]+) 倍/,
+      /手机快 (\d+) ppm[\s\S]*?它测得的往返时间是真值的 ([\d.]+) 倍[\s\S]*?每个锚点慢 (\d+) ppm，它测得的灰条时长是真值的 ([\d.]+) 倍/,
       '`picture` on the two factors')
     expect(val(fastPpm!), 'the tag’s crystal').toBe(BASE_PPM.tag)
     expect(-val(slowPpm!), 'and the anchors’').toBe(BASE_PPM.anchors)
@@ -843,15 +843,15 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
   })
 
   it('the chain from a 2 ms reply to six metres, every step of it', () => {
-    // 「一趟飞行只有 11.675 ns」 — in `picture` and again in `deeper`
-    for (const v of everyFig(/([\d.]+) ns 的飞行时间|一趟飞行只有 ([\d.]+) ns/g,
+    // 「单程飞行只有 11.675 ns」 — in `picture` and again in `deeper`
+    for (const v of everyFig(/([\d.]+) ns 的飞行时间|单程飞行只有 ([\d.]+) ns/g,
       'the flight time of this ring', 2)) {
       same(v, FLIGHT_NS, 'the flight time the ring’s radius gives')
     }
-    // 「一个锚点等 1 个时隙，灰条是 2 ms：取一半得 1 ms，乘 20 ppm 得 20 ns。20 ns 是光走 5.996 m
-    //  要的时间，于是 raw 距离就长出将近六米」
+    // 「一个锚点等待 1 个时隙，灰条是 2 ms：取一半得 1 ms，乘以 20 ppm 得 20 ns。20 ns 是光传播 5.996 m
+    //  所需的时间，于是 raw 距离偏长将近六米」
     const [slots, grey, half, ppm, ns, nsAgain, metres] = figs(pic,
-      /等 (\d+) 个时隙，灰条是 (\d+) ms：取一半得 (\d+) ms，乘 (\d+) ppm 得 (\d+) ns。(\d+) ns 是光走 ([\d.]+) m 要的时间/,
+      /等待 (\d+) 个时隙，灰条是 (\d+) ms：取一半得 (\d+) ms，乘以 (\d+) ppm 得 (\d+) ns。(\d+) ns 是光传播 ([\d.]+) m 所需的时间/,
       '`picture` on the chain from a reply to a distance')
     expect(grey! / slots!, 'the slot this scene runs').toBe(SLOT_MS)
     expect(half! * 2, 'half of that reply').toBe(grey)
@@ -860,17 +860,17 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
       .toBeCloseTo(ns!, 9)
     expect(nsAgain, 'the same nanoseconds, restated in the same sentence').toBe(ns)
     same(String(metres), ns! * C_M_PER_NS, 'and what light covers in them')
-    // the formula's own note: 「2 ms 的应答取一半再乘 20 ppm，就是 20 ns，合 6.0 m」
+    // the formula's own note: 「2 ms 的应答取一半再乘以 20 ppm，即 20 ns，合 6.0 m」
     const [noteMs, notePpm, noteNs, noteM] = figs(nums,
-      /(\d+) ms 的应答取一半再乘 (\d+) ppm，就是 (\d+) ns，合 ([\d.]+) m/,
+      /(\d+) ms 的应答取一半再乘以 (\d+) ppm，即 (\d+) ns，合 ([\d.]+) m/,
       'the formula’s note on the same chain')
     expect([noteMs, notePpm, noteNs], 'the same three figures the picture works through')
       .toEqual([grey, ppm, ns])
     same(String(noteM), ((noteMs! * MS) / 2) * notePpm! * 1e-6 * C_M_PER_NS,
       'and the metres its own arithmetic gives')
-    // 「图上四条灰条标的 +6.01、+11.97、+17.99、+23.92 m，就是这一步乘 1、2、3、4」
+    // 「图上四条灰条标注的 +6.01、+11.97、+17.99、+23.92 m，就是这一步分别乘以 1、2、3、4 的结果」
     const printed = figs(pic,
-      /图上四条灰条标的 \+([\d.]+)、\+([\d.]+)、\+([\d.]+)、\+([\d.]+) m，就是这一步乘 (\d)、(\d)、(\d)、(\d)/,
+      /图上四条灰条标注的 \+([\d.]+)、\+([\d.]+)、\+([\d.]+)、\+([\d.]+) m，就是这一步分别乘以 (\d)、(\d)、(\d)、(\d)/,
       '`picture` on the four grey bars')
     const errs = printed.slice(0, 4)
     const mult = printed.slice(4)
@@ -909,25 +909,25 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
     const items = uwbSstwr.numbers!
       .find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!.items
     const joined = items.join('\n')
-    // 「时隙 0。手机给 Poll 离开时的 RMARKER 打一个戳」
-    const [slot0] = figs(joined, /时隙 (\d)。手机给 Poll 离开/, 'the steps on which slot the poll is in')
+    // 「时隙 0。手机用自己的计数器为 Poll 发出时的 RMARKER 打时间戳」
+    const [slot0] = figs(joined, /时隙 (\d)。手机用自己的计数器为 Poll 发出/, 'the steps on which slot the poll is in')
     const poll = ofType(recs(), 'UWB_TS')
       .find((r) => r.node === 'tag-1' && r.dir === 'tx' && r.frameKind === 'uwbPoll')!
     expect(slot0, 'the poll goes out in the round’s first slot').toBe(0)
     expect(poll.t, 'which starts the round').toBe(0)
     // 「这里是 −20.24 ppm——两块晶振相差的 20 ppm，加上估计器弄错的 0.2 ppm」
     const [coffsPpm, crystals, noise] = raw(joined,
-      /这里是 (−[\d.]+) ppm——两块晶振相差的 (\d+) ppm，加上估计器弄错的 ([\d.]+) ppm/,
+      /这里是 (−[\d.]+) ppm——两个晶振相差的 (\d+) ppm，加上估计器 ([\d.]+) ppm 的误差/,
       'the steps on where Coffs comes from')
     expect(val(crystals!), 'the crystals’ own difference').toBe(Math.abs(BASE_PPM.delta))
     expect(val(noise!), 'and the estimator’s residual').toBe(SESSION.cfoNoisePpm)
     expect(Math.abs(Math.abs(val(coffsPpm!)) - Math.abs(BASE_PPM.delta)),
       'and the two together are what it reports').toBeLessThanOrEqual(4 * SESSION.cfoNoisePpm)
-    // 「不算 Coffs 得到 2028 格……再折半，得到 734.6 格」 — neither had a literal anywhere
+    // 「不计 Coffs 得到 2028 格……再除以二，得到 734.6 格」 — neither had a literal anywhere
     const r0 = ranges()[0]!
-    const [rawCounts] = raw(joined, /不算 Coffs 得到 (\d+) 格/, 'the steps on the raw half-difference')
+    const [rawCounts] = raw(joined, /不计 Coffs 得到 (\d+) 格/, 'the steps on the raw half-difference')
     expect(val(rawCounts!), 'the raw half-difference the record carries').toBe(r0.tofRawRctu)
-    const [corrCounts] = raw(joined, /再折半，得到 ([\d.]+) 格/, 'and on the corrected one')
+    const [corrCounts] = raw(joined, /再除以二，得到 ([\d.]+) 格/, 'and on the corrected one')
     same(corrCounts!, r0.tofRctu, 'the corrected half-difference the record carries')
     // 「乘以一格的 15.65 ps，再乘以光速：3.45 m，真值是 3.50 m」
     const [ps, got, truth] = raw(joined, /乘以一格的 ([\d.]+) ps，再乘以光速：([\d.]+) m，真值是 ([\d.]+) m/,
@@ -945,9 +945,9 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
   })
 
   it('`deeper`: the term that can be forgotten, and the one that cannot', () => {
-    // 「Tprop·eA 是拿 10 ppm 去缩放 11.675 ns 的飞行时间：0.12 皮秒，合 35 微米」
+    // 「Tprop·eA 是用 10 ppm 缩放 11.675 ns 的飞行时间：0.12 皮秒，合 35 微米」
     const [ppm, ns, ps, um] = raw(deep,
-      /拿 (\d+) ppm 去缩放 ([\d.]+) ns 的飞行时间：([\d.]+) 皮秒，合 (\d+) 微米/,
+      /用 (\d+) ppm 缩放 ([\d.]+) ns 的飞行时间：([\d.]+) 皮秒，合 (\d+) 微米/,
       '`deeper` on the term that can be forgotten')
     expect(val(ppm!), 'the tag’s own crystal').toBe(BASE_PPM.tag)
     same(ns!, FLIGHT_NS, 'the flight time it scales')
@@ -967,17 +967,17 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
     const rxResp = ts.find((r) => r.node === 'tag-1' && r.dir === 'rx' && r.peer === 'anchor-1')!
     expect(counterDiff(rxResp.counter, txPoll.counter) - counterDiff(txResp.counter, rxPoll.counter),
       'the counts the two ends’ own pairs differ by').toBe(diff)
-    // 「1 ms 的 0.2 ppm 取一半是 0.1 ns，于是锚点每多等 1 ms，剩余误差就多 3.0 cm」
+    // 「1 ms 的 0.2 ppm 取一半是 0.1 ns，于是锚点每多等待 1 ms，剩余误差就增加 3.0 cm」
     const [perMs, noise, halfNs, perMs2, cm] = raw(deep,
-      /(\d+) ms 的 ([\d.]+) ppm 取一半是 ([\d.]+) ns，于是锚点每多等 (\d+) ms，剩余误差就多 ([\d.]+) cm/,
+      /(\d+) ms 的 ([\d.]+) ppm 取一半是 ([\d.]+) ns，于是锚点每多等待 (\d+) ms，剩余误差就增加 ([\d.]+) cm/,
       '`deeper` on how the residual grows')
     expect(val(noise!), 'the estimator’s residual').toBe(SESSION.cfoNoisePpm)
     expect(val(perMs2!), 'the same millisecond, restated').toBe(val(perMs!))
     same(halfNs!, (val(perMs!) * MS * val(noise!) * 1e-6) / 2, 'half of that, in nanoseconds')
     same(cm!, ((val(perMs!) * MS * val(noise!) * 1e-6) / 2) * C_M_PER_NS * 100,
       'and the centimetres it is worth')
-    // 「锚点 3 的 −9.5 cm 稳稳落在它自己 18.0 cm 的 σ 之内」
-    const [which, err, sigma] = raw(deep, /锚点 (\d) 的 (−[\d.]+) cm 稳稳落在它自己 ([\d.]+) cm 的 σ 之内/,
+    // 「锚点 3 的 −9.5 cm 完全落在它自己 18.0 cm 的 σ 之内」
+    const [which, err, sigma] = raw(deep, /锚点 (\d) 的 (−[\d.]+) cm 完全落在它自己 ([\d.]+) cm 的 σ 之内/,
       '`deeper` on one anchor’s own residual')
     const r = ranges()[val(which!) - 1]!
     same(err!, (r.distM - r.trueDistM) * 100, `anchor ${which}: the error this run leaves`)
@@ -999,12 +999,12 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
     expect((tround - treply) / halve!, 'the half-difference `ssTwrRaw` takes')
       .toBe(ssTwrRaw(tround, treply))
     // every 「N ms」 that is a slot is this session's own slot
-    for (const v of everyFig(/它是 (\d+) ms|不把这 (\d+) ms|花掉五个 (\d+) ms|灰条是 (\d+) ms/g,
+    for (const v of everyFig(/它是 (\d+) ms|不把这 (\d+) ms|占用五个 (\d+) ms|灰条是 (\d+) ms/g,
       'the ranging slot, wherever the prose names it', 4)) {
       expect(val(v), 'the slot two responses really are apart').toBe(SLOT_MS)
     }
-    // 「等 2、3、4 个时隙的锚点，灰条成倍」 — the slots the other three anchors answer in
-    const slots = figs(pic, /等 (\d)、(\d)、(\d) 个时隙的锚点/, '`picture` on the other three anchors')
+    // 「等待 2、3、4 个时隙的锚点，灰条成倍增长」 — the slots the other three anchors answer in
+    const slots = figs(pic, /等待 (\d)、(\d)、(\d) 个时隙的锚点/, '`picture` on the other three anchors')
     expect(slots, 'one slot per anchor after the first')
       .toEqual(Array.from({ length: ANCHORS - 1 }, (_x, i) => i + 2))
     const resp = ofType(recs(), 'TX_START').filter((r) => r.frame.kind === 'uwbResp')
@@ -1012,10 +1012,10 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
       expect(Math.round((resp[i + 1]!.t - resp[0]!.t) / MS / SLOT_MS) + 1,
         `the anchor answering in slot ${n}`).toBe(n)
     }
-    // 「锚点 1，照着步骤走一遍」 and the two cells that name it — the worked example's own anchor
-    const [heading] = figs(table(3).heading ?? '', /锚点 (\d)，照着步骤走一遍/,
+    // 「锚点 1 的逐步计算」 and the two cells that name it — the worked example's own anchor
+    const [heading] = figs(table(3).heading ?? '', /锚点 (\d) 的逐步计算/,
       'the worked example’s own heading')
-    for (const v of everyFig(/它到达锚点 (\d)|锚点 (\d) 的 Response/g,
+    for (const v of everyFig(/它到达锚点 (\d)|锚点 (\d) 发出 Response/g,
       'the anchor the worked example follows', 2)) {
       expect(val(v), 'the same anchor the heading names').toBe(heading)
     }
@@ -1079,8 +1079,8 @@ describe('uwb-sstwr · every figure the prose prints, read back out of it', () =
     for (const s of starts) {
       expect(Math.round(s.t), 'and every one of them at that instant').toBe(at12)
     }
-    // 「整轮花掉五个 2 ms 的时隙」 — 「五」 is Chinese; the slot is read above
-    const [slotsZh] = raw(obs, /整轮花掉(.)个/, '`observe` on how many slots the round takes')
+    // 「整轮占用五个 2 ms 的时隙」 — 「五」 is Chinese; the slot is read above
+    const [slotsZh] = raw(obs, /整轮占用(.)个/, '`observe` on how many slots the round takes')
     expect(zhNumeral(slotsZh!.replace(/两/g, '二')), 'one per anchor, plus the poll’s own')
       .toBe(ANCHORS + 1)
     // 「修正后的读数落在 3.41 与 3.51 m 之间，括号里的 raw 值却一路爬升：9.51 → 15.47 → 21.49 → 27.42 m」

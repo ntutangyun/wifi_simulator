@@ -385,7 +385,7 @@ describe('uwb-acquisition · the edge, where the attribute loses a round it woul
  *  - `tryThis` said 「收到的还是 5/8，**余量还是 26.7 dB**，结论变成检出」, framing the SFD run as a
  *    controlled comparison in which only the verdict moves. The margin moves too — 26.7 → 26.5,
  *    exactly the 0.188 dB of peak power the SFD costs, which is this lesson's own mechanism two
- *    sections earlier. **And `numbers` already said so**: 「它不再是严格的受控对比」. One lesson, two
+ *    sections earlier. **And `numbers` already said so**: 「这已不是严格的对照实验」. One lesson, two
  *    sections, opposite claims. The corrected sentence carries the point better: less margin, and
  *    the verdict still flips, so the verdict was never about level.
  *  - `numbers` said the SFD lane arrives at **−73.47 dBm**. It arrives at −73.4648, which renders
@@ -450,7 +450,7 @@ describe('uwb-acquisition · every figure the lesson quotes out of the log is th
 
   it('the SFD run is NOT a controlled comparison, and `tryThis` states the measured margins', () => {
     // The sentence this pins is the one that was wrong: it claimed the margin was unchanged.
-    const m = /再回到 ([\d.]+) ms 那一行：收到的还是 (\d)\/8，而余量反倒低了 ([\d.]+) dB（([\d.]+) dB，不是 ([\d.]+) dB/
+    const m = /再回到 ([\d.]+) ms 那一行：收到的还是 (\d)\/8，而余量反而低了 ([\d.]+) dB（([\d.]+) dB，不是 ([\d.]+) dB/
       .exec(uwbAcquisition.tryThis[0])
     expect(m, 'tryThis[0] no longer states the SFD run in the shape this reads').not.toBeNull()
     const ms = num(m![1])
@@ -474,7 +474,7 @@ describe('uwb-acquisition · every figure the lesson quotes out of the log is th
   })
 
   it('the seven discarded trains, and the band the lesson gives for them', () => {
-    const m = /被丢掉的那([一二三四五六七八九十]+)组，累加起来的余量在 ([\d.]+) 到 ([\d.]+) dB 之间/
+    const m = /被丢弃的那([一二三四五六七八九十]+)组，累加后的余量在 ([\d.]+) 到 ([\d.]+) dB 之间/
       .exec(numbersText)
     expect(m, 'the dropped-train sentence is gone from `numbers`').not.toBeNull()
     const dropped = trainsOf(undefined).filter((t) => t.detected === false)
@@ -513,7 +513,7 @@ describe('uwb-acquisition · every figure the lesson quotes out of the log is th
  *    two sections, opposite figures — the same shape as the `tryThis` defect the docblock above
  *    records, and it was still here because that fix read `tryThis` and nothing else.
  *
- * **Two exemptions, each with its argument.** 「序列码索引取 9–32」 and 「长 31 那几个老码」 are the
+ * **Two exemptions, each with its argument.** 「序列码索引取 9–32」 and 「长 31 的几个早期码」 are the
  * draft's code-index ranges and this repository holds no corpus for them — the lesson says so
  * itself (here the condition is satisfied by construction). What is checked instead is that every
  * statement of the range is the same range, and that its upper end is also the fragment length the
@@ -618,7 +618,7 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
     const [mhz, width] = figs(rowOf('这个房间', 'Wi-Fi 信道')[1], /(\d+) MHz · (\d+) MHz/, 'the Wi-Fi channel')
     expect([mhz, width], 'the channel this router sits on')
       .toEqual([SC.sixGhzCenterMhz, LESSON_6G_WIDTH_MHZ])
-    for (const v of everyFig(/它的 (\d+) MHz 整条压在/g, 'the width that lands in the band', 1)) {
+    for (const v of everyFig(/它的 (\d+) MHz 完全落在/g, 'the width that lands in the band', 1)) {
       expect(val(v), 'the same width, where `picture` names it').toBe(LESSON_6G_WIDTH_MHZ)
     }
     // 「64 × 4 × (128 + 2 × 64) = 65 536 码片 · 131.282 µs，带 SFD 时 137.082 µs」
@@ -641,7 +641,7 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
     same(raw(tableOf('四个场景').head.join(' '), /每 ([\d.]+) 秒的距离数/,
       'the window the ranges are counted over')[0], RUN_NS / 1e9, 'that window')
     const rows: [string, number | undefined][] = [
-      ['零长控制阶段', undefined], ['每个 RSF 带 SFD', SFD], ['窄带辅助', NBA], ['把 Wi-Fi 挪出', CLEAR],
+      ['零长控制阶段', undefined], ['每个 RSF 带 SFD', SFD], ['窄带辅助', NBA], ['把 Wi-Fi 移出', CLEAR],
     ]
     for (const [label, v] of rows) {
       const r = rowOf('四个场景', label)
@@ -723,12 +723,12 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
   })
 
   it('the six steps, and the table that walks them over the round of block 1', () => {
-    expect(rowOf('这六步', '开了窗')[1].split(', ').map(Number), 'the fragments that arrived')
+    expect(rowOf('这六步', '打开接收窗口')[1].split(', ').map(Number), 'the fragments that arrived')
       .toEqual([...ACQ_HEARD])
     expect(figs(rowOf('这六步', '无 SFD 时')[1], /只有片段 (\d+)/,
       'the only opener without the attribute')[0], 'the packet own leading fragment').toBe(0)
     const [opener, margin] = raw(rowOf('这六步', '判定，带 SFD')[1],
-      /片段 (\d+) 开场，余量 ([\d.]+) dB/, 'what the attribute changes')
+      /以片段 (\d+) 捕获，余量 ([\d.]+) dB/, 'what the attribute changes')
     expect(val(opener), 'the first fragment that did arrive').toBe(ACQ_HEARD[0])
     const withSfd = trainAt(SFD, 207.5)
     same(margin, withSfd.marginDb, 'the margin that train has WITH the attribute')
@@ -774,9 +774,9 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
   it('`deeper`: the two code families, the two costs, and the threshold an SP0 packet is judged by', () => {
     const deeper = (uwbAcquisition.deeper ?? [])
       .map((b) => `${b.heading ?? ''}\n${'text' in b ? b.text : ''}`).join('\n')
-    // 「当这个包用 91 长码或 127 长码」 — the length-127 family is `PSYM_CHIPS` at L = 4, and the
+    // 「当这个包使用 91 长码或 127 长码」 — the length-127 family is `PSYM_CHIPS` at L = 4, and the
     // length-91 one is the symbol `limits` derives the SFD out of, eight of them.
-    const [l91, l127] = figs(deeper, /当这个包用 (\d+) 长码或 (\d+) 长码/, 'the two code families')
+    const [l91, l127] = figs(deeper, /当这个包使用 (\d+) 长码或 (\d+) 长码/, 'the two code families')
     expect(l127 * MMS_SPREAD, 'the length-127 family, spread by four').toBe(PSYM_CHIPS)
     const [symChips] = figs(EVERYWHERE, /个前导符号 × (\d+) 码片/, 'the symbol the SFD is eight of')
     expect(l91 * MMS_SPREAD, 'and the length-91 family, spread by four').toBe(symChips)
@@ -787,8 +787,8 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
     const shorter = rsfNs(val(shortN), GAP)
     same(atThatLength, mmsFragmentDbm(shorter) - mmsFragmentDbm(shorter + SFD_NS),
       'and the cost at the shorter one')
-    // 「那个包按 −89 dBm 判定，比片段苛刻 4 dB」
-    const [sp0Sens, penalty] = figs(deeper, /那个包按 −(\d+) dBm 判定，比片段苛刻 (\d+) dB/,
+    // 「那个包按 −89 dBm 判定，比片段严格 4 dB」
+    const [sp0Sens, penalty] = figs(deeper, /那个包按 −(\d+) dBm 判定，比片段严格 (\d+) dB/,
       'the threshold an SP0 packet is judged by')
     expect(-sp0Sens, 'the SP0 sensitivity').toBe(MMS_SP0_RX_SENS_DBM)
     expect(penalty, 'how much harsher it is').toBe(MMS_SP0_PENALTY_DB)
@@ -821,15 +821,15 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
     for (const v of everyFig(/(\d+) 个前导符号/g, 'the symbols an SFD is made of', 2)) {
       expect(val(v), 'the same count, wherever the lesson names it').toBe(val(eight))
     }
-    // 「每个读数就会多 5 800 ns 的偏置，乘光速是 1 739 m」 — the bias it would add if it moved the
+    // 「每个读数就会多出 5 800 ns 的偏置，乘以光速是 1 739 m」 — the bias it would add if it moved the
     // timestamp, which is why the watchdog above exists.
-    const [bias, metres] = raw(lim, /就会多 ([\d ]+) ns 的偏置，乘光速是 ([\d ]+) m/,
+    const [bias, metres] = raw(lim, /就会多出 ([\d ]+) ns 的偏置，乘以光速是 ([\d ]+) m/,
       'the bias reading the stamp after the SFD would add')
     expect(val(bias), 'the bias is one SFD').toBe(SFD_NS)
     same(metres, val(bias) * C_M_PER_NS, 'and what that is in metres')
     expect(figs(lim, /仍然是片段 (\d+) 的第一个脉冲/, 'the fragment the RMARKER sits on')[0]).toBe(0)
-    // 「137 µs 还远在格子里」: the fragment with its SFD, against the millisecond it sits in
-    const [inside] = figs(EVERYWHERE, /格子排，(\d+) µs 还远在格子里/, 'the fragment on the grid')
+    // 「137 µs 远小于网格间隔」: the fragment with its SFD, against the millisecond it sits in
+    const [inside] = figs(EVERYWHERE, /时间网格排列，(\d+) µs 远小于网格间隔/, 'the fragment on the grid')
     expect(inside, 'the fragment with its SFD, to the µs')
       .toBe(Math.round(rsfAirNs({ ...SC.uwb!.mms, rsfSfd: true }) / 1000))
     expect(inside * 1000, 'and a millisecond is the grid it sits on').toBeLessThan(MS)
@@ -862,7 +862,7 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
     const l91 = val(raw(lim, /个前导符号 × (\d+) 码片/, 'the symbol the SFD is eight of')[0])
       / MMS_SPREAD
     const inUse = [PSYM_CHIPS / MMS_SPREAD, l91]
-    // 「长 (\d+)」 would also read 「每个片段长 5 800 ns」 as the family 5, so a grouped
+    // 「长 (\d+)」 would also read 「每个片段长出 5 800 ns」 as the family 5, so a grouped
     // thousand right after it is not a code length.
     const families = everyFig(/长 (\d+)(?! \d{3})/g, 'a code family', 8).map(val)
     const excluded = families.filter((v) => !inUse.includes(v))
@@ -908,9 +908,9 @@ describe('uwb-acquisition · every figure the lesson prints, read back out of it
       expect(margins.map((x) => Number(x.toFixed(dp))),
         `${v} dB is one of the three margins this lesson measures`).toContain(val(v))
     }
-    // 「闯进来那一路有 −43.1 dBm，而一个片段只有 −73.28 dBm」 — `observe`'s own tail restates both
+    // 「干扰信号有 −43.1 dBm，而一个片段只有 −73.28 dBm」 — `observe`'s own tail restates both
     const [foreign, frag] = raw(uwbAcquisition.observe[0],
-      /闯进来那一路有 −([\d.]+) dBm，而一个片段只有 −([\d.]+) dBm/, 'the two levels it compares')
+      /干扰信号有 −([\d.]+) dBm，而一个片段只有 −([\d.]+) dBm/, 'the two levels it compares')
     const hit = ofType(runOf(uwbAcquisition, undefined, RUN_NS), 'UWB_INTERFERED')[0]
     same(`-${foreign}`, hit.foreignDbm, 'the intruder level, restated')
     same(`-${frag}`, trainsOf()[0].rxDbm, 'and the fragment level it is compared with')

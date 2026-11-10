@@ -481,9 +481,9 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
       'the honest range, in `picture`')
     same(raw(PIC, /于是同一个房间报出 ([\d.]+) m/, '`picture` on the spoofed range')[0]!, spoofedM,
       'and the spoofed one')
-    same(raw(NUMS, /凭空少掉手机从未走过的 ([\d.]+) m/, '`numbers` on what is lost')[0]!,
+    same(raw(NUMS, /距离凭空减少了 ([\d.]+) m，而手机并没有移动/, '`numbers` on what is lost')[0]!,
       honestM - spoofedM, 'what the attack takes off the reading')
-    const [roomM] = figs(NUMS, /两个变体都站在 (\d+) m 的原因/, '`numbers` on why both rooms are 20 m')
+    const [roomM] = figs(NUMS, /两个变体都设在 (\d+) m 的原因/, '`numbers` on why both rooms are 20 m')
     expect(roomM, 'the room both attacked variants stand in')
       .toBe(Math.round(rangeOf(V_OFF)!.trueDistM))
   })
@@ -509,8 +509,8 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
     expect(base, 'a binary fraction of it').toBe(2)
     same(String(derived), (1e12 / (mhz! * 1e6)) / base! ** 7, 'the tick that fraction gives')
     same(String(derived), TICK_PS, 'which is the tick the engine uses')
-    // 「往返时间降了 3195 格，作答时间升了 3195 格；两者之差折半」
-    const [down, up] = figs(NUMS, /往返时间降了 ([\d,]+) 格，作答时间升了 ([\d,]+) 格/,
+    // 「往返时间减少 3195 格，作答时间增加 3195 格；两者之差再除以二」
+    const [down, up] = figs(NUMS, /往返时间减少 ([\d,]+) 格，作答时间增加 ([\d,]+) 格/,
       '`numbers` on the two movements')
     expect([down, up], 'both move by the advance’s own ticks').toEqual([low, low])
   })
@@ -561,9 +561,9 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the three rooms, the three ranges and the outcome table', () => {
-    const rows = tableOf('三种结局')
-    // 「诚实的 20 m（第三个变体）」 and the two attacked rooms: every room is a measured distance.
-    for (const [m] of every(ALL, /(\d+) m 的房间|诚实的 (\d+) m|真值是 ([\d.]+) m|放在 (\d+) m 上/g,
+    const rows = tableOf('三种结果')
+    // 「无转发的 20 m（第三个变体）」 and the two attacked rooms: every room is a measured distance.
+    for (const [m] of every(ALL, /(\d+) m 的房间|无转发的 (\d+) m|真值是 ([\d.]+) m|在 (\d+) m (?:的距离)?上施加/g,
       'every room the lesson names', 6).map((g) => [g.find((x) => x !== undefined)!])) {
       expect([5, 20], `「${m} m」`).toContain(Math.round(val(m!)))
     }
@@ -605,8 +605,8 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the segment lengths, the chips either side of them and the SRMARKERs', () => {
-    // 「夹在两段 512 码片的静默」
-    const [gap] = figs(NUMS, /夹在两段 ([\d ]+) 码片/, '`numbers` on the gaps')
+    // 「位于两段 512 码片（chip）的静默间隔之间」
+    const [gap] = figs(NUMS, /位于两段 ([\d ]+) 码片/, '`numbers` on the gaps')
     expect(gap, 'the gap on each side of the sequence').toBe(STS_GAP_CHIPS)
     // 「32 768 个码片——与开头那段 SYNC 差不多长（SYNC 是 32 512 个码片）」
     const [sts, sync] = figs(DEEP, /放了 ([\d ]+) 个码片[^]*?SYNC 是 ([\d ]+) 个码片/,
@@ -629,7 +629,7 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
     expect(to! - from! + 1, 'the five the standard defines').toBe(5)
     // 「66.667 µs 的跨度配 100 ps 的时间戳只给到 2.1 ppm，比……0.2 ppm 差十倍」
     const [spanUs, ps, ppm, sessionPpm] = figs(LIM,
-      /([\d.]+) µs 的跨度配 (\d+) ps 的时间戳只给到 ([\d.]+) ppm，比本课取的 ([\d.]+) ppm/,
+      /([\d.]+) µs 的跨度配 (\d+) ps 的时间戳只能达到 ([\d.]+) ppm，比本课取的 ([\d.]+) ppm/,
       '`limits` on the clock ratio')
     expect(ps, 'the timestamp noise this session quotes')
       .toBe(uwbSts.scenario().uwb!.tsNoisePs)
@@ -663,21 +663,21 @@ describe('uwb-sts · every figure the prose prints, read back out of it', () => 
       .toBe(Math.round((advanceNs * 1000) / TICK_PS))
     expect(tryTicks, 'which is the figure the counter table prints too').toBeGreaterThan(0)
     same(String(tryNs), (tryTicks! * TICK_PS) / 1000, 'and the nanoseconds they are')
-    const [atM, lost] = figs(TRY, /这个转发放在 (\d+) m 上[^]*?缩短量还是那 ([\d.]+) m/,
+    const [atM, lost] = figs(TRY, /在 (\d+) m 的距离上施加这个转发[^]*?缩短量仍是 ([\d.]+) m/,
       '`tryThis` on the five-metre room')
     expect(atM, 'the room the experiment moves the relay to').toBe(5)
     same(String(lost), advanceNs * C_M_PER_NS, 'the shortening, which does not move with the room')
     expect(lost, 'and it is more than that room is wide').toBeGreaterThan(atM!)
     // The quiz: its three wrong options are three different mishandlings of the same advance.
     const [halfM] = figs(QUIZ, /约 ([\d.]+) m：往返要折半/, 'the quiz’s first option')
-    const [plainM] = figs(QUIZ, /约 (\d+) m：两次接收都动了，折/, 'the quiz’s second option')
-    const [doubleM] = figs(QUIZ, /约 (\d+) m：两次接收都动了，而/, 'the quiz’s third option')
+    const [plainM] = figs(QUIZ, /约 (\d+) m：两次接收都受到影响，除以二/, 'the quiz’s second option')
+    const [doubleM] = figs(QUIZ, /约 (\d+) m：两次接收都受到影响，而/, 'the quiz’s third option')
     const advanceM = advanceNs * C_M_PER_NS
     same(String(halfM), advanceM / 2, 'the advance halved, which the first option offers')
     expect(plainM, 'the advance itself, rounded, which the second offers').toBe(Math.round(advanceM))
     expect(doubleM, 'and twice it, which the third offers').toBe(Math.round(2 * advanceM))
     // …and the right answer, which the run gives.
-    const [answerM] = figs(QUIZ, /还了回来——([\d.]+) m/, 'the quiz’s own answer')
+    const [answerM] = figs(QUIZ, /恰好得到 50 ns——([\d.]+) m/, 'the quiz’s own answer')
     same(String(answerM), rangeOf(V_HONEST_20)!.distM - rangeOf(V_OFF)!.distM,
       'what the attacked round really loses')
     // 「一个偏长 15 m 而不是偏短 15 m 的距离」

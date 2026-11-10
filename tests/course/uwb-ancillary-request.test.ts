@@ -121,10 +121,10 @@ describe('uwb-ancillary-request · where it sits in the course', () => {
     const text = uwbAncillaryRequest.limits.map((l) => l.text).join('\n')
     // where the requested number comes from: no MAC primitive, the same reason `ancillaryFrames`
     // has
-    expect(text).toContain('这个数直接是场景里给定的一个整数')
+    expect(text).toContain('这个数直接是场景中给定的整数')
     expect(text).toContain('原语')
     // the grant/refusal policy is the model's, because the clause defines none
-    expect(text).toContain('这一块装不装得下就批')
+    expect(text).toContain('这一块能容纳就批准')
     expect(text).toContain('§10.35')
     // and one asker per round, one controller per session
     expect(text).toContain('发消息的始终是第 0 个响应方')
@@ -346,7 +346,7 @@ describe('uwb-ancillary-request · every number in the prose is the engine’s',
     expect(CAPS.grant).toBe(CAPS.perBlock - SLOTS.ranging - 1)
     expect(CAPS.wideGrant).toBe(CAPS.widePerBlock - SLOTS.ranging - 1)
     // the prose names the mechanism rather than the number where the number is the model's
-    expect(text).toContain('按这一块装不装得下批')
+    expect(text).toContain('按这一块能否容纳来批准')
   })
 
   it('says which figures are the standard’s and which are this simulator’s', () => {
@@ -366,8 +366,8 @@ describe('uwb-ancillary-request · every number in the prose is the engine’s',
  *
  * **The reads worth naming:**
  *
- *  - **the window is read as the split the sentence makes of it**: 「窗口是 3 个测距时隙：2 格
- *    消息，1 格要求」 is one claim with three figures in it, so the message's frames plus the
+ *  - **the window is read as the split the sentence makes of it**: 「窗口是 3 个测距时隙：2 个
+ *    用于消息，1 个用于请求」 is one claim with three figures in it, so the message's frames plus the
  *    request's own slot have to be the window the engine lays out.
  *  - **the capacity line is read as the arithmetic it shows**: block over slot is how many slots
  *    a block holds, less the ranging round and the request's own slot is the widest grant — and
@@ -409,11 +409,11 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
   const rs = runOf(uwbAncillaryRequest, undefined, RUN_NS)
 
   it('reads the Request bit, and the figure the request frame writes', () => {
-    // 「把它的第一位置 1」 in `why`, 「置 0 是上一课，置 1 是向控制器要时隙」 in the terms,
+    // 「把它的第一位置 1」 in `why`, 「置 0 是上一课的用法，置 1 是向控制器请求时隙」 in the terms,
     // 「Request 这一位置 1 表示…」 in `sources`
     const [whyBit] = figs(WHY, /把它的第一位置 (\d)/, '`why` on the bit')
-    const [prev, mine] = figs(TERMS, /置 (\d) 是上一课，置 (\d) 是向控制器要时隙/, 'the term on the bit')
-    const [srcBit] = figs(SRC, /Request 这一位置 (\d) 表示这枚信息单元是在向控制器要时隙/,
+    const [prev, mine] = figs(TERMS, /置 (\d) 是上一课的用法，置 (\d) 是向控制器请求时隙/, 'the term on the bit')
+    const [srcBit] = figs(SRC, /Request 这一位置 (\d) 表示这个信息单元是在向控制器请求时隙/,
       '`sources` on the bit')
     expect([whyBit, srcBit], 'the half this lesson builds, named three times').toEqual([mine, mine])
     expect(prev, 'and the other half is the one before it').not.toBe(mine)
@@ -429,8 +429,8 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
       expect(f.request, `the frame in slot ${f.slot} carries the bit only if it is the request`)
         .toBe(f.remaining === undefined || f.number === undefined)
     }
-    // 「字段里写 3」 — the field the request really carries, and what it asked for
-    const [asked] = figs(PIC, /Request 置 \d，字段里写 (\d+)/, 'the step on what it writes')
+    // 「字段中写入 3」 — the field the request really carries, and what it asked for
+    const [asked] = figs(PIC, /Request 置 \d，字段中写入 (\d+)/, 'the step on what it writes')
     for (const r of requests(rs)) {
       expect(r.requestedSlots, 'what every request really asks for').toBe(asked)
     }
@@ -439,31 +439,31 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
   })
 
   it('reads the window as the split the sentence makes of it, and the two tables', () => {
-    // 「本课的第一条消息是 2 帧，所以窗口是 3 个测距时隙：2 格消息，1 格要求」
+    // 「本课的第一条消息是 2 帧，所以窗口是 3 个测距时隙：2 个用于消息，1 个用于请求」
     const [frames, window, msgSlots, reqSlots] = figs(PIC,
-      /本课的第一条消息是 (\d+) 帧，所以窗口是 (\d+) 个测距时隙（ranging slot）：(\d+) 格消息，(\d+) 格要求/,
+      /本课的第一条消息是 (\d+) 帧，所以窗口是 (\d+) 个测距时隙（ranging slot）：(\d+) 个用于消息，(\d+) 个用于请求/,
       '`picture` on the window')
     expect(frames, 'the frames the first message really has').toBe(FIRST_FRAMES)
     expect(msgSlots, 'one slot per frame').toBe(frames)
     expect(reqSlots, 'and the request’s own slot').toBe(1)
     expect(window, 'which together are the window the engine lays out').toBe(msgSlots! + reqSlots!)
     expect(ancillarySlots(PLAN), 'read off the plan itself').toBe(window)
-    // 「第 0 格是控制消息，后面 4 格是每个锚点各作答一次」
-    const [ctrl, anchors] = figs(PIC, /第 (\d) 格是控制消息，后面 (\d+) 格是每个锚点/,
+    // 「第 0 个时隙是控制消息，后面 4 个时隙是每个锚点各作答一次」
+    const [ctrl, anchors] = figs(PIC, /第 (\d) 个时隙是控制消息，后面 (\d+) 个时隙是每个锚点/,
       '`picture` on the ranging round')
     expect(ctrl, 'the control message’s own slot').toBe(0)
     expect(anchors, 'and one slot per anchor').toBe(ANCHORS)
-    // slot 0 plus one each: 「第 0 格」 is an index, so the round is one more than the last index
+    // slot 0 plus one each: 「第 0 个时隙」 is an index, so the round is one more than the last index
     expect(ctrl! + 1 + anchors!, 'which is the round this plan lays out').toBe(PLAN.slots)
-    // 「窗口从 3 格变成 4 格，一块从 8 格变成 9 格」
+    // 「窗口从 3 个时隙变为 4 个，一块从 8 个时隙变为 9 个」
     const [wFrom, wTo, bFrom, bTo] = figs(PIC,
-      /窗口从 (\d+) 格变成 (\d+) 格，一块从 (\d+) 格变成 (\d+) 格/, '`picture` on what the grant changes')
+      /窗口从 (\d+) 个时隙变为 (\d+) 个，一块从 (\d+) 个时隙变为 (\d+) 个/, '`picture` on what the grant changes')
     expect([wFrom, wTo], 'the window before and after the grant')
       .toEqual([ancillarySlots(PLAN), ancillarySlots(PLAN, REQUEST)])
     expect([bFrom, bTo], 'and the block before and after')
       .toEqual([blockSlots(PLAN, 0), blockSlots(PLAN, 1, REQUEST)])
     // the per-block table: frames, countdown, window and block width, block by block
-    const tb = tables().find((x) => x.head[0] === '哪一块')!
+    const tb = tables().find((x) => x.head[0] === '块')!
     const counts = firstCountdown(rs)
     for (const row of tb.rows) {
       const [label, msgFrames, countdown, win, block] = row as [string, string, string, string, string]
@@ -485,19 +485,19 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
       expect(counts.get(blockNo!), `${label}: and the countdown it starts at`).toBe(want - 1)
       const [from, to] = figs(countdown, /(\d+) → (\d+)/, `${label}: its countdown`)
       expect([from, to], `${label}: printed from that figure down to zero`).toEqual([want - 1, 0])
-      expect(val(win.replace(' 格', '')), `${label}: its window`)
+      expect(val(win.replace(' 个时隙', '')), `${label}: its window`)
         .toBe(granted ? ancillarySlots(PLAN, REQUEST) : ancillarySlots(PLAN))
-      expect(val(block.replace(' 格', '')), `${label}: and its block`)
+      expect(val(block.replace(' 个时隙', '')), `${label}: and its block`)
         .toBe(granted ? blockSlots(PLAN, blockNo!, REQUEST) : blockSlots(PLAN, blockNo!))
     }
     // the two-frame table: the request is one octet shorter, because it reports no number
-    const bt = tables().find((x) => x.head[0] === '哪一帧')!
+    const bt = tables().find((x) => x.head[0] === '帧类型')!
     const [fragRow, reqRow] = bt.rows
     expect(val(fragRow![4]!.replace(' 字节', '')), 'a fragment’s own length').toBe(BYTES.fragment)
     expect(val(reqRow![4]!.replace(' 字节', '')), 'and the request’s').toBe(BYTES.request)
     expect(BYTES.fragment - BYTES.request, 'the one octet between them').toBe(1)
     expect([fragRow![1], reqRow![1]], 'and which of them reports a message number')
-      .toEqual(['报', '不报'])
+      .toEqual(['带', '不带'])
     for (const f of sent(rs)) {
       expect(f.bytes, `the frame in slot ${f.slot} is as long as its row says`)
         .toBe(f.request ? BYTES.request : BYTES.fragment)
@@ -506,11 +506,11 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
 
   it('reads the capacity arithmetic, and the refusal the wider slot causes', () => {
     /*
-     * 「一块 200 ms、一个时隙 2 ms，所以一块装得下 100 格；测距那一轮占 5 格，要求自己占 1 格，
-     * 于是能批的最大宽度是 94」 — every figure of that line, against the plan it describes.
+     * 「一块 200 ms、一个时隙 2 ms，所以一块能容纳 100 个时隙；测距那一轮占 5 个，请求本身占 1 个，
+     * 于是可批准的最大宽度是 94」 — every figure of that line, against the plan it describes.
      */
     const [blockMs, slotMs, perBlock, ranging, reqSlot, grant] = figs(NUMS,
-      /一块 ([\d.]+) ms、一个时隙 ([\d.]+) ms，所以一块装得下 (\d+) 格；测距那一轮占 (\d+) 格，要求自己占 (\d+) 格，于是能批的最大宽度是 (\d+)/,
+      /一块 ([\d.]+) ms、一个时隙 ([\d.]+) ms，所以一块能容纳 (\d+) 个时隙；测距那一轮占 (\d+) 个，请求本身占 (\d+) 个，于是可批准的最大宽度是 (\d+)/,
       '`numbers` on the capacity')
     expect(blockMs, 'the block this scene runs').toBe(MS.block)
     expect(slotMs, 'and its slot').toBe(MS.slot)
@@ -523,11 +523,11 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     expect(ancillaryGrantFits(PLAN, grant!), 'the engine accepts that width').toBe(true)
     expect(ancillaryGrantFits(PLAN, grant! + 1), 'and refuses one more').toBe(false)
     /*
-     * 「把时隙加宽十倍（20 ms）而块一动不动，同一块就只装得下 10 格，能批的最大宽度掉到 4——
-     * 于是同一个 3 在这个大厅里被拒」
+     * 「把时隙加宽十倍（20 ms）而块长保持不变，同一块就只能容纳 10 个时隙，可批准的最大宽度降至 4——
+     * 于是同一个 3 在这个大厅里被拒绝」
      */
     const [timesCn, wideMsS, widePerS, wideGrantS, sameS] = raw(NUMS,
-      /把时隙加宽(.)倍（([\d.]+) ms）而块一动不动，同一块就只装得下 (\d+) 格，能批的最大宽度掉到 (\d+)——于是同一个 (\d+) 在这个大厅里被拒/,
+      /把时隙加宽(.)倍（([\d.]+) ms）而块长保持不变，同一块就只能容纳 (\d+) 个时隙，可批准的最大宽度降至 (\d+)——于是同一个 (\d+) 在这个大厅里被拒绝/,
       '`numbers` on the wide slot')
     const [wideMs, widePer, wideGrant, same] = [wideMsS, widePerS, wideGrantS, sameS].map((x) => val(x!))
     expect(wideMs / MS.slot, 'as many times as wide as the character says').toBe(cn(timesCn!))
@@ -540,11 +540,11 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
 
   it('reads `deeper`’s per-block widths, the hall and the sender', () => {
     /*
-     * 「一条控制消息管四块时，同一个会话的块 0 与块 4 是九格，块 1、2、3 是五格」 — the widths of
+     * 「一条控制消息覆盖四块时，同一个会话的块 0 与块 4 是九个时隙，块 1、2、3 是五个时隙」 — the widths of
      * the blocks it names, on a session whose control message governs that many.
      */
     const [blocksCn, wideA, wideB, wideCn, narrowA, narrowB, narrowC, narrowCn] = raw(DEEP,
-      /一条控制消息管(.)块时，同一个会话的块 (\d) 与块 (\d) 是(.)格，块 (\d)、(\d)、(\d) 是(.)格/,
+      /一条控制消息覆盖(.)块时，同一个会话的块 (\d) 与块 (\d) 是(.)个时隙，块 (\d)、(\d)、(\d) 是(.)个时隙/,
       '`deeper` on the per-block widths')
     /*
      * 「同一个会话」 is the lesson before this one: `deeper` measured it there, on the four-frame

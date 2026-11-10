@@ -114,8 +114,8 @@ describe('uwb-ancillary · where it sits in the course', () => {
     // the frame count is scenario configuration: no MAC primitive, the same reason
     // `rcmValidityRounds`'s own limit gives
     expect(text).toContain('MCPS')
-    expect(text).toContain('帧数直接是场景里给定的一个整数')
-    expect(text).toContain('上限是这一块装不装得下这一轮')
+    expect(text).toContain('帧数直接是场景中给定的整数')
+    expect(text).toContain('上限是这一块能否容纳这一轮')
     // the message type is a constant rather than a value table
     expect(text).toContain('类型始终是同一个数')
     // and who sends is a model decision
@@ -483,23 +483,23 @@ describe('uwb-ancillary · every figure the prose prints, read back out of it', 
   const firstBlock = frames.filter((f) => f.block === frames[0]!.block)
 
   it('reads the countdown, and the jump label that names its last frame', () => {
-    // 「剩余帧数从帧数减一数到 0」
-    const [downTo] = figs(PIC, /剩余帧数从帧数减一数到 (\d)/, '`picture` on the countdown')
+    // 「剩余帧数从帧数减一递减到 0」
+    const [downTo] = figs(PIC, /剩余帧数从帧数减一递减到 (\d)/, '`picture` on the countdown')
     expect(firstBlock.map((f) => f.remaining), 'the countdown this block really writes')
       .toEqual(Array.from({ length: FRAMES }, (_, i) => FRAMES - 1 - i))
     expect(firstBlock.at(-1)!.remaining, 'and it ends at the figure the step prints').toBe(downTo)
-    // 「最后一帧写 0。接收端据此判定这条消息收齐了」
-    const [lastWrites] = figs(PIC, /最后一帧写 (\d)。接收端据此判定/, '`picture` on the last frame')
+    // 「最后一帧的剩余帧数为 0。接收端据此判定这条消息已全部收到」
+    const [lastWrites] = figs(PIC, /最后一帧的剩余帧数为 (\d)。接收端据此判定/, '`picture` on the last frame')
     expect(lastWrites, 'the same figure, a second time').toBe(downTo)
     const done = anc(rs).filter((r) => r.framesRemaining === lastWrites)
     expect(done.length, 'and a receiver really sees one such frame per message')
       .toBe(new Set(frames.map((f) => f.block)).size)
-    // 「写 0 的那一帧：这条消息的最后一帧」 — the jump label
-    const [jumpZero] = figs(JUMPS, /写 (\d) 的那一帧：这条消息的最后一帧/, 'the jump label')
+    // 「剩余帧数为 0 的那一帧：这条消息的最后一帧」 — the jump label
+    const [jumpZero] = figs(JUMPS, /剩余帧数为 (\d) 的那一帧：这条消息的最后一帧/, 'the jump label')
     expect(jumpZero, 'the jump names the same frame').toBe(downTo)
-    // 「跳到第一帧辅助信息，它在第 5 个时隙，后面还跟着 3 帧。每帧 16 字节。」
+    // 「跳到第一帧辅助信息，它在第 5 个时隙，其后还有 3 帧。每帧 16 字节。」
     const [slot, behind, bytes] = figs(PIC,
-      /它在第 (\d+) 个时隙，后面还跟着 (\d+) 帧。每帧 (\d+) 字节/, '`picture` on the first frame')
+      /它在第 (\d+) 个时隙，其后还有 (\d+) 帧。每帧 (\d+) 字节/, '`picture` on the first frame')
     expect(firstBlock[0]!.slot, 'the slot the first fragment really takes').toBe(slot)
     expect(firstBlock[0]!.remaining, 'how many follow it').toBe(behind)
     for (const f of frames) expect(f.bytes, 'and every frame is that long').toBe(bytes)

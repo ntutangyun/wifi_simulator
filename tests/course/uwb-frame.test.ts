@@ -290,12 +290,12 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(Number((sync! + sfd!).toFixed(3)), 'and the sentence’s own addition').toBe(sum)
     /*
      * **Every printing of it, not two of three.** The first pass of this read took the formula
-     * and the quiz option; the re-sweep found a third in the steps (「从整帧的第一个码片起数出
+     * and the quiz option; the re-sweep found a third in the steps (「从整帧的第一个码片起计时
      * 73.269 µs」). Read as a family now, so a fourth site cannot arrive unread either.
      */
     const everywhere = [...(uwbFrame.numbers ?? []), ...(uwbFrame.picture ?? []),
       ...(uwbFrame.deeper ?? [])].map((b) => JSON.stringify(b)).concat(quiz).join(' ')
-    const sites = [...everywhere.matchAll(/距帧首 ([\d.]+) µs|起数出 ([\d.]+) µs|帧内 ([\d.]+) µs/g)]
+    const sites = [...everywhere.matchAll(/距帧首 ([\d.]+) µs|起计时 ([\d.]+) µs|帧内 ([\d.]+) µs/g)]
       .map((m) => m.slice(1).find((x) => x !== undefined)!)
     expect(sites.length, 'the places this lesson prints the RMARKER offset').toBe(3)
     for (const v of sites) expect(Number(v), 'the same offset every time').toBe(sum)
@@ -549,9 +549,9 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
     same(String(message), seg('psdu').durNs / US, 'and its message')
     expect(structure! + message!, 'which together are the frame')
       .toBeCloseTo(poll.frame.txTimeNs / US, 3)
-    // 「这一轮占用的两个 2 ms 时隙里，真正有帧在传的只有 385 µs」
+    // 「这一轮占用的两个 2 ms 时隙里，真正有帧在传输的只有 385 µs」
     const [slots, slotMs, onAir] = figs(NUMS,
-      /这一轮占用的两个 (\d+) ms 时隙里，真正有帧在传的只有 (\d+) µs/, 'the round’s own silence')
+      /这一轮占用的两个 (\d+) ms 时隙里，真正有帧在传输的只有 (\d+) µs/, 'the round’s own silence')
       .slice(0, 3)
     const round = ofType(recs(), 'UWB_ROUND')[0]!
     expect(slots, 'the slot length the round runs on').toBe(round.slotNs / MS)
@@ -593,12 +593,12 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
     expect(symbols, 'the symbols they come to').toBe(psduSymbols(poll.frame.bytes))
     expect(chips, 'and a data symbol’s chips').toBe(DATA_SYMBOL_CHIPS)
     expect(chipsToNs(symbols! * chips!), 'which buy the PSDU its duration').toBe(seg('psdu').durNs)
-    // 「为什么 30 个字节要花 37.179 µs」 — the heading of that formula.
-    const [octets, us] = figs(NUMS, /为什么 (\d+) 个字节要花 ([\d.]+) µs/, 'the heading of the formula')
+    // 「为什么 30 个字节需要 37.179 µs」 — the heading of that formula.
+    const [octets, us] = figs(NUMS, /为什么 (\d+) 个字节需要 ([\d.]+) µs/, 'the heading of the formula')
     expect(octets, 'the octets').toBe(poll.frame.bytes)
     same(String(us), seg('psdu').durNs / US, 'and the duration they take')
-    // 「按 6.81 Mb/s 算，光是消息本身只要 35.2 µs」
-    const [mbps, bare] = figs(NUMS, /按 ([\d.]+) Mb\/s 算，光是消息本身只要 ([\d.]+) µs/,
+    // 「按 6.81 Mb/s 计算，消息本身只需要 35.2 µs」
+    const [mbps, bare] = figs(NUMS, /按 ([\d.]+) Mb\/s 计算，消息本身只需要 ([\d.]+) µs/,
       'the rate and the bare message')
     expect(mbps, 'the rate the PSDU goes out at').toBe(UWB_MBPS)
     same(String(bare), (8 * poll.frame.bytes) / mbps! / 1000 * 1000, 'the message at that rate')
@@ -626,19 +626,19 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
 
   it('reads the six steps: the counts, the gain, the jitter and the tick', () => {
     const [sync, sfd, gap] = figs(NUMS,
-      /(\d+) 个 SYNC 前导符号[^]*?(\d+) 个 SFD 符号（symbol）、夹在两段 (\d+) 码片间隔中间的 STS/,
+      /(\d+) 个 SYNC 前导符号[^]*?(\d+) 个 SFD 符号（symbol）、位于两段 (\d+) 码片间隔之间的 STS/,
       'the steps on the frame’s own five segments')
     expect([sync, sfd], 'the two preamble fields’ symbol counts').toEqual([SYNC_SYMBOLS, SFD_SYMBOLS])
     expect(gap, 'the gap on each side of the STS').toBe(STS_GAP_CHIPS)
     expect(layout.filter((x) => x.key === 'stsGap').length, 'and there really are two of them').toBe(2)
-    // 「同一个前导符号重复的那 64 遍——相比只用一个符号，这一步值 18.1 dB」
-    const [reps, gainDb] = figs(NUMS, /重复的那 (\d+) 遍[^]*?这一步值 ([\d.]+) dB/, 'the steps on the gain')
+    // 「同一个前导符号的 64 次重复——与只用一个符号相比，这一步带来 18.1 dB 的增益」
+    const [reps, gainDb] = figs(NUMS, /同一个前导符号的 (\d+) 次重复[^]*?这一步带来 ([\d.]+) dB 的增益/, 'the steps on the gain')
     expect(reps, 'the repetitions the accumulation gets').toBe(SYNC_SYMBOLS)
     same(String(gainDb), UWB_TS_ACCUM_GAIN_DB, 'the gain they are worth')
     expect(Number((10 * Math.log10(reps!)).toFixed(1)), 'which is ten log ten of them')
       .toBe(val(String(gainDb)))
     // `limits` prints the same gain again, and the same two symbol counts.
-    same(raw(LIM, /于是那 ([\d.]+) dB 的前导累积增益/, '`limits` on the gain')[0]!, UWB_TS_ACCUM_GAIN_DB,
+    same(raw(LIM, /因此那 ([\d.]+) dB 的前导累积增益/, '`limits` on the gain')[0]!, UWB_TS_ACCUM_GAIN_DB,
       'the gain, in `limits`')
     const [limSync, limSts, limUnit, limMbps] = figs(LIM,
       /(\d+) 个 SYNC 前导符号、SFD #2、(\d+) × (\d+) 码片的 STS、([\d.]+) Mb\/s 的 PSDU/,
@@ -646,8 +646,8 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
     expect(limSync, 'the SYNC symbols').toBe(SYNC_SYMBOLS)
     expect(limSts! * limUnit!, 'the STS chips').toBe(STS_ACTIVE_CHIPS)
     expect(limMbps, 'and the PSDU’s rate').toBe(UWB_MBPS)
-    // 「本课取 1σ 为 100 ps」 and 「一格是 15.650 ps」
-    const [sigma, ps] = figs(NUMS, /本课取 (\d+)σ 为 (\d+) ps/, 'the steps on the jitter')
+    // 「本课在这条链路（link）上取其 1σ 为 100 ps」 and 「一格是 15.650 ps」
+    const [sigma, ps] = figs(NUMS, /上取其 (\d+)σ 为 (\d+) ps/, 'the steps on the jitter')
     expect(sigma, 'one standard deviation').toBe(1)
     expect(ps, 'the jitter this session quotes its stamps at')
       .toBe(uwbFrame.scenario().uwb!.tsNoisePs)
@@ -685,7 +685,7 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
      */
     const [block] = figs(LIM, /每 (\d+) 比特一块的 RS 校验/, '`limits` on the RS block')
     expect(block, 'the block the parity is computed over').toBe(RS_BLOCK_BITS)
-    const [floor] = figs(LIM, /只问到达电平有没有达到 −(\d+) dBm/, '`limits` on the receiver floor')
+    const [floor] = figs(LIM, /只判断到达电平是否达到 −(\d+) dBm/, '`limits` on the receiver floor')
     expect(-floor!, 'the floor the engine checks every reception against').toBe(UWB_RX_SENS_DBM)
     /*
      * **The 850 kb/s is the nominal rate the PHR's own symbol length is defined at** — this

@@ -249,9 +249,9 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
       '顶层两节：selectivityScenario 就是 widthScenario 外加 fading 与 selectivity（节点的 feats 两课完全相同，所以这个轴不在节点上）'],
     ['streams', 'mumimo', '只有一台站点',
       '站点数 1 → 4。源课那条限制的主语就是「只有一台站点」，而换掉的正是它，不是任何一个特性标志'],
-    ['uwb-intro', 'uwb-sstwr', '两端的晶振都钉在 0 ppm',
+    ['uwb-intro', 'uwb-sstwr', '两端晶振的频率偏差都设为 0 ppm',
       '逐节点的 ppm 实参 0 → ±10，于是单边测距的偏差以米计（那一课真的给出 6.01 m）'],
-    ['uwb-blocks', 'uwb-contention', '「点名要先有名单」',
+    ['uwb-blocks', 'uwb-contention', '「调度式应答要先有名单」',
       '会话旋钮：竞争窗口与名单。那一课讲的正是手里根本没有名单的标签'],
     // The five `fading` sites, added 2026-10-05 with that lesson. One axis for all five, and it
     // is a top-level scenario section rather than anything on a node: `fadingScenario` is

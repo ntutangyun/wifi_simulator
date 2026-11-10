@@ -113,7 +113,7 @@ describe('uwb-mms-numbers · the second half of the split', () => {
    * other shape entirely — ONE transmission with a millisecond's energy squeezed into a short
    * time, which is why its power goes UP. A reader who came down the Wi-Fi track first meets
    * the word in this lesson's very first `picture` block, before 片段 has been used for the
-   * thing, and reads 「把它倒进一小段突发里」 as a string of frames — the opposite of the point.
+   * thing, and reads 「把它集中到一小段突发里」 as a string of frames — the opposite of the point.
    *
    * Nothing in the wording nets reaches this: 突发 is not a `ZH_TERMS` entry, so no bracket
    * rule applies, and the cross-track collision is not a property any per-lesson rule can see.
@@ -622,9 +622,9 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
   })
 
   it('the three paragraphs under the tables, and the title’s own decibels', () => {
-    // 「判定在 3.01 dB 的算术上翻了面——代价是整段运行的 21 次测距全部落空」
+    // 「判定结果因 3.01 dB 之差而反转——代价是整段运行的 21 次测距全部失败」
     const [flip, lost] = raw(nums,
-      /判定在 ([\d.]+) dB 的算术上翻了面——代价是整段运行的 (\d+) 次测距全部落空/,
+      /判定结果因 ([\d.]+) dB 之差而反转——代价是整段运行的 (\d+) 次测距全部失败/,
       '`numbers` on the three decibels between the two trains')
     same(flip!, combineGainDb(8) - combineGainDb(4), 'the difference the two trains combine to')
     expect(val(lost!), 'the ranges the shipped run makes, all of which the four-fragment run loses')
@@ -641,16 +641,16 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
     expect(val(psNoise!), 'the timestamp noise this session runs with')
       .toBe(DEFAULT_UWB_SESSION.tsNoisePs)
     same(sigma!, SIGMA_PPM, 'and the σ_ratio those two give')
-    // 「这个比值，作用在 0.5 ms 的回复上」
-    const [replyMs] = raw(nums, /作用在 ([\d.]+) ms 的回复上/, '`numbers` on the reply it acts on')
+    // 「这个比值应用于 0.5 ms 的回复」
+    const [replyMs] = raw(nums, /应用于 ([\d.]+) ms 的回复/, '`numbers` on the reply it acts on')
     same(replyMs!, REPLY_MS, 'the reply this round really leaves')
-    // 「光是两个接收时间戳就有 2.1 cm」
-    const [floorCm] = raw(nums, /光是两个接收时间戳就有 ([\d.]+) cm/,
+    // 「仅两个接收时间戳带来的误差就有 2.1 cm」
+    const [floorCm] = raw(nums, /仅两个接收时间戳带来的误差就有 ([\d.]+) cm/,
       '`numbers` on the floor underneath')
     same(floorCm!, rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs) * 100, 'the floor two stamps give')
-    // 「其中两项谈的是发射机……合起来 10.54 dB，而老式的突发发射机本可保持 −7.41 dBm」
+    // 「其中两项取决于发射机……合起来 10.54 dB，而老式的突发发射机本可保持 −7.41 dBm」
     const [together, couldHold, honest] = raw(nums,
-      /合起来 ([\d.]+) dB，而老式的突发发射机本可保持 −([\d.]+) dBm，一样合规。诚实的说法是那 ([\d.]+) dB/,
+      /合起来 ([\d.]+) dB，而老式的突发发射机本可保持 −([\d.]+) dBm，同样合规。如实归于多毫秒设计的只有那 ([\d.]+) dB/,
       '`numbers` on which part of the gain is the idea')
     const gainTable = table(3)
     const shorter = val(/([\d.]+)/.exec(gainTable.rows[1]![1]!)![1]!)
@@ -661,8 +661,8 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
     const pollNs = uwbPpduNs(uwbPollBytes(ANCHORS.length))
     same(`-${couldHold!}`, mmsFragmentDbm(pollNs),
       'what an ordinary poll could have held, if it spent the whole budget')
-    // 「那 19.57 dB 从哪来」 — the heading, and the same figure in `limits` and the quiz
-    for (const v of everyFig(/那 ([\d.]+) dB 从哪来|那 ([\d.]+) dB 的分解里|poll 好 ([\d.]+) dB/g,
+    // 「那 19.57 dB 的来源」 — the heading, and the same figure in `limits` and the quiz
+    for (const v of everyFig(/那 ([\d.]+) dB 的来源|那 ([\d.]+) dB 的分解里|poll 好 ([\d.]+) dB/g,
       'the whole of the gain over a 4z poll', 3)) {
       same(v, shorter + unspent + combineGainDb(PLAN.mms!.phy.rsfs),
         'which is its own table’s three rows added up')
@@ -675,8 +675,8 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
 
   it('the correction table’s left column: the three crystals, the limit and the count', () => {
     const t = table(2)
-    // 「第 0 轮量得，真值为 40 / 20 / 10 ppm」
-    const [round, a, b, c] = figs(t.rows[0]![0]!, /第 (\d) 轮量得，真值为 (\d+) \/ (\d+) \/ (\d+) ppm/,
+    // 「第 0 轮测得，真值为 40 / 20 / 10 ppm」
+    const [round, a, b, c] = figs(t.rows[0]![0]!, /第 (\d) 轮测得，真值为 (\d+) \/ (\d+) \/ (\d+) ppm/,
       'the first row’s own label')
     expect(round, 'the block the measured ratios are taken from').toBe(0)
     expect([a, b, c], 'the three true ratios the scene sets')
@@ -702,26 +702,26 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
     expect([x, nMsr, gap], 'the set `mms.ts` publishes under that name')
       .toEqual([set.rsfs, set.nMsr, set.gap])
     expect(wasGap, 'and the gap this scene’s own train uses').toBe(PLAN.mms!.phy.gap)
-    // 「于是片段从 82.051 µs 缩到 62.179 µs，同样一毫秒的能量装进去就响了 1.20 dB」
+    // 「于是片段从 82.051 µs 缩到 62.179 µs，装入同样一毫秒的能量，功率就高出 1.20 dB」
     const [wasNs, nowNs, louder] = raw(deep,
-      /于是片段从 ([\d.]+) µs 缩到 ([\d.]+) µs，同样一毫秒的能量装进去就响了 ([\d.]+) dB/,
+      /于是片段从 ([\d.]+) µs 缩到 ([\d.]+) µs，装入同样一毫秒的能量，功率就高出 ([\d.]+) dB/,
       '`deeper` on what the shorter fragment buys')
     same(wasNs!, FRAG_NS / 1000, 'the fragment this scene sends')
     same(nowNs!, rsfNs(set.nMsr, set.gap) / 1000, 'and the one rsf-1 sends')
     same(louder!, mmsFragmentDbm(rsfNs(set.nMsr, set.gap)) - mmsFragmentDbm(FRAG_NS),
       'and how much louder the same energy is in the shorter one')
-    // 「十二个分贝的合成再加这 1.20，把余量从 +1.8 dB 抬到 +6.0」
-    const [plus, from, to] = raw(deep, /的合成再加这 ([\d.]+)，把余量从 \+([\d.]+) dB 抬到 \+([\d.]+)/,
+    // 「十二个分贝的合成再加这 1.20，把余量从 +1.8 dB 提高到 +6.0」
+    const [plus, from, to] = raw(deep, /的合成再加这 ([\d.]+)，把余量从 \+([\d.]+) dB 提高到 \+([\d.]+)/,
       '`deeper` on the margin it lifts')
     expect(val(plus!), 'the same 1.20 dB, restated in the same sentence').toBe(val(louder!))
     const marginOf = (fragNs: number, heard: number): number =>
       rxDbmOf(fragNs, D) + combineGainDb(heard) - UWB_RX_SENS_DBM
     same(from!, marginOf(FRAG_NS, PLAN.mms!.phy.rsfs), 'the margin this scene has')
     same(to!, marginOf(rsfNs(set.nMsr, set.gap), set.rsfs), 'and the margin rsf-1 has')
-    // 「测距阶段从 20 个时隙涨到 32 个，一轮成对测距从 14 ms 涨到 20 ms，于是三轮要占掉块里的
+    // 「测距阶段从 20 个时隙增加到 32 个，一轮成对测距从 14 ms 增加到 20 ms，于是三轮要占用块里的
     //  60 ms，而不是 42 ms」
     const [wasSlots, nowSlots, wasMs, nowMs, nowBlock, wasBlock] = figs(deep,
-      /测距阶段从 (\d+) 个时隙涨到 (\d+) 个，一轮成对测距从 (\d+) ms 涨到 (\d+) ms，于是三轮要占掉块里的 (\d+) ms，而不是 (\d+) ms/,
+      /测距阶段从 (\d+) 个时隙增加到 (\d+) 个，一轮成对测距从 (\d+) ms 增加到 (\d+) ms，于是三轮要占用块里的 (\d+) ms，而不是 (\d+) ms/,
       '`deeper` on what it costs in slots and in milliseconds')
     /*
      * The pairwise round with each train in turn — which is the round 「一轮成对测距」 names, and
@@ -784,8 +784,8 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
       'and the σ the same two stamps would give across one fragment')
     expect(val(worse!), 'which is worse than the crystal it is trying to measure')
       .toBeGreaterThan(Math.abs(trueRatio('anchor-3')) / 10)
-    // 「跨度 66.667 µs、落在 2.1 ppm」 — the same arithmetic inside one packet
-    const [stsUs, stsPpm] = raw(deep, /跨度 ([\d.]+) µs、落在 ([\d.]+) ppm/,
+    // 「跨度 66.667 µs、结果为 2.1 ppm」 — the same arithmetic inside one packet
+    const [stsUs, stsPpm] = raw(deep, /跨度 ([\d.]+) µs、结果为 ([\d.]+) ppm/,
       '`deeper` on the span one packet gives')
     const stsNs = chipsToNs(STS_GAP_CHIPS + STS_ACTIVE_CHIPS)
     same(stsUs!, stsNs / 1000, 'the span the engine’s own STS markers are apart')
@@ -795,7 +795,7 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
 
   it('`limits` and `sources`: every constant each one owns', () => {
     /*
-     * 「真实法规还压着一条峰值限（量级是每 50 MHz 0 dBm）」 is **exempt**: there is no peak limit
+     * 「真实法规还另有一条峰值功率限制（量级是每 50 MHz 0 dBm）」 is **exempt**: there is no peak limit
      * anywhere in this engine to read it against — which is exactly what the sentence says. What
      * is checked is the claim it is there to make: with the repetitions at their smallest, a
      * fragment's modelled power really does run away, past anything that figure could be.
@@ -809,11 +809,11 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
     expect(perMhz, 'and the limit is quoted per that many megahertz, which this engine has no rule for')
       .toBeGreaterThan(0)
     // 「本课把 37 nJ 除以片段长度得到片段功率」
-    for (const v of everyFig(/把 (\d+) nJ 除以片段长度|(\d+) nJ 里只花掉/g,
+    for (const v of everyFig(/把 (\d+) nJ 除以片段长度|(\d+) nJ 里只用掉/g,
       'the millisecond’s energy', 2)) {
       expect(val(v), 'the budget `mms.ts` divides').toBe(UWB_MS_BUDGET_NJ)
     }
-    // 「「从没花完的预算」那 6.59 dB 来自本课给 4z 发射机取的 −14 dBm 发射功率」
+    // 「「未用满的预算」那 6.59 dB 来自本课给 4z 发射机取的 −14 dBm 发射功率」
     const [unspent, txPower] = figs(limitsText,
       /那 ([\d.]+) dB 来自本课给 4z 发射机取的 −(\d+) dBm 发射功率/,
       '`limits` on which term rests on a constant')
@@ -844,14 +844,14 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
   })
 
   it('the quiz: the two gains, the honest share, and the two lengths it compares', () => {
-    // 「不同的只是加起来是多少：6.02 dB 对 9.03 dB」
-    const [four, eight] = raw(quizText, /不同的只是加起来是多少：([\d.]+) dB 对 ([\d.]+) dB/,
+    // 「不同的只是合成后的总和：6.02 dB 对 9.03 dB」
+    const [four, eight] = raw(quizText, /不同的只是合成后的总和：([\d.]+) dB 对 ([\d.]+) dB/,
       'the quiz on what changed')
     same(four!, combineGainDb(4), 'what four fragments combine to')
     same(eight!, combineGainDb(PLAN.mms!.phy.rsfs), 'and what eight do')
-    // 「9.03 dB；另外 10.54 dB 是发射功率——片段更短，加上一台在 37 nJ 里只花掉 8.11 nJ 的发射机」
+    // 「9.03 dB；另外 10.54 dB 是发射功率——片段更短，加上一台在 37 nJ 里只用掉 8.11 nJ 的发射机」
     const [idea, rest, budget, spent] = raw(quizText,
-      /([\d.]+) dB；另外 ([\d.]+) dB 是发射功率——片段更短，加上一台在 (\d+) nJ 里只花掉 ([\d.]+) nJ 的发射机/,
+      /([\d.]+) dB；另外 ([\d.]+) dB 是发射功率——片段更短，加上一台在 (\d+) nJ 里只用掉 ([\d.]+) nJ 的发射机/,
       'the quiz on the honest share')
     same(idea!, combineGainDb(PLAN.mms!.phy.rsfs), 'the combining gain')
     const gainTable = table(3)
@@ -870,8 +870,8 @@ describe('uwb-mms-numbers · every figure the prose prints, read back out of it'
     // 「本轮是两毫秒，于是整串用 14 ms 的跨度比较了两块晶振」
     const [span] = figs(quizText, /整串用 (\d+) ms 的跨度/, 'the quiz on the span')
     expect(span, 'the span the train covers').toBe(SPAN_MS)
-    // 「这段跨度在半毫秒的回复上只留下 0.76 mm——远小于两个接收时间戳本身就要花掉的 2.1 cm」
-    const [mm, cm] = raw(quizText, /只留下 ([\d.]+) mm——远小于两个接收时间戳本身就要花掉的 ([\d.]+) cm/,
+    // 「这段跨度在半毫秒的回复上只留下 0.76 mm——远小于两个接收时间戳本身就带来的 2.1 cm」
+    const [mm, cm] = raw(quizText, /只留下 ([\d.]+) mm——远小于两个接收时间戳本身就带来的 ([\d.]+) cm/,
       'the quiz on what the residual is worth')
     same(mm!, 0.5 * REPLY_MS * 1e-3 * SIGMA_PPM * 1e-6 * C_M_PER_NS * 1e9 * 1000,
       'the residual over half the reply')

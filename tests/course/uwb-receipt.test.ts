@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in 「谁听见了我」, measured against runs.
+ * Every empirical claim in 「谁收到了我的帧」, measured against runs.
  *
  * The lesson prints a 21-octet frame with two list entries and an 18-octet one with a single
  * four-bit entry, two opener lengths that the request does not change, a slot count per responder,
@@ -498,9 +498,9 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
     expect([openerOf(off, 'uwbInit'), openerOf(on, 'uwbInit')], 'and so does the initiation message')
       .toEqual([offRest, onRest])
     // 「回来的 MMRCM」: none when the request is off, and this many when it is on
-    const [offFrames] = row('回来的 MMRCM').map((c) => val(c.replace(' 帧', '')))
+    const [offFrames] = row('回复的 MMRCM').map((c) => val(c.replace(' 帧', '')))
     expect(sent(off).length, 'no confirmation comes back unasked').toBe(offFrames)
-    const [onFrames, onBytes] = figs(row('回来的 MMRCM')[1]!, /(\d+) 帧，各 (\d+) 字节/,
+    const [onFrames, onBytes] = figs(row('回复的 MMRCM')[1]!, /(\d+) 帧，各 (\d+) 字节/,
       'the row on what comes back')
     expect(sent(on).length, 'and this many when it is asked for').toBe(onFrames)
     for (const f of sent(on)) expect(f.bytes, 'each of that size').toBe(onBytes)

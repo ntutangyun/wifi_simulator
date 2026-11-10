@@ -165,7 +165,7 @@ describe('uwb-m2m · where it sits in the course', () => {
     // which was false: the published standard's full text is in the corpus, and only
     // *this repo* holds the clause list. A limits entry asserting its own evidence is
     // missing has to be checked against where the evidence actually is.
-    expect(text).toContain('带不了时间')
+    expect(text).toContain('无法携带时间信息')
     // …and it no longer says SP3 is unbuilt: the SP3 slice (2026-10-02, `@uwb-sp3`) made that
     // false, and the true statement is narrower — SP3 exists, and the schema refuses it in THIS
     // mode. A limits entry the engine contradicts is the defect this course has had most often.
@@ -493,7 +493,7 @@ describe('uwb-m2m · every figure the prose prints, read back out of it', () => 
     expect(held[val(firstWho!)], 'the first participant’s own count').toBe(cn(firstCn!))
     expect(held[val(secondWho!)], 'the second’s').toBe(cn(secondCn!))
     expect(held[val(lastWho!)], 'and the last one holds none').toBe(0)
-    const sequence = figs(PIC, /分落在六个人手里：(\d)、(\d)、(\d)、(\d)、(\d)、(\d) 条/,
+    const sequence = figs(PIC, /分布在六个参与者处：(\d)、(\d)、(\d)、(\d)、(\d)、(\d) 条/,
       '`picture` on the whole sequence')
     expect(sequence, 'the sequence the run really produces').toEqual(held)
     expect(sequence.reduce((a, b) => a + b, 0), 'and they add up to every pair')
@@ -591,7 +591,7 @@ describe('uwb-m2m · every figure the prose prints, read back out of it', () => 
     const [slotMs] = figs(SRC, /(\d+) ms 的测距时隙来自 FiRa/, '`sources` on the slot')
     expect(rstuNs(uwbM2m.scenario().uwb!.slotRstu), 'the slot this scene runs').toBe(slotMs! * MS)
     // 「参与者 0 其实手里握着到其余五个人的距离」 — `limits` on what the first one holds
-    const [first] = figs(LIM, /参与者 (\d) 其实手里握着/, '`limits` on the first participant')
+    const [first] = figs(LIM, /参与者 (\d) 其实已有到其余/, '`limits` on the first participant')
     expect(heldBy(base)[first!], 'and it really holds that many')
       .toBe(m2mParticipants(uwbM2m.scenario().nodes).length - 1)
   })

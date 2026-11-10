@@ -303,7 +303,7 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
     expect(anchorRange[0]!.distM.toFixed(6), 'and they are the same number to the last digit')
       .toBe(tagRange[0]!.distM.toFixed(6))
     // 「把 Final 延后，4.194 ms 那一行就整行消失，标签那一行一个字都不变」
-    const [goneMs] = raw(NUMS, /把 Final 延后，([\d.]+) ms 那一行就整行消失/,
+    const [goneMs] = raw(NUMS, /把 Final 改为延后，([\d.]+) ms 那一行就整行消失/,
       '`numbers` on the row that goes')
     expect(goneMs, 'the row that disappears is the anchor’s').toBe(anchorMs)
     expect(rangesOf('deferred', ANC), 'and in the deferred round there is none').toHaveLength(0)
@@ -337,7 +337,7 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
   })
 
   it('reads the PSDU ceiling, the two caps and the two growths', () => {
-    // 「一帧里真正装消息的那一段，最长 127 字节」 (a term) and 「一帧最长 127 字节的 PSDU」
+    // 「一帧中实际承载消息的部分，最长 127 字节」 (a term) and 「一帧最长 127 字节的 PSDU」
     for (const [text, re, what] of [
       [TERMS, /最长 (\d+) 字节/, 'the term on the PSDU'],
       [SRC, /一帧最长 (\d+) 字节的 PSDU/, '`sources` on the same'],
@@ -362,8 +362,8 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
     const [capEmb, capDef] = cell('锚点上限')
     expect(val(capEmb!), 'the embedded cap').toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
     expect(val(capDef!), 'and the deferred one').toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
-    // 「轮里最长的一帧」: a frame name, and for the deferred shape the Poll's own length
-    const [longEmb, longDef] = cell('轮里最长的一帧')
+    // 「轮中最长的一帧」: a frame name, and for the deferred shape the Poll's own length
+    const [longEmb, longDef] = cell('轮中最长的一帧')
     expect(longEmb, 'the embedded round’s longest frame').toBe('Final')
     const [pollBytes] = figs(longDef!, /Poll，(\d+) B/, 'the deferred round’s longest frame')
     expect(pollBytes, 'which is the Poll at the figure’s own anchor count')
@@ -397,7 +397,7 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
     expect(mhr! + hdr! + defEntry! + fcs!, 'and the deferred one')
       .toBe(txOf(run('deferred'), 'uwbFinal')[0]!.frame.bytes)
     // 「那段等待错 1 ns 就是约 15 cm 的距离误差」
-    const [errNs, errCm] = figs(LIM, /那段等待错 (\d+) ns 就是约 (\d+) cm 的距离误差/,
+    const [errNs, errCm] = figs(LIM, /等待时间偏差 (\d+) ns 就是约 (\d+) cm 的距离误差/,
       '`limits` on what a nanosecond costs')
     same(String(errCm), (errNs! / 2) * C_M_PER_NS * 100, 'half the error, times the speed of light')
   })
@@ -430,7 +430,7 @@ describe('uwb-deferred-ds · every figure the prose prints, read back out of it'
     expect(sizes.reduce((a, b) => a + b, 0), 'and the fields add up to the embedded Final')
       .toBe(uwbFinalBytes(anchors!, 'embedded'))
     // 「DROPPED_BYTES 个字节里，一半是…往返时间，一半是…回复时延」
-    const [dropped] = figs(diagram.caption, /(\d+) 个字节里，一半是/, 'the caption on what goes')
+    const [dropped] = figs(diagram.caption, /(\d+) 个字节中，一半是/, 'the caption on what goes')
     expect(dropped, 'the octets the deferred Final does without')
       .toBe(uwbFinalBytes(anchors!, 'embedded') - uwbFinalBytes(anchors!, 'deferred'))
     expect(dropped, 'and that is what the module computes').toBe(DROPPED_BYTES)

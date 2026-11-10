@@ -285,13 +285,13 @@ export function EditorGuide() {
         或者换一个反射更强的物体。
       </div>
       <div style={note}>
-        <b>最反直觉的一条：贴着连线站的物体听不见，可它偏偏是更响的那一个。</b>2 米一对、
-        两个 {SCATTERER_DEFAULT_DB} dB 的物体，量出来是这样：离连线 {ECHO_NEAR_LINE.offM} 米的那个，
+        <b>最反直觉的一条：紧靠连线的物体无法被察觉，而它的电平恰恰是两者中较高的一个。</b>2 米一对、
+        两个 {SCATTERER_DEFAULT_DB} dB 的物体，测量结果如下：离连线 {ECHO_NEAR_LINE.offM} 米的那个，
         双站距离 {ECHO_NEAR_LINE.pathM} 米，只比直达路径多走 {ECHO_NEAR_LINE.excessM} 米，
-        而分得开需要 {ECHO_RESOLUTION_M} 米——<b>分不开</b>，它并进了直达路径；它的电平是
+        而要可分辨，至少需要 {ECHO_RESOLUTION_M} 米——<b>不可分辨</b>，它并进了直达路径；它的电平是
         {' '}{ECHO_NEAR_LINE.dbm} dBm。离连线 {ECHO_OFF_LINE.offM} 米的那个多走
-        {' '}{ECHO_OFF_LINE.excessM} 米，<b>分得开</b>，电平却只有 {ECHO_OFF_LINE.dbm} dBm。
-        <b>看不见的那个不是因为弱，纯粹是因为分不开</b>——它两段腿都更短，所以反而更响。
+        {' '}{ECHO_OFF_LINE.excessM} 米，<b>可分辨</b>，电平却只有 {ECHO_OFF_LINE.dbm} dBm。
+        <b>无法被察觉的那个不是因为弱，纯粹是因为不可分辨</b>——它两段路径都更短，所以反而电平更高。
       </div>
 
       <h4 style={h}>节点属性</h4>

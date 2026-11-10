@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in 「缺的那一帧是被下一帧发现的」, measured against runs.
+ * Every empirical claim in 「缺失的那一帧由下一帧发现」, measured against runs.
  *
  * This file and `uwb-ancillary.test.ts` were one file until 2026-10-11, when the lesson was split
  * in two along the seam its own `outcomes` already drew 2 + 2
@@ -128,9 +128,9 @@ describe('uwb-ancillary-loss · where it sits in the course', () => {
     const text = uwbAncillaryLoss.limits.map((l) => l.text).join('\n')
     // the one the split added: the losing scenes are not scenarios and the limit says how they
     // were measured instead
-    expect(text).toContain('把发送端在一段运行的中途挪开一个时隙的工夫量出来的')
+    expect(text).toContain('在一次运行中途把发送端移开一个时隙的时间测得的')
     // and the one about what happens next, which is nothing
-    expect(text).toContain('它只出现在日志里')
+    expect(text).toContain('它只出现在日志中')
     // no `until` here: the promise ledger of `limits.test.ts` (criterion B) is frozen, and the one
     // `until` of the original stayed with the half that owns the Request bit
     expect(uwbAncillaryLoss.limits.every((l) => l.until === undefined)).toBe(true)
@@ -143,7 +143,7 @@ describe('uwb-ancillary-loss · where it sits in the course', () => {
 })
 
 describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
-  it('「先把那把对照的尺子摆出来」: every figure in it comes off the plan', () => {
+  it('「先给出用于对照的时间基准」: every figure in it comes off the plan', () => {
     expect(MS.slot).toBe(PLAN.slotNs / 1e6)
     expect(MS.block).toBe(PLAN.blockNs / 1e6)
     expect(SLOTS.ranging).toBe(PLAN.slots)
@@ -171,7 +171,7 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
     // one message number per block: without it a receiver could not tell a new message's first
     // frame from a stale reading of the last
     expect(new Set(got.map((r) => r.messageNumber)).size).toBe(7)
-    // 「整块里一次超时也没有」
+    // 「整块中没有发生一次超时」
     expect(ofType(runOf(uwbAncillaryLoss, undefined, RUN_NS), 'UWB_TIMEOUT')).toHaveLength(0)
   })
 
@@ -207,7 +207,7 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
  * instant it needs it, and `Simulation.runUntil` is resumable — the trick
  * tests/uwb/ancillary-round.test.ts established and tests/uwb/rmnr-round.test.ts before it. The
  * appended window is the round's **tail**, after every ranging slot, so a move inside it cannot
- * touch a ranging frame, which is what makes 「只有这一帧丢了」 a fact rather than a hope.
+ * touch a ranging frame, which is what makes 「只有这一帧丢失」 a fact rather than a hope.
  *
  * `lose` is the index inside the appended window to drop, 0…FRAMES−1.
  */
@@ -327,7 +327,7 @@ describe('uwb-ancillary-loss · the acceptance: WHEN the missing frame is named'
 })
 
 describe('uwb-ancillary-loss · what the exchange does not change, and what it does not report', () => {
-  it('「测距结果一个数也没动」: UWB_RANGE is field for field what it was with the exchange off', () => {
+  it('「测距结果没有任何变化」: UWB_RANGE is field for field what it was with the exchange off', () => {
     const off = run(uwbAncillaryOffScenario(), RUN_NS)
     const on = runOf(uwbAncillaryLoss, undefined, RUN_NS)
     const ranges = (rs: TLRecord[]): unknown[] =>
@@ -344,7 +344,7 @@ describe('uwb-ancillary-loss · what the exchange does not change, and what it d
     expect(anc(offVariant)).toEqual([])
   })
 
-  it(`「这一块没有消息」 is not 「这一块的消息没收齐」: blocks ${WINDOW_BLOCKS.join(' and ')} only`, () => {
+  it(`「这一块没有消息」 is not 「这一块的消息未收齐」: blocks ${WINDOW_BLOCKS.join(' and ')} only`, () => {
     // The lesson's one experiment. A block outside the control message's validity window carries
     // no ancillary frame at all, and the point a reader is sent to check is that it also carries
     // no record — an absent message is not an incomplete one, and only the latter is this
@@ -471,9 +471,9 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
   const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
 
   it('reads the opening example as the run it describes', () => {
-    // 「接收端读到的数从 3 跳到 1，它当场就知道本该写 2 的那一帧没有来，不必等任何超时」
+    // 「接收端读到的数从 3 跳到 1，它立即就知道本应写入 2 的那一帧没有到达，不必等待任何超时」
     const [from, to, missing] = figs(WHY,
-      /接收端读到的数从 (\d+) 跳到 (\d+)，它当场就知道本该写 (\d+) 的那一帧没有来/,
+      /接收端读到的数从 (\d+) 跳到 (\d+)，它立即就知道本应写入 (\d+) 的那一帧没有到达/,
       '`why` on the jump')
     const rs = runLosing(1)
     const got = anc(rs)
@@ -485,14 +485,14 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
     expect(from! - to!, 'the step the gap opens').toBeGreaterThan(1)
     expect(missing, 'and the missing name lies between the two readings').toBeLessThan(from!)
     expect(missing, 'between them').toBeGreaterThan(to!)
-    // 「不必等任何超时」
+    // 「不必等待任何超时」
     expect(ofType(rs, 'UWB_TIMEOUT').filter((r) => r.expected === 'uwbAncillary'),
       'no timeout anywhere in that block').toEqual([])
   })
 
   it('reads the difference that tells a gap from no gap, on both runs', () => {
-    // 「差是 1，中间没有丢；差超过 1，中间那几个数就是没来的那几帧的名字」
-    const [step, over] = figs(PIC, /差是 (\d+)，中间没有丢；差超过 (\d+)，中间那几个数就是没来的/,
+    // 「差为 1，说明中间没有丢帧；差大于 1，中间缺少的那几个数就指明了未到达的是哪几帧」
+    const [step, over] = figs(PIC, /差为 (\d+)，说明中间没有丢帧；差大于 (\d+)，中间缺少的那几个数就指明了未到达的/,
       '`picture` on the subtraction')
     expect(over, 'one difference, named twice in one step').toBe(step)
     const clean = anc(runOf(uwbAncillaryLoss, undefined, RUN_NS))
@@ -521,11 +521,11 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
 
   it('reads 「收齐的判据是读到 0」 everywhere the lesson states it', () => {
     const zeros: number[] = [
-      figs(TERMS, /最后一帧写 (\d)/, 'the term on the last frame')[0]!,
-      figs(PIC, /读到 (\d) 就是收齐/, 'the step on completion')[0]!,
-      figs(JUMPS, /写 (\d) 的那一帧：这条消息的最后一帧/, 'the jump label')[0]!,
-      figs(QUIZ, /丢掉的是写 (\d) 的那一帧，接收端什么时候知道/, 'the quiz’s question')[0]!,
-      figs(QUIZ, /因为写 (\d) 的那一帧才是收齐的判据/, 'the quiz’s wrong option')[0]!,
+      figs(TERMS, /最后一帧写入 (\d)/, 'the term on the last frame')[0]!,
+      figs(PIC, /读到 (\d) 即为收齐/, 'the step on completion')[0]!,
+      figs(JUMPS, /写入 (\d) 的那一帧：这条消息的最后一帧/, 'the jump label')[0]!,
+      figs(QUIZ, /丢失的是写入 (\d) 的那一帧，接收端何时知道/, 'the quiz’s question')[0]!,
+      figs(QUIZ, /因为写入 (\d) 的那一帧才是收齐的判据/, 'the quiz’s wrong option')[0]!,
       figs(QUIZ, /因为收齐的判据是读到 (\d)/, 'the quiz’s explanation')[0]!,
     ]
     expect(new Set(zeros).size, 'one criterion, stated six times').toBe(1)
@@ -540,8 +540,8 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
     for (const r of clean) {
       if (r.framesRemaining === zero) expect(r.complete, 'reading it is completing').toBe(true)
     }
-    // 「而倒数停在 1、后面又没有下一帧时，这一步永远不会发生」
-    const [stopsAt] = figs(PIC, /而倒数停在 (\d)、后面又没有下一帧时/, '`picture` on the last loss')
+    // 「而倒数停在 1、此后又没有下一帧时，这一步永远不会发生」
+    const [stopsAt] = figs(PIC, /而倒数停在 (\d)、此后又没有下一帧时/, '`picture` on the last loss')
     const last = anc(runLosing(FRAMES - 1)).filter((r) => r.slot !== null)
     expect(last.at(-1)!.framesRemaining, 'the countdown really stops there').toBe(stopsAt)
     expect(last.some((r) => r.complete), 'and no reception completes that message').toBe(false)
@@ -550,7 +550,7 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
     const [quizStop] = figs(QUIZ, /倒数停在 (\d) 之后就没有下一次读数了/, 'the quiz on the same stop')
     expect(quizStop, 'the same stop, a second time').toBe(stopsAt)
     /*
-     * 「丢掉的是第一帧…接收端第一次读到的是 2，而它手里没有可以相减的上一次读数」 — the third
+     * 「丢失的是第一帧…接收端第一次读到的是 2，而它没有可以相减的上一次读数」 — the third
      * loss, and the figure is the reading that opens the message when the first frame is gone.
      */
     const first = anc(runLosing(0)).filter((r) => r.slot !== null)
@@ -561,12 +561,12 @@ describe('uwb-ancillary-loss · every figure the prose prints, read back out of 
 
   it('reads the quiz option that says the presence bit is clear, which it is not', () => {
     /*
-     * 「因为第一帧里的剩余帧数字段不在，那一位是置 0 的」 — a wrong option, and what makes it
+     * 「因为第一帧中不含剩余帧数字段，对应的存在位置 0」 — a wrong option, and what makes it
      * wrong is a bit this engine always sets: every frame of every scene carries a Frames
      * Remaining, so the figure the option prints is the complement of the real one. Read that
      * way round, the option's own digit is pinned by the engine rather than by its own wording.
      */
-    const [printed] = figs(QUIZ, /因为第一帧里的剩余帧数字段不在，那一位是置 (\d) 的/,
+    const [printed] = figs(QUIZ, /因为第一帧中不含剩余帧数字段，对应的存在位置 (\d)/,
       'the quiz’s wrong option on the presence bit')
     const frames = sent(runOf(uwbAncillaryLoss, undefined, RUN_NS))
     expect(frames.length, 'the run really sends fragments').toBeGreaterThan(0)

@@ -207,7 +207,7 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
   })
 
   it('the schema refuses 282 twice, refuses 285 on the floor alone, and takes 300', () => {
-    // step 3: "场景 schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步还宽 13.2 µs"
+    // step 3: "场景 schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 13.2 µs"
     const floor = 'Number must be greater than or equal to 300'
     expect(rstuNs(282)).toBe(235_000)
     expect(rstuNs(285)).toBe(237_500)
@@ -231,12 +231,12 @@ describe('uwb-slot-budget · the slot-fit rule', () => {
     expect(((rstuNs(300) - uwbSlotFitNs(ANCHORS)) / 1000).toFixed(1)).toBe('13.2')
     /*
      * **`limits` names that jump, and the 「第」 rule change of 2026-10-14 uncovered both of its
-     * figures**: 「换掉其中任一个，第三步和编辑器那次 285 → 300 的跳变就都不成立了」. The pair
+     * figures**: 「改变其中任一个，第三步的结论和编辑器把 285 修正为 300 的结果就都不再成立」. The pair
      * is the whole claim — the value the schema refuses on the floor alone, and the value it
      * takes — so both are read against the schema itself, and the sentence's 「第三步」 against
      * the step that states the floor.
      */
-    const jump = /第(.)步和编辑器那次 (\d+) → (\d+) 的跳变/
+    const jump = /第(.)步的结论和编辑器把 (\d+) 修正为 (\d+) 的结果/
       .exec(uwbSlotBudget.limits.map((l) => l.text).join(' '))
     expect(jump, '`limits` no longer names the jump the editor shows').not.toBeNull()
     const [refused, taken] = [Number(jump![2]), Number(jump![3])]
@@ -467,7 +467,7 @@ describe('uwb-slot-budget · the procedure, step by step', () => {
     expect(PLAN.roundsPerBlock).toBe(PLAN.blockNs / PLAN.roundNs)
     expect(vplan.blockNs).toBe(PLAN.blockNs)
     expect(vplan.roundsPerBlock).toBe(4 * PLAN.roundsPerBlock)
-    expect(steps().items[5]).toContain('十轮变四十轮')
+    expect(steps().items[5]).toContain('十轮变为四十轮')
   })
 })
 
@@ -571,7 +571,7 @@ describe('uwb-slot-budget · the figure', () => {
  *
  *  - **the slot-length procedure is read as one chain, step by step.** 「14 + 12N 字节：四个
  *    锚点时 62 字节，空口 236 603 ns」 → 「加 200 ns 飞行余量：236 803 ns，合 285 个 RSTU」 →
- *    「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步还宽 13.2 µs」. Every
+ *    「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 13.2 µs」. Every
  *    figure is parsed and every one has to be the next step's input, so a digit moved anywhere
  *    along it breaks the link that follows.
  *  - **the RSTU is read out of its own definition.** 「416 个码片，在 499.2 Mchip/s 下即
@@ -626,15 +626,15 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
 
   it('reads the slot this lesson is about, wherever the prose names it', () => {
     // `why`: 「一个测距时隙（ranging slot）是 2 ms」
-    const [whyMs] = figs(WHY, /是 (\d+) ms，真正发出去的那一帧/, '`why` on the slot')
+    const [whyMs] = figs(WHY, /是 (\d+) ms，真正发送的那一帧/, '`why` on the slot')
     same(String(whyMs), PLAN.slotNs / MS, 'the slot this scene runs')
-    // the caption: 「上一行是本课的 2 ms 时隙：十个时隙铺满 20 ms」 and the variant beside it
-    const [capSlot, capRound] = figs(PIC, /上一行是本课的 (\d+) ms 时隙：十个时隙铺满 (\d+) ms/,
+    // the caption: 「上一行是本课的 2 ms 时隙：十个时隙占满 20 ms」 and the variant beside it
+    const [capSlot, capRound] = figs(PIC, /上一行是本课的 (\d+) ms 时隙：十个时隙占满 (\d+) ms/,
       'the caption on the base row')
     expect(capSlot, 'the same slot the figure draws').toBe(whyMs)
     same(String(capRound), PLAN.roundNs / MS, 'and the round its ten slots fill')
     expect(PLAN.slots, 'which really is ten slots').toBe(10)
-    const [shortSlot, shortRound] = figs(PIC, /把时隙缩到 ([\d.]+) ms，同样十帧落在前 (\d+) ms 之内/,
+    const [shortSlot, shortRound] = figs(PIC, /把时隙缩短到 ([\d.]+) ms，同样十帧落在前 (\d+) ms 之内/,
       'the caption on the short row')
     same(String(shortSlot), VPLAN.slotNs / MS, 'the variant’s slot')
     same(String(shortRound), VPLAN.roundNs / MS, 'and the round it falls to')
@@ -657,8 +657,8 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(ppdu, 'the longest frame of the round').toBe(uwbPpduNs(uwbFinalBytes(n!)))
     expect(fit, 'and the sum, which is the engine’s own rule').toBe(uwbSlotFitNs(n!))
     expect(ppdu! + guard!, 'the addition the formula prints').toBe(fit)
-    // the note: 「再加本课取的 200 ns 飞行余量，相当于 60 m 空气。所以 2 ms …只占自己时隙的 11.8 %」
-    const [noteGuard, metres] = figs(NUMS, /再加本课取的 (\d+) ns 飞行余量，相当于 (\d+) m 空气/,
+    // the note: 「再加本课取的 200 ns 飞行余量，相当于 60 m 的传播距离。所以 2 ms …只占自己时隙的 11.8 %」
+    const [noteGuard, metres] = figs(NUMS, /再加本课取的 (\d+) ns 飞行余量，相当于 (\d+) m 的传播距离/,
       'the note on the guard')
     expect(noteGuard, 'the same guard').toBe(guard)
     same(String(metres), noteGuard! * C_M_PER_NS, 'the air that guard is worth')
@@ -679,17 +679,17 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(rstuNs(rstu!), 'the RSTU count it comes to, and 「还多一点」')
       .toBeGreaterThan(stepFit!)
     expect(rstuNs(rstu! - 3), 'while three RSTU less would not hold it').toBeLessThan(stepFit!)
-    // step 3: 「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步还宽 13.2 µs」
+    // step 3: 「schema 另外给任何时隙设了 300 RSTU 的下限，即 250.0 µs，比上一步的结果还长 13.2 µs」
     const [floor, floorUs, over] = figs(NUMS,
-      /设了 (\d+) RSTU 的下限，即 ([\d.]+) µs，比上一步还宽 ([\d.]+) µs/, 'step 3')
+      /设了 (\d+) RSTU 的下限，即 ([\d.]+) µs，比上一步的结果还长 ([\d.]+) µs/, 'step 3')
     same(String(floorUs), rstuNs(floor!) / 1000, 'what that floor is in microseconds')
     same(String(over), (rstuNs(floor!) - stepFit!) / 1000, 'and how much wider it is')
     expect(schemaIssues(floor!), 'the schema takes that floor').toEqual([])
     expect(schemaIssues(floor! - 3), 'and refuses three RSTU less').not.toEqual([])
     const [floorAgain] = figs(NUMS, /所以本场景真正的最短时隙是 (\d+) RSTU/, 'step 3’s conclusion')
     expect(floorAgain, 'the same floor, named twice in one step').toBe(floor)
-    // step 4: 「必须是 3 RSTU 的整数倍…285 与 282 都过得了」
-    const [mult, a, b] = figs(NUMS, /必须是 (\d+) RSTU 的整数倍[^]*?；(\d+) 与 (\d+) 都过得了/,
+    // step 4: 「必须是 3 RSTU 的整数倍…285 与 282 都满足这一条」
+    const [mult, a, b] = figs(NUMS, /必须是 (\d+) RSTU 的整数倍[^]*?；(\d+) 与 (\d+) 都满足这一条/,
       'step 4')
     /*
      * **What both of them pass is this step's own rule**, the multiple — and what refuses both
@@ -704,8 +704,8 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(rstuNs(a!), 'and the wider of the two does clear the capacity rule')
       .toBeGreaterThan(stepFit!)
     expect(rstuNs(b!), 'while the other does not').toBeLessThan(stepFit!)
-    // step 5: 「输 285，它跳到 300」
-    const [typed, snapped] = figs(NUMS, /夹一遍：输 (\d+)，它跳到 (\d+)/, 'step 5')
+    // step 5: 「输入 285，它变为 300」
+    const [typed, snapped] = figs(NUMS, /修正到合法值：输入 (\d+)，它变为 (\d+)/, 'step 5')
     expect(typed, 'the value the step types').toBe(a)
     const to3 = (x: number): number => Math.max(3, Math.round(x / 3) * 3)
     expect(to3(clampField(String(typed), floor!, 60_000, true)), 'where the editor puts it')
@@ -715,15 +715,15 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
 
   it('reads the margin paragraph: the frame, the silence, and the drift across a block', () => {
     const [deepBytes, deepAir, deepSlot] = figs(DEEP,
-      /四个锚点的 Final 是 (\d+) 字节、空口 ([\d ]+) ns，所以 (\d+) ms 的时隙里将近九成是静默/,
+      /四个锚点的 Final 是 (\d+) 字节、空口 ([\d ]+) ns，所以 (\d+) ms 的时隙里将近九成时间是静默/,
       '`deeper` on the frame and its slot')
     expect(deepBytes, 'the Final again').toBe(uwbFinalBytes(ANCHORS))
     expect(deepAir, 'and its airtime again').toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)))
     same(String(deepSlot), PLAN.slotNs / MS, 'the slot it sits in')
-    // 「将近九成是静默」: the frame is under a tenth and a half of its slot
+    // 「将近九成时间是静默」: the frame is under a tenth and a half of its slot
     expect(1 - deepAir! / PLAN.slotNs, 'nearly nine tenths of it is silence').toBeGreaterThan(0.85)
-    // 「20 ppm 跨过一个 200 ms 的块就是每边 4 µs」
-    const [ppm, blockMs, us] = figs(DEEP, /但 (\d+) ppm 跨过一个 (\d+) ms 的块就是每边 ([\d.]+) µs/,
+    // 「20 ppm 的偏差在一个 200 ms 的块内累积为每边 4 µs」
+    const [ppm, blockMs, us] = figs(DEEP, /但 (\d+) ppm 的偏差在一个 (\d+) ms 的块内累积为每边 ([\d.]+) µs/,
       '`deeper` on the drift')
     same(String(blockMs), PLAN.blockNs / MS, 'the block it is measured across')
     /*
@@ -743,7 +743,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
 
   it('reads how the radio-on total is put together, down to the flight per reception', () => {
     const head = uwbSlotBudget.deeper![1].heading!
-    const [headNs] = figs(head, /^([\d ]+) ns 是怎么凑出来的/, 'the paragraph’s own heading')
+    const [headNs] = figs(head, /^([\d ]+) ns 由什么组成/, 'the paragraph’s own heading')
     const tag = radioOnNs(recs(), 'uwb-1', PLAN.blockNs)
     expect(headNs, 'the figure the paragraph takes apart').toBe(tag)
     // 「它的 1 934 334 ns 恰好是这一轮的空口时间 1 934 230 ns，再加上它接收的八帧、每帧 13 ns」
@@ -759,7 +759,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(rx, 'the eight receptions 「八帧」 names').toHaveLength(8)
     expect(airtime! + rx.length * flight!, 'the sum those three make').toBe(total)
     // 「第一轮 816 180 ns」 and 「合计 2 448 546 ns」
-    const [firstRound] = figs(DEEP, /十个时隙里醒来四次，第一轮 ([\d ]+) ns/,
+    const [firstRound] = figs(DEEP, /十个时隙里唤醒四次，第一轮 ([\d ]+) ns/,
       '`deeper` on the anchor’s first round')
     expect(firstRound, 'what the anchor spends in the first round')
       .toBe(radioOnNs(recs(), 'anchor-1', PLAN.roundNs))
@@ -872,9 +872,9 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
   })
 
   it('reads both experiments, and the two questions that quote their figures', () => {
-    // 「载入“0.5 ms 时隙”，…三个轮次到 15 ms 就做完，定位落在 5、10、15 ms，…每块 40 轮」
+    // 「载入“0.5 ms 时隙”，…三个轮次在 15 ms 时就全部完成，定位结果出现在 5、10、15 ms，…每块 40 轮」
     const [label, done, f1, f2, f3, rounds] = figs(TRY,
-      /载入“([\d.]+) ms 时隙”[^]*?三个轮次到 (\d+) ms 就做完，定位落在 (\d+)、(\d+)、(\d+) ms，编辑器规划出每块 (\d+) 轮/,
+      /载入“([\d.]+) ms 时隙”[^]*?三个轮次在 (\d+) ms 时就全部完成，定位结果出现在 (\d+)、(\d+)、(\d+) ms，编辑器规划出每块 (\d+) 轮/,
       '`tryThis` on the short-slot scene')
     same(String(label), VPLAN.slotNs / MS, 'the variant that experiment loads')
     expect(uwbSlotBudget.variants![0].label, 'which is the label the variant carries')
@@ -884,9 +884,9 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
       .toEqual(fixes.map((f) => f.t / MS))
     expect(done, 'and the last of them is when the three rounds are finished').toBe(f3)
     expect(rounds, 'the rounds that block now holds').toBe(VPLAN.roundsPerBlock)
-    // 「输入 285 再移开焦点：它跳到 300，282 也一样。两个都是 3 的整数倍」
+    // 「输入 285 再移开焦点：它变为 300，282 也一样。两个都是 3 的整数倍」
     const [typed, snapped, other, mult, clears, shortOne, shortBy] = figs(TRY,
-      /输入 (\d+) 再移开焦点：它跳到 (\d+)，(\d+) 也一样。两个都是 (\d+) 的整数倍，而只有 (\d+) 宽过容量规则，(\d+) 还差 ([\d.]+) µs/,
+      /输入 (\d+) 再移开焦点：它变为 (\d+)，(\d+) 也一样。两个都是 (\d+) 的整数倍，而只有 (\d+) 超过容量规则的要求，(\d+) 还差 ([\d.]+) µs/,
       '`tryThis` on the editor’s clamp')
     const to3 = (x: number): number => Math.max(3, Math.round(x / 3) * 3)
     for (const v of [typed!, other!]) {
@@ -903,7 +903,7 @@ describe('uwb-slot-budget · every figure the prose prints, read back out of it'
     expect(rstuNs(clears!), 'and it really does').toBeGreaterThan(uwbSlotFitNs(ANCHORS))
     same(String(shortBy), (uwbSlotFitNs(ANCHORS) - rstuNs(other!)) / 1000,
       'while the other is short of it by this much')
-    const [floorAgain] = figs(TRY, /拦住它们的都是那条 (\d+) RSTU 下限/, '`tryThis` on what refuses them')
+    const [floorAgain] = figs(TRY, /起限制作用的都是那条 (\d+) RSTU 下限/, '`tryThis` on what refuses them')
     expect(floorAgain, 'the floor, which is where they snapped to').toBe(snapped)
     // quiz 1: 「射频开启时间只有 0.97 % 与 1.22 %」
     const [tagPct, ancPct] = figs(QUIZ, /射频开启时间只有 ([\d.]+) % 与 ([\d.]+) %/,

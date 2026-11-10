@@ -94,7 +94,7 @@ describe('uwb-nba · the lesson', () => {
     expect(uwbNba.variants).toHaveLength(4)
     for (const v of uwbNba.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
     expect(uwbNba.variants!.map((v) => v.label))
-      .toEqual(['避开路由器的信道', '在四个信道间跳变', '不先听后发', '一次只问一个锚点'])
+      .toEqual(['避开路由器的信道', '在四个信道间跳变', '不先听后发', '每次只与一个锚点测距'])
     // only the base is one-to-many; every variant is the pair round this lesson used to run,
     // with all four corner anchors, which is why only the base's recorded hash moved
     expect(uwbNbaScenario('base').uwb!.mms.oneToMany).toBe(true)
@@ -539,13 +539,13 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
   it('reads the first block message by message, and the grid underneath it', () => {
     const rs = recs()
     /*
-     * 「Poll 在零时刻出发，第一条 Response 在 1.000 ms 处作答，第一条 Report 在 20.000 ms 处发
+     * 「Poll 在零时刻发出，第一条 Response 在 1.000 ms 处应答，第一条 Report 在 20.000 ms 处发
      * 出」 — the two instants before the one this test already read, uncovered by the 「第」 rule
      * change of 2026-10-14. They are asserted elsewhere in this file against literals; here they
      * are read off the sentence and compared with the first message of each kind.
      */
     const [pollZh, respAt, reportAt] = raw(NUMS,
-      /Poll 在(零)时刻出发，第一条 Response 在 ([\d.]+) ms 处作答，第一条 Report 在 ([\d.]+) ms 处发出/,
+      /Poll 在(零)时刻发出，第一条 Response 在 ([\d.]+) ms 处应答，第一条 Report 在 ([\d.]+) ms 处发出/,
       '`numbers` on the first block, message by message')
     const firstOf = (kind: string): number => ofType(rs, 'TX_START')
       .filter((r) => r.frame.kind === kind)[0]!.t
@@ -553,28 +553,28 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     expect(firstOf('nbPoll'), 'and the poll really leaves then').toBe(0)
     same(String(respAt), firstOf('nbResp') / MS, 'when the first response answers')
     same(String(reportAt), firstOf('nbReport') / MS, 'and when the first report goes out')
-    // 「第一条 Report 在 20.000 ms 处发出，而距离紧随其后 608 µs 出现，落在 20.608 ms」
-    const [behind, at] = figs(NUMS, /距离紧随其后 (\d+) µs 出现，落在 ([\d.]+) ms/,
+    // 「第一条 Report 在 20.000 ms 处发出，距离在其后 608 µs 得出，即 20.608 ms」
+    const [behind, at] = figs(NUMS, /距离在其后 (\d+) µs 得出，即 ([\d.]+) ms/,
       '`numbers` on the first distance')
     const report = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbReport')[0]!
     const range = ofType(rs, 'UWB_RANGE').filter((r) => r.node === TAG)[0]!
     same(String(at), range.t / MS, 'when the first distance appears')
     same(String(behind), (range.t - report.t) / 1000, 'and how far behind the report it is')
     expect(behind! * 1000, 'which is that report’s own airtime').toBe(report.frame.txTimeNs)
-    // 「一轮是 52 个时隙、每个 500 µs，合 26 ms；一个块只装一轮」
+    // 「一轮是 52 个时隙、每个 500 µs，合计 26 ms；一个块只容纳一轮」
     const [slots, slotUs, roundMs] = figs(NUMS,
-      /一轮是 (\d+) 个时隙、每个 (\d+) µs，合 (\d+) ms/, '`numbers` on the grid')
+      /一轮是 (\d+) 个时隙、每个 (\d+) µs，合计 (\d+) ms/, '`numbers` on the grid')
     expect(slots, 'the slots a round of this session has').toBe(PLAN.slots)
     same(String(slotUs), PLAN.slotNs / 1000, 'the slot they are')
     same(String(roundMs), PLAN.roundNs / MS, 'and the round they make')
     expect(slots! * slotUs! * 1000, 'the product the sentence states').toBe(PLAN.roundNs)
-    // 「这段 1.3 秒的运行里，整整齐齐放得下七个块」
+    // 「这段 1.3 秒的运行里，恰好容纳七个块」
     const [secs] = figs(NUMS, /这段 ([\d.]+) 秒的运行里/, '`numbers` on the window')
     same(String(secs), RUN_NS / (1000 * MS), 'the window every figure of this lesson is measured over')
     const blocks = new Set(ofType(rs, 'UWB_ROUND').map((r) => r.block))
     expect(blocks.size, 'the blocks that window holds').toBe(BLOCKS)
-    // 「一条 Poll 加一条 Response 合起来占住空口 1.504 ms」
-    const [together] = figs(NUMS, /合起来占住空口 ([\d.]+) ms/, '`numbers` on the two messages')
+    // 「一条 Poll 加一条 Response 合计占用空口 1.504 ms」
+    const [together] = figs(NUMS, /合计占用空口 ([\d.]+) ms/, '`numbers` on the two messages')
     // the poll of this round names three responders, so it is the longer one-to-many poll
     const pollNs = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbPoll')[0]!.frame.txTimeNs
     const respNs = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'nbResp')[0]!.frame.txTimeNs
@@ -588,7 +588,7 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the two fragment margins, and the eight of eight beside them', () => {
-    // 「两个作答的锚点都是 8 个片段收到 8 个，两串片段分别比接收端所需的电平高出 34.5 dB 与 33.4 dB」
+    // 「两个应答的锚点都是 8 个片段收到 8 个，两串片段分别比接收端所需的电平高出 34.5 dB 与 33.4 dB」
     const [sent, heard, m1, m2] = figs(NUMS,
       /都是 (\d+) 个片段收到 (\d+) 个，两串片段分别比接收端所需的电平高出 ([\d.]+) dB 与 ([\d.]+) dB/,
       '`numbers` on the trains')
@@ -609,8 +609,8 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
       '`deeper` on the four message IDs')
     expect(ids.map((h) => parseInt(h!, 16)), 'the four IDs the engine really writes')
       .toEqual([NB_MSG_ID.poll, NB_MSG_ID.resp, NB_MSG_ID.reportInitiator, NB_MSG_ID.reportResponder])
-    // 「一条 Report 把十三个字节里的五个花在时间本身上」
-    const [reportCn, timeCn] = raw(DEEP, /把(..)个字节里的(.)个花在时间本身上/,
+    // 「一条 Report 把十三个字节里的五个用于时间值本身」
+    const [reportCn, timeCn] = raw(DEEP, /把(..)个字节里的(.)个用于时间值本身/,
       '`deeper` on what a report spends')
     const cn = (s: string): number => {
       const d = '零一二三四五六七八九'
@@ -625,8 +625,8 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
   })
 
   it('reads the link budget the range claim rests on, and the one term that changes', () => {
-    // 「和一条 499.2 MHz 宽的测距信道摆在一起，250 kb/s 听上去荒唐」
-    const [wide, kbps] = figs(DEEP, /和一条 ([\d.]+) MHz 宽的测距信道摆在一起，(\d+) kb\/s/,
+    // 「与一条 499.2 MHz 宽的测距信道相比，250 kb/s 似乎低得不合理」
+    const [wide, kbps] = figs(DEEP, /与一条 ([\d.]+) MHz 宽的测距信道相比，(\d+) kb\/s/,
       '`deeper` on the two radios')
     same(String(wide), UWB_CHIP_HZ / 1e6, 'the ranging channel’s own width')
     same(String(kbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'against the control radio’s rate')
@@ -640,8 +640,8 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     const [srcKbps] = figs(SRC, /第 12 章(?:、|那部 )([\d]+) kb\/s/,
       '`sources` on the narrowband radio’s bit rate')
     same(String(srcKbps), 4 / (NB_SYMBOL_US / 1e6) / 1000, 'four bits in a symbol, as a bit rate')
-    // 「模型里的接收端能听到 −100 dBm，发射端则发 10 dBm」, and `limits` names the constants
-    const [sens, tx] = figs(DEEP, /接收端能听到 (−\d+) dBm，发射端则发 (\d+) dBm/,
+    // 「模型中的接收端可以接收 −100 dBm 的信号，发射端以 10 dBm 发射」, and `limits` names the constants
+    const [sens, tx] = figs(DEEP, /接收端可以接收 (−\d+) dBm 的信号，发射端以 (\d+) dBm 发射/,
       '`deeper` on the budget')
     expect(sens, 'the sensitivity `nb.ts` exports').toBe(NB_RX_SENS_DBM)
     expect(tx, 'and the transmit power').toBe(NB_TX_DBM)
@@ -652,8 +652,8 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     const [srcFloor] = figs(SRC, /标准对这部 PHY 给出的底线是 (−\d+) dBm/, '`sources` on the floor')
     expect(floor, 'and the standard’s floor, which both sections print').toBe(srcFloor)
     expect(floor, 'a floor this model is more generous than').toBeGreaterThan(sens!)
-    // 「本课对窄带只换掉 1 m 处的自由空间项，指数与每道墙的损耗照用宽带那一侧的」
-    const [metre] = figs(LIM, /只换掉 (\d+) m 处的自由空间项/, '`limits` on the term it swaps')
+    // 「本课对窄带只替换了 1 m 处的自由空间项，指数与每道墙的损耗仍沿用宽带一侧的取值」
+    const [metre] = figs(LIM, /只替换了 (\d+) m 处的自由空间项/, '`limits` on the term it swaps')
     expect(UNITS_SRC, 'the distance `freeSpacePl0Db` is defined at')
       .toContain(`Free-space path loss at ${metre} m`)
     const ch = uwbNbaScenario('base').uwb!.channel
@@ -721,7 +721,7 @@ describe('uwb-nba · every figure the prose prints, read back out of it', () => 
     expect(corners, 'of the corners the room has').toBe(NBA_ANCHORS.length)
     expect(joined, 'one short of all of them').toBeLessThan(corners!)
     const [perResponder, slotRstu] = figs(row[3],
-      /Poll 每多一个应答者就长 (\d+) 字节，而两个 (\d+) RSTU/, 'the rule in the last cell')
+      /Poll 每多一个应答者就增加 (\d+) 字节，而两个 (\d+) RSTU/, 'the rule in the last cell')
     expect(perResponder, 'what one more responder adds to the Poll')
       .toBe(nbOtmPollBytes(joined! + 1) - nbOtmPollBytes(joined!))
     expect(slotRstu, 'the slot this session schedules')

@@ -404,7 +404,7 @@ describe('uwb-geometry · a brick wall in one path', () => {
     // away from anchor-1 at (0.5, 0.5): the shift has a positive component along anchor → tag
     const away = [(TAG.x - 0.5), (TAG.y - 0.5)]
     expect((biased.x - TAG.x) * away[0] + (biased.y - TAG.y) * away[1]).toBeGreaterThan(0)
-    // 「同样扣掉噪声，它在身后留下 21 cm 的残差」: 21 cm is the NOISE-FREE residual of this
+    // 「同样扣掉噪声，它留下 21 cm 的残差」: 21 cm is the NOISE-FREE residual of this
     // same biased solve, which is the only ruler the sentence around it uses. The run's own
     // residuals are pinned in "the residual the lesson quotes is the run's own" below — the
     // lesson used to put the noise-free figure and 「干净的一轮只留下一微米」 where a reader
@@ -672,8 +672,8 @@ describe('uwb-geometry · the procedure, against the solver', () => {
     expect([Math.min(...clean).toFixed(2), Math.max(...clean).toFixed(2)]).toEqual(['0.78', '1.98'])
     expect(prose()).toContain('19.85 到 22.25 cm')
     expect(prose()).toContain('0.78 到 1.98 cm')
-    // 「残差也从一厘米上下跳到了二十厘米上下」, to the words the picture uses
-    expect(prose()).toContain('从一厘米上下跳到了二十厘米上下')
+    // 「残差也从一厘米左右升至二十厘米左右」, to the words the picture uses
+    expect(prose()).toContain('从一厘米左右升至二十厘米左右')
     for (const c of clean) expect(c, `clean ${c} cm`).toBeLessThan(2)
     for (const c of wall) { expect(c).toBeGreaterThan(19); expect(c).toBeLessThan(23) }
     // the criterion itself: the clean rounds are inside one σ_r, the walled ones four outside
@@ -699,10 +699,10 @@ describe('uwb-geometry · the medium queues echoes; none of these three scenes h
 
   it('says where echoes come from and why they cannot reach the solver', () => {
     expect(text).toContain('回波只来自场景里摆放的反射物')
-    expect(text).toContain('不因它开启接收、不给它打时间戳')
+    expect(text).toContain('不因它开启接收、不为它记录时间戳')
     expect(text).toContain('距离、定位与品质因数字节一个都不会变')
     // the half that was always true, and is why the lesson's wall is the gentlest kind of NLOS
-    expect(text).toContain('真实房间里最常见的非视距是直射路径干脆没了')
+    expect(text).toContain('真实房间里最常见的非视距是直射路径完全被阻断')
   })
 
   it('no longer claims the medium has no multipath', () => {
@@ -814,7 +814,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
     for (const [text, re, what] of [
       [NUMS, /GDOP 会恰好是 ([\d.]+)/, 'the formula’s note'],
       [DEEP, /为什么均匀分布的锚点恰好给出 ([\d.]+)/, '`deeper`’s own heading'],
-      [DEEP, /四个锚点时是 ([\d.]+)。本场景读作/, '`deeper`, after the algebra'],
+      [DEEP, /四个锚点时是 ([\d.]+)。本场景的值为/, '`deeper`, after the algebra'],
       [QUIZ, /四个这样的锚点恰好给出 ([\d.]+)/, 'the third answer'],
       [QUIZ, /这里它比 ([\d.]+) 略高/, 'the third explanation'],
     ] as const) {
@@ -826,7 +826,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
      * sweep of 2026-10-13 planted it with the suite green: the read above captured the ideal
      * 1.00 on its left and stopped at the full stop.
      */
-    const [here] = raw(DEEP, /本场景读作 ([\d.]+)，原因有二/,
+    const [here] = raw(DEEP, /本场景的值为 ([\d.]+)，原因有二/,
       '`deeper` on what this scene reads instead')
     same(here!, exactFix(TAG.x, TAG.y).gdop, 'the GDOP this layout really charges')
     expect(val(here!), 'which is worse than the ideal, as the sentence says')
@@ -886,7 +886,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
       .toBeLessThanOrEqual(val(tHi!))
     // "drop a corner and the floor goes with it: standing under one of the three it reaches 2.32"
     const [here] = raw(NUMS, /它会达到 ([\d.]+)。/, '`numbers` on the worst spot of three anchors')
-    const [ax, ay] = raw(DEEP, /把手机拖到 \(([\d.]+), ([\d.]+)\) 的锚点上/,
+    const [ax, ay] = raw(DEEP, /把手机拖到 \(([\d.]+), ([\d.]+)\) 的锚点正下方/,
       '`deeper` on which anchor it is')
     const under = exactFix(val(ax!), val(ay!), 'anchor-4')
     same(here!, under.gdop, 'the GDOP of standing under that anchor on three')
@@ -894,7 +894,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
     // `deeper` prints the same figure to four places, and the four-anchor figure beside it
     same(raw(DEEP, /GDOP 会达到 ([\d.]+)。/, '`deeper` on the same spot')[0]!, under.gdop,
       'the same spot, to four places')
-    same(raw(DEEP, /同一个位置平平无奇——([\d.]+)，仍落在/, '`deeper` with all four anchors')[0]!,
+    same(raw(DEEP, /同一个位置并无特殊之处——([\d.]+)，仍落在/, '`deeper` with all four anchors')[0]!,
       exactFix(val(ax!), val(ay!)).gdop, 'that spot with the fourth anchor back')
     expect(exactFix(val(ax!), val(ay!)).gdop, 'and it is back inside the band')
       .toBeLessThan(band.hi)
@@ -913,7 +913,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
 
   it('the brick wall: the delay, the flight distance it is, and the range it lengthens', () => {
     // "A first path through brick arrives 2.0 ns late, which is 0.5996 m of flight"
-    const [ns, m] = raw(NUMS, /首径（first path）迟到 ([\d.]+) ns，折合 ([\d.]+) m 的飞行距离/,
+    const [ns, m] = raw(NUMS, /首径（first path）延迟 ([\d.]+) ns，折合 ([\d.]+) m 的飞行距离/,
       '`numbers` on the cost of one wall')
     same(ns!, UWB_NLOS_NS.brick, 'the delay channel.ts gives brick')
     same(m!, UWB_NLOS_NS.brick * C_M_PER_NS, 'and the flight distance it is')
@@ -926,7 +926,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
       expect([val(brick!), val(drywall!), val(glass!)], `${what}: UWB_NLOS_NS, value for value`)
         .toEqual([UWB_NLOS_NS.brick, UWB_NLOS_NS.drywall, UWB_NLOS_NS.glass])
     }
-    same(raw(LIMITS, /永远正好把距离拉长 ([\d.]+) m/, '`limits` on the constant it is')[0]!,
+    same(raw(LIMITS, /总是使距离恰好增加 ([\d.]+) m/, '`limits` on the constant it is')[0]!,
       UWB_NLOS_NS.brick * C_M_PER_NS, 'the one distance a brick wall ever adds here')
     /*
      * 「GDOP 与 1σ 椭圆都是仿真器自己的模型取值」 — the multiple is not decoration: the solver's
@@ -948,7 +948,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
       .toBeCloseTo(fx.ellipse.a, 12)
     // "the blocked range reads 5.33 m against a true 4.76 m in the first block"
     const blocked = tagRanges(0).filter((r) => r.peer === 'anchor-1')
-    const [read, truth] = raw(NUMS, /这条被挡住的距离报出 ([\d.]+) m，真值是 ([\d.]+) m/,
+    const [read, truth] = raw(NUMS, /这条被遮挡的距离测得 ([\d.]+) m，真值是 ([\d.]+) m/,
       '`numbers` on the first block’s blocked range')
     same(read!, blocked[0]!.distM, 'what that range measured')
     same(truth!, blocked[0]!.trueDistM, 'and what it really was')
@@ -1002,7 +1002,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
 
   it('what the wall did to the fix: the shift, the share of the bias, and the residuals', () => {
     const f = fixes(0)[0]!
-    const [moved, notThis] = raw(NUMS, /而定位只挪了 ([\d.]+) cm，不是 (\d+)。/,
+    const [moved, notThis] = raw(NUMS, /而定位只偏移了 ([\d.]+) cm，不是 (\d+)。/,
       '`numbers` on the shift')
     same(moved!, fixErr(f) * 100, 'how far the fix moved')
     expect(val(notThis!), 'against the bias it did not move by')
@@ -1023,7 +1023,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
       BIAS_M, 'the figure the question asks why it is not')
     same(raw(QUIZ, /位移是偏差的 (\d+) %/, 'the first explanation')[0]!,
       (shift / BIAS_M) * 100, 'the same share, in the explanation')
-    same(raw(QUIZ, /它在身后留下 (\d+) cm 的残差/, 'the first explanation’s residual')[0]!,
+    same(raw(QUIZ, /它留下 (\d+) cm 的残差/, 'the first explanation’s residual')[0]!,
       biased.residualM * 100, 'the residual that same noise-free solve leaves')
     // "19.85 to 22.25 cm this run, 0.78 to 1.98 cm the clean one — same anchors, same seed,
     //  the same 100 ps of timestamp noise"
@@ -1045,7 +1045,7 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
   it('the envelope the geometry promises, each factor read out of the sentence that uses it', () => {
     const exact = exactFix(TAG.x, TAG.y)
     const [measured, sigma, gdop, oneSigma] = raw(NUMS,
-      /来量这 ([\d.]+) cm：σ_r 乘 GDOP 就是定位误差的 1σ 尺度，([\d.]+) × ([\d.]+) = ([\d.]+) cm/,
+      /来衡量这 ([\d.]+) cm：σ_r 乘 GDOP 就是定位误差的 1σ 尺度，([\d.]+) × ([\d.]+) = ([\d.]+) cm/,
       '`numbers` on the envelope')
     same(measured!, fixErr(fixes(0)[0]!) * 100, 'the error the sentence is measuring')
     same(sigma!, SIGMA_R * 100, 'the range noise the solver was given')
@@ -1085,12 +1085,12 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
     same(raw(text, /也就是 ([\d.]+) cm 测距噪声的平方/, 'step 6 on σ_r')[0]!, SIGMA_R * 100,
       'the range noise the solver squares')
     /*
-     * 「小于 1e-9 就根本没有答案」 — `position.ts` now exports the floor, which is the only way
+     * 「小于 1e-9 时无解」 — `position.ts` now exports the floor, which is the only way
      * this figure can be read back: the solver applies it at **every Gauss-Newton iterate**, so
      * bisecting a near-collinear layout for the determinant at which it starts answering
      * measures the iterate's wander and not the constant (it lands around 0.05).
      */
-    const [mantissa, exp] = raw(text, /小于 (\d+)e-(\d+) 就根本没有答案/,
+    const [mantissa, exp] = raw(text, /小于 (\d+)e-(\d+) 时无解/,
       'step 3 on the determinant floor')
     expect(val(mantissa!) * 10 ** -val(exp!), 'the floor position.ts applies').toBe(MIN_DET)
     /*
@@ -1165,17 +1165,17 @@ describe('uwb-geometry · every figure the prose prints, read back out of it', (
     same(b4!, four.ellipse.b * 100, 'its short one')
     same(tilt4!, -((four.ellipse.thetaRad * 180) / Math.PI), 'the tilt of its long axis')
     same(ratio4!, four.ellipse.a / four.ellipse.b, 'and the ratio between the two')
-    const [scale, drawn] = raw(DEEP, /场景把它放大(.)倍来画——长半轴 (\d+) cm/,
+    const [scale, drawn] = raw(DEEP, /场景按(.)倍放大绘制——长半轴 (\d+) cm/,
       '`deeper` on how the scene draws it')
     expect(zhNum(scale!), 'the factor scene.ts draws it at').toBe(ELLIPSE_DRAW_SCALE)
     expect(val(drawn!), 'and the semi-axis that gives on screen')
       .toBe(Number((four.ellipse.a * ELLIPSE_DRAW_SCALE * 100).toFixed(0)))
-    const [aPanel, bPanel] = raw(DEEP, /检视面板照实印出 ([\d.]+) × ([\d.]+) cm/,
+    const [aPanel, bPanel] = raw(DEEP, /检视面板显示真实尺寸 ([\d.]+) × ([\d.]+) cm/,
       '`deeper` on what the inspector prints instead')
     expect(`${aPanel} × ${bPanel} cm`, 'the inspector prints the true size')
       .toBe(uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.uwb).ellipse)
     const [a3, b3, ratio3, tilt3] = raw(DEEP,
-      /它增大到 ([\d.]+) × ([\d.]+) cm，比值变成 ([\d.]+)，长轴摆到 \+([\d.]+)°/,
+      /它增大到 ([\d.]+) × ([\d.]+) cm，比值变成 ([\d.]+)，长轴转到 \+([\d.]+)°/,
       '`deeper` on the three-anchor ellipse')
     same(a3!, three.ellipse.a * 100, 'its long semi-axis')
     same(b3!, three.ellipse.b * 100, 'its short one')

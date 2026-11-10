@@ -203,7 +203,7 @@ describe('uwb-rcm-validity · the window turns over', () => {
     expect(turn[0].frame.uwb?.block).toBe(VALIDITY)
   })
 
-  it('「测距行照旧每个块四条，位置也照旧每个块解出来」', () => {
+  it('「测距行仍然每个块四条，位置也仍然每个块都能解出」', () => {
     const byBlock = new Map<number, number>()
     for (const r of ofType(rs, 'UWB_RANGE').filter((x) => x.node === 'uwb-1')) {
       byBlock.set(r.block, (byBlock.get(r.block) ?? 0) + 1)
@@ -236,7 +236,7 @@ describe('uwb-rcm-validity · the responder that never held a control message', 
     expect(ofType(rs, 'TX_START').filter((r) => r.node === WALLED_ANCHOR)).toHaveLength(0)
   })
 
-  it('「每个块留下 2 次超时，而发起方靠剩下 3 台照旧解出位置」', () => {
+  it('「每个块留下 2 次超时，而发起方依靠其余 3 台锚点仍然解出位置」', () => {
     const atTag = ofType(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'uwb-1')
     expect(atTag.map((r) => r.peer)).toEqual(Array(7 * WALLED.timeoutsPerBlock).fill(WALLED_ANCHOR))
     expect(WALLED.timeoutsPerBlock).toBe(2)
@@ -301,7 +301,7 @@ describe('uwb-rcm-validity · the measurement the lesson quotes for the non-rece
   const timeouts = (rs: TLRecord[]): string[] =>
     ofType(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'tag-1').map((r) => r.peer)
 
-  it('「7 次无从区分的超时」 with the exchange off', () => {
+  it('「7 次无法区分原因的超时」 with the exchange off', () => {
     expect(ofType(off, 'UWB_RMNR')).toHaveLength(0)
     expect(timeouts(off)).toHaveLength(MOVED.silent)
     expect(MOVED.silent).toBe(7)
@@ -495,7 +495,7 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
       expect(of_(longBlock!).ies, `and the long one carries ${ie}`).toContain(ie)
     }
     // 「点开第 1 块那帧开场的信息单元列」 — `observe` names the same block
-    const [obsBlock] = figs(OBS, /点开第 (\d) 块那帧开场的信息单元列/, '`observe` on the block')
+    const [obsBlock] = figs(OBS, /打开第 (\d) 块开场帧的信息单元列/, '`observe` on the block')
     expect(obsBlock, 'the same block the picture names').toBe(shortBlock)
     // 「RMNR 帧 = 帧头 9 + 信息单元头 2 + 帧校验 2 = 13 字节」
     const [mhr, ieHdr, fcs, total] = figs(NUMS,
@@ -534,7 +534,7 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
      * so it is read as that: the two blocks the sentence names open long, the ones between open
      * short, and the window is as wide as the session says.
      */
-    const [turnBlock, turnBytes] = figs(PIC, /一直播到第 (\d+) 块：开场帧又回到 (\d+) 字节/,
+    const [turnBlock, turnBytes] = figs(PIC, /一直播放到第 (\d+) 块：开场帧又回到 (\d+) 字节/,
       '`picture` on the turn of the window')
     const [perWindow, firstBlock, lastBlock] = figs(PIC,
       /(\d+) 个块一个窗口，第 (\d) 个和第 (\d+) 个块各有一条控制消息/, '`picture` on the window')
@@ -593,8 +593,8 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
       .toBe(Boolean(built))
     expect(uwbAncillaryRequest.scenario().uwb!.ancillaryRequest, 'and the half the next one does')
       .toBe(Boolean(notBuilt))
-    // 「Frames Remaining 在那一位置 1 时装的是请求的时隙数」 — the half that carries a slot count
-    const [asksWhen] = figs(LIM, /Frames Remaining 在那一位置 (\d) 时装的是请求的时隙数/,
+    // 「Frames Remaining 在那一位置 1 时携带的是请求的时隙数」 — the half that carries a slot count
+    const [asksWhen] = figs(LIM, /Frames Remaining 在那一位置 (\d) 时携带的是请求的时隙数/,
       '`limits` on what the field then means')
     expect(asksWhen, 'the half that asks for slots').toBe(notBuilt)
   })

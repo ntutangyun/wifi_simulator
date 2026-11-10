@@ -718,7 +718,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       'the worked example’s second row')
     // the threshold wherever else it is printed, each reading by the words around it
     for (const [text, re, what] of [
-      [NUMS, /拿来比对的电平是 −([\d.]+) dBm/, 'the formula’s note'],
+      [NUMS, /实际用于比较的电平是 −([\d.]+) dBm/, 'the formula’s note'],
       [NUMS, /与 −([\d.]+) dBm 相比/, 'the heading of the levels table'],
       [NUMS, /−[\d.]+ ≥ −([\d.]+) dBm/, 'the comparison row of the worked example'],
       [DEEP, /= −([\d.]+) {2}→ {2}d =/, '`deeper`’s own equation'],
@@ -742,16 +742,16 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     // read by SHAPE: a `/(2\.5)/g` family read cannot see the one site a sweep planted
     for (const [text, re, what] of [
       [NUMS, /一个窄带信道宽 ([\d.]+) MHz/, 'the formula’s note'],
-      [NUMS, /全挤在一个 ([\d.]+) MHz 的信道里/, 'the paragraph on the other direction'],
-      [NUMS, /它就读一下这条信道那 ([\d.]+) MHz 里/, 'step 2'],
-      [DEEP, /在自己带内任意 ([\d.]+) MHz 的一片里/, '`deeper`’s note on the radius'],
+      [NUMS, /全部集中在一个 ([\d.]+) MHz 的信道内/, 'the paragraph on the other direction'],
+      [NUMS, /它就读取这条信道 ([\d.]+) MHz 内/, 'step 2'],
+      [DEEP, /在自己带内任意 ([\d.]+) MHz 范围内/, '`deeper`’s note on the radius'],
       [DEEP, /共有 \d+ 个 ([\d.]+) MHz 的信道/, '`deeper` on the whole plan'],
       [LIMITS, /只读一次该 ([\d.]+) MHz 频段内/, '`limits` on the single reading'],
-      [LIMITS, /而真实的 ([\d.]+) MHz 发射带着裙边/, '`limits` on the flat rectangle'],
+      [LIMITS, /而真实的 ([\d.]+) MHz 发射带有频谱裙边/, '`limits` on the flat rectangle'],
       [QUIZ, /([\d.]+) MHz 里的 \d+ dBm/, 'the second answer’s explanation'],
     ] as const) same(raw(text, re, what)[0]!, NB_CHANNEL_MHZ, `${what}: one narrowband channel`)
     // the two sentences that count channels per Wi-Fi channel, and the band of the title
-    const [wifiW, holds] = raw(DEEP, /一条 (\d+) MHz 的 Wi-Fi 信道能盖住其中(.)个/,
+    const [wifiW, holds] = raw(DEEP, /一条 (\d+) MHz 的 Wi-Fi 信道能覆盖其中(.)个/,
       '`deeper` on what one 20 MHz channel holds')
     expect(val(wifiW!), 'the Wi-Fi channel width that holds that many narrowband ones')
       .toBe(zh(holds!) * NB_CHANNEL_MHZ)
@@ -811,7 +811,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     for (const [text, re, what] of [
       [NUMS, /每一次读到的都是 −([\d.]+) dBm/, '`numbers` on the seven busy checks'],
       [NUMS, /−([\d.]+) ≥ −[\d.]+ dBm/, 'the comparison row of the worked example'],
-      [QUIZ, /光是那台笔记本在手机处就有 −([\d.]+) dBm/, 'the first answer'],
+      [QUIZ, /仅那台笔记本在手机处就有 −([\d.]+) dBm/, 'the first answer'],
       [QUIZ, /七次读到 −([\d.]+) dBm 的检测/, 'the first explanation'],
     ] as const) {
       const printed = raw(text, re, what)[0]!
@@ -819,8 +819,8 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     }
     // "1.50 m from the router", wherever the lesson says it
     for (const [text, re, what] of [
-      [DEEP, /手机离路由器 ([\d.]+) m，稳稳落在/, '`deeper`’s note on the radius'],
-      [DEEP, /控制帧：它从 ([\d.]+) m 外飞来/, '`deeper` on the frames that come back'],
+      [DEEP, /手机距路由器 ([\d.]+) m，远在/, '`deeper`’s note on the radius'],
+      [DEEP, /控制帧：它从 ([\d.]+) m 外传来/, '`deeper` on the frames that come back'],
       [QUIZ, /手机离路由器只有 ([\d.]+) m/, 'the first question'],
     ] as const) same(raw(text, re, what)[0]!, D_ROUTER, `${what}: the distance to the router`)
     // and the margin the quiz credits the wide radio with
@@ -834,7 +834,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
 
   it('the seven busy checks, the blocks they cost, and the anchor that paid too', () => {
     const tagChecks = lbt().filter((l) => l.node === TAG)
-    const [howMany] = raw(NUMS, /手机那(.)次判忙/, '`numbers` on the phone’s busy checks')
+    const [howMany] = raw(NUMS, /手机的(.)次判忙/, '`numbers` on the phone’s busy checks')
     expect(zh(howMany!), 'the busy checks the phone makes').toBe(tagChecks.length)
     const [blocks, checks, skipped] = raw(NUMS, /(.)个块，(.)次检测，(.)个被跳过/,
       '`numbers` on what the rule costs')
@@ -842,7 +842,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(zh(checks!), 'the checks it makes').toBe(tagChecks.length)
     expect(zh(skipped!), 'and the blocks it loses').toBe(skippedBlocks(undefined, TAG).length)
     const [anchors, anchorChecks, anchorBlocks] = raw(NUMS,
-      /还有(.)个锚点，也因自己的(.)次判忙赔掉(.)个块/, '`numbers` on the anchor that paid too')
+      /还有(.)个锚点，也因自己的(.)次判忙损失了(.)个块/, '`numbers` on the anchor that paid too')
     const others = [...new Set(lbt().filter((l) => l.node !== TAG).map((l) => l.node))]
     expect(others, 'the anchors that check at all').toHaveLength(zh(anchors!))
     expect(lbt().filter((l) => l.node === others[0]), 'the checks that one makes')
@@ -851,7 +851,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       .toHaveLength(zh(anchorBlocks!))
     // "two of the seven blocks get anything out: four distances, and still no position"
     const [ofBlocks, got, dists, need] = raw(NUMS,
-      /(.)个块里只有(.)个有所收获[\s\S]*?(.)个距离，却依然解不出定位，因为解一个定位要同一个块里的(.)个距离/,
+      /(.)个块里只有(.)个得到了测距结果[\s\S]*?(.)个距离，却依然解不出定位，因为解算一次定位需要同一个块里的(.)个距离/,
       '`numbers` on the two blocks that got through')
     expect(zh(ofBlocks!), 'the blocks of the run').toBe(BLOCKS)
     const byBlock = new Map<number, number>()
@@ -862,10 +862,10 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       .toBeLessThan(zh(need!))
     expect(fixes(), 'so the run solves none').toHaveLength(0)
     // the quiz restates both halves
-    const [quizBlocks, quizDists] = raw(QUIZ, /基础场景(.)个块里只拿到(.)个距离/, 'the first question')
+    const [quizBlocks, quizDists] = raw(QUIZ, /基础场景(.)个块里只得到(.)个距离/, 'the first question')
     expect(zh(quizBlocks!), 'the blocks, again').toBe(BLOCKS)
     expect(zh(quizDists!), 'and the ranges').toBe(tagRanges().length)
-    const [each, short] = raw(QUIZ, /各自也只给出(.)个距离，凑不齐解一次定位所需的(.)个/,
+    const [each, short] = raw(QUIZ, /各自也只给出(.)个距离，达不到解算一次定位所需的(.)个/,
       'the first explanation')
     expect([...byBlock.values()], 'what each of the two blocks gave')
       .toEqual(Array.from(byBlock, () => zh(each!)))
@@ -904,7 +904,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(d, 'the ranges this run gets').toBe(tagRanges().length)
     expect(f, 'and the fixes').toBe(fixes().length)
     // step 1's two bands: one asks the device to listen first, the other does not
-    const [two] = raw(NUMS, /(.)个频段里，上面那个要求，下面那个不要求/, 'step 1')
+    const [two] = raw(NUMS, /(.)个频段中，频率较高的那个要求，较低的那个不要求/, 'step 1')
     const bands = [...new Set(Array.from({ length: NB_CHANNELS }, (_n, n) => nbBand(n).lo < 5850))]
     expect(bands, 'the plan really falls into that many bands').toHaveLength(zh(two!))
     expect(nbLbtRequired(NB_CHANNELS - 1, 'auto'), 'and the upper one asks').toBe(true)
@@ -915,8 +915,8 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     // "10 dBm in one 2.5 MHz channel still reaches Wi-Fi’s threshold 15.07 m away"
     const radius = crossingM((d) => NB_TX_DBM - nbPl0Db(200) - 20 * Math.log10(d), CCA_ED_DBM)
     for (const [text, re, what] of [
-      [NUMS, /它那 (\d+) dBm 全挤在一个[\s\S]*?它在 ([\d.]+) m 外仍能达到/, '`numbers`'],
-      [LIMITS, /所以「(\d+) dBm 到 ([\d.]+) m 处仍够得着门限」/, '`limits`'],
+      [NUMS, /它的 (\d+) dBm 全部集中在一个[\s\S]*?它在 ([\d.]+) m 外仍能达到/, '`numbers`'],
+      [LIMITS, /所以「(\d+) dBm 在 ([\d.]+) m 处仍能达到门限」/, '`limits`'],
       [QUIZ, /里的 (\d+) dBm 到 ([\d.]+) m 处仍能达到门限/, 'the second explanation'],
     ] as const) {
       const [dbm, reach] = raw(text, re, `${what} on how far the narrowband radio reaches`)
@@ -929,7 +929,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       'the power the option is wrong about').toBe(NB_TX_DBM)
     // "ten reach the air and six Wi-Fi frames fail behind them; 108 messages and 87 failures"
     const [onAir, failed, offMsgs, offFails] = raw(NUMS,
-      /只有(.)条上了空口，其后有(.)个 Wi-Fi 帧解不出来；关掉之后，是 (\d+) 条消息与 (\d+) 次失败/,
+      /只有(.)条发送到空口上，其后有(.)个 Wi-Fi 帧解调失败；关闭之后，是 (\d+) 条消息与 (\d+) 次失败/,
       '`numbers` on what the rule changes')
     expect(zh(onAir!), 'the narrowband messages the rule lets out').toBe(nbFrames().length)
     expect(zh(failed!), 'and the Wi-Fi frames that failed anyway')
@@ -942,7 +942,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     const was = mbps(recs(V_OUT), 'laptop#6g')
     const now = mbps(recs(V_NOLBT), 'laptop#6g')
     const [a, b, lost, pct] = raw(NUMS,
-      /它的吞吐从 ([\d.]+) Mb\/s 降到 ([\d.]+) Mb\/s，少掉 ([\d.]+) Mb\/s，占它原有吞吐的 ([\d.]+) %/,
+      /它的吞吐从 ([\d.]+) Mb\/s 降到 ([\d.]+) Mb\/s，减少 ([\d.]+) Mb\/s，占它原有吞吐的 ([\d.]+) %/,
       '`numbers` on what the laptop pays')
     same(a!, was, 'the laptop’s goodput with the session clear of its channel')
     same(b!, now, 'and with the rule switched off')
@@ -969,7 +969,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
 
   it('`deeper`: the radius one reading can see, and the distance that solves for it', () => {
     const [eirp, wide, again, slice, widthAgain, inBand] = raw(DEEP,
-      /(\d+) dBm 摊在 (\d+) MHz 上 → (\d+) \+ 10·log10\(([\d.]+) \/ (\d+)\) = ([\d.]+) dBm/,
+      /(\d+) dBm 分布在 (\d+) MHz 上 → (\d+) \+ 10·log10\(([\d.]+) \/ (\d+)\) = ([\d.]+) dBm/,
       '`deeper`’s first line')
     expect(val(eirp!), 'the router’s own EIRP').toBe(AP.txPowerDbm)
     expect(val(again!), 'restated inside the same line').toBe(val(eirp!))
@@ -980,7 +980,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       'and the share that lands in one channel')
     // the note says the same three figures again
     const [nEirp, nWide, nSlice, nShare] = raw(DEEP,
-      /(\d+) dBm 的 (\d+) MHz 发射，在自己带内任意 ([\d.]+) MHz 的一片里都是 ([\d.]+) dBm/,
+      /(\d+) dBm 的 (\d+) MHz 发射，在自己带内任意 ([\d.]+) MHz 范围内都是 ([\d.]+) dBm/,
       '`deeper`’s note')
     expect([val(nEirp!), val(nWide!)], 'the note’s EIRP and width')
       .toEqual([AP.txPowerDbm, AP.caps.widthMhz])
@@ -991,7 +991,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
      * note's radius with the suite green: the equation's own `d = 8.62 m` was read below, and
      * the note says it a second time in words. Read here, where it is printed.
      */
-    const [noteRadius] = raw(DEEP, /它在 ([\d.]+) m 处跨过门限/, '`deeper`’s note on the radius')
+    const [noteRadius] = raw(DEEP, /它在 ([\d.]+) m 处降至门限/, '`deeper`’s note on the radius')
     same(noteRadius!, crossingM(
       (m) => wifiInNbDbm(AP.txPowerDbm, AP.caps.widthMhz!, m), NB_LBT_THRESHOLD_DBM),
     'the radius the note names in words')
@@ -1028,7 +1028,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
   it('`deeper`: the hop, block by block, and the sequence `limits` restates', () => {
     const list = chansOf('hop')
     const [l0, l1, l2, l3, avoid, inside, fourth] = raw(DEEP,
-      /允许列表 \[(\d+), (\d+), (\d+), (\d+)\] 里有(.)个信道避开了路由器的 \d+ MHz，另(.)个落在里面——([\d.]+) MHz 同样在里面/,
+      /允许列表 \[(\d+), (\d+), (\d+), (\d+)\] 里有(.)个信道避开了路由器的 \d+ MHz，另(.)个落在其内——([\d.]+) MHz 同样在其内/,
       '`deeper` on the allow list')
     expect([l0, l1, l2, l3].map((x) => val(x!)), 'the list that scene ships').toEqual(list)
     expect(list.filter((c) => !overlapsSix(c)), 'the ones that avoid the router')
@@ -1040,8 +1040,8 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(overlapsSix(within[within.length - 1]!), 'and it really is inside').toBe(true)
     same(raw(DEEP, /里有两个信道避开了路由器的 (\d+) MHz/, '`deeper` on the router’s width')[0]!,
       AP.caps.widthMhz!, 'the router’s own channel width')
-    // 「每个块按块号的一个散列从这四个里取一个」 — the length of the list; the seed is no longer printed
-    const [modZh] = raw(DEEP, /按块号的一个散列从这(.)个里取一个/,
+    // 「每个块按块号的一个散列值从这四个里选取一个」 — the length of the list; the seed is no longer printed
+    const [modZh] = raw(DEEP, /按块号的一个散列值从这(.)个里选取一个/,
       '`deeper` on how a block picks one')
     const seed = uwbNbaCoexist.variants![V_HOP]!.scenario().seed
     expect(zh(modZh!), 'the length of the list').toBe(list.length)
@@ -1055,14 +1055,14 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(quoted, 'the first four of it, as `limits` prints them')
       .toEqual(replay.slice(0, quoted.length))
     // "blocks 0, 3 and 4 land outside and run in full; 1, 2, 5 and 6 are skipped"
-    const [out1, out2, out3] = figs(DEEP, /第 (\d)、(\d)、(\d) 块落在外面，完整跑完/,
+    const [out1, out2, out3] = figs(DEEP, /第 (\d)、(\d)、(\d) 块落在路由器信道之外，完整完成/,
       '`deeper` on the blocks that ran')
     expect(fixes(V_HOP).map((f) => f.block), 'the blocks that solved a fix')
       .toEqual([out1, out2, out3])
-    const [in1, in2, in3, in4] = figs(DEEP, /第 (\d)、(\d)、(\d)、(\d) 块落在里面，被跳过/,
+    const [in1, in2, in3, in4] = figs(DEEP, /第 (\d)、(\d)、(\d)、(\d) 块落在其内，被跳过/,
       '`deeper` on the blocks that were skipped')
     expect(skippedBlocks(V_HOP, TAG), 'the blocks the phone lost').toEqual([in1, in2, in3, in4])
-    const [late, oneRange] = raw(DEEP, /其中第 (\d) 块在报告时隙被拦下之前还发出了(.)个距离/,
+    const [late, oneRange] = raw(DEEP, /其中第 (\d) 块在报告时隙判忙之前还得出了(.)个距离/,
       '`deeper` on the block that got one out anyway')
     const perBlock = new Map<number, number>()
     for (const r of tagRanges(V_HOP)) perBlock.set(r.block, (perBlock.get(r.block) ?? 0) + 1)
@@ -1074,7 +1074,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
   })
 
   it('`deeper`: the deferrals counted, the wide radio next door, and the window one reading misses', () => {
-    const [secs, count] = raw(DEEP, /关掉规则后，([\d.]+) 秒里 (\d+) 次/,
+    const [secs, count] = raw(DEEP, /关闭规则后，([\d.]+) 秒内 (\d+) 次/,
       '`deeper` on the deferrals it counts')
     same(secs!, SEC, 'the window every figure of this file is measured over')
     expect(val(count!), 'the deferrals the rule-off run causes')
@@ -1090,7 +1090,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
      * still exact enough that moving its last digit reddens this row.
      */
     const [uwbDbm, uwbWide, cm] = raw(DEEP,
-      /一帧测距帧的 −(\d+) dBm 摊在 ([\d.]+) MHz 上，只在约 (\d+) cm 以内/,
+      /一帧测距帧的 −(\d+) dBm 分布在 ([\d.]+) MHz 上，只在约 (\d+) cm 以内/,
       '`deeper` on the wide radio next door')
     expect(-val(uwbDbm!), 'the power phy.ts gives a ranging frame').toBe(UWB_TX_POWER_DBM)
     same(uwbWide!, UWB_BAND_MHZ[5].hi - UWB_BAND_MHZ[5].lo, 'the band it spreads over')
@@ -1102,8 +1102,8 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(uwbRadius, 'far shorter than the narrowband radio’s').toBeLessThan(1)
     // the duration a single reading at the top of a slot says nothing about
     for (const [text, re, what] of [
-      [DEEP, /对随后的 (\d+) µs 什么也没说/, '`deeper`'],
-      [LIMITS, /这一个读数对随后 (\d+) µs 里发生的事/, '`limits`'],
+      [DEEP, /不能反映随后 (\d+) µs 内的情况/, '`deeper`'],
+      [LIMITS, /这一个读数不能反映随后 (\d+) µs 内发生的事/, '`limits`'],
     ] as const) {
       const [us] = figs(text, re, `${what} on the window one reading misses`)
       expect(us! * 1000, `${what}: the narrowband message that follows it`)
@@ -1115,7 +1115,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     // "seven narrowband messages die at the phone — five Reports and two Responses"
     const lost = nbLosses(V_NOLBT)
     const [all, rep, resp, ctlW, away, dbm] = raw(DEEP,
-      /有(.)条窄带消息在手机这里失败——(.)条 Report、(.)条 Response——[\s\S]*?那帧 (\d+) MHz 控制帧：它从 ([\d.]+) m 外飞来，到达时 −([\d.]+) dBm/,
+      /有(.)条窄带消息在手机处接收失败——(.)条 Report、(.)条 Response——[\s\S]*?那帧 (\d+) MHz 控制帧：它从 ([\d.]+) m 外传来，到达时为 −([\d.]+) dBm/,
       '`deeper` on the messages that die at the phone')
     expect(lost, 'the messages the phone loses with the rule off').toHaveLength(zh(all!))
     expect(lost.filter((l) => l.kind === 'nbReport'), 'the Reports among them')
@@ -1127,7 +1127,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     for (const i of reported) same(dbm!, -i.foreignDbm, 'and the level each one arrived at')
     same(dbm!, -wifiInNbDbm(AP.txPowerDbm, val(ctlW!), D_ROUTER),
       'which is that width’s own in-band share at that distance')
-    same(raw(DEEP, /它的接收端到 −(\d+) dBm 就见了底/, '`deeper` on the receiver’s floor')[0]!,
+    same(raw(DEEP, /它的接收端最低只能接收 −(\d+) dBm 的信号/, '`deeper` on the receiver’s floor')[0]!,
       -NB_RX_SENS_DBM, 'the sensitivity nb.ts gives it')
   })
 
@@ -1203,7 +1203,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
       '`tryThis` on the clear channel')
     expect(outDists, 'the ranges that scene gets').toBe(tagRanges(V_OUT).length)
     expect(fixes(V_OUT), 'and it solves one in every block').toHaveLength(BLOCKS)
-    const [hopClear, hopFixes] = raw(TRY, /(.)个块落到清静处，给出(.)次定位/,
+    const [hopClear, hopFixes] = raw(TRY, /(.)个块分配到未被占用的信道，给出(.)次定位/,
       '`tryThis` on the hopping scene')
     expect(zh(hopClear!), 'the blocks that land clear')
       .toBe(BLOCKS - skippedBlocks(V_HOP, TAG).length)
@@ -1213,7 +1213,7 @@ describe('uwb-nba-coexist · every figure the prose prints, read back out of it'
     expect(offDists, 'the ranges that scene gets').toBe(tagRanges(V_NOLBT).length)
     expect(offFixes, 'and the fixes').toBe(fixes(V_NOLBT).length)
     // the quiz restates the rule-off count, against the base run's own
-    const [qOff, qBase] = raw(QUIZ, /会话拿到的是 (\d+) 个距离，而不是(.)个/, 'the second question')
+    const [qOff, qBase] = raw(QUIZ, /会话得到的是 (\d+) 个距离，而不是(.)个/, 'the second question')
     expect(val(qOff!), 'the ranges with the rule off').toBe(tagRanges(V_NOLBT).length)
     expect(zh(qBase!), 'and the ranges with it on').toBe(tagRanges().length)
   })

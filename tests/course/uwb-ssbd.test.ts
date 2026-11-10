@@ -167,7 +167,7 @@ describe('uwb-ssbd · the bound is computed, not copied', () => {
     expect((bound - sensing) / US).toBe(20)
     // The lesson prints both, and prints them as the algorithm's sum rather than as a delay.
     expect(says('54 µs')).toBe(true)
-    expect(tableRows('两个上界')).toContainEqual(['六段退避最多加起来', '20 µs'])
+    expect(tableRows('两个上界')).toContainEqual(['六段退避的最大总和', '20 µs'])
   })
 
   it('the slack of each narrowband window is computed from the window and the message', () => {
@@ -200,10 +200,10 @@ describe('uwb-ssbd · the bound is computed, not copied', () => {
 describe('uwb-ssbd · four settings, one scene, 1.3 s', () => {
   it('the table`s own rows are what the four runs produce', () => {
     const measured = [
-      ['先听后发整个关掉', String(rangesOf(V_OFF)), String(fixesOf(V_OFF)), '—'],
-      ['今天这条按块的规则', String(rangesOf(V_PER_BLOCK)), String(fixesOf(V_PER_BLOCK)), '—'],
+      ['完全关闭先听后发', String(rangesOf(V_OFF)), String(fixesOf(V_OFF)), '—'],
+      ['现行的按块规则', String(rangesOf(V_PER_BLOCK)), String(fixesOf(V_PER_BLOCK)), '—'],
       ['SSBD，草案的缺省值', String(rangesOf()), String(fixesOf()), String(ssbdOf().length)],
-      ['SSBD，退避开到塞得进去的最大', String(rangesOf(V_BIGGEST)), String(fixesOf(V_BIGGEST)), String(ssbdOf(V_BIGGEST).length)],
+      ['SSBD，退避取能容纳的最大值', String(rangesOf(V_BIGGEST)), String(fixesOf(V_BIGGEST)), String(ssbdOf(V_BIGGEST).length)],
     ]
     expect(tableRows('四种设置')).toEqual(measured)
     // The values the lesson's prose then argues from, stated here so a drift names itself.
@@ -269,7 +269,7 @@ describe('uwb-ssbd · four settings, one scene, 1.3 s', () => {
     expect(times.filter((t) => t > slack)).toHaveLength(1887)
     expect(tableRows('两个上界')).toContainEqual(['场景里最短的 Wi-Fi 数据帧', '75.2 µs'])
     expect(tableRows('两个上界')).toContainEqual(['场景里最长的 Wi-Fi 数据帧', '564.8 µs'])
-    expect(tableRows('两个上界')).toContainEqual(['2291 帧里长于 424 µs 的', '1887 帧'])
+    expect(tableRows('两个上界')).toContainEqual(['2291 帧中长于 424 µs 的', '1887 帧'])
   })
 
   it('the engine waits less than the algorithm`s bound, and the lesson says which is which', () => {
@@ -283,10 +283,10 @@ describe('uwb-ssbd · four settings, one scene, 1.3 s', () => {
     expect(moved / US).toBe(16)
     expect(moved).toBeLessThan(ssbdBoundNs(SSBD_DEFAULTS))
     expect(moved).toBeLessThanOrEqual(ssbdBoundNs(SSBD_DEFAULTS) - (SSBD_DEFAULTS.maxBackoffs + 1) * NB_LBT_CCA_US * US)
-    expect(tableRows('两个上界')).toContainEqual(['窄带消息在自己时隙里的最大位移，实测', '16 µs'])
+    expect(tableRows('两个上界')).toContainEqual(['窄带消息在自身时隙内的最大推迟量，实测', '16 µs'])
     // The wording rule of design doc §5.5: the 74 µs is the algorithm's, never the engine's delay.
     expect(says('算法的延迟上界')).toBe(true)
-    expect(says('它是算法承诺不超过的那条线，不是每一次都要付出的时长')).toBe(true)
+    expect(says('它是算法保证不会超过的限值，不是每一次都要付出的时长')).toBe(true)
   })
 
   it('the biggest backoff that fits is worse, and the record says why', () => {
@@ -304,7 +304,7 @@ describe('uwb-ssbd · four settings, one scene, 1.3 s', () => {
     // …and the thing it cannot outwait is longer than the whole window's room.
     const slack = nbSlotSlackNs(rstuNs(uwbSsbdScenario('defaults').uwb!.slotRstu), NB_POLL_BYTES)
     expect(Math.max(...wifiData(recs()).map((r) => r.frame.txTimeNs))).toBeGreaterThan(slack)
-    expect(says('128 条记录里有 80 条被截断，其中 52 条真正等掉的时长是 0')).toBe(true)
+    expect(says('128 条记录里有 80 条被截断，其中 52 条实际等待的时长是 0')).toBe(true)
     expect(says('53 次超时')).toBe(true)
   })
 })
@@ -390,7 +390,7 @@ describe('uwb-ssbd · its four limits are the engine`s', () => {
     expect(mine.every((r) => r.outcome === 'idle')).toBe(true)
     expect(mine.every((r) => r.nb === 0)).toBe(true)
     expect(mine.every((r) => r.foreignDbm === -Infinity)).toBe(true)
-    expect(uwbSsbd.limits[2].text).toContain('躲开的东西是零')
+    expect(uwbSsbd.limits[2].text).toContain('避让的发射为零')
   })
 })
 
@@ -505,7 +505,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     for (const [text, re, what] of [
       [WHY, /在整整一个测距块（ranging block）里不再发出任何控制消息，而一个块是 (\d+) ms/, '`why`'],
       [PIC, /从一个 (\d+) ms 的块，换成一个 [\d.]+ µs 的时隙/, '`picture`'],
-      [QUIZ, /「一次忙赔一个 (\d+) ms 的块」/, 'the first explanation'],
+      [QUIZ, /「一次判忙损失一个 (\d+) ms 的块」/, 'the first explanation'],
       [DEEP, /场景的 (\d+) ms 块长是其中合法的一档/, '`deeper` on the MMS block length'],
     ] as const) same(raw(text, re, what)[0]!, BLOCK_NS / MS, `${what}: the block this scene runs`)
     for (const [text, re, what] of [
@@ -517,7 +517,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     expect(ssbdOf(V_PER_BLOCK), 'and the per-block rule makes no per-slot one').toEqual([])
     // the draw's own floor, in `terms` and twice in the body
     for (const [text, re, what] of [
-      [TERMS, /就在 (\d) 到它之间随机抽一个数/, '`terms`'],
+      [TERMS, /就在 (\d) 到它之间随机抽一个数决定/, '`terms`'],
       [PIC, /它在 (\d) 到退避因子之间抽一个数/, '`picture`'],
       [NUMS, /在 (\d) 到退避因子之间抽一个数/, 'step 2'],
     ] as const) {
@@ -555,11 +555,11 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     same(nSensing!, SENSING_NS / US, 'the share the sensings are')
     same(nBackoff!, (BOUND_NS - SENSING_NS) / US, 'and the share the backoffs are')
     // the same two shares in the closing paragraph, with the measured displacement beside them
-    const [pBound, pSensing] = raw(NUMS, /(\d+) µs 是最坏情形的和，而其中 (\d+) µs 是六次感知本身/,
+    const [pBound, pSensing] = raw(NUMS, /(\d+) µs 是最坏情形下的总和，其中 (\d+) µs 是六次感知本身/,
       'the closing paragraph')
     same(pBound!, BOUND_NS / US, 'the bound, again')
     same(pSensing!, SENSING_NS / US, 'and the sensing share')
-    const [pBackoff, pMoved] = raw(NUMS, /六段退避最多加起来 (\d+) µs；这个场景实测下来，窄带消息在自己时隙里最多挪后 (\d+) µs/,
+    const [pBackoff, pMoved] = raw(NUMS, /六段退避最多合计 (\d+) µs；这个场景的实测结果是，窄带消息在自身时隙内最多推迟 (\d+) µs/,
       'the closing paragraph on what the engine really spends')
     same(pBackoff!, (BOUND_NS - SENSING_NS) / US, 'the backoff share')
     same(pMoved!, Math.max(...nbTx(recs()).map((r) => r.t % SLOT_NS)) / US,
@@ -574,11 +574,11 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
   })
 
   it('the appendix’s own figure, and the two premises that reproduce it', () => {
-    const [appendix] = figs(NUMS, /附录上登的是 (\d+) µs/, '`numbers` on the appendix')
-    const [senseNow, senseThen] = figs(NUMS, /一次感知记 (\d) µs 而不是 (\d) µs/,
+    const [appendix] = figs(NUMS, /附录给出的是 (\d+) µs/, '`numbers` on the appendix')
+    const [senseNow, senseThen] = figs(NUMS, /一次感知按 (\d) µs 计而不是 (\d) µs/,
       '`numbers` on the second premise')
     expect(senseThen, 'the sensing time the current text asks for').toBe(NB_LBT_CCA_US)
-    const [again] = figs(NUMS, /同一个式子正好给出 (\d+) µs/, '`numbers` on the same sum')
+    const [again] = figs(NUMS, /同一个公式正好给出 (\d+) µs/, '`numbers` on the same sum')
     expect(again, 'the same figure, restated in the same paragraph').toBe(appendix)
     // and `deeper` reproduces both, naming the multiplier it puts back
     const [dCca, dBound, dSense, dAppendix] = figs(DEEP,
@@ -608,18 +608,18 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       .toBeLessThan(pollSlack!)
     // the note names the same three again
     const [nPoll, nRep, nSlack] = figs(NUMS,
-      /轮询自己占 (\d+) µs，报告占 (\d+) µs，所以 (\d+) µs 是这个场景里一次退避能有的最大空间/,
+      /轮询本身占 (\d+) µs，报告占 (\d+) µs，所以 (\d+) µs 是这个场景里一次退避可用的最大时长/,
       'the slack formula’s note')
     same(String(nPoll), nbPpduNs(NB_POLL_BYTES) / US, 'the note’s POLL')
     same(String(nRep), nbPpduNs(NB_REPORT_BYTES) / US, 'the note’s REPORT')
     same(String(nSlack), POLL_SLACK_NS / US, 'and the note’s slack')
     // `picture` names what a POLL occupies a third time
-    same(raw(PIC, /而一条轮询自己要占掉其中的 (\d+) µs/, '`picture` on the POLL')[0]!,
+    same(raw(PIC, /而一条轮询本身要占用其中的 (\d+) µs/, '`picture` on the POLL')[0]!,
       nbPpduNs(NB_POLL_BYTES) / US, 'what a POLL occupies')
     // "backoff factor 7, unit 60 µs, at most 420 µs — just inside the 424 µs of room"
     for (const [text, re, what] of [
-      [NUMS, /退避因子按 (\d) 配、退避单位按 (\d+) µs 配，一次尝试最多等 (\d+) µs，刚好塞进轮询那 (\d+) µs 的余量/, '`numbers`'],
-      [QUIZ, /把退避因子配到 (\d)、退避单位配到 (\d+) µs，一次尝试最多等 (\d+) µs，刚好塞进轮询那 (\d+) µs 的余量/, 'the second question'],
+      [NUMS, /退避因子设为 (\d)、退避单位设为 (\d+) µs，一次尝试最多等待 (\d+) µs，刚好能容纳在轮询的 (\d+) µs 余量内/, '`numbers`'],
+      [QUIZ, /把退避因子设为 (\d)、退避单位设为 (\d+) µs，一次尝试最多等待 (\d+) µs，刚好能容纳在轮询的 (\d+) µs 余量内/, 'the second question'],
     ] as const) {
       const [bf, unit, most, slack] = figs(text, re, `${what} on the biggest setting`)
       expect(bf, `${what}: the backoff factor that setting pins`).toBe(SSBD_BIGGEST_BF)
@@ -634,7 +634,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
 
   it('what the defaults recover, and why it is not that anything was outwaited', () => {
     const [bound, secs, frames, shortest, longest, boundAgain] = raw(NUMS,
-      /缺省那 (\d+) µs 等不过身边任何一帧。这个场景 ([\d.]+) 秒里有 (\d+) 个 Wi-Fi 数据帧（data frame），最短的一帧空口时间（airtime）([\d.]+) µs，最长的 ([\d.]+) µs——没有哪一帧比 (\d+) µs 短/,
+      /缺省的 (\d+) µs 短于附近任何一帧。这个场景 ([\d.]+) 秒里有 (\d+) 个 Wi-Fi 数据帧（data frame），最短的一帧空口时间（airtime）([\d.]+) µs，最长的 ([\d.]+) µs——没有哪一帧比 (\d+) µs 短/,
       '`numbers` on why the defaults work')
     same(bound!, BOUND_NS / US, 'the bound the defaults give')
     same(boundAgain!, BOUND_NS / US, 'and the same bound at the end of the sentence')
@@ -657,8 +657,8 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     expect(times.filter((t) => t < BOUND_NS), 'and none is shorter than the bound').toEqual([])
     // "110 sensings, 63 read busy, 63 sent anyway; ranging back to 50, against 47 with no rule"
     for (const [text, re, what] of [
-      [NUMS, /(\d+) 次感知里有 (\d+) 次读到的是忙，(\d+) 次照样发了出去/, '`numbers`'],
-      [QUIZ, /(\d+) 次感知里有 (\d+) 次读到的是忙，(\d+) 次都照样发了出去/, 'the first explanation'],
+      [NUMS, /(\d+) 次感知里有 (\d+) 次读到的是忙，这 (\d+) 次消息仍然发出/, '`numbers`'],
+      [QUIZ, /(\d+) 次感知里有 (\d+) 次读到的是忙，这 (\d+) 次消息都仍然发出/, 'the first explanation'],
     ] as const) {
       const [all, busy, sent] = figs(text, re, `${what} on the sensings`)
       expect(all, `${what}: the sensings the defaults make`).toBe(ssbdOf().length)
@@ -667,18 +667,18 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       expect(sent, `${what}: and the ones the end action sent anyway`)
         .toBe(ssbdOf().filter((r) => r.outcome === 'txOnEnd').length)
     }
-    const [back, against] = figs(NUMS, /测距回到 (\d+) 次，与不听的那 (\d+) 次相当/,
+    const [back, against] = figs(NUMS, /测距恢复到 (\d+) 次，与不执行先听后发时的 (\d+) 次相当/,
       '`numbers` on what it recovers')
     expect(back, 'the ranges the defaults get').toBe(rangesOf())
     expect(against, 'and the ranges with no rule at all').toBe(rangesOf(V_OFF))
     // the quiz opens with the same two counts
     // the quiz prints the bound twice more, once in the option that is wrong about it
     for (const [re, what] of [
-      [/缺省那 (\d+) µs 的上界足够等过身边的 Wi-Fi 帧/, 'the first option'],
-      [/(\d+) µs 等不过场景里任何一帧/, 'the second option'],
+      [/缺省的 (\d+) µs 上界足以等到附近的 Wi-Fi 帧结束/, 'the first option'],
+      [/(\d+) µs 短于场景里任何一帧/, 'the second option'],
     ] as const) same(raw(QUIZ, re, what)[0]!, BOUND_NS / US, `${what}: the bound`)
     const [qSecs, qBlocks, qOne, qBack] = raw(QUIZ,
-      /按今天这条按块的规则，([\d.]+) 秒(.)个块里只量到(.)个距离；把 SSBD 按草案缺省值打开之后，测距回到 (\d+) 次/,
+      /按现行的按块规则，([\d.]+) 秒(.)个块里只测得(.)个距离；按草案缺省值启用 SSBD 之后，测距恢复到 (\d+) 次/,
       'the first question')
     same(qSecs!, RUN_NS / 1e9, 'the quiz: the same window')
     // the blocks the window STARTS, which is what the run itself indexes: block 6 begins at
@@ -694,12 +694,12 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
       /最短的 Wi-Fi 数据帧是 ([\d.]+) µs，没有哪一帧短于 (\d+) µs/, 'the first explanation')
     same(qShortest!, Math.min(...times) / US, 'the quiz: the shortest frame')
     same(qBound!, BOUND_NS / US, 'the quiz: and the bound it is longer than')
-    const [cycles] = raw(NUMS, /第一行与第二行之间是 (\d+) 个周期/, '`numbers` on what the rule costs')
+    const [cycles] = raw(NUMS, /第一行与第二行相差 (\d+) 个周期/, '`numbers` on what the rule costs')
     expect(val(cycles!), 'the cycles the per-block rule loses')
       .toBe(rangesOf(V_OFF) - rangesOf(V_PER_BLOCK))
     // the table of two bounds: the row that counts frames longer than a window's slack
     const [ofFrames, overSlack, count] = figs(NUMS,
-      /(\d+) 帧里长于 (\d+) µs 的\n?(\d+) 帧/, 'the 「两个上界」 table’s last row')
+      /(\d+) 帧中长于 (\d+) µs 的\n?(\d+) 帧/, 'the 「两个上界」 table’s last row')
     expect(ofFrames, 'the frames of the run').toBe(times.length)
     same(String(overSlack), POLL_SLACK_NS / US, 'the slack they are measured against')
     expect(count, 'and how many are longer than it')
@@ -708,8 +708,8 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
 
   it('what the biggest backoff costs, and the records that say why', () => {
     for (const [text, re, what] of [
-      [NUMS, /(\d+) 条记录里有 (\d+) 条被截断，其中 (\d+) 条真正等掉的时长是 (\d)——/, '`numbers`'],
-      [QUIZ, /(\d+) 条记录里有 (\d+) 条被截断，其中 (\d+) 条真正等掉的时长是 (\d)。/, 'the second explanation'],
+      [NUMS, /(\d+) 条记录里有 (\d+) 条被截断，其中 (\d+) 条实际等待的时长是 (\d)——/, '`numbers`'],
+      [QUIZ, /(\d+) 条记录里有 (\d+) 条被截断，其中 (\d+) 条实际等待的时长是 (\d)。/, 'the second explanation'],
     ] as const) {
       const [all, clamped, zeroed, waited] = figs(text, re, `${what} on the clamps`)
       const rs = ssbdOf(V_BIGGEST)
@@ -737,7 +737,7 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     expect(qTimeouts, 'the quiz: the timeouts').toBe(ofType(recs(V_BIGGEST), 'UWB_TIMEOUT').length)
     // `tryThis` reads the same column of the headline table
     const [tOff, tFix, tBig, tClamp] = figs(TRY,
-      /「先听后发整个关掉」：(\d+) 个距离、(\d) 次定位[\s\S]*?三个距离、(\d+) 次超时，而记录里有 (\d+) 条截断/,
+      /「完全关闭先听后发」：(\d+) 个距离、(\d) 次定位[\s\S]*?三个距离、(\d+) 次超时，而记录里有 (\d+) 条截断/,
       '`tryThis`')
     expect(tOff, '`tryThis`: the ranges with no rule').toBe(rangesOf(V_OFF))
     expect(tFix, '`tryThis`: and the fixes').toBe(fixesOf(V_OFF))
@@ -750,8 +750,8 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
   it('the regulation figures, the channel they are spread over, and every citation counted', () => {
     // −75 dBm/MHz over a 2.5 MHz channel is −71.02 dBm: `deeper`, `sources` and `limits`
     for (const [text, re, what] of [
-      [DEEP, /本课取的 −(\d+) dBm\/MHz（摊到一条 ([\d.]+) MHz 的信道上是 −([\d.]+) dBm）/, '`deeper`'],
-      [LIMITS, /本课取的 −(\d+) dBm\/MHz（摊到 ([\d.]+) MHz 得 −([\d.]+) dBm）/, '`limits`'],
+      [DEEP, /本课取的 −(\d+) dBm\/MHz（换算到一条 ([\d.]+) MHz 的信道上是 −([\d.]+) dBm）/, '`deeper`'],
+      [LIMITS, /本课取的 −(\d+) dBm\/MHz（换算到 ([\d.]+) MHz 得 −([\d.]+) dBm）/, '`limits`'],
     ] as const) {
       const [perMhz, width, total] = raw(text, re, `${what} on the threshold`)
       expect(-val(perMhz!), `${what}: the limit the regulation sets`).toBe(NB_LBT_EDT_DBM_PER_MHZ)
@@ -765,13 +765,13 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     expect(-sPerMhz!, '`sources`: the limit').toBe(NB_LBT_EDT_DBM_PER_MHZ)
     expect(sCca, '`sources`: the sensing time').toBe(NB_LBT_CCA_US)
     const [sCcaAgain, sWidth, sTotal] = raw(SRC,
-      /代替规则要求的至少 (\d) µs 积分；门限摊到 ([\d.]+) MHz 得 −([\d.]+) dBm/,
+      /代替规则要求的至少 (\d) µs 积分；门限换算到 ([\d.]+) MHz 得 −([\d.]+) dBm/,
       '`sources` on the model’s reading')
     expect(val(sCcaAgain!), '`sources`: the same sensing time').toBe(NB_LBT_CCA_US)
     same(sWidth!, NB_CHANNEL_MHZ, '`sources`: the channel')
     same(sTotal!, -NB_LBT_THRESHOLD_DBM, '`sources`: and the threshold')
     // the rejected review comments' own figures, and the channel step 3 reads
-    const [rPerMhz, rCca] = figs(DEEP, /有的要 −(\d+) dBm\/MHz 配至少 (\d+) µs 的感知时长/,
+    const [rPerMhz, rCca] = figs(DEEP, /有的要求 −(\d+) dBm\/MHz 配合至少 (\d+) µs 的感知时长/,
       '`deeper` on the rejected comments')
     expect(-rPerMhz!, '`deeper`: the limit those comments asked for')
       .toBe(NB_LBT_EDT_DBM_PER_MHZ)
@@ -787,19 +787,19 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     expect(rCca, 'and a sensing time longer than the one the regulation asks for')
       .toBeGreaterThan(NB_LBT_CCA_US)
     for (const [text, re, what] of [
-      [NUMS, /读一下这条 ([\d.]+) MHz 信道里的外来功率/, 'step 3'],
+      [NUMS, /读取这条 ([\d.]+) MHz 信道内的外来功率/, 'step 3'],
       [LIMITS, /只读一次该 ([\d.]+) MHz 频段内的外来功率/, '`limits`'],
     ] as const) same(raw(text, re, what)[0]!, NB_CHANNEL_MHZ, `${what}: one narrowband channel`)
     for (const [text, re, what] of [
       [LIMITS, /用它代替草案援引的至少 (\d) µs 能量积分/, '`limits`'],
-      [LIMITS, /所以算上界时那 (\d) µs 只是式子里计入的时长/, '`limits`, on what the engine does not spend'],
+      [LIMITS, /所以计算上界时那 (\d) µs 只是公式中计入的时长/, '`limits`, on what the engine does not spend'],
     ] as const) {
       same(raw(text, re, what)[0]!, NB_LBT_CCA_US, `${what}: the sensing time`)
     }
     // the band this scene shares, in `limits`
     same(raw(LIMITS, /场景里没有 (\d) GHz Wi-Fi 链路/, '`limits` on a scene with no mediator')[0]!,
       Math.floor(WIFI_6G_CENTER_MHZ / 1000), 'the band this lesson runs in')
-    same(raw(DEEP, /欧盟那份 (\d) GHz 的协调标准/, '`deeper` on the harmonised standard')[0]!,
+    same(raw(DEEP, /即欧盟的 (\d) GHz 协调标准/, '`deeper` on the harmonised standard')[0]!,
       Math.floor(WIFI_6G_CENTER_MHZ / 1000), 'the same band')
     /*
      * The citations. There is no corpus for a document number here, so what is checkable is that
@@ -887,13 +887,13 @@ describe('uwb-ssbd · every figure the prose prints, read back out of it', () =>
     const [opens] = raw(OBS, /^([\d.]+) ms 处是第一条感知记录/,
       '`observe` on when the first sensing happened')
     same(opens!, first.t / MS, 'when the first sensing record is')
-    const [again] = raw(OBS, /于是这条轮询照样在 ([\d.]+) ms 发了出去/,
+    const [again] = raw(OBS, /于是这条轮询仍在 ([\d.]+) ms 发出/,
       '`observe` on when the POLL went out')
     same(again!, first.t / MS, 'the instant the POLL really went out')
     expect(nbTx(recs())[0]!.t, 'which is the sensing record’s own instant').toBe(first.t)
-    // and the responder's: 「换成锚点 1 自己的那一次」
+    // and the responder's: 「1.000 ms 处是锚点 1 自己的感知」
     const idle = ssbdOf().find((r) => r.outcome === 'idle')!
-    const [anchorNo] = figs(OBS, /换成锚点 (\d) 自己的那一次/, '`observe` on whose reading it is')
+    const [anchorNo] = figs(OBS, /处是锚点 (\d) 自己的感知/, '`observe` on whose reading it is')
     expect(idle.node, 'the node that record belongs to').toBe(`anchor-${anchorNo}`)
   })
 })

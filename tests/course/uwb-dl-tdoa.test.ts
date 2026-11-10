@@ -369,7 +369,7 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     expect(fmtRecord(first[0])).toBe(cell(4, 1, 1))
     /*
      * **Both tables say which block they are of, and the 「第」 rule change of 2026-10-14
-     * uncovered both** — 「日志印出什么：badge-1，第 0 块」 and 「badge-1，第 0 块，对
+     * uncovered both** — 「日志输出的内容：badge-1，第 0 块」 and 「badge-1，第 0 块，对
      * anchor-2」. A heading is prose that prints a figure, and this one is a claim about which
      * records are quoted below it: the block of the round line, of the difference and of the fix
      * in these tables is the block the heading names.
@@ -873,8 +873,8 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
       '`numbers` on how the sigma is built')
     expect([oneSigma, root], 'one sigma, and two differences sharing one reference stamp')
       .toEqual([1, 2])
-    // 「它等了，偏差 +2.330 ppm」 and 「再加 9.00 m 基线」: the correction walk-through, cell by cell
-    const [offsetPpm] = rd(EVERYWHERE, /它等了，偏差 \+([\d.]+) ppm/,
+    // 「扣除应答时延，偏差 +2.330 ppm」 and 「再加 9.00 m 基线」: the correction walk-through, cell by cell
+    const [offsetPpm] = rd(EVERYWHERE, /扣除应答时延，偏差 \+([\d.]+) ppm/,
       'the offset the correction reads')
     // the second DL frame of the run is the first responder's Response, and its own clock-offset
     // IE is what the correction uses — the same frame the worked example above walks through
@@ -895,8 +895,8 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('the ppm story: the tolerance, the bias it buys, and the residual that is left', () => {
-    // 「胸牌的晶振最多可以偏到 20 ppm」 and `sources`' 「±20 ppm 的晶振容差」
-    for (const v of everyFig(/最多可以偏到 (\d+) ppm|±(\d+) ppm 的晶振容差/g,
+    // 「胸牌的晶振最多可以偏离 20 ppm」 and `sources`' 「±20 ppm 的晶振容差」
+    for (const v of everyFig(/最多可以偏离 (\d+) ppm|±(\d+) ppm 的晶振容差/g,
       'the crystal tolerance', 2)) {
       expect(val(v), 'the tolerance this engine draws inside').toBe(UWB_PPM_MAX)
     }
@@ -920,7 +920,7 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
       expect(val(v), 'seven blocks of three badges against three responders')
         .toBe(ofType(base, 'UWB_TDOA').length)
     }
-    for (const v of everyFig(/修正后，(\d+) 次里最差|依然是 (\d+) 次定位|而不是 (\d+) 个/g,
+    for (const v of everyFig(/修正后，(\d+) 次里最差|仍然是 (\d+) 次定位|而不是 (\d+) 个/g,
       'the fixes one run produces', 3)) {
       expect(val(v), 'one per badge per block').toBe(ofType(base, 'UWB_POSITION').length)
     }
@@ -933,7 +933,7 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
 
   it('`deeper`: the four drawn crystals and the three gaps they make', () => {
     const [ref, b1, b2, b3] = rd(EVERYWHERE,
-      /anchor-1 抽到 −([\d.]+) ppm，三个胸牌抽到 ([\d.]+)、([\d.]+) 与 ([\d.]+)/,
+      /anchor-1 的取值为 −([\d.]+) ppm，三个胸牌的取值为 ([\d.]+)、([\d.]+) 与 ([\d.]+)/,
       '`deeper` on the four crystals the seed drew')
     same(`-${ref}`, drawnPpm(REF), 'the reference anchor’s own crystal')
     BADGES.forEach((id, i) => same([b1, b2, b3][i], drawnPpm(id), `${id}’s crystal`))
@@ -952,11 +952,11 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
     for (const v of everyFig(/设为 \+(\d+) ppm——相对原值/g, 'the value the reference is pinned at', 1)) {
       expect(val(v), 'the tolerance itself').toBe(UWB_PPM_MAX)
     }
-    const [swing] = figs(EVERYWHERE, /相对原值摆动了 (\d+) ppm/, 'the swing the pin is')
+    const [swing] = figs(EVERYWHERE, /相对原值变化了 (\d+) ppm/, 'the swing the pin is')
     expect(swing, 'twenty less what the reference was drawn at')
       .toBe(Math.round(UWB_PPM_MAX - drawnPpm(REF)))
     const off = runExtra('ref20', () => pinned({ [REF]: UWB_PPM_MAX }))
-    const pinnedMax = rd(EVERYWHERE, /运行结果仍是 ([\d.]+)、([\d.]+) 与 ([\d.]+) m，分毫不差/,
+    const pinnedMax = rd(EVERYWHERE, /运行结果仍是 ([\d.]+)、([\d.]+) 与 ([\d.]+) m，完全相同/,
       'the maxima after pinning the reference')
     RESPONDERS.forEach((p, i) => {
       same(pinnedMax[i], Math.max(...diffErrM(off, p)), `${p}: the worst difference`)
@@ -1105,13 +1105,13 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
         expect(offLine(px, py), 'and not far off it').toBeLessThan(0.5)
       }
       /*
-       * 「全屋最好的位置」 is a PLATEAU, not a point: on a 0.1 m grid of noise-free differences
+       * 「全屋最佳位置」 is a PLATEAU, not a point: on a 0.1 m grid of noise-free differences
        * twenty-five places sit within a thousandth of the floor, and the argmin is (2.9, 4.8)
        * rather than the (3.0, 4.8) the lesson prints. So the pair is not determined by the claim
        * — the claim is that it is on that plateau, and that is what is checked. (The error column
        * above is read for this row too, which is the figure a reader would actually compare.)
        */
-      if (row[0].includes('最好的位置')) {
+      if (row[0].includes('最佳位置')) {
         let floor = Infinity
         for (let ix = 1; ix <= 99; ix++) {
           for (let iy = 1; iy <= 79; iy++) {
@@ -1123,7 +1123,7 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
           .toBeLessThan(floor + 0.001)
       }
     })
-    // 「三个场景里锚点都发出 35 帧、7.074 935 ms 的空口时间，占比 0.505 %」
+    // 「三个场景中锚点都发出 35 帧、7.074 935 ms 的空口时间，占比 0.505 %」
     const [frames, msA, msB, pct] = rd(EVERYWHERE,
       /锚点都发出 (\d+) 帧、([\d.]+) (\d+) ms 的空口时间，占比 ([\d.]+) %/,
       '`deeper` on what the anchors spend')
@@ -1135,11 +1135,11 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
     // sentence is about what a round costs a block, which is what a listener would budget.
     same(pct, (100 * (airNs / BLOCKS)) / rstuNs(DEFAULT_UWB_SESSION.blockRstu),
       'and the share of a block one round of it is')
-    // 「200 ms 的块里装得下十个 20 ms 的轮次…代价是每块 100 帧，而本轮只要 5 帧」
-    const [blockMs, roundMs] = figs(EVERYWHERE, /(\d+) ms 的块里装得下十个 (\d+) ms 的轮次/,
+    // 「200 ms 的块中能容纳十个 20 ms 的轮次…代价是每块 100 帧，而本轮只需 5 帧」
+    const [blockMs, roundMs] = figs(EVERYWHERE, /(\d+) ms 的块中能容纳十个 (\d+) ms 的轮次/,
       'the block and the two-way round it compares with')
     expect(blockMs / roundMs, 'ten of them in a block').toBe(10)
-    const [perBlock, mine] = figs(EVERYWHERE, /代价是每块 (\d+) 帧，而本轮只要 (\d+) 帧/,
+    const [perBlock, mine] = figs(EVERYWHERE, /代价是每块 (\d+) 帧，而本轮只需 (\d+) 帧/,
       'the frames each costs')
     const twrPlan = roundPlan({ ...uwbDlTdoaScenario('base').uwb!, mode: 'twr' }, DL_ANCHORS.length)
     expect(perBlock, 'one frame a slot, for every round a block holds')

@@ -253,7 +253,7 @@ describe('uwb-sp3 · one frame, and what it cannot carry', () => {
     for (const f of air(rs).filter((x) => x.kind === 'uwbSp3')) expect(f.bytes).toBe(0)
   })
 
-  it('「要等报告落地才算得出距离」: four ranges, all of them the tag\'s, all correct', () => {
+  it('「要等报告接收完毕才能算出距离」: four ranges, all of them the tag\'s, all correct', () => {
     const ranges = ofType(rs, 'UWB_RANGE')
     expect(ranges).toHaveLength(ANCHORS)
     for (const r of ranges) {
@@ -286,7 +286,7 @@ describe('uwb-sp3 · the frame lengths, against the engine', () => {
     }
   })
 
-  it('「省下的那一截」: both savings, and the multiple against each baseline', () => {
+  it('「节省的时间」: both savings, and the multiple against each baseline', () => {
     expect(SAVE.shortest).toBe(uwbPpduNs(uwbRespBytes('ss', 'deferred')) - uwbSp3Ns())
     expect(SAVE.embedded).toBe(uwbPpduNs(uwbRespBytes('ss', 'embedded')) - uwbSp3Ns())
     // the shortest SP1 ranging frame this engine sends really is the deferred Response
@@ -300,7 +300,7 @@ describe('uwb-sp3 · the frame lengths, against the engine', () => {
     expect([MULT.embedded, MULT.shortest]).toEqual(['3.971', '4.578'])
   })
 
-  it('「到第几个响应方才抵得过」: the arithmetic, and the crossover it predicts', () => {
+  it('「到第几个响应方才能抵消」: the arithmetic, and the crossover it predicts', () => {
     // the SRRR term is the MARGINAL cost of one responder's IE, which is what the note says
     expect(PAY.srrrPerResponder).toBe(uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1)))
     expect(PAY.net).toBe(PAY.perResponder - PAY.srrrPerResponder)
@@ -571,8 +571,8 @@ describe('uwb-sp3 · every figure the prose prints, read back out of it', () => 
     expect(srrrIeBytes(1), 'what one responder’s request element costs').toBe(octets)
     expect(SRRR_IE_BYTES, 'and that is the element’s own width').toBe(octets)
     // 「交叉点才从 A = 11 这一侧浮出来」, and `numbers` prints the same crossover
-    const [deepCross] = figs(DEEP, /交叉点才从 A = (\d+) 这一侧浮出来/, '`deeper` on the crossover')
-    const [numsCross] = figs(NUMS, /交叉点就挪到 A = (\d+)/, '`numbers` on the same crossover')
+    const [deepCross] = figs(DEEP, /交叉点才出现在 A = (\d+)/, '`deeper` on the crossover')
+    const [numsCross] = figs(NUMS, /交叉点就后移到 A = (\d+)/, '`numbers` on the same crossover')
     expect(deepCross, 'the same crossover, in both places').toBe(numsCross)
     expect(numsCross, 'and it is the one the engine’s own sweep finds').toBe(PAY.crossoverRrtt)
     expect(PAY.crossoverRrtt, 'further out than the one without that request')
@@ -594,11 +594,11 @@ describe('uwb-sp3 · every figure the prose prints, read back out of it', () => 
 
   it('reads the request that costs nothing, the item that costs four, and the figure cited twice', () => {
     /*
-     * 「0 字节：那一位在控制消息本来就带着的控制字段里」 — the other clause's request rides a
+     * 「0 字节：那一位在控制消息原有的控制字段里」 — the other clause's request rides a
      * field the frame already has, so it is read as the length it does not change: the same
      * control message, with the receipt requested and without, comes out the same size.
      */
-    const [free] = figs(NUMS, /^(\d) 字节：那一位在控制消息本来就带着的控制字段里/m,
+    const [free] = figs(NUMS, /^(\d) 字节：那一位在控制消息原有的控制字段里/m,
       '`numbers` on the free request')
     /*
      * Read on the lesson that owns that request, because this one's scene may not carry it: the
