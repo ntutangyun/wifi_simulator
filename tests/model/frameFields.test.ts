@@ -53,7 +53,10 @@ describe('decodeFrame over recorded frames', () => {
   it('field byte counts sum to frame.bytes', () => {
     for (const { frame, ctx, lesson } of samples) {
       const d = decodeFrame(frame, ctx)
-      const fieldSum = d.users.reduce((s, u) => s + u.subframes.reduce(
+      // 2026-11-11: a VHT/HE/EHT PSDU ends in EOF padding (§10.12.6), which belongs to the user
+      // PSDU rather than to any subframe.
+      const eof = (u: (typeof d.users)[number]) => u.eofPad ? u.eofPad.finalPad + 4 * u.eofPad.eofSubframes + u.eofPad.eofOctets : 0
+      const fieldSum = d.users.reduce((s, u) => s + eof(u) + u.subframes.reduce(
         (t, sf) => t + sf.delimiterBytes + sf.padBytes + sf.mpdu.fields.reduce((a, f) => a + f.bytes, 0), 0), 0)
       expect(fieldSum, `${lesson} ${frame.kind} ${frame.src}→${frame.dst}`).toBe(frame.bytes)
       expect(d.bytes).toBe(frame.bytes)

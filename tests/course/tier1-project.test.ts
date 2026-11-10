@@ -21,7 +21,7 @@ import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import {
-  ACK_BYTES, CW_MAX, CW_MIN, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, RATE_MARGIN_DB,
+  ACK_BYTES, AMPDU_DELIMITER_BYTES, CW_MAX, CW_MIN, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, RATE_MARGIN_DB,
   SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS, RX_START_DELAY_NS,
   ctrlRespRateForMode, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs,
   txTimeNs,
@@ -38,8 +38,12 @@ const PAYLOAD_BITS = 12_000
 const MSDU = 1500
 const PARAMS = { W: 16, m: 6, attempts: 7 } as const
 
+// 2026-11-11: an EHT PPDU's data field is always an A-MPDU (802.11be §9.7.3), so one MSDU goes out
+// as a one-subframe A-MPDU with its 4-octet MPDU delimiter: L = 4 + 1500 + 24 + 4 = 1532, not 1528.
+// Both rungs this flat uses happen to need the same symbol count either way (6 and 35).
+const APEP = AMPDU_DELIMITER_BYTES + MSDU + MAC_HDR_BYTES + FCS_BYTES
 function times(mcs: number): { dataNs: number; ackNs: number; respRate: number; tsNs: number; tcNs: number } {
-  const dataNs = txTimeModeNs('eht', MSDU + MAC_HDR_BYTES + FCS_BYTES, mcs, { widthMhz: 20 })
+  const dataNs = txTimeModeNs('eht', APEP, mcs, { widthMhz: 20 })
   const respRate = ctrlRespRateForMode('eht', mcs, mcsRateMbps('eht', mcs))
   const ackNs = txTimeNs(ACK_BYTES, respRate)
   return { dataNs, ackNs, respRate, tsNs: dataNs + SIFS_NS + ackNs + DIFS_NS, tcNs: dataNs + ACK_TIMEOUT_NS + DIFS_NS }
@@ -184,7 +188,8 @@ describe('tier1-project · ② says what the engine does, and the engine does it
     const [pre] = figs(implRow('数据帧的时长').sim, /前导码取 (\d+) µs/, '② on the preamble')
     expect(pre * 1000).toBe(PHY_MODES.eht.preambleNs)
     // MCS 13 is one of the LDPC-only rungs, and the engine still counts symbols the BCC way
-    expect(txTimeModeNs('eht', 1528, 13, { widthMhz: 20 })).toBe(PHY_MODES.eht.preambleNs + Math.ceil((16 + 8 * 1528 + 6) / ndbpsOf(13)) * PHY_MODES.eht.symNs)
+    expect(txTimeModeNs('eht', APEP, 13, { widthMhz: 20 })).toBe(PHY_MODES.eht.preambleNs + Math.ceil((16 + 8 * APEP + 6) / ndbpsOf(13)) * PHY_MODES.eht.symNs)
+    expect(firstDataOf('sta-1').frame.apepBytes).toBe(APEP)
   })
 
   it('the rung: sensitivity turned into a required SINR, plus 3 dB', () => {
@@ -223,7 +228,7 @@ describe('tier1-project · ③ the labs: the brief, the four predictions, the th
       const [x, y, dbm] = figs(r[1]!, /\((\d+), (\d+)\), (\d+) dBm/, `${label}: position`)
       expect([x, y, dbm]).toEqual([nodeOf(id).pos.x, nodeOf(id).pos.y, nodeOf(id).txPowerDbm])
     }
-    const msdu = firstDataOf('sta-1').frame.bytes - MAC_HDR_BYTES - FCS_BYTES
+    const msdu = firstDataOf('sta-1').frame.apepBytes! - AMPDU_DELIMITER_BYTES - MAC_HDR_BYTES - FCS_BYTES
     for (const v of everyFig(/饱和上传，(\d+) 字节载荷/g, 'the payload', 2)) expect(val(v)).toBe(msdu)
     const [periodMs, bytes] = figs(rowOf('题面', '手机')[2]!, /每 (\d+) ms 上行（uplink, UL）与下行（downlink, DL）各 (\d+) 字节/, 'the call')
     const longer = [...new Simulation(projectFlat()).runUntil(10 * periodMs * MS).records]
@@ -289,10 +294,16 @@ describe('tier1-project · ③ the labs: the brief, the four predictions, the th
     const [service, perByte, tail] = figs(f.text, /⌈\((\d+) \+ (\d+)·L \+ (\d+)\) \/ 每符号比特数⌉/, 'numerator')
     expect([service, perByte, tail]).toEqual([16, 8, 6])
     same(raw(f.text, /符号数 × ([\d.]+) µs/, 'symbol')[0]!, PHY_MODES.eht.symNs / 1000, 'symbol')
-    const [msdu, hdr, fcs, total] = figs(f.note!, /：(\d+) 字节载荷（payload）、(\d+) 字节媒体访问控制（MAC）头、(\d+) 字节帧校验序列（FCS）——合计 (\d+) 字节/, 'L')
-    expect([hdr, fcs]).toEqual([MAC_HDR_BYTES, FCS_BYTES])
-    expect(msdu + hdr + fcs).toBe(total)
-    expect(total).toBe(firstDataOf('sta-1').frame.bytes)
+    // 2026-11-11: L is the A-MPDU before EOF padding (802.11be §9.7.3), which the engine keeps as
+    // `apepBytes`; `frame.bytes` is PSDU_LENGTH, the A-MPDU padded to fill the last symbol (§10.12.6)
+    const [delim, msdu, hdr, fcs, total] = figs(f.note!, /：(\d+) 字节 MPDU 定界符、(\d+) 字节载荷（payload）、(\d+) 字节媒体访问控制（MAC）头、(\d+) 字节帧校验序列（FCS）——合计 (\d+) 字节/, 'L')
+    expect([delim, hdr, fcs]).toEqual([AMPDU_DELIMITER_BYTES, MAC_HDR_BYTES, FCS_BYTES])
+    expect(delim + msdu + hdr + fcs).toBe(total)
+    expect(total).toBe(firstDataOf('sta-1').frame.apepBytes)
+    const [psdu] = figs(f.note!, /屏幕上书房笔记本那一帧的长度是 (\d+) 字节/, 'PSDU_LENGTH')
+    expect(psdu).toBe(firstDataOf('sta-1').frame.bytes)
+    const nsym13 = (times(13).dataNs - PHY_MODES.eht.preambleNs) / PHY_MODES.eht.symNs
+    expect(psdu).toBe(Math.floor((nsym13 * ndbpsOf(13) - 16 - 6) / 8))
     expect(figs(f.note!, /前导码按 (\d+) µs 计/, 'note preamble')[0]! * 1000).toBe(PHY_MODES.eht.preambleNs)
     for (const v of everyFig(/(\d+) 字节要几个符号/g, 'the frame the plan asks about', 1)) expect(val(v)).toBe(total)
     for (const [label, id] of [['书房笔记本', 'sta-1'], ['客厅笔记本', 'sta-2']] as const) {

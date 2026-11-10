@@ -11,9 +11,12 @@
  * frame format (figure 9-2, drawn by the `fields` figure), Frame Control bit by
  * bit, Duration/ID, the address table 9-60 and the sequence number spaces of
  * table 10-5; ② where this simulator follows it and where not — no real octets,
- * six Frame Control bits always 0, a Duration kept in nanoseconds, one counter
- * per peer and access category, no duplicate filtering by sequence number, no
+ * five Frame Control bits always 0, a Duration kept in nanoseconds, no
  * management frames; ③ three runs on the old laptop's frames.
+ *
+ * 2026-11-11 (W7a): Address 3 now follows Table 9-60, the sequence numbers come from
+ * the Table 10-5 spaces and the receiver filters duplicates by <TA, TID, SN> and the
+ * Retry bit (§10.3.2.14.3), so those three ② rows are faithful. No figure moved.
  *
  * Every figure the lesson prints is read back out of its text and compared
  * with a run in tests/course/frame-anatomy.test.ts.
@@ -119,7 +122,7 @@ export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
   module: 2,
   title: '一帧在数据之前包含哪些内容',
-  why: '一帧并不只是在数据外面加一个标签。媒体访问控制（medium access control, MAC）在上层交下来的载荷（payload）前面加上帧头（MAC header），后面加上四个字节的帧校验序列（frame check sequence, FCS），构成一帧；物理层（physical layer, PHY）再在最前面加上一段前导码（preamble），然后才送到空口上发送。对于旧笔记本一个满载的数据帧（data frame），帧头和校验合起来还不到载荷的百分之二。IEEE 802.11-2024 §9.2.3 规定了这些字段的固定顺序，也就是接收端做出判断的顺序：帧控制（Frame Control）首先指明这是哪一类帧，以及这一帧是发往还是来自分发系统（distribution system, DS）；持续时间（Duration/ID）指明这一帧结束后信道还要被占用多久——对单独一个数据帧，就是一个短帧间间隔（short interframe space, SIFS）加上随后的确认帧（acknowledgement, ACK）；接着是三个地址：地址 1（Address 1）是必须接收这一帧的那台射频，地址 2 是发出它的那台，地址 3 按传送方向是这份载荷的源或目的；最后是序列控制（Sequence Control）：重发时序号（sequence number）不变，并把重发比特（Retry bit）置 1，接收端依据这两项识别重复帧。本仿真器按标准的字段与长度生成每一帧，但只记录字节数，不生成真实的比特；序号与重发比特写入了帧中，接收端却不读取它们。',
+  why: '一帧并不只是在数据外面加一个标签。媒体访问控制（medium access control, MAC）在上层交下来的载荷（payload）前面加上帧头（MAC header），后面加上四个字节的帧校验序列（frame check sequence, FCS），构成一帧；物理层（physical layer, PHY）再在最前面加上一段前导码（preamble），然后才送到空口上发送。对于旧笔记本一个满载的数据帧（data frame），帧头和校验合起来还不到载荷的百分之二。IEEE 802.11-2024 §9.2.3 规定了这些字段的固定顺序，也就是接收端做出判断的顺序：帧控制（Frame Control）首先指明这是哪一类帧，以及这一帧是发往还是来自分发系统（distribution system, DS）；持续时间（Duration/ID）指明这一帧结束后信道还要被占用多久——对单独一个数据帧，就是一个短帧间间隔（short interframe space, SIFS）加上随后的确认帧（acknowledgement, ACK）；接着是三个地址：地址 1（Address 1）是必须接收这一帧的那台射频，地址 2 是发出它的那台，地址 3 按传送方向是这份载荷的源或目的；最后是序列控制（Sequence Control）：重发时序号（sequence number）不变，并把重发比特（Retry bit）置 1，接收端依据这两项识别重复帧。本仿真器按标准的字段与长度生成每一帧，但只记录字节数，不生成真实的比特；地址、序号与重发比特都按标准填写，接收端也依据序号与重发比特识别重复帧。',
   outcomes: [
     '按标准说出帧头的字段顺序、各字段的长度与作用',
     '判断哪个地址对应必须接收的射频，哪个对应载荷的源或目的',
@@ -176,11 +179,11 @@ export const frameAnatomy: Lesson = {
     { topic: '持续时间的取值', standard: '单独的数据帧：一个确认帧加 SIFS（§9.2.5.2）', sim: '照此计算：16 µs 的 SIFS 加上 24 Mb/s 下 28 µs 的确认帧，写入 44 µs。', kind: 'faithful' },
     { topic: '持续时间的编码', standard: '以微秒为单位、向上取整、最大 32 767（表 9-9，§9.2.5.1）', sim: '以纳秒整数保存，不取整，也不限制最大值；本课这一帧的值恰好是整数微秒。', kind: 'differs' },
     { topic: '地址 1 与地址 2', standard: '地址 1 是接收方，地址 2 是发送方（§9.2.4.3.1）', sim: '照此填写。', kind: 'faithful' },
-    { topic: '地址 3', standard: '按表 9-60：发往接入点的帧为 DA，由接入点发出的帧为 SA', sim: '字段视图里的地址 3 一律显示接入点。旧笔记本的业务以接入点为终点，所以这一帧上两者一致；发往其他站点的载荷则与标准不同。', kind: 'differs' },
+    { topic: '地址 3', standard: '按表 9-60：发往接入点的帧为 DA，由接入点发出的帧为 SA', sim: '照此填写：发往接入点的帧填这份载荷的最终目的地，由接入点发出的帧填它的原始发送方。旧笔记本的业务以接入点为终点，所以这一帧的地址 3 是路由器。', kind: 'faithful' },
     { topic: '地址 4', standard: 'To DS 与 From DS 都为 1 时出现（表 9-3）', sim: '不会出现：一个场景只有一个接入点，没有 Mesh 或四地址的帧。', kind: 'absent' },
-    { topic: '序号计数器', standard: 'QoS 数据帧按〈地址 1, TID〉，其他帧共用一个基线计数器（表 10-5）', sim: '每个对端、每个接入类别（access category, AC）各一个模 4096 计数器，不区分是否带 QoS 控制字段。每个接入类别只写一个 TID，所以 QoS 数据帧与标准一致；非 QoS 数据帧发往不同对端时各用一个计数器，与标准的单一基线计数器不同。', kind: 'differs' },
+    { topic: '序号计数器', standard: 'QoS 数据帧按〈地址 1, TID〉，其他帧共用一个基线计数器（表 10-5）', sim: '照此：QoS 数据帧按〈地址 1, TID〉各用一个模 4096 计数器，非 QoS 数据帧共用一个基线计数器。每个接入类别（access category, AC）只写一个 TID。', kind: 'faithful' },
     { topic: '重发时的序号', standard: '序号不变，重发比特置 1（§9.2.4.4.3，§9.2.4.1.6）', sim: '照此写入。', kind: 'faithful' },
-    { topic: '重复帧的识别', standard: '依据序号与重发比特查缓存（§10.3.2.14.3）', sim: '接收端不读序号与重发比特，而用引擎内部的载荷编号判断是否已经交付过。', kind: 'differs' },
+    { topic: '重复帧的识别', standard: '依据序号与重发比特查缓存（§10.3.2.14.3）', sim: '照此：接收端按〈发送端地址, TID, 序号〉记录收到的帧，重发比特为 1 且记录中已有相同的一项就丢弃，但仍回复确认；每个〈发送端地址, TID〉保留最近 64 个序号。', kind: 'faithful' },
     { topic: '管理帧', standard: '信标（Beacon）、Probe Request、认证、关联等（表 9-1）', sim: '未实现：每个站点从一开始就已关联。', kind: 'absent' },
   ],
   labs: [
@@ -224,7 +227,7 @@ export const frameAnatomy: Lesson = {
         ] },
       ],
       expect: '原帧与笔记本的请求发送（request to send, RTS）帧同时开始发送，路由器两路都没能接收，没有回复确认帧；重发的那一帧沿用序号 11，重发比特置 1。',
-      meaning: '序号不变、重发比特置 1 照 §9.2.4.4.3 与 §9.2.4.1.6（①）。标准中接收端依据这两项丢弃重复帧；本仿真器的接收端不读它们，用内部的载荷编号去重（②）。',
+      meaning: '序号不变、重发比特置 1 照 §9.2.4.4.3 与 §9.2.4.1.6（①）。接收端依据这两项丢弃重复帧，本仿真器的接收端也照此去重（②）。',
     },
     {
       heading: '地址表示角色，而不是位置',
@@ -238,7 +241,7 @@ export const frameAnatomy: Lesson = {
   ],
   sources: [
     'IEEE Std 802.11-2024：第 3 章（MSDU、MPDU、PPDU 的定义）、§9.2.3 与图 9-2（通用帧格式）、§9.2.4.1 与图 9-3、表 9-1（帧控制、类型与子类型）、§9.2.4.1.6（重发子字段）、§9.2.4.2 与表 9-9（持续时间的编码）、§9.2.5.1 与 §9.2.5.2（QoS 站点的持续时间取值）、§9.2.4.3 与 §9.3.2.1、表 9-60（地址字段）、表 9-3（To DS / From DS）、§9.3.3.1（管理帧的地址）、§9.2.4.4（序列控制）、§10.3.2.14 与表 10-5（序号空间与重复帧的识别）。',
-    '本仿真器的取值与取法：只记录字节数、按帧的属性生成字段视图（src/model/frameFields.ts）；帧控制中的五个子字段恒为 0；持续时间以纳秒保存；每个对端、每个接入类别一个序号计数器（src/engine/queues.ts）；去重用内部载荷编号（src/engine/mac.ts）。44 µs、248 µs 与各个时刻都是本课场景的实测值。',
+    '本仿真器的取值与取法：只记录字节数、按帧的属性生成字段视图（src/model/frameFields.ts）；帧控制中的五个子字段恒为 0；持续时间以纳秒保存；每个〈发送端地址, TID〉保留最近 64 个序号用于去重（src/engine/queues.ts）。44 µs、248 µs 与各个时刻都是本课场景的实测值。',
   ],
   limits: [],
   scenario: frameAnatomyScenario,

@@ -8,7 +8,7 @@
  * variants.
  *
  * `tests/course/quoted-timestamps.test.ts` keeps its own pins on these runs (the clean OFDMA and
- * MU-MIMO sends, the 196 / 122 / 65 / 9 split, the added-phones experiment);
+ * MU-MIMO sends, the trimmed-phone split, the added-phones experiment);
  * `tests/course/lesson-claims.test.ts` owns the backup-off experiment; `mumimo-choose` loads the
  * same scene.
  */
@@ -168,16 +168,39 @@ describe('mumimo · ② says what the engine does, and the engine does it', () =
     }
   })
 
-  it('every member answers by itself one SIFS later; the extra opening is 4 µs', () => {
+  // 2026-11-11 (W7a): the members no longer answer unsolicited with a 24 Mb/s non-HT BlockAck.
+  // Every MPDU carries a TRS Control subfield (IEEE Std 802.11-2024 §9.2.4.7.1) and each member
+  // answers in the HE/EHT TB PPDU it describes, on its own RU, a SIFS later (§10.3.2.13.2,
+  // §26.5.2.3.4) — after a MU-MIMO PPDU too, so the answers are UL OFDMA.
+  it('every member is solicited by TRS and answers in an EHT TB PPDU on its own RU one SIFS later; the extra opening is 4 µs', () => {
     const rs = run(SPACE)
     let answered = 0
+    const tbLens = new Set<number>()
     for (const s of muSends(rs)) {
+      const parts = s.frame.muParts!
+      parts.forEach((p, i) => {
+        expect(p.trs, `TRS of ${p.dst} at ${s.t}`).toBeDefined()
+        expect(p.trs!.partIdx).toBe(i)
+        expect(p.trs!.ruFraction).toBe(1 / parts.length)
+        expect(p.trs!.mcs).toBe(Math.min(3, p.mcs))
+      })
       const bas = txs(rs, (r) => r.frame.kind === 'ba' && r.t === s.t + s.frame.txTimeNs + SIFS_NS)
       if (bas.length === 0) continue // talked over by the laptop: lab 3 counts these
       answered++
-      expect(bas.map((r) => r.node).sort()).toEqual(s.frame.muParts!.map((p) => p.dst).sort())
+      expect(bas.map((r) => r.node).sort()).toEqual(parts.map((p) => p.dst).sort())
+      for (const b of bas) {
+        const p = parts.find((x) => x.dst === b.node)!
+        expect(b.frame.mode).toBe('eht')
+        expect(b.frame.mcs).toBe(p.trs!.mcs)
+        expect(b.frame.ru).toEqual({ fraction: p.trs!.ruFraction, partIdx: p.trs!.partIdx })
+        expect(b.frame.orthogonalGroup).toBe(s.frame.orthogonalGroup)
+        tbLens.add(b.frame.txTimeNs)
+      }
     }
     expect(answered).toBe(settled(rs).ok)
+    expect(implRow('确认').kind).toBe('faithful')
+    expect([...tbLens]).toEqual([Number(/本课每个 ([\d.]+) µs/.exec(implRow('确认').sim)![1]) * US])
+    expect(implRow('信令开销').kind).toBe('differs')
     expect(PHY_MODES.eht.muExtraPreambleNs).toBe(4 * US)
     expect(implRow('信令开销').sim).toContain(`${PHY_MODES.eht.muExtraPreambleNs / US} µs`)
     // two members each giving up half the power: 10·log10(2) to the printed precision

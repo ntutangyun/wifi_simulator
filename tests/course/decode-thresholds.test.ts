@@ -94,7 +94,9 @@ describe('decode-thresholds · the lesson', () => {
   it('marks what differs and what is absent', () => {
     expect(implRow('能量检测（energy detection, ED）').kind).toBe('differs')
     expect(implRow('前导检测的电平').kind).toBe('differs')
-    expect(implRow('聚合帧').kind).toBe('differs')
+    // 2026-11-11 (W7a): an A-MPDU is judged MPDU by MPDU and the BlockAck bitmap reports each
+    // (§9.7.2, §9.3.1.8.2); this row used to pin one decision per PPDU.
+    expect(implRow('聚合帧').kind).toBe('faithful')
     expect(implRow('帧校验序列').kind).toBe('absent')
     expect(implRow('灵敏度表').kind).toBe('faithful')
   })
@@ -124,6 +126,17 @@ describe('decode-thresholds · ② says what the engine does, and the engine doe
     expect(implRow('能量检测（energy detection, ED）').sim).toContain(`${neg(CCA_ED_DBM, 0)} dBm`)
     // a 160 MHz PPDU's primary 20 MHz holds an eighth of its power
     expect(implRow('前导检测的电平').sim).toContain(`低 ${(10 * Math.log10(8)).toFixed(2)} dB`)
+  })
+
+  it('every PSDU of the scene is an S-MPDU, answered by an Ack', () => {
+    for (const i of [0, 1, 2, 3]) {
+      const rs = runOf(decodeThresholds, i, RUN_NS)
+      const data = txOf(rs, 'sta-1', 'data')
+      expect(data.length).toBeGreaterThan(50)
+      expect(data.every((r) => r.frame.smpdu === true && r.frame.ampdu === undefined)).toBe(true)
+      expect(txOf(rs, 'ap', 'ba')).toEqual([])
+    }
+    expect(implRow('聚合帧').sim).toContain('本课场景的每个 PSDU 都是只装一个 MPDU 的 A-MPDU，由确认帧回复')
   })
 
   it('the acknowledgement follows after SIFS, and the margin is 3 dB', () => {

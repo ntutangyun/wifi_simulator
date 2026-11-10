@@ -230,7 +230,8 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
    * and 21.98 → 26.04 ms, not 350 and 26.88 → 30.94 ms. The published figures are the all-PPDU
    * ones, and they are also the honest ones for this lesson, whose whole subject is that an
    * exchange costs two airtimes and only one of them grows. Delivered bytes are the PSDU octets
-   * of the data frames that arrived (175 × 1430 = 250 250), not their MSDU payloads
+   * of the data frames that arrived — since 2026-11-11 each HE PSDU is an S-MPDU padded with EOF
+   * padding to PSDU_LENGTH (§10.12.6), 175 × 1459 = 255 325 — not their MSDU payloads
    * (175 × 1400 = 245 000).
    *
    * **Three tiers, and that covers all four rows of the design's §2.2 table.** Its fourth row,
@@ -241,7 +242,7 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
    */
   const TIERS = [undefined, { gi: 'double' } as const, { gi: 'quad' } as const]
 
-  it('delivers the same 350 PPDUs and 250 250 octets at every tier, with zero loss', () => {
+  it('delivers the same 350 PPDUs and 255 325 octets at every tier, with zero loss', () => {
     const measured = TIERS.map((gi) => {
       const rs = run(airtimeScene(gi))
       const ppdus = wifiPpdus(rs)
@@ -254,7 +255,7 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
       }
     })
     expect(measured.map((m) => m.ppdus)).toEqual([350, 350, 350])
-    expect(measured.map((m) => m.octets)).toEqual([250_250, 250_250, 250_250])
+    expect(measured.map((m) => m.octets)).toEqual([255_325, 255_325, 255_325])
     expect(measured.map((m) => m.rxFail)).toEqual([0, 0, 0])
     expect(measured.map((m) => m.drop)).toEqual([0, 0, 0])
     // A cost with no consequence: the airtime strictly rises, and the quadruple tier is at least

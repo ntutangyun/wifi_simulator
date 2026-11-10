@@ -5,14 +5,16 @@
  *  - EDCA (§10.23): four EDCAFs with AIFS/CWmin/CWmax per Table 9-194,
  *    internal-collision arbitration (higher AC wins, losers double CW).
  *  - TXOP bursting: SIFS-separated exchanges until the AC's TXOP limit.
- *  - A-MPDU + BlockAck: aggregated PPDUs acknowledged by a single BA.
- *  - OFDMA (HE/EHT): AP-scheduled DL MU PPDUs with simultaneous BAs and
+ *  - A-MPDU + BlockAck: aggregated PPDUs acknowledged by a single BA whose bitmap reports each
+ *    MPDU; only the unacknowledged ones are sent again (§10.12, §10.25).
+ *  - OFDMA (HE/EHT): AP-scheduled DL MU PPDUs whose MPDUs carry a TRS Control subfield, answered
+ *    by each member's BlockAck in an HE/EHT TB PPDU (§10.3.2.13.2), and
  *    Trigger-based UL MU with Multi-STA BlockAck (RU model: 1/n rate scaling,
  *    orthogonal groups on the channel).
  * Legacy nodes run a single pseudo-EDCAF with DIFS parameters (exact v1 DCF).
  */
-import type { FrameDesc, MuPart } from '../model/frames'
-import { psduPlan } from '../model/frames'
+import type { BaInfo, FrameDesc, MpduHdr, MuPart } from '../model/frames'
+import { TID_FOR_AC, psduLengthFor, psduPlan } from '../model/frames'
 import type { EmitFn, MacStateName } from '../model/records'
 import type { AmpApCfg, TamperCfg } from '../model/scenario'
 import type { Ns } from '../model/types'
@@ -23,7 +25,7 @@ import { AmpInventoryRound } from './ampReader'
 import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
-  ACK_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
+  ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
   EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
   RTS_BYTES, SHORT_RETRY_LIMIT,
   GI_MODES, TGI_NS,
@@ -36,7 +38,8 @@ import { AcQueues, DEFAULT_MSDU_LIFETIME_NS } from './queues'
 import type { Msdu } from './traffic'
 
 export interface MacHooks {
-  onMsduDelivered?(msduId: number, at: Ns): void
+  /** An MSDU reached this receiver's MAC for the first time (duplicates are not reported); `from` is its transmitter. */
+  onMsduDelivered?(msduId: number, at: Ns, from?: string): void
   /** An MSDU left the transmit queue: acknowledged (acked) or discarded (retry limit, lifetime). */
   onDequeue?(msduId: number, acked: boolean): void
 }
@@ -168,7 +171,8 @@ interface MuDlState {
   gid: string
   ac: number
   parts: { peer: string; msdus: Msdu[] }[]
-  successes: Set<string>
+  /** Members whose BlockAck (in an HE/EHT TB PPDU) arrived, with the sequence numbers it acknowledged. */
+  successes: Map<string, BaInfo>
   resolveHandle: number
 }
 
@@ -178,6 +182,8 @@ interface MuUlState {
   ac: number
   users: string[]
   received: Map<string, FrameDesc>
+  /** Per user, the sequence numbers of the MPDUs the AP received in that user's TB PPDU. */
+  acked: Map<string, number[]>
   mbaHandle: number
   /** §10.3.2.9 response timeout: fires if no triggered PPDU has started by trigger end + 45 µs. */
   rxTimeoutHandle: number
@@ -220,6 +226,12 @@ export class WifiMac implements PhyListener {
   private navClearHandle = 0
   /** Who set the current NAV (a Trigger from that same AP may be answered through it). */
   private navSetBy: string | null = null
+  /**
+   * The saved TXOP holder address (§10.23.2.4): Address 2 of the frame that set the NAV, or
+   * Address 1 when that frame is a CTS. Cleared when the NAV is reset or counts down to 0. An RTS
+   * from this address is answered even though the NAV is set (§10.3.2.9).
+   */
+  private txopHolder: string | null = null
   private navFromRtsAt: Ns | null = null
   private lastBusyEndNs: Ns = NEVER
   private corruptLast = false
@@ -228,19 +240,19 @@ export class WifiMac implements PhyListener {
   private respHandle = 0
   private pendingResp: FrameDesc | null = null
   private lastRxStartNs: Ns = NEVER
-  private delivered = new Set<number>()
-  private deliveredOrder: number[] = []
   private txopEndNs: Ns = 0
   private txopAc = -1
   private readyAcs = new Set<number>()
   private arbitratePending = false
   private muState: MuDlState | MuUlState | null = null
   /**
-   * End of the reservation a boundary RTS/CTS announced for the current burst
-   * (absolute time), 0 when the burst is not protected this way. A burst that
-   * ends before it is truncated with CF-End (§10.23.2.9).
+   * End of the NAV this TXOP holder has announced so far in the current TXOP (absolute time;
+   * TEND-NAV of §9.2.5.2 b) measured from now), 0 outside a TXOP. A TXOP that ends before it is
+   * truncated with CF-End (§10.23.2.10).
    */
   private announcedEndNs: Ns = 0
+  /** Whether the current TXOP uses multiple protection (§9.2.5.2 b)); chosen at its first frame. */
+  private multiProt = false
   private staMuAwait: StaMuAwait | null = null
   private wantTrigger = false
   private muGidCounter = 0
@@ -681,10 +693,8 @@ export class WifiMac implements PhyListener {
     const txopEnd = inTxopBurst && this.txopEndNs > 0
       ? this.txopEndNs
       : this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0 ? t + e.params.txopLimitNs : Infinity
-    const burstProtection = !inTxopBurst && (this.cfg.txopProtection ?? 'single') !== 'single' &&
-      this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
     const msdus = this.queues.claim(ei, peer, useAmpdu ? MAX_AMPDU_MPDUS : 1, (m, claimed) => {
-      const x = this.exchangeNs(peer, [...claimed.map((c) => c.bytes), m.bytes], !inTxopBurst, burstProtection)
+      const x = this.exchangeNs(peer, [...claimed.map((c) => c.bytes), m.bytes], !inTxopBurst)
       return x.dataNs <= MAX_PPDU_NS && t + x.totalNs <= txopEnd
     })
     if (!msdus.length) {
@@ -697,73 +707,74 @@ export class WifiMac implements PhyListener {
     const aggregate = plan.aggregate
     const psdu = plan.psduBytes
     const respTime = this.airNs(plan.respBytes, ctrlRespRateForMode(mode, mcs, mbps))
-
-    const prot = this.cfg.txopProtection ?? 'single'
-    const txopCapable = this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0
-    // Boundary / multiple protection: when the queue holds a multi-exchange
-    // burst, open the TXOP with an RTS/CTS whose Duration reaches the end of
-    // the TXOP (§9.2.5.2, "time remaining in the TXOP"); a burst that finishes
-    // early gives the rest back with CF-End (§10.23.2.9).
     const dataTime = this.airModeNs(mode, psdu, mcs, { widthMhz: width, nss })
-    const rtsRate = ctrlRespRateForMode(mode, mcs, mbps)
-    const ctsTime = this.airNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
-    const rtsTime = this.airNs(RTS_BYTES, rtsRate)
-    let burstRestNs = 0
-    if (!inTxopBurst && prot !== 'single' && txopCapable) {
-      const txopEnd = t + e.params.txopLimitNs
-      const firstEnd = t + rtsTime + 3 * this.T.sifsNs + ctsTime + dataTime + respTime
-      burstRestNs = this.planBurstNs(ei, firstEnd, txopEnd)
-    }
-    const protectBurst = burstRestNs > 0
 
-    if ((psdu > this.cfg.rtsThresholdBytes || protectBurst) && !inTxopBurst) {
+    if (psdu > this.cfg.rtsThresholdBytes && !inTxopBurst) {
       // RTS/CTS protection first (§10.3.2.9).
-      const announcedEnd = protectBurst ? t + e.params.txopLimitNs : 0
+      const rtsRate = ctrlRespRateForMode(mode, mcs, mbps)
+      const ctsTime = this.airNs(CTS_BYTES, ctrlRespRateFor(rtsRate))
+      const rtsTime = this.airNs(RTS_BYTES, rtsRate)
+      this.beginTxop(e, t)
+      // §9.2.5.2 a)1) single protection: the pending frame, one CTS, one Ack/BlockAck and the
+      // IFSs between them. b) multiple protection: the first frame of a TXOP may reserve up to
+      // the TXOP limit, TTXOP − TPPDU — this engine takes that upper bound.
+      const duration = this.multiProt
+        ? this.txopEndNs - (t + rtsTime)
+        : 3 * this.T.sifsNs + ctsTime + dataTime + respTime
       const rts: FrameDesc = {
         kind: 'rts', src: this.nodeId, dst: peer, bytes: RTS_BYTES, mbps: rtsRate,
-        durationFieldNs: this.inflate(protectBurst ? announcedEnd - (t + rtsTime) : 3 * this.T.sifsNs + ctsTime + dataTime + respTime),
+        durationFieldNs: this.inflate(duration),
         txTimeNs: rtsTime, ac: this.acTag(e),
       }
       this.awaiting = { kind: 'cts', ac: ei, peer, msdus, wasRts: true, aggBytes: psdu, aggregate }
-      this.beginTxop(e, t)
-      this.announcedEndNs = announcedEnd
+      this.noteAnnounced(t + rtsTime + duration)
       this.transmitFrame(rts, true)
       return
     }
 
-    const frame = this.buildDataFrame(e, peer, msdus, psdu, mode, mcs, mbps, aggregate, respTime, width, nss)
-    this.awaiting = { kind: aggregate ? 'ba' : 'ack', ac: ei, peer, msdus, wasRts: false, aggBytes: psdu, aggregate }
     if (!inTxopBurst) this.beginTxop(e, t)
+    const frame = this.buildDataFrame(e, peer, msdus, plan, mode, mcs, mbps, respTime, width, nss)
+    this.awaiting = { kind: aggregate ? 'ba' : 'ack', ac: ei, peer, msdus, wasRts: false, aggBytes: psdu, aggregate }
     this.transmitFrame(frame, true)
   }
 
   /**
-   * How long the exchanges after the first one will take if this TXOP chains
-   * everything now queued for this AC (reachable peers, consecutive frames to
-   * one peer aggregated), stopping at the TXOP limit exactly like
-   * continueOrRelease will. Returns 0 when nothing more would be chained.
+   * The exchange that will follow one ending at `fromNs` in this TXOP — SIFS, the next PPDU, SIFS
+   * and its response — or 0 when the frame now being built is the final frame of the TXOP.
+   *
+   * It asks the two questions `continueOrRelease` and `transmitFor` will ask after the response:
+   * does an exchange of the queue head fit before the TXOP limit, and if it does, how many MSDUs
+   * will the next PPDU then claim (the same walk `AcQueues.claim` takes). Single protection needs
+   * the answer in the Duration of the frame being sent now (§9.2.5.2 a)8) ii)). It is an
+   * estimate, as the standard says, made from what the queue holds when the frame is built: a
+   * frame that arrives during the exchange (a saturated source refills on every Ack), a rate that
+   * rises with the success, a DL MU PPDU the access point builds instead, or a sibling MLO link
+   * claiming the head first, can make the next frame differ — and a frame that went out as the
+   * final one can still be followed, inside the TXOP limit, by one that arrived after it.
    */
-  private planBurstNs(ei: number, fromNs: Ns, txopEndNs: Ns): Ns {
-    const queue = this.queues.peek(ei).filter((m) => this.reach(m.dst))
-    let t = fromNs
-    let i = 0
-    while (i < queue.length) {
-      const peer = queue[i].dst
-      // continueOrRelease's fit check: the next exchange must end inside the TXOP
-      if (t + this.T.sifsNs + this.exchangeNs(peer, [queue[i].bytes], false).totalNs > txopEndNs) break
-      const useAmpdu = this.canAggregate(peer)
-      const bytes: number[] = [queue[i].bytes]
-      let j = i + 1
-      while (useAmpdu && j < queue.length && queue[j].dst === peer && bytes.length < MAX_AMPDU_MPDUS) {
-        const x = this.exchangeNs(peer, [...bytes, queue[j].bytes], false)
-        if (x.dataNs > MAX_PPDU_NS || t + this.T.sifsNs + x.totalNs > txopEndNs) break
-        bytes.push(queue[j].bytes)
-        j++
-      }
-      t += this.T.sifsNs + this.exchangeNs(peer, bytes, false).totalNs
-      i = j
+  private nextExchangeNs(ei: number, fromNs: Ns): Ns {
+    if (this.txopEndNs <= 0 || this.txopAc !== ei) return 0
+    const queue = this.queues.peek(ei)
+    const head = queue.find((m) => this.reach(m.dst))
+    if (head === undefined) return 0
+    const peer = head.dst
+    if (fromNs + this.T.sifsNs + this.exchangeNs(peer, [head.bytes], false).totalNs > this.txopEndNs) return 0
+    const max = this.canAggregate(peer) ? MAX_AMPDU_MPDUS : 1
+    const bytes: number[] = []
+    for (const m of queue) {
+      if (bytes.length >= max) break
+      if (m.dst !== peer) continue
+      if (bytes.length === 0) { bytes.push(m.bytes); continue }
+      const x = this.exchangeNs(peer, [...bytes, m.bytes], false)
+      if (x.dataNs > MAX_PPDU_NS || fromNs + this.T.sifsNs + x.totalNs > this.txopEndNs) break
+      bytes.push(m.bytes)
     }
-    return Math.max(0, t - fromNs)
+    return this.T.sifsNs + this.exchangeNs(peer, bytes, false).totalNs
+  }
+
+  /** The TXOP holder has announced a NAV reaching `endNs` (§9.2.5.2 b)'s TEND-NAV). */
+  private noteAnnounced(endNs: Ns): void {
+    if (this.txopEndNs > 0) this.announcedEndNs = Math.max(this.announcedEndNs, endNs)
   }
 
   /** TXTIME of a non-HT PPDU on this link, including the signal extension (§10.3.8). */
@@ -788,6 +799,16 @@ export class WifiMac implements PhyListener {
   }
 
   /**
+   * PSDU_LENGTH of a VHT/HE/EHT PPDU carrying an A-MPDU of `apepBytes` (§10.12.6): the octets its
+   * data symbols hold, which the EOF padding fills. The same N_DBPS `txTimeModeNs` divides by.
+   */
+  private psduLength(mode: PhyMode, apepBytes: number, mcs: number, opts: TxTimeOpts = {}): number {
+    if (mode === 'nonht') return apepBytes
+    const ndbps = PHY_MODES[mode].ndbps[mcs] * toneRatio(mode, opts.widthMhz ?? 20) * (opts.nss ?? 1) * (opts.ruFraction ?? 1)
+    return psduLengthFor(apepBytes, ndbps)
+  }
+
+  /**
    * The guard interval this PPDU records — absent at the base GI and on every pre-HE format.
    *
    * Absent rather than 800 for the reason `FrameDesc.giNs` gives: the absence has to be readable
@@ -804,10 +825,9 @@ export class WifiMac implements PhyListener {
   /**
    * Airtime of one exchange with a peer carrying these MSDUs: [RTS + SIFS +
    * CTS + SIFS when protected] + PPDU + SIFS + ACK or BlockAck. Protection
-   * applies to a TXOP's first PPDU above the RTS threshold, or always when the
-   * burst is protected at its boundary.
+   * applies to a TXOP's first PPDU above the RTS threshold.
    */
-  private exchangeNs(peer: string, msduBytes: number[], firstInTxop: boolean, burstProtection = false): { dataNs: Ns; totalNs: Ns } {
+  private exchangeNs(peer: string, msduBytes: number[], firstInTxop: boolean): { dataNs: Ns; totalNs: Ns } {
     const mode = this.cfg.modeForPeer(peer)
     const mcs = this.cfg.mcsForPeer(peer)
     // Deliberately the base column, and deliberately NOT `frameGiNs`: this local never reaches a
@@ -820,39 +840,70 @@ export class WifiMac implements PhyListener {
     const dataNs = this.airModeNs(mode, psdu, mcs, { widthMhz: this.cfg.widthForPeer(peer), nss: this.cfg.nssForPeer(peer) })
     const respRate = ctrlRespRateForMode(mode, mcs, mbps)
     let totalNs = dataNs + this.T.sifsNs + this.airNs(plan.respBytes, respRate)
-    if (firstInTxop && (burstProtection || psdu > this.cfg.rtsThresholdBytes)) {
+    if (firstInTxop && psdu > this.cfg.rtsThresholdBytes) {
       totalNs += this.airNs(RTS_BYTES, respRate) + this.T.sifsNs + this.airNs(CTS_BYTES, ctrlRespRateFor(respRate)) + this.T.sifsNs
     }
     return { dataNs, totalNs }
   }
 
+  /**
+   * Each MSDU's MPDU header fields: its sequence number (from the <Address 1, TID> counter for a
+   * QoS Data frame, the baseline counter otherwise — Table 10-5), its Retry bit, and the DA / SA
+   * Table 9-60 puts in Address 3 when the MSDU's end-to-end address differs from the RA / TA.
+   */
+  private mpduHdrs(peer: string, ac: number, msdus: Msdu[]): MpduHdr[] {
+    const tid = this.qosWith(peer) ? TID_FOR_AC[Math.max(0, Math.min(3, ac))] : null
+    return msdus.map((m) => {
+      if (m.seqNo === undefined) m.seqNo = this.queues.nextSeq(peer, tid)
+      const da = m.finalDst ?? m.server
+      const sa = m.sa ?? (this.cfg.isAp ? m.server : undefined)
+      // §9.2.4.1.6: Retry marks a retransmission of this MPDU. A failed RTS counts a retry for
+      // the MSDU but never put it on the air, so the bit follows "has been transmitted", not the
+      // retry counter — and it is the MPDU's own, not the A-MPDU's.
+      const h: MpduHdr = { sn: m.seqNo, retry: m.sent === true }
+      if (!this.cfg.isAp && da !== undefined && da !== peer) h.da = da
+      if (this.cfg.isAp && sa !== undefined && sa !== this.nodeId) h.sa = sa
+      return h
+    })
+  }
+
   private buildDataFrame(
-    e: Edcaf, peer: string, msdus: Msdu[], psdu: number,
-    mode: PhyMode, mcs: number, mbps: number, aggregate: boolean, respTime: Ns,
+    e: Edcaf, peer: string, msdus: Msdu[], plan: { psduBytes: number; aggregate: boolean; smpdu: boolean },
+    mode: PhyMode, mcs: number, mbps: number, respTime: Ns,
     widthMhz: number, nss: number,
   ): FrameDesc {
-    this.assignSeq(peer, this.edcafs.indexOf(e), msdus)
-    const seqNo = msdus[0].seqNo!
+    const mpdus = this.mpduHdrs(peer, e.params.ac, msdus)
+    const psdu = plan.psduBytes
+    const aggregate = plan.aggregate
     const txTime = this.airModeNs(mode, psdu, mcs, { widthMhz, nss })
-    // §9.2.4.1.6: Retry marks a retransmission of this MPDU. A failed RTS
-    // counts a retry for the MSDU but never put it on the air, so the flag
-    // follows "has been transmitted", not the retry counter.
-    const retryFlag = msdus.some((m) => m.sent)
+    const retryFlag = mpdus.some((h) => h.retry)
     for (const m of msdus) m.sent = true
-    // §9.2.5.2 multiple protection: the data frame carries the TXOP remainder.
-    const remainder = this.announcedEndNs - (this.now() + txTime)
-    const duration = this.cfg.txopProtection === 'multiple' && remainder > this.T.sifsNs + respTime
-      ? remainder
-      : this.T.sifsNs + respTime
+    const now = this.now()
+    let duration: Ns
+    if (this.multiProt && this.txopEndNs > 0) {
+      // §9.2.5.2 b) multiple protection: TEND-NAV − TPPDU ≤ D ≤ TTXOP-REMAINING − TPPDU. This
+      // engine takes the upper bound, the end of the TXOP, for every frame of the TXOP.
+      duration = Math.max(this.T.sifsNs + respTime, this.txopEndNs - (now + txTime))
+    } else {
+      // §9.2.5.2 a)8): one Ack/BlockAck and its SIFS, plus — unless this is the final frame of
+      // the TXOP — the following frame and its response with their SIFSs.
+      const exchangeEnd = now + txTime + this.T.sifsNs + respTime
+      duration = this.T.sifsNs + respTime + this.nextExchangeNs(this.edcafs.indexOf(e), exchangeEnd)
+    }
+    this.noteAnnounced(now + txTime + duration)
+    const psduLen = this.psduLength(mode, psdu, mcs, { widthMhz, nss })
     return {
-      kind: 'data', src: this.nodeId, dst: peer, bytes: psdu, mbps,
+      kind: 'data', src: this.nodeId, dst: peer, bytes: psduLen, mbps,
       durationFieldNs: this.inflate(duration),
       txTimeNs: txTime,
-      seqNo, retryFlag, msduId: msdus[0].id,
+      seqNo: mpdus[0].sn, retryFlag, msduId: msdus[0].id,
       qos: aggregate || this.qosWith(peer),
       mode, mcs, widthMhz, ac: this.acTag(e),
       giNs: this.frameGiNs(mode),
       msduBytes: msdus.map((m) => m.bytes),
+      mpdus,
+      ...(mode === 'nonht' ? {} : { apepBytes: psdu }),
+      ...(plan.smpdu ? { smpdu: true } : {}),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
   }
@@ -866,12 +917,17 @@ export class WifiMac implements PhyListener {
     if (this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0) {
       this.txopEndNs = t + e.params.txopLimitNs
       this.txopAc = this.edcafs.indexOf(e)
+      // §9.2.5.2: the class of Duration setting is chosen with the first frame of the TXOP and
+      // kept for every frame after it. With no TXOP limit there is nothing longer than a single
+      // exchange to protect, and multiple protection's D reduces to single protection's.
+      this.multiProt = this.cfg.txopProtection === 'multiple'
       this.emit({ t, type: 'TXOP_START', node: this.nodeId, ac: e.params.ac, untilNs: this.txopEndNs })
     }
   }
 
   private endTxop(): void {
     this.announcedEndNs = 0
+    this.multiProt = false
     if (this.txopEndNs > 0) {
       this.emit({ t: this.now(), type: 'TXOP_END', node: this.nodeId })
       this.txopEndNs = 0
@@ -891,7 +947,7 @@ export class WifiMac implements PhyListener {
     const t = this.now()
     const ei = this.edcafs.indexOf(e)
     const gid = `mu${this.nodeId}:${this.muGidCounter++}`
-    const durCap = this.muDurCap(e, inTxopBurst)
+    const durCap = this.muDurCap(e, inTxopBurst, dsts)
 
     // Space multiplies the rate, which pays only when there are data symbols to
     // multiply; frequency divides the preamble, which pays when there are not.
@@ -911,31 +967,76 @@ export class WifiMac implements PhyListener {
       this.transmitSuFallback(e, inTxopBurst)
       return
     }
-    const baTime = this.airNs(BA_BYTES, 24)
+    if (!inTxopBurst) this.beginTxop(e, t)
+    // §10.3.2.13.2: each member answers only because its MPDUs carry a TRS Control subfield, and
+    // in the HE/EHT TB PPDU it describes. One response duration for all, so the answers end
+    // together; every member gets its own resource unit (also after a MU-MIMO PPDU — the
+    // answers are UL OFDMA).
+    const tb = this.trsResponse(modeAll, parts.map((p) => p.mcs), width)
+    parts.forEach((p, i) => { p.trs = { ulDataSymbols: tb.nsym, mcs: tb.mcs[i], ruFraction: tb.ruFraction, partIdx: i } })
+    // §9.2.5.2 a)8): QoS Data with HETP Ack ack policy is protected through its response (the TB
+    // PPDU and the SIFS before it) and, unless the PPDU is the final one of the TXOP, the next
+    // frame and its response. Multiple protection: to the end of the TXOP.
+    const exchangeEnd = t + ppduDur + this.T.sifsNs + tb.durNs
+    let duration: Ns
+    if (this.multiProt && this.txopEndNs > 0) {
+      duration = Math.max(this.T.sifsNs + tb.durNs, this.txopEndNs - (t + ppduDur))
+    } else {
+      duration = this.T.sifsNs + tb.durNs + this.nextExchangeNs(ei, exchangeEnd)
+    }
+    this.noteAnnounced(t + ppduDur + duration)
     const frame: FrameDesc = {
       kind: 'data', src: this.nodeId, dst: '*mu', bytes: parts.reduce((s, p) => s + p.bytes, 0),
-      mbps: parts[0].mbps, durationFieldNs: this.T.sifsNs + baTime,
+      mbps: parts[0].mbps, durationFieldNs: this.inflate(duration),
       txTimeNs: ppduDur, mode: modeAll, mcs: parts[0].mcs, widthMhz: width, ac: this.acTag(e),
       giNs: this.frameGiNs(modeAll),
       muParts: parts, orthogonalGroup: gid, muKind: useMumimo ? 'mumimo' : 'ofdma',
     }
-    if (!inTxopBurst) this.beginTxop(e, t)
     // Only now, with the PPDU going out, have these MSDUs been on the air; a
     // group that fell apart above restored its claims untouched.
     for (const c of claims) for (const m of c.msdus) m.sent = true
-    const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Set(), resolveHandle: 0 }
+    const mu: MuDlState = { kind: 'dl', gid, ac: ei, parts: claims, successes: new Map(), resolveHandle: 0 }
     this.muState = mu
     this.transmitFrame(frame, false)
-    mu.resolveHandle = this.q.schedule(t + ppduDur + this.T.sifsNs + baTime + this.T.ackTimeoutNs, () => this.resolveDlMu())
+    // The TB PPDUs start a SIFS after this PPDU; a member whose answer has not begun by then plus
+    // the response timeout (§10.3.2.9's aSIFSTime + aSlotTime + aRxPHYStartDelay) is not coming.
+    mu.resolveHandle = this.q.schedule(t + ppduDur + this.T.sifsNs + tb.durNs + this.T.ackTimeoutNs, () => this.resolveDlMu())
   }
 
-  /** Longest DL MU PPDU allowed now: aPPDUMaxTime, and inside the TXOP with room for SIFS + the BlockAcks. */
-  private muDurCap(e: Edcaf, inTxopBurst: boolean): Ns {
+  /**
+   * The HE/EHT TB PPDU a TRS Control subfield solicits for a BlockAck (§9.2.4.7.1, §26.5.2.3.4):
+   * one resource unit per member, NUM_STS 1, 1.6 µs GI with 2x HE-LTF, the UL HE-MCS each
+   * member's TRS names (0–3), and UL Data Symbols large enough for the largest of them to carry
+   * an A-MPDU holding one compressed BlockAck. The standard leaves the access point's choice of
+   * HE-MCS open; this engine takes each member's own MCS capped at 3, the field's range.
+   */
+  private trsResponse(mode: PhyMode, mcsList: number[], widthMhz: number): {
+    nsym: number; durNs: Ns; mcs: number[]; ruFraction: number; psduBytes: number[]
+  } {
+    const ruFraction = 1 / mcsList.length
+    const mcs = mcsList.map((m) => Math.min(3, m))
+    const apep = AMPDU_DELIMITER_BYTES + BA_BYTES
+    const ndbps = (m: number) => PHY_MODES[mode].ndbps[m] * toneRatio(mode, widthMhz) * ruFraction
+    const nsym = Math.max(...mcs.map((m) => Math.ceil((16 + 8 * apep + 6) / ndbps(m))))
+    const gi = TGI_NS.double
+    const durNs = preambleNsFor(mode, gi) + nsym * symNsFor(mode, gi) + this.T.signalExtNs
+    const psduBytes = mcs.map((m) => Math.max(apep, Math.floor((nsym * ndbps(m) - 16 - 6) / 8)))
+    return { nsym, durNs, mcs, ruFraction, psduBytes }
+  }
+
+  /**
+   * Longest DL MU PPDU allowed now: aPPDUMaxTime, and inside the TXOP with room for SIFS + the
+   * TB PPDU that carries the BlockAcks (sized for the worst case: every candidate member at MCS 0).
+   */
+  private muDurCap(e: Edcaf, inTxopBurst: boolean, dsts: string[]): Ns {
     const t = this.now()
     const end = inTxopBurst && this.txopEndNs > 0
       ? this.txopEndNs
       : this.cfg.txop && this.cfg.edca && e.params.txopLimitNs > 0 ? t + e.params.txopLimitNs : Infinity
-    return Math.min(MAX_PPDU_NS, end - t - this.T.sifsNs - this.airNs(BA_BYTES, 24))
+    const modeAll = lowestMode(dsts.map((d) => this.cfg.modeForPeer(d)))
+    const width = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
+    const tb = this.trsResponse(modeAll, dsts.map(() => 0), width)
+    return Math.min(MAX_PPDU_NS, end - t - this.T.sifsNs - tb.durNs)
   }
 
   /**
@@ -947,6 +1048,10 @@ export class WifiMac implements PhyListener {
    * the old rule word for word — EHT only if every member is EHT, otherwise HE with EHT members
    * at HE-MCS ≤ 11, because 4096-QAM does not exist in HE. Members are filled up to the
    * duration cap.
+   *
+   * Every MPDU carries an HT Control field with the TRS Control subfield (§9.2.4.7.1), so each
+   * member's A-MPDU is priced with the 4-octet field in every header. A member's `bytes` is its
+   * PSDU_LENGTH — the A-MPDU padded with EOF padding to the PPDU's symbol count (§10.12.6).
    */
   private buildMuParts(ei: number, dsts: string[], mumimo: boolean, durCap: Ns, ac: number): {
     parts: MuPart[]; claims: { peer: string; msdus: Msdu[] }[]; ppduDur: Ns; modeAll: PhyMode; width: number
@@ -959,24 +1064,35 @@ export class WifiMac implements PhyListener {
     // narrowest width any member negotiated. Stream count stays per member.
     const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
     let ppduDur = 0
+    const optsOf = (nss: number) => mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
     for (const peer of dsts) {
       const mcs = mcsInMode(this.cfg.modeForPeer(peer), this.cfg.mcsForPeer(peer), modeAll)
       const nss = this.cfg.nssForPeer(peer)
-      const opts = mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
-      const airtime = (bytes: number[]) => this.airModeNs(modeAll, psduPlan(bytes, { mu: true }).psduBytes, mcs, opts)
+      const opts = optsOf(nss)
+      const airtime = (bytes: number[]) => this.airModeNs(modeAll, psduPlan(bytes, { mu: true, trs: true }).psduBytes, mcs, opts)
       if (airtime([this.queues.headBytes(ei, peer) ?? 0]) > durCap) continue
       const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
         airtime([...claimed.map((x) => x.bytes), m.bytes]) <= durCap)
       if (!msdus.length) continue
-      const bytes = psduPlan(msdus.map((m) => m.bytes), { mu: true }).psduBytes
+      const bytes = psduPlan(msdus.map((m) => m.bytes), { mu: true, trs: true }).psduBytes
       parts.push({
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs, this.frameGiNs(modeAll) ?? TGI_NS.base),
         msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac,
         retryFlag: msdus.some((m) => m.sent),
+        mpdus: this.mpduHdrs(peer, ac, msdus),
         ...(mumimo ? { nss } : { ruFraction: frac }),
       })
       claims.push({ peer, msdus })
       ppduDur = Math.max(ppduDur, airtime(msdus.map((m) => m.bytes)))
+    }
+    // EOF padding fills every member's A-MPDU to the symbols the longest member needs. The
+    // PPDU's data field is ppduDur less the preamble; each member's PSDU_LENGTH follows from it.
+    const head = preambleNsFor(modeAll, this.cfg.giNs?.() ?? TGI_NS.base) + PHY_MODES[modeAll].muExtraPreambleNs + this.T.signalExtNs
+    const nsym = Math.round((ppduDur - head) / symNsFor(modeAll, this.cfg.giNs?.() ?? TGI_NS.base))
+    for (const p of parts) {
+      const nss = p.nss ?? this.cfg.nssForPeer(p.dst)
+      const ndbps = PHY_MODES[modeAll].ndbps[p.mcs] * toneRatio(modeAll, muWidth) * nss * (p.ruFraction ?? 1)
+      p.bytes = Math.max(p.bytes, Math.floor((nsym * ndbps - 16 - 6) / 8))
     }
     return { parts, claims, ppduDur, modeAll, width: muWidth }
   }
@@ -999,24 +1115,25 @@ export class WifiMac implements PhyListener {
     const t = this.now()
     const failed: Msdu[] = []
     for (const c of mu.parts) {
-      const ok = mu.successes.has(c.peer)
-      this.cfg.onTxOutcome?.(c.peer, ok)
-      if (!ok) {
-        failed.push(...c.msdus)
-        continue
-      }
+      const ba = mu.successes.get(c.peer)
+      this.cfg.onTxOutcome?.(c.peer, ba !== undefined)
       for (const m of c.msdus) {
-        this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(mu.ac), ac: this.acTag(e) })
-        this.hooks.onDequeue?.(m.id, true)
+        // The member's BlockAck bitmap says which MPDUs arrived (§10.25); the rest are sent again.
+        if (ba !== undefined && m.seqNo !== undefined && ba.acked.includes(m.seqNo)) {
+          this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(mu.ac), ac: this.acTag(e) })
+          this.hooks.onDequeue?.(m.id, true)
+        } else {
+          failed.push(m)
+        }
       }
     }
     if (mu.successes.size === 0) {
+      // §10.23.2.2 f)/j): every MPDU of a PPDU soliciting an HE TB PPDU failed.
       this.failAttemptCore(e, mu.ac, failed)
       return
     }
-    // 802.11ax: the DL MU exchange succeeded if any user acknowledged. The
-    // others' MPDUs count a retry and are sent again; the EDCAF is not
-    // penalised and the TXOP may continue.
+    // §10.23.2.2: an MPDU of the PPDU was acknowledged, so the attempt did not fail as a whole.
+    // The unacknowledged MPDUs count a retry and are sent again; the TXOP may continue.
     if (failed.length) {
       this.emitRetry(e, failed, 0)
       this.failMsdus(e, mu.ac, failed)
@@ -1024,7 +1141,6 @@ export class WifiMac implements PhyListener {
     this.resetQsrc(e)
     this.continueOrRelease(e)
   }
-
   private transmitTrigger(e: Edcaf, users: { peer: string; ac: number; bytes: number }[]): void {
     const t = this.now()
     const gid = `mu${this.nodeId}:${this.muGidCounter++}`
@@ -1066,7 +1182,7 @@ export class WifiMac implements PhyListener {
       ulMode: mode, ulWidthMhz: ulWidth,
     }
     this.wantTrigger = false
-    const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
+    const mu: MuUlState = { kind: 'ul', gid, ac: this.edcafs.indexOf(e), users: users.map((u) => u.peer), received: new Map(), acked: new Map(), mbaHandle: 0, rxTimeoutHandle: 0 }
     this.muState = mu
     this.transmitFrame(trigger, false)
     mu.mbaHandle = this.q.schedule(t + trigger.txTimeNs + this.T.sifsNs + ulDur + this.T.sifsNs, () => this.sendMba())
@@ -1109,7 +1225,11 @@ export class WifiMac implements PhyListener {
     const mba: FrameDesc = {
       kind: 'mba', src: this.nodeId, dst: '*mu', bytes, mbps: 24,
       durationFieldNs: 0, txTimeNs: this.airNs(bytes, 24),
-      muParts: acked.map((peer) => ({ dst: peer, src: this.nodeId, bytes: 0, mcs: 0, mbps: 24, msduIds: [], mpduCount: 0 })),
+      // One Per AID TID Info field per STA heard, its bitmap marking the MPDUs received (§9.3.1.8.7).
+      muParts: acked.map((peer) => {
+        const sns = mu.acked.get(peer) ?? []
+        return { dst: peer, src: this.nodeId, bytes: 0, mcs: 0, mbps: 24, msduIds: [], mpduCount: 0, ba: { ssn: sns.length ? Math.min(...sns) : 0, acked: sns } }
+      }),
     }
     this.transmitFrame(mba, false)
   }
@@ -1187,13 +1307,6 @@ export class WifiMac implements PhyListener {
     this.emit({ t: this.now(), type: 'CW_CHANGE', node: this.nodeId, cw: e.cw, qsrc: e.qsrc, ac: this.acTag(e) })
   }
 
-  /** §10.3.2.14: an MSDU gets its sequence number on its first transmission and keeps it on every retry. */
-  private assignSeq(peer: string, ei: number, msdus: Msdu[]): void {
-    for (const m of msdus) {
-      if (m.seqNo === undefined) m.seqNo = this.queues.nextSeq(peer, ei)
-    }
-  }
-
   /**
    * 802.11-2020: every MSDU of a failed attempt counts one retry; those that
    * reach dot11ShortRetryLimit are discarded, the rest go back to the queue head.
@@ -1235,16 +1348,30 @@ export class WifiMac implements PhyListener {
     this.resumeAll()
   }
 
-  private succeedAttempt(): void {
+  /**
+   * A valid response arrived: the attempt succeeded and QSRC/CW reset (§10.23.2.2). With a
+   * BlockAck, only the MPDUs its bitmap marks leave the queue; each one it does not mark counts a
+   * retry and goes back to the head to be sent again (§10.25) — never the whole A-MPDU.
+   */
+  private succeedAttempt(ba?: BaInfo): void {
     const aw = this.awaiting!
     this.cancel('timeout')
     this.awaiting = null
     const t = this.now()
     const e = this.edcafs[aw.ac]
     this.resetQsrc(e)
+    const failed: Msdu[] = []
     for (const m of aw.msdus) {
+      if (ba !== undefined && (m.seqNo === undefined || !ba.acked.includes(m.seqNo))) {
+        failed.push(m)
+        continue
+      }
       this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(aw.ac), ac: this.acTag(e) })
       this.hooks.onDequeue?.(m.id, true)
+    }
+    if (failed.length) {
+      this.emitRetry(e, failed, 0)
+      this.failMsdus(e, aw.ac, failed)
     }
     this.continueOrRelease(e)
   }
@@ -1306,6 +1433,7 @@ export class WifiMac implements PhyListener {
     if (this.navUntil > t) {
       this.navUntil = 0
       this.navSetBy = null
+      this.txopHolder = null
       this.navFromRtsAt = null
       this.cancel('nav')
       this.emit({ t, type: 'NAV_CLEAR', node: this.nodeId })
@@ -1359,7 +1487,7 @@ export class WifiMac implements PhyListener {
     }
   }
 
-  onRxOk(t: Ns, frame: FrameDesc, from: string): void {
+  onRxOk(t: Ns, frame: FrameDesc, from: string, mpduOk?: boolean[]): void {
     this.corruptLast = false
     // onRxStart held our ACK/CTS timeout for this reception (§10.3.2.9). An AMP
     // frame is never the response we awaited, so the attempt must be failed
@@ -1394,7 +1522,7 @@ export class WifiMac implements PhyListener {
       return
     }
     if (frame.dst === this.nodeId || myPart) {
-      this.handleOwnFrame(t, frame, from, myPart)
+      this.handleOwnFrame(t, frame, from, myPart, mpduOk)
     } else {
       this.updateNav(t, frame, from)
     }
@@ -1417,48 +1545,85 @@ export class WifiMac implements PhyListener {
     if (this.awaiting !== null) this.failAttempt()
   }
 
-  private noteDelivered(id: number): boolean {
-    if (this.delivered.has(id)) return false
-    this.delivered.add(id)
-    this.deliveredOrder.push(id)
-    if (this.deliveredOrder.length > 512) this.delivered.delete(this.deliveredOrder.shift()!)
-    return true
+  /**
+   * Receive the MPDUs of a data frame addressed to this station: keep each one whose FCS passed
+   * (`mpduOk`, absent = all), discard duplicates by <TA, TID, SN> and the Retry bit
+   * (§10.3.2.14.3), hand the rest up, and return the sequence numbers received — duplicates
+   * included, since a recipient acknowledges a duplicate it discards (§10.3.2.14.3 NOTE).
+   */
+  private receiveMpdus(t: Ns, from: string, qos: boolean, ac: number | undefined, ids: number[], hdrs: MpduHdr[] | undefined, mpduOk?: boolean[]): number[] {
+    const tid = qos ? TID_FOR_AC[Math.max(0, Math.min(3, ac ?? 1))] : null
+    const got: number[] = []
+    ids.forEach((id, i) => {
+      if (mpduOk !== undefined && mpduOk[i] !== true) return
+      const h = hdrs?.[i]
+      if (h === undefined) {
+        // A frame built without per-MPDU headers (none of the engine's own paths): no SN to judge.
+        this.hooks.onMsduDelivered?.(id, t, from)
+        return
+      }
+      got.push(h.sn)
+      if (!this.queues.rxDuplicate(from, tid, h.sn, h.retry)) this.hooks.onMsduDelivered?.(id, t, from)
+    })
+    return got
   }
 
-  private handleOwnFrame(t: Ns, frame: FrameDesc, from: string, myPart?: MuPart): void {
+  /**
+   * The Duration of a control response (§9.2.5.6, and §9.2.5.7 for a frame in an HE TB PPDU): the
+   * eliciting frame's Duration less the time from the end of its PPDU to the end of this one, and
+   * 0 if that comes out negative (§9.2.5.1).
+   */
+  private respDuration(eliciting: FrameDesc, respTimeNs: Ns): Ns {
+    return Math.max(0, eliciting.durationFieldNs - this.T.sifsNs - respTimeNs)
+  }
+
+  private handleOwnFrame(t: Ns, frame: FrameDesc, from: string, myPart?: MuPart, mpduOk?: boolean[]): void {
     switch (frame.kind) {
       case 'data': {
         if (myPart) {
-          // DL MU part addressed to me: deliver + BA on my RU (simultaneous group).
-          for (const id of myPart.msduIds) {
-            if (this.noteDelivered(id)) this.hooks.onMsduDelivered?.(id, t)
-          }
+          // DL MU part addressed to me: keep what arrived, then answer only if solicited.
+          const got = this.receiveMpdus(t, from, true, myPart.ac ?? frame.ac, myPart.msduIds, myPart.mpdus, mpduOk)
+          // §10.3.2.13.2: the immediate response follows the scheduling in the TRS Control
+          // subfield (or a Basic Trigger frame); without one the STA does not respond.
+          const trs = myPart.trs
+          if (trs === undefined || got.length === 0) break
+          const mode = frame.mode ?? 'he'
+          const gi = TGI_NS.double
+          const ndbps = PHY_MODES[mode].ndbps[trs.mcs] * toneRatio(mode, frame.widthMhz ?? 20) * trs.ruFraction
+          const durNs = preambleNsFor(mode, gi) + trs.ulDataSymbols * symNsFor(mode, gi) + this.T.signalExtNs
+          const apep = AMPDU_DELIMITER_BYTES + BA_BYTES
+          // NOTE 1 of §26.5.2.3.4: a STA answering a TRS Control subfield treats physical and
+          // virtual carrier sense as idle, so the answer goes out whatever the NAV says.
           this.scheduleResponse(t, {
-            kind: 'ba', src: this.nodeId, dst: from, bytes: BA_BYTES, mbps: 24,
-            durationFieldNs: 0, txTimeNs: this.airNs(BA_BYTES, 24), orthogonalGroup: frame.orthogonalGroup,
-            muKind: frame.muKind,
+            kind: 'ba', src: this.nodeId, dst: from,
+            bytes: Math.max(apep, Math.floor((trs.ulDataSymbols * ndbps - 16 - 6) / 8)), apepBytes: apep,
+            mbps: mcsRateMbps(mode, trs.mcs, gi), mode, mcs: trs.mcs, widthMhz: frame.widthMhz, giNs: gi,
+            durationFieldNs: this.respDuration(frame, durNs), txTimeNs: durNs,
+            orthogonalGroup: frame.orthogonalGroup,
+            ru: { fraction: trs.ruFraction, partIdx: trs.partIdx },
+            ba: { ssn: Math.min(...(myPart.mpdus ?? []).map((h) => h.sn)), acked: got },
           })
           break
         }
+        const ids = frame.ampdu?.msduIds ?? (frame.msduId !== undefined ? [frame.msduId] : [])
+        const hdrs = frame.mpdus ?? (frame.seqNo !== undefined ? [{ sn: frame.seqNo, retry: frame.retryFlag === true }] : undefined)
+        const qos = frame.qos === true
         // UL MU TB data at the AP: group-acked via M-BA, no immediate response.
         if (frame.orthogonalGroup && this.muState?.kind === 'ul' && frame.orthogonalGroup === this.muState.gid) {
-          const ids = frame.ampdu?.msduIds ?? (frame.msduId !== undefined ? [frame.msduId] : [])
-          for (const id of ids) {
-            if (this.noteDelivered(id)) this.hooks.onMsduDelivered?.(id, t)
-          }
+          const got = this.receiveMpdus(t, from, true, frame.ac, ids, hdrs, mpduOk)
           this.muState.received.set(from, frame)
+          this.muState.acked.set(from, got)
           break
         }
-        const ids = frame.ampdu?.msduIds ?? (frame.msduId !== undefined ? [frame.msduId] : [])
-        for (const id of ids) {
-          if (this.noteDelivered(id)) this.hooks.onMsduDelivered?.(id, t)
-        }
+        const got = this.receiveMpdus(t, from, qos, frame.ac, ids, hdrs, mpduOk)
         const isBa = frame.ampdu !== undefined
         const rate = ctrlRespRateForMode(frame.mode ?? 'nonht', frame.mcs ?? 0, frame.mbps)
         const respBytes = isBa ? BA_BYTES : ACK_BYTES
+        const respTime = this.airNs(respBytes, rate)
         this.scheduleResponse(t, {
           kind: isBa ? 'ba' : 'ack', src: this.nodeId, dst: from, bytes: respBytes,
-          mbps: rate, durationFieldNs: 0, txTimeNs: this.airNs(respBytes, rate),
+          mbps: rate, durationFieldNs: this.respDuration(frame, respTime), txTimeNs: respTime,
+          ...(isBa ? { ba: { ssn: Math.min(...(hdrs ?? []).map((h) => h.sn)), acked: got } } : {}),
         })
         break
       }
@@ -1472,23 +1637,20 @@ export class WifiMac implements PhyListener {
       }
       case 'mba': {
         if (!this.staMuAwait) break
-        const listed = frame.muParts?.some((p) => p.dst === this.nodeId) === true
+        const mine = frame.muParts?.find((p) => p.dst === this.nodeId)
         const st = this.staMuAwait
         this.staMuAwait = null
         this.q.cancel(st.timeoutHandle)
-        this.closeTbPpdu(st, listed)
+        this.closeTbPpdu(st, mine?.ba?.acked ?? (mine ? null : []))
         break
       }
       case 'ba':
       case 'ack': {
         if (this.muState?.kind === 'dl' && frame.orthogonalGroup === this.muState.gid) {
           const mu = this.muState
-          mu.successes.add(from)
+          mu.successes.set(from, frame.ba ?? { ssn: 0, acked: [] })
           // Every user has answered: the exchange is resolved now, at the end
-          // of the simultaneous BlockAcks — not 45 µs later when the response
-          // timeout would have expired. Waiting left the TXOP holder idle for
-          // SIFS + AckTimeout after each DL MU PPDU, long enough for any
-          // station's AIFS to elapse and intrude on the burst.
+          // of the TB PPDUs — not a response timeout later.
           if (mu.successes.size === mu.parts.length) {
             this.q.cancel(mu.resolveHandle)
             mu.resolveHandle = 0
@@ -1497,22 +1659,23 @@ export class WifiMac implements PhyListener {
           break
         }
         if (this.awaiting && (this.awaiting.kind === 'ack' || this.awaiting.kind === 'ba')) {
-          // Whole-PPDU decode model: reaching here means everything in this
-          // exchange was acknowledged (no per-subframe bitmap to partially
-          // fail on), so a single-user ack/ba is always a full success.
+          // A valid response arrived, so the attempt succeeded (§10.23.2.2). A BlockAck's bitmap
+          // may still leave MPDUs unacknowledged: those are the only ones sent again.
           this.cfg.onTxOutcome?.(this.awaiting.peer, true)
-          this.succeedAttempt()
+          this.succeedAttempt(frame.kind === 'ba' ? frame.ba : undefined)
         }
         break
       }
       case 'rts': {
-        // §10.3.2.9: respond with CTS only if NAV indicates idle.
-        if (this.now() < this.navUntil) break
+        // §10.3.2.9: respond with CTS only if the NAV indicates idle — the NAV count is 0, or the
+        // RTS comes from the saved TXOP holder address (§10.23.2.4), whose own reservation the
+        // NAV is.
+        if (this.now() < this.navUntil && this.txopHolder !== from) break
         const ctsRate = ctrlRespRateFor(frame.mbps)
         const ctsTime = this.airNs(CTS_BYTES, ctsRate)
         this.scheduleResponse(t, {
           kind: 'cts', src: this.nodeId, dst: from, bytes: CTS_BYTES, mbps: ctsRate,
-          durationFieldNs: Math.max(0, frame.durationFieldNs - this.T.sifsNs - ctsTime),
+          durationFieldNs: this.respDuration(frame, ctsTime),
           txTimeNs: ctsTime,
         })
         break
@@ -1535,10 +1698,10 @@ export class WifiMac implements PhyListener {
             const nss = this.cfg.nssForPeer(aw.peer)
             // Same reasoning as in `transmitFor`: this one reaches `FrameDesc.mbps`.
             const mbps = mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base)
-            const aggregate = aw.aggregate
-            const respTime = this.airNs(aggregate ? BA_BYTES : ACK_BYTES, ctrlRespRateForMode(mode, mcs, mbps))
-            const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, aw.aggBytes, mode, mcs, mbps, aggregate, respTime, width, nss)
-            this.awaiting = { ...aw, kind: aggregate ? 'ba' : 'ack', wasRts: false }
+            const plan = psduPlan(aw.msdus.map((m) => m.bytes), { qos: this.qosWith(aw.peer), ampdu: this.canAggregate(aw.peer), mode })
+            const respTime = this.airNs(plan.respBytes, ctrlRespRateForMode(mode, mcs, mbps))
+            const frame2 = this.buildDataFrame(e, aw.peer, aw.msdus, plan, mode, mcs, mbps, respTime, width, nss)
+            this.awaiting = { ...aw, kind: plan.aggregate ? 'ba' : 'ack', wasRts: false }
             this.transmitFrame(frame2, true)
           })
         }
@@ -1582,14 +1745,23 @@ export class WifiMac implements PhyListener {
         this.resumeAll()
         return
       }
-      const bytes = psduPlan(msdus.map((m) => m.bytes), { mu: true }).psduBytes
+      const apep = psduPlan(msdus.map((m) => m.bytes), { mu: true }).psduBytes
+      const mpdus = this.mpduHdrs(trigger.src, e.params.ac, msdus)
+      // §9.2.5.7: a frame in an HE TB PPDU carries the eliciting frame's Duration less SIFS and
+      // the TB PPDU's own duration.
       const frame: FrameDesc = {
-        kind: 'data', src: this.nodeId, dst: trigger.src, bytes, mbps: mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base),
-        durationFieldNs: 0, txTimeNs: dur, // padded to the trigger's target duration
-        seqNo: (this.assignSeq(trigger.src, ac, msdus), msdus[0].seqNo), mode, mcs, widthMhz: width, ac: this.acTag(e),
+        kind: 'data', src: this.nodeId, dst: trigger.src,
+        // PSDU_LENGTH: the A-MPDU padded with EOF padding to the duration the Trigger set (§10.12.6).
+        bytes: Math.max(apep, maxPsduBytesFor(mode, mcs, frac, dur - this.T.signalExtNs, width, nss, this.cfg.giNs?.())),
+        apepBytes: apep,
+        mbps: mcsRateMbps(mode, mcs, this.frameGiNs(mode) ?? TGI_NS.base),
+        durationFieldNs: this.respDuration(trigger, dur), txTimeNs: dur, // padded to the trigger's target duration
+        seqNo: mpdus[0].sn, mode, mcs, widthMhz: width, ac: this.acTag(e),
         giNs: this.frameGiNs(mode),
-        retryFlag: msdus.some((m) => m.sent),
+        retryFlag: mpdus.some((h) => h.retry),
+        qos: true,
         msduBytes: msdus.map((m) => m.bytes),
+        mpdus,
         ampdu: { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) },
         orthogonalGroup: trigger.orthogonalGroup,
         // The resource unit this answer occupies, carried on the answer itself: `widthMhz`
@@ -1609,7 +1781,7 @@ export class WifiMac implements PhyListener {
           const st = this.staMuAwait
           if (!st) return
           this.staMuAwait = null
-          this.closeTbPpdu(st, false)
+          this.closeTbPpdu(st, [])
         }),
       }
       this.transmitFrame(frame, false)
@@ -1617,25 +1789,29 @@ export class WifiMac implements PhyListener {
   }
 
   /**
-   * After a TB PPDU: acknowledged MSDUs leave the queue, the others count a
-   * retry. 802.11ax §26.5.2.3: the EDCAF then resumes its backoff without
-   * changing CW or the backoff counter, acknowledged or not.
+   * After a TB PPDU: the MSDUs the Multi-STA BlockAck acknowledged leave the queue, the others
+   * count a retry and are sent again. `acked` lists the acknowledged sequence numbers; null means
+   * every MPDU (a Per AID TID Info field without a bitmap). 802.11ax §26.5.2.3 / §10.23.2.2: the
+   * EDCAF then resumes its backoff without changing CW or the backoff counter, acknowledged or not.
    */
-  private closeTbPpdu(st: StaMuAwait, acked: boolean): void {
+  private closeTbPpdu(st: StaMuAwait, acked: number[] | null): void {
     const t = this.now()
     const e = this.edcafs[st.ac]
-    if (acked) {
-      for (const m of st.msdus) {
+    const failed: Msdu[] = []
+    for (const m of st.msdus) {
+      if (acked === null || (m.seqNo !== undefined && acked.includes(m.seqNo))) {
         this.emit({ t, type: 'DEQUEUE', node: this.nodeId, msduId: m.id, depth: this.queues.depth(st.ac), ac: this.acTag(e) })
         this.hooks.onDequeue?.(m.id, true)
+      } else {
+        failed.push(m)
       }
-    } else {
-      this.emitRetry(e, st.msdus, e.qsrc)
-      this.failMsdus(e, st.ac, st.msdus)
+    }
+    if (failed.length) {
+      this.emitRetry(e, failed, e.qsrc)
+      this.failMsdus(e, st.ac, failed)
     }
     this.resumeAll()
   }
-
   private scheduleResponse(t: Ns, resp: FrameDesc): void {
     // Inside an AMP round the AP owns the medium and its radio is committed to
     // the round's own SIFS schedule (the next slot's Ack): a Wi-Fi frame that
@@ -1674,6 +1850,8 @@ export class WifiMac implements PhyListener {
     if (until <= this.navUntil || frame.durationFieldNs <= 0) return
     this.navUntil = until
     this.navSetBy = from
+    // §10.23.2.4: the TXOP holder address is Address 2 of the frame, or Address 1 of a CTS.
+    this.txopHolder = frame.kind === 'cts' ? frame.dst : from
     this.emit({ t, type: 'NAV_SET', node: this.nodeId, untilNs: until, source: `${frame.kind}:${from}` })
     this.cancel('nav')
     this.navClearHandle = this.q.schedule(until, () => this.onNavClear())
@@ -1696,6 +1874,7 @@ export class WifiMac implements PhyListener {
         if (this.navFromRtsAt === setAt && this.lastRxStartNs <= setAt && this.navUntil > this.now()) {
           this.navUntil = 0
           this.navSetBy = null
+          this.txopHolder = null
           this.emit({ t: this.now(), type: 'NAV_CLEAR', node: this.nodeId })
           this.cancel('nav')
           this.navFromRtsAt = null
@@ -1714,6 +1893,7 @@ export class WifiMac implements PhyListener {
     const t = this.now()
     this.navUntil = 0
     this.navSetBy = null
+    this.txopHolder = null
     this.navFromRtsAt = null
     this.emit({ t, type: 'NAV_CLEAR', node: this.nodeId })
     if (!this.ch.isCcaBusy(this.nodeId) && !this.inExchange()) {

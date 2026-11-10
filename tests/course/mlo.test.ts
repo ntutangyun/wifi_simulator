@@ -105,7 +105,10 @@ describe('mlo · the lesson', () => {
 
   it('② is not all faithful, and names the engine’s own choice of link as a choice', () => {
     const kinds = new Set(mlo.implementation!.map((r) => r.kind))
-    for (const k of ['faithful', 'choice', 'value', 'differs', 'absent'] as const) expect(kinds.has(k), k).toBe(true)
+    // 2026-11-11 (W7a): the one `differs` row, 「序号空间」, is faithful now — sequence numbers are
+    // counted per <Address 1, TID> (§10.3.2.14.2, Table 10-5) — so no row of this lesson differs
+    for (const k of ['faithful', 'choice', 'value', 'absent'] as const) expect(kinds.has(k), k).toBe(true)
+    expect(kinds.has('differs')).toBe(false)
     expect(implRow('选哪一条链路').kind).toBe('choice')
     expect(implRow('选哪一条链路').standard).toBe('标准未规定')
   })
@@ -160,11 +163,16 @@ describe('mlo · ② says what the engine does, and the engine does it', () => {
     }
   })
 
-  it('the sequence counter is the device’s, per receiver and access category — not per TID', () => {
-    expect(implRow('序号空间').kind).toBe('differs')
+  it('the sequence counter is the device’s, per <Address 1, TID>', () => {
+    // 2026-11-11 (W7a): Table 10-5's SNS2 — one counter per <Address 1, TID> for QoS Data, and the
+    // single baseline counter (SNS1) for non-QoS Data; before, the engine counted per access category
+    expect(implRow('序号空间').kind).toBe('faithful')
+    expect(implRow('序号空间').sim).toContain('〈Address 1，TID〉')
     const q = new AcQueues()
-    expect([q.nextSeq('ap', 1), q.nextSeq('ap', 1), q.nextSeq('ap', 1)]).toEqual([0, 1, 2])
-    expect(q.nextSeq('ap', 2)).toBe(0)
+    expect([q.nextSeq('ap', 0), q.nextSeq('ap', 0), q.nextSeq('ap', 0)]).toEqual([0, 1, 2])
+    expect(q.nextSeq('ap', 3)).toBe(0)
+    expect(q.nextSeq('sta-2', 0)).toBe(0)
+    expect([q.nextSeq('ap', null), q.nextSeq('sta-2', null)]).toEqual([0, 1])
     const seqs = [...data(rs, 'sta-1'), ...data(rs, 'sta-1#6g')].filter((r) => r.frame.ac === 1).map((r) => r.frame.seqNo)
     expect(new Set(seqs).size).toBe(seqs.length)
     // 「本课的数据帧都属于尽力而为一类」
@@ -247,7 +255,9 @@ describe('mlo · ③ every figure the labs print is the run', () => {
     expect(r2).not.toBeNull()
     expect(Number(r2[1])).toBe(ids.length)
     expect([Number(r2[2]), Number(r2[3])]).toEqual([ids[0], ids[ids.length - 1]])
-    same(r2[4], batch.frame.bytes, 'the batch’s bytes')
+    // 2026-11-11 (W7a): the printed octets are the A-MPDU before EOF padding, APEP_LENGTH (§10.12.6) —
+    // what the duration is computed from; frame.bytes is now PSDU_LENGTH, padded to the last symbol
+    same(r2[4], batch.frame.apepBytes!, 'the batch’s bytes')
     expect(Number(r2[5])).toBe(batch.frame.mcs)
     // row 3: 「5 GHz 的退避计数还剩 2，即还要再空闲两个时隙」 (the old 「只晚了 88 µs」 was the
     // arrival-to-burst gap, not how far behind the 5 GHz countdown was, and is gone)

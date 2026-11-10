@@ -17,8 +17,10 @@
  * **One instrument, stated once and used by every drop rate below**: `fadingScenario(...)`, a
  * single saturated uplink, 1000 ms, seeds 7 / 11 / 23 / 101 / 999; the denominator is `sta-1`'s
  * `TX_START` records whose frame `kind` is `data`, the numerator is the `RX_FAIL` records at
- * `ap` whose `from` is `sta-1`. Throughput is delivered PSDU octets — `RX_OK.frame.bytes`, which
- * is 1530 to the MSDU's 1500 — over the run length.
+ * `ap` whose `from` is `sta-1`. Throughput is delivered MPDU octets — 1530 to the MSDU's 1500 —
+ * over the run length. (2026-11-11, W7a: an EHT PSDU is always an A-MPDU, §10.12.5, so the one
+ * MPDU is an S-MPDU, §10.12.7, and `RX_OK.frame.bytes` is now PSDU_LENGTH, padded to the last
+ * symbol, §10.12.6. The MPDU is the pre-EOF length `apepBytes` less the 4-octet delimiter.)
  *
  * **The run length is 1000 ms and not the 150 ms of `lesson-hashes.test.ts`, and that is a
  * measured requirement rather than caution.** The slow layer's coherence time is 100 ms, so a
@@ -72,7 +74,7 @@ function rates(recs: TLRecord[]): { sent: number; failed: number; dropPct: numbe
   const failed = ofType(recs, 'RX_FAIL').filter((r) => r.node === 'ap' && r.from === 'sta-1').length
   const bytes = ofType(recs, 'RX_OK')
     .filter((r) => r.node === 'ap' && r.from === 'sta-1' && r.frame.kind === 'data')
-    .reduce((n, r) => n + r.frame.bytes, 0)
+    .reduce((n, r) => n + (r.frame.smpdu ? r.frame.apepBytes! - 4 : r.frame.bytes), 0)
   return { sent, failed, dropPct: (100 * failed) / sent, mbps: (bytes * 8) / (RUN_NS / 1000) }
 }
 
@@ -119,7 +121,9 @@ describe('fading · the scene is `selectivity`’s geometry with the frequency a
    * second ruler. Four configurations, hash for hash.
    */
   it('matches `selectivityScenario(20)` minus its `selectivity` section, hash for hash', () => {
-    const expected = ['310a660', 'bb43aa57', 'eddfc731', '63a71c47']
+    // 2026-11-11 (W7a): the three faded configurations re-hashed (S-MPDU APEP, Ack Duration per
+    // §9.2.5.6, receive-side MSDU hand-off); the unfaded one did not move
+    const expected = ['310a660', 'ee4e06c6', '780bf13a', '152c996d']
     const cfgs = [undefined, SHADOW4, RAYLEIGH, RICIAN]
     cfgs.forEach((f, i) => {
       const stripped = { ...selectivityScenario(20) } as Scenario & { selectivity?: unknown }
@@ -171,33 +175,33 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
     expect([...mcs]).toEqual([3])
   })
 
-  it('Rayleigh drops 1.11 % to 4.73 %, Rician K = 6 dB drops 9.98 % to 12.09 %', () => {
+  it('Rayleigh drops 1.12 % to 4.78 %, Rician K = 6 dB drops 9.99 % to 12.04 %', () => {
     // Two decimals, exactly, because that is what the lesson prints and because the engine is
     // deterministic: `toBeCloseTo(x, 1)` stood here and admitted anything within 0.05, which is
     // half an order of magnitude looser than the figure it was guarding. A tolerance is for a
     // quantity that can wobble; a seeded run cannot. Measured: 1.1125 / 4.7348 / 9.9814 / 12.0893
     // — and 4.7348 sat 0.0048 from 4.73, so even a two-decimal `toBeCloseTo` would have been one
-    // rounding away from brittle.
+    // rounding away from brittle. Re-measured 2026-11-11 after W7a: 1.1222 / 4.7801 / 9.9875 / 12.0399.
     const to2 = (x: number): number => Number(x.toFixed(2))
-    expect(to2(Math.min(...ray.map((r) => r.dropPct)))).toBe(1.11)
-    expect(to2(Math.max(...ray.map((r) => r.dropPct)))).toBe(4.73)
-    expect(to2(Math.min(...ric.map((r) => r.dropPct)))).toBe(9.98)
-    expect(to2(Math.max(...ric.map((r) => r.dropPct)))).toBe(12.09)
+    expect(to2(Math.min(...ray.map((r) => r.dropPct)))).toBe(1.12)
+    expect(to2(Math.max(...ray.map((r) => r.dropPct)))).toBe(4.78)
+    expect(to2(Math.min(...ric.map((r) => r.dropPct)))).toBe(9.99)
+    expect(to2(Math.max(...ric.map((r) => r.dropPct)))).toBe(12.04)
   })
 
   it('THE GATE: every Rician seed is strictly above every Rayleigh seed', () => {
-    // The criterion as stated at the top of this file. 2.5x at the tightest pair
-    // (9.98 against 4.73) and 10.9x at the widest (12.09 against 1.11).
+    // The criterion as stated at the top of this file. 2.1x at the tightest pair
+    // (9.99 against 4.78) and 10.7x at the widest (12.04 against 1.12).
     expect(Math.min(...ric.map((r) => r.dropPct))).toBeGreaterThan(Math.max(...ray.map((r) => r.dropPct)))
-    expect(Math.min(...ric.map((r) => r.dropPct)) / Math.max(...ray.map((r) => r.dropPct))).toBeCloseTo(2.11, 1)
+    expect(Math.min(...ric.map((r) => r.dropPct)) / Math.max(...ray.map((r) => r.dropPct))).toBeCloseTo(2.09, 1)
   })
 
   it('and the gentler channel is also the faster one, which is why both columns are printed', () => {
     // 「drops more yet goes faster」 needs two columns to be sayable at all.
     expect(mean(off.map((r) => r.mbps))).toBeCloseTo(21.47, 1)
-    expect(mean(ray.map((r) => r.mbps))).toBeCloseTo(9.58, 1)
-    expect(mean(ric.map((r) => r.mbps))).toBeCloseTo(17.07, 1)
-    expect(mean(ric.map((r) => r.mbps)) / mean(ray.map((r) => r.mbps))).toBeCloseTo(1.78, 1)
+    expect(mean(ray.map((r) => r.mbps))).toBeCloseTo(9.50, 1)
+    expect(mean(ric.map((r) => r.mbps))).toBeCloseTo(16.97, 1)
+    expect(mean(ric.map((r) => r.mbps)) / mean(ray.map((r) => r.mbps))).toBeCloseTo(1.79, 1)
   })
 
   it('the mechanism: Rayleigh is parked at the bottom rung, Rician sits at the top one', () => {
@@ -209,25 +213,25 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
       }
       return out
     }
-    // seed 7, 1000 ms, this scene. Rayleigh uses all four rungs and spends 345 of 848 frames on
+    // seed 7, 1000 ms, this scene. Rayleigh uses all four rungs and spends 341 of 844 frames on
     // the lowest, where the margin is ten-odd dB and nothing fails. Rician never reaches the
-    // lowest at all and spends 1090 of 1600 frames on the highest, whose margin is 3.62 dB.
-    expect(rungs(RAYLEIGH)).toEqual({ 0: 345, 1: 313, 2: 139, 3: 51 })
-    expect(rungs(RICIAN)).toEqual({ 1: 40, 2: 470, 3: 1090 })
+    // lowest at all and spends 1086 of 1591 frames on the highest, whose margin is 3.62 dB.
+    expect(rungs(RAYLEIGH)).toEqual({ 0: 341, 1: 313, 2: 139, 3: 51 })
+    expect(rungs(RICIAN)).toEqual({ 1: 40, 2: 465, 3: 1086 })
     const airtime = (f: FadingCfg | undefined): number => {
       const tx = ofType(run(scene(f)).recs, 'TX_START').filter((r) => r.node === 'sta-1' && r.frame.kind === 'data')
       return tx.reduce((n, r) => n + r.frame.txTimeNs, 0) / tx.length / 1000
     }
     expect(airtime(undefined)).toBeCloseTo(415, 0)
-    expect(airtime(RAYLEIGH)).toBeCloseTo(995, 0)
-    expect(airtime(RICIAN)).toBeCloseTo(456, 0)
+    expect(airtime(RAYLEIGH)).toBeCloseTo(1001, 0)
+    expect(airtime(RICIAN)).toBeCloseTo(460, 0)
   })
 
   it('and the denominator moves, which is why no failure COUNT is printed', () => {
-    // 1748–1760 frames unfaded against 809–1056 under Rayleigh: the counts are not comparable
+    // 1748–1760 frames unfaded against 802–1046 under Rayleigh: the counts are not comparable
     // between configurations, only the rates are. Slice 4a's lesson, inherited.
-    expect(Math.min(...ray.map((r) => r.sent))).toBe(809)
-    expect(Math.max(...ray.map((r) => r.sent))).toBe(1056)
+    expect(Math.min(...ray.map((r) => r.sent))).toBe(802)
+    expect(Math.max(...ray.map((r) => r.sent))).toBe(1046)
     const text = JSON.stringify([fading.standard, fading.implementation, fading.labs])
     for (const n of ['845', '848 条', '条失败']) expect(text).not.toContain(n)
   })
@@ -237,7 +241,7 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
     // carry a drop-rate claim. Its own showing is the clustering below, not a rate.
     const sh = perSeed(SHADOW4).map((r) => r.dropPct)
     expect(sh.filter((v) => v === 0).length).toBe(2)
-    expect(Math.max(...sh)).toBeCloseTo(6.76, 1)
+    expect(Math.max(...sh)).toBeCloseTo(6.73, 1)
   })
 })
 
@@ -253,10 +257,10 @@ describe('fading · coherence time is the width of the clump, and 150 ms cannot 
   }
 
   it('spreads at 10 ms, pairs at 50 ms and clumps into two windows at 100 ms', () => {
-    expect(windows(10)).toEqual([6, 8, 15, 1, 0, 4, 4, 0, 8, 4])
+    expect(windows(10)).toEqual([6, 8, 14, 0, 0, 4, 4, 0, 8, 4])
     expect(windows(10).filter((v) => v > 0).length).toBeGreaterThanOrEqual(6)
-    expect(windows(50)).toEqual([0, 0, 0, 13, 13, 0, 0, 0, 13, 12])
-    expect(windows(100)).toEqual([0, 0, 0, 0, 0, 0, 0, 26, 24, 0])
+    expect(windows(50)).toEqual([0, 0, 0, 12, 12, 0, 0, 0, 12, 12])
+    expect(windows(100)).toEqual([0, 0, 0, 0, 0, 0, 0, 24, 24, 0])
     expect(windows(100).filter((v) => v > 0).length).toBeLessThanOrEqual(3)
   })
 
@@ -692,7 +696,7 @@ describe('fading · ③ every figure the labs print is the run', () => {
       .map((r) => r.meanSinrDb - r.threshDb).sort((a, b) => a - b)
   }
 
-  it('lab 1: the shadow is +0.0 on every row, and 731 rows carry 731 different fast values', () => {
+  it('lab 1: the shadow is +0.0 on every row, and 728 rows carry 728 different fast values', () => {
     expect(fading.scenario()).toEqual(scene(RAYLEIGH))
     const rows = ofType(run(scene(RAYLEIGH)).recs, 'RX_START').filter((r) => r.node === 'ap' && r.from === 'sta-1')
     const e = lab('两层起伏在日志里').expect

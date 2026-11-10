@@ -256,7 +256,7 @@ export interface Strings {
     serverJitter: string; serverJitterHint: string; serverProcess: string; serverProcessHint: string
     traffic: string; txPower: string; height: string
     txopProt: string; txopProtHint: string
-    txopProtNames: Record<'single' | 'boundary' | 'multiple', string>
+    txopProtNames: Record<'single' | 'multiple', string>
     deleteNode: string; deleteRoom: string; apNoDelete: string; delete_: string
     wall: string; material: string; materialHint: string; removeOpenings: string
     room: string; openings: string
@@ -654,7 +654,9 @@ export interface Strings {
       forUser: (dst: string) => string
       subframes: (n: number) => string
       firstShown: string
-      subframeRow: (i: number, delim: number, mpdu: number, pad: number) => string
+      subframeRow: (i: number, delim: number, mpdu: number, pad: number, eof?: boolean) => string
+      /** The EOF padding of a VHT/HE/EHT A-MPDU (§10.12.6). */
+      eofPadRow: (finalPad: number, eofSubframes: number, eofOctets: number) => string
       name: Record<FieldKey, string>
       bit: Record<FcBitKey, string>
       role: Record<AddrRole, string>
@@ -1133,8 +1135,8 @@ export const STRINGS: Strings = {
     gameAccel: '🎮 游戏加速', gameAccelHint: '路由器游戏模式：把游戏流量标记进 AC_VI。关闭时游戏报文没有 DSCP 标记，和其他流量一样按尽力而为（AC_BE）竞争。',
     traffic: '业务', txPower: '发射功率', height: '高度',
     txopProt: 'TXOP 保护',
-    txopProtHint: '本节点持有多次交换的突发时如何预告：逐次交换的 Duration（单次）；用 RTS/CTS 把介质预约到 TXOP 结束、提前结束时以 CF-End 归还（边界）；或在此基础上让每个数据帧也携带 TXOP 剩余时间（多重）。',
-    txopProtNames: { single: '单次（逐次交换）', boundary: '边界（RTS/CTS 预约整个突发 + CF-End）', multiple: '多重（每帧携带剩余时间）' },
+    txopProtHint: '本节点作为 TXOP 持有者时使用的 Duration 设置类别（IEEE Std 802.11-2024 §9.2.5.2）：单次保护，每一帧预约到下一帧及其应答结束；多重保护，每一帧预约到 TXOP 结束，提前结束时以 CF-End 归还。',
+    txopProtNames: { single: '单次保护（预约到下一帧及其应答）', multiple: '多重保护（预约到 TXOP 结束）' },
     deleteNode: '🗑 删除节点', deleteRoom: '🗑 删除房间', delete_: '删除',
     apNoDelete: '只有当场景中不再有终端和 AMP 标签时才能删除 AP——纯 UWB 场景不需要 BSS',
     wall: '墙体', material: '材质', materialHint: '射频衰减：石膏板 5 dB · 砖墙 12 dB · 玻璃 3 dB（每次穿越）',
@@ -1599,10 +1601,11 @@ export const STRINGS: Strings = {
       forUser: (dst) => `发往 ${dst} 的 PSDU`,
       subframes: (n) => `A-MPDU：${n} 个子帧`,
       firstShown: '第一个 MPDU 的字段：',
-      subframeRow: (i, d, m, p) => `#${i + 1}：定界符 ${d} + MPDU ${m}${p ? ` + 填充 ${p}` : ''} B`,
+      subframeRow: (i, d, m, p, eof) => `#${i + 1}：定界符 ${d}（EOF ${eof ? 1 : 0} · MPDU 长度 ${m} · CRC-8 · 签名 0x4E）+ MPDU ${m}${p ? ` + 填充 ${p}` : ''} B`,
+      eofPadRow: (fp, n, o) => `EOF 填充：末子帧填充 ${fp} B + ${n} 个 EOF 填充子帧（每个 4 B）+ ${o} B 填充八位组`,
       name: {
         fc: '帧控制（Frame Control）', duration: '持续时间（Duration）', addr1: '地址 1', addr2: '地址 2', addr3: '地址 3',
-        seqCtl: '序列控制', qos: 'QoS 控制', body: '帧体（MSDU）', baControl: 'BA 控制',
+        seqCtl: '序列控制', qos: 'QoS 控制', htc: 'HT 控制（HE 变体，TRS 控制子字段）', body: '帧体（MSDU）', baControl: 'BA 控制',
         baInfo: 'BA 信息', commonInfo: '公共信息', userInfo: '用户信息列表', fcs: 'FCS 校验',
         ampId: 'ID（16 位 AMP 标识符）', ampTdc: '类型相关控制（TDC）', ampStaList: '终端 ID 列表',
         seqNo: '序列号', dstPan: '目的 PAN ID',

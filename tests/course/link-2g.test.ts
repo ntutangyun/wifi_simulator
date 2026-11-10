@@ -46,13 +46,24 @@ function recordsOf(shape: Shape, band: Band, seed: number, ms = RUN_MS): TLRecor
   return rs
 }
 
+/**
+ * MSDU payload octets one reception delivered: the MSDUs of the MPDUs received intact.
+ *
+ * 2026-11-11 (W7a): this used to be `frame.bytes − 28`, the PSDU less a 24-octet header and the
+ * FCS. `frame.bytes` of an HE PPDU is now PSDU_LENGTH — the A-MPDU with its EOF padding to the
+ * last symbol (§10.12.6) — and every HE PSDU is an A-MPDU (§10.12.5), so that subtraction no
+ * longer gives the payload. The payload is read from the MSDU sizes instead, MPDU by MPDU
+ * (`mpduOk`, absent when all were received).
+ */
+const payloadOf = (r: Extract<TLRecord, { type: 'RX_OK' }>): number =>
+  (r.frame.msduBytes ?? []).reduce((n, b, i) => n + (r.mpduOk?.[i] === false ? 0 : b), 0)
+
 /** Megabits of MSDU payload the access point took delivery of, per second. */
 function throughputMbps(shape: Shape, band: Band, seed: number, ms = RUN_MS): number {
   const ap = vid(band, 'ap')
   const bits = ofType(recordsOf(shape, band, seed, ms), 'RX_OK')
     .filter((r) => r.node === ap && r.frame.kind === 'data')
-    // the MSDU inside, not the PSDU: 24 octets of MAC header and 4 of FCS are not payload
-    .reduce((n, r) => n + (r.frame.bytes - 28) * 8, 0)
+    .reduce((n, r) => n + payloadOf(r) * 8, 0)
   return bits / (ms / 1000) / 1e6
 }
 
@@ -259,7 +270,10 @@ describe('link-2g · ③ every figure the labs print is the run', () => {
     }
     expect([...gaps], `${shape}/${band}`).toHaveLength(1)
     const difs = difsLens[1]; const data = dataLens[0]; const sifs = [...gaps][0]; const resp = respLens[0]
-    return { difs, data, sifs, resp, total: difs + data + sifs + resp, bytes: dataTx[0].frame.bytes, mcs: [...new Set(dataTx.map((r) => r.frame.mcs))] }
+    // 2026-11-11 (W7a): the octets the heading prints are the A-MPDU's pre-EOF length APEP_LENGTH,
+    // the length the PPDU's duration is computed from (§10.12.6); one MSDU is an S-MPDU (§10.12.7)
+    expect(new Set(dataTx.map((r) => r.frame.apepBytes)).size, `${shape}/${band}`).toBe(1)
+    return { difs, data, sifs, resp, total: difs + data + sifs + resp, bytes: dataTx[0].frame.apepBytes!, mcs: [...new Set(dataTx.map((r) => r.frame.mcs))] }
   }
 
   const checkTable = (t: Extract<Block, { kind: 'table' }>, shape: 'single' | 'burst') => {
@@ -332,7 +346,7 @@ describe('link-2g · ③ every figure the labs print is the run', () => {
       const reasons = new Set<string>()
       for (const s of seeds(10)) {
         for (const r of recordsOf('pair', band, s)) {
-          if (r.type === 'RX_OK' && r.node === vid(band, 'ap') && r.frame.kind === 'data') { ok += 1; bits += (r.frame.bytes - 28) * 8 }
+          if (r.type === 'RX_OK' && r.node === vid(band, 'ap') && r.frame.kind === 'data') { ok += 1; bits += payloadOf(r) * 8 }
           else if (r.type === 'COLLISION') coll += 1
           else if (r.type === 'IFS_START' && r.kind === 'EIFS') { eifs += 1; eifsLens.add(r.untilNs - r.t) }
           else if (r.type === 'RX_FAIL') reasons.add(r.reason)

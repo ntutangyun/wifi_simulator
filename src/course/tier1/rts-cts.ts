@@ -5,8 +5,8 @@
  * when it is used (§10.3.5, dot11RTSThreshold), the two frames and their Durations (§9.3.1.2,
  * §9.3.1.3), when the addressee answers and the CTSTimeout (§10.3.2.9), the bystanders' NAV and its
  * RTS reset (§10.3.2.4) and the rates (§10.6.6.2, §10.6.6.5.2); ② what this simulator does with
- * each — including the nanosecond Duration and the missing TXOP-holder exception on the CTS rule;
- * ③ three runs.
+ * each — including the nanosecond Duration; since W7a (2026-11-11) the CTS rule's TXOP-holder
+ * exception is implemented (§10.3.2.9, §10.23.2.4), so that row is faithful; ③ three runs.
  *
  * The scene is `hidden`'s, unchanged (`sameSceneAs: 'hidden'`). The base scene never sends an RTS,
  * so the one jump is the first collision, which the comparison lab starts from.
@@ -50,7 +50,7 @@ export const rtsCts: Lesson = {
   id: 'rts-cts',
   module: 4,
   title: 'RTS/CTS：由接收方代为预约信道',
-  why: '相互收不到信号的两台站点（station, STA）无法协调发送顺序，但房间里有一台设备能同时收到双方——走廊上的接入点（access point, AP）。IEEE Std 802.11-2024 为此规定了请求发送（request to send, RTS）与允许发送（clear to send, CTS）交换：发送长的数据帧（data frame）之前先发一个 20 字节的 RTS，接收方在一个短帧间间隔（short interframe space, SIFS）之后回复一个 14 字节的 CTS。两帧的 Duration 都覆盖其后的整个交换，收到其中任何一帧、而接收端地址（receiver address, RA）不是自己的站点，都据此设置网络分配向量（network allocation vector, NAV）。所以起作用的是 CTS：它从接收方发出，发送方收不到的站点也能收到。帧长超过 RTS 门限（RTS threshold）的帧才先发 RTS，门限由管理者设定。本仿真器照标准计算两帧的长度与 Duration；与标准不同的是 Duration 以纳秒计、不取整，接入点回复 CTS 时不考虑「NAV 由 RTS 发送方自己设置」的例外。本课的场景就是上一课的走廊户型：受保护的变体把门限设为 500 字节，每一帧都先发 RTS。碰撞并没有消失，大多变成两个 RTS 相撞，损失的是 20 字节而不是一整轮交换：300 ms 内涉及数据帧的碰撞从 126 次降到 7 次，送达的帧数从 45 增加到 329，代价是每个数据帧之前多一次 RTS/CTS 交换。',
+  why: '相互收不到信号的两台站点（station, STA）无法协调发送顺序，但房间里有一台设备能同时收到双方——走廊上的接入点（access point, AP）。IEEE Std 802.11-2024 为此规定了请求发送（request to send, RTS）与允许发送（clear to send, CTS）交换：发送长的数据帧（data frame）之前先发一个 20 字节的 RTS，接收方在一个短帧间间隔（short interframe space, SIFS）之后回复一个 14 字节的 CTS。两帧的 Duration 都覆盖其后的整个交换，收到其中任何一帧、而接收端地址（receiver address, RA）不是自己的站点，都据此设置网络分配向量（network allocation vector, NAV）。所以起作用的是 CTS：它从接收方发出，发送方收不到的站点也能收到。帧长超过 RTS 门限（RTS threshold）的帧才先发 RTS，门限由管理者设定。本仿真器照标准计算两帧的长度与 Duration，也照标准决定何时回复 CTS；与标准不同的是 Duration 以纳秒计、不取整。本课的场景就是上一课的走廊户型：受保护的变体把门限设为 500 字节，每一帧都先发 RTS。碰撞并没有消失，大多变成两个 RTS 相撞，损失的是 20 字节而不是一整轮交换：300 ms 内涉及数据帧的碰撞从 126 次降到 7 次，送达的帧数从 45 增加到 329，代价是每个数据帧之前多一次 RTS/CTS 交换。',
   outcomes: [
     '说出标准对 RTS、CTS 的长度、Duration 与使用条件规定了什么',
     '分清本仿真器的哪些做法照标准、哪些是它自己的取法或与标准不同',
@@ -85,7 +85,7 @@ export const rtsCts: Lesson = {
     { topic: 'RTS 的 Duration', standard: '待发的帧、CTS、确认帧与三个 SIFS 的时长（§9.3.1.2）', sim: '照此计算。', kind: 'faithful' },
     { topic: 'CTS 的 Duration', standard: 'RTS 的 Duration 减去一个 SIFS 与 CTS 自身（§9.3.1.3）', sim: '照此计算。', kind: 'faithful' },
     { topic: 'Duration 的单位与取整', standard: '以微秒为单位，向上取整（§9.3.1.2，§9.3.1.3）', sim: '本仿真器以纳秒整数记录，不取整，全场时钟一致，所以预约恰好在确认帧结束的那一纳秒到期。', kind: 'differs' },
-    { topic: '回复 CTS 的条件', standard: 'NAV 为 0，或 RTS 的发送端地址等于记录的传输机会持有者地址（§10.3.2.9）', sim: '只检查 NAV 是否为 0，不实现传输机会持有者的例外。本课场景里接入点是每一帧的接收方，从不设置 NAV，所以两者没有区别。', kind: 'differs' },
+    { topic: '回复 CTS 的条件', standard: 'NAV 为 0，或 RTS 的发送端地址等于记录的传输机会持有者地址（§10.3.2.9）', sim: '照此：NAV 为 0，或者 RTS 的发送端地址等于记录的传输机会持有者地址，就回复 CTS。本课场景里接入点是每一帧的接收方，从不设置 NAV，所以总是第一种情形。', kind: 'faithful' },
     { topic: 'CTS 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.9）', sim: '照此：45 µs。', kind: 'faithful' },
     { topic: '依据 RTS 的 NAV 复位', standard: '可以在 NAVTimeout 内没有开始接收时复位（§10.3.2.4）', sim: '照此实现，NAVTimeout 按标准的公式计算。本课场景里 RTS 只发给接入点，没有旁听站点收到 RTS，所以不出现这种复位。', kind: 'faithful' },
     { topic: 'RTS 的速率', standard: '基本速率集中的一个速率，空集时取强制速率之一（§10.6.6.2）', sim: '本仿真器没有基本速率集；RTS 取强制速率 6、12、24 Mb/s 中不高于数据帧速率的最高一档，所以随数据帧的速率变化。受保护的变体里 RTS 用过 24、12、6 Mb/s 三档，空口时间（airtime）分别是 28、36、52 µs。', kind: 'choice' },

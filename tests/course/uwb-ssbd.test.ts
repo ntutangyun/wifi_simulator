@@ -97,6 +97,17 @@ describe('uwb-ssbd · the lesson', () => {
     expect([rangesOf(), rangesOf(V_PER_BLOCK), rangesOf(V_BIGGEST)]).toEqual([0, 0, 0])
     expect(why).toContain('1.3 秒一个距离也没有')
     expect(why).toContain(`才得到 ${rangesOf(V_OFF)} 个距离`)
+    // 2026-11-11 (merge of W7a with W2b–W5): 8, where the UWB side printed 47. The router answers an
+    // A-MPDU it received in part with a BlockAck (IEEE Std 802.11-2024 §10.12, §10.3.2.13.2); that
+    // BlockAck, or its CTS, spoils the tag's narrowband receptions, so the tag computes no range of
+    // its own — the 8 are the anchors' — and no fix is solved.
+    const offRanges = ofType(recs(V_OFF), 'UWB_RANGE')
+    expect(offRanges.filter((r) => r.node === TAG)).toEqual([])
+    expect(why).toContain('全部由锚点（anchor）算出，手机自己一个也没有，也没有一次定位')
+    expect(fixesOf(V_OFF)).toBe(0)
+    const hitByAp = ofType(recs(V_OFF), 'UWB_INTERFERED')
+    expect(hitByAp.length).toBeGreaterThan(0)
+    expect(new Set(hitByAp.map((r) => r.node))).toEqual(new Set([TAG]))
     expect(Math.floor(SLACK_POLL / (NB_PHY_CCA_DURATION_US * US))).toBe(3)
     expect(why).toContain('三次感知都判忙之后窗口就用完了')
   })
@@ -161,6 +172,8 @@ describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
     })
     expect(nbTx(recs(V_PER_BLOCK))).toEqual([])
     expect(l.expect).toContain(`只有关闭先听后发测得 ${rangesOf(V_OFF)} 次`)
+    expect([undefined, V_PER_BLOCK, V_BIGGEST, V_OFF].map(fixesOf)).toEqual([0, 0, 0, 0])
+    expect(l.expect).toContain('都是锚点一侧算出的距离，四种设置都没有解算出定位')
   })
 
   it('lab 3: the first record, and how many CCAs the POLL’s window holds', () => {

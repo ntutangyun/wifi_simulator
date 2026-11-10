@@ -4,9 +4,8 @@
  * ① is IEEE Std 802.11-2024's architecture (STA, AP, BSS, BSSID, SSID, DS, ESS, the To DS /
  * From DS address table, intra-BSS distribution); ② marks this simulator against it; ③ reads the
  * 1000 ms run. Every figure the labs print is read back out of the lesson text and compared with
- * the run, the link table, `reqSinrDb` and the field view (`decodeFrame`) — including the one row
- * where the field view and Table 9-60 disagree, which is pinned here as the engine's present
- * behaviour so that fixing it turns this red and the lesson gets rewritten with it.
+ * the run, the link table, `reqSinrDb` and the field view (`decodeFrame`). The Address 3 row used to
+ * pin the field view's AP-for-everything; since W7a (2026-11-11) it pins Table 9-60 itself.
  *
  * The scene and the jump predicates are shared with `relay-hops`; the figure checks are the
  * ones that file and `tests/course/diagram.test.ts` make of every topology.
@@ -84,7 +83,7 @@ describe('roles-stack · the lesson', () => {
 
   it('marks what differs and what is absent', () => {
     expect(implRow('MAC 地址').kind).toBe('differs')
-    expect(implRow('上行帧的地址 3').kind).toBe('differs')
+    expect(implRow('上行帧的地址 3').kind).toBe('faithful')
     expect(implRow('信标、扫描、认证与关联').kind).toBe('absent')
     expect(implRow('隧道直连链路').kind).toBe('absent')
     expect(implRow('同一基本服务集内的转发').kind).toBe('faithful')
@@ -114,6 +113,21 @@ describe('roles-stack · ② says what the engine does, and the engine does it',
     expect(hop1.frame.dst).toBe('ap')
     expect(hop2.node).toBe('ap')
     expect(hop2.t).toBeGreaterThan(hop1.t)
+  })
+
+  // 2026-11-11 (W7a): Address 3 per Table 9-60 — the DA going up, the SA coming down, the AP when
+  // the payload starts or ends at the AP itself. This used to pin the AP on every frame.
+  it('Address 3 is the DA on the way up and the SA on the way down', () => {
+    const r = rs()
+    const a3 = (x: Tx) => decodeFrame(x.frame, { apId: 'ap', isEdca: true }).users[0].subframes[0].mpdu.fields.find((f) => f.key === 'addr3') as { node: string; roles: string[] }
+    const hop1 = r.find(firstRelayHop1) as Tx
+    const hop2 = r.find(firstRelayHop2) as Tx
+    expect([a3(hop1).node, a3(hop1).roles]).toEqual(['sta-3', ['DA']])
+    expect([a3(hop2).node, a3(hop2).roles]).toEqual(['sta-4', ['SA']])
+    const toTv = dataTx(r).find((x) => x.node === 'ap' && x.frame.dst === 'sta-2')!
+    expect([a3(toTv).node, a3(toTv).roles]).toEqual(['ap', ['SA']])
+    const fromLaptop = dataTx(r).find((x) => x.node === 'sta-1')!
+    expect([a3(fromLaptop).node, a3(fromLaptop).roles]).toEqual(['ap', ['DA']])
   })
 })
 
@@ -192,9 +206,10 @@ describe('roles-stack · ③ every figure the labs print is the run', () => {
     expect(rows[1][1]).toBe(cell('addr1'))
     expect(rows[2][1]).toBe(cell('addr2'))
     expect(rows[3][1]).toBe(cell('addr3'))
-    // the deviation ② names: Address 3 is the AP, not the phone the payload is for
-    expect(rows[3][1]).not.toContain('sta-3')
-    expect(rows[3][2]).toContain('手机 A')
+    // 2026-11-11 (W7a): Address 3 is the phone the payload is for, as Table 9-60 says (it used to be the AP)
+    expect(rows[3][1]).toBe('sta-3（DA）')
+    expect(rows[3][2]).toBe(`${NAME['sta-3']}（DA）`)
+    expect(rows[2][2]).toBe(NAME['sta-4'])
   })
 })
 

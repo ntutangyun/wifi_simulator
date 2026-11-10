@@ -151,12 +151,19 @@ describe('rts-cts · ② says what the engine does, and the engine does it', () 
     expect(checked).toBeGreaterThan(300)
   })
 
-  it('the access point answers only with its NAV clear, and never holds a NAV here', () => {
-    expect(implRow('回复 CTS 的条件').kind).toBe('differs')
+  // 2026-11-11 (W7a): this pinned a CTS rule without the TXOP-holder exception. It now pins
+  // §10.3.2.9: the NAV "indicates idle" when it is 0 or the RTS comes from the saved TXOP holder.
+  it('the access point answers with its NAV idle — zero, or set by the RTS sender itself — and never holds a NAV here', () => {
+    expect(implRow('回复 CTS 的条件').kind).toBe('faithful')
     expect(ofType(prot(), 'NAV_SET').some((r) => r.node === 'ap')).toBe(false)
     const mac = readFileSync(resolve(ROOT, 'src/engine/mac.ts'), 'utf8')
     const rtsCase = mac.slice(mac.indexOf("case 'rts': {"), mac.indexOf("case 'cts': {"))
-    expect(rtsCase).toContain('if (this.now() < this.navUntil) break')
+    expect(rtsCase).toContain('if (this.now() < this.navUntil && this.txopHolder !== from) break')
+    // every RTS of the protected run that reached the AP whole was answered a SIFS later
+    const rx = ofType(prot(), 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'rts')
+    const ctsAt = new Set(txs(prot(), (r) => r.frame.kind === 'cts').map((r) => r.t))
+    expect(rx.length).toBeGreaterThan(300)
+    for (const r of rx) expect(ctsAt.has(r.t + SIFS_NS), `RTS received @ ${r.t}`).toBe(true)
   })
 
   it('CTSTimeout is 45 µs after the RTS', () => {

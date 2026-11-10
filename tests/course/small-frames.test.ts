@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  smallFrames, burstSequence, BURST_MPDUS, BURST_BYTES, RTS_AT, BURST_AT, BA_AT,
+  smallFrames, burstSequence, BURST_MPDUS, BURST_APEP_BYTES, BURST_BYTES, RTS_AT, BURST_AT, BA_AT,
 } from '../../src/course/tier1/small-frames'
 import {
   frameAnatomyScenario, firstRtsFrame, firstAmpduFrame, firstBlockAck,
@@ -20,12 +20,12 @@ import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKi
 import { readerTexts } from '../../src/course/readability'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { decodeFrame } from '../../src/model/frameFields'
-import { ampduPsduBytes, ampduSubframeBytes } from '../../src/model/frames'
+import { ampduPsduBytes, ampduSubframeBytes, eofPadding } from '../../src/model/frames'
 import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CTS_BYTES, FCS_BYTES, MAX_AMPDU_MPDUS, MAX_PPDU_NS,
-  QOS_HDR_BYTES, RTS_BYTES, SIFS_NS, txTimeNs,
+  QOS_HDR_BYTES, RTS_BYTES, SIFS_NS, txTimeModeNs, txTimeNs,
 } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -136,18 +136,36 @@ describe('small-frames · ② says what the engine does, and the engine does it'
     expect(sf.at(-1)!.padBytes).toBe(0)
   })
 
-  it('no padding on a VHT A-MPDU\'s last subframe, and no EOF padding', () => {
-    expect(implRow('VHT 中最后一个子帧的填充').kind).toBe('differs')
+  // 2026-11-11 (W7a): this pinned an A-MPDU without the VHT final-subframe padding and EOF padding.
+  // It now pins §10.12.6: the airtime from APEP_LENGTH, then the padding up to PSDU_LENGTH.
+  it('a VHT A-MPDU is timed from APEP_LENGTH, then EOF-padded to fill its last symbol', () => {
+    expect(implRow('VHT 中最后一个子帧的填充').kind).toBe('faithful')
     expect(agg.frame.mode).toBe('vht')
-    expect(agg.frame.bytes).toBe(ampduPsduBytes(Array(BURST_MPDUS).fill(1500)))
+    expect(agg.frame.apepBytes).toBe(ampduPsduBytes(Array(BURST_MPDUS).fill(1500)))
+    expect(agg.frame.apepBytes).toBe(BURST_APEP_BYTES)
+    expect(agg.frame.bytes).toBe(BURST_BYTES)
+    const pad = decode(agg.frame).users[0].eofPad!
+    expect(pad).toEqual(eofPadding(agg.frame.apepBytes!, agg.frame.bytes))
+    expect(pad.finalPad + pad.eofSubframes * AMPDU_DELIMITER_BYTES + pad.eofOctets).toBe(agg.frame.bytes - agg.frame.apepBytes!)
+    expect(implRow('VHT 中最后一个子帧的填充').sim)
+      .toContain(`补 ${pad.finalPad} + ${pad.eofSubframes} × ${AMPDU_DELIMITER_BYTES} + ${pad.eofOctets} = ${agg.frame.bytes - agg.frame.apepBytes!} B`)
+    // the padding costs no airtime: one more octet of A-MPDU would need another symbol
+    expect(txTimeModeNs('vht', agg.frame.bytes, agg.frame.mcs!, { widthMhz: agg.frame.widthMhz })).toBe(agg.frame.txTimeNs)
+    expect(txTimeModeNs('vht', agg.frame.bytes + 1, agg.frame.mcs!, { widthMhz: agg.frame.widthMhz })).toBeGreaterThan(agg.frame.txTimeNs)
   })
 
-  it('the delimiter is a length, and the whole PSDU is one decision', () => {
+  // 2026-11-11 (W7a): this pinned one decision for the whole A-MPDU. It now pins §9.7.2 / §9.3.1.8.2:
+  // MPDU by MPDU, the bitmap reporting exactly the MPDUs received. The delimiter CRC stays counted only.
+  it('the delimiter CRC is counted, not computed; each MPDU is judged on its own and the bitmap says which', () => {
     expect(implRow('定界符的内容').kind).toBe('differs')
-    expect(implRow('逐帧校验与位图').kind).toBe('differs')
-    // the BlockAck of the run acknowledges every MPDU of the burst it answers
+    expect(implRow('逐帧校验与位图').kind).toBe('faithful')
+    const sf = decode(agg.frame).users[0].subframes
+    expect(sf.every((s) => s.delimiterBytes === AMPDU_DELIMITER_BYTES && s.eof === false)).toBe(true)
+    // the BlockAck of the run reports the burst's fourteen sequence numbers, and they leave the queue
+    expect(ba.frame.ba!.acked).toEqual(agg.frame.mpdus!.map((m) => m.sn))
     const acked = ofType(records, 'DEQUEUE').filter((r) => r.node === 'sta-3' && r.t === ba.t + ba.frame.txTimeNs)
     expect(acked).toHaveLength(BURST_MPDUS)
+    expect(implRow('逐帧校验与位图').sim).toContain(`标出了全部 ${ba.frame.ba!.acked.length} 帧`)
   })
 
   it('durations are §9.2.5.2 / §9.2.5.6, kept in nanoseconds', () => {
@@ -218,17 +236,21 @@ describe('small-frames · ③ every figure the labs print is the run', () => {
     const place = AMPDU_DELIMITER_BYTES + padded
     const last = AMPDU_DELIMITER_BYTES + m.bytes
     const n = agg.frame.ampdu!.mpduCount
+    const apep = agg.frame.apepBytes!
+    const pad = decode(agg.frame).users[0].eofPad!
     expect(rows.map((r) => r[1])).toEqual([
       `${QOS_HDR_BYTES} + ${body} + ${FCS_BYTES} = ${m.bytes} B`, `${padded} B`, `${place} B`,
-      `${n - 1} × ${place} + ${last} = ${grouped(agg.frame.bytes)} B`,
+      `${n - 1} × ${place} + ${last} = ${grouped(apep)} B`, `${grouped(agg.frame.bytes)} B`,
     ])
     expect(rows[2][0]).toContain(`${AMPDU_DELIMITER_BYTES} B`)
-    expect((n - 1) * place + last).toBe(agg.frame.bytes)
+    expect(rows[4][0]).toBe(`EOF 填充：最后一个子帧补 ${pad.finalPad} B，再加 ${pad.eofSubframes} 个 ${AMPDU_DELIMITER_BYTES} B 的 EOF 填充子帧与 ${pad.eofOctets} B`)
+    expect((n - 1) * place + last).toBe(apep)
+    expect(apep + pad.finalPad + pad.eofSubframes * AMPDU_DELIMITER_BYTES + pad.eofOctets).toBe(agg.frame.bytes)
     expect(agg.frame.bytes).toBe(BURST_BYTES)
     expect(n).toBe(BURST_MPDUS)
     expect(sf).toHaveLength(n)
     const ex = lab('十四帧怎样排在一个前导码后面').expect
-    expect(ex).toBe(`整串 ${grouped(agg.frame.bytes)} B，以 VHT 的调制与编码方式（modulation and coding scheme, MCS）${agg.frame.mcs} 发送，空口时间 ${agg.frame.txTimeNs / US} µs；路由器以一个 ${ba.frame.bytes} B 的 BlockAck 确认全部 ${n} 帧。`)
+    expect(ex).toBe(`EOF 填充之前整串 ${grouped(apep)} B，空口时间按它计算：以 VHT 的调制与编码方式（modulation and coding scheme, MCS）${agg.frame.mcs} 发送，${agg.frame.txTimeNs / US} µs；EOF 填充把最后一个符号补满，PSDU 共 ${grouped(agg.frame.bytes)} B，不多占时间。路由器以一个 ${ba.frame.bytes} B 的 BlockAck 确认全部 ${n} 帧。`)
     expect(agg.frame.mode).toBe('vht')
   })
 
@@ -252,7 +274,11 @@ describe('small-frames · ③ every figure the labs print is the run', () => {
     expect(q.options[1]).toContain(`最多 ${saved} µs`)
     expect(q.options[0]).toContain(`${ack.frame.txTimeNs / US / 2} µs`)
     expect(q.explain).toContain(`${ACK_BYTES} B 在 ${ack.frame.mbps} Mb/s 下需要两个符号，7 B 只需要一个，节省的就是那一个 ${saved} µs 的符号`)
-    expect(smallFrames.quiz[0].explain).toContain(`${grouped(agg.frame.bytes)} B`)
+    expect(smallFrames.quiz[0].explain).toContain(`EOF 填充之前就有 ${grouped(agg.frame.apepBytes!)} B`)
+    // the quiz's answer is the one row ② still marks as differing from the standard
+    const q3 = smallFrames.quiz[2]
+    expect(q3.options[q3.answer]).toContain('CRC 只计入长度')
+    expect(implRow('定界符的内容').kind).toBe('differs')
   })
 })
 
@@ -270,7 +296,10 @@ describe('small-frames · every figure the lesson prints is one this file measur
       '2', '6', '4', '8', String(ACK_BYTES), String(RTS_BYTES), String(BA_BYTES), '64', '1', '14', '16', '0', '3',
       // the run's four frames
       ...[rts, cts, agg, ba].flatMap((f) => [(f.t / MS).toFixed(3), String(f.frame.txTimeNs / US), String(f.frame.durationFieldNs / US)]),
-      ...grouped(agg.frame.bytes).split(' '), String(SIFS_NS / US), String((rts.frame.txTimeNs + cts.frame.txTimeNs) / US),
+      ...grouped(agg.frame.bytes).split(' '), ...grouped(agg.frame.apepBytes!).split(' '),
+      String(SIFS_NS / US), String((rts.frame.txTimeNs + cts.frame.txTimeNs) / US),
+      // the EOF padding of the first burst: final pad, EOF subframes, octets, and their sum
+      ...(() => { const p = decode(agg.frame).users[0].eofPad!; return [p.finalPad, p.eofSubframes, p.eofOctets, agg.frame.bytes - agg.frame.apepBytes!].map(String) })(),
       // the subframe arithmetic
       String(QOS_HDR_BYTES), '1500', '1530', '1532', '1536', '1534', '13', String(agg.frame.mcs),
       // lab 3's threshold and burst; the scene's threshold

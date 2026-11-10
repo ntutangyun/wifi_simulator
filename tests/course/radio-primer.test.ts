@@ -171,7 +171,10 @@ describe('radio-primer · ③ every figure the labs print is the run', () => {
       expect(off).toBe(d > 5.5 ? `${pathLossDb(d).toFixed(1)} + ${WALL_LOSS_DB.brick}` : pathLossDb(d).toFixed(1))
       expect(rssi).toBe(dbmCell(upDbm(s)))
       const f = firstData(runOf(radioPrimer, i, RUN_NS))
-      expect(f.frame.bytes).toBe(1530)
+      // 2026-11-11 (W7a): the 1530-octet MPDU goes out as an S-MPDU (§10.12.5, §10.12.7) behind a
+      // 4-octet delimiter; APEP_LENGTH (§10.12.6) is 1534.
+      expect(f.frame.smpdu).toBe(true)
+      expect(f.frame.apepBytes).toBe(1530 + 4)
       expect(rate).toBe(`${f.frame.mbps.toFixed(1)} Mb/s`)
     })
     const drop = upDbm(radioPrimer.variants![0].scenario()) - upDbm(radioPrimer.variants![3].scenario())

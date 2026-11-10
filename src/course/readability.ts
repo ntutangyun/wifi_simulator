@@ -689,11 +689,9 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   // modes, single and multiple, and those two are the rows below.
   //
   // `边界保护（boundary protection）` was a third row until 2026-11-11, under a comment calling it
-  // a §9.2.5.2 name. It is not one: the standard has single and multiple protection only, and the
-  // "boundary" policy is this simulator's own (the first frame protects to the end of the TXOP,
-  // the rest only to their own ACK). `@txop-protect`'s ② row 「「边界」策略」 now says exactly
-  // that — 「没有「边界保护（boundary protection）」这一类」 — and tests/course/txop-protect.test.ts
-  // pins the sentence; a glossary row would have kept teaching it as a standard term.
+  // a §9.2.5.2 name. It is not one: the standard has single and multiple protection only. The
+  // engine's "boundary" policy that the row described was removed the same day (W7a), and no
+  // lesson names it any more; a glossary row would have kept teaching it as a standard term.
 
   { zh: '单次保护', en: 'single protection' },
   { zh: '多重保护', en: 'multiple protection' },

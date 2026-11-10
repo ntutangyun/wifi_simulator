@@ -75,6 +75,7 @@ structure. you're going to change the content anyway」——引擎改了，课�
 - [x] 34 门 UWB 课全部改成新结构（① 标准 → ② 本仿真器怎么实现 → ③ 动手仿真）。依赖 W3–W6 的课，② 里把尚未改正的引擎行为标为「与标准不同」
 - [ ] 第三阶段（Wi-Fi 与 AMP 课程）
 - [x] W2b（除一对多窄带 POLL 长度外，见 `docs/superpowers/specs/2026-11-11-w2b-design.md`）
+- [x] W7a Wi-Fi MAC 帧、确认与保护：见姊妹计划 `docs/superpowers/plans/2026-11-11-wifi-standard-alignment.md`
 
 ## 改课时新发现的引擎偏差（W2b，待改）
 

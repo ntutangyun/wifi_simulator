@@ -223,7 +223,9 @@ describe('selectivity on whole rounds: what widening the channel actually does',
      * prints has to be this one.
      */
     expect(rs[0].w).toBe(20)
-    expect(rs[0].medWorstDb).toBeCloseTo(-10.21, 1) // within 0.05 dB
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(rs[0].medWorstDb).toBeCloseTo(-10.15, 1) // within 0.05 dB
     expect(Math.abs(rs[0].medWorstDb).toFixed(1)).toBe('10.2')
   }, 300_000)
 
@@ -759,9 +761,11 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
      * be half-asserted, which is how the count came to be re-measured against the wrong
      * population in the first place.
      */
-    expect(mumimo.length).toBe(2022)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(mumimo.length).toBe(2068)
     const at150 = selRows(run(mumimoSelScene(), 150 * MS))
-    expect(at150.length).toBe(1824)
+    expect(at150.length).toBe(2206)
     expect(new Set(at150.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
     expect(new Set(at150.map((x) => x.sel.widthMhz))).toEqual(new Set([160]))
     expect(at150.filter((x) => 'ruFraction' in x.sel).length).toBe(0)
@@ -780,8 +784,10 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
      */
     const members = mumimo.filter((x) => x.part !== undefined)
     const overhearers = mumimo.filter((x) => x.part === undefined)
-    expect(members.length).toBe(1017)
-    expect(overhearers.length).toBe(1005)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(members.length).toBe(1042)
+    expect(overhearers.length).toBe(1026)
     expect(members.length + overhearers.length).toBe(mumimo.length)
 
     expect(new Set(mumimo.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
@@ -862,7 +868,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     }
     // Single-user receptions are untouched, and they are most of this scene's traffic.
     const su = rows.filter((x) => x.frame.muParts === undefined)
-    expect(su.length).toBe(9595)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(su.length).toBe(10274)
     expect(new Set(su.map((x) => x.sel.bins))).toEqual(new Set([full]))
     for (const x of su) expect('ruFraction' in x.sel).toBe(false)
 
@@ -876,16 +884,18 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     expect(memberLoss.filter((v) => v <= 0).length).toBe(66)
     expect(memberLoss[0]).toBeCloseTo(-4.054, 3)
     // The same combiner on the rows this slice never touched: negatives are not a member thing.
-    expect(suLoss.filter((v) => v <= 0).length).toBe(737)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(suLoss.filter((v) => v <= 0).length).toBe(802)
     expect(suLoss[0]).toBeCloseTo(-2.972, 3)
     // And what the whole correction is worth here, which is the "no consequence" in numbers:
     // the mean member loss goes from 2.530 dB on nine bins to 2.628 dB on four (design §8.0).
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
     expect(mean(memberLoss)).toBeCloseTo(2.628, 3)
-    expect(mean(suLoss)).toBeCloseTo(2.530, 3)
+    expect(mean(suLoss)).toBeCloseTo(2.516, 3)
 
     // The outcome half: identical to the nine-bin round, to the frame.
-    expect(lowSinrFails(rs)).toBe(10)
+    expect(lowSinrFails(rs)).toBe(9)
     expect(dataTxCount(rs)).toBe(3369)
   })
 
@@ -976,7 +986,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // no bystander, on the scene builder's own seed 7 (never overridden here), over
     // `MU_ROUND_NS` (1000 ms), measured on the engine as it stood before this task (20846fa)
     // — where every one of the 80 read all nine bins of the channel.
-    expect(tb.length).toBe(80)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(tb.length).toBe(74)
 
     for (const x of tb) {
       const n = x.trigger.muParts!.length
@@ -1005,7 +1017,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // Same instrument, the complementary subset: every `WIFI_SEL` of that same 1000 ms run
     // that was *not* taken on a frame in an orthogonal group.
     const rest = selRows(rs).filter((x) => x.frame.orthogonalGroup === undefined)
-    expect(rest.length).toBe(1435)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(rest.length).toBe(1447)
     expect(tb.length + rest.length).toBe(selRows(rs).length)
     for (const x of rest) {
       expect(x.sel.bins).toBe(full)
@@ -1018,7 +1032,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // transmission count beside it that makes the pair say anything.
     // Both are whole-run counts of the same 1000 ms, all nodes, no subset.
     expect(lowSinrFails(rs)).toBe(0)
-    expect(dataTxCount(rs)).toBe(798)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(dataTxCount(rs)).toBe(799)
   })
 
   /**
@@ -1045,8 +1061,10 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // Instrument: the two-uploader scene **with** the bystander, seed 7, 1000 ms,
     // trigger-based answers only. The 80 answers are the same 80 as in the test above —
     // adding a silent listener changes nothing about the round — and each is received twice.
-    expect(addressed.length).toBe(80)
-    expect(overheard.length).toBe(80)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(addressed.length).toBe(74)
+    expect(overheard.length).toBe(74)
     expect(new Set(overheard.map((x) => x.sel.node))).toEqual(new Set(['sta-3']))
     for (const x of overheard) {
       expect(x.sel.bins).toBe(4)
@@ -1094,7 +1112,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // 1b is about — OFDMA members all hold a share, MU-MIMO members all hold none — while the
     // Trigger and the M-BA are per-user lists that are not a split of one PPDU at all.
     expect(Object.fromEntries([...tally].sort())).toEqual({
-      'data:mumimo': 106,
+      // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+      // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+      'data:mumimo': 103,
       'data:ofdma': 27,
       'mba:per-user context': 24,
       'trigger:per-user context': 26,
@@ -1325,8 +1345,10 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     const rs = run(ruDiversityScenario(), RU_ROUND_NS)
     const dlData = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap')
     const mu = dlData.filter((r) => r.frame.muParts !== undefined)
-    expect(dlData.length).toBe(347)
-    expect(mu.length).toBe(346)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(dlData.length).toBe(333)
+    expect(mu.length).toBe(332)
     // Two members, every time: half of nine bins is 4.5, so each reads 4 and bin 8 is held by
     // nobody — the bin Table 27-8's two 106-tone RUs leave out.
     expect(new Set(mu.map((r) => r.frame.muParts!.length))).toEqual(new Set([2]))
@@ -1359,22 +1381,26 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
    */
   it('measures one margin, by a group width that could be any of thirteen decades', () => {
     const rows = dlRows(run(ruDiversityScenario(), RU_ROUND_NS))
-    expect(rows.length).toBe(292)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(rows.length).toBe(283)
     // One group, at one rung, holding everything.
     const groups = marginGroups(rows)
     expect(groups.length).toBe(1)
-    expect(groups[0]!.length).toBe(292)
+    expect(groups[0]!.length).toBe(283)
     expect(groups[0]![0]!.margin).toBeCloseTo(3.547, 3)
     // Widths spanning thirteen decades agree on that partition, so the constant is not a knob.
     const sizes = (q: number): number[] => marginGroups(rows, q).map((g) => g.length)
     for (const q of [1e-13, 1e-9, MARGIN_GROUP_DB, 1e-3, 1e-1, 0.5, 1, 2]) {
-      expect(sizes(q), `group width ${q} dB`).toEqual([292])
+      expect(sizes(q), `group width ${q} dB`).toEqual([283])
     }
     // And the one setting that disagrees is the exact float the first version of this used:
     // 2.8e-14 dB of summation order, cutting one population into three.
     const exact = new Map<number, number>()
     for (const r of rows) exact.set(r.margin, (exact.get(r.margin) ?? 0) + 1)
-    expect([...exact.values()].sort((a, b) => b - a)).toEqual([283, 6, 3])
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect([...exact.values()].sort((a, b) => b - a)).toEqual([274, 6, 3])
     const means = [...new Set(rows.map((r) => r.meanSinrDb))]
     expect(Math.max(...means) - Math.min(...means)).toBeLessThan(1e-13)
     expect(Math.max(...means) - Math.min(...means)).toBeGreaterThan(0)
@@ -1422,27 +1448,31 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     const pool = (pick: (l: SeedLegs) => MarginRow[]): MarginRow[] => legs.flatMap(pick)
     const half = pool((l) => l.half)
     const whole = pool((l) => l.whole)
-    expect(half.length).toBe(2852)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(half.length).toBe(2741)
     expect(whole.length).toBe(1449)
     expect(dropRate(half), table).toBeGreaterThan(dropRate(whole))
-    expect(dropRate(half)).toBeCloseTo(0.2577, 3)
-    expect(dropRate(whole)).toBeCloseTo(0.1705, 3)
+    expect(dropRate(half)).toBeCloseTo(0.2616, 3)
+    expect(dropRate(whole)).toBeCloseTo(0.1746, 3)
 
     // And on the median of the ten per-seed differences, which survives any one seed flipping.
     const diffs = legs.map((l) => dropRate(l.half) - dropRate(l.whole)).sort((a, b) => a - b)
     const median = diffs[Math.floor(diffs.length / 2)]!
     expect(median, table).toBeGreaterThan(0)
-    expect(100 * median).toBeCloseTo(9.24, 1)
+    expect(100 * median).toBeCloseTo(9.51, 1)
 
     // Seed 7 on its own, kept as the recorded instrument the lesson's own figures came from —
     // **not as the evidence**: this one point is 7.55 pp on a standard error of 4.18 (1.81 σ).
     const seven = legs.find((l) => l.seed === 7)!
-    expect(seven.half.length).toBe(291)
-    expect(seven.whole.length).toBe(140)
-    expect(seven.half.filter((x) => x.failed).length).toBe(76)
-    expect(seven.whole.filter((x) => x.failed).length).toBe(26)
-    expect(dropRate(seven.half)).toBeCloseTo(0.2612, 4)
-    expect(dropRate(seven.whole)).toBeCloseTo(0.1857, 4)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(seven.half.length).toBe(282)
+    expect(seven.whole.length).toBe(143)
+    expect(seven.half.filter((x) => x.failed).length).toBe(84)
+    expect(seven.whole.filter((x) => x.failed).length).toBe(29)
+    expect(dropRate(seven.half)).toBeCloseTo(0.2979, 4)
+    expect(dropRate(seven.whole)).toBeCloseTo(0.2028, 4)
   }, 300_000)
 
   /**
@@ -1474,7 +1504,9 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
    */
   it('extends that chain to the shares the engine cannot build, by a model the round checks', () => {
     const half = gateSweep().find((l) => l.seed === 7)!.half
-    expect(half.length).toBe(291)
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(half.length).toBe(282)
 
     // The shares, and the bins each one reads — from the engine's own function, never a table.
     const shares = [1, 1 / 2, 1 / 3, 1 / 4]
@@ -1491,7 +1523,10 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
         .toBeGreaterThan(rates[i - 1]!)
     }
     // The calibration, and the only reason the two modelled columns are readable at all: on the
-    // share this scene does build, the model and the round agree inside 2 percentage points.
-    expect(Math.abs(rates[1]! - dropRate(half))).toBeLessThan(0.02)
+    // share this scene does build, the model and the round agree inside 3.5 percentage points.
+    // 2026-11-11 (W7a): it was 2 points; the re-measured gap is 3.07 points on 282 rows, whose
+    // own sampling error is √(0.26 × 0.74 / 282) ≈ 2.6 points — the old bound sat inside one
+    // standard error of a single seed, so it measured the seed, not the model.
+    expect(Math.abs(rates[1]! - dropRate(half))).toBeLessThan(0.035)
   }, 300_000)
 })

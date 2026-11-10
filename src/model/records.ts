@@ -58,7 +58,8 @@ export type TLRecord = { t: Ns; seq: number } & (
    * two scenes that already turn fading on.
    */
   | { type: 'RX_START'; node: string; from: string; frame: FrameDesc; shadowDb?: number; fastDb?: number }
-  | { type: 'RX_OK'; node: string; from: string; frame: FrameDesc }
+  /** `mpduOk`: an A-MPDU received in part — each MPDU's FCS outcome, in order (absent: all received). */
+  | { type: 'RX_OK'; node: string; from: string; frame: FrameDesc; mpduOk?: boolean[] }
   | { type: 'RX_FAIL'; node: string; from: string | null; reason: RxFailReason }
   /** A preamble at or above −82 dBm that could not be detected (SINR below 4 dB): no reception, no EIFS. */
   | { type: 'RX_MISS'; node: string; from: string; reason: 'preambleSinr'; frame: FrameDesc }

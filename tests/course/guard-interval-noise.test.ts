@@ -196,7 +196,9 @@ describe('guard-interval noise gate · (iv) no pooled figure reaches these two l
    *  4. **`17.07` already lives in `src/course/tier2/fading.ts`, twice — as `17.07 Mb/s`**, a
    *     throughput in that lesson's Rician table, beside the quadruple tier's per-PPDU minimum
    *     of **+17.07 %**. This one is not in the design's list of reasons; it was found by
-   *     running the sweep over all of `src/` before narrowing it.
+   *     running the sweep over all of `src/` before narrowing it. Since 2026-11-11 (W7a) the
+   *     re-measured Rician table no longer prints 17.07, so this one is no longer a live site
+   *     either; two remain (reasons 1 and 2).
    *
    * So: widen this scope and it goes red on four innocent sites, and the tempting repair — an
    * exception list — is how the guard would die.
@@ -236,7 +238,8 @@ describe('guard-interval noise gate · (iv) no pooled figure reaches these two l
     expect(anchored('4.70').test(at('course/tier2/ru-diversity.ts'))).toBe(true)
     // `1.22` is no longer in uwb-slot-budget.ts (see reason 3); pinned absent so the list stays honest.
     expect(anchored('1.22').test(at('course/uwb/uwb-slot-budget.ts'))).toBe(false)
-    expect(anchored('17.07').test(at('course/tier2/fading.ts'))).toBe(true)
+    // `17.07` is no longer in fading.ts (see reason 4); pinned absent so the list stays honest.
+    expect(anchored('17.07').test(at('course/tier2/fading.ts'))).toBe(false)
     // `5.14` is reason 1: `width.ts` is entitled to it once Task 8 lands, and it must never be
     // judged by the number. The assertion is about the SCOPE, not about whether it is there yet.
     expect(SCOPE.some((r) => r.includes('width'))).toBe(false)

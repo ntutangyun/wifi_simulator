@@ -1744,7 +1744,13 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const biggest = Math.floor(pollSlackUs / BF)
     const maxFit = ranges(lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest }))
     // 2026-11-11 (W5): every access method runs the POLL's window out on the router's channel.
-    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 47, perBlock: 0, defaults: 0, maxFit: 0 })
+    // 2026-11-11 (merge with W7a): off is 8, not 47 — the router answers an A-MPDU it received in
+    // part with a BlockAck (IEEE Std 802.11-2024 §10.12, §10.3.2.13.2), and that BlockAck or its CTS
+    // spoils the tag's narrowband receptions; the 8 ranges are all the anchors'.
+    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 8, perBlock: 0, defaults: 0, maxFit: 0 })
+    const offRecs = lesson('noLbt', null)
+    expect(offRecs.filter((r) => r.type === 'UWB_RANGE' && r.node === 'uwb-1')).toEqual([])
+    expect(section).toContain('而且都由锚点算出，手机自己一个也没有')
     for (const n of [off, perBlock, defaults, maxFit]) expect(section).toContain(String(n))
     expect(section).toContain('三种做信道接入的设置都一次也没有测成')
   })

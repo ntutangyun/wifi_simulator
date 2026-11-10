@@ -21,7 +21,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { decodeFrame, TID_FOR_AC, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import type { RxFailReason, TLRecord } from '../../src/model/records'
-import { EDCA_PARAMS, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, SIFS_NS } from '../../src/engine/phy'
+import { AMPDU_DELIMITER_BYTES, EDCA_PARAMS, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES, SIFS_NS } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -149,7 +149,11 @@ describe('frame-qos-fcs · ② says what the engine does, and the engine does it
     expect(implRow('QoS 控制字段的出现').kind).toBe('faithful')
     for (const r of txs.filter((x) => x.frame.kind === 'data' && !x.frame.ampdu)) {
       const m = firstMpdu(r.frame)
-      expect(hdrBytes(m) + field(m, 'body')!.bytes + FCS_BYTES).toBe(r.frame.bytes)
+      // 2026-11-11 (W7a): on an HE link the lone MPDU is an S-MPDU (§10.12.7) — `frame.bytes` is then
+      // the PSDU after EOF padding (§10.12.6) and the MPDU is APEP_LENGTH less the 4-octet delimiter.
+      const mpdu = r.frame.smpdu ? r.frame.apepBytes! - AMPDU_DELIMITER_BYTES : r.frame.bytes
+      expect(hdrBytes(m) + field(m, 'body')!.bytes + FCS_BYTES).toBe(mpdu)
+      expect(m.bytes).toBe(mpdu)
       expect(m.subtypeName).toBe(field(m, 'qos') ? 'QoS Data' : 'Data')
     }
     expect(implRow('QoS 控制字段的出现').sim).toContain(`${QOS_HDR_BYTES} B`)

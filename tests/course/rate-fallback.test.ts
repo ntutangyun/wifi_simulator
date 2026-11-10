@@ -5,7 +5,7 @@
  * (§10.6.1), only the receiver's supported set (§10.6.5.8), the failure test (§10.3.2.11,
  * §10.23.2.2), retransmission (§10.23.2.12) and an optional MCS feedback (§26.13). ② says what
  * the engine does, and this file checks each row against the run: the two-down/ten-up rule
- * reproduces every one of the far station's 3,003 attempts, the timeout is 45 µs, no frame is
+ * reproduces every one of the far station's 2,779 attempts, the timeout is 45 µs, no frame is
  * dropped, every freeze resumes at its value, and nothing ever collides at the router.
  *
  * Every figure the labs print is read back out of the lesson text and compared with the same
@@ -51,8 +51,8 @@ const timeouts = ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2')
 /**
  * When an attempt of the far station's failed: a RETRY (or a DROP, of which this run has none)
  * for it, between the end of that attempt and the start of the next one. This is the signal the
- * rate controller itself acts on, and deliberately NOT the ACK-timeout window: 254 of the 337
- * failures end in an ACK timeout record, the other 83 are declared at the end of a reception that
+ * rate controller itself acts on, and deliberately NOT the ACK-timeout window: 244 of the 325
+ * failures end in an ACK timeout record, the other 81 are declared at the end of a reception that
  * was already under way when the answer came due (§10.3.2.11's second branch).
  */
 const retryTs = ofType(rs, 'RETRY').filter((r) => r.node === 'sta-2').map((r) => r.t)
@@ -168,8 +168,8 @@ describe('rate-fallback · the lesson', () => {
 })
 
 describe('rate-fallback · ② says what the engine does, and the engine does it', () => {
-  it('速率选择算法: the rule reproduces the run attempt for attempt, all 3,003 of them', () => {
-    expect(far.length).toBe(3_003)
+  it('速率选择算法: the rule reproduces the run attempt for attempt, all 2,779 of them', () => {
+    expect(far.length).toBe(2_779)
     let rung = CEILING, fails = 0, succ = 0
     for (let i = 0; i < far.length; i++) {
       expect(far[i].frame.mcs, `attempt ${i} at t=${far[i].t}`).toBe(rung)
@@ -240,21 +240,27 @@ describe('rate-fallback · ② says what the engine does, and the engine does it
 })
 
 describe('rate-fallback · ③ every figure the labs print is the run', () => {
-  it('lab 1: the first two failures in a row, the step down and the ten-frame climb', () => {
+  it('lab 1: the first two failures in a row, the step down, one loss on the climb and the ten-frame climb', () => {
     const l = lab('一次跌落与回升')
-    const [a, b, down, was, now, upAt] = grab(l.expect,
-      /第 (\d+) 与第 (\d+) 次尝试连续没有答复，第 (\d+) 次以 MCS 1 发送，每帧从 ([\d.]+) µs 变为 ([\d.]+) µs；此后十帧全部收到答复，第 (\d+) 次回到 MCS 2/,
+    const [a, b, down, was, now, again, upAt] = grab(l.expect,
+      /第 (\d+) 与第 (\d+) 次尝试连续没有答复，第 (\d+) 次以 MCS 1 发送，每帧从 ([\d.]+) µs 变为 ([\d.]+) µs；回升途中第 (\d+) 次又没有答复，成功计数清零，此后十帧全部收到答复，第 (\d+) 次回到 MCS 2/,
       'lab 1 「你应该看到」').map(val)
     // counting from one
     expect([a, b]).toEqual([pair, pair + 1])
     expect(lostAt[a - 1] && lostAt[b - 1]).toBe(true)
+    expect(down).toBe(pair + 2)
     expect(far[down - 1].frame.mcs).toBe(CEILING - 1)
     expect(was).toBe(far[pair - 1].frame.txTimeNs / 1000)
     expect(now).toBe(far[pair + 1].frame.txTimeNs / 1000)
     const back = far.findIndex((r, i) => i > pair && r.frame.mcs === CEILING)
     expect(upAt).toBe(back + 1)
-    expect(back - (pair + 1)).toBe(UP_AFTER)
-    expect(lostAt.slice(pair + 1, back).filter(Boolean)).toHaveLength(0)
+    // 2026-11-11 (W7a re-measure): this run's first climb is interrupted by exactly one lone loss,
+    // which clears the success count; the ten successes the rule asks for follow it
+    const climbLosses = far.map((_r, i) => i).filter((i) => i > pair && i < back && lostAt[i])
+    expect(climbLosses).toEqual([again - 1])
+    expect(far[again - 1].frame.mcs).toBe(CEILING - 1)
+    expect(back - again).toBe(UP_AFTER)
+    expect(l.meaning).toContain(`用了${['', '', '', '', '', '', '', '', '', '', '十', '十一', '十二', '十三', '十四', '十五'][back - (pair + 1)]}帧`)
     // 「单独丢一帧时，下一帧的级别不变」
     const lone = far.map((_r, i) => i).filter((i) => lostAt[i] && !lostAt[i - 1] && !lostAt[i + 1] && i + 1 < far.length)
     expect(lone.length).toBeGreaterThan(50)
@@ -297,24 +303,40 @@ describe('rate-fallback · ③ every figure the labs print is the run', () => {
     expect(failures).toBe(far.filter((_, i) => lostAt[i]).length)
     const [p2, p1, p0] = grab(lab('三秒内的失败率与跌落').expect, /失败率是 ([\d.]+)%、([\d.]+)% 与 ([\d.]+)%/, 'lab 2 on the three rates').map(val)
     expect([p2, p1, p0]).toEqual([perRung(2).pct, perRung(1).pct, perRung(0).pct])
-    expect(Math.max(p2, p1, p0) - Math.min(p2, p1, p0)).toBeLessThan(1)
-    expect(p0).toBeLessThanOrEqual(p1)
+    // 2026-11-11 (W7a re-measure): the three rates are no longer within a point of each other
+    // (11.3, 11.8, 14.6 %). The lesson's claim is now that the spread is sampling noise: every
+    // rung's rate lies within 1.5 binomial standard deviations of the pooled rate, and the
+    // bottom rung — the one that differs most — has the fewest attempts.
+    const e = lab('三秒内的失败率与跌落').expect
+    const lost = far.filter((_, i) => lostAt[i]).length
+    const pooled = lost / far.length
+    const sd = (n: number): number => Math.sqrt(pooled * (1 - pooled) / n)
+    for (const m of [0, 1, 2]) {
+      const r = perRung(m)
+      expect(Math.abs(r.c / r.n - pooled) / sd(r.n), `MCS ${m}`).toBeLessThan(1.5)
+    }
+    const [n0, sdPts, p0again, pooledPts] = grab(e, /但它只有 (\d+) 次尝试：按二项分布，这么多次尝试的失败率标准差约 ([\d.]+) 个百分点，([\d.]+)% 与三秒内的总失败率 ([\d.]+)% 相差不到 1.5 个标准差/, 'lab 2 on the spread').map(val)
+    expect(n0).toBe(perRung(0).n)
+    expect(sdPts).toBe(round1(sd(perRung(0).n) * 100))
+    expect(p0again).toBe(perRung(0).pct)
+    expect(pooledPts).toBe(pct(lost, far.length))
+    expect(Math.min(perRung(0).n, perRung(1).n, perRung(2).n)).toBe(perRung(0).n)
   })
 
-  it('lab 2: 25 excursions, six of them to the bottom rung, and how long each lasts', () => {
+  it('lab 2: 29 excursions, nine of them to the bottom rung, and how long each lasts', () => {
     const t = tableOf(lab('三秒内的失败率与跌落'), '同样这三秒内，以低于上限的级别发送的情况')
     const row = (needle: string): string => t.rows.find((r) => r[0].includes(needle))![1]
     const bottom = runsAt(0)
     expect(val(row('降到上限以下的次数'))).toBe(excursions())
     expect(val(row('其中一直降到最低一级的'))).toBe(bottom.length)
-    expect(row('这六次各持续了多少帧').split(', ').map(val)).toEqual([...bottom].sort((a, b) => a - b))
+    expect(row('这九次各持续了多少帧').split(', ').map(val)).toEqual([...bottom].sort((a, b) => a - b))
     expect(row('规则允许的最短回升')).toBe(`${UP_AFTER} 帧`)
     const e = lab('三秒内的失败率与跌落').expect
     const [all, deep] = grab(e, /(\d+) 次跌落里有 (\d+) 次降到最低一级/, 'lab 2 on the excursions').map(val)
     expect([all, deep]).toEqual([excursions(), bottom.length])
-    expect(bottom.filter((n) => n === UP_AFTER)).toHaveLength(3)
-    expect(e).toContain('其中三次用了规则允许的最短十帧')
-    const rest = grab(e, /持续 (\d+)、(\d+)、(\d+) 帧/, 'lab 2 on the other three').map(val)
+    expect(bottom.filter((n) => n === UP_AFTER)).toHaveLength(2)
+    expect(e).toContain('其中两次用了规则允许的最短十帧，另外七次')
+    const rest = grab(e, /持续 ([\d、]+) 帧/, 'lab 2 on the other seven')[0].split('、').map(val)
     expect(rest).toEqual(bottom.filter((n) => n !== UP_AFTER).sort((a, b) => a - b))
   })
 
@@ -332,8 +354,8 @@ describe('rate-fallback · ③ every figure the labs print is the run', () => {
 
   it('the quiz’s three rates are lab 2’s', () => {
     const q = rateFallback.quiz[1]
-    const [m1, m0] = grab(q.options[1], /([\d.]+)% 对 ([\d.]+)%/, 'quiz 2').map(val)
-    expect([m1, m0]).toEqual([perRung(1).pct, perRung(0).pct])
+    const [m0, m1, n0] = grab(q.options[1], /([\d.]+)% 对 ([\d.]+)%，但它只有 (\d+) 次尝试/, 'quiz 2').map(val)
+    expect([m0, m1, n0]).toEqual([perRung(0).pct, perRung(1).pct, perRung(0).n])
     const [a, b, c] = grab(q.explain, /([\d.]+)%、([\d.]+)%、([\d.]+)%/, 'quiz 2 explain').map(val)
     expect([a, b, c]).toEqual([perRung(2).pct, perRung(1).pct, perRung(0).pct])
   })
@@ -348,22 +370,29 @@ describe('rate-fallback · the lab 1 figure is the run’s own first excursion',
   const lane = (label: string) => spec.lanes.find((l) => l.label === label)!
   /** The first attempt of the window: three frames before the pair that fails. */
   const first = pair - 3
+  /** The attempt back at the ceiling, which closes the window. */
+  const back = far.findIndex((r, i) => i > pair && r.frame.mcs === CEILING)
+  const n = back - first + 1
   const rel = (ns: number): number => Math.round(((ns - far[first].t) / 1_000) * 10) / 10
 
-  it('fifteen frames, at their own times, and the two that went unanswered are the muted pair', () => {
+  it('nineteen frames, at their own times, and the three that went unanswered are muted', () => {
     const spans = lane('远端站点').spans
-    expect(spans).toHaveLength(15)
+    expect(n).toBe(19)
+    expect(spans).toHaveLength(n)
     spans.forEach((sp, i) => {
       const tx = far[first + i]
       expect([sp.fromUs, sp.toUs], `attempt ${first + i}`).toEqual([rel(tx.t), rel(tx.t + tx.frame.txTimeNs)])
     })
+    // 2026-11-11 (W7a re-measure): muted = exactly the window's lost attempts (the pair and the
+    // lone loss on the climb); accent = the other attempts at MCS 1
     const muted = spans.map((sp, i) => (sp.tone === 'muted' ? first + i : -1)).filter((i) => i >= 0)
-    expect(muted).toEqual([pair - 1, pair])
-    for (const i of muted) expect(lostAt[i], `attempt ${i}`).toBe(true)
+    expect(muted).toEqual(spans.map((_sp, i) => first + i).filter((i) => lostAt[i]))
+    expect(muted.slice(0, 2)).toEqual([pair - 1, pair])
+    expect(muted).toHaveLength(3)
     const accent = spans.map((sp, i) => (sp.tone === 'accent' ? first + i : -1)).filter((i) => i >= 0)
-    expect(accent).toHaveLength(UP_AFTER)
+    expect(accent).toHaveLength(back - (pair + 1) - 1)
     for (const i of accent) expect(far[i].frame.mcs, `attempt ${i}`).toBe(CEILING - 1)
-    expect(far[first + 14].frame.mcs).toBe(CEILING)
+    expect(far[first + n - 1].frame.mcs).toBe(CEILING)
   })
 
   it('the rung lane is 2, then 1, then 2 again, changing when the next frame goes out', () => {
@@ -371,9 +400,9 @@ describe('rate-fallback · the lab 1 figure is the run’s own first excursion',
     expect(rung.map((sp) => sp.label)).toEqual(['MCS 2', 'MCS 1', 'MCS 2'])
     expect(rung[0].fromUs).toBe(0)
     expect(rung[0].toUs).toBe(rel(far[pair + 1].t))
-    expect(rung[1].toUs).toBe(rel(far[pair + UP_AFTER + 1].t))
+    expect(rung[1].toUs).toBe(rel(far[back].t))
     expect(rung[2].fromUs).toBe(rung[1].toUs)
-    expect(rung[2].toUs).toBe(rel(far[pair + UP_AFTER + 1].t + far[pair + UP_AFTER + 1].frame.txTimeNs))
+    expect(rung[2].toUs).toBe(rel(far[back].t + far[back].frame.txTimeNs))
     expect(spec.axis.toUs).toBeGreaterThan(rung[2].toUs)
   })
 

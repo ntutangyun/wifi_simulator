@@ -12,14 +12,14 @@
  * measured under the free-space law instead of the link table, and a reader may hear — inside
  * the PPDU it is itself transmitting, and only there — a tag reflecting that PPDU back at it.
  */
-import type { FrameDesc } from '../model/frames'
+import { ampduLayout, type FrameDesc } from '../model/frames'
 import type { EmitFn } from '../model/records'
 import type { Wall } from '../model/scenario'
 import type { Ns, Vec3 } from '../model/types'
 import { EventQueue } from './events'
 import { fadingDb, shadowDb, smallScaleDb, type FadingCfg } from './fading'
 import { byCodeUnit } from './hash'
-import { CCA_ED_DBM, CCA_PD_DBM, noiseDbm, preambleNsFor, reqSinrDb, sinrThreshDb } from './phy'
+import { CCA_ED_DBM, CCA_PD_DBM, PHY_MODES, TGI_NS, noiseDbm, preambleNsFor, reqSinrDb, sinrThreshDb } from './phy'
 import { wallLossDb } from './propagation'
 import { selBinStart, selBinnableGen, selBins, selEffSinrDb, selMemberBins } from './selectivity'
 import { wifiToUwbPathLossDb, type Emission, type Spectrum } from './spectrum'
@@ -55,7 +55,13 @@ export interface PhyListener {
   onCcaIdle(t: Ns): void
   /** PHY-RXSTART.indication: receiver locked a preamble (§10.3.2.9 timeout semantics). */
   onRxStart(t: Ns, frame: FrameDesc, from: string): void
-  onRxOk(t: Ns, frame: FrameDesc, from: string): void
+  /**
+   * PHY-RXEND without error for at least part of the PSDU. `mpduOk`, when present, is the FCS
+   * outcome of each MPDU of the A-MPDU addressed to this receiver, in order (§9.7, §10.12): an
+   * A-MPDU whose PHY header decoded delivers every MPDU that passed its own check. Absent means
+   * every MPDU was received.
+   */
+  onRxOk(t: Ns, frame: FrameDesc, from: string, mpduOk?: boolean[]): void
   /** Energy that looked like a frame ended without being decodable → EIFS at the MAC. */
   onRxCorrupt(t: Ns): void
 }
@@ -212,6 +218,12 @@ interface Lock {
   startNs: Ns
   /** Worst-case (max) interference+noise in mW seen during the lock. */
   maxInterfMw: number
+  /**
+   * Interference+noise as a step function of time: each entry holds from its `t` until the next.
+   * Kept so an A-MPDU can be judged MPDU by MPDU (`mpduOutcome`): an interferer that starts in the
+   * middle of the PSDU spoils the MPDUs it overlaps, not the ones already received.
+   */
+  interf: { t: Ns; mw: number }[]
   /** True if any meaningful foreign signal overlapped the locked frame. */
   overlapped: boolean
   /**
@@ -567,9 +579,7 @@ export class Channel {
 
   private onForeignChange(t: Ns): void {
     for (const [rid, r] of this.radios) {
-      for (const lock of r.locks) {
-        lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
-      }
+      for (const lock of r.locks) this.noteInterf(t, rid, lock)
     }
     this.updateAllCca(t)
   }
@@ -889,7 +899,7 @@ export class Channel {
             lock.overlapped = true
             lock.contributors.add(tx.txId)
           }
-          lock.maxInterfMw = Math.max(lock.maxInterfMw, this.interferenceMw(rid, lock))
+          this.noteInterf(t, rid, lock)
         }
       }
     } else if (listening && floor !== null && p >= floor) {
@@ -917,10 +927,10 @@ export class Channel {
   private acquireLock(t: Ns, rid: string, r: RadioState, tx: ActiveTx, p: number): void {
     const lock: Lock = {
       from: tx.txId, frame: tx.frame, rxDbm: p, fadeKey: tx.fadeKey, startNs: t,
-      maxInterfMw: 0, overlapped: false, contributors: new Set(),
+      maxInterfMw: 0, interf: [], overlapped: false, contributors: new Set(),
     }
     r.locks.push(lock)
-    lock.maxInterfMw = this.interferenceMw(rid, lock)
+    this.noteInterf(t, rid, lock)
     for (const id of this.overlappersOf(rid, lock)) lock.contributors.add(id)
     lock.overlapped = lock.contributors.size > 0
     this.emit({ t, type: 'RX_START', node: rid, from: tx.txId, frame: tx.frame, ...this.fadeOf(tx, rid) })
@@ -936,6 +946,8 @@ export class Channel {
 
     // Resolve receptions locked onto this frame.
     for (const [rid, r] of this.radios) {
+      // An interferer that ended lowers the level the other receptions see from here on.
+      for (const lock of r.locks) if (lock.from !== tx.txId) this.noteInterf(t, rid, lock)
       r.observed.delete(tx.txId)
       const missIdx = r.misses.findIndex((m) => m.from === tx.txId)
       if (missIdx >= 0) {
@@ -1097,6 +1109,73 @@ export class Channel {
     }
   }
 
+  /** Record the interference+noise a lock sees from this instant on. */
+  private noteInterf(t: Ns, rid: string, lock: Lock): void {
+    const level = this.interferenceMw(rid, lock)
+    const last = lock.interf[lock.interf.length - 1]
+    if (last !== undefined && last.t === t) last.mw = level
+    else lock.interf.push({ t, mw: level })
+    lock.maxInterfMw = Math.max(lock.maxInterfMw, level)
+  }
+
+  /** Worst interference+noise a lock saw over [a, b). */
+  private worstInterfMw(lock: Lock, a: Ns, b: Ns): number {
+    let worst = 0
+    const xs = lock.interf
+    for (let i = 0; i < xs.length; i++) {
+      const from = xs[i].t
+      const to = i + 1 < xs.length ? xs[i + 1].t : Infinity
+      if (from < b && to > a) worst = Math.max(worst, xs[i].mw)
+    }
+    return worst
+  }
+
+  /**
+   * MPDU-by-MPDU outcome of an A-MPDU addressed to `rid`, or null when the PSDU is not an A-MPDU
+   * of several MPDUs for this receiver, or when its PHY header did not decode.
+   *
+   * Where each MPDU lies in time follows from where it lies in the PSDU: the data field carries
+   * the SERVICE field, the PSDU's octets in order and the tail, spread evenly over its symbols, so
+   * octet offset maps linearly onto the data field. The PHY header (the preamble up to the data
+   * field) has to clear the most robust rate's requirement — the same requirement an overhearer of
+   * a MU PPDU's header is held to in `decodeThreshDb` — or nothing in the PSDU can be found.
+   */
+  private mpduOutcome(rid: string, lock: Lock, endNs: Ns, threshDb: number, selective: boolean): boolean[] | null {
+    const f = lock.frame
+    if (f.kind !== 'data' || f.uwb || f.amp) return null
+    const mode = f.mode ?? 'nonht'
+    if (mode === 'nonht') return null
+    let sizes: number[] | undefined
+    let qos = true
+    let htc = false
+    let psduLen = f.bytes
+    if (f.muParts) {
+      const part = f.muParts.find((p) => p.dst === rid)
+      if (part === undefined) return null
+      sizes = part.msduBytes
+      htc = part.trs !== undefined
+      psduLen = part.bytes
+    } else if (f.ampdu !== undefined && f.dst === rid) {
+      sizes = f.msduBytes
+      qos = f.qos !== false
+    }
+    if (sizes === undefined || sizes.length < 2) return null
+    const giNs = f.giNs ?? TGI_NS.base
+    const head = preambleNsFor(mode, giNs) + (f.muParts ? PHY_MODES[mode].muExtraPreambleNs : 0)
+    const startNs = endNs - f.txTimeNs
+    const dataStart = startNs + head
+    const dataNs = Math.max(1, endNs - dataStart)
+    const totalBits = 16 + 8 * psduLen + 6
+    const at = (octet: number): Ns => dataStart + dataNs * (16 + 8 * octet) / totalBits
+    const sinrWith = (interfMw: number): number => {
+      if (!selective) return lock.rxDbm - dbm(interfMw)
+      return this.selCombine(rid, { ...lock, maxInterfMw: interfMw })?.effSinrDb ?? lock.rxDbm - dbm(interfMw)
+    }
+    if (sinrWith(this.worstInterfMw(lock, startNs, dataStart)) < reqSinrDb(mode, 0)) return null
+    return ampduLayout(sizes, qos, htc).map(({ off, len }) =>
+      sinrWith(this.worstInterfMw(lock, at(off), at(off + len))) >= threshDb)
+  }
+
   /** Decode a reception against the worst SINR it saw, or fail it. */
   private resolveLock(t: Ns, rid: string, r: RadioState, from: string): void {
     const lockIdx = r.locks.findIndex((l) => l.from === from)
@@ -1117,6 +1196,16 @@ export class Channel {
     if (sinrDb >= threshDb) {
       this.emit({ t, type: 'RX_OK', node: rid, from, frame: lock.frame })
       r.listener.onRxOk(t, lock.frame, from)
+      return
+    }
+    // The PSDU as a whole fell short. An A-MPDU is not one frame, though: each MPDU carries its
+    // own FCS and the recipient keeps every one that passes (§9.7, §10.12; the BlockAck bitmap
+    // reports them one by one). Judge each against the interference over its own stretch of the
+    // data field, provided the PHY header that tells the receiver the PSDU's length decoded.
+    const mpduOk = this.mpduOutcome(rid, lock, t, threshDb, sel !== null)
+    if (mpduOk !== null && mpduOk.some((ok) => ok)) {
+      this.emit({ t, type: 'RX_OK', node: rid, from, frame: lock.frame, mpduOk })
+      r.listener.onRxOk(t, lock.frame, from, mpduOk)
     } else {
       const reason = lock.overlapped ? 'collision' : 'lowSinr'
       this.emit({ t, type: 'RX_FAIL', node: rid, from, reason })

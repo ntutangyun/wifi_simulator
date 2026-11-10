@@ -19,6 +19,7 @@ import { MODULES } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { MAX_PPDU_NS, PHY_MODES, toneRatio } from '../../src/engine/phy'
+import { psduPlan } from '../../src/model/frames'
 import { lessonShapeSuite, runOf } from './kit'
 
 const MS = 1_000_000
@@ -36,7 +37,24 @@ const txs = (rs: TLRecord[], pred: (r: Tx) => boolean = () => true): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && pred(r))
 const muPpdus = (rs: TLRecord[]): Tx[] => txs(rs, (r) => r.frame.kind === 'data' && r.frame.muParts !== undefined)
 const suData = (rs: TLRecord[]): Tx[] => txs(rs, (r) => r.frame.kind === 'data' && r.frame.muParts === undefined)
-const airNs = (xs: Tx[]): number => xs.reduce((a, r) => a + r.frame.txTimeNs, 0)
+/**
+ * Busy air: the union of the transmissions' intervals. 2026-11-11 (W7a): the sum of airtimes this
+ * used to be counted the two simultaneous BlockAcks twice; with HE TB PPDUs on two RUs
+ * (§26.5.2.3.4) that double count was larger than the whole saving, so the instrument now counts
+ * an instant of busy air once, however many RUs are in use.
+ */
+const airNs = (xs: Tx[]): number => {
+  const iv = xs.map((r) => [r.t, r.t + r.frame.txTimeNs] as const).sort((a, b) => a[0] - b[0])
+  let busy = 0, end = -Infinity
+  for (const [s, e] of iv) {
+    if (s >= end) { busy += e - s; end = e } else if (e > end) { busy += e - end; end = e }
+  }
+  return busy
+}
+type Part = NonNullable<Tx['frame']['muParts']>[number]
+// A member's `bytes` is its PSDU_LENGTH (the A-MPDU padded to the PPDU's last symbol, §10.12.6);
+// the lesson prints the A-MPDU itself, every MPDU with its 4-octet HT Control field (§9.2.4.7.1).
+const apepOf = (p: Part): number => psduPlan(p.msduBytes!, { mu: true, trs: true }).psduBytes
 const one = <T>(xs: T[]): T => {
   expect(new Set(xs.map((x) => JSON.stringify(x))).size).toBe(1)
   return xs[0]
@@ -118,7 +136,9 @@ describe('ofdma-dl · the lesson', () => {
     expect(kinds.has('differs')).toBe(true)
     expect(kinds.size).toBeGreaterThan(2)
     expect(implRow('资源单元尺寸').kind).toBe('differs')
-    expect(implRow('确认的征询').kind).toBe('differs')
+    // 2026-11-11 (W7a): the engine solicits by TRS Control and answers in HE TB PPDUs (§10.3.2.13.2)
+    expect(implRow('确认的征询').kind).toBe('faithful')
+    expect(implRow('HE TB PPDU 的参数').kind).toBe('choice')
   })
 })
 
@@ -154,27 +174,44 @@ describe('ofdma-dl · ② says what the engine does, and the engine does it', ()
       const parts = r.frame.muParts!
       const symbolsOf = (p: typeof parts[number]): number => {
         const bps = PHY_MODES.he.ndbps[p.mcs] * toneRatio('he', r.frame.widthMhz ?? 20) * (p.nss ?? 1) * p.ruFraction!
-        return Math.ceil((16 + 8 * p.bytes + 6) / bps)
+        return Math.ceil((16 + 8 * apepOf(p) + 6) / bps)
       }
       expect(r.frame.txTimeNs).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.muExtraPreambleNs
         + PHY_MODES.he.symNs * Math.max(...parts.map(symbolsOf)))
     }
   })
 
-  it('no Trigger frame and no solicitation: every member answers by itself, 32 µs at 24 Mb/s', () => {
+  // 2026-11-11 (W7a): the old pin was a 32-octet BlockAck at 24 Mb/s that nobody solicited. Now
+  // every MPDU carries a TRS Control subfield (§9.2.4.7.1) and each member answers in the HE TB
+  // PPDU it describes, a SIFS later, on its own RU (§10.3.2.13.2, §26.5.2.3.4) — no Trigger frame.
+  it('no Trigger frame: every member is solicited by TRS Control and answers in an HE TB PPDU on its own RU', () => {
     const rs = base()
     expect(txs(rs, (r) => r.frame.kind === 'trigger')).toEqual([])
+    const row = implRow('确认的征询').sim
+    const tbRow = implRow('HE TB PPDU 的参数').sim
+    const printedLen = Number(/本课每个 ([\d.]+) µs/.exec(row)![1]) * US
+    const printedMcs = Number(/本课是 (\d)/.exec(tbRow)![1])
+    const printedSyms = Number(/本课 (\d) 个/.exec(tbRow)![1])
     for (const m of muPpdus(rs)) {
+      const parts = m.frame.muParts!
+      parts.forEach((p, i) => {
+        expect(p.trs).toEqual({ ulDataSymbols: printedSyms, mcs: Math.min(3, p.mcs), ruFraction: p.ruFraction, partIdx: i })
+        expect(p.trs!.mcs).toBe(printedMcs)
+      })
       const bas = txs(rs, (r) => r.frame.kind === 'ba' && r.t === m.t + m.frame.txTimeNs + SIFS_NS)
-      expect(bas.map((r) => r.node).sort()).toEqual(m.frame.muParts!.map((p) => p.dst).sort())
+      expect(bas.map((r) => r.node).sort()).toEqual(parts.map((p) => p.dst).sort())
       for (const b of bas) {
-        expect(b.frame.txTimeNs).toBe(32 * US)
-        expect(b.frame.mbps).toBe(24)
-        expect(b.frame.bytes).toBe(32)
+        const p = parts.find((x) => x.dst === b.node)!
+        expect(b.frame.mode).toBe('he')
+        expect(b.frame.mcs).toBe(p.trs!.mcs)
+        expect(b.frame.giNs).toBe(1600)
+        expect(b.frame.ru).toEqual({ fraction: p.ruFraction, partIdx: p.trs!.partIdx })
+        expect(b.frame.txTimeNs).toBe(printedLen)
+        // the PPDU's Duration covers SIFS + the TB PPDU (§9.2.5.2 a)8))
+        expect(m.frame.durationFieldNs).toBeGreaterThanOrEqual(SIFS_NS + b.frame.txTimeNs)
       }
     }
-    const row = implRow('确认的征询').sim
-    for (const s of ['32 字节', '24 Mb/s', '32 µs']) expect(row).toContain(s)
+    expect(row).toContain('TRS Control')
   })
 
   it('the PPDU cap is aPPDUMaxTime, 5.484 ms', () => {
@@ -191,8 +228,9 @@ describe('ofdma-dl · ③ every figure the labs print is the run', () => {
     const members = first.frame.muParts!.map((p) => p.dst)
     expect(l.expect).toContain(`${usText(first.t)} 接入点发出一个 ${usText(first.frame.txTimeNs)} 的 HE MU PPDU`)
     expect(l.expect).toContain(`成员是${members.map((m) => NAME[m]).join(' 和')}`)
-    const bytes = one(first.frame.muParts!.map((p) => p.bytes))
-    expect(l.expect).toContain(`各承载 ${bytes} 字节`)
+    const bytes = one(first.frame.muParts!.map(apepOf))
+    expect(l.expect).toContain(`各承载 ${bytes} 字节的 A-MPDU（${one(first.frame.muParts!.map((p) => p.mpduCount)) === 1 ? '一' : '?'}个 MPDU，带 4 字节 HT Control 字段）`)
+    expect(apepOf(first.frame.muParts![0]) - psduPlan(first.frame.muParts![0].msduBytes!, { mu: true }).psduBytes).toBe(4)
     expect(one(first.frame.muParts!.map((p) => p.ruFraction))).toBe(0.5)
     expect(l.expect).toContain('各占半条信道')
     expect(l.expect).toContain(`各需 ${MU_SYMBOLS} 个符号`)
@@ -245,7 +283,9 @@ describe('ofdma-dl · ③ every figure the labs print is the run', () => {
     const l = lab('两个块确认同时开始')
     expect(l.expect).toContain(`${usText(t)}，即那一帧结束后 ${SIFS_NS / US} µs`)
     expect(l.expect).toContain(`${bas.map((b) => b.node).sort().map((n) => NAME[n]).join(' 和')} 同时开始`)
-    expect(l.expect).toContain(`各 ${one(bas.map((b) => b.frame.txTimeNs)) / US} µs`)
+    expect(l.expect).toContain(`各 ${one(bas.map((b) => b.frame.txTimeNs)) / US} µs，都是 HE TB PPDU，各占半条信道`)
+    for (const b of bas) expect([b.frame.mode, b.frame.ru?.fraction]).toEqual(['he', 0.5])
+    expect(l.meaning).toContain(`HE-MCS ${one(bas.map((b) => b.frame.mcs))}、${one(bas.map((b) => b.frame.giNs!)) / US} µs 保护间隔`)
     expect(txs(rs, (r) => r.frame.kind === 'trigger')).toHaveLength(0)
     expect(l.expect).toContain('一个触发帧也没有发')
     // the jump lands on one of these two
@@ -275,11 +315,13 @@ describe('ofdma-dl · ③ every figure the labs print is the run', () => {
     const ba = one(txs(on, (r) => r.frame.kind === 'ba').map((r) => r.frame.txTimeNs))
     const mu = one(muPpdus(on).map((r) => r.frame.txTimeNs))
     const opening = 2 * suFrame - mu
-    const handedBack = 2 * ba - 2 * ack
+    // the two TB PPDUs are on the air at the same instant, so they cost one TB PPDU of busy air
+    const handedBack = ba - 2 * ack
     expect(saved).toBe(pairs * (opening - handedBack))
     expect(l.expect).toContain(`开 OFDMA 时接入点发了 ${apData(on).length} 次，其中 ${pairs} 次包含两台电视；关掉后发了 ${apData(no).length} 次`)
     expect(l.expect).toContain(`空口忙碌时间少 ${saved / MS} ms`)
     expect(l.expect).toContain(`前导码省下 ${opening / US} µs`)
+    expect(l.expect).toContain(`两个块确认同时发出，只占 ${ba / US} µs`)
     expect(l.expect).toContain(`又多用 ${handedBack / US} µs，${pairs} × ${(opening - handedBack) / US} µs = ${saved / MS} ms`)
     expect(ofdmaDl.why).toContain(`组成 ${pairs} 对，空口忙碌时间少 ${saved / MS} ms`)
     expect(ofdmaDl.why).toContain(`${RUN_NS / MS} ms`)

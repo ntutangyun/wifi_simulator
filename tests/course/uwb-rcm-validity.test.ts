@@ -267,7 +267,11 @@ describe('uwb-rcm-validity · ③ every figure the labs print is the run', () =>
     const lost = ofType(rs, 'UWB_INTERFERED').filter((r) => r.from === 'uwb-1' && r.t < first.t && r.t > first.t - PLAN.slotNs * 2)
     expect(lost.map((r) => r.node).sort()).toEqual(['anchor-1', 'anchor-2', 'anchor-3'])
     const heard = ofType(rs, 'UWB_RMNR').filter((r) => r.block === first.frame.uwb!.block && r.round === first.frame.uwb!.round)
-    expect(heard.map((r) => r.peer)).toEqual(['anchor-2', 'anchor-3'])
+    // 2026-11-11 (merge of W7a): all three RMNR frames reach the tag. anchor-1's used to be drowned
+    // too; the Wi-Fi side's frame timing moved when acknowledgement and A-MPDU handling were aligned
+    // with IEEE Std 802.11-2024 (§10.12, §10.3.2.13.2), and no Wi-Fi frame overlaps it any more.
+    expect(heard.map((r) => r.peer)).toEqual(['anchor-1', 'anchor-2', 'anchor-3'])
+    expect(l.expect).toContain('三帧都被标签收到')
     const rounds = new Set(sent.map((r) => `${r.frame.uwb!.block}:${r.frame.uwb!.round}`))
     expect(num(l.expect, /这样的轮出现 (\d+) 次/, 'rounds')).toBe(rounds.size)
     expect(num(l.expect, /共发出 (\d+) 帧 RMNR/, 'frames')).toBe(sent.length)

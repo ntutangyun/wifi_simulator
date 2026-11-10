@@ -183,8 +183,9 @@ function DecodedView({ d, giNs, S, nameOf }: {
                   <summary style={{ cursor: 'pointer', ...dim }}>{S.subframes(u.subframes.length)}</summary>
                   <div style={{ ...mono, ...dim, maxHeight: 120, overflowY: 'auto' }}>
                     {u.subframes.map((sf, i) => (
-                      <div key={i}>{S.subframeRow(i, sf.delimiterBytes, sf.mpdu.bytes, sf.padBytes)}</div>
+                      <div key={i}>{S.subframeRow(i, sf.delimiterBytes, sf.mpdu.bytes, sf.padBytes, sf.eof)}</div>
                     ))}
+                    {u.eofPad && <div>{S.eofPadRow(u.eofPad.finalPad, u.eofPad.eofSubframes, u.eofPad.eofOctets)}</div>}
                   </div>
                 </details>
               )}

@@ -14,11 +14,22 @@ export const DEFAULT_MSDU_LIFETIME_NS: Ns = 500_000_000
 export class AcQueues {
   private q: Msdu[][] = [[], [], [], []]
   /**
-   * Sequence-number space per (receiver, access category), §10.3.2.14. It lives
-   * with the queues so an MLO device's links share one counter per peer: two
-   * links of the same MLD must never hand the same number to different MSDUs.
+   * Transmitter sequence-number spaces (§10.3.2.14.2, Table 10-5): SNS2, one modulo-4096 counter
+   * per <Address 1, TID> for individually addressed QoS Data, and SNS1, the single baseline
+   * counter for everything else (here: non-QoS Data). It lives with the queues so an MLO device's
+   * links share the counters: two links of the same MLD must never hand the same number to
+   * different MSDUs.
    */
   private seq = new Map<string, number>()
+  /**
+   * Receiver duplicate-detection caches (§10.3.2.14.3, Table 10-6): RC2 indexed by
+   * <Address 2, TID, sequence number> for QoS Data and RC1 by <Address 2, sequence number> for
+   * the rest. The table asks for at least the most recent entry per <Address 2, TID>; this keeps
+   * the last 64 — a block ack window — because a retransmitted A-MPDU repeats several MPDUs whose
+   * BlockAck was lost, which the recipient's reordering buffer also filters (§10.25.6). Shared by
+   * an MLD's links for the same reason as the counters.
+   */
+  private rxCache = new Map<string, number[]>()
 
   constructor(readonly limit = DEFAULT_QUEUE_LIMIT) {}
 
@@ -29,12 +40,30 @@ export class AcQueues {
     return true
   }
 
-  /** Next sequence number for this receiver and access category, modulo 4096. */
-  nextSeq(dst: string, ac: number): number {
-    const key = `${dst}|${ac}`
+  /**
+   * Next sequence number, modulo 4096: from the <Address 1, TID> counter for a QoS Data frame
+   * (`tid` given), from the single baseline counter otherwise (`tid` null) — Table 10-5.
+   */
+  nextSeq(dst: string, tid: number | null): number {
+    const key = tid === null ? 'baseline' : `${dst}|${tid}`
     const n = this.seq.get(key) ?? 0
     this.seq.set(key, (n + 1) % 4096)
     return n
+  }
+
+  /**
+   * Duplicate detection at the receiver (§10.3.2.14.3): records this MPDU and reports whether it
+   * is a duplicate — a frame with Retry = 1 whose <TA, TID, SN> is already in the cache. `tid` is
+   * null for a non-QoS Data frame (cache RC1).
+   */
+  rxDuplicate(ta: string, tid: number | null, sn: number, retry: boolean): boolean {
+    const key = `${ta}|${tid ?? '-'}`
+    const seen = this.rxCache.get(key) ?? []
+    if (retry && seen.includes(sn)) return true
+    seen.push(sn)
+    if (seen.length > 64) seen.shift()
+    this.rxCache.set(key, seen)
+    return false
   }
 
   /** Remove and return every MSDU of an access category queued longer than lifetimeNs. */

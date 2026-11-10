@@ -188,7 +188,7 @@ describe('the event log renders the row a jump landed on', () => {
     expect(silent).toEqual([])
   })
 
-  it('names the three jumps the old "newest 160" rule cut, so the defect stays described', () => {
+  it('names the four jumps the old "newest 160" rule cut, so the defect stays described', () => {
     // The point of the fix, stated as the measurement that found it. If a lesson
     // edit makes one of these windows sparse the list shrinks and this fails —
     // which is the right outcome: the example in the docblocks would be stale.
@@ -196,7 +196,9 @@ describe('the event log renders the row a jump landed on', () => {
       const win = windowedRecords(c.store, c.target.t)
       return !win.slice(-LOG_ROWS).some((r) => r.seq === c.target.seq)
     }).map((c) => `${c.lesson}#${c.idx}`)
-    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2'])
+    // `capstone#1` (the first Trigger frame) joined on 2026-11-11 (W7a): it now fires early in a
+    // dense stretch of the run, behind more than 160 records of the same instant's window.
+    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2', 'capstone#1'])
   })
 
   it('keeps the row budget at 160, so the per-frame cost cannot have moved', () => {
@@ -246,13 +248,16 @@ describe('the event log renders the row a jump landed on', () => {
     // The two that are past the LOOKAHEAD, named: they are the reason the
     // search exists, and if a lesson edit adds a third the list says so.
     const pastLookahead = CASES.filter((c) => c.target.t > LOOKAHEAD_NS).map((c) => `${c.lesson}#${c.idx}`)
-    expect(pastLookahead).toEqual(['queues#2', 'capstone#1'])
+    // `capstone#1` left this list on 2026-11-11 (W7a): the first Trigger frame now fires inside the
+    // lookahead.
+    expect(pastLookahead).toEqual(['queues#2'])
     // The debt, measured, and its margin — the same shape `tests/course`'s
-    // ratchets use. 2.453 384 778 s is `capstone#1`, the furthest jump in the
-    // course; 546 615 222 ns is what is left of the 3 s horizon above it.
+    // ratchets use. Since 2026-11-11 (W7a) 2.182 806 360 s is `queues#2`, the furthest jump in
+    // the course (it was `capstone#1` at 2.453 384 778 s, which now fires inside the lookahead);
+    // 817 193 640 ns is what is left of the 3 s horizon above it.
     const furthest = Math.max(...CASES.map((c) => c.target.t))
-    expect(furthest).toBe(2_453_384_778)
-    expect(JUMP_SEARCH_NS - furthest).toBe(546_615_222)
+    expect(furthest).toBe(2_182_806_360)
+    expect(JUMP_SEARCH_NS - furthest).toBe(817_193_640)
   })
 
   /**
@@ -302,6 +307,8 @@ describe('the event log renders the row a jump landed on', () => {
     // 275 since 2026-11-10's standard-first restructure of 34 UWB lessons, which dropped the
     // jumps their new labs no longer used (298 → 275); `extend` and `miss` are untouched. 276 since
     // 2026-11-11 (W3): `uwb-m2m`'s third jump; 271 since W5 (2026-11-11).
+    // 272 since the W7a merge (2026-11-11): `capstone#1` (the first Trigger frame) now fires inside
+    // the lookahead, so it moved from `extend` to here; CASES stays at 275.
     // 298 since 2026-11-10: `@uwb-contention`'s sit-out jump is gone with the sit-out.
     // 299 since 2026-10-11: `@uwb-ancillary-loss`'s three jumps all answer from the base batch
     // and the half it was cut from gave up one, so +2.
@@ -309,10 +316,9 @@ describe('the event log renders the row a jump landed on', () => {
     // W12b's four, 289 before them.
     // 289, not the 291 the first draft of this said: the two `amp-slots` misses
     // were counted as synchronous AND as the 「没有」 case, in one breath.
-    expect(named('immediate').length).toBe(271)
+    expect(named('immediate').length).toBe(272)
     expect(named('extend')).toEqual([
       'queues#2 AP 第一次因生存期丢帧',
-      'capstone#1 第一个触发帧',
     ])
     expect(named('miss')).toEqual([
       'amp-slots#3 第一次轮空（ACWE 3 变体）',

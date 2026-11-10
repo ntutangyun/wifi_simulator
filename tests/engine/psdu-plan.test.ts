@@ -58,10 +58,11 @@ describe('the PSDU decision has a name', () => {
     }
   })
 
-  it('is asked for at six places, and the predicate is written once', () => {
+  it('is asked for at seven places, and the predicate is written once', () => {
     // transmitFor, exchangeNs, buildMuParts x2 (the fits closure and the final sum),
-    // respondToTrigger x2 (same reason). Change this number only with a reason.
-    expect(count(mac, 'psduPlan(')).toBe(6)
+    // respondToTrigger x2 (same reason), and the CTS path, which since 2026-11-11 re-derives the
+    // plan (S-MPDU or not) rather than carrying three of its fields. Change only with a reason.
+    expect(count(mac, 'psduPlan(')).toBe(7)
     // `canAggregate` is the single place that reads the peer's A-MPDU capability. It was three.
     expect(count(mac, 'cfg.ampduWith(')).toBe(1)
     expect(count(mac, 'private canAggregate(')).toBe(1)
@@ -84,15 +85,20 @@ describe('psduPlan reproduces the arithmetic it replaced', () => {
   const b = 1400
   const he = { mode: 'he' as const }
 
-  it('one MSDU on a QoS link is a QoS data MPDU answered by an ACK', () => {
+  // 2026-11-11: an HE PSDU is always an A-MPDU (§9.7.3, §10.12.5), so one MSDU is an S-MPDU —
+  // one delimiter ahead of the MPDU, still answered by an Ack (§10.12.7, §10.12.8).
+  it('one MSDU on a QoS link is an S-MPDU carrying a QoS data MPDU, answered by an ACK', () => {
     expect(psduPlan([b], { qos: true, ampdu: true, ...he })).toEqual({
-      psduBytes: QOS_HDR_BYTES + b + FCS_BYTES, aggregate: false, respBytes: ACK_BYTES,
+      psduBytes: AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + b + FCS_BYTES, aggregate: false, smpdu: true, respBytes: ACK_BYTES,
     })
   })
 
-  it('one MSDU on a non-QoS link is a plain data MPDU', () => {
+  it('one MSDU on a non-QoS link is an S-MPDU carrying a plain data MPDU; on a non-HT link a bare MPDU', () => {
     expect(psduPlan([b], { qos: false, ampdu: true, ...he })).toEqual({
-      psduBytes: MAC_HDR_BYTES + b + FCS_BYTES, aggregate: false, respBytes: ACK_BYTES,
+      psduBytes: AMPDU_DELIMITER_BYTES + MAC_HDR_BYTES + b + FCS_BYTES, aggregate: false, smpdu: true, respBytes: ACK_BYTES,
+    })
+    expect(psduPlan([b], { qos: false, ampdu: true, mode: 'nonht' })).toEqual({
+      psduBytes: MAC_HDR_BYTES + b + FCS_BYTES, aggregate: false, smpdu: false, respBytes: ACK_BYTES,
     })
   })
 
@@ -110,15 +116,15 @@ describe('psduPlan reproduces the arithmetic it replaced', () => {
     expect(psduPlan([b, b], { qos: true, ampdu: true, mode: 'nonht' }).aggregate).toBe(false)
   })
 
-  it('keeps the MU/TB path on A-MPDU for a single MSDU, which is 4 octets dearer', () => {
-    // `buildMuParts` and `respondToTrigger` have always called `ampduPsduBytes` straight, with
-    // no length test. Re-deriving `aggregate` from the count here would reprice every one-MSDU
-    // resource unit from b+34 to b+30 — a silent 4-octet gift to 117 719 PPDUs.
+  it('keeps the MU/TB path on A-MPDU for a single MSDU, the same size as the SU S-MPDU', () => {
     expect(psduPlan([b], { mu: true })).toEqual({
       psduBytes: AMPDU_DELIMITER_BYTES + QOS_HDR_BYTES + b + FCS_BYTES,
       aggregate: true,
+      smpdu: false,
       respBytes: BA_BYTES,
     })
-    expect(psduPlan([b], { mu: true }).psduBytes - psduPlan([b], { qos: true, ampdu: true, ...he }).psduBytes).toBe(4)
+    expect(psduPlan([b], { mu: true }).psduBytes - psduPlan([b], { qos: true, ampdu: true, ...he }).psduBytes).toBe(0)
+    // a DL MU PPDU's MPDUs carry an HT Control field with the TRS Control subfield: 4 octets each
+    expect(psduPlan([b, b], { mu: true, trs: true }).psduBytes - psduPlan([b, b], { mu: true }).psduBytes).toBe(8)
   })
 })

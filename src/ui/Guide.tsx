@@ -340,7 +340,7 @@ export function Guide() {
       <h4 style={h}>7 · OFDMA（Wi-Fi 6）</h4>
       <p style={p}>
         AP 可以把信道切分成资源单元（RU），<i>同时</i>服务多个终端：
-        一个下行宽 MU PPDU（由各终端同时发出的 BlockAck 确认），或者一个
+        一个下行宽 MU PPDU（每个 MPDU 携带 TRS 控制子字段，各终端在一个 SIFS 之后以 TB PPDU 在各自的 RU 上同时回 BlockAck，§10.3.2.13.2），或者一个
         {chip('#facc15')}<b>触发帧（Trigger）</b>调度多个终端在同一瞬间上行发送，
         再由一个多站点 BlockAck 统一确认。整组传输只需竞争一次。每个终端回应的是
         <b>TB PPDU</b>（trigger-based，基于触发）：其 RU、MCS、长度与功率都由触发帧规定，
@@ -1586,7 +1586,7 @@ export function Guide() {
           <tr><th style={cellHead}>设置</th><th style={cellHead}>测距成功次数</th></tr>
         </thead>
         <tbody>
-          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>47</td></tr>
+          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>8</td></tr>
           <tr><td style={cell}>CSMA-CA（不开 SSBD，标准 §6.3.2.1）</td><td style={cell}><b>0</b></td></tr>
           <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}><b>0</b></td></tr>
           <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>0</b></td></tr>
@@ -1596,7 +1596,8 @@ export function Guide() {
         三种做信道接入的设置都一次也没有测成：路由器的发射在 {NB_PHY_CCA_DURATION_US} µs 的感知里平均下来仍高于门限，
         每一次尝试都在接入成功之前用完了窗口，手机的 POLL 一条也没有发出。缺省参数下 SSBD 的收尾动作「照常发送」
         要等第六次感知判忙才轮得到，而窗口只放得下三次，所以它从不起作用；把退避调大只会更早用完窗口。
-        只有完全不先听后发才得到 47 个距离，代价转给了 Wi-Fi（见 <code>uwb-nba-coexist</code>）。
+        只有完全不先听后发才得到 8 个距离，而且都由锚点算出，手机自己一个也没有：路由器对只收到一部分的
+        A-MPDU 照样回 BlockAck，它离手机很近，这些 BlockAck 与 CTS 落在手机的窄带接收里；代价同时转给了 Wi-Fi（见 <code>uwb-nba-coexist</code>）。
       </p>
       <h4 style={h}>动手试试</h4>
       <p style={p}>

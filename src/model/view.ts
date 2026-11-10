@@ -559,6 +559,8 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
         const seen = (n.rxSeen[r.from] ??= [])
         let fresh = 0
         ids.forEach((id, i) => {
+          // An A-MPDU received in part delivers only the MPDUs whose FCS passed.
+          if (r.mpduOk !== undefined && r.mpduOk[i] !== true) return
           if (seen.includes(id)) return
           seen.push(id)
           if (seen.length > 512) seen.shift()

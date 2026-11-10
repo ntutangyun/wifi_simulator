@@ -314,21 +314,27 @@ export class Simulation {
                 : undefined,
             },
             {
-              onDequeue: (msduId, acked) => {
-                for (const s of sources.get(n.id) ?? []) {
-                  s.refill()
-                  // only an acknowledged frame reaches its cloud server (one WAN delay later)
-                  if (acked) s.onUplinkDelivered(msduId, this.nowNs)
-                }
-                const relay = relayPending.get(msduId)
-                if (!acked) relayPending.delete(msduId)
-                if (acked && relay && n.kind === 'sta') {
-                  // phone-to-phone: the AP forwards the acknowledged frame to its final station
-                  relayPending.delete(msduId)
-                  const at = this.nowNs + RELAY_FWD_NS
-                  this.q.schedule(at, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: at, ac: relay.ac, relayFromNs: relay.bornNs }))
-                }
+              onDequeue: (msduId) => {
+                for (const s of sources.get(n.id) ?? []) s.refill()
+                // Whatever the sender's outcome, the AP has either forwarded this MSDU already
+                // (below, on reception) or never received it.
+                if (n.kind === 'sta') relayPending.delete(msduId)
               },
+              // The AP hands an MSDU to the distribution system when it RECEIVES it, not when the
+              // sender hears the Ack: an Ack lost on the way back leaves the payload delivered, and
+              // the sender's retransmission is discarded as a duplicate (§10.3.2.14.3). So the
+              // request reaches its cloud server, and a phone-to-phone frame is relayed, from here.
+              onMsduDelivered: n.kind === 'ap'
+                ? (msduId, at, from) => {
+                    if (from === undefined) return
+                    for (const s of sources.get(from) ?? []) s.onUplinkDelivered(msduId, at)
+                    const relay = relayPending.get(msduId)
+                    if (relay === undefined || relay.src !== from) return
+                    relayPending.delete(msduId)
+                    const fwd = at + RELAY_FWD_NS
+                    this.q.schedule(fwd, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: fwd, ac: relay.ac, relayFromNs: relay.bornNs, sa: relay.src }))
+                  }
+                : undefined,
             },
             queuesOf.get(n.id),
           )
@@ -347,7 +353,7 @@ export class Simulation {
       }
       const primaryVid = (id: string): string => primaryVids.get(id)!
       const primaryMac = (id: string): WifiMac => this.macs.get(primaryVid(id))!
-      /** Uplink MSDUs bound for another station, by id: forwarded by the AP once acknowledged. */
+      /** Uplink MSDUs bound for another station, by id: forwarded by the AP when it receives them (Table 9-60 relay; §10.3.2.14.3). */
       const relayPending = new Map<number, Msdu>()
       const RELAY_FWD_NS = 50_000 // AP forwarding latency
       const enqueue = (atNode: string, msdu: Msdu) => {

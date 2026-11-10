@@ -475,10 +475,13 @@ describe('selectivity, slice 4b: a multi-user member gets its own resource unit�
       decoded: selRowDecoded(rs, x),
     }))
 
-    // Non-vacuous: the scene really does group, and often enough to measure. 98 member rows at
-    // 80 ms, of which 3 failed to decode — the three the old forward pairing could not see.
-    expect(members.length).toBe(98)
-    expect(members.filter((m) => !m.decoded).length).toBe(3)
+    // Non-vacuous: the scene really does group, and often enough to measure. 90 member rows at
+    // 80 ms (98 before 2026-11-11), none of which failed to decode on this run; the three that
+    // failed before were the ones the old forward pairing could not see.
+    // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
+    // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
+    expect(members.length).toBe(90)
+    expect(members.filter((m) => !m.decoded).length).toBe(0)
     for (const m of members) {
       expect(m.frac).toBeLessThan(1)
       // The record states the share it used, which is what makes `bins` readable at all: 24 on

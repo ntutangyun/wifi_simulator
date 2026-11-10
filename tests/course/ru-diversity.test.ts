@@ -31,8 +31,15 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 const MS = 1_000_000
 /** The lesson's own reading length, and the one the hash fixture records. */
 const RUN_NS = 150 * MS
-/** The length the gate and the window are measured over, stated in the lesson beside them. */
+/** The length the gate is measured over, stated in the lesson beside it. */
 const GATE_NS = 1000 * MS
+/**
+ * The window lab's run length. 2026-11-11 (W7a): re-measured after the DL MU acknowledgement
+ * moved to HE TB PPDUs (§10.3.2.13.2). The reversal now sits two metres out (margin 1.310 dB) and
+ * the 1000 ms whole-channel leg there holds fewer than the hundred receptions this lab demands,
+ * so every row of the window is run for 2000 ms.
+ */
+const WINDOW_NS = 2000 * MS
 
 const lesson = LESSONS.find((l) => l.id === 'ru-diversity')!
 const SPLIT = undefined
@@ -172,7 +179,23 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
     expect(l.expect).toContain(`over bins 0–${half - 1} of ${full}, its 1/2 of the channel，另一台是 bins ${half}–${2 * half - 1} of ${full}`)
     expect(l.expect).toContain(`第 ${full - 1} 格（格号从 0 开始）两台都没有分到`)
     const whole = sels.filter((r) => r.ruFraction === undefined)
-    expect(l.expect).toContain(`${RUN_NS / MS} ms 内接入点的合成记录共 ${sels.length} 条，只有 ${whole.length} 条是整条信道的（over ${full} bins）`)
+    // 2026-11-11 (W7a): the members' BlockAcks now come back in HE TB PPDUs (§26.5.2.3.4) and every
+    // reception of one is a selectivity record of its own; the split is read off the run.
+    const rows = selRows(rs)
+    const memberRows = rows.filter((x) => x.sel.ruFraction !== undefined)
+    const suRows = rows.filter((x) => x.sel.ruFraction === undefined && x.frame.kind === 'data')
+    const baRows = rows.filter((x) => x.sel.ruFraction === undefined && x.frame.kind === 'ba')
+    expect(memberRows.every((x) => x.frame.kind === 'data' && x.frame.muParts !== undefined && x.sel.from === 'ap')).toBe(true)
+    expect(suRows.every((x) => x.frame.muParts === undefined && x.sel.from === 'ap')).toBe(true)
+    expect(memberRows.length + suRows.length + baRows.length).toBe(sels.length)
+    expect(l.expect).toContain(`${RUN_NS / MS} ms 内的合成记录共 ${sels.length} 条：两台电视接收多用户（multi-user, MU）发送的 ${memberRows.length} 条都带份额；整条信道的（over ${full} bins）有 ${whole.length} 条，其中 ${suRows.length} 条是接入点发给一台电视的单用户帧，${baRows.length} 条是块确认的接收`)
+    // ② 「块确认的接收」: a BlockAck in an HE TB PPDU sits on half the channel, and is combined over all nine bins
+    expect(implRow('块确认的接收').kind).toBe('differs')
+    for (const x of baRows) {
+      expect(x.frame.ru?.fraction).toBe(1 / 2)
+      expect(x.sel.bins).toBe(full)
+    }
+    expect(implRow('块确认的接收').sim).toContain(`按整条信道的${'九'}格计算，没有只读它们自己的${'四'}格`)
     expect(fmtRecord(whole[0])).toContain(`over ${full} bins`)
     const member = sels.find((r) => r.ruFraction !== undefined)!
     for (const w of ['mean', 'worst bin', 'effective']) expect(fmtRecord(member)).toContain(w)
@@ -226,33 +249,42 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
       ['合成后比均值还好的接收', `${whole.length} 条中 ${better(w)} 条（${share(better(w), whole.length)}）`, `${half.length} 条中 ${better(h)} 条（${share(better(h), half.length)}）`],
       ['最深一格比均值低（中位数）', db3(-q(whole.map((r) => r.worstBinDb), 0.5)), db3(-q(half.map((r) => r.worstBinDb), 0.5))],
     ])
-    // what the expect line says about them
-    expect(Math.abs(mean(w) - mean(h))).toBeLessThan(0.05)
+    // what the expect line says about them. 2026-11-11 (W7a): the means now differ by 0.086 dB; the
+    // claim is restated as that figure against the p90 gap, both printed and both read back here.
+    const e = /平均损失只差 ([\d.]+) dB，不到第九十百分位差距（([\d.]+) dB）的十分之一/.exec(lab('变的是尾部，不是平均值').expect)!
+    expect(e[1]).toBe(Math.abs(mean(h) - mean(w)).toFixed(3))
+    expect(e[2]).toBe((q(h, 0.9) - q(w, 0.9)).toFixed(3))
+    expect(Math.abs(mean(h) - mean(w))).toBeLessThan((q(h, 0.9) - q(w, 0.9)) / 10)
     expect(q(h, 0.5)).toBeLessThan(q(w, 0.5))
     expect(q(h, 0.9)).toBeGreaterThan(q(w, 0.9))
     expect(Math.max(...h)).toBeGreaterThan(Math.max(...w))
     expect(q(half.map((r) => r.worstBinDb), 0.5)).toBeGreaterThan(q(whole.map((r) => r.worstBinDb), 0.5))
   })
 
-  it('lab 4: one metre either way, and the direction reverses at the outer one', () => {
+  it('lab 4: one metre in, one and two metres out, and the direction reverses at two', () => {
     const at = (x: number, on: boolean): Scenario => {
       const sc = ruDiversityScenario(on)
       return { ...sc, nodes: sc.nodes.map((n) => (n.id.startsWith('sta') ? { ...n, pos: { ...n.pos, x } } : n)) }
     }
     expect(lesson.scenario().nodes.find((n) => n.id === 'sta-1')!.pos.x).toBe(13.5)
-    const rows = tableOf(lab('这个差别只在一段余量里存在'), '移动电视之后（各 1000 ms）').rows
-    const sweep = [12.5, 13.5, 14.5].map((x) => {
-      const l = x === 13.5 ? legs() : legsOf(dlRows(runScene(`x${x}|on`, at(x, true))), dlRows(runScene(`x${x}|off`, at(x, false))))
+    const rows = tableOf(lab('这个差别只在一段余量里存在'), `移动电视之后（各 ${WINDOW_NS / MS} ms）`).rows
+    const sweep = [12.5, 13.5, 14.5, 15.5].map((x) => {
+      const l = legsOf(dlRows(runScene(`x${x}|on`, at(x, true), WINDOW_NS)), dlRows(runScene(`x${x}|off`, at(x, false), WINDOW_NS)))
       expect(l.half.length, `x=${x}`).toBeGreaterThan(100)
       expect(l.whole.length, `x=${x}`).toBeGreaterThan(100)
       return { x, key: l.key, half: dropRate(l.half), whole: dropRate(l.whole) }
     })
     expect(rows).toEqual(sweep.map((s) => [s.x === 13.5 ? `x = ${s.x}（本课）` : `x = ${s.x}`, db3(s.key), pct(s.half), pct(s.whole)]))
+    expect(sweep[1]!.key).toBe(legs().key)
     expect(sweep[0]!.half).toBeGreaterThan(sweep[0]!.whole)
     expect(sweep[1]!.half).toBeGreaterThan(sweep[1]!.whole)
-    expect(sweep[2]!.half).toBeLessThan(sweep[2]!.whole)
-    expect(lab('这个差别只在一段余量里存在').expect).toContain(`余量降到 ${db3(sweep[2]!.key)}，方向反过来`)
-    expect(lesson.why).toContain(`余量降到 ${db3(sweep[2]!.key)} 时方向已经相反`)
+    expect(sweep[2]!.half).toBeGreaterThan(sweep[2]!.whole)
+    expect(sweep[3]!.half).toBeLessThan(sweep[3]!.whole)
+    const ex = lab('这个差别只在一段余量里存在').expect
+    expect(ex).toContain(`向外一米，余量降到 ${db3(sweep[2]!.key)}，差距缩小到约 ${Math.round((sweep[2]!.half - sweep[2]!.whole) * 100)} 个百分点`)
+    expect(Math.round((sweep[2]!.half - sweep[2]!.whole) * 100)).toBeLessThan(Math.round((sweep[1]!.half - sweep[1]!.whole) * 100))
+    expect(ex).toContain(`向外两米，余量降到 ${db3(sweep[3]!.key)}，方向反过来`)
+    expect(lesson.why).toContain(`余量降到 ${db3(sweep[3]!.key)} 时方向已经相反`)
   }, 300_000)
 
   it('quiz: `ofdma-dl`’s own scene, with fading and bins added, sits at a 15.4 dB median margin', () => {

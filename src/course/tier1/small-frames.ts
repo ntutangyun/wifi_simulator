@@ -13,9 +13,13 @@
  * A-MPDU and its delimiter (§9.7.1), the Duration settings of an RTS-protected
  * burst (§9.2.5.2, §9.2.5.6), the RTS threshold (§10.3.5) and the control frame
  * rates (§10.6.6); ② where this simulator follows it — sizes, layout,
- * durations — and where it does not: one decision for the whole PSDU, a
- * delimiter that is only four octets of length, no end-of-frame padding, no
+ * durations, EOF padding, MPDU-by-MPDU reception and the BlockAck bitmap — and
+ * where it does not: a delimiter CRC that is counted but never computed, no
  * ADDBA; ③ three runs.
+ *
+ * 2026-11-11 (W7a): the A-MPDU is padded to PSDU_LENGTH (§10.12.6) — 21 502 octets
+ * before the EOF padding, 21 525 after — and received MPDU by MPDU with a bitmap that
+ * reports exactly the MPDUs received (§9.7.2, §9.3.1.8.2). No airtime figure moved.
  *
  * Every figure the lesson prints is read back out of its text and compared
  * with a run in tests/course/small-frames.test.ts.
@@ -26,9 +30,13 @@ import {
   frameAnatomyScenario, firstRtsFrame, firstAmpduFrame, firstBlockAck,
 } from './frame-anatomy'
 
-/** The burst this lesson walks: fourteen frames, in octets, as the run builds it. */
+/**
+ * The burst this lesson walks: fourteen frames, in octets, as the run builds it — the A-MPDU
+ * before the EOF padding (APEP_LENGTH, which its airtime is computed from) and the PSDU after it.
+ */
 export const BURST_MPDUS = 14
-export const BURST_BYTES = 21_502
+export const BURST_APEP_BYTES = 21_502
+export const BURST_BYTES = 21_525
 /** The instants the figure prints, exactly as the lab's table writes them. */
 export const RTS_AT = '2.298 ms'
 export const BURST_AT = '2.386 ms'
@@ -60,7 +68,7 @@ export const smallFrames: Lesson = {
   id: 'small-frames',
   module: 2,
   title: '小帧的开销，以及共用前导码的收益',
-  why: '上一课的结论是：一帧的空口时间（airtime）= 前导码（preamble）+ 整数个符号（symbol）。确认帧（acknowledgement, ACK）这样的控制帧（control frame）只有帧控制（Frame Control）、持续时间（Duration/ID）、接收端地址（receiver address, RA）与帧校验序列（frame check sequence, FCS），共 14 个八位组，没有任何载荷（payload），却同样要占用整段前导码；即使把它的字节数再减少一半，最多也只节省一个符号。小帧逐个发送时，每一帧都要付出一次前导码、一次信道竞争和一次单独确认的开销。IEEE 802.11-2024 §9.7 允许把许多 MPDU（MAC protocol data unit）依次排列在同一个 PPDU（PHY protocol data unit）里，构成聚合 MPDU（aggregate MPDU, A-MPDU）：每个 MPDU 仍保留自己的帧头（MAC header）与 FCS，前面加一个 4 个八位组的定界符（MPDU delimiter）；接收端最后只回复一个块确认（block acknowledgement, BlockAck），用一张位图（bitmap）说明哪几帧已经收到。节省的不是帧头和校验，而是重复的前导码、竞争与确认。本课这一串超过了场景设定的 RTS 门限（RTS threshold），所以笔记本先发送请求发送（request to send, RTS）帧，路由器回复允许发送（clear to send, CTS）帧；这两个小帧合计还不到后面那一串的百分之三。每一帧写入的持续时间（Duration/ID）覆盖的都是这次交换的剩余部分，所以最后的 BlockAck 写 0。本仿真器照标准计算这些帧的长度、排列与持续时间，但它对整串帧只作一次接收判定，定界符也只计入长度。',
+  why: '上一课的结论是：一帧的空口时间（airtime）= 前导码（preamble）+ 整数个符号（symbol）。确认帧（acknowledgement, ACK）这样的控制帧（control frame）只有帧控制（Frame Control）、持续时间（Duration/ID）、接收端地址（receiver address, RA）与帧校验序列（frame check sequence, FCS），共 14 个八位组，没有任何载荷（payload），却同样要占用整段前导码；即使把它的字节数再减少一半，最多也只节省一个符号。小帧逐个发送时，每一帧都要付出一次前导码、一次信道竞争和一次单独确认的开销。IEEE 802.11-2024 §9.7 允许把许多 MPDU（MAC protocol data unit）依次排列在同一个 PPDU（PHY protocol data unit）里，构成聚合 MPDU（aggregate MPDU, A-MPDU）：每个 MPDU 仍保留自己的帧头（MAC header）与 FCS，前面加一个 4 个八位组的定界符（MPDU delimiter）；接收端最后只回复一个块确认（block acknowledgement, BlockAck），用一张位图（bitmap）说明哪几帧已经收到。节省的不是帧头和校验，而是重复的前导码、竞争与确认。本课这一串超过了场景设定的 RTS 门限（RTS threshold），所以笔记本先发送请求发送（request to send, RTS）帧，路由器回复允许发送（clear to send, CTS）帧；这两个小帧合计还不到后面那一串的百分之三。每一帧写入的持续时间（Duration/ID）覆盖的都是这次交换的剩余部分，所以最后的 BlockAck 写 0。本仿真器照标准计算这些帧的长度、排列与持续时间，也逐帧判定接收、用位图逐帧确认；只是定界符中的循环冗余校验（cyclic redundancy check, CRC）只计入长度，并不实际计算。',
   outcomes: [
     '按标准说出确认帧、RTS、CTS 与 BlockAck 各自携带哪些字段、各占多少字节',
     '按 §9.7.1 算出十四帧组成一个 A-MPDU 之后的字节数，并说出节省的是什么',
@@ -101,9 +109,9 @@ export const smallFrames: Lesson = {
   implementation: [
     { topic: '控制帧的长度', standard: 'Ack 与 CTS 14 B，RTS 20 B，Compressed BlockAck 32 B（§9.3.1）', sim: '照此取值。', kind: 'faithful' },
     { topic: '子帧的排列', standard: '定界符 4 B，非最后子帧补到 4 的倍数（§9.7.1）', sim: '照此计算：每个子帧 4 B 定界符加 MPDU 再补到 4 的倍数，最后一个子帧不补。', kind: 'faithful' },
-    { topic: 'VHT 中最后一个子帧的填充', standard: 'VHT 与 HE PPDU 中可有 0 到 3 个填充八位组与 EOF 填充（§9.7.1，§10.12.6）', sim: '不加：最后一个子帧照 HT 的规则不填充，也没有 EOF 填充。', kind: 'differs' },
-    { topic: '定界符的内容', standard: 'EOF/Tag、MPDU Length、CRC-8、签名 0x4E（表 9-659）', sim: '只计入 4 B 的长度，不建模其中的任何子字段。', kind: 'differs' },
-    { topic: '逐帧校验与位图', standard: '每个 MPDU 各自校验，位图逐帧报告（§9.7.2，§9.3.1.8.2）', sim: '整串帧作为一个 PSDU 只作一次接收判定：位图要么全部为 1，要么整串都没有收到，不会出现只有某一帧出错的情形。', kind: 'differs' },
+    { topic: 'VHT 中最后一个子帧的填充', standard: 'VHT 与 HE PPDU 中可有 0 到 3 个填充八位组与 EOF 填充（§9.7.1，§10.12.6）', sim: '照此：时长按 EOF 填充之前的长度计算，然后给最后一个子帧补到 4 的倍数，再加 EOF 填充子帧与填充八位组，补满最后一个符号。本课第一个 A-MPDU 补 2 + 5 × 4 + 1 = 23 B。', kind: 'faithful' },
+    { topic: '定界符的内容', standard: 'EOF/Tag、MPDU Length、CRC-8、签名 0x4E（表 9-659）', sim: 'EOF/Tag 照 §10.12.7 填写，MPDU Length 就是后面那个 MPDU 的长度；CRC-8 只计入长度，并不实际计算，接收端也不靠定界符恢复结构。', kind: 'differs' },
+    { topic: '逐帧校验与位图', standard: '每个 MPDU 各自校验，位图逐帧报告（§9.7.2，§9.3.1.8.2）', sim: '照此逐帧判定：每个 MPDU 按它在数据字段中所占那一段期间的信干噪比（signal-to-interference-plus-noise ratio, SINR）各自判定（不计算 FCS），BlockAck 的位图只标出收到的 MPDU。本课第一个 BlockAck 标出了全部 14 帧。', kind: 'faithful' },
     { topic: '持续时间', standard: 'RTS、CTS、A-MPDU 中的数据帧与 BlockAck 的取法（§9.2.5.2，§9.2.5.6）', sim: '照此计算，以纳秒保存。', kind: 'faithful' },
     { topic: 'RTS 门限', standard: 'dot11RTSThreshold，取值由管理实体设定（§10.3.5）', sim: '由场景参数给出，本场景 2000 B。', kind: 'value' },
     { topic: '控制帧的速率', standard: '按 BSSBasicRateSet 与强制速率选取（§10.6.6）', sim: '没有 BSSBasicRateSet：RTS 与各回应帧都取不高于参考速率的最高强制速率，本课这几个控制帧都是 24 Mb/s。', kind: 'value' },
@@ -123,7 +131,7 @@ export const smallFrames: Lesson = {
         { kind: 'table', heading: '四个帧', head: ['帧', '发送时刻', '长度', '空口时间', '持续时间'], rows: [
           ['RTS', '2.298 ms', '20 B', '28 µs', '2356 µs'],
           ['CTS', '2.342 ms', '14 B', '28 µs', '2312 µs'],
-          ['A-MPDU（14 帧）', '2.386 ms', '21 502 B', '2248 µs', '48 µs'],
+          ['A-MPDU（14 帧）', '2.386 ms', '21 525 B', '2248 µs', '48 µs'],
           ['BlockAck', '4.650 ms', '32 B', '32 µs', '0 µs'],
         ] },
       ],
@@ -135,18 +143,19 @@ export const smallFrames: Lesson = {
       jump: 1,
       steps: [
         '跳到第一个 A-MPDU，展开“空中字段”，读出子帧数与每个子帧的长度。',
-        '对照下表，按 §9.7.1 计算整串的字节数。',
+        '对照下表，按 §9.7.1 计算整串的字节数，再按 §10.12.6 加上 EOF 填充。',
       ],
       blocks: [
         { kind: 'table', heading: '一个子帧，以及十四个子帧', head: ['步骤', '数值'], rows: [
           ['一个 MPDU', '26 + 1500 + 4 = 1530 B'],
           ['补到 4 的倍数', '1532 B'],
           ['加上 4 B 的定界符', '1536 B'],
-          ['十四个子帧，最后一个不补', '13 × 1536 + 1534 = 21 502 B'],
+          ['十四个子帧，最后一个先不补', '13 × 1536 + 1534 = 21 502 B'],
+          ['EOF 填充：最后一个子帧补 2 B，再加 5 个 4 B 的 EOF 填充子帧与 1 B', '21 525 B'],
         ] },
       ],
-      expect: '整串 21 502 B，以 VHT 的调制与编码方式（modulation and coding scheme, MCS）8 发送，空口时间 2248 µs；路由器以一个 32 B 的 BlockAck 确认全部 14 帧。',
-      meaning: '子帧的排列照 §9.7.1（①）。按标准，VHT PPDU 中最后一个子帧还可以有填充与 EOF 填充，本仿真器不加；它对整串帧也只作一次接收判定（②）。',
+      expect: 'EOF 填充之前整串 21 502 B，空口时间按它计算：以 VHT 的调制与编码方式（modulation and coding scheme, MCS）8 发送，2248 µs；EOF 填充把最后一个符号补满，PSDU 共 21 525 B，不多占时间。路由器以一个 32 B 的 BlockAck 确认全部 14 帧。',
+      meaning: '子帧的排列照 §9.7.1，最后一个子帧的填充与 EOF 填充照 §10.12.6（①、②）；每个 MPDU 各自判定，位图逐帧报告（②）。',
     },
     {
       heading: '提高 RTS 门限',
@@ -154,13 +163,13 @@ export const smallFrames: Lesson = {
         '在编辑器里把 RTS 门限改为 30 000 B，再载入。',
         '找到笔记本的第一个 A-MPDU，看它前面有没有 RTS 与 CTS。',
       ],
-      expect: 'A-MPDU 前不再有 RTS 与 CTS：第一个 A-MPDU 在 2.298 ms 直接发出，含 15 帧、23 038 B，仍小于新的门限；整个运行中没有一个 RTS。',
+      expect: 'A-MPDU 前不再有 RTS 与 CTS：第一个 A-MPDU 在 2.298 ms 直接发出，含 15 帧、23 046 B，仍小于新的门限；整个运行中没有一个 RTS。',
       meaning: '§10.3.5：PSDU 超过 dot11RTSThreshold 才必须先交换 RTS/CTS（①）；门限的取值由场景给出（②）。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§9.3.1.2–§9.3.1.4 与图 9-41 至图 9-43（RTS、CTS、Ack）、§9.3.1.8 与图 9-52、图 9-54（BlockAck）、§9.7.1 与图 9-1326、图 9-1328、图 9-1329、表 9-659（A-MPDU 与定界符）、§9.7.2（定界符的校验）、§10.12.6（VHT 与 HE 中的填充）、§9.2.5.2 与 §9.2.5.6（持续时间）、表 9-13（确认策略）、§10.3.5（RTS 门限）、§10.6.6.2 与 §10.6.6.5.2（控制帧的速率）、表 17-23（强制速率）、表 27-61（aPPDUMaxTime）、§10.25（块确认）。',
-    '本仿真器的取值与取法：RTS 门限 2000 B（场景参数）；控制帧取不高于参考速率的最高强制速率；最多 64 个子帧、最长 5.484 ms（src/engine/phy.ts 的 MAX_AMPDU_MPDUS 与 MAX_PPDU_NS）；整串帧只作一次接收判定；定界符只计入长度。各帧的时刻、长度与时长都是本课场景的实测值。',
+    '本仿真器的取值与取法：RTS 门限 2000 B（场景参数）；控制帧取不高于参考速率的最高强制速率；最多 64 个子帧、最长 5.484 ms（src/engine/phy.ts 的 MAX_AMPDU_MPDUS 与 MAX_PPDU_NS）；每个 MPDU 按它所占那一段的信干噪比判定，不计算 FCS；定界符的 CRC 只计入长度。各帧的时刻、长度与时长都是本课场景的实测值。',
   ],
   limits: [],
   scenario: frameAnatomyScenario,
@@ -180,7 +189,7 @@ export const smallFrames: Lesson = {
         '空口时间没有任何节省；节省的只是发送端的处理开销',
       ],
       answer: 1,
-      explain: '每个 MPDU 都保留自己的帧头和 FCS——这一串之所以是 21 502 B，原因就在这里。节省的是它们外部那些重复的开销。',
+      explain: '每个 MPDU 都保留自己的帧头和 FCS——这一串在 EOF 填充之前就有 21 502 B，原因就在这里。节省的是它们外部那些重复的开销。',
     },
     {
       q: '一个 14 B 的确认帧占 28 µs，其中 20 µs 是前导码与 SIGNAL。把它缩减为 7 个字节，能节省多少时间？',
@@ -196,11 +205,11 @@ export const smallFrames: Lesson = {
       q: '哪一项是本仿真器与标准不同之处？',
       options: [
         'RTS 是 20 B，CTS 是 14 B',
-        '整串 A-MPDU 只作一次接收判定，位图不会只标出某一帧出错',
-        '非最后的子帧补到 4 个八位组的整数倍',
+        '定界符中的 8 位 CRC 只计入长度，并不实际计算',
+        'BlockAck 的位图只标出收到的 MPDU',
       ],
       answer: 1,
-      explain: '另外两项照标准（①）；标准中每个 MPDU 各自校验，BlockAck 逐帧报告（②）。',
+      explain: '另外两项照标准（①）；标准的定界符带一个对前 16 位的校验，供接收端在出错后找回后面的 MPDU，本仿真器只计入它的 8 位（②）。',
     },
   ],
 }

@@ -34,6 +34,8 @@ export interface Msdu {
   rttFromNs?: Ns
   /** Phone-to-phone: the station this uplink frame is ultimately for; the AP forwards it there. */
   finalDst?: string
+  /** Forwarded frame: the station that originated the MSDU — the SA of Table 9-60 on the AP's downlink. */
+  sa?: string
   /** Forwarded phone-to-phone frame: birth time at the originating station. */
   relayFromNs?: Ns
 }
