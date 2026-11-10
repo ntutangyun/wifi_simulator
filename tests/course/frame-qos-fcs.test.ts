@@ -126,7 +126,8 @@ describe('frame-qos-fcs · the two bytes', () => {
     expect(bitOf(m, 'subtype')).toBe('1000 (QoS Data)')
     expect(field(m, 'qos').bytes).toBe(QOS_HDR_BYTES - MAC_HDR_BYTES)
     expect(field(m, 'qos').value).toBe('TID 6 · Normal Ack')
-    // "两帧的持续时间都是 44 µs：这两个字节没有占掉更多空口时间"
+    // "两帧的持续时间都是 44 µs：这个字段预告的是帧后那段停顿加上确认帧" (until 2026-11-10 it
+    // drew an airtime conclusion from the Duration field, which does not measure the frame itself)
     expect(qos.frame.durationFieldNs).toBe(44_000)
     expect(legacy.frame.durationFieldNs).toBe(44_000)
     // and the same two addresses in the same roles as the plain frame

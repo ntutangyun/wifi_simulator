@@ -522,8 +522,9 @@ describe('mlo-gain · every figure the prose prints, read back out of it', () =>
       '`sources` on the two waits')
     expect(on.wait(laneNode('sta-1', srcHi!)), 'the busier lane waits longer')
       .toBeGreaterThan(on.wait(laneNode('sta-1', srcLo!)))
-    // 「这里它并没有因为对方让出 5 GHz 而得利」 — the band the laptop would be giving up
-    const [stepGhz] = figs(NUMS, /并没有因为对方让出 (\d) GHz 而得利/, 'the steps on the band')
+    // 「这里它因为对方让出了大半个 5 GHz 而得利」 — the band the laptop gives up. Until 2026-11-10
+    // this read 「并没有……得利」, against the table's own 185 vs 116 neighbour frames.
+    const [stepGhz] = figs(NUMS, /因为对方让出了大半个 (\d) GHz 而得利/, 'the steps on the band')
     expect(stepGhz, 'the shared band, which is the neighbour’s only one').toBe(srcLo)
   })
 })

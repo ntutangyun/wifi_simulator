@@ -95,11 +95,13 @@ describe('backoff · the draw', () => {
     expect(new Set(v).size).toBe(CW_MIN + 1)
   })
 
-  it('a slot is 9 µs, so the mean wait from the floor is about 64 µs — past a DIFS', () => {
-    // 「每个时隙是 9 µs，于是平均等待约 64 µs——比一个 DIFS 还长一点」
+  it('a slot is 9 µs, so the mean wait from the floor is about 64 µs — close to two DIFS', () => {
+    // 「每个时隙是 9 µs，于是平均等待约 64 µs——接近两个 DIFS」. Until 2026-11-10 this read
+    // 「比一个 DIFS 还长一点」, which is 1.88 DIFS described as "a little over one".
     expect(SLOT_NS).toBe(9_000)
     expect(Math.round(meanOf(15) * SLOT_NS / 1_000)).toBe(64)
-    expect(meanOf(15) * SLOT_NS).toBeGreaterThan(DIFS_NS)
+    expect(meanOf(15) * SLOT_NS).toBeGreaterThan(1.75 * DIFS_NS)
+    expect(meanOf(15) * SLOT_NS).toBeLessThan(2 * DIFS_NS)
   })
 
   it('every transmission owes a fresh draw: no station sends twice without one', () => {
@@ -459,9 +461,9 @@ describe('backoff · every printed figure is read back out of the lesson', () =>
     expect(slot * 1_000).toBe(SLOT_NS)
     // 「于是平均等待约 64 µs」: 「约」 is one significant figure, so it rounds to the ten
     expect(Math.round((mean * slot) / 10) * 10).toBe(Math.round(wait / 10) * 10)
-    // 「比一个 DIFS 还长一点」
-    expect(wait * 1_000).toBeGreaterThan(DIFS_NS)
-    expect(wait * 1_000, 'and 「一点」 is not 「twice」').toBeLessThan(2 * DIFS_NS)
+    // 「接近两个 DIFS」: close to, and not past, two
+    expect(wait * 1_000).toBeGreaterThan(1.75 * DIFS_NS)
+    expect(wait * 1_000, '「接近」 two is under two').toBeLessThan(2 * DIFS_NS)
   })
 
   it('the procedure: the floor, the sixteen values it allows, and the slot it counts in', () => {

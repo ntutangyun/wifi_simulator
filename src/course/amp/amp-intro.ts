@@ -14,13 +14,6 @@
  * traffic at all, so the round stands alone and every microsecond of it is
  * visible. Every number quoted below is pinned in
  * tests/course/amp-intro.test.ts.
- *
- * As the first lesson of its track this one is held to 1000 main-path words,
- * not 1300, with `why` + `outcomes` + `terms` + `picture` ≤ 650, `numbers`
- * ≤ 350 and `observe` + `tryThis` + `quiz` ≤ 400
- * (tests/course/readability.test.ts; `npx tsx scripts/lesson-dump.ts amp-intro
- * en` prints the four counts). Depth that will not fit belongs in `deeper`,
- * provenance in `sources`; neither is counted.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, ampAp, firstAmpAckToTag, firstAmpLost, firstAmpResp, firstAmpTrigger, oneRoom, sc, tag, txOf, type Lesson } from '../lessonKit'
@@ -38,7 +31,7 @@ export const ampIntro: Lesson = {
   id: 'amp-intro',
   module: 10,
   title: '没有电池的标签',
-  why: '设想牛奶盒上贴着一张标签，把冰箱里的温度报给你的路由器——永远不用装电池。它工作所需的全部能量，来自从环境射频里收集到的那么几微瓦。能量这样少的一台射频，做不了每台 Wi-Fi 终端整天都在做的那件事：先侦听信道是否空闲，再在轮到自己时发送。于是只能反过来，由路由器来问；这一课看的就是这样一轮问答。',
+  why: '设想牛奶盒上贴着一张标签，把冰箱里的温度报给你的路由器——永远不用装电池。它工作所需的全部能量，来自从环境射频里收集到的那么几微瓦。能量这样少的一台射频，做不了每台 Wi-Fi 终端整天都在做的那件事：先侦听信道是否空闲，再在轮到自己时发送——它的接收机只分得出响和静，撑不起一直开着的侦听电路、一个倒计时和一只够准的时钟。于是反过来，由路由器来问。一轮问答分四步：路由器先发一帧写给自己的允许发送（clear to send, CTS），让解得出它的 Wi-Fi 设备在这一轮里不发送；再发一帧触发帧（Trigger frame），打开几个等长的时隙；每个听见它的标签各自抽一个数，在这个数指向的时隙里作答；每个时隙结束，路由器都回一帧确认，点名收到的标签，没收到就点名自己。这帧确认空时隙也照发，因为标签无法自己计时，下一个时隙就紧跟在它后面开启。标签彼此听不见，两个抽到同一个数就会在同一个时隙里相撞，两个读数一起丢掉，要等到那帧写着路由器自己名字的确认才知道出了事；这里的读数丢失全是这样来的，两个方向的信号都比接收端所需强出三十多分贝，与信号强弱无关。两个标签分四个时隙，每一轮至少有一半时隙空着，这段空口时间（airtime）就是让标签自己挑时隙的代价。',
   outcomes: [
     '说清为什么无电池的标签无法靠侦听信道来自行取得发送机会',
     '按顺序讲出一轮轮询：清场、发问、作答、确认',

@@ -8,8 +8,8 @@
  * bins inside its own share.
  *
  * **Why it is a lesson of its own and not a paragraph in `ofdma-dl`** (design §7.1, all three
- * reasons measured): `ofdma-dl` is 20 minutes with about 231 characters of room left;
- * `selectivity` is already at the 30-minute ceiling; and — the reason that matters —
+ * reasons measured): `ofdma-dl` and `selectivity` were both already long lessons, and
+ * — the reason that matters —
  * **`ofdma-dl`'s own scene cannot show this effect at all.** That scene's margin is 15.4 dB,
  * where neither leg of this lesson's comparison loses a frame, so a reader would have read a
  * paragraph about something their own screen does not do.
@@ -38,14 +38,10 @@
  *    is not under rate control at all. It is a `limits` entry, with the one uplink figure this
  *    lesson does print — `ofdma-ul`'s own +12.195 dB and zero losses — measured here.
  *
- * **CAUTION — this lesson is at the 30-minute ceiling** (`MAX_MINUTES`, asserted in
- * tests/course/kit.ts and readability.test.ts), with about 500 Chinese characters of main-path
- * room left and **no room for a third `observe` or `tryThis` entry**: each of those is worth 2
- * and 4 minutes outright, which crosses the ceiling on its own. `limits`, `deeper` and `sources`
- * are not counted, which is why Task 6 of this slice put all four of its additions there — two
- * new `limits` entries (design §10.1's rate-selection asymmetry, which §10.1 names as owed to
- * this lesson, and §10.2's capacity direction), the split of the inter-bin entry's direction,
- * and the clause attributions.
+ * `limits`, `deeper` and `sources` are not part of the main path a reader walks, which is why
+ * Task 6 of this slice put all four of its additions there — two new `limits` entries (design
+ * §10.1's rate-selection asymmetry, which §10.1 names as owed to this lesson, and §10.2's
+ * capacity direction), the split of the inter-bin entry's direction, and the clause attributions.
  *
  * The bin counts come from `engine/selectivity.ts` rather than being typed, for the reason that
  * module gives: they are the standard's own arithmetic, and a literal here could drift out of
@@ -93,7 +89,7 @@ export const ruDiversity: Lesson = {
   id: 'ru-diversity',
   module: 9,
   title: '成员那一片的格数——切薄之后变坏的是分布的尾部，不是平均',
-  why: '前一课的结论是：把一条信道切成几片同时发给好几台设备，每台收到的帧一模一样，省下来的是空口时间（airtime）。而「频率选择性」那一课的结论是：一条信道按 26 根音调一块分成格之后，格数越多，同一份编码冗余要补的缺口就越分散。这两句话放在一起，剩下一笔还没有算过的代价——一个多用户（multi-user, MU）成员拿到的，只是它自己那一片资源单元（resource unit, RU）上的格，不是整条信道的格。这一课量的就是这一笔：在余量完全可比的同一条链路（link）上，一台电视读九格里的四格时解不出来的接收，比它读整条九格时更多；而变坏的不是平均，是分布的尾部。',
+  why: '前一课的结论是：把一条信道切成几片同时发给好几台设备，每台收到的帧一模一样，省下来的是空口时间（airtime）。而「频率选择性」那一课的结论是：一条信道按 26 根音调一块分成格之后，格数越多，同一份编码冗余要补的缺口就越分散。这两句话放在一起，剩下一笔还没有算过的代价——一个多用户（multi-user, MU）成员拿到的，只是它自己那一片资源单元（resource unit, RU）上的格，不是整条信道的格。接收端把自己那几格合成一个有效信噪比（signal-to-noise ratio, SNR）时，是在对各格取平均，格越少，平均的项越少：合成值的平均和中位数几乎不动、四格甚至略好，起伏却两头一起张开，偶尔更好，偶尔深得多。判决只看过没过，深的那一头就是一次重传（retry）。所以在余量完全可比的同一条链路（link）上，两台电视编进同一次发送、各读九格里的四格时，掉帧率从整条九格时的不到两成涨到四分之一以上；变坏的不是平均，是分布的尾部。四格那一腿最深的一格反而更浅，拿最深一格比较会得出与实测相反的结论。这件事只在一段余量上看得见：余量宽时两腿都几乎不掉帧；余量落到零附近以下，方向整个反过来，因为起伏大成了偶然解出一帧的唯一原因。本课的工作点离那条边只有一米。',
   outcomes: [
     '说出一个成员的格数是从哪里算出来的，以及 20 MHz 上两个成员为什么各读四格而不是四格半',
     '读出切薄一片把损失分布的哪一头改了：中位数、第九十百分位与最深那一格各往哪边动',

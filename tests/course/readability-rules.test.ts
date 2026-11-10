@@ -513,10 +513,10 @@ describe('lessonTexts · the census over the whole course', () => {
     // fourteen sums this layer replaced stopped working.
     // `why` 132 → 224 on 2026-11-10: every UWB lesson's opening paragraph was rewritten from a
     // teaser (「这一课要量的是……什么」) into a summary that states the conclusions, at the user's
-    // request. A deliberate course-wide edit, re-measured rather than widened; it moves again
-    // when the Wi-Fi lessons get the same treatment.
+    // request. A deliberate course-wide edit, re-measured rather than widened. 224 → 378 the same
+    // day, when the Wi-Fi and AMP lessons got the same treatment and the whole course had it.
     const MEANS: readonly (readonly [Section, number])[] = [
-      ['title', 11], ['why', 224], ['outcomes', 79], ['terms', 89],
+      ['title', 11], ['why', 378], ['outcomes', 79], ['terms', 89],
       ['picture', 640], ['numbers', 726], ['deeper', 366], ['sources', 204],
       ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
       ['variantLabel', 16], ['jumpLabel', 26],

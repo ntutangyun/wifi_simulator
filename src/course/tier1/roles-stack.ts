@@ -95,7 +95,7 @@ export const rolesStack: Lesson = {
   id: 'roles-stack',
   module: 1,
   title: '一张网里，谁是谁',
-  why: '上一课把链路（link）看成两台设备加一份速率余量。可一个家里并不是两台设备：是一台所有设备都与它通信的中心设备——接入点（access point, AP）、几台与它通信的设备——站点（station, STA），外加一个大家都加入了的名字——服务集标识（SSID）。这一课讲清楚谁扮演哪个角色、一张网怎么起名又怎么被寻址，以及为什么屋里每一个数据帧（data frame）的收件人都是那台接入点。',
+  why: '上一课把链路（link）看成两台设备加一份速率余量。可一个家里并不是两台设备：是一台所有设备都与它通信的中心设备——接入点（access point, AP）、几台与它通信的设备——站点（station, STA），外加一个大家都加入了的名字——服务集标识（service set identifier, SSID）。接入点本身也是一个站点：它跑的是同样两层，媒体访问控制（medium access control, MAC）和物理层（physical layer, PHY），也一样要排队；它多出来的只是一项职责——每个站点都能直接寻址到它，它替所有人把载荷（payload）转出去。一个接入点连同加入它的设备是一张网，即基本服务集（basic service set, BSS）；这张网的地址不是另起的，就是接入点自己的 MAC 地址，叫基本服务集标识（basic service set identifier, BSSID）。SSID 只是你在列表里挑的名字：楼上楼下两台路由器共用一个名字，却是两张网、两个地址。站点把每一个数据帧（data frame）的收件人都填成接入点，最终目的地另记一笔，所以屋里没有一个数据帧是站点直发站点的：两部手机之间的载荷先交到接入点，经它背后的分发系统（distribution system, DS）再由它发第二次。决定这条路径的是体系结构，不是距离。',
   outcomes: [
     '说出家庭网络里的两种角色，并讲清接入点做了哪些站点不做的事',
     '把一张网的名字，和用来标识这张网的那个地址区分开',

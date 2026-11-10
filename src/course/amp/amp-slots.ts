@@ -14,10 +14,6 @@
  * procedure. Every fact, number and the scenario/variants/jumps are unchanged
  * from the pre-migration version, so the recorded timeline hashes in
  * tests/fixtures/lesson-hashes.json did not move.
- *
- * CAUTION — this lesson now lands exactly on the 30-minute ceiling (raw ≈ 28.0
- * minutes, rounds to 30). Adding a section means checking the estimate again
- * (`npx tsx scripts/lesson-dump.ts amp-slots`), or the study-time test fails.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, ampAp, firstAmpLost, firstAmpSatOut, firstCollision, firstScheduledTrigger, oneRoom, sc, tag, txOf, type Lesson } from '../lessonKit'
@@ -40,7 +36,7 @@ export const ampSlots: Lesson = {
   id: 'amp-slots',
   module: 10,
   title: '时隙化随机接入：ABOC、ACW 与碰撞',
-  why: '最初那一课里每个标签都有专属的时隙，从不必问“这个时隙该给谁”。可路由器一次只开出固定几个时隙，想要应答的标签却可能比时隙还多：六个标签，四个时隙。这一课看标签如何各自抽一个数来决定应答的时隙，以及两个标签抽到同一个数会怎样。',
+  why: '最初那一课只有两个标签分四个时隙，偶尔才撞一次。可路由器一次只开出固定几个时隙，想要应答的标签却可能比时隙还多：这里是六个标签、四个时隙。规则很简单：触发帧（Trigger frame）里带着一个窗口指数，标签据此算出窗口，在窗口里均匀抽一个数，落在第几个时隙就在那里应答，落到时隙之外就整轮沉默；碰撞之后没有窗口翻倍，也不留任何记忆，下一轮从同一个范围重抽。六个标签到达路由器的功率几乎一样，没有哪一路强到能被单独解出，所以同一时隙里只要不止一个标签，就全部丢失；标签自己分不清是撞了还是信号弱，它只看到一帧没点自己名字的确认。因为每次抽取彼此独立，一个时隙空着、成功、碰撞的概率可以直接用组合算出，不必像分布式协调功能（distributed coordination function, DCF）那样自洽求解，三十轮实测与它只差几个百分点。窗口要按标签数来调：窗口太窄，可达的时隙大多以碰撞收场，后面的时隙又根本够不着，整段时间只送达寥寥几个读数；放宽到一半抽取选择沉默时，碰撞少了，送达的读数反而最多——沉默的标签不占空口时间（airtime），只损失自己这一轮。这正是窗口写在触发帧里、每轮重新广播的原因。把应答拆成两阶段，先用短时隙只报身份、再按名单送读数，送读数的那一段不会再碰撞；但读数这么短时，多出来的一帧触发帧和每个标签多一帧确认占的空口时间超过了短时隙省下的，送达的读数一样多，总的空口时间反而多了。',
   outcomes: [
     '说清标签怎样用 ACWE 算出窗口、抽出 ABOC，再换算成要用的时隙',
     '解释碰撞发生时接入点（access point, AP）和标签各自能看到什么、看不到什么',

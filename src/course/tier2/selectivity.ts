@@ -46,19 +46,6 @@
  * rather than typed, for the reason that module gives: they are the standard's
  * own arithmetic, and a literal here could drift out of agreement with the engine
  * the lesson is describing.
- *
- * **This lesson has 15 characters of main path left, and the wall is `MAX_MINUTES`, not
- * the five-minute bucket.** Measured 2026-10-11, after the 余量 glossary row was added:
- * 3 945 characters / 220 + 2 observe × 2 min + 2 tryThis × 4 min = raw 29.9318 minutes,
- * against the 30 the user asked for (`MAX_MINUTES` in `src/course/curriculum.ts`), so the
- * character budget at raw 30 is (30 − 12) × 220 = 3 960. The assertion that goes red is
- * `readability.test.ts`'s 「names the lessons already past the 30-minute ceiling in raw
- * terms」, whose frozen list is `['ru-diversity', 'uwb-ancillary']` — adding 16 characters
- * anywhere on this lesson's main path makes it a third entrant, and the right answer then
- * is NOT to widen that list: a lesson past 30 raw minutes is a lesson teaching two topics
- * and the answer is to split it (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md).
- * The per-lesson band is the looser of the two constraints here (4 400 − 3 945 = 455 to
- * spare), so a reader of that band alone would conclude there is room. There is not.
  */
 import { selBinWidthMhz, selBins, selMemberBins } from '../../engine/selectivity'
 import { type Lesson, firstData, J } from '../lessonKit'
@@ -89,7 +76,7 @@ export const selectivity: Lesson = {
   id: 'selectivity',
   module: 8,
   title: '频率选择性——一部分深衰，和整帧解不出来，是两回事',
-  why: '到这一课之前，一条链路（link）在某一刻只有一个电平：信噪比（signal-to-noise ratio, SNR）是一个数，这一帧解得出还是解不出，由那一个数判定。真实的宽带室内信道不是这样——同一时刻，信道的一部分深衰到谷底，另一部分完好，而一个数演不出「一部分」。按直觉，信道越宽，落进深衰的那几格就越多，所以应该越糟；把这件事按标准自己的分格单位建出来之后，**在余量可比的前提下**，跑出来的方向与这个直觉相反。余量不可比时则不然——这一课自己的场景就是个现成的反例，第二个实验会碰到。前一课那条 limits 已经把结论写成一句话，这一课给的是它的机制、它的三个数，以及每个数是在什么上面量出来的。',
+  why: '到这一课之前，一条链路（link）在某一刻只有一个电平：信噪比（signal-to-noise ratio, SNR）是一个数，这一帧解得出还是解不出，由那一个数判定。真实的宽带室内信道不是这样——同一时刻，信道的一部分深衰到谷底，另一部分完好，而一个数演不出「一部分」。本仿真器照搬标准回报信道质量时用的分格单位，把信道切成等宽的一格格，带宽翻倍格数就翻倍，每一格各抽一次衰落。格越多，最深那一格确实越深，带宽每翻一倍约深三分贝；但最深那一格不是这条链路的损失。一帧的比特经过信道编码，摊在整条信道上，一格塌下去只损失其中一小部分，所以判决读的是各格按容量折成的那一个有效信噪比：从最窄一档到最宽一档，最深那一格从比均值低十几分贝变成低二十几分贝，有效信噪比的损失却一直在两分贝上下。于是**在余量可比的前提下**，信道越宽，掉帧率反而越低，最宽一档比最窄一档低一个数量级还多——方向与「越宽、落进深衰的格越多、越糟」的直觉相反。余量不可比时则不然：这一课自己的五轮余量并不齐，最窄那一档停在高一级的余量上，它的掉帧率就不是最高的。宽信道真正的代价仍是噪声地板（noise floor）随带宽抬高，频率选择性只把其中一部分补了回来；而分格只改解调这一步，载波侦听（carrier sense）、前导检测（preamble detection）和发送端选速率，读的仍是整条信道的一个数。',
   outcomes: [
     '说出为什么一个电平演不出「一部分深衰」，以及标准自己拿多宽的一块分格',
     '读出最深那一格随信道带宽（channel width）怎么变，并说出它为什么不是这条链路的损失',

@@ -449,7 +449,8 @@ describe('streams · every figure the lesson prints, read back out of its own pr
       'the symbol interval', 3)) {
       same(v, PHY_MODES.eht.symNs / 1000, 'the symbol of this generation')
     }
-    // 「20 MHz 上有 234 根数据子载波」, 「每根子载波一次携带 12 个比特」, 「五分之六是数据」
+    // 「20 MHz 上有 234 根数据子载波」, 「每根子载波一次携带 12 个比特」, 「六分之五是数据」
+    // (read 「五分之六」 until 2026-11-10 — an inverted fraction; the code rate is 5/6)
     const [width, tones] = figs(EVERYWHERE, /(\d+) MHz 上有 (\d+) 根数据子载波/,
       'the tones a 20 MHz channel carries')
     const [bits] = figs(EVERYWHERE, /每根子载波一次携带 (\d+) 个比特/, 'the bits a tone carries')

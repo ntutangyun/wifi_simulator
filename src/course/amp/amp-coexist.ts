@@ -16,10 +16,6 @@
  * the rest of the BSS quiet. Every fact, number and the scenario/variants/jumps
  * are unchanged from the pre-migration version, so the recorded timeline hashes
  * in tests/fixtures/lesson-hashes.json did not move.
- *
- * CAUTION — this lesson now lands exactly on the 30-minute ceiling (raw ≈ 27.6
- * minutes, rounds to 30). Adding a section means checking the estimate again
- * (`npx tsx scripts/lesson-dump.ts amp-coexist`), or the study-time test fails.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
 import { J, ampAp, firstAmpLost, longApartment, node, sc, tag, txOf, type Lesson } from '../lessonKit'
@@ -56,7 +52,7 @@ export const ampCoexist: Lesson = {
   id: 'amp-coexist',
   module: 10,
   title: 'AMP 与 Wi-Fi 共享 2.4 GHz',
-  why: 'AMP 的标签之前独占一条信道，不必和任何人竞争。这一课把它们搬进一间真实的公寓：同一条 2.4 GHz 链路（link）上还有一台持续上传的摄像头和路由器自己的轮询，5 GHz 上另有一部手机在看视频。轮要像任何别的发送一样去竞争信道，保护它的那一帧本身也要参与竞争——这一课看这些交互怎样分摊代价，又在哪些地方落空。',
+  why: 'AMP 的标签之前独占一条信道，不必和任何人竞争。这里把它们搬进一间真实的公寓：同一条 2.4 GHz 链路（link）上还有一台持续上传的摄像头，5 GHz 上另有一部手机在看视频。路由器的轮询没有专用信道，它和任何别的发送一样，要用增强型分布式信道接入（enhanced distributed channel access, EDCA）去争，而且排在四个接入类别（access category, AC）里最低的那个，开始倒数前要等得比摄像头久，所以到点之后常常晚几毫秒才发得出去；换来的是标签永远不会拖慢别人的视频。每一轮先发一帧写给自己的允许发送（clear to send, CTS），解出它的设备在这一轮里保持安静。可这一帧本身也要竞争，摄像头恰好同时在发的那几轮就没收到它，于是照样撞进时隙。标签的上行（uplink, UL）信号 Wi-Fi 解不出，传到摄像头那里又弱得让能量检测（energy detection, ED）也察觉不到，摄像头的载波侦听（carrier sense）根本看不见这些时隙，所以这份保护只是通告，不是强制。拿掉它，标签的读数确认率从七成多掉到不到两成，摄像头也没占到便宜：它一次次撞进轮里、等不到回应，吞吐反而更低。保护开着时，一轮真正发出的帧只占百分之三左右的空口时间（airtime），摄像头损失的吞吐却更多，因为空时隙和满时隙一样让它停下；轮询频率提到五倍，损失还不止五倍。5 GHz 上的手机一帧不差：两条链路共享的是一台路由器，不是一条信道。',
   outcomes: [
     '说清轮为什么要在 AC_BK 上和别的流量一起竞争，而不是另开一条专用信道',
     '解释 CTS-to-self（CTS to self）能做到什么、做不到什么——它是通告，不是强制',

@@ -58,7 +58,7 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
 /**
  * **The ceiling, and the one number here a human owns.**
  *
- * It is the ceiling AND (today) the current value: the debt stands at exactly 287, with no slack
+ * It is the ceiling AND (today) the current value: the debt stands at exactly 279, with no slack
  * in it, and that is deliberate rather than an accident of when it was measured — a ratchet with
  * room left in it is not a ratchet. Paying debt down is never a human's call; **raising this is**,
  * and it is not a thing to do because the build is red. See the ratchet's own docblock in
@@ -77,9 +77,11 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
  * the same commit. W16 had declined that step because it cost the margin of a SECOND ruler (the
  * 「more than `sources` + `deeper`」 comparison, down to 3); W17 re-aimed that ruler onto each
  * field alone and moved the sum comparison into §17 as a measured figure, which is what made the
- * repayment cost nothing but prose.
+ * repayment cost nothing but prose. 287 → 284 on 2026-11-10: the course-wide rewrite of every
+ * lesson's `why` into a conclusions-first summary glossed three terms on main paths that `limits`
+ * had been naming bare, and the ceiling came down in the same commit, by the rule above.
  */
-export const LIMITS_DEBT_CEILING = 287
+export const LIMITS_DEBT_CEILING = 279
 
 /**
  * The per-lesson main-path band the lesson contract enforces: about a third of the mean lesson,
