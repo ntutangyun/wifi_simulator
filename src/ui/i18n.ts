@@ -330,6 +330,8 @@ export interface Strings {
     uwbSyncError: string; uwbSyncErrorHint: string; uwbUlOnly: string
     uwbTwrOnly: string
     uwbAoa: string; uwbAoaHint: string; uwbAoaTwrOnly: string
+    /** The SS-TWR responders' TOF request (standard §10.29.8.3, §10.32.4 Figure 10-235; 2026-11-11, W4). */
+    uwbSsTofRequest: string; uwbSsTofRequestHint: string; uwbSsTofRequestOnly: string
     /**
      * Why the two fields are greyed out in MMS, which the one-way modes' own reasons do not
      * cover: an MMS tag transmits and an MMS range is two-way, so `uwbAoaTwrOnly` and
@@ -698,6 +700,8 @@ export interface Strings {
       }
       uwbValue: {
         fc: (sp: number) => string
+        /** The blink's MP Short Frame Control (standard §7.3.5, §10.29.1.2.5). */
+        fcMp: () => string
         seq: (round: number, slot: number) => string
         /** §10.32.9.1's ARC IE: its control bits, field by field, and its (always empty) Content Control. */
         arc: (f: UwbArcFields) => string
@@ -710,7 +714,7 @@ export interface Strings {
         /** A many-to-many SS response's RRTI IE (standard §10.32.6): one reply time per initiator. */
         rrtiM2m: (n: number, list: string) => string
         rrtiM2mEntry: (id: string, time: string) => string
-        rrmc: (slot: number, method: string) => string
+        rrmc: (slot: number, method: string, tofRequest?: boolean) => string
         rcps: (first: number, last: number, phase: number) => string
         rcma: (n: number) => string
         replyTime: (time: string) => string
@@ -718,10 +722,10 @@ export interface Strings {
         rmiFinal: (n: number, list: string) => string
         rmiFinalEntry: (id: string, time: string) => string
         rmiReport: (field: 'tround2' | 'tof', value: string) => string
-        txTime: (time: string) => string
-        rxTimes: (n: number, list: string) => string
-        coffs: (ppm: string) => string
-        blink: (block: number, round: number) => string
+        /** An RMI IE with the reply time and the AOA Azimuth field (standard §10.29.8.4). */
+        rmiReplyAoa: (time: string, deg: string) => string
+        /** A broadcast RMI IE with one TOF per addressed responder (standard §10.32.4, §10.29.8.4). */
+        rmiTof: (n: number, list: string) => string
         /** §10.34's RMNR IE: no Content field at all, so there is nothing to parametrise the row
          * with — the row names what the IE's mere presence says. */
         rmnr: () => string
@@ -729,9 +733,7 @@ export interface Strings {
         rmmrc: (n: number, list: string) => string
         /** §10.32.9.9's SRRR IE: one responder's own request, and the two bits it is made of. One
          * IE per responder, so the row names which responder's request it is. */
-        srrr: (id: string, raoa: boolean, rrt: boolean, rrtt: boolean) => string
-        /** The bearing an SP3 data report carries back, when RAOA asked for it. */
-        raoa: (deg: string) => string
+        srrr: (id: string, raoa: boolean, rrt: boolean, rrtt: boolean, rtof: boolean) => string
         /** One MMRC list entry: the initiator's address and its receipt bitmap, printed as the
          * literal bits (window-round order, index 0 first) rather than a byte count — the whole
          * point of the row is which rounds were received, not how many. */
@@ -1187,19 +1189,22 @@ export const STRINGS: Strings = {
     uwbReplyTimeRstu: '固定回复时间',
     uwbReplyTimeRstuHint: '仅“固定”形态生效：第一个应答方的固定回复时间 FRT1（单位 RSTU），按标准从它收到的轮询帧的 RMARKER 量到它自己应答帧的 RMARKER（§10.32.2 图 10-226），用它自己的晶振计时；第 i 个应答方的 FRTi 取 FRT1 加 i − 1 个测距时隙，每个应答方一个值（取值由本仿真器定，标准把取值留给上层）。这个数从不上空口，但它同时是本仿真唯一一种发送不对齐时隙的形态：调得太小，应答方会在自己的时隙还没开始时发送；调得太大，会被自己时隙的边界切掉——两种情况整轮都以超时收场（design §6.1）。',
     uwbReplyTimeRstuOnly: '只有“固定”形态会用到这个数：回复时间走嵌入或延后那条路时，它写进帧里或量出来，用不着事先约定',
-    uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差（标准称单向测距／TDOA，§10.29.1.2.5；DL-TDoA、UL-TDoA 是业界 FiRa 的叫法）：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位——本仿真器的锚点彼此不同步、由标签修正时钟，这是 FiRa 式的方案，标准描述的是同步节点按已知偏移广播；UL-TDoA 则由标签发一帧闪发（标准的 blink），共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能得到三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。多对多测距（many-to-many, M2M，§10.32.6/§10.32.7）：标签是发起方、锚点是响应方，按 id 排在最前的标签担任控制器；M 个发起方各发一帧启动消息、N 个响应方各回一帧应答，单边形态 M + N 帧得到 M × N 对距离，双边形态每个发起方再发一帧最终帧——轮流当标签则要 M(N + 1) 个时隙。以上四种模式都必须是时间调度的会话。',
+    uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差（标准称单向测距／TDOA，§10.29.1.2.5；DL-TDoA、UL-TDoA 是业界 FiRa 的叫法）：DL-TDoA 照标准的第二种情形，由彼此同步的锚点按已知的发送偏移依次广播（锚点 0 先发 RCM 分配时隙），全程不发射的标签据此自行定位；UL-TDoA 则由标签发一帧闪发（标准的 blink），共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能得到三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。多对多测距（many-to-many, M2M，§10.32.6/§10.32.7）：标签是发起方、锚点是响应方，按 id 排在最前的标签担任控制器；M 个发起方各发一帧启动消息、N 个响应方各回一帧应答，单边形态 M + N 帧得到 M × N 对距离，双边形态每个发起方再发一帧最终帧——轮流当标签则要 M(N + 1) 个时隙。以上四种模式都必须是时间调度的会话。',
     uwbModes: {
       twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',
       mms: '多毫秒测距（MMS，802.15.4ab 草案）',
       m2m: '多对多测距（M2M）',
     },
-    uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA（「时钟修正」是业界与本仿真器的叫法，不是标准术语）：只接收不发送的标签先用本轮“轮询帧→终结帧”这段间隔测出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。',
+    uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA（「时钟修正」是业界与本仿真器的叫法，不是标准术语）：只接收不发送的标签先用接收机测得的时钟偏差（§10.29.1.1）换算出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为标签晶振的偏差乘以已知的发送偏移——本系列课程那种五时隙轮次里最长 6 ms，20 ppm 时即 36 米。',
     uwbDlOnly: '只有 DL-TDoA 用得上：这是那个“只听”的标签自己做的校正，其他模式里没有只听的标签',
     uwbSyncError: '锚点同步误差', uwbSyncErrorHint: 'UL-TDoA：各锚点的时钟被校准到同一时基的程度（模型采用“有线同步”；标准说固定节点可以有线或无线同步，§10.29.1.2.5）。每个锚点一次性抽取一个这种量级的固定残差；1 ns 就是 30 cm 的距离差，而且发再多闪发也平均不掉。',
     uwbUlOnly: '只有 UL-TDoA 用得上：这是锚点之间的共享时基，其他模式都不会去比较两个锚点的时间戳',
     uwbTwrOnly: '单向测距的轮次必须为每个锚点事先排好时隙，因此两种单向模式只支持时间调度',
+    uwbSsTofRequest: '应答方请求飞行时间',
+    uwbSsTofRequestHint: '单边双向测距（SS-TWR）里距离由发起方算出。打开后，每个应答方在应答帧的 RRMC 信息单元里把 TOF Request 置 1（§10.29.8.3）；发起方在这一轮末尾多用一个时隙，广播一帧 RMI 信息单元，带每个提出请求的应答方的飞行时间与地址（§10.32.4 图 10-235，15 + 6N 字节）。应答方由此得到自己的距离；再打开到达角，一个锚点就能定位。',
+    uwbSsTofRequestOnly: '只用于按时间调度、不用 SP3 的单边双向测距：双边双向测距由应答方自己算出距离；SP3 测距用 SRRR 信息单元的 RTOF 位请求（本仿真器未实现单边的这一种）；竞争调度的报告没有应答方事先知道的时隙',
     uwbAoa: '到达角（AoA）',
-    uwbAoaHint: '每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角（视场为正前方左右各 90°，正前方 1-σ 约 2.7°，越靠边越差）。配合 DS-TWR（本仿真器里只有嵌入形态让锚点得到距离），锚点同时握有距离和方向，仅凭自己就能定出标签的位置——一个锚点，一个定位。相位差模型是本仿真器的，标准不规定到达角的测量方法。',
+    uwbAoaHint: '每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角（视场为正前方左右各 90°，正前方 1-σ 约 2.7°，越靠边越差）。配合 DS-TWR，或配合打开了 ssTofRequest 的 SS-TWR（应答方请求发起方用 RMI 的 TOF 字段报回飞行时间，§10.29.8.3、§10.32.4），锚点同时握有距离和方向，仅凭自己就能定出标签的位置——一个锚点，一个定位。相位差模型是本仿真器的，标准不规定到达角的测量方法。',
     uwbAoaTwrOnly: '只有双向测距时锚点才会收到标签发来的帧：DL-TDoA 中标签根本不发射，UL-TDoA 中标签那一帧闪发也不属于任何锚点参与应答的轮次',
     uwbAoaMms: 'MMS 中的标签确实会发射，测距也确实是双向的——它缺的不是“方向”，而是可供测方位角的那一帧。它的测距信号是一列“素”序列：没有前导、没有 SFD、没有 PHR，天线阵列根本找不到可以比较两路相位的东西。在这里让方位角无从测起的是信号本身，而不是交互的方向。',
     uwbAoaM2m: '本仿真器的多对多模式没有实现到达角测量',
@@ -1227,14 +1232,14 @@ export const STRINGS: Strings = {
     uwbRmnrContention: '竞争调度下响应方的时隙是临时抽到的，不是哪一条控制消息里写定的，RMNR 在这里没有什么可确认的——请先把调度方式改回时间调度',
     uwbMmrcr: '收妥确认请求（MMRCR）',
     uwbMmrcrHint: '在 ARC IE 里置位 MMRCR（标准 §10.36，控制字第 15 位），请对端用一帧 MMRCM 确认它在当前测距轮次组里收到了发起方的哪几条消息（位图每个时隙一位，§10.36.2.1）——这一位和上面的 RCM 有效轮次同属一个字，置位本身不增加控制消息的字节数，花费空口时间的是对端的那一帧回答',
-    uwbMmrcrDlTdoa: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 有没有收到它的 Poll，已经由它自己发没发 Response 说明；真正不知道自己有没有被听见的是标签，而标签在 DL-TDoA 里从不发送，不是双方都认识的一个地址，没法替它确认',
+    uwbMmrcrDlTdoa: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 有没有收到它的 RCM，已经由它自己发没发测距消息说明；真正不知道自己有没有被听见的是标签，而标签在 DL-TDoA 里从不发送，不是双方都认识的一个地址，没法替它确认',
     uwbMmrcrUlTdoa: 'UL-TDoA 里标签只发一次闪烁帧，没有 ARC IE，也没有谁来应答，收妥确认没有地方可以请求',
     uwbMmrcrMms: 'MMS 的控制面走的是窄带的 nbPoll/nbResp/nbReport，不是这里的 ARC IE，收妥确认请求的这一位没有地方可以搭',
     uwbMmrcrNeedsValidity: '本仿真器只在一条控制消息管辖多轮时开放收妥确认（本仿真器的规则，标准没有这一限制）：每轮一条控制消息时，应答方发没发 Response 已经当场说明它收到了开场消息。请先把 RCM 有效轮次调到 2 以上',
     uwbMmrcrContention: '收妥确认要落在一个确定属于某个应答方的时隙里，竞争式调度下响应方的时隙是抽来的，没有谁能保证占到那个时隙：请先把调度方式改回时间调度',
     uwbSp3: 'SP3 分组测距',
     uwbSp3Hint: 'SP3 测距帧只有 SYNC、SFD 与 STS（标准 §10.32.8），没有 PHR，也没有载荷：往返测距阶段改发这种标记帧，随后另起一个测量报告阶段，把方位角与往返时间发回来',
-    uwbSp3DlTdoa: 'DL-TDoA 里收发 Poll、Response 与 Final 的是锚点之间，标签在这个模式下从不发送，没有一次标签－锚点往返可以压成 SP3 标记',
+    uwbSp3DlTdoa: 'DL-TDoA 里发送的只有锚点（RCM 与各自的测距消息），标签在这个模式下从不发送，没有一次标签－锚点往返可以压成 SP3 标记',
     uwbSp3UlTdoa: 'UL-TDoA 里标签只发一次闪烁帧，没有往返可言',
     uwbSp3Mms: 'MMS 的控制面走窄带电台的 nbPoll/nbResp/nbReport，不是这里的 ARC/SRRR IE，也没有 SP3 这种 UWB PHY 包格式的位置',
     uwbSp3M2m: '标准说 SP3 测距过程可以推广到多发起方多响应方（§10.32.8.1），但本仿真器没有实现多对多的 SP3 测距',
@@ -1242,7 +1247,7 @@ export const STRINGS: Strings = {
     uwbSp3NeedsDeferred: 'SP3 包没有载荷，测距帧测得的时间要靠随后的测量报告阶段另发一帧补上，所以本仿真器只在延后形态下开放 SP3（这是本仿真器的规则；标准 §10.29.6.5 提到固定回复时间也可以配合 SP3 包使用）：请先把回复时间改成延后，或者把 SP3 关掉',
     uwbSrrrRaoa: 'SRRR 请求到达角',
     uwbSrrrRrtt: 'SRRR 请求往返时间',
-    uwbSrrrRaoaHint: 'SRRR IE（§10.32.9.9）的 RAOA 位：请求在测量报告阶段报告方位角。本仿真器里由各响应方（锚点）把自己测得的方位角写进它的报告帧；关掉这一位，报告帧就不带这一项，字节数更少。SRRR IE 按请求方—提供方成对给出（§10.32.9.9）：本仿真器为每个应答方发一个，请求方是兼任控制器的发起方、地址按标准省略，提供方是该应答方；RRT 位总是置 1（延后单边测距要靠它拿回回复时间），RTOF 位不置',
+    uwbSrrrRaoaHint: 'SRRR IE（§10.32.9.9）的 RAOA 位：请求在测量报告阶段报告方位角。本仿真器里由各响应方（锚点）把自己测得的方位角写进它报告帧里 RMI 信息单元的 AOA Azimuth 字段（2 字节，§10.29.8.4）；关掉这一位，报告帧就不带这个字段，字节数更少。SRRR IE 按请求方—提供方成对给出（§10.32.9.9）：本仿真器为每个应答方发一个，请求方是兼任控制器的发起方、地址按标准省略，提供方是该应答方；RRT 位总是置 1（延后单边测距要靠它拿回回复时间），RTOF 位不置',
     uwbSrrrRrttHint: 'SRRR IE（§10.32.9.9）的 RRTT 位：请求发起方把往返时间写进发起方自己那一帧测量报告。置位之后发起方多占一个时隙发这一帧，关掉则没有这一帧',
     uwbSrrrNeedsSp3: '只有 SP3 分组测距的 RCM 里才有 SRRR 这个控制字可以置位',
     uwbSrrrNeedsSs: '在本仿真器里，这两个请求位由延后回复时间那条路上的帧来回答——方位角装在响应方的延后报文里，往返时间装在发起方自己的测量报告里；本仿真器双边双向的报告相位是两端交换自己的，不会因为这两个请求而变化，请求放在这里没有一帧能回答它。这是本仿真器的限制（标准 §10.32.8.3 也定义了用 SP3 包的双边形态）：请先把测距方式改成单边双向',
@@ -1446,7 +1451,7 @@ export const STRINGS: Strings = {
     integrityOk: '完整性序列已验证本次测距',
     integrityBad: '未检出完整性序列——本次测距未经验证',
     ellipseHintAoa: '单锚点定位的椭圆，其两条轴来自两种互不相干的测量：沿视线方向是测距本身的 σ（100 ps 时为 2.1 cm），垂直视线方向则是 r·σ_θ——4 米正前方约 19 cm，偏向两侧还会更大。因此在任何有意义的距离上，椭圆都是一条横跨视线的细长条。此外方位角是水平的、而测距是斜距，因此定位时沿视线走的是这个直角三角形的水平边 √(r² − Δz²)（Δz 按标签配置的高度计算）——这也是为什么装在天花板上的锚点，其定位十字会落在自己的测距圆环内侧一点。',
-    ellipseHintTdoa: '单向定位的椭圆按一个时间差真正包含的误差画出：两个带噪声的时间戳，再加上 DL-TDoA 中各响应锚点的时钟偏差估计残差（响应时隙越靠后越大），或 UL-TDoA 中锚点之间的同步标定误差。这是一阶近似：锚点的同步误差是固定偏差，不是多轮平均就能消掉的噪声，因此该椭圆只表示定位可能偏离多远，而不是严格的 68 % 置信区间。',
+    ellipseHintTdoa: '单向定位的椭圆按一个时间差真正包含的误差画出：两个带噪声的时间戳，再加上 DL-TDoA 中标签自己时钟偏差估计的残差（乘以发送偏移，时隙越靠后越大），或 UL-TDoA 中锚点之间的同步标定误差。这是一阶近似：锚点的同步误差是固定偏差，不是多轮平均就能消掉的噪声，因此该椭圆只表示定位可能偏离多远，而不是严格的 68 % 置信区间。',
   },
   log: { empty: '窗口内无事件' },
   profiles: {
@@ -1614,21 +1619,16 @@ export const STRINGS: Strings = {
         baInfo: 'BA 信息', commonInfo: '公共信息', userInfo: '用户信息列表', fcs: 'FCS 校验',
         ampId: 'ID（16 位 AMP 标识符）', ampTdc: '类型相关控制（TDC）', ampStaList: '终端 ID 列表',
         seqNo: '序列号', dstPan: '目的 PAN ID',
-        dstAddr16: '目的地址（16 位）', srcAddr16: '源地址（16 位）',
+        dstAddr16: '目的地址（16 位）', srcAddr16: '源地址（16 位）', srcAddr64: '源地址（64 位扩展地址）',
         ieArc: 'ARC 信息元·高级测距控制', ieRr: 'RR 信息元·测距轮（块号与轮号）', ieRdm: 'RDM 信息元·测距设备管理',
         ieRrmc: 'RRMC 信息元·测距请求、测量与控制',
         ieRrti: 'RRTI 信息元·测距回复时间',
         ieRmi: 'RMI 信息元·测距测量信息',
         ieRcps: 'RCPS 信息元·竞争阶段结构（阶段表）',
         ieRcma: 'RCMA 信息元·竞争最大尝试次数',
-        ieTxTime: '发送时刻信息元·发送方自己的发送时刻（本仿真器自己的信息元，标准里没有）',
-        ieRxTimes: '接收时刻信息元·发送方掌握的各到达时刻（本仿真器自己的信息元，标准里没有）',
-        ieCoffs: '时钟偏差信息元·响应锚点相对锚点 0 的偏差（本仿真器自己的信息元，标准里没有）',
-        ieBlink: '闪发信息元·单向闪发帧的内容（本仿真器自己的信息元，标准里没有）',
         ieRmnr: 'RMNR 信息元·测距消息未收到，无内容字段',
         ieRmmrc: 'RMMRC 信息元·多消息收妥确认',
         ieSrrr: 'SRRR 信息元·一对请求方与提供方要报告哪几项',
-        ieRaoa: '方位角项·数据报告相位带回的那个方位角',
         ieRaict: 'RAICT 信息元·测距辅助信息计数与类型',
         mmsFragment: '片段·第几个，共几个',
         mmsShape: '序列·这个片段由什么构成',
@@ -1686,6 +1686,7 @@ export const STRINGS: Strings = {
       },
       uwbValue: {
         fc: (sp) => `数据帧 · SP${sp} 测距 · PAN ID 压缩 · 16 位短地址`,
+        fcMp: () => '多用途帧 · 短帧控制（1 字节）· 无目的地址 · 64 位扩展源地址',
         seq: (round, slot) => `轮 ${round}，时隙 ${slot}`,
         arc: (f) =>
           `多节点模式 ${f.multiNode}（${['单对单', '一对多', '多对多'][f.multiNode]}）`
@@ -1700,7 +1701,7 @@ export const STRINGS: Strings = {
         rdmSlot: (id, slot, initiator) => `${id}${initiator === undefined ? '' : initiator ? '（发起方）' : '（响应方）'} 时隙 ${slot}`,
         rrtiM2m: (n, list) => `${n} 个发起方：${list}`,
         rrtiM2mEntry: (id, time) => `${id}：回复时间 ${time}`,
-        rrmc: (slot, method) => `时隙 ${slot} · ${method}`,
+        rrmc: (slot, method, tofRequest) => `时隙 ${slot} · ${method}${tofRequest ? ' · TOF Request 1（请求发起方报告飞行时间）' : ''}`,
         rcps: (first, last, phase) => `CP Table Length 1 · 阶段指示 ${phase}（${['发起方竞争', '应答方竞争', '测量报告竞争'][phase] ?? '保留'}）· 时隙 ${first}…${last}`,
         rcma: (n) => `最多尝试 ${n} 次`,
         replyTime: (time) => `回复时间 ${time}`,
@@ -1708,14 +1709,11 @@ export const STRINGS: Strings = {
         rmiFinal: (n, list) => `${n} 个锚点：${list}`,
         rmiFinalEntry: (id, time) => `${id} tround1 ${time}`,
         rmiReport: (field, value) => `${field === 'tof' ? 'TOF' : 'tround2'} ${value}`,
-        txTime: (time) => `发送时刻 ${time}`,
-        rxTimes: (n, list) => `${n} 个接收时刻：${list} RCTU`,
-        coffs: (ppm) => `时钟偏差 ${ppm} ppm——相对锚点 0`,
-        blink: (block, round) => `闪发 · 块 ${block} · 轮 ${round}`,
+        rmiReplyAoa: (time, deg) => `回复时间 ${time} · AOA Azimuth ${deg}（以发送设备正前方为 0）`,
+        rmiTof: (n, list) => `TOF Present · ${n} 个应答方：${list}`,
         rmnr: () => '无内容字段——仅凭出现在这个时隙本身，说明仍持有有效 RCM、但本轮启动消息未收到',
         rmmrc: (n, list) => `${n} 个发起方：${list}`,
-        srrr: (id, raoa, rrt, rrtt) => `请求方：发起方（即控制器，地址省略）· 提供方 ${id} · RAOA ${raoa ? 1 : 0}（到达角）· RRT ${rrt ? 1 : 0}（回复时间）· RRTT ${rrtt ? 1 : 0}（往返时间）· RTOF 0`,
-        raoa: (deg) => `${deg}——响应方自己测到的方位角，由它的报告帧带回`,
+        srrr: (id, raoa, rrt, rrtt, rtof) => `请求方：发起方（即控制器，地址省略）· 提供方 ${id} · RAOA ${raoa ? 1 : 0}（到达角）· RRT ${rrt ? 1 : 0}（回复时间）· RRTT ${rrtt ? 1 : 0}（往返时间）· RTOF ${rtof ? 1 : 0}（飞行时间）`,
         rmmrcEntry: (id, bits) => `${id} · 位图长度 ${Math.ceil(bits.length / 8)} 字节 · 收妥位图 ${bits}（每个时隙一位，从左到右：这组轮次的第一个时隙起）`,
         raict: (request, messageNumber, framesRemaining) => {
           const parts: string[] = []

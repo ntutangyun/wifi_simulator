@@ -31,10 +31,10 @@ structure. you're going to change the content anyway」——引擎改了，课�
 
 | 自创元素 | 用在 | 改成 |
 | --- | --- | --- |
-| `TXT` 发送时刻 IE、`RXT` 接收时刻 IE | ~~多对多~~（W3 已去掉）、DL-TDoA | 多对多按 §10.32.6／.7 用 RRMC／RRTI／RMI；DL-TDoA 按标准的同步节点方案，不需要这两个 IE |
-| `COFF` 时钟偏差 IE | DL-TDoA | 标准的第二种 TDoA 情形是彼此同步的固定节点按已知偏移广播，不需要 |
-| `BLINK` IE | UL-TDoA | 闪发是普通的短帧（§10.29.1.2.5，典型最短为 12 字节的多用途帧），没有专门的 IE |
-| `RAOA` 作为 IE | SP3 报告 | RAOA 是 SRRR 里的请求位；到达角结果放在 RMI IE 的到达角字段里（§10.29.8.4） |
+| `TXT` 发送时刻 IE、`RXT` 接收时刻 IE | ~~多对多~~（W3 已去掉）、~~DL-TDoA~~（W4 已去掉） | 多对多按 §10.32.6／.7 用 RRMC／RRTI／RMI（W3）；DL-TDoA 按标准的同步节点方案，不需要这两个 IE（**W4 已去掉**）。两条合并后 src/ 里已无这两个 IE |
+| `COFF` 时钟偏差 IE | DL-TDoA | 标准的第二种 TDoA 情形是彼此同步的固定节点按已知偏移广播，不需要（**W4 已去掉**） |
+| `BLINK` IE | UL-TDoA | 闪发是普通的短帧（§10.29.1.2.5，典型最短为 12 字节的多用途帧），没有专门的 IE（**W4 已去掉**：12 字节的多用途帧） |
+| `RAOA` 作为 IE | SP3 报告 | RAOA 是 SRRR 里的请求位；到达角结果放在 RMI IE 的到达角字段里（§10.29.8.4）（**W4 已改正**） |
 | 地址只有、没有测量的 RMI | 延后 DS-TWR 的 Final | 标准的延后 Final 不带 IE；RMI 至少要有一项测量（§10.29.8.4） |
 
 同理，自创的**规则**也要去掉：竞争的反馈与空过（已去掉）、3 RSTU 整数倍、按块计的有效期、把延后 DS 的两个时间扣在发起方等。
@@ -71,7 +71,7 @@ structure. you're going to change the content anyway」——引擎改了，课�
 ## 进度
 
 - [x] 第一阶段（试点第 70 课，见提交记录；等用户看过新结构再铺开）
-- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [x] W3（见 `docs/superpowers/specs/2026-11-11-w3-design.md`）　- [ ] W4　- [ ] W5　- [ ] W6
+- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [x] W3（见 `docs/superpowers/specs/2026-11-11-w3-design.md`）　- [x] W4（见 `docs/superpowers/specs/2026-11-11-w4-design.md`）　- [ ] W5　- [ ] W6
 - [x] 34 门 UWB 课全部改成新结构（① 标准 → ② 本仿真器怎么实现 → ③ 动手仿真）。依赖 W3–W6 的课，② 里把尚未改正的引擎行为标为「与标准不同」
 - [ ] 第三阶段（Wi-Fi 与 AMP 课程）
 - [x] W2b（除一对多窄带 POLL 长度外，见 `docs/superpowers/specs/2026-11-11-w2b-design.md`）

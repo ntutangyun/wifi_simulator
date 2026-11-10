@@ -7,20 +7,21 @@
  * Elevation and FOM fields of the RMI IE, §10.29.8.4) — and that how it is measured, and how a
  * position is solved from a range and an angle, are outside the standard. ② is everything this
  * simulator does on top: the two-antenna phase model, its noise and its clamps, which frames are
- * measured, the anchor solving the fix itself; and, plainly, where it departs from the standard —
- * no frame here carries the bearing, the SP3 report carries it in a "RAOA" item the standard does not
- * define (to be replaced by the RMI AOA Azimuth field, W4), and an SS-TWR responder never gets a
- * range although the RMI IE has a TOF field (audit #16, W4).
+ * measured, the anchor solving the fix itself. 2026-11-11 (W4): the SP3 report carries the bearing in
+ * the RMI IE's AOA Azimuth field (until then a "RAOA" IE the standard does not define), and an SS-TWR
+ * responder that sets the RRMC TOF Request field gets its range back in the initiator's RMI report
+ * (audit #16) — the fifth scene runs exactly that.
  *
  * The scenes: one anchor against the south wall of the 10 × 8 m room, one badge; DS-TWR with AoA on,
- * channel 9, NLOS off. Only the badge's spot and the anchor's facing change between variants.
+ * channel 9, NLOS off. Only the badge's spot and the anchor's facing change between the first four;
+ * the fifth is the base spot on SS-TWR with the responder's TOF request.
  * Every figure the lesson prints is read back by tests/course/uwb-aoa.test.ts and compared with a run.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbAoa, firstUwbAoaFix, firstUwbFinal, firstUwbPoll, firstUwbRange, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'
 
 /** Which spot the badge stands on, and which way the anchor faces. */
-export type UwbAoaVariant = 'base' | 'off45' | 'off60' | 'behind'
+export type UwbAoaVariant = 'base' | 'off45' | 'off60' | 'behind' | 'ss'
 
 /** The one anchor: against the room's south wall, on the ceiling. */
 export const ANCHOR_X = 5
@@ -41,6 +42,7 @@ export const SPOTS: Record<UwbAoaVariant, { offBoresightDeg: number; rangeM: num
   off45: { offBoresightDeg: 45, rangeM: 4 },
   off60: { offBoresightDeg: 60, rangeM: 5 },
   behind: { offBoresightDeg: 0, rangeM: 2 },
+  ss: { offBoresightDeg: 0, rangeM: 2 },
 }
 
 /** The badge's plan coordinates for a variant. */
@@ -56,16 +58,18 @@ function aoaAnchor(yawDeg: number): NodeCfg {
 }
 
 /**
- * One anchor and one badge on a DS-TWR session with angle of arrival on, channel 9, NLOS off. DS is
- * not optional here: in this engine an SS round ends at the badge and the anchor never gets a range
- * (② says this differs from the standard).
+ * One anchor and one badge with angle of arrival on, channel 9, NLOS off. DS-TWR, where the anchor
+ * computes the range itself — except 'ss': SS-TWR, where the badge computes it and the anchor asks for
+ * it back with the RRMC IE's TOF Request field (standard §10.29.8.3, §10.32.4 Figure 10-235).
  */
 export function uwbAoaScenario(variant: UwbAoaVariant = 'base'): Scenario {
   const p = tagXY(variant)
   return uwbSc(
     oneRoom(),
     [aoaAnchor(variant === 'behind' ? YAW_WALL : YAW_IN), uwbTag('badge-1', 'Badge 1', p.x, p.y, TAG_Z)],
-    { method: 'ds', mode: 'twr', aoa: true, channel: 9, nlos: false },
+    variant === 'ss'
+      ? { method: 'ss', ssTofRequest: true, mode: 'twr', aoa: true, channel: 9, nlos: false }
+      : { method: 'ds', mode: 'twr', aoa: true, channel: 9, nlos: false },
   )
 }
 
@@ -73,10 +77,10 @@ export const uwbAoa: Lesson = {
   id: 'uwb-aoa',
   module: 26,
   title: '只需一个锚点',
-  why: 'IEEE 802.15.4-2024 把到达角（AoA）列为测距结果之一：请求方用 RRMC 信息单元的到达角请求位提出请求，测量方用测距测量信息（ranging measurement information, RMI）信息单元的方位角字段报告，以发送设备的正前方为零弧度；到达角怎样测量、怎样由距离和角度解算位置，标准都不规定。本仿真器给锚点（anchor）两根相距半个波长的天线（antenna），由两路载波的相位差（phase difference）反解出方位角，并让锚点把这一轮测出的距离与方位角相交，独自解出胸牌的位置——一个锚点就够了。这个点的误差有方向：按本仿真器取的噪声值，距离精确到两厘米左右，方位角却越偏离正前方越不准，再乘以距离，横向误差达到几十厘米，所以误差椭圆横在视线上。锚点背后的胸牌产生的相位与它在正前方的镜像位置相同，于是被定位到镜像位置，周围的椭圆依然规整。本课的场景里没有一帧携带方位角；SP3 测距的报告帧带方位角时，本仿真器用的是标准里没有的 RAOA 信息单元，这是待改正的偏差。',
+  why: 'IEEE 802.15.4-2024 把到达角（AoA）列为测距结果之一：请求方用 RRMC 信息单元的到达角请求位提出请求，测量方用测距测量信息（ranging measurement information, RMI）信息单元的方位角字段报告，以发送设备的正前方为零弧度；到达角怎样测量、怎样由距离和角度解算位置，标准都不规定。本仿真器给锚点（anchor）两根相距半个波长的天线（antenna），由两路载波的相位差（phase difference）反解出方位角，并让锚点把这一轮测出的距离与方位角相交，独自解出胸牌的位置——一个锚点就够了。这个点的误差有方向：按本仿真器取的噪声值，距离精确到两厘米左右，方位角却越偏离正前方越不准，再乘以距离，横向误差达到几十厘米，所以误差椭圆横在视线上。锚点背后的胸牌产生的相位与它在正前方的镜像位置相同，于是被定位到镜像位置，周围的椭圆依然规整。单边测距时距离由胸牌算出：锚点在应答帧的 RRMC 信息单元里把 TOF Request 置 1，胸牌在这一轮末尾用 RMI 信息单元的 TOF 字段把飞行时间发回，锚点同样可以独自定位。',
   outcomes: [
     '说出标准对到达角规定了什么：属于测距结果、用哪个信息单元请求、用哪些字段报告、零点在哪里，以及哪些不在标准范围内',
-    '分清本仿真器的测量模型、定位算法与标准的区别，指出它与标准不同的两处',
+    '分清本仿真器的测量模型、定位算法与标准的区别，说出单边测距时锚点怎样按标准拿回距离',
     '从日志里读出一个方位角与单个锚点解出的定位，并说明误差的方向与锚点背后的镜像',
   ],
   needs: ['uwb-dstwr', 'uwb-geometry'],
@@ -112,11 +116,12 @@ export const uwbAoa: Lesson = {
     { topic: '相位噪声', standard: '标准未规定', sim: '固定取 σ_φ = 0.15 rad（约 8.6°），不随信噪比（signal-to-noise ratio, SNR）变化。换算到方位角是 σ_θ = σ_φ/(π·cos θ)：正前方 2.74°，偏 45° 时 3.87°，偏 60° 时 5.47°。', kind: 'value' },
     { topic: '两处截断', standard: '标准未规定', sim: '反正弦的自变量截断在 ±1，读数最大 ±90.0°；σ_θ 截断在 45°。本课三个位置都不会触及；胸牌在 4 m 处偏 80° 时，σ_θ 为 15.75°，十四个方位角中有六个被限定在 −90.0°。', kind: 'value' },
     { topic: '天线方向图与多径', standard: '标准未规定', sim: '本仿真器不模拟天线方向图，链路（link）电平与朝向无关；方位角只由几何决定，墙面反射不参与角度测量。所以锚点背后的胸牌仍然收得到，镜像总能读出。', kind: 'choice' },
-    { topic: '在哪些帧上测角', standard: '标准未规定', sim: '锚点对胸牌发来的每一帧都测一次方位角，一轮双边测距有两帧（起始帧与结束帧），所以每轮两个方位角。', kind: 'choice' },
+    { topic: '在哪些帧上测角', standard: '标准未规定', sim: '锚点对胸牌发来的每一帧都测一次方位角。一轮双边测距有两帧（起始帧与结束帧），单边测距加飞行时间报告时也是两帧（起始帧与报告帧），所以每轮两个方位角。', kind: 'choice' },
     { topic: '方位角的零点', standard: '0 弧度为发送设备的正前方（§10.29.8.4）', sim: '以锚点的朝向为零点，与 RMI 的定义一致；胸牌在锚点右侧时方位角为负。', kind: 'faithful' },
     { topic: '本课场景里的报告', standard: 'RRMC 请求，RMI 的 AOA Azimuth 字段报告（§10.29.8.3、§10.29.8.4）', sim: '未实现：本课的场景里没有一帧携带方位角。方位角留在测得它的锚点上，由锚点自己解算位置。俯仰角与 FOM 也未实现。', kind: 'absent' },
-    { topic: 'SP3 测距里的报告', standard: 'SRRR 的 RAOA 位请求，方位角放在 RMI 信息单元的到达角字段里（§10.32.9.9、§10.29.8.4）', sim: '本仿真器目前在报告帧里用了标准里没有的 RAOA 信息单元（一个信息单元头加 2 字节方位角），这是待改正的偏差，计划改为 RMI 的 AOA Azimuth 字段。', kind: 'differs' },
-    { topic: '单边测距下的距离', standard: '应答方可以用 RRMC 的 TOF Request 请求飞行时间，RMI 有 TOF 字段（§10.29.8.3、§10.29.8.4）', sim: '本仿真器的单边测距里锚点得不到距离，只有方位角，无法定位；所以本课用双边测距，由锚点在每轮末尾算出距离。这是与标准不同、待改正的地方。', kind: 'differs' },
+    { topic: 'SP3 测距里的报告', standard: 'SRRR 的 RAOA 位请求，方位角放在 RMI 信息单元的到达角字段里（§10.32.9.9、§10.29.8.4）', sim: '照此：SP3 单边测距的应答方在自己的报告帧里，把方位角写进 RMI 信息单元同一个列表元素的 AOA Azimuth 字段（AOA Azimuth Present 置 1，2 字节）。俯仰角与 FOM 未实现。', kind: 'faithful' },
+    { topic: '单边测距下的距离', standard: '应答方可以用 RRMC 的 TOF Request 请求飞行时间，发起方用 RMI 的 TOF 字段报告（§10.29.8.3、§10.29.8.4、§10.32.4 图 10-235）', sim: '照此：在「单边测距，请求飞行时间」场景里，锚点在应答帧的 RRMC 信息单元里把 TOF Request 置 1；胸牌在这一轮最后一个时隙广播一帧 RMI 信息单元，带锚点的飞行时间与地址，共 21 字节；飞行时间以 RCTU（ranging counter time unit）为单位，取整数。锚点由此得到距离。', kind: 'faithful' },
+    { topic: '飞行时间的取整', standard: 'TOF 字段以 RCTU 为单位、取非负整数（§10.29.8.4、§10.29.1.4），取整方式标准未规定', sim: '胸牌把算出的飞行时间四舍五入到整数 RCTU（约 15.65 ps，即 4.7 mm）。', kind: 'choice' },
     { topic: '定位', standard: '标准不涉及', sim: '锚点把这一轮的距离与较晚的那个方位角配对；距离是斜距，先扣除高度差得到平面距离 √(r² − Δz²)，再从锚点沿「朝向 + θ̂」方向延伸。只用一个锚点，GDOP 恒为 1.00；误差椭圆沿射线方向是距离的 σ，垂直方向是平面距离乘以 σ_θ。', kind: 'choice' },
     { topic: '测距噪声', standard: '标准未规定', sim: '时间戳噪声 100 ps，距离的 σ = c·σ_ts/√2 = 2.12 cm，与定位各课相同。', kind: 'value' },
   ],
@@ -189,10 +194,28 @@ export const uwbAoa: Lesson = {
       expect: '方位角的真值变为 180.0°，而十四个读数与基准场景完全相同，第一个仍是 2.3°；七次定位落在 (5.06, −1.47) m 一带，离胸牌 3.97 到 4.03 m，约为平面距离的两倍，已在房间之外。测距误差仍是 2.0 cm，周围的椭圆与基准场景相同。',
       meaning: 'sin(180° − θ) = sin θ，两根天线分不出正前方与背后（②的测量模型）；本仿真器不模拟天线方向图，所以背后的胸牌仍收得到（②）。标准没有规定测量方法，这不是标准的性质（①）。',
     },
+    {
+      heading: '单边测距：锚点请求飞行时间',
+      variant: 3,
+      steps: [
+        '载入「单边测距，请求飞行时间」：胸牌与基准场景同一位置，会话改为单边测距。',
+        '依次查看第 0 轮的三帧，在检视面板里打开应答帧的 RRMC 信息单元和最后一帧的 RMI 信息单元。',
+        '读出锚点的距离与它解出的定位。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '第 0 轮的三帧', head: ['时隙', '发送者', '帧', '长度', '信息单元'], rows: [
+          ['0', 'badge-1', 'Poll', '33 B', 'ARC、RR、RDM、RRMC'],
+          ['1', 'anc-1', 'Response', '21 B', 'RRMC（TOF Request 1）、RRTI'],
+          ['2', 'badge-1', '测量报告', '21 B', 'RMI（TOF Present，anc-1 的飞行时间 472 RCTU）'],
+        ] },
+      ],
+      expect: '胸牌在第 1 号时隙收到应答后算出距离 2.21 m；第 2 号时隙它把飞行时间 472 RCTU 发给锚点，锚点随即写出同一个距离 2.21 m 和定位 (4.94, 2.36) m，误差 0.15 m。七轮的平均定位误差为 13.4 cm，双边测距的基准场景为 9.6 cm。',
+      meaning: '应答方用 RRMC 的 TOF Request 请求、发起方用 RMI 的 TOF 字段报告，是标准的单边测距流程（①）；把距离与方位角相交定位是本仿真器的取法（②）。',
+    },
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.29.1.1（到达角属于测距结果）、§10.29.8.3 与图 10-211（RRMC 信息单元：到达角请求位、TOF 请求位；单边测距中应答方可以请求飞行时间）、§10.29.8.4 与图 10-212、图 10-213（RMI 信息单元：AOA Azimuth、AOA Elevation、FOM 与 TOF 字段，方位角以发送设备正前方为零弧度；天线阵列参数的约定不在标准范围内）、§10.32.9.9（SRRR 信息单元的 RAOA 位）、§10.32.8.2 与 §10.32.8.3（SP3 测距的测量报告阶段用 RMI 发回到达角）。标准不规定到达角的测量方法，也不涉及由距离和角度解算位置。',
-    '本仿真器的取值与取法：两根相距半波长的接收天线、σ_φ = 0.15 rad、反正弦的 ±90° 截断与 σ_θ 的 45° 截断、每帧测角、较晚的方位角与距离配对、扣除高度差后定位、100 ps 的时间戳噪声（距离 σ 2.12 cm）。场景：信道 9、双边测距、关闭非视距。与标准不同、待改正的两处：SP3 报告里的 RAOA 信息单元，以及单边测距下锚点得不到距离。',
+    '本仿真器的取值与取法：两根相距半波长的接收天线、σ_φ = 0.15 rad、反正弦的 ±90° 截断与 σ_θ 的 45° 截断、每帧测角、较晚的方位角与距离配对、扣除高度差后定位、100 ps 的时间戳噪声（距离 σ 2.12 cm）。飞行时间四舍五入到整数 RCTU。场景：信道 9、关闭非视距，前四个场景用双边测距，第五个用单边测距并由锚点请求飞行时间（§10.32.4 与图 10-235）。',
   ],
   limits: [],
   scenario: () => uwbAoaScenario('base'),
@@ -200,6 +223,7 @@ export const uwbAoa: Lesson = {
     { label: '4 m 处 45°', scenario: () => uwbAoaScenario('off45') },
     { label: '5 m 处 60°', scenario: () => uwbAoaScenario('off60') },
     { label: '锚点背后', scenario: () => uwbAoaScenario('behind') },
+    { label: '单边测距，请求飞行时间', scenario: () => uwbAoaScenario('ss') },
   ],
   jumps: [
     J('胸牌发起这一轮的 Poll', firstUwbPoll),
@@ -219,7 +243,7 @@ export const uwbAoa: Lesson = {
         '标准没有规定到达角怎样报告',
       ],
       answer: 1,
-      explain: '§10.29.8.4 定义了 AOA Azimuth 字段。本仿真器在 SP3 报告里用的 RAOA 信息单元是标准里没有的，是待改正的偏差。',
+      explain: '§10.29.8.4 定义了 AOA Azimuth 字段；RAOA 是 SRRR 信息单元里请求到达角的那一位（§10.32.9.9）。',
     },
     {
       q: '在本仿真器里，为什么偏向侧面时方位角的不确定性比正前方更大？',

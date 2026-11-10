@@ -335,11 +335,14 @@ export function srrrIeBytes(responders: number): number {
   return SRRR_IE_BYTES * responders
 }
 
-/** The bearing one RAOA request puts in the data report phase: an IE header plus a 2-octet
- * azimuth. The request bit is the standard's (§10.32.9.9); the item's own width is this engine's,
- * the same way every other IE's Content length here is — the clause names the bit, not the report
- * format. standard §10.32.9.9 (the bit); content sizing model */
-export const UWB_SP3_RAOA_ITEM_BYTES = UWB_IE_HDR_BYTES + 2
+/** The AOA Azimuth field of one RMI List element (standard §10.29.8.4, Figure 10-213): a signed
+ * 2-octet integer in units of 2π/(2^16 − 1), 0 rad straight ahead of the sending device. What a
+ * responder's report gains when the SRRR IE's RAOA bit (§10.32.9.9) or the RRMC IE's AOA Azimuth
+ * Request bit (§10.29.8.3) asked for a bearing — the same RMI IE with AOA Azimuth Present = 1, not a
+ * second IE. The AOA Azimuth FOM (1 octet) and the elevation fields are not carried (AOA FOM Present
+ * = 0, AOA Elevation Present = 0). 2026-11-11 (W4): until then the bearing rode an IE of its own
+ * ("RAOA", header + 2) that the standard does not define. */
+export const RMI_AOA_AZIMUTH_BYTES = 2
 
 /** RDM IE (§10.32.9.8), fixed part: header + the device count. */
 export const RDM_IE_FIXED_BYTES = UWB_IE_HDR_BYTES + 1
@@ -512,7 +515,20 @@ export function uwbSp3InitReportBytes(responders: number): number {
  * bearing item.**
  */
 export function uwbSp3ReportBytes(raoa: boolean): number {
-  return UWB_SS_DEFER_BYTES + (raoa ? UWB_SP3_RAOA_ITEM_BYTES : 0)
+  return UWB_SS_DEFER_BYTES + (raoa ? RMI_AOA_AZIMUTH_BYTES : 0)
+}
+
+/**
+ * The initiator's measurement report of an SP1 one-to-many SS-TWR round whose responders asked for
+ * the result (standard §10.32.4, Figure 10-235: a responder sets the TOF Request field of the RRMC IE
+ * (1) in its Response; "The final message broadcast by the initiator conveys one or more RMI IE(s) …
+ * where the Address field of the RMI IE distinguishes to which node the reported measurements
+ * relate"; §10.29.8.3 "In SS-TWR, the initiator typically calculates the TOF … the responder can
+ * request the resultant TOF"). MHR + one RMI IE (TOF Present, broadcast, so each element carries the
+ * responder's short address: 4 + 6N) + FCS = 15 + 6N octets. 2026-11-11 (W4, audit #16).
+ */
+export function uwbSsTofReportBytes(responders: number): number {
+  return UWB_MHR_BYTES + rmiIeBytes(responders, 1, true) + UWB_FCS_BYTES
 }
 
 // --- RCM validity window, and the non-receipt exchange it makes possible ---------------
@@ -546,68 +562,43 @@ export function uwbRmnrBytes(): number {
   return UWB_MHR_BYTES + RMNR_IE_BYTES + UWB_FCS_BYTES
 }
 
-// --- One-way ranging (TDoA) message content -------------------------------------
+// --- One-way ranging (OWR, standard §10.29.1.2.5) ---------------------------------
+// 2026-11-11 (W4, audit #15): the TDoA frames are the standard's own. Until then the DL-TDoA frames
+// carried a transmit-time, a receive-times and a clock-offset IE and the blink a blink IE — four IEs
+// IEEE Std 802.15.4-2024 does not define.
 
-// Every ranging time below is 4 octets, exactly as the RRTI IE sizes one, and every IE
-// carries this file's 2-octet element header (ID + length) like all the others — so a
-// "+4 octet TX time" costs the frame 6 octets, not 4. The frames below are written as the
-// sum of those constants, and uwb/frameFields.ts decodes one row per IE at the same widths.
+/**
+ * The blink of the first TDOA case (standard §10.29.1.2.5): "RFID devices typically use the shortest
+ * blink message possible, (e.g., a multipurpose frame) … A multipurpose frame can be as short as 12
+ * octets; consisting of a Short Frame Control field, the Sequence Number field, no Destination Address
+ * field, an extended source address and an FCS." MP Short Frame Control 1 (§7.3.5.3) + Sequence Number
+ * 1 + extended source address 8 + FCS 2 = 12 octets. No IE: the frame carries no times — the fixed
+ * nodes take them on arrival.
+ */
+export const UWB_MP_SHORT_FC_BYTES = 1
+export const UWB_SEQ_BYTES = 1
+export const UWB_EXT_ADDR_BYTES = 8
+export const UWB_BLINK_BYTES = UWB_MP_SHORT_FC_BYTES + UWB_SEQ_BYTES + UWB_EXT_ADDR_BYTES + UWB_FCS_BYTES
 
-/** Blink IE (model, §10.29.8-style): header + one octet of blink content (the tag's blink
- * sequence). The blink carries no times at all — the anchors take them on arrival. */
-export const BLINK_IE_BYTES = UWB_IE_HDR_BYTES + 1
-/** UL-TDoA blink: MHR 9 + blink IE 3 + FCS 2 = 14 octets (model). */
-export const UWB_BLINK_BYTES = UWB_MHR_BYTES + BLINK_IE_BYTES + UWB_FCS_BYTES
-
-/** TX-time IE (model; the RMI-style content of §10.29.8.4): header + the sender's own TX
- * counter, one 4-octet ranging time. DL-TDoA only since 2026-11-11 (W3): many-to-many ranging no
- * longer uses it (standard §10.32.6/§10.32.7 use RRMC, RRTI and RMI). */
-export const TX_TIME_IE_BYTES = UWB_IE_HDR_BYTES + 4
-/** RX-times IE (model): header + one 4-octet RX counter per time carried. The times are listed
- * in the round's slot order, so no address rides along with them: a DL-TDoA message reads that
- * order from the Poll's RDM IE. Every caller of this file omits the whole IE, header included, when
- * it carries no times at all (see `dlExtraBytes`) — a
- * real frame does not spend two octets announcing an IE with nothing in it. */
-export function rxTimesIeBytes(times: number): number {
-  return UWB_IE_HDR_BYTES + 4 * times
-}
-/** DL-TDoA clock-offset IE (model): header + a 16-bit carrier frequency offset, the responder's
- * clock offset to anchor 0 that puts its reply time on anchor 0's timebase. Many-to-many carries
- * no such IE at all: the clock offset is measured on receive, not sent (design §4, consistent
- * with the existing SS-TWR path, whose `coffs` comes from `UwbRxInfo` rather than from a frame). */
-export const DL_COFFS_IE_BYTES = UWB_IE_HDR_BYTES + 2
-
-/** The ranging-time content a message adds to its two-way-ranging shape: the sender's TX time,
- * the RX times it holds (none on a DL-TDoA Poll, which opens the round) and, on a DL-TDoA Response,
- * its clock offset. One definition, used by DL-TDoA's three frame-size functions below. */
-export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
-  return TX_TIME_IE_BYTES + (rxTimes > 0 ? rxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
+/**
+ * The RCM of a one-way ranging round (standard §10.32.2, Figure 10-225 "<OWR>": the controller's RCM in
+ * slot 0, then the responders' ranging messages R1 … RN): MHR + ARC IE (Ranging Round Usage = 0, OWR,
+ * Table 10-164) + RR IE + an RDM IE (SIU = 1, §10.32.9.8) assigning each fixed node its slot + FCS —
+ * the same frame shape as `uwbAncillaryRcmBytes('time', N)`. 25 + 3N octets. It carries no RRMC IE:
+ * nothing in an OWR round is a request.
+ */
+export function uwbOwrRcmBytes(nodes: number): number {
+  return UWB_MHR_BYTES + ARC_IE_BYTES + RR_IE_BYTES + rdmIeBytes(nodes) + UWB_FCS_BYTES
 }
 
-// The three functions below are each frame's one definition: uwb/frames.ts builds at these sizes
-// and the schema's slot rule measures them, so a DL message cannot grow in one place only. The
-// content arguments default to the canonical round's — the Poll opens it with no RX times, the
-// Response answers with one and its clock offset, the Final lists one RX time per responder —
-// and the builders pass what their own `dl` payload actually holds.
-
-/** DL-TDoA Poll (anchor 0): the time-scheduled Poll over the `responders` (anchors 1…N−1)
- * plus anchor 0's own TX time. 30 + 3R + 6 octets. */
-export function uwbDlPollBytes(responders: number, rxTimes = 0, coffs = false): number {
-  return uwbPollBytes(responders) + dlExtraBytes(rxTimes, coffs)
-}
-
-/** DL-TDoA Response (anchor i): the DS-TWR Response (no RRTI) plus the responder's TX time, its
- * RX time of the Poll and its clock offset. 14 + 6 + 6 + 4 = 30 octets. */
-export function uwbDlRespBytes(rxTimes = 1, coffs = true): number {
-  return UWB_BARE_RESP_BYTES + dlExtraBytes(rxTimes, coffs)
-}
-
-/** DL-TDoA Final (anchor 0): MHR + RRMC + anchor 0's TX time + its RX time of each response +
- * FCS. It carries no two-way times — a listening tag needs the instants, not the round trips —
- * so it does not grow the way the TWR Final does: 22 + 4R octets. */
-export function uwbDlFinalBytes(responders: number, coffs = false): number {
-  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(responders, coffs)
-}
+/**
+ * One fixed node's ranging message in a one-way ranging round (Figure 10-225's R1 … RN): an RFRAME
+ * with an empty payload — MHR + FCS = 11 octets. It needs no IE in the second TDOA case of §10.29.1.2.5,
+ * where the nodes are synchronized and transmit "with known transmission time offsets with respect to
+ * each other": the listening device already knows when each was sent (its slot), so the frame carries
+ * no transmit time.
+ */
+export const UWB_OWR_MSG_BYTES = UWB_MHR_BYTES + UWB_FCS_BYTES
 
 // --- Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS) ------------------
 //
@@ -931,7 +922,8 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * to it and its default of `'embedded'` is never asked to mean anything.
  *
  * One-way ranging counts its slots differently, because the tag is not what the round is built
- * around: a DL-TDoA round is the anchors' own (Poll + N−1 Responses + Final = N + 1 slots) and
+ * around: a DL-TDoA round is the anchors' own (the controller's RCM + one ranging message per anchor
+ * = N + 1 slots, standard Figure 10-225 "<OWR>") and
  * every tag in the scenario listens to that same round, while a UL-TDoA round is one blink slot
  * and belongs to one tag. An MMS round is pairwise by default — one tag and one anchor — and its
  * length is the train's, not the anchor count's: `mmsLayout` counts its slots, so a tag needs
@@ -988,6 +980,9 @@ export function uwbSlotsPerTag(
   /** `mode: 'm2m'` only: the initiator count M (standard §10.32.6/§10.32.7); `anchors` is then the
    * responder count N. */
   initiators = 1,
+  /** SP1 SS-TWR whose responders request the TOF (standard §10.32.4, Figure 10-235): one more slot at
+   * the end of the round for the initiator's broadcast RMI report. 2026-11-11 (W4). */
+  ssTof = false,
 ): number {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
@@ -1029,7 +1024,7 @@ export function uwbSlotsPerTag(
     // DS: the Final, then (SP3 is always deferred) the initiator's deferred report — two slots.
     return 2 * anchors + 2 + (method === 'ds' ? 2 : 0) + (sp3.rrtt ? 1 : 0)
   }
-  if (method === 'ss') return replyTime === 'deferred' ? 2 * anchors + 1 : anchors + 1
+  if (method === 'ss') return (replyTime === 'deferred' ? 2 * anchors + 1 : anchors + 1) + (ssTof ? 1 : 0)
   // DS-TWR: Poll, A Responses, the Final, then A reports — and, deferred, the initiator's own deferred
   // report between the Final and the responders' reports (standard §10.29.6.6, §10.32.5 Figure
   // 10-237), one slot more.
@@ -1042,8 +1037,8 @@ export const UWB_SLOT_GUARD_NS = 200
 /** The round's longest frame, in octets: in a time-scheduled two-way round, the larger of the
  * Poll (which lists every anchor, 30 + 3N) and whichever frame the method and reply-time carry
  * their times in; the Poll or the SS Response in a contention round (which has no Final at all);
- * the longer of the Poll and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder,
- * the Final's RX times by 4); and the blink — the only frame there is — in UL-TDoA.
+ * the controller's RCM in DL-TDoA (its RDM IE grows by 3 per anchor; the ranging messages are a
+ * fixed 11); and the blink — the only frame there is — in UL-TDoA.
  *
  * `method` and `replyTime` only matter to the time-scheduled two-way branch: SS-TWR has no Final
  * at all, so its longest frame is the Poll (or, embedded, its own Response, which never catches
@@ -1064,14 +1059,18 @@ export function uwbLongestFrameBytes(
    * responder (§10.32.9.9) and the report frame by one bearing item, and both of those are PSDUs.
    * Defaults false, so every caller written before this slice asks the question it always asked. */
   sp3 = false,
+  /** SP1 SS-TWR whose responders request the TOF (RRMC TOF Request, standard §10.29.8.3, §10.32.4
+   * Figure 10-235): the initiator's broadcast measurement report (`uwbSsTofReportBytes`, 15 + 6N)
+   * joins the round and grows with the anchor count. 2026-11-11 (W4). */
+  ssTof = false,
 ): number {
   if (mode === 'mms') {
     throw new Error('uwbLongestFrameBytes: an MMS round carries fragments and narrowband messages, not PSDUs')
   }
   if (mode === 'ul-tdoa') return UWB_BLINK_BYTES
-  if (mode === 'dl-tdoa') {
-    return Math.max(uwbDlPollBytes(anchors - 1), uwbDlRespBytes(), uwbDlFinalBytes(anchors - 1))
-  }
+  // One-way ranging (standard §10.29.1.2.5, Figure 10-225 "<OWR>"): the controller's RCM, whose RDM IE
+  // lists every fixed node, and the nodes' bare 11-octet ranging messages. 2026-11-11 (W4).
+  if (mode === 'dl-tdoa') return Math.max(uwbOwrRcmBytes(anchors), UWB_OWR_MSG_BYTES)
   // A contention round is SS-TWR and ends at the Response: there is no Final to size it by, and
   // the Poll carries RCPS + RCMA instead of the anchor list, so it is 35 octets whatever the
   // anchor count. At one anchor that Poll is longer than the Final the round never sends.
@@ -1092,7 +1091,8 @@ export function uwbLongestFrameBytes(
     // at its longest here rather than asked about the RAOA bit, because a slot that fits the round
     // must fit it with the request on.
     const deferBytes = replyTime === 'deferred' ? (sp3 ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES) : 0
-    return Math.max(pollBytes, uwbRespBytes('ss', replyTime), deferBytes)
+    const tofBytes = ssTof && !sp3 ? uwbSsTofReportBytes(anchors) : 0
+    return Math.max(pollBytes, uwbRespBytes('ss', replyTime), deferBytes, tofBytes)
   }
   // DS deferred: the Final is bare, and the initiator's deferred report (15 + 10N) is the frame that
   // grows; the responders' reports are a fixed 19.
@@ -1184,10 +1184,12 @@ export function uwbFixedReplyWindowRstu(
  */
 export function uwbMaxAnchors(
   mode: UwbMode, method: 'ss' | 'ds', replyTime: UwbReplyTime, schedule: 'time' | 'contention' = 'time',
+  /** SP1 SS-TWR with the TOF report (see `uwbLongestFrameBytes`'s `ssTof`). */
+  ssTof = false,
 ): number {
   let cap = 0
   for (let a = 1; a <= UWB_ANCHOR_SEARCH_CEILING; a++) {
-    if (uwbLongestFrameBytes(a, mode, schedule, method, replyTime) > UWB_MAX_PSDU_BYTES) break
+    if (uwbLongestFrameBytes(a, mode, schedule, method, replyTime, false, ssTof) > UWB_MAX_PSDU_BYTES) break
     cap = a
   }
   return cap
@@ -1237,12 +1239,14 @@ export function uwbSlotFitNs(
    * responder longer than an ordinary Poll, which is a slot-fit question and not only a PSDU-cap
    * one. Both callers of this function pass it: the scenario schema and `UwbNetwork`. */
   sp3 = false,
+  /** SP1 SS-TWR with the TOF report (see `uwbLongestFrameBytes`'s `ssTof`). */
+  ssTof = false,
 ): Ns {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotFitNs: mode 'mms' needs the session's MMS parameters")
     return mmsLongestFragmentNs(mms) + UWB_SLOT_GUARD_NS
   }
-  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime, sp3)) + UWB_SLOT_GUARD_NS
+  return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime, sp3, ssTof)) + UWB_SLOT_GUARD_NS
     + UWB_TURNAROUND_NS
 }
 

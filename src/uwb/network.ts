@@ -137,7 +137,7 @@ export class UwbNetwork {
         // SP3's RCM is `srrrIeBytes(A)` octets longer than an ordinary Poll (standard §10.32.9.9),
         // and the Poll is what binds an SS round's slot. The scenario schema checks the identical
         // thing in RSTU, from the identical function and the identical field.
-        this.plan.sp3,
+        this.plan.sp3, this.plan.ssTofRequest,
       )
     if (this.plan.slotNs < needNs) {
       throw new Error(
@@ -182,7 +182,7 @@ export class UwbNetwork {
         )
       }
     } else if (!mms) {
-      const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, this.plan.replyTime, this.plan.schedule)
+      const anchorCap = uwbMaxAnchors(this.plan.mode, this.plan.method, this.plan.replyTime, this.plan.schedule, this.plan.ssTofRequest)
       if (anchors.length > anchorCap) {
         throw new Error(`UwbNetwork: ${anchors.length} anchors exceed the ${anchorCap} this round's longest frame allows`)
       }
@@ -230,7 +230,14 @@ export class UwbNetwork {
       // noise draw, so a node's randomness is independent of its neighbours'
       // and independent of how many nodes the scenario holds.
       const rng = root.fork(hashStr(`${n.id}#uwb`))
-      const clock = UwbClock.fromRng(rng, n.uwb?.ppm)
+      const drawn = UwbClock.fromRng(rng, n.uwb?.ppm)
+      // DL-TDoA is standard §10.29.1.2.5's second case: the fixed nodes are synchronized and send at
+      // known offsets on one timebase. How they are synchronized the standard leaves open ("wired
+      // distribution of the clock signals … wireless synchronization schemes are also practical"); this
+      // simulator's assumption is perfect synchronization — the anchors' clocks run at the timebase's
+      // rate (0 ppm), and every slot boundary they transmit on is the true one. The crystal draw above is
+      // still taken, and only its rate set aside, so no later draw of the stream moves. 2026-11-11 (W4).
+      const clock = this.plan.mode === 'dl-tdoa' && n.uwb?.role === 'anchor' ? new UwbClock(0, drawn.origin) : drawn
       // UL-TDoA (model "wired sync"): the anchors are calibrated to one common timebase, and each
       // is left with a fixed residual error of it. It is drawn here, once, from this anchor's own
       // stream and straight after its crystal — so it cannot reorder anything, and no other mode

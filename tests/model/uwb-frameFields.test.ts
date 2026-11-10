@@ -3,18 +3,18 @@ import { decodeFrame, ppduLayout, type DecodedFrame } from '../../src/model/fram
 import type { FrameDesc } from '../../src/model/frames'
 import { UWB_RMARKER_OFFSET_NS, uwbFrameFields, uwbPpduLayout } from '../../src/uwb/frameFields'
 import {
-  makeBlink, makeFinal, makeNbPoll, makeNbReport, makeNbResp, makePoll, makeReport, makeResp,
+  makeBlink, makeFinal, makeNbPoll, makeNbReport, makeNbResp, makeOwrMsg, makeOwrRcm, makePoll, makeReport, makeResp,
   makeRif, makeRsf,
 } from '../../src/uwb/frames'
 import { mmsFragmentDbm, mmsSet } from '../../src/uwb/mms'
 import { nbCenterMhz } from '../../src/uwb/nb'
 import { STRINGS } from '../../src/ui/i18n'
 import {
-  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
+  ARC_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   RCMA_IE_BYTES, RCPS_IE_BYTES, rdmIeBytes, rmiFinalIeBytes, RMI_REPORT_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES,
   rrtiIeBytes,
-  rxTimesIeBytes, SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_BLINK_BYTES,
-  uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbRespBytes,
+  SFD_SYMBOLS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, UWB_BLINK_BYTES, UWB_EXT_ADDR_BYTES,
+  UWB_MP_SHORT_FC_BYTES, UWB_OWR_MSG_BYTES, UWB_SEQ_BYTES, uwbOwrRcmBytes, uwbRespBytes,
 } from '../../src/uwb/phy'
 
 /** The decoder renders every row through this table, so the pins below name it rather than
@@ -32,7 +32,7 @@ const POLL = makePoll('tag', ['a1', 'a2', 'a3', 'a4'], 'ds', 0, 0)
 const RESP = makeResp('a1', 'tag', 'ss', 0, 0, 1, 127_803)
 // 2026-11-11 (W2b): an embedded DS Response carries Treply1 in an RRTI IE (§10.32.5, Figure 10-238).
 const RESP_DS = makeResp('a1', 'tag', 'ds', 0, 0, 1, 127_803)
-const RESP_DS_DEFERRED = makeResp('a1', 'tag', 'ds', 0, 0, 1, undefined, undefined, 'deferred')
+const RESP_DS_DEFERRED = makeResp('a1', 'tag', 'ds', 0, 0, 1, undefined, 'deferred')
 const FINAL = makeFinal('tag', FINAL_TIMES, 0, 0, 5)
 const REPORT = makeReport('a1', 'tag', { tround2: 1_278_100 }, 0, 0, 6)
 const ALL: FrameDesc[] = [POLL, RESP, RESP_DS, RESP_DS_DEFERRED, FINAL, REPORT]
@@ -118,86 +118,51 @@ describe('uwbFrameFields', () => {
     for (const f of ALL) expect(decodeFrame(f, { apId: '', isEdca: false })).toEqual(uwbFrameFields(f))
   })
 
-  it('decodes a UL-TDoA blink: MHR 9 + blink IE 3 + FCS 2 = 14 octets', () => {
+  // 2026-11-11 (W4): the blink is standard §10.29.1.2.5's 12-octet multipurpose frame (§7.3.5) — MP Short
+  // Frame Control, Sequence Number, no destination address, extended source address, FCS — and no IE.
+  // Until then: MHR 9 + a "BLINK" IE the standard does not define + FCS = 14.
+  it('decodes a UL-TDoA blink: the 12-octet multipurpose frame, 1 + 1 + 8 + 2, no IE', () => {
     const blink = makeBlink('tag-1', 3, 7)
-    expect(blink.bytes).toBe(14)
+    expect(blink.bytes).toBe(12)
     expect(blink.bytes).toBe(UWB_BLINK_BYTES)
     expect(blink.dst).toBe('*')
+    expect(blink.uwb?.ies).toEqual([])
     const d = uwbFrameFields(blink)
-    expect(fieldSum(d)).toBe(14)
+    expect(fieldSum(d)).toBe(12)
     expect(d.users[0].subframes[0].mpdu.subtypeName).toBe('UWB Blink')
-    expect(fields(blink).map((x) => x.key))
-      .toEqual(['fc', 'seqNo', 'dstPan', 'dstAddr16', 'srcAddr16', 'ieBlink', 'fcs'])
-    expect(keyed(blink, 'ieBlink')!.bytes).toBe(BLINK_IE_BYTES)
-    expect(keyed(blink, 'ieBlink')!.value).toBe(V.blink(3, 7))
+    expect(fields(blink).map((x) => [x.key, x.bytes]))
+      .toEqual([['fc', UWB_MP_SHORT_FC_BYTES], ['seqNo', UWB_SEQ_BYTES], ['srcAddr64', UWB_EXT_ADDR_BYTES], ['fcs', 2]])
+    expect(keyed(blink, 'fc')!.value).toBe(V.fcMp())
+    expect(keyed(blink, 'srcAddr64')!.node).toBe('tag-1')
     // The shortest frame the simulator puts on the air, and the cheapest position there is.
     expect(blink.bytes).toBeLessThan(uwbRespBytes('ds', 'deferred') + 1)
     expect(ppduLayout(blink).reduce((s, p) => s + p.durNs, 0)).toBe(blink.txTimeNs)
   })
 
-  it('decodes the three DL-TDoA messages: ranging times at 4 octets each, IE headers counted', () => {
-    const dlPoll = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, {
-      dl: { txCounter: 1_000_000, rxCounters: {} },
-    })
-    const dlResp = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
-      // a fraction, as the engine stores it: 1.5 ppm
-      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 }, coffs: 1.5e-6,
-    })
-    const dlFinal = makeFinal('anc-0', [], 0, 0, 4, {
-      txCounter: 1_900_000,
-      rxCounters: { 'anc-1': 1_300_000, 'anc-2': 1_500_000, 'anc-3': 1_700_000 },
-    })
-    // Poll: the time-scheduled Poll over 3 responders (36) + the TX-time IE (2 + 4).
-    expect(dlPoll.bytes).toBe(uwbDlPollBytes(3))
-    expect(dlPoll.bytes).toBe(45) // 42 before the 2026-11-10 ARC/RR IE correction (audit #9)
-    // Response: the DS Response (14) + TX time (6) + one RX time (2 + 4) + clock offset (2 + 2).
-    expect(dlResp.bytes).toBe(uwbDlRespBytes())
-    expect(dlResp.bytes).toBe(30)
-    // Final: MHR 9 + RRMC 3 + FCS 2 + TX time 6 + three RX times (2 + 12). It carries no
-    // two-way times at all, so it does not grow the way the DS-TWR Final does.
-    expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3))
-    expect(dlFinal.bytes).toBe(34)
-    expect(dlFinal.bytes).toBeLessThan(FINAL.bytes)
-
-    for (const f of [dlPoll, dlResp, dlFinal]) {
-      const d = uwbFrameFields(f)
-      expect(fieldSum(d), `${f.kind} ${f.bytes} B`).toBe(f.bytes)
+  // 2026-11-11 (W4, audit #15): the one-way ranging round is Figure 10-225's "<OWR>" — the controller's
+  // RCM (ARC Ranging Round Usage = 0, Table 10-164; RR; RDM, §10.32.9.8) and one bare ranging message per
+  // synchronized node. Until then the Poll, Responses and Final carried TX-time, RX-times and
+  // clock-offset IEs the standard does not define.
+  it('decodes the two one-way ranging frames: the RCM (ARC + RR + RDM) and a bare 11-octet message', () => {
+    const nodes = [{ id: 'anc-0', slot: 1 }, { id: 'anc-1', slot: 2 }, { id: 'anc-2', slot: 3 }, { id: 'anc-3', slot: 4 }]
+    const rcm = makeOwrRcm('anc-0', nodes, 0, 0)
+    const msg = makeOwrMsg('anc-1', 0, 0, 2)
+    expect(rcm.kind).toBe('uwbRcm')
+    expect(rcm.bytes).toBe(uwbOwrRcmBytes(4))
+    expect(rcm.bytes).toBe(9 + ARC_IE_BYTES + 8 + rdmIeBytes(4) + 2)
+    expect(rcm.uwb?.arc?.roundUsage).toBe(0)
+    expect(rcm.uwb?.rdm).toEqual(nodes.map((n) => ({ ...n, initiator: false })))
+    expect(msg.kind).toBe('uwbResp')
+    expect(msg.bytes).toBe(UWB_OWR_MSG_BYTES)
+    expect(msg.bytes).toBe(11)
+    expect(msg.uwb?.ies).toEqual([])
+    for (const f of [rcm, msg]) {
+      expect(fieldSum(uwbFrameFields(f)), `${f.kind} ${f.bytes} B`).toBe(f.bytes)
       expect(ppduLayout(f).reduce((s, p) => s + p.durNs, 0), f.kind).toBe(f.txTimeNs)
     }
-    expect(fields(dlPoll).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
-      .toEqual(['ieArc', 'ieRr', 'ieRdm', 'ieRrmc', 'ieTxTime'])
-    expect(fields(dlResp).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
-      .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes', 'ieCoffs'])
-    expect(fields(dlFinal).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
-      .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes'])
-    expect(keyed(dlPoll, 'ieTxTime')!.bytes).toBe(TX_TIME_IE_BYTES)
-    expect(keyed(dlResp, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(1))
-    expect(keyed(dlResp, 'ieCoffs')!.bytes).toBe(DL_COFFS_IE_BYTES)
-    expect(keyed(dlFinal, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(3))
-    // Four octets per ranging time, exactly as an RRTI IE sizes one.
-    expect(rxTimesIeBytes(3) - rxTimesIeBytes(2)).toBe(4)
-    expect(keyed(dlResp, 'ieCoffs')!.value).toBe(V.coffs('1.50'))
-    // the row's header and its first entry; the other two anchors follow in the same row
-    expect(keyed(dlFinal, 'ieRxTimes')!.value)
-      .toContain(`${V.rxTimes(3, '').replace(/ RCTU$/, '')}anc-1 1 300 000`)
-
-    // One definition per frame: the builders size at the same phy.ts functions the schema's
-    // slot-fit rule measures, content for content — a message that grew an RX time would grow in
-    // both places or in neither.
-    expect(dlPoll.bytes).toBe(uwbDlPollBytes(3, 0, false))
-    expect(dlResp.bytes).toBe(uwbDlRespBytes(1, true))
-    expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3, false))
-    const pollWithRx = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, {
-      dl: { txCounter: 1_000_000, rxCounters: { 'anc-1': 999_000 }, coffs: 0.25e-6 },
-    })
-    expect(pollWithRx.bytes).toBe(uwbDlPollBytes(3, 1, true))
-    expect(pollWithRx.bytes).toBe(dlPoll.bytes + rxTimesIeBytes(1) + DL_COFFS_IE_BYTES)
-    expect(fieldSum(uwbFrameFields(pollWithRx))).toBe(pollWithRx.bytes)
-    const respNoCoffs = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
-      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 },
-    })
-    expect(respNoCoffs.bytes).toBe(uwbDlRespBytes(1, false))
-    expect(fieldSum(uwbFrameFields(respNoCoffs))).toBe(respNoCoffs.bytes)
+    expect(fields(rcm).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieArc', 'ieRr', 'ieRdm'])
+    expect(fields(msg).filter((x) => x.key.startsWith('ie'))).toEqual([])
+    expect(keyed(rcm, 'ieRdm')!.value).toBe(V.rdm(4, nodes.map((n) => V.rdmSlot(n.id, n.slot)).join('、')))
   })
 
   // 31 octets until 2026-11-10: the ARC IE carried three index fields the standard's does not have

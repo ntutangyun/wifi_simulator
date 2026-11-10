@@ -194,6 +194,11 @@ export function uwbAncillaryFramesCapFor(
  * It returns the empty patch when nothing is owed, so a commit carries no field it does not
  * change — the same discipline every patch above keeps.
  */
+/** Where `ssTofRequest` means something: a time-scheduled SP1 SS-TWR round (the schema's own rule). */
+export function uwbSsTofRequestAllowed(s: UwbSessionCfg): boolean {
+  return s.mode === 'twr' && s.method === 'ss' && !s.sp3 && s.schedule === 'time'
+}
+
 export function uwbSessionRepair(
   session: UwbSessionCfg, anchors: number, tags: number = 1,
 ): Partial<UwbSessionCfg> {
@@ -206,6 +211,10 @@ export function uwbSessionRepair(
     patch.blockRstu = Math.max(1, Math.round(session.blockRstu / session.slotRstu)) * session.slotRstu
     session = { ...session, blockRstu: patch.blockRstu }
   }
+  // The SS-TWR TOF request (standard §10.29.8.3, §10.32.4 Figure 10-235) exists only in a time-scheduled
+  // SP1 SS-TWR round; a mode, method, schedule or SP3 edit that leaves that takes it down with it, the
+  // value the schema would otherwise refuse (2026-11-11, W4).
+  if (session.ssTofRequest && !uwbSsTofRequestAllowed(session)) patch.ssTofRequest = false
   if (session.replyTime === 'fixed') {
     const fixedReplyRstu = uwbFixedReplyRstuFor(session, anchors)
     if (fixedReplyRstu !== null && fixedReplyRstu !== session.fixedReplyRstu) patch.fixedReplyRstu = fixedReplyRstu
@@ -1057,6 +1066,12 @@ export function UwbSessionFields(
         <input type="checkbox" checked={session.aoa} disabled={nonTwr !== null}
           onChange={(e) => onChange(uwbAoaPatch(e.target.checked, session.sp3, session.srrr))} />
         {E.uwbAoa}
+      </label>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: uwbSsTofRequestAllowed(session) ? 'pointer' : 'default' }}
+        title={uwbSsTofRequestAllowed(session) ? E.uwbSsTofRequestHint : E.uwbSsTofRequestOnly}>
+        <input type="checkbox" checked={session.ssTofRequest} disabled={!uwbSsTofRequestAllowed(session)}
+          onChange={(e) => onChange({ ssTofRequest: e.target.checked })} />
+        {E.uwbSsTofRequest}
       </label>
       <label style={label} title={nonTwr === 'ul-tdoa' ? E.uwbSyncErrorHint : E.uwbUlOnly}>
         {E.uwbSyncError}{' '}

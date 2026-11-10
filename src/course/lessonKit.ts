@@ -456,6 +456,9 @@ export const firstUwbPoll = txOf((r) => r.frame.kind === 'uwbPoll')
 export const firstUwbResp = txOf((r) => r.frame.kind === 'uwbResp')
 export const firstUwbFinal = txOf((r) => r.frame.kind === 'uwbFinal')
 export const firstUwbReport = txOf((r) => r.frame.kind === 'uwbReport')
+/** A ranging control message sent on its own (standard §10.32.2): the RCM of a one-way ranging round
+ * (ARC Ranging Round Usage = 0, Figure 10-225 "<OWR>") or of the ancillary-information round. */
+export const firstUwbRcm = txOf((r) => r.frame.kind === 'uwbRcm')
 /** SS-TWR with a deferred reply time (standard §10.29.6.3): the follow-up message a responder
  * sends once it has read its own transmit timestamp back — the only frame in this simulator
  * whose entire reason to exist is that the frame before it could not carry a number measuring

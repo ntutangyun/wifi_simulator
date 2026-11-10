@@ -9,9 +9,9 @@
  * References: IEEE Std 802.15.4-2024 §7.2 (MAC frame format), §7.4.4 (the generic
  * Nested IE format) and the ranging IEs themselves: §10.29.8.1 RRTI, §10.29.8.3 RRMC,
  * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.3 RR, §10.32.9.8 RDM, §10.32.9.5 RCPS, §10.32.9.6 RCMA;
- * §16.2 is the HRP UWB PPDU and its SP1 STS configuration. The one-way ranging rows — the
- * DL-TDoA TX time, RX times and clock offset, and the UL-TDoA blink — are model IEs in the
- * shape of §10.29.8.4's measurement content, sized in uwb/phy.ts.
+ * §16.2 is the HRP UWB PPDU and its SP1 STS configuration. One-way ranging (§10.29.1.2.5) carries no
+ * IE of its own: the OWR round's RCM is ARC + RR + RDM, the anchors' messages are bare, and the blink
+ * is a 12-octet multipurpose frame (§7.3.5) — 2026-11-11 (W4).
  */
 import type { DecodedFrame, FieldKey, FrameField, PpduSegment } from '../model/frameFields'
 import { STRINGS } from '../ui/i18n'
@@ -25,11 +25,11 @@ import {
   NB_SYMBOL_US,
 } from './nb'
 import {
-  ARC_IE_BYTES, RR_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
+  ARC_IE_BYTES, RR_IE_BYTES, chipsToNs, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   raictIeBytes, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalIeBytes, rmiIeBytes, rrtiIeBytes,
-  RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
-  SRRR_IE_BYTES, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES,
-  UWB_MHR_BYTES, UWB_SP3_RAOA_ITEM_BYTES,
+  RMI_AOA_AZIMUTH_BYTES, RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES,
+  SFD_SYMBOLS, SRRR_IE_BYTES, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS,
+  UWB_EXT_ADDR_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES, UWB_MP_SHORT_FC_BYTES, UWB_SEQ_BYTES,
 } from './phy'
 
 /** Model: the simulator runs a single ranging session, so a single PAN. */
@@ -123,7 +123,7 @@ function ies(u: UwbInfo): Ie[] {
         break
       }
       case 'RRMC':
-        out.push({ key: 'ieRrmc', bytes: RRMC_IE_BYTES, value: V.rrmc(u.slot, method) })
+        out.push({ key: 'ieRrmc', bytes: RRMC_IE_BYTES, value: V.rrmc(u.slot, method, u.tofRequest === true) })
         break
       case 'RCPS':
         out.push({
@@ -161,7 +161,14 @@ function ies(u: UwbInfo): Ie[] {
         // §10.29.8.4: a 2-octet content header, then one list element per device, each carrying the
         // times its present bits say, and an address when the frame is broadcast.
         if (!u.finalTimes) {
-          if (u.reportTimes) {
+          if (u.tofList) {
+            // The SS-TWR initiator's broadcast report of the TOFs its responders requested (§10.32.4,
+            // Figure 10-235): one element per responder, TOF and address. 2026-11-11 (W4).
+            out.push({
+              key: 'ieRmi', bytes: rmiIeBytes(u.tofList.length, 1, true),
+              value: V.rmiTof(u.tofList.length, u.tofList.map((t) => `${t.id} ${rctuText(t.tof)}`).join(' · ')),
+            })
+          } else if (u.reportTimes) {
             // A responder's report to the initiator: unicast, one measurement — Tround2 (embedded,
             // Figure 10-238) or the TOF it computed (deferred, Figure 10-206). 2026-11-11 (W2b).
             const tof = u.reportTimes.tof
@@ -170,6 +177,14 @@ function ies(u: UwbInfo): Ie[] {
               value: tof !== undefined
                 ? V.rmiReport('tof', rctuText(tof))
                 : V.rmiReport('tround2', rctuText(u.reportTimes.tround2 ?? 0)),
+            })
+          } else if (u.aoaThetaDeg !== undefined) {
+            // An SP3 responder's report when the SRRR IE's RAOA bit asked for a bearing (§10.32.9.9): the
+            // same element with AOA Azimuth Present = 1 — reply time 4 + azimuth 2 (§10.29.8.4, Figure
+            // 10-213). 2026-11-11 (W4): until then the bearing rode an IE of its own the standard lacks.
+            out.push({
+              key: 'ieRmi', bytes: rmiIeBytes(1, 1, false) + RMI_AOA_AZIMUTH_BYTES,
+              value: V.rmiReplyAoa(rctuText(u.replyRctu ?? 0), `${u.aoaThetaDeg.toFixed(1)}°`),
             })
           } else {
             // SS-TWR's deferred reply-time message (§10.29.6.3): unicast, one reply time.
@@ -201,37 +216,6 @@ function ies(u: UwbInfo): Ie[] {
           })
         break
       }
-      // --- one-way ranging (DL-TDoA) ---
-      case 'TXT': {
-        const times = u.dl
-        if (!times) throw new Error('uwbFrameFields: TXT IE on a frame with no DL-TDoA times')
-        out.push({ key: 'ieTxTime', bytes: TX_TIME_IE_BYTES, value: V.txTime(rctuText(times.txCounter)) })
-        break
-      }
-      case 'RXT': {
-        const times = u.dl
-        if (!times) throw new Error('uwbFrameFields: RXT IE on a frame with no DL-TDoA times')
-        // The RX counters the sender holds, in the round's slot order: 4 octets each.
-        const rx = Object.entries(times.rxCounters)
-        out.push({
-          key: 'ieRxTimes', bytes: rxTimesIeBytes(rx.length),
-          value: V.rxTimes(rx.length, rx.map(([id, c]) => `${id} ${grouped(c)}`).join(' · ')),
-        })
-        break
-      }
-      case 'COFF':
-        out.push({
-          key: 'ieCoffs', bytes: DL_COFFS_IE_BYTES,
-          // Stored as a fraction (ppm x 1e-6), the form every consumer of a reply time wants;
-          // the octets on the air are an offset in ppm, so that is what the row prints.
-          value: V.coffs(((u.dl?.coffs ?? 0) * 1e6).toFixed(2)),
-        })
-        break
-      case 'BLINK':
-        // UL-TDoA: the whole payload of a blink. It says who blinked and when in the schedule,
-        // and nothing else — the times are the anchors' to take.
-        out.push({ key: 'ieBlink', bytes: BLINK_IE_BYTES, value: V.blink(u.block, u.round) })
-        break
       case 'RMNR':
         // standard §10.34.2.1: "formatted without any Content field" — the row has no payload to
         // decode, only the two things this IE conveys by being sent at all (design §3): the sender
@@ -259,19 +243,10 @@ function ies(u: UwbInfo): Ie[] {
       // this IE's cost grows with the responder count while §10.36's MMRCR bit's does not.
       case 'SRRR': {
         for (const e of u.srrr ?? []) {
-          out.push({ key: 'ieSrrr', bytes: SRRR_IE_BYTES, value: V.srrr(e.provider, e.raoa, e.rrt, e.rrtt) })
+          out.push({ key: 'ieSrrr', bytes: SRRR_IE_BYTES, value: V.srrr(e.provider, e.raoa, e.rrt, e.rrtt, e.rtof) })
         }
         break
       }
-      // …and what the RAOA bit bought, arriving in the data report phase: one bearing, in the
-      // responder's own report frame (§10.32.8.1). Present only when that bit was set, which is what
-      // makes `uwbSp3ReportBytes(false)` the whole length of a report nobody asked an extra of.
-      case 'RAOA':
-        out.push({
-          key: 'ieRaoa', bytes: UWB_SP3_RAOA_ITEM_BYTES,
-          value: V.raoa(u.aoaThetaDeg === undefined ? '—' : `${u.aoaThetaDeg.toFixed(1)}°`),
-        })
-        break
       // §10.35.2.1's RAICT IE (design §4.1): the one engine-wide IE whose byte count is decided by
       // presence bits rather than a count, so the width read back here comes from which of the two
       // optional fields `u.raict` actually carries — not from any slot or schedule parameter, the
@@ -409,6 +384,31 @@ export function uwbFrameFields(f: FrameDesc): DecodedFrame {
       : u.sp0 ? sp0Fields(u.sp0, f.bytes)
       : []
     const bytes = fields.reduce((sum, x) => sum + x.bytes, 0)
+    if (bytes !== f.bytes) throw new Error(`uwbFrameFields: ${bytes} B decoded, engine size ${f.bytes} B`)
+    return {
+      users: [{
+        dst: f.dst, aggregated: false,
+        subframes: [{
+          delimiterBytes: 0, padBytes: 0,
+          mpdu: { kind, typeName: 'Ranging', subtypeName: SUBTYPE[kind], fields, bytes },
+        }],
+        bytes,
+      }],
+      ppdu: uwbPpduLayout(f),
+      bytes,
+    }
+  }
+  // The blink (standard §10.29.1.2.5): a multipurpose frame with a Short Frame Control, a Sequence
+  // Number, no destination address, the tag's extended source address and an FCS — 12 octets, no IE.
+  // 2026-11-11 (W4).
+  if (kind === 'uwbBlink') {
+    const fields: FrameField[] = [
+      { key: 'fc', bytes: UWB_MP_SHORT_FC_BYTES, value: V.fcMp() },
+      { key: 'seqNo', bytes: UWB_SEQ_BYTES, value: f.seqNo !== undefined ? String(f.seqNo) : V.seq(u.round, u.slot) },
+      { key: 'srcAddr64', bytes: UWB_EXT_ADDR_BYTES, node: f.src, roles: ['SA'] },
+      { key: 'fcs', bytes: UWB_FCS_BYTES, value: 'CRC-16' },
+    ]
+    const bytes = fields.reduce((s, x) => s + x.bytes, 0)
     if (bytes !== f.bytes) throw new Error(`uwbFrameFields: ${bytes} B decoded, engine size ${f.bytes} B`)
     return {
       users: [{

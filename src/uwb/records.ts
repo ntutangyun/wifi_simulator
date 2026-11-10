@@ -18,7 +18,7 @@ export const NOTHING_HEARD_DBM = -999
 
 export type UwbRecord =
   /** A ranging round: the round's shape, what it measures and the deadline of its last slot.
-   * Opened by the tag's Poll in two-way ranging, by anchor 0's Poll in DL-TDoA (where every
+   * Opened by the tag's Poll in two-way ranging, by anchor 0's RCM in DL-TDoA (where every
    * listening tag emits one of these for the one round the anchors run). */
   | { type: 'UWB_ROUND'; node: string; block: number; round: number; slots: number; slotNs: Ns; method: 'ss' | 'ds'; mode: UwbMode; untilNs: Ns }
   /** The round has moved to this ranging slot. */

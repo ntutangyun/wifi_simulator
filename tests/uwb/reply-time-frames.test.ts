@@ -15,7 +15,7 @@ import { UwbClock } from '../../src/uwb/clock'
 import { UwbDevice, type RoundState } from '../../src/uwb/device'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
-  makeDsDeferredReport, makeFinal, makePoll, makeResp, makeSsDefer, type UwbDlTimes,
+  makeDsDeferredReport, makeFinal, makeResp, makeSsDefer,
 } from '../../src/uwb/frames'
 import {
   UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, UWB_SS_DEFER_BYTES, UWB_TURNAROUND_NS, uwbDsDeferredReportBytes,
@@ -176,14 +176,14 @@ describe('the slot-fit rule is derived from the round\'s own shape too (design Â
 
 describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wire', () => {
   it('a deferred Response carries no replyRctu key at all', () => {
-    const r = makeResp('a1', 'tag', 'ss', 0, 0, 1, 999_000, undefined, 'deferred')
+    const r = makeResp('a1', 'tag', 'ss', 0, 0, 1, 999_000, 'deferred')
     expect('replyRctu' in r.uwb!).toBe(false)
     expect(r.uwb!.ies).toEqual(['RRMC'])
     expect(r.bytes).toBe(14)
   })
 
   it('a fixed Response also carries no replyRctu key, at the same 14 octets as deferred', () => {
-    const r = makeResp('a1', 'tag', 'ss', 0, 0, 1, undefined, undefined, 'fixed')
+    const r = makeResp('a1', 'tag', 'ss', 0, 0, 1, undefined, 'fixed')
     expect('replyRctu' in r.uwb!).toBe(false)
     expect(r.bytes).toBe(14)
   })
@@ -214,7 +214,7 @@ describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wir
       { id: 'a1', tround1: 1_000, treply2: 2_000 },
       { id: 'a2', tround1: 1_100, treply2: 2_100 },
     ]
-    const f = makeFinal('tag', times, 0, 0, 5, undefined, 'deferred')
+    const f = makeFinal('tag', times, 0, 0, 5, 'deferred')
     expect(f.bytes).toBe(uwbFinalBytes(2, 'deferred'))
     expect(f.bytes).toBe(11)
     expect(f.uwb!.ies).toEqual([])
@@ -241,25 +241,6 @@ describe('makeResp / makeFinal / makeSsDefer carry the shapes above onto the wir
     expect(f.uwb!.ies).toEqual(['RMI', 'RRTI'])
     expect(fieldSum(f)).toBe(f.bytes)
     expect(f.uwb!.finalTimes).toEqual(times)
-  })
-
-  it('leaves every DL-TDoA frame byte-identical: the trailing replyTime never reaches the dl branch', () => {
-    const pollDl: UwbDlTimes = { txCounter: 1_000_000, rxCounters: {} }
-    const respDl: UwbDlTimes = { txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 }, coffs: 1.5e-6 }
-    const finalDl: UwbDlTimes = { txCounter: 1_900_000, rxCounters: { 'anc-1': 1_300_000, 'anc-2': 1_500_000 } }
-
-    const poll = makePoll('anc-0', ['anc-1', 'anc-2'], 'ds', 0, 0, { dl: pollDl })
-    const respBefore = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, respDl)
-    const respAfter = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, respDl, 'deferred')
-    const finalBefore = makeFinal('anc-0', [], 0, 0, 3, finalDl)
-    const finalAfter = makeFinal('anc-0', [], 0, 0, 3, finalDl, 'deferred')
-
-    expect(respAfter).toEqual(respBefore)
-    expect(finalAfter).toEqual(finalBefore)
-    // makePoll's own signature never grew a replyTime argument at all, so there is nothing to
-    // pin about it here beyond the frame decoding cleanly â€” a `poll.uwb!.dl` equality check would
-    // pass whether or not anything else in this diff were correct.
-    for (const f of [poll, respBefore, finalBefore]) expect(fieldSum(f)).toBe(f.bytes)
   })
 })
 
@@ -300,7 +281,7 @@ describe('deferred DS-TWR at the anchor: the range comes from the initiator defe
     const r = anchor.round!
     r.rxPollCounter = 1_000
     r.txRespCounter = 2_000
-    priv(anchor).onFinal(r, 'tag-1', makeFinal('tag-1', [], 0, 0, 2, undefined, 'deferred'), 3_000, 0x16)
+    priv(anchor).onFinal(r, 'tag-1', makeFinal('tag-1', [], 0, 0, 2, 'deferred'), 3_000, 0x16)
     return { anchor, r }
   }
 

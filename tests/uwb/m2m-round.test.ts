@@ -264,7 +264,8 @@ describe('determinism, and every other mode byte-identical', () => {
   /** The four non-m2m modes' record streams for one five-node scene — the values `tests/uwb/
    * m2m-round.test.ts` pinned before W3 (2026-11-11 W2b capture). W3 touched no other mode. */
   const BEFORE: Record<string, string> = {
-    'twr/ss': '8a632d1c', 'twr/ds': 'e5a12d28', 'dl-tdoa': '3ca6d9d3', 'ul-tdoa': 'f7339e40',
+    // 2026-11-11 (W4, merged after W3): dl-tdoa and ul-tdoa re-captured — the one-way round is Figure 10-225's "<OWR>" (RCM + bare ranging messages from synchronized anchors, §10.29.1.2.5) and the blink the 12-octet multipurpose frame.
+    'twr/ss': '8a632d1c', 'twr/ds': 'e5a12d28', 'dl-tdoa': '24b7ecf1', 'ul-tdoa': '3291000c',
   }
   const OLD_PLACES = [{ x: 1, y: 1 }, { x: 7, y: 2 }, { x: 3, y: 6 }, { x: 11, y: 9 }, { x: 5, y: 13 }]
   const streamOf = (s: Scenario): string => hashStr(JSON.stringify(

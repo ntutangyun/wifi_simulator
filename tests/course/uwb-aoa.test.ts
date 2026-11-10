@@ -2,10 +2,10 @@
  * `@uwb-aoa`, in the standard-first shape (2026-11-10).
  *
  * ① is checked for the clauses it cites and for keeping simulator behaviour out; ② row by row against
- * the engine's own exports and runs — including the two rows where the engine differs from the
- * standard (the RAOA item in SP3 reports, and no range for an SS-TWR responder), which are pinned so
- * that the W4 fix turns this red and the rows get rewritten; ③ by reading every figure the labs print
- * back out of the lesson text and comparing it with a run.
+ * the engine's own exports and runs — including the two rows the W4 fix (2026-11-11) made faithful:
+ * the SP3 report's bearing in the RMI AOA Azimuth field, and an SS-TWR responder's range via the RRMC
+ * TOF Request and the initiator's RMI TOF report; ③ by reading every figure the labs print back out of
+ * the lesson text and comparing it with a run.
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -23,7 +23,7 @@ import {
   pdoaRad, trueAzimuthDeg, wavelengthM,
 } from '../../src/uwb/aoa'
 import { rangeSigmaM } from '../../src/uwb/position'
-import { UWB_IE_HDR_BYTES, UWB_SP3_RAOA_ITEM_BYTES } from '../../src/uwb/phy'
+import { RMI_AOA_AZIMUTH_BYTES, UWB_SS_DEFER_BYTES, uwbPpduNs, uwbSp3ReportBytes, uwbSsTofReportBytes } from '../../src/uwb/phy'
 import { makeSsDefer } from '../../src/uwb/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -32,7 +32,7 @@ const RUN_NS = 1300 * MS
 const BLOCKS = 7
 const ANC = 'anc-1'
 const TAG = 'badge-1'
-const V: Record<Exclude<UwbAoaVariant, 'base'>, number> = { off45: 0, off60: 1, behind: 2 }
+const V: Record<Exclude<UwbAoaVariant, 'base'>, number> = { off45: 0, off60: 1, behind: 2, ss: 3 }
 
 lessonShapeSuite(uwbAoa)
 
@@ -89,13 +89,15 @@ describe('uwb-aoa · the lesson', () => {
     expect(std).toContain('标准不规定到达角怎样测量')
   })
 
-  it('② names the two places the engine differs from the standard, and the missing report', () => {
-    expect(implRow('SP3 测距里的报告').kind).toBe('differs')
-    expect(implRow('SP3 测距里的报告').sim).toContain('标准里没有的 RAOA 信息单元')
-    expect(implRow('SP3 测距里的报告').sim).toContain('这是待改正的偏差')
-    expect(implRow('单边测距下的距离').kind).toBe('differs')
+  // 2026-11-11 (W4, audit #16 and the RAOA IE): both rows that said "differs" are faithful now.
+  it('② has no "differs" row; the SP3 report and the SS-TWR range are faithful, the bearing report absent', () => {
+    expect(uwbAoa.implementation!.map((r) => r.kind)).not.toContain('differs')
+    expect(implRow('SP3 测距里的报告').kind).toBe('faithful')
+    expect(implRow('SP3 测距里的报告').sim).toContain('AOA Azimuth 字段')
+    expect(implRow('单边测距下的距离').kind).toBe('faithful')
     expect(implRow('本课场景里的报告').kind).toBe('absent')
-    expect(uwbAoa.why).toContain('标准里没有的 RAOA 信息单元，这是待改正的偏差')
+    expect(uwbAoa.why).not.toContain('待改正')
+    expect(uwbAoa.why).toContain('TOF Request')
   })
 })
 
@@ -156,29 +158,48 @@ describe('uwb-aoa · ② says what the engine does, and the engine does it', () 
   })
 
   it('本课场景里的报告: no frame of the lesson\'s scenes carries a bearing', () => {
-    for (const v of ['base', 'off45', 'off60', 'behind'] as UwbAoaVariant[]) {
+    for (const v of ['base', 'off45', 'off60', 'behind', 'ss'] as UwbAoaVariant[]) {
       const frames = ofType(recs(v), 'TX_START').map((r) => r.frame)
       expect(frames.some((f) => f.uwb?.aoaThetaDeg !== undefined), v).toBe(false)
       expect(frames.some((f) => (f.uwb?.ies ?? []).includes('RAOA')), v).toBe(false)
     }
   })
 
-  // Pinned on purpose: when W4 replaces the RAOA item with the RMI AOA Azimuth field, this goes red and
-  // ②'s 「SP3 测距里的报告」 row has to be rewritten.
-  it('SP3 测距里的报告: the SP3 report still carries a "RAOA" item, an IE header plus two octets', () => {
+  // 2026-11-11 (W4): the bearing is the RMI IE's AOA Azimuth field (standard §10.29.8.4, Figure 10-213),
+  // two octets inside the same list element — no IE of its own.
+  it('SP3 测距里的报告: the bearing rides the RMI IE\'s AOA Azimuth field, two octets, no extra IE', () => {
     const f = makeSsDefer(ANC, TAG, 0, 0, 0, 1, 2.3)
-    expect(f.uwb?.ies).toEqual(['RMI', 'RAOA'])
-    expect(UWB_SP3_RAOA_ITEM_BYTES).toBe(UWB_IE_HDR_BYTES + 2)
-    expect(implRow('SP3 测距里的报告').sim).toContain('一个信息单元头加 2 字节方位角')
+    expect(f.uwb?.ies).toEqual(['RMI'])
+    expect(f.uwb?.aoaThetaDeg).toBe(2.3)
+    expect(RMI_AOA_AZIMUTH_BYTES).toBe(2)
+    expect(uwbSp3ReportBytes(true) - UWB_SS_DEFER_BYTES).toBe(RMI_AOA_AZIMUTH_BYTES)
+    expect(implRow('SP3 测距里的报告').sim).toContain(`AOA Azimuth Present 置 1，${RMI_AOA_AZIMUTH_BYTES} 字节`)
   })
 
-  // Pinned on purpose, like the one above: audit #16.
-  it('单边测距下的距离: on SS-TWR the anchor gets no range, so no fix', () => {
-    const base = uwbAoaScenario('base')
-    const ss = runExtra('ss', () => ({ ...base, uwb: { ...base.uwb!, method: 'ss' } }))
-    expect(ofType(ss, 'UWB_AOA').length).toBeGreaterThan(0)
-    expect(ofType(ss, 'UWB_RANGE').filter((r) => r.node === ANC)).toEqual([])
-    expect(ofType(ss, 'UWB_POSITION')).toEqual([])
+  // 2026-11-11 (W4, audit #16): standard §10.29.8.3, §10.32.4 Figure 10-235 — the responder requests the
+  // TOF in its Response's RRMC IE and the initiator reports it in an RMI IE; the anchor then has a range.
+  it('单边测距下的距离: on SS-TWR with the TOF request the anchor gets its range back, and fixes alone', () => {
+    const ss = recs('ss')
+    const tx = ofType(ss, 'TX_START')
+    expect(tx.filter((r) => r.frame.kind === 'uwbResp').every((r) => r.frame.uwb?.tofRequest === true)).toBe(true)
+    const reports = tx.filter((r) => r.frame.kind === 'uwbReport')
+    expect(reports).toHaveLength(BLOCKS)
+    expect(reports.every((r) => r.node === TAG && r.frame.dst === '*' && r.frame.bytes === uwbSsTofReportBytes(1))).toBe(true)
+    expect(implRow('单边测距下的距离').sim).toContain(`共 ${uwbSsTofReportBytes(1)} 字节`)
+    const tagRanges = ofType(ss, 'UWB_RANGE').filter((r) => r.node === TAG)
+    const ancRanges = ofType(ss, 'UWB_RANGE').filter((r) => r.node === ANC)
+    expect(ancRanges).toHaveLength(BLOCKS)
+    // the anchor's TOF is the tag's, rounded to whole RCTU (the RMI TOF field is an integer)
+    ancRanges.forEach((a, i) => expect(a.tofRctu).toBe(Math.round(tagRanges[i].tofRctu)))
+    const fixes = ofType(ss, 'UWB_POSITION')
+    expect(fixes).toHaveLength(BLOCKS)
+    expect(fixes.every((f) => f.node === ANC && f.method === 'aoa')).toBe(true)
+    // without the request the anchor never learns its range: the standard's procedure is what buys it
+    const base = uwbAoaScenario('ss')
+    const noReq = runExtra('ss-noreq', () => ({ ...base, uwb: { ...base.uwb!, ssTofRequest: false } }))
+    expect(ofType(noReq, 'UWB_RANGE').filter((r) => r.node === ANC)).toEqual([])
+    expect(ofType(noReq, 'UWB_POSITION')).toEqual([])
+    expect(ofType(noReq, 'TX_START').filter((r) => r.frame.kind === 'uwbReport')).toEqual([])
   })
 
   it('定位 / 测距噪声: one anchor, GDOP 1.00, the plan leg, and 2.12 cm', () => {
@@ -297,5 +318,36 @@ describe('uwb-aoa · ③ every figure the labs print is the run', () => {
     for (const t of [0, 20, 45, 60]) expect(pdoaRad(180 - t, 9)).toBeCloseTo(pdoaRad(t, 9), 12)
     expect(uwbAoaScenario('behind').nodes[0].uwb!.yawDeg).toBe(-90)
     expect(tagXY('behind')).toEqual(tagXY('base'))
+  })
+
+  it('lab 5: SS-TWR with the TOF request — the three frames, the TOF, the anchor\'s range and fix', () => {
+    const l = lab('单边测距：锚点请求飞行时间')
+    expect(uwbAoa.variants![l.variant!].label).toBe('单边测距，请求飞行时间')
+    const rows = blockOf(l, 'table', '第 0 轮的三帧').rows
+    const rs = recs('ss')
+    const r0 = ofType(rs, 'TX_START').filter((r) => r.t < 200 * MS)
+    expect(r0.map((r) => [r.frame.uwb?.slot, r.node, r.frame.kind])).toEqual([[0, TAG, 'uwbPoll'], [1, ANC, 'uwbResp'], [2, TAG, 'uwbReport']])
+    r0.forEach((r, i) => {
+      expect(rows[i][0]).toBe(String(r.frame.uwb!.slot))
+      expect(rows[i][1]).toBe(r.node)
+      expect(rows[i][3]).toBe(`${r.frame.bytes} B`)
+      expect(r.frame.txTimeNs).toBe(uwbPpduNs(r.frame.bytes))
+    })
+    expect(rows[0][4]).toBe(r0[0].frame.uwb!.ies.join('、'))
+    expect(r0[1].frame.uwb!.ies).toEqual(['RRMC', 'RRTI'])
+    expect(r0[2].frame.uwb!.ies).toEqual(['RMI'])
+    const tof = r0[2].frame.uwb!.tofList![0]
+    expect(tof.id).toBe(ANC)
+    expect(rows[2][4]).toContain(`${tof.tof} RCTU`)
+    const tagRange = ofType(rs, 'UWB_RANGE').find((r) => r.node === TAG)!
+    const ancRange = ofType(rs, 'UWB_RANGE').find((r) => r.node === ANC)!
+    const fix = ofType(rs, 'UWB_POSITION')[0]
+    expect(l.expect).toContain(`算出距离 ${tagRange.distM.toFixed(2)} m`)
+    expect(l.expect).toContain(`飞行时间 ${tof.tof} RCTU`)
+    expect(l.expect).toContain(`同一个距离 ${ancRange.distM.toFixed(2)} m`)
+    expect(ancRange.t).toBe(fix.t)
+    expect(l.expect).toContain(`定位 (${fix.x.toFixed(2)}, ${fix.y.toFixed(2)}) m，误差 ${Math.hypot(fix.x - fix.trueX, fix.y - fix.trueY).toFixed(2)} m`)
+    expect(l.expect).toContain(`平均定位误差为 ${cm(mean(fixErrM(rs)))} cm`)
+    expect(l.expect).toContain(`基准场景为 ${cm(mean(fixErrM(recs('base'))))} cm`)
   })
 })

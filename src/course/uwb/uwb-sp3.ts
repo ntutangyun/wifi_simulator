@@ -5,7 +5,8 @@
  * time-scheduling rule (§10.32.2), the three phases of §10.32.8.2 / Figure 10-242 and the SRRR IE
  * with its four request bits (§10.32.9.9). ② says what this engine does: the one-to-many SS shape
  * with the initiator's own marker and the RMI reports, faithful; no STS check, no MLME-STS, no
- * RSSD; and the bearing report carried in an RAOA IE the standard does not define (audit W4).
+ * RSSD. 2026-11-11 (W4): the bearing the RAOA bit asks for rides the report's RMI IE as its AOA
+ * Azimuth field (§10.29.8.4) — until then an RAOA IE the standard does not define.
  *
  * The scenes are four runs of one 22 × 8 m hall with the same four anchors and tag, differing only
  * in the session switches: SP3 (base), SP1 deferred, SP1 embedded, SP3 with both request bits on.
@@ -117,7 +118,7 @@ export const uwbSp3: Lesson = {
     { topic: '发起方的 SP3 包', standard: '测距阶段以发起方的 SP3 包开始（图 10-242）', sim: '照此实现：放在第 1 个时隙，紧接在控制消息之后。', kind: 'faithful' },
     { topic: '回复时延的报告', standard: '响应方用 RMI 信息单元发回回复时延（§10.32.8.2）', sim: '照此实现：每个响应方在报告阶段发一帧 19 字节的报告，带 RMI 信息单元。', kind: 'faithful' },
     { topic: '往返时间的报告', standard: '被请求时发起方用 RMI 信息单元发出往返时间（§10.32.8.2）', sim: '照此实现：有响应方置了 RRTT 时，发起方在报告阶段多发一帧 RMI 报告，多占一个时隙。', kind: 'faithful' },
-    { topic: '到达角的报告', standard: '到达角放在 RMI 信息单元的 AOA Azimuth 字段里（§10.29.8.4）；RAOA 只是 SRRR 里的请求位', sim: '本仿真器把天线（antenna）阵列装在锚点（anchor）上，由响应方报告到达角，而且在报告帧里另加一个 RAOA 信息单元（4 字节）。本仿真器目前用了标准里没有的 RAOA 信息单元，这是待改正的偏差。', kind: 'differs' },
+    { topic: '到达角的报告', standard: '到达角放在 RMI 信息单元的 AOA Azimuth 字段里（§10.29.8.4）；RAOA 只是 SRRR 里的请求位', sim: '照此：本仿真器把天线（antenna）阵列装在锚点（anchor）上，由响应方报告到达角；它把方位角写进报告帧 RMI 信息单元同一个列表元素的 AOA Azimuth 字段（2 字节），AOA Azimuth Present 置 1。俯仰角与 FOM 未实现。', kind: 'faithful' },
     { topic: '没有报告阶段的 SP3', standard: 'SP3 测距可以没有测量报告阶段（§10.32.2）', sim: '未实现：编辑器要求 SP3 配延后的回复时延，总有报告阶段。', kind: 'absent' },
     { topic: '多发起方', standard: '可以推广到多个发起方、多个响应方（§10.32.8.1）', sim: '未实现：只有一对多；多对多模式不接受 SP3。', kind: 'absent' },
     { topic: '时隙与块', standard: '由 ARC 给出，标准未规定取值', sim: '每个时隙 2 ms，每块 200 ms；本课场景不计载波频偏的估计误差、关掉非视距（non-line-of-sight, NLOS），只保留时间戳噪声。', kind: 'value' },
@@ -190,16 +191,16 @@ export const uwbSp3: Lesson = {
       blocks: [
         { kind: 'table', heading: '报告阶段的两种帧', head: ['帧', '字节', '信息单元'], rows: [
           ['发起方的报告', '39', 'RMI'],
-          ['响应方的报告', '23', 'RMI、RAOA'],
+          ['响应方的报告', '21', 'RMI'],
         ] },
       ],
-      expect: '交互占用的时隙从 10 个变成 11 个，多出的是发起方的报告；每个响应方的报告从 19 字节变成 23 字节，多了一个 RAOA 信息单元；整轮 1920.837 µs。只请求往返时间时，交叉点后移到 A = 11。',
-      meaning: '往返时间由发起方用 RMI 报告，照标准（①）；到达角放进 RAOA 信息单元是本仿真器与标准不同之处，标准把它放在 RMI 的 AOA Azimuth 字段里（②）。',
+      expect: '交互占用的时隙从 10 个变成 11 个，多出的是发起方的报告；每个响应方的报告从 19 字节变成 21 字节，多了 RMI 信息单元里的方位角字段；整轮 1912.629 µs。只请求往返时间时，交叉点后移到 A = 11。',
+      meaning: '往返时间由发起方用 RMI 报告，到达角放在响应方报告里 RMI 的 AOA Azimuth 字段，都照标准（①②）。',
     },
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.29.1.1（SP3 包只有 SHR 与 STS）、§6.6.2（SP3 包的接受与拒绝）、§10.32.2（SP3 测距只能按时间调度，可以没有测量报告阶段）、§10.32.8.1 至 §10.32.8.3 与 Figure 10-242、10-243（SP3 测距的三个阶段）、§10.32.9.9 与图 10-255（SRRR 信息单元的四个请求位与地址字段）、§10.29.8.4（RMI 信息单元，含 AOA Azimuth 字段）、§10.29.6.3（回复时延延后报告）。本课不依赖任何草案。',
-    '本仿真器的取值与取法：SP3 包 70 368 个码片；每个响应方一个 SRRR 信息单元，带提供方的短地址；发起方总是置 RRT；到达角由锚点测量，装在另加的 RAOA 信息单元里（标准里没有，待改正）；每个时隙 2 ms、每块 200 ms；本课场景把载波频偏估计残差设为 0、关掉非视距。整轮空口时间是各帧 PPDU 时长之和，A 从 1 到 6 的差值逐一用一轮仿真核对。',
+    '本仿真器的取值与取法：SP3 包 70 368 个码片；每个响应方一个 SRRR 信息单元，带提供方的短地址；发起方总是置 RRT；到达角由锚点测量，写进响应方报告里 RMI 信息单元的 AOA Azimuth 字段；每个时隙 2 ms、每块 200 ms；本课场景把载波频偏估计残差设为 0、关掉非视距。整轮空口时间是各帧 PPDU 时长之和，A 从 1 到 6 的差值逐一用一轮仿真核对。',
   ],
   limits: [],
   scenario: () => uwbSp3Scenario(),

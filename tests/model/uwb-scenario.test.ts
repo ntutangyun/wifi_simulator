@@ -13,7 +13,7 @@ import { Rng } from '../../src/engine/rng'
 import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
-  rstuNs, UWB_BLINK_BYTES, uwbDlPollBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbNbSlotFitNs,
+  rstuNs, UWB_BLINK_BYTES, uwbOwrRcmBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbNbSlotFitNs,
   uwbPollBytes, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, UWB_TURNAROUND_NS,
 } from '../../src/uwb/phy'
 
@@ -291,10 +291,11 @@ describe('UWB nodes and sessions in the schema', () => {
   })
 
   it('the slot-fit rule measures the mode’s own longest frame', () => {
-    // A DL-TDoA round's longest frame is anchor 0's Poll (27 + 3R + 6 octets, R responders), not
-    // the TWR Final; a UL-TDoA round's is the 14-octet blink, the shortest frame there is.
+    // A DL-TDoA round's longest frame is the controller's RCM (25 + 3N octets, an RDM element per
+    // anchor; standard Figure 10-225 "<OWR>"), not the TWR Final; a UL-TDoA round's is the 12-octet
+    // blink, the shortest frame there is (2026-11-11, W4).
     expect(uwbLongestFrameBytes(4)).toBe(uwbFinalBytes(4))
-    expect(uwbLongestFrameBytes(4, 'dl-tdoa')).toBe(uwbDlPollBytes(3))
+    expect(uwbLongestFrameBytes(4, 'dl-tdoa')).toBe(uwbOwrRcmBytes(4))
     expect(uwbLongestFrameBytes(4, 'ul-tdoa')).toBe(UWB_BLINK_BYTES)
     expect(uwbSlotFitNs(4, 'ul-tdoa')).toBeLessThan(uwbSlotFitNs(4, 'dl-tdoa'))
     expect(uwbSlotFitNs(4, 'dl-tdoa')).toBeLessThan(uwbSlotFitNs(4))

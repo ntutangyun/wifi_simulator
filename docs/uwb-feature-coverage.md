@@ -48,11 +48,11 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 
 | 标准状态 | 行数 |
 | --- | --- |
-| 已发布 | 64 |
+| 已发布 | 66 |
 | 已进草案且未见争议 | 26 |
 | 仍在争论 | 8 |
 | 仅为提案，未进草案 | 1 |
-| 无法判定 | 10 |
+| 无法判定 | 8 |
 
 | 本仿真器 | 行数 |
 | --- | --- |
@@ -123,7 +123,7 @@ UWB、ranging、HRP、LRP、STS 的条款都在内。工作从那份清单出发
 | RSSD IE（Ranging STS Seed and Data IE）§10.29.7.1、§10.29.8.2 | 已发布 | 未建模 | **范围决定。** 引擎不持有密钥、不生成 STS 序列，也就没有种子要传（见 §16.2.9 那几行）。 |
 | RRTI IE（Ranging Reply Time Instantaneous IE）§10.29.8.1 | 已发布 | 部分建模 | 出现在 SS 的 Response 与 DS 的 Final 上，照图 10-208/10-209：1 字节内容头（地址长度说明 2 位 + 列表长度 6 位）加列表，每个元素一个 4 字节回复时间，广播时另带 2 字节短地址（`uwb/phy.ts#rrtiIeBytes`、`uwb/phy.ts#RRTI_IE_BYTES`）。一枚 IE 装整张列表。2026-11-10 之前没有内容头、Final 每个锚点一枚 IE。比特布局之外的语义（RequestRrtiTxList 原语）未建。`@uwb-frame` |
 | RRMC IE（Ranging Request Measurement and Control IE）§10.29.8.3 | 已发布 | 部分建模 | 每条 Poll / Response / Final 都挂它，长度 `uwb/phy.ts#RRMC_IE_BYTES`（头 + 一个控制八位组）。控制位本身不解析：这一轮要向应答方索取什么，引擎从 `uwb/session.ts#RoundPlan` 读，不从这个 IE 读。 |
-| RMI IE（Ranging Measurement Information IE）§10.29.8.4 | 已发布 | 部分建模 | 照图 10-212/10-213：2 字节内容头加列表，每个元素按存在位带回复时间、往返时间（各 4 字节），广播时带 2 字节地址（`uwb/phy.ts#rmiIeBytes`）。四种用处：嵌入式 Final 的往返时间（`uwb/phy.ts#rmiFinalIeBytes`）、应答方报告（`uwb/phy.ts#RMI_REPORT_IE_BYTES` = 12，单播）、SS 延后报文、延后 DS 的发起方报告。TOF 与到达角字段未用。DL-TDoA 的时间也是照这个 IE 的形状放的（`uwb/frames.ts#UwbDlTimes`，模型取值）。`@uwb-dl-tdoa` |
+| RMI IE（Ranging Measurement Information IE）§10.29.8.4 | 已发布 | 部分建模 | 照图 10-212/10-213：2 字节内容头加列表，每个元素按存在位带回复时间、往返时间（各 4 字节），广播时带 2 字节地址（`uwb/phy.ts#rmiIeBytes`）。四种用处：嵌入式 Final 的往返时间（`uwb/phy.ts#rmiFinalIeBytes`）、应答方报告（`uwb/phy.ts#RMI_REPORT_IE_BYTES` = 8，单播）、SS 延后报文、延后 DS 的发起方报告。TOF 字段：延后 DS 的应答方报告，以及单边测距里应答方用 RRMC 的 TOF Request 请求后发起方的广播报告（§10.32.4 图 10-235，`uwb/phy.ts#uwbSsTofReportBytes`，2026-11-11）。AOA Azimuth 字段：SP3 报告里 RAOA 位请求的方位角（`uwb/phy.ts#RMI_AOA_AZIMUTH_BYTES`，2026-11-11；此前是标准里没有的 RAOA 信息单元）。俯仰角与 FOM 字段未用。`@uwb-aoa`、`@uwb-sp3` |
 | RCPCS IE（Ranging Channel and Preamble Code Selection IE）§10.29.8.5 | 已发布 | 未建模 | **范围决定。** 一条会话只有一个信道、一个前导码：`uwb/phy.ts#UWB_CHANNEL_MHZ` 只有 5 与 9 两项，序列码索引这个量在 `src` 里根本不存在。 |
 | RRTN IE（Ranging Reply Time Negotiation IE）§10.29.8.6 | 已发布 | 未建模 | **范围决定。** 引擎里没有任何协商：回复时间由时隙网格决定（`uwb/session.ts#slotStartNs`），两端不商量。 |
 
@@ -300,8 +300,8 @@ LE UWB、流式传输），因为它们各有各的历史：流式传输这一�
 
 | 特性 | 标准状态 | 本仿真器 | 位置与证据 |
 | --- | --- | --- | --- |
-| DL-TDoA（下行到达时间差） | 无法判定 | 已建模 | **查了什么：** 802.15.4-2024 的目录里没有一条以 TDoA 为题的条款（`.superpowers/sdd/uwb-clause-list.txt` 里 §10.32.3「Ranging modes」是唯一可能的归属），4ab 语料库里也查不到一份把 DL-TDoA 写成草案条文的文稿。引擎里它是**照 FiRa 的形状建的模型**：Poll/Response/Final 携带各自的发射与接收时刻（`uwb/frames.ts#UwbDlTimes`，按 §10.29.8.4 RMI 的形状放），tag 只听不发。`uwb/device.tdoa.ts#onDlSlot`、`uwb/device.tdoa.ts#transmitDl`、`uwb/device.tdoa.ts#solveTdoaFix`、`uwb/position.ts#solveTdoa`。`@uwb-dl-tdoa` |
-| UL-TDoA（上行到达时间差）与 blink | 无法判定 | 部分建模 | **查了什么：** 同上。引擎：tag 在自己的时隙里发一条 14 字节的 blink，什么时间也不带（`uwb/frames.ts#makeBlink`、`uwb/phy.ts#BLINK_IE_BYTES`），锚点在到达时各自盖章。**四个到达时刻怎么汇到参考锚点手里，本模型一个字也没说**——`uwb/network.ts#UwbNetwork` 在时隙结束时直接调用每台锚点的 `uwb/device.tdoa.ts#ulArrivalNs`，那条汇聚不在空中。`uwb/device.tdoa.ts#solveUlFix`。`@uwb-ul-tdoa` |
+| DL-TDoA（下行到达时间差） | 已发布 | 已建模 | §10.29.1.2.5 的第二种情形：同步的固定节点按已知的发送偏移依次广播，移动设备只接收（「DL-TDoA」是业界名称）。**2026-11-11 改判**：此前本格写「无法判定」，没有查到 §10.29.1.2.5；引擎当时也是 FiRa 的形状（锚点不同步，帧里带标准没有的发送／接收时刻与时钟偏差信息单元）。现在照标准：控制器的 RCM（ARC 的 Ranging Round Usage = 0，表 10-164；RR；RDM 分配时隙，§10.32.9.8）加每个锚点一条不带信息单元的测距消息，即图 10-225 的单向测距轮（`uwb/frames.ts#makeOwrRcm`、`uwb/frames.ts#makeOwrMsg`、`uwb/phy.ts#uwbOwrRcmBytes`）；锚点完全同步（本仿真器的假设），tag 用测得的时钟偏差修正自己的晶振、扣除已知偏移（`uwb/device.tdoa.ts#onDlSlot`、`uwb/device.tdoa.ts#solveTdoaFix`、`uwb/position.ts#solveTdoa`）。测量报告阶段未实现。`@uwb-dl-tdoa` |
+| UL-TDoA（上行到达时间差）与 blink | 已发布 | 部分建模 | §10.29.1.2.5 的第一种情形：移动设备广播闪发，以某种方式同步的固定节点比较到达时刻；闪发通常是最短 12 字节的多用途帧。**2026-11-11 改判**（同上一行）。引擎：tag 在自己的时隙里发 12 字节的多用途帧，不带信息单元、不带时间（`uwb/frames.ts#makeBlink`、`uwb/phy.ts#UWB_BLINK_BYTES`；此前 14 字节、带标准里没有的 BLINK 信息单元），锚点在到达时各自盖章。**四个到达时刻怎么汇到参考锚点手里，本模型一个字也没说**——`uwb/network.ts#UwbNetwork` 在时隙结束时直接调用每台锚点的 `uwb/device.tdoa.ts#ulArrivalNs`，那条汇聚不在空中。`uwb/device.tdoa.ts#solveUlFix`。`@uwb-ul-tdoa` |
 | 到达角（angle of arrival, AoA）与相位差（phase difference of arrival, PDoA） | 无法判定 | 部分建模 | **查了什么：** 2024 版目录里没有 AoA/PDoA 条款。引擎：纯几何，`uwb/aoa.ts#pdoaRad`、`uwb/aoa.ts#azimuthFromPdoaDeg`、`uwb/aoa.ts#aoaSigmaDeg`、`uwb/aoa.ts#antennaSpacingM`、`uwb/device.report.ts#measureAoa`。**锚点并没有两路接收**：`measureAoa` 由真实方位角算出一对半波长天线会看到的相位再加一次噪声；多径对方位角毫无影响。`@uwb-aoa` |
 | 由多个距离解位置（等权高斯—牛顿） | 无法判定 | 部分建模 | **查了什么：** 定位解算不是 802.15.4 的内容——标准给测量，不给解算。引擎：`uwb/position.ts#solvePosition`、`uwb/position.ts#rangeSigmaM`、`uwb/position.ts#Ellipse`。**解算器对每条测量一视同仁，而且从不回头**：不按品质因数、不按到达电平加权，没有加权最小二乘。`@uwb-position`、`@uwb-geometry`、`@uwb-capstone` |
 | UWB 侧的衰落 | 无法判定 | 未建模 | **查了什么：** 2024 版目录里没有一条信道模型条款——UWB 的信道模型出自 IEEE 802.15.4a 的信道模型报告，不是标准正文，所以「标准怎么规定衰落」这一问在这张表里无处可对。**范围决定**，见 `docs/superpowers/specs/2026-09-27-fading-design.md` §8：那一刀只动 Wi-Fi 侧，「UWB 有自己的信道模型与自己的课程，混在一起会让两边都难验」。后果已写进 `@uwb-mms` 的 `limits`：UWB 链路的电平由几何与墙一次算定（`uwb/channel.ts#UwbChannel`），相干时间这条代价引擎看不见。 |
@@ -310,7 +310,7 @@ LE UWB、流式传输），因为它们各有各的历史：流式传输这一�
 
 ## 十六、无法判定的那些格子：一份清单
 
-十个格子写了「无法判定」（固定回复时间那一格 2026-11-10 改判为「仅为提案，未进草案」，见它自己的单元格）。它们不是懒，是语料库到此为止。逐条说明查了什么已在各自的单元格里，
+八个格子写了「无法判定」（固定回复时间那一格 2026-11-10 改判为「仅为提案，未进草案」，DL-TDoA 与 UL-TDoA 两格 2026-11-11 改判为「已发布」——§10.29.1.2.5 描述了到达时间差的两种情形，见它们自己的单元格）。它们不是懒，是语料库到此为止。逐条说明查了什么已在各自的单元格里，
 这里只列出来，方便下一次刷新语料库时重跑：
 
 1. **反序 MMS** — 出自与固定回复时间同一组提案（15-25/0224r2 CID 170、15-25/0556r2），而那组意见最终采用的决议 15-25/0681r1 里没有它；2026 年的 `Reversed` 两处命中都是另一件事。
@@ -318,11 +318,9 @@ LE UWB、流式传输），因为它们各有各的历史：流式传输这一�
 3. **零长控制阶段** — 只有 15-25/0194r0。
 4. **SP0 控制面的内容布局** — 语料库没有给过 SP0 内容的格式。
 5. **高速率（≥ 50 Mb/s）与低时延流式传输** — PAR 目标反复被照抄，PICS 与意见里找不到条号。
-6. **DL-TDoA** — 2024 版目录里无对应条款，4ab 语料库里无草案条文。
-7. **UL-TDoA 与 blink** — 同上。
-8. **AoA / PDoA** — 同上。
-9. **由距离解位置** — 标准给测量不给解算，无条款可对。
-10. **UWB 侧的衰落** — UWB 信道模型出自 802.15.4a 的信道模型报告，不在标准正文里。
+6. **AoA / PDoA 的测量方法** — 标准只规定到达角怎样请求与报告（§10.29.8.3、§10.29.8.4），不规定怎样测。
+7. **由距离解位置** — 标准给测量不给解算，无条款可对。
+8. **UWB 侧的衰落** — UWB 信道模型出自 802.15.4a 的信道模型报告，不在标准正文里。
 
 **2026-10-15 的刷新重跑了这十一条的检索，一条也没动。** 新到的十二份文稿里，`FixedReplyTime`、
 `Reversed`、`RsfSfd`、零长控制阶段、SP0 内容布局、TDoA、AoA／PDoA 的命中数都是 **0**；第 6 条

@@ -2,9 +2,8 @@
  * `@uwb-ul-tdoa`, in the standard-first shape (2026-11-10).
  *
  * ① teaches IEEE Std 802.15.4-2024 §10.29.1.2.5's first TDOA case and §10.29.5's infrastructure
- * timestamps. ② says plainly that the engine's 14-octet blink carries a BLINK IE the standard does
- * not define (docs/superpowers/plans/2026-11-10-uwb-standard-alignment.md, W4), and the rows are
- * checked against the frames and records the engine produces.
+ * timestamps. ② is checked against the frames and records the engine produces; since 2026-11-11
+ * (W4) the blink is the standard's own 12-octet multipurpose frame (§10.29.1.2.5, §7.3.5), no IE.
  *
  * Every figure the labs and the summary print is read back out of the lesson's own text and
  * compared with a run.
@@ -15,7 +14,9 @@ import { Simulation } from '../../src/engine/simulation'
 import { DEFAULT_UWB_SESSION, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
-import { BLINK_IE_BYTES, C_M_PER_NS, UWB_BLINK_BYTES, UWB_FCS_BYTES, UWB_MHR_BYTES, UWB_PPM_MAX, rstuNs, uwbPpduNs } from '../../src/uwb/phy'
+import {
+  C_M_PER_NS, UWB_BLINK_BYTES, UWB_EXT_ADDR_BYTES, UWB_FCS_BYTES, UWB_MP_SHORT_FC_BYTES, UWB_PPM_MAX, UWB_SEQ_BYTES, rstuNs, uwbPpduNs,
+} from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -72,22 +73,23 @@ describe('uwb-ul-tdoa · the lesson', () => {
     expect(std).toContain('12 个字节')
   })
 
-  it('② is not all faithful, and says the BLINK IE is not in the standard', () => {
+  // 2026-11-11 (W4): the blink is §10.29.1.2.5's 12-octet multipurpose frame, so the row is faithful.
+  it('② is not all faithful, and the blink row is faithful to §10.29.1.2.5', () => {
     expect(uwbUlTdoa.implementation!.filter((r) => r.kind !== 'faithful').length).toBeGreaterThan(0)
-    expect(implRow('闪发帧').kind).toBe('differs')
-    expect(implRow('闪发帧').sim).toContain('标准里没有的 BLINK 信息单元，这是待改正的偏差')
-    expect(uwbUlTdoa.why).toContain('标准里没有的 BLINK 信息单元，这是待改正的偏差')
+    expect(implRow('闪发帧').kind).toBe('faithful')
+    expect(uwbUlTdoa.implementation!.map((r) => r.sim).join(' ')).not.toContain('BLINK')
+    expect(uwbUlTdoa.why).not.toContain('BLINK')
   })
 })
 
 describe('uwb-ul-tdoa · ② says what the engine does, and the engine does it', () => {
-  it('the blink: 14 octets, 9 + 3 + 2, one BLINK IE and no time in it', () => {
-    expect([UWB_MHR_BYTES, BLINK_IE_BYTES, UWB_FCS_BYTES, UWB_BLINK_BYTES]).toEqual([9, 3, 2, 14])
+  it('the blink: a 12-octet multipurpose frame, 1 + 1 + 8 + 2, no IE and no time in it', () => {
+    expect([UWB_MP_SHORT_FC_BYTES, UWB_SEQ_BYTES, UWB_EXT_ADDR_BYTES, UWB_FCS_BYTES, UWB_BLINK_BYTES]).toEqual([1, 1, 8, 2, 12])
     const sim = implRow('闪发帧').sim
-    expect(sim).toContain(`${UWB_BLINK_BYTES} 字节：帧头（MAC header）${UWB_MHR_BYTES} 字节、一个 ${BLINK_IE_BYTES} 字节的 BLINK 信息单元、帧校验 ${UWB_FCS_BYTES} 字节`)
+    expect(sim).toContain(`${UWB_BLINK_BYTES} 字节的多用途帧，短帧控制（Short Frame Control）${UWB_MP_SHORT_FC_BYTES} 字节、序列号 ${UWB_SEQ_BYTES} 字节、扩展源地址 ${UWB_EXT_ADDR_BYTES} 字节、帧校验 ${UWB_FCS_BYTES} 字节`)
     const blink = ofType(recs('base'), 'TX_START').find((r) => r.frame.kind === 'uwbBlink')!.frame
     expect(blink.bytes).toBe(UWB_BLINK_BYTES)
-    expect(blink.uwb?.ies).toEqual(['BLINK'])
+    expect(blink.uwb?.ies).toEqual([])
   })
 
   it('each badge owns a one-slot round per block, rounds 0–9, and a block holds a hundred', () => {
