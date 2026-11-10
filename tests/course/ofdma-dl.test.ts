@@ -18,8 +18,9 @@ import { isStandardFirst, oneRoom, node, sc, type Block, type Lab } from '../../
 import { MODULES } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { MAX_PPDU_NS, PHY_MODES, toneRatio } from '../../src/engine/phy'
+import { MAX_PPDU_NS, PHY_MODES, ppduTiming, txTimeModeNs } from '../../src/engine/phy'
 import { psduPlan } from '../../src/model/frames'
+import { ppduLayout } from '../../src/model/frameFields'
 import { lessonShapeSuite, runOf } from './kit'
 
 const MS = 1_000_000
@@ -163,21 +164,25 @@ describe('ofdma-dl · ② says what the engine does, and the engine does it', ()
     expect(implRow('选哪些站点').sim).toContain('不少于两个')
   })
 
-  it('the opening is 44 + 4 µs and a symbol 13.6 µs, as the row says', () => {
-    expect(PHY_MODES.he.preambleNs).toBe(44 * US)
+  it('the opening is 43.2 + 4 µs and a symbol 13.6 µs, as the row says, and the TXTIME is Eq 27-149', () => {
+    // 2026-11-11 (W6): the preamble field by field, LDPC for MCS 11, the packet extension; the
+    // flat 4 µs of HE-SIG-B is what still departs.
+    expect(implRow('PPDU 格式与时长').kind).toBe('differs')
+    expect(PHY_MODES.he.preambleNs).toBe(43.2 * US)
     expect(PHY_MODES.he.muExtraPreambleNs).toBe(4 * US)
     expect(PHY_MODES.he.symNs).toBe(13.6 * US)
     const row = implRow('PPDU 格式与时长').sim
-    for (const s of ['44 µs', '4 µs', '13.6 µs']) expect(row).toContain(s)
-    // every multi-user send is that formula with its longest member's symbol count
+    for (const s of ['43.2 µs', '4 µs', '13.6 µs']) expect(row).toContain(s)
+    // every multi-user send is its longest member's TXTIME, from each member's APEP_LENGTH (the
+    // A-MPDU before EOF padding) with one HE-LTF field for the largest RU's streams (§27.3.11.10)
     for (const r of muPpdus(base())) {
       const parts = r.frame.muParts!
-      const symbolsOf = (p: typeof parts[number]): number => {
-        const bps = PHY_MODES.he.ndbps[p.mcs] * toneRatio('he', r.frame.widthMhz ?? 20) * (p.nss ?? 1) * p.ruFraction!
-        return Math.ceil((16 + 8 * apepOf(p) + 6) / bps)
-      }
-      expect(r.frame.txTimeNs).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.muExtraPreambleNs
-        + PHY_MODES.he.symNs * Math.max(...parts.map(symbolsOf)))
+      const ltfNss = Math.max(...parts.map((p) => p.nss ?? 1))
+      const t = Math.max(...parts.map((p) => txTimeModeNs('he', apepOf(p), p.mcs, {
+        mu: true, widthMhz: r.frame.widthMhz ?? 20, nss: p.nss ?? 1, ruFraction: p.ruFraction, ltfNss,
+      })))
+      expect(r.frame.txTimeNs).toBe(t)
+      for (const p of parts) expect(p.apepBytes).toBe(apepOf(p))
     }
   })
 
@@ -257,19 +262,22 @@ describe('ofdma-dl · ③ every figure the labs print is the run', () => {
 
     const cells = Object.fromEntries(tableOf(l, '第一次多用户发送，按本仿真器的公式算一遍').rows.map((r) => [r[0], r[1]]))
     const ndbps = PHY_MODES.he.ndbps[one(first.frame.muParts!.map((p) => p.mcs))]
-    const bits = 16 + 8 * bytes + 6
+    const bits = 16 + 8 * bytes // LDPC: no tail bits (MCS 11, §27.3.12.5)
     const perSym = ndbps * 0.5
+    const pt = ppduTiming('he', bytes, one(first.frame.muParts!.map((p) => p.mcs)), { mu: true, ruFraction: 0.5 })
     expect(cells['此刻队列中有数据的电视']).toBe(String(members.length))
     expect(cells['每个成员分到的信道']).toBe(`1/${members.length}`)
     expect(cells['每个成员每符号比特数']).toBe(`${ndbps} × 0.5 = ${perSym}`)
     expect(cells['每个成员的字节']).toBe(`${bytes} B`)
-    expect(cells['每个成员的符号数']).toBe(`⌈(16 + 8 × ${bytes} + 6) ÷ ${perSym}⌉ = ⌈${bits} ÷ ${perSym}⌉ = ${Math.ceil(bits / perSym)}`)
+    expect(cells['每个成员的符号数']).toBe(`⌈(16 + 8 × ${bytes}) ÷ ${perSym}⌉ = ⌈${bits} ÷ ${perSym}⌉ = ${Math.ceil(bits / perSym)}（第 11 级只能用 LDPC，没有尾比特（tail bits））`)
     expect(Math.ceil(bits / perSym)).toBe(MU_SYMBOLS)
-    expect(cells['这一帧的时长']).toBe(`${PHY_MODES.he.preambleNs / US} + ${PHY_MODES.he.muExtraPreambleNs / US} + ${PHY_MODES.he.symNs / US} × ${MU_SYMBOLS} = ${usText(first.frame.txTimeNs)}`)
+    expect(pt.nsym).toBe(MU_SYMBOLS)
+    expect(cells['包扩展']).toBe(`${pt.peNs / US} µs`)
+    expect(cells['这一帧的时长']).toBe(`${PHY_MODES.he.preambleNs / US} + ${PHY_MODES.he.muExtraPreambleNs / US} + ${PHY_MODES.he.symNs / US} × ${MU_SYMBOLS} + ${pt.peNs / US} = ${usText(first.frame.txTimeNs)}`)
 
-    // the figure: three boxes that add up to the send
+    // the figure: four boxes that add up to the send
     const spec = muPpduFields()
-    expect(spec.fields.map((f) => f.size)).toEqual([PHY_MODES.he.preambleNs / US, PHY_MODES.he.muExtraPreambleNs / US, (MU_SYMBOLS * PHY_MODES.he.symNs) / US])
+    expect(spec.fields.map((f) => f.size)).toEqual([PHY_MODES.he.preambleNs / US, PHY_MODES.he.muExtraPreambleNs / US, (MU_SYMBOLS * PHY_MODES.he.symNs) / US, pt.peNs / US])
     expect(spec.total).toBe(`共 ${usText(first.frame.txTimeNs)}`)
   })
 
@@ -320,7 +328,8 @@ describe('ofdma-dl · ③ every figure the labs print is the run', () => {
     expect(saved).toBe(pairs * (opening - handedBack))
     expect(l.expect).toContain(`开 OFDMA 时接入点发了 ${apData(on).length} 次，其中 ${pairs} 次包含两台电视；关掉后发了 ${apData(no).length} 次`)
     expect(l.expect).toContain(`空口忙碌时间少 ${saved / MS} ms`)
-    expect(l.expect).toContain(`前导码省下 ${opening / US} µs`)
+    // 2026-11-11 (W6, Eq 27-149): the saving per pair is a preamble and a packet extension.
+    expect(l.expect).toContain(`前导码与包扩展合计省下 ${opening / US} µs`)
     expect(l.expect).toContain(`两个块确认同时发出，只占 ${ba / US} µs`)
     expect(l.expect).toContain(`又多用 ${handedBack / US} µs，${pairs} × ${(opening - handedBack) / US} µs = ${saved / MS} ms`)
     expect(ofdmaDl.why).toContain(`组成 ${pairs} 对，空口忙碌时间少 ${saved / MS} ms`)
@@ -329,7 +338,7 @@ describe('ofdma-dl · ③ every figure the labs print is the run', () => {
 
     // the second table: the same two frames sent one way and the other
     const way = tableOf(l, '同样两个视频帧，两种发法').rows
-    const suSyms = (suFrame - PHY_MODES.he.preambleNs) / PHY_MODES.he.symNs
+    const suSyms = ppduLayout(su[0]!.frame).find((s) => s.key === 'data')!.symbols
     expect(way[0]).toEqual(['逐帧发送', `${PHY_MODES.he.preambleNs / US} µs × 2`, `${suSyms} + ${suSyms}`, `${usText(suFrame)} × 2`, `两个 ${ack / US} µs 的确认帧，先后发送`])
     expect(way[1]).toEqual(['一个 HE MU PPDU', `${PHY_MODES.he.preambleNs / US} + ${PHY_MODES.he.muExtraPreambleNs / US} µs`, String(MU_SYMBOLS), usText(mu), `两个 ${ba / US} µs 的块确认，同时开始`])
   })

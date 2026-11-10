@@ -143,7 +143,7 @@ export interface MuPart {
   /** Trigger frames: access category and target TB-PPDU duration for this user. */
   ac?: number
   durNs?: Ns
-  /** Spatial streams this member is sent with (MU-MIMO); absent means 1. */
+  /** Spatial streams this member is sent with (MU-MIMO, or an OFDMA member with more than one); absent means 1. */
   nss?: number
   /** Share of the channel this member occupies (OFDMA); absent means the whole width. */
   ruFraction?: number
@@ -160,6 +160,8 @@ export interface MuPart {
    * HE-MCS 0–3. Without it the member does not answer (§10.3.2.13.2).
    */
   trs?: { ulDataSymbols: number; mcs: number; ruFraction: number; partIdx: number }
+  /** DL MU PPDU only: this member's APEP_LENGTH (its A-MPDU before EOF padding; `bytes` is PSDU_LENGTH). */
+  apepBytes?: number
   /** Multi-STA BlockAck only: the sequence numbers acknowledged for this STA (Per AID TID Info bitmap). */
   ba?: BaInfo
 }
@@ -214,6 +216,11 @@ export interface FrameDesc {
    * enumeration, which is not these values at all.
    */
   giNs?: Ns
+  /**
+   * Spatial streams of an SU PPDU, absent when 1. The LTF field grows with it (N_HE-LTF /
+   * N_EHT-LTF, Table 21-13 / Table 36-43), so the PPDU layout needs it to split the preamble.
+   */
+  nss?: number
   ac?: number // 0..3 EDCA access category of the exchange
   /** A-MPDU aggregation info (single-user). */
   ampdu?: { mpduCount: number; msduIds: number[] }

@@ -151,13 +151,14 @@ describe('guard-interval noise gate · (iii) no frame-loss figure reaches src/',
 
   it('the anchoring is what makes that zero true, and it is not a stricter test than needed', () => {
     // Both halves, so a future reader cannot mistake the anchoring for pedantry. The naive
-    // version is red today; the anchored version lets exactly those three through. The third
-    // (2026-11-11) is `mlo`'s standard-first lab table, whose 「194.5768 ms」 contains 4.57.
+    // version is red today; the anchored version lets exactly those two through. A third
+    // (2026-11-11) was `mlo`'s standard-first lab table, whose 「194.5768 ms」 contained 4.57; the
+    // W6 re-measurement the same day moved that instant, so it is two again.
     const naive = sourceFiles(SRC).filter((f) => {
       const t = fs.readFileSync(f, 'utf8')
       return t.includes('5.44') || t.includes('4.57')
     })
-    expect(naive.length, 'the three known coincidences are gone; this test needs rewriting').toBe(3)
+    expect(naive.length, 'the two known coincidences are gone; this test needs rewriting').toBe(2)
     expect(anchored('5.44').test('4.7368, 6.3831, 5.4439, 6.8922 m')).toBe(false)
     expect(anchored('4.57').test('(SP3_REPORT_NS / SP3_SAVING_SHORTEST_NS).toFixed(3) // 4.578')).toBe(false)
     expect(anchored('4.57').test("['194.5768 ms，第 4105 帧', '5 GHz', '5 GHz，194.8518 ms'],")).toBe(false)
@@ -193,15 +194,15 @@ describe('guard-interval noise gate · (iv) no pooled figure reaches these two l
    *     do with Wi-Fi at all. Since 2026-11-10 that lesson prints 1.24 instead — the UWB control
    *     message grew three octets (ARC IE to the standard's content, plus the RR IE) — so this one
    *     is no longer a live site; the other three still are.
-   *  4. **`17.07` already lives in `src/course/tier2/fading.ts`, twice — as `17.07 Mb/s`**, a
+   *  4. **`17.07` lived in `src/course/tier2/fading.ts`, twice — as `17.07 Mb/s`**, a
    *     throughput in that lesson's Rician table, beside the quadruple tier's per-PPDU minimum
    *     of **+17.07 %**. This one is not in the design's list of reasons; it was found by
    *     running the sweep over all of `src/` before narrowing it. Since 2026-11-11 (W7a) the
    *     re-measured Rician table no longer prints 17.07, so this one is no longer a live site
    *     either; two remain (reasons 1 and 2).
    *
-   * So: widen this scope and it goes red on four innocent sites, and the tempting repair — an
-   * exception list — is how the guard would die.
+   * So: widen this scope and it went red on four innocent sites (two of them still live), and
+   * the tempting repair — an exception list — is how the guard would die.
    *
    * **`19.44` is deliberately NOT on this list.** It is §0.3's own frame: 230 octets at HE
    * MCS 11, `txTimeModeNs` and nothing else. Single-frame arithmetic is not a pooled statistic,

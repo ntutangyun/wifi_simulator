@@ -95,10 +95,15 @@ describe('edca-cost · ② says what the engine does, and the engine does it', (
     expect(implRow('EIFS 的长度').sim).toContain(`${SIFS_NS / US} + ${ACK_TX_TIME_6M_NS / US} + ${DIFS_NS / US} = ${EIFS_NS / US} µs`)
   })
 
-  it('the wait after an error is 94 − 34 + 43 = 103 µs, every time', () => {
-    const v = (OFDM_5G.eifsNs - OFDM_5G.difsNs + aifsNs(by('BE').aifsn, OFDM_5G)) / US
-    expect(implRow('出错之后的等待').sim).toContain(`${EIFS_NS / US} − ${DIFS_NS / US} + ${aifsNs(3, OFDM_5G) / US} = ${v} µs`)
-    expect(new Set(ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS').map((r) => r.untilNs - r.t))).toEqual(new Set([v * US]))
+  it('the wait after an error is EIFS − DIFS + AIFS[AC]: 103 µs for BE, 94 µs for VO, every time', () => {
+    // 2026-11-11 (W6 merged): the caller now arms one EIFS too (a reception it failed while its
+    // own voice frame was queued), so both classes' values are printed and pinned (§10.3.2.3.7).
+    const of = (ac: string) => (OFDM_5G.eifsNs - OFDM_5G.difsNs + aifsNs(by(ac).aifsn, OFDM_5G)) / US
+    expect(implRow('出错之后的等待').sim).toContain(`${EIFS_NS / US} − ${DIFS_NS / US} + ${aifsNs(3, OFDM_5G) / US} = ${of('BE')} µs`)
+    expect(implRow('出错之后的等待').sim).toContain(`${EIFS_NS / US} − ${DIFS_NS / US} + ${aifsNs(2, OFDM_5G) / US} = ${of('VO')} µs`)
+    const eifs = (n: string) => new Set(ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS' && r.node === n).map((r) => r.untilNs - r.t))
+    expect(eifs('sta-2')).toEqual(new Set([of('BE') * US]))
+    expect(eifs('sta-1')).toEqual(new Set([of('VO') * US]))
   })
 
   it('a busy medium freezes the counter: priority never interrupts a transmission', () => {
@@ -147,9 +152,9 @@ describe('edca-cost · ③ every figure the labs print is the run', () => {
     }
     const call = queueWaits(rs, 'sta-1')
     const back = queueWaits(rs, 'sta-3')
-    expect(Math.round(meanMs(back) / meanMs(call))).toBe(6) // 2026-11-11: seven before the AP took dot11QAPEDCATable and frames their UP
+    expect(Math.round(meanMs(back) / meanMs(call))).toBe(7) // 2026-11-11: seven, six after W7b, seven again on the merged engine (W6 timing)
     expect(l.expect).toContain(`只抽取了 ${draws(rs, 'sta-3').length} 次`)
-    expect(l.expect).toContain(`平均排队时延 ${meanMs(back).toFixed(2)} ms，约为通话站点 ${meanMs(call).toFixed(2)} ms 的六倍`)
+    expect(l.expect).toContain(`平均排队时延 ${meanMs(back).toFixed(2)} ms，约为通话站点 ${meanMs(call).toFixed(2)} ms 的七倍`)
     expect(l.expect).toContain(`最长的一次排队是 ${(Math.max(...call) / MS).toFixed(2)} ms`)
     expect(Math.floor(Math.max(...call) / MS / meanMs(call))).toBe(2)
     // the figures `why` repeats
@@ -158,8 +163,9 @@ describe('edca-cost · ③ every figure the labs print is the run', () => {
 
   it('lab 3: three EIFS, all the uploader\'s; the first behind the two simultaneous voice frames', () => {
     const l = lab('上传站点的 EIFS')
-    const eifs = ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS')
-    expect(new Set(eifs.map((e) => e.node))).toEqual(new Set(['sta-2']))
+    const all = ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS')
+    expect(new Set(all.map((e) => e.node))).toEqual(new Set(['sta-1', 'sta-2']))
+    const eifs = all.filter((e) => e.node === 'sta-2')
     expect(l.expect).toContain(`上传站点共有 ${eifs.length} 次 EIFS，每次都是 103 µs`)
     const first = eifs[0]
     const fail = ofType(rs, 'RX_FAIL').find((r) => r.node === 'sta-2')!
@@ -174,23 +180,35 @@ describe('edca-cost · ③ every figure the labs print is the run', () => {
     expect(voice[0].t + voice[0].frame.txTimeNs).toBe(fail.t)
     expect(l.expect).toContain(`${(voice[0].t / MS).toFixed(4)} ms 接入点与通话站点同时发送语音帧`)
     // the caller's failed receptions: each followed by a new reception before it contends again
+    // 2026-11-11 (W6 merged): one of the caller's failures arms a 94 µs EIFS (§10.3.2.3.7), and the
+    // next reception starts before it ends; the other is followed by a reception before any IFS.
     const callerFails = ofType(rs, 'RX_FAIL').filter((r) => r.node === 'sta-1')
     expect(l.expect).toContain(`通话站点有 ${callerFails.length} 次接收失败`)
-    for (const f of callerFails) {
+    const callerEifs = all.filter((e) => e.node === 'sta-1')
+    expect(callerEifs).toHaveLength(1)
+    const ce = callerEifs[0]
+    expect(callerFails.some((f) => f.t === ce.t)).toBe(true)
+    expect(l.expect).toContain(`${(ce.t / MS).toFixed(4)} ms 那一次之后它开始一段 ${(ce.untilNs - ce.t) / US} µs 的等待`)
+    const cut = ofType(rs, 'RX_START').find((r) => r.node === 'sta-1' && r.t > ce.t)!
+    expect(cut.t).toBeLessThan(ce.untilNs)
+    expect(l.expect).toContain(`在 ${(cut.t / MS).toFixed(4)} ms 开始，这次新的接收结束了这段等待`)
+    for (const f of callerFails.filter((x) => x.t !== ce.t)) {
       const nextRx = ofType(rs, 'RX_START').find((r) => r.node === 'sta-1' && r.t > f.t)!
-      const nextIfs = ofType(rs, 'IFS_START').find((r) => r.node === 'sta-1' && r.t > f.t)
+      const nextIfs = ofType(rs, 'IFS_START').find((r) => r.node === 'sta-1' && r.t >= f.t)
       expect(nextIfs === undefined || nextRx.t <= nextIfs.t, `fail at ${f.t}`).toBe(true)
     }
   })
 
-  it('lab 4: EDCA off on the caller — DIFS 34 µs, windows from 15, about 3.2× the wait', () => {
+  it('lab 4: EDCA off on the caller — DIFS 34 µs, windows from 15, about 2.8× the wait', () => {
     const l = lab('关掉通话站点的 EDCA')
     const sc: Scenario = edcaCost.scenario()
     const caller = sc.nodes.find((n) => n.id === 'sta-1')!
     caller.caps.features = { ...caller.caps.features, edca: false }
     const off = [...new Simulation(sc).runUntil(RUN_NS).records]
-    const lens = new Set(ofType(off, 'IFS_START').filter((r) => r.node === 'sta-1' && r.kind === 'DIFS' && r.untilNs > r.t).map((r) => r.untilNs - r.t))
-    expect([...lens]).toEqual([DIFS_NS])
+    // The full DIFS is the longest; a shorter one is a DIFS armed by a frame that arrived after part
+    // of the idle time had already elapsed (2026-11-11: the merged run has one).
+    const lens = ofType(off, 'IFS_START').filter((r) => r.node === 'sta-1' && r.kind === 'DIFS' && r.untilNs > r.t).map((r) => r.untilNs - r.t)
+    expect(Math.max(...lens)).toBe(DIFS_NS)
     expect(DIFS_NS).toBe(aifsNs(by('VO').aifsn, OFDM_5G))
     expect(ofType(off, 'IFS_START').filter((r) => r.node === 'sta-1' && r.kind === 'AIFS')).toEqual([])
     expect(Math.min(...draws(off, 'sta-1').map((d) => d.cw))).toBe(15)

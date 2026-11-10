@@ -108,7 +108,7 @@ export function FrameDetail({ sel }: { sel: FrameSelection }) {
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11 }
 const cell: React.CSSProperties = { padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)', verticalAlign: 'top' }
 const SEG_COLOR: Record<PpduSegmentKey, string> = {
-  legacyPreamble: '#a78bfa', signal: '#f472b6', preamble: '#a78bfa', muSig: '#f472b6', data: '#38bdf8', padding: '#64748b',
+  legacyPreamble: '#a78bfa', signal: '#f472b6', preamble: '#a78bfa', muSig: '#f472b6', data: '#38bdf8', padding: '#64748b', pe: '#94a3b8',
   usig: '#f472b6', ampSync: '#a78bfa', ampSig: '#f472b6', ampData: '#38bdf8', signalExt: '#64748b',
   // Backscatter: both excitations are unmodulated carrier, not data, so they take one amber of
   // their own — the PPDU is mostly this, and it should read that way at a glance.

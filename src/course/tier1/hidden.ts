@@ -96,7 +96,7 @@ export const hidden: Lesson = {
   ],
   implementation: [
     { topic: '前导检测', standard: 'OFDM 传输的起始电平不低于 −82 dBm 时，4 µs 内以大于 90% 的概率报忙（§17.3.10.6.1）', sim: '本仿真器把它当作硬门限：电平不低于 −82 dBm 的前导码一定报忙，低于则一定不报。本课一台站点的帧到达另一台站点处是 −83.4 dBm，比门限低 1.4 dB，每一次都检测不到。', kind: 'differs' },
-    { topic: '能量检测', standard: '任何信号的电平不低于 −62 dBm 时，4 µs 内报忙（§17.3.10.6.1）', sim: '照此：空中所有信号的电平之和不低于 −62 dBm 就报忙。本仿真器对整个工作信道宽度内的能量作比较；本课信道为 20 MHz，与标准的要求一致。', kind: 'faithful' },
+    { topic: '能量检测', standard: '任何信号的电平不低于 −62 dBm 时，4 µs 内报忙（§17.3.10.6.1）', sim: '照此：空中所有信号落在主 20 MHz 信道内的电平之和不低于 −62 dBm 就报忙；本课信道为 20 MHz。', kind: 'faithful' },
     { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay，16 + 9 + 20 µs（§10.3.2.11，表 17-24）', sim: '照此：发送方在帧结束 45 µs 后判定失败。', kind: 'faithful' },
     { topic: '退避与 CW', standard: '均匀抽取，CW 从 15 起按 2 的幂减 1 递增到 1023（§10.3.3，表 17-24）', sim: '照此。', kind: 'faithful' },
     { topic: '确认帧的 Duration', standard: '0（§9.3.1.4）', sim: '照此写 0，远端站点收到确认帧也不设置网络分配向量（network allocation vector, NAV）。', kind: 'faithful' },

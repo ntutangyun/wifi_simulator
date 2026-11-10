@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
+import { ppduTiming } from '../../src/engine/phy'
 import { rate } from '../../src/course/tier2/rate'
 import { rateCost } from '../../src/course/tier2/rate-cost'
 import { rateFallback } from '../../src/course/tier2/rate-fallback'
@@ -172,9 +173,12 @@ describe('rate-cost · ② says what the engine does, and the engine does it', (
     for (const m of [0, 1, 2]) expect(holdBehind(m)).toBeGreaterThan(airAt(m))
   })
 
-  it('一帧的空口时间: 48 µs plus 13.6 µs a symbol, no PE — 537.6, 768.8 and 1,489.6 µs', () => {
+  it('一帧的空口时间: Eq 36-110 — 51.2 µs, 13.6 µs a symbol, the PE field, whole µs — 545.0, 784.0 and 1,497.0 µs', () => {
+    // 2026-11-11 (W6): the preamble field by field, BCC (allowed at these rungs), PE (Table 36-61),
+    // TXTIME rounded up to a whole µs (§6.7.6.2).
+    expect(implRow('一帧的空口时间').kind).toBe('faithful')
     const sim = implRow('一帧的空口时间').sim
-    const [pre, sym] = grab(sim, /前导码取代表值 ([\d.]+) µs，加上 ([\d.]+) µs 乘以数据符号数/, '② on the formula').map(val)
+    const [pre, sym] = grab(sim, /前导码逐个字段相加为 ([\d.]+) µs，加上 ([\d.]+) µs 乘以数据符号数/, '② on the formula').map(val)
     // 2026-11-11 (W7a): an EHT PSDU is always an A-MPDU (§10.12.5); the one 1530-octet MPDU goes out
     // as an S-MPDU (§10.12.7) behind a 4-octet delimiter, and the airtime is computed from that
     // APEP_LENGTH (§10.12.6), 1534 octets.
@@ -182,8 +186,10 @@ describe('rate-cost · ② says what the engine does, and the engine does it', (
     expect(val(bytes)).toBe(val(mpdu) + 4)
     const ndbps = [117, 234, 351]
     for (const mcs of [0, 1, 2]) {
-      const nsym = Math.ceil((16 + 8 * val(bytes) + 6) / ndbps[mcs])
-      expect(airAt(mcs), `MCS ${mcs}`).toBe(Math.round((pre + sym * nsym) * 1000))
+      const t = ppduTiming('eht', val(bytes), mcs)
+      expect(t.coding).toBe('bcc')
+      expect(t.nsym).toBe(Math.ceil((16 + 8 * val(bytes) + 6) / ndbps[mcs]))
+      expect(airAt(mcs), `MCS ${mcs}`).toBe(Math.ceil((pre + sym * t.nsym + t.peNs / 1000) - 1e-9) * 1000)
     }
     expect(new Set(far.map((r) => r.frame.smpdu))).toEqual(new Set([true]))
     expect(new Set(far.map((r) => r.frame.apepBytes))).toEqual(new Set([val(bytes)]))
@@ -249,7 +255,7 @@ describe('rate-cost · ③ every figure the labs print is the run', () => {
     expect(Math.min(...runs)).toBe(10)
   })
 
-  it('lab 2: 「你应该看到」, and why it is 1.67 times and not three', () => {
+  it('lab 2: 「你应该看到」, and why it is 1.7 times and not three', () => {
     const e = lab('跌落的代价').expect
     const [n, share, airShare, extraMs, runShare, bytes, n1, over1, n0, over0, times] = grab(e,
       /(\d+) 帧只占帧数的 ([\d.]+)%，却占了空口时间的 ([\d.]+)%，多占 ([\d.]+) ms，约为三秒的 ([\d.]+)%。每一帧都是 (\d+) 字节[^]*?(\d+) 帧在 MCS 1 上，每帧多 (\d+)%；只有 (\d+) 帧降到最低一级，每帧多 (\d+)%，所以合计只是以上限发送的 ([\d.]+) 倍/,
@@ -267,8 +273,9 @@ describe('rate-cost · ③ every figure the labs print is the run', () => {
     const over = (ns: number): number => Math.round((ns / atCeiling - 1) * 100)
     expect([over1, over0]).toEqual([over(airAt(1)), over(airAt(0))])
     expect(times).toBe(Math.round((air(below) / (below.length * atCeiling)) * 100) / 100)
-    // 「而不是将近三倍」
-    expect(Math.round((airAt(0) / atCeiling) * 10) / 10).toBe(2.8)
+    // 「而不是将近三倍」. 2026-11-11 (W6): with the PE field the bottom rung is 2.7 times the
+    // ceiling's frame (Eq 36-110), no longer 2.8.
+    expect(Math.round((airAt(0) / atCeiling) * 10) / 10).toBe(2.7)
   })
 
   it('lab 3: an idle neighbour removes the bill; two metres closer halves it', () => {

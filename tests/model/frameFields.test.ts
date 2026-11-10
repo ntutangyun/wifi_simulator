@@ -5,6 +5,7 @@ import {
   ampBsReplyFrame, ampRfidFrame, bsCmdBytes, bstNs, crc16Epc, epcOf,
   type AmpBsUlKbps, type BsCmd, type BsReply,
 } from '../../src/engine/ampBs'
+import { txTimeModeNs } from '../../src/engine/phy'
 import { Simulation } from '../../src/engine/simulation'
 import { hasFeature } from '../../src/model/caps'
 import { decodeFrame, type DecodeCtx, type DecodedFrame, type FrameField } from '../../src/model/frameFields'
@@ -336,18 +337,20 @@ describe('ppduLayout reads the frame\'s own guard interval', () => {
   const ctx: DecodeCtx = { apId: 'ap', isEdca: true }
   const heFrame = (over: Partial<FrameDesc>): FrameDesc => ({
     kind: 'data', src: 'ap', dst: 'sta-1', bytes: 1430, mbps: 143.4,
-    durationFieldNs: 44_000, txTimeNs: 125_600, mode: 'he', mcs: 11, widthMhz: 20,
+    durationFieldNs: 44_000, txTimeNs: 140_800, mode: 'he', mcs: 11, widthMhz: 20,
     seqNo: 1, qos: true, msduBytes: [1430], ...over,
   })
   const seg = (d: DecodedFrame, key: string) => d.ppdu.find((p) => p.key === key)
 
-  it('(a) with giNs absent the layout is byte-for-byte what it is today', () => {
+  it('(a) with giNs absent: 43.2 µs preamble, six symbols, 16 µs packet extension', () => {
+    // 2026-11-11 (W6): the layout is the TXTIME's own fields (Eq 27-149), PE included.
     const d = decodeFrame(heFrame({}), ctx)
-    expect(seg(d, 'preamble')!.durNs).toBe(44_000)
+    expect(seg(d, 'preamble')!.durNs).toBe(43_200)
     expect(seg(d, 'data')!.symNs).toBe(13_600)
     expect(seg(d, 'data')!.symbols).toBe(6)
+    expect(seg(d, 'pe')!.durNs).toBe(16_000)
     expect(seg(d, 'padding')).toBeUndefined()
-    expect(d.ppdu.reduce((s, p) => s + p.durNs, 0)).toBe(125_600)
+    expect(d.ppdu.reduce((s, p) => s + p.durNs, 0)).toBe(140_800)
   })
 
   it('(b) at the quadruple GI the PREAMBLE grows too, so no padding segment appears', () => {
@@ -356,12 +359,12 @@ describe('ppduLayout reads the frame\'s own guard interval', () => {
     // `padding` segment appears to absorb the remainder — at which point the segment
     // durations STILL sum to txTimeNs, so the sum assertion above cannot see the bug. The
     // preamble figure and the absence of padding each have to be asserted on their own.
-    const d = decodeFrame(heFrame({ giNs: 3_200, txTimeNs: 148_800 }), ctx)
-    expect(seg(d, 'preamble')!.durNs).toBe(52_800)
+    const d = decodeFrame(heFrame({ giNs: 3_200, txTimeNs: 164_000 }), ctx)
+    expect(seg(d, 'preamble')!.durNs).toBe(52_000)
     expect(seg(d, 'data')!.symNs).toBe(16_000)
     expect(seg(d, 'data')!.symbols).toBe(6)
     expect(seg(d, 'padding')).toBeUndefined()
-    expect(d.ppdu.reduce((s, p) => s + p.durNs, 0)).toBe(148_800)
+    expect(d.ppdu.reduce((s, p) => s + p.durNs, 0)).toBe(164_000)
   })
 
   it('(c) a vht frame carrying giNs pays neither the longer symbol nor the 8.8 µs', () => {
@@ -379,8 +382,9 @@ describe('ppduLayout reads the frame\'s own guard interval', () => {
       { dst: 'sta-1', src: 'ap', bytes: 715, mbps: 121.9, mcs: 11, mpduCount: 1, msduIds: [1] },
       { dst: 'sta-2', src: 'ap', bytes: 715, mbps: 121.9, mcs: 11, mpduCount: 1, msduIds: [2] },
     ]
-    const d = decodeFrame(heFrame({ dst: '*mu', muParts: parts, giNs: 3_200, txTimeNs: 52_800 + 4_000 + 16_000 * 6 }), ctx)
-    expect(seg(d, 'preamble')!.durNs).toBe(52_800)
+    const tx = txTimeModeNs('he', 715, 11, { mu: true, widthMhz: 20, giNs: 3_200 })
+    const d = decodeFrame(heFrame({ dst: '*mu', muParts: parts, giNs: 3_200, txTimeNs: tx }), ctx)
+    expect(seg(d, 'preamble')!.durNs).toBe(52_000)
     expect(seg(d, 'muSig')!.durNs).toBe(4_000)
     expect(seg(d, 'data')!.symNs).toBe(16_000)
     expect(seg(d, 'padding')).toBeUndefined()

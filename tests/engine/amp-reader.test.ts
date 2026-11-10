@@ -315,7 +315,7 @@ function inBstWindow(
 const edReachM = 10 ** ((DEFAULT_AMP_BS.chargeDbm - CCA_ED_DBM - PL0_DB) / (10 * PL_EXP))
 
 /** The saturated station's distance from the reader in the hall scene, well past `edReachM`. */
-const HALL_CAM_M = 12
+const HALL_CAM_M = 16
 
 /** The same reader and tag in a 40 m hall: the station is out of the frame's energy reach. */
 function hall(): Scenario {

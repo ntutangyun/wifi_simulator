@@ -95,15 +95,17 @@ describe('uwb-ssbd · the lesson', () => {
     expect(why).toContain(`延迟上界是 ${BOUND / US} µs，长于一条 Poll 在自己窗口里的 ${SLACK_POLL / US} µs 余量`)
     expect(why).toContain(`${STALE / US} µs 是按两条已经改掉的旧前提算出的`)
     expect([rangesOf(), rangesOf(V_PER_BLOCK), rangesOf(V_BIGGEST)]).toEqual([0, 0, 0])
-    expect(why).toContain('1.3 秒一个距离也没有')
+    expect(why).toContain('1.3 秒里手机只在一轮中感知到空闲、发出一条 Poll，那一轮也没有测成，一个距离也没有')
     expect(why).toContain(`才得到 ${rangesOf(V_OFF)} 个距离`)
     // 2026-11-11 (merge of W7a with W2b–W5): 8, where the UWB side printed 47. The router answers an
     // A-MPDU it received in part with a BlockAck (IEEE Std 802.11-2024 §10.12, §10.3.2.13.2); that
-    // BlockAck, or its CTS, spoils the tag's narrowband receptions, so the tag computes no range of
-    // its own — the 8 are the anchors' — and no fix is solved.
+    // BlockAck, or its CTS, spoils the tag's narrowband receptions.
+    // 2026-11-11 (W6 merged): with the packet extension and µs-rounded Durations (Eq 27-149,
+    // Table 9-9) the router's control frames move; 14 ranges, 4 of them the tag's own, still no fix.
     const offRanges = ofType(recs(V_OFF), 'UWB_RANGE')
-    expect(offRanges.filter((r) => r.node === TAG)).toEqual([])
-    expect(why).toContain('全部由锚点（anchor）算出，手机自己一个也没有，也没有一次定位')
+    const tagOwn = offRanges.filter((r) => r.node === TAG).length
+    expect(tagOwn).toBe(4)
+    expect(why).toContain(`其中手机自己算出 ${tagOwn} 个、锚点（anchor）算出 ${offRanges.length - tagOwn} 个，没有一次定位`)
     expect(fixesOf(V_OFF)).toBe(0)
     const hitByAp = ofType(recs(V_OFF), 'UWB_INTERFERED')
     expect(hitByAp.length).toBeGreaterThan(0)
@@ -122,7 +124,9 @@ describe('uwb-ssbd · ② says what the engine does, and the engine does it', ()
       perRound.set(k, [...(perRound.get(k) ?? []), r.slot])
     }
     for (const [k, slots] of perRound) expect(new Set(slots).size, k).toBe(slots.length)
-    expect(perRound.size).toBe(28)
+    // 2026-11-11 (W6 merged): 29 — the tag's 28 rounds and the one round in which anchor-3, having
+    // received a POLL, ran SSBD for its Response (§10.39.8.3: each end accesses on its own).
+    expect(perRound.size).toBe(29)
   })
 
   it('the threshold is −71.02 dBm; persistence and frequency-domain deferral are absent', () => {
@@ -173,16 +177,26 @@ describe('uwb-ssbd · ③ every figure the labs print is the run', () => {
     expect(nbTx(recs(V_PER_BLOCK))).toEqual([])
     expect(l.expect).toContain(`只有关闭先听后发测得 ${rangesOf(V_OFF)} 次`)
     expect([undefined, V_PER_BLOCK, V_BIGGEST, V_OFF].map(fixesOf)).toEqual([0, 0, 0, 0])
-    expect(l.expect).toContain('都是锚点一侧算出的距离，四种设置都没有解算出定位')
+    const tagOwn = ofType(recs(V_OFF), 'UWB_RANGE').filter((r) => r.node === TAG).length
+    expect(l.expect).toContain(`其中手机算出 ${tagOwn} 次、锚点一侧算出 ${rangesOf(V_OFF) - tagOwn} 次，四种设置都没有解算出定位`)
+    // 2026-11-11 (W6 merged): one POLL leaves under the defaults, and no range follows.
+    expect(nbTx(recs()).filter((r) => r.frame.kind === 'nbPoll')).toHaveLength(1)
+    expect(l.expect).toContain('手机的 Poll 只在缺省参数下的一轮里发出，那一轮也没有测成')
   })
 
   it('lab 3: the first record, and how many CCAs the POLL’s window holds', () => {
     const l = lab('窗口在收尾动作之前就用完了')
     const first = ssbdOf()[0]
     expect(l.expect).toContain(`第一条记录在 ${(first.t / MS).toFixed(3)} ms：「${fmtRecord(first)}」`)
-    expect(new Set(ssbdOf().map((r) => r.outcome))).toEqual(new Set(['noRoom']))
-    expect(ssbdOf().every((r) => r.node === TAG)).toBe(true)
-    expect(l.expect).toContain(`${ssbdOf().length} 条感知记录全部是这个结论`)
+    // 2026-11-11 (W6 merged): two records are 'idle' — a gap in the router's PPDUs (now carrying the
+    // packet extension, Eq 27-149) let one POLL and its Response through; every other one is noRoom.
+    const noRoom = ssbdOf().filter((r) => r.outcome === 'noRoom')
+    const idle = ssbdOf().filter((r) => r.outcome !== 'noRoom')
+    expect(new Set(idle.map((r) => r.outcome))).toEqual(new Set(['idle']))
+    expect(noRoom.every((r) => r.node === TAG)).toBe(true)
+    expect(l.expect).toContain(`${ssbdOf().length} 条感知记录里有 ${noRoom.length} 条是这个结论`)
+    expect(l.expect).toContain(`另外两条判为空闲：${(idle[0].t / MS).toFixed(3)} ms 手机的 Poll 与 ${(idle[1].t / MS).toFixed(3)} ms 锚点 ${idle[1].node} 的应答`)
+    expect([idle[0].node, idle.length]).toEqual([TAG, 2])
     const rows = blockOf(l, 'table', '一个 Poll 窗口里放得下几次感知').rows
     expect(rows.map((r) => r[1])).toEqual([
       `${NB_PHY_CCA_DURATION_US} µs`, `${SLACK_POLL / US} µs`,

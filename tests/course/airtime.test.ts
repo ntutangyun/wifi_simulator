@@ -8,9 +8,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  airtime, exchangeTiming, giNumbers, ACK_US, APEP_BYTES, DATA_US, EXCHANGE_US, PREAMBLE_US, SIFS_US,
+  airtime, exchangeTiming, giNumbers, ACK_US, APEP_BYTES, DATA_US, EXCHANGE_US, PE_US, PREAMBLE_US, SIFS_US,
 } from '../../src/course/tier1/airtime'
-import { psduLengthFor } from '../../src/model/frames'
 import { decodeFrame } from '../../src/model/frameFields'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import type { TimingSpec } from '../../src/course/diagram'
@@ -20,7 +19,7 @@ import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import {
   AMPDU_DELIMITER_BYTES, MANDATORY_MBPS, NONHT_REF_MBPS, PHY_MODES, RATES, SIFS_NS, TGI_NS, ctrlRespRateFor, ctrlRespRateForMode,
-  mcsRateMbps, preambleNsFor, symNsFor, txTimeModeNs, txTimeNs,
+  mcsRateMbps, ppduTiming, preambleNsFor, symNsFor, txTimeModeNs, txTimeNs,
 } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 
@@ -51,7 +50,7 @@ const implRow = (topic: string) => {
 }
 const stdText = (): string => airtime.standard!.map((b) =>
   `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
-/** 「125.6 µs」 → 125.6. */
+/** 「140.8 µs」 → 140.8. */
 const us = (cell: string): number => {
   const m = /^([\d.]+) µs$/.exec(cell)
   expect(m, `「${cell}」 is a figure in µs`).not.toBeNull()
@@ -109,12 +108,23 @@ describe('airtime · the lesson', () => {
 })
 
 describe('airtime · ② says what the engine does, and the engine does it', () => {
-  it('the HE preamble is one 44.0 µs constant, not the 43.2 µs the fields add up to', () => {
-    expect(implRow('前导码部分的时长').kind).toBe('differs')
-    expect(PHY_MODES.he.preambleNs).toBe(44_000)
+  // 2026-11-11 (W6): the preamble, the symbol count, the packet extension and the quadruple
+  // tier follow Table 27-13 / §27.3.12.5.2 / Table 27-47 now; the rows below pin that.
+  it('the HE preamble is the fields added up: 43.2 µs, more HE-LTFs with more streams', () => {
+    expect(implRow('前导码部分的时长').kind).toBe('faithful')
+    expect(PHY_MODES.he.preambleNs).toBe(43_200)
+    expect(preambleNsFor('he')).toBe(36_000 + 6_400 + 800)
     expect(implRow('前导码部分的时长').sim).toContain(`${(PHY_MODES.he.preambleNs / US).toFixed(1)} µs`)
-    // the same frame, one stream or several: the engine's preamble does not move
-    expect(txTimeModeNs('he', 1430, 11)).toBe(PHY_MODES.he.preambleNs + 6 * PHY_MODES.he.symNs)
+    // Table 21-13: two streams two HE-LTFs, three or four streams four.
+    expect([1, 2, 3, 4].map((n) => preambleNsFor('he', TGI_NS.base, { nss: n }))).toEqual([43_200, 50_400, 64_800, 64_800])
+  })
+
+  it('the packet extension is Table 27-47 at the stated 16 µs nominal padding: 4a µs', () => {
+    expect(implRow('包扩展').kind).toBe('value')
+    expect(implRow('包扩展').sim).toContain('16 µs 的名义填充')
+    const t = ppduTiming('he', 1430, 11)
+    expect([t.a, t.peNs]).toEqual([4, 16_000])
+    expect(PE_US * US).toBe(t.peNs)
   })
 
   it('the symbol is Table 27-13’s, at all three guard intervals', () => {
@@ -122,30 +132,32 @@ describe('airtime · ② says what the engine does, and the engine does it', () 
     expect([TGI_NS.base, TGI_NS.double, TGI_NS.quad].map((g) => symNsFor('he', g))).toEqual([13_600, 14_400, 16_000])
   })
 
-  it('the symbol count is the BCC formula, tail bits included, on an MCS the standard codes with LDPC', () => {
-    expect(implRow('数据符号的个数').kind).toBe('differs')
-    const ndbps = PHY_MODES.he.ndbps[11]!
-    for (const len of [14, 300, 715, 1430, 3000]) {
-      expect(txTimeModeNs('he', len, 11)).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.symNs * Math.ceil((16 + 8 * len + 6) / ndbps))
-    }
+  it('the symbol count is §27.3.12.5.2’s LDPC count on MCS 11, BCC’s where BCC is allowed', () => {
+    expect(implRow('数据符号的个数').kind).toBe('faithful')
+    for (const len of [14, 300, 715, 1430, 3000]) expect(ppduTiming('he', len, 11).coding).toBe('ldpc')
+    expect(ppduTiming('he', 1430, 9).coding).toBe('bcc')
+    // N_SYM,init = ⌈(8·L + 16) / N_DBPS⌉ with no tail bits, and no LDPC extra symbol segment here
+    expect(ppduTiming('he', 1430, 11).nsym).toBe(Math.ceil((8 * 1430 + 16) / PHY_MODES.he.ndbps[11]!))
   })
 
-  it('the quadruple tier adds 8.8 µs to 44.0 µs: 52.8, against the standard’s 36 + 16 = 52.0', () => {
-    expect(implRow('四倍保护间隔的前导码部分').kind).toBe('differs')
-    expect(preambleNsFor('he', TGI_NS.quad)).toBe(52_800)
-    expect(implRow('四倍保护间隔的前导码部分').sim).toContain('52.8 µs')
+  it('the quadruple tier is 36 + 16 = 52.0 µs, as Table 27-13 adds it', () => {
+    expect(implRow('四倍保护间隔的前导码部分').kind).toBe('faithful')
+    expect(preambleNsFor('he', TGI_NS.quad)).toBe(52_000)
+    expect(implRow('四倍保护间隔的前导码部分').sim).toContain('52.0 µs')
     expect(implRow('四倍保护间隔的前导码部分').standard).toContain(`${(36 + 12.8 + 3.2).toFixed(1)} µs`)
   })
 
   // 2026-11-11 (W7a): an HE PSDU is always an A-MPDU (§9.7.3, §10.12.5); one MPDU goes out as an
   // S-MPDU with a 4-octet delimiter (§10.12.7), the symbols are counted from APEP_LENGTH and the EOF
   // padding fills the last one (§10.12.6). This used to price the bare 1430-octet MPDU.
-  it('one MPDU is an S-MPDU: APEP_LENGTH 1434 sets the six symbols, the EOF padding makes 1459', () => {
+  // 2026-11-11 (W6 merge): PSDU_LENGTH is Eq 27-153's — LDPC has no tail bits — so 1460, not the
+  // BCC 1459 the old count gave.
+  it('one MPDU is an S-MPDU: APEP_LENGTH 1434 sets the six symbols, the EOF padding makes 1460', () => {
     const f = txs('data')[0]!.frame
     expect(f.smpdu).toBe(true)
     expect(f.apepBytes).toBe(APEP_BYTES)
     const mpdu = APEP_BYTES - AMPDU_DELIMITER_BYTES
-    expect(f.bytes).toBe(psduLengthFor(APEP_BYTES, PHY_MODES.he.ndbps[11]!))
+    expect(f.bytes).toBe(ppduTiming('he', APEP_BYTES, 11).psduLength)
     expect(f.txTimeNs).toBe(txTimeModeNs('he', APEP_BYTES, 11))
     const u = decodeFrame(f, { apId: 'ap', isEdca: true }).users[0]!
     expect(u.subframes).toHaveLength(1)
@@ -153,8 +165,8 @@ describe('airtime · ② says what the engine does, and the engine does it', () 
     expect(u.subframes[0]!.mpdu.bytes).toBe(mpdu)
     expect(u.bytes).toBe(f.bytes)
     const sim = implRow('数据符号的个数').sim
-    expect(sim).toContain(`字节数照 ① 取 APEP_LENGTH：${mpdu} 字节的 MPDU 加 ${AMPDU_DELIMITER_BYTES} 字节定界符，即 ${APEP_BYTES} 字节，6 个符号；补上 EOF 填充，PSDU 为 ${f.bytes} 字节。`)
-    for (const c of ['§9.7.3', '§10.12.6', '§10.12.7', '§10.12.8']) expect(stdText(), c).toContain(c)
+    expect(sim).toContain(`字节数照 ① 取 APEP_LENGTH：${mpdu} 字节的 MPDU 加 ${AMPDU_DELIMITER_BYTES} 字节定界符，即 ${APEP_BYTES} 字节，6 个符号；EOF 填充补到式 (27-153) 的 PSDU_LENGTH，即 ${f.bytes} 字节。`)
+    for (const c of ['§9.7.3', '§10.12.6', '(27-153)', '§10.12.7', '§10.12.8']) expect(stdText(), c).toContain(c)
     // and that frame is still answered by an Ack (§10.12.8)
     expect(new Set(txs('ack').map((r) => r.frame.kind))).toEqual(new Set(['ack']))
     expect(txs('ba')).toEqual([])
@@ -186,7 +198,7 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     const fig = (lab('一次收发交互的四段').blocks!.find((b) => b.kind === 'diagram') as { spec: TimingSpec }).spec
     expect(fig).toEqual(exchangeTiming())
     const [ap, tv] = fig.lanes
-    expect(ap!.spans.map((s) => [s.fromUs, s.toUs])).toEqual([[0, PREAMBLE_US], [PREAMBLE_US, DATA_US]])
+    expect(ap!.spans.map((s) => [s.fromUs, s.toUs])).toEqual([[0, PREAMBLE_US], [PREAMBLE_US, DATA_US - PE_US], [DATA_US - PE_US, DATA_US]])
     expect(tv!.spans.map((s) => [s.fromUs, s.toUs])).toEqual([[DATA_US + SIFS_US, EXCHANGE_US]])
     expect(DATA_US).toBe(txs('data')[0]!.frame.txTimeNs / US)
     expect(ACK_US).toBe(txs('ack')[0]!.frame.txTimeNs / US)
@@ -200,21 +212,25 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     const rows = tableOf(lab('一次收发交互的四段'), '这个房间里的一次交互').rows
     const data = txs('data')[0]!.frame
     const ack = txs('ack')[0]!.frame
-    const pre = PHY_MODES.he.preambleNs / US
-    const nsym = (data.txTimeNs - PHY_MODES.he.preambleNs) / PHY_MODES.he.symNs
+    const t = ppduTiming(data.mode!, data.apepBytes!, data.mcs!, { widthMhz: data.widthMhz })
+    const pre = t.preambleNs / US
+    const nsym = t.nsym
+    expect(t.totalNs).toBe(data.txTimeNs)
     expect(us(rows[0]![1]!)).toBe(pre)
     expect(rows[1]![0]).toBe(`${nsym} 个数据符号 × ${PHY_MODES.he.symNs / US} µs`)
     expect(us(rows[1]![1]!)).toBe(nsym * PHY_MODES.he.symNs / US)
-    expect(rows[2]![0]).toBe(`整个数据帧（PSDU ${data.bytes} 字节，第 ${data.mcs} 级）`)
-    expect(us(rows[2]![1]!)).toBe(data.txTimeNs / US)
-    expect(rows[3]![1]).toBe(`${SIFS_NS / US} µs`)
-    expect(rows[4]![0]).toBe(`确认帧（${ack.bytes} 字节，${ack.mbps} Mb/s）`)
-    expect(rows[4]![1]).toBe(`${ack.txTimeNs / US} µs`)
+    expect(us(rows[2]![1]!)).toBe(t.peNs / US)
+    expect(rows[2]![2]).toContain(`a = ${t.a}`)
+    expect(rows[3]![0]).toBe(`整个数据帧（PSDU ${data.bytes} 字节，第 ${data.mcs} 级）`)
+    expect(us(rows[3]![1]!)).toBe(data.txTimeNs / US)
+    expect(rows[4]![1]).toBe(`${SIFS_NS / US} µs`)
+    expect(rows[5]![0]).toBe(`确认帧（${ack.bytes} 字节，${ack.mbps} Mb/s）`)
+    expect(rows[5]![1]).toBe(`${ack.txTimeNs / US} µs`)
     const exchange = (data.txTimeNs + SIFS_NS + ack.txTimeNs) / US
-    const fixed = (PHY_MODES.he.preambleNs + SIFS_NS + ack.txTimeNs) / US
+    const fixed = (t.preambleNs + t.peNs + SIFS_NS + ack.txTimeNs) / US
     const payload = nsym * PHY_MODES.he.symNs / US
-    expect(us(rows[5]![1]!)).toBe(exchange)
-    expect(rows[5]![2]).toBe(`固定开销 ${fixed.toFixed(1)} µs，载荷 ${payload.toFixed(1)} µs`)
+    expect(us(rows[6]![1]!)).toBe(exchange)
+    expect(rows[6]![2]).toBe(`固定开销 ${fixed.toFixed(1)} µs，载荷 ${payload.toFixed(1)} µs`)
     // the frame really is the same one every time
     expect(new Set(txs('data').map((r) => r.frame.txTimeNs))).toEqual(new Set([data.txTimeNs]))
     expect(new Set(txs('data').map((r) => r.frame.bytes))).toEqual(new Set([data.bytes]))
@@ -230,7 +246,7 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     expect(e).toContain(`结束后 ${SIFS_NS / US} µs 开始，持续 ${acks[0]!.frame.txTimeNs / US} µs`)
     expect(e).toContain(`${EXCHANGE_US.toFixed(1)} µs 的交互中只有 ${(6 * 13.6).toFixed(1)} µs`)
     expect(lab('一次收发交互的四段').meaning).toContain(`${(PHY_MODES.he.preambleNs / US).toFixed(1)} µs`)
-    expect(lab('一次收发交互的四段').meaning).toContain('43.2 µs')
+    expect(lab('一次收发交互的四段').meaning).toContain(`包扩展的 ${PE_US} µs`)
   })
 
   it('lab 2: 24 Mb/s from a 54 Mb/s reference, two symbols, 28 µs', () => {
@@ -250,7 +266,7 @@ describe('airtime · ③ every figure the labs print is the run', () => {
     expect(l.expect).toContain(`共 ${ack.txTimeNs / US} µs`)
   })
 
-  it('lab 3: 117 frames and 116 answers are 17.9 ms of the first 100 ms', () => {
+  it('lab 3: 117 frames and 116 answers are 19.7 ms of the first 100 ms', () => {
     const e = lab('空口有多忙').expect
     const busyNs = ofType(recs(), 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
     expect(e).toContain(`${txs('data').length} 个数据帧与 ${txs('ack').length} 个确认帧共占用 ${(busyNs / MS).toFixed(1)} ms`)
@@ -267,7 +283,7 @@ describe('airtime · ③ every figure the labs print is the run', () => {
       expect(row[1]).toBe(`${symNsFor('he', gi) / US} µs`)
       expect(row[2]).toBe(`${txTimeModeNs('he', APEP_BYTES, 11, { widthMhz: 20, giNs: gi }) / US} µs`)
       expect(row[3]).toBe(`${mcsRateMbps('he', 11, gi)} Mb/s`)
-      expect((txTimeModeNs('he', APEP_BYTES, 11, { widthMhz: 20, giNs: gi }) - preambleNsFor('he', gi)) / symNsFor('he', gi)).toBe(6)
+      expect(ppduTiming('he', APEP_BYTES, 11, { widthMhz: 20, giNs: gi }).nsym).toBe(6)
     })
     expect(giNumbers()[0]!.frameUs).toBe(DATA_US)
     // the column heading's length is the run's APEP_LENGTH

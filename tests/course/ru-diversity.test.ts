@@ -253,10 +253,12 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
     // claim is restated as that figure against the p90 gap, both printed and both read back here.
     // 2026-11-11 (W7b, the AP on dot11QAPEDCATable): 0.233 dB against a 1.428 dB p90 gap — about a
     // sixth, no longer under a tenth, so the sentence says 「约为……的六分之一」 and this checks it.
-    const e = /平均损失只差 ([\d.]+) dB，约为第九十百分位差距（([\d.]+) dB）的六分之一/.exec(lab('变的是尾部，不是平均值').expect)!
+    // 2026-11-11 (W6 merge: standard TXTIME, TRS TB PPDUs with PE): 0.098 dB against a 1.128 dB p90
+    // gap — under a tenth again, so the sentence says 「不到……的十分之一」 and this checks it.
+    const e = /平均损失只差 ([\d.]+) dB，不到第九十百分位差距（([\d.]+) dB）的十分之一/.exec(lab('变的是尾部，不是平均值').expect)!
     expect(e[1]).toBe(Math.abs(mean(h) - mean(w)).toFixed(3))
     expect(e[2]).toBe((q(h, 0.9) - q(w, 0.9)).toFixed(3))
-    expect(Math.round((q(h, 0.9) - q(w, 0.9)) / Math.abs(mean(h) - mean(w)))).toBe(6)
+    expect(Math.abs(mean(h) - mean(w))).toBeLessThan((q(h, 0.9) - q(w, 0.9)) / 10)
     expect(q(h, 0.5)).toBeLessThan(q(w, 0.5))
     expect(q(h, 0.9)).toBeGreaterThan(q(w, 0.9))
     expect(Math.max(...h)).toBeGreaterThan(Math.max(...w))
@@ -264,6 +266,7 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
   })
 
   it('lab 4: one metre in, one and two metres out, and the direction reverses at two', () => {
+    const ex0 = () => lab('这个差别只在一段余量里存在').expect
     const at = (x: number, on: boolean): Scenario => {
       const sc = ruDiversityScenario(on)
       return { ...sc, nodes: sc.nodes.map((n) => (n.id.startsWith('sta') ? { ...n, pos: { ...n.pos, x } } : n)) }
@@ -283,7 +286,11 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
     // 2026-11-11 (W7b): one metre out the two legs now differ by 0.04 percentage points (41.90 % against
     // 41.94 %), so the lesson says they are practically the same there rather than that four bins
     // still lose more; what is pinned is that the gap all but closes, then reverses at two metres.
+    // 2026-11-11 (W6 merge): 41.78 % against 42.27 %, 0.49 points, four bins now marginally lower.
     expect(Math.abs(sweep[2]!.half - sweep[2]!.whole)).toBeLessThan(0.01)
+    expect(sweep[2]!.half).toBeLessThan(sweep[2]!.whole)
+    expect(ex0()).toContain('四格已略少')
+    expect(ex0()).toContain(`四格少丢 ${((sweep[3]!.whole - sweep[3]!.half) * 100).toFixed(2)} 个百分点`)
     expect(sweep[3]!.half).toBeLessThan(sweep[3]!.whole)
     const ex = lab('这个差别只在一段余量里存在').expect
     expect(ex).toContain(`向外一米，余量降到 ${db3(sweep[2]!.key)}，两种配置几乎相同，只差 ${(Math.abs(sweep[2]!.half - sweep[2]!.whole) * 100).toFixed(2)} 个百分点`)

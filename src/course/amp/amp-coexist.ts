@@ -48,7 +48,7 @@ export const ampCoexist: Lesson = {
   id: 'amp-coexist',
   module: 10,
   title: 'AMP 与 Wi-Fi 共享 2.4 GHz',
-  why: 'P802.11bp 的 PAR 规定，2.4 GHz 的 AMP 通信使用 AC_BK，所以接入点（access point, AP）的轮询和其他发送一样经增强型分布式信道接入（enhanced distributed channel access, EDCA）竞争，而且使用四个接入类别（access category, AC）中最低的一个：它在开始退避（backoff）之前要等的仲裁帧间间隔（arbitration interframe space, AIFS）是 73 µs，AC_BE 只等 37 µs。标签的上行（uplink, UL）PPDU（PHY protocol data unit）没有 Wi-Fi 前导码（preamble），Wi-Fi 设备解不出，只能靠能量检测（energy detection, ED）察觉；草案只对双基地反向散射要求先发保护帧，对自行发射的标签没有要求。每次传输机会（TXOP）都不得超过 AC_BK 的 TXOP 限制 2.528 ms，所以 250 kb/s 下一轮的四个时隙分两次传输机会发出，每次 2434 µs。本仿真器在每次传输机会之前发一帧 CTS-to-self（CTS to self），这是它自己的选择：能解出这一帧的设备按 Duration 设网络分配向量（network allocation vector, NAV），恰好同时在发送的设备收不到它。在这间公寓里，摄像头漏收了四十帧 CTS-to-self 中的七帧，这七次传输机会里它的请求发送（request to send, RTS）落进了时隙；标签的信号到达摄像头时低于 −62 dBm 的能量检测门限（energy detection threshold），摄像头的载波侦听（carrier sense）察觉不到。去掉 CTS-to-self，读数的确认率从 57.1 % 降到 11.9 %，摄像头的吞吐也从 98.55 Mb/s 降到 90.98 Mb/s。保护开启时，轮询发送的帧只占 3.765 % 的空口时间（airtime），摄像头却损失 6.40 % 的吞吐；轮询频率提高到五倍，损失到 32.44 %。5 GHz 上的手机在四种配置下送达的帧数完全相同。',
+  why: 'P802.11bp 的 PAR 规定，2.4 GHz 的 AMP 通信使用 AC_BK，所以接入点（access point, AP）的轮询和其他发送一样经增强型分布式信道接入（enhanced distributed channel access, EDCA）竞争，而且使用四个接入类别（access category, AC）中最低的一个：它在开始退避（backoff）之前要等的仲裁帧间间隔（arbitration interframe space, AIFS）是 73 µs，AC_BE 只等 37 µs。标签的上行（uplink, UL）PPDU（PHY protocol data unit）没有 Wi-Fi 前导码（preamble），Wi-Fi 设备解不出，只能靠能量检测（energy detection, ED）察觉；草案只对双基地反向散射要求先发保护帧，对自行发射的标签没有要求。每次传输机会（TXOP）都不得超过 AC_BK 的 TXOP 限制 2.528 ms，所以 250 kb/s 下一轮的四个时隙分两次传输机会发出，每次 2434 µs。本仿真器在每次传输机会之前发一帧 CTS-to-self（CTS to self），这是它自己的选择：能解出这一帧的设备按 Duration 设网络分配向量（network allocation vector, NAV），恰好同时在发送的设备收不到它。在这间公寓里，摄像头漏收了四十帧 CTS-to-self 中的五帧，这五次传输机会里它的请求发送（request to send, RTS）落进了时隙；标签的信号到达摄像头时低于 −62 dBm 的能量检测门限（energy detection threshold），摄像头的载波侦听（carrier sense）察觉不到。去掉 CTS-to-self，读数的确认率从 64.3 % 降到 28.6 %，摄像头的吞吐也从 99.05 Mb/s 降到 90.86 Mb/s。保护开启时，轮询发送的帧只占 3.765 % 的空口时间（airtime），摄像头却损失 5.68 % 的吞吐；轮询频率提高到五倍，损失到 38.28 %。5 GHz 上的手机在四种配置下送达的帧数完全相同。',
   outcomes: [
     '说出 PAR 与 802.11 对 AMP 轮取得信道的规定：AC_BK、AIFS、TXOP 限制',
     '解释 CTS-to-self 为什么只能通告、不能强制，并指出它在本课是本仿真器的选择',
@@ -83,11 +83,11 @@ export const ampCoexist: Lesson = {
     { topic: '轮前的保护', standard: '草案只对双基地反向散射要求（FM-48）', sim: '每次传输机会先发一帧 CTS-to-self，14 个字节、6 Mb/s、50 µs，Duration 覆盖这次传输机会的触发帧（Trigger frame）、时隙与 Ack 再加一个 SIFS；变体「不加保护」把它关掉。', kind: 'choice' },
     { topic: '一次传输机会的长度', standard: '不得超过 TXOP 限制；接入点用 dot11QAPEDCATable，AC_BK 缺省 2.528 ms（§10.23.2.9，表 9-194）', sim: '照此实现：每次传输机会从 CTS-to-self 起长 2434 µs；一轮的四个时隙分两次传输机会，每次一帧触发帧、两个时隙。', kind: 'faithful' },
     { topic: 'NAV', standard: '收到 CTS-to-self 的站点按 Duration 更新 NAV（§10.3.2.4）', sim: '照此实现；正在发送的站点收不到这一帧，也就不设 NAV。', kind: 'faithful' },
-    { topic: 'RTS 失败', standard: 'CTSTimeout 内没开始接收，或收到的不是写给自己的 CTS，都判失败（§10.3.2.9）', sim: '照此实现：在时隙里发出的 RTS 等不到 CTS；超时窗口内收到一帧 AMP Ack 时立即判失败。两种情况都使竞争窗口（contention window, CW）加倍。', kind: 'faithful' },
+    { topic: 'RTS 失败', standard: 'CTSTimeout 内没开始接收，或收到的不是写给自己的 CTS，都判失败（§10.3.2.9）', sim: '照此实现：在时隙里发出的 RTS 等不到 CTS，超时判失败；超时窗口内开始接收的是一帧 AMP 帧（例如一轮开头的触发帧（Trigger frame））时，等它收完即判失败。两种情况都使竞争窗口（contention window, CW）加倍。', kind: 'faithful' },
     { topic: '轮询期间的接入点', standard: '草案没有规定', sim: '接入点在一轮之内只处理标签的作答，不回应其他设备的 RTS。', kind: 'choice' },
     { topic: '能量检测', standard: '20 MHz 信道上 −62 dBm（§17.3.10.6）', sim: '把整个信道上的能量与 −62 dBm 比较；本课 2.4 GHz 信道宽 20 MHz，整个信道就是主 20 MHz 信道。', kind: 'faithful' },
     { topic: '一次接收的判决', standard: '标准不规定接收机怎样判决', sim: '取整个接收过程中干扰最强的那一刻判断信干噪比（signal-to-interference-plus-noise ratio, SINR）是否达到门限，任何一刻不够就判整帧失败。', kind: 'choice' },
-    { topic: '传播', standard: '标准不规定信道模型', sim: '传播模型确定，不含快衰落；同一个随机种子每次重跑，摄像头都在同样的七次传输机会里漏收 CTS-to-self。', kind: 'choice' },
+    { topic: '传播', standard: '标准不规定信道模型', sim: '传播模型确定，不含快衰落；同一个随机种子每次重跑，摄像头都在同样的五次传输机会里漏收 CTS-to-self。', kind: 'choice' },
   ],
   labs: [
     {
@@ -100,17 +100,17 @@ export const ampCoexist: Lesson = {
       blocks: [
         { kind: 'formula', heading: '两个接入类别的 AIFS', text: 'AIFS[AC_BK] = 10 + 7 × 9 = 73 µs        AIFS[AC_BE] = 10 + 3 × 9 = 37 µs', note: '每一段空闲之后，轮询比摄像头晚 36 µs 才开始退避。' },
       ],
-      expect: '两秒里轮询时钟要求 20 轮，也发出了 20 轮，共 40 次传输机会；每一轮的第一帧 CTS-to-self 平均比预定时刻晚 5.33 ms，最晚晚 16.25 ms。只有 t = 0 的第一轮准时（路由器的 CTS-to-self 与摄像头的 RTS 同在 0 µs 开始）。一轮的第二次传输机会要重新竞争：第一轮里它在第一次开始后 2552 µs 开始，其他各轮晚得更多。',
+      expect: '两秒里轮询时钟要求 20 轮，也发出了 20 轮，共 40 次传输机会；每一轮的第一帧 CTS-to-self 平均比预定时刻晚 4.95 ms，最晚晚 17.79 ms。只有 t = 0 的第一轮准时（路由器的 CTS-to-self 与摄像头的 RTS 同在 0 µs 开始）。一轮的第二次传输机会要重新竞争：第一轮里它在第一次开始后 2552 µs 开始，其他各轮晚得更多。',
       meaning: 'AC_BK 与 AIFS 照 PAR 与 802.11（①）；轮询间隔只是本仿真器请求传输机会的时刻，不是时间表（②）。',
     },
     {
-      heading: '保护帧漏收的七次传输机会',
+      heading: '保护帧漏收的五次传输机会',
       jump: 2,
       steps: [
         '跳到摄像头第一帧没有得到回应的 RTS，看它开始的时刻落在哪一次传输机会。',
         '统计两秒里摄像头设 NAV 的次数、落进时隙的摄像头帧，以及标签全部作答的结果。',
       ],
-      expect: '摄像头在 40 次传输机会里有 33 次按 Duration 设了 2384 µs 的 NAV；漏收的七次里，它的 RTS 都与 CTS-to-self 在同一时刻开始。整个运行里有 16 帧摄像头的帧落在时隙内，全是 RTS，都在这七次传输机会里：15 帧以 CTS 超时告终，1 帧因超时窗口内收到一帧 AMP Ack 提前判失败。42 次作答有 24 次被确认（57.1 %）；丢失的 18 次里，10 次是两个标签选中同一个时隙（共 5 次），8 次是与摄像头的帧相撞。',
+      expect: '摄像头在 40 次传输机会里有 35 次按 Duration 设了 2384 µs 的 NAV；漏收的五次里，它的 RTS 都与 CTS-to-self 在同一时刻开始，这 5 帧 RTS 都因超时窗口内开始收到 AMP 触发帧，在触发帧收完时判失败。整个运行里有 11 帧摄像头的帧落在时隙内，全是 RTS，都在这五次传输机会里：10 帧以 CTS 超时告终，1 帧因超时窗口内收到一帧 AMP Ack 提前判失败。42 次作答有 27 次被确认（64.3 %）；丢失的 15 次里，10 次是两个标签选中同一个时隙（共 5 次），5 次是与摄像头的帧相撞。',
       meaning: '发送中的站点收不到 CTS-to-self，也就不设 NAV（①）；标签的信号低于能量检测门限，摄像头的载波侦听察觉不到（①）。',
     },
     {
@@ -122,13 +122,13 @@ export const ampCoexist: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '两秒，四种配置', head: ['配置', '读数被确认', '落在时隙内的摄像头帧', '摄像头', '5 GHz 手机'], rows: [
-          ['只有 Wi-Fi（没有标签）', '—', '—', '105.29 Mb/s', '13.24 Mb/s'],
-          ['轮询 + CTS-to-self', '24 / 42 (57.1 %)', '16', '98.55 Mb/s', '13.24 Mb/s'],
-          ['轮询 + 无保护', '5 / 42 (11.9 %)', '97', '90.98 Mb/s', '13.24 Mb/s'],
-          ['CTS-to-self，每 20 ms 轮询', '132 / 202 (65.3 %)', '56', '71.14 Mb/s', '13.24 Mb/s'],
+          ['只有 Wi-Fi（没有标签）', '—', '—', '105.02 Mb/s', '13.24 Mb/s'],
+          ['轮询 + CTS-to-self', '27 / 42 (64.3 %)', '11', '99.05 Mb/s', '13.24 Mb/s'],
+          ['轮询 + 无保护', '12 / 42 (28.6 %)', '89', '90.86 Mb/s', '13.24 Mb/s'],
+          ['CTS-to-self，每 20 ms 轮询', '134 / 202 (66.3 %)', '59', '64.82 Mb/s', '13.24 Mb/s'],
         ] },
       ],
-      expect: '有保护时，每次传输机会长 2434 µs，一轮两次里实际有帧在空口的平均只有 3764.8 µs，占信道的 3.765 %，摄像头却损失 6.40 % 的吞吐。去掉保护，摄像头无人回应的 RTS 从 15 次增加到 93 次，路由器记下的 collision 从 8 次增加到 27 次。每 20 ms 轮询一次时，摄像头比只有 Wi-Fi 时低 32.44 %。四种配置下手机都送达 2365 帧。',
+      expect: '有保护时，每次传输机会长 2434 µs，一轮两次里实际有帧在空口的平均只有 3764.8 µs，占信道的 3.765 %，摄像头却损失 5.68 % 的吞吐。去掉保护，摄像头无人回应的 RTS 从 10 次增加到 87 次，路由器记下的 collision 从 5 次增加到 20 次。每 20 ms 轮询一次时，摄像头比只有 Wi-Fi 时低 38.28 %。四种配置下手机都送达 2365 帧。',
       meaning: 'CTS-to-self 是本仿真器的选择（②），关掉它对标签和摄像头都更糟；5 GHz 与 2.4 GHz 是两条信道，接入点在每一条上各自竞争。',
     },
   ],
@@ -165,10 +165,10 @@ export const ampCoexist: Lesson = {
       explain: 'AIFS[AC] = AIFSN[AC] × aSlotTime + aSIFSTime：AC_BK 为 10 + 7 × 9 = 73 µs，AC_BE 为 10 + 3 × 9 = 37 µs。',
     },
     {
-      q: '四十次传输机会前面都发了 CTS-to-self，摄像头却只设了三十三次 NAV。为什么？',
+      q: '四十次传输机会前面都发了 CTS-to-self，摄像头却只设了三十五次 NAV。为什么？',
       options: [
         '它的 NAV 仍停留在上一轮',
-        '那七次摄像头恰好在同一时刻开始发送自己的 RTS，正在发送的站点收不到帧',
+        '那五次摄像头恰好在同一时刻开始发送自己的 RTS，正在发送的站点收不到帧',
         '摄像头解不出 6 Mb/s 的帧',
       ],
       answer: 1,

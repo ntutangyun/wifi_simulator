@@ -4,7 +4,7 @@
  * ① is what IEEE Std 802.11-2024 specifies about reception: a minimum input sensitivity as a
  * conformance requirement, PHY-RXEND.indication, the FCS check, the acknowledgement after SIFS
  * and EIFS after an error, and the §3.1 link margin — and nothing about how a receiver decides.
- * ② is this simulator's decision. ③ is `radio-primer`'s scene plus the far wall at 80 and
+ * ② is this simulator's decision. ③ is `radio-primer`'s scene plus the far wall at 40, 80 and
  * 160 MHz. Every figure the labs and the quiz print is read back out of the lesson text and
  * compared with the engine: `PHY_MODES`, `reqSinrDb`, `noiseDbm`, the link table and the run.
  */
@@ -92,8 +92,10 @@ describe('decode-thresholds · the lesson', () => {
   })
 
   it('marks what differs and what is absent', () => {
-    expect(implRow('能量检测（energy detection, ED）').kind).toBe('differs')
-    expect(implRow('前导检测的电平').kind).toBe('differs')
+    // 2026-11-11 (W6): both thresholds are measured within the primary 20 MHz channel now
+    // (§27.3.22.6.3, §36.3.21.6.3).
+    expect(implRow('能量检测（energy detection, ED）').kind).toBe('faithful')
+    expect(implRow('前导检测的电平').kind).toBe('faithful')
     // 2026-11-11 (W7a): an A-MPDU is judged MPDU by MPDU and the BlockAck bitmap reports each
     // (§9.7.2, §9.3.1.8.2); this row used to pin one decision per PPDU.
     expect(implRow('聚合帧').kind).toBe('faithful')
@@ -186,48 +188,64 @@ describe('decode-thresholds · ③ every figure the labs print is the run', () =
     })
   })
 
-  it('lab 3: the far wall at 20, 80 and 160 MHz', () => {
-    const l = lab('远端墙边加宽到 80 MHz 与 160 MHz')
+  it('lab 3: the far wall at 20, 40, 80 and 160 MHz', () => {
+    // 2026-11-11 (W6): the −82 dBm preamble threshold is compared with the power inside the
+    // primary 20 MHz channel (§27.3.22.6.3), so from 80 MHz on this link's preamble is not
+    // detected at all — it used to be detected at 160 MHz and fail its decode instead.
+    const l = lab('远端墙边加宽到 40、80 与 160 MHz')
     expect(l.variant).toBe(3)
-    const rows = tableOf(l, '同一位置，三种带宽，100 ms').rows
+    const rows = tableOf(l, '同一位置，四种带宽，100 ms').rows
     const rx = upDbm(primerScenario(14))
     const req0 = reqSinrDb('eht', 0)
-    ;[20, 80, 160].forEach((w, i) => {
-      const [width, floor, snr, need, withMargin] = rows[i]
+    const p20 = (w: number): number => rx - 10 * Math.log10(w / 20)
+    const W = [20, 40, 80, 160]
+    W.forEach((w, i) => {
+      const [width, prim, floor, snr, need] = rows[i]
       expect(width).toBe(`${w} MHz`)
+      expect(prim).toBe(`${neg(p20(w), 2)} dBm`)
       expect(floor).toBe(`${neg(noiseDbm(w), 2)} dBm`)
       expect(snr).toBe(db2(rx - noiseDbm(w)))
       expect(need).toBe(db2(req0))
-      expect(withMargin).toBe(db2(req0 + RATE_MARGIN_DB))
     })
-    const r20 = farRecs(20), r80 = farRecs(80), r160 = farRecs(160)
-    expect(rows[0][5]).toBe(`以 MCS ${txOf(r20, 'sta-1', 'data')[0].frame.mcs} 发送，${txOf(r20, 'ap', 'ack').length} 帧被确认`)
-    expect(rows[1][5]).toBe(`以 MCS ${txOf(r80, 'sta-1', 'data')[0].frame.mcs} 发送，${txOf(r80, 'ap', 'ack').length} 帧被确认`)
-    expect(ofType(r80, 'RX_FAIL')).toEqual([])
-    const fails = ofType(r160, 'RX_FAIL').filter((r) => r.node === 'ap')
-    expect(fails.every((r) => r.reason === 'lowSinr')).toBe(true)
-    expect(txOf(r160, 'ap', 'ack')).toEqual([])
-    expect(rows[2][5]).toBe(`${fails.length} 次 RX_FAIL，没有确认帧`)
-    // every reception at 160 MHz starts: preamble detected, no RX_MISS
-    expect(ofType(r160, 'RX_MISS')).toEqual([])
-    expect(ofType(r160, 'RX_START').filter((r) => r.node === 'ap').length).toBe(txOf(r160, 'sta-1', 'data').length)
-    expect(l.expect).toContain(`${db2(rx - noiseDbm(80))} 低于含余量的 ${db2(req0 + RATE_MARGIN_DB)}、高于 ${db2(req0)}`)
-    expect(l.expect).toContain(`到达电平 ${neg(rx, 2)} dBm 仍高于 ${neg(CCA_PD_DBM, 0)} dBm`)
-    expect(l.expect).toContain(`${db2(rx - noiseDbm(160))} 低于 ${db2(req0)}，${fails.length} 次接收全部以 RX_FAIL 结束`)
-    expect(l.expect).toContain(`${ofType(r160, 'ACK_TIMEOUT').length} 次等到 ACK 超时`)
-    expect(l.meaning).toContain(`那是 ${neg(rx - 10 * Math.log10(8), 2)} dBm`)
+    const runs = W.map(farRecs)
+    for (const i of [0, 1]) {
+      const rs = runs[i]!
+      expect(p20(W[i]!)).toBeGreaterThanOrEqual(CCA_PD_DBM)
+      expect(rows[i]![5]).toBe(`以 MCS ${txOf(rs, 'sta-1', 'data')[0].frame.mcs} 发送，${txOf(rs, 'ap', 'ack').length} 帧被确认`)
+      expect(ofType(rs, 'RX_FAIL')).toEqual([])
+    }
+    for (const i of [2, 3]) {
+      const rs = runs[i]!
+      expect(p20(W[i]!)).toBeLessThan(CCA_PD_DBM)
+      // nothing starts at the router: no RX_START, no RX_FAIL, no ACK
+      expect(ofType(rs, 'RX_START').filter((r) => r.node === 'ap')).toEqual([])
+      expect(ofType(rs, 'RX_FAIL')).toEqual([])
+      expect(txOf(rs, 'ap', 'ack')).toEqual([])
+      expect(rows[i]![5]).toBe(`前导码未检出，${ofType(rs, 'ACK_TIMEOUT').length} 次 ACK 超时`)
+    }
+    expect(l.expect).toContain(`到达电平都是 ${neg(rx, 2)} dBm`)
+    expect(l.expect).toContain(`40 MHz 时主 20 MHz 信道内的电平是 ${neg(p20(40), 2)} dBm，仍不低于 ${neg(CCA_PD_DBM, 0)} dBm`)
+    expect(l.expect).toContain(`即 ${neg(p20(80), 2)} dBm，低于 ${neg(CCA_PD_DBM, 0)} dBm`)
+    expect(l.expect).toContain(`发送方 ${ofType(runs[2]!, 'ACK_TIMEOUT').length} 次等到 ACK 超时`)
+    expect(l.expect).toContain(`80 MHz 的 SNR ${db2(rx - noiseDbm(80))} 其实高于 MCS 0 所需的 ${db2(req0)}`)
+    expect(l.expect).toContain(`160 MHz 时主 20 MHz 信道内只有 ${neg(p20(160), 2)} dBm`)
   })
 })
 
 describe('decode-thresholds · the quiz is the run', () => {
-  it('the 160 MHz question and the margin question carry the lab’s figures', () => {
+  it('the 80 MHz question and the margin question carry the lab’s figures', () => {
     const rx = upDbm(primerScenario(14))
     const q2 = decodeThresholds.quiz[1]
-    expect(q2.explain).toContain(`${neg(rx, 2)} dBm 高于 ${neg(CCA_PD_DBM, 0)} dBm`)
-    expect(q2.explain).toContain(`${db2(rx - noiseDbm(160))} 也高于开始接收所需的 ${PREAMBLE_DETECT_SINR_DB} dB`)
-    expect(q2.explain).toContain(`所需的 ${db2(reqSinrDb('eht', 0))}`)
+    expect(q2.answer).toBe(0)
+    expect(q2.explain).toContain(`到达电平 ${neg(rx, 2)} dBm`)
+    expect(q2.explain).toContain(`只有 ${neg(rx - 10 * Math.log10(4), 2)} dBm，低于前导检测的 ${neg(CCA_PD_DBM, 0)} dBm`)
+    expect(q2.explain).toContain(`SNR ${db2(rx - noiseDbm(80))} 虽然高于 MCS 0 所需的 ${db2(reqSinrDb('eht', 0))}`)
+    expect(PREAMBLE_DETECT_SINR_DB).toBe(4)
     const q3 = decodeThresholds.quiz[2]
-    expect(q3.explain).toContain(`${db2(rx - noiseDbm(80))} 低于含余量的 ${db2(reqSinrDb('eht', 0) + RATE_MARGIN_DB)}`)
+    // the living room: 21.66 dB at MCS 3; MCS 4 plus the 3 dB margin is out of reach
+    const living = upDbm(primerScenario(9)) - noiseDbm(20)
+    expect(q3.explain).toContain(`${db2(living)} 比 MCS 3 所需的 ${db2(reqSinrDb('eht', 3))} 高 ${db2(living - reqSinrDb('eht', 3))}`)
+    expect(reqSinrDb('eht', 4) + RATE_MARGIN_DB).toBeGreaterThan(living)
     expect(decodeThresholds.quiz[0].options[decodeThresholds.quiz[0].answer]).toContain('不得超过 10%')
   })
 })

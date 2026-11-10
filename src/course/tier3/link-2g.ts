@@ -5,10 +5,11 @@
  * Standard-first shape (2026-11-11): ① what IEEE Std 802.11-2024 specifies for a 2.4 GHz
  * station (Table 18-5 and Table 27-61 timing, Equations 10-6 and 10-7, §10.3.8 signal
  * extension, §10.3.2.3.7 EIFS, §10.3.2.11 AckTimeout, §18.4.6 and §27.3.22.6.3 CCA, §4.3.15 and
- * §4.3.16 channel widths, 802.11be-2024 §4.3.16a); ② how this engine implements each, including
- * the two places it departs from the standard (EIFS computed with a 6 Mb/s Ack, aRxPHYStartDelay
- * 20 µs for an HE station) and the one value the standard does not cover at all (the −6.5 dB band
- * offset, a propagation model); ③ five guided runs.
+ * §4.3.16 channel widths, 802.11be-2024 §4.3.16a); ② how this engine implements each — since
+ * 2026-11-11 (W6) EIFS (Equation 10-7 with a 1 Mb/s DSSS Ack, 342 µs) and the ACK timeout
+ * (aRxPHYStartDelay 24 µs for an HE station, Table 27-61) follow the standard — and the one value
+ * the standard does not cover at all (the −6.5 dB band offset, a propagation model); ③ five
+ * guided runs.
  *
  * The audit behind ② found that the old lesson called the 40 MHz cap a model value. It is the
  * standard: an HE or EHT station in the 2.4 GHz band supports 20 MHz (mandatory) and 40 MHz
@@ -26,7 +27,7 @@ export const link2g: Lesson = {
   id: 'link-2g',
   module: 12,
   title: '2.4 GHz 链路——换频段不改变交换时长，改变的是站点能否相互收到',
-  why: '把同一套 Wi-Fi 设备从 5 GHz 移到 2.4 GHz，IEEE Std 802.11-2024 规定的几个时间常数随之改变：短帧间间隔（short interframe space, SIFS）从 16 微秒变为 10 微秒，分布式帧间间隔（DCF interframe space, DIFS）随之从 34 微秒变为 28 微秒，每个 PPDU（PHY protocol data unit）之后还要多出 6 微秒的信号扩展。一次完整的交换里帧间间隔与 PPDU 的个数相同，每个间隔缩短的时间正好等于每个 PPDU 增加的时间，所以同一次交换在两条链路（link）上的时长完全相同。标准还规定，HE 与 EHT 站点（station, STA）在 2.4 GHz 上最宽只能使用 40 MHz 的信道带宽（channel width）。电波怎样传播不属于标准的内容：本仿真器给 2.4 GHz 的每条路径统一减少 6.5 dB 的路径损耗（path loss），这在远处相当于两到三级调制与编码方式（modulation and coding scheme, MCS），在路由器旁边一级也换不来。真正改变结果的是站点之间能否相互收到：本课的楼梯间里，两台笔记本之间的电平在 5 GHz 上低于 −82 dBm 的前导检测（preamble detection）门限，两台互为隐藏节点（hidden station）；在 2.4 GHz 上高出门限，收到对方的帧却解不出，于是按标准改为等待扩展帧间间隔（extended interframe space, EIFS），两台开始相互避让，路由器收到的帧增加到十倍。这个场景是有意布置在门限附近的。方向相反的是带宽：请求 160 MHz 的 Wi-Fi 7 笔记本在 2.4 GHz 上只得到 40 MHz，选中的 MCS 高出四级，吞吐仍低一成多。',
+  why: '把同一套 Wi-Fi 设备从 5 GHz 移到 2.4 GHz，IEEE Std 802.11-2024 规定的几个时间常数随之改变：短帧间间隔（short interframe space, SIFS）从 16 微秒变为 10 微秒，分布式帧间间隔（DCF interframe space, DIFS）随之从 34 微秒变为 28 微秒，每个 PPDU（PHY protocol data unit）之后还要多出 6 微秒的信号扩展。一次完整的交换里帧间间隔与 PPDU 的个数相同，每个间隔缩短的时间正好等于每个 PPDU 增加的时间，所以同一次交换在两条链路（link）上的时长完全相同。标准还规定，HE 与 EHT 站点（station, STA）在 2.4 GHz 上最宽只能使用 40 MHz 的信道带宽（channel width）。电波怎样传播不属于标准的内容：本仿真器给 2.4 GHz 的每条路径统一减少 6.5 dB 的路径损耗（path loss），这在远处相当于两到三级调制与编码方式（modulation and coding scheme, MCS），在路由器旁边一级也换不来。真正改变结果的是站点之间能否相互收到：本课的楼梯间里，两台笔记本之间的电平在 5 GHz 上低于 −82 dBm 的前导检测（preamble detection）门限，两台互为隐藏节点（hidden station）；在 2.4 GHz 上高出门限，收到对方的帧却解不出，于是按标准改为等待扩展帧间间隔（extended interframe space, EIFS），两台开始相互避让，路由器收到的帧增加到十一倍。这个场景是有意布置在门限附近的。方向相反的是带宽：请求 160 MHz 的 Wi-Fi 7 笔记本在 2.4 GHz 上只得到 40 MHz，选中的 MCS 高出四级，吞吐仍低近一成。',
   outcomes: [
     '说出标准为 2.4 GHz 规定的 SIFS、时隙（slot time）、信号扩展取值，并算出同一次交换在两条链路上的时长',
     '分清哪些是标准的规定（40 MHz 上限、EIFS 的条件），哪些是本仿真器的取值（6.5 dB 的频段路损偏移、−82 dBm 的硬门限）',
@@ -65,10 +66,10 @@ export const link2g: Lesson = {
     { topic: '长时隙', standard: '接入点通过 Short Slot Time 子字段决定使用长时隙 20 µs 还是短时隙 9 µs（§9.4.1.4）', sim: '2.4 GHz 上固定使用 9 µs 的短时隙，不建模长时隙，也没有通告它的信标。', kind: 'value' },
     { topic: 'DIFS', standard: 'aSIFSTime + 2 × aSlotTime（式 10-6）', sim: '2.4 GHz 上 28 µs，5 GHz 上 34 µs。', kind: 'faithful' },
     { topic: 'EIFS 的启用条件', standard: '接收出错或帧校验序列不正确之后（§10.3.2.3.7）', sim: '照此处理：检测到前导码却没能解出一帧，介质空闲后就等待 EIFS。', kind: 'faithful' },
-    { topic: 'EIFS 的长度', standard: 'aSIFSTime + AckTxTime + DIFS，AckTxTime 以物理层最低的强制速率计算（式 10-7）；ERP 的强制速率最低为 1 Mb/s（§18.1.2）', sim: '2.4 GHz 上按 6 Mb/s 的 OFDM 确认帧计算：10 + 28 + 50 = 88 µs，其中确认帧 44 µs，加 6 µs 信号扩展。没有 DSSS 速率，所以没有按 1 Mb/s 计算。', kind: 'differs' },
-    { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.11）；HE 站点的 aRxPHYStartDelay 为 24 µs（表 27-61）', sim: '所有世代都取第 17、18 章的 20 µs：本课的 HE 站点在 2.4 GHz 上等 10 + 9 + 20 = 39 µs，在 5 GHz 上等 16 + 9 + 20 = 45 µs；按表 27-61 应为 43 µs 与 49 µs。', kind: 'differs' },
+    { topic: 'EIFS 的长度', standard: 'aSIFSTime + AckTxTime + DIFS，AckTxTime 以物理层最低的强制速率计算（式 10-7）；ERP 的强制速率最低为 1 Mb/s（§18.1.2）', sim: '照此：2.4 GHz 上按 1 Mb/s 的 DSSS 确认帧计算：10 + 304 + 28 = 342 µs，其中确认帧 304 µs，即长前导码与物理层头 192 µs，加 14 字节 112 µs（表 10-8）。本仿真器不发送 DSSS 帧，这个速率只用于算出 EIFS。', kind: 'faithful' },
+    { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.11）；HE 站点的 aRxPHYStartDelay 为 24 µs（表 27-61）', sim: '照此：aRxPHYStartDelay 按站点的物理层取值，HE 站点为 24 µs。本课的 HE 站点在 2.4 GHz 上等 10 + 9 + 24 = 43 µs，在 5 GHz 上等 16 + 9 + 24 = 49 µs。', kind: 'faithful' },
     { topic: '前导检测', standard: '电平不低于 −82 dBm 时，在 aCCATime 内以一定概率报告忙（§18.4.6，§27.3.22.6.3）', sim: '−82 dBm 是一条硬门限：高于它一定检测到，低于它一定检测不到，没有检测概率，也没有检测时延。', kind: 'choice' },
-    { topic: '能量检测的范围', standard: 'HE 站点在主 20 MHz 信道内按 −62 dBm 判断（§27.3.22.6.3）', sim: '把整条工作信道宽度内的总功率与 −62 dBm 比较，不区分主信道与副信道；本课里能量检测从未被触发。', kind: 'differs' },
+    { topic: '能量检测的范围', standard: 'HE 站点在主 20 MHz 信道内按 −62 dBm 判断（§27.3.22.6.3）', sim: '照此：把落在主 20 MHz 信道内的功率与 −62 dBm 比较；本课里能量检测从未被触发。', kind: 'faithful' },
     { topic: '频段路损偏移', standard: '标准不定义电波传播', sim: '整张链路表统一加一个常数：2.4 GHz −6.5 dB，5 GHz 0，6 GHz +1.2 dB，不随距离与墙体材质变化（simulation.ts 的 LINK_EXTRA_LOSS_DB）。', kind: 'value' },
     { topic: '选级', standard: '速率切换算法不在标准范围之内（§10.6.1）', sim: '取平均信噪比（signal-to-noise ratio, SNR）减去 3 dB 后仍满足的最高一级；频段路损偏移改变的就是这个平均信噪比。', kind: 'choice' },
     { topic: '2.4 GHz 的带宽上限', standard: 'HE、EHT 站点在 2.4 GHz 上只有 20 MHz 与 40 MHz（§4.3.16；802.11be-2024 §4.3.16a）', sim: '2.4 GHz 链路的带宽取两端请求值中较窄的那个，并且不超过 40 MHz。', kind: 'faithful' },
@@ -89,13 +90,13 @@ export const link2g: Lesson = {
       blocks: [
         { kind: 'table', heading: '一次零退避的交换，逐段实测（桌上那台笔记本，两边都是 MCS 11）', head: ['这一段', '5 GHz', '2.4 GHz', '差'], rows: [
           ['DIFS', '34.0 µs', '28.0 µs', '−6.0'],
-          ['数据 PPDU（1 532 字节）', '139.2 µs', '145.2 µs', '+6.0'],
+          ['数据 PPDU（1 532 字节）', '146.4 µs', '152.4 µs', '+6.0'],
           ['SIFS', '16.0 µs', '10.0 µs', '−6.0'],
           ['确认帧 PPDU（14 字节）', '28.0 µs', '34.0 µs', '+6.0'],
-          ['合计', '217.2 µs', '217.2 µs', '0'],
+          ['合计', '224.4 µs', '224.4 µs', '0'],
         ] },
       ],
-      expect: '两个间隔各短 6.0 µs，两个 PPDU 各长 6.0 µs，合计都是 217.2 µs；两边选中的都是 MCS 11。',
+      expect: '两个间隔各短 6.0 µs，两个 PPDU 各长 6.0 µs，合计都是 224.4 µs；两边选中的都是 MCS 11。',
       meaning: 'DIFS 与 SIFS 来自表 27-61 与式 10-6，6 µs 来自信号扩展（①）；一次交换里间隔与 PPDU 个数相同，所以差额的净和为零（②中的前三行都照标准）。数据 PPDU 的 1 532 字节，是 1 528 字节的数据帧加上 4 字节的定界符（MPDU delimiter）。',
     },
     {
@@ -110,13 +111,13 @@ export const link2g: Lesson = {
       blocks: [
         { kind: 'table', heading: '一个包含 20 个 MSDU（MAC service data unit）的 A-MPDU，一个块确认', head: ['这一段', '5 GHz', '2.4 GHz', '差'], rows: [
           ['DIFS', '34.0 µs', '28.0 µs', '−6.0'],
-          ['聚合 PPDU（30 718 字节）', '1 771.2 µs', '1 777.2 µs', '+6.0'],
+          ['聚合 PPDU（30 718 字节）', '1 774.4 µs', '1 780.4 µs', '+6.0'],
           ['SIFS', '16.0 µs', '10.0 µs', '−6.0'],
           ['块确认 PPDU', '32.0 µs', '38.0 µs', '+6.0'],
-          ['合计', '1 853.2 µs', '1 853.2 µs', '0'],
+          ['合计', '1 856.4 µs', '1 856.4 µs', '0'],
         ] },
       ],
-      expect: '二十个 MSDU 装在一个 PPDU 里，信号扩展只计一次，合计仍然都是 1 853.2 µs。',
+      expect: '二十个 MSDU 装在一个 PPDU 里，信号扩展只计一次，合计仍然都是 1 856.4 µs。',
       meaning: '§10.3.8 把信号扩展加在 PPDU 之后，而不是每个 MSDU 之后（①），所以净和为零不是帧数凑巧。',
     },
     {
@@ -134,14 +135,14 @@ export const link2g: Lesson = {
           ['笔记本到路由器', '−64.14 dBm', '−57.64 dBm'],
         ] },
         { kind: 'table', heading: '同一个房间，十个种子的合计', head: ['指标', '5 GHz', '2.4 GHz'], rows: [
-          ['吞吐均值', '3.732 Mb/s', '39.096 Mb/s'],
-          ['路由器收到的帧', '622', '6 516'],
-          ['碰撞', '948', '397'],
-          ['EIFS 记录', '0', '6 516'],
+          ['吞吐均值', '3.294 Mb/s', '37.374 Mb/s'],
+          ['路由器收到的帧', '549', '6 229'],
+          ['碰撞', '946', '410'],
+          ['EIFS 记录', '0', '6 229'],
         ] },
       ],
-      expect: '2.4 GHz 上每一条 EIFS 都是 88 µs，接收失败的原因全部是信噪比不足；5 GHz 上没有 EIFS，失败的原因全部是碰撞。路由器收到的帧是 5 GHz 的 10.5 倍，碰撞从 948 次降到 397 次。',
-      meaning: '6.5 dB 是本仿真器的频段路损偏移（②），它把两台笔记本之间的路径推过了 −82 dBm 的硬门限；越过门限之后，等待 EIFS 是 §10.3.2.3.7 的规定（①）。十倍来自碰撞减少，而不是空口变快；88 µs 是按 6 Mb/s 确认帧算出的，与式 10-7 不同（②）。',
+      expect: '2.4 GHz 上每一条 EIFS 都是 342 µs，接收失败的原因全部是信噪比不足；5 GHz 上没有 EIFS，43 次接收失败里 42 次是碰撞，1 次是收到一半时本机开始发送而放弃（txDuringRx）。路由器收到的帧是 5 GHz 的 11.3 倍，碰撞从 946 次降到 410 次。',
+      meaning: '6.5 dB 是本仿真器的频段路损偏移（②），它把两台笔记本之间的路径推过了 −82 dBm 的硬门限；越过门限之后，等待 EIFS 是 §10.3.2.3.7 的规定（①）。十一倍来自碰撞减少，而不是空口变快；342 µs 是按 1 Mb/s 的 DSSS 确认帧照式 10-7 算出的（①）。',
     },
     {
       heading: '6.5 dB 值几级调制与编码方式',
@@ -177,18 +178,18 @@ export const link2g: Lesson = {
         { kind: 'table', heading: '两端都是 Wi-Fi 7、都请求 160 MHz（吞吐为二十个种子的均值）', head: ['指标', '5 GHz', '2.4 GHz'], rows: [
           ['协商到的信道带宽', '160 MHz', '40 MHz'],
           ['选中的 MCS', '9', '13'],
-          ['同一帧的数据 PPDU', '61.6 µs', '94.8 µs'],
-          ['一次交换', '139.6 µs', '166.8 µs'],
-          ['吞吐均值', '57.909 Mb/s', '51.258 Mb/s'],
+          ['同一帧的数据 PPDU', '83.0 µs', '110.0 µs'],
+          ['一次交换', '161.0 µs', '182.0 µs'],
+          ['吞吐均值', '52.485 Mb/s', '48.102 Mb/s'],
         ] },
       ],
-      expect: '2.4 GHz 只得到 40 MHz，噪声地板（noise floor）只比 20 MHz 高 3.01 dB，于是用到最高的 MCS 13；5 GHz 的 160 MHz 噪声地板高 9.03 dB，只能用 MCS 9，吞吐却仍高出 11.5 %。',
+      expect: '2.4 GHz 只得到 40 MHz，噪声地板（noise floor）只比 20 MHz 高 3.01 dB，于是用到最高的 MCS 13；5 GHz 的 160 MHz 噪声地板高 9.03 dB，只能用 MCS 9，吞吐却仍高出 8.4 %。',
       meaning: '40 MHz 上限是标准的规定（①），不是本仿真器的取值；噪声地板随带宽升高是本仿真器的噪声模型。四个间隔差额的净和为零，剩下的差距全部来自带宽。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§18.5.4 表 18-5（ERP 特性：aSIFSTime 10 µs、长短时隙、aSignalExtension 6 µs、aRxPHYStartDelay、aCWmin）、§27.4.4 表 27-61（HE 物理层特性，按频段取值）、§9.4.1.4（Short Slot Time 子字段）、§10.3.7 式 10-6 与式 10-7（DIFS、EIFS）、§10.3.2.11（ACK 超时）、§10.3.8 与 §18.5.3.2 式 18-1（信号扩展）、§10.3.2.3.7（EIFS 的启用条件）、§18.4.6 与 §27.3.22.6.3（空闲信道评估）、§18.1.2（ERP 的强制速率）、§4.3.15 与 §4.3.16（VHT、HE 站点的频段与带宽）、§10.6.1（速率切换算法不在标准范围之内）。IEEE Std 802.11be-2024 §4.3.16a（EHT 站点在 2.4 GHz 上的带宽）。',
-    '本仿真器的取值与取法：−6.5 dB 的频段路损偏移（engine/simulation.ts 的 LINK_EXTRA_LOSS_DB）、固定的短时隙、按 6 Mb/s 确认帧计算的 EIFS、所有世代 20 µs 的 aRxPHYStartDelay、−82 dBm 的前导检测硬门限、选级时 3 dB 的余量；由 tests/engine/link-2g.test.ts 校验。',
+    '本仿真器的取值与取法：−6.5 dB 的频段路损偏移（engine/simulation.ts 的 LINK_EXTRA_LOSS_DB）、固定的短时隙、−82 dBm 的前导检测硬门限、选级时 3 dB 的余量；由 tests/engine/link-2g.test.ts 校验。',
   ],
   limits: [],
   scenario: () => link2gScenario('pair', '2g'),
@@ -218,17 +219,17 @@ export const link2g: Lesson = {
         '变长，因为每个 PPDU 都多了 6 微秒的信号扩展',
       ],
       answer: 1,
-      explain: '34 + 139.2 + 16 + 28 = 217.2，28 + 145.2 + 10 + 34 = 217.2。一次完整交换里间隔的个数等于 PPDU 的个数，每个间隔短 6 微秒、每个 PPDU 长 6 微秒；启用聚合也一样，因为信号扩展加在 PPDU 之后。',
+      explain: '34 + 146.4 + 16 + 28 = 224.4，28 + 152.4 + 10 + 34 = 224.4。一次完整交换里间隔的个数等于 PPDU 的个数，每个间隔短 6 微秒、每个 PPDU 长 6 微秒；启用聚合也一样，因为信号扩展加在 PPDU 之后。',
     },
     {
-      q: '楼梯间那间房里，2.4 GHz 路由器收到的帧是 5 GHz 的十倍。原因是什么？',
+      q: '楼梯间那间房里，2.4 GHz 路由器收到的帧是 5 GHz 的十一倍。原因是什么？',
       options: [
         '2.4 GHz 的空口更快，因为帧间间隔更短',
         '两台笔记本在 5 GHz 上收不到对方，在 2.4 GHz 上能检测到对方的前导码却解不出，于是按标准等待 EIFS，碰撞变成了相互避让',
         '2.4 GHz 的调制与编码方式更高，因为路径损耗小了 6.5 dB',
       ],
       answer: 1,
-      explain: '空口时长没有缩短。站点之间那条 −83.58 dBm 的路径加 6.5 dB 之后高于 −82 dBm 的前导检测门限；检测到却解不出，按 §10.3.2.3.7 就要等待 EIFS，于是碰撞从 948 次降到 397 次。',
+      explain: '空口时长没有缩短。站点之间那条 −83.58 dBm 的路径加 6.5 dB 之后高于 −82 dBm 的前导检测门限；检测到却解不出，按 §10.3.2.3.7 就要等待 EIFS，于是碰撞从 946 次降到 410 次。',
     },
     {
       q: '下面哪一项是标准的规定，而不是本仿真器的取值？',

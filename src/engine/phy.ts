@@ -14,22 +14,58 @@ import type { Ns } from '../model/types'
 export const SLOT_NS: Ns = 9_000
 export const SIFS_NS: Ns = 16_000
 export const DIFS_NS: Ns = SIFS_NS + 2 * SLOT_NS // 34_000
+/** aRxPHYStartDelay of the clause 17 OFDM PHY (Table 17-21's companion, §17.4.4). */
 export const RX_START_DELAY_NS: Ns = 20_000
+/** AckTimeout of a clause 17 STA: aSIFSTime + aSlotTime + aRxPHYStartDelay (§10.3.2.11). */
 export const ACK_TIMEOUT_NS: Ns = SIFS_NS + SLOT_NS + RX_START_DELAY_NS // 45_000
 export const CTS_TIMEOUT_NS: Ns = ACK_TIMEOUT_NS
 
 /**
- * Interframe timing of one link's PHY. 5/6 GHz run the clause 17 OFDM values
+ * aRxPHYStartDelay of the HT, VHT and HE PHYs: 24 µs.
+ * standard Table 19-25 (HT) / Table 21-28 (VHT) / Table 27-61 (HE)
+ */
+export const RX_START_DELAY_HT_NS: Ns = 24_000
+/**
+ * aRxPHYStartDelay of an EHT TB PPDU: 32 µs. An EHT MU PPDU's is 32 + 4 × N_EHT-SIG µs.
+ * standard be Table 36-70
+ */
+export const RX_START_DELAY_EHT_TB_NS: Ns = 32_000
+
+/**
+ * Interframe timing of one STA's PHY on one link. 5/6 GHz run the clause 17 OFDM values
  * (the module constants above); 2.4 GHz runs clause 18 ERP-OFDM (Table 18-5):
  * aSIFSTime 10 µs, short slot 9 µs, and a 6 µs signal extension appended to
  * every PPDU (§10.3.8) so that clause 16 stations compute the NAV correctly.
+ *
+ * **aRxPHYStartDelay is the STA's, not the link's** (2026-11-11). §6.7.4.4: "The MAC determines
+ * aRxPHYStartDelay by excluding values of aRxPHYStartDelay for each supported PHY clause that are
+ * not allowed in the current context, then setting aRxPHYStartDelay to the maximum of the
+ * remaining values." So it depends on which PHY clauses the STA supports (its generation) and on
+ * which PPDU formats the awaited PPDU may legally arrive in (the context) — see `timingForGen`.
  */
 export interface PhyTiming {
   sifsNs: Ns
   slotNs: Ns
   difsNs: Ns
+  /**
+   * aRxPHYStartDelay while awaiting a control response (Ack, BlockAck, CTS, Multi-STA BlockAck):
+   * the response is a non-HT (duplicate) PPDU (§10.6), so the clause 36 values, which Table 36-70
+   * lists only for EHT MU and EHT TB PPDUs, are excluded and the maximum of the rest remains.
+   */
   rxStartDelayNs: Ns
+  /** AckTimeout = CTSTimeout = aSIFSTime + aSlotTime + `rxStartDelayNs` (§10.3.2.9, §10.3.2.11). */
   ackTimeoutNs: Ns
+  /**
+   * aRxPHYStartDelay when the awaited PPDU may be any format this STA supports — the data PPDU
+   * the NAV-reset rule of §10.3.2.4 waits for after an RTS. For an EHT STA that admits the EHT MU
+   * PPDU's 32 + 4 × N_EHT-SIG µs (Table 36-70) with this engine's N_EHT-SIG (`EHT_SIG_SYMBOLS_SU`).
+   */
+  rxStartDelayAnyNs: Ns
+  /**
+   * aRxPHYStartDelay while an AP awaits EHT TB PPDUs after a Trigger frame: max(24, 32) µs for an
+   * EHT AP (Table 36-70), the HE value for an HE AP. Only an AP of generation `eht`/`uhr` differs.
+   */
+  rxStartDelayTbNs: Ns
   /** aSignalExtension: no-transmission period counted in every PPDU's TXTIME (0 on 5/6 GHz). */
   signalExtNs: Ns
   eifsNs: Ns
@@ -107,11 +143,24 @@ export function txTimeNs(lengthBytes: number, mbps: number): Ns {
 }
 
 export const ACK_TX_TIME_6M_NS: Ns = txTimeNs(ACK_BYTES, 6) // 44_000
+/**
+ * EIFS on 5/6 GHz: aSIFSTime + AckTxTime + DIFS (Eq 10-7), AckTxTime at the lowest PHY mandatory
+ * rate — 6 Mb/s for clause 17 and for every later PHY in the 5/6 GHz bands.
+ */
 export const EIFS_NS: Ns = SIFS_NS + DIFS_NS + ACK_TX_TIME_6M_NS // 94_000
+
+/**
+ * An Ack frame at 1 Mb/s DSSS with the long PLCP preamble: 192 µs of preamble and header
+ * (aRxPHYStartDelay of Table 15-4 / Table 18-5) plus 14 octets × 8 µs. Table 10-8 lists the same
+ * 304 µs for a 1 Mb/s Ack. Every 2.4 GHz STA here is an ERP STA, for which 1 Mb/s DSSS is the
+ * lowest mandatory rate (clause 18), so Eq 10-7's AckTxTime is this figure on 2.4 GHz.
+ */
+export const ACK_TX_TIME_1M_DSSS_NS: Ns = 192_000 + ACK_BYTES * 8 * 1_000 // 304_000
 
 export const OFDM_5G: PhyTiming = {
   sifsNs: SIFS_NS, slotNs: SLOT_NS, difsNs: DIFS_NS, rxStartDelayNs: RX_START_DELAY_NS,
-  ackTimeoutNs: ACK_TIMEOUT_NS, signalExtNs: 0, eifsNs: EIFS_NS,
+  ackTimeoutNs: ACK_TIMEOUT_NS, rxStartDelayAnyNs: RX_START_DELAY_NS, rxStartDelayTbNs: RX_START_DELAY_NS,
+  signalExtNs: 0, eifsNs: EIFS_NS,
 }
 
 const ERP_SIFS_NS: Ns = 10_000
@@ -119,10 +168,55 @@ const ERP_SIGNAL_EXT_NS: Ns = 6_000
 const ERP_DIFS_NS: Ns = ERP_SIFS_NS + 2 * SLOT_NS // 28_000
 export const ERP_2G: PhyTiming = {
   sifsNs: ERP_SIFS_NS, slotNs: SLOT_NS, difsNs: ERP_DIFS_NS,
+  // ERP-OFDM's 20 µs (Table 18-5): the response to an ERP-OFDM PPDU is an ERP-OFDM PPDU (§10.6),
+  // so the DSSS/CCK values (192 / 96 µs) are not allowed in this context.
   rxStartDelayNs: RX_START_DELAY_NS,
   ackTimeoutNs: ERP_SIFS_NS + SLOT_NS + RX_START_DELAY_NS,
+  rxStartDelayAnyNs: RX_START_DELAY_NS, rxStartDelayTbNs: RX_START_DELAY_NS,
   signalExtNs: ERP_SIGNAL_EXT_NS,
-  eifsNs: ERP_SIFS_NS + ERP_DIFS_NS + ACK_TX_TIME_6M_NS + ERP_SIGNAL_EXT_NS,
+  // 2026-11-11: Eq 10-7 at the lowest mandatory rate of the ERP PHY, 1 Mb/s DSSS — 10 + 304 + 28 =
+  // 342 µs. It used to price the Ack at 6 Mb/s ERP-OFDM (88 µs), which is not the lowest rate.
+  eifsNs: ERP_SIFS_NS + ERP_DIFS_NS + ACK_TX_TIME_1M_DSSS_NS,
+}
+
+/**
+ * A STA's interframe timing on a link: the band's constants plus aRxPHYStartDelay for the PHY
+ * clauses that STA supports (§6.7.4.4).
+ *
+ *  - `nonht` supports clause 17 (or clause 18 ERP on 2.4 GHz) only: 20 µs everywhere.
+ *  - `vht` / `he` also support clause 19 (an HT PHY is mandatory for both), whose 24 µs
+ *    (Table 19-25) is the maximum in every context — Table 21-28 and Table 27-61 say 24 µs too.
+ *  - `eht` adds Table 36-70, which lists aRxPHYStartDelay only for EHT MU PPDUs
+ *    (32 + 4 × N_EHT-SIG µs) and EHT TB PPDUs (32 µs). Neither format is allowed while a non-HT
+ *    control response is awaited, so the Ack context stays 24 µs; awaiting EHT TB PPDUs it is
+ *    32 µs; awaiting any PPDU it is 32 + 4 × `EHT_SIG_SYMBOLS_SU` = 40 µs.
+ *  - `uhr` is a draft (P802.11bn) with no PHY characteristics table: EHT's values, reused.
+ */
+export function timingForGen(base: PhyTiming, gen: PhyMode): PhyTiming {
+  if (gen === 'nonht') return base
+  const ack = RX_START_DELAY_HT_NS
+  const eht = gen === 'eht' || gen === 'uhr'
+  return {
+    ...base,
+    rxStartDelayNs: ack,
+    ackTimeoutNs: base.sifsNs + base.slotNs + ack,
+    rxStartDelayAnyNs: eht ? RX_START_DELAY_EHT_TB_NS + EHT_SIG_SYMBOLS_SU * EHT_SIG_SYM_NS : ack,
+    rxStartDelayTbNs: eht ? RX_START_DELAY_EHT_TB_NS : ack,
+  }
+}
+
+/** Largest Duration value, in microseconds, the Duration/ID field carries (§9.2.4.2, Table 9-9). */
+export const DURATION_MAX_US = 32_767
+
+/**
+ * The Duration field as transmitted, ns: whole microseconds, a fractional microsecond rounded up
+ * to the next integer — the frame-format clauses say it each time, e.g. §9.3.1.2 (RTS) and
+ * §9.3.2.1 (Data): "If the calculated duration includes a fractional microsecond, that value is
+ * rounded up to the next higher integer" — and never above 32 767 µs (Table 9-9). 0 stays 0.
+ */
+export function durationFieldValueNs(ns: Ns): Ns {
+  if (ns <= 0) return 0
+  return Math.min(DURATION_MAX_US, Math.ceil(ns / 1000 - 1e-9)) * 1000
 }
 
 /** Highest rate whose Table 17-21 sensitivity + 3 dB margin is met; floor 6 Mbps. */
@@ -158,7 +252,7 @@ export function sinrThreshDb(mbps: number): number {
 // nonht: clause 17 · vht: clause 21 (Wi-Fi 5) · he: clause 27 (Wi-Fi 6) ·
 // eht: clause 36 via 802.11be-2024 (Wi-Fi 7, adds 4096-QAM MCS 12/13) ·
 // uhr: P802.11bn SFD r19 (Wi-Fi 8, DRAFT — see `UHR_*` below).
-// Preambles are representative SU values; HE/EHT packet extension ignored.
+// Preambles and TXTIME are computed from the standard's fields: see `ppduTiming`.
 // `symNs` is NOT a representative value — see its own comment on each entry.
 // ---------------------------------------------------------------------------
 
@@ -166,18 +260,21 @@ export type PhyMode = 'nonht' | 'vht' | 'he' | 'eht' | 'uhr'
 
 export interface PhyModeInfo {
   /**
-   * The whole preamble ahead of the data field, ns, at the 2x-LTF-and-base-GI tier.
-   *
-   * **For HE and EHT that tier is part of the value**, which nothing said until the guard
-   * interval went in: adding Table 27-13's fields up gives 8 (L-STF) + 8 (L-LTF) + 4 (L-SIG)
-   * + 4 (RL-SIG) + 8 (HE-SIG-A) + 4 (HE-STF) + 7.2 (one 2x HE-LTF) = 43.2 µs, and EHT trades
-   * HE-SIG-A for U-SIG 8 + EHT-SIG 4 to reach 47.2 µs. The stored 44 / 48 are those sums
-   * rounded up, so the relation is "≈" and not "="; `preambleNsFor(mode, TGI_NS.quad)` is
-   * therefore the stored 44 plus `ltfExtraNs`'s 8.8 µs difference, not a figure Table 27-13
-   * hands over directly.
+   * The whole preamble ahead of the data field, ns, of a one-stream PPDU at the base GI — exactly
+   * `preambleNsFor(mode)`, which computes it field by field (2026-11-11; it used to be 44 / 48
+   * µs, sums rounded up). HE: 8 (L-STF) + 8 (L-LTF) + 4 (L-SIG) + 4 (RL-SIG) + 8 (HE-SIG-A)
+   * + 4 (HE-STF) + 7.2 (one 2x HE-LTF at 0.8 µs GI) = 43.2 µs, standard Table 27-13 / Eq 27-121.
+   * EHT: the same with U-SIG 8 and two EHT-SIG symbols of 4 µs in place of HE-SIG-A = 51.2 µs,
+   * standard be Table 36-18 / Eq 36-97. VHT: 36 + 4 µs per VHT-LTF = 40 µs (Table 21-5).
    */
   preambleNs: Ns
-  muExtraPreambleNs: Ns // HE-SIG-B / EHT-SIG extra for MU PPDUs
+  /**
+   * Extra signalling a DL MU PPDU carries over the SU one, ns: one HE-SIG-B symbol / one more
+   * EHT-SIG symbol (4 µs, T_HE-SIG-B / T_EHT-SIG). The standard's N_HE-SIG-B / N_EHT-SIG follows
+   * from the RU Allocation subfields and User fields of the round (§27.3.11.8, §36.3.12.8); this
+   * engine's even RU split has no RU Allocation subfield to count, so the MU extra stays one symbol.
+   */
+  muExtraPreambleNs: Ns
   /** One data OFDM symbol at the base guard interval; see each mode's entry for its table. */
   symNs: Ns
   /** data bits per symbol per MCS index */
@@ -233,7 +330,7 @@ const EHT_SENS = [...HE_SENS, -49, -46]
 // **Everything else about this mode is EHT's published value, reused and said
 // so.** SFD r19 publishes no UHR preamble field lengths, no UHR T_DFT and no
 // UHR guard-interval enumeration, so `preambleNs`, `muExtraPreambleNs` and
-// `symNs` below are EHT's 48 000 / 4 000 / 13 600 by reuse — not a Wi-Fi 8
+// `symNs` below are EHT's 51 200 / 4 000 / 13 600 by reuse — not a Wi-Fi 8
 // figure, and not a figure this slice made up. The consequence is the point:
 // a `uhr` link and an `eht` link differ in their RATE LADDER AND IN NOTHING
 // ELSE, which is what makes an A/B between them a measurement of the ladder.
@@ -306,7 +403,7 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
     // table publishes and not a representative value this simulator picked. `symNsFor` makes
     // that explicit; this literal stays because six call sites read it (two of them inside
     // lesson builders that have no scenario in hand) and 47 test assertions name it.
-    preambleNs: 44_000, muExtraPreambleNs: 4_000, symNs: 13_600,
+    preambleNs: 43_200, muExtraPreambleNs: 4_000, symNs: 13_600,
     ndbps: HE_NDBPS, sensDbm: HE_SENS,
     // This is Table 27-86's FIRST rate column (0.8 µs GI); the table has three. See
     // `mcsRateMbps`, which serves the other two.
@@ -315,7 +412,7 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
   },
   eht: {
     // symNs: T_SYM1 of Table 36-18, the same sum as `he` above (12.8 + 0.8 µs).
-    preambleNs: 48_000, muExtraPreambleNs: 4_000, symNs: 13_600,
+    preambleNs: 51_200, muExtraPreambleNs: 4_000, symNs: 13_600,
     ndbps: EHT_NDBPS, sensDbm: EHT_SENS,
     // Table 36-76's first rate column (0.8 µs GI), as above.
     mbps: EHT_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // … 172.1
@@ -327,7 +424,7 @@ export const PHY_MODES: Record<PhyMode, PhyModeInfo> = {
     // above. Reusing a published number and saying so is not the same as inventing one, and
     // tests/engine/uhr-ladder.test.ts welds these three to `eht`'s so they cannot drift into
     // looking like Wi-Fi 8 measurements.
-    preambleNs: 48_000, muExtraPreambleNs: 4_000, symNs: 13_600,
+    preambleNs: 51_200, muExtraPreambleNs: 4_000, symNs: 13_600,
     ndbps: UHR_NDBPS, sensDbm: UHR_SENS,
     // Same arithmetic as `he` / `eht`'s first rate column: N_DBPS over the 13.6 µs symbol.
     mbps: UHR_NDBPS.map((n) => Math.round((n / 13.6) * 10) / 10), // 8.6 … 172.1
@@ -405,30 +502,98 @@ export function symNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base): Ns {
 }
 
 /**
- * Extra preamble the 4x LTF costs, ns — 8 800, and **computed rather than measured**.
+ * One HE-LTF / EHT-LTF symbol including its GI, ns: T_HE-LTF-SYM = T_HE-LTF + T_GI,HE-LTF, where
+ * T_GI,HE-LTF is the data field's GI ("same as T_GI,Data").
+ * standard Table 27-13 / standard be Table 36-18
  *
- * §1.4 of the design: the mandatory-support lists of §27.1.1 / §36.1.1 and the sounding-NDP
- * rules of §26.7.5 / §35.7.5 pair the 2x LTF with the 0.8 and 1.6 µs guard intervals and the
- * 4x LTF with the 3.2 µs one. So choosing the quadruple GI also changes the LTF, and the one
- * training symbol grows from 6.4 + 0.8 to 12.8 + 3.2 µs. The engine therefore never emits
- * "3.2 µs GI with a 2x LTF" — that row exists only as arithmetic.
+ * The LTF type follows the GI the way Table 27-32 / Table 36-44 pair them and this engine builds:
+ * 2x LTF with the 0.8 µs and 1.6 µs GIs (7.2 / 8.0 µs), 4x LTF with the 3.2 µs GI (16.0 µs).
  */
-export function ltfExtraNs(giNs: Ns = TGI_NS.base): Ns {
-  if (giNs !== TGI_NS.quad) return 0
-  return (TLTF_4X_NS + TGI_NS.quad) - (TLTF_2X_NS + TGI_NS.base)
+export function ltfSymNs(giNs: Ns = TGI_NS.base): Ns {
+  return (giNs === TGI_NS.quad ? TLTF_4X_NS : TLTF_2X_NS) + giNs
 }
 
 /**
- * The preamble ahead of the data field at this mode and guard interval, ns.
+ * How much longer one LTF symbol is at this GI than at the base GI, ns: 0 / 800 / 8 800.
  *
- * Only HE and EHT ever pay `ltfExtraNs`: the older two generations have no 4x LTF to switch
- * to. Note what this does NOT touch — `muExtraPreambleNs`. HE-SIG-B / EHT-SIG sit in the
- * legacy part of the preamble, whose GI is T_GI,Pre-HE / T_GI,Pre-EHT = 0.8 µs, fixed and
- * unrelated to the data field's (§1.1's closing paragraph).
+ * 2026-11-11: the 1.6 µs GI used to cost nothing here. Table 27-13 says T_GI,HE-LTF equals the
+ * data GI, so a 2x LTF at 1.6 µs is 6.4 + 1.6 = 8.0 µs, not 7.2.
  */
-export function preambleNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base): Ns {
-  const extra = GI_MODES.includes(mode) ? ltfExtraNs(giNs) : 0
-  return PHY_MODES[mode].preambleNs + extra
+export function ltfExtraNs(giNs: Ns = TGI_NS.base): Ns {
+  return ltfSymNs(giNs) - ltfSymNs(TGI_NS.base)
+}
+
+/**
+ * N_HE-LTF / N_EHT-LTF / N_VHT-LTF for this many space-time streams: 1, 2, 4, 4, 6, 6, 8, 8.
+ * standard Table 21-13 (VHT, and HE via §27.3.11.10) / standard be Table 36-43 (EHT)
+ */
+export function ltfCount(nss: number): number {
+  const n = Math.max(1, Math.min(8, Math.round(nss)))
+  return [1, 2, 4, 4, 6, 6, 8, 8][n - 1]!
+}
+
+/** One HE-SIG-B / EHT-SIG / VHT-SIG-B OFDM symbol, ns (T_SYML). Table 27-13 / Table 36-18. */
+export const EHT_SIG_SYM_NS: Ns = 4_000
+
+/**
+ * EHT-SIG symbols of an EHT SU transmission, N_EHT-SIG = 2.
+ *
+ * The EHT-SIG of an SU transmission is one common encoding block: the 20-bit Common field, the
+ * 22-bit User field, CRC 4 and Tail 6 = 52 bits (standard be Table 36-38), BCC rate 1/2 on 52
+ * data tones per symbol (§36.3.12.8.6). U-SIG's EHT-SIG MCS field picks EHT-MCS 0, 1, 3 or 15
+ * for it (§36.3.9) and the standard leaves the choice to the transmitter; this engine sends
+ * EHT-MCS 0 (BPSK 1/2, 26 bits per symbol, the most robust), so ⌈52 / 26⌉ = 2 symbols.
+ * EHT-SIG MCS 0 is the simulator's choice.
+ */
+export const EHT_SIG_SYMBOLS_SU = 2
+
+/** Options of a PPDU's TXTIME. */
+export interface TxTimeOpts {
+  /** A DL MU PPDU: adds `muExtraPreambleNs`. */
+  mu?: boolean
+  /**
+   * A trigger-based PPDU (HE TB / EHT TB): HE-STF / EHT-STF is 8 µs (T_HE-STF-T) and there is no
+   * HE-SIG-B / EHT-SIG. Table 27-13 / Table 36-18.
+   */
+  tb?: boolean
+  /** RU fraction of the operating channel (1 = full, 0.5 ≈ half RU …). */
+  ruFraction?: number
+  /** Operating channel width in MHz (default 20). */
+  widthMhz?: number
+  /** Spatial streams of this user (default 1). */
+  nss?: number
+  /**
+   * Streams the LTF count is sized for, when that is not this user's own `nss`: the total over a
+   * MU-MIMO group (N_STS,total), or the largest over the RUs of an OFDMA PPDU (§27.3.11.10).
+   */
+  ltfNss?: number
+  /** Data-field guard interval, ns (default `TGI_NS.base`). */
+  giNs?: Ns
+}
+
+/**
+ * The preamble ahead of the data field, ns — every field from L-STF to the last LTF, computed.
+ *
+ *  - `nonht`: 16 (L-STF + L-LTF) + 4 (SIGNAL) = 20 µs. Eq 17-29.
+ *  - `vht`: 8 + 8 + 4 (L-SIG) + 8 (VHT-SIG-A) + 4 (VHT-STF) + 4 per VHT-LTF + 4 (VHT-SIG-B).
+ *    Table 21-5, Eq 21-105.
+ *  - `he`: 20 + 4 (RL-SIG) + 8 (HE-SIG-A) + 4 (HE-STF; 8 in a TB PPDU) + N_HE-LTF × T_HE-LTF-SYM.
+ *    Table 27-13, Eq 27-121 / Eq 27-149's "20 + T_HE-PREAMBLE".
+ *  - `eht` (and draft `uhr`, reused): 20 + 4 (RL-SIG) + 8 (U-SIG) + N_EHT-SIG × 4 + 4 (EHT-STF;
+ *    8 and no EHT-SIG in a TB PPDU) + N_EHT-LTF × T_EHT-LTF-SYM. Table 36-18, Eq 36-97 / 36-110.
+ *
+ * `muExtraPreambleNs` is NOT included; `ppduTiming` adds it for a DL MU PPDU.
+ */
+export function preambleNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base, opts: { nss?: number; tb?: boolean } = {}): Ns {
+  const nLtf = ltfCount(opts.nss ?? 1)
+  switch (mode) {
+    case 'nonht': return 20_000
+    case 'vht': return 36_000 + 4_000 * nLtf
+    case 'he': return 20_000 + 4_000 + 8_000 + (opts.tb ? 8_000 : 4_000) + nLtf * ltfSymNs(giNs)
+    case 'eht':
+    case 'uhr':
+      return 20_000 + 4_000 + 8_000 + (opts.tb ? 8_000 : EHT_SIG_SYMBOLS_SU * EHT_SIG_SYM_NS + 4_000) + nLtf * ltfSymNs(giNs)
+  }
 }
 
 /**
@@ -439,6 +604,13 @@ export function preambleNsFor(mode: PhyMode, giNs: Ns = TGI_NS.base): Ns {
 const TONES_HE: Record<number, number> = { 20: 234, 40: 468, 80: 980, 160: 1960, 320: 3920 }
 const TONES_VHT: Record<number, number> = { 20: 52, 40: 108, 80: 234, 160: 468 }
 
+/**
+ * N_SD,short of a non-OFDMA HE/EHT PPDU per width (242-, 484-, 996-, 2×996-, 4×996-tone RU):
+ * the data tones of one of the four symbol segments of the last OFDM symbol.
+ * standard Table 27-34 / standard be Table 36-46
+ */
+const NSD_SHORT: Record<number, number> = { 20: 60, 40: 120, 80: 240, 160: 492, 320: 984 }
+
 /** Bits-per-symbol multiplier for a width, relative to that mode at 20 MHz. */
 export function toneRatio(mode: PhyMode, widthMhz: number): number {
   if (mode === 'nonht') return 1
@@ -448,29 +620,316 @@ export function toneRatio(mode: PhyMode, widthMhz: number): number {
   return tones / table[20]
 }
 
-
-export interface TxTimeOpts {
-  mu?: boolean
-  /** RU fraction of the operating channel (1 = full, 0.5 ≈ half RU …). */
-  ruFraction?: number
-  /** Operating channel width in MHz (default 20). */
-  widthMhz?: number
-  /** Spatial streams (default 1). */
-  nss?: number
-  /** Data-field guard interval, ns (default `TGI_NS.base`, which reproduces today's figure). */
-  giNs?: Ns
+/** [N_BPSCS, R] per MCS index: Table 21-30ff (VHT), Table 27-86ff (HE), Table 36-76ff (EHT). */
+const HE_MOD: readonly (readonly [number, number])[] = [
+  [1, 1 / 2], [2, 1 / 2], [2, 3 / 4], [4, 1 / 2], [4, 3 / 4], [6, 2 / 3],
+  [6, 3 / 4], [6, 5 / 6], [8, 3 / 4], [8, 5 / 6], [10, 3 / 4], [10, 5 / 6],
+]
+const EHT_MOD = [...HE_MOD, [12, 3 / 4], [12, 5 / 6]] as const
+/** `uhr`'s interleaved ladder (see `UHR_SFD_MCS`): Motion #42's four new rungs at 2/3 and 5/6. */
+const UHR_MOD: readonly (readonly [number, number])[] = [
+  [1, 1 / 2], [2, 1 / 2], [2, 2 / 3], [2, 3 / 4], [4, 1 / 2], [4, 2 / 3], [4, 3 / 4], [4, 5 / 6], [6, 2 / 3],
+  [6, 3 / 4], [6, 5 / 6], [8, 2 / 3], [8, 3 / 4], [8, 5 / 6], [10, 3 / 4], [10, 5 / 6], [12, 3 / 4], [12, 5 / 6],
+]
+const MOD: Record<PhyMode, readonly (readonly [number, number])[]> = {
+  nonht: [[1, 1 / 2], [1, 3 / 4], [2, 1 / 2], [2, 3 / 4], [4, 1 / 2], [4, 3 / 4], [6, 2 / 3], [6, 3 / 4]],
+  vht: HE_MOD.slice(0, 9), he: HE_MOD, eht: EHT_MOD, uhr: UHR_MOD,
 }
 
-/** PPDU airtime for any PHY mode/MCS; symbol count uses width-, stream- and RU-scaled N_DBPS. */
-export function txTimeModeNs(mode: PhyMode, lengthBytes: number, mcs: number, opts: TxTimeOpts = {}): Ns {
+/** Constellation bits per subcarrier and code rate of this mode/MCS. */
+export function modulationOf(mode: PhyMode, mcs: number): { bpscs: number; rate: number } {
+  const m = MOD[mode][mcs]
+  if (!m) throw new Error(`invalid MCS ${mcs} for ${mode}`)
+  return { bpscs: m[0], rate: m[1] }
+}
+
+/** FEC of a HE/EHT data field. */
+export type Coding = 'bcc' | 'ldpc'
+
+/**
+ * Which FEC the engine's transmitter uses for this HE/EHT data field.
+ *
+ * BCC is permitted only for RUs of at most 242 tones, at most four spatial streams and MCS 0–9
+ * (constellations up to 256-QAM); LDPC is the only FEC otherwise — for 484-tone and wider RUs,
+ * for HE-MCS 10/11 and for EHT-MCS 10–13. standard §27.3.12.5 / standard be §36.3.13.3.2–3
+ *
+ * Where both are permitted the standard leaves the choice to the transmitter (the Coding field of
+ * HE-SIG-A / EHT-SIG), and this engine sends BCC — the FEC every HE/EHT receiver must support
+ * for those RUs (LDPC support is optional for a 20 MHz-only STA below MCS 10). BCC where permitted
+ * is the simulator's choice; LDPC where mandatory is the standard's rule.
+ */
+export function codingFor(mode: PhyMode, mcs: number, widthMhz = 20, nss = 1, ruFraction = 1): Coding {
+  if (mode === 'nonht' || mode === 'vht') return 'bcc'
+  const { bpscs } = modulationOf(mode, mcs)
+  const ruMhz = widthMhz * ruFraction
+  return bpscs <= 8 && nss <= 4 && ruMhz <= 20 + 1e-9 ? 'bcc' : 'ldpc'
+}
+
+/**
+ * Nominal packet padding every HE/EHT receiver of this engine advertises, ns: 16 µs.
+ *
+ * NOMINAL_PACKET_PADDING comes from the receiver's capabilities — the PPE Thresholds Present and
+ * Nominal Packet Padding subfields of its HE Capabilities element, and Common Nominal Packet
+ * Padding in its EHT Capabilities element (§26.12, §35.13.2). This engine has no capability
+ * exchange, so it states one capability for every receiver: PPE thresholds absent, nominal packet
+ * padding 16 µs (Nominal Packet Padding = 2 / Common Nominal Packet Padding = 2). The value is
+ * the simulator's; the rule applied to it (Table 27-47 / Table 36-61) is the standard's.
+ */
+export const NOMINAL_PACKET_PADDING_NS: Ns = 16_000
+
+/**
+ * T_PE,nominal for pre-FEC padding factor a at 16 µs nominal packet padding: 4 / 8 / 12 / 16 µs
+ * for a = 1 / 2 / 3 / 4. The transmitter sends T_PE = T_PE,nominal ("should be equal to
+ * T_PE,nominal to minimize the packet extension overhead").
+ * standard §27.3.13 Table 27-47 / standard be §36.3.14 Table 36-61
+ */
+export function peNsFor(a: number): Ns {
+  return (NOMINAL_PACKET_PADDING_NS / 4) * a
+}
+
+/** A PPDU's TXTIME, field by field. Every figure in ns. */
+export interface PpduTiming {
+  /** L-STF … last LTF (`preambleNsFor`). */
+  preambleNs: Ns
+  /** The DL MU extra signalling (`muExtraPreambleNs`), 0 otherwise. */
+  muSigNs: Ns
+  /** N_LTF the preamble was sized with. */
+  nLtf: number
+  symNs: Ns
+  nsym: number
+  /** Packet extension (HE/EHT only, else 0). */
+  peNs: Ns
+  /** Pre-FEC padding factor a (HE/EHT only, else 4). */
+  a: number
+  coding: Coding
+  /** §6.7.6.2: the rounding-up to a whole microsecond the TXTIME of a non-HE format gets. */
+  roundNs: Ns
+  /** TXTIME without the signal extension, which the MAC adds per band. */
+  totalNs: Ns
+  /** HE/EHT: N_SYM,init and a_init, before any LDPC extra symbol segment (else `nsym` and 4). */
+  nsymInit: number
+  aInit: number
+  /**
+   * PSDU_LENGTH the PLME-TXTIME.confirm returns for this APEP_LENGTH (§10.12.6: the MAC fills the
+   * difference with EOF padding). Non-HT: the length itself. VHT (BCC): ⌊(N_SYM·N_DBPS − 16 −
+   * 6·N_ES) / 8⌋, Eq 21-112. HE / EHT: ⌊((N_SYM,init − 1)·N_DBPS + N_DBPS,last,init − 16 −
+   * N_tail) / 8⌋, Eq 27-153 / Eq 36-112, 36-113 (`psduLengthAt`).
+   */
+  psduLength: number
+}
+
+/** x mod n for a possibly non-integer n (the RU fractions of this engine's even split). */
+function fmod(x: number, n: number): number {
+  return x - Math.floor(x / n + 1e-9) * n
+}
+
+/**
+ * N_CW and L_LDPC for N_avbits / N_pld / R. standard §19.3.11.7.5 Table 19-16
+ */
+function ldpcCodewords(avbits: number, pld: number, r: number): { ncw: number; l: number } {
+  if (avbits <= 648) return { ncw: 1, l: avbits >= pld + 912 * (1 - r) ? 1296 : 648 }
+  if (avbits <= 1296) return { ncw: 1, l: avbits >= pld + 1464 * (1 - r) ? 1944 : 1296 }
+  if (avbits <= 1944) return { ncw: 1, l: 1944 }
+  if (avbits <= 2592) return { ncw: 2, l: avbits >= pld + 2916 * (1 - r) ? 1944 : 1296 }
+  return { ncw: Math.ceil(pld / (1944 * r)), l: 1944 }
+}
+
+/**
+ * N_SYM and the pre-FEC padding factor a of an HE/EHT data field (single user, no STBC).
+ *
+ *  - BCC: N_Excess = (8·L + N_tail + N_service) mod N_DBPS; a_init = 4 if N_Excess = 0, else
+ *    min(⌈N_Excess / N_DBPS,short⌉, 4); N_SYM = N_SYM,init = ⌈(8·L + N_tail + N_service) / N_DBPS⌉;
+ *    a = a_init. standard Eq 27-60…27-67 / standard be Eq 36-47…36-49
+ *  - LDPC (N_tail = 0): N_pld and N_avbits from N_SYM,init and a_init (Eq 27-68 / 27-69), N_CW and
+ *    L_LDPC from Table 19-16, N_shrt and N_punc from Eq 19-37 / 19-38; if
+ *    (N_punc > 0.1·N_CW·L_LDPC·(1−R) and N_shrt < 1.2·N_punc·R/(1−R)) or
+ *    N_punc > 0.3·N_CW·L_LDPC·(1−R), the LDPC extra symbol segment is added: N_SYM + 1 and a = 1
+ *    if a_init = 4, else a = a_init + 1 (Eq 27-70 / 27-71); otherwise as BCC (Eq 27-72).
+ *    standard §27.3.12.5.2 / standard be §36.3.13.3.5
+ */
+function heDataSymbols(
+  lengthBytes: number, ndbps: number, ndbpsShort: number, rate: number, coding: Coding,
+): { nsym: number; a: number; nsymInit: number; aInit: number } {
+  const ntail = coding === 'bcc' ? 6 : 0
+  const bits = 8 * lengthBytes + ntail + 16
+  const excess = fmod(bits, ndbps)
+  const aInit = excess < 1e-9 ? 4 : Math.min(Math.ceil(excess / ndbpsShort - 1e-9), 4)
+  const nsymInit = Math.ceil(bits / ndbps - 1e-9)
+  if (coding === 'bcc') return { nsym: nsymInit, a: aInit, nsymInit, aInit }
+  const ncbps = ndbps / rate
+  const ncbpsShort = ndbpsShort / rate
+  const lastD = aInit < 4 ? aInit * ndbpsShort : ndbps
+  const lastC = aInit < 4 ? aInit * ncbpsShort : ncbps
+  const pld = (nsymInit - 1) * ndbps + lastD
+  const avbits = (nsymInit - 1) * ncbps + lastC
+  const { ncw, l } = ldpcCodewords(avbits, pld, rate)
+  const shrt = Math.max(0, ncw * l * rate - pld)
+  const punc = Math.max(0, ncw * l - avbits - shrt)
+  const extra = (punc > 0.1 * ncw * l * (1 - rate) && shrt < 1.2 * punc * (rate / (1 - rate)))
+    || punc > 0.3 * ncw * l * (1 - rate)
+  if (!extra) return { nsym: nsymInit, a: aInit, nsymInit, aInit }
+  return aInit === 4 ? { nsym: nsymInit + 1, a: 1, nsymInit, aInit } : { nsym: nsymInit, a: aInit + 1, nsymInit, aInit }
+}
+
+/** N_DBPS, N_DBPS,short, FEC and code rate of one user's HE/EHT data field. */
+function heDataRate(mode: PhyMode, mcs: number, opts: TxTimeOpts): { ndbps: number; ndbpsShort: number; coding: Coding; rate: number } {
+  const width = opts.widthMhz ?? 20
+  const nss = opts.nss ?? 1
+  const frac = opts.ruFraction ?? 1
+  const ndbps = PHY_MODES[mode].ndbps[mcs] * toneRatio(mode, width) * nss * frac
+  const { rate } = modulationOf(mode, mcs)
+  const coding = codingFor(mode, mcs, width, nss, frac)
+  const nsdShort = (NSD_SHORT[width] ?? NSD_SHORT[20]!) * frac
+  const ndbpsShort = ndbps * (nsdShort / ((TONES_HE[width] ?? TONES_HE[20]!) * frac))
+  return { ndbps, ndbpsShort, coding, rate }
+}
+
+/**
+ * PSDU_LENGTH of one HE/EHT user whose data field has N_SYM,init and a_init given — its own in an
+ * SU PPDU, the PPDU's common ones in an MU PPDU: ⌊((N_SYM,init − 1)·N_DBPS,u + N_DBPS,last,init,u −
+ * N_service − N_tail,u) / 8⌋, N_DBPS,last,init = a_init·N_DBPS,short if a_init < 4, else N_DBPS
+ * (Eq 27-62). standard Eq 27-153…27-155 / standard be Eq 36-112, 36-113 (no STBC: m_STBC = 1).
+ * VHT (BCC, `aInit` ignored): ⌊(N_SYM·N_DBPS,u − 16 − 6·N_ES,u) / 8⌋, Eq 21-112 / Eq 21-114.
+ */
+export function psduLengthAt(mode: PhyMode, mcs: number, nsymInit: number, aInit: number, opts: TxTimeOpts = {}): number {
+  if (mode === 'nonht' || mode === 'vht') {
+    const ndbps = PHY_MODES[mode].ndbps[mcs] * toneRatio(mode, opts.widthMhz ?? 20) * (opts.nss ?? 1) * (opts.ruFraction ?? 1)
+    const nes = mode === 'vht' ? vhtEncoders(ndbps) : 1
+    return Math.max(0, Math.floor((nsymInit * ndbps - 16 - 6 * nes) / 8 + 1e-9))
+  }
+  const { ndbps, ndbpsShort, coding } = heDataRate(mode, mcs, opts)
+  const last = aInit < 4 ? aInit * ndbpsShort : ndbps
+  const ntail = coding === 'bcc' ? 6 : 0
+  return Math.max(0, Math.floor(((nsymInit - 1) * ndbps + last - 16 - ntail) / 8 + 1e-9))
+}
+
+/**
+ * The HE TB / EHT TB PPDU that answers a TRS Control subfield (§26.5.2.3.4, §9.2.4.7.1).
+ *
+ *  - GI and LTF: 1.6 µs GI with 2x HE-LTF (the DL MU PPDUs of this engine never use 4x + 3.2 µs).
+ *  - FEC: BCC if the RU is smaller than a 484-tone RU, otherwise LDPC with LDPC_EXTRA_SYMBOL = 1.
+ *  - Pre-FEC padding factor 4 (the Trigger-frame equivalent the clause lists: "Pre-FEC Padding
+ *    Factor subfield is set to 0 (i.e., to indicate a pre-FEC padding factor of 4)").
+ *  - T_PE = the Default PE Duration of the AP's HE Operation element. This engine exchanges no HE
+ *    Operation element; its AP's value is 4 (16 µs), the same 16 µs as `peNsFor(4)`. The value is
+ *    the simulator's; the field and its use are the standard's (§9.4.2.248, §26.5.2.3).
+ *  - N_SYM = UL Data Symbols: N_SYM,init = ⌈(8·L + 16 + N_tail) / N_DBPS⌉, plus the LDPC extra
+ *    symbol. PSDU_LENGTH = ⌊(N_SYM,init·N_DBPS − 16 − N_tail) / 8⌋ (Eq 27-153 with a = 4).
+ *  - TXTIME = 20 + T_HE-PREAMBLE (8 µs STF) + N_SYM·T_SYM + T_PE (Eq 27-149), EHT rounded up to a
+ *    whole microsecond (Eq 36-110). No signal extension here.
+ *
+ * Give `apepBytes` to size the PPDU for that A-MPDU, or `nsym` (UL Data Symbols) to read it back.
+ */
+export function trsTbPpdu(
+  mode: PhyMode, mcs: number, opts: { widthMhz: number; ruFraction: number; apepBytes?: number; nsym?: number },
+): { nsym: number; durNs: Ns; psduLength: number } {
+  const gi = TGI_NS.double
+  const o: TxTimeOpts = { widthMhz: opts.widthMhz, ruFraction: opts.ruFraction, nss: 1, giNs: gi }
+  const { ndbps } = heDataRate(mode, mcs, o)
+  const ldpc = opts.widthMhz * opts.ruFraction >= 40 - 1e-9
+  const ntail = ldpc ? 0 : 6
+  const nsym = opts.nsym ?? Math.ceil((8 * (opts.apepBytes ?? 0) + 16 + ntail) / ndbps - 1e-9) + (ldpc ? 1 : 0)
+  const nsymInit = nsym - (ldpc ? 1 : 0)
+  const raw = preambleNsFor(mode, gi, { tb: true, nss: 1 }) + nsym * symNsFor(mode, gi) + TRS_DEFAULT_PE_NS
+  const durNs = mode === 'he' ? raw : Math.ceil(raw / 1000 - 1e-9) * 1000
+  return { nsym, durNs, psduLength: Math.max(0, Math.floor((nsymInit * ndbps - 16 - ntail) / 8 + 1e-9)) }
+}
+
+/** Default PE Duration this engine's AP states for TRS-solicited TB PPDUs: 4 × 4 µs (see `trsTbPpdu`). */
+export const TRS_DEFAULT_PE_NS: Ns = 16_000
+
+/**
+ * N_ES of a VHT BCC data field: the encoders that keep each at or below 600 Mb/s at the 400 ns
+ * GI, ⌈N_DBPS / (3.6 µs × 600 Mb/s)⌉ = ⌈N_DBPS / 2160⌉. This reproduces the N_ES column of the
+ * VHT-MCS tables for N_SS ≤ 4 (Table 21-30 … Table 21-61; e.g. 80 MHz N_SS = 2 MCS 7: 2340 → 2).
+ */
+function vhtEncoders(ndbps: number): number {
+  return Math.max(1, Math.ceil(ndbps / 2160 - 1e-9))
+}
+
+/**
+ * A PPDU's TXTIME, field by field, from the standard's formulas (2026-11-11).
+ *
+ *  - `nonht`: 20 + 4 × ⌈(16 + 8·L + 6) / N_DBPS⌉ µs. Eq 17-29.
+ *  - `vht`: preamble + 4 × ⌈(8·L + 16 + 6·N_ES) / N_DBPS⌉ µs, BCC. Eq 21-105 / Eq 21-61.
+ *  - `he`: 20 + T_HE-PREAMBLE + N_SYM × T_SYM + T_PE. Eq 27-149 (no midambles: N_MA = 0).
+ *  - `eht`: 20 + T_EHT-PREAMBLE + N_SYM × T_SYM + T_PE, rounded up to a whole microsecond — 6.7.6.2
+ *    exempts only the HE formats from that rounding and IEEE Std 802.11be-2024 does not amend it.
+ *    Eq 36-110. `uhr` (draft) reuses all of EHT's.
+ *
+ * L is the PSDU length the MAC hands over (APEP_LENGTH). N_SYM and a for HE/EHT come from
+ * `heDataSymbols` with the FEC of `codingFor`; T_PE from `peNsFor`. The signal extension of the
+ * 2.4 GHz band is not here: the MAC adds it per link.
+ */
+export function ppduTiming(mode: PhyMode, lengthBytes: number, mcs: number, opts: TxTimeOpts = {}): PpduTiming {
   const m = PHY_MODES[mode]
   const base = m.ndbps[mcs]
   if (!base) throw new Error(`invalid MCS ${mcs} for ${mode}`)
-  const ndbps = base * toneRatio(mode, opts.widthMhz ?? 20) * (opts.nss ?? 1) * (opts.ruFraction ?? 1)
+  const width = opts.widthMhz ?? 20
+  const nss = opts.nss ?? 1
+  const frac = opts.ruFraction ?? 1
   const giNs = opts.giNs ?? TGI_NS.base
-  const nsym = Math.ceil((16 + 8 * lengthBytes + 6) / ndbps)
-  // The MU extra is neither scaled nor re-paid at a longer GI: see `preambleNsFor`.
-  return preambleNsFor(mode, giNs) + (opts.mu ? m.muExtraPreambleNs : 0) + symNsFor(mode, giNs) * nsym
+  const ndbps = base * toneRatio(mode, width) * nss * frac
+  const symNs = symNsFor(mode, giNs)
+  if (mode === 'nonht') {
+    const nsym = Math.ceil((16 + 8 * lengthBytes + 6) / ndbps)
+    const preambleNs = preambleNsFor(mode)
+    return {
+      preambleNs, muSigNs: 0, nLtf: 0, symNs, nsym, peNs: 0, a: 4, coding: 'bcc', roundNs: 0,
+      totalNs: preambleNs + symNs * nsym, nsymInit: nsym, aInit: 4, psduLength: lengthBytes,
+    }
+  }
+  const ltfNss = opts.ltfNss ?? nss
+  const preambleNs = preambleNsFor(mode, giNs, { nss: ltfNss, tb: opts.tb })
+  const muSigNs = opts.mu && !opts.tb ? m.muExtraPreambleNs : 0
+  if (mode === 'vht') {
+    const nes = vhtEncoders(ndbps)
+    const nsym = Math.ceil((8 * lengthBytes + 16 + 6 * nes) / ndbps - 1e-9)
+    return {
+      preambleNs, muSigNs, nLtf: ltfCount(ltfNss), symNs, nsym, peNs: 0, a: 4, coding: 'bcc', roundNs: 0,
+      totalNs: preambleNs + muSigNs + symNs * nsym, nsymInit: nsym, aInit: 4,
+      psduLength: Math.max(lengthBytes, Math.floor((nsym * ndbps - 16 - 6 * nes) / 8 + 1e-9)),
+    }
+  }
+  const { rate } = modulationOf(mode, mcs)
+  const coding = codingFor(mode, mcs, width, nss, frac)
+  const nsdShort = (NSD_SHORT[width] ?? NSD_SHORT[20]!) * frac
+  const ndbpsShort = ndbps * (nsdShort / ((TONES_HE[width] ?? TONES_HE[20]!) * frac))
+  const { nsym, a, nsymInit, aInit } = heDataSymbols(lengthBytes, ndbps, ndbpsShort, rate, coding)
+  const peNs = peNsFor(a)
+  const raw = preambleNs + muSigNs + symNs * nsym + peNs
+  const total = mode === 'he' ? raw : Math.ceil(raw / 1000 - 1e-9) * 1000
+  return {
+    preambleNs, muSigNs, nLtf: ltfCount(ltfNss), symNs, nsym, peNs, a, coding, roundNs: total - raw,
+    totalNs: total, nsymInit, aInit,
+    psduLength: Math.max(lengthBytes, psduLengthAt(mode, mcs, nsymInit, aInit, opts)),
+  }
+}
+
+/** PPDU airtime (TXTIME without signal extension) for any PHY mode/MCS. See `ppduTiming`. */
+export function txTimeModeNs(mode: PhyMode, lengthBytes: number, mcs: number, opts: TxTimeOpts = {}): Ns {
+  return ppduTiming(mode, lengthBytes, mcs, opts).totalNs
+}
+
+/**
+ * The largest PSDU, octets, whose PPDU fits `durNs` at this mode/MCS/options — the inverse of
+ * `txTimeModeNs`, by bisection (TXTIME is non-decreasing in the length).
+ */
+export function maxPsduBytesForDur(mode: PhyMode, mcs: number, durNs: Ns, opts: TxTimeOpts = {}): number {
+  if (txTimeModeNs(mode, 0, mcs, opts) > durNs) return 0
+  let lo = 0
+  let hi = 1
+  while (txTimeModeNs(mode, hi, mcs, opts) <= durNs) {
+    lo = hi
+    hi *= 2
+    if (hi > 1 << 26) break
+  }
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (txTimeModeNs(mode, mid, mcs, opts) <= durNs) lo = mid
+    else hi = mid
+  }
+  return lo
 }
 
 /** Link margin a rate ceiling keeps above the required SINR. */

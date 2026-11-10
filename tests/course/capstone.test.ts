@@ -250,6 +250,10 @@ describe('capstone · ③ every figure the labs print is the run', () => {
     const e = /从 ([\d.]+) 兆字节降到 ([\d.]+)，视频的等待从 ([\d.]+) ms 变成 ([\d.]+) ms/.exec(lab('关闭笔记本的第二台电台').expect)!
     same(e[1], base.upMb, 'backup before'); same(e[2], radioOff.upMb, 'backup after')
     same(e[3], base.rxWait('sta-2'), 'video before'); same(e[4], radioOff.rxWait('sta-2'), 'video after')
+    // 2026-11-11 (W6, re-measured): with the second radio off the tablet waits longer
+    const t = /平板的等待却从 ([\d.]+) ms 增加到 ([\d.]+) ms/.exec(lab('关闭笔记本的第二台电台').expect)!
+    same(t[1], base.rxWait('sta-4'), 'tablet before'); same(t[2], radioOff.rxWait('sta-4'), 'tablet after')
+    expect(radioOff.rxWait('sta-4')).toBeGreaterThan(base.rxWait('sta-4'))
   })
 
   // 2026-11-11 (W7a), re-measured: the tablet's mean wait is one page of 63 MSDUs queued at once,
@@ -258,7 +262,10 @@ describe('capstone · ③ every figure the labs print is the run', () => {
   // 2026-11-11 (W7b, the AP on dot11QAPEDCATable — AC_BE CWmax 63 — and per-frame UP): the tablet's
   // page now waits 4.36 ms on average, and the upgrade moves it by about 1 % (to 4.40 ms, slightly
   // worse), so the sentence says 「几乎不变（相差约 1%）」 and this reads the size of the change.
-  it('lab 4: the tablet upgrade, about 1 per cent either way, and the two it groups', () => {
+  // 2026-11-11 (W6 merged: HE/EHT TXTIME with LDPC and T_PE, aRxPHYStartDelay 24 µs): the page waits
+  // 7.48 ms and the upgrade takes it to 7.17 ms, about 4 %; still 「几乎不变」, and the tablet is
+  // still never grouped. With the second radio off the tablet now waits 7.65 ms (a rise of 2 %).
+  it('lab 4: the tablet upgrade, a few per cent either way, and the two it groups', () => {
     const e = /备份仍然送达 ([\d.]+) 兆字节，平板的等待从 ([\d.]+) ms 变成 ([\d.]+) ms，几乎不变（相差约 (\d+)%）；.*都只编入电视与投影仪/.exec(lab('给平板换一台 Wi-Fi 6 电台').expect)!
     same(e[1], tabletNew.upMb, 'backup with the new tablet')
     same(e[2], base.rxWait('sta-4'), 'tablet before'); same(e[3], tabletNew.rxWait('sta-4'), 'tablet after')

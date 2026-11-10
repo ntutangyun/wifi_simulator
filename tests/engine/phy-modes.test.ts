@@ -28,7 +28,8 @@ describe('PHY modes', () => {
 
   it('computes HE airtime with 13.6 µs symbols and MU preamble extra', () => {
     const su = txTimeModeNs('he', 1428, 11)
-    expect(su).toBe(44_000 + 13_600 * Math.ceil(11446 / 1950))
+    // 2026-11-11: Eq 27-149 — 43.2 µs preamble, LDPC symbol count (MCS 11), 16 µs packet extension.
+    expect(su).toBe(43_200 + 13_600 * 6 + 16_000)
     expect(txTimeModeNs('he', 1428, 11, { mu: true })).toBe(su + 4_000)
   })
 

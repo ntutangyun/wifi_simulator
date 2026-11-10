@@ -137,8 +137,41 @@ export interface ChannelSpectrum {
   txPowerOf: (id: string) => number
   /** Centre frequency of the link's operating channel, in MHz. */
   centerMhz: number
-  /** The link's widest operating width, in MHz: the bandwidth energy detection listens over. */
+  /** The link's widest operating width, in MHz. */
   widthMhz: number
+  /**
+   * Lower edge of the primary 20 MHz channel, MHz — where energy detection listens
+   * (§27.3.22.6.3, §36.3.21.6.3) and where every PPDU narrower than the operating channel sits:
+   * a PPDU of width w occupies the primary w-MHz channel. See `primary20LoMhz` (simulation.ts).
+   */
+  primary20LoMhz: number
+}
+
+/**
+ * The band a w-MHz PPDU occupies: the w-MHz subchannel of the operating channel that contains the
+ * primary 20 MHz channel (a PPDU always occupies at least the primary 20 MHz channel), or, for a
+ * PPDU narrower than 20 MHz (an AMP uplink), the centre of the primary 20 MHz channel.
+ */
+export function primaryBandMhz(sp: Pick<ChannelSpectrum, 'centerMhz' | 'widthMhz' | 'primary20LoMhz'>, w: number): [number, number] {
+  const lo0 = sp.centerMhz - sp.widthMhz / 2
+  if (w >= sp.widthMhz) return [lo0, lo0 + sp.widthMhz]
+  if (w < 20) {
+    const c = sp.primary20LoMhz + 10
+    return [c - w / 2, c + w / 2]
+  }
+  const idx = Math.floor((sp.primary20LoMhz - lo0) / w + 1e-9)
+  return [lo0 + idx * w, lo0 + (idx + 1) * w]
+}
+
+/**
+ * The power of a PPDU that falls inside the primary 20 MHz channel, dBm: its total power less
+ * 10·log10(w / 20) for a PPDU wider than 20 MHz (power spread evenly over its width), all of it
+ * otherwise. The −82 dBm preamble-detection and −62 dBm energy-detection thresholds are both
+ * "measured within the primary 20 MHz channel" (§27.3.22.6.3; §21.3.18.5.3; §36.3.21.6.3).
+ */
+export function primary20Dbm(frame: FrameDesc, totalDbm: number): number {
+  const w = ampNoiseBwMhz(frame)
+  return w > 20 ? totalDbm - 10 * Math.log10(w / 20) : totalDbm
 }
 
 /**
@@ -260,6 +293,13 @@ interface RadioState {
   floorDbm: number
   /** false: never emit CCA records nor call onCcaBusy/onCcaIdle (tags have no carrier sense). */
   cca: boolean
+  /**
+   * Per 20 MHz subchannel of the operating channel (lowest first): since when it has been idle
+   * by the per-20 MHz energy-detection rule, or `Infinity` while it is busy. Kept only on a link
+   * with a spectrum hook — elsewhere nothing but a Wi-Fi PPDU, which always covers the primary
+   * 20 MHz channel, can occupy a secondary one. See `secondaryIdleSinceNs`.
+   */
+  per20IdleSince?: number[]
 }
 
 export interface RadioOpts {
@@ -573,8 +613,9 @@ export class Channel {
    * 100 %. Centring the emission on `sp.widthMhz` for such frames is the fix, when it matters.
    */
   private ppduBand(frame: FrameDesc, sp: ChannelSpectrum): [number, number] {
-    const w = ampNoiseBwMhz(frame)
-    return [sp.centerMhz - w / 2, sp.centerMhz + w / 2]
+    // 2026-11-11: a PPDU narrower than the operating channel sits on the primary channel of its
+    // width, not at the operating channel's centre — so a 20 MHz ACK is on the primary 20 MHz.
+    return primaryBandMhz(sp, ampNoiseBwMhz(frame))
   }
 
   private onForeignChange(t: Ns): void {
@@ -596,6 +637,54 @@ export class Channel {
 
   isCcaBusy(nodeId: string): boolean {
     return this.radios.get(nodeId)!.ccaBusy
+  }
+
+  /**
+   * Since when every non-primary 20 MHz subchannel inside the primary w-MHz channel has been idle
+   * at this radio — `-Infinity` on a link with no spectrum hook or for w ≤ 20, `Infinity` while
+   * any of them is busy. §10.23.2.5 lets an EDCAF that may start a TXOP send a 40/80/160 MHz PPDU
+   * only if those channels "were idle during an interval of PIFS immediately preceding the start
+   * of the TXOP".
+   *
+   * A 20 MHz subchannel is busy when a signal on it is at or above −62 dBm (§27.3.22.6.5,
+   * §36.3.21.6.4, per20bitmap). Wi-Fi PPDUs count with their per-20 MHz share; the other
+   * technology's emissions with what falls in that 20 MHz.
+   */
+  secondaryIdleSinceNs(nodeId: string, widthMhz: number): number {
+    const r = this.radios.get(nodeId)!
+    const sp = this.spectrum
+    if (!sp || widthMhz <= 20 || !r.per20IdleSince) return -Infinity
+    const [lo, hi] = primaryBandMhz(sp, widthMhz)
+    const lo0 = sp.centerMhz - sp.widthMhz / 2
+    let since = -Infinity
+    for (let i = 0; i < r.per20IdleSince.length; i++) {
+      const sub = lo0 + 20 * i
+      if (sub < lo - 1e-9 || sub + 20 > hi + 1e-9 || Math.abs(sub - sp.primary20LoMhz) < 1e-9) continue
+      since = Math.max(since, r.per20IdleSince[i]!)
+    }
+    return since
+  }
+
+  /** Per-20 MHz energy detection on every 20 MHz subchannel of the operating channel (see above). */
+  private updatePer20(t: Ns, rid: string, r: RadioState, sp: ChannelSpectrum): void {
+    const n = Math.max(1, Math.round(sp.widthMhz / 20))
+    if (!r.per20IdleSince) r.per20IdleSince = new Array<number>(n).fill(-Infinity)
+    const lo0 = sp.centerMhz - sp.widthMhz / 2
+    for (let i = 0; i < n; i++) {
+      const sub = lo0 + 20 * i
+      let sum = sp.s.foreignMw('wifi', sp.posOf(rid), sub, sub + 20)
+      for (const a of this.active) {
+        if (a.txId === rid) continue
+        const [blo, bhi] = this.ppduBand(a.frame, sp)
+        const overlap = Math.max(0, Math.min(bhi, sub + 20) - Math.max(blo, sub))
+        if (overlap <= 0) continue
+        sum += mw(this.rxDbmOf(a, rid)) * (overlap / (bhi - blo))
+      }
+      const busy = sum >= mw(CCA_ED_DBM)
+      const was = r.per20IdleSince[i]!
+      if (busy) r.per20IdleSince[i] = Infinity
+      else if (was === Infinity) r.per20IdleSince[i] = t
+    }
   }
 
   isTransmitting(nodeId: string): boolean {
@@ -881,7 +970,7 @@ export class Channel {
     const listening = this.listening(r, tx.frame)
     const canCoexist = r.locks.every((l) => sameGroup(l.frame, tx.frame))
     if (r.locks.length > 0 && !canCoexist) {
-      if (listening && floor !== null && p >= floor && this.canCapture(t, r, p)) {
+      if (listening && floor !== null && primary20Dbm(tx.frame, p) >= floor && this.canCapture(t, r, p)) {
         // Capture: abandon the weak reception and re-sync to this preamble.
         // The dropped frame never reaches PHY-RXEND, so no error is indicated
         // and no EIFS is armed — the new lock's outcome decides the deferral.
@@ -902,7 +991,7 @@ export class Channel {
           this.noteInterf(t, rid, lock)
         }
       }
-    } else if (listening && floor !== null && p >= floor) {
+    } else if (listening && floor !== null && primary20Dbm(tx.frame, p) >= floor) {
       // Preamble detection needs `detectThreshDb` against everything else on
       // the air; a preamble buried in interference is never detected — no
       // PHY-RXSTART, no reception to fail, no EIFS.
@@ -1295,6 +1384,7 @@ export class Channel {
   private updateAllCca(t: Ns): void {
     for (const [rid, r] of this.radios) {
       if (!r.cca) continue
+      if (this.spectrum && r.kind === 'wifi') this.updatePer20(t, rid, r, this.spectrum)
       let busy: boolean
       let cause: 'energy' | 'preamble' = 'energy'
       if (r.transmitting) {
@@ -1304,7 +1394,9 @@ export class Channel {
         let anyPd = false
         for (const a of this.active) {
           if (a.txId === rid) continue
-          const p = this.rxDbmOf(a, rid)
+          // Both thresholds are measured within the primary 20 MHz channel (§27.3.22.6.3,
+          // §36.3.21.6.3, §17.3.10.6): a wide PPDU counts with its primary-20 share.
+          const p = primary20Dbm(a.frame, this.rxDbmOf(a, rid))
           sum += mw(p)
           // −82 dBm applies to a PPDU whose preamble this radio could see;
           // one that began during our own transmission counts only as energy.
@@ -1314,12 +1406,10 @@ export class Channel {
         }
         const sp = this.spectrum
         if (sp) {
-          // Energy detection listens over the whole operating channel, whatever
-          // width the PPDU on it happens to use. A foreign signal is never a
-          // detectable preamble, so it can only ever hold CCA busy as energy.
-          sum += sp.s.foreignMw(
-            'wifi', sp.posOf(rid), sp.centerMhz - sp.widthMhz / 2, sp.centerMhz + sp.widthMhz / 2,
-          )
+          // Energy detection listens over the primary 20 MHz channel (2026-11-11; it used to
+          // integrate the whole operating channel). A foreign signal is never a detectable
+          // preamble, so it can only ever hold CCA busy as energy.
+          sum += sp.s.foreignMw('wifi', sp.posOf(rid), sp.primary20LoMhz, sp.primary20LoMhz + 20)
         }
         busy = anyPd || sum >= mw(CCA_ED_DBM) || r.locks.length > 0
         cause = anyPd || r.locks.length > 0 ? 'preamble' : 'energy'

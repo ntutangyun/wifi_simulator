@@ -85,20 +85,24 @@ describe('guard interval · the 8.8 µs the 4x LTF costs', () => {
     expect(TLTF_4X_NS).toBe(12_800)
   })
 
-  it('is zero at the two GIs that keep the 2x LTF', () => {
+  it('is zero at the base GI and 0.8 µs at the double GI, whose 2x LTF carries the 1.6 µs GI', () => {
+    // 2026-11-11: Table 27-13 — T_GI,HE-LTF is "same as T_GI,Data", so a 2x HE-LTF at the double
+    // GI is 6.4 + 1.6 = 8.0 µs, not 7.2. The double tier used to cost the preamble nothing.
     expect(ltfExtraNs(TGI_NS.base)).toBe(0)
-    expect(ltfExtraNs(TGI_NS.double)).toBe(0)
+    expect(ltfExtraNs(TGI_NS.double)).toBe(800)
     expect(ltfExtraNs()).toBe(0)
   })
 
   it('lands on the preamble of HE and EHT, and never on the older two generations', () => {
-    expect(preambleNsFor('he', TGI_NS.quad)).toBe(52_800)
-    expect(preambleNsFor('eht', TGI_NS.quad)).toBe(56_800)
+    // 2026-11-11: field by field (Table 27-13 / Table 36-18): 36 + 16 = 52.0 µs for HE and
+    // 20 + 4 + 8 + 2 × 4 + 4 + 16 = 60.0 µs for EHT, no longer the rounded 44 / 48 plus 8.8.
+    expect(preambleNsFor('he', TGI_NS.quad)).toBe(52_000)
+    expect(preambleNsFor('eht', TGI_NS.quad)).toBe(60_000)
+    expect(preambleNsFor('he', TGI_NS.double)).toBe(44_000)
     expect(preambleNsFor('vht', TGI_NS.quad)).toBe(40_000)
     expect(preambleNsFor('nonht', TGI_NS.quad)).toBe(20_000)
     for (const m of ALL_MODES) {
       expect(preambleNsFor(m, TGI_NS.base)).toBe(PHY_MODES[m].preambleNs)
-      expect(preambleNsFor(m, TGI_NS.double)).toBe(PHY_MODES[m].preambleNs)
       expect(preambleNsFor(m)).toBe(PHY_MODES[m].preambleNs)
     }
   })
@@ -184,22 +188,22 @@ describe('guard interval · airtime', () => {
   // (f) §0.3 and §7.2's table. The symbol COUNT does not move; only each symbol's length does.
   it('reprices the lesson\'s 1430-byte frame at each of the three GIs', () => {
     const t = GI_KEYS.map((k) => txTimeModeNs('he', 1430, 11, { widthMhz: 20, giNs: TGI_NS[k] }))
-    expect(t).toEqual([125_600, 130_400, 148_800])
+    // 2026-11-11: Eq 27-149 with the LDPC symbol count and the 16 µs packet extension (a = 4).
+    expect(t).toEqual([140_800, 146_400, 164_000])
     // Six symbols in all three tiers — the collapse the lesson's own prose turns on.
     GI_KEYS.forEach((k, i) => {
-      expect((t[i] - preambleNsFor('he', TGI_NS[k])) / symNsFor('he', TGI_NS[k])).toBe(6)
+      expect((t[i] - preambleNsFor('he', TGI_NS[k]) - 16_000) / symNsFor('he', TGI_NS[k])).toBe(6)
     })
-    // The default argument reproduces today's number exactly.
-    expect(txTimeModeNs('he', 1430, 11, { widthMhz: 20 })).toBe(125_600)
+    expect(txTimeModeNs('he', 1430, 11, { widthMhz: 20 })).toBe(140_800)
   })
 
   it('reprices the 230-byte frame frame-anatomy-bytes prints', () => {
     expect(GI_KEYS.map((k) => txTimeModeNs('he', 230, 11, { widthMhz: 20, giNs: TGI_NS[k] })))
-      .toEqual([57_600, 58_400, 68_800])
+      .toEqual([72_800, 74_400, 84_000])
     // The fourth row of the design's §2.2 table — 3.2 µs GI without the 4x LTF — is computed
     // here rather than run, because the engine never emits that combination: §1.4 pairs the
     // 3.2 µs GI with the 4x LTF, so `giNs: quad` always carries the 8.8 µs too.
-    expect(PHY_MODES.he.preambleNs + symNsFor('he', TGI_NS.quad) * 1).toBe(60_000)
+    expect(PHY_MODES.he.preambleNs + symNsFor('he', TGI_NS.quad) * 1 + 16_000).toBe(75_200)
   })
 
   it('leaves the MU preamble extra alone: HE-SIG-B / EHT-SIG keep their own 0.8 µs GI', () => {

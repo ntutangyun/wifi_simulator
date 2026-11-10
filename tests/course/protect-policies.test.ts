@@ -116,7 +116,7 @@ describe('protect-policies · ② says what the engine does, and the engine does
         const next = txs(rs, (r) => r.node === d.node && r.frame.kind === 'data' && r.t === ack.t + ack.frame.txTimeNs + OFDM_5G.sifsNs)[0]
         if (next) expect(d.frame.durationFieldNs).toBe(own + OFDM_5G.sifsNs + next.frame.txTimeNs + OFDM_5G.sifsNs + ack.frame.txTimeNs)
       }
-      if (ms3(d.t) >= 0.824 && ms3(d.t) < 2.9 && d.node === 'sta-1') seen.add(d.frame.durationFieldNs / US)
+      if (ms3(d.t) >= 0.832 && ms3(d.t) < 2.9 && d.node === 'sta-1') seen.add(d.frame.durationFieldNs / US)
     }
     expect([...seen].sort((a, b) => a - b)).toEqual([Number(fin), Number(nf)])
   })
@@ -189,7 +189,7 @@ describe('protect-policies · ② says what the engine does, and the engine does
 
 describe('protect-policies · ③ every figure the labs print is the run', () => {
   const rs = multiple()
-  const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+  const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
   const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
   const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
   const cf = txs(rs, (r) => r.frame.kind === 'cfend' && r.t > end.t)
@@ -208,7 +208,7 @@ describe('protect-policies · ③ every figure the labs print is the run', () =>
     expect([burst[1].fromUs, burst[1].toUs]).toEqual([rel(cts.t), rel(cts.t + cts.frame.txTimeNs)])
     expect([burst[2].fromUs, burst[2].toUs]).toEqual([rel(data[0].t), rel(end.t)])
     const s = single()
-    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
     const scts = txs(s, (r) => r.frame.kind === 'cts' && r.t > st0.t)[0]
     const one = lane('单次 CTS 罩住').spans[0]
     expect(one.fromUs).toBe(rel(nav.t))

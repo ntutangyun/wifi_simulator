@@ -6,8 +6,8 @@
  * requires it, then CSMA-CA or SSBD per transmit slot; 15-25/0307r1, 15-25/0427r4) and from the
  * D04 comments that did not get in (15-26/0244r1, 15-26/0348r1). ② says the engine still follows
  * the early proposal, and this file checks that it does — the per-block skip and the UNII-5 rule
- * (audit #19), the instantaneous reading (#20), the whole-width Wi-Fi comparison (#21) are W5/W6
- * work that has not landed. ③'s figures are read back out of the lesson and compared with a run.
+ * (audit #19) and the instantaneous reading (#20) were W5 work; the whole-width Wi-Fi comparison
+ * (#21) was fixed by W6 (primary 20 MHz, 2026-11-11). ③'s figures are read back out of the lesson and compared with a run.
  */
 import { describe, expect, it } from 'vitest'
 import { uwbNbaCoexist } from '../../src/course/uwb/uwb-nba-coexist'
@@ -98,11 +98,16 @@ describe('uwb-nba-coexist · the lesson', () => {
     expect(why).toContain('128 µs')
     expect(fixes()).toEqual([])
     expect(fixes(V_OUT)).toHaveLength(BLOCKS)
-    // 2026-11-11 (merge of W7a with W5): with listening off the tag still gets no range (21 before
+    // 2026-11-11 (merge of W7a with W5): with listening off the tag lost every round (21 before
     // W7a). The router answers an A-MPDU it received in part with a BlockAck (IEEE Std 802.11-2024
     // §10.12, §10.3.2.13.2), and that BlockAck, or its CTS, lands in the tag's narrowband receptions.
-    expect(tagRanges(V_NOLBT)).toEqual([])
-    expect(why).toContain(`关掉先听后发，手机仍然得到 ${tagRanges(V_NOLBT).length} 个距离`)
+    // 2026-11-11 (W6 merged): the HE/EHT PPDUs now carry the packet extension and their Duration is
+    // rounded up to a microsecond (Eq 27-149, Eq 36-110, Table 9-9), so the router's control frames
+    // move: 24 narrowband messages are lost instead of 28, and four rounds give the tag a range —
+    // still no fix.
+    expect(tagRanges(V_NOLBT)).toHaveLength(4)
+    expect(fixes(V_NOLBT)).toEqual([])
+    expect(why).toContain(`关掉先听后发，手机只得到 ${tagRanges(V_NOLBT).length} 个距离，没有一次定位`)
     expect(why).toContain(`有 ${ofType(recs(V_NOLBT), 'UWB_INTERFERED').length} 条与路由器发出的块确认`)
     const was = mbps(recs(V_OUT), 'laptop#6g')
     const now = mbps(recs(V_NOLBT), 'laptop#6g')
@@ -144,7 +149,10 @@ describe('uwb-nba-coexist · ② says what the engine does, and the engine does 
     for (const l of lbt()) expect(l.thresholdDbm).toBeCloseTo(NB_LBT_THRESHOLD_DBM, 9)
     expect(CCA_ED_DBM).toBe(-62)
     expect(implRow('Wi-Fi 的能量检测').sim).toContain('−62 dBm')
-    expect(implRow('Wi-Fi 的能量检测').kind).toBe('differs')
+    // 2026-11-11 (W6): Wi-Fi energy detection compares −62 dBm with the power inside the primary
+    // 20 MHz channel (IEEE Std 802.11-2024 §27.3.22.6.3, §36.3.21.6.3) — faithful now.
+    expect(implRow('Wi-Fi 的能量检测').kind).toBe('faithful')
+    expect(uwbNbaCoexist.sources!.join(' ')).not.toContain('按整条信道宽度比较')
     expect(implRow('跳变的生成式').kind).toBe('faithful')
     expect(implRow('感知时长').kind).toBe('value')
   })
@@ -204,7 +212,7 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     expect(e).toContain(`第 ${fixBlocks.join('、')} 块在外，各解出一次定位`)
   })
 
-  it('lab 4: the rule off — 72 messages, 64 Wi-Fi failures, 7.22 % of the laptop’s goodput', () => {
+  it('lab 4: the rule off — 76 messages, 64 Wi-Fi failures, 6.93 % of the laptop’s goodput', () => {
     const l = lab('关掉先听后发，代价转给 Wi-Fi')
     const rows = tableOf(l, '规则开与关，Wi-Fi 一侧的变化').rows
     expect(rows[0].slice(1)).toEqual([String(nbFrames().length), String(wifiRxFail(recs()).length)])
@@ -228,9 +236,10 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     expect(l.expect).toContain(`有 ${hit.length} 条窄带消息接收失败`)
     expect(rows[0].slice(1)).toEqual(['0', '0'])
     // 2026-11-11: 108 / 87 / 10.95 % before the merge with W7a (IEEE Std 802.11-2024 §10.12: the
-    // router's BlockAck to a partly received A-MPDU); the tag now loses every round to those frames.
-    expect(tagRanges(V_NOLBT)).toEqual([])
-    expect(l.expect).toContain('手机因此一个距离也没有得到')
+    // router's BlockAck to a partly received A-MPDU). After W6 (packet extension, Eq 27-149) 76 / 64 /
+    // 6.93 %, and the tag keeps four ranges of 28 sub-rounds, no fix.
+    expect(tagRanges(V_NOLBT)).toHaveLength(4)
+    expect(l.expect).toContain(`手机因此只得到 ${tagRanges(V_NOLBT).length} 个距离，没有一次定位`)
     expect(l.expect).toContain(`外来功率 ${neg(levels[0])} dBm`)
   })
 })

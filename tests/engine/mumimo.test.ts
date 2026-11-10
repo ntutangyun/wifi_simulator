@@ -56,9 +56,11 @@ describe('MU-MIMO: one PPDU, several stations, split by space', () => {
       if (r.type !== 'TX_START') continue
       if (r.t + r.frame.txTimeNs > HORIZON) continue
       const parts = r.frame.muParts ?? []
+      // 2026-11-11: one LTF field for the group, sized for its total streams (N_STS,total).
+      const ltfNss = parts.reduce((s, p) => s + (p.nss ?? 1), 0)
       const expected = Math.max(...parts.map((p) =>
         // one PPDU, one format: a mixed HE/EHT group is an HE MU PPDU for every member
-        txTimeModeNs(r.frame.mode!, p.bytes, p.mcs, { mu: true, widthMhz: r.frame.widthMhz, nss: p.nss })))
+        txTimeModeNs(r.frame.mode!, p.bytes, p.mcs, { mu: true, widthMhz: r.frame.widthMhz, nss: p.nss, ltfNss })))
       expect(r.frame.txTimeNs).toBe(expected)
       const end = recs.find((x) => x.type === 'TX_END' && x.node === 'ap' && x.t === r.t + r.frame.txTimeNs)
       expect(end).toBeDefined()

@@ -21,7 +21,8 @@ import {
 } from '../engine/ampBs'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, FCS_BYTES, MAC_HDR_BYTES,
-  PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, TGI_NS, multiStaBaBytes, preambleNsFor, symNsFor, triggerBytes,
+  PHY_MODES, QOS_HDR_BYTES, RTS_BYTES, TGI_NS, TRS_DEFAULT_PE_NS, multiStaBaBytes, ppduTiming, preambleNsFor, symNsFor,
+  triggerBytes, trsTbPpdu, type PhyMode, type PpduTiming,
 } from '../engine/phy'
 import { uwbFrameFields, uwbPpduLayout } from '../uwb/frameFields'
 import type { UwbFrameKind } from '../uwb/frames'
@@ -131,6 +132,8 @@ export interface UserPsdu {
 export type PpduSegmentKey =
   | 'legacyPreamble' | 'signal' | 'preamble' | 'muSig' | 'data' | 'padding'
   | 'usig' | 'ampSync' | 'ampSig' | 'ampData' | 'signalExt'
+  // HE/EHT packet extension (T_PE, Table 27-47 / Table 36-61).
+  | 'pe'
   // P802.11bp backscatter: the two excitation fields, which are carrier rather than data — the
   // wake-up that powers the tags, and the one the reply is reflected out of.
   | 'ampWup' | 'ampBst'
@@ -541,18 +544,28 @@ export function ppduLayout(f: FrameDesc): PpduSegment[] {
     segs.push({ key: 'legacyPreamble', durNs: 16_000 }, { key: 'signal', durNs: m.preambleNs - 16_000 })
     head = m.preambleNs
   } else {
-    // Both halves of the guard interval's cost land here: the 4x LTF's 8.8 µs on the preamble
-    // and the longer symbol on the data field. Changing only the data field would leave an
-    // 8.8 µs `padding` segment behind, and the segments would still sum to `txTimeNs`.
-    const head0 = preambleNsFor(mode, giNs)
+    // 2026-11-11: the layout is the TXTIME's own fields (`ppduTiming`), so the preamble grows with
+    // the LTF count, and the packet extension and the signal extension get segments of their own
+    // instead of hiding in `padding`. Which timing the frame was sent with is found by matching:
+    // an SU PPDU's own, a DL MU PPDU's longest member, or — a TB PPDU padded to the Trigger's
+    // target duration, which matches neither — the preamble alone, the rest symbols and padding.
+    // 0, or aSignalExtension on 2.4 GHz (Table 27-61), which the MAC appends to every PPDU there.
+    const ext = [0, 6_000]
+    const cand = layoutTimings(f, mode, giNs)
+    const hit = cand.flatMap((c) => ext.map((e) => ({ c, e }))).find(({ c, e }) => c.totalNs + e === f.txTimeNs)
+    if (hit) {
+      const { c, e } = hit
+      segs.push({ key: 'preamble', durNs: c.preambleNs })
+      if (c.muSigNs > 0) segs.push({ key: 'muSig', durNs: c.muSigNs })
+      segs.push({ key: 'data', durNs: c.nsym * c.symNs, symbols: c.nsym, symNs: c.symNs })
+      if (c.peNs > 0) segs.push({ key: 'pe', durNs: c.peNs })
+      if (c.roundNs > 0) segs.push({ key: 'padding', durNs: c.roundNs })
+      if (e > 0) segs.push({ key: 'signalExt', durNs: e })
+      return segs
+    }
+    const head0 = preambleNsFor(mode, giNs, { nss: f.nss, tb: !!f.orthogonalGroup && !f.muParts })
     segs.push({ key: 'preamble', durNs: head0 })
     head = head0
-    // A DL MU PPDU carries HE-SIG-B / EHT-SIG; a TB PPDU (orthogonal, uplink) does not. Its
-    // duration does not follow `giNs`: the pre-HE/pre-EHT fields' GI is fixed at 0.8 µs.
-    if (f.kind === 'data' && f.muParts && m.muExtraPreambleNs > 0) {
-      segs.push({ key: 'muSig', durNs: m.muExtraPreambleNs })
-      head += m.muExtraPreambleNs
-    }
   }
   const rest = Math.max(0, f.txTimeNs - head)
   const symNs = symNsFor(mode, giNs)
@@ -561,6 +574,50 @@ export function ppduLayout(f: FrameDesc): PpduSegment[] {
   const pad = rest - symbols * symNs
   if (pad > 0) segs.push({ key: 'padding', durNs: pad })
   return segs
+}
+
+/** The TXTIMEs this frame may have been sent with (see `ppduLayout`). */
+function layoutTimings(f: FrameDesc, mode: PhyMode, giNs: Ns): PpduTiming[] {
+  if (f.mcs === undefined) return []
+  const widthMhz = f.widthMhz ?? 20
+  try {
+    if (f.kind === 'data' && f.muParts && f.muParts.length > 0) {
+      const mumimo = f.muKind === 'mumimo'
+      const streams = f.muParts.map((p) => p.nss ?? 1)
+      const ltfNss = mumimo ? streams.reduce((a, b) => a + b, 0) : Math.max(...streams)
+      // TXTIME is a function of APEP_LENGTH, not of the EOF-padded PSDU_LENGTH (§10.12.6).
+      const per = f.muParts.map((p) => ppduTiming(mode, p.apepBytes ?? p.bytes, p.mcs, {
+        mu: true, widthMhz, nss: p.nss ?? 1, ltfNss, giNs, ruFraction: p.ruFraction,
+      }))
+      return [per.reduce((x, y) => (y.totalNs > x.totalNs ? y : x))]
+    }
+    if (f.kind === 'ba' && f.ru && mode !== 'nonht' && mode !== 'vht') {
+      // A BlockAck in the TB PPDU a TRS Control subfield solicited (`trsTbPpdu`): its data symbol
+      // count is the UL Data Symbols the AP chose for the whole group, read back from the TXTIME.
+      const ru = f.ru
+      const fit = (ext: Ns) => {
+        for (let n = 1; n <= 64; n++) {
+          const tb = trsTbPpdu(mode, f.mcs!, { widthMhz, ruFraction: ru.fraction, nsym: n })
+          if (tb.durNs + ext === f.txTimeNs) return { n, tb }
+        }
+        return null
+      }
+      const hit = fit(0) ?? fit(6_000)
+      if (hit) {
+        const preambleNs = preambleNsFor(mode, TGI_NS.double, { tb: true, nss: 1 })
+        const symNs = symNsFor(mode, TGI_NS.double)
+        const raw = preambleNs + hit.n * symNs + TRS_DEFAULT_PE_NS
+        return [{
+          preambleNs, muSigNs: 0, nLtf: 1, symNs, nsym: hit.n, peNs: TRS_DEFAULT_PE_NS, a: 4,
+          coding: widthMhz * ru.fraction >= 40 ? 'ldpc' : 'bcc', roundNs: hit.tb.durNs - raw, totalNs: hit.tb.durNs,
+          nsymInit: hit.n, aInit: 4, psduLength: hit.tb.psduLength,
+        }]
+      }
+    }
+    return [ppduTiming(mode, f.apepBytes ?? f.bytes, f.mcs, { widthMhz, nss: f.nss ?? 1, giNs })]
+  } catch {
+    return []
+  }
 }
 
 export function decodeFrame(f: FrameDesc, ctx: DecodeCtx): DecodedFrame {

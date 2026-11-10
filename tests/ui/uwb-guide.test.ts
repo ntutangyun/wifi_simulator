@@ -1746,11 +1746,19 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     // 2026-11-11 (W5): every access method runs the POLL's window out on the router's channel.
     // 2026-11-11 (merge with W7a): off is 8, not 47 — the router answers an A-MPDU it received in
     // part with a BlockAck (IEEE Std 802.11-2024 §10.12, §10.3.2.13.2), and that BlockAck or its CTS
-    // spoils the tag's narrowband receptions; the 8 ranges are all the anchors'.
-    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 8, perBlock: 0, defaults: 0, maxFit: 0 })
+    // spoils the tag's narrowband receptions; the 8 ranges were all the anchors'.
+    // 2026-11-11 (W6 merged): with the packet extension and µs-rounded Durations (IEEE Std
+    // 802.11-2024 Eq 27-149, Table 9-9) the router's control frames move: off is 14, 4 of them the
+    // tag's own; under the SSBD defaults one round senses idle and sends a POLL, and still no range.
+    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 14, perBlock: 0, defaults: 0, maxFit: 0 })
     const offRecs = lesson('noLbt', null)
-    expect(offRecs.filter((r) => r.type === 'UWB_RANGE' && r.node === 'uwb-1')).toEqual([])
-    expect(section).toContain('而且都由锚点算出，手机自己一个也没有')
+    const tagOwn = offRecs.filter((r) => r.type === 'UWB_RANGE' && r.node === 'uwb-1').length
+    expect(tagOwn).toBe(4)
+    expect(section).toContain(`其中手机自己算出 ${tagOwn} 个、锚点算出 ${off - tagOwn} 个，仍没有一次定位`)
+    const polls = (rs: TLRecord[]): number => rs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'nbPoll').length
+    expect([polls(lesson('pairwise', null)), polls(lesson('pairwise', {})),
+      polls(lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest }))]).toEqual([0, 1, 0])
+    expect(section).toContain('也只有一轮感知到空闲、发出 POLL，那一轮也没有测成')
     for (const n of [off, perBlock, defaults, maxFit]) expect(section).toContain(String(n))
     expect(section).toContain('三种做信道接入的设置都一次也没有测成')
   })
@@ -1767,11 +1775,11 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const longestNs = Math.max(...rs
       .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'data')
       .map((r) => r.frame.txTimeNs))
-    expect(longestNs).toBe(469_600)
+    expect(longestNs).toBe(477_000) // 2026-11-11: re-measured after W6
     const pollSlackUs = nbSlotSlackNs(rstuNs(600), NB_POLL_BYTES) / 1000
     expect(pollSlackUs).toBe(424)
     expect(longestNs / 1000).toBeGreaterThan(pollSlackUs)
-    expect(section).toContain('469.6')
+    expect(section).toContain('477.0')
     expect(section).toContain(`${pollSlackUs} µs`)
   })
 

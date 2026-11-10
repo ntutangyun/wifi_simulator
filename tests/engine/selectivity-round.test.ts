@@ -259,7 +259,12 @@ describe('selectivity on whole rounds: what widening the channel actually does',
     expect(rs[0].dropRate, `${rs[0].w} MHz`).toBeGreaterThan(0)
     // Group by the margin the loop settled at, and take the largest group.
     const groups = new Map<number, WidthRow[]>()
-    for (const r of rs) groups.set(r.marginDb, [...(groups.get(r.marginDb) ?? []), r])
+    // Keyed on the margin to 0.01 dB: the widths' noise floors differ, so two settled margins
+    // that print alike can differ in their last float bits (2026-11-11).
+    for (const r of rs) {
+      const k = Math.round(r.marginDb * 100)
+      groups.set(k, [...(groups.get(k) ?? []), r])
+    }
     const matched = [...groups.values()].sort((a, b) => b.length - a.length)[0]
     expect(matched.length, `margins ${rs.map((r) => `${r.w}:${r.marginDb.toFixed(2)}`).join(' ')}`)
       .toBeGreaterThanOrEqual(3)
@@ -763,9 +768,11 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
      */
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(mumimo.length).toBe(2132)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(mumimo.length).toBe(2413)
     const at150 = selRows(run(mumimoSelScene(), 150 * MS))
-    expect(at150.length).toBe(2285)
+    expect(at150.length).toBe(2261)
     expect(new Set(at150.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
     expect(new Set(at150.map((x) => x.sel.widthMhz))).toEqual(new Set([160]))
     expect(at150.filter((x) => 'ruFraction' in x.sel).length).toBe(0)
@@ -788,8 +795,10 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
     // Re-measured again 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable — AIFSN 1 on AC_VI/AC_VO,
     // CWmax 63 on AC_BE, §10.2.3.2 / Annex C — so its MU PPDUs and Triggers go out at other instants).
-    expect(members.length).toBe(1069)
-    expect(overhearers.length).toBe(1063)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(members.length).toBe(1215)
+    expect(overhearers.length).toBe(1198)
     expect(members.length + overhearers.length).toBe(mumimo.length)
 
     expect(new Set(mumimo.map((x) => x.sel.bins))).toEqual(new Set([selBins(160)]))
@@ -842,8 +851,10 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     const ofdma = rows.filter((x) => x.frame.muKind === 'ofdma')
     const members = ofdma.filter((x) => x.part !== undefined)
     const overhearers = ofdma.filter((x) => x.part === undefined)
-    expect(members.length).toBe(334)
-    expect(overhearers.length).toBe(167)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(members.length).toBe(396)
+    expect(overhearers.length).toBe(198)
 
     for (const x of members) {
       const n = x.frame.muParts!.length
@@ -872,7 +883,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     const su = rows.filter((x) => x.frame.muParts === undefined)
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(su.length).toBe(10277)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(su.length).toBe(10218)
     expect(new Set(su.map((x) => x.sel.bins))).toEqual(new Set([full]))
     for (const x of su) expect('ruFraction' in x.sel).toBe(false)
 
@@ -881,26 +894,31 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // than this slice.
     const memberLoss = members.map((x) => x.sel.lossDb).sort((a, b) => a - b)
     const suLoss = su.map((x) => x.sel.lossDb).sort((a, b) => a - b)
-    // Re-measured 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable, §10.2.3.2 / Annex C): 70 of
-    // 334 member rows are now <= 0, and the single-user figures below moved with them.
+    // Re-measured 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable, §10.2.3.2 / Annex C), and again
+    // after the W6 merge (standard TXTIME, primary-20 CCA): 77 of 396 member rows are now <= 0, and the
+    // single-user figures below moved with them.
     expect(quantile(memberLoss, 0.5)).toBeGreaterThan(0)
-    expect(quantile(memberLoss, 0.5)).toBeCloseTo(2.374, 3)
-    expect(memberLoss.filter((v) => v <= 0).length).toBe(70)
-    expect(memberLoss[0]).toBeCloseTo(-4.054, 3)
+    expect(quantile(memberLoss, 0.5)).toBeCloseTo(2.253, 3)
+    expect(memberLoss.filter((v) => v <= 0).length).toBe(77)
+    expect(memberLoss[0]).toBeCloseTo(-4.585, 3)
     // The same combiner on the rows this slice never touched: negatives are not a member thing.
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(suLoss.filter((v) => v <= 0).length).toBe(801)
-    expect(suLoss[0]).toBeCloseTo(-3.373, 3)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(suLoss.filter((v) => v <= 0).length).toBe(789)
+    expect(suLoss[0]).toBeCloseTo(-2.972, 3)
     // And what the whole correction is worth here, which is the "no consequence" in numbers:
-    // the mean member loss goes from 2.530 dB on nine bins to 2.628 dB on four (design §8.0); 2.561 dB since 2026-11-11 (W7b, dot11QAPEDCATable).
+    // the mean member loss goes from 2.530 dB on nine bins to 2.628 dB on four (design §8.0); 2.397 dB since 2026-11-11 (W7b dot11QAPEDCATable, then the W6 merge).
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
-    expect(mean(memberLoss)).toBeCloseTo(2.561, 3)
-    expect(mean(suLoss)).toBeCloseTo(2.484, 3)
+    expect(mean(memberLoss)).toBeCloseTo(2.397, 3)
+    expect(mean(suLoss)).toBeCloseTo(2.491, 3)
 
     // The outcome half: identical to the nine-bin round, to the frame.
-    expect(lowSinrFails(rs)).toBe(5)
-    expect(dataTxCount(rs)).toBe(3371)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(lowSinrFails(rs)).toBe(3)
+    expect(dataTxCount(rs)).toBe(3340)
   })
 
   /*
@@ -992,7 +1010,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // — where every one of the 80 read all nine bins of the channel.
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(tb.length).toBe(142)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(tb.length).toBe(144)
 
     for (const x of tb) {
       const n = x.trigger.muParts!.length
@@ -1023,7 +1043,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     const rest = selRows(rs).filter((x) => x.frame.orthogonalGroup === undefined)
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(rest.length).toBe(1332)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(rest.length).toBe(1319)
     expect(tb.length + rest.length).toBe(selRows(rs).length)
     for (const x of rest) {
       expect(x.sel.bins).toBe(full)
@@ -1041,7 +1063,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     expect(lowSinrFails(rs)).toBe(1)
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(dataTxCount(rs)).toBe(809)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(dataTxCount(rs)).toBe(803)
   })
 
   /**
@@ -1070,13 +1094,15 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     // adding a silent listener changes nothing about the round — and each is received twice.
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(addressed.length).toBe(141)
-    expect(overheard.length).toBe(142)
-    // 2026-11-11 (W7b): one answer is also overheard by sta-1 — a round in which it was solicited
-    // and did not transmit, so it was listening; every other answer is overheard by the bystander
-    // alone. The mirror check below is the bystander's.
-    expect(new Set(overheard.map((x) => x.sel.node))).toEqual(new Set(['sta-3', 'sta-1']))
-    expect(overheard.filter((x) => x.sel.node === 'sta-1').length).toBe(1)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(addressed.length).toBe(142)
+    expect(overheard.length).toBe(144)
+    // 2026-11-11 (W7b, then the W6 merge): two answers are also overheard by sta-2 — rounds in which
+    // it was solicited and did not transmit, so it was listening; every other answer is overheard
+    // by the bystander alone. The mirror check below is the bystander's.
+    expect(new Set(overheard.map((x) => x.sel.node))).toEqual(new Set(['sta-3', 'sta-2']))
+    expect(overheard.filter((x) => x.sel.node === 'sta-2').length).toBe(2)
     for (const x of overheard) {
       expect(x.sel.bins).toBe(4)
       expect(x.sel.ruFraction).toBe(1 / 2)
@@ -1125,8 +1151,9 @@ describe('selectivity, slice 4b: a member reads its own resource unit', () => {
     expect(Object.fromEntries([...tally].sort())).toEqual({
       // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
       // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-      'data:mumimo': 104,
-      'data:ofdma': 25,
+      // Re-measured again 2026-11-11 after the W6 merge (standard TXTIME, CCA on the primary 20 MHz).
+      'data:mumimo': 123,
+      'data:ofdma': 30,
       'mba:per-user context': 24,
       'trigger:per-user context': 26,
     })
@@ -1358,8 +1385,10 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     const mu = dlData.filter((r) => r.frame.muParts !== undefined)
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(dlData.length).toBe(333)
-    expect(mu.length).toBe(332)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(dlData.length).toBe(330)
+    expect(mu.length).toBe(329)
     // Two members, every time: half of nine bins is 4.5, so each reads 4 and bin 8 is held by
     // nobody — the bin Table 27-8's two 106-tone RUs leave out.
     expect(new Set(mu.map((r) => r.frame.muParts!.length))).toEqual(new Set([2]))
@@ -1394,16 +1423,18 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     const rows = dlRows(run(ruDiversityScenario(), RU_ROUND_NS))
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(rows.length).toBe(285)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(rows.length).toBe(276)
     // One group, at one rung, holding everything.
     const groups = marginGroups(rows)
     expect(groups.length).toBe(1)
-    expect(groups[0]!.length).toBe(285)
+    expect(groups[0]!.length).toBe(276)
     expect(groups[0]![0]!.margin).toBeCloseTo(3.547, 3)
     // Widths spanning thirteen decades agree on that partition, so the constant is not a knob.
     const sizes = (q: number): number[] => marginGroups(rows, q).map((g) => g.length)
     for (const q of [1e-13, 1e-9, MARGIN_GROUP_DB, 1e-3, 1e-1, 0.5, 1, 2]) {
-      expect(sizes(q), `group width ${q} dB`).toEqual([285])
+      expect(sizes(q), `group width ${q} dB`).toEqual([276])
     }
     // And the one setting that disagrees is the exact float the first version of this used:
     // 2.8e-14 dB of summation order, cutting one population into three.
@@ -1411,7 +1442,9 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     for (const r of rows) exact.set(r.margin, (exact.get(r.margin) ?? 0) + 1)
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect([...exact.values()].sort((a, b) => b - a)).toEqual([276, 6, 3])
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect([...exact.values()].sort((a, b) => b - a)).toEqual([268, 5, 3])
     const means = [...new Set(rows.map((r) => r.meanSinrDb))]
     expect(Math.max(...means) - Math.min(...means)).toBeLessThan(1e-13)
     expect(Math.max(...means) - Math.min(...means)).toBeGreaterThan(0)
@@ -1463,17 +1496,19 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
     // Re-measured again 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable — AIFSN 1 on AC_VI/AC_VO,
     // CWmax 63 on AC_BE, §10.2.3.2 / Annex C — so its MU PPDUs and Triggers go out at other instants).
-    expect(half.length).toBe(2745)
-    expect(whole.length).toBe(1424)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(half.length).toBe(2709)
+    expect(whole.length).toBe(1396)
     expect(dropRate(half), table).toBeGreaterThan(dropRate(whole))
-    expect(dropRate(half)).toBeCloseTo(0.2663, 3)
-    expect(dropRate(whole)).toBeCloseTo(0.1587, 3)
+    expect(dropRate(half)).toBeCloseTo(0.2713, 3)
+    expect(dropRate(whole)).toBeCloseTo(0.1633, 3)
 
     // And on the median of the ten per-seed differences, which survives any one seed flipping.
     const diffs = legs.map((l) => dropRate(l.half) - dropRate(l.whole)).sort((a, b) => a - b)
     const median = diffs[Math.floor(diffs.length / 2)]!
     expect(median, table).toBeGreaterThan(0)
-    expect(100 * median).toBeCloseTo(11.87, 1)
+    expect(100 * median).toBeCloseTo(11.50, 1) // 2026-11-11: re-measured after the W6 merge
 
     // Seed 7 on its own, kept as the recorded instrument the lesson's own figures came from —
     // **not as the evidence**: this one point is 7.55 pp on a standard error of 4.18 (1.81 σ).
@@ -1481,12 +1516,14 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
     // Re-measured again 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable, §10.2.3.2 / Annex C).
-    expect(seven.half.length).toBe(284)
-    expect(seven.whole.length).toBe(136)
-    expect(seven.half.filter((x) => x.failed).length).toBe(85)
-    expect(seven.whole.filter((x) => x.failed).length).toBe(23)
-    expect(dropRate(seven.half)).toBeCloseTo(0.2993, 4)
-    expect(dropRate(seven.whole)).toBeCloseTo(0.1691, 4)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(seven.half.length).toBe(275)
+    expect(seven.whole.length).toBe(139)
+    expect(seven.half.filter((x) => x.failed).length).toBe(81)
+    expect(seven.whole.filter((x) => x.failed).length).toBe(30)
+    expect(dropRate(seven.half)).toBeCloseTo(0.2945, 4)
+    expect(dropRate(seven.whole)).toBeCloseTo(0.2158, 4)
   }, 300_000)
 
   /**
@@ -1520,7 +1557,9 @@ describe('selectivity, slice 4b: the ru-diversity scene and its publication gate
     const half = gateSweep().find((l) => l.seed === 7)!.half
     // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement §10.3.2.13.2,
     // MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5) — measured, not chosen.
-    expect(half.length).toBe(284)
+    // Re-measured 2026-11-11 (W6 merged: TXTIME by Eq 27-149 / 36-110 with LTFs, LDPC and PE, CCA on the
+    // primary 20 MHz §27.3.22.6.3, per-PHY aRxPHYStartDelay §6.7.4.4, TRS TB PPDU §26.5.2.3.4).
+    expect(half.length).toBe(275)
 
     // The shares, and the bins each one reads — from the engine's own function, never a table.
     const shares = [1, 1 / 2, 1 / 3, 1 / 4]

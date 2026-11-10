@@ -80,12 +80,17 @@ describe('DL MU outcome', () => {
 describe('a triggered uplink round has one PPDU format', () => {
   it('a mixed HE/EHT group is triggered as HE with every MCS capped at 11', () => {
     const sc = HOUSEHOLDS.find((h) => h.id === 'three-gamers')!.scenario()
-    const sim = new Simulation({ ...sc, seed: 23 })
+    // 2026-11-11: the standard's TXTIME moved every instant, and seed 23 no longer lines two
+    // uplink backlogs up. The HE TV is made a gamer too, so that a triggered group can be mixed
+    // at all, and seed 28 is the one in 1…30 that triggers such a group inside 3 s.
+    for (const n of sc.nodes) if (n.id === 'sta-4') n.profiles = ['gaming']
+    const sim = new Simulation({ ...sc, seed: 28 })
     const recs: TLRecord[] = []
     // the crash this guards against was an EHT MCS 12 inside a trigger with no mode
     for (let t = 200 * MS; t <= 3000 * MS; t += 200 * MS) recs.push(...sim.runUntil(t).records)
     const triggers = recs.filter((r): r is Rec<'TX_START'> => r.type === 'TX_START' && r.frame.kind === 'trigger')
     expect(triggers.length).toBeGreaterThan(0)
+    expect(triggers.some((r) => r.frame.ulMode === 'he'), 'a mixed HE/EHT group was triggered').toBe(true)
     for (const r of triggers) {
       // the Trigger itself is a non-HT frame; ulMode is the format it dictates
       expect(r.frame.mode, `trigger @${r.t}`).toBeUndefined()

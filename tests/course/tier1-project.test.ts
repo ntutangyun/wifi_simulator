@@ -4,8 +4,8 @@
  * The first half of the Tier 1 project, "the brief and the plan". ① is IEEE Std 802.11-2024 and
  * IEEE Std 802.11be-2024 only — the mechanisms the project exercises, each with its clause. ② says
  * what this simulator does for each, and is honest where it is not the standard: the scene runs
- * DCF with EDCA switched off, the symbol count uses the BCC formula for MCS 13, the ACK timeout
- * uses clause 17's 20 µs for a Wi-Fi 7 device. ③ keeps the project's task: every figure the brief
+ * DCF with EDCA switched off; since W6 (2026-11-11) the symbol count, preamble and packet extension
+ * follow Eq 36-110 and the ACK timeout a Wi-Fi 7 device's 24 µs aRxPHYStartDelay. ③ keeps the project's task: every figure the brief
  * prints is a PREDICTION, and each one is read back out of the lab it is printed in and recomputed
  * here from the engine's own functions and the Bianchi solver; the few readings the labs send the
  * reader to (first frames, the gap after the first frame, the first backoff draw) are read off a
@@ -19,11 +19,11 @@ import { projectFlat, tier1Project } from '../../src/course/tier1/tier1-project'
 import { dcfTimes, saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { ScenarioSchema } from '../../src/model/scenario'
-import { Simulation } from '../../src/engine/simulation'
+import { Simulation, timingFor } from '../../src/engine/simulation'
 import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, CW_MAX, CW_MIN, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, RATE_MARGIN_DB,
   SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS, RX_START_DELAY_NS,
-  ctrlRespRateForMode, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs,
+  ctrlRespRateForMode, mcsForRssi, mcsRateMbps, noiseDbm, ppduTiming, reqSinrDb, toneRatio, txTimeModeNs,
   txTimeNs,
 } from '../../src/engine/phy'
 import { PL0_DB, PL_EXP, WALL_LOSS_DB, buildLinkTable, pathLossDb } from '../../src/engine/propagation'
@@ -37,6 +37,8 @@ const RUN_NS = 30 * MS
 const PAYLOAD_BITS = 12_000
 const MSDU = 1500
 const PARAMS = { W: 16, m: 6, attempts: 7 } as const
+/** 2026-11-11 (W6): a Wi-Fi 7 STA's AckTimeout, 16 + 9 + 24 µs (§6.7.4.4, Table 27-61). */
+const EHT_ACK_TIMEOUT_NS = timingFor('5g', 'eht').ackTimeoutNs
 
 // 2026-11-11: an EHT PPDU's data field is always an A-MPDU (802.11be §9.7.3), so one MSDU goes out
 // as a one-subframe A-MPDU with its 4-octet MPDU delimiter: L = 4 + 1500 + 24 + 4 = 1532, not 1528.
@@ -46,7 +48,7 @@ function times(mcs: number): { dataNs: number; ackNs: number; respRate: number; 
   const dataNs = txTimeModeNs('eht', APEP, mcs, { widthMhz: 20 })
   const respRate = ctrlRespRateForMode('eht', mcs, mcsRateMbps('eht', mcs))
   const ackNs = txTimeNs(ACK_BYTES, respRate)
-  return { dataNs, ackNs, respRate, tsNs: dataNs + SIFS_NS + ackNs + DIFS_NS, tcNs: dataNs + ACK_TIMEOUT_NS + DIFS_NS }
+  return { dataNs, ackNs, respRate, tsNs: dataNs + SIFS_NS + ackNs + DIFS_NS, tcNs: dataNs + EHT_ACK_TIMEOUT_NS + DIFS_NS }
 }
 const mix = (ts: number[]): number => ts.reduce((a, b) => a + b, 0) / ts.length
 function modelS(n: number, tsNs: number, tcNs: number): number {
@@ -169,26 +171,32 @@ describe('tier1-project · the lesson', () => {
 })
 
 describe('tier1-project · ② says what the engine does, and the engine does it', () => {
-  it('has three `differs` rows and more than one kind', () => {
+  it('has one `differs` row and more than one kind', () => {
+    // 2026-11-11 (W6): the ACK timeout and the frame length follow the standard now.
     expect(tier1Project.implementation!.filter((r) => r.kind === 'differs').map((r) => r.topic))
-      .toEqual(['接入方式', 'ACK 超时', '数据帧的时长'])
+      .toEqual(['接入方式'])
     expect(new Set(tier1Project.implementation!.map((r) => r.kind)).size).toBeGreaterThan(2)
   })
 
-  it('ACK timeout: 20 µs for every generation, 45 µs; HE’s 24 µs would give 49', () => {
-    const [t, he] = figs(implRow('ACK 超时').sim, /ACK 超时为 (\d+) µs[\s\S]*?应为 (\d+) µs/, '② on the ACK timeout')
-    expect(t * 1000).toBe(ACK_TIMEOUT_NS)
-    expect(he * 1000).toBe(SIFS_NS + SLOT_NS + 24_000)
-    expect(ACK_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS)
+  it('ACK timeout: a Wi-Fi 7 STA’s 24 µs aRxPHYStartDelay, 49 µs', () => {
+    expect(implRow('ACK 超时').kind).toBe('faithful')
+    const [s, sl, d, t] = figs(implRow('ACK 超时').sim, /ACK 超时为 (\d+) \+ (\d+) \+ (\d+) = (\d+) µs/, '② on the ACK timeout')
+    expect([s * 1000, sl * 1000, d * 1000, t * 1000]).toEqual([SIFS_NS, SLOT_NS, 24_000, EHT_ACK_TIMEOUT_NS])
+    expect(ACK_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS) // a clause 17 STA's, for contrast
   })
 
-  it('airtime: the BCC numerator for every rung, a 48 µs preamble', () => {
-    const [service, perByte, tail] = figs(implRow('数据帧的时长').sim, /⌈\((\d+) \+ (\d+)·L \+ (\d+)\) \/ 每符号比特数⌉/, '② on the formula')
-    expect([service, perByte, tail]).toEqual([16, 8, 6])
-    const [pre] = figs(implRow('数据帧的时长').sim, /前导码取 (\d+) µs/, '② on the preamble')
+  it('airtime: LDPC for MCS 13, BCC for MCS 2, the 51.2 µs preamble, the packet extension, whole µs', () => {
+    expect(implRow('数据帧的时长').kind).toBe('faithful')
+    const [service, perByte] = figs(implRow('数据帧的时长').sim, /⌈\((\d+) \+ (\d+)·L \+ N_tail\) \/ 每符号比特数⌉/, '② on the formula')
+    expect([service, perByte]).toEqual([16, 8])
+    const [pre] = figs(implRow('数据帧的时长').sim, /前导码逐个字段相加为 ([\d.]+) µs/, '② on the preamble')
     expect(pre * 1000).toBe(PHY_MODES.eht.preambleNs)
-    // MCS 13 is one of the LDPC-only rungs, and the engine still counts symbols the BCC way
-    expect(txTimeModeNs('eht', APEP, 13, { widthMhz: 20 })).toBe(PHY_MODES.eht.preambleNs + Math.ceil((16 + 8 * APEP + 6) / ndbpsOf(13)) * PHY_MODES.eht.symNs)
+    // 2026-11-11 (W6): MCS 13 is LDPC-only and counted the LDPC way (§36.3.13.3.3), MCS 2 as BCC
+    const t13 = ppduTiming('eht', APEP, 13), t2 = ppduTiming('eht', APEP, 2)
+    expect([t13.coding, t2.coding]).toEqual(['ldpc', 'bcc'])
+    expect(t13.nsym).toBe(Math.ceil((16 + 8 * APEP) / ndbpsOf(13)))
+    expect(t2.nsym).toBe(Math.ceil((16 + 8 * APEP + 6) / ndbpsOf(2)))
+    expect(txTimeModeNs('eht', APEP, 13, { widthMhz: 20 })).toBe(Math.ceil((PHY_MODES.eht.preambleNs + t13.nsym * PHY_MODES.eht.symNs + t13.peNs) / 1000) * 1000)
     expect(firstDataOf('sta-1').frame.apepBytes).toBe(APEP)
   })
 
@@ -291,8 +299,8 @@ describe('tier1-project · ③ the labs: the brief, the four predictions, the th
   it('lab 3 (b): the formula, its note, both exchanges cell for cell, and the first frames on screen', () => {
     const l = lab('（b）一帧多长，一次交换多长')
     const f = l.blocks!.find((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')!
-    const [service, perByte, tail] = figs(f.text, /⌈\((\d+) \+ (\d+)·L \+ (\d+)\) \/ 每符号比特数⌉/, 'numerator')
-    expect([service, perByte, tail]).toEqual([16, 8, 6])
+    const [service, perByte] = figs(f.text, /⌈\((\d+) \+ (\d+)·L \+ N_tail\) \/ 每符号比特数⌉/, 'numerator')
+    expect([service, perByte]).toEqual([16, 8])
     same(raw(f.text, /符号数 × ([\d.]+) µs/, 'symbol')[0]!, PHY_MODES.eht.symNs / 1000, 'symbol')
     // 2026-11-11: L is the A-MPDU before EOF padding (802.11be §9.7.3), which the engine keeps as
     // `apepBytes`; `frame.bytes` is PSDU_LENGTH, the A-MPDU padded to fill the last symbol (§10.12.6)
@@ -302,22 +310,29 @@ describe('tier1-project · ③ the labs: the brief, the four predictions, the th
     expect(total).toBe(firstDataOf('sta-1').frame.apepBytes)
     const [psdu] = figs(f.note!, /屏幕上书房笔记本那一帧的长度是 (\d+) 字节/, 'PSDU_LENGTH')
     expect(psdu).toBe(firstDataOf('sta-1').frame.bytes)
-    const nsym13 = (times(13).dataNs - PHY_MODES.eht.preambleNs) / PHY_MODES.eht.symNs
-    expect(psdu).toBe(Math.floor((nsym13 * ndbpsOf(13) - 16 - 6) / 8))
-    expect(figs(f.note!, /前导码按 (\d+) µs 计/, 'note preamble')[0]! * 1000).toBe(PHY_MODES.eht.preambleNs)
+    // 2026-11-11 (W6 merged with W7a): PSDU_LENGTH is Eq 36-113's — LDPC, no tail, up to the
+    // a_init boundary of the last symbol — not the whole last symbol
+    expect(psdu).toBe(ppduTiming('eht', total, 13).psduLength)
+    expect(Number(raw(f.note!, /前导码按 ([\d.]+) µs 计/, 'note preamble')[0]!) * 1000).toBe(PHY_MODES.eht.preambleNs)
+    const [pe13, pe2] = figs(f.note!, /分别是 (\d+) µs 与 (\d+) µs/, 'note PE')
+    expect([pe13 * 1000, pe2 * 1000]).toEqual([ppduTiming('eht', total, rungOf('sta-1')).peNs, ppduTiming('eht', total, rungOf('sta-2')).peNs])
     for (const v of everyFig(/(\d+) 字节要几个符号/g, 'the frame the plan asks about', 1)) expect(val(v)).toBe(total)
     for (const [label, id] of [['书房笔记本', 'sta-1'], ['客厅笔记本', 'sta-2']] as const) {
       const r = rowOf('（b）预测：一帧与一次交换', label)
       const mcs = rungOf(id)
       const t = times(mcs)
       expect(val(r[1]!)).toBe(ndbpsOf(mcs))
+      const pt = ppduTiming('eht', total, mcs)
       const [bits, perSym, nsym] = figs(r[2]!, /⌈(\d+) \/ (\d+)⌉ = (\d+)/, `${label}: ceiling`)
-      expect(bits).toBe(service + perByte * total + tail)
+      expect(bits).toBe(service + perByte * total + (pt.coding === 'bcc' ? 6 : 0))
       expect(perSym).toBe(ndbpsOf(mcs))
       expect(Math.ceil(bits / perSym)).toBe(nsym)
-      const [pre, body, data] = raw(r[3]!, /([\d.]+) \+ ([\d.]+) = ([\d.]+) µs/, `${label}: frame`)
+      expect(nsym).toBe(pt.nsym)
+      const [pre, body, pe, sum, data] = raw(r[3]!, /([\d.]+) \+ ([\d.]+) \+ (\d+) = ([\d.]+)，取整 ([\d.]+) µs/, `${label}: frame`)
       same(pre!, PHY_MODES.eht.preambleNs / 1000, 'preamble')
       same(body!, (nsym * PHY_MODES.eht.symNs) / 1000, 'symbols')
+      expect(val(pe!) * 1000).toBe(pt.peNs)
+      same(sum!, (pt.totalNs - pt.roundNs) / 1000, 'sum before rounding')
       same(data!, t.dataNs / 1000, 'frame')
       const [ackRate, ackUs] = raw(r[4]!, /(\d+) Mb\/s, ([\d.]+) µs/, `${label}: ack`)
       expect(val(ackRate!)).toBe(t.respRate)
@@ -343,7 +358,7 @@ describe('tier1-project · ③ the labs: the brief, the four predictions, the th
     expect(wait * 1000).toBe(DIFS_NS)
     const [fastAck, slowAck] = figs(l.expect, /快帧之后的确认帧是 (\d+) Mb\/s，慢帧之后是 (\d+) Mb\/s/, 'lab 3 expect: ack rates')
     expect([fastAck, slowAck]).toEqual([times(13).respRate, times(2).respRate])
-    expect(figs(l.meaning, /ACK 超时取 (\d+) µs/, 'lab 3 meaning')[0]! * 1000).toBe(ACK_TIMEOUT_NS)
+    expect(figs(l.meaning, /ACK 超时取 (\d+) µs/, 'lab 3 meaning')[0]! * 1000).toBe(EHT_ACK_TIMEOUT_NS)
   })
 
   it('lab 4 (c)(d): the fixed point, the generic exchange, the share and the flat to itself', () => {
@@ -466,10 +481,11 @@ describe('tier1-project · `why`, the quiz and `sources` print the same predicti
     for (const v of [snrA, snrB, snrC]) same(v!, farSnr, 'SNR again')
     for (const v of everyFig(/\+ (\d+) 超过了|\+ (\d+) 不超过|留 (\d+) dB 余量/g, 'the margin', 4)) expect(val(v)).toBe(RATE_MARGIN_DB)
     same(raw(quiz, /碰撞概率反而升到 ([\d.]+) %/, 'three')[0]!, 100 * solveBianchi({ n: 3, ...PARAMS }).p, 'three contenders')
-    const [t, cl17, he] = figs(quiz, /(\d+) µs 的 ACK 超时[\s\S]*?取第 17 章的 (\d+) µs，而 HE 的表 27-61 给的是 (\d+) µs/, 'quiz ACK timeout')
-    expect(t * 1000).toBe(ACK_TIMEOUT_NS)
-    expect(cl17 * 1000).toBe(RX_START_DELAY_NS)
-    expect(he).toBe(figs(STD, /HE 为 (\d+) µs（表 27-61）/, '① HE')[0])
+    const [t, ht] = figs(quiz, /(\d+) µs 的 ACK 超时[\s\S]*?它们的 aRxPHYStartDelay 都是 (\d+) µs/, 'quiz ACK timeout')
+    expect(t * 1000).toBe(EHT_ACK_TIMEOUT_NS)
+    expect(ht).toBe(figs(STD, /HE 为 (\d+) µs（表 27-61）/, '① HE')[0])
+    const [cl17, to17] = figs(quiz, /只支持第 17 章的设备是 (\d+) µs（ACK 超时 (\d+) µs）/, 'quiz clause 17')
+    expect([cl17 * 1000, to17 * 1000]).toEqual([RX_START_DELAY_NS, ACK_TIMEOUT_NS])
   })
 
   it('`sources` lists the four engine values the brief rests on', () => {

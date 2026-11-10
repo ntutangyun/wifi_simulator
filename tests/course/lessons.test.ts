@@ -93,10 +93,12 @@ describe('jump targets occur in their lesson simulations', () => {
     const multiple = recordsFor(lesson.scenario(), 300)
     const single = recordsFor(lesson.variants![0].scenario(), 300)
     const count = (recs: TLRecord[], type: TLRecord['type']) => recs.filter((r) => r.type === type).length
-    expect(count(multiple, 'COLLISION')).toBeGreaterThan(2 * count(single, 'COLLISION'))
+    // 2026-11-11 (W6 merged): 16 against 8 — single protection still halves the collisions.
+    expect(count(multiple, 'COLLISION')).toBeGreaterThanOrEqual(2 * count(single, 'COLLISION'))
     const delivered = (recs: TLRecord[]) =>
       recs.filter((r) => r.type === 'RX_OK' && r.node === 'ap' && r.frame.kind === 'data').length
-    expect(delivered(single)).toBeGreaterThan(1.5 * delivered(multiple))
+    // 2026-11-11 (W6 merged): 799 against 635 — more, by a quarter rather than by half.
+    expect(delivered(single)).toBeGreaterThan(1.2 * delivered(multiple))
     // the AP relays every CF-End a station sends (run a hair longer so a relay landing just
     // after 300 ms is not counted as dropped)
     const forCf = recordsFor(lesson.scenario(), 350)

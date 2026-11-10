@@ -167,7 +167,7 @@ describe('rts-cts · ② says what the engine does, and the engine does it', () 
   })
 
   it('CTSTimeout is 45 µs after the RTS', () => {
-    const [to] = figs(implRow('CTS 超时').sim, /(\d+) µs/, 'the CTS timeout')
+    const [to] = figs(implRow('CTS 超时').sim, /CTS 超时 (\d+) µs/, 'the CTS timeout')
     expect(CTS_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS)
     expect(to * US).toBe(CTS_TIMEOUT_NS)
     const lastEnd = new Map<string, number>()
@@ -181,7 +181,8 @@ describe('rts-cts · ② says what the engine does, and the engine does it', () 
 
   it('the RTS-NAV reset is the standard’s formula, and no bystander hears an RTS here', () => {
     const mac = readFileSync(resolve(ROOT, 'src/engine/mac.ts'), 'utf8')
-    expect(mac).toContain('2 * this.T.sifsNs + ctsTime + this.T.rxStartDelayNs + 2 * this.T.slotNs')
+    // 2026-11-11 (W6): aRxPHYStartDelay of any format the data PPDU may arrive in (§6.7.4.4).
+    expect(mac).toContain('2 * this.T.sifsNs + ctsTime + this.T.rxStartDelayAnyNs + 2 * this.T.slotNs')
     expect(ofType(prot(), 'NAV_SET').some((r) => r.source.startsWith('rts'))).toBe(false)
   })
 

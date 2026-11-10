@@ -265,7 +265,12 @@ describe('SSBD over a round — standard §10.45 (draft)', () => {
     const ranges = (rs: TLRecord[]): number => of(rs, 'UWB_RANGE').length
     expect(ranges(off)).toBeGreaterThan(0)
     expect([ranges(csma), ranges(defaults), ranges(maxWait)]).toEqual([0, 0, 0])
-    expect(new Set(of(defaults, 'UWB_SSBD').map((r) => r.outcome))).toEqual(new Set(['noRoom']))
+    // 2026-11-11 (W6 merged: Wi-Fi CCA and airtime per the PHY clauses): in one round the phone and
+    // anchor-3 each sense idle once and send, and that round still yields no range; every other
+    // attempt runs out of room.
+    const outcomes = of(defaults, 'UWB_SSBD').map((r) => r.outcome)
+    expect(new Set(outcomes)).toEqual(new Set(['noRoom', 'idle']))
+    expect(outcomes.filter((o) => o === 'idle').length).toBe(2)
     // the biggest backoff that fits the POLL's window is still clamped against the room CCAs leave
     expect(of(maxWait, 'UWB_SSBD').filter((r) => r.outcome === 'clamped').length).toBeGreaterThan(0)
   })

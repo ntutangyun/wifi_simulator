@@ -335,7 +335,7 @@ describe('uhr-rate-ladder · ③ every figure the labs print is the run', () => 
     const near = ab('near', 'shadow')
     expect(lab('打开起伏之后').expect).toContain(`${near.eFail} 对 ${near.uFail}`)
     expect(L.quiz[1].options[1]).toContain(`${near.eFail} 对 ${near.uFail}`)
-    // why: 「+33.33 % 缩小到 +11.64 %」
+    // why: 「+33.33 % 缩小到 +13.32 %」
     expect(L.why).toContain(`缩小到 ${t.rows[2]![4]!.split('（')[0]}`)
   }, 900_000)
 

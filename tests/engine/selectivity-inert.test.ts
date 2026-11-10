@@ -357,7 +357,8 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
    * largest group is still the 3.62 dB margin with all five widths in it, and its pooled drop
    * rates run **14.66 %, 13.10 %, 9.81 %, 5.61 %, 0.75 %** — the nine-bin channel drops frames
    * nineteen times as often as the 144-bin one at the same distance above the same ladder. The
-   * other groups put 20 MHz strictly highest too.
+   * other groups put 20 MHz strictly highest too. **Re-measured 2026-11-11 after W6** (standard
+   * PPDU durations and primary-20 carrier sense): 14.46, 11.83, 8.58, 4.40, 0.41 %, the same order.
    *
    * **Before that gate the column read 14.39, 12.71, 9.48, 5.09, 0.52 %**, a ratio of 27.7
    * rather than 19.5. The difference is the non-HT ACKs: they used to be judged on nine bins
@@ -414,8 +415,8 @@ describe('selectivity §6 item 3: twenty megahertz is the most affected width, n
      */
     expect(biggestMargin, label(biggest)).toBe('3.62')
     expect(biggest.map((p) => (p.rate * 100).toFixed(2)), label(biggest))
-      .toEqual(['14.66', '13.10', '9.81', '5.61', '0.75'])
-    // 14.66 / 0.75 ≈ 19.5, the "nineteen times" of this test's own doc comment. A bound rather
+      .toEqual(['14.46', '11.83', '8.58', '4.40', '0.41']) // 2026-11-11: re-measured after W6
+    // 14.46 / 0.41 ≈ 35 (2026-11-11, after W6; it was 14.66 / 0.75 ≈ 19.5, the "nineteen times" of the doc comment). A bound rather
     // than a rounded integer, because the exact rates above already fix the quotient and a
     // nearest-integer assertion would only be a second spelling of them that is easier to get
     // wrong (19.5 rounds to 20, not 19).
@@ -483,10 +484,12 @@ describe('selectivity, slice 4b: a multi-user member gets its own resource unit�
     // Re-measured 2026-11-11 (W7b: the AP contends with its own dot11QAPEDCATable parameters —
     // AIFSN 1 on AC_VI/AC_VO, CWmax 63 on AC_BE, §10.2.3.2 / Annex C — so its DL MU PPDUs go out
     // earlier and more often): 94, was 90. Measured, not chosen.
-    expect(members.length).toBe(94)
-    // 2026-11-11 (W7b): one of the 94 fails to decode on this run (none of 90 did before); the
-    // audit below covers failures too, which is what `selRowDecoded` pairing exists for.
-    expect(members.filter((m) => !m.decoded).length).toBe(1)
+    // Re-measured 2026-11-11 after the W6 merge (standard TXTIME, CCA on the primary 20 MHz): 118.
+    expect(members.length).toBe(118)
+    // 2026-11-11 (W7b): one of the 94 failed to decode on that run (none of 90 did before); after the
+    // W6 merge none of the 118 fails. The audit below covers failures whenever they occur, which is
+    // what `selRowDecoded` pairing exists for.
+    expect(members.filter((m) => !m.decoded).length).toBe(0)
     for (const m of members) {
       expect(m.frac).toBeLessThan(1)
       // The record states the share it used, which is what makes `bins` readable at all: 24 on

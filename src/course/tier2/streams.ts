@@ -6,8 +6,9 @@
  * Eq. 36-122), the EHT-LTF the receiver estimates the MIMO channel from and how many of them a
  * stream count needs (§36.3.12.10, Table 36-43), the receive EHT-MCS and NSS set a transmitter
  * must stay inside (§35.14.4.1, §10.6.5.8) and the Operating Mode field that lowers it. ② marks
- * the engine against each — at most four streams, a 48 µs preamble that does not grow with the
- * stream count, no MIMO channel, one SINR for every stream, and a stream count fixed for the run.
+ * the engine against each — at most four streams, no MIMO channel, one SINR for every stream, and
+ * a stream count fixed for the run; since 2026-11-11 (W6) the preamble carries Table 36-43's
+ * EHT-LTF count, so it grows with the streams.
  * ③ is the lesson's five variants. It loads `width`'s own builder at 20 MHz, and its last variant
  * is `width`'s widest, so the two lessons are one experiment.
  *
@@ -33,7 +34,7 @@ export function streamsNegotiationStack(): StackSpec {
       { label: '笔记本支持 2 条流', bytes: 2, note: '发送的是它，两端取较小者' },
       { label: '链路使用 2 条流', bytes: 2, note: '每符号 4680 比特' },
     ],
-    total: '一帧 88.8 µs，与 2 条流相同',
+    total: '一帧 112.0 µs，与 2 条流相同',
   }
 }
 
@@ -41,7 +42,7 @@ export const streams: Lesson = {
   id: 'streams',
   module: 8,
   title: '空间流——同一批子载波上并行的几路信号',
-  why: '上一课用更宽的频段缩短一帧；空间流（spatial stream）不需要更多频段：发送端的几根天线（antenna）在同一时刻、同一批子载波（sub-carrier）上发出几路不同的数据，接收端用几根天线收到的不同叠加把它们分开。IEEE Std 802.11be-2024 规定 Wi-Fi 7 必须支持 1 条空间流，2 到 8 条是可选的；每个符号（symbol）的数据比特数与空间流数成正比。为了让接收端估计多入多出（MIMO）信道，前导码（preamble）里的 EHT-LTF 符号随流数增加：1、2、3 到 4、5 到 6、7 到 8 条流分别需要 1、2、4、6、8 个。发送端不得使用接收方没有声明支持的「调制与编码方式（modulation and coding scheme, MCS）与流数」组合，所以一条链路（link）最多用两端中较小的流数。本仿真器的空间流只是一个乘数：每符号比特数乘以流数，所需的信噪比（signal-to-noise ratio, SNR）不变，前导码固定 48 µs，没有信道矩阵，流数在整段仿真里不变。20 MHz 上同一个 1530 字节的帧，1 条流 129.6 µs，2 条流 88.8 µs，4 条流 75.2 µs：数据部分从 81.6 µs 减半到 40.8 µs，再到 27.2 µs，不是 20.4 µs，因为帧只能按整数个符号发送；160 MHz 上一帧本来只剩一个符号，4 条流也还是 61.6 µs。',
+  why: '上一课用更宽的频段缩短一帧；空间流（spatial stream）不需要更多频段：发送端的几根天线（antenna）在同一时刻、同一批子载波（sub-carrier）上发出几路不同的数据，接收端用几根天线收到的不同叠加把它们分开。IEEE Std 802.11be-2024 规定 Wi-Fi 7 必须支持 1 条空间流，2 到 8 条是可选的；每个符号（symbol）的数据比特数与空间流数成正比。为了让接收端估计多入多出（MIMO）信道，前导码（preamble）里的 EHT-LTF 符号随流数增加：1、2、3 到 4、5 到 6、7 到 8 条流分别需要 1、2、4、6、8 个。发送端不得使用接收方没有声明支持的「调制与编码方式（modulation and coding scheme, MCS）与流数」组合，所以一条链路（link）最多用两端中较小的流数。本仿真器的空间流只是一个乘数：每符号比特数乘以流数，所需的信噪比（signal-to-noise ratio, SNR）不变，没有信道矩阵，流数在整段仿真里不变；前导码照标准随流数加入 EHT-LTF。20 MHz 上同一个 1530 字节的帧，1 条流 137.0 µs，2 条流 112.0 µs，4 条流 108.0 µs：数据部分从 81.6 µs 减半到 40.8 µs，再到 27.2 µs，不是 20.4 µs，因为帧只能按整数个符号发送，而前导码每多一条流的台阶就多 EHT-LTF；160 MHz 上一帧本来只剩一个符号，4 条流反而要 91.0 µs。',
   outcomes: [
     '说出标准对空间流规定了什么：可用的流数、每符号比特数、EHT-LTF 的个数与发送端必须遵守的组合',
     '分清本仿真器的空间流哪些照标准、哪些与标准不同或没有实现',
@@ -70,7 +71,7 @@ export const streams: Lesson = {
     { topic: '链路的流数', standard: '不得超过接收方声明的流数（§35.14.4.1）；在此之内的选法标准不规定', sim: '每台设备配置一个流数，一条链路用两端中较小的那个，整段仿真都用它。', kind: 'choice' },
     { topic: '最多几条流', standard: '1 到 8 条（§35.14.4.1）', sim: '只能配置 1 到 4 条。', kind: 'absent' },
     { topic: '每符号比特数', standard: '单流的值乘以流数（§36.5）', sim: '照此计算：20 MHz 的 N_DBPS × 数据子载波数之比 × 流数。', kind: 'faithful' },
-    { topic: 'EHT-LTF 的个数', standard: '1、2、4 条流分别需要 1、2、4 个 EHT-LTF 符号（表 36-43）', sim: '前导码固定 48 µs，不随流数变化。按 2× EHT-LTF 每个 7.2 µs 计，2 条流的前导码应比 1 条流长 7.2 µs，4 条流长 21.6 µs。', kind: 'differs' },
+    { topic: 'EHT-LTF 的个数', standard: '1、2、4 条流分别需要 1、2、4 个 EHT-LTF 符号（表 36-43）', sim: '照此：前导码里放入 1、2、4 个 2× EHT-LTF，每个 7.2 µs，2 条流的前导码比 1 条流长 7.2 µs，4 条流长 21.6 µs。', kind: 'faithful' },
     { topic: 'MIMO 信道', standard: '接收端用 EHT-LTF 估计 MIMO 信道（§36.3.12.10）', sim: '没有信道矩阵：一对设备之间只有一个电平，也没有天线间的相关性。视距空旷处与反射丰富的房间，流数的倍数完全相同。', kind: 'absent' },
     { topic: '每条流的信噪比', standard: '标准不规定接收机怎样分开各路，也不规定各路的质量', sim: '每一路都按整条链路的信噪比判决：所需信噪比与流数无关，发射功率（transmit power）不在各路之间分摊。这里的倍数因此是理想情形下的最大值。', kind: 'choice' },
     { topic: '降低流数', standard: '接收方可以用 Operating Mode 字段调低流数（§10.6.5.8）', sim: '没有 Operating Mode 字段；流数在整段仿真里不变。', kind: 'absent' },
@@ -86,14 +87,14 @@ export const streams: Lesson = {
         '再跳到第一个确认帧（acknowledgement, ACK），读出它的时长。',
       ],
       blocks: [
-        { kind: 'table', heading: '1530 字节的帧，20 MHz', head: ['空间流', 'MCS', '每符号比特数', '数据符号', '空口时间'], rows: [
-          ['1', '13', '2340', '6', '129.6 µs'],
-          ['2', '13', '4680', '3', '88.8 µs'],
-          ['4', '13', '9360', '2', '75.2 µs'],
+        { kind: 'table', heading: '1530 字节的帧，20 MHz', head: ['空间流', 'MCS', '每符号比特数', '数据符号', '前导码', '空口时间'], rows: [
+          ['1', '13', '2340', '6', '51.2 µs', '137.0 µs'],
+          ['2', '13', '4680', '3', '58.4 µs', '112.0 µs'],
+          ['4', '13', '9360', '2', '72.8 µs', '108.0 µs'],
         ] },
       ],
-      expect: '你应该看到：三个变体都是 MCS 13；数据部分从 81.6 µs 减半到 40.8 µs，4 条流时是 27.2 µs，而不是 20.4 µs；前导码三档都是 48 µs，确认帧都是 28 µs。',
-      meaning: '这说明：每符号比特数按 ① 随流数成倍增加，符号数向上取整，所以从 2 条到 4 条流只少了一个符号。所需的信噪比与流数无关，MCS 不降（②）；按表 36-43，4 条流的前导码本应多 21.6 µs，本仿真器没有计入（②）。',
+      expect: '你应该看到：三个变体都是 MCS 13；数据部分从 81.6 µs 减半到 40.8 µs，4 条流时是 27.2 µs，而不是 20.4 µs；前导码却从 51.2 µs 增加到 58.4 µs 与 72.8 µs，确认帧都是 28 µs。',
+      meaning: '这说明：每符号比特数按 ① 随流数成倍增加，符号数向上取整，所以从 2 条到 4 条流只少了一个符号；表 36-43 要求的 EHT-LTF 又随流数增加，4 条流的前导码比 1 条流长 21.6 µs（①、②）。所需的信噪比与流数无关，MCS 不降（②）。',
     },
     {
       heading: '两端支持的流数不同',
@@ -107,7 +108,7 @@ export const streams: Lesson = {
       blocks: [
         { kind: 'diagram', heading: '链路的流数由较小的一端决定', spec: streamsNegotiationStack(), caption: '笔记本只支持 2 条流，所以链路用 2 条流。' },
       ],
-      expect: '你应该看到：这一帧是 88.8 µs，与「2 条流」相同；200 ms 内两次运行的每一个帧开始时刻、发送方、帧类型与时长都相同，共 1660 个帧。',
+      expect: '你应该看到：这一帧是 112.0 µs，与「2 条流」相同；200 ms 内两次运行的每一个帧开始时刻、发送方、帧类型与时长都相同，共 1512 个帧。',
       meaning: '这说明：发送端不能超过接收方声明的流数（①），本仿真器总是取两端中较小的那个（②）。路由器多出的两条流在这里无人可用；把它们分给另一台设备是多用户 MIMO（multi-user MIMO, MU-MIMO），见后面的一课。',
     },
     {
@@ -120,18 +121,18 @@ export const streams: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '160 MHz，1530 字节的帧', head: ['空间流', '每符号比特数', '数据符号', '空口时间'], rows: [
-          ['1（上一课）', '19600', '1', '61.6 µs'],
-          ['4', '78400', '1', '61.6 µs'],
+          ['1（上一课）', '19600', '1', '77.0 µs'],
+          ['4', '78400', '1', '91.0 µs'],
         ] },
       ],
-      expect: '你应该看到：仍是 MCS 13，一帧 61.6 µs，只有 1 个数据符号，与上一课 160 MHz 单流完全相同。',
-      meaning: '这说明：一帧压缩到一个符号以后，再增加每符号比特数也无法缩短它（①）；多出的容量没有数据可装。',
+      expect: '你应该看到：仍是 MCS 13，只有 1 个数据符号，一帧却是 91.0 µs，比上一课 160 MHz 单流的 77.0 µs 还长 14.0 µs。',
+      meaning: '这说明：一帧压缩到一个符号以后，再增加每符号比特数也无法缩短它（①）；多出的容量没有数据可装，4 条流却要多发 3 个 EHT-LTF，前导码长 21.6 µs（①、②）。',
     },
   ],
   sources: [
     'IEEE Std 802.11be-2024：§36.1.1（单空间流必须支持，2 到 8 条可选）、§35.14.4.1 与 §9.4.2.323.4（「EHT-MCS 与流数」接收集合）、§36.5 与式 36-122、表 36-76（流数与每符号比特数）、§36.3.12.10 与表 36-43（EHT-LTF 与所需个数）、表 36-18（2× EHT-LTF 6.4 µs、保护间隔 0.8 µs）、式 36-49 与式 36-110（数据符号数与 TXTIME）。',
     'IEEE Std 802.11-2024：§10.6.5.8（数据帧的速率约束，含 Operating Mode 字段调低的流数）。',
-    '本仿真器的取值与取法：每台设备 1 到 4 条流、链路取两端较小值且整段仿真不变、48 µs 的前导码常数、每条流按整条链路的信噪比判决、没有信道矩阵、速率控制只调 MCS。',
+    '本仿真器的取值与取法：每台设备 1 到 4 条流、链路取两端较小值且整段仿真不变、每条流按整条链路的信噪比判决、没有信道矩阵、速率控制只调 MCS。',
   ],
   limits: [],
   scenario: () => widthScenario(20, 1),
@@ -157,7 +158,7 @@ export const streams: Lesson = {
         '3 条：取两端的平均',
       ],
       answer: 1,
-      explain: '§35.14.4.1 要求组合必须在接收方的接收集合里。本仿真器总是取两端中较小的流数，这一帧是 88.8 µs，与 2 条流相同。',
+      explain: '§35.14.4.1 要求组合必须在接收方的接收集合里。本仿真器总是取两端中较小的流数，这一帧是 112.0 µs，与 2 条流相同。',
     },
     {
       q: '从 1 条流增加到 4 条流，按标准前导码会怎样？',
@@ -167,7 +168,7 @@ export const streams: Lesson = {
         '变短：每个符号承载的比特更多',
       ],
       answer: 1,
-      explain: '表 36-43 规定 3 到 4 条流需要 4 个 EHT-LTF；每个 2× EHT-LTF 7.2 µs，多 3 个就是 21.6 µs。本仿真器的前导码固定 48 µs，没有计入这一项。',
+      explain: '表 36-43 规定 3 到 4 条流需要 4 个 EHT-LTF；每个 2× EHT-LTF 7.2 µs，多 3 个就是 21.6 µs。本仿真器照此计入。',
     },
     {
       q: '为什么在本仿真器里增加一条流不需要更强的信号，而加宽信道需要？',

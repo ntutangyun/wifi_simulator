@@ -25,7 +25,7 @@ import { type Lesson, oneRoom, node, sc, firstVo, firstInternal, J } from '../le
 /**
  * The four categories' AIFS, drawn from one frame end to scale.
  *
- * The zero point is a real instant of this run — 23.0816 ms, the moment the air goes idle before
+ * The zero point is a real instant of this run — 23.1752 ms, the moment the air goes idle before
  * the caller's first voice frame — and the first lane is the frame that ended there: the access
  * point's 32 µs BlockAck, from 23.0496. 34 µs and 43 µs are records at that instant (the caller's
  * VO and the uploader's BE); 79 µs is the same sum, `aifsNs(AIFSN)`, for the category that had
@@ -104,16 +104,16 @@ export const edca: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '通话站点的第一帧语音，按步骤计算', head: ['步骤', '数值'], rows: [
-          ['介质重新空闲', '23.0816 ms'],
+          ['介质重新空闲', '23.1752 ms'],
           ['VO 的 AIFS = 16 + 2 × 9', '34 µs'],
-          ['第一个时隙边界，在 0 与 CWmin 3 之间抽取', '23.1156 ms · 抽到 2'],
-          ['同一个边界上计数减一', '23.1156 ms · 2 → 1'],
-          ['再过一个 9 µs 的空闲时隙', '23.1246 ms · 1 → 0'],
-          ['接入点的语音帧在同一时刻开始，计数停在 0', '23.1246 ms'],
-          ['介质再次空闲满 34 µs，在这个边界发起 TXOP', '23.2602 ms'],
+          ['第一个时隙边界，在 0 与 CWmin 3 之间抽取', '23.2092 ms · 抽到 2'],
+          ['同一个边界上计数减一', '23.2092 ms · 2 → 1'],
+          ['再过一个 9 µs 的空闲时隙', '23.2182 ms · 1 → 0'],
+          ['接入点的语音帧在同一时刻开始，计数停在 0', '23.2182 ms'],
+          ['介质再次空闲满 34 µs，在这个边界发起 TXOP', '23.3690 ms'],
         ] },
       ],
-      expect: '你应该看到：通话站点在 23.1156 ms 抽到 2，计数在 23.1246 ms 减到 0；接入点语音队列的 AIFS 为 16 + 1 × 9 = 25 µs，早一个时隙在 23.1066 ms 同样抽到 2，在 23.1246 ms 先发送。通话站点的计数停在 0，等这一次交换结束、介质再空闲 34 µs，于 23.2602 ms 发送。两帧语音都收到了确认。',
+      expect: '你应该看到：通话站点在 23.2092 ms 抽到 2，计数在 23.2182 ms 减到 0；接入点语音队列的 AIFS 为 16 + 1 × 9 = 25 µs，早一个时隙在 23.2002 ms 同样抽到 2，在 23.2182 ms 先发送。通话站点的计数停在 0，等这一次交换结束、介质再空闲 34 µs，于 23.3690 ms 发送。两帧语音都收到了确认。',
       meaning: '这说明：时隙边界上的操作照标准进行（①、②）。两个 VO 队列抽到了同一个数，但接入点的 AIFSN 为 1，比站点早一个时隙开始倒数，所以先数到零的是它，两帧没有在空中碰撞（dot11QAPEDCATable，②）。同一类别的两台站点之间仍然只靠随机抽取。',
     },
     {
@@ -124,7 +124,7 @@ export const edca: Lesson = {
         '运行 400 ms，统计每台站点 AIFS 的长度与抽取时所用的窗口。',
       ],
       blocks: [
-        { kind: 'diagram', heading: '从同一个帧尾开始，四类各等多久', spec: edcaAifsTiming(), caption: '零点是本轮的 23.0816 ms：接入点（access point, AP）那个 32 µs 的块确认刚刚结束。四条是非 AP 站点的取值；此刻实际在等待的是 34 µs（通话站点）与 43 µs（上传站点）两条，79 µs 那条是按同一个计算式、以后台的 AIFSN 算出的。最上与最下相差 45 µs，正好五个时隙。接入点自己的语音同一时刻只等 25 µs（AIFSN 1）。' },
+        { kind: 'diagram', heading: '从同一个帧尾开始，四类各等多久', spec: edcaAifsTiming(), caption: '零点是本轮的 23.1752 ms：接入点（access point, AP）那个 32 µs 的块确认刚刚结束。四条是非 AP 站点的取值；此刻实际在等待的是 34 µs（通话站点）与 43 µs（上传站点）两条，79 µs 那条是按同一个计算式、以后台的 AIFSN 算出的。最上与最下相差 45 µs，正好五个时隙。接入点自己的语音同一时刻只等 25 µs（AIFSN 1）。' },
         { kind: 'table', heading: '400 ms 里三台站点的 AIFS 与窗口', head: ['站点', '类别', '非零 AIFS 的长度', '抽取时的窗口'], rows: [
           ['通话站点', 'VO', '34 µs', '3、7'],
           ['上传站点', 'BE', '43 µs', '15、31'],
@@ -141,8 +141,8 @@ export const edca: Lesson = {
         '跳到接入点上的内部碰撞。',
         '查看同一时刻接入点的记录：哪一类发送了，哪一类的窗口变了。',
       ],
-      expect: '你应该看到：128.9604 ms 处接入点的 VO 与 BE 两个计数同时为零。VO 发送一帧语音给通话站点；BE 记一次内部碰撞，QSRC 从 0 变为 1，窗口从 15 加倍到 31，重新抽到 26。BE 这一类此时要发的是一帧触发帧，队列里没有数据单元，所以没有帧记重传。整轮 400 ms 共有两次内部碰撞，第二次在 169.9196 ms，窗口从 31 加倍到 63，这已是接入点 BE 的 CWmax。',
-      meaning: '这说明：仲裁规则、窗口计算式与重传计数都照标准（①、②）：2^1 × (15 + 1) − 1 = 31。接入点 BE 的窗口不会超过 63，因为它用 dot11QAPEDCATable 的缺省值。内部碰撞只能发生在接入点上，因为本场景里只有它同时有两类要发。',
+      expect: '你应该看到：191.4675 ms 处接入点的 VO 与 BE 两个计数同时为零。VO 发送一帧语音给通话站点；BE 记一次内部碰撞，QSRC 从 1 变为 2，窗口从 31 加倍到 63，重新抽到 19，63 已是接入点 BE 的 CWmax。BE 的 QSRC 此前已是 1：127.1464 ms 发出的触发帧之后，在超时之内没有一个基于触发的 PPDU（trigger-based PPDU, TB PPDU）开始，这次失败已把窗口从 15 加倍到 31，此后 BE 没有再成功过。BE 这一类此时要发的是一帧触发帧，队列里没有数据单元，所以没有帧记重传。整轮 400 ms 只有这一次内部碰撞。',
+      meaning: '这说明：仲裁规则、窗口计算式与重传计数都照标准（①、②）：2^2 × (15 + 1) − 1 = 63。接入点 BE 的窗口不会超过 63，因为它用 dot11QAPEDCATable 的缺省值。内部碰撞只能发生在接入点上，因为本场景里只有它同时有两类要发。',
     },
   ],
   sources: [
@@ -156,8 +156,8 @@ export const edca: Lesson = {
     node('sta-2', 'Uploader (BE)', 'sta', 6.5, 5, 'he', 'saturated'),
     node('sta-3', 'Backup (BK)', 'sta', 5, 6.5, 'he', 'backup'),
   ]),
-  // Jump 1 is the first INTERNAL_COLLISION of the run, at 128.9604 ms (re-measured 2026-11-11);
-  // the test runs 400 ms, which also holds the second one.
+  // Jump 1 is the first INTERNAL_COLLISION of the run, at 191.4675 ms (re-measured 2026-11-11
+  // after the W6 merge); the test runs 400 ms, which holds no second one.
   jumps: [
     J('第一次 VO 接入', firstVo),
     J('接入点上的内部碰撞', firstInternal),

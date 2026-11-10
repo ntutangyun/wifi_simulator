@@ -190,7 +190,7 @@ describe('the event log renders the row a jump landed on', () => {
     expect(silent).toEqual([])
   })
 
-  it('names the four jumps the old "newest 160" rule cut, so the defect stays described', () => {
+  it('names the six jumps the old "newest 160" rule cut, so the defect stays described', () => {
     // The point of the fix, stated as the measurement that found it. If a lesson
     // edit makes one of these windows sparse the list shrinks and this fails —
     // which is the right outcome: the example in the docblocks would be stale.
@@ -202,7 +202,9 @@ describe('the event log renders the row a jump landed on', () => {
     // dense stretch of the run, behind more than 160 records of the same instant's window.
     // W7b (2026-11-11): the AP now contends with dot11QAPEDCATable (AIFSN 1 on AC_VO/AC_VI), which
     // reshuffles the dense windows: `capstone#1` left the list and `edca-cost#1` joined it.
-    expect(cut).toEqual(['edca#1', 'edca-cost#1', 'mumimo#2', 'mumimo-choose#2'])
+    // W6 merged (2026-11-11): the re-timed PHY puts `capstone#1` and `capstone#2` behind more than
+    // 160 records of their windows again.
+    expect(cut).toEqual(['edca#1', 'edca-cost#1', 'mumimo#2', 'mumimo-choose#2', 'capstone#1', 'capstone#2'])
   })
 
   it('keeps the row budget at 160, so the per-frame cost cannot have moved', () => {

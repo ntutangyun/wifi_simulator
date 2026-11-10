@@ -7,7 +7,7 @@
  * AC taken from each MSDU's UP (Table 10-1) are now faithful and pinned as such; the internal-collision
  * retry count is faithful too (§10.23.2.12.1 asks for it — the row that said otherwise was wrong).
  * ③'s figures are read back out of the lesson text and compared with a 400 ms run of the lesson's own
- * scene, which holds both internal collisions (128.9604 and 169.9196 ms).
+ * scene, which holds one internal collision (191.4675 ms, re-measured after the W6 merge).
  */
 import { describe, it, expect } from 'vitest'
 import { edca, edcaAifsTiming } from '../../src/course/tier2/edca'
@@ -230,8 +230,11 @@ describe('edca · ③ every figure the labs print is the run', () => {
   it('lab 3: the one internal collision, on the AP', () => {
     const l = lab('接入点上的内部碰撞')
     const ic = ofType(rs, 'INTERNAL_COLLISION')
-    expect(ic).toHaveLength(2)
-    expect(l.expect).toContain('共有两次内部碰撞')
+    // 2026-11-11 (W6 merged): one internal collision in 400 ms, not two. Before it the AP's BE
+    // already has QSRC 1 from an unanswered Trigger frame (§10.3.2.9 timeout; §10.23.2.2 doubles
+    // CW on failure), so this collision takes CW from 31 to 63, the dot11QAPEDCATable CWmax.
+    expect(ic).toHaveLength(1)
+    expect(l.expect).toContain('整轮 400 ms 只有这一次内部碰撞')
     for (const c of ic) {
       expect(c.node).toBe('ap')
       expect([c.winnerAc, c.loserAc]).toEqual([3, 1])
@@ -242,7 +245,7 @@ describe('edca · ③ every figure the labs print is the run', () => {
       const after = ofType(rs, 'CW_CHANGE').find((r) => r.node === 'ap' && r.ac === 1 && r.t === t)!
       return { before: prev ?? { qsrc: 0, cw: 15 }, after }
     }
-    const [c1, c2] = ic
+    const [c1] = ic
     expect(l.expect).toContain(`${msOf(c1.t)} ms 处`)
     const { before, after } = around(c1.t)
     const redraw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === 'ap' && r.t === c1.t && r.ac === 1)!
@@ -251,9 +254,15 @@ describe('edca · ③ every figure the labs print is the run', () => {
     expect(voTx.frame.ac).toBe(3)
     expect(voTx.frame.dst).toBe('sta-1')
     expect(l.meaning).toContain(`2^${after.qsrc} × (15 + 1) − 1 = ${after.cw}`)
-    const second = around(c2.t)
-    expect(l.expect).toContain(`第二次在 ${msOf(c2.t)} ms，窗口从 ${second.before.cw} 加倍到 ${second.after.cw}`)
+    // the earlier failure: an unanswered Trigger frame, its timeout and the doubling it caused
+    const [trigAt] = l.expect.match(/([\d.]+) ms 发出的触发帧之后/)!.slice(1)
+    const trig = ofType(rs, 'TX_START').find((r) => r.node === 'ap' && r.frame.kind === 'trigger' && msOf(r.t) === trigAt)!
+    expect(trig).toBeDefined()
+    const to = ofType(rs, 'ACK_TIMEOUT').find((r) => r.node === 'ap' && r.t > trig.t)!
+    expect('t' in before && before.t).toBe(to.t)
+    expect([before.qsrc, before.cw]).toEqual([1, 31])
+    expect(ofType(rs, 'CW_CHANGE').filter((r) => r.node === 'ap' && r.ac === 1 && r.t > to.t && r.t < c1.t)).toEqual([])
     // the AP's own default (dot11QAPEDCATable) caps BE at 63
-    expect(second.after.cw).toBe(QAP_EDCA_PARAMS[1].cwMax)
+    expect(after.cw).toBe(QAP_EDCA_PARAMS[1].cwMax)
   })
 })

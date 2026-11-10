@@ -23,10 +23,10 @@ import { linkOfVirtual } from '../../model/caps'
 import type { StackSpec } from '../diagram'
 
 /** The first 300 ms of this scene, per lane: what the figure is drawn to scale from. */
-export const LANE_FRAMES = { g5: 67, g6: 240 }
+export const LANE_FRAMES = { g5: 27, g6: 235 }
 
 /**
- * One pile of frames, two radios. The boxes are the two lanes' share of the laptop's 307 data
+ * One pile of frames, two radios. The boxes are the two lanes' share of the laptop's 262 data
  * frames: the work went where the band was empty, without anyone scheduling it.
  */
 export function mloStack(): StackSpec {
@@ -35,7 +35,8 @@ export function mloStack(): StackSpec {
     mode: 'sequential',
     label: '一组待发的帧，两台电台',
     layers: [
-      { label: '5 GHz 电台', bytes: LANE_FRAMES.g5, note: `${LANE_FRAMES.g5} 帧` },
+      // 2026-11-11: the 5 GHz box is a tenth of the stack now, too small for a note beside it.
+      { label: `5 GHz 电台 ${LANE_FRAMES.g5} 帧`, bytes: LANE_FRAMES.g5 },
       { label: '6 GHz 电台', bytes: LANE_FRAMES.g6, note: `${LANE_FRAMES.g6} 帧` },
     ],
     total: `同一组待发的帧，300 ms 内共 ${LANE_FRAMES.g5 + LANE_FRAMES.g6} 个数据帧`,
@@ -98,11 +99,11 @@ export const mlo: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: 'MSDU 66，6 GHz 上的第一批', head: ['什么时候', '记录', '记录内容'], rows: [
-          ['4.424 ms', 'ARRIVAL + ENQUEUE · sta-1', '第 66 帧，1500 字节，进入尽力而为队列，深度 1，记录在 5 GHz 那条泳道上。'],
-          ['4.512 ms', 'TX_START · sta-1#6g', '6 GHz 先把计数减到零，一次取走 20 帧，编号 66–85，30,718 字节，调制与编码方式（modulation and coding scheme, MCS）第 13 级。'],
-          ['4.512 ms', 'BACKOFF_DEC · sta-1', '同一时刻，5 GHz 的退避计数还剩 2，即还要再空闲两个时隙（slot time）。'],
-          ['6.0176 ms', 'TX_START · ap#6g', '接入点的块确认，32 字节，一次确认这 20 帧。'],
-          ['6.0496 ms', '20 × DEQUEUE · sta-1#6g', '这 20 帧离开共享队列。'],
+          ['4.4458 ms', 'ARRIVAL + ENQUEUE · sta-1', '第 66 帧，1500 字节，进入尽力而为队列，深度 1，记录在 5 GHz 那条泳道上。'],
+          ['4.5338 ms', 'TX_START · sta-1#6g', '6 GHz 先把计数减到零，一次取走 20 帧，编号 66–85，30,718 字节，调制与编码方式（modulation and coding scheme, MCS）第 13 级。'],
+          ['4.5338 ms', 'BACKOFF_DEC · sta-1', '同一时刻，5 GHz 的退避计数还剩 2，即还要再空闲两个时隙（slot time）。'],
+          ['6.0468 ms', 'TX_START · ap#6g', '接入点的块确认，32 字节，一次确认这 20 帧。'],
+          ['6.0788 ms', '20 × DEQUEUE · sta-1#6g', '这 20 帧离开共享队列。'],
         ] },
       ],
       expect: '第 66 帧在 5 GHz 那条泳道上入队，却由 6 GHz 发出；6 GHz 取走它时，5 GHz 的计数还差 2。块确认也在 6 GHz 上。',
@@ -118,30 +119,28 @@ export const mlo: Lesson = {
       blocks: [
         {
           kind: 'diagram', heading: '同一组待发的帧，分别从两条链路发出', spec: mloStack(),
-          caption: '方块按数据帧数等比例绘制：最初 300 ms 内，笔记本每五帧中有四帧从 6 GHz 那条链路发出。',
+          caption: '方块按数据帧数等比例绘制：最初 300 ms 内，笔记本每十帧中有九帧从 6 GHz 那条链路发出。',
         },
       ],
-      expect: '5 GHz 上 67 个数据帧，6 GHz 上 240 个；编号 66–85 在 5 GHz 的发送里一个也找不到，两条泳道的序号也没有重复。',
+      expect: '5 GHz 上 27 个数据帧，6 GHz 上 235 个；编号 66–85 在 5 GHz 的发送里一个也找不到，两条泳道的序号也没有重复。',
       meaning: '取走即从共享队列中移除，序号由整台设备分配（①）；偏向 6 GHz 不是调度的结果，而是 6 GHz 上没有竞争者，下一课专门测量这一点。',
     },
     {
       heading: '失败的一批由另一条链路发出',
       jump: 2,
       steps: [
-        '跳到第 397 帧的重传记录：笔记本在 5 GHz 上发出的请求发送（request to send, RTS）帧与邻居的同时开始，没有等到允许发送（clear to send, CTS）帧。',
-        '往后看这一批帧下一次是由哪条泳道发出的；再把 300 ms 内笔记本的几次失败都找出来。',
+        '跳到第 1 帧的重传记录：笔记本在 5 GHz 上发出的请求发送（request to send, RTS）帧与邻居的同时开始，没有等到允许发送（clear to send, CTS）帧。',
+        '往后看这一批帧下一次是由哪条泳道发出的；再把场景运行到 1 s，把笔记本的几次失败都找出来，第 16845 帧那一批由另一条链路发出。',
       ],
       blocks: [
-        { kind: 'table', heading: '300 ms 内笔记本的六次失败', head: ['重传记录', '失败的链路', '这一批下一次由谁发出'], rows: [
-          ['0.073 ms，第 1 帧', '5 GHz', '5 GHz，2.8864 ms'],
-          ['21.736 ms，第 397 帧', '5 GHz', '6 GHz，21.881 ms'],
-          ['169.8596 ms，第 3586 帧', '5 GHz', '5 GHz，170.0356 ms'],
-          ['177.6128 ms，第 3754 帧', '5 GHz', '5 GHz，177.9508 ms'],
-          ['194.5768 ms，第 4105 帧', '5 GHz', '5 GHz，194.8518 ms'],
-          ['219.9098 ms，第 4638 帧', '5 GHz', '6 GHz，220.4418 ms'],
+        { kind: 'table', heading: '1 s 内笔记本的四次失败', head: ['重传记录', '失败的链路', '这一批下一次由谁发出'], rows: [
+          ['0.077 ms，第 1 帧', '5 GHz', '5 GHz，2.9008 ms'],
+          ['802.6886 ms，第 16754 帧', '5 GHz', '5 GHz，802.9006 ms'],
+          ['808.0264 ms，第 16845 帧', '5 GHz', '6 GHz，808.1826 ms'],
+          ['815.9278 ms，第 17010 帧', '5 GHz', '5 GHz，831.4776 ms'],
         ] },
       ],
-      expect: '六次失败都发生在 5 GHz，都是笔记本与邻居同时发出 RTS；其中两次，这一批帧下一次由 6 GHz 发出。',
+      expect: '四次失败都发生在 5 GHz，都是笔记本与邻居同时发出 RTS；其中一次，这一批帧下一次由 6 GHz 发出。',
       meaning: '没有收到确认的帧退回共享队列的队首，不带「属于哪条链路」的标记，下一次由先把计数减到零的链路发出（②），这在标准允许的范围之内（①，§35.3.16.9）。',
     },
   ],
@@ -159,7 +158,7 @@ export const mlo: Lesson = {
   jumps: [
     J('第一个 5 GHz 数据帧', txOf((r) => linkOfVirtual(r.node) === '5g' && r.frame.kind === 'data' && r.frame.src === 'sta-1')),
     J('第一个 6 GHz 数据帧', first6g),
-    J('第 397 帧的重传记录', (r) => r.type === 'RETRY' && r.msduId === 397),
+    J('第 1 帧的重传记录', (r) => r.type === 'RETRY' && r.msduId === 1),
   ],
   observe: [],
   tryThis: [],

@@ -27,8 +27,9 @@ import { buildLinkTable } from '../../src/engine/propagation'
 import { negotiatedWidth } from '../../src/model/caps'
 import {
   CCA_ED_DBM, CCA_PD_DBM, NOISE_FIGURE_DB, PHY_MODES, RATE_MARGIN_DB, TDFT_EHT_NS, TGI_NS, TLTF_2X_NS,
-  mcsForRssi, noiseDbm, reqSinrDb, toneRatio, txTimeModeNs,
+  mcsForRssi, noiseDbm, ppduTiming, reqSinrDb, toneRatio, txTimeModeNs,
 } from '../../src/engine/phy'
+import { ppduLayout } from '../../src/model/frameFields'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -124,11 +125,13 @@ describe('width · the lesson', () => {
 
   it('marks what the engine does not do, and does not call it faithful', () => {
     expect(implRow('带宽怎样确定').kind).toBe('differs')
-    expect(implRow('前导码的时长').kind).toBe('differs')
-    expect(implRow('数据符号的个数').kind).toBe('differs')
-    expect(implRow('空闲信道评估').kind).toBe('differs')
-    expect(implRow('包扩展').kind).toBe('absent')
-    expect(width.implementation!.filter((r) => r.kind !== 'faithful').length).toBeGreaterThan(5)
+    // 2026-11-11 (W6): the preamble, the symbol count and CCA follow the standard; the packet
+    // extension rests on the simulator's stated nominal packet padding.
+    expect(implRow('前导码的时长').kind).toBe('faithful')
+    expect(implRow('数据符号的个数').kind).toBe('faithful')
+    expect(implRow('空闲信道评估').kind).toBe('faithful')
+    expect(implRow('包扩展').kind).toBe('value')
+    expect(width.implementation!.filter((r) => r.kind !== 'faithful').length).toBeGreaterThan(4)
   })
 
   it('brackets every official term at its first Chinese use', () => {
@@ -187,24 +190,28 @@ describe('width · ② says what the engine does, and the engine does it', () =>
     expect(implRow('数据子载波数').sim).toContain(`980 ÷ 234 = ${toneRatio('eht', 80).toFixed(2)} 倍`)
   })
 
-  it('the preamble is one 48 µs constant; the fields of Table 36-18 add up to 47.2 µs', () => {
-    expect(PHY_MODES.eht.preambleNs).toBe(48 * US)
-    // L-STF 8 + L-LTF 8 + L-SIG 4 + RL-SIG 4 + U-SIG 8 + one EHT-SIG symbol 4 + EHT-STF 4 + one 2x EHT-LTF
-    const fields = 8 + 8 + 4 + 4 + 8 + 4 + 4 + (TLTF_2X_NS + TGI_NS.base) / US
-    expect(fields.toFixed(1)).toBe('47.2')
-    const sim = implRow('前导码的时长').sim
-    expect(sim).toContain(`取单一常数 ${PHY_MODES.eht.preambleNs / US} µs`)
-    expect(sim).toContain(`是 ${fields.toFixed(1)} µs`)
+  it('the preamble is the fields of Table 36-18 added up: 51.2 µs', () => {
+    // 2026-11-11 (W6): L-STF 8 + L-LTF 8 + L-SIG 4 + RL-SIG 4 + U-SIG 8 + two EHT-SIG symbols 8
+    // + EHT-STF 4 + one 2x EHT-LTF 7.2
+    expect(implRow('前导码的时长').kind).toBe('faithful')
+    const fields = 8 + 8 + 4 + 4 + 8 + 2 * 4 + 4 + (TLTF_2X_NS + TGI_NS.base) / US
+    expect(fields.toFixed(1)).toBe('51.2')
+    expect(PHY_MODES.eht.preambleNs).toBe(Math.round(fields * US))
+    expect(implRow('前导码的时长').sim).toContain(`是 ${fields.toFixed(1)} µs`)
   })
 
-  it('BCC counting and LDPC counting give the same symbols for this frame at every width', () => {
+  it('LDPC where it is mandatory, the symbol counts 6, 3, 2, 1, and the packet extension', () => {
+    expect(implRow('数据符号的个数').kind).toBe('faithful')
     const sim = implRow('数据符号的个数').sim
     const ldpc = 8 * OCTETS + 16
     const bcc = 16 + 8 * OCTETS + 6
-    expect(sim).toContain(`LDPC 的 ${ldpc} 位或按 BCC 的 ${bcc} 位`)
-    const counts = WIDTHS.map((w) => Math.ceil(bcc / (PHY_MODES.eht.ndbps[13] * toneRatio('eht', w))))
-    expect(WIDTHS.map((w) => Math.ceil(ldpc / (PHY_MODES.eht.ndbps[13] * toneRatio('eht', w))))).toEqual(counts)
-    expect(sim).toContain(`四档的符号数都是 ${counts.join('、')}`)
+    expect(sim).toContain(`按 LDPC 计数（${ldpc} 位`)
+    expect(sim).toContain(`用 BCC（${bcc} 位）`)
+    const t = WIDTHS.map((w) => ppduTiming('eht', OCTETS, 13, { widthMhz: w }))
+    expect(t.every((x) => x.coding === 'ldpc')).toBe(true)
+    expect(sim).toContain(`四档的符号数是 ${t.map((x) => x.nsym).join('、')}`)
+    expect(implRow('包扩展').kind).toBe('value')
+    expect(implRow('包扩展').sim).toContain(`四档依次是 ${t.map((x) => x.peNs / US).join('、')} µs`)
   })
 
   it('the noise floor and the requirement the rows print', () => {
@@ -215,9 +222,10 @@ describe('width · ② says what the engine does, and the engine does it', () =>
     expect(width.why).toContain(`带宽每加倍升高 ${step.toFixed(2)} dB`)
   })
 
-  it('carrier sense: the two thresholds the row compares against', () => {
+  it('carrier sense: the two thresholds, measured within the primary 20 MHz channel', () => {
+    expect(implRow('空闲信道评估').kind).toBe('faithful')
     const sim = implRow('空闲信道评估').sim
-    expect(sim).toContain(`与 ${neg(CCA_PD_DBM, 0)} dBm 比较`)
+    expect(sim).toContain(`主 20 MHz 信道内的电平与 ${neg(CCA_PD_DBM, 0)} dBm 比较`)
     expect(sim).toContain(`总功率与 ${neg(CCA_ED_DBM, 0)} dBm 比较`)
   })
 
@@ -247,21 +255,23 @@ describe('width · ③ every figure the labs print is the run', () => {
       expect(tones).toBe(String(TONES_20 * toneRatio('eht', w)))
       expect(mcs).toBe(String(one(data.map((r) => r.frame.mcs))))
       expect(rate).toBe(`${one(data.map((r) => r.frame.mbps)).toFixed(1)} Mb/s`)
-      expect(syms).toBe(String((t - PHY_MODES.eht.preambleNs) / PHY_MODES.eht.symNs))
+      expect(syms).toBe(String(ppduLayout(data[0]!.frame).find((s) => s.key === 'data')!.symbols))
       expect(airtime).toBe(`${us1(t)} µs`)
       expect(txTimeModeNs('eht', OCTETS, 13, { widthMhz: w })).toBe(t)
       expect(one(txs(rs, (r) => r.frame.kind === 'ack').map((r) => r.frame.txTimeNs))).toBe(28 * US)
     })
     expect(l.expect).toContain(`空口时间依次是 ${air.map(us1).join('、')} µs`)
-    expect(l.expect).toContain(`即 ${rows.map((r) => r[4]).join('、')} 个数据符号加 ${PHY_MODES.eht.preambleNs / US} µs 的前导码`)
+    expect(l.expect).toContain(`即 ${rows.map((r) => r[4]).join('、')} 个数据符号，加 ${PHY_MODES.eht.preambleNs / US} µs 的前导码与包扩展`)
     expect(l.expect).toContain('四档的确认帧都是 28 µs')
     expect(l.meaning).toContain(`前导码已占整帧的 ${(PHY_MODES.eht.preambleNs / air[3] * 100).toFixed(1)} %`)
-    // the figure's four data spans are the run's airtimes less the opening
+    // the figure: preamble, data symbols, then packet extension + rounding up to the airtime
     const spec = widthAirtimeTiming()
     spec.lanes.forEach((lane, i) => {
+      const t = ppduTiming('eht', OCTETS, 13, { widthMhz: WIDTHS[i] })
       expect(lane.label).toBe(`${WIDTHS[i]} MHz`)
       expect(lane.spans[0].toUs).toBe(PHY_MODES.eht.preambleNs / US)
-      expect(lane.spans[1].toUs).toBeCloseTo(air[i] / US, 9)
+      expect(lane.spans[1].toUs).toBeCloseTo((t.preambleNs + t.nsym * t.symNs) / US, 9)
+      expect(lane.spans[2].toUs).toBeCloseTo(air[i] / US, 9)
     })
     // `why` and the quiz: 129.6 → 61.6 µs, 8.38 times the data tones, 47.5 %
     expect(width.why).toContain(`从 20 MHz 的 ${us1(air[0])} µs 缩短到 160 MHz 的 ${us1(air[3])} µs`)
@@ -318,10 +328,19 @@ describe('width · ③ every figure the labs print is the run', () => {
       `${PHY_MODES.eht.ndbps[m80]} × ${toneRatio('eht', 80).toFixed(2)} = ${nd(m80, 80)}`,
       `${PHY_MODES.eht.ndbps[m160]} × ${toneRatio('eht', 160).toFixed(2)} = ${nd(m160, 160)}`,
     ])
-    const bits = 16 + 8 * OCTETS + 6
-    expect(cell(steps, `数据符号：⌈${bits} ÷ 每符号比特数⌉`).slice(1))
+    // 80 and 160 MHz are wider than a 242-tone RU: LDPC, no tail bits (§36.3.13.3.3)
+    const bits = 16 + 8 * OCTETS
+    expect(cell(steps, `数据符号（LDPC，没有尾比特）：⌈${bits} ÷ 每符号比特数⌉`).slice(1))
       .toEqual([String(Math.ceil(bits / nd(m80, 80))), String(Math.ceil(bits / nd(m160, 160)))])
-    expect(cell(steps, '空口时间：48 + 13.6 × 符号数').slice(1)).toEqual([`${us1(got[2].air)} µs`, `${us1(got[3].air)} µs`])
+    const t80 = ppduTiming('eht', OCTETS, m80, { widthMhz: 80 }), t160 = ppduTiming('eht', OCTETS, m160, { widthMhz: 160 })
+    expect([t80.nsym, t160.nsym]).toEqual([Math.ceil(bits / nd(m80, 80)), Math.ceil(bits / nd(m160, 160))])
+    expect(cell(steps, '包扩展').slice(1)).toEqual([`${t80.peNs / US} µs`, `${t160.peNs / US} µs`])
+    const airCell = (t: typeof t80, measured: number): string => {
+      const raw = Number(((t.preambleNs + t.nsym * t.symNs + t.peNs) / US).toFixed(1))
+      const head = `${t.preambleNs / US} + ${Number((t.nsym * t.symNs / US).toFixed(1))} + ${t.peNs / US} = ${raw}`
+      return t.roundNs > 0 ? `${head}，取整 ${us1(measured)} µs` : `${head.replace(/ = [\d.]+$/, '')} = ${us1(measured)} µs`
+    }
+    expect(cell(steps, '空口时间：51.2 + 13.6 × 符号数 + 包扩展，取整').slice(1)).toEqual([airCell(t80, got[2].air), airCell(t160, got[3].air)])
     // 「差 0.54 dB」 and 「MCS 2 的要求只比 MCS 1 高 2 dB」
     expect(l.expect).toContain(`差 ${r2(reqSinrDb('eht', m160 + 1) + RATE_MARGIN_DB - (rx - noiseDbm(160)))} dB`)
     expect(reqSinrDb('eht', 2) - reqSinrDb('eht', 1)).toBeCloseTo(2, 9)
@@ -329,26 +348,34 @@ describe('width · ③ every figure the labs print is the run', () => {
     expect(PHY_MODES.eht.ndbps[2] / PHY_MODES.eht.ndbps[0]).toBe(3)
   })
 
-  it('lab 4: the far corner — 160 MHz gets nothing back, the narrower three deliver', () => {
+  it('lab 4: the far corner — 80 and 160 MHz get nothing back, the narrower two deliver', () => {
+    // 2026-11-11 (W6): the −82 dBm preamble threshold is compared with the primary 20 MHz share.
     const l = lab('最远的角落')
     expect(l.steps[0]).toContain('x = 15、y = 7')
     const rows = tableOf(l, '笔记本在最远的角落').rows
+    const rx = rssiAt(15, 7)
+    const drops: number[] = []
     WIDTHS.forEach((w, i) => {
       const rs = moved(i, 15, 7, 200 * MS)
       const d = bigData(rs)
       const acks = txs(rs, (r) => r.frame.kind === 'ack').length
       expect(rows[i]).toEqual([`${w} MHz`, String(one(d.map((r) => r.frame.mcs))), `${us1(one(d.map((r) => r.frame.txTimeNs)))} µs`, String(acks)])
-      if (w === 160) {
+      const p20 = rx - 10 * Math.log10(w / 20)
+      if (w >= 80) {
+        expect(p20).toBeLessThan(CCA_PD_DBM)
         expect(acks).toBe(0)
-        expect(l.expect).toContain(`200 ms 内丢弃了 ${ofType(rs, 'DROP').length} 个帧`)
+        expect(ofType(rs, 'RX_START').filter((r) => r.node === 'ap')).toEqual([])
+        drops.push(ofType(rs, 'DROP').length)
+        expect(l.expect).toContain(`${w} MHz 时${w === 80 ? '落在主 20 MHz 信道内的' : ''}只有 ${neg(p20, 2)} dBm`)
       } else {
+        expect(p20).toBeGreaterThanOrEqual(CCA_PD_DBM)
         expect(acks).toBeGreaterThan(200)
         expect(ofType(rs, 'DROP')).toEqual([])
       }
     })
-    const rx = rssiAt(15, 7)
+    expect(l.expect).toContain(`200 ms 内分别丢弃了 ${drops[0]} 与 ${drops[1]} 个帧`)
     expect(l.expect).toContain(`到达电平是 ${neg(rx, 2)} dBm`)
-    expect(l.expect).toContain(`SNR 只有 ${(rx - noiseDbm(160)).toFixed(2)} dB，低于 MCS 0 要求的 ${reqSinrDb('eht', 0).toFixed(2)} dB`)
+    expect(l.expect).toContain(`SNR 只有 ${(rx - noiseDbm(160)).toFixed(2)} dB，本来也低于 MCS 0 要求的 ${reqSinrDb('eht', 0).toFixed(2)} dB`)
     expect(rx - noiseDbm(160)).toBeLessThan(reqSinrDb('eht', 0))
     const q = width.quiz[2]
     expect(q.explain).toContain(`SNR 是 ${(rx - noiseDbm(160)).toFixed(2)} dB，低于 MCS 0 要求的 ${reqSinrDb('eht', 0).toFixed(2)} dB`)

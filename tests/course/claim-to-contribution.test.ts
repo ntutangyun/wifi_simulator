@@ -237,7 +237,8 @@ describe('claim-to-contribution · ③ every figure the labs print is the run', 
     expect(signs('mid', 'shadow')).toEqual([1, 1, 1, 1])
     const fars = BATCHES.map(([, s]) => batch('far', 'both', s)[0])
     expect(fars.every((x) => x > 0)).toBe(true)
-    // 2026-11-11 (W7a), re-measured: the far column's spread is now 4.91 points (11.64 to 6.73), under
+    // 2026-11-11 (W7a), re-measured: the far column's spread was 4.91 points (11.64 to 6.73; after the W6
+    // merge 13.32 to 7.24), under
     // the absolute five points this used to demand. 「量级不稳定」 is a claim about magnitude, so the
     // lesson now prints it as the max/min ratio of each column, read back here against the mid one.
     const mids0 = BATCHES.map(([, s]) => batch('mid', 'shadow', s)[0])

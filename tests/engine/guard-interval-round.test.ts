@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { maxPsduBytesFor } from '../../src/engine/mac'
-import { PHY_MODES, TGI_NS, preambleNsFor, symNsFor, txTimeModeNs } from '../../src/engine/phy'
+import { TGI_NS, preambleNsFor, symNsFor, txTimeModeNs } from '../../src/engine/phy'
 import { airtime } from '../../src/course/tier1/airtime'
 import { node, tag } from '../../src/course/lessonKit'
 import { oneRoom, sc } from '../../src/course/wifiScenes'
@@ -66,12 +66,16 @@ describe('guard interval · correctness: the triggered uplink must not overrun i
     // the 4x LTF's 8.8 µs unpaid, and 8 800 / 16 000 = 0.55 of a symbol, so for some budgets the
     // count comes out one symbol too high and the PPDU overruns. Asserted as the identity rather
     // than as a figure, so no single lucky budget can satisfy it.
+    // 2026-11-11: the budget is the exact inverse of the standard's TXTIME for the TB PPDU it is
+    // spent on (8 µs HE-STF, LDPC, packet extension): the returned length fits, one octet more
+    // does not.
     for (const dur of [500_000, 1_000_000, 2_000_000, 2_735_000]) {
       const bytes = maxPsduBytesFor('he', 11, 1, dur, 20, 1, TGI_NS.quad)
-      const nsym = Math.floor((dur - preambleNsFor('he', TGI_NS.quad)) / symNsFor('he', TGI_NS.quad))
-      expect(bytes).toBe(Math.max(0, Math.floor((nsym * PHY_MODES.he.ndbps[11] - 22) / 8)))
-      expect(txTimeModeNs('he', bytes, 11, { widthMhz: 20, nss: 1, giNs: TGI_NS.quad }))
-        .toBeLessThanOrEqual(dur)
+      const opts = { widthMhz: 20, nss: 1, giNs: TGI_NS.quad, tb: true }
+      expect(txTimeModeNs('he', bytes, 11, opts)).toBeLessThanOrEqual(dur)
+      expect(txTimeModeNs('he', bytes + 1, 11, opts)).toBeGreaterThan(dur)
+      expect(preambleNsFor('he', TGI_NS.quad, { tb: true })).toBe(56_000)
+      expect(symNsFor('he', TGI_NS.quad)).toBe(16_000)
     }
   })
 
@@ -102,9 +106,10 @@ describe('guard interval · correctness: the Duration field follows the longer P
     expect(datas.length).toBeGreaterThan(0)
     const f = datas[0].frame
     expect(f.giNs).toBe(3_200)
-    // 1430 B at HE MCS 11, 20 MHz, one stream: six 16 µs symbols behind a 52.8 µs preamble.
+    // 1430 B at HE MCS 11, 20 MHz, one stream: six 16 µs symbols behind a 52.0 µs preamble, then
+    // the 16 µs packet extension (2026-11-11, Eq 27-149).
     expect(f.txTimeNs).toBe(txTimeModeNs('he', f.bytes, f.mcs!, { widthMhz: 20, nss: 1, giNs: TGI_NS.quad }))
-    expect(f.txTimeNs).toBe(148_800)
+    expect(f.txTimeNs).toBe(164_000)
     const ack = ofType(rs, 'TX_START').find((r) => r.t > datas[0].t && r.frame.kind === 'ack')!
     expect(f.durationFieldNs)
       .toBeGreaterThanOrEqual((ack.t - (datas[0].t + f.txTimeNs)) + ack.frame.txTimeNs)
@@ -122,7 +127,7 @@ describe('guard interval · correctness: the Duration field follows the longer P
     const f = ofType(rs, 'TX_START').find((r) => r.frame.kind === 'data')!.frame
     expect(f.giNs).toBeUndefined()
     expect(f.mbps).toBe(143.4)
-    expect(f.txTimeNs).toBe(125_600)
+    expect(f.txTimeNs).toBe(140_800)
   })
 })
 
@@ -231,7 +236,8 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
    * ones, and they are also the honest ones for this lesson, whose whole subject is that an
    * exchange costs two airtimes and only one of them grows. Delivered bytes are the PSDU octets
    * of the data frames that arrived — since 2026-11-11 each HE PSDU is an S-MPDU padded with EOF
-   * padding to PSDU_LENGTH (§10.12.6), 175 × 1459 = 255 325 — not their MSDU payloads
+   * padding to PSDU_LENGTH (§10.12.6), 175 × 1460 = 255 500 (HE-MCS 11 is LDPC, so PSDU_LENGTH
+   * follows Eq 27-153 with no tail bits) — not their MSDU payloads
    * (175 × 1400 = 245 000).
    *
    * **Three tiers, and that covers all four rows of the design's §2.2 table.** Its fourth row,
@@ -242,7 +248,7 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
    */
   const TIERS = [undefined, { gi: 'double' } as const, { gi: 'quad' } as const]
 
-  it('delivers the same 350 PPDUs and 255 325 octets at every tier, with zero loss', () => {
+  it('delivers the same 350 PPDUs and 255 500 octets at every tier, with zero loss', () => {
     const measured = TIERS.map((gi) => {
       const rs = run(airtimeScene(gi))
       const ppdus = wifiPpdus(rs)
@@ -255,7 +261,7 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
       }
     })
     expect(measured.map((m) => m.ppdus)).toEqual([350, 350, 350])
-    expect(measured.map((m) => m.octets)).toEqual([255_325, 255_325, 255_325])
+    expect(measured.map((m) => m.octets)).toEqual([255_500, 255_500, 255_500])
     expect(measured.map((m) => m.rxFail)).toEqual([0, 0, 0])
     expect(measured.map((m) => m.drop)).toEqual([0, 0, 0])
     // A cost with no consequence: the airtime strictly rises, and the quadruple tier is at least
@@ -263,7 +269,9 @@ describe('guard interval · inert on an underloaded scene: a cost with no conseq
     // the knob took effect on anything a reader would call a result.
     expect(measured[1].airNs).toBeGreaterThan(measured[0].airNs)
     expect(measured[2].airNs).toBeGreaterThan(measured[1].airNs)
-    expect(measured.map((m) => +(m.airNs / 1e6).toFixed(2))).toEqual([26.88, 27.72, 30.94])
-    expect(measured[2].airNs / measured[0].airNs).toBeGreaterThanOrEqual(1.15)
+    // 2026-11-11: re-measured with the standard's TXTIME (LDPC, packet extension, 8.0 µs LTF at
+    // the double GI); the quadruple tier is now 13.7 % over the base.
+    expect(measured.map((m) => +(m.airNs / 1e6).toFixed(2))).toEqual([29.54, 30.52, 33.6])
+    expect(measured[2].airNs / measured[0].airNs).toBeGreaterThanOrEqual(1.13)
   })
 })

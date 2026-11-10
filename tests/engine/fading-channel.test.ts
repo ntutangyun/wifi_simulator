@@ -146,7 +146,9 @@ describe('fading at the channel', () => {
     // Measured on 7b98a1d, the commit before fading reached the channel at all;
     // `lesson-hashes.json` and `uwb-record-hashes.json` carry the same guarantee
     // for every shipped scenario, and this pins the scene these cases use.
-    expect(hashOf(stillScene())).toBe('7074a7b9')
+    // 2026-11-11: re-measured after the standard's TXTIME, aRxPHYStartDelay and Duration
+    // rounding moved every instant (was 7074a7b9).
+    expect(hashOf(stillScene())).toBe('339f415d')
     // And the guard has teeth: turning fading on must move that hash, or the
     // config is being parsed and then ignored.
     expect(hashOf(stillScene(SCENE_FADING))).not.toBe(hashOf(stillScene()))

@@ -355,6 +355,9 @@ describe('lesson 7 · EDCA', () => {
       expect(d.ac).toBe(0)
       expect(d.cw).toBeGreaterThanOrEqual(15)
     }
+    // An AIFS that had already elapsed when a frame arrived at an idle station is recorded with
+    // zero length (2026-11-11: one such arrival in this run after W6 moved the timings); the
+    // waits the lesson quotes are the ones that were actually counted down.
     const ifsLens = (n: string, kind: string) => new Set(ofType(rs, 'IFS_START')
       // 2026-11-11 (W7b, the AP now on dot11QAPEDCATable): one voice frame of sta-1 now arrives
       // after the medium has already been idle longer than AIFS[VO], so its IFS_START ends where
@@ -468,7 +471,9 @@ describe('lesson 10 · protecting the burst', () => {
       ofType(rs, 'DROP').length,
     ]
     expect(row(single)).toEqual([8, 799, 18, 0])
-    expect(row(multiple)).toEqual([28, 437, 64, 0])
+    // 2026-11-11 (W6 merged): primary-20 CCA, aRxPHYStartDelay-based timeouts, packet extension
+    // and Duration rounding (Table 9-9) re-time the hallway: 28 → 16 collisions, 437 → 635.
+    expect(row(multiple)).toEqual([16, 635, 37, 1])
   })
 
   it('with the threshold at 500 B both classes open every TXOP with an RTS; only the reach differs', () => {
@@ -495,38 +500,40 @@ describe('lesson 10 · protecting the burst', () => {
 
   // Re-measured 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable, per-frame UP → AC):
   // 98 → 89 collisions, 234 → 259 deliveries; the lesson text says the same.
-  it('without RTS (threshold 3000 B) collisions rise from 28 to 89 and deliveries fall from 437 to 259', () => {
+  // Re-measured again 2026-11-11 (W6 merged): 87 collisions, 258 deliveries.
+  it('without RTS (threshold 3000 B) collisions rise from 16 to 87 and deliveries fall from 635 to 258', () => {
     const bare = runSc({ ...lesson('txop-protect').scenario(), rtsThresholdBytes: 3000 }, 300 * MS)
-    expect(ofType(bare, 'COLLISION').length).toBe(89)
-    expect(ofType(bare, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length).toBe(259)
+    expect(ofType(bare, 'COLLISION').length).toBe(87)
+    expect(ofType(bare, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length).toBe(258)
     expect(txs(bare, (r) => r.frame.kind === 'rts')).toHaveLength(0)
     const bareData = txs(bare, (r) => r.frame.kind === 'data' && firstOfTxop(bare, r))
     expect(bareData.length).toBeGreaterThan(50)
     expect(Math.max(...bare.filter((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data').map((r) => r.frame.txTimeNs))).toBe(1_932_000)
   })
 
-  it('of the 28 collisions under multiple protection, 24 are RTS meeting RTS and 4 catch a data frame', () => {
+  it('of the 16 collisions under multiple protection, 13 are RTS meeting RTS and 3 catch a data frame', () => {
     const cs = ofType(multiple, 'COLLISION').map((c) => collisionFrames(multiple, c))
     const rtsRts = cs.filter(({ locked }) => locked.frame.kind === 'rts')
     const data = cs.filter(({ locked }) => locked.frame.kind === 'data')
-    expect([rtsRts.length, data.length]).toEqual([24, 4])
+    expect([rtsRts.length, data.length]).toEqual([13, 3])
     // each one's other party is the other hidden station's RTS (the lesson's 「两帧 RTS 相撞」)
     for (const { others } of rtsRts) expect(others.some((f) => f.frame.kind === 'rts')).toBe(true)
     expect(ofType(multiple, 'COLLISION')[0].t).toBe(28_000)
     expect(cs[0].locked.frame.kind).toBe('rts')
   })
 
-  it('the RTS, CTS, NAV and CF-End timings of the 0.736 ms burst', () => {
+  // 2026-11-11 (W6 merged): the burst starts 8 µs later (0.744 ms); every Duration is unchanged.
+  it('the RTS, CTS, NAV and CF-End timings of the 0.744 ms burst', () => {
     expect(txs(multiple, (r) => r.t === 0).map((r) => `${r.node}:${r.frame.kind}`).sort()).toEqual(['sta-1:rts', 'sta-2:rts'])
     const aRts = txs(multiple, (r) => r.node === 'sta-1' && r.frame.kind === 'rts')
-    expect(aRts[2].t).toBe(736_000)
+    expect(aRts[2].t).toBe(744_000)
     expect(aRts[2].frame.durationFieldNs).toBe(2_500_000)
-    const top = ofType(multiple, 'TXOP_START').find((r) => r.node === 'sta-1' && r.t === 736_000)!
+    const top = ofType(multiple, 'TXOP_START').find((r) => r.node === 'sta-1' && r.t === 744_000)!
     expect(top.untilNs - top.t).toBe(2_528_000)
     const cts = txs(multiple, (r) => r.frame.kind === 'cts')[0]
-    expect([cts.t, cts.frame.durationFieldNs]).toEqual([780_000, 2_456_000])
+    expect([cts.t, cts.frame.durationFieldNs]).toEqual([788_000, 2_456_000])
     const nav = ofType(multiple, 'NAV_SET').find((r) => r.node === 'sta-2')!
-    expect(nav.untilNs).toBe(3_264_000)
+    expect(nav.untilNs).toBe(3_272_000)
     const cf = txs(multiple, (r) => r.frame.kind === 'cfend')
     expect(cf[0].node).toBe('sta-1')
     const burst = txs(multiple, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > cts.t && r.t < cf[0].t)
@@ -538,7 +545,7 @@ describe('lesson 10 · protecting the burst', () => {
     expect(16_000 + burst[0].frame.txTimeNs + 16_000 + lastAck.frame.txTimeNs).toBeGreaterThan(376_000)
     expect(cf[1].node).toBe('ap')
     expect(cf[1].t).toBe(cf[0].t + cf[0].frame.txTimeNs + 16_000)
-    expect(ofType(multiple, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(2_976_000)
+    expect(ofType(multiple, 'NAV_CLEAR').find((r) => r.node === 'sta-2')!.t).toBe(2_984_000)
   })
 })
 describe('lesson 11 · OFDMA downlink', () => {
@@ -707,12 +714,14 @@ describe('lesson 14 · capstone', () => {
   // Re-measured again 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable — AC_BE CWmax 63,
   // AIFSN 1 for VI/VO — and every frame's AC follows its UP): the tablet's page wait fell from
   // ~181 ms to 4.36 ms; the collapse with the backup stopped still holds.
-  it('with the backup stopped the video, voice and tablet latencies collapse (1.83 → 0.20 ms, 2.18 → 0.58 ms, 4.36 → 0.41 ms)', () => {
+  // Re-measured again 2026-11-11 (W6 merged: PHY timing per Eq 27-149/36-110, primary-20 CCA):
+  // voice 2.36 → 0.56 ms, tablet 7.48 → 0.44 ms, as the lesson's table says.
+  it('with the backup stopped the video, voice and tablet latencies collapse (1.83 → 0.22 ms, 2.36 → 0.56 ms, 7.48 → 0.44 ms)', () => {
     expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.83, 1)
-    expect(mean(noBackup.v['sta-2'].stats.rxLatency)).toBeCloseTo(0.20, 1)
-    expect(mean(base.v['sta-3'].stats.txLatency)).toBeCloseTo(2.18, 1)
-    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeCloseTo(0.58, 1)
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeCloseTo(4.36, 1)
+    expect(mean(noBackup.v['sta-2'].stats.rxLatency)).toBeCloseTo(0.22, 1)
+    expect(mean(base.v['sta-3'].stats.txLatency)).toBeCloseTo(2.36, 1)
+    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeCloseTo(0.56, 1)
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeCloseTo(7.48, 1)
     expect(mean(noBackup.v['sta-4'].stats.rxLatency)).toBeLessThan(1)
     for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-6']) {
       const s = noBackup.v[id].stats
@@ -720,16 +729,16 @@ describe('lesson 14 · capstone', () => {
     }
   })
 
-  it('MLO doubles the backup’s own throughput (37.0 → 77.2 MB) while the 5 GHz neighbours keep the same average latency', () => {
+  it('MLO doubles the backup’s own throughput (35.8 → 75.4 MB) while the 5 GHz neighbours keep the same average latency', () => {
     // the AP's received bytes across both links: the backup is all but all of it
     const upMB = (v: Record<string, { stats: { bytesDelivered: number } }>) =>
       (v['ap'].stats.bytesDelivered + (v['ap#6g']?.stats.bytesDelivered ?? 0)) / 1e6
-    expect(upMB(base.v)).toBeCloseTo(77.2, 0)
-    expect(upMB(noMlo.v)).toBeCloseTo(37.0, 0)
+    expect(upMB(base.v)).toBeCloseTo(75.4, 0)
+    expect(upMB(noMlo.v)).toBeCloseTo(35.8, 0)
     for (const id of ['sta-2', 'sta-6']) {
       expect(mean(noMlo.v[id].stats.rxLatency), id).toBeCloseTo(mean(base.v[id].stats.rxLatency), 1)
     }
     expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.83, 1)
-    expect(mean(noMlo.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.79, 1)
+    expect(mean(noMlo.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.85, 1)
   })
 })

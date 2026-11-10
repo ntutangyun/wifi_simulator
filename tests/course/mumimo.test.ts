@@ -305,6 +305,11 @@ describe('mumimo · ③ every figure the labs print is the run', () => {
     ])
     expect(su + nextMu + neither).toBe(pairs.length)
     expect(l.expect).toContain(`按空间划分的 ${muSends(s).length} 次发送全部只有两个成员；按频率划分的 ${muSends(f).length} 次里有 ${size(f, 3)} 次三个成员`)
-    expect(su).toBeGreaterThan(nextMu + neither)
+    // 2026-11-11 (W6 merge): with the standard's TXTIME (Eq 36-110) the AP's next access usually
+    // finds the trimmed phone queued alongside another, so it lands in the next pair (172 of 278)
+    // more often than in a single-user send of its own (100). Which phones share a send is the
+    // AP's choice; the standard does not specify it (§26.5.1.1).
+    expect(nextMu).toBeGreaterThan(su + neither)
+    expect(l.expect).toContain('被裁掉的手机多数出现在下一次组成的配对里')
   })
 })

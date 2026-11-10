@@ -181,7 +181,7 @@ describe('txop-protect · ② says what the engine does, and the engine does it'
     }
     expect(nonFinal).toBeGreaterThan(100)
     expect(final).toBeGreaterThan(20)
-    const burst = txs(s, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && ms3(r.t) >= 0.824 && ms3(r.t) < 2.9)
+    const burst = txs(s, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && ms3(r.t) >= 0.832 && ms3(r.t) < 2.9)
     expect(burst[0].frame.durationFieldNs / US).toBe(Number(nf))
     expect(burst[burst.length - 1].frame.durationFieldNs / US).toBe(Number(fin))
   })
@@ -243,7 +243,7 @@ describe('txop-protect · ② says what the engine does, and the engine does it'
 
 describe('txop-protect · ③ every figure the labs print is the run', () => {
   const b = multiple()
-  const t0 = ofType(b, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+  const t0 = ofType(b, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
   const rts = txs(b, (r) => r.node === 'sta-1' && r.frame.kind === 'rts' && r.t === t0.t)[0]
   const cts = txs(b, (r) => r.frame.kind === 'cts' && r.t > t0.t)[0]
   const nav = ofType(b, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
@@ -295,7 +295,7 @@ describe('txop-protect · ③ every figure the labs print is the run', () => {
 
   it('lab 1: the worked table and the expect line', () => {
     const l = lab('多重保护：一帧 RTS 预约到 TXOP 末尾')
-    const rows = tableOf(l, '从 0.736 ms 开始的那一串').rows
+    const rows = tableOf(l, '从 0.744 ms 开始的那一串').rows
     const cell = (label: string): string => {
       const r = rows.find((x) => x[0] === label)
       expect(r, `row 「${label}」`).toBeDefined()
@@ -335,10 +335,10 @@ describe('txop-protect · ③ every figure the labs print is the run', () => {
     expect(l.steps[0]).toContain('t = 0')
   })
 
-  it('lab 2: the single-protection burst at 0.736 ms, and the 300 ms table', () => {
+  it('lab 2: the single-protection burst at 0.744 ms, and the 300 ms table', () => {
     const l = lab('单次保护：确认帧逐次转述预约')
     const s = single()
-    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
     const send = ofType(s, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > st0.t)!
     const srts = txs(s, (r) => r.node === 'sta-1' && r.frame.kind === 'rts' && r.t === st0.t)[0]
     const scts = txs(s, (r) => r.frame.kind === 'cts' && r.t > st0.t)[0]

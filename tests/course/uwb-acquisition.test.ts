@@ -136,7 +136,9 @@ describe('uwb-acquisition · ③ every figure the labs print is the run', () => 
 
   it('lab 2: the figure lays the same indices, and the one opener', () => {
     const spec = uwbAcquisitionTiming()
-    expect(spec.lanes[0].spans.filter((s) => s.tone === 'muted').map((s) => s.fromUs / 1000)).toEqual([0, 1, 2])
+    // 2026-11-11 (W6 merged): with the HE packet extension and LDPC airtimes (Eq 27-149) the Wi-Fi
+    // bursts land on fragments 0–3 and 6 of that round, not 0–2.
+    expect(spec.lanes[0].spans.filter((s) => s.tone === 'muted').map((s) => s.fromUs / 1000)).toEqual([0, 1, 2, 3, 6])
     expect(spec.lanes[1].spans.map((s) => s.fromUs / 1000)).toEqual([0])
     for (const l of spec.lanes) for (const s of l.spans) expect(s.toUs - s.fromUs).toBeCloseTo(rsfNs(ACQ_N_MSR, DEFAULT_UWB_SESSION.mms.gap) / 1000, 6)
   })
@@ -174,13 +176,16 @@ describe('uwb-acquisition · ③ every figure the labs print is the run', () => 
     expect(ofType(rs, 'UWB_RANGE')).toHaveLength(0)
   })
 
-  it('the why: seven of fourteen thrown away, the 22 dB floor, 3 ranges, and none with SP0', () => {
+  // 2026-11-11 (W6 merged): the lowest margin of a discarded train is 19.7 dB (one fragment heard)
+  // once the Wi-Fi PPDUs carry the 16 µs packet extension (Eq 27-149); the floor the why quotes is 19 dB.
+  it('the why: seven of fourteen thrown away, the 19 dB floor, 3 ranges, and none with SP0', () => {
     const w = uwbAcquisition.why!
     const lost = trains().filter((t) => !t.detected)
     expect([trains().length, lost.length]).toEqual([14, 7])
     expect(w).toContain('十四列片段中有七列')
-    expect(Math.min(...lost.map((t) => t.marginDb))).toBeGreaterThan(22)
-    expect(w).toContain('22 dB 以上')
+    expect(Math.min(...lost.map((t) => t.marginDb))).toBeGreaterThan(19)
+    expect(Math.min(...lost.map((t) => t.marginDb))).toBeLessThan(20)
+    expect(w).toContain('19 dB 以上')
     expect(w).toContain(`1.3 秒只得到 ${ofType(recs(), 'UWB_RANGE').length} 个距离`)
     expect(w).toContain(`八列里只检出三列`)
     expect(w).toContain(`全部 ${ofType(recs(NBA), 'UWB_RANGE').length} 个距离`)

@@ -20,11 +20,11 @@ import type { SequenceSpec } from '../diagram'
 import { type Lesson, hallwayHouse, node, sc, firstRts, firstCollision, J } from '../lessonKit'
 
 /**
- * The run's own burst at 0.736 ms under multiple protection, as an exchange: who says what, when.
+ * The run's own burst at 0.744 ms under multiple protection, as an exchange: who says what, when.
  *
- * Every row is a record of the base run — the RTS at 736 µs with Duration 2 500, the access
- * point's CTS at 780 with 2 456, the NAV_SET at the hidden station at 808 that runs to 3 264, the
- * first of five data frames at 824, and the last answer at 2 888 — and `txop-protect.test.ts`
+ * Every row is a record of the base run — the RTS at 744 µs with Duration 2 500, the access
+ * point's CTS at 788 with 2 456, the NAV_SET at the hidden station at 816 that runs to 3 272, the
+ * first of five data frames at 832, and the last answer at 2 896 — and `txop-protect.test.ts`
  * reads each one back out of this spec.
  */
 export function protectSequence(): SequenceSpec {
@@ -36,11 +36,11 @@ export function protectSequence(): SequenceSpec {
       { id: 'sta-1', label: '隐藏站 A' },
     ],
     messages: [
-      { from: 'sta-1', to: 'ap', label: 'RTS：预约 2 500 µs', at: '0.736 ms', tone: 'accent' },
-      { from: 'ap', to: 'sta-1', label: 'CTS：2 456 µs', at: '0.780 ms', tone: 'accent' },
-      { from: 'sta-2', to: 'sta-2', label: '预约到 3.264 ms', at: '0.808 ms' },
-      { from: 'sta-1', to: 'ap', label: '五次交互，各 416 µs', at: '0.824 ms' },
-      { from: 'ap', to: 'sta-1', label: '最后一个确认帧', at: '2.888 ms' },
+      { from: 'sta-1', to: 'ap', label: 'RTS：预约 2 500 µs', at: '0.744 ms', tone: 'accent' },
+      { from: 'ap', to: 'sta-1', label: 'CTS：2 456 µs', at: '0.788 ms', tone: 'accent' },
+      { from: 'sta-2', to: 'sta-2', label: '预约到 3.272 ms', at: '0.816 ms' },
+      { from: 'sta-1', to: 'ap', label: '五次交互，各 416 µs', at: '0.832 ms' },
+      { from: 'ap', to: 'sta-1', label: '最后一个确认帧', at: '2.896 ms' },
     ],
   }
 }
@@ -49,7 +49,7 @@ export const txopProtect: Lesson = {
   id: 'txop-protect',
   module: 7,
   title: '保护突发——单次保护与多重保护',
-  why: '竞争成功的站点（station, STA）可以在一个传输机会（transmit opportunity, TXOP）里连续发出好几帧，IEEE Std 802.11-2024 只要求整个 TXOP 不超过所属接入类别（access category, AC）的 TXOP 上限（TXOP limit）。对于这样一串帧，标准为发起方规定了两类 Duration 设置：单次保护（single protection）每一帧只预约到下一帧及其应答为止，多重保护（multiple protection）可以一次预约到 TXOP 的上限，此后每一个数据帧（data frame）都重复这个终点。两种方式都由第一帧选定，同一个 TXOP 里不再改变。两台站点相互收不到时，起作用的是接入点（access point, AP）的应答帧：允许发送（clear to send, CTS）与确认帧（acknowledgement, ACK）都把引出它的那一帧的 Duration 减去自身后转述出去，所以多重保护下隐藏站点从 CTS 一次得知整个 TXOP，单次保护下它从每一个确认帧得知下一次交互。在走廊户型里，多重保护那一侧 300 ms 内碰撞 28 次、送达 437 帧；单次保护那一侧碰撞 8 次、送达 799 帧。多重保护那一侧的 28 次碰撞里有 24 次是两帧请求发送（request to send, RTS）相撞，损失的是一帧 RTS，而不是一整串帧。',
+  why: '竞争成功的站点（station, STA）可以在一个传输机会（transmit opportunity, TXOP）里连续发出好几帧，IEEE Std 802.11-2024 只要求整个 TXOP 不超过所属接入类别（access category, AC）的 TXOP 上限（TXOP limit）。对于这样一串帧，标准为发起方规定了两类 Duration 设置：单次保护（single protection）每一帧只预约到下一帧及其应答为止，多重保护（multiple protection）可以一次预约到 TXOP 的上限，此后每一个数据帧（data frame）都重复这个终点。两种方式都由第一帧选定，同一个 TXOP 里不再改变。两台站点相互收不到时，起作用的是接入点（access point, AP）的应答帧：允许发送（clear to send, CTS）与确认帧（acknowledgement, ACK）都把引出它的那一帧的 Duration 减去自身后转述出去，所以多重保护下隐藏站点从 CTS 一次得知整个 TXOP，单次保护下它从每一个确认帧得知下一次交互。在走廊户型里，多重保护那一侧 300 ms 内碰撞 16 次、送达 635 帧；单次保护那一侧碰撞 8 次、送达 799 帧。多重保护那一侧的 16 次碰撞里有 13 次是两帧请求发送（request to send, RTS）相撞，损失的是一帧 RTS，而不是一整串帧。',
   outcomes: [
     '说出标准对 TXOP 上限与两类 Duration 设置规定了什么',
     '说明隐藏站点在两类设置下分别从哪一帧得知预约，以及预约持续到何时',
@@ -97,25 +97,25 @@ export const txopProtect: Lesson = {
       jump: 0,
       steps: [
         '载入本课场景，跳到第一个 RTS：两台站点在 t = 0 同时发出，相撞。',
-        '向后找到 0.736 ms 那个 RTS，逐帧读出时刻与 Duration，并看隐藏站 B 的泳道在哪一帧之后出现预约。',
+        '向后找到 0.744 ms 那个 RTS，逐帧读出时刻与 Duration，并看隐藏站 B 的泳道在哪一帧之后出现预约。',
       ],
       blocks: [
         {
-          kind: 'diagram', heading: '0.736 ms 那一串：一次 RTS/CTS 交互覆盖整串',
+          kind: 'diagram', heading: '0.744 ms 那一串：一次 RTS/CTS 交互覆盖整串',
           spec: protectSequence(),
-          caption: '隐藏站 B 始终收不到 A。它那条预约是根据接入点的 CTS 设置的，一直持续到 3.264 ms，而 A 的五次交互到 2.888 ms 才结束。',
+          caption: '隐藏站 B 始终收不到 A。它那条预约是根据接入点的 CTS 设置的，一直持续到 3.272 ms，而 A 的五次交互到 2.896 ms 才结束。',
         },
-        { kind: 'table', heading: '从 0.736 ms 开始的那一串，逐项数值', head: ['步骤', '数值'], rows: [
+        { kind: 'table', heading: '从 0.744 ms 开始的那一串，逐项数值', head: ['步骤', '数值'], rows: [
           ['TXOP 开始，AC_BE 的上限', '2 528 µs'],
           ['RTS 发出，Duration', '2 500 µs'],
           ['接入点回复 CTS，Duration', '2 456 µs'],
-          ['隐藏站 B 设置 NAV，到', '3.264 ms'],
+          ['隐藏站 B 设置 NAV，到', '3.272 ms'],
           ['每次交互的时长', '416 µs'],
-          ['最后一个确认帧结束于', '2.888 ms'],
+          ['最后一个确认帧结束于', '2.896 ms'],
           ['预约到期之前还剩', '376 µs'],
         ] },
       ],
-      expect: '0.736 ms 的 RTS 是 A 的第三次尝试，Duration 2 500 µs，正好是 TXOP 上限减去 RTS 自身的 28 µs；接入点在 0.780 ms 回复 CTS，Duration 2 456 µs；B 在 0.808 ms 依据这帧 CTS 设置 NAV，一直到 3.264 ms。此后五个数据帧的 Duration 依次是 2 084、1 668、1 252、836、420 µs，每一个都写到 3.264 ms，接入点的五个确认帧也都写到 3.264 ms。',
+      expect: '0.744 ms 的 RTS 是 A 的第三次尝试，Duration 2 500 µs，正好是 TXOP 上限减去 RTS 自身的 28 µs；接入点在 0.788 ms 回复 CTS，Duration 2 456 µs；B 在 0.816 ms 依据这帧 CTS 设置 NAV，一直到 3.272 ms。此后五个数据帧的 Duration 依次是 2 084、1 668、1 252、836、420 µs，每一个都写到 3.272 ms，接入点的五个确认帧也都写到 3.272 ms。',
       meaning: 'RTS 与此后每一帧都预约到 TXOP 末尾，是多重保护允许的上限（② 多重保护下 RTS 与数据帧的取值）；B 能听到的只有接入点的 CTS 与确认帧，它们按 §9.2.5.6 转述同一个终点（①）。',
     },
     {
@@ -123,19 +123,19 @@ export const txopProtect: Lesson = {
       variant: 0,
       steps: [
         '载入「单次保护」，运行到 3 ms。',
-        '看 0.736 ms 那一串：读出 RTS、CTS、每个数据帧与每个确认帧的 Duration，以及 B 的 NAV 每一次延长到何时。',
+        '看 0.744 ms 那一串：读出 RTS、CTS、每个数据帧与每个确认帧的 Duration，以及 B 的 NAV 每一次延长到何时。',
         '运行满 300 ms，与本课场景的 300 ms 对照下表。',
       ],
       blocks: [
         { kind: 'table', heading: '同样的 300 ms：单次保护与多重保护', head: ['300 ms 内的统计', '单次', '多重'], rows: [
-          ['碰撞次数', '8', '28'],
-          ['成功送达的数据帧', '799', '437'],
-          ['重传（retry）', '18', '64'],
-          ['丢弃帧数', '0', '0'],
-          ['隐藏站点每条预约的平均时长', '0.34 ms', '2.45 ms'],
+          ['碰撞次数', '8', '16'],
+          ['成功送达的数据帧', '799', '635'],
+          ['重传（retry）', '18', '37'],
+          ['丢弃帧数', '0', '1'],
+          ['隐藏站点每条预约的平均时长', '0.34 ms', '2.46 ms'],
         ] },
       ],
-      expect: '同一个 0.736 ms 的 RTS 这次只写 460 µs，CTS 写 416 µs，B 的 NAV 先到 1.224 ms；此后前四个数据帧都写 460 µs，接入点的确认帧各写 416 µs，B 的 NAV 依次延长到 1.640、2.056、2.472、2.888 ms；第五个数据帧是最后一帧，只写 44 µs，它的确认帧写 0。300 ms 内碰撞 8 次，送达 799 帧。',
+      expect: '同一个 0.744 ms 的 RTS 这次只写 460 µs，CTS 写 416 µs，B 的 NAV 先到 1.232 ms；此后前四个数据帧都写 460 µs，接入点的确认帧各写 416 µs，B 的 NAV 依次延长到 1.648、2.064、2.480、2.896 ms；第五个数据帧是最后一帧，只写 44 µs，它的确认帧写 0。300 ms 内碰撞 8 次，送达 799 帧。',
       meaning: '单次保护下每个数据帧预告下一次交互，接入点的确认帧把它转述给 B（① §9.2.5.2 a)8)、§9.2.5.6），所以 B 在整串里始终处于预约之中，只是每次只被告知 416 µs。在这间房子里它比多重保护碰撞更少、送达更多。',
     },
     {
@@ -145,7 +145,7 @@ export const txopProtect: Lesson = {
         '载入本课场景，跳到第一次碰撞，再运行满 300 ms。',
         '逐一查看碰撞记录，读出每一次碰撞结束时正在结束的是哪一种帧。',
       ],
-      expect: '第一次碰撞落在 t = 28 µs，是 t = 0 同时发出的两帧 RTS 结束的时刻。300 ms 内的 28 次碰撞里，24 次是两帧 RTS 相撞，每次各损失一帧 20 字节的 RTS；只有 4 次碰上了正在发送的数据帧。',
+      expect: '第一次碰撞落在 t = 28 µs，是 t = 0 同时发出的两帧 RTS 结束的时刻。300 ms 内的 16 次碰撞里，13 次是两帧 RTS 相撞，每次各损失一帧 20 字节的 RTS；只有 3 次碰上了正在发送的数据帧。',
       meaning: 'RTS/CTS 不消除碰撞，只把有风险的时间缩短到一帧 RTS 的长度；预约建立之后，一整串帧都在预约之内（① §9.2.5.2）。',
     },
     {
@@ -154,7 +154,7 @@ export const txopProtect: Lesson = {
         '在编辑器中打开本课场景，把 RTS 门限从 500 字节改为 3000 字节，高过这里的每一帧，运行 300 ms。',
         '读出碰撞次数与送达的帧数，再看隐藏站 B 的预约来自哪一帧。',
       ],
-      expect: '碰撞从 28 次升到 89 次，送达从 437 帧降到 259 帧。没有 RTS，每个 TXOP 的第一个数据帧在 B 那里没有任何预约，B 的预约只能来自接入点的确认帧，这时第一个数据帧已经发完；其中最慢的一帧占了 1.932 ms 的空口时间（airtime）。',
+      expect: '碰撞从 16 次升到 87 次，送达从 635 帧降到 258 帧。没有 RTS，每个 TXOP 的第一个数据帧在 B 那里没有任何预约，B 的预约只能来自接入点的确认帧，这时第一个数据帧已经发完；其中最慢的一帧占了 1.932 ms 的空口时间（airtime）。',
       meaning: '长于门限的帧必须先发 RTS（② 何时用 RTS 开启一串，§10.3.5）；门限高过每一帧，多重保护的预约要等到第一个确认帧才传到隐藏站点（① §9.2.5.6）。',
     },
   ],
@@ -203,7 +203,7 @@ export const txopProtect: Lesson = {
         '一串帧里的校验更弱',
       ],
       answer: 1,
-      explain: '0.736 ms 那一串从 RTS 到最后一个确认帧约 2.152 ms，而一次交互只有 416 µs；预约只覆盖一次交互、又没有确认帧向后转述时，其余的时间都暴露在外。',
+      explain: '0.744 ms 那一串从 RTS 到最后一个确认帧约 2.152 ms，而一次交互只有 416 µs；预约只覆盖一次交互、又没有确认帧向后转述时，其余的时间都暴露在外。',
     },
     {
       q: '下面哪一项是 IEEE Std 802.11-2024 §9.2.5.2 定义的 Duration 设置类别？',

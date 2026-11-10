@@ -75,11 +75,12 @@ export function uwbAcquisitionScenario(variant: UwbAcquisitionVariant = 'base'):
 }
 
 /**
- * Which fragments of the tag's column reached the anchor in the round of block 1 — indices 3 to 7,
- * the first three lost to the router — and what each of the two settings does with that column.
- * The indices are read off the run and pinned in the test, so the figure cannot drift from it.
+ * Which fragments of the tag's column reached the anchor in the round of block 1 — indices 4, 5
+ * and 7, the other five lost to the router (2026-11-11: re-measured after W6 moved the Wi-Fi
+ * timing and band) — and what each of the two settings does with that column. The indices are
+ * read off the run and pinned in the test, so the figure cannot drift from it.
  */
-export const ACQ_HEARD: readonly number[] = [3, 4, 5, 6, 7]
+export const ACQ_HEARD: readonly number[] = [4, 5, 7]
 
 /** The same column of fragments: what arrived, and the one fragment acquisition looks at. */
 export function uwbAcquisitionTiming(): TimingSpec {
@@ -101,7 +102,7 @@ export const uwbAcquisition: Lesson = {
   id: 'uwb-acquisition',
   module: 30,
   title: '首片段丢失，整轮作废',
-  why: 'IEEE 802.15.4-2024 的超宽带（ultra-wideband, UWB）包以同步头（SHR）开头，它由同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）组成；P802.15.4ab 草案中不使用窄带（narrowband, NB）射频的 UWB 驱动配置里，多毫秒（multi-millisecond, MMS）测距包也只在第一个片段（fragment）里带这样一段 SYNC+SFD，无论前面有没有 SP0 控制包。提案 15-25/0066r1 指出：这个片段若因干扰没有收到，就没有成功的信号捕获（acquisition），整个测距轮（ranging round）失败；它建议给每个测距序列片段（ranging sequence fragment, RSF）附加 SFD，但提出这条意见的人后来撤回了它，草案里没有这个设置。捕获怎样判定标准与草案都没有规定，本仿真器的取法是按单个片段判定、不允许累加。在本课的房间里，路由器的 Wi-Fi 猝发使十四列片段中有七列丢失了第一个片段而整列作废，这七列累加后的余量都在 22 dB 以上，1.3 秒只得到 3 个距离；带上 SP0 控制包也救不了这些列：SP0 包本身也被干扰，八列里只检出三列，一个距离也没有。只有窄带辅助配置与把 Wi-Fi 移出这条信道能得到全部 14 个距离。',
+  why: 'IEEE 802.15.4-2024 的超宽带（ultra-wideband, UWB）包以同步头（SHR）开头，它由同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）组成；P802.15.4ab 草案中不使用窄带（narrowband, NB）射频的 UWB 驱动配置里，多毫秒（multi-millisecond, MMS）测距包也只在第一个片段（fragment）里带这样一段 SYNC+SFD，无论前面有没有 SP0 控制包。提案 15-25/0066r1 指出：这个片段若因干扰没有收到，就没有成功的信号捕获（acquisition），整个测距轮（ranging round）失败；它建议给每个测距序列片段（ranging sequence fragment, RSF）附加 SFD，但提出这条意见的人后来撤回了它，草案里没有这个设置。捕获怎样判定标准与草案都没有规定，本仿真器的取法是按单个片段判定、不允许累加。在本课的房间里，路由器的 Wi-Fi 猝发使十四列片段中有七列丢失了第一个片段而整列作废，这七列累加后的余量都在 19 dB 以上，1.3 秒只得到 3 个距离；带上 SP0 控制包也救不了这些列：SP0 包本身也被干扰，八列里只检出三列，一个距离也没有。只有窄带辅助配置与把 Wi-Fi 移出这条信道能得到全部 14 个距离。',
   outcomes: [
     '说出提案 15-25/0066r1 的问题陈述，以及它的 RSF 附加 SFD 建议为什么不在草案里',
     '区分本仿真器的捕获判定（单个片段）与累加判定（多个片段的累加值）',
@@ -162,10 +163,10 @@ export const uwbAcquisition: Lesson = {
         '对照下图与公式：这一列丢的是哪几个片段，累加判定与捕获判定各看什么。',
       ],
       blocks: [
-        { kind: 'diagram', heading: '同一列片段，两种判定', spec: uwbAcquisitionTiming(), caption: '第二块那一轮里，标签（tag）的八个片段在锚点处的到达情况：前三个被干扰丢失。下面一行是唯一的捕获入口——第一个片段，恰好没有到达。' },
-        { kind: 'formula', heading: '这一列的两种判定', text: '累加：−73.28 dBm + 10·log10(5) = −66.29 dBm ≥ −93 dBm  →  通过\n捕获：唯一的捕获入口是片段 0，它没有到达  →  未通过', note: '两种判定都是本仿真器的取法（②）。' },
+        { kind: 'diagram', heading: '同一列片段，两种判定', spec: uwbAcquisitionTiming(), caption: '第二块那一轮里，标签（tag）的八个片段在锚点处的到达情况：片段 0 到 3 与片段 6 被干扰丢失。下面一行是唯一的捕获入口——第一个片段，恰好没有到达。' },
+        { kind: 'formula', heading: '这一列的两种判定', text: '累加：−73.28 dBm + 10·log10(3) = −68.51 dBm ≥ −93 dBm  →  通过\n捕获：唯一的捕获入口是片段 0，它没有到达  →  未通过', note: '两种判定都是本仿真器的取法（②）。' },
       ],
-      expect: '207.500 ms 那一行收到 5/8、余量 26.7 dB，结论却是 lost；收到的是片段 3, 4, 5, 6, 7，片段 0 没有到达。',
+      expect: '207.500 ms 那一行收到 3/8、余量 24.5 dB，结论却是 lost；收到的是片段 4, 5, 7，片段 0 没有到达。',
       meaning: '这正是提案的问题陈述（①）：第一个片段丢失，这一轮就没有捕获；余量再大也无济于事，因为本仿真器的捕获判定不允许累加（②）。',
     },
     {
@@ -178,13 +179,13 @@ export const uwbAcquisition: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '四个场景，同一个房间', head: ['场景', '每列收到的片段', '检出', '每 1.3 秒的距离数'], rows: [
-          ['零长控制阶段', '5,6,5,2,6,4,6,4,5,6,6,5,6,6', '7 / 14', '3'],
-          ['带 SP0 控制相位', '5,6,0,4,6,6,5,0', '3 / 8', '0'],
-          ['窄带辅助（Config 2）', '6,5,6,5,6,6,7,4,5,6,6,6,5,7', '14 / 14', '14'],
+          ['零长控制阶段', '4,6,3,1,6,4,6,4,4,5,5,4,5,6', '7 / 14', '3'],
+          ['带 SP0 控制相位', '3,6,0,3,6,6,4,0', '3 / 8', '0'],
+          ['窄带辅助（Config 2）', '5,5,5,5,6,5,6,4,3,6,6,5,4,7', '14 / 14', '14'],
           ['把 Wi-Fi 移出这条信道', '8,8,8,8,8,8,8,8,8,8,8,8,8,8', '14 / 14', '14'],
         ] },
       ],
-      expect: '带 SP0 控制相位时 8.500 ms 那一行收到 5/8、余量 26.7 dB，结论仍是 lost：SP0 包已经收到，丢的仍是第一个片段。七个块里只有三轮的 SP0 一问一答完整成功，八列片段检出三列，报告也被干扰，一个距离也没有。',
+      expect: '带 SP0 控制相位时 8.500 ms 那一行收到 3/8、余量 24.5 dB，结论仍是 lost：SP0 包已经收到，丢的仍是第一个片段。七个块里只有三轮的 SP0 一问一答完整成功，八列片段检出三列，报告也被干扰，一个距离也没有。',
       meaning: 'SP0 包告诉接收方有对端，却替代不了测距包自己的 SYNC+SFD 片段（①）；窄带辅助配置不做捕获判定（②），报告也经窄带送达，所以得到 14 个。',
     },
   ],
@@ -211,9 +212,9 @@ export const uwbAcquisition: Lesson = {
   tryThis: [],
   quiz: [
     {
-      q: '一列片段收到五个、累加后余量 26.7 dB，却判为丢失。缺的是什么？',
+      q: '一列片段收到三个、累加后余量 24.5 dB，却判为丢失。缺的是什么？',
       options: [
-        '缺的是电平：五个片段累加后仍然不够',
+        '缺的是电平：三个片段累加后仍然不够',
         '缺的是捕获入口：只有第一个片段能用来捕获，而它正是被干扰丢失的片段之一',
         '缺的是报告：锚点没有把时间值发回',
       ],

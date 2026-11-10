@@ -18,7 +18,8 @@ import { MODULES } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { ACK_TIMEOUT_NS, MAX_PPDU_NS, PHY_MODES, multiStaBaBytes, triggerBytes } from '../../src/engine/phy'
+import { MAX_PPDU_NS, PHY_MODES, multiStaBaBytes, ppduTiming, triggerBytes } from '../../src/engine/phy'
+import { timingFor } from '../../src/engine/simulation'
 import { maxPsduBytesFor } from '../../src/engine/mac'
 import { ampduPsduBytes } from '../../src/model/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -28,6 +29,8 @@ const US = 1_000
 /** The window every number in this lesson is measured over. */
 const RUN_NS = 100 * MS
 const SIFS_NS = 16 * US
+/** The EHT AP's wait for HE TB PPDUs: SIFS + slot + 24 µs (2026-11-11, W6). */
+const ACK_TIMEOUT_NS = timingFor('5g', 'eht').ackTimeoutNs
 const UPLOADERS = ['sta-1', 'sta-2']
 const A_OFF = 0
 
@@ -181,15 +184,17 @@ describe('ofdma-ul · ② says what the engine does, and the engine does it', ()
     for (const t of triggers(base())) expect(t.frame.durationFieldNs).toBe(SIFS_NS + t.frame.muParts![0].durNs! + SIFS_NS + 36 * US)
   })
 
-  it('the multi-STA BlockAck is 32 + 8 per extra user at 24 Mb/s; an unanswered trigger dies at 45 µs', () => {
+  it('the multi-STA BlockAck is 32 + 8 per extra user at 24 Mb/s; an unanswered trigger dies at 49 µs', () => {
     expect(multiStaBaBytes(2)).toBe(40)
     for (const m of txs(base(), (r) => r.frame.kind === 'mba')) {
       expect(m.frame.bytes).toBe(multiStaBaBytes(m.frame.muParts!.length))
       expect(m.frame.mbps).toBe(24)
     }
     expect(implRow('多站点块确认').sim).toContain('32 字节加每多一台 8 字节')
-    expect(ACK_TIMEOUT_NS).toBe(45 * US)
+    // 2026-11-11 (W6): the EHT AP waits for HE TB PPDUs with SIFS + slot + 24 µs (§10.3.2.9, Table 27-61)
+    expect(ACK_TIMEOUT_NS).toBe(49 * US)
     expect(implRow('无人应答').sim).toContain(`${ACK_TIMEOUT_NS / US} µs`)
+    expect(implRow('无人应答').sim).toContain('16 + 9 + 24')
   })
 
   it('a device given a slice keeps its own stream count — on a synthetic two-stream copy', () => {
@@ -242,8 +247,11 @@ describe('ofdma-ul · ③ every figure the labs print is the run', () => {
     expect(cells['每台分到的信道']).toBe(`1/${users}`)
     expect(cells['一个 2 ms 的应答最多容纳']).toBe(`${grouped(budget)} B`)
     expect(cells['这些字节需要的符号（symbol）数']).toBe(String(syms))
-    expect(cells['因此应答长度']).toBe(`${PHY_MODES.he.preambleNs / US} + ${PHY_MODES.he.symNs / US} × ${syms} = ${usText(dur)}`)
-    expect(PHY_MODES.he.preambleNs + syms * PHY_MODES.he.symNs).toBe(dur)
+    // 2026-11-11 (W6): the HE TB PPDU's own preamble (8 µs HE-STF) and its packet extension
+    const pt = ppduTiming('he', budget, 11, { ruFraction: 1 / users, widthMhz: 20, nss: 1, tb: true })
+    expect(pt.nsym).toBe(syms)
+    expect(cells['因此应答长度']).toBe(`${pt.preambleNs / US} + ${pt.symNs / US} × ${pt.nsym} + ${pt.peNs / US} = ${usText(dur)}`)
+    expect(pt.preambleNs + pt.nsym * pt.symNs + pt.peNs).toBe(dur)
     expect(ampduPsduBytes(new Array<number>(mpdus).fill(1500))).toBe(each)
     expect(ampduPsduBytes(new Array<number>(mpdus + 1).fill(1500))).toBeGreaterThan(budget)
     expect(cells['每个应答实际承载']).toBe(`${mpdus} 帧，${grouped(each)} B；其余 ${budget - each} B 是填充`)

@@ -18,7 +18,7 @@ import type { TimingSpec } from '../diagram'
 import { type Lesson, hallwayHouse, node, sc, firstCfEnd, firstCfEndRelay, J } from '../lessonKit'
 
 /**
- * How far each class's announcement reaches, on the run's own burst at 0.736 ms, with that RTS as
+ * How far each class's announcement reaches, on the run's own burst at 0.744 ms, with that RTS as
  * the zero point. Every span is a record or the engine's own arithmetic over one:
  *  - 这一串 — the RTS at 0–28, the CTS at 44–72, and the five exchanges from the first data frame
  *    at 88 to the last answer ending at 2 152.
@@ -49,7 +49,7 @@ export const protectPolicies: Lesson = {
   id: 'protect-policies',
   module: 7,
   title: '两类预约方式，以及提前释放剩余时间',
-  why: 'IEEE Std 802.11-2024 §9.2.5.2 为传输机会（transmit opportunity, TXOP）的发起方只规定了两类 Duration 设置：单次保护（single protection）每一帧只预约到下一帧及其应答，多重保护（multiple protection）可以预约到 TXOP 的上限，此后的每一帧至少重复一遍这个终点。本仿真器正好实现这两类，由场景为每台站点（station, STA）选定一类。多重保护的预约通常比这一串实际用的时间长，§10.23.2.10 允许持有者发送一帧 CF-End（contention-free end）提前结束 TXOP，收到的站点把网络分配向量（network allocation vector, NAV）复位为 0；只收得到接入点（access point, AP）的站点收不到这一帧，所以标准允许接入点在一个短帧间间隔（short interframe space, SIFS）之后再发一帧。本仿真器的接入点每次都转发，0.736 ms 那一串结束后，隐藏站点的预约因此提前 288 µs 结束。单次保护的最后一个数据帧（data frame）只预约到自己的确认帧（acknowledgement, ACK）结束，没有剩余可释放。标准还有一种只发一帧的预约方式 CTS-to-self（CTS to self），开销比请求发送（request to send, RTS）与允许发送（clear to send, CTS）的交互低，但对隐藏站点不可靠；本仿真器的 Wi-Fi 站点没有实现它。',
+  why: 'IEEE Std 802.11-2024 §9.2.5.2 为传输机会（transmit opportunity, TXOP）的发起方只规定了两类 Duration 设置：单次保护（single protection）每一帧只预约到下一帧及其应答，多重保护（multiple protection）可以预约到 TXOP 的上限，此后的每一帧至少重复一遍这个终点。本仿真器正好实现这两类，由场景为每台站点（station, STA）选定一类。多重保护的预约通常比这一串实际用的时间长，§10.23.2.10 允许持有者发送一帧 CF-End（contention-free end）提前结束 TXOP，收到的站点把网络分配向量（network allocation vector, NAV）复位为 0；只收得到接入点（access point, AP）的站点收不到这一帧，所以标准允许接入点在一个短帧间间隔（short interframe space, SIFS）之后再发一帧。本仿真器的接入点每次都转发，0.744 ms 那一串结束后，隐藏站点的预约因此提前 288 µs 结束。单次保护的最后一个数据帧（data frame）只预约到自己的确认帧（acknowledgement, ACK）结束，没有剩余可释放。标准还有一种只发一帧的预约方式 CTS-to-self（CTS to self），开销比请求发送（request to send, RTS）与允许发送（clear to send, CTS）的交互低，但对隐藏站点不可靠；本仿真器的 Wi-Fi 站点没有实现它。',
   outcomes: [
     '说出标准的两类 Duration 设置，以及隐藏站点在每一类下从哪一帧得知预约',
     '说明 CF-End 何时可以发送、收到后怎样处理，以及接入点为什么要再发一帧',
@@ -99,20 +99,20 @@ export const protectPolicies: Lesson = {
         {
           kind: 'diagram', heading: '同一串帧，两类设置的 CTS 各罩住多长',
           spec: policyReachTiming(),
-          caption: '零点取本轮 0.736 ms 发出的那一帧 RTS。单次保护下，CTS 只预约到第一次交互完成为止（416 µs），此后靠每个确认帧向后延伸；多重保护下 CTS 预约到 TXOP 末尾（2 456 µs），但这一串在 2 152 µs 就结束了，于是两帧 CF-End 释放了最后那 288 µs。',
+          caption: '零点取本轮 0.744 ms 发出的那一帧 RTS。单次保护下，CTS 只预约到第一次交互完成为止（416 µs），此后靠每个确认帧向后延伸；多重保护下 CTS 预约到 TXOP 末尾（2 456 µs），但这一串在 2 152 µs 就结束了，于是两帧 CF-End 释放了最后那 288 µs。',
         },
-        { kind: 'table', heading: '0.736 ms 那一串的结束过程，逐项数值', head: ['步骤', '数值'], rows: [
-          ['隐藏站 B 的预约持续到', '3.264 ms'],
-          ['最后一个确认帧结束于', '2.888 ms'],
+        { kind: 'table', heading: '0.744 ms 那一串的结束过程，逐项数值', head: ['步骤', '数值'], rows: [
+          ['隐藏站 B 的预约持续到', '3.272 ms'],
+          ['最后一个确认帧结束于', '2.896 ms'],
           ['预约还剩', '376 µs'],
           ['再进行一次交互需要', '416 µs'],
-          ['持有者的 CF-End 发于', '2.904 ms'],
-          ['接入点的 CF-End 发于', '2.948 ms'],
-          ['隐藏站 B 的 NAV 清零于', '2.976 ms'],
+          ['持有者的 CF-End 发于', '2.912 ms'],
+          ['接入点的 CF-End 发于', '2.956 ms'],
+          ['隐藏站 B 的 NAV 清零于', '2.984 ms'],
           ['提前释放的时间', '288 µs'],
         ] },
       ],
-      expect: '最后一个确认帧在 2.888 ms 结束，预约还剩 376 µs，不够再进行一次 416 µs 的交互；A 在 2.904 ms 发出 CF-End，接入点在 2.948 ms 再发一帧，B 在 2.976 ms 清零 NAV，比预约的 3.264 ms 早 288 µs。',
+      expect: '最后一个确认帧在 2.896 ms 结束，预约还剩 376 µs，不够再进行一次 416 µs 的交互；A 在 2.912 ms 发出 CF-End，接入点在 2.956 ms 再发一帧，B 在 2.984 ms 清零 NAV，比预约的 3.272 ms 早 288 µs。',
       meaning: 'B 收不到 A，它清零靠的是接入点那一帧，这正是 §10.23.2.10 NOTE 1 说的情况（①）。接入点每次都转发、持有者在放不进下一次交互时就发 CF-End，是本仿真器的取法（②）。',
     },
     {
@@ -129,18 +129,18 @@ export const protectPolicies: Lesson = {
       heading: '单次保护与多重保护',
       variant: 0,
       steps: [
-        '载入「单次保护」，悬停 0.736 ms 那一串里的数据帧与确认帧，读出它们的 Duration。',
+        '载入「单次保护」，悬停 0.744 ms 那一串里的数据帧与确认帧，读出它们的 Duration。',
         '运行 300 ms，与本课场景对照下表。',
       ],
       blocks: [
         { kind: 'table', heading: '同样的 300 ms，两类设置', head: ['300 ms 内的统计', '单次', '多重'], rows: [
-          ['碰撞次数', '8', '28'],
-          ['成功送达的数据帧', '799', '437'],
+          ['碰撞次数', '8', '16'],
+          ['成功送达的数据帧', '799', '635'],
           ['数据帧自己携带的 Duration，最长', '784 µs', '2.160 ms'],
           ['发出的 CF-End（含接入点转发的）', '0', '222'],
         ] },
       ],
-      expect: '多重保护下，0.736 ms 那一串的五个数据帧依次写 2 084、1 668、1 252、836、420 µs，每一个都写到 3.264 ms，接入点的确认帧也写到 3.264 ms；单次保护下数据帧只写 44 到 784 µs，每个确认帧把下一次交互转述给 B。',
+      expect: '多重保护下，0.744 ms 那一串的五个数据帧依次写 2 084、1 668、1 252、836、420 µs，每一个都写到 3.272 ms，接入点的确认帧也写到 3.272 ms；单次保护下数据帧只写 44 到 784 µs，每个确认帧把下一次交互转述给 B。',
       meaning: '两类设置都照 §9.2.5.2 填写（②）。这间房子里 B 收不到 A 的任何数据帧，它的预约全部来自接入点的 CTS 与确认帧（① §9.2.5.6）：多重保护一次告诉它到 TXOP 末尾，单次保护每次告诉它下一次交互。',
     },
   ],

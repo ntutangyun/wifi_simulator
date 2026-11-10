@@ -1577,7 +1577,7 @@ export function Guide() {
         窗口留给信道接入的余量是 <b>{SSBD_POLL_SLACK_US} µs</b>、REPORT 窗口是
         <b> {SSBD_REPORT_SLACK_US} µs</b>（都从 <code>NB_WINDOW_SLOTS</code> 个测距时隙减去消息本身
         的收发时间算出，窄带发射用的是 600 RSTU 的 MMS 时隙）。一次感知就要 {NB_PHY_CCA_DURATION_US} µs，
-        这格余量只放得下三次；而场景里最长的那一帧 Wi-Fi 数据帧（469.6 µs）比整格余量还长——在时域里等不到它结束。
+        这格余量只放得下三次；而场景里最长的那一帧 Wi-Fi 数据帧（477.0 µs）比整格余量还长——在时域里等不到它结束。
       </p>
       <p style={p}>
         量出来是这样（<code>uwb-nba-coexist</code> 课程场景，1.3 s，读 <b>UWB_RANGE</b> 条数）：
@@ -1587,7 +1587,7 @@ export function Guide() {
           <tr><th style={cellHead}>设置</th><th style={cellHead}>测距成功次数</th></tr>
         </thead>
         <tbody>
-          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>8</td></tr>
+          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>14</td></tr>
           <tr><td style={cell}>CSMA-CA（不开 SSBD，标准 §6.3.2.1）</td><td style={cell}><b>0</b></td></tr>
           <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}><b>0</b></td></tr>
           <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>0</b></td></tr>
@@ -1595,9 +1595,10 @@ export function Guide() {
       </table>
       <p style={p}>
         三种做信道接入的设置都一次也没有测成：路由器的发射在 {NB_PHY_CCA_DURATION_US} µs 的感知里平均下来仍高于门限，
-        每一次尝试都在接入成功之前用完了窗口，手机的 POLL 一条也没有发出。缺省参数下 SSBD 的收尾动作「照常发送」
+        几乎每一次尝试都在接入成功之前用完了窗口：CSMA-CA 与调大退避时手机的 POLL 一条也没有发出，缺省参数的 SSBD
+        也只有一轮感知到空闲、发出 POLL，那一轮也没有测成。缺省参数下 SSBD 的收尾动作「照常发送」
         要等第六次感知判忙才轮得到，而窗口只放得下三次，所以它从不起作用；把退避调大只会更早用完窗口。
-        只有完全不先听后发才得到 8 个距离，而且都由锚点算出，手机自己一个也没有：路由器对只收到一部分的
+        只有完全不先听后发才得到 14 个距离，其中手机自己算出 4 个、锚点算出 10 个，仍没有一次定位：路由器对只收到一部分的
         A-MPDU 照样回 BlockAck，它离手机很近，这些 BlockAck 与 CTS 落在手机的窄带接收里；代价同时转给了 Wi-Fi（见 <code>uwb-nba-coexist</code>）。
       </p>
       <h4 style={h}>动手试试</h4>

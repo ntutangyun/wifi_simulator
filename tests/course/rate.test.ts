@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { rate } from '../../src/course/tier2/rate'
 import { rateScenario } from '../../src/course/wifiScenes'
+import { timingFor } from '../../src/engine/simulation'
 import { MODULES } from '../../src/course/curriculum'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { ZH_TERMS, gradedProseTexts, zhAkaViolations, zhTermFailure } from '../../src/course/readability'
@@ -23,6 +24,8 @@ import {
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
+/** 2026-11-11 (W6): the far station's AckTimeout — its generation's aRxPHYStartDelay (§6.7.4.4). */
+const STA_ACK_TIMEOUT_NS = timingFor('5g', rate.scenario().nodes.find((n) => n.id === 'sta-2')!.caps.generation).ackTimeoutNs
 const US = 1_000
 const RUN_NS = 3000 * MS
 
@@ -116,10 +119,12 @@ describe('rate · ② says what the engine does, and the engine does it', () => 
     expect(implRow('上限的计算').sim).toContain(`「所需信噪比 + ${RATE_MARGIN_DB} dB ≤ SNR」`)
   })
 
-  it('AckTimeout is 16 + 9 + 20 = 45 µs', () => {
+  it('AckTimeout is 16 + 9 + 24 = 49 µs for these Wi-Fi 7 STAs', () => {
+    // 2026-11-11 (W6): aRxPHYStartDelay of an HT/VHT/HE/EHT STA is 24 µs (§6.7.4.4, Table 27-61).
     expect([SIFS_NS, SLOT_NS, RX_START_DELAY_NS].map((x) => x / US)).toEqual([16, 9, 20])
     expect(ACK_TIMEOUT_NS).toBe(45 * US)
-    expect(implRow('成败的判定').sim).toContain('16 + 9 + 20 = 45 µs')
+    expect(STA_ACK_TIMEOUT_NS).toBe(49 * US)
+    expect(implRow('成败的判定').sim).toContain('16 + 9 + 24 = 49 µs')
   })
 
   it('without 4096-QAM negotiated the ceiling is capped at MCS 11', () => {
@@ -186,9 +191,9 @@ describe('rate · ③ every figure the labs print is the run', () => {
     const first = ofType(recs(), 'ACK_TIMEOUT')[0]
     expect(first.node).toBe('sta-2')
     const frame = dataOf('sta-2').filter((r) => r.t < first.t).at(-1)!
-    expect(frame.t + frame.frame.txTimeNs + ACK_TIMEOUT_NS).toBe(first.t)
+    expect(frame.t + frame.frame.txTimeNs + STA_ACK_TIMEOUT_NS).toBe(first.t)
     expect(dataOf('sta-1').some((n) => n.t === frame.t)).toBe(true)
-    expect(l.expect).toContain(`两台站点都在 ${us1(frame.t).replace('.0', '')} µs 开始发送；远端那一帧以 MCS ${frame.frame.mcs} 发送，${us1(frame.t + frame.frame.txTimeNs)} µs 结束，${ACK_TIMEOUT_NS / US} µs 后即 ${us1(first.t)} µs 记下 ACK 超时`)
+    expect(l.expect).toContain(`两台站点都在 ${us1(frame.t).replace('.0', '')} µs 开始发送；远端那一帧以 MCS ${frame.frame.mcs} 发送，${us1(frame.t + frame.frame.txTimeNs)} µs 结束，${STA_ACK_TIMEOUT_NS / US} µs 后即 ${us1(first.t)} µs 记下 ACK 超时`)
     const timeouts = ofType(recs(), 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2')
     const lost = lostFar()
     expect(lost).toHaveLength(timeouts.length)
