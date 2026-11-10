@@ -444,7 +444,9 @@ describe('what switching the exchange on must not change', () => {
       'twr-ds': 'fbf10307',
       'dl-tdoa': 'a2c21b25',
       'ul-tdoa': '426206f8',
-      m2m: 'ba086737',
+      // 2026-11-11 (W3): m2m re-captured — the standard's many-to-many round (§10.32.6): the controller's
+      // RCM, the initiators' initiation messages and the responders' RRTI responses, no TXT/RXT IEs.
+      m2m: '787241d9',
     }
     const CASES: [string, Partial<UwbSessionCfg>][] = [
       ['twr-ss', { method: 'ss' }],

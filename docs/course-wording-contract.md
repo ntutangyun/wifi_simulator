@@ -408,7 +408,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | 性能异常 | 文献 | Heusse 等人 2003 年那篇论文的题目 | 0 | 0 | — |
 | 速率控制 | 模型取值 | 选哪一级速率，标准留给实现者，这里是本仿真器的做法 | 2 | 0 | — |
 | 自动速率回退 | 文献 | Kamerman 与 Monteban 1997 年的算法名，IEEE 没有定义它 | 0 | 0 | `@rate-fallback` · `ARF` |
-| 上限 | 模型取值 | 仿真器用它指「一条链路能扛到的最高那一级」 | 9 | 3 | `@backoff` · `CW`；`@collisions-cw` · `CW`；`@retries-queues` · `retry limit`；`@txop` · `TXOP limit`；`@edca-tamper` · `TXOP limit`；`@rate-fallback` · `excursion` |
+| 上限 | 模型取值 | 仿真器用它指「一条链路能扛到的最高那一级」 | 9 | 2 | `@backoff` · `CW`；`@collisions-cw` · `CW`；`@retries-queues` · `retry limit`；`@txop` · `TXOP limit`；`@edca-tamper` · `TXOP limit`；`@rate-fallback` · `excursion` |
 | 尝试 | 模型取值 | 仿真器的一个计数单位（第几次尝试） | 17 | 6 | `@bianchi` · `collision probability`；`@uwb-contention` · `RCMA` |
 | 跌落 | 模型取值 | 仿真器用它指一次偏离 | 0 | 0 | `@rate-fallback` · `excursion` |
 | 饱和 | 文献 | Bianchi 模型的前提假设 | 4 | 3 | — |
@@ -537,7 +537,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | `@uwb-deferred-ds` | 上限 | `why` | labs |
 | `@uwb-coexist` | 饱和 | `why` | 从未 |
 | `@uwb-contention` | 尝试 | `why` | 从未 |
-| `@uwb-m2m` | 上限 | `outcomes[2]` | 从未 |
+| `@uwb-m2m` | 上限 | `standard[4].heading` | 从未 |
 | `@uwb-m2m` | 残差 | `why` | 从未 |
 | `@uwb-receipt` | 上限 | `labs[3].blocks[0].note` | 从未 |
 | `@uwb-ancillary` | 上限 | `why` | 从未 |
@@ -545,8 +545,8 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | `@uwb-mms-numbers` | 突发 | `labs[3].expect` | 从未 |
 | `@uwb-ssbd` | 尝试 | `standard[1].items[0]` | 从未 |
 
-**38 门课、11 个词。** 按节分：`numbers` 13、`picture` 9、`why` 8、`outcomes` 4、`terms` 2、
-`quiz` 2、`observe` 2、`labs` 2、`implementation` 2、`tryThis` 1、`standard` 1。
+**38 门课、11 个词。** 按节分：`numbers` 13、`picture` 9、`why` 8、`outcomes` 3、`terms` 2、
+`quiz` 2、`observe` 2、`labs` 2、`implementation` 2、`standard` 2、`tryThis` 1。
 
 **除了下面这四对已经还掉的，台账里这 46 对没有任何断言在看**
 （四对还法都是逐课钉住，也就是 2026-09-25 裁定 Keep 那一栏的形状，
@@ -594,7 +594,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 
 **判据不能只看词形，这是量出来的，不是担心出来的：**
 
-- **46 对里有 26 对落在 `尝试` 与 `上限` 两个词上**（前段 16 对里有 9 对），
+- **46 对里有 26 对落在 `尝试` 与 `上限` 两个词上**（前段 15 对里有 8 对），
   而这两个词绝大多数用法是**普通中文**——「第一次尝试」里的尝试是动词，
   「一帧的载荷有上限」里的上限是普通名词。
   它们进豁免表的理由恰恰是**仿真器另有**一个同名的计数单位与同名的上界。
@@ -872,11 +872,11 @@ W18 记下、留给我定的是：定义这个概念的那一课用 `门限`／`
 | --- | --- | --- |
 | 豁免词 | 25 | `ZH_TERMS_EXCLUDED` 的行数 |
 | 主路径存量债（课，词） | 46 | §10.5 的判据 |
-| 其中落在前段 | 16 | 同上 |
+| 其中落在前段 | 15 | 同上 |
 | 债涉及的课 | 38 | 同上 |
 | 债涉及的词 | 11 | 同上 |
 | 落在 `尝试` 与 `上限` 两个词上的债 | 26 | 同上 |
-| 这两个词的债里落在前段的 | 9 | 同上 |
+| 这两个词的债里落在前段的 | 8 | 同上 |
 | 主路径裸用 `门限` 的课（两张表都不在） | 25 | §10.5 末，遮掉两条复合行之后 |
 | 主路径裸用 `门限` 的处数 | 106 | 同上，逐个被走到的字符串计一处 |
 | 同处境的中心词（两张表都不在、主路径裸用） | 81 | §10.6 第 3 条第 1 理由；`ZH_TERMS` 某行的中文后缀 |

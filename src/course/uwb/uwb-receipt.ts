@@ -1,49 +1,47 @@
 /**
- * UWB Tier 2 · M20 多消息收妥确认, in the standard-first shape (2026-11-10).
+ * UWB Tier 2 · M20 多消息收妥确认, in the standard-first shape (2026-11-10; base scene rewritten
+ * 2026-11-11 for W3).
  *
  * ① teaches IEEE Std 802.15.4-2024 §10.36: the MMRCR bit of the ARC IE (§10.32.9.1) asks for a
  * confirmation; a responder answers with an MMRCM, a frame holding one RMMRC IE whose list has one
  * element per initiator — address, bitmap length, and a bitmap with one bit per acknowledged slot
- * (§10.36.2.1, W2 brought the engine to this). ② says what this engine does, including the two
- * places it is not the standard: in many-to-many mode there is no control message to carry the
- * request (the scene sets it), and the editor refuses a two-way one-round set with the request on.
+ * (§10.36.2.1). ② says what this engine does, including where it is not the standard: the editor
+ * refuses a two-way one-round set with the request on.
  *
- * The base scene is the many-to-many round with participant `p-3` 14 dB down: it hears both others
- * and neither hears it, so one frame carries two entries with different bits, and `p-3` reads two
- * all-zero bitmaps. The variants are the two-way round with the request on and off, one control
- * message for four rounds of one block, which is what makes the bitmap 68 bits wide there (2026-11-11, W2b: 41 until each round
- * was stretched to a whole divisor of the block, §10.32.2 — 20 slots rather than 11).
+ * The base scene is a many-to-many round (standard §10.32.6) of two initiators and two responders,
+ * the second initiator `t-2` 14 dB down: it hears the controller's RCM and both responses, and no
+ * responder hears it, so each responder's confirmation carries two entries with different bits, and
+ * `t-2` reads two all-zero bitmaps. The variants are the two-way round with the request on and off,
+ * one control message for four rounds of one block, which is what makes the bitmap 68 bits wide there.
  *
  * Every figure the labs print is read back out of the lesson text and compared with a run in
  * tests/course/uwb-receipt.test.ts.
  */
 import type { Scenario, Wall } from '../../model/scenario'
-import { J, anchor, brick, firstUwbMmrcm, rangingLab, txOf, uwbSc, uwbTag, type Lesson } from '../lessonKit'
+import { J, anchor, brick, firstUwbMmrcm, rangingLab, uwbSc, uwbTag, type Lesson } from '../lessonKit'
 import { UWB_TX_POWER_DBM } from '../../uwb/phy'
 
-/** Participants of the base many-to-many round. */
-export const PARTICIPANTS = 3
+/** Initiators (tags) of the base many-to-many round; `t-1` is the controller. */
+export const INITIATORS = ['t-1', 't-2'] as const
+/** Responders (anchors) of the base many-to-many round. */
+export const RESPONDERS = ['a-1', 'a-2'] as const
 /** Anchors of the two-way variants. */
 export const ANCHORS = 3
 /** `rcmValidityRounds` of the two-way variants: one control message for four rounds of one block
  * (a ranging round set never leaves its block, standard §10.32.9.1), so the tag runs that many
  * rounds a block. */
 export const VALIDITY = 4
-/** How far below the others `p-3` transmits, in dB: enough that nothing decodes it at these
- * distances, while its own receiver still decodes everybody at full power. */
+/** How far below the others `t-2` transmits, in dB: enough that no responder decodes it, while its
+ * own receiver still decodes everybody at full power. */
 export const QUIET_DB = 14
 
-/** Where the three participants stand, in metres: no two pairwise distances alike. */
-export const PLACES: readonly { x: number; y: number }[] = [
-  { x: 1, y: 1 }, { x: 7, y: 2 }, { x: 3, y: 6 },
-]
+/** The initiator nobody hears. */
+export const QUIET_ID = 't-2'
 
-/** Participant i's id. Ids decide the slot order, so `p-1`…`p-3` is also the order the round
- * transmits in. */
-export const idOf = (i: number): string => `p-${i + 1}`
-
-/** The participant nobody hears: the last to transmit. */
-export const QUIET_ID = idOf(PARTICIPANTS - 1)
+/** Where the four devices stand, in metres: no two distances alike. */
+export const PLACES: Readonly<Record<string, { x: number; y: number }>> = {
+  't-1': { x: 7, y: 2 }, 't-2': { x: 3, y: 6 }, 'a-1': { x: 1, y: 1 }, 'a-2': { x: 9, y: 7 },
+}
 
 /** The hall of the base scene: 20 × 16 m inside one brick shell, no partition inside it. */
 function m2mHall(): { rooms: { x: number; y: number; w: number; h: number; name: string }[]; walls: Wall[] } {
@@ -54,17 +52,21 @@ function m2mHall(): { rooms: { x: number; y: number; w: number; h: number; name:
 }
 
 /**
- * The base scene: three many-to-many participants, the last of them `QUIET_DB` below the other
- * two, with the receipt request on. No excess delay, no timestamp noise — so the only reason a bit
- * is zero here is that a transmission was not decoded.
+ * The base scene: a many-to-many round of two initiators and two responders, `t-2` `QUIET_DB` below
+ * the others, with the receipt request on. No excess delay, no timestamp noise — so the only reason a
+ * bit is zero here is that a transmission was not decoded.
  */
 export function uwbReceiptScenario(mmrcr = true, quiet = true): Scenario {
+  const tag = (id: string, name: string) => {
+    const n = uwbTag(id, name, PLACES[id].x, PLACES[id].y)
+    return quiet && id === QUIET_ID ? { ...n, txPowerDbm: UWB_TX_POWER_DBM - QUIET_DB } : n
+  }
   return uwbSc(
     m2mHall(),
-    PLACES.map((p, i) => {
-      const n = uwbTag(idOf(i), `P${i + 1}`, p.x, p.y)
-      return quiet && idOf(i) === QUIET_ID ? { ...n, txPowerDbm: UWB_TX_POWER_DBM - QUIET_DB } : n
-    }),
+    [
+      tag('t-1', 'T1'), tag('t-2', 'T2'),
+      anchor('a-1', 'A1', PLACES['a-1'].x, PLACES['a-1'].y), anchor('a-2', 'A2', PLACES['a-2'].x, PLACES['a-2'].y),
+    ],
     { mode: 'm2m', method: 'ss', nlos: false, tsNoisePs: 0, rcmValidityRounds: 1, mmrcr },
   )
 }
@@ -87,14 +89,14 @@ export function uwbReceiptTwrScenario(mmrcr = true): Scenario {
   )
 }
 
-/** The quiet participant's own confirmation — the frame that answers the other two. */
-const quietConfirmation = txOf((r) => r.frame.kind === 'uwbMmrcm' && r.node === QUIET_ID)
+/** The first confirmation that reaches the quiet initiator: its own entry, all zeros. */
+const quietConfirmation = (r: { type: string; node?: string }): boolean => r.type === 'UWB_MMRCM' && r.node === QUIET_ID
 
 export const uwbReceipt: Lesson = {
   id: 'uwb-receipt',
   module: 22,
   title: '谁收到了我的帧',
-  why: 'IEEE 802.15.4-2024 的多消息收妥确认（§10.36）回答一个发起方的问题：我发出的那几条消息，哪几条被收到了。控制器在测距控制消息的 ARC 信息单元里把 MMRCR 位置 1，请求接收方确认；这一位就在控制消息原有的控制字段里，请求本身不增加一个字节。接收方回一帧多消息收妥确认消息（MMRCM），帧里只有一个 RMMRC 信息单元：每个发起方一个列表元素，带发起方的地址、位图长度和一张位图（bitmap），位图一位对应一个被确认的时隙，收到那个时隙里发给它的消息记 1（§10.36.2.1）。两个计数要分开：列表元素按发起方计数，回复的帧按接收方计数。标准没有规定回复放在哪个时隙，可以调度也可以竞争。本仿真器照标准实现帧格式与位图，把回复放在这组轮次最后一轮测距之后、一个接收方一个时隙；回复不带任何时间量，开启请求前后算出的距离不变。本仿真器的多对多一轮没有控制消息，请求只能由场景事先设定，这一点与标准不同。基础场景里最后一台设备发射功率（transmit power）偏低，它从另外两帧回复里读到的位图全是 0：没有任何设备收到它的帧。',
+  why: 'IEEE 802.15.4-2024 的多消息收妥确认（§10.36）回答一个发起方的问题：我发出的那几条消息，哪几条被收到了。控制器在测距控制消息的 ARC 信息单元里把 MMRCR 位置 1，请求接收方确认；这一位就在控制消息原有的控制字段里，请求本身不增加一个字节。接收方回一帧多消息收妥确认消息（MMRCM），帧里只有一个 RMMRC 信息单元：每个发起方一个列表元素，带发起方的地址、位图长度和一张位图（bitmap），位图一位对应一个被确认的时隙，收到那个时隙里发给它的消息记 1（§10.36.2.1）。两个计数要分开：列表元素按发起方计数，回复的帧按接收方计数。标准没有规定回复放在哪个时隙，可以调度也可以竞争。本仿真器照标准实现帧格式与位图，把回复放在这组轮次最后一轮测距之后、一个接收方一个时隙；回复不带任何时间量，开启请求前后算出的距离不变。基础场景是一轮多对多测距：控制器的测距控制消息请求确认，两个响应方各回一帧，每帧为两个发起方各列一个元素。第二个发起方发射功率（transmit power）偏低，它从两帧回复里读到的位图全是 0：没有任何响应方收到它的帧。',
   outcomes: [
     '说出请求为什么不增加控制消息的长度，而回复为什么要一整帧',
     '分清两个计数：列表元素按发起方计数，回复的帧按接收方计数',
@@ -124,20 +126,20 @@ export const uwbReceipt: Lesson = {
   ],
   implementation: [
     { topic: '请求位', standard: 'ARC 控制字段的第 15 位 MMRCR（§10.32.9.1）', sim: '照此实现。双向轮变体里请求位开启与关闭时，这组第一轮的控制消息都是 39 字节，其余各轮的启动消息都是 14 字节。', kind: 'faithful' },
-    { topic: '多对多里的请求', standard: '请求随测距控制消息的 ARC 信息单元发出（§10.36.1）', sim: '本仿真器的多对多一轮没有控制消息（见多对多那一课），请求只能由场景事先设定，这是待改正的偏差。', kind: 'differs' },
-    { topic: '谁回、几个列表元素', standard: '接收方回 MMRCM，每个发起方一个列表元素（§10.36.1、§10.36.2.1）', sim: '照此实现：每个接收方一帧。多对多里每台设备把其余设备都当作发起方，一帧两个元素；双向轮里锚点（anchor）只收到标签（tag）一个发起方的消息，一帧一个元素。', kind: 'faithful' },
+    { topic: '多对多里的请求', standard: '请求随测距控制消息的 ARC 信息单元发出（§10.36.1）', sim: '照此实现：多对多一轮里，请求随控制器的测距控制消息发出，持有这条消息的响应方据此回复。', kind: 'faithful' },
+    { topic: '谁回、几个列表元素', standard: '接收方回 MMRCM，每个发起方一个列表元素（§10.36.1、§10.36.2.1）', sim: '照此实现：每个接收方一帧。多对多里每个响应方为每个发起方列一个元素，一帧两个元素；双向轮里锚点（anchor）只收到标签（tag）一个发起方的消息，一帧一个元素。', kind: 'faithful' },
     { topic: '回复的时隙', standard: '可以调度、竞争或两者结合，标准未规定位置（§10.36.1）', sim: '放在这组最后一轮测距之后，一个接收方一个时隙。ARC 只给出一个轮长（Ranging Round Duration，§10.32.9.1），所以每一轮都留着这几个时隙，其余各轮里空着；轮长还要整除测距块（ranging block）（§10.32.2），双向轮变体的一轮因此排成 20 个时隙。', kind: 'choice' },
     { topic: '帧格式', standard: '标志一字节、列表长度一字节，元素为地址、一字节位图长度、位图（§10.36.2.1）', sim: '照此实现：单元头 2 字节、标志 1 字节、列表长度 1 字节，每个元素为短地址 2 字节、位图长度 1 字节、位图 ⌈S/8⌉ 字节；帧头（MAC header）9 字节与帧校验 2 字节是本仿真器的取值。', kind: 'faithful' },
     { topic: '地址长度', standard: 'Address Size 区分短地址与扩展地址（§10.36.2.1）', sim: '只实现短地址，扩展地址未实现。', kind: 'absent' },
-    { topic: '被确认的时隙', standard: '使用这个信息单元确认的那一轮或几轮里的时隙（§10.36.2.1）', sim: '取这组轮次里回复之前的全部时隙：多对多里是那一轮的 3 个时隙，双向轮变体里是 68 个时隙。', kind: 'choice' },
+    { topic: '被确认的时隙', standard: '使用这个信息单元确认的那一轮或几轮里的时隙（§10.36.2.1）', sim: '取这组轮次里回复之前的全部时隙：多对多里是那一轮测距交互的 4 个时隙，双向轮变体里是 68 个时隙。', kind: 'choice' },
     { topic: '位图的取值', standard: '收到那个时隙里发给它的消息记 1，否则记 0（§10.36.2.1）', sim: '照此实现；别的锚点发送的时隙恒为 0。', kind: 'faithful' },
-    { topic: '多播', standard: 'MMRCM 可以用多播或多节点消息发出（§10.36.1）', sim: '双向轮里单播给标签；多对多里沿用整轮的广播地址。', kind: 'choice' },
+    { topic: '多播', standard: 'MMRCM 可以用多播或多节点消息发出（§10.36.1）', sim: '双向轮里单播给标签；多对多里一帧要确认两个发起方，广播发出。', kind: 'choice' },
     { topic: '只有一轮的双向轮次组', standard: '标准没有限制', sim: '编辑器不接受「双向轮 + 有效轮数 1 + 请求收妥确认」：这组只有一轮时，锚点在自己的时隙里应答本身就说明它收到了启动消息。这是本仿真器加的限制。', kind: 'differs' },
     { topic: '时隙与块', standard: '由 ARC 的 Ranging Slot Duration 与 Ranging Block Duration 给出，标准未规定取值', sim: '每个时隙 2 ms，每块 200 ms。', kind: 'value' },
   ],
   labs: [
     {
-      heading: '三次发送之后，三帧回复',
+      heading: '四次测距发送之后，两帧回复',
       jump: 0,
       steps: [
         '载入本课场景，跳到第一帧收妥确认。',
@@ -145,34 +147,34 @@ export const uwbReceipt: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '第 0 块的一轮', head: ['时隙', '发送者', '帧', '字节'], rows: [
-          ['0', 'p-1', '多对多测距帧', '20'],
-          ['1', 'p-2', '多对多测距帧', '26'],
-          ['2', 'p-3', '多对多测距帧', '30'],
-          ['3', 'p-1', 'MMRCM', '23'],
-          ['4', 'p-2', 'MMRCM', '23'],
-          ['5', 'p-3', 'MMRCM', '23'],
+          ['0', 't-1', '测距控制消息与启动消息', '39'],
+          ['1', 't-2', '启动消息', '14'],
+          ['2', 'a-1', '应答', '20'],
+          ['3', 'a-2', '应答', '20'],
+          ['4', 'a-1', 'MMRCM', '23'],
+          ['5', 'a-2', 'MMRCM', '23'],
         ] },
       ],
-      expect: '三次测距发送之后是三帧回复，每台设备一帧，各 23 字节；每帧只有 RMMRC 一个信息单元，里面两个列表元素。',
-      meaning: '列表元素按发起方计数、回复的帧按接收方计数（①）；回复放在测距之后的这三个时隙，是本仿真器的安排（②）。',
+      expect: '四次测距发送之后是两帧回复，每个响应方一帧，各 23 字节；每帧只有 RMMRC 一个信息单元，里面两个列表元素。两个应答都只给 t-1 一个回复时延（reply time），因为没有响应方收到 t-2 的启动消息。',
+      meaning: '列表元素按发起方计数、回复的帧按接收方计数（①）；回复放在测距之后的这两个时隙，是本仿真器的安排（②）。',
     },
     {
       heading: '读一张位图',
       jump: 1,
       steps: [
-        '依次打开 p-1 与 p-2 的回复，读出每个列表元素的位图。',
-        '跳到 p-3 自己的回复，看有没有设备收到它。',
+        '依次打开 a-1 与 a-2 的回复，读出每个列表元素的位图。',
+        '跳到 t-2 收到的第一张位图，看有没有响应方收到它。',
       ],
       blocks: [
-        { kind: 'table', heading: '第 0 块收到的位图（一位对应时隙 0、1、2）', head: ['回复者', '列表元素所属的发起方', '位图'], rows: [
-          ['p-1', 'p-2', '010'],
-          ['p-1', 'p-3', '000'],
-          ['p-2', 'p-1', '100'],
-          ['p-2', 'p-3', '000'],
+        { kind: 'table', heading: '第 0 块收到的位图（一位对应时隙 0、1、2、3）', head: ['回复者', '列表元素所属的发起方', '位图'], rows: [
+          ['a-1', 't-1', '1000'],
+          ['a-1', 't-2', '0000'],
+          ['a-2', 't-1', '1000'],
+          ['a-2', 't-2', '0000'],
         ] },
       ],
-      expect: 'p-1 那一帧里，p-2 的元素是 010，p-3 的元素是 000；p-3 收到的两张位图都是 000，它自己的回复没有任何设备收到。这一块只算出 1 条距离，三台设备本应有 3 条。',
-      meaning: '一位对应一个时隙，收到发给自己的消息才记 1（①）。在本仿真器的多对多排法里，除了这张位图，没有别的帧会告诉 p-3 它的帧有没有被收到（②）。',
+      expect: 'a-1 那一帧里，t-1 的元素是 1000，t-2 的元素是 0000；t-2 收到的两张位图都是 0000，它的启动消息没有任何响应方收到。这一块只算出 2 条距离，两个发起方本应有 4 条。',
+      meaning: '一位对应一个时隙，收到发给自己的消息才记 1（①）。t-2 从应答里只能看出没有给它的回复时延，从位图里才知道是哪一帧没被收到（①）。',
     },
     {
       heading: '请求不占字节，回复占时隙',
@@ -209,7 +211,7 @@ export const uwbReceipt: Lesson = {
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.36.1 与图 10-272（多消息收妥确认，示例图里多台设备先各自发出多条消息，再由接收方回复 MMRCM）、§10.36.2.1 与图 10-273、10-274（RMMRC 信息单元：Address Present、Address Size、MMRC List Length、MMRC Bitmap Length、MMRC Bitmap，以及位图逐时隙的规则）、§10.32.9.1 与图 10-244（ARC 信息单元的 MMRCR 位与 RCM Validity Rounds 字段）、§10.34.1（测距消息未收到交互）。本课不依赖任何草案。',
-    '本仿真器的取值与取法：回复放在这组最后一轮测距之后、一个接收方一个时隙；被确认的时隙取这组里回复之前的全部时隙；只用短地址；帧头 9 字节、帧校验 2 字节；每个时隙 2 ms、每块 200 ms；多对多一轮没有控制消息，请求由场景设定。本课的收发判决只比较功率，没有逐帧的衰落起伏，所以基础场景用发射功率低 14 dB 的一台设备得到一张含 0 的位图。',
+    '本仿真器的取值与取法：回复放在这组最后一轮测距之后、一个接收方一个时隙；被确认的时隙取这组里回复之前的全部时隙；只用短地址；帧头 9 字节、帧校验 2 字节；每个时隙 2 ms、每块 200 ms。本课的收发判决只比较功率，没有逐帧的衰落起伏，所以基础场景用发射功率低 14 dB 的一个发起方得到一张全 0 的位图。',
   ],
   limits: [],
   scenario: () => uwbReceiptScenario(),
@@ -219,7 +221,7 @@ export const uwbReceipt: Lesson = {
   ],
   jumps: [
     J('第一帧收妥确认：23 字节，两个列表元素', firstUwbMmrcm),
-    J('p-3 自己的回复：没有设备收到它', quietConfirmation),
+    J('t-2 收到的位图：没有响应方收到它', quietConfirmation),
   ],
   observe: [],
   tryThis: [],
@@ -245,11 +247,11 @@ export const uwbReceipt: Lesson = {
       explain: '§10.36.2.1：每一位确认一个时隙里的消息，最先发送的一位对应第一个时隙。发起方对应的是列表元素，不是位。',
     },
     {
-      q: '三台设备的多对多一轮里，为什么回复只有 3 帧，而不是 6 帧？',
+      q: '两个发起方、两个响应方的多对多一轮里，为什么回复只有 2 帧，而不是 4 帧？',
       options: [
         '因为帧太长，装不下更多',
-        '因为回复按接收方计数，每台设备一帧；按发起方计数的是帧里的列表元素，每帧两个',
-        '因为多对多里没有发起方',
+        '因为回复按接收方计数，每个响应方一帧；按发起方计数的是帧里的列表元素，每帧两个',
+        '因为发起方不需要知道自己的消息有没有被收到',
       ],
       answer: 1,
       explain: '一个接收方可以在一帧里确认多个发起方的消息（§10.36.1），每个发起方占一个列表元素。',

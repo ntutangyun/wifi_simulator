@@ -748,7 +748,9 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'uwb-contention':          [0, 0, 4, 3, 3, 2, 0, 4],
     // standard-first since 2026-11-10 (same reason as uwb-contention); terms +1 (RRMC/RRTI IEs of
     // §10.32.6 joined, DL-TDoA's forward reference went with `deeper`), jumps kept are the labs' own.
-    'uwb-m2m':                 [0, 0, 4, 4, 5, 2, 0, 2],
+    // 2026-11-11 (W3): terms 5 → 4 (the TXT/RXT and participant rows go, the RDM IE row comes); jumps
+    // 2 → 3 (the RCM, the first response, the first range).
+    'uwb-m2m':                 [0, 0, 4, 4, 4, 2, 0, 3],
     'uwb-rcm-validity':        [0, 0, 4, 4, 4, 3, 0, 4],
     // standard-first since 2026-11-10: the labs' two jumps kept; sp3's RAOA/RRTT row became the
     // four-bit RAOA/RRT/RRTT/RTOF row and the ranging-initiation row folded into ①.

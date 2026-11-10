@@ -1,262 +1,283 @@
 /**
- * Many-to-many ranging for `UwbDevice` (standard §10.32.6 SS-TWR, §10.32.7 DS-TWR): the mode in
- * which **one transmission does two jobs**. Split out into its own file the way `device.tdoa.ts`
- * and `device.mms.ts` are, and for the same reason — `device.ts` is already a thousand lines —
- * with every function here taking the device as its first argument.
+ * Many-to-many ranging for `UwbDevice` — IEEE Std 802.15.4-2024 §10.32.6 (SS-TWR, Figure 10-240) and
+ * §10.32.7 (DS-TWR, Figure 10-241). Split out of `device.ts` like `device.tdoa.ts` and `device.mms.ts`,
+ * every function taking the device as its first argument.
  *
- * ## The mechanism, and why only one side of a pair can finish it
+ * ## The round (2026-11-11, W3 — audit #2)
  *
- * Participants 0…N−1 (design §5: every UWB node of the scenario, in node-id order). Participant i
- * transmits once in slot i, and its frame carries its own transmit time plus its arrival time for
- * each of slots 0…i−1 — everyone it has heard so far. For everyone later in the round that frame
- * is the question a Poll would have asked; for everyone earlier it is the answer a Response would
- * have given.
+ * M initiators and N responders. The controller — this engine: initiator 0, the first tag by node id
+ * (`session.ts#m2mRoles`) — sends the RCM in slot 0, fused with its own ranging initiation message
+ * (§10.32.2 allows the merge when the controller is an initiator): ARC with Multi-node Mode 2
+ * ("Multi-node many-to-many", Table 10-163), RR, an RDM IE (SIU = 1) that gives every other device its
+ * Ranging Role and Ranging Slot Index (§10.32.9.8), and the RRMC IE. Then:
  *
- * Take a pair (i, j) with i < j:
+ * - **Ranging initiation phase.** Initiators 1…M−1 each send a ranging initiation message (RRMC only)
+ *   in the slot the RDM IE gave them. SS: Ranging Control Information 0, Reply Time Request 1. DS:
+ *   Ranging Control Information 2.
+ * - **Ranging response phase.** Each responder sends one response, broadcast. SS: one RRTI IE whose list
+ *   carries a reply time per initiator it heard (§10.32.6: "insert an RRTI IE ... for each initiator").
+ *   DS: an RRMC IE (3), starting the second round trip.
+ * - **DS only, final.** Each initiator sends a final frame with an RRTI IE (its reply time to each
+ *   responder's response) and an RMI IE (its round-trip time to each responder) (§10.32.7).
  *
- * - i transmitted at `T_i(i)`, and j received it at `T_j(i)`.
- * - j transmitted at `T_j(j)`, and i received it at `T_i(j)`.
- * - **j's frame carries `T_j(j)` and `T_j(i)`** — i went first, so j had already heard it when it
- *   came to transmit.
- * - So **i holds all four times** the moment j's frame lands, and computes the range there and
- *   then: `ssTwrCorrected(T_i(j) − T_i(i), T_j(j) − T_j(i), coffs)`.
- * - **j cannot.** It would need `T_i(j)` — i's arrival time for j's frame — and at the instant i
- *   transmitted, that had not happened yet.
+ * Who computes: in SS each **initiator**, on each response ("Upon receipt of each MCPS-DATA.indication
+ * primitive delivering a ranging response message, each initiator next higher layer has sufficient
+ * information to calculate its TOF to that responder"); in DS each **responder**, on each final
+ * ("Upon receiving the second MCPS-DATA.indication primitive reporting the arrival of the final RFRAME
+ * from an initiator, each responder's next higher layer has sufficient information to calculate its
+ * TOF to the initiator"). Nothing is reported back: Figures 10-240 and 10-241 request no result.
  *
- * So each pair's range belongs to the **earlier** participant alone: participant i ends the round
- * holding N−1−i ranges, participant 0 holds N−1 of them and participant N−1 holds none. They sum
- * to N(N−1)/2, every pair once (design §2). Note what that means for the last participant: it
- * reports N−1 arrival times, so it sends the **longest frame of the whole round**, and it computes
- * nothing at all. Everything in that frame is service to the others.
+ * SS: M + N frames, M × N ranges at the initiators. DS: 2M + N frames, M × N ranges at the responders.
  *
- * ## DS is two passes, not two frames
+ * ## What a device knows
  *
- * DS-TWR needs `tround2`/`treply2`, which require the *earlier* participant to transmit a second
- * time, so a DS many-to-many round is two passes of N slots (design §3). Mapping the pair (i, j)
- * onto DS-TWR's six instants: i's pass-0 frame is the Poll (T1), j's pass-0 frame the Response
- * (T2/T3), i's pass-1 frame the Final (T5). i already holds T1, T4 and T5 itself; what it needs
- * from j is T2 and T3 (in j's pass-0 frame) and T6 (in j's pass-1 frame, which comes after i's own
- * pass-1 frame, so j has had time to stamp it). A pass-1 frame therefore carries arrival times of
- * pass-1 frames — the same shape as a pass-0 frame, never a running tally of both — which is why
- * one frame-size law and one participant cap (`phy.ts#uwbM2mBytes`, `#uwbMaxParticipants`) serve
- * both methods.
+ * The controller wrote the schedule, so it knows every slot's owner. Every other device knows the
+ * round only from the RCM it decoded (§10.32.9.8: "Upon reception of the RCM, a controlee knows whether
+ * it is selected to participate"): the RDM IE's elements, sorted by slot index, are its schedule. A
+ * device that did not decode the RCM, or that the RDM IE does not list, takes no part in the round —
+ * it neither transmits nor listens after slot 0.
  *
- * ## What is *not* here
- *
- * No arithmetic. Every range below is `ranging.ts`'s own `ssTwrCorrected` or `dsTwr` on the very
- * four times a two-way round feeds them: many-to-many changes the **road** those four times
- * travel, not the sum at the end of it. And no clock offset goes on the air (design §4): `coffs`
- * is measured on the carrier of the frame that arrives, exactly as the existing SS-TWR path
- * measures it (`UwbDevice.onResponse`), so a many-to-many frame carries one IE fewer.
+ * The final frame's slot is not in the RDM IE (one element per device, §10.32.9.8): the DS final
+ * phase follows the response phase in the initiation order — this engine's choice, the standard
+ * leaves it to the controller's next higher layer.
  */
 import type { FrameDesc } from '../model/frames'
 import { counterDiff } from './clock'
-import { makeM2m } from './frames'
+import { makeFinal, makeInit, makeM2mResp, makePoll, type UwbArcFields } from './frames'
 import { dsTwr, ssTwrCorrected, ssTwrRaw } from './ranging'
-import type { RoundPlan } from './session'
+import { slotAction, type RoundPlan } from './session'
 import type { RoundState, ScheduledAction, UwbDevice } from './device'
 import { reportRange } from './device.report'
 
-/**
- * What one participant holds for the duration of one many-to-many round. Null in every other mode.
- *
- * The two-element arrays are indexed by **pass** (design §3): SS uses index 0 only, DS uses both.
- * They are arrays rather than two named fields because the pass is a number the schedule hands
- * over (`SlotAction.pass`), and naming them `pass0`/`pass1` would put a branch at every use.
- */
+/** A many-to-many round's two role lists, each in slot order: initiator k sends its initiation in
+ * the k-th initiation slot, responder j its response in the j-th response slot. */
+export interface M2mSchedule {
+  initiators: string[]
+  responders: string[]
+}
+
+/** What one device holds for one many-to-many round. Null in every other mode. */
 export interface M2mRoundState {
-  /** The round's participants in slot order — participant i transmits in slot i (design §5).
-   * This, and never `RoundPlan.anchors`, is what a many-to-many path counts participants with:
-   * `anchors` counts the devices *other than* the tag in a two-way round, and everyone in this
-   * one, so the two quantities differ by one for the same number (slice ledger, Ruling 8). */
-  participants: string[]
-  /** This device's own place in that list, i.e. the slot it transmits in. */
-  index: number
-  /** Its own transmit counter per pass, null until it has transmitted in that pass. */
-  txCounters: [number | null, number | null]
-  /** Its own arrival counters per pass, by peer id: what its next frame will carry, and the `T4`
-   * of every pair it is the earlier half of. A peer it never heard simply has no entry, and that
-   * is what design §6 looks like from the inside — not an error path. */
-  rxCounters: [Record<string, number>, Record<string, number>]
-  /**
-   * DS only, by peer id: the two times a later participant's **pass-0** frame brought, kept until
-   * that participant's pass-1 frame arrives with the third. `t2` is its arrival time for this
-   * device's pass-0 frame and `t3` its own pass-0 transmit time, both on its clock — DS-TWR's
-   * `treply1 = T3 − T2`, and the `T3` that `tround2 = T6 − T3` is measured from.
-   *
-   * An entry exists only for a peer whose frame actually listed this device, which is exactly the
-   * peers this device is the earlier half of the pair for. SS keeps nothing here: it holds all
-   * four times the instant the peer's one frame lands, and finishes the range on the spot.
-   */
-  pass0: Map<string, { t2: number; t3: number }>
-  /** The pass the slot now open belongs to, as the schedule announced it when it opened
-   * (`SlotAction.pass`). Read, never re-derived: `slotAction` is the one thing that decides which
-   * pass a slot is in, and a second formula here could disagree with it. */
-  slotPass: 0 | 1
+  /** The round's controller (initiator 0). Known in advance at every device, like a two-way round's
+   * tag: it is whose RCM a controlee listens for in slot 0. */
+  controller: string
+  /** The round as this device knows it: the controller's own lists, or what the RDM IE of the RCM
+   * this device decoded says. Null at a controlee until then — and for the whole round at one that
+   * missed the RCM or is not listed. */
+  schedule: M2mSchedule | null
+  /** Initiator: its own initiation message's TX counter. */
+  txInit: number | null
+  /** DS initiator: each responder's response arrival, by responder id. */
+  rxResp: Map<string, number>
+  /** Responder: each initiator's initiation arrival, by initiator id — the reference times of its
+   * RRTI reply times (SS) and the start of its Treply1 (DS). */
+  rxInit: Map<string, number>
+  /** Responder: its own response's TX counter. */
+  txResp: number | null
 }
 
 /**
- * Open a many-to-many round at one participant.
- *
- * Both invariants are checked rather than assumed, because a device that is not in the round's own
- * participant list, or a list that is not the length the round was planned for, would range
- * against the wrong slots in silence — and the two ways it could happen (a network that built the
- * plan from one count and the list from another) are precisely the ones a scenario cannot show you.
+ * Open a many-to-many round at one device. `roles` is the scenario's role split; only the controller
+ * reads it — it is the controller's next higher layer that decides the schedule. Every other device
+ * starts with no schedule and learns its place from the RCM.
  */
-export function freshM2m(plan: RoundPlan, participants: string[], selfId: string): M2mRoundState {
-  if (participants.length !== plan.participants) {
-    throw new Error(
-      `freshM2m: the round was planned for ${plan.participants} participants but ${participants.length} were named`,
-    )
-  }
-  const index = participants.indexOf(selfId)
-  if (index < 0) throw new Error(`freshM2m: ${selfId} is not a participant of this many-to-many round`)
+export function freshM2m(selfId: string, roles: M2mSchedule): M2mRoundState {
+  const controller = roles.initiators[0]
+  if (controller === undefined) throw new Error('freshM2m: a many-to-many round needs at least one initiator')
   return {
-    participants: [...participants],
-    index,
-    txCounters: [null, null],
-    rxCounters: [{}, {}],
-    pass0: new Map(),
-    slotPass: 0,
+    controller,
+    schedule: selfId === controller
+      ? { initiators: [...roles.initiators], responders: [...roles.responders] }
+      : null,
+    txInit: null,
+    rxResp: new Map(),
+    rxInit: new Map(),
+    txResp: null,
   }
 }
 
+/** The slot the round plan gives `phase`'s `index`-th device, or null. Read off `slotAction`, the one
+ * layout, so the RDM IE the controller writes and the schedule the network runs cannot disagree. */
+export function m2mSlotOf(plan: RoundPlan, phase: 'init' | 'resp' | 'final', index: number): number | null {
+  for (let s = 0; s < plan.rangingSlots; s++) {
+    const a = slotAction(plan, s)
+    if (a.kind === 'uwbM2m' && a.phase === phase && a.index === index) return s
+  }
+  return null
+}
+
+/** Who owns a slot of the round, as this device's schedule says. */
+function ownerOf(sched: M2mSchedule, phase: 'init' | 'resp' | 'final', index: number): string | undefined {
+  return phase === 'resp' ? sched.responders[index] : sched.initiators[index]
+}
+
 /**
- * One slot of a many-to-many round. Exactly one participant owns it — the one the schedule named —
- * and **everyone else listens**, which is the cost of the mode: no device sleeps through a slot
- * the way a two-way anchor sleeps through the other anchors' Responses, because every one of those
- * transmissions is either a question this device must answer later or an answer it can use now.
- * N transmissions, N(N−1) receptions, N(N−1)/2 ranges.
+ * One slot of a many-to-many round. Slot 0 is the controller's RCM, which every device listens for.
+ * After it a device acts only on the schedule it holds: it transmits in its own slots, an initiator
+ * listens to the responses, a responder listens to the initiation messages and (DS) the finals, and
+ * nobody listens to a device of its own role.
  */
-export function onM2mSlot(
-  dev: UwbDevice, slot: number, action: ScheduledAction, r: RoundState,
-  peers: { tag: string; anchors: string[] },
-): void {
+export function onM2mSlot(dev: UwbDevice, slot: number, action: ScheduledAction, r: RoundState): void {
   const m = requireM2m(r, 'onM2mSlot')
   if (action.kind !== 'uwbM2m') {
     throw new Error(`onM2mSlot: a many-to-many round scheduled a '${action.kind}' action in slot ${slot}`)
   }
-  m.slotPass = action.pass
-  const txId = m.participants[action.index]
-  if (txId === undefined) {
-    throw new Error(`onM2mSlot: slot ${slot} names participant ${action.index}, and the round has ${m.participants.length}`)
-  }
-  if (txId === dev.id) {
-    dev.transmitFor(action, slot, r, peers)
+  if (action.phase === 'init' && action.index === 0) {
+    if (dev.id === m.controller) dev.transmitFor(action, slot, r, { tag: m.controller, anchors: [] })
+    else dev.listenFor(slot, m.controller, 'uwbPoll')
     return
   }
-  dev.listenFor(slot, txId, 'uwbM2m')
+  const sched = m.schedule
+  if (sched === null) return
+  const owner = ownerOf(sched, action.phase, action.index)
+  // The RDM IE and the plan are written from one layout (`m2mSlotOf`), so a slot whose owner the
+  // schedule does not have means the two disagree — not a state the model can be in on purpose.
+  if (owner === undefined) {
+    throw new Error(`onM2mSlot: slot ${slot} (${action.phase} ${action.index}) has no owner in the schedule this device holds`)
+  }
+  if (owner === dev.id) {
+    dev.transmitFor(action, slot, r, { tag: m.controller, anchors: [] })
+    return
+  }
+  const iAmResponder = sched.responders.includes(dev.id)
+  const iAmInitiator = sched.initiators.includes(dev.id)
+  if (action.phase === 'resp' && iAmInitiator) dev.listenFor(slot, owner, 'uwbResp')
+  else if (action.phase === 'init' && iAmResponder) dev.listenFor(slot, owner, 'uwbInit')
+  else if (action.phase === 'final' && iAmResponder) dev.listenFor(slot, owner, 'uwbFinal')
 }
 
-/**
- * This participant's one transmission of one pass: its own transmit time, and its arrival time for
- * every participant it has heard **in this same pass**.
- *
- * In this same pass, and that is the whole of why a DS round costs 2N slots rather than a bigger
- * frame: a pass-1 frame answers the pass-1 transmissions, so it is the same shape as a pass-0 one
- * and the round's longest frame never outgrows `uwbM2mBytes(N − 1)` (design §3/§4).
- *
- * The frame goes out whatever this device has heard, including nothing at all: participant 0 has
- * heard no one when its slot comes round, and its frame — the one every later participant needs —
- * carries a transmit time and no arrival-times IE at all (`frames.ts#makeM2m`). By the same token
- * the **last** participant carries N−1 arrival times, which makes its frame the longest of the
- * round while the arithmetic below will give it nothing: it computes no range at all, because
- * every pair it is in it is the *later* half of. Everything in its frame is service to the others.
- */
+/** This device's transmission in its own slot. `arc` is the RCM's ARC IE (`device.ts#arcFieldsFor`). */
 export function transmitM2m(
-  dev: UwbDevice, action: ScheduledAction, slot: number, r: RoundState, txCounter: number,
+  dev: UwbDevice, action: ScheduledAction, slot: number, r: RoundState, txCounter: number, arc: UwbArcFields,
 ): void {
   const m = requireM2m(r, 'transmitM2m')
-  if (action.kind !== 'uwbM2m') {
-    throw new Error(`transmitM2m: a many-to-many round asked to transmit a '${action.kind}'`)
+  const sched = m.schedule
+  if (action.kind !== 'uwbM2m' || sched === null) {
+    throw new Error(`transmitM2m: asked to transmit a '${action.kind}' without a many-to-many schedule`)
   }
-  m.txCounters[action.pass] = txCounter
-  dev.send(
-    makeM2m(dev.id, r.plan.method, r.block, r.round, slot, {
+  const { plan, block, round } = r
+  if (action.phase === 'init') {
+    m.txInit = txCounter
+    if (action.index > 0) {
+      dev.send(makeInit(dev.id, plan.method, block, round, slot), txCounter)
+      return
+    }
+    // The controller's RCM fused with its own initiation message: the RDM IE lists every other device
+    // with its role and slot (standard §10.32.9.8, SIU = 1).
+    const rdm = [
+      ...sched.initiators.slice(1).map((id, k) => ({ id, slot: slotFor(plan, 'init', k + 1), initiator: true })),
+      ...sched.responders.map((id, j) => ({ id, slot: slotFor(plan, 'resp', j), initiator: false })),
+    ]
+    dev.send(
+      makePoll(dev.id, rdm.map((e) => e.id), plan.method, block, round, { arc, rdm }),
       txCounter,
-      // Copied by `makeM2m` as well, but sliced here too: what this frame said is fixed at the
-      // instant it left, and the arrivals of the rest of the round must not appear in it.
-      rxCounters: { ...m.rxCounters[action.pass] },
-    }),
-    txCounter,
-  )
+    )
+    return
+  }
+  if (action.phase === 'resp') {
+    // A responder that heard no initiation message has nothing to answer: its slot stays empty.
+    if (m.rxInit.size === 0) return
+    m.txResp = txCounter
+    // SS: one reply time per initiator heard, from that initiation's RMARKER to this frame's
+    // (§10.29.8.1), in slot order. DS: none — the responder computes (§10.32.7).
+    const rrti = sched.initiators
+      .filter((id) => m.rxInit.has(id))
+      .map((id) => ({ id, replyRctu: counterDiff(txCounter, m.rxInit.get(id)!) }))
+    dev.send(makeM2mResp(dev.id, plan.method, block, round, slot, rrti), txCounter)
+    return
+  }
+  // DS final: per responder whose response arrived, the first round-trip time (RMI IE) and the second
+  // reply time (RRTI IE) (§10.32.7). An initiator that heard no response has nothing to report.
+  const t1 = m.txInit
+  if (t1 === null || m.rxResp.size === 0) return
+  const times = sched.responders
+    .filter((id) => m.rxResp.has(id))
+    .map((id) => {
+      const t4 = m.rxResp.get(id)!
+      return { id, tround1: counterDiff(t4, t1), treply2: counterDiff(txCounter, t4) }
+    })
+  dev.send(makeFinal(dev.id, times, block, round, slot), txCounter)
+}
+
+/** A slot the layout must have; a missing one is a planner bug. */
+function slotFor(plan: RoundPlan, phase: 'init' | 'resp' | 'final', index: number): number {
+  const s = m2mSlotOf(plan, phase, index)
+  if (s === null) throw new Error(`m2m: the round plan has no ${phase} slot for index ${index}`)
+  return s
 }
 
 /**
- * A many-to-many frame has arrived. Two things happen, in this order:
+ * A many-to-many frame has arrived (the slot's expectation already checked kind and sender).
  *
- * 1. **The arrival is banked**, always — it is what this device's own frame in this pass will
- *    carry, and it is the pair's `T4`.
- * 2. **If this device is the earlier half of the pair, the range is finished** (design §2). The
- *    test for that is not an index comparison but the frame itself: a peer's frame lists this
- *    device's arrival time only if it had already heard this device, which happens only if this
- *    device transmitted first. So "am I earlier?" and "did it hear me?" are the same question, and
- *    asking the frame answers both at once — which is also how design §6 falls out for free: a
- *    peer that never heard this device carries no entry for it, and that pair simply has no range.
+ * - The RCM: a controlee reads its schedule from the RDM IE and keeps the RCM (`holdRcm`, for the
+ *   MMRCR bit, §10.36.1). A responder also takes it as the controller's initiation message.
+ * - An initiation message, at a responder: its arrival is kept.
+ * - SS response, at an initiator: its own RRTI element gives the reply time, and the range is done.
+ * - DS response, at an initiator: its arrival is kept for the final.
+ * - DS final, at a responder: its own RMI/RRTI element gives Tround1 and Treply2, and the range is done.
+ *
+ * A responder notes the receipt of every message from an initiator (standard §10.36.2.1's bit per slot).
  */
 export function onM2mRx(
   dev: UwbDevice, r: RoundState, from: string, frame: FrameDesc, counter: number, coffs: number, fom: number,
 ): void {
   const m = requireM2m(r, 'onM2mRx')
-  const times = frame.uwb?.m2m
-  // Every `uwbM2m` frame is built by `makeM2m`, which always fills this in, and the slot's
-  // expectation has already refused every other frame kind — so a frame that reaches here without
-  // its times is not a many-to-many frame with something missing, it is a frame this branch should
-  // never have been handed (slice ledger, Ruling 9).
-  if (times === undefined) {
-    throw new Error(`onM2mRx: a 'uwbM2m' frame from ${from} carries no many-to-many times`)
+  switch (frame.kind) {
+    case 'uwbPoll': {
+      const rdm = frame.uwb?.rdm ?? []
+      const listed = rdm.find((e) => e.id === dev.id)
+      dev.holdRcm(r, frame)
+      // Not selected by the RDM IE: this device takes no part in the round.
+      if (listed === undefined) return
+      const bySlot = [...rdm].sort((a, b) => a.slot - b.slot)
+      m.schedule = {
+        initiators: [from, ...bySlot.filter((e) => e.initiator).map((e) => e.id)],
+        responders: bySlot.filter((e) => !e.initiator).map((e) => e.id),
+      }
+      if (!listed.initiator) {
+        m.rxInit.set(from, counter)
+        dev.noteReceipt(from, r.block, r.round, r.slot, r.plan)
+      }
+      return
+    }
+    case 'uwbInit':
+      m.rxInit.set(from, counter)
+      dev.noteReceipt(from, r.block, r.round, r.slot, r.plan)
+      return
+    case 'uwbResp': {
+      if (r.plan.method === 'ds') {
+        m.rxResp.set(from, counter)
+        return
+      }
+      const mine = frame.uwb?.rrti?.find((e) => e.id === dev.id)
+      // The responder did not hear this initiator, so its response carries nothing for it.
+      if (mine === undefined || m.txInit === null) return
+      const tround = counterDiff(counter, m.txInit)
+      const treply = mine.replyRctu
+      // `coffs` is this reception's carrier-offset estimate, which puts the responder's reply time on
+      // this device's timebase — the same correction a one-to-many initiator applies (`onResponse`).
+      reportRange(dev, r, from, 'ss', ssTwrCorrected(tround, treply, coffs), ssTwrRaw(tround, treply), fom)
+      return
+    }
+    case 'uwbFinal': {
+      dev.noteReceipt(from, r.block, r.round, r.slot, r.plan)
+      const mine = frame.uwb?.finalTimes?.find((e) => e.id === dev.id)
+      const rxInit = m.rxInit.get(from)
+      if (mine === undefined || mine.tround1 === undefined || mine.treply2 === undefined
+        || rxInit === undefined || m.txResp === null) return
+      const treply1 = counterDiff(m.txResp, rxInit) // T3 − T2, this responder's clock
+      const tround2 = counterDiff(counter, m.txResp) // T6 − T3, this responder's clock
+      // DS-TWR cancels the clock offset rather than correcting it, so there is no uncorrected reading.
+      reportRange(dev, r, from, 'ds', dsTwr(mine.tround1, treply1, tround2, mine.treply2), undefined, fom)
+      return
+    }
+    default:
+      throw new Error(`onM2mRx: a '${frame.kind}' frame from ${from} in a many-to-many round`)
   }
-  const pass = m.slotPass
-  m.rxCounters[pass][from] = counter
-  // Standard §10.36's receipt bit, written at the one place a many-to-many frame is decoded: one bit
-  // per slot (§10.36.2.1), set for the slot this participant's frame arrived in, either pass. Keyed by
-  // `from`, the initiator, which in this mode is every other participant in turn.
-  dev.noteReceipt(from, r.block, r.round, r.slot, r.plan)
-  // `T_j(i)` / `T2`: when the sender heard *this* device, in this same pass. Absent when it did
-  // not hear it — or when this device is the later half of the pair, which is the same thing.
-  const rxOfMe: number | undefined = times.rxCounters[dev.id]
-  const myTx = m.txCounters[pass]
-  if (rxOfMe === undefined || myTx === null) return
-  if (r.plan.method === 'ss') {
-    // All four times, in one place, for the first time in the round: two this device measured
-    // (its own transmission and this arrival) and two the frame brought. `coffs` is this
-    // reception's own carrier-offset estimate — how much faster the sender's crystal runs than
-    // this one — which is what puts the sender's reply interval on this device's timebase, the
-    // identical job it does in `onResponse` (design §4/§8 of the reply-time slice).
-    const tround = counterDiff(counter, myTx)
-    const treply = counterDiff(times.txCounter, rxOfMe)
-    reportRange(dev, r, from, 'ss', ssTwrCorrected(tround, treply, coffs), ssTwrRaw(tround, treply), fom)
-    return
-  }
-  if (pass === 0) {
-    // Nothing to compute yet: DS needs a second transmission from *this* device before the pair
-    // has six instants. Keep the two the frame brought — they do not come again.
-    m.pass0.set(from, { t2: rxOfMe, t3: times.txCounter })
-    return
-  }
-  const first = m.pass0.get(from)
-  const t1 = m.txCounters[0]
-  const t4 = m.rxCounters[0][from]
-  // A DS pair needs all six. Any one of them missing is a pair this round did not complete —
-  // this device or that peer lost a frame in one of the two passes — so the pair has no range,
-  // exactly as in SS. Branching rather than asserting is deliberate: `dsTwr(undefined, …)` is NaN
-  // without an exception anywhere, and `reportRange` would bank that NaN as a UWB_RANGE.
-  if (first === undefined || t1 === null || t4 === undefined) return
-  const tround1 = counterDiff(t4, t1) // T4 − T1, on this device's clock
-  const treply1 = counterDiff(first.t3, first.t2) // T3 − T2, on the peer's
-  const tround2 = counterDiff(rxOfMe, first.t3) // T6 − T3, on the peer's
-  const treply2 = counterDiff(myTx, t4) // T5 − T4, on this device's
-  // No `tofRawRctu`: there is no uncorrected reading to compare against, because DS-TWR never
-  // corrects for a clock offset in the first place — it cancels it (see `onFinal`/`onReport`,
-  // which pass none either). The FoM is this pass-1 reception's, the last frame of the exchange.
-  reportRange(dev, r, from, 'ds', dsTwr(tround1, treply1, tround2, treply2), undefined, fom)
 }
 
-/** The round's many-to-many state, or a throw naming the caller. `RoundState.m2m` is non-null for
- * exactly the rounds whose `plan.mode` is `'m2m'` (`UwbDevice.beginRound`), so a null here means a
- * many-to-many path is running against a device that was never opened into a many-to-many round —
- * never a legitimate state, and the sort of thing that has twice shipped on this branch looking
- * finished while doing nothing (slice ledger, Ruling 9). */
+/** The round's many-to-many state, or a throw naming the caller: `RoundState.m2m` is non-null for
+ * exactly the rounds whose `plan.mode` is `'m2m'`. */
 function requireM2m(r: RoundState, who: string): M2mRoundState {
   const m = r.m2m
   if (!m) throw new Error(`${who}: a '${r.plan.mode}' round carries no many-to-many state`)

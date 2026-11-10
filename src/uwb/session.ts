@@ -28,10 +28,9 @@
  *   contention:  slot 0 Poll (tag) | slots 1..S Response (whichever anchors drew the slot)
  *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
  *   UL-TDoA: slot 0 Blink (tag)
- *   m2m SS:  slots 0..N-1, participant i in slot i — its one transmission asks everyone after it
- *            and answers everyone before it (standard §10.32.6)
- *   m2m DS:  the same N slots twice over, because tround2/treply2 need the earlier participant of
- *            a pair to transmit again (standard §10.32.7, design §3)
+ *   m2m SS:  slot 0 RCM + initiation (controller = initiator 0) | slots 1..M-1 initiation (initiator
+ *            1..M-1) | slots M..M+N-1 Response (responder 0..N-1) (standard §10.32.6)
+ *   m2m DS:  … | slots M+N..2M+N-1 Final (initiator 0..M-1) (standard §10.32.7)
  *
  * SS-TWR's slot count depends on `replyTime` (design §4): embedded and fixed both carry the reply
  * time on the Response itself (or never put it on the air at all) and stay at `A + 1`; deferred
@@ -56,25 +55,12 @@ export interface RoundPlan {
   method: 'ss' | 'ds'
   anchors: number
   /**
-   * `mode: 'm2m'` only (design §5): the round's participant count, and **the field every
-   * many-to-many path reads**. It is the very same number `anchors` holds — one caller-supplied
-   * "how many others" argument, read under whichever name means something for the mode actually
-   * running — so the two alias each other in every mode, and `tests/uwb/m2m-round.test.ts` pins
-   * that (Ruling 8 of the slice ledger) rather than leaving it incidental.
-   *
-   * The aliasing is worth a name of its own because **`anchors` means two different things by
-   * mode.** In a two-way round it counts the devices *other than* the tag, so three anchors is
-   * four devices; in many-to-many it counts *everyone*, so three participants is three devices.
-   * Same number, different quantity — and anything that reads `plan.anchors` in `'m2m'` while
-   * meaning "the devices besides the initiator" is wrong by one. Renaming `anchors` to something
-   * mode-neutral is the real fix and is deliberately **not** done here: it is read across `src/`
-   * and `tests/`, and a rename landing beside a behavioural change is what this branch has twice
-   * paid for. It joins `uwbSlotsPerTag`'s own deferred rename (`phy.ts`, Ruling 4) in one later
-   * sweep commit, when nothing else is moving.
-   *
-   * Meaningless outside `'m2m'`; no other reader touches it.
+   * `mode: 'm2m'` only: the round's initiator count M (standard §10.32.6/§10.32.7); `anchors` is then
+   * the responder count N. 1 in every other mode, whose round has one initiator (the tag, or anchor 0
+   * of a DL-TDoA round). 2026-11-11 (W3): replaces `participants`, the count of a round in which every
+   * device was initiator and responder at once.
    */
-  participants: number
+  initiators: number
   /**
    * The fixed length of every round of the session, in slots (standard §10.32.3.3: one round
    * duration in block-based mode) — `uwbRoundSlotCount(rangingSlots, receipt slots, ancillary window)`,
@@ -257,7 +243,9 @@ export interface MmsRoundPlan {
  * run whether or not anyone is listening — because every tag in the scenario positions itself
  * from that same round; a second copy would only cost air.
  */
-export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
+export function roundPlan(cfg: UwbSessionCfg, anchors: number, initiators = 1): RoundPlan {
+  // Only a many-to-many round has more than one initiator (standard §10.32.6/§10.32.7).
+  const m = cfg.mode === 'm2m' ? Math.max(1, initiators) : 1
   // How many slots a millisecond of the MMS cycle costs at this session's slot length: the layout
   // needs it, and so does the slot count below, which is the same layout measured.
   const slotsPerMs = mmsSlotsPerMs(cfg.slotRstu)
@@ -267,6 +255,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     // its own measurement report when some responder asked for the round trip (design §4.1). Handed
     // over only when the feature is on, so every other session's slot count is the one it was.
     cfg.sp3 && cfg.mode === 'twr' ? { rrtt: cfg.srrr.rrtt } : undefined,
+    m,
   )
   // The one round length (standard §10.32.3.3): the ranging round plus its receipt confirmations, or
   // the ancillary round, whichever is longer.
@@ -285,10 +274,10 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   const roundNs = slots * slotNs
   const blockNs = rstuNs(cfg.blockRstu)
   return {
-    method: cfg.method, anchors, participants: anchors, slots, rangingSlots, slotNs, roundNs, blockNs,
+    method: cfg.method, anchors, initiators: m, slots, rangingSlots, slotNs, roundNs, blockNs,
     // One round per block in the two modes whose round belongs to the whole group rather than to
     // one tag: DL-TDoA's anchor round, which every tag positions itself from, and a many-to-many
-    // round, which holds every participant at once (design §5). In both, a second copy of the
+    // round, which holds every initiator and every responder at once (standard §10.32.6). In both, a second copy of the
     // round inside the block would only cost air — and the number is read by the editor's own
     // plan note, so answering "how many would fit" there would be a lie about what runs.
     roundsPerBlock: cfg.mode === 'dl-tdoa' || cfg.mode === 'm2m' ? 1 : Math.floor(blockNs / roundNs),
@@ -328,24 +317,23 @@ export function slotStartNs(p: RoundPlan, block: number, round: number, slot: nu
 }
 
 /**
- * Many-to-many's participant order (design §5): every UWB node of the scenario, sorted by node
- * id — not by the order the scenario's own node list happens to hold them in.
+ * A many-to-many round's two roles (standard §10.32.6/§10.32.7): the scenario's UWB tags are the
+ * initiators and its anchors the responders, each list in node-id order. The first initiator is the
+ * round's controller (§10.32.9.1: a ranging session has one controller): its RCM's RDM IE gives every
+ * other device its role and slot (§10.32.9.8) in exactly this order.
  *
- * `model`: the standard leaves slot ownership to a scheduling table the devices negotiate
- * (§10.32.2), and this simulator has no such table to negotiate — it has to make the same
- * decision some other deterministic way. Node id is that way, chosen over scenario order
- * specifically because scenario order is not stable: the editor's own add/delete/reorder
- * operations change it, so two floor plans that describe the same geometry — the same nodes, the
- * same positions, added in a different order — would otherwise get a different slot assignment
- * and a different timeline hash for no physical reason at all. Sorted with `byCodeUnit`
- * (engine/hash.ts), the same tie-break the timeline hash's own same-instant ordering already
- * uses, so this list and that hash cannot disagree about what "deterministic order" means.
- *
- * Only `kind: 'uwb'` nodes are participants: `uwb.role` decides how a node is drawn, never
- * whether it takes part (design §5).
+ * Which device is controller and which order the slots go in is left to the controller's next higher
+ * layer by the standard; node id is this simulator's choice, made over scenario order because the
+ * editor's add/delete/reorder operations change scenario order without changing the geometry. Sorted
+ * with `byCodeUnit` (engine/hash.ts), the tie-break the timeline hash already uses.
+ * 2026-11-11 (W3): replaces `m2mParticipants`, which made every UWB node initiator and responder.
  */
-export function m2mParticipants(nodes: NodeCfg[]): string[] {
-  return nodes.filter((n) => n.kind === 'uwb').map((n) => n.id).sort(byCodeUnit)
+export function m2mRoles(nodes: NodeCfg[]): { initiators: string[]; responders: string[] } {
+  const uwb = nodes.filter((n) => n.kind === 'uwb' && n.uwb)
+  return {
+    initiators: uwb.filter((n) => n.uwb!.role === 'tag').map((n) => n.id).sort(byCodeUnit),
+    responders: uwb.filter((n) => n.uwb!.role === 'anchor').map((n) => n.id).sort(byCodeUnit),
+  }
 }
 
 /** Who transmits in a slot, and what. In two-way ranging the tag opens and closes the round; in
@@ -376,15 +364,13 @@ export type SlotAction =
   // so the same `FrameKind`; what is new is the direction, which `tx` carries.
   | { kind: 'uwbReport'; tx: 'tag' }
   | { kind: 'uwbBlink'; tx: 'tag' }
-  // Many-to-many (standard §10.32.6 SS / §10.32.7 DS, design §5): participant `index`'s one
-  // transmission of pass `pass`. It is a kind of its own, not `'uwbPoll'` or `'uwbResp'` again,
-  // because one transmission is both at once — the question for every later participant and the
-  // answer for every earlier one — and `transmitFor` has to be able to tell that apart from a
-  // two-way round's Poll or Response. `tx: 'peer'` for the same reason: every participant plays
-  // both roles, so neither 'tag' nor 'anchor' names it honestly. SS has one pass (`pass: 0`); DS
-  // has two (design §3) — `pass: 1` is the second pass a DS round needs so `tround2`/`treply2`
-  // have a transmission of the earlier participant's to attach to.
-  | { kind: 'uwbM2m'; tx: 'peer'; index: number; pass: 0 | 1 }
+  // Many-to-many (standard §10.32.6 SS / §10.32.7 DS): initiator `index`'s ranging initiation message
+  // (`phase: 'init'`; initiator 0's is fused with the controller's RCM), responder `index`'s response
+  // (`'resp'`), or initiator `index`'s final frame (`'final'`, DS only). Its own kind because the
+  // owner is named by the RCM's RDM IE, not by a tag/anchor split: a device resolves `index` against
+  // the schedule it read from that RCM (`device.m2m.ts`). `tx: 'peer'` keeps the `tx` field every
+  // ranging action has.
+  | { kind: 'uwbM2m'; tx: 'peer'; phase: 'init' | 'resp' | 'final'; index: number }
   // P802.15.4ab, the pairwise MMS cycle. The pair's anchor is always `anchor: 0` — a pair round
   // holds exactly one responder, and the network is what maps round t·A + k to anchor k.
   | { kind: 'nbPoll'; tx: 'tag' }
@@ -514,15 +500,14 @@ export function roundCarriesMmrcm(plan: RoundPlan, round: number): boolean {
  *   - the **slots** are one per **responder**, because each responder sends its own frame.
  *
  * In a two-way round that is N anchors answering the one tag, each with a single-entry IE. In
- * `'m2m'` every participant is both, so the two counts coincide — which is exactly why the error
- * was invisible there and why `'m2m'` was the mode this clause was reasoned about.
+ * `'m2m'` it is the N responders, each confirming the M initiators (standard §10.36.1).
  *
  * `0` when `plan.mmrcr` is off, a documented, inert answer rather than a thrown error.
  */
 export function mmrcmResponders(plan: RoundPlan): number {
   // One definition, in `phy.ts`, because the scenario schema's block-fit rule needs the same number
   // and cannot import this file (see `uwbMmrcmSlots`' own comment).
-  return uwbMmrcmSlots(plan.mode, plan.mode === 'm2m' ? plan.participants : plan.anchors, plan.mmrcr)
+  return uwbMmrcmSlots(plan.mode, plan.anchors, plan.mmrcr)
 }
 
 // --- Ranging ancillary information (standard §10.35) ------------------------------------------
@@ -602,7 +587,7 @@ export function blockSlotStartNs(p: RoundPlan, block: number, round: number, slo
 }
 
 /** One MMRCM slot (design §3.2/§3.3): `index` is **which responder** this slot belongs to, in
- * ascending order — 0…A−1 for the anchors of a two-way round, 0…N−1 for the participants of an
+ * ascending order — 0…A−1 for the anchors of a two-way round, 0…N−1 for the responders of an
  * `'m2m'` one. Kept apart from `SlotAction` rather than added as one more of its members, so that
  * which device actually transmits from the slot stays the device task's decision rather than being
  * handed to the schedule by the shape of the union `device.ts` already switches on. */
@@ -744,12 +729,14 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
   }
   if (p.mode === 'mms') return mmsSlotAction(p, slot)
   if (p.mode === 'm2m') {
-    // SS: one pass of N slots, participant i in slot i. DS: two passes of N (design §3), pass 0
-    // in slots 0..N-1 and pass 1 immediately after in slots N..2N-1 — `uwbSlotsPerTag`'s own N and
-    // 2N, walked back into a (pass, index) pair rather than assumed from a second formula.
-    const n = p.participants
-    if (slot < n) return { kind: 'uwbM2m', tx: 'peer', index: slot, pass: 0 }
-    if (p.method === 'ds' && slot < 2 * n) return { kind: 'uwbM2m', tx: 'peer', index: slot - n, pass: 1 }
+    // Standard §10.32.6 (SS, Figure 10-240) and §10.32.7 (DS, Figure 10-241), both phases time-
+    // scheduled in sequential order: the M ranging initiation messages, the N responses, and — DS —
+    // the M final frames. The controller writes this layout into its RCM's RDM IE.
+    const m = p.initiators
+    const n = p.anchors
+    if (slot < m) return { kind: 'uwbM2m', tx: 'peer', phase: 'init', index: slot }
+    if (slot < m + n) return { kind: 'uwbM2m', tx: 'peer', phase: 'resp', index: slot - m }
+    if (p.method === 'ds' && slot < 2 * m + n) return { kind: 'uwbM2m', tx: 'peer', phase: 'final', index: slot - m - n }
     throw new Error(`slotAction: m2m round has ${p.slots} slots, asked for ${slot}`)
   }
   if (slot === 0) return { kind: 'uwbPoll', tx: 'tag' }

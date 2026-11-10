@@ -238,10 +238,10 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
  * granularity (4ab draft 15-22/0381r5 Table 1.2.3.2). 2026-11-11 (W2b): this used to be a flat 300
  * RSTU for every mode, a floor the standard does not have.
  */
-export function uwbSlotFloorRstu(session: UwbSessionCfg, anchors: number, participants: number = anchors): number {
+export function uwbSlotFloorRstu(session: UwbSessionCfg, anchors: number, tags = 1): number {
   if (session.mode === 'mms') return 300
   const needNs = session.mode === 'm2m'
-    ? uwbM2mSlotFitNs(participants)
+    ? uwbM2mSlotFitNs(session.method, tags, anchors)
     : uwbSlotFitNs(
       Math.max(1, anchors), session.mode, session.schedule, undefined, session.method, session.replyTime, session.sp3,
     )
@@ -499,9 +499,8 @@ export function uwbRmnrHintKey(
 /**
  * Why the receipt-confirmation-request toggle is live or not (standard §10.36's MMRCR, design §4 of
  * 2026-10-02-receipt-confirmation-design.md). Unlike `uwbRmnrHintKey`, the legal modes are two, not
- * one — two-way ranging and `'m2m'` — because a many-to-many participant has no other frame that
- * ever tells it who heard it (`UwbM2mTimes.rxCounters` only ever echoes receipt *forward*, to a
- * later participant, never back to the sender), while the schema refuses `mmrcr` outright for the
+ * one — two-way ranging and `'m2m'` (whose responders confirm the initiators' messages, standard
+ * §10.36.1) — while the schema refuses `mmrcr` outright for the
  * other three: DL-TDoA's non-controller anchors already say whether they heard the Poll by sending
  * or not sending a Response, UL-TDoA's blink opens no exchange an ARC IE could ride on, and MMS's
  * control plane is a different radio entirely. `'twr'` carries one further refusal `'m2m'` does
@@ -930,14 +929,12 @@ export function UwbSessionFields(
     const next: UwbSessionCfg = { ...session, ...patch }
     emit({ ...patch, ...uwbSessionRepair(next, anchors, tags) })
   }
-  // Many-to-many counts every UWB node as a participant (design §5) — the anchor/tag split is a
-  // drawing choice in this mode, not a headcount for its own round, so the plan line below must
-  // not read `anchors` alone the way every other mode's round does.
+  // Many-to-many (standard §10.32.6/§10.32.7): the tags are the initiators (M) and the anchors the
+  // responders (N), and the round is planned from both.
   const m2m = session.mode === 'm2m'
-  const participants = m2m ? anchors + tags : anchors
-  // With no anchor (or, in m2m, no participant at all) there is no round to plan; printing one
-  // built from a made-up anchor would contradict the issue line right beside it.
-  const plan = participants > 0 ? roundPlan(session, participants) : null
+  // With no anchor (or, in m2m, no initiator) there is no round to plan; printing one built from a
+  // made-up device would contradict the issue line right beside it.
+  const plan = anchors > 0 && (!m2m || tags > 0) ? roundPlan(session, anchors, m2m ? tags : 1) : null
   const orphan = anchors === 0 && tags === 0
   // A contention round has only the response to place, so the schema allows it with SS-TWR
   // alone; the window and the retry budget mean nothing until it is actually chosen.
@@ -1212,7 +1209,7 @@ export function UwbSessionFields(
         {/* Plain, like every other control: the slot is one of the fixed-reply window's own terms,
             and `onChange`'s reconciliation is what carries a stranded reply time with it rather
             than a patch of this field's own. */}
-        <RstuInput value={session.slotRstu} lo={uwbSlotFloorRstu(session, anchors, participants)} hi={60_000} onCommit={(slotRstu) => onChange({ slotRstu })} />
+        <RstuInput value={session.slotRstu} lo={uwbSlotFloorRstu(session, anchors, tags)} hi={60_000} onCommit={(slotRstu) => onChange({ slotRstu })} />
         <span style={suffix}>RSTU · {ms(session.slotRstu)} ms</span>
       </label>
       <label style={label} title={E.uwbChannelHint}>
@@ -1243,7 +1240,7 @@ export function UwbSessionFields(
           `rcmValidityRounds` is 1 — read from the two functions the schema budgets with, never
           added up here. */}
       {plan && appendedSlots > 0 && <div style={note}>{E.uwbPlanAppended(appendedSlots)}</div>}
-      {m2m && <div style={note}>{E.uwbM2mParticipants(participants)}</div>}
+      {m2m && <div style={note}>{E.uwbM2mParticipants(tags, anchors)}</div>}
       {orphan && <div style={note}>{E.uwbNoNodes}</div>}
       {issue && <div style={issueStyle}>{issue}</div>}
       <button style={{ marginTop: 5 }} disabled={!orphan} title={orphan ? E.uwbRemoveSessionHint : E.uwbSessionInUse}

@@ -56,10 +56,6 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     // getting a shade of its own — the thing this slice needs a reader to see differently is the
     // RMNR frame below, not this one.
     case 'uwbInit': return 0xf59e0b
-    // Many-to-many (standard §10.32.6/§10.32.7): a third shade of the same ranging amber, because
-    // this frame is neither a tag's question nor an anchor's answer alone — every participant's
-    // one transmission is both at once (design §2) — so it is not one of the two ambers above.
-    case 'uwbM2m': return 0xfde047
     // The ranging message non-receipt exchange (standard §10.34): neither of the two ambers above
     // — it is not a question or an answer at all, but a responder saying it heard the control
     // message and missed the initiation message. A cool grey-blue marks it apart from every other
@@ -88,8 +84,8 @@ export function frameColor(frame: FrameDesc, apId: string): number {
     case 'uwbMmrcm': return 0x94a3b8
     // The SP3 marker (standard §10.32.8.2): one bare kind for every slot of the ranging phase,
     // the initiator's own marker and every responder's alike (identity comes from the slot, not
-    // from the frame — design §3.2), so it is neither of the two ambers above any more than
-    // `uwbM2m` is. The same third shade, for the same reason: one frame playing every role at once.
+    // from the frame — design §3.2), so it is neither of the two ambers above: a third shade, one
+    // frame kind playing every role at once.
     case 'uwbSp3': return 0xfde047
     // Ranging ancillary information (standard §10.35, Request = 0 half): like RMNR and MMRCM
     // above, this frame is about the exchange itself rather than a range — it carries a slice of

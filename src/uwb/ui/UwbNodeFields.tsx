@@ -15,10 +15,8 @@ const roleNote: React.CSSProperties = { color: 'var(--dim)', fontSize: 11, margi
 
 /**
  * `mode` is the scenario's own ranging session mode (`scenario.uwb?.mode`), read here for one
- * reason only: under `'m2m'` the role this node carries no longer decides who it ranges against
- * — every UWB node is a participant (design §5) — so a reader who picked 'tag' or 'anchor' before
- * switching modes needs to be told the choice still means something (how the node is drawn) and
- * something else (which round it takes part in) is no longer true of it.
+ * reason only: under `'m2m'` the role decides the device's many-to-many role — a tag is an
+ * initiator and an anchor a responder (standard §10.32.6/§10.32.7) — and the note says so.
  */
 export function UwbNodeFields(
   { node, mode, onChange }: { node: NodeCfg; mode: UwbMode | undefined; onChange: (patch: Partial<NodeCfg>) => void },

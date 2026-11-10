@@ -415,7 +415,9 @@ describe('determinism, and every other mode byte-identical', () => {
     'twr-ds': 'ea68b51b',
     'dl-tdoa': '5faa07e9',
     'ul-tdoa': 'fa986dce',
-    m2m: '624bea16',
+    // 2026-11-11 (W3): m2m re-captured — the round is the standard's (§10.32.6): the controller's RCM,
+    // the initiators' initiation messages and the responders' RRTI responses, no TXT/RXT IEs.
+    m2m: '46fc3cb1',
   }
 
   const streamOf = (session: Partial<UwbSessionCfg>): string => {

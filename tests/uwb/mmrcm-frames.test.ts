@@ -6,12 +6,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  makeBlink, makeFinal, makeInit, makeM2m, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr,
+  makeBlink, makeFinal, makeInit, makeM2mResp, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr,
 } from '../../src/uwb/frames'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
   RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, RMMRC_FIXED_BYTES, UWB_BLINK_BYTES, UWB_IE_HDR_BYTES, UWB_MAX_PSDU_BYTES,
-  UWB_REPORT_BYTES, rmmrcEntryBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMaxMmrcmInitiators,
+  UWB_REPORT_BYTES, rmmrcEntryBytes, uwbFinalBytes, uwbInitBytes, uwbM2mRespBytes, uwbMaxMmrcmInitiators,
   uwbMmrcmBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
 } from '../../src/uwb/phy'
 
@@ -168,9 +168,10 @@ describe('leaves every existing frame byte-identical', () => {
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
-  it('Many-to-many', () => {
-    const f = makeM2m('p1', 'ss', 0, 0, 1, { txCounter: 1_000, rxCounters: { p0: 500 } })
-    expect(f.bytes).toBe(uwbM2mBytes(1))
+  // 2026-11-11 (W3): the many-to-many SS response (standard §10.32.6), one RRTI element per initiator.
+  it('Many-to-many response', () => {
+    const f = makeM2mResp('a1', 'ss', 0, 0, 2, [{ id: 't0', replyRctu: 1_000 }, { id: 't1', replyRctu: 500 }])
+    expect(f.bytes).toBe(uwbM2mRespBytes('ss', 2))
     expect(f.bytes).toBe(26)
     expect(fieldSum(f)).toBe(f.bytes)
   })

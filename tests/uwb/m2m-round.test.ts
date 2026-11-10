@@ -1,371 +1,306 @@
 /**
- * Task 4 of docs/superpowers/specs/2026-09-30-many-to-many-design.md: the device and the network
- * layer of many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS) — and the acceptance
- * measurement for the whole slice.
+ * Many-to-many ranging, IEEE Std 802.15.4-2024 §10.32.6 (SS-TWR, Figure 10-240) and §10.32.7 (DS-TWR,
+ * Figure 10-241). 2026-11-11 (W3, audit #2): rewritten for the standard's round — a controller's RCM
+ * (ARC Multi-node Mode 2, RDM roles and slots), M initiators' ranging initiation messages, N responders'
+ * responses (SS: one RRTI per initiator; DS: RRMC (3)), and, DS only, the initiators' final frames
+ * (RRTI + RMI). Until then every device was initiator and responder at once and carried two IEs the
+ * standard does not define (TXT, RXT); the tests that pinned that behaviour are gone.
  *
- * Every test here **runs a whole round and reads the records it produced**. That is deliberate:
- * this slice's headline is a number about a round (N slots against N², design §1/§8.1), and the
- * two features before it on this branch each looked finished while doing nothing at all, which
- * only running a round exposed. So nothing below asserts on a helper or a constant — if a test
- * fails with *no record at all*, the round did not reach the point that produces one, and the
- * round is what to fix.
- *
- * Design §1 (the N-times number), §2 (only the earlier participant of a pair can compute the
- * range), §3 (DS is two passes), §5 (the participant order) and §6 (an arrival nobody heard is
- * simply a range that does not exist).
+ * Every test runs whole rounds and reads the records they produced.
  */
 import { describe, expect, it } from 'vitest'
 import { hashStr } from '../../src/engine/hash'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import {
-  DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg, type Wall,
+  DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Scenario, type UwbSessionCfg, type Wall,
 } from '../../src/model/scenario'
-import { UWB_TX_POWER_DBM, uwbM2mBytes } from '../../src/uwb/phy'
-import { roundPlan } from '../../src/uwb/session'
+import {
+  UWB_MAX_PSDU_BYTES, UWB_TX_POWER_DBM, rrtiIeBytes, uwbFinalBytes, uwbInitBytes, uwbM2mLongestBytes,
+  uwbM2mOverflow, uwbM2mRcmBytes, uwbM2mRespBytes, uwbPollBytes, uwbSlotsPerTag, UWB_BARE_RESP_BYTES,
+  UWB_MHR_BYTES, UWB_FCS_BYTES,
+} from '../../src/uwb/phy'
+import { m2mRoles, roundPlan, slotAction } from '../../src/uwb/session'
 
 const MS = 1_000_000
-
-/**
- * A run long enough to hold exactly one ranging block's first round and nothing else: the block
- * is 240 000 RSTU (200 ms) and the longest round below is a six-participant DS round (12 slots of
- * 2 ms = 24 ms), so 100 ms contains that round complete and no second block.
- */
+/** One 200 ms block's first round (the longest below is well under 30 ms) and no second block. */
 const RUN_NS = 100 * MS
 
-/** Six places with no two pairwise distances alike, all inside one 20 × 16 m room and all well
- * inside the 26 m a −14 dBm UWB frame reaches against a −93 dBm receiver: what is measured here
- * is the routing of four times, so every link has to be one that works. */
-const PLACES: { x: number; y: number }[] = [
-  { x: 1, y: 1 }, { x: 7, y: 2 }, { x: 3, y: 6 }, { x: 11, y: 9 }, { x: 5, y: 13 }, { x: 15, y: 4 },
-]
+/** Initiator k is `t-k` (a tag), responder j is `a-j` (an anchor); ids sort into slot order. */
+const tId = (k: number): string => `t-${k}`
+const aId = (j: number): string => `a-${j}`
+const T_PLACES = [{ x: 5, y: 5 }, { x: 13, y: 10 }, { x: 17, y: 8 }]
+const A_PLACES = [{ x: 1, y: 1 }, { x: 19, y: 1 }, { x: 19, y: 15 }, { x: 1, y: 15 }]
+const PPM = [0, 18, -14, 9, -20, 5, 12]
 
-/** One crystal offset per participant, in ppm — distinct, and spread most of the ±20 ppm the
- * standard allows (§16.4.9). Only the DS-against-SS test switches them on; every other run holds
- * them at zero so that what is left in a range is the route its times took. */
-const PPM = [0, 18, -14, 9, -20, 5]
-
-/** Participant ids sort by `byCodeUnit` into exactly this order, so participant i of design §2 is
- * `p-i` and `PLACES[i]` is where it stands. The order is the round's slot order (design §5). */
-const idOf = (i: number): string => `p-${i}`
-
-function uwbNode(i: number, role: 'anchor' | 'tag', ppm: number): NodeCfg {
+function node(id: string, role: 'anchor' | 'tag', p: { x: number; y: number }, ppm = 0): NodeCfg {
   return {
-    id: idOf(i), kind: 'uwb', name: idOf(i), pos: { ...PLACES[i], z: 1 },
-    txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
-    caps: { generation: 'nonht', features: {} },
-    uwb: { role, ppm },
+    id, kind: 'uwb', name: id, pos: { ...p, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} }, uwb: { role, ppm },
   }
 }
 
-/** No timestamp noise, no carrier-offset estimator noise, no excess delay: a range that is wrong
- * here is wrong because a time went the wrong way, not because a draw moved it. */
+function group(m: number, n: number, ppm = false): NodeCfg[] {
+  return [
+    ...Array.from({ length: m }, (_, k) => node(tId(k), 'tag', T_PLACES[k], ppm ? PPM[k] : 0)),
+    ...Array.from({ length: n }, (_, j) => node(aId(j), 'anchor', A_PLACES[j], ppm ? PPM[m + j] : 0)),
+  ]
+}
+
+/** No timestamp noise, no carrier-offset estimator noise, no excess delay. */
 const QUIET: Partial<UwbSessionCfg> = { nlos: false, tsNoisePs: 0, cfoNoisePpm: 0 }
 
 function scenario(nodes: NodeCfg[], session: Partial<UwbSessionCfg>, walls: Wall[] = []): Scenario {
   return {
-    rooms: [{ x: 0, y: 0, w: 20, h: 16, name: 'lab' }],
-    walls,
-    nodes,
-    servers: [],
-    seed: 7,
-    rtsThresholdBytes: 3000,
-    snapshotIntervalMs: 10,
-    uwb: { ...DEFAULT_UWB_SESSION, ...session },
+    rooms: [{ x: 0, y: 0, w: 20, h: 16, name: 'lab' }], walls, nodes, servers: [], seed: 7,
+    rtsThresholdBytes: 3000, snapshotIntervalMs: 10, uwb: { ...DEFAULT_UWB_SESSION, ...session },
   }
 }
-
-const run = (sc: Scenario): TLRecord[] => new Simulation(sc).runUntil(RUN_NS).records
+const run = (sc: Scenario): TLRecord[] => {
+  expect(() => ScenarioSchema.parse(sc)).not.toThrow()
+  return new Simulation(sc).runUntil(RUN_NS).records
+}
 const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLRecord, { type: T }>[] =>
   rs.filter((r) => r.type === type) as never
+const m2m = (m: number, n: number, method: 'ss' | 'ds', extra: Partial<UwbSessionCfg> = {}, walls: Wall[] = []): TLRecord[] =>
+  run(scenario(group(m, n), { mode: 'm2m', method, ...QUIET, ...extra }, walls))
 
-/** One unordered pair, as a key — the quantity design §1's table counts. A many-to-many round
- * measures each pair once; taking turns as the tag measures each of them twice (once in each
- * device's own round), so the pairs have to be counted as pairs for the two arrangements to be
- * comparable at all. */
-const pairKey = (a: string, b: string): string => [a, b].sort().join('~')
-
-interface Measured {
-  /** Ranging slots the arrangement's exchange spent: the slots that carried a frame, read off the
-   * `TX_START` records the run emitted (one frame per slot), never a constant from `phy.ts`.
-   * 2026-11-11 (W2b): until then it was the `UWB_ROUND` record's round length, which now also counts
-   * the idle slots that stretch a round to a whole divisor of the block (standard §10.32.2). */
-  slots: number
-  /** Distinct pairs that ended up with a range. */
-  pairs: Set<string>
-  ranges: Extract<TLRecord, { type: 'UWB_RANGE' }>[]
-  records: TLRecord[]
-}
-
-/** One many-to-many round: N participants, one round, one slot each (SS) or two passes of N (DS). */
-function manyToMany(
-  n: number, session: Partial<UwbSessionCfg> = {}, walls: Wall[] = [], ppm: number[] = PPM.map(() => 0),
-): Measured {
-  const nodes = Array.from({ length: n }, (_, i) => uwbNode(i, 'tag', ppm[i]))
-  const rs = run(scenario(nodes, { mode: 'm2m', method: 'ss', ...QUIET, ...session }, walls))
-  const rounds = of(rs, 'UWB_ROUND')
-  if (rounds.length === 0) throw new Error('many-to-many: the run emitted no UWB_ROUND at all')
-  // Every participant opens the round it is in — there is no listener in this mode — so they all
-  // report the same length; one round, one slot count.
-  const slots = new Set(rounds.map((r) => r.slots))
-  if (slots.size !== 1) throw new Error(`many-to-many: participants disagree on the round length: ${[...slots]}`)
-  const ranges = of(rs, 'UWB_RANGE')
-  const busy = of(rs, 'TX_START').length
-  if (busy > rounds[0].slots) throw new Error(`many-to-many: ${busy} frames in a round of ${rounds[0].slots} slots`)
-  return { slots: busy, pairs: new Set(ranges.map((r) => pairKey(r.node, r.peer))), ranges, records: rs }
-}
-
-/**
- * The same N devices, ranged the way the engine could already do it: each of them takes a turn as
- * the tag while the other N−1 answer as anchors, which is N separate one-to-many rounds. Every
- * pair is measured twice — once in each device's own round — so the pairs are counted as pairs,
- * and the slots are summed over all N rounds, because all N of them have to happen.
- */
-function takingTurns(n: number): Measured {
-  let slots = 0
-  const pairs = new Set<string>()
-  const ranges: Extract<TLRecord, { type: 'UWB_RANGE' }>[] = []
-  const records: TLRecord[] = []
-  for (let k = 0; k < n; k++) {
-    const nodes = Array.from({ length: n }, (_, i) => uwbNode(i, i === k ? 'tag' : 'anchor', 0))
-    const rs = run(scenario(nodes, { mode: 'twr', method: 'ss', replyTime: 'embedded', ...QUIET }))
-    const rounds = of(rs, 'UWB_ROUND')
-    if (rounds.length !== 1) throw new Error(`taking turns: ${idOf(k)}'s turn ran ${rounds.length} rounds, not 1`)
-    slots += of(rs, 'TX_START').length
-    for (const r of of(rs, 'UWB_RANGE')) {
-      pairs.add(pairKey(r.node, r.peer))
-      ranges.push(r)
-    }
-    records.push(...rs)
-  }
-  return { slots, pairs, ranges, records }
-}
-
-describe('acceptance: every pair in N slots, where taking turns needs N² (design §1, §8.1)', () => {
-  it('measures every pair in N slots where one-to-many needs N squared', () => {
-    for (const n of [3, 4, 6]) {
-      const m2m = manyToMany(n)
-      const otm = takingTurns(n)
-      const pairs = (n * (n - 1)) / 2
-      // If either of these is empty the round never reached the point that produces a range.
-      expect(m2m.pairs.size, `m2m N=${n}: pairs measured`).toBe(pairs)
-      expect(otm.pairs.size, `taking turns N=${n}: pairs measured`).toBe(pairs)
-      // …and a many-to-many round measures each pair exactly once, which is the other half of
-      // why one transmission does two jobs: there is no second, redundant reading anywhere.
-      expect(m2m.ranges, `m2m N=${n}: one range per pair`).toHaveLength(pairs)
-      expect(otm.ranges, `taking turns N=${n}: each pair measured twice`).toHaveLength(n * (n - 1))
-      // The number this slice exists for.
-      expect(m2m.slots, `m2m N=${n}: slots`).toBe(n)
-      expect(otm.slots, `taking turns N=${n}: slots`).toBe(n * n)
-      expect(otm.slots / m2m.slots, `N=${n}: the slot ratio`).toBe(n)
-    }
+describe('frame sizes (standard §10.32.6/§10.32.7; 2026-11-11, W3)', () => {
+  it('the controller\'s RCM is the time-scheduled Poll over the M − 1 + N controlees', () => {
+    expect(uwbM2mRcmBytes(2, 4)).toBe(uwbPollBytes(5))
+    expect(uwbM2mRcmBytes(2, 4)).toBe(45)
+  })
+  it('SS response: MHR + one RRTI IE with an addressed element per initiator + FCS, no RRMC (Figure 10-240)', () => {
+    for (const m of [1, 2, 5]) expect(uwbM2mRespBytes('ss', m)).toBe(UWB_MHR_BYTES + rrtiIeBytes(m, true) + UWB_FCS_BYTES)
+    expect(uwbM2mRespBytes('ss', 2)).toBe(26)
+  })
+  it('DS response: RRMC (3) alone (Figure 10-241); DS final: RMI + RRTI per responder (§10.32.7)', () => {
+    expect(uwbM2mRespBytes('ds', 7)).toBe(UWB_BARE_RESP_BYTES)
+    expect(uwbM2mLongestBytes('ds', 2, 4)).toBe(uwbFinalBytes(4))
+  })
+  it('the overflow rule names the frame that outgrows the PSDU, and the RDM List Length', () => {
+    expect(uwbM2mOverflow('ss', 2, 4)).toBeNull()
+    let m = 1
+    while (uwbM2mRespBytes('ss', m + 1) <= UWB_MAX_PSDU_BYTES) m++
+    expect(uwbM2mOverflow('ss', m, 1)).toBeNull()
+    expect(uwbM2mOverflow('ss', m + 1, 1)?.frame).toBe('resp')
+    let n = 1
+    while (uwbFinalBytes(n + 1) <= UWB_MAX_PSDU_BYTES) n++
+    expect(uwbM2mOverflow('ds', 1, n)).toBeNull()
+    expect(uwbM2mOverflow('ds', 1, n + 1)?.frame).toBe('final')
+    expect(uwbM2mOverflow('ss', 1, 33)?.frame).toBe('rcm')
   })
 })
 
-describe('the distances themselves (design §8.2)', () => {
-  it('gets every distance right', () => {
-    for (const n of [3, 4, 6]) {
-      const m2m = manyToMany(n)
-      expect(m2m.ranges.length, `N=${n}`).toBeGreaterThan(0)
-      for (const r of m2m.ranges) {
-        // Each record carries the geometry it was measured against, so no truth table is
-        // rebuilt here — a pair is scored against its own `trueDistM`.
-        expect(Math.abs(r.distM - r.trueDistM), `N=${n} ${r.node}→${r.peer}`).toBeLessThan(0.01)
-      }
-      // …and they really were different distances, so a round that answered one number for every
-      // pair could not have passed the loop above.
-      expect(new Set(m2m.ranges.map((r) => Math.round(r.trueDistM * 100))).size).toBe(m2m.ranges.length)
-    }
+describe('the round layout (§10.32.6/§10.32.7, sequentially scheduled)', () => {
+  it('SS: M initiation slots then N response slots; DS adds M final slots', () => {
+    const cfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m' as const }
+    expect(uwbSlotsPerTag('ss', 4, 'time', 8, 'm2m', undefined, undefined, undefined, undefined, 2)).toBe(6)
+    expect(uwbSlotsPerTag('ds', 4, 'time', 8, 'm2m', undefined, undefined, undefined, undefined, 2)).toBe(8)
+    const ss = roundPlan({ ...cfg, method: 'ss' }, 4, 2)
+    const ds = roundPlan({ ...cfg, method: 'ds' }, 4, 2)
+    expect([ss.initiators, ss.anchors, ss.rangingSlots]).toEqual([2, 4, 6])
+    const phases = (p: typeof ss) => Array.from({ length: p.rangingSlots }, (_, s) => {
+      const a = slotAction(p, s)
+      return a.kind === 'uwbM2m' ? `${a.phase}${a.index}` : a.kind
+    })
+    expect(phases(ss)).toEqual(['init0', 'init1', 'resp0', 'resp1', 'resp2', 'resp3'])
+    expect(phases(ds)).toEqual(['init0', 'init1', 'resp0', 'resp1', 'resp2', 'resp3', 'final0', 'final1'])
+  })
+  it('m2mRoles: tags are the initiators and anchors the responders, each in node-id order', () => {
+    const nodes = [node('t-b', 'tag', T_PLACES[0]), node('a-z', 'anchor', A_PLACES[0]), node('t-a', 'tag', T_PLACES[1]), node('a-y', 'anchor', A_PLACES[1])]
+    expect(m2mRoles(nodes)).toEqual({ initiators: ['t-a', 't-b'], responders: ['a-y', 'a-z'] })
   })
 })
 
-describe('only the earlier participant of a pair can compute the range (design §2)', () => {
-  it('gives participant i exactly N-1-i ranges, because only the earlier one can compute', () => {
-    for (const n of [3, 4, 6]) {
-      const m2m = manyToMany(n)
-      const got = Array.from({ length: n }, (_, i) => m2m.ranges.filter((r) => r.node === idOf(i)).length)
-      expect(got, `N=${n}`).toEqual(Array.from({ length: n }, (_, i) => n - 1 - i))
-      // The two ends of design §2's argument, stated as themselves: participant 0 holds every
-      // one of the N−1 ranges it takes part in, and participant N−1 — which sends the longest
-      // frame of the whole round — holds none at all.
-      expect(got[0], `N=${n}: participant 0`).toBe(n - 1)
-      expect(got[n - 1], `N=${n}: participant N−1`).toBe(0)
-      expect(got.reduce((a, b) => a + b, 0), `N=${n}: the total`).toBe((n * (n - 1)) / 2)
-      // …and every range it does hold names a participant later than itself in the round.
-      for (const r of m2m.ranges) expect(r.node < r.peer, `${r.node}→${r.peer}`).toBe(true)
+describe('an SS round: M + N frames, M × N ranges at the initiators (§10.32.6)', () => {
+  const rs = m2m(2, 4, 'ss')
+  const tx = of(rs, 'TX_START')
+  it('the controller\'s RCM: ARC Multi-node Mode 2, an RDM element per controlee with role and slot', () => {
+    const rcm = tx[0]
+    expect(rcm.node).toBe(tId(0))
+    expect(rcm.frame.kind).toBe('uwbPoll')
+    expect(rcm.frame.uwb!.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
+    expect(rcm.frame.uwb!.arc!.multiNode).toBe(2)
+    expect(rcm.frame.uwb!.arc!.roundUsage).toBe(1)
+    expect(rcm.frame.uwb!.arc!.deferred).toBe(0)
+    expect(rcm.frame.uwb!.rdm).toEqual([
+      { id: tId(1), slot: 1, initiator: true },
+      ...[0, 1, 2, 3].map((j) => ({ id: aId(j), slot: 2 + j, initiator: false })),
+    ])
+    expect(rcm.frame.bytes).toBe(uwbM2mRcmBytes(2, 4))
+  })
+  it('then the other initiator\'s initiation message and one response per responder, nothing else', () => {
+    expect(tx.map((r) => `${r.node}:${r.frame.kind}:${r.frame.uwb!.slot}`)).toEqual([
+      't-0:uwbPoll:0', 't-1:uwbInit:1', 'a-0:uwbResp:2', 'a-1:uwbResp:3', 'a-2:uwbResp:4', 'a-3:uwbResp:5',
+    ])
+    expect(tx[1].frame.bytes).toBe(uwbInitBytes())
+    for (const r of tx.slice(2)) {
+      expect(r.frame.uwb!.ies).toEqual(['RRTI'])
+      expect(r.frame.uwb!.rrti!.map((e) => e.id)).toEqual([tId(0), tId(1)])
+      expect(r.frame.bytes).toBe(uwbM2mRespBytes('ss', 2))
     }
   })
-
-  it('makes the last participant send the longest frame of the round and compute nothing', () => {
-    // Ruling 5 of the slice ledger, and the half of design §2 worth a lesson: participant i
-    // reports i arrival times, so the frames of one round grow monotonically — and the biggest of
-    // them belongs to the participant the arithmetic gives nothing. The device that talks the most
-    // learns the least; everything in that frame is service to the others.
-    const n = 6
-    const m2m = manyToMany(n)
-    const air = of(m2m.records, 'TX_START')
-    expect(air, 'one transmission per participant').toHaveLength(n)
-    expect(air.map((r) => r.node)).toEqual(Array.from({ length: n }, (_, i) => idOf(i)))
-    const bytes = air.map((r) => r.frame.bytes)
-    // Read off the air, and checked against `uwbM2mBytes` — the one function Task 1 sized this
-    // frame with — rather than against a copied table of octet counts.
-    expect(bytes).toEqual(Array.from({ length: n }, (_, i) => uwbM2mBytes(i)))
-    expect(Math.max(...bytes)).toBe(bytes[n - 1])
-    expect(m2m.ranges.filter((r) => r.node === idOf(n - 1))).toHaveLength(0)
+  it('no frame carries the TXT or RXT IE the standard does not define', () => {
+    for (const r of tx) for (const ie of ['TXT', 'RXT']) expect(r.frame.uwb!.ies).not.toContain(ie)
+  })
+  it('every initiator computes a range to every responder, and the ranges are right', () => {
+    const ranges = of(rs, 'UWB_RANGE')
+    expect(ranges).toHaveLength(8)
+    expect(new Set(ranges.map((r) => r.node))).toEqual(new Set([tId(0), tId(1)]))
+    expect(new Set(ranges.map((r) => `${r.node}~${r.peer}`)).size).toBe(8)
+    for (const r of ranges) expect(Math.abs(r.distM - r.trueDistM), `${r.node}→${r.peer}`).toBeLessThan(0.01)
   })
 })
 
-describe('DS many-to-many: two passes, and better when the crystals differ (design §3, §8.4)', () => {
-  it('needs two passes for DS and is more accurate than SS when the crystals differ', () => {
-    for (const n of [3, 4, 6]) {
-      const ds = manyToMany(n, { method: 'ds' })
-      expect(ds.slots, `N=${n}: DS slots`).toBe(2 * n)
-      expect(ds.pairs.size, `N=${n}: DS pairs`).toBe((n * (n - 1)) / 2)
-      for (const r of ds.ranges) {
-        expect(r.method, `N=${n} ${r.node}→${r.peer}`).toBe('ds')
-        expect(Math.abs(r.distM - r.trueDistM), `N=${n} ${r.node}→${r.peer}`).toBeLessThan(0.01)
-      }
+describe('a DS round: 2M + N frames, M × N ranges at the responders (§10.32.7)', () => {
+  const rs = run(scenario(group(2, 4, true), { mode: 'm2m', method: 'ds', ...QUIET }))
+  const tx = of(rs, 'TX_START')
+  it('responses carry RRMC alone; each initiator then sends a final frame with RMI + RRTI per responder', () => {
+    expect(tx.map((r) => `${r.node}:${r.frame.kind}`)).toEqual([
+      't-0:uwbPoll', 't-1:uwbInit', 'a-0:uwbResp', 'a-1:uwbResp', 'a-2:uwbResp', 'a-3:uwbResp', 't-0:uwbFinal', 't-1:uwbFinal',
+    ])
+    for (const r of tx.filter((x) => x.frame.kind === 'uwbResp')) expect(r.frame.uwb!.ies).toEqual(['RRMC'])
+    for (const r of tx.filter((x) => x.frame.kind === 'uwbFinal')) {
+      expect(r.frame.uwb!.ies).toEqual(['RMI', 'RRTI'])
+      expect(r.frame.uwb!.finalTimes!.map((e) => e.id)).toEqual([0, 1, 2, 3].map(aId))
+      expect(r.frame.bytes).toBe(uwbFinalBytes(4))
     }
-    // The same six devices, crystals pulled apart, with the carrier-offset estimator's own
-    // residual left on (the session default, 0.2 ppm). SS-TWR has to convert the other end's
-    // reply interval into its own timebase with that estimate, and a many-to-many reply interval
-    // is whole slots long — 2 ms per slot between the pair, so the residual is worth centimetres
-    // to decimetres. DS-TWR cancels the offset by construction and never estimates it at all.
-    // `cfoNoisePpm` is named explicitly, at the session default, because `QUIET` zeroes it: with a
-    // perfect offset estimate SS-TWR's correction is exact and there is nothing for DS to be
-    // better than (measured: 1.5 mm either way, which is the counter quantisation and not a
-    // crystal at all). The residual on that estimate is the whole of the difference this test is
-    // about, so it has to be switched back on, and said out loud where it is.
-    const withPpm: Partial<UwbSessionCfg> = {
-      nlos: false, tsNoisePs: 0, cfoNoisePpm: DEFAULT_UWB_SESSION.cfoNoisePpm,
-    }
-    const ss = manyToMany(6, { method: 'ss', ...withPpm }, [], PPM)
-    const ds = manyToMany(6, { method: 'ds', ...withPpm }, [], PPM)
-    const err = (m: Measured): number => Math.max(...m.ranges.map((r) => Math.abs(r.distM - r.trueDistM)))
-    expect(ss.ranges).toHaveLength(15)
-    expect(ds.ranges).toHaveLength(15)
-    // Both numbers are reported in the task report; the assertion is the ordering plus a floor
-    // under SS's own error, so that "DS is better" cannot pass on two equal, tiny numbers.
-    expect(err(ss), 'SS carries the clock-offset residual').toBeGreaterThan(0.02)
-    expect(err(ds), 'DS cancels it').toBeLessThan(err(ss) / 5)
+    expect(tx[0].frame.uwb!.arc!.roundUsage).toBe(2)
+  })
+  it('every responder computes a range to every initiator, cancelling the crystal offsets', () => {
+    const ranges = of(rs, 'UWB_RANGE')
+    expect(ranges).toHaveLength(8)
+    expect(new Set(ranges.map((r) => r.node))).toEqual(new Set([0, 1, 2, 3].map(aId)))
+    for (const r of ranges) expect(Math.abs(r.distM - r.trueDistM), `${r.node}→${r.peer}`).toBeLessThan(0.01)
   })
 })
 
-describe('an arrival nobody heard is a range that does not exist (design §6, §8.5)', () => {
-  /** Three brick walls across every path out of the corner `p-0` stands in: 36 dB of loss against
-   * the 79 dB the link budget has for a 6 m hop, so nothing of participant 0 is heard and it
-   * hears nothing. They cross no other pair's path — every other participant is out at x + y ≥ 9,
-   * and these segments only reach x + y = 3.4. */
-  const CLOSET: Wall[] = [0, 0.2, 0.4].map((d) => ({
-    x1: 0, y1: 3 + d, x2: 3 + d, y2: 0, material: 'brick' as const, openings: [],
-  }))
-
-  it('loses exactly the pairs it could not hear', () => {
-    const n = 4
-    const open = manyToMany(n)
-    const walled = manyToMany(n, {}, CLOSET)
-    // Participant 0 is the one design §6 is about: it is first in the round, so the ranges it
-    // loses by going unheard are the ones between it and *everyone after it* — N−1 of them from
-    // a single lost transmission, where a one-to-many round loses one range per lost anchor.
-    expect(open.pairs.size).toBe((n * (n - 1)) / 2)
-    expect(open.pairs.size - walled.pairs.size, 'pairs lost').toBe(n - 1)
-    // What is left is precisely the many-to-many round of the participants that can still hear
-    // each other: N−1 of them, so (N−1)(N−2)/2 pairs, and participant i of *that* group holds
-    // (N−1)−1−i of them.
-    const rest = ((n - 1) * (n - 2)) / 2
-    expect(walled.pairs.size, 'pairs left').toBe(rest)
-    expect(walled.ranges, 'ranges left').toHaveLength(rest)
-    const got = Array.from({ length: n }, (_, i) => walled.ranges.filter((r) => r.node === idOf(i)).length)
-    expect(got, 'per participant, with p-0 unheard').toEqual([0, n - 2, n - 3, 0])
-    // Not one of the surviving ranges names the silenced participant, at either end.
-    for (const r of walled.ranges) expect([r.node, r.peer]).not.toContain(idOf(0))
-    // …and the ranges that do survive are still right, so the walls removed pairs rather than
-    // corrupting the ones left.
-    for (const r of walled.ranges) expect(Math.abs(r.distM - r.trueDistM), `${r.node}→${r.peer}`).toBeLessThan(0.01)
+describe('participation comes from the RCM (§10.32.9.8)', () => {
+  /** Three brick boxes around a point: 36 dB, nothing in or out. */
+  const box = (p: { x: number; y: number }): Wall[] => [0.5, 0.7, 0.9].flatMap((r) => [
+    [p.x - r, p.y - r, p.x + r, p.y - r], [p.x + r, p.y - r, p.x + r, p.y + r],
+    [p.x + r, p.y + r, p.x - r, p.y + r], [p.x - r, p.y + r, p.x - r, p.y - r],
+  ].map(([x1, y1, x2, y2]) => ({ x1, y1, x2, y2, material: 'brick' as const, openings: [] })))
+  it('a responder that missed the RCM never transmits: the round loses its M ranges', () => {
+    const rs = m2m(2, 4, 'ss', {}, box(A_PLACES[0]))
+    expect(of(rs, 'TX_START').some((r) => r.node === aId(0))).toBe(false)
+    const ranges = of(rs, 'UWB_RANGE')
+    expect(ranges).toHaveLength(6)
+    for (const r of ranges) expect(r.peer).not.toBe(aId(0))
+  })
+  it('an initiator that missed the RCM never transmits either: the round loses its N ranges', () => {
+    const rs = m2m(3, 4, 'ss', {}, box(T_PLACES[2]))
+    expect(of(rs, 'TX_START').some((r) => r.node === tId(2))).toBe(false)
+    expect(of(rs, 'UWB_RANGE')).toHaveLength(8)
+    for (const r of of(rs, 'TX_START').filter((x) => x.frame.kind === 'uwbResp')) {
+      expect(r.frame.uwb!.rrti!.map((e) => e.id)).toEqual([tId(0), tId(1)])
+    }
+  })
+  it('the controller unheard: only its RCM goes out, and the round measures nothing', () => {
+    const rs = m2m(2, 4, 'ss', {}, box(T_PLACES[0]))
+    expect(of(rs, 'TX_START').map((r) => r.node)).toEqual([tId(0)])
+    expect(of(rs, 'UWB_RANGE')).toEqual([])
+    expect(of(rs, 'UWB_TIMEOUT').filter((r) => r.slot === 0)).toHaveLength(5)
   })
 })
 
-describe('determinism, and every other mode byte-identical (design §8.7)', () => {
-  /** Captured from this branch's HEAD before any of Task 4 was written. These four modes have no
-   * many-to-many code path in them, so they must produce the identical record stream afterwards;
-   * the test is expected to pass before the implementation as well as after — it is the guard,
-   * not the goal. (The shipped scenes are pinned by `tests/fixtures/lesson-hashes.json` and
-   * `uwb-record-hashes.json`; this pins the bare N-node round these tests vary, which no fixture
-   * covers.) */
+describe('receipt confirmation comes from the RCM\'s ARC (§10.36.1, §10.32.9.1)', () => {
+  it('each responder confirms the M initiators in a slot of its own; the controller\'s ARC carries MMRCR', () => {
+    const rs = m2m(2, 4, 'ss', { mmrcr: true })
+    const tx = of(rs, 'TX_START')
+    expect(tx[0].frame.uwb!.arc!.mmrcr).toBe(1)
+    const conf = tx.filter((r) => r.frame.kind === 'uwbMmrcm')
+    expect(conf.map((r) => r.node)).toEqual([0, 1, 2, 3].map(aId))
+    for (const r of conf) {
+      expect(r.frame.dst).toBe('*')
+      expect(r.frame.uwb!.mmrc!.map((e) => e.initiator)).toEqual([tId(0), tId(1)])
+    }
+    // each initiator reads its own entry from every responder: its own slot's bit set
+    const got = of(rs, 'UWB_MMRCM')
+    expect(got).toHaveLength(8)
+    for (const r of got) {
+      const k = Number(r.node.slice(2))
+      expect(r.received.flatMap((b, i) => (b ? [i] : []))).toEqual([k])
+    }
+  })
+  it('the request off: no confirmation at all', () => {
+    expect(of(m2m(2, 4, 'ss'), 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')).toEqual([])
+  })
+})
+
+describe('the schema (§10.32.6/§10.32.7)', () => {
+  const sc = (m: number, n: number, extra: Partial<UwbSessionCfg> = {}) => scenario(
+    [
+      ...Array.from({ length: m }, (_, k) => node(`t-${String(k).padStart(2, '0')}`, 'tag', { x: 1 + (k % 18), y: 1 + Math.floor(k / 18) })),
+      ...Array.from({ length: n }, (_, j) => node(`a-${String(j).padStart(2, '0')}`, 'anchor', { x: 1 + (j % 18), y: 8 + Math.floor(j / 18) })),
+    ],
+    { mode: 'm2m', ...extra },
+  )
+  it('needs at least one initiator (tag) and one responder (anchor)', () => {
+    expect(ScenarioSchema.safeParse(sc(2, 4)).success).toBe(true)
+    expect(ScenarioSchema.safeParse(sc(0, 4)).success).toBe(false)
+    expect(ScenarioSchema.safeParse(sc(3, 0)).success).toBe(false)
+  })
+  it('refuses a group whose frames outgrow the PSDU', () => {
+    let m = 1
+    while (uwbM2mRespBytes('ss', m + 1) <= UWB_MAX_PSDU_BYTES) m++
+    expect(ScenarioSchema.safeParse(sc(m, 1, { method: 'ss', slotRstu: 6000, blockRstu: 600_000 })).success).toBe(true)
+    expect(ScenarioSchema.safeParse(sc(m + 1, 1, { method: 'ss', slotRstu: 6000, blockRstu: 600_000 })).success).toBe(false)
+    let n = 1
+    while (uwbFinalBytes(n + 1) <= UWB_MAX_PSDU_BYTES) n++
+    expect(ScenarioSchema.safeParse(sc(1, n, { method: 'ds' })).success).toBe(true)
+    expect(ScenarioSchema.safeParse(sc(1, n + 1, { method: 'ds' })).success).toBe(false)
+  })
+  it('refuses what is not implemented: contention, deferred/fixed reply times, SP3, RMNR, ancillary, AoA', () => {
+    for (const extra of [
+      { schedule: 'contention' as const }, { replyTime: 'deferred' as const }, { replyTime: 'fixed' as const },
+      { sp3: true }, { rmnr: true }, { ancillary: true }, { aoa: true }, { rcmValidityRounds: 2 },
+    ]) expect(ScenarioSchema.safeParse(sc(2, 4, extra)).success, JSON.stringify(extra)).toBe(false)
+  })
+})
+
+describe('determinism, and every other mode byte-identical', () => {
+  /** The four non-m2m modes' record streams for one five-node scene — the values `tests/uwb/
+   * m2m-round.test.ts` pinned before W3 (2026-11-11 W2b capture). W3 touched no other mode. */
   const BEFORE: Record<string, string> = {
-    // Re-captured 2026-11-10 for the three modes that send an RCM: its ARC IE shrank to the
-    // standard's three content octets and the RR IE (block and round indices) joined it, so every
-    // Poll is three octets longer (audit #9). UL-TDoA sends no RCM and did not move.
-    // Re-captured again 2026-11-10 (W2), all four: every PPDU is 896 chips longer (PHR 21 symbols, standard Table 16-2), which moves every instant in every mode; the RRTI and RMI content headers (§10.29.8.1/§10.29.8.4) lengthen the SS Response and the DS Final and reports.
-    // 2026-11-11 (W2b): twr/ds re-captured — the DS Response carries Treply1 and the report Tround2 alone
-    // (§10.32.5, Figure 10-238), and the round is stretched to a whole divisor of the block (§10.32.2).
     'twr/ss': '8a632d1c', 'twr/ds': 'e5a12d28', 'dl-tdoa': '3ca6d9d3', 'ul-tdoa': 'f7339e40',
   }
-
-  const streamOf = (sc: Scenario): string => hashStr(JSON.stringify(
-    run(sc).filter((r) => r.type.startsWith('UWB_') || r.type === 'MAC_STATE'),
+  const OLD_PLACES = [{ x: 1, y: 1 }, { x: 7, y: 2 }, { x: 3, y: 6 }, { x: 11, y: 9 }, { x: 5, y: 13 }]
+  const streamOf = (s: Scenario): string => hashStr(JSON.stringify(
+    new Simulation(s).runUntil(RUN_NS).records.filter((r) => r.type.startsWith('UWB_') || r.type === 'MAC_STATE'),
   )).toString(16)
-
-  it('is deterministic, and every other mode is byte-identical', () => {
-    // Deterministic: the same many-to-many scenario, run twice, record for record.
+  it('is deterministic, and twr / DL-TDoA / UL-TDoA did not move', () => {
     for (const method of ['ss', 'ds'] as const) {
-      for (const n of [3, 6]) {
-        const nodes = Array.from({ length: n }, (_, i) => uwbNode(i, 'tag', PPM[i]))
-        const sc = scenario(nodes, { mode: 'm2m', method })
-        expect(streamOf(sc), `m2m ${method} N=${n}`).toBe(streamOf(sc))
-      }
+      const s = scenario(group(2, 4, true), { mode: 'm2m', method })
+      expect(streamOf(s)).toBe(streamOf(s))
     }
-    // …and nothing else moved. Four nodes, because one-way ranging needs four anchors.
-    const four = (role: (i: number) => 'anchor' | 'tag'): NodeCfg[] =>
-      Array.from({ length: 5 }, (_, i) => uwbNode(i, role(i), PPM[i]))
-    const twoWay = four((i) => (i === 4 ? 'tag' : 'anchor'))
+    const five = Array.from({ length: 5 }, (_, i) => node(`p-${i}`, i === 4 ? 'tag' : 'anchor', OLD_PLACES[i], PPM[i]))
     expect({
-      'twr/ss': streamOf(scenario(twoWay, { mode: 'twr', method: 'ss' })),
-      'twr/ds': streamOf(scenario(twoWay, { mode: 'twr', method: 'ds' })),
-      'dl-tdoa': streamOf(scenario(twoWay, { mode: 'dl-tdoa', method: 'ds' })),
-      'ul-tdoa': streamOf(scenario(twoWay, { mode: 'ul-tdoa', method: 'ss' })),
+      'twr/ss': streamOf(scenario(five, { mode: 'twr', method: 'ss' })),
+      'twr/ds': streamOf(scenario(five, { mode: 'twr', method: 'ds' })),
+      'dl-tdoa': streamOf(scenario(five, { mode: 'dl-tdoa', method: 'ds' })),
+      'ul-tdoa': streamOf(scenario(five, { mode: 'ul-tdoa', method: 'ss' })),
     }).toEqual(BEFORE)
   })
 })
 
-/**
- * Ruling 8 of the slice's ledger. `RoundPlan` carries both `anchors` and `participants`, set from
- * the one constructor argument — and the trap is not the duplication, it is that **`anchors`
- * means two different things by mode**: in a two-way round it counts the devices *other than* the
- * tag (three anchors is four devices), and in many-to-many it counts everyone (three participants
- * is three devices). Anything reading `plan.anchors` in `m2m` while meaning "the devices besides
- * the initiator" is wrong by one.
- *
- * `participants` is the field every m2m path reads. The aliasing is pinned here rather than left
- * incidental, so that the day the two numbers have to diverge, this test is what says so.
- */
-describe('Ruling 8: participants and anchors alias each other, and it is checked', () => {
-  it('holds participants === anchors in m2m, and a round of exactly that many slots', () => {
+describe('the schema: round-trip and block fit (§10.32.2, §10.32.3.3)', () => {
+  it('parses its own output for an m2m session, SS and DS', () => {
     for (const method of ['ss', 'ds'] as const) {
-      for (const n of [2, 3, 6, 12]) {
-        const plan = roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n)
-        expect(plan.participants, `${method} N=${n}`).toBe(n)
-        expect(plan.participants, `${method} N=${n}: the aliasing`).toBe(plan.anchors)
-        expect(plan.rangingSlots, `${method} N=${n}: slots`).toBe(method === 'ss' ? n : 2 * n)
-        // 2026-11-11 (W2b): the round itself is stretched to a whole divisor of the block's slots
-        // (standard §10.32.2), the slots past the exchange idle.
-        expect(plan.slots, `${method} N=${n}: round`).toBeGreaterThanOrEqual(plan.rangingSlots)
-        expect(100 % plan.slots, `${method} N=${n}: whole rounds`).toBe(0)
-        // One round per block, for the whole group (design §5) — not one per tag, of which m2m
-        // has none.
-        expect(plan.roundsPerBlock, `${method} N=${n}: rounds per block`).toBe(1)
-      }
+      const once = ScenarioSchema.parse(scenario(group(2, 4), { mode: 'm2m', method }))
+      expect(ScenarioSchema.parse(once)).toEqual(once)
     }
   })
-
-  it('and the m2m round the network actually runs has plan.participants devices in it', () => {
-    // Read off the round, not off the plan: the participant count the schedule laid out is the
-    // one the devices were dispatched against, which is the claim `anchors` cannot make here.
-    const n = 4
-    const m2m = manyToMany(n)
-    expect(new Set(of(m2m.records, 'UWB_ROUND').map((r) => r.node)).size).toBe(n)
-    expect(of(m2m.records, 'TX_START')).toHaveLength(n)
+  it('accepts a block of exactly one exchange (M + N or 2M + N slots), refuses one slot short', () => {
+    for (const method of ['ss', 'ds'] as const) {
+      const cfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m' as const, method }
+      const slots = uwbSlotsPerTag(method, 4, 'time', 8, 'm2m', undefined, undefined, undefined, undefined, 2)
+      expect(slots).toBe(method === 'ss' ? 6 : 8)
+      expect(ScenarioSchema.safeParse(scenario(group(2, 4), { ...cfg, blockRstu: slots * cfg.slotRstu })).success, method).toBe(true)
+      const r = ScenarioSchema.safeParse(scenario(group(2, 4), { ...cfg, blockRstu: (slots - 1) * cfg.slotRstu }))
+      expect(r.success, method).toBe(false)
+      if (!r.success) expect(r.error.issues.map((i) => i.message).join('\n')).toMatch(/装不下一轮多对多测距/)
+    }
   })
 })
-
-

@@ -9,11 +9,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, PARTICIPANTS, QUIET_ID, VALIDITY, idOf, uwbReceipt, uwbReceiptScenario, uwbReceiptTwrScenario,
+  ANCHORS, INITIATORS, QUIET_ID, RESPONDERS, VALIDITY, uwbReceipt, uwbReceiptScenario, uwbReceiptTwrScenario,
 } from '../../src/course/uwb/uwb-receipt'
 import { COURSE_ORDER, MODULES, basisOf } from '../../src/course/curriculum'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { ScenarioSchema } from '../../src/model/scenario'
+import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import {
   RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, RMMRC_FIXED_BYTES, UWB_FCS_BYTES, UWB_IE_HDR_BYTES,
@@ -77,10 +78,12 @@ describe('uwb-receipt · the lesson', () => {
     for (const sim of ['本仿真器', '本课']) expect(STD, sim).not.toContain(sim)
   })
 
-  it('the base scene: the quiet participant hears both others, and nobody hears it', () => {
+  // 2026-11-11 (W3): the base scene is a standard many-to-many round (§10.32.6) — two initiators, two
+  // responders — with the second initiator quiet.
+  it('the base scene: the quiet initiator hears the controller and both responders, and no responder hears it', () => {
     const okFrom = (rx: string) => new Set(ofType(base, 'RX_OK').filter((r) => r.node === rx).map((r) => r.frame.src))
-    expect(okFrom(QUIET_ID)).toEqual(new Set([idOf(0), idOf(1)]))
-    for (const other of [idOf(0), idOf(1)]) expect(okFrom(other).has(QUIET_ID), other).toBe(false)
+    expect(okFrom(QUIET_ID)).toEqual(new Set(['t-1', ...RESPONDERS]))
+    for (const r of RESPONDERS) expect(okFrom(r).has(QUIET_ID), r).toBe(false)
   })
 })
 
@@ -101,17 +104,21 @@ describe('uwb-receipt · ② says what the engine does, and the engine does it',
     expect(ies(twrOn)).toEqual(ies(twrOff))
   })
 
-  it('多对多里的请求: no control message in the many-to-many round, the scene sets the request', () => {
-    expect(implRow('多对多里的请求').kind).toBe('differs')
-    expect(implRow('多对多里的请求').sim).toContain('待改正')
-    expect(new Set(ofType(base, 'TX_START').map((r) => r.frame.kind))).toEqual(new Set(['uwbM2m', 'uwbMmrcm']))
-    expect(uwbReceipt.scenario().uwb!.mmrcr).toBe(true)
+  it('多对多里的请求: the controller\'s RCM carries the MMRCR bit, and only the responders confirm', () => {
+    expect(implRow('多对多里的请求').kind).toBe('faithful')
+    const rcm = block0(base).find((r) => r.frame.kind === 'uwbPoll')!
+    expect(rcm.node).toBe('t-1')
+    expect(rcm.frame.uwb!.arc!.multiNode).toBe(2)
+    expect(rcm.frame.uwb!.arc!.mmrcr).toBe(1)
+    expect(new Set(block0(base).filter((r) => r.frame.kind === 'uwbMmrcm').map((r) => r.node))).toEqual(new Set(RESPONDERS))
+    const off = new Simulation(uwbReceiptScenario(false)).runUntil(20 * MS).records
+    expect(ofType(off, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')).toEqual([])
   })
 
   it('谁回、几个列表元素: one frame per receiver; two elements in many-to-many, one in the two-way round', () => {
     const m2m = block0(base).filter((r) => r.frame.kind === 'uwbMmrcm')
-    expect(m2m.map((r) => r.node)).toEqual([idOf(0), idOf(1), idOf(2)])
-    for (const r of ofType(base, 'UWB_MMRCM')) expect(r.initiators).toBe(PARTICIPANTS - 1)
+    expect(m2m.map((r) => r.node)).toEqual([...RESPONDERS])
+    for (const r of ofType(base, 'UWB_MMRCM')) expect(r.initiators).toBe(INITIATORS.length)
     const twr = block0(twrOn).filter((r) => r.frame.kind === 'uwbMmrcm')
     expect(twr).toHaveLength(ANCHORS)
     for (const r of ofType(twrOn, 'UWB_MMRCM')) expect(r.initiators).toBe(1)
@@ -142,8 +149,8 @@ describe('uwb-receipt · ② says what the engine does, and the engine does it',
     expect([addr, blen, mhr, fcs]).toEqual([RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, UWB_MHR_BYTES, UWB_FCS_BYTES])
   })
 
-  it('被确认的时隙: 3 in many-to-many, 41 in the two-way variant', () => {
-    const [m2m, twr] = fig(implRow('被确认的时隙').sim, /多对多里是那一轮的 (\d+) 个时隙，双向轮变体里是 (\d+) 个时隙/, '② on the slots')
+  it('被确认的时隙: the round\'s exchange in many-to-many, the whole set in the two-way variant', () => {
+    const [m2m, twr] = fig(implRow('被确认的时隙').sim, /多对多里是那一轮测距交互的 (\d+) 个时隙，双向轮变体里是 (\d+) 个时隙/, '② on the slots')
     expect(new Set(ofType(base, 'UWB_MMRCM').map((r) => r.ackSlots))).toEqual(new Set([Number(m2m)]))
     expect(new Set(ofType(twrOn, 'UWB_MMRCM').map((r) => r.ackSlots))).toEqual(new Set([Number(twr)]))
   })
@@ -161,7 +168,7 @@ describe('uwb-receipt · ② says what the engine does, and the engine does it',
 
   it('时隙与块: 2 ms and 200 ms', () => {
     const [slot, blk] = fig(implRow('时隙与块').sim, /每个时隙 (\d+) ms，每块 (\d+) ms/, '② on the grid')
-    const plan = roundPlan(uwbReceiptScenario().uwb!, PARTICIPANTS)
+    const plan = roundPlan(uwbReceiptScenario().uwb!, RESPONDERS.length, INITIATORS.length)
     expect(plan.slotNs).toBe(Number(slot) * MS)
     expect(rstuNs(uwbReceiptScenario().uwb!.slotRstu)).toBe(Number(slot) * MS)
     expect(plan.blockNs).toBe(Number(blk) * MS)
@@ -170,49 +177,49 @@ describe('uwb-receipt · ② says what the engine does, and the engine does it',
 
 describe('uwb-receipt · ③ every figure the labs print is the run', () => {
   it('lab 1: block 0 of the base scene, slot by slot', () => {
-    const l = lab('三次发送之后，三帧回复')
+    const l = lab('四次测距发送之后，两帧回复')
     const rows = blockOf(l, 'table', '第 0 块的一轮').rows
     const tx = block0(base)
     expect(rows).toHaveLength(tx.length)
-    const kindName: Record<string, string> = { uwbM2m: '多对多测距帧', uwbMmrcm: 'MMRCM' }
+    const kindName: Record<string, string> = { uwbPoll: '测距控制消息与启动消息', uwbInit: '启动消息', uwbResp: '应答', uwbMmrcm: 'MMRCM' }
     rows.forEach(([slot, node, kind, bytes], i) => {
       expect(Number(slot)).toBe(tx[i].frame.uwb?.slot)
       expect(node).toBe(tx[i].node)
       expect(kind).toBe(kindName[tx[i].frame.kind])
       expect(Number(bytes)).toBe(tx[i].frame.bytes)
     })
-    const [each] = fig(l.expect, /每台设备一帧，各 (\d+) 字节/, 'lab 1 expect')
+    const [each] = fig(l.expect, /每个响应方一帧，各 (\d+) 字节/, 'lab 1 expect')
     const conf = tx.filter((r) => r.frame.kind === 'uwbMmrcm')
-    expect(conf).toHaveLength(PARTICIPANTS)
+    expect(conf).toHaveLength(RESPONDERS.length)
     for (const r of conf) {
       expect(r.frame.bytes).toBe(Number(each))
       expect(r.frame.uwb?.ies).toEqual(['RMMRC'])
     }
-    expect(Number(each)).toBe(uwbMmrcmBytes(PARTICIPANTS - 1, PARTICIPANTS))
+    expect(Number(each)).toBe(uwbMmrcmBytes(INITIATORS.length, INITIATORS.length + RESPONDERS.length))
+    // 「两个应答都只给 t-1 一个回复时延」
+    for (const r of tx.filter((x) => x.frame.kind === 'uwbResp')) expect(r.frame.uwb!.rrti!.map((x) => x.id)).toEqual(['t-1'])
   })
 
   it('lab 2: the bitmaps of block 0, and the one range', () => {
     const l = lab('读一张位图')
     const got = ofType(base, 'UWB_MMRCM').filter((r) => r.block === 0)
-    const rows = blockOf(l, 'table', '第 0 块收到的位图（一位对应时隙 0、1、2）').rows
+    const rows = blockOf(l, 'table', '第 0 块收到的位图（一位对应时隙 0、1、2、3）').rows
     expect(rows).toHaveLength(got.length)
     for (const [from, owner, bitmap] of rows) {
       const rec = got.find((r) => r.peer === from && r.node === owner)
       expect(rec, `${from} → ${owner}`).toBeDefined()
       expect(bitmap).toBe(bits(rec!.received))
     }
-    // p-3's own confirmation reaches nobody
-    expect(got.filter((r) => r.peer === QUIET_ID)).toEqual([])
-    const [e2, e3] = fig(l.expect, /p-2 的元素是 (\d+)，p-3 的元素是 (\d+)/, 'lab 2 expect')
-    expect(e2).toBe(bits(got.find((r) => r.peer === idOf(0) && r.node === idOf(1))!.received))
-    expect(e3).toBe(bits(got.find((r) => r.peer === idOf(0) && r.node === idOf(2))!.received))
-    const [q] = fig(l.expect, /p-3 收到的两张位图都是 (\d+)/, 'lab 2 quiet')
+    const [e1, e2] = fig(l.expect, /a-1 那一帧里，t-1 的元素是 (\d+)，t-2 的元素是 (\d+)/, 'lab 2 expect')
+    expect(e1).toBe(bits(got.find((r) => r.peer === 'a-1' && r.node === 't-1')!.received))
+    expect(e2).toBe(bits(got.find((r) => r.peer === 'a-1' && r.node === 't-2')!.received))
+    const [q] = fig(l.expect, /t-2 收到的两张位图都是 (\d+)/, 'lab 2 quiet')
     const toQuiet = got.filter((r) => r.node === QUIET_ID)
     expect(toQuiet).toHaveLength(2)
     for (const r of toQuiet) expect(bits(r.received)).toBe(q)
-    const [n, should] = fig(l.expect, /这一块只算出 (\d+) 条距离，三台设备本应有 (\d+) 条/, 'lab 2 ranges')
+    const [n, should] = fig(l.expect, /这一块只算出 (\d+) 条距离，两个发起方本应有 (\d+) 条/, 'lab 2 ranges')
     expect(ofType(base, 'UWB_RANGE').filter((r) => r.block === 0)).toHaveLength(Number(n))
-    expect(Number(should)).toBe((PARTICIPANTS * (PARTICIPANTS - 1)) / 2)
+    expect(Number(should)).toBe(INITIATORS.length * RESPONDERS.length)
   })
 
   it('lab 3: request on and off, block 0, item by item', () => {

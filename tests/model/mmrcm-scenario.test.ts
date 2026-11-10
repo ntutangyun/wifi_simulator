@@ -50,8 +50,10 @@ const fourAnchorsOneTag = (): NodeCfg[] => [
   uwbNode('tag-1', 'tag', 4, 4),
 ]
 
+// 2026-11-11 (W3, standard §10.32.6): one initiator (tag) and n − 1 responders (anchors) — an SS
+// round of n slots, as before.
 const m2mNodes = (n = 3): NodeCfg[] =>
-  Array.from({ length: n }, (_, i) => uwbNode(`p-${i}`, 'tag', i * 4, 0))
+  Array.from({ length: n }, (_, i) => uwbNode(`p-${i}`, i === 0 ? 'tag' : 'anchor', i * 4, 0))
 
 describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
   it('a scenario that never sets the field parses, and reads back at the default', () => {
@@ -219,9 +221,9 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), roomy)).success).toBe(true)
   })
 
-  it('block capacity: m2m\'s own extra slots (one per participant) can overflow a block too', () => {
+  it('block capacity: m2m\'s own extra slots (one per responder) can overflow a block too', () => {
     const n = 3
-    const slots = n // SS m2m round: one slot per participant
+    const slots = n // SS m2m round: M + N slots, one initiator and two responders
     const cfg: UwbSessionCfg = {
       ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', mmrcr: true,
       blockRstu: slots * DEFAULT_UWB_SESSION.slotRstu, // exactly one round, no room for +n

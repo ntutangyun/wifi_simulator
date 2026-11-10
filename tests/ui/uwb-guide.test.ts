@@ -32,8 +32,8 @@ import {
   COUNTER_MOD, FOM_LOS, FOM_NLOS, RCTU_NS, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB,
   UWB_MAX_PSDU_BYTES,
   UWB_MAX_INPUT_DBM_PER_MHZ, UWB_PL_EXP, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
-  fomDecode, fomText, rstuNs, uwbAncillaryBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInBandDbm, uwbInitBytes, uwbM2mBytes,
-  uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs,
+  fomDecode, fomText, rstuNs, uwbAncillaryBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInBandDbm, uwbInitBytes,
+  uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMmrcmBytes, uwbPl0Db, uwbPollBytes, uwbPpduNs,
   uwbRespBytes, uwbRmnrBytes, uwbSlotsPerTag, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
   nbSlotSlackNs, ssbdBoundNs,
   type UwbReplyTime,
@@ -716,206 +716,111 @@ describe('the EditorGuide MMS section', () => {
 })
 
 /**
- * Section 16: many-to-many ranging (design §1/§2/§5). The slot table and the frame-size table are
- * `Guide.tsx`'s own calls to `roundPlan`/`uwbM2mBytes`/`uwbMaxParticipants`, so a drift there is
- * already caught elsewhere; what this suite pins is what Task 5's brief calls out by name — the
- * N-vs-N² headline, the per-participant split and the DS-vs-SS accuracy claim — against **whole
- * rounds run here, now**, the same discipline section 15's test above applies to its five ranges.
- * `PLACES`/`PPM` match `tests/uwb/m2m-round.test.ts` so this measures the identical scenario the
- * task report's figures came from, rather than a scenario picked to make the numbers come out.
+ * Section 16: many-to-many ranging, IEEE Std 802.15.4-2024 §10.32.6/§10.32.7. Rewritten 2026-11-11
+ * (W3): the engine runs the standard's round — M initiators (tags), N responders (anchors), a
+ * controller's RCM — and every figure the Guide states is read off whole rounds run here.
  */
-describe('Guide section 16: many-to-many ranging (design §1/§2/§5)', () => {
+describe('Guide section 16: many-to-many ranging (standard §10.32.6/§10.32.7)', () => {
   const zh = renderGuide()
 
   it('renders the heading', () => {
-    expect(zh).toContain('16 · 多对多测距')
+    expect(zh).toContain('16 · 多对多测距：M + N 帧测出 M × N 个距离')
   })
 
-  const PLACES: { x: number; y: number }[] = [
-    { x: 1, y: 1 }, { x: 7, y: 2 }, { x: 3, y: 6 }, { x: 11, y: 9 }, { x: 5, y: 13 }, { x: 15, y: 4 },
-  ]
-  const PPM = [0, 18, -14, 9, -20, 5]
-  const idOf = (i: number): string => `p-${i}`
+  const T_PLACES = [{ x: 5, y: 5 }, { x: 13, y: 10 }, { x: 9, y: 12 }]
+  const A_PLACES = [{ x: 1, y: 1 }, { x: 19, y: 1 }, { x: 19, y: 15 }, { x: 1, y: 15 }]
   const room = { x: 0, y: 0, w: 20, h: 16, name: 'lab' }
-  const m2mNode = (i: number, ppm: number): NodeCfg => ({
-    id: idOf(i), kind: 'uwb', name: idOf(i), pos: { ...PLACES[i], z: 1 },
-    txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'], caps: { generation: 'nonht', features: {} },
-    uwb: { role: 'tag', ppm },
+  const uNode = (id: string, role: 'tag' | 'anchor', p: { x: number; y: number }): NodeCfg => ({
+    id, kind: 'uwb', name: id, pos: { ...p, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
+    caps: { generation: 'nonht', features: {} }, uwb: { role },
   })
-  const m2mScenario = (n: number, session: Partial<UwbSessionCfg>): Scenario => ({
-    rooms: [room], walls: [], nodes: Array.from({ length: n }, (_, i) => m2mNode(i, PPM[i] ?? 0)),
-    servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
-    uwb: { ...DEFAULT_UWB_SESSION, mode: 'm2m', nlos: false, tsNoisePs: 0, cfoNoisePpm: 0, ...session },
-  })
-  const runM2m = (n: number, session: Partial<UwbSessionCfg>) =>
-    new Simulation(m2mScenario(n, session)).runUntil(100_000_000).records
-  /** N one-to-many rounds, one per device taking its turn as the tag — the arrangement many-to-many
-   * replaces, and design §1's other column. */
-  const takingTurns = (n: number): { slots: number; ranges: number } => {
-    let slots = 0
-    let ranges = 0
-    for (let k = 0; k < n; k++) {
-      const nodes = Array.from({ length: n }, (_, i): NodeCfg => ({
-        id: idOf(i), kind: 'uwb', name: idOf(i), pos: { ...PLACES[i], z: 1 },
-        txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'], caps: { generation: 'nonht', features: {} },
-        uwb: { role: i === k ? 'tag' : 'anchor', ppm: 0 },
-      }))
-      const sc: Scenario = {
-        rooms: [room], walls: [], nodes, servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
-        uwb: {
-          ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded',
-          nlos: false, tsNoisePs: 0, cfoNoisePpm: 0,
-        },
-      }
-      const recs = new Simulation(sc).runUntil(100_000_000).records
-      const rounds = recs.filter((r) => r.type === 'UWB_ROUND')
-      expect(rounds, `taking turns N=${n} turn ${k}`).toHaveLength(1)
-      // 2026-11-11 (W2b): the exchange's slots are the slots that carried a frame — the round itself is
-      // stretched to a whole divisor of the block (standard §10.32.2), its extra slots idle.
-      slots += recs.filter((r) => r.type === 'TX_START').length
-      ranges += recs.filter((r) => r.type === 'UWB_RANGE').length
-    }
-    return { slots, ranges }
+  const nodes = (m: number, n: number, onlyTag?: number): NodeCfg[] => [
+    ...T_PLACES.slice(0, m).map((p, k) => uNode(`t-${k}`, 'tag', p)).filter((_x, k) => onlyTag === undefined || k === onlyTag),
+    ...A_PLACES.slice(0, n).map((p, j) => uNode(`a-${j}`, 'anchor', p)),
+  ]
+  const runOf = (ns: NodeCfg[], session: Partial<UwbSessionCfg>) => new Simulation({
+    rooms: [room], walls: [], nodes: ns, servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
+    uwb: { ...DEFAULT_UWB_SESSION, nlos: false, tsNoisePs: 0, cfoNoisePpm: 0, ...session },
+  }).runUntil(100_000_000).records
+  const cells = (row: number): string[] => {
+    const rows = [...zh.matchAll(/<tr>((?:<td[^>]*>[^<]*<\/td>)+)<\/tr>/g)].map((m) => [...m[1].matchAll(/<td[^>]*>([^<]*)<\/td>/g)].map((c) => c[1]))
+    const hit = rows.filter((r) => r.length === 6 && r[5] !== undefined)
+    return hit[row]
   }
 
-  it('states the N-vs-N² headline and the exact slot ratio off whole rounds, for N = 3/4/6 (design §1)', () => {
-    for (const n of [3, 4, 6]) {
-      const m2mRecs = runM2m(n, { method: 'ss' })
-      const m2mRounds = m2mRecs.filter((r) => r.type === 'UWB_ROUND')
-      const m2mRanges = m2mRecs.filter((r) => r.type === 'UWB_RANGE')
-      expect(m2mRounds.length, `N=${n}: a round ran at all`).toBeGreaterThan(0)
-      const m2mSlots = m2mRecs.filter((r) => r.type === 'TX_START').length
-      const pairs = (n * (n - 1)) / 2
-      expect(m2mSlots, `N=${n} m2m slots`).toBe(n)
-      expect(m2mRanges.length, `N=${n} m2m ranges`).toBe(pairs)
-      // The Guide's own table cell is `roundPlan`'s answer — must agree with the round that ran.
-      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss' }, n).rangingSlots, `N=${n}`).toBe(m2mSlots)
-      expect((m2mRounds[0] as { slots: number }).slots, `N=${n}: the round holds the exchange`).toBeGreaterThanOrEqual(m2mSlots)
-
-      const turns = takingTurns(n)
-      expect(turns.slots, `N=${n} taking-turns slots`).toBe(n * n)
-      expect(turns.ranges, `N=${n} taking-turns ranges (each pair measured twice)`).toBe(2 * pairs)
-      expect(turns.slots / m2mSlots, `N=${n} the slot ratio`).toBe(n)
-
-      const dsRecs = runM2m(n, { method: 'ds' })
-      const dsRounds = dsRecs.filter((r) => r.type === 'UWB_ROUND')
-      const dsRanges = dsRecs.filter((r) => r.type === 'UWB_RANGE')
-      const dsSlots = dsRecs.filter((r) => r.type === 'TX_START').length
-      expect((dsRounds[0] as { slots: number }).slots).toBeGreaterThanOrEqual(dsSlots)
-      expect(dsSlots, `N=${n} DS slots`).toBe(2 * n)
-      expect(dsRanges.length, `N=${n} DS ranges`).toBe(pairs)
-      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ds' }, n).rangingSlots, `N=${n}`).toBe(dsSlots)
+  it('the M/N table: taking turns M(N + 1), many-to-many M + N (SS) and 2M + N (DS), M × N ranges — off whole rounds', () => {
+    for (const [i, [m, n]] of ([[1, 4], [2, 4], [3, 3]] as const).entries()) {
+      const ss = runOf(nodes(m, n), { mode: 'm2m', method: 'ss' })
+      const ds = runOf(nodes(m, n), { mode: 'm2m', method: 'ds' })
+      const ssSlots = ss.filter((r) => r.type === 'TX_START').length
+      const dsSlots = ds.filter((r) => r.type === 'TX_START').length
+      expect(ssSlots).toBe(m + n)
+      expect(dsSlots).toBe(2 * m + n)
+      expect(ss.filter((r) => r.type === 'UWB_RANGE')).toHaveLength(m * n)
+      expect(ds.filter((r) => r.type === 'UWB_RANGE')).toHaveLength(m * n)
+      let turns = 0
+      for (let k = 0; k < m; k++) {
+        turns += runOf(nodes(m, n, k), { mode: 'twr', method: 'ss', replyTime: 'embedded' }).filter((r) => r.type === 'TX_START').length
+      }
+      expect(turns).toBe(m * (n + 1))
+      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss' }, n, m).rangingSlots).toBe(ssSlots)
+      const row = cells(i)
+      expect(row, `row ${i}`).toBeDefined()
+      expect(row.map(Number)).toEqual([m, n, turns, ssSlots, dsSlots, m * n])
     }
   })
 
-  it('gives participant i exactly N-1-i ranges, and the guide quotes exactly that split (design §2)', () => {
-    for (const n of [3, 6]) {
-      const ranges = runM2m(n, { method: 'ss' }).filter((r) => r.type === 'UWB_RANGE') as
-        { node: string; peer: string }[]
-      const perParticipant = Array.from({ length: n }, (_, i) => ranges.filter((r) => r.node === idOf(i)).length)
-      expect(perParticipant, `N=${n}`).toEqual(Array.from({ length: n }, (_, i) => n - 1 - i))
-      expect(zh, `N=${n}`).toContain(perParticipant.join('、'))
-    }
+  it('states the frame lengths of the 2 + 4 round that actually go on the air', () => {
+    const ss = runOf(nodes(2, 4), { mode: 'm2m', method: 'ss' }).filter((r) => r.type === 'TX_START') as { frame: { kind: string; bytes: number } }[]
+    const ds = runOf(nodes(2, 4), { mode: 'm2m', method: 'ds' }).filter((r) => r.type === 'TX_START') as { frame: { kind: string; bytes: number } }[]
+    const bytesOf = (rs: typeof ss, kind: string) => rs.find((r) => r.frame.kind === kind)!.frame.bytes
+    expect(zh).toContain(`测距控制消息 ${bytesOf(ss, 'uwbPoll')} 字节`)
+    expect(zh).toContain(`启动消息 ${bytesOf(ss, 'uwbInit')} 字节`)
+    expect(zh).toContain(`单边形态的应答 ${bytesOf(ss, 'uwbResp')} 字节`)
+    expect(zh).toContain(`双边形态的应答 ${bytesOf(ds, 'uwbResp')} 字节`)
+    expect(zh).toContain(`双边形态的最终帧 ${bytesOf(ds, 'uwbFinal')} 字节`)
+    expect([bytesOf(ss, 'uwbPoll'), uwbInitBytes()]).toEqual([45, bytesOf(ss, 'uwbInit')])
   })
 
-  it('states the frames actually sent on air at N = 6, not a copied table (design §4)', () => {
-    const records = runM2m(6, { method: 'ss' })
-    const air = records.filter((r) => r.type === 'TX_START') as { node: string; frame: { bytes: number } }[]
-    expect(air, 'one transmission per participant').toHaveLength(6)
-    expect(air.map((r) => r.node)).toEqual(Array.from({ length: 6 }, (_, i) => idOf(i)))
-    const bytes = air.map((r) => r.frame.bytes)
-    expect(bytes).toEqual(Array.from({ length: 6 }, (_, i) => uwbM2mBytes(i))) // 20/26/30/34/38/42
-    expect(zh).toContain(bytes.join(' / '))
-  })
-
-  it('derives the participant cap rather than quoting a literal, and the guide states it (design §4)', () => {
-    const cap = uwbMaxParticipants('ss')
-    expect(uwbMaxParticipants('ds'), 'SS and DS share one frame-size law').toBe(cap)
-    expect(cap).toBe(27)
-    expect(zh).toContain(`>${cap}<`)
-    // `src/uwb/ranging.ts` never hard-codes the cap, exactly as section 15 already checks for the
-    // two-way cap — restated here because it is a fresh number, not a re-assertion of that test.
-    const ranging = readFileSync(new URL('../../src/uwb/ranging.ts', import.meta.url), 'utf8')
-    expect(ranging).not.toMatch(/\b27\b/)
-  })
-
-  /**
-   * The 150× accuracy claim, measured here rather than copied from the task report it was first
-   * measured in. `cfoNoisePpm` is named explicitly at the session default: `QUIET`-style zeroing
-   * of it would give SS-TWR a perfect offset estimate and erase the very difference this test (and
-   * the Guide's prose) is about — the same instrument error Task 4's report already caught once.
-   */
-  it('quotes the DS-vs-SS accuracy measured from a real run with the crystals pulled apart (design §3)', () => {
-    const withPpm: Partial<UwbSessionCfg> = { cfoNoisePpm: DEFAULT_UWB_SESSION.cfoNoisePpm }
-    const errorsOf = (method: 'ss' | 'ds'): number[] => {
-      const ranges = runM2m(6, { method, ...withPpm }).filter((r) => r.type === 'UWB_RANGE') as
-        { distM: number; trueDistM: number }[]
-      expect(ranges, method).toHaveLength(15)
-      return ranges.map((r) => Math.abs(r.distM - r.trueDistM))
-    }
-    const ss = errorsOf('ss')
-    const ds = errorsOf('ds')
-    const ssMax = Math.max(...ss)
-    const ssMean = ss.reduce((a, b) => a + b, 0) / ss.length
-    const dsMax = Math.max(...ds)
-    const dsMean = ds.reduce((a, b) => a + b, 0) / ds.length
-    // The ordering the prose depends on, floored so it cannot pass on two equal, tiny numbers.
-    expect(ssMax, 'SS carries the clock-offset residual').toBeGreaterThan(0.02)
-    expect(dsMax, 'DS cancels it').toBeLessThan(ssMax / 5)
-    // The exact figures the Guide states, at the precision it states them to.
-    expect(ssMax.toFixed(4)).toBe('0.2175')
-    expect(ssMean.toFixed(4)).toBe('0.0828')
-    expect(dsMax.toFixed(6)).toBe('0.001454')
-    expect(dsMean.toFixed(6)).toBe('0.000637')
-    expect(zh).toContain(`${ssMax.toFixed(4)} m`)
-    expect(zh).toContain(`${ssMean.toFixed(4)} m`)
-    expect(zh).toContain(`${dsMax.toFixed(6)} m`)
-    expect(zh).toContain(`${dsMean.toFixed(6)} m`)
-    expect(zh).toContain(`${Math.round(ssMax / dsMax)}×`)
-  })
-
-  it('says role is drawing-only in this mode, and no anchor/tag terms leak into the mechanism paragraphs', () => {
-    expect(zh).toContain('uwb.role')
-    expect(zh).toMatch(/design §5/)
+  it('names the standard\'s elements and says what is not implemented', () => {
+    for (const s of ['Multi-node Mode', 'RDM', 'RRTI', 'RMI', '§10.32.9.8', '§10.32.2', '竞争式未实现']) expect(zh, s).toContain(s)
   })
 })
 
-describe('the many-to-many glossary terms, each with a provenance (design §1/§2/§5)', () => {
+describe('the many-to-many glossary terms, each with a provenance (standard §10.32.6/§10.32.7)', () => {
   const group = GLOSSARY.find((g) => g.id === 'uwb')
   const find = (term: string) => (group?.items ?? []).find((i) => i.term.toLowerCase() === term.toLowerCase())
+  const TERMS = ['Many-to-many ranging', 'Many-to-many slot order', 'Slot ratio (taking turns vs. many-to-many)']
 
-  it('carries the three terms Task 5 adds', () => {
-    for (const t of ['Many-to-many ranging', 'Participant list', 'Slot ratio (taking turns vs. many-to-many)']) {
-      expect(find(t), t).toBeDefined()
-    }
+  it('carries the three terms', () => {
+    for (const t of TERMS) expect(find(t), t).toBeDefined()
   })
 
   it('names a provenance on every one of them', () => {
-    const marks = ['§10.32.6', '§10.32.7', 'design §', '模型取值']
-    for (const t of ['Many-to-many ranging', 'Participant list', 'Slot ratio (taking turns vs. many-to-many)']) {
+    for (const t of TERMS) {
       const item = find(t)!
-      const text = `${item.alt} ${item.def}`
-      expect(marks.some((m) => text.includes(m)), `"${t}" names no provenance`).toBe(true)
+      expect(/§10\.32\.\d|模型取值/.test(`${item.alt} ${item.def}`), `"${t}" names no provenance`).toBe(true)
     }
   })
 
-  it('the many-to-many entry cites both ranging clauses and says role is drawing-only', () => {
+  it('the many-to-many entry cites both ranging clauses and the roles; nothing of the old arrangement survives', () => {
     const item = find('Many-to-many ranging')!
     expect(item.alt).toContain('§10.32.6')
     expect(item.alt).toContain('§10.32.7')
-    expect(item.def).toContain('uwb.role')
+    expect(item.def).toContain('标签是发起方、锚点是响应方')
+    for (const t of TERMS) expect(`${find(t)!.alt} ${find(t)!.def}`).not.toMatch(/参与者|TXT|RXT/)
   })
 
-  it('the participant-list entry says the order is by node id, not scene order, and why', () => {
-    const item = find('Participant list')!
+  it('the slot-order entry says the order is by node id, not scene order, and why', () => {
+    const item = find('Many-to-many slot order')!
     expect(item.def).toMatch(/id/)
-    expect(item.def).toMatch(/哈希|确定/)
+    expect(item.def).toMatch(/哈希/)
   })
 
-  it('the slot-ratio entry states the exact N = 6 figures the round actually produces', () => {
+  it('the slot-ratio entry states M(N + 1) against M + N', () => {
     const item = find('Slot ratio (taking turns vs. many-to-many)')!
-    expect(item.def).toContain('30')
-    expect(item.def).toContain('15')
+    expect(item.def).toContain('M(N + 1)')
+    expect(item.def).toContain('M + N')
   })
 })
 
@@ -1132,21 +1037,22 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
 
   // --- Measured: the N = 1/3/6 frame-size table, read off real many-to-many rounds ------------
   //
-  // A two-way round only ever has one initiator (the tag), so N never varies there. The only mode
-  // where one responder hears several initiators is 'm2m' — every participant answers every
-  // earlier one in the same frame — so P = 2/4/7 participants give exactly N = P − 1 = 1/3/6
-  // entries in the last participant's own MMRCM. `'m2m'` always runs at rcmValidityRounds 1, and
-  // the bitmap stays one octet for any window of eight rounds or fewer (design §3.3), so these
-  // figures are the same 15 + 3N the Guide's own R = 4 worked window states.
+  // A two-way round only ever has one initiator (the tag), so N never varies there. In 'm2m' a
+  // responder confirms every initiator of the round (standard §10.36.1; 2026-11-11, W3: the round is
+  // the standard's M initiators and N responders), so N tags and one anchor give exactly N entries in
+  // the anchor's MMRCM. The round's exchange is N + 1 slots, at most eight here, so the bitmap is one
+  // octet and the frame is the Guide's 15 + 4N.
   const MS = 1_000_000
-  const m2mNode = (id: string, x: number, y: number): NodeCfg => ({
+  const m2mNode = (id: string, x: number, y: number, role: 'tag' | 'anchor'): NodeCfg => ({
     id, kind: 'uwb', name: id, pos: { x, y, z: 1 }, txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'],
-    caps: { generation: 'nonht', features: {} }, uwb: { role: 'anchor' },
+    caps: { generation: 'nonht', features: {} }, uwb: { role },
   })
-  const m2mScenario = (participants: number): Scenario => {
-    // A tight cluster, well inside the engine's range at this power, so nothing is lost to path
-    // loss and every participant hears every other one.
-    const nodes = Array.from({ length: participants }, (_, i) => m2mNode(`p-${i}`, i, 0))
+  const m2mScenario = (initiators: number): Scenario => {
+    // A tight cluster, well inside the engine's range at this power, so nothing is lost to path loss.
+    const nodes = [
+      ...Array.from({ length: initiators }, (_, i) => m2mNode(`t-${i}`, i, 0, 'tag')),
+      m2mNode('a-0', 3, 3, 'anchor'),
+    ]
     return {
       rooms: [{ x: 0, y: 0, w: 20, h: 20, name: 'hall' }], walls: [], nodes, servers: [],
       seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
@@ -1158,20 +1064,17 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
   }
   const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLRecord, { type: T }>[] =>
     rs.filter((r) => r.type === type) as never
-  const PARTICIPANTS_FOR_N: Record<number, number> = { 1: 2, 3: 4, 6: 7 }
 
   // 15 + 4N since 2026-11-10: each MMRC list element carries a 1-octet MMRC Bitmap Length
   // (standard §10.36.2.1, Figure 10-274), and a round of at most eight acknowledged slots needs a
   // one-octet bitmap.
-  it('the last participant’s MMRCM frame is 15 + 4N octets for N = 1, 3, 6, read off a real round', () => {
+  it('a responder’s MMRCM frame is 15 + 4N octets for N = 1, 3, 6 initiators, read off a real round', () => {
     for (const n of [1, 3, 6] as const) {
-      const p = PARTICIPANTS_FOR_N[n]
-      const sc = m2mScenario(p)
-      const runNs = roundPlan(sc.uwb!, p).blockNs - MS
+      const sc = m2mScenario(n)
+      const runNs = roundPlan(sc.uwb!, 1, n).blockNs - MS
       const rs = new Simulation(sc).runUntil(runNs).records
-      const last = `p-${p - 1}`
-      const sent = of(rs, 'TX_START').filter((r) => r.node === last && r.frame.kind === 'uwbMmrcm')
-      expect(sent.length, `N=${n}: p-${p - 1} sends one MMRCM`).toBeGreaterThan(0)
+      const sent = of(rs, 'TX_START').filter((r) => r.node === 'a-0' && r.frame.kind === 'uwbMmrcm')
+      expect(sent.length, `N=${n}: a-0 sends one MMRCM`).toBeGreaterThan(0)
       for (const r of sent) {
         expect(r.frame.uwb?.mmrc?.length, `N=${n}`).toBe(n)
         expect(r.frame.bytes, `N=${n}`).toBe(uwbMmrcmBytes(n, 1))
@@ -1196,9 +1099,9 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
   })
 
   it('sends no MMRCM at all when mmrcr is off — asking buys the answer, nothing else does', () => {
-    const sc = m2mScenario(4)
+    const sc = m2mScenario(3)
     sc.uwb!.mmrcr = false
-    const runNs = roundPlan(sc.uwb!, 4).blockNs - MS
+    const runNs = roundPlan(sc.uwb!, 1, 3).blockNs - MS
     const rs = new Simulation(sc).runUntil(runNs).records
     expect(of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')).toHaveLength(0)
   })

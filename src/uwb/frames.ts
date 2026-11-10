@@ -14,7 +14,7 @@ import {
 } from './nb'
 import {
   UWB_BLINK_BYTES, uwbAncillaryBytes, uwbAncillaryRcmBytes, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes,
-  uwbDlPollBytes, uwbDlRespBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
+  uwbDlPollBytes, uwbDlRespBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInitBytes, uwbM2mRespBytes,
   uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns,
   uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
 } from './phy'
@@ -33,11 +33,6 @@ export type UwbFrameKind =
   // messages that remains, and a distinct kind says so where reusing 'uwbPoll' would hide it. See
   // `makeInit` below.
   | 'uwbInit'
-  // Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): one participant's transmission,
-  // which is a question to everyone after it and an answer to everyone before it — see `makeM2m`
-  // below and design §2/§4. Its own kind: the frame is neither a Poll nor a Response, and the two
-  // roles it plays are what the whole many-to-many slice teaches.
-  | 'uwbM2m'
   // The ranging message non-receipt exchange (standard §10.34): a responder that holds a valid
   // RCM but missed this round's initiation message sends this instead of sitting silent in its
   // slot. Its own kind, not a second use of 'uwbResp' — see `makeRmnr` below and design §3 of
@@ -109,26 +104,6 @@ export interface UwbDlTimes {
    * carrier frequency offset its receiver measured on the Poll. A fraction is the form the
    * consumer wants (`replyTime * (1 - coffs)`); the frame decoder prints it in ppm. */
   coffs?: number
-}
-
-/**
- * Many-to-many ranging content (standard §10.32.6 SS / §10.32.7 DS): what participant i puts on
- * the air in its own slot — its own transmit time, plus its arrival time for every participant
- * that transmitted before it (design §4). This is the same shape as `UwbDlTimes` above — the
- * repo's DL-TDoA Final already carries "my own transmit time plus every arrival I hold" — but not
- * the same type: `UwbDlTimes.coffs` has no counterpart here. A two-way exchange measures the
- * clock offset on receive, exactly as the existing SS-TWR path does (`onResponse`'s `coffs`
- * argument comes from `UwbRxInfo`, never from a frame), so nothing in a many-to-many round ever
- * has a clock offset to put on the air in the first place. A type whose fields are not all
- * shared is not a shared type, hence its own interface rather than a reuse of `UwbDlTimes` with
- * `coffs` left undefined.
- */
-export interface UwbM2mTimes {
-  /** The sender's own TX counter for this very frame (stamped at its RMARKER). */
-  txCounter: number
-  /** RX counters the sender holds, by peer id: every participant that transmitted before this
-   * one in the round's slot order. Empty for participant 0, which opens the round. */
-  rxCounters: Record<string, number>
 }
 
 /**
@@ -266,7 +241,8 @@ export interface UwbInfo {
   /** RCM only (the Poll): the ARC IE's control bits. The RR IE beside it carries `block` and `round`
    * above as its Ranging Block Index and Round Index (§10.32.9.3). */
   arc?: UwbArcFields
-  /** Poll (time schedule): the anchors' ids in slot order (RDM IE). */
+  /** Poll (time schedule): the anchors' ids in slot order (RDM IE). A many-to-many RCM lists every
+   * controlee here, initiators and responders, in slot order. */
   schedule?: string[]
   /** Poll (contention schedule): the response phase any anchor may answer in (RCPS IE) and its
    * retry budget (RCMA IE). On the ancillary round's RCM (`uwbRcm`), the initiators' contention phase
@@ -298,10 +274,9 @@ export interface UwbInfo {
   reportTimes?: { tround2?: number; tof?: number }
   /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
   dl?: UwbDlTimes
-  /** Many-to-many (`uwbM2m`, standard §10.32.6/§10.32.7): this participant's own transmit time
-   * and the arrival times it holds for everyone who transmitted before it. Never carries a clock
-   * offset — see `UwbM2mTimes`. */
-  m2m?: UwbM2mTimes
+  /** Many-to-many SS response (standard §10.32.6, Figure 10-240): the RRTI IE's list, one reply time
+   * (RCTU) per initiator, each with the initiator's address (§10.29.8.1). 2026-11-11 (W3). */
+  rrti?: { id: string; replyRctu: number }[]
   /** MMS fragment (`uwbRsf` / `uwbRif`): its place in the train and its own transmit power. */
   mms?: UwbMmsFrag
   /** Narrowband message (`nbPoll` / `nbResp` / `nbReport`): the control-plane fields. */
@@ -397,6 +372,12 @@ export interface PollOpts {
    * (`schedule`) and the inspector numbers them 1…N.
    */
   rdmSlots?: number[]
+  /**
+   * Many-to-many (standard §10.32.6, §10.32.9.8): the RDM IE's elements as given — each controlee with
+   * its Ranging Role (initiator or responder) and Ranging Slot Index. Overrides `anchors`/`rdmSlots`
+   * for the element list; `anchors` must name the same devices in the same order. 2026-11-11 (W3).
+   */
+  rdm?: { id: string; slot: number; initiator: boolean }[]
 }
 
 /**
@@ -407,7 +388,7 @@ export interface PollOpts {
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr, arc, rdmSlots }: PollOpts = {},
+  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr, arc, rdmSlots, rdm }: PollOpts = {},
 ): FrameDesc {
   const arcBits: UwbArcFields = arc ?? {
     multiNode: 1,
@@ -440,7 +421,9 @@ export function makePoll(
     ies: srrr ? ['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'] : ['ARC', 'RR', 'RDM', 'RRMC'],
     arc: { ...arcBits },
     schedule: [...anchors],
-    ...(rdmSlots ? { rdm: anchors.map((id, i) => ({ id, slot: rdmSlots[i], initiator: false })) } : {}),
+    ...(rdm
+      ? { rdm: rdm.map((x) => ({ ...x })) }
+      : rdmSlots ? { rdm: anchors.map((id, i) => ({ id, slot: rdmSlots[i], initiator: false })) } : {}),
     ...(srrr ? { srrr: srrr.map((e) => ({ ...e })) } : {}),
   })
 }
@@ -456,7 +439,7 @@ export function makePoll(
  * standard messages that remains, once the control message's own validity has made it unnecessary
  * to send again. Reusing `'uwbPoll'` would say the opposite — that this is still the control
  * message, just slimmer — and hide the one fact this slice's validity half has to show: the same
- * reasoning `makeSsDefer` and `makeM2m` were given their own kinds for.
+ * reasoning `makeSsDefer` was given its own kind for.
  *
  * It carries no schedule at all (Ruling 3 of task 1): the responder's slot table came from the
  * still-valid RCM and stays valid for the window that RCM bought, so restating it here would be
@@ -468,9 +451,11 @@ export function makePoll(
  * instead of a flag on `makeResp` (design §4 of the reply-time slice): the two messages carry
  * different content, and `makePoll`'s signature never has to grow to build either of them.
  */
-export function makeInit(tag: string, method: 'ss' | 'ds', block: number, round: number): FrameDesc {
+export function makeInit(tag: string, method: 'ss' | 'ds', block: number, round: number, slot = 0): FrameDesc {
+  // `slot`: 0 for a two-way round's later round; a many-to-many initiator that is not the controller
+  // sends its ranging initiation message in the slot the RDM IE gave it (standard §10.32.6).
   return uwbFrame('uwbInit', tag, '*', uwbInitBytes(), {
-    sp: 1, method, block, round, slot: 0, ies: ['RRMC'],
+    sp: 1, method, block, round, slot, ies: ['RRMC'],
   })
 }
 
@@ -797,41 +782,28 @@ export function makeReport(
 }
 
 /**
- * Participant i's one transmission in a many-to-many round (standard §10.32.6 SS / §10.32.7 DS):
- * broadcast, carrying its own transmit time and its arrival time for every participant that
- * transmitted before it in the round's slot order. For everyone after it in that order this frame
- * is the question a Poll would otherwise have to send; for everyone before it, this frame is the
- * answer a Response would otherwise have to send — one transmission does both jobs, which is why
- * N participants need only N of these frames where taking turns as the tag would cost N² (design
- * §1/§2). Participant 0, which opens the round, has heard no one yet: its frame carries no
- * RX-times IE at all (`m2mIes`), the same way a DL-TDoA Poll carries none — a real frame does not
- * send an IE header for zero entries, and `uwbM2mBytes` prices it accordingly.
+ * A responder's ranging response in a many-to-many round (2026-11-11, W3), broadcast to the round's
+ * initiators.
+ *
+ * - SS (standard §10.32.6, Figure 10-240 `{Ranging, RRTI IEs}`): one RRTI IE whose list carries, per
+ *   initiator whose initiation message this responder received, the reply time from that message's
+ *   RMARKER to this frame's and the initiator's short address (§10.29.8.1, Figures 10-208/10-209).
+ *   No RRMC IE: the figure has none.
+ * - DS (§10.32.7, Figure 10-241 `{Ranging, RRMC IE}`): RRMC (3) alone, starting the second round trip.
+ *   The responder computes the range, so it sends no reply time.
  */
-export function makeM2m(
-  src: string, method: 'ss' | 'ds', block: number, round: number, slot: number, times: UwbM2mTimes,
+export function makeM2mResp(
+  responder: string, method: 'ss' | 'ds', block: number, round: number, slot: number,
+  rrti: { id: string; replyRctu: number }[],
 ): FrameDesc {
-  return uwbFrame('uwbM2m', src, UWB_BROADCAST, uwbM2mBytes(m2mRxCount(times)), {
-    sp: 1, method, block, round, slot, ies: ['RRMC', ...m2mIes(times)], m2m: copyM2m(times),
+  if (method === 'ds') {
+    return uwbFrame('uwbResp', responder, UWB_BROADCAST, uwbM2mRespBytes('ds', 0), {
+      sp: 1, method, block, round, slot, ies: ['RRMC'],
+    })
+  }
+  return uwbFrame('uwbResp', responder, UWB_BROADCAST, uwbM2mRespBytes('ss', rrti.length), {
+    sp: 1, method, block, round, slot, ies: ['RRTI'], rrti: rrti.map((t) => ({ ...t })),
   })
-}
-
-/** The many-to-many IEs one participant's frame carries, in order: its own TX time, always, and
- * its RX times only when it has heard someone (empty on participant 0, which opens the round) —
- * mirroring `dlIes`'s same rule for DL-TDoA, minus the clock-offset IE many-to-many never sends. */
-function m2mIes(times: UwbM2mTimes): string[] {
-  return ['TXT', ...(m2mRxCount(times) > 0 ? ['RXT'] : [])]
-}
-
-/** How many arrival times this participant's payload actually carries — what `makeM2m` sizes the
- * frame at, so a message that grows an arrival time grows in uwb/phy.ts's arithmetic too. */
-function m2mRxCount(m2m: UwbM2mTimes): number {
-  return Object.keys(m2m.rxCounters).length
-}
-
-/** The times ride in the FrameDesc, which outlives the round that built them: copy, so a later
- * slot cannot rewrite what a frame already said (as `copyDl` does for DL-TDoA). */
-function copyM2m(m2m: UwbM2mTimes): UwbM2mTimes {
-  return { ...m2m, rxCounters: { ...m2m.rxCounters } }
 }
 
 /** The blink of UL-TDoA: one 14-octet frame from the tag in its slot and nothing else, ever.

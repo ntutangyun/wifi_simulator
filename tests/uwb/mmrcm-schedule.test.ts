@@ -91,10 +91,12 @@ describe('mmrcmResponders', () => {
     }
   })
 
-  it("is every participant for m2m — design §2's hint, checked rather than assumed", () => {
-    for (const n of [2, 3, 6]) {
-      const p = roundPlan(session({ mmrcr: true, mode: 'm2m' }), n)
-      expect(p.participants).toBe(n)
+  // 2026-11-11 (W3): in many-to-many the responders confirm the initiators' messages (standard §10.36.1,
+  // Figure 10-272), one MMRCM slot per responder — not every device as when every device was both.
+  it('is every responder for m2m, whatever the initiator count', () => {
+    for (const [m, n] of [[1, 2], [2, 4], [3, 3]]) {
+      const p = roundPlan(session({ mmrcr: true, mode: 'm2m' }), n, m)
+      expect(p.initiators).toBe(m)
       expect(mmrcmResponders(p)).toBe(n)
     }
   })

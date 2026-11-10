@@ -351,17 +351,14 @@ describe('UwbOverlay', () => {
   })
 
   /**
-   * Many-to-many (design §2/§5): no tag, no anchor — every UWB node is a participant, and
-   * `uwb.role` decides only how it is drawn, never whether it ranges. Before Task 5 the overlay's
-   * ring gate read `u.role !== 'tag'`, which is the right rule in every other mode and the wrong
-   * one here: a participant drawn as an anchor that still holds ranges (design §2's earlier half
-   * of a pair) would have its rings silently dropped. Roles are mixed here on purpose so that bug
-   * would show.
+   * Many-to-many (standard §10.32.6/§10.32.7; 2026-11-11, W3): the tags are the initiators and the
+   * anchors the responders. SS ranges are held by the initiators and DS ranges by the responders, so
+   * the overlay draws rings on any lane that holds them, anchors included.
    */
   describe('in many-to-many mode', () => {
     const PLACES = [{ x: 1, y: 1 }, { x: 6, y: 2 }, { x: 3, y: 6 }]
-    const ROLES: ('anchor' | 'tag')[] = ['anchor', 'tag', 'anchor']
-    function m2mScenario(): Scenario {
+    const ROLES: ('anchor' | 'tag')[] = ['tag', 'anchor', 'anchor']
+    function m2mScenario(method: 'ss' | 'ds' = 'ss'): Scenario {
       const node = (i: number): NodeCfg => ({
         id: `p-${i}`, kind: 'uwb', name: `p-${i}`, pos: { ...PLACES[i], z: 1 },
         txPowerDbm: UWB_TX_POWER_DBM, profiles: ['idle'], caps: { ...nonht }, uwb: { role: ROLES[i], ppm: 0 },
@@ -370,29 +367,29 @@ describe('UwbOverlay', () => {
         rooms: [{ x: 0, y: 0, w: 10, h: 8, name: 'lab' }], walls: [],
         nodes: [0, 1, 2].map(node),
         servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
-        uwb: { ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', nlos: false },
+        uwb: { ...DEFAULT_UWB_SESSION, mode: 'm2m', method, nlos: false },
       }
     }
 
-    it('draws a ring for every participant that holds a range, regardless of the role it is drawn as', () => {
-      const sim = new Simulation(m2mScenario())
-      sim.runUntil(25 * MS)
-      const overlay = new UwbOverlay(m2mScenario())
-      overlay.update(sim.view)
-      // p-0 (drawn as an anchor) holds the two ranges design §2 gives participant 0: to p-1 and
-      // p-2. p-1 (drawn as a tag) holds the one remaining pair, to p-2. p-2 computes none — it is
-      // the last participant, all service and no arithmetic (design §2) — so it draws no ring of
-      // its own, on either side of that name.
-      expect(names(overlay.group)).toEqual(['ring:p-0:p-1', 'ring:p-0:p-2', 'ring:p-1:p-2'].sort())
-      expect(names(overlay.group).some((n) => n.includes('p-2:'))).toBe(false)
-      overlay.dispose()
+    it('draws a ring for every device that holds a range: the initiator in SS, the responders in DS', () => {
+      const ss = new Simulation(m2mScenario('ss'))
+      ss.runUntil(25 * MS)
+      const o1 = new UwbOverlay(m2mScenario('ss'))
+      o1.update(ss.view)
+      expect(names(o1.group)).toEqual(['ring:p-0:p-1', 'ring:p-0:p-2'])
+      o1.dispose()
+      const ds = new Simulation(m2mScenario('ds'))
+      ds.runUntil(25 * MS)
+      const o2 = new UwbOverlay(m2mScenario('ds'))
+      o2.update(ds.view)
+      expect(names(o2.group)).toEqual(['ring:p-1:p-0', 'ring:p-2:p-0'])
+      o2.dispose()
     })
 
-    it('ages a ring by the whole participant count, not by the anchor-drawn count alone', () => {
-      // The bug this pins: reading `uwb.role === 'anchor'` to size the round (as every other mode
-      // does) would plan for 2 participants here, not 3 — a different, wrong round length.
-      const rightPlan = roundPlan(m2mScenario().uwb!, 3)
-      const wrongPlan = roundPlan(m2mScenario().uwb!, 2)
+    it('ages a ring by the round planned from both roles (M initiators, N responders)', () => {
+      // Counting every device as both an initiator and a responder (the pre-W3 shape) gives a different length.
+      const rightPlan = roundPlan(m2mScenario().uwb!, 2, 1)
+      const wrongPlan = roundPlan(m2mScenario().uwb!, 3, 3)
       expect(rightPlan.slots).not.toBe(wrongPlan.slots)
 
       const sim = new Simulation(m2mScenario())

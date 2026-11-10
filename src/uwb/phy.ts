@@ -560,18 +560,13 @@ export const BLINK_IE_BYTES = UWB_IE_HDR_BYTES + 1
 export const UWB_BLINK_BYTES = UWB_MHR_BYTES + BLINK_IE_BYTES + UWB_FCS_BYTES
 
 /** TX-time IE (model; the RMI-style content of §10.29.8.4): header + the sender's own TX
- * counter, one 4-octet ranging time. Shared by DL-TDoA and many-to-many ranging (standard
- * §10.32.6/§10.32.7) — both put "my own transmit time" on the air the same way — which is why
- * this carries no `DL_` prefix: that prefix would be false on the many-to-many frame, which is
- * not one-way at all (`uwbM2mBytes` below). Renamed from `DL_TX_TIME_IE_BYTES`; DL-TDoA's own
- * callers (`dlExtraBytes` and its three frame-size functions) are unchanged in every other way. */
+ * counter, one 4-octet ranging time. DL-TDoA only since 2026-11-11 (W3): many-to-many ranging no
+ * longer uses it (standard §10.32.6/§10.32.7 use RRMC, RRTI and RMI). */
 export const TX_TIME_IE_BYTES = UWB_IE_HDR_BYTES + 4
 /** RX-times IE (model): header + one 4-octet RX counter per time carried. The times are listed
  * in the round's slot order, so no address rides along with them: a DL-TDoA message reads that
- * order from the Poll's RDM IE, and a many-to-many one from the round's own slot assignment
- * (design §5). Shared with `TX_TIME_IE_BYTES` for the same reason; renamed from
- * `dlRxTimesIeBytes`. Every caller of this file omits the whole IE, header included, when it
- * carries no times at all (see `dlExtraBytes`, used by both DL-TDoA and many-to-many below) — a
+ * order from the Poll's RDM IE. Every caller of this file omits the whole IE, header included, when
+ * it carries no times at all (see `dlExtraBytes`) — a
  * real frame does not spend two octets announcing an IE with nothing in it. */
 export function rxTimesIeBytes(times: number): number {
   return UWB_IE_HDR_BYTES + 4 * times
@@ -583,11 +578,8 @@ export function rxTimesIeBytes(times: number): number {
 export const DL_COFFS_IE_BYTES = UWB_IE_HDR_BYTES + 2
 
 /** The ranging-time content a message adds to its two-way-ranging shape: the sender's TX time,
- * the RX times it holds (none on a DL-TDoA Poll, which opens the round; none on many-to-many's
- * opening participant, for the same reason) and, on a DL-TDoA Response, its clock offset. One
- * definition, used by DL-TDoA's three frame-size functions below and by many-to-many's
- * `uwbM2mBytes`, so no two of them can size the same "own TX time + RX times" content
- * differently. */
+ * the RX times it holds (none on a DL-TDoA Poll, which opens the round) and, on a DL-TDoA Response,
+ * its clock offset. One definition, used by DL-TDoA's three frame-size functions below. */
 export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
   return TX_TIME_IE_BYTES + (rxTimes > 0 ? rxTimesIeBytes(rxTimes) : 0) + (coffs ? DL_COFFS_IE_BYTES : 0)
 }
@@ -618,46 +610,72 @@ export function uwbDlFinalBytes(responders: number, coffs = false): number {
 }
 
 // --- Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS) ------------------
+//
+// 2026-11-11 (W3, audit #2): the round is the standard's. The controller (this engine: the first
+// initiator) sends the RCM fused with its own ranging initiation message — ARC (Multi-node Mode 2,
+// Table 10-163) + RR + an RDM IE giving every other device its role and slot (§10.32.9.8) + RRMC.
+// The other M − 1 initiators send a ranging initiation message (RRMC only). SS (§10.32.6, Figure
+// 10-240): each of the N responders answers with one RRTI IE listing a reply time per initiator.
+// DS (§10.32.7, Figure 10-241): each responder answers with RRMC (3) only, and each initiator then
+// sends a final frame with an RRTI IE (the second reply time per responder) and an RMI IE (the first
+// round-trip time per responder) — the one-to-many embedded Final's shape, `uwbFinalBytes(N)`.
+// Until 2026-11-11 every device was initiator and responder at once and its frame carried two IEs the
+// standard does not define (TXT, RXT).
 
-/**
- * Participant i's one transmission in a many-to-many round: MHR + RRMC + its own TX time + the
- * RX times it holds for every participant that transmitted before it + FCS. The content is the
- * DL-TDoA Final's shape exactly — own TX time plus RX times, no clock offset (design §4) — so
- * this calls the very function DL-TDoA's Final does (`dlExtraBytes(rxTimes, false)`) rather than
- * writing a second copy of "how many octets does N arrival times cost": at `rxTimes = 0` that
- * function omits the RX-times IE outright, the same way a DL-TDoA Poll does, and `rxTimes = 0` is
- * not an edge case here — it is every many-to-many round's very first participant. 20 octets at
- * `rxTimes = 0`; 22 + 4·`rxTimes` from `rxTimes = 1` on. model
- */
-export function uwbM2mBytes(rxTimes: number): number {
-  return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES + dlExtraBytes(rxTimes, false)
-}
-
-/** The many-to-many frame shape one method's round actually sends, method by method. Both are
- * `uwbM2mBytes` today: DS-TWR's second pass (design §3) sends a frame of this very same shape a
- * second time — its own second transmit time plus the arrival times heard in that second pass —
- * not a running tally of both passes at once, so its longest frame never outgrows SS's. Kept as
- * its own function, rather than folded into `uwbMaxParticipants` below, so the day a control IE
- * rides only one method's round, that asymmetry has one place to land. */
-function m2mFrameBytes(method: 'ss' | 'ds', rxTimes: number): number {
-  return method === 'ss' ? uwbM2mBytes(rxTimes) : uwbM2mBytes(rxTimes)
+/** The controller's RCM fused with its ranging initiation message: the time-scheduled Poll whose RDM
+ * IE lists every **other** device of the round (M − 1 initiators and N responders), 30 + 3(M − 1 + N)
+ * octets. The controller does not list itself: it is the device that sent the RCM (§10.32.9.8, "used by
+ * the controller to control the devices participating"). */
+export function uwbM2mRcmBytes(initiators: number, responders: number): number {
+  return uwbPollBytes(initiators - 1 + responders)
 }
 
 /**
- * Participants one many-to-many round can carry: the largest N whose last participant — the one
- * that reports N−1 arrival times, and so sends the round's longest frame (design §4) — still fits
- * the 127-octet PSDU (standard §16.2.7). Searched against `m2mFrameBytes`, exactly as
- * `uwbMaxAnchors` searches `uwbLongestFrameBytes` for the two-way round it caps: no literal cap
- * here either, and the same `UWB_ANCHOR_SEARCH_CEILING` loop bound, for the same reason (nothing
- * about this frame's own arithmetic stops the search on its own if the ceiling were left out).
+ * A responder's ranging response in a many-to-many round.
+ *
+ * - SS (§10.32.6, Figure 10-240 `{Ranging, RRTI IEs}`): MHR + one RRTI IE whose list carries a reply
+ *   time and the initiator's short address per initiator (Figure 10-208/10-209; the address is kept,
+ *   §10.29.8.1 allows omitting it only for a pre-negotiated order) + FCS = 14 + 6M octets. No RRMC IE:
+ *   the figure has none, unlike the one-to-many Figure 10-235.
+ * - DS (§10.32.7, Figure 10-241 `{Ranging, RRMC IE}`): RRMC (3) alone — the responder computes, so it
+ *   sends no reply time — 14 octets.
  */
-export function uwbMaxParticipants(method: 'ss' | 'ds'): number {
-  let cap = 0
-  for (let n = 1; n <= UWB_ANCHOR_SEARCH_CEILING; n++) {
-    if (m2mFrameBytes(method, n - 1) > UWB_MAX_PSDU_BYTES) break
-    cap = n
+export function uwbM2mRespBytes(method: 'ss' | 'ds', initiators: number): number {
+  if (method === 'ds') return UWB_BARE_RESP_BYTES
+  return UWB_MHR_BYTES + rrtiIeBytes(initiators, true) + UWB_FCS_BYTES
+}
+
+/** The longest frame of a many-to-many round of `initiators` (M) and `responders` (N): the controller's
+ * RCM, an SS response (grows with M) or a DS final (grows with N, `uwbFinalBytes`). The other
+ * initiators' initiation messages are `uwbInitBytes()`, never the longest. */
+export function uwbM2mLongestBytes(method: 'ss' | 'ds', initiators: number, responders: number): number {
+  return Math.max(
+    uwbM2mRcmBytes(initiators, responders),
+    uwbInitBytes(),
+    uwbM2mRespBytes(method, initiators),
+    method === 'ds' ? uwbFinalBytes(responders) : 0,
+  )
+}
+
+/**
+ * Why a many-to-many round of M initiators and N responders cannot be sent, or null when it can: every
+ * frame within the 127-octet PSDU (standard §16.2.7) and the controller's RDM IE within its 6-bit RDM
+ * List Length (§10.32.9.8, at most 63 elements). Read by the scenario schema and by `UwbNetwork`, so
+ * the two cannot disagree.
+ */
+export function uwbM2mOverflow(
+  method: 'ss' | 'ds', initiators: number, responders: number,
+): { frame: 'rcm' | 'resp' | 'final' | 'rdm'; bytes: number } | null {
+  if (initiators - 1 + responders > 63) return { frame: 'rdm', bytes: initiators - 1 + responders }
+  const rcm = uwbM2mRcmBytes(initiators, responders)
+  if (rcm > UWB_MAX_PSDU_BYTES) return { frame: 'rcm', bytes: rcm }
+  const resp = uwbM2mRespBytes(method, initiators)
+  if (resp > UWB_MAX_PSDU_BYTES) return { frame: 'resp', bytes: resp }
+  if (method === 'ds') {
+    const fin = uwbFinalBytes(responders)
+    if (fin > UWB_MAX_PSDU_BYTES) return { frame: 'final', bytes: fin }
   }
-  return cap
+  return null
 }
 
 // --- Multiple-message receipt confirmation (standard §10.36) -------------------
@@ -714,8 +732,8 @@ export function uwbMmrcmBytes(initiators: number, slots: number): number {
 
 /**
  * Initiators one MMRCM frame can list: the largest N whose frame still fits the 127-octet PSDU
- * (standard §16.2.7). Searched against `uwbMmrcmBytes`, exactly as `uwbMaxAnchors` and
- * `uwbMaxParticipants` search their own frame-size functions above — no literal cap here either,
+ * (standard §16.2.7). Searched against `uwbMmrcmBytes`, exactly as `uwbMaxAnchors` searches its own
+ * frame-size function — no literal cap here either,
  * and the same `UWB_ANCHOR_SEARCH_CEILING` loop bound, for the same reason (nothing about this
  * frame's own arithmetic stops the search on its own if the ceiling were left out).
  */
@@ -921,20 +939,11 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * every anchor at once, and grows by a slot per responder per millisecond and by a narrowband
  * window per responder at each end — `mmsResponders` is the one place that count is decided.
  *
- * A many-to-many round (`mode: 'm2m'`, standard §10.32.6 SS / §10.32.7 DS, design §3) has no tag
- * at all — every participant transmits once per pass — so its slot count is the plainest formula
- * here: N slots for SS (one transmission per participant answers everyone), 2N for DS (a second
- * pass, because `tround2`/`treply2` need the earlier participant to transmit again). `anchors` is
- * read as the participant count N in this branch, the same way it is read as the anchor count in
- * DL-TDoA's `anchors + 1` two lines below — one parameter, meaning whatever the mode's own "how
- * many others" count is.
- *
- * Ruling 4 of docs/superpowers/specs/2026-09-30-many-to-many-design.md: this function's own name
- * predates `'m2m'` and is false for it — there is no tag to count slots "per" — but 38 call sites
- * read `uwbSlotsPerTag`, and renaming it here would mix a mechanical sweep into this slice's
- * behavioural change. The rename is its own commit, later, when nothing else is moving; until
- * then, read "per tag" as "per round" for every mode this function already treats that way
- * (DL-TDoA's `anchors + 1`, a contention round's `1 + contentionSlots`) and now for `'m2m'` too. */
+ * A many-to-many round (`mode: 'm2m'`, standard §10.32.6 SS / §10.32.7 DS) is M initiators and N
+ * responders (`anchors` is N, `initiators` is M): the M ranging initiation messages (the first of them
+ * fused with the controller's RCM), then the N responses — M + N slots for SS — and for DS one final
+ * frame per initiator after them, 2M + N. 2026-11-11 (W3): until then every device was both, and the
+ * round was N or 2N slots. */
 /**
  * MMRCM slots a window-closing block adds (standard §10.36, design §3.3): **one per responder**,
  * because a responder is what sends one.
@@ -945,15 +954,14 @@ export function mmsResponders(mms: MmsRoundShape, anchors: number): number {
  * slice 3 wrote down as a ruling after the m2m slot count ended up copied into the schema and the
  * two copies could drift.
  *
- * `peers` is the anchor count in a two-way round and the participant count in `'m2m'`; the caller
- * passes whichever its own mode means, because this function cannot see a plan.
+ * `peers` is the responder count: the anchors of a two-way round, the responders of an `'m2m'` one
+ * (standard §10.36.1: the recipients of the initiators' messages confirm them).
  *
  * **Why per responder, when the IE counts initiators.** §10.36 has two counts and they belong to
  * different things: the IE carries one list entry per *initiator*, since one responder may have
  * heard several, while the slots are one per *responder*, since each responder sends its own frame.
  * The first draft of this feature said "one slot per initiator" in both places, which gave a
- * two-way round a single slot for all N anchors to answer from. In `'m2m'` the two counts coincide,
- * which is why the error was invisible in the mode this clause was reasoned about.
+ * two-way round a single slot for all N anchors to answer from.
  */
 export function uwbMmrcmSlots(mode: UwbMode, peers: number, mmrcr: boolean): number {
   if (!mmrcr) return 0
@@ -977,6 +985,9 @@ export function uwbSlotsPerTag(
    * responders asked for nothing has no such frame to give one to (design §4.1).
    */
   sp3?: { rrtt: boolean },
+  /** `mode: 'm2m'` only: the initiator count M (standard §10.32.6/§10.32.7); `anchors` is then the
+   * responder count N. */
+  initiators = 1,
 ): number {
   if (mode === 'mms') {
     if (!mms) throw new Error("uwbSlotsPerTag: mode 'mms' needs the session's MMS parameters")
@@ -986,7 +997,7 @@ export function uwbSlotsPerTag(
     // round `roundPlan` then lays out would run past the length the block was checked against.
     return mmsLayout(mms, mmsResponders(mms, anchors), slotsPerMs).slots
   }
-  if (mode === 'm2m') return method === 'ss' ? anchors : 2 * anchors
+  if (mode === 'm2m') return method === 'ss' ? initiators + anchors : 2 * initiators + anchors
   if (mode === 'ul-tdoa') return 1
   if (mode === 'dl-tdoa') return anchors + 1
   if (schedule === 'contention') return 1 + contentionSlots
@@ -1236,21 +1247,13 @@ export function uwbSlotFitNs(
 }
 
 /**
- * The shortest ranging slot a many-to-many round of `participants` fits in: its longest frame —
- * the last participant's, which reports every earlier one's arrival time (design §4) — plus the
- * same flight guard every other mode's slot pays. In a shorter slot the receivers' deadlines fire
- * before that frame lands and the round loses its last slot entirely.
- *
- * It is `uwbSlotFitNs`'s job for this mode, in a function of its own rather than a branch inside
- * it, because `uwbLongestFrameBytes` has no many-to-many case: the cap and the slot rule here are
- * both sized off `uwbM2mBytes` directly (design §5), never off the two-way frame chooser. And it
- * is a function rather than an expression at each caller because it has **two** callers — the
- * scenario schema, which refuses such a scenario, and `UwbNetwork`, which refuses such a round in
- * the nanoseconds the scheduler actually runs in — and two copies of one rule is the drift Ruling 7
- * of this slice's ledger was written about.
+ * The shortest ranging slot a many-to-many round of `initiators` (M) and `responders` (N) fits in: its
+ * longest frame (`uwbM2mLongestBytes`) plus the flight guard and aTurnaroundTime every other mode's
+ * slot pays. Read by the scenario schema, the editor and `UwbNetwork`, so the three cannot disagree.
  */
-export function uwbM2mSlotFitNs(participants: number): Ns {
-  return uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS
+export function uwbM2mSlotFitNs(method: 'ss' | 'ds', initiators: number, responders: number): Ns {
+  return uwbPpduNs(uwbM2mLongestBytes(method, Math.max(1, initiators), Math.max(1, responders)))
+    + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS
 }
 
 /** The room an MMS round's longest narrowband message needs. They are far longer than any
