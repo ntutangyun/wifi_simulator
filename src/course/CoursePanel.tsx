@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
 import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
@@ -227,6 +227,9 @@ export function CoursePanel() {
   const [jumpMsg, setJumpMsg] = useState('')
   const [quizPick, setQuizPick] = useState<Record<number, number>>({})
   const [quizResult, setQuizResult] = useState<Record<number, boolean>>({})
+  /** The panel's own scroll box. The next lesson renders into the same box, so a jump from the
+   * bottom row would otherwise open it already scrolled to the end. */
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const save = (p: Progress) => {
     setProgress(p)
@@ -244,6 +247,7 @@ export function CoursePanel() {
     setJumpMsg('')
     setQuizPick({})
     setQuizResult({})
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [courseLessonId])
 
   const doneCount = LESSONS.filter((l) => progress[l.id]?.done).length
@@ -423,13 +427,19 @@ export function CoursePanel() {
     </div>
   ))
 
+  /** Catalogue / previous / next — printed above the lesson and again under it, so finishing one
+   * does not mean scrolling all the way back up to reach the next. */
+  const navRow = (where: 'top' | 'bottom') => (
+    <div data-lesson-nav={where} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', ...(where === 'top' ? { marginBottom: 8 } : { marginBottom: 16 }) }}>
+      <button onClick={() => selectLesson(null)}>{L.back}</button>
+      <button disabled={idx <= 0} onClick={() => selectLesson(LESSONS[idx - 1].id)}>{L.prev}</button>
+      <button disabled={idx >= LESSONS.length - 1} onClick={() => selectLesson(LESSONS[idx + 1].id)}>{L.next}</button>
+    </div>
+  )
+
   return (
-    <div style={{ padding: 12, overflowY: 'auto', fontSize: 12.5, lineHeight: 1.55 }}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-        <button onClick={() => selectLesson(null)}>{L.back}</button>
-        <button disabled={idx <= 0} onClick={() => selectLesson(LESSONS[idx - 1].id)}>{L.prev}</button>
-        <button disabled={idx >= LESSONS.length - 1} onClick={() => selectLesson(LESSONS[idx + 1].id)}>{L.next}</button>
-      </div>
+    <div ref={scrollRef} style={{ padding: 12, overflowY: 'auto', fontSize: 12.5, lineHeight: 1.55 }}>
+      {navRow('top')}
 
       <div style={{ ...dim, fontSize: 11 }}>
         {TIERS[MODULES[lesson.module].tier].label} · {MODULES[lesson.module].title} · {L.minutes(lessonMinutes(lesson))}{isLongLesson(lesson) ? L.longLesson : ''}
@@ -680,11 +690,12 @@ export function CoursePanel() {
 
       <button
         className={progress[lesson.id]?.done ? 'active' : ''}
-        style={{ margin: '6px 0 16px', padding: '6px 10px' }}
+        style={{ margin: '6px 0 12px', padding: '6px 10px' }}
         onClick={() => save({ ...progress, [lesson.id]: { ...progress[lesson.id], done: !progress[lesson.id]?.done } })}
       >
         {progress[lesson.id]?.done ? L.done : L.markDone}
       </button>
+      {navRow('bottom')}
     </div>
   )
 }
