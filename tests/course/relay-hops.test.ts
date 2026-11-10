@@ -29,7 +29,7 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import type { LatencyStats, ViewState } from '../../src/model/view'
-import { ACK_BYTES, AMPDU_DELIMITER_BYTES, EDCA_PARAMS, FCS_BYTES, QOS_HDR_BYTES, SIFS_NS, aifsNs } from '../../src/engine/phy'
+import { ACK_BYTES, AMPDU_DELIMITER_BYTES, FCS_BYTES, QAP_EDCA_PARAMS, QOS_HDR_BYTES, SIFS_NS, aifsNs } from '../../src/engine/phy'
 import { decodeFrame, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import { MODULES } from '../../src/course/curriculum'
@@ -273,8 +273,10 @@ describe('relay-hops · ③ every figure the labs print is the run', () => {
     expect(p.rxAp.t).toBe(p.hop1.t + p.hop1.frame.txTimeNs) // 「接收完毕」
     expect(p.arrAp.t - p.rxAp.t).toBe(RELAY_FWD_US * US) // 「自接收完毕起转发 50 µs」
     expect(p.arrAp.t).toBeLessThan(p.hop2.t) // the forward is done before the second hop could start
-    // 「介质自确认帧结束起空闲满 34 µs，即一个仲裁帧间间隔」: the AIFS of the access category the AP sends at
-    expect(p.hop2.t - p.deqB.t).toBe(aifsNs(EDCA_PARAMS[p.hop2.frame.ac!]!.aifsn))
+    // 「介质自确认帧结束起空闲满 25 µs，即接入点视频类的一个仲裁帧间间隔」: the AIFS of the access category
+    // the AP sends at. 2026-11-11 (W7b): the AP contends with dot11QAPEDCATable (§10.2.3.2) — AIFSN 1
+    // for AC_VI, 25 µs — where until then it used the non-AP Table 9-194 value (34 µs).
+    expect(p.hop2.t - p.deqB.t).toBe(aifsNs(QAP_EDCA_PARAMS[p.hop2.frame.ac!]!.aifsn))
     expect(ofType(base.records, 'TX_START').some((r) => r.t > p.deqB.t && r.t < p.hop2.t)).toBe(false)
     const figs = (s: string): string[] => s.match(/\d+(?:\.\d+)?(?= µs)/g) ?? []
     expect(figs(rows[0][1])).toEqual([us(p.hop1.frame.txTimeNs)])

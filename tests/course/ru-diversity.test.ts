@@ -251,10 +251,12 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
     ])
     // what the expect line says about them. 2026-11-11 (W7a): the means now differ by 0.086 dB; the
     // claim is restated as that figure against the p90 gap, both printed and both read back here.
-    const e = /平均损失只差 ([\d.]+) dB，不到第九十百分位差距（([\d.]+) dB）的十分之一/.exec(lab('变的是尾部，不是平均值').expect)!
+    // 2026-11-11 (W7b, the AP on dot11QAPEDCATable): 0.233 dB against a 1.428 dB p90 gap — about a
+    // sixth, no longer under a tenth, so the sentence says 「约为……的六分之一」 and this checks it.
+    const e = /平均损失只差 ([\d.]+) dB，约为第九十百分位差距（([\d.]+) dB）的六分之一/.exec(lab('变的是尾部，不是平均值').expect)!
     expect(e[1]).toBe(Math.abs(mean(h) - mean(w)).toFixed(3))
     expect(e[2]).toBe((q(h, 0.9) - q(w, 0.9)).toFixed(3))
-    expect(Math.abs(mean(h) - mean(w))).toBeLessThan((q(h, 0.9) - q(w, 0.9)) / 10)
+    expect(Math.round((q(h, 0.9) - q(w, 0.9)) / Math.abs(mean(h) - mean(w)))).toBe(6)
     expect(q(h, 0.5)).toBeLessThan(q(w, 0.5))
     expect(q(h, 0.9)).toBeGreaterThan(q(w, 0.9))
     expect(Math.max(...h)).toBeGreaterThan(Math.max(...w))
@@ -278,11 +280,13 @@ describe('ru-diversity · ③ every figure the labs print is the run', () => {
     expect(sweep[1]!.key).toBe(legs().key)
     expect(sweep[0]!.half).toBeGreaterThan(sweep[0]!.whole)
     expect(sweep[1]!.half).toBeGreaterThan(sweep[1]!.whole)
-    expect(sweep[2]!.half).toBeGreaterThan(sweep[2]!.whole)
+    // 2026-11-11 (W7b): one metre out the two legs now differ by 0.04 percentage points (41.90 % against
+    // 41.94 %), so the lesson says they are practically the same there rather than that four bins
+    // still lose more; what is pinned is that the gap all but closes, then reverses at two metres.
+    expect(Math.abs(sweep[2]!.half - sweep[2]!.whole)).toBeLessThan(0.01)
     expect(sweep[3]!.half).toBeLessThan(sweep[3]!.whole)
     const ex = lab('这个差别只在一段余量里存在').expect
-    expect(ex).toContain(`向外一米，余量降到 ${db3(sweep[2]!.key)}，差距缩小到约 ${Math.round((sweep[2]!.half - sweep[2]!.whole) * 100)} 个百分点`)
-    expect(Math.round((sweep[2]!.half - sweep[2]!.whole) * 100)).toBeLessThan(Math.round((sweep[1]!.half - sweep[1]!.whole) * 100))
+    expect(ex).toContain(`向外一米，余量降到 ${db3(sweep[2]!.key)}，两种配置几乎相同，只差 ${(Math.abs(sweep[2]!.half - sweep[2]!.whole) * 100).toFixed(2)} 个百分点`)
     expect(ex).toContain(`向外两米，余量降到 ${db3(sweep[3]!.key)}，方向反过来`)
     expect(lesson.why).toContain(`余量降到 ${db3(sweep[3]!.key)} 时方向已经相反`)
   }, 300_000)

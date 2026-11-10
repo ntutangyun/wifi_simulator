@@ -148,19 +148,34 @@ describe('backscatter tags and the RFID reader in the schema', () => {
     expect(() => ScenarioSchema.parse(reader('backscatter', null))).toThrow(/RFID/)
   })
 
+  // 2026-11-11 (W7b): the reader section is the draft's inventory — ACWE and a trigger count
+  // (PDT 11-26/1519r5 §39.3.3) instead of EPC Gen2's Q, no `txopMs` of its own (the TXOP is the
+  // AP's AC_BK limit, §10.23.2.9) and no Write.
   it('bounds every reader setting', () => {
     const bad = (patch: Partial<AmpBackscatterCfg>) => () => ScenarioSchema.parse(reader('backscatter', { ...DEFAULT_AMP_BS, ...patch }))
-    expect(bad({ q: -1 })).toThrow()
-    expect(bad({ q: 9 })).toThrow()
-    expect(bad({ q: 2.5 })).toThrow()
+    expect(bad({ acwe: -1 })).toThrow()
+    expect(bad({ acwe: 5 })).toThrow()
+    expect(bad({ acwe: 2.5 })).toThrow()
+    expect(bad({ slots: 0 })).toThrow()
+    expect(bad({ slots: 257 })).toThrow()
+    expect(bad({ slots: 1.5 })).toThrow()
     expect(bad({ ulKbps: 4000 as 250 })).toThrow()
     expect(bad({ wupMs: 0.5 })).toThrow() // SFD PM-73: the WUP is a millisecond at minimum
-    expect(bad({ txopMs: 0.5 })).toThrow()
-    expect(bad({ txopMs: 11 })).toThrow()
     expect(bad({ chargeDbm: 31 })).toThrow()
     expect(bad({ bsDbm: -11 })).toThrow()
     // …and accepts the edges of each range.
-    expect(bad({ q: 0, ulKbps: 1000, wupMs: 1, txopMs: 10, chargeDbm: 30, bsDbm: -10, write: true })).not.toThrow()
+    expect(bad({ acwe: 0, slots: 1, ulKbps: 1000, wupMs: 1, chargeDbm: 30, bsDbm: -10 })).not.toThrow()
+    expect(bad({ acwe: 4, slots: 256 })).not.toThrow()
+  })
+
+  it('still loads a reader saved with the EPC Gen2 fields: Q → ACWE and 2^Q triggers; txopMs and write dropped', () => {
+    const legacy = { q: 3, ulKbps: 250, wupMs: 1, chargeDbm: 10, bsDbm: 0, txopMs: 4, read: true, write: true }
+    const sc = ScenarioSchema.parse(reader('backscatter', legacy as unknown as AmpBackscatterCfg))
+    const bs = sc.nodes.find((n) => n.ampAp?.backscatter)!.ampAp!.backscatter!
+    expect(bs).toEqual({ acwe: 3, slots: 8, ulKbps: 250, wupMs: 1, chargeDbm: 10, bsDbm: 0, read: true })
+    // A legacy Q out of the new ACWE range is still refused, rather than silently clamped.
+    const tooBig = { ...legacy, q: 8 }
+    expect(() => ScenarioSchema.parse(reader('backscatter', tooBig as unknown as AmpBackscatterCfg))).toThrow()
   })
 
   it('takes an EPC only as 24 hex characters', () => {

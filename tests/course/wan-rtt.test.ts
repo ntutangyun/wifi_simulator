@@ -5,13 +5,14 @@
  * ① cites what IEEE Std 802.11-2024 says that bears on a game's round trip — the UP-to-AC mapping
  * (§10.2.3.2, Table 10-1), the default EDCA parameters (§9.4.2.27, Table 9-194), per-category
  * contention (§10.23.2.4) and MSCS (§11.25.3) — and that everything past the access point is
- * outside 802.11. ② says what the engine does; the router's game-mode boolean is the row marked
- * `differs`, and the assertions below show what it moves: the phone's own uplink AND the access
- * point's downlink to it, from AC_BE to AC_VI.
+ * outside 802.11. ② says what the engine does. 2026-11-11 (W7b): the router's game-mode boolean
+ * (invented — it moved the phone's own uplink and the AP's downlink into AC_VI with no frame
+ * exchange) is gone with its variant and two labs; MSCS is an `absent` row, and 用户优先级 is
+ * faithful (each MSDU's UP → AC by Table 10-1). Every figure re-measured unchanged.
  *
  * The engine pins carried over from the old file (the silent first 30 ms, the ratio, the rise at
  * the two ends, the overseas arithmetic) stay as they were; every figure ③ prints is read back out
- * of the lesson text at the end. `runOf` memoises per (lesson, variant, length), so the five
+ * of the lesson text at the end. `runOf` memoises per (lesson, variant, length), so the four
  * 5000 ms runs happen once each.
  */
 import { describe, it, expect } from 'vitest'
@@ -23,6 +24,8 @@ import { MODULES } from '../../src/course/curriculum'
 import { DEFAULT_RUN_NS, lessonShapeSuite, ofType, runOf } from './kit'
 import type { TLRecord } from '../../src/model/records'
 import { EDCA_PARAMS } from '../../src/engine/phy'
+import { upForProfile } from '../../src/engine/traffic'
+import { acForUp } from '../../src/model/frames'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 
 const MS = 1_000_000
@@ -30,9 +33,8 @@ const RUN_NS = 5000 * MS
 
 /** The variant indices, named, so an assertion says which scene it is about. */
 const BUSY = 0
-const ACCEL = 1
-const OVERSEAS = 2
-const NO_SERVERS = 3
+const OVERSEAS = 1
+const NO_SERVERS = 2
 
 lessonShapeSuite(wanRtt, { runNs: RUN_NS })
 
@@ -85,12 +87,12 @@ describe('wan-rtt · the lesson as data', () => {
     expect(wanRtt.needs).toEqual(['edca', 'edca-cost', 'queues'])
   })
 
-  it('declares five scenes the schema accepts, and only the first four carry a server', () => {
+  it('declares four scenes the schema accepts, and only the first three carry a server', () => {
     const scenes = [wanRtt.scenario(), ...wanRtt.variants!.map((v) => v.scenario())]
-    expect(scenes.length).toBe(5)
+    expect(scenes.length).toBe(4)
     for (const s of scenes) expect(() => ScenarioSchema.parse(s)).not.toThrow()
     expect(scenes[NO_SERVERS + 1].servers).toEqual([])
-    for (const s of [scenes[0], scenes[BUSY + 1], scenes[ACCEL + 1], scenes[OVERSEAS + 1]]) {
+    for (const s of [scenes[0], scenes[BUSY + 1], scenes[OVERSEAS + 1]]) {
       expect(s.servers.length).toBe(1)
       expect(s.servers[0].kind).toBe('game')
     }
@@ -227,33 +229,6 @@ describe('wan-rtt · the air appears only when something competes for it', () =>
   })
 })
 
-describe('wan-rtt · the router’s boolean is one field, and it moves the tail hardest', () => {
-  it('marks the game flow into AC_VI and nothing else', () => {
-    expect(acsOf(runOf(wanRtt, BUSY, RUN_NS)), 'best effort without the switch').toEqual([1])
-    expect(acsOf(runOf(wanRtt, ACCEL, RUN_NS)), 'video with it').toEqual([2])
-    expect(wanRtt.variants![ACCEL].scenario().nodes[0].gameAccel).toBe(true)
-    expect(wanRtt.variants![BUSY].scenario().nodes[0].gameAccel).toBeUndefined()
-  })
-
-  it('cuts the queueing to a quarter and the worst round trip to under half', () => {
-    const busy = phoneStats(BUSY)
-    const accel = phoneStats(ACCEL)
-    expect(meanMs(accel.txLatency)).toBeLessThan(meanMs(busy.txLatency))
-    expect(meanMs(accel.txLatency)).toBeCloseTo(2.166, 3)
-    expect(meanMs(accel.appRtt)).toBeCloseTo(32.681, 3)
-    expect(maxMs(accel.appRtt)).toBeCloseTo(39.976, 3)
-    // 「尾部降得比均值多」. 2026-11-11: since the access point hands an uplink MSDU to the
-    // distribution system on reception, the busy room's worst round trip is 64.927 ms, not 94.223,
-    // so the round trip's mean falls by 26 % and its maximum by 38 % — more, but no longer twice as
-    // much. The enqueue-to-ack tail (48.726 → 10.246 ms, against a mean of 5.301 → 2.166) is the
-    // figure lab 3 prints, and there the tail still falls about twice as hard as the mean.
-    const meanDrop = 1 - meanMs(accel.appRtt) / meanMs(busy.appRtt)
-    const maxDrop = 1 - maxMs(accel.appRtt) / maxMs(busy.appRtt)
-    expect(maxDrop).toBeGreaterThan(meanDrop)
-    expect(maxMs(busy.txLatency) / maxMs(accel.txLatency)).toBeGreaterThan(1.9 * (meanMs(busy.txLatency) / meanMs(accel.txLatency)))
-  })
-})
-
 describe('wan-rtt · the overseas endpoint turns a config value into arithmetic', () => {
   /**
    * The design document asked for the difference to land in `(80 − 25) ± 5`. It does not, and
@@ -280,9 +255,9 @@ describe('wan-rtt · the overseas endpoint turns a config value into arithmetic'
 })
 
 /**
- * **① and ②: the clauses ① cites, and each ② row against the engine.** The router's boolean is
- * the row marked `differs`: it moves the phone's OWN uplink into AC_VI without any frame exchange,
- * which MSCS (§11.25.3, downlink only and set up by the station) does not do.
+ * **① and ②: the clauses ① cites, and each ② row against the engine.** MSCS (§11.25.3) is the
+ * `absent` row: no management frames, so no MSCS Request/Response, and the AP never changes a
+ * flow's user priority.
  */
 describe('wan-rtt · ① cites what it teaches, ② is what the engine does', () => {
   const std = wanRtt.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
@@ -299,7 +274,7 @@ describe('wan-rtt · ① cites what it teaches, ② is what the engine does', ()
     expect(wanRtt.limits).toEqual([])
     expect(wanRtt.observe).toEqual([])
     expect(wanRtt.tryThis).toEqual([])
-    expect(wanRtt.labs!.length).toBe(4)
+    expect(wanRtt.labs!.length).toBe(3)
   })
 
   it('① cites each clause and keeps the simulator’s game mode out of it', () => {
@@ -312,10 +287,15 @@ describe('wan-rtt · ① cites what it teaches, ② is what the engine does', ()
     expect(vi).toBe((aCWmin + 1) / 2 - 1)
   })
 
-  it('② is not all faithful, and the game mode is the row that differs', () => {
+  it('② is not all faithful: MSCS is absent, the UP source a choice, and no game mode remains', () => {
     const kinds = new Set(wanRtt.implementation!.map((r) => r.kind))
-    expect(kinds.has('faithful') && kinds.has('differs') && kinds.has('value') && kinds.has('choice')).toBe(true)
-    expect(implRow('路由器游戏模式').kind).toBe('differs')
+    expect(kinds.has('faithful') && kinds.has('absent') && kinds.has('value') && kinds.has('choice')).toBe(true)
+    expect(implRow('MSCS（§11.25.3）').kind).toBe('absent')
+    expect(implRow('用户优先级').kind).toBe('faithful')
+    expect(implRow('用户优先级由谁给出').kind).toBe('choice')
+    expect(implRow('接入点自己的参数').kind).toBe('faithful')
+    expect(wanRtt.implementation!.some((r) => r.topic.includes('游戏模式'))).toBe(false)
+    expect(JSON.stringify(wanRtt)).not.toContain('游戏模式')
   })
 
   it('EDCA 参数: the engine’s table is Table 9-194’s', () => {
@@ -327,18 +307,20 @@ describe('wan-rtt · ① cites what it teaches, ② is what the engine does', ()
     expect([vi.cwMin, vi.cwMax, vi.aifsn]).toEqual([viMin, viMax, viA])
   })
 
-  it('用户优先级 and 路由器游戏模式: the phone’s uplink AND the access point’s downlink to it move to 2', () => {
+  it('用户优先级: UP 0 for the game and the uploads, so AC_BE (1) for the phone, the AP\'s downlink to it, and the laptops', () => {
     const dlAcs = (v: number): number[] => [...new Set(ofType(runOf(wanRtt, v, RUN_NS), 'ENQUEUE')
       .filter((r) => r.node === 'ap' && r.dst === 'sta-1').map((r) => r.ac))].filter((a): a is number => a !== undefined).sort()
+    expect(upForProfile('gaming')).toBe(0)
+    expect(upForProfile('saturated')).toBe(0)
+    expect(acForUp(0)).toBe(1)
     expect(acsOf(runOf(wanRtt, BUSY, RUN_NS))).toEqual([1])
-    expect(acsOf(runOf(wanRtt, ACCEL, RUN_NS))).toEqual([2])
     expect(dlAcs(BUSY)).toEqual([1])
-    expect(dlAcs(ACCEL)).toEqual([2])
-    // the laptops' saturated uploads are best effort either way
-    for (const v of [BUSY, ACCEL]) {
-      const laptops = new Set(ofType(runOf(wanRtt, v, RUN_NS), 'ENQUEUE').filter((r) => r.node === 'sta-2' || r.node === 'sta-3').map((r) => r.ac))
-      expect([...laptops]).toEqual([1])
-    }
+    const laptops = new Set(ofType(runOf(wanRtt, BUSY, RUN_NS), 'ENQUEUE').filter((r) => r.node === 'sta-2' || r.node === 'sta-3').map((r) => r.ac))
+    expect([...laptops]).toEqual([1])
+    // a scenario saved with the removed boolean still loads, without it (zod strips unknown keys)
+    const old = wanRtt.variants![BUSY].scenario()
+    const parsed = ScenarioSchema.parse({ ...old, nodes: old.nodes.map((n) => (n.kind === 'ap' ? { ...n, gameAccel: true } : n)) })
+    expect('gameAccel' in parsed.nodes[0]).toBe(false)
   })
 
   it('广域网与服务器: the endpoint’s own fields, and the one-way leg they give', () => {
@@ -428,10 +410,10 @@ describe('wan-rtt · ③ every figure the labs print is the run', () => {
     same(om, meanMs(phoneStats(OVERSEAS).appRtt), 'the overseas round trip')
   })
 
-  it('lab 2: the five-row table, every numeric cell', () => {
-    const t = lab('五种配置').blocks!.find((b) => b.kind === 'table') as Extract<Block, { kind: 'table' }>
+  it('lab 2: the four-row table, every numeric cell', () => {
+    const t = lab('四种配置').blocks!.find((b) => b.kind === 'table') as Extract<Block, { kind: 'table' }>
     const BY_LABEL: readonly (readonly [string, number | undefined])[] = [
-      ['只有手机（本课）', undefined], ['加两台笔记本上传', BUSY], ['同上 + 游戏模式', ACCEL],
+      ['只有手机（本课）', undefined], ['加两台笔记本上传', BUSY],
       ['海外服务器', OVERSEAS], ['没有服务器', NO_SERVERS],
     ]
     expect(t.rows.map((r) => r[0])).toEqual(BY_LABEL.map(([l]) => l))
@@ -455,7 +437,7 @@ describe('wan-rtt · ③ every figure the labs print is the run', () => {
   })
 
   it('lab 2: 「你应该看到」', () => {
-    const e = lab('五种配置').expect
+    const e = lab('四种配置').expect
     const quiet = phoneStats(), busy = phoneStats(BUSY), over = phoneStats(OVERSEAS), none = phoneStats(NO_SERVERS)
     const [q, b, times, tq, tb, wan] = grab(e, /手机那一段从 ([\d.]+) 毫秒增加到 ([\d.]+) 毫秒，是原来的(\S+)倍；应用往返只从 ([\d.]+) 增加到 ([\d.]+) 毫秒，因为广域网那 (\d+) 毫秒保持不变/, 'lab 2 on the busy room')
     same(q, meanMs(quiet.txLatency), 'quiet air')
@@ -473,44 +455,14 @@ describe('wan-rtt · ③ every figure the labs print is the run', () => {
     same(na, meanMs(none.txLatency), 'no-server air')
   })
 
-  it('lab 3: one field, and the mean and the tail it moves', () => {
-    const e = lab('游戏模式改的是一个字段').expect
-    const [was, now] = grab(e, /类别从 (\d+) 变成 (\d+)/, 'lab 3 on the category').map(Number)
-    expect(acsOf(runOf(wanRtt, BUSY, RUN_NS))).toEqual([was])
-    expect(acsOf(runOf(wanRtt, ACCEL, RUN_NS))).toEqual([now])
-    const busy = phoneStats(BUSY), accel = phoneStats(ACCEL)
-    const [m0, m1, x0, x1, r0, r1] = grab(e, /均值从 ([\d.]+) 毫秒降到 ([\d.]+) 毫秒，最大值从 ([\d.]+) 毫秒降到 ([\d.]+) 毫秒；应用往返的最大值从 ([\d.]+) 毫秒降到 ([\d.]+) 毫秒/, 'lab 3 on the figures')
-    same(m0, meanMs(busy.txLatency), 'busy mean')
-    same(m1, meanMs(accel.txLatency), 'accel mean')
-    same(x0, maxMs(busy.txLatency), 'busy worst')
-    same(x1, maxMs(accel.txLatency), 'accel worst')
-    same(r0, maxMs(busy.appRtt), 'busy worst round trip')
-    same(r1, maxMs(accel.appRtt), 'accel worst round trip')
-    // 「尾部降得比均值多」
-    expect(maxMs(busy.txLatency) / maxMs(accel.txLatency)).toBeGreaterThan(meanMs(busy.txLatency) / meanMs(accel.txLatency))
-  })
-
-  it('lab 4: the quiet room where the same switch changes the countdown and nothing else', () => {
-    const quiet = ScenarioSchema.parse({ ...wanRtt.scenario() })
-    const accelQuiet = ScenarioSchema.parse({ ...quiet, nodes: quiet.nodes.map((n) => (n.kind === 'ap' ? { ...n, gameAccel: true } : n)) })
-    const recsOf = (sc: Scenario): TLRecord[] => [...new Simulation(sc).runUntil(RUN_NS).records]
-    const rq = recsOf(quiet), ra = recsOf(accelQuiet)
-    const txOk = (sc: Scenario, rs: TLRecord[]): number => {
-      const vs = initViewState(sc)
-      for (const r of rs) applyRecord(vs, r)
-      return vs.nodes['sta-1'].stats.txOk
-    }
-    const count = (rs: TLRecord[], type: string): number => rs.filter((r) => r.type === type && (r as { node?: string }).node === 'sta-1').length
-    const e = lab('安静的房间里打开游戏模式').expect
-    const [frames] = grab(e, /收到的帧数两边都是 (\d+)，完全相同/, 'lab 4 on frames').map(Number)
-    expect([txOk(quiet, rq), txOk(accelQuiet, ra)]).toEqual([frames, frames])
-    expect(count(rq, 'BACKOFF_DRAW')).toBe(count(ra, 'BACKOFF_DRAW'))
-    const [was, now, be, vi] = grab(e, /从 ([\d,]+) 条降到 ([\d,]+) 条，因为随机选取的范围从尽力而为那一类的 CWmin (\d+) 变成了视频那一类的 (\d+)/, 'lab 4 on the countdown').map(val)
-    expect([count(rq, 'BACKOFF_DEC'), count(ra, 'BACKOFF_DEC')]).toEqual([was, now])
-    expect(be).toBe(EDCA_PARAMS.find((p) => p.name === 'BE')!.cwMin)
-    expect(vi).toBe(EDCA_PARAMS.find((p) => p.name === 'VI')!.cwMin)
-    const [qBe, qVi] = grab(wanRtt.quiz[1].explain, /选取范围从 (\d+) 变成 (\d+)/, 'quiz 2').map(Number)
-    expect([qBe, qVi]).toEqual([be, vi])
+  it('lab 3: every game frame is AC_BE, and the busy room’s mean is lab 2’s', () => {
+    const l = lab('游戏包的用户优先级')
+    expect(l.variant).toBe(BUSY)
+    const rs = runOf(wanRtt, BUSY, RUN_NS)
+    expect(acsOf(rs)).toEqual([1])
+    const [q, b] = grab(l.expect, /入队到确认的均值从 ([\d.]+) 毫秒增加到 ([\d.]+) 毫秒/, 'lab 3')
+    same(q, meanMs(phoneStats().txLatency), 'quiet air')
+    same(b, meanMs(phoneStats(BUSY).txLatency), 'busy air')
   })
 
   it('the quiz’s figures are lab 1’s', () => {

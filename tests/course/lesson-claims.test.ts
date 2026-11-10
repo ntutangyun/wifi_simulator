@@ -356,9 +356,21 @@ describe('lesson 7 · EDCA', () => {
       expect(d.cw).toBeGreaterThanOrEqual(15)
     }
     const ifsLens = (n: string, kind: string) => new Set(ofType(rs, 'IFS_START')
-      .filter((r) => r.node === n && r.kind === kind).map((r) => r.untilNs - r.t))
-    expect(ifsLens('sta-1', 'AIFS')).toEqual(new Set([34_000]))
-    expect(ifsLens('sta-3', 'AIFS')).toEqual(new Set([79_000]))
+      // 2026-11-11 (W7b, the AP now on dot11QAPEDCATable): one voice frame of sta-1 now arrives
+      // after the medium has already been idle longer than AIFS[VO], so its IFS_START ends where
+      // it starts (`beginIfsAc`: idle time already elapsed counts toward the IFS). A zero-length
+      // wait is not a different AIFS; only the non-zero lengths are the claim.
+      .filter((r) => r.node === n && r.kind === kind && r.untilNs > r.t).map((r) => r.untilNs - r.t))
+    // A wait that began after part of the idle time had already elapsed is shorter than the AIFS
+    // (sta-3 has one of 26.827 µs since W7b), so the claim is: the full waits are exactly AIFS[AC],
+    // and none is longer.
+    const full = (n: string, aifs: number) => {
+      const xs = [...ifsLens(n, 'AIFS')]
+      expect(Math.max(...xs), n).toBe(aifs)
+      expect(xs.filter((x) => x === aifs).length, n).toBeGreaterThan(0)
+    }
+    full('sta-1', 34_000)
+    full('sta-3', 79_000)
     // "BE: 94 − 34 + 43 = 103 µs" — "the uploader’s BE queue is the one that shows it here"
     expect(ifsLens('sta-2', 'EIFS')).toEqual(new Set([103_000]))
     // "The backup never gets one": no reception of its own ever fails after a detected preamble
@@ -481,10 +493,12 @@ describe('lesson 10 · protecting the burst', () => {
     expect(reach(single).every((slack) => slack > 0)).toBe(true)
   })
 
-  it('without RTS (threshold 3000 B) collisions rise from 28 to 98 and deliveries fall from 437 to 234', () => {
+  // Re-measured 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable, per-frame UP → AC):
+  // 98 → 89 collisions, 234 → 259 deliveries; the lesson text says the same.
+  it('without RTS (threshold 3000 B) collisions rise from 28 to 89 and deliveries fall from 437 to 259', () => {
     const bare = runSc({ ...lesson('txop-protect').scenario(), rtsThresholdBytes: 3000 }, 300 * MS)
-    expect(ofType(bare, 'COLLISION').length).toBe(98)
-    expect(ofType(bare, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length).toBe(234)
+    expect(ofType(bare, 'COLLISION').length).toBe(89)
+    expect(ofType(bare, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'data').length).toBe(259)
     expect(txs(bare, (r) => r.frame.kind === 'rts')).toHaveLength(0)
     const bareData = txs(bare, (r) => r.frame.kind === 'data' && firstOfTxop(bare, r))
     expect(bareData.length).toBeGreaterThan(50)
@@ -690,13 +704,15 @@ describe('lesson 14 · capstone', () => {
 
   // Re-measured 2026-11-11 (W7a: S-MPDU framing §10.12.7, TRS-solicited DL MU acknowledgement
   // §10.3.2.13.2, MPDU-by-MPDU A-MPDU reception §10.12, Duration rules §9.2.5).
-  it('with the backup stopped the video, voice and tablet latencies collapse (2.01 → 0.21 ms, 2.11 → 0.84 ms, 181 ms → half a millisecond)', () => {
-    expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(2.01, 1)
-    expect(mean(noBackup.v['sta-2'].stats.rxLatency)).toBeCloseTo(0.21, 1)
-    expect(mean(base.v['sta-3'].stats.txLatency)).toBeCloseTo(2.11, 1)
-    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeCloseTo(0.84, 1)
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeGreaterThan(175)
-    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeLessThan(185)
+  // Re-measured again 2026-11-11 (W7b: the AP contends with dot11QAPEDCATable — AC_BE CWmax 63,
+  // AIFSN 1 for VI/VO — and every frame's AC follows its UP): the tablet's page wait fell from
+  // ~181 ms to 4.36 ms; the collapse with the backup stopped still holds.
+  it('with the backup stopped the video, voice and tablet latencies collapse (1.83 → 0.20 ms, 2.18 → 0.58 ms, 4.36 → 0.41 ms)', () => {
+    expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.83, 1)
+    expect(mean(noBackup.v['sta-2'].stats.rxLatency)).toBeCloseTo(0.20, 1)
+    expect(mean(base.v['sta-3'].stats.txLatency)).toBeCloseTo(2.18, 1)
+    expect(mean(noBackup.v['sta-3'].stats.txLatency)).toBeCloseTo(0.58, 1)
+    expect(mean(base.v['sta-4'].stats.rxLatency)).toBeCloseTo(4.36, 1)
     expect(mean(noBackup.v['sta-4'].stats.rxLatency)).toBeLessThan(1)
     for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-6']) {
       const s = noBackup.v[id].stats
@@ -704,16 +720,16 @@ describe('lesson 14 · capstone', () => {
     }
   })
 
-  it('MLO doubles the backup’s own throughput (35.7 → 76.8 MB) while the 5 GHz neighbours keep the same average latency', () => {
+  it('MLO doubles the backup’s own throughput (37.0 → 77.2 MB) while the 5 GHz neighbours keep the same average latency', () => {
     // the AP's received bytes across both links: the backup is all but all of it
     const upMB = (v: Record<string, { stats: { bytesDelivered: number } }>) =>
       (v['ap'].stats.bytesDelivered + (v['ap#6g']?.stats.bytesDelivered ?? 0)) / 1e6
-    expect(upMB(base.v)).toBeCloseTo(76.8, 0)
-    expect(upMB(noMlo.v)).toBeCloseTo(35.7, 0)
+    expect(upMB(base.v)).toBeCloseTo(77.2, 0)
+    expect(upMB(noMlo.v)).toBeCloseTo(37.0, 0)
     for (const id of ['sta-2', 'sta-6']) {
       expect(mean(noMlo.v[id].stats.rxLatency), id).toBeCloseTo(mean(base.v[id].stats.rxLatency), 1)
     }
-    expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(2.01, 1)
-    expect(mean(noMlo.v['sta-2'].stats.rxLatency)).toBeCloseTo(2.00, 1)
+    expect(mean(base.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.83, 1)
+    expect(mean(noMlo.v['sta-2'].stats.rxLatency)).toBeCloseTo(1.79, 1)
   })
 })

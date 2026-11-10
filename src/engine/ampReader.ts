@@ -1,23 +1,37 @@
 /**
- * The reader side of a mono-static backscatter inventory (P802.11bp, 2.4 GHz): an EPC Gen2
- * slot-counter round tunnelled inside AMP RFID frames, run under one AC_BK TXOP.
+ * The reader side of a mono-static backscatter inventory (P802.11bp, 2.4 GHz), run in AC_BK
+ * TXOPs of the AP, each bounded by the AP's AC_BK TXOP limit (§10.23.2.9; dot11QAPEDCATable,
+ * 2.528 ms by default, Table 9-194).
  *
  * `ampAp.ts` next door is the Active Tx tier, where the AP opens uplink slots and the tags make
- * their own carrier. Here nothing the tags send exists without the reader: every command PPDU
- * ends in a BST-Excitation, and the answer is that same carrier reflected back. So the round is
- * not a schedule of slots the tags fill in — it is a strict question-and-answer, one command at
- * a time, each one waiting `AMP_BS_T2_NS` after the last PPDU (excitation included) ended.
+ * their own carrier. Here nothing the tags send exists without the reader: every downlink PPDU
+ * ends in a BST-Excitation, and the answer is that same carrier reflected back. So the inventory
+ * is a strict question-and-answer, one frame at a time, each waiting `AMP_BS_T2_NS` after the last
+ * PPDU (excitation included) ended.
+ *
+ * What it sends, and only that (PDT 11-26/1519r5 §39.3.3; PDT 11-26/1520r3; PDT 11-26/1798r1):
+ *  - a broadcast **AMP Trigger** for random access — ID 0xFFFF, Session ID, ACWE, UL data rate,
+ *    slot duration — allocating a single slot. A tag whose new ABOC is 0 reflects an AMP Response
+ *    with its 16-bit identifier;
+ *  - for every identifier heard (when `read` is set), an individually addressed **AMP RFID**
+ *    frame carrying the UHF Read command, whose reply carries the tag's EPC. The response is
+ *    exchanged in the same TXOP as the command (PDT 1798r1), inside the same PPDU's excitation.
+ *
+ * Not sent: Select (optional, Motion #241 — the reader addresses tags by the identifier it heard),
+ * Write (its ≥ 2 ms response time stretches the excitation past the AC_BK TXOP limit) and
+ * Authenticate. An inventory that does not fit one TXOP continues in the next AC_BK TXOP the AP
+ * wins: every trigger is independent (a new ABOC each time, §39.4), and a heard identifier stays
+ * addressable, so nothing is lost at the boundary.
  *
  * The round owns nothing but its own timers: frames go out through `deps.transmit`, the end of a
  * TXOP is reported through `deps.done`, and the MAC decides how that fits into EDCA.
  *
- * Sources. SFD MM-10 / MM-29 adopt EPC Gen2 (ISO/IEC 18000-63) by reference; the slot algorithm,
- * the persistence of counters across TXOPs and the TXOP budget are `model`, following
- * TGbp 11-25/0061r0 (contribution). Nothing of the draft's text is reproduced.
+ * Until 2026-11-11 this file ran EPC Gen2's Query/QueryRep/ACK slot-counter inventory after
+ * proposal 11-25/0061r0, which TGbp did not adopt, in a 4 ms TXOP of its own.
  */
 import {
-  AMP_BS_T1_NS, AMP_BS_T2_NS, AMP_BS_WRITE_T3_NS, ampBsDlPpduNs, ampRfidFrame, bsReplyNs, bstNs,
-  epcOf, type AmpBsUlKbps, type Gen2Cmd, type Gen2Reply,
+  AMP_BS_T1_NS, AMP_BS_T2_NS, ampRfidFrame, bsReplyNs, bstNs, crc16Epc, epcOf,
+  type AmpBsUlKbps, type BsCmd, type BsReply,
 } from './ampBs'
 import type { AmpApDeps } from './ampAp'
 import { bsDataEndNs } from './channel'
@@ -35,94 +49,83 @@ export type AmpReaderCfg = AmpApCfg & { backscatter: NonNullable<AmpApCfg['backs
  * `bstEnergy()` is energy detection inside the reader's own excitation — "is anything reflecting
  * right now?" — and it is what separates a slot two tags answered in from a slot nobody answered
  * in. A reader cannot decode two reflections that arrive together (they sit on top of each other
- * at the same 3 dB the acquisition needs), so decoding cannot tell the two cases apart; real
- * EPC Gen2 readers measure the slot's energy instead, and so does this one. `model`
+ * at the same 3 dB the acquisition needs), so decoding cannot tell the two cases apart. `model`
  */
 export interface AmpReaderDeps extends AmpApDeps {
   bstEnergy(): boolean
 }
 
-/** One command the reader has decided to send, and what it expects to hear back. */
+/** One frame the reader has decided to send, and what it expects back. */
 interface Command {
-  cmd: Gen2Cmd
-  /** The Gen2 reply the BST-Excitation is sized for, or null when nothing is expected. */
-  reply: Gen2Reply | null
-  /** Set on a Write: the reply comes T3 later, so the excitation is stretched over it. */
-  delayedT3Ns?: Ns
-  /** Query only: the slot count it announces, as 2^Q. */
-  q?: number
-  /** ACK / Read / Write: the handle the addressed tag backscattered. */
-  rn16?: number
+  cmd: BsCmd
+  reply: BsReply
+  /** Read only: the tag addressed (node id) and its EPC, which its 16-bit ID is the CRC-16 of. */
   dst: string
   epc?: string
-  /** True when sending this command opens a new slot of the inventory. */
-  opensSlot: boolean
 }
 
-/** The destination a Query or QueryRep carries: it addresses no tag, because the whole point of
- * an inventory is that the reader does not yet know who is there. A sentinel, not physics. model */
+/** The destination a broadcast trigger carries: ID 0xFFFF in the frame (§39.3.3). */
 const BROADCAST = '*tags'
-/** Inventory session numbers roll 1…255. EPC Gen2's own sessions are S0–S3 and mean something
- * else (which flag a tag keeps); this is a rolling id for "which inventory is this", wide enough
- * that a tag cannot confuse two of them inside one run. model */
+/** Session IDs roll 1…255; 0 would mean non-session random access (§39.3.3). model */
 const SESSION_MODULUS = 255
 
 export class AmpInventoryRound {
   private running = false
   private session = 0
-  /** Slots of this inventory not yet offered. 2^Q at the start of a session, 0 when it is done. */
-  private remaining = 0
-  /** The slot the reader is in, 1-based within the session. */
-  private slot = 0
-  /** Commands still owed inside the current slot: ACK → Read → Write. */
-  private queued: Command[] = []
+  /** Triggers of this inventory not yet sent. */
+  private triggersLeft = 0
+  /** Triggers sent so far in this inventory: the `slot` number of the next is this + 1. */
+  private triggerNo = 0
+  /** Identifiers heard and not yet read, in the order heard: node id and EPC. */
+  private pending: { id: string; epc: string }[] = []
+  /** Tags read in this inventory (node ids), so a tag heard again is not read twice. */
+  private readSet = new Set<string>()
   /** The first PPDU of a TXOP carries the WUP-Excitation; the rest of the TXOP does not. */
   private wupPending = false
   private txopStartNs: Ns = 0
   private txopSlots = 0
+  private txopIds: string[] = []
   private txopRead: string[] = []
   private txopCollisions = 0
   private txopEmpties = 0
-  /** Did the last TXOP get anywhere? A TXOP too short for one command must not be retried forever. */
+  /** Did the last TXOP get anywhere? A TXOP too short for one frame must not be retried forever. */
   private progressed = false
-  /** A poll tick asked for a new inventory while this one still owed slots: it starts once this
-   * session has been let finish, so that no record of it reports a truncated round as complete. */
+  /** A poll tick asked for a new inventory while this one still had work: it starts once this
+   * one is let finish, so that no record of it reports a truncated inventory as complete. */
   private restartPending = false
-  /** The first reply decoded inside the command on the air, and whether one failed to decode. */
+  /** The first reply decoded inside the frame on the air. */
   private lastReply: { frame: FrameDesc; from: string } | null = null
-  /** Something answered in this slot, whether or not the reader could read it. */
+  /** Something answered, whether or not the reader could read it. */
   private lastAnswered = false
 
-  constructor(private cfg: AmpReaderCfg, private deps: AmpReaderDeps) {}
+  constructor(private cfg: AmpReaderCfg, private deps: AmpReaderDeps, private txopLimitNs: () => Ns) {}
 
   get active(): boolean {
     return this.running
   }
 
-  /**
-   * Is there an inventory worth asking for another TXOP for? A session whose slots are all
-   * offered is finished; a TXOP that could not fit a single command would only repeat itself.
-   */
-  get resumable(): boolean {
-    return !this.running && this.remaining > 0 && this.progressed
+  /** All triggers sent and every identifier heard has been read (or had its attempt). */
+  private get done(): boolean {
+    return this.triggersLeft === 0 && this.pending.length === 0
   }
 
   /**
-   * The poll clock ticked: whatever the last inventory left behind, the next TXOP starts a fresh
-   * one under a new session number — which is what clears every tag's inventoried flag (Gen2's
-   * A/B flag, model).
-   *
-   * A tick that arrives while a session is still owed slots does not take them away, because a
-   * poll interval shorter than a session is a common setting and the session is not the tick's
-   * to cut short: a round cut mid-slot would report fewer outcomes than it offered, and a round
-   * cut at a slot boundary would report itself `complete` after two of its four slots. The
-   * restart is remembered instead and applied where the session really ends — at `endTxop` for a
-   * round on the air, and after the resumption for one waiting for its next TXOP with the tags
-   * holding their counters for it.
+   * Is there an inventory worth asking for another TXOP for? One with work left, after a TXOP
+   * that got somewhere: a TXOP that could not fit a single frame would only repeat itself.
+   */
+  get resumable(): boolean {
+    return !this.running && !this.done && this.progressed
+  }
+
+  /**
+   * The poll clock ticked: the next TXOP starts a fresh inventory under a new Session ID. A tick
+   * that arrives while one still has work does not take it away; the restart is remembered and
+   * applied where that inventory really ends.
    */
   newInventory(): void {
     if (this.running || this.resumable) { this.restartPending = true; return }
-    this.remaining = 0
+    this.triggersLeft = 0
+    this.pending = []
     this.restartPending = false
   }
 
@@ -130,8 +133,8 @@ export class AmpInventoryRound {
     return this.cfg.backscatter
   }
 
-  private get txopNs(): Ns {
-    return this.bs.txopMs * 1_000_000
+  private get kbps(): AmpBsUlKbps {
+    return this.bs.ulKbps as AmpBsUlKbps
   }
 
   start(): void {
@@ -139,78 +142,57 @@ export class AmpInventoryRound {
     this.running = true
     this.txopStartNs = this.deps.now()
     this.txopSlots = 0
+    this.txopIds = []
     this.txopRead = []
     this.txopCollisions = 0
     this.txopEmpties = 0
     this.wupPending = true
-    // A TXOP that resumes an unfinished session keeps its number, and the tags keep the counters
-    // they drew under it (11-25/0061r0's "Extend", model); only an exhausted one starts over.
-    if (this.remaining === 0) {
+    if (this.done) {
       this.session = (this.session % SESSION_MODULUS) + 1
-      this.remaining = 2 ** this.bs.q
-      this.slot = 0
+      this.triggersLeft = this.bs.slots
+      this.triggerNo = 0
+      this.pending = []
+      this.readSet = new Set()
     }
     if (this.cfg.protection !== 'ctsSelf') {
       this.step()
       return
     }
-    // CTS-to-self (§10.23.2.8) reserving the whole TXOP: the Wi-Fi stations in the room cannot
-    // hear a tag at all, and a reflection landing under their data is simply lost.
+    // CTS-to-self (§9.2.5.2, §10.3.2.15) reserving the rest of the TXOP: the Wi-Fi stations in the
+    // room cannot hear a tag at all, and a reflection landing under their data is simply lost.
     const t = this.deps.now()
+    const ctsNs = txTimeNs(CTS_BYTES, 6) + this.deps.timing.signalExtNs
     const cts: FrameDesc = {
       kind: 'cts', src: this.deps.nodeId, dst: this.deps.nodeId, bytes: CTS_BYTES, mbps: 6,
-      durationFieldNs: this.txopNs,
-      txTimeNs: txTimeNs(CTS_BYTES, 6) + this.deps.timing.signalExtNs,
+      durationFieldNs: Math.max(0, this.txopLimitNs() - ctsNs),
+      txTimeNs: ctsNs,
     }
     this.deps.transmit(cts)
     this.deps.q.schedule(t + cts.txTimeNs + this.deps.timing.sifsNs, () => this.step())
   }
 
-  /** The next command of the round, or null when the session has offered all its slots. */
+  /** The next frame of the inventory: a Read for an identifier heard, else the next trigger. */
   private nextCommand(): Command | null {
-    const owed = this.queued.shift()
-    if (owed !== undefined) return owed
-    if (this.remaining === 0) return null
-    // A session's first slot is opened by the Query that announces Q; every later one, in this
-    // TXOP or a later one, by a QueryRep that simply says "next slot".
-    const first = this.slot === 0
-    return {
-      cmd: first ? 'query' : 'queryRep', reply: 'rn16', q: first ? this.bs.q : undefined,
-      dst: BROADCAST, opensSlot: true,
+    if (this.bs.read && this.pending.length > 0) {
+      const p = this.pending[0]
+      return { cmd: 'read', reply: 'read', dst: p.id, epc: p.epc }
     }
+    if (this.triggersLeft > 0) return { cmd: 'trigger', reply: 'id', dst: BROADCAST }
+    return null
   }
 
   private build(c: Command, wupNs: Ns, slot: number): FrameDesc {
     return ampRfidFrame({
-      src: this.deps.nodeId, dst: c.dst, cmd: c.cmd, session: this.session, q: c.q, rn16: c.rn16,
-      slot, ulKbps: this.bs.ulKbps as AmpBsUlKbps, wupNs,
-      bstNs: bstNs(c.reply, this.bs.ulKbps as AmpBsUlKbps, c.delayedT3Ns),
+      src: this.deps.nodeId, dst: c.dst, cmd: c.cmd, session: this.session,
+      acwe: c.cmd === 'trigger' ? this.bs.acwe : undefined,
+      slot, ulKbps: this.kbps, wupNs,
+      bstNs: bstNs(c.reply, this.kbps),
       chargeDbm: this.bs.chargeDbm, bsDbm: this.bs.bsDbm,
       signalExtNs: this.deps.timing.signalExtNs, epc: c.epc,
     })
   }
 
-  /**
-   * The air a slot needs before the reader may open it: the command PPDU itself, and — against
-   * the chance that a tag answers in it — the turnaround and the ACK PPDU whose own excitation
-   * carries the EPC back.
-   *
-   * Reserving it is what stops a slot being cut in half. An RN16 the reader hears and can never
-   * acknowledge is a tag lost for the rest of the session (it spent its counter answering) and a
-   * slot that lands in none of the three tallies, so the reader would report fewer outcomes than
-   * slots it offered. Better to leave the slot unopened: the next TXOP offers it whole.
-   *
-   * The Read and the Write that may follow an EPC are deliberately *not* reserved. By then the
-   * tag has been read and counted; losing its 8 octets of memory to a TXOP boundary costs the
-   * inventory nothing, and reserving 1.1 ms (or 3 ms) more per slot would empty most TXOPs.
-   */
-  private slotReserveNs(): Ns {
-    const kbps = this.bs.ulKbps as AmpBsUlKbps
-    const ackNs = ampBsDlPpduNs('ack', 0, bstNs('epc', kbps), this.deps.timing.signalExtNs)
-    return AMP_BS_T2_NS + ackNs
-  }
-
-  /** Send the next command, or close the TXOP because the session is done or the budget is spent. */
+  /** Send the next frame, or close the TXOP because the inventory is done or the TXOP limit reached. */
   private step(): void {
     const c = this.nextCommand()
     if (c === null) {
@@ -218,112 +200,81 @@ export class AmpInventoryRound {
       return
     }
     const wupNs = this.wupPending ? Math.round(this.bs.wupMs * 1_000_000) : 0
-    const slot = c.opensSlot ? this.slot + 1 : this.slot
+    const slot = c.cmd === 'trigger' ? this.triggerNo + 1 : this.triggerNo
     const frame = this.build(c, wupNs, slot)
     const t = this.deps.now()
-    const needNs = frame.txTimeNs + (c.opensSlot ? this.slotReserveNs() : 0)
-    if (t + needNs > this.txopStartNs + this.txopNs) {
-      // Not enough air left. A command that would have opened a slot has not opened it, so the
-      // next TXOP offers it whole; one owed inside a slot can only be an access command after an
-      // EPC already read, and is dropped, because the tag's handle only lives as long as the
-      // carrier that lit it.
-      if (!c.opensSlot) this.queued = []
+    // The whole PPDU, reply included (it lies inside the BST-Excitation), must end inside the
+    // TXOP (§10.23.2.9). What does not fit waits for the next TXOP, untouched.
+    if (t + frame.txTimeNs > this.txopStartNs + this.txopLimitNs()) {
       this.endTxop()
       return
     }
     this.wupPending = false
-    if (c.opensSlot) {
-      this.slot = slot
-      this.remaining--
+    if (c.cmd === 'trigger') {
+      this.triggerNo = slot
+      this.triggersLeft--
       this.txopSlots++
     }
     this.lastReply = null
     this.lastAnswered = false
     this.deps.emit({
-      t, type: 'AMP_RFID', node: this.deps.nodeId, cmd: c.cmd, session: this.session, q: c.q,
+      t, type: 'AMP_RFID', node: this.deps.nodeId, cmd: c.cmd, session: this.session,
+      acwe: c.cmd === 'trigger' ? this.bs.acwe : undefined,
       slot, bstNs: frame.amp!.rfid!.bstNs, untilNs: t + frame.txTimeNs,
     })
     this.deps.transmit(frame)
     // Listen for energy in the middle of where the answer is due. Decoding alone cannot tell a
     // collided slot from an empty one, because two reflections that arrive together are not
     // acquired at all.
-    if (c.reply !== null) {
-      const replyStart = bsDataEndNs(frame)! + (c.delayedT3Ns ?? AMP_BS_T1_NS)
-      const probe = t + replyStart + Math.round(bsReplyNs(c.reply, this.bs.ulKbps as AmpBsUlKbps) / 2)
-      this.deps.q.schedule(probe, () => { this.lastAnswered ||= this.deps.bstEnergy() })
-    }
-    // The tag answers inside this PPDU's own excitation, so by the time the next command is due
-    // — one T2 after the PPDU ends — the slot has already resolved.
+    const replyStart = bsDataEndNs(frame)! + AMP_BS_T1_NS
+    const probe = t + replyStart + Math.round(bsReplyNs(c.reply, this.kbps) / 2)
+    this.deps.q.schedule(probe, () => { this.lastAnswered ||= this.deps.bstEnergy() })
+    // The tag answers inside this PPDU's own excitation, so by the time the next frame is due —
+    // one T2 after the PPDU ends — the exchange has already resolved.
     this.deps.q.schedule(t + frame.txTimeNs + AMP_BS_T2_NS, () => this.resolve(c))
   }
 
-  /** What came back inside the command's excitation decides what the reader says next. */
+  /** What came back inside the frame's excitation decides what the reader sends next. */
   private resolve(c: Command): void {
     const bs = this.lastReply?.frame.amp?.bs
     const from = this.lastReply?.from
-    switch (c.reply) {
-      case 'rn16':
-        if (bs?.reply === 'rn16' && bs.rn16 !== undefined && from !== undefined) {
-          // Exactly one RN16 decoded: acknowledge it and the tag answers with its EPC.
-          this.queued.push({ cmd: 'ack', reply: 'epc', rn16: bs.rn16, dst: from, opensSlot: false })
-        } else if (this.lastAnswered) {
-          this.txopCollisions++
-        } else {
-          this.txopEmpties++
+    if (c.cmd === 'trigger') {
+      if (bs?.reply === 'id' && from !== undefined) {
+        const epc = bs.epc ?? epcOf(from)
+        this.txopIds.push(crc16Epc(epc).toString(16).padStart(4, '0'))
+        if (this.bs.read && !this.readSet.has(from) && !this.pending.some((p) => p.id === from)) {
+          this.pending.push({ id: from, epc })
         }
-        break
-      case 'epc':
-        if (bs?.reply === 'epc' && from !== undefined) {
-          this.txopRead.push(bs.epc ?? epcOf(from))
-          this.queueAccess(c, from, bs.epc)
-        }
-        break
-      case 'read':
-        if (bs?.reply === 'read' && from !== undefined && this.bs.write) {
-          this.queued.push(this.writeCommand(c, from, bs.epc))
-        }
-        break
-      default:
-        break
+      } else if (this.lastAnswered) {
+        this.txopCollisions++
+      } else {
+        this.txopEmpties++
+      }
+    } else {
+      // One Read per identifier heard: a reply spoiled by Wi-Fi leaves the tag to be heard again
+      // by a later trigger, which queues it once more.
+      this.pending.shift()
+      if (bs?.reply === 'read' && from !== undefined) {
+        this.readSet.add(from)
+        this.txopRead.push(bs.epc ?? epcOf(from))
+      }
     }
     this.step()
   }
 
-  /** After an EPC: a Read if the scenario asks for one, then a Write, then the next slot. */
-  private queueAccess(c: Command, dst: string, epc: string | undefined): void {
-    if (this.bs.read) {
-      this.queued.push({ cmd: 'read', reply: 'read', rn16: c.rn16, dst, epc, opensSlot: false })
-    } else if (this.bs.write) {
-      this.queued.push(this.writeCommand(c, dst, epc))
-    }
-  }
-
-  /** A Write answers after T3 = 2 ms, so its excitation is the delayed kind. */
-  private writeCommand(c: Command, dst: string, epc: string | undefined): Command {
-    return {
-      cmd: 'write', reply: 'write', delayedT3Ns: AMP_BS_WRITE_T3_NS,
-      rn16: c.rn16, dst, epc, opensSlot: false,
-    }
-  }
-
   private endTxop(): void {
     const t = this.deps.now()
-    this.queued = []
     this.running = false
-    this.progressed = this.txopSlots > 0
-    // `complete` is read before any pending restart is applied: it says whether this session
-    // offered all 2^Q of its slots, which a poll tick cannot make true by asking for a new one.
-    const complete = this.remaining === 0
+    this.progressed = this.txopSlots > 0 || this.txopRead.length > 0
+    const complete = this.done
     this.deps.emit({
       t, type: 'AMP_INVENTORY', node: this.deps.nodeId, session: this.session,
-      slotsOffered: this.txopSlots, read: this.txopRead, collisions: this.txopCollisions,
+      slotsOffered: this.txopSlots, ids: this.txopIds, read: this.txopRead, collisions: this.txopCollisions,
       empties: this.txopEmpties, txopNs: t - this.txopStartNs, complete,
     })
-    // A tick that arrived during the round takes effect now — unless the session it interrupted
-    // is still resumable, in which case it waits for that resumption too: the tags are holding
-    // the counters they drew, and the next TXOP is owed to them before it is owed to the tick.
     if (this.restartPending && !this.resumable) {
-      this.remaining = 0
+      this.triggersLeft = 0
+      this.pending = []
       this.restartPending = false
     }
     this.deps.done()
@@ -339,8 +290,7 @@ export class AmpInventoryRound {
   /**
    * A reflection that was acquired and then did not decode — a Wi-Fi frame landing on top of it,
    * or a second tag that started late enough to be heard as interference rather than as a rival
-   * preamble. The PHY listener interface carries no failure reason and the reader needs none:
-   * something answered and could not be read, which is exactly what `collisions` counts.
+   * preamble. Something answered and could not be read, which is what `collisions` counts.
    */
   onRxFail(): void {
     if (this.running) this.lastAnswered = true

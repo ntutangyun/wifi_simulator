@@ -41,16 +41,15 @@ describe('fmtRecord', () => {
     expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_RESULT', node: 'tag-1#2g', slot: 3, sent: false, acked: false })).toBe('tag-1#2g slot 3: missed its cue')
   })
   it('renders the five backscatter records', () => {
-    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'query', session: 3, q: 2, slot: 1, bstNs: 142_400, untilNs: 1_516_400 }))
-      .toBe('ap#2g Query (session 3, slot 1, Q 2) — BST 142.4 µs until 0.001 516 400')
-    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'queryRep', session: 3, slot: 2, bstNs: 142_400, untilNs: 452_400 }))
-      .toBe('ap#2g QueryRep (session 3, slot 2) — BST 142.4 µs until 0.000 452 400')
-    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_BS_COUNTER', node: 'tag-1#2g', counter: 2, q: 2 }))
-      .toBe('tag-1#2g slot counter 2 of [0, 3] (Q 2)')
-    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'rn16', slot: 1, rxDbmAtAp: -58.39, snrDb: 11.61 }))
-      .toBe('tag-1#2g backscatters RN16 in slot 1 — -58.4 dBm at the reader, 11.6 dB over its floor')
-    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_INVENTORY', node: 'ap#2g', session: 3, slotsOffered: 1, read: ['0123456789abcdef01234567'], collisions: 0, empties: 0, txopNs: 3_697_200, complete: false }))
-      .toBe('ap#2g inventory session 3: 1 slots, 1 read, 0 collided, 0 empty in 3697.2 µs (to be continued)')
+    // 2026-11-11 (W7b): AMP Trigger / AMP RFID (Read) per PDT 11-26/1519r5 §39.3.3, 11-26/1520r3.
+    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'trigger', session: 3, acwe: 2, slot: 1, bstNs: 318_400, untilNs: 1_788_400 }))
+      .toBe('ap#2g AMP Trigger (session 3, slot 1, ACWE 2) — BST 318.4 µs until 0.001 788 400')
+    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_RFID', node: 'ap#2g', cmd: 'read', session: 3, slot: 2, bstNs: 881_600, untilNs: 1_383_600 }))
+      .toBe('ap#2g Read (session 3, slot 2) — BST 881.6 µs until 0.001 383 600')
+    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_BS_REPLY', node: 'tag-1#2g', kind: 'id', slot: 1, rxDbmAtAp: -58.39, snrDb: 11.61 }))
+      .toBe('tag-1#2g backscatters AMP Response in slot 1 — -58.4 dBm at the reader, 11.6 dB over its floor')
+    expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_INVENTORY', node: 'ap#2g', session: 3, slotsOffered: 1, ids: ['abcd'], read: ['0123456789abcdef01234567'], collisions: 0, empties: 0, txopNs: 2_459_600, complete: false }))
+      .toBe('ap#2g inventory session 3: 1 triggers, 1 identified, 1 read, 0 collided, 0 empty in 2459.6 µs (to be continued)')
     expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_BS_BOOT', node: 'tag-1#2g', powered: true, incidentDbm: -16.2 }))
       .toBe('tag-1#2g boots on -16.2 dBm of excitation')
     expect(fmtRecord({ t: 0, seq: 0, type: 'AMP_BS_BOOT', node: 'tag-1#2g', powered: false, incidentDbm: -16.2 }))
@@ -187,25 +186,28 @@ describe('decodeFrame', () => {
   })
   it('names the excitations of an RFID command and what a reflection carried', () => {
     const cmd = ampRfidFrame({
-      src: 'ap', dst: '*tags', cmd: 'query', session: 1, q: 2, slot: 1, ulKbps: 250,
-      wupNs: 1_000_000, bstNs: 142_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
+      src: 'ap', dst: '*tags', cmd: 'trigger', session: 1, acwe: 2, slot: 1, ulKbps: 250,
+      wupNs: 1_000_000, bstNs: 318_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000,
     })
     const get = (rows: ReturnType<typeof decodeFrame>, f: string) => rows.find((r) => r.field === f)?.value
     const dl = decodeFrame(cmd)
-    expect(get(dl, R.gen2Cmd)).toBe('Query')
-    expect(get(dl, R.q)).toBe(R.qValue(2, 4))
+    expect(get(dl, R.gen2Cmd)).toBe('AMP Trigger')
+    expect(get(dl, R.q)).toBe(R.qValue(2, 3))
     expect(get(dl, R.wup)).toBe('1000.0 µs')
-    expect(get(dl, R.bst)).toBe('142.4 µs')
+    expect(get(dl, R.bst)).toBe('318.4 µs')
     expect(get(dl, R.excitationPower)).toBe(R.excitationValue(10, 0))
 
-    const reply = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'epc', kbps: 250, slot: 1, epc: 'a'.repeat(24) })
+    const reply = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'read', kbps: 250, slot: 1, epc: 'a'.repeat(24) })
     reply.amp!.bs!.incidentDbm = -26.2
     const ul = decodeFrame(reply)
-    expect(get(ul, R.gen2Reply)).toBe('EPC')
+    expect(get(ul, R.gen2Reply)).toBe('Read reply')
     expect(get(ul, R.epc)).toBe('a'.repeat(24))
     expect(get(ul, R.incident)).toBe('-26.2 dBm')
-    // a command with no WUP says so rather than printing a zero
-    const rep = ampRfidFrame({ ...{ src: 'ap', dst: '*tags', cmd: 'queryRep' as const, session: 1, slot: 2, ulKbps: 250 as const, wupNs: 0, bstNs: 142_400, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000 } })
+    // an AMP Response carries only the ID: no EPC row
+    const id = ampBsReplyFrame({ src: 'tag-1', dst: 'ap', reply: 'id', kbps: 250, slot: 1, epc: 'a'.repeat(24) })
+    expect(get(decodeFrame(id), R.epc)).toBeUndefined()
+    // a frame with no WUP says so rather than printing a zero
+    const rep = ampRfidFrame({ src: 'ap', dst: 'tag-1', cmd: 'read', session: 1, slot: 2, ulKbps: 250, wupNs: 0, bstNs: 881_600, chargeDbm: 10, bsDbm: 0, signalExtNs: 6_000 })
     expect(get(decodeFrame(rep), R.wup)).toBe('—')
   })
 })

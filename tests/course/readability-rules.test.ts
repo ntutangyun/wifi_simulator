@@ -700,6 +700,10 @@ describe('lessonTexts · how many items each lesson holds', () => {
    * `uwb-ancillary`) went with the old columns; `git log -p` on this file has them. Every row was
    * re-measured from the course the same day, not copied from a failure message.
    */
+  // 2026-11-11 (W7b): queues jumps −1 (no lifetime drop at the AP any more), edca/amp/wan-rtt ②
+  // rows added (dot11QAPEDCATable, UP, MSCS absent, TXOP split, trigger fields, AMP RFID Read), amp
+  // ① gained the §39.4 / 1520r3 paragraphs, wan-rtt lost the game-mode lab and term, amp-backscatter
+  // lost the Q term.
   const ITEMS: Record<string, readonly number[]> = {
     'radio-primer':            [5, 7, 3, 3, 3, 3, 2, 2],
     'noise-floor':             [5, 6, 3, 2, 3, 3, 2, 2],
@@ -721,13 +725,13 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'rts-cts':                 [7, 12, 3, 3, 3, 3, 2, 1],
     'anomaly':                 [6, 7, 4, 3, 3, 3, 3, 1],
     'retries-queues':          [7, 10, 3, 3, 3, 2, 2, 3],
-    'queues':                  [5, 9, 3, 3, 3, 2, 2, 3],
+    'queues':                  [5, 9, 3, 3, 3, 2, 2, 2],
     'bianchi':                 [7, 9, 4, 3, 3, 3, 3, 4],
     'bianchi-vs-sim':          [5, 7, 4, 3, 3, 2, 3, 4],
     'rate-vs-model':           [7, 9, 4, 3, 3, 2, 3, 4],
     'tier1-project':           [8, 9, 5, 3, 4, 4, 4, 4],
     'tier1-project-review':    [6, 8, 5, 3, 4, 1, 3, 4],
-    'edca':                    [5, 10, 3, 3, 3, 3, 2, 2],
+    'edca':                    [5, 11, 3, 3, 3, 3, 2, 2],
     'edca-cost':               [5, 9, 4, 3, 3, 1, 2, 2],
     'ampdu':                   [6, 9, 3, 3, 3, 3, 2, 2],
     'txop':                    [6, 9, 4, 3, 3, 2, 2, 3],
@@ -748,12 +752,12 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'mumimo-choose':           [7, 10, 3, 3, 3, 3, 3, 3],
     'mlo':                     [7, 12, 3, 3, 3, 3, 3, 3],
     'mlo-gain':                [4, 7, 3, 3, 3, 2, 2, 2],
-    'amp-intro':               [9, 11, 3, 3, 3, 4, 3, 5],
+    'amp-intro':               [10, 14, 3, 3, 3, 4, 3, 5],
     'amp-ppdu':                [10, 13, 3, 3, 3, 6, 3, 3],
-    'amp-slots':               [8, 9, 3, 3, 4, 4, 3, 5],
+    'amp-slots':               [8, 10, 3, 3, 4, 4, 3, 5],
     'amp-coexist':             [9, 9, 3, 3, 4, 4, 3, 5],
-    'amp-backscatter':         [7, 13, 4, 3, 4, 6, 4, 5],
-    'wan-rtt':                 [6, 7, 4, 3, 3, 3, 3, 3],
+    'amp-backscatter':         [9, 18, 4, 3, 4, 5, 4, 5],
+    'wan-rtt':                 [6, 8, 3, 3, 3, 2, 3, 3],
     'capstone':                [5, 11, 5, 3, 4, 2, 3, 4],
     'link-2g':                 [10, 14, 5, 3, 3, 3, 2, 4],
     'uhr-rate-ladder':         [7, 10, 4, 3, 3, 3, 3, 4],

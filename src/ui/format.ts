@@ -1,4 +1,4 @@
-import { GEN2_CMD_NAME, GEN2_REPLY_NAME } from '../engine/ampBs'
+import { BS_CMD_NAME, BS_REPLY_NAME } from '../engine/ampBs'
 import { selBins } from '../engine/selectivity'
 import type { FrameDesc } from '../model/frames'
 import type { TLRecord } from '../model/records'
@@ -126,11 +126,10 @@ export function fmtRecord(r: TLRecord): string {
     case 'AMP_SLOT': return `${r.node} AMP slot ${r.slot} until ${fmtNs(r.untilNs)}`
     case 'AMP_ABOC': return `${r.node} ABOC ${r.aboc} of [0, ${r.acw}] → ${r.slot === null ? 'sits out' : `slot ${r.slot}`}`
     case 'AMP_RESULT': return `${r.node} slot ${r.slot}: ${!r.sent ? 'missed its cue' : r.acked ? 'acknowledged' : 'not acknowledged'}`
-    // Backscatter: the reader's commands, and what the tags reflect back out of them.
-    case 'AMP_RFID': return `${r.node} ${GEN2_CMD_NAME[r.cmd]} (session ${r.session}, slot ${r.slot}${r.q === undefined ? '' : `, Q ${r.q}`}) — BST ${fmtUs(r.bstNs)} until ${fmtNs(r.untilNs)}`
-    case 'AMP_BS_COUNTER': return `${r.node} slot counter ${r.counter} of [0, ${2 ** r.q - 1}] (Q ${r.q})`
-    case 'AMP_BS_REPLY': return `${r.node} backscatters ${GEN2_REPLY_NAME[r.kind]} in slot ${r.slot} — ${r.rxDbmAtAp.toFixed(1)} dBm at the reader, ${r.snrDb.toFixed(1)} dB over its floor`
-    case 'AMP_INVENTORY': return `${r.node} inventory session ${r.session}: ${r.slotsOffered} slots, ${r.read.length} read, ${r.collisions} collided, ${r.empties} empty in ${fmtUs(r.txopNs)}${r.complete ? ' (complete)' : ' (to be continued)'}`
+    // Backscatter: the reader's frames, and what the tags reflect back out of them.
+    case 'AMP_RFID': return `${r.node} ${BS_CMD_NAME[r.cmd]} (session ${r.session}, slot ${r.slot}${r.acwe === undefined ? '' : `, ACWE ${r.acwe}`}) — BST ${fmtUs(r.bstNs)} until ${fmtNs(r.untilNs)}`
+    case 'AMP_BS_REPLY': return `${r.node} backscatters ${BS_REPLY_NAME[r.kind]} in slot ${r.slot} — ${r.rxDbmAtAp.toFixed(1)} dBm at the reader, ${r.snrDb.toFixed(1)} dB over its floor`
+    case 'AMP_INVENTORY': return `${r.node} inventory session ${r.session}: ${r.slotsOffered} triggers, ${r.ids.length} identified, ${r.read.length} read, ${r.collisions} collided, ${r.empties} empty in ${fmtUs(r.txopNs)}${r.complete ? ' (complete)' : ' (to be continued)'}`
     case 'AMP_BS_BOOT': return r.powered
       ? `${r.node} boots on ${r.incidentDbm.toFixed(1)} dBm of excitation`
       : `${r.node} heard a command with no wake-up preamble: no power to answer it`
@@ -218,19 +217,17 @@ export function decodeFrame(f: FrameDesc, S: Strings['frameDetail']['fields'] = 
       rows.push({ field: R.aboc, value: String(f.amp.aboc) })
     } else if (f.amp.rfid) {
       const r = f.amp.rfid
-      rows.push({ field: R.gen2Cmd, value: GEN2_CMD_NAME[r.cmd] })
+      rows.push({ field: R.gen2Cmd, value: BS_CMD_NAME[r.cmd] })
       rows.push({ field: R.sessionSlot, value: `${r.session} / ${r.slot}` })
-      if (r.q !== undefined) rows.push({ field: R.q, value: R.qValue(r.q, 2 ** r.q) })
-      if (r.rn16 !== undefined) rows.push({ field: R.rn16, value: r.rn16.toString(16).padStart(4, '0') })
+      if (r.acwe !== undefined) rows.push({ field: R.q, value: R.qValue(r.acwe, 2 ** r.acwe - 1) })
       rows.push({ field: R.wup, value: r.wupNs === 0 ? '—' : fmtUs(r.wupNs) })
       rows.push({ field: R.bst, value: fmtUs(r.bstNs) })
       rows.push({ field: R.excitationPower, value: R.excitationValue(r.chargeDbm, r.bsDbm) })
     } else if (f.amp.bs) {
       const b = f.amp.bs
-      rows.push({ field: R.gen2Reply, value: GEN2_REPLY_NAME[b.reply] })
+      rows.push({ field: R.gen2Reply, value: BS_REPLY_NAME[b.reply] })
       rows.push({ field: R.slot, value: String(b.slot) })
-      if (b.rn16 !== undefined) rows.push({ field: R.rn16, value: b.rn16.toString(16).padStart(4, '0') })
-      if (b.epc !== undefined) rows.push({ field: R.epc, value: b.epc })
+      if (b.reply === 'read' && b.epc !== undefined) rows.push({ field: R.epc, value: b.epc })
       if (b.incidentDbm !== undefined) rows.push({ field: R.incident, value: `${b.incidentDbm.toFixed(1)} dBm` })
     }
   }

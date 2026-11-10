@@ -23,12 +23,6 @@ import {
 const EDITOR = new URL('../../src/editor/FloorPlanEditor.tsx', import.meta.url)
 const source = (): string => readFileSync(EDITOR, 'utf8')
 
-/** The stock plan with the game-mode boolean on a station, which the engine never reads there. */
-function accelOnSta(): { sc: Scenario; n: NodeCfg } {
-  const base = defaultScenario()
-  const n: NodeCfg = { ...base.nodes[1], gameAccel: true }
-  return { sc: { ...base, nodes: [base.nodes[0], n, base.nodes[2]] }, n }
-}
 
 /** The stock plan with a preset on the access point, which `simulation.ts` drops on the way in. */
 function tamperOnAp(): { sc: Scenario; n: NodeCfg } {
@@ -49,11 +43,12 @@ describe('the node panel speaks the schema’s own refusal', () => {
    * some distinctive run of it would appear in the component's text. None does — the component
    * only names the function.
    */
-  it('holds no second wording of any of the three sentences', () => {
+  // 2026-11-11 (W7b): the game-mode boolean and its refusal are gone (no such switch in IEEE Std
+  // 802.11-2024; MSCS §11.25.3 is not implemented), so one fixture is left.
+  it('holds no second wording of any of the refusal sentences', () => {
     const src = source()
-    const sentences = [...driverRefusalsFor(accelOnSta().sc, accelOnSta().n),
-      ...driverRefusalsFor(tamperOnAp().sc, tamperOnAp().n)]
-    expect(sentences.length, 'the fixtures above really do raise refusals').toBe(2)
+    const sentences = [...driverRefusalsFor(tamperOnAp().sc, tamperOnAp().n)]
+    expect(sentences.length, 'the fixture above really does raise a refusal').toBe(1)
     for (const why of sentences) {
       // a distinctive 12-character run of each sentence, which a paraphrase would not reproduce
       const probe = why.slice(0, 12)
@@ -66,10 +61,6 @@ describe('the node panel speaks the schema’s own refusal', () => {
    * them where it belongs. A refusal that only says "invalid" sends the reader to the source.
    */
   it('says which field it is about and what to do instead', () => {
-    const accel = driverRefusalsFor(accelOnSta().sc, accelOnSta().n)
-    expect(accel.length).toBe(1)
-    expect(accel[0]).toContain('gameAccel')
-    expect(accel[0]).toContain('接入点')
     const tamper = driverRefusalsFor(tamperOnAp().sc, tamperOnAp().n)
     expect(tamper.length).toBe(1)
     expect(tamper[0]).toContain('tamper')

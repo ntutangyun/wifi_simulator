@@ -71,7 +71,23 @@ export function ampId16(nodeId: string): number {
 export interface AmpTriggerArgs {
   src: string; dlKbps: AmpDlKbps; ulKbps: AmpUlKbps; phase: 'random' | 'scheduled'
   slots: number; slotNs: Ns; acwe: number; sessionId: number; staIds: string[]; reading: boolean; roundNs: Ns; signalExtNs: Ns
+  /** Channel Indication, UL frequency shift (MHz) and scrambling seed index (§39.3.2.1, §39.3.2.2, Table 39-1). */
+  channel?: number; ulShiftMhz?: number; seedIdx?: number
 }
+
+/**
+ * The trigger's Channel Indication: the channel number of the AP's primary 20 MHz channel in
+ * 2.4 GHz (§39.3.2.1). This simulator's 2.4 GHz link is one 20 MHz channel and has no number of
+ * its own, so it is channel 6. model
+ */
+export const AMP_AP_CHANNEL_2G = 6
+/** UL frequency shift the AP indicates: zero — the draft lets it choose +5, −5 or 0 MHz (§39.3.2.2). choice */
+export const AMP_UL_SHIFT_MHZ = 0
+/** Scrambling seed index the AP indicates: 0, i.e. SCRAMBLER_INITIAL_VALUE 0x5C (Table 39-1). choice */
+export const AMP_SEED_IDX = 0
+
+/** Table 39-1: scrambling seed index → SCRAMBLER_INITIAL_VALUE (the first 7 bits of the descrambler). */
+export const AMP_SCRAMBLER_INIT = [0x5c, 0x5d, 0x5e, 0x5f] as const
 
 export function ampTriggerFrame(a: AmpTriggerArgs): FrameDesc {
   const bytes = ampTriggerBytes(a.phase === 'scheduled' ? a.staIds.length : 0)
@@ -81,6 +97,7 @@ export function ampTriggerFrame(a: AmpTriggerArgs): FrameDesc {
     amp: {
       dir: 'dl', kbps: a.dlKbps, ulKbps: a.ulKbps, phase: a.phase, slots: a.slots, slotNs: a.slotNs, acwe: a.acwe, sessionId: a.sessionId,
       staIds: a.staIds, reading: a.reading, roundNs: a.roundNs, padNs: AMP_PADDING_NS,
+      channel: a.channel ?? AMP_AP_CHANNEL_2G, ulShiftMhz: a.ulShiftMhz ?? AMP_UL_SHIFT_MHZ, seedIdx: a.seedIdx ?? AMP_SEED_IDX,
     },
   }
 }

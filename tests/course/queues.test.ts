@@ -4,9 +4,13 @@
  * ① was checked against IEEE Std 802.11-2024: §10.23.2.1 (one transmit queue per access category),
  * §10.3.4.5 and §10.7 (which MSDU goes next is the implementation's, within the no-reordering rule),
  * §10.4 and §10.23.2.12.1 (the two lifetimes, and the NOTE that their clocks start at different
- * times), Annex C (512 TU and 500 TU). ② says what the engine does with each, and the row the check
- * turned up — every node here is non-QoS, yet the engine starts the lifetime clock at enqueue — is
- * `differs`, pinned below against the 188 frames that expire without ever being sent.
+ * times), Annex C (512 TU and 500 TU). ② says what the engine does with each. The row the check
+ * turned up — every node here is non-QoS, yet the engine started the lifetime clock at enqueue, so
+ * 188 frames expired without ever being sent — was fixed in the engine.
+ *
+ * 2026-11-11 (W7b): the engine now starts a DCF station's clock at the first attempt (§10.4), so the
+ * row is `faithful`, the default run has no lifetime drop, and the short-lifetime variant is 20 ms
+ * (100 ms became byte-identical to the default). Lab 1 and the jumps moved off the lifetime drops.
  *
  * `lessonShapeSuite(..., { sameSceneAs: 'retries-queues' })` proves the two ids load one scene.
  * ③'s figures are read back out of the lesson text and compared with the three runs.
@@ -19,7 +23,7 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 import { queues } from '../../src/course/tier1/queues'
 import { retriesQueues } from '../../src/course/tier1/retries-queues'
 import { ScenarioSchema } from '../../src/model/scenario'
-import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
+import { DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS, DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
 import { SHORT_RETRY_LIMIT } from '../../src/engine/phy'
 import type { TLRecord } from '../../src/model/records'
 import { fmtRecord } from '../../src/ui/format'
@@ -59,7 +63,6 @@ function apDelays(rs: TLRecord[]): { atNs: number; ms: number }[] {
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 const grouped = (n: number): string => (n >= 10_000 ? n.toLocaleString('en-US').replace(/,/g, ' ') : String(n))
 const us = (ns: number): number => Math.round(ns / 1000)
-const ZH_COUNT = ['零', '一', '两', '三', '四', '五']
 
 const lab = (heading: string): Lab => {
   const l = queues.labs!.find((x) => x.heading === heading)
@@ -98,7 +101,7 @@ describe('queues · the lesson', () => {
     expect(queues.scenario()).toEqual(retriesQueues.scenario())
     expect(queues.variants!.map((v) => v.label)).toEqual(retriesQueues.variants!.map((v) => v.label))
     expect(queues.jumps.map((j) => j.label)).toEqual([
-      '第一次因生存期丢帧（Hidden B）', '第一次因队列满丢帧（AP）', 'AP 第一次因生存期丢帧',
+      '第一次因重传上限丢帧（Hidden B）', '第一次因队列满丢帧（AP）',
     ])
   })
 
@@ -150,23 +153,28 @@ describe('queues · ② says what the engine does, and the engine does it', () =
     expect(checked).toBeGreaterThan(300)
   })
 
-  it('the lifetime clock starts at enqueue (differs), and the check runs over the whole queue', () => {
-    expect(implRow('生存期从何时起算').kind).toBe('differs')
-    expect(DEFAULT_MSDU_LIFETIME_NS).toBe(500 * MS)
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    const sent = new Set(ofType(rs, 'TX_START').map((r) => r.frame.msduId))
-    const aged = drops(rs, 'lifetime', 'ap')
-    for (const d of aged) expect(d.t - enq.get(d.msduId)!).toBeGreaterThan(DEFAULT_MSDU_LIFETIME_NS)
-    // under §10.4 a frame never sent has no running timer; here most of them expire
-    expect(aged.filter((d) => !sent.has(d.msduId)).length).toBeGreaterThan(aged.length / 2)
-    // and a lifetime drop is dequeued, a refused arrival never was
-    const deq = new Set(ofType(rs, 'DEQUEUE').map((r) => r.msduId))
-    for (const d of drops(rs, 'lifetime')) expect(deq.has(d.msduId)).toBe(true)
-    for (const d of drops(rs, 'queueFull')) expect(deq.has(d.msduId)).toBe(false)
+  it('the lifetime clock starts at the first attempt (§10.4): a frame never sent never expires', () => {
+    // 2026-11-11 (W7b): was `differs` (clock from enqueue; 188 never-sent frames expired at the AP).
+    expect(implRow('生存期从何时起算').kind).toBe('faithful')
+    expect(DEFAULT_MSDU_LIFETIME_NS).toBe(500 * 1_024_000)
+    expect(DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS).toBe(512 * 1_024_000)
+    expect(drops(rs, 'lifetime')).toEqual([])
+    const short = recs(1)
+    const firstTx = new Map<number, number>()
+    for (const r of ofType(short, 'TX_START')) if (r.frame.msduId !== undefined && !firstTx.has(r.frame.msduId)) firstTx.set(r.frame.msduId, r.t)
+    const aged = drops(short, 'lifetime')
+    expect(aged.length).toBeGreaterThan(100)
+    for (const d of aged) expect(d.t - firstTx.get(d.msduId)!).toBeGreaterThan(20 * MS)
+    // a lifetime drop is dequeued, a refused arrival never was
+    const deq = new Set(ofType(short, 'DEQUEUE').map((r) => r.msduId))
+    for (const d of aged) expect(deq.has(d.msduId)).toBe(true)
+    for (const d of drops(short, 'queueFull')) expect(deq.has(d.msduId)).toBe(false)
   })
 
   it('only three ways to be given up, and a retry-limit drop always used all seven attempts', () => {
-    expect([...new Set(ofType(rs, 'DROP').map((r) => r.reason))].sort()).toEqual(['lifetime', 'queueFull', 'retryLimit'])
+    // the default run gives up only two ways; the 20 ms variant adds the third
+    expect([...new Set(ofType(rs, 'DROP').map((r) => r.reason))].sort()).toEqual(['queueFull', 'retryLimit'])
+    expect([...new Set(ofType(recs(1), 'DROP').map((r) => r.reason))].sort()).toEqual(['lifetime', 'queueFull', 'retryLimit'])
     const attempts = new Map<number, number>()
     for (const r of ofType(rs, 'TX_START')) {
       if (r.frame.kind !== 'data' || r.frame.msduId === undefined) continue
@@ -177,7 +185,7 @@ describe('queues · ② says what the engine does, and the engine does it', () =
 
   it('the log names each reason', () => {
     expect(fmtRecord(drops(rs, 'queueFull', 'ap')[0])).toMatch(/^ap DROP #\d+ \(queueFull\)$/)
-    expect(fmtRecord(drops(rs, 'lifetime', 'ap')[0])).toMatch(/^ap DROP #\d+ \(lifetime\)$/)
+    expect(fmtRecord(drops(recs(1), 'lifetime', 'ap')[0])).toMatch(/^ap DROP #\d+ \(lifetime\)$/)
     expect(fmtRecord(drops(rs, 'retryLimit')[0])).toMatch(/^sta-\d DROP #\d+ \(retryLimit\)$/)
   })
 
@@ -188,29 +196,29 @@ describe('queues · ② says what the engine does, and the engine does it', () =
 })
 
 describe('queues · ③ every figure the labs print is the run', () => {
-  it('lab 1: three frames expire together, all queued at 0 µs; the head flew five times, the others never', () => {
+  /** First transmission instant of every MSDU of a run. */
+  const firstTxOf = (rs: TLRecord[]): Map<number, number> => {
+    const m = new Map<number, number>()
+    for (const r of ofType(rs, 'TX_START')) if (r.frame.msduId !== undefined && !m.has(r.frame.msduId)) m.set(r.frame.msduId, r.t)
+    return m
+  }
+
+  it('lab 1: Hidden B\'s first frame, first sent at 0 µs and given up seven attempts later; nothing expires', () => {
     const rs = recs()
-    const life = drops(rs, 'lifetime', 'sta-2')
-    const t0 = life[0].t
-    const together = life.filter((r) => r.t === t0)
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    const attempts = new Map<number, number>()
-    for (const r of ofType(rs, 'TX_START')) {
-      if (r.frame.msduId === undefined) continue
-      attempts.set(r.frame.msduId, (attempts.get(r.frame.msduId) ?? 0) + 1)
-    }
-    const flew = together.filter((d) => attempts.has(d.msduId))
-    expect(flew).toHaveLength(1)
-    const head = flew[0]
-    const headSeq = ofType(rs, 'TX_START').find((r) => r.frame.msduId === head.msduId)!.frame.seqNo
-    const e = lab('三帧同时因生存期被丢弃').expect
-    expect(e).toContain(`${grouped(us(t0))} µs 处 Hidden B 一次丢弃${ZH_COUNT[together.length]}帧`)
-    for (const d of together) expect(enq.get(d.msduId)).toBe(0)
-    expect(e).toContain('三帧都是在 0 µs 入队的')
-    expect(e).toContain(`（序列号 ${headSeq}）发送过 ${attempts.get(head.msduId)} 次，后面${ZH_COUNT[together.length - 1]}帧一次也没有发送过`)
+    const e = lab('生存期从第一次发送起算').expect
+    const rl = drops(rs, 'retryLimit', 'sta-2')[0]
+    const ft = firstTxOf(rs)
+    expect(e).toContain(`在 ${us(ft.get(rl.msduId)!)} µs 第一次发送，${grouped(us(rl.t))} µs 发满七次被丢弃`)
+    const hidden = [...drops(rs, 'retryLimit', 'sta-1'), ...drops(rs, 'retryLimit', 'sta-2')]
+    expect(e).toContain(`两台上传站点共有 ${hidden.length} 帧发满七次被丢弃`)
+    expect(e).toContain(`最长只用 ${Math.round(Math.max(...hidden.map((d) => d.t - ft.get(d.msduId)!)) / MS)} ms`)
+    let apMax = 0
+    for (const r of ofType(rs, 'DEQUEUE')) if (r.node === 'ap' && ft.has(r.msduId)) apMax = Math.max(apMax, r.t - ft.get(r.msduId)!)
+    expect(e).toContain(`接入点的帧从第一次发送到离开队列最长 ${Math.round(apMax / MS)} ms`)
+    expect(drops(rs, 'lifetime')).toEqual([])
   })
 
-  it('lab 2: the video offered and delivered, the instants the queue fills and the clock bites', () => {
+  it('lab 2: the video offered and delivered, the instant the queue fills, and the worst wait', () => {
     const rs = recs()
     const e = lab('接入点的队列被填满').expect
     const offered = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap').length + drops(rs, 'queueFull', 'ap').length
@@ -221,16 +229,11 @@ describe('queues · ③ every figure the labs print is the run', () => {
     const qf = drops(rs, 'queueFull', 'ap')[0]
     expect(ofType(rs, 'ENQUEUE').filter((r) => r.node === 'ap' && r.t <= qf.t).pop()!.depth).toBe(DEFAULT_QUEUE_LIMIT)
     expect(e).toContain(`${grouped(us(qf.t))} µs 时队列已有 ${DEFAULT_QUEUE_LIMIT} 帧`)
-    const life = drops(rs, 'lifetime', 'ap')
-    const atOnce = life.filter((r) => r.t === life[0].t)
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    const ages = atOnce.map((r) => (r.t - enq.get(r.msduId)!) / MS)
-    expect(e).toContain(`${grouped(us(life[0].t))} µs 处 AP 一次丢弃${ZH_COUNT[atOnce.length]}帧，已排队 ${Math.min(...ages).toFixed(1)} 到 ${Math.max(...ages).toFixed(1)} ms`)
-    const sent = new Set(ofType(rs, 'TX_START').map((r) => r.frame.msduId))
-    expect(e).toContain(`AP 因生存期丢弃 ${life.length} 帧，其中 ${life.filter((x) => !sent.has(x.msduId)).length} 帧一次也没有发送过，${life.filter((x) => sent.has(x.msduId)).length} 帧发送过`)
+    expect(e).toContain(`三秒内一共拒绝 ${drops(rs, 'queueFull', 'ap').length} 帧`)
+    expect(e).toContain(`等待最久的一帧等了 ${Math.round(Math.max(...apDelays(rs).map((x) => x.ms)))} ms`)
   })
 
-  it('lab 2: the waiting-time table, window by window, and where it stops', () => {
+  it('lab 2: the waiting-time table, window by window, rising to the last', () => {
     const d = apDelays(recs())
     const rows = tableOf(lab('接入点的队列被填满'), '送达帧的等待时间').rows
     expect(rows).toHaveLength(6)
@@ -239,14 +242,17 @@ describe('queues · ③ every figure the labs print is the run', () => {
       const m = Math.round(mean(d.filter((x) => x.atNs >= w * 500 * MS && x.atNs < (w + 1) * 500 * MS).map((x) => x.ms)))
       expect(ms, win).toBe(`${m} ms`)
     })
-    expect(lab('接入点的队列被填满').expect).toContain(`之后稳定在 ${rows[5][1]}`)
-    expect(Math.max(...d.map((x) => x.ms))).toBeLessThan(501)
+    expect(lab('接入点的队列被填满').expect).toContain(`最后半秒达到 ${rows[5][1]}`)
+    // 2026-11-11: the wait used to settle just under the 500 ms lifetime; with the DCF clock
+    // started at the first attempt (§10.4) it is bounded by the queue only, and keeps rising.
+    const vals = rows.map((r) => Number(r[1].replace(' ms', '')))
+    for (let i = 1; i < vals.length; i++) expect(vals[i]).toBeGreaterThan(vals[i - 1])
   })
 
   it('lab 3: three runs, twelve cells, and the counts the expectation adds', () => {
     const runs = [recs(), recs(0), recs(1)]
     expect(queues.variants![0].scenario().queue).toEqual({ limit: 100, lifetimeMs: 500 })
-    expect(queues.variants![1].scenario().queue).toEqual({ limit: 500, lifetimeMs: 100 })
+    expect(queues.variants![1].scenario().queue).toEqual({ limit: 500, lifetimeMs: 20 })
     const rows = tableOf(lab('两个参数，三次运行'), '同样的三秒，三种设置').rows
     rows.forEach((row, i) => {
       const rs = runs[i]
@@ -260,16 +266,18 @@ describe('queues · ③ every figure the labs print is the run', () => {
     const e = lab('两个参数，三次运行').expect
     expect(new Set(runs.map((rs) => delivered(rs)['ap'])).size).toBe(1)
     expect(e).toContain(`AP 送达的都是 ${rows[0][4]} 帧`)
-    expect(e).toContain(`入队失败从 ${rows[0][1]} 增加到 ${rows[1][1]}，AP 处过时丢弃降为 ${rows[1][2]}`)
-    expect(e).toContain(`AP 处过时丢弃增加到 ${rows[2][2]}`)
-    const aged = (rs: TLRecord[]) => drops(rs, 'lifetime', 'sta-1').length + drops(rs, 'lifetime', 'sta-2').length
-    expect(aged(runs[0])).toBeLessThan(20)
-    expect(e).toContain(`两台上传站点有 ${aged(runs[2])} 帧因生存期被丢弃，默认设置下不到 20 帧`)
-    expect(e).toContain(`发满七次的帧反而从 ${rows[0][3]} 降到 ${rows[2][3]}`)
+    expect(e).toContain(`入队失败从 ${rows[0][1]} 增加到 ${rows[1][1]}，AP 处过时丢弃仍为 ${rows[1][2]}`)
+    expect(e).toContain(`AP 处过时丢弃增加到 ${rows[2][2]}，入队失败为 ${rows[2][1]}`)
+    const aged = (rs: TLRecord[]) => [...drops(rs, 'lifetime', 'sta-1'), ...drops(rs, 'lifetime', 'sta-2')]
+    expect(aged(runs[0])).toEqual([])
+    expect(e).toContain(`两台上传站点有 ${aged(runs[2]).length} 帧因生存期被丢弃，每一帧都已发送过，默认设置下为 0`)
+    const ft = firstTxOf(runs[2])
+    for (const d of aged(runs[2])) expect(ft.has(d.msduId)).toBe(true)
+    expect(e).toContain(`发满七次的帧从 ${rows[0][3]} 降到 ${rows[2][3]}`)
     const lastSecond = (rs: TLRecord[]) => Math.round(mean(apDelays(rs).filter((x) => x.atNs >= 2000 * MS).map((x) => x.ms)))
     expect(e).toContain(`依次是 ${runs.map((rs) => `${lastSecond(rs)} ms`).join('、')}`)
-    // the quiz quotes the default's last second
-    expect(queues.quiz[2].explain).toContain(`最后一秒的平均等待是 ${lastSecond(runs[0])} ms`)
+    // the quiz quotes the default's last second and the short queue's
+    expect(queues.quiz[2].explain).toContain(`最后一秒的平均等待是 ${lastSecond(runs[0])} ms；100 帧的队列下是 ${lastSecond(runs[1])} ms`)
     expect(queues.quiz[2].options[1]).toContain(`那 ${rows[0][4]} 帧`)
   })
 })

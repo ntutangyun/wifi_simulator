@@ -78,9 +78,9 @@ function addLatency(l: LatencyStats, dtNs: Ns): void {
  * reader can hear it. Present only on a tag whose scenario says `mode: 'backscatter'`.
  */
 export interface AmpBsTagView {
-  /** Gen2 slot counter: how many more slots before this tag answers. null = not in a round. */
+  /** The ABOC this tag drew for the trigger on the air (it answers when it is 0, §39.4); null otherwise. */
   counter: number | null
-  /** Read in this session, and silent for the rest of it (Gen2's A/B flag). */
+  /** Its EPC has gone out in a Read reply. */
   inventoried: boolean
   /** Reflections this tag has put on the air. */
   replies: number
@@ -113,19 +113,20 @@ export interface AmpInventoryView {
   /** The slot the reader is offering, 1-based within the session. */
   slot: number
   /**
-   * EPCs read, slots the reader heard two answers in, and slots with no answer it could hear —
-   * **this TXOP**, and filled in at its end, because `AMP_INVENTORY` is the only record that
-   * carries the reader's own energy judgement. The row therefore reads 0 / 0 / 0 while a TXOP is
-   * running and lands complete when it closes; `slot` is what moves live. Deriving `read` early
-   * from the ACK commands would fill one column of three and leave the other two at zero, which
-   * reads as a result rather than as "not yet".
+   * The three outcomes of the triggers sent **this TXOP** — an identifier decoded from an AMP
+   * Response (`identified`), something reflected that could not be read (`collisions`), nothing
+   * the reader could hear (`empties`) — and the EPCs Read replies returned (`read`). Filled in at
+   * the TXOP's end, because `AMP_INVENTORY` is the only record that carries the reader's own
+   * energy judgement; the row therefore reads 0 while a TXOP is running and lands complete when
+   * it closes, and `slot` is what moves live.
    *
-   * Which is why the closed tally is also kept on the lane as `ampInventoryLast`: the reader
-   * reports it and goes back to deferring in the same instant, and the defer clears the round.
+   * The closed tally is also kept on the lane as `ampInventoryLast`: the reader reports it and
+   * goes back to deferring in the same instant, and the defer clears the round.
    */
-  read: number
+  identified: number
   collisions: number
   empties: number
+  read: number
 }
 
 /** The AP lane's live AMP round: the poll's shape and which tags have replied so far. */
@@ -658,6 +659,7 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       a.slot = r.slot
       a.roundsHeard++
       if (r.slot === null) a.roundsSatOut++
+      if (a.bs) a.bs.counter = r.aboc
       break
     }
     case 'AMP_RESULT': {
@@ -679,13 +681,13 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
         prev.slot = r.slot
         n.ampRound.slot = r.slot
         n.ampRound.untilNs = r.untilNs
-        // Only a Query announces Q; a QueryRep resuming a session keeps what it announced.
-        if (r.q !== undefined) n.ampRound.slots = 2 ** r.q
+        // Each trigger allocates one slot (§39.3.3): the count so far is the trigger number.
+        n.ampRound.slots = r.slot
       } else {
         n.ampRound = {
-          phase: 'random', slot: r.slot, slots: r.q === undefined ? 0 : 2 ** r.q,
+          phase: 'random', slot: r.slot, slots: r.slot,
           untilNs: r.untilNs, received: [],
-          inventory: { session: r.session, slot: r.slot, read: 0, collisions: 0, empties: 0 },
+          inventory: { session: r.session, slot: r.slot, identified: 0, collisions: 0, empties: 0, read: 0 },
         }
       }
       break
@@ -694,23 +696,17 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       const n = vs.nodes[r.node]
       const inv = n.ampRound?.inventory
       if (inv && inv.session === r.session) {
-        inv.read = r.read.length
+        inv.identified = r.ids.length
         inv.collisions = r.collisions
         inv.empties = r.empties
+        inv.read = r.read.length
       }
       // Kept beside the round, because the reader's own defer clears the round at this instant.
-      // The slot is where the session had got to: a TXOP that ran out of air stops short of 2^Q.
+      // The slot is the trigger the inventory had got to.
       n.ampInventoryLast = {
         session: r.session, slot: inv?.slot ?? r.slotsOffered,
-        read: r.read.length, collisions: r.collisions, empties: r.empties,
+        identified: r.ids.length, collisions: r.collisions, empties: r.empties, read: r.read.length,
       }
-      break
-    }
-    case 'AMP_BS_COUNTER': {
-      const bs = vs.nodes[r.node].amp?.bs
-      if (!bs) break
-      bs.counter = r.counter
-      bs.inventoried = false
       break
     }
     case 'AMP_BS_REPLY': {
@@ -718,10 +714,10 @@ export function applyRecord(vs: ViewState, r: TLRecord): void {
       if (!bs) break
       bs.replies++
       bs.lastSnrDb = r.snrDb
-      // The EPC is what gets a tag inventoried; after it the tag is silent for the session.
-      if (r.kind === 'epc') bs.inventoried = true
-      // Answering uses the slot up, whether or not the reader could read it.
-      if (r.kind === 'rn16') bs.counter = null
+      // Its EPC went out in a Read reply: what the reader learns a tag by.
+      if (r.kind === 'read') bs.inventoried = true
+      // Answering uses the trigger's single slot up, whether or not the reader could read it.
+      if (r.kind === 'id') bs.counter = null
       break
     }
     case 'AMP_BS_BOOT': {

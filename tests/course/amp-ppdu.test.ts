@@ -113,7 +113,9 @@ describe('amp-ppdu · ② says what the engine does, and the engine does it', ()
     expect(AMP_PADDING_NS).toBe(20 * US)
     expect(AMP_PADDING_PROTECTED_NS).toBe(36 * US)
     const dl = ofType(rs, 'TX_START').filter((r) => r.frame.amp?.dir === 'dl')
-    expect(dl.length).toBe(50)
+    // 2026-11-11 (W7b): 60, not 50 — a 250 kb/s round of four slots is now two AC_BK TXOPs
+    // (§10.23.2.9), so each poll sends two triggers: 20 triggers + 40 Acks.
+    expect(dl.length).toBe(60)
     for (const r of dl) expect(r.frame.amp!.padNs).toBe(AMP_PADDING_NS)
   })
 

@@ -93,7 +93,8 @@ const same = (printed: string, measured: number, what: string): void => {
   const dp = (fig.split('.')[1] ?? '').length
   expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`).toBe(Number(measured.toFixed(dp)))
 }
-const zh = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+// 2026-11-11 (W7b): the sensor now sends 两 frames; 「两」 is how written Chinese counts two.
+const zh = (s: string): number => '零一二三四五六七八九十'.indexOf(s === '两' ? '二' : s)
 const members = (s: Scene): string[] => [...new Set(s.rs.flatMap((r) => (r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts
   ? r.frame.muParts.map((p) => p.dst) : [])))].sort()
 
@@ -142,9 +143,12 @@ describe('capstone · the lesson', () => {
 })
 
 describe('capstone · ② says what the engine does, and the engine does it', () => {
-  it('the access category comes from the traffic profile; the saturated upload is AC_BE', () => {
+  // 2026-11-11 (W7b): every MSDU now carries a user priority and its AC is looked up in Table 10-1
+  // (§10.2.3.2); only the UP itself comes from the profile, which the standard leaves above the MAC.
+  // So the row is a `choice`, no longer `differs`.
+  it('the access category follows each frame’s user priority; the saturated upload is AC_BE', () => {
     const r = implRow('帧归入哪一类')
-    expect(r.kind).toBe('differs')
+    expect(r.kind).toBe('choice')
     const acOf = (id: string): (number | null | undefined)[] => [...new Set(base.rs.filter((x): x is Extract<TLRecord, { type: 'ENQUEUE' }> =>
       x.type === 'ENQUEUE' && (x.node === id || x.dst === id)).map((x) => x.ac))]
     const AC = ['AC_BK', 'AC_BE', 'AC_VI', 'AC_VO']
@@ -251,11 +255,14 @@ describe('capstone · ③ every figure the labs print is the run', () => {
   // 2026-11-11 (W7a), re-measured: the tablet's mean wait is one page of 63 MSDUs queued at once,
   // and after the engine change it went from 39.06 to 180.71 ms; the upgrade now saves about 3 %,
   // printed as a percentage rather than the 「约八分之一」 it was.
-  it('lab 4: the tablet upgrade, about 3 per cent, and the two it groups', () => {
-    const e = /备份仍然送达 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)，约 (\d+)%；.*都只编入电视与投影仪/.exec(lab('给平板换一台 Wi-Fi 6 电台').expect)!
+  // 2026-11-11 (W7b, the AP on dot11QAPEDCATable — AC_BE CWmax 63 — and per-frame UP): the tablet's
+  // page now waits 4.36 ms on average, and the upgrade moves it by about 1 % (to 4.40 ms, slightly
+  // worse), so the sentence says 「几乎不变（相差约 1%）」 and this reads the size of the change.
+  it('lab 4: the tablet upgrade, about 1 per cent either way, and the two it groups', () => {
+    const e = /备份仍然送达 ([\d.]+) 兆字节，平板的等待从 ([\d.]+) ms 变成 ([\d.]+) ms，几乎不变（相差约 (\d+)%）；.*都只编入电视与投影仪/.exec(lab('给平板换一台 Wi-Fi 6 电台').expect)!
     same(e[1], tabletNew.upMb, 'backup with the new tablet')
     same(e[2], base.rxWait('sta-4'), 'tablet before'); same(e[3], tabletNew.rxWait('sta-4'), 'tablet after')
-    expect(Math.round(100 * (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')) / base.rxWait('sta-4'))).toBe(Number(e[4]))
+    expect(Math.abs(Math.round(100 * (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')) / base.rxWait('sta-4')))).toBe(Number(e[4]))
     const names = Object.fromEntries(capstoneTopology().nodes.map((n) => [n.id, n.label]))
     expect(members(base).map((id) => names[id])).toEqual(['电视', '投影仪'])
     // the AC split the meaning rests on
@@ -271,10 +278,13 @@ describe('capstone · ③ every figure the labs print is the run', () => {
     same(b[1], base.air('sta-1'), 'rubric 5 GHz'); same(b[2], base.air('sta-1#6g'), 'rubric 6 GHz')
     expect(zh(b[3])).toBe(data(base.rs, 'sta-5').length)
     expect(base.upMb / radioOff.upMb).toBeGreaterThan(1.9)
-    expect(Math.round(100 * (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')) / base.rxWait('sta-4'))).toBe(Number(/只降了约 (\d+)%/.exec(row('那台平板'))![1]))
-    // the order the lab expects: stopping frees most waiting, then the radio, then the tablet
+    expect(Math.abs(Math.round(100 * (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')) / base.rxWait('sta-4')))).toBe(Number(/几乎不变（相差约 (\d+)%）/.exec(row('那台平板'))![1]))
+    // the order the lab expects: stopping frees most waiting, then the tablet (almost nothing), and
+    // last the radio, which frees a NEGATIVE amount. 2026-11-11 (W7b): with the second radio off the
+    // tablet's wait rises from 4.36 to 10.57 ms, so the radio and the tablet swapped places.
     const freed = (s: Scene) => ['sta-2', 'sta-4'].reduce((a, id) => a + base.rxWait(id) - s.rxWait(id), 0) + base.txWait('sta-3') - s.txWait('sta-3')
-    expect(freed(backupStopped)).toBeGreaterThan(freed(radioOff))
-    expect(freed(radioOff)).toBeGreaterThan(freed(tabletNew))
+    expect(freed(backupStopped)).toBeGreaterThan(freed(tabletNew))
+    expect(freed(tabletNew)).toBeGreaterThan(freed(radioOff))
+    expect(freed(radioOff)).toBeLessThan(0)
   })
 })

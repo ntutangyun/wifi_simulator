@@ -305,7 +305,7 @@ export function bsTag(id: string, name: string, x: number, y: number, z = 1.0): 
 }
 
 /**
- * An AP running EPC Gen2 inventory rounds: `ampAp` plus the `backscatter` section that makes it
+ * An AP running mono-static inventories: `ampAp` plus the `backscatter` section that makes it
  * a mono-static reader (`engine/ampReader.ts`). `z` is explicit for the reason `bsTag`'s is.
  */
 export function bsReader(
@@ -440,13 +440,13 @@ export const firstScheduledTrigger = txOf((r) => r.frame.kind === 'ampTrigger' &
 /** Backscatter: the first tag that harvested enough of a WUP-Excitation to start thinking at
  * all. The one record in this engine that reports a device coming into existence. */
 export const firstBsBoot = (r: TLRecord): boolean => r.type === 'AMP_BS_BOOT' && r.powered
-/** Backscatter: the Query that opens an EPC Gen2 inventory and announces its 2^Q slots. */
-export const firstBsQuery = txOf((r) => r.frame.kind === 'ampRfid' && r.frame.amp?.rfid?.cmd === 'query')
-/** Backscatter: the first EPC a tag reflected back — the only reply in the round that identifies
- * anything, and the only one the reader records as a reading. */
-export const firstBsEpc = txOf((r) => r.frame.kind === 'ampBsReply' && r.frame.amp?.bs?.reply === 'epc')
-/** Backscatter: the first TXOP that ran out of air with slots of the session still unoffered, so
- * the tags hold their slot counters and the next TXOP resumes the same session. */
+/** Backscatter: the broadcast AMP Trigger that opens a mono-static inventory (one slot, §39.3.3). */
+export const firstBsQuery = txOf((r) => r.frame.kind === 'ampRfid' && r.frame.amp?.rfid?.cmd === 'trigger')
+/** Backscatter: the first EPC a tag reflected back, in the reply to a Read — the only reply that
+ * carries the EPC, and the one the reader records as a reading. */
+export const firstBsEpc = txOf((r) => r.frame.kind === 'ampBsReply' && r.frame.amp?.bs?.reply === 'read')
+/** Backscatter: the first TXOP that reached the AC_BK TXOP limit with work of the inventory left,
+ * so the next AC_BK TXOP continues the same session. */
 export const firstBsPartialRound = (r: TLRecord): boolean => r.type === 'AMP_INVENTORY' && !r.complete
 /** Backscatter: the first slot in which something reflected and the reader could read none of
  * it — which is what `collisions` counts, and not "two tags answered". */

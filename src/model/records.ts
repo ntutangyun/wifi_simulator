@@ -1,12 +1,10 @@
-import type { Gen2Cmd, Gen2Reply } from '../engine/ampBs'
+import type { BsCmd, BsReply } from '../engine/ampBs'
 import type { UwbRecord } from '../uwb/records'
 import type { FrameDesc } from './frames'
 import type { Ns } from './types'
 
 export type MacStateName =
   | 'idle' | 'defer' | 'backoff' | 'tx' | 'waitAck' | 'waitCts' | 'sifsResp' | 'rx' | 'ampWait'
-  /** A backscatter tag holding a non-zero slot counter: powered, listening, not yet its turn. */
-  | 'bsWait'
   | 'uwbWait'
 
 /** One observable micro-event. The timeline is the append-only sequence of these. */
@@ -81,29 +79,28 @@ export type TLRecord = { t: Ns; seq: number } & (
   /** A tag's attempt in its chosen slot resolved. */
   | { type: 'AMP_RESULT'; node: string; slot: number; sent: boolean; acked: boolean }
   /**
-   * One EPC Gen2 command the reader put on the air inside a downlink RFID PPDU: which command,
-   * which inventory session and slot it belongs to, how long the BST-Excitation behind it holds
-   * the carrier open for an answer, and when the whole PPDU ends. `q` is present on a Query only
-   * — it is the Query that announces how many slots the round has.
+   * One frame the mono-static reader put on the air inside a downlink PPDU: an AMP Trigger
+   * (`cmd: 'trigger'`, with its ACWE) or an AMP RFID frame carrying the UHF Read command; which
+   * inventory session and trigger (`slot`, 1-based) it belongs to; how long the BST-Excitation
+   * behind it holds the carrier open for an answer; and when the whole PPDU ends.
    */
-  | { type: 'AMP_RFID'; node: string; cmd: Gen2Cmd; session: number; q?: number; slot: number; bstNs: Ns; untilNs: Ns }
-  /** A backscatter tag's Gen2 slot counter, drawn uniformly in [0, 2^Q − 1] on a Query. */
-  | { type: 'AMP_BS_COUNTER'; node: string; counter: number; q: number }
+  | { type: 'AMP_RFID'; node: string; cmd: BsCmd; session: number; acwe?: number; slot: number; bstNs: Ns; untilNs: Ns }
   /**
    * A tag backscattered an answer. It carries no power of its own, so what the reader gets is
    * `rxDbmAtAp` — the excitation twice through the path loss and 6 dB down — and `snrDb` is that
    * against the reader's own self-leakage floor, which is the whole story of mono-static reach.
    */
-  | { type: 'AMP_BS_REPLY'; node: string; kind: Gen2Reply; slot: number; rxDbmAtAp: number; snrDb: number }
+  | { type: 'AMP_BS_REPLY'; node: string; kind: BsReply; slot: number; rxDbmAtAp: number; snrDb: number }
   /**
    * The reader's tally at the end of one inventory TXOP. `session` and `complete` describe the
-   * inventory as a whole (complete once 2^Q slots have been offered); `slotsOffered`, `read`,
-   * `collisions`, `empties` and `txopNs` describe this TXOP alone, so a session spread over
-   * several TXOPs is the sum of its records.
+   * inventory as a whole (complete once all its triggers have been sent and every identifier heard
+   * has been read, or had its chance); `slotsOffered` (triggers sent), `ids` (identifiers decoded
+   * from AMP Responses, 4 hex digits), `read` (EPCs from Read replies), `collisions`, `empties`
+   * and `txopNs` describe this TXOP alone, so a session spread over several TXOPs is the sum of
+   * its records.
    *
-   * Every slot offered lands in exactly one of the three columns, so
-   * `read.length + collisions + empties === slotsOffered` holds for every record: the reader
-   * never opens a slot it has not reserved the air to finish.
+   * Every trigger sent lands in exactly one of `ids`, `collisions`, `empties`, so
+   * `ids.length + collisions + empties === slotsOffered` holds for every record.
    *
    * `complete` is the session's own state at this instant and nothing else's: a poll tick that
    * lands mid-round asks for a new inventory but does not end this one, so it can never make a
@@ -119,7 +116,7 @@ export type TLRecord = { t: Ns; seq: number } & (
    * reply reach: the charge power carries much further than a reflection does, so those are not
    * the same distance, and neither is a collision.
    */
-  | { type: 'AMP_INVENTORY'; node: string; session: number; slotsOffered: number; read: string[]; collisions: number; empties: number; txopNs: Ns; complete: boolean }
+  | { type: 'AMP_INVENTORY'; node: string; session: number; slotsOffered: number; ids: string[]; read: string[]; collisions: number; empties: number; txopNs: Ns; complete: boolean }
   /**
    * A backscatter tag woke up (or could not). `powered: true` is a tag that harvested
    * `incidentDbm` through a WUP-Excitation; `powered: false` is one that heard a command with no

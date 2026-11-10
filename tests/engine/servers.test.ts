@@ -46,13 +46,16 @@ describe('a station gaming against a cloud server', () => {
     }
   })
 
-  it('game frames are AC_BE with the router’s game acceleration off, AC_VI with it on', () => {
+  // 2026-11-11 (W7b): the router game-mode switch is gone (no such switch in IEEE Std 802.11-2024;
+  // MSCS §11.25.3 not implemented). A game marks UP 0, so its frames are AC_BE (Table 10-1), and a
+  // plan saved with the old boolean on the AP is stripped on load and runs the same.
+  it('game frames are AC_BE (UP 0, Table 10-1), with or without a saved game-mode boolean', () => {
     const acOf = (r: typeof recs) => new Set(r.filter((x) => x.type === 'ENQUEUE' && x.node === 'sta-1').map((x) => x.type === 'ENQUEUE' ? x.ac : -1))
     expect(acOf(recs)).toEqual(new Set([1]))
     const on = gamer()
-    on.nodes[0].gameAccel = true
+    ;(on.nodes[0] as typeof on.nodes[0] & { gameAccel?: boolean }).gameAccel = true
     const recsOn = new Simulation(on).runUntil(200 * MS).records
-    expect(acOf(recsOn)).toEqual(new Set([2]))
+    expect(acOf(recsOn)).toEqual(new Set([1]))
   })
 
   it('the phone’s RTT is the ping round trip: WAN RTT plus a little Wi-Fi', () => {

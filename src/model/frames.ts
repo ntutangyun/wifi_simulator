@@ -2,7 +2,7 @@ import {
   ACK_BYTES, AMPDU_DELIMITER_BYTES, BA_BYTES, FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES,
   type PhyMode,
 } from '../engine/phy'
-import type { AmpBsUlKbps, Gen2Cmd, Gen2Reply } from '../engine/ampBs'
+import type { AmpBsUlKbps, BsCmd, BsReply } from '../engine/ampBs'
 import type { UwbInfo } from '../uwb/frames'
 import type { Ns } from './types'
 
@@ -78,6 +78,15 @@ export interface AmpInfo {
   roundNs?: Ns
   /** Triggers: whether the solicited response carries a reading (frame body). */
   reading?: boolean
+  /**
+   * Active Tx triggers (§39.3.2.1, §39.3.2.2): Channel Indication — the channel number of the AP's
+   * primary 20 MHz channel in 2.4 GHz; the UL frequency shift in MHz (+5, −5 or 0) applied to a
+   * 250 kb/s response; the scrambling seed index (0…3) that selects SCRAMBLER_INITIAL_VALUE
+   * (Table 39-1).
+   */
+  channel?: number
+  ulShiftMhz?: number
+  seedIdx?: number
   /** Responses: the slot it was sent in and the ABOC that chose it (undefined when scheduled). */
   slot?: number
   aboc?: number
@@ -86,19 +95,20 @@ export interface AmpInfo {
   /** DL PPDUs: the padding field length. */
   padNs?: Ns
   /**
-   * Backscatter downlink (`ampRfid`): the EPC Gen2 command this AMP RFID frame tunnels, the
-   * inventory round it belongs to, and the two excitation fields wrapped around it — the WUP
-   * that boots the tags (0 after the first PPDU of a TXOP) and the BST the reply is reflected
-   * inside. `chargeDbm` is the power up to the end of AMP-Data, `bsDbm` the power during the
-   * BST-Excitation. `epc` is the addressed tag's own EPC when the scenario configured one, which
-   * is what the id field decodes to (SFD FM-25); absent on a broadcast command, and absent when
-   * the tag takes the EPC derived from its node id. SFD FM-44/FM-45, PM-72…PM-74
+   * Mono-static downlink (`ampRfid`): which frame this PPDU carries — a broadcast AMP Trigger
+   * (`cmd: 'trigger'`, with the Session ID and ACWE of §39.3.3) or an AMP RFID frame carrying the
+   * UHF Read command (`cmd: 'read'`) — the inventory it belongs to, and the two excitation fields
+   * wrapped around it: the WUP that boots the tags (0 after the first PPDU of a TXOP) and the BST
+   * the reply is reflected inside. `chargeDbm` is the power up to the end of AMP-Data, `bsDbm` the
+   * power during the BST-Excitation. `epc` is the addressed tag's own EPC when the scenario
+   * configured one, which is what the ID field decodes to (SFD FM-25); absent on a broadcast
+   * trigger. `slot` numbers the triggers of the inventory (each allocates one slot, §39.3.3).
+   * SFD FM-44/FM-45, PM-72…PM-74; PDT 11-26/1519r5, 11-26/1520r3
    */
   rfid?: {
-    cmd: Gen2Cmd
+    cmd: BsCmd
     session: number
-    q?: number
-    rn16?: number
+    acwe?: number
     epc?: string
     slot: number
     wupNs: Ns
@@ -108,14 +118,14 @@ export interface AmpInfo {
     ulKbps: AmpBsUlKbps
   }
   /**
-   * Backscatter uplink (`ampBsReply`): which Gen2 reply the tag reflected, in which slot of the
-   * round, and what it carried. `incidentDbm` is the excitation power that reached the tag,
-   * which only the medium knows — the builder leaves it unset. SFD PM-24, FM-35
+   * Backscatter uplink (`ampBsReply`): what the tag reflected — an AMP Response carrying its ID
+   * (`id`) or an AMP RFID frame carrying the Read reply (`read`, with the EPC) — and for which
+   * trigger. `incidentDbm` is the excitation power that reached the tag, which only the medium
+   * knows — the builder leaves it unset. SFD PM-24, FM-35
    */
   bs?: {
-    reply: Gen2Reply
+    reply: BsReply
     slot: number
-    rn16?: number
     epc?: string
     incidentDbm?: number
   }
@@ -276,9 +286,20 @@ export function dataPsduBytes(msduBytes: number): number {
 }
 
 /**
- * Table 10-1: AC index (0 BK, 1 BE, 2 VI, 3 VO) → the TID this engine gives a frame of that AC
- * (the lowest user priority of the AC's pair, except AC_BE whose UP 0 is the default).
- * The engine has one traffic stream per AC, so the mapping is one to one.
+ * Table 10-1 (UP-to-AC mappings): user priority 0…7 → AC index (0 BK, 1 BE, 2 VI, 3 VO).
+ * UP 1, 2 → AC_BK; 0, 3 → AC_BE; 4, 5 → AC_VI; 6, 7 → AC_VO. Under EDCA a frame's TID is its UP
+ * (§10.2.3.2), and the AC it is queued in follows from the UP by this table.
+ */
+export const AC_FOR_UP = [1, 0, 0, 1, 2, 2, 3, 3] as const
+
+/** Table 10-1: the AC a user priority maps to. */
+export function acForUp(up: number): number {
+  return AC_FOR_UP[Math.max(0, Math.min(7, Math.trunc(up)))]
+}
+
+/**
+ * Fallback only, for an MSDU built without a user priority (tests construct such MSDUs): a UP in
+ * each AC (Table 10-1). Every MSDU the traffic sources emit carries its own UP, and its TID is that.
  */
 export const TID_FOR_AC = [1, 0, 5, 6] as const
 
@@ -299,6 +320,8 @@ export const HT_CONTROL_BYTES = 4
 export interface MpduHdr {
   sn: number
   retry: boolean
+  /** QoS Data only: the TID in the QoS Control field — the MSDU's user priority (§9.2.4.5.2). */
+  tid?: number
   da?: string
   sa?: string
 }

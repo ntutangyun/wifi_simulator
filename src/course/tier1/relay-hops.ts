@@ -19,7 +19,8 @@
  * (previously only after the sender saw the Ack), Address 3 follows Table 9-60 and
  * duplicates are filtered by <TA, TID, SN> (§10.3.2.14.3). The labs are rewritten
  * around that: the 50 µs forward now runs while the AP answers and waits for the
- * medium, so the second hop starts 34 µs after the Ack and the whole trip is 373.2 µs.
+ * medium, so the second hop starts 25 µs after the Ack (the AP's AIFS[AC_VI], AIFSN 1 in dot11QAPEDCATable;
+ * 34 µs until 2026-11-11, when the AP still used the non-AP table) and the whole trip is 364.2 µs.
  *
  * Every figure the lesson prints is read back out of its text and compared
  * with a run in tests/course/relay-hops.test.ts.
@@ -37,8 +38,8 @@ export const RELAY_FRAME_US = 125.6
 export const RELAY_FWD_US = 50
 /** The instants the figure prints, exactly as the lab's table writes them. */
 export const RELAY_HOP1_AT = '1.4157 ms'
-export const RELAY_HOP2_AT = '1.6193 ms'
-export const RELAY_DONE_AT = '1.7889 ms'
+export const RELAY_HOP2_AT = '1.6103 ms'
+export const RELAY_DONE_AT = '1.7799 ms'
 
 /**
  * One payload, from Phone B to Phone A: the two transmissions, the two answers
@@ -122,12 +123,12 @@ export const relayHops: Lesson = {
           ['1.5413 ms', '接入点接收完毕，当即把载荷交给分发系统；16 µs 后回复一个 28 µs 的确认帧'],
           ['1.5853 ms', '确认帧结束，第一跳用时 169.6 µs'],
           ['1.5913 ms', '自接收完毕起转发 50 µs，载荷进入发往手机 A 的队列'],
-          ['1.6193 ms', '介质自确认帧结束起空闲满 34 µs，即一个仲裁帧间间隔（arbitration interframe space, AIFS），接入点发出第二跳'],
-          ['1.7889 ms', '手机 A 应答完毕；第二跳同样用时 169.6 µs'],
+          ['1.6103 ms', '介质自确认帧结束起空闲满 25 µs，即接入点视频类的一个仲裁帧间间隔（arbitration interframe space, AIFS；接入点的 AIFSN 为 1），接入点发出第二跳'],
+          ['1.7799 ms', '手机 A 应答完毕；第二跳同样用时 169.6 µs'],
         ] },
       ],
-      expect: '两跳各用 169.6 µs，中间只隔 34 µs；50 µs 的转发在接入点回复确认帧、等待介质空闲的这段时间里已经完成。从载荷到达手机 B 到手机 A 应答完毕，全程 373.2 µs。',
-      meaning: '路径与标准一致（①）：同一 BSS 内的载荷由同一台接入点发送两次，接入点收到载荷就交给分发系统，不等确认帧（②）。50 µs 是本仿真器取的转发时延（②），它没有推迟第二跳：第二跳开始之前，接入点本来就要发完确认帧、再等介质空闲 34 µs。代价在于第二次接入信道，而不在于转发。',
+      expect: '两跳各用 169.6 µs，中间只隔 25 µs；50 µs 的转发在接入点回复确认帧、等待介质空闲的这段时间里已经完成。从载荷到达手机 B 到手机 A 应答完毕，全程 364.2 µs。',
+      meaning: '路径与标准一致（①）：同一 BSS 内的载荷由同一台接入点发送两次，接入点收到载荷就交给分发系统，不等确认帧（②）。50 µs 是本仿真器取的转发时延（②），它没有推迟第二跳：第二跳开始之前，接入点本来就要发完确认帧、再等介质空闲 25 µs。代价在于第二次接入信道，而不在于转发。',
     },
     {
       heading: '两跳的方向比特与地址',
@@ -154,18 +155,18 @@ export const relayHops: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '运行一秒的平均时延', head: ['场景', '电视（一跳）', '手机 A（两跳）', '手机 B（两跳）'], rows: [
-          ['本课场景', '0.74 ms', '1.30 ms', '1.37 ms'],
-          ['笔记本改为 idle', '0.33 ms', '0.67 ms', '0.70 ms'],
-          ['手机 B 移到手机 A 旁边', '0.74 ms', '1.31 ms', '1.31 ms'],
+          ['本课场景', '0.60 ms', '1.13 ms', '1.19 ms'],
+          ['笔记本改为 idle', '0.28 ms', '0.59 ms', '0.61 ms'],
+          ['手机 B 移到手机 A 旁边', '0.60 ms', '1.17 ms', '1.15 ms'],
         ] },
       ],
-      expect: '每一行里手机互传的时延都约为电视的两倍；两部手机相距 0.5 m 时，时延没有缩短。',
+      expect: '每一行里手机互传的时延都约为电视的两倍；两部手机相距 0.5 m 时，时延没有缩短到一跳的水平，仍约为电视的两倍。',
       meaning: '路径由网络结构决定（①）：同一 BSS 内没有直连时，每份载荷都经接入点发送两次；本仿真器没有实现直连（②），所以把手机移近不改变路径。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§4.3.5.1（接入点与分发系统）、§4.5.2.1（同一 BSS 内的分发，输入与输出接入点相同）、§9.2.4.1.4 与表 9-3（To DS / From DS）、§9.3.2.1 与表 9-60（数据帧的地址字段）、§10.3.2.3.3、表 17-24 与表 27-61（SIFS，16 µs）、§10.3.2.14（重复帧的识别）、§11.20（TDLS）。',
-    '本仿真器的取值与取法：接入点转发时延 50 µs（src/engine/simulation.ts 的 RELAY_FWD_NS），自接入点收完第一跳的帧起算。125.6 µs、28 µs、34 µs、169.6 µs 与各个时刻都是本课场景的实测值。',
+    '本仿真器的取值与取法：接入点转发时延 50 µs（src/engine/simulation.ts 的 RELAY_FWD_NS），自接入点收完第一跳的帧起算。125.6 µs、28 µs、25 µs、169.6 µs 与各个时刻都是本课场景的实测值。',
   ],
   limits: [],
   scenario: rolesStackScenario,
@@ -194,7 +195,7 @@ export const relayHops: Lesson = {
         '因为第二跳的帧更长——多了一层帧头（MAC header）',
       ],
       answer: 1,
-      explain: '50 µs 的转发与接入点回复确认帧的时间重叠，并没有推迟第二跳，而且 50 µs 是本仿真器的取值。全程 373.2 µs 里两跳各占 169.6 µs：第二跳的开销来自它是一次完整的发送。',
+      explain: '50 µs 的转发与接入点回复确认帧的时间重叠，并没有推迟第二跳，而且 50 µs 是本仿真器的取值。全程 364.2 µs 里两跳各占 169.6 µs：第二跳的开销来自它是一次完整的发送。',
     },
     {
       q: '按表 9-60，第一跳（站点 → 接入点）的数据帧里，地址 3 应当填什么？',

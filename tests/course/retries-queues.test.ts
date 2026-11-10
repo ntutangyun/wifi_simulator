@@ -18,7 +18,7 @@ import { ScenarioSchema } from '../../src/model/scenario'
 import {
   ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
 } from '../../src/engine/phy'
-import { DEFAULT_MSDU_LIFETIME_NS } from '../../src/engine/queues'
+import { DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS } from '../../src/engine/queues'
 import type { TLRecord } from '../../src/model/records'
 import { fmtRecord } from '../../src/ui/format'
 import { MODULES } from '../../src/course/curriculum'
@@ -83,7 +83,7 @@ describe('retries-queues · the lesson', () => {
     expect(() => ScenarioSchema.parse(retriesQueues.scenario())).not.toThrow()
     for (const v of retriesQueues.variants!) expect(() => ScenarioSchema.parse(v.scenario())).not.toThrow()
     expect(retriesQueues.variants!.map((v) => v.scenario().queue)).toEqual([
-      { limit: 100, lifetimeMs: 500 }, { limit: 500, lifetimeMs: 100 },
+      { limit: 100, lifetimeMs: 500 }, { limit: 500, lifetimeMs: 20 }, // 2026-11-11: 100 ms was inert once the DCF clock starts at the first attempt
     ])
     expect(retriesQueues.jumps.map((j) => j.label)).toEqual([
       '第一次重传', '第一次重发（Retry 位置位）', '第一次因重传上限丢帧',
@@ -201,14 +201,23 @@ describe('retries-queues · ② says what the engine does, and the engine does i
     expect(ofType(rs, 'TX_START').some((r) => r.frame.kind === 'rts')).toBe(false)
   })
 
-  it('the lifetime clock starts at enqueue (differs): frames that never flew expire', () => {
-    expect(implRow('生存期从何时起算').kind).toBe('differs')
-    expect(DEFAULT_MSDU_LIFETIME_NS).toBe(500 * MS)
-    const sent = new Set(ofType(rs, 'TX_START').map((r) => r.frame.msduId))
-    const enq = new Map(ofType(rs, 'ENQUEUE').map((r) => [r.msduId, r.t]))
-    const aged = drops(rs, 'lifetime')
-    expect(aged.some((d) => !sent.has(d.msduId))).toBe(true)
-    for (const d of aged) expect(d.t - enq.get(d.msduId)!).toBeGreaterThan(DEFAULT_MSDU_LIFETIME_NS)
+  it('the lifetime clock starts at the first attempt (§10.4): no frame that never flew expires', () => {
+    // 2026-11-11 (W7b): was `differs` — the engine started every clock at enqueue, so frames that
+    // never flew expired. A DCF station's clock now starts at the first transmission attempt.
+    expect(implRow('生存期从何时起算').kind).toBe('faithful')
+    expect(DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS).toBe(512 * 1_024_000)
+    // the default run (500 ms): nothing expires — a frame reaches the retry limit long before
+    expect(drops(rs, 'lifetime')).toEqual([])
+    // the 20 ms variant: every frame that expires had flown, 20 ms or more after its first attempt
+    const short = runOf(retriesQueues, 1, RUN_NS)
+    const firstTx = new Map<number, number>()
+    for (const r of ofType(short, 'TX_START')) if (r.frame.msduId !== undefined && !firstTx.has(r.frame.msduId)) firstTx.set(r.frame.msduId, r.t)
+    const aged = drops(short, 'lifetime')
+    expect(aged.length).toBeGreaterThan(100)
+    for (const d of aged) {
+      expect(firstTx.has(d.msduId)).toBe(true)
+      expect(d.t - firstTx.get(d.msduId)!).toBeGreaterThan(20 * MS)
+    }
   })
 
   it('not every row is faithful', () => {
@@ -285,31 +294,45 @@ describe('retries-queues · ③ every figure the labs print is the run', () => {
     expect(e).toContain(`Hidden B 分别是 ${d['sta-2']} 帧与 ${drops(rs, 'retryLimit', 'sta-2').length} 帧`)
   })
 
-  it('lab 3: the two counts come apart after three frames expire at once', () => {
-    const rs = recs()
+  it('lab 3: the two counts come apart once a frame expires (the 20 ms variant)', () => {
+    // 2026-11-11 (W7b): the default run has no lifetime drop any more (§10.4: the clock starts at
+    // the first attempt), so the lab moved to the 20 ms variant; its first expiry is Hidden B's
+    // first frame, at what would have been its seventh attempt.
+    const rs = runOf(retriesQueues, 1, RUN_NS)
     const l = lab('两个计数不再一致')
+    expect(l.variant).toBe(1)
+    expect(retriesQueues.variants![1].scenario().queue).toEqual({ limit: 500, lifetimeMs: 20 })
     const life = drops(rs, 'lifetime', 'sta-2')
     const t0 = life[0].t
     expect(l.steps[0]).toContain(`${grouped(us(t0))} µs`)
     expect(l.steps[0]).toContain(`丢弃${['', '一', '两', '三', '四'][life.filter((r) => r.t === t0).length]}帧`)
-    const sent = new Set(ofType(rs, 'TX_START').map((r) => r.frame.msduId))
-    const head = life.find((d) => d.t === t0 && sent.has(d.msduId))!
+    const head = life[0]
+    const headAttempts = ofType(rs, 'TX_START').filter((r) => r.frame.msduId === head.msduId)
     const headRetries = ofType(rs, 'RETRY').filter((r) => r.msduId === head.msduId)
-    const headSeq = attemptsOf(head.msduId)[0].frame.seqNo
-    expect(l.expect).toContain(`（序列号 ${headSeq}）已失败 ${headRetries.length} 次，站点的计数随之停在 ${headRetries[headRetries.length - 1].qsrc}`)
+    const headSeq = headAttempts[0].frame.seqNo
+    expect(l.expect).toContain(`（序列号 ${headSeq}）：它从 ${us(headAttempts[0].t)} µs 第一次发送起已失败 ${headRetries.length} 次`)
+    expect(l.expect).toContain(`站点的计数停在 ${headRetries[headRetries.length - 1].qsrc}`)
     const next = ofType(rs, 'TX_START').find((r) => r.node === 'sta-2' && r.t >= t0)!
     expect(l.expect).toContain(`下一帧（序列号 ${next.frame.seqNo}）`)
     const nextRetries = ofType(rs, 'RETRY').filter((r) => r.msduId === next.frame.msduId).slice(0, 3)
     const cwAt = (t: number) => ofType(rs, 'CW_CHANGE').find((r) => r.node === 'sta-2' && r.t === t)!.cw
-    const rows = tableOf(l, '504 465 µs 之后那一帧的前三次失败').rows
-    expect(tableOf(l, '504 465 µs 之后那一帧的前三次失败').heading).toContain(grouped(us(t0)))
+    const rows = tableOf(l, '26 940 µs 之后那一帧的前三次失败').rows
+    expect(tableOf(l, '26 940 µs 之后那一帧的前三次失败').heading).toContain(grouped(us(t0)))
     rows.forEach(([k, retries, qsrc, cw], i) => {
       expect(k).toBe(String(i + 1))
       expect(retries).toBe(String(nextRetries[i].retries))
       expect(qsrc).toBe(String(nextRetries[i].qsrc))
       expect(cw).toBe(String(cwAt(nextRetries[i].t)))
     })
-    expect(l.expect).toContain(`第一次失败时读数是 ${nextRetries[0].retries} 对 ${nextRetries[0].qsrc}，第二次是 ${nextRetries[1].retries} 对 ${nextRetries[1].qsrc}`)
-    expect(l.expect).toContain(`CW 恢复为 ${cwAt(nextRetries[1].t)}`)
+    expect(l.expect).toContain(`第一次失败时读数是 ${nextRetries[0].retries} 对 ${nextRetries[0].qsrc}`)
+    expect(l.expect).toContain(`CW 恢复为 ${cwAt(nextRetries[0].t)}`)
+    expect(l.expect).toContain(`第二次是 ${nextRetries[1].retries} 对 ${nextRetries[1].qsrc}`)
+    // 「默认设置（500 ms）下三秒里一次也没有发生这种情况：……最长只用 65 ms」
+    const base = recs()
+    expect(drops(base, 'lifetime')).toEqual([])
+    const firstTx = new Map<number, number>()
+    for (const r of ofType(base, 'TX_START')) if (r.frame.msduId !== undefined && !firstTx.has(r.frame.msduId)) firstTx.set(r.frame.msduId, r.t)
+    const spans = drops(base, 'retryLimit').map((d) => d.t - firstTx.get(d.msduId)!)
+    expect(l.expect).toContain(`最长只用 ${Math.round(Math.max(...spans) / MS)} ms`)
   })
 })

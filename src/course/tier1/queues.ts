@@ -12,13 +12,16 @@
  * the first transmission attempt (§10.4, dot11MaxTransmitMSDULifetime,
  * default 512 TU); a QoS station's starts when the MSDU is passed to the MAC
  * (§10.23.2.12.1, dot11EDCATableMSDULifetime, default 500 TU) — the standard's
- * own NOTE says so. Every node of this scene is non-QoS, and the engine uses
- * the EDCA rule for all of them, so ② marks that row `differs`: the 188 frames
- * the access point throws out without ever sending them exist only because of
- * it. That is reported as an engine change, not taught as the standard.
+ * own NOTE says so. Every node of this scene is non-QoS.
  *
- * The scene is `retries-queues`'s, unchanged (`sameSceneAs: 'retries-queues'`),
- * so the recorded timeline hashes of this id are copies of that lesson's. Every
+ * 2026-11-11 (W7b): the engine used to start every clock at enqueue (EDCA's
+ * rule), and the 188 frames the access point threw out without ever sending
+ * them were that deviation. The engine now follows §10.4 for DCF, the row is
+ * faithful, and the labs were re-measured: the default run has no lifetime
+ * drop at all, and the short-lifetime variant moved from 100 ms (byte-identical
+ * to the default once the clock starts at the first attempt) to 20 ms.
+ *
+ * The scene is `retries-queues`'s (`sameSceneAs: 'retries-queues'`). Every
  * figure printed below is read back out of the text and compared with a run in
  * tests/course/queues.test.ts.
  */
@@ -29,7 +32,7 @@ export const queues: Lesson = {
   id: 'queues',
   module: 4,
   title: '队列、生存期与队列溢出丢弃',
-  why: '队首的一个 MSDU（MAC service data unit）无法成功发送时，后面的所有帧都在等待，而上层应用并不会因此减少下发的数据。IEEE 802.11-2024 对这条队列（queue）规定得很少：增强型分布式信道接入（enhanced distributed channel access, EDCA）的参考模型给每个接入类别（access category, AC）一条发送队列，一次失败之后先发哪一帧由实现决定，队列多长、满了丢弃哪一帧都没有规定。标准规定的是生存期（MSDU lifetime）：一帧的发送计时器超过上限，重传（retry）即停止、这一帧被丢弃；不支持服务质量（quality of service, QoS）的站点（STA）的计时器从第一次尝试发送时起算，QoS 站点的计时器从这一帧交给媒体访问控制（medium access control, MAC）层时起算。本仿真器把失败的帧放回队首，队列上限取 500 帧，满了就拒绝新到的帧，生存期一律从入队起算、取 500 ms——对本课的非 QoS 站点，这一点与标准不同，所以这里大多数因生存期被丢弃的帧一次也没有发送过。在这些取法之下，把队列调短或把生存期调短，接入点（AP）送达的帧数完全不变：能送出多少由信道决定，而不是由缓冲区决定，这些参数改变的只是在哪个环节放弃。把缓冲区加大，帧也只是等待得更久，送达帧的平均等待时间最后稳定在略低于生存期的水平。',
+  why: '队首的一个 MSDU（MAC service data unit）无法成功发送时，后面的所有帧都在等待，而上层应用并不会因此减少下发的数据。IEEE 802.11-2024 对这条队列（queue）规定得很少：增强型分布式信道接入（enhanced distributed channel access, EDCA）的参考模型给每个接入类别（access category, AC）一条发送队列，一次失败之后先发哪一帧由实现决定，队列多长、满了丢弃哪一帧都没有规定。标准规定的是生存期（MSDU lifetime）：一帧的发送计时器超过上限，重传（retry）即停止、这一帧被丢弃；不支持服务质量（quality of service, QoS）的站点（STA）的计时器从第一次尝试发送时起算，QoS 站点的计时器从这一帧交给媒体访问控制（medium access control, MAC）层时起算。本仿真器把失败的帧放回队首，队列上限取 500 帧，满了就拒绝新到的帧，非 QoS 站点的生存期按标准从第一次发送起算。所以排队再久的帧也不会因生存期被丢弃：本课场景里一帧从第一次发送到发满七次最长只用 65 ms，500 ms 的生存期从来没有走完，接入点（AP）的队列排满之后，帧的平均等待一直上升到 598 ms，只受队列长度约束。把队列调短或把生存期调到 20 ms，接入点送达的帧数完全不变：能送出多少由信道决定，而不是由缓冲区决定，这些参数改变的只是在哪个环节放弃。',
   outcomes: [
     '说出标准对发送队列与生存期规定了什么、没有规定什么',
     '分清本仿真器的队列哪些照标准、哪些是它自己的取值与取法',
@@ -60,27 +63,27 @@ export const queues: Lesson = {
     { topic: '队列满时', standard: '标准未规定', sim: '拒绝新到的那一帧（ns-3 的 DROP_NEWEST），写一条 queueFull 丢弃记录，不写入队记录。', kind: 'choice' },
     { topic: '失败之后先发哪一帧', standard: '由实现决定（§10.3.4.5）', sim: '失败的帧放回队首，所以下一次发送的仍是它，除非它在此期间被丢弃。发往同一接收端的帧本来就要等它完成（§10.7），这一点与标准一致。', kind: 'choice' },
     { topic: '按接收端分别排队', standard: '标准未规定', sim: '同一接入类别的帧不论发往哪个接收端都在同一条先进先出的队列里，取帧时先看队首那一帧发给谁；一个无法送达的接收端会阻塞发往其他接收端的帧，尽管 §10.7 并不禁止先发送它们。', kind: 'choice' },
-    { topic: '生存期从何时起算', standard: '非 QoS 站点从第一次尝试发送时起算（§10.4）；QoS 站点从交给 MAC 时起算（§10.23.2.12.1）', sim: '所有站点一律从入队时起算，即 QoS 站点的规则。本课的站点都是非 QoS 站点，按标准，一次也没有发送过的帧不会因生存期被丢弃；这里却会。', kind: 'differs' },
-    { topic: '生存期的取值', standard: 'dot11MaxTransmitMSDULifetime 缺省 512 TU；dot11EDCATableMSDULifetime 缺省 500 TU，即 512 ms（附录 C）', sim: '所有站点、所有接入类别都取 500 ms；场景可以改，本课的变体取 100 ms。', kind: 'value' },
-    { topic: '何时检查生存期', standard: '标准只规定超过上限即停止重传、丢弃这一帧，没有规定在何时检查', sim: '每次组帧发送之前，先把这条队列里超过生存期的帧全部丢弃，无论它们是否发送过。', kind: 'choice' },
+    { topic: '生存期从何时起算', standard: '非 QoS 站点从第一次尝试发送时起算（§10.4）；QoS 站点从交给 MAC 时起算（§10.23.2.12.1）', sim: '照此区分：非 QoS 站点从第一次发送时起算，QoS 站点从入队时起算。本课的站点都是非 QoS 站点，一次也没有发送过的帧不会因生存期被丢弃。', kind: 'faithful' },
+    { topic: '生存期的取值', standard: 'dot11MaxTransmitMSDULifetime 缺省 512 TU；dot11EDCATableMSDULifetime 缺省 500 TU，即 512 ms（附录 C）', sim: '场景未设置时取这两个缺省值；本课场景设为 500 ms，变体「短生存期」设为 20 ms。', kind: 'value' },
+    { topic: '何时检查生存期', standard: '标准只规定超过上限即停止重传、丢弃这一帧，没有规定在何时检查', sim: '每次组帧发送之前，先把这条队列里计时器已超过上限的帧全部丢弃。', kind: 'choice' },
     { topic: '业务源与主动队列管理', standard: '不在 802.11 的范围之内', sim: '业务源不因丢帧或排队而降速；队列也不做主动队列管理，只有队满拒绝与生存期两种丢弃方式。', kind: 'choice' },
   ],
   labs: [
     {
-      heading: '三帧同时因生存期被丢弃',
+      heading: '生存期从第一次发送起算',
       jump: 0,
       steps: [
-        '载入本课场景，跳到 Hidden B 第一次因生存期丢帧。',
-        '读出同一时刻被丢弃的几帧：它们何时入队，各自发送过几次。',
+        '载入本课场景，跳到第一次因重传上限（retry limit）丢帧：Hidden B 的第一帧发满七次之后被丢弃。',
+        '读出这一帧第一次发送与被丢弃的时刻；再运行三秒，统计各台设备因生存期丢弃的帧数。',
       ],
-      expect: '504 465 µs 处 Hidden B 一次丢弃三帧，三帧都是在 0 µs 入队的。排在最前面的那一帧（序列号 17）发送过 5 次，后面两帧一次也没有发送过——它们本身没有任何问题，只是排在一个无法发出的帧后面。',
-      meaning: '失败的帧放回队首是本仿真器的取法（②），所以出现队头阻塞。两帧没有发送过却超过生存期，是因为本仿真器从入队起算生存期（②，与标准不同）；按 §10.4，非 QoS 站点的计时器要到第一次尝试发送时才开始。',
+      expect: 'Hidden B 的第一帧在 0 µs 第一次发送，27 689 µs 发满七次被丢弃，前后不到 28 ms。三秒内两台上传站点共有 128 帧发满七次被丢弃，每一帧从第一次发送到被丢弃最长只用 65 ms；接入点的帧从第一次发送到离开队列最长 49 ms。所以本课场景里没有一帧因生存期被丢弃：500 ms 的计时器从第一次发送起算，从来没有走完。',
+      meaning: '非 QoS 站点的计时器从第一次尝试发送时开始（①，§10.4；②照此实现）。在队列里等待的帧还没有开始计时，所以排队再久也不会因生存期被丢弃；失败的帧放回队首（②的取法），后面的帧只能等它发满七次。',
     },
     {
       heading: '接入点的队列被填满',
       jump: 1,
       steps: [
-        '跳到 AP 第一次因队列满丢帧，再跳到 AP 第一次因生存期丢帧。',
+        '跳到 AP 第一次因队列满丢帧。',
         '对照下表读出 AP 送达的帧在各个时段平均等待了多久。',
       ],
       blocks: [
@@ -89,34 +92,34 @@ export const queues: Lesson = {
           ['0.5–1 s', '149 ms'],
           ['1–1.5 s', '228 ms'],
           ['1.5–2 s', '324 ms'],
-          ['2–2.5 s', '472 ms'],
-          ['2.5–3 s', '472 ms'],
+          ['2–2.5 s', '517 ms'],
+          ['2.5–3 s', '598 ms'],
         ] },
       ],
-      expect: '视频源三秒内向 AP 下发 3541 个 1400 字节的帧（13.2 Mb/s），送达 2644 帧（9.9 Mb/s）。1 963 852 µs 时队列已有 500 帧，新到的帧第一次被拒绝；2 182 806 µs 处 AP 一次丢弃四帧，已排队 500.2 到 502.6 ms。三秒内 AP 因生存期丢弃 194 帧，其中 188 帧一次也没有发送过，6 帧发送过、失败后又等待到超过生存期。平均等待前两秒持续上升，之后稳定在 472 ms。',
-      meaning: '下发速率超过信道的承载能力，队列先排满（队列长度与队满策略都是本仿真器的取值，②），之后等待超过 500 ms 的帧在发送之前就被清除，所以等待时间不再增加。',
+      expect: '视频源三秒内向 AP 下发 3541 个 1400 字节的帧（13.2 Mb/s），送达 2644 帧（9.9 Mb/s）。1 963 852 µs 时队列已有 500 帧，新到的帧第一次被拒绝；三秒内一共拒绝 397 帧。平均等待一直上升，最后半秒达到 598 ms，送达帧中等待最久的一帧等了 648 ms。',
+      meaning: '下发速率超过信道的承载能力，队列先排满（队列长度与队满策略都是本仿真器的取值，②）。生存期从第一次发送起算，不限制排队的时间，所以等待时间只受队列长度约束。',
     },
     {
       heading: '两个参数，三次运行',
       more: [0, 1],
       steps: [
-        '依次载入本课场景、「短队列：100 个 MSDU，生存期 500 ms」与「短生存期：500 个 MSDU，生存期 100 ms」，各运行三秒。',
+        '依次载入本课场景、「短队列：100 个 MSDU，生存期 500 ms」与「短生存期：500 个 MSDU，生存期 20 ms」，各运行三秒。',
         '对照下表读出每次运行的三种丢弃与 AP 送达的帧数。',
       ],
       blocks: [
         { kind: 'table', heading: '同样的三秒，三种设置', head: ['运行', '入队失败', 'AP 处过时', '上传帧发满七次', 'AP 送达'], rows: [
-          ['默认：500 帧、500 ms', '213', '194', '123', '2644'],
-          ['短队列：100 帧', '797', '0', '123', '2644'],
-          ['短生存期：100 ms', '0', '770', '40', '2644'],
+          ['默认：500 帧、500 ms', '397', '0', '128', '2644'],
+          ['短队列：100 帧', '797', '0', '128', '2644'],
+          ['短生存期：20 ms', '392', '5', '24', '2644'],
         ] },
       ],
-      expect: '三次运行 AP 送达的都是 2644 帧。队列调短，入队失败从 213 增加到 797，AP 处过时丢弃降为 0；生存期调短，入队失败一次也没有，AP 处过时丢弃增加到 770。短生存期那一次，两台上传站点有 987 帧因生存期被丢弃，默认设置下不到 20 帧；它们发满七次的帧反而从 123 降到 40，因为生存期先一步把帧丢弃了。最后一秒送达帧的平均等待依次是 472 ms、117 ms、88 ms。',
-      meaning: '队列只是帧等待的地方，不产生空口时间（airtime）；两个参数改变的是在哪个环节放弃（②的取值与取法）。重传上限（retry limit）与生存期哪一个先到，标准都规定丢弃（①）。',
+      expect: '三次运行 AP 送达的都是 2644 帧。队列调短，入队失败从 397 增加到 797，AP 处过时丢弃仍为 0。生存期调到 20 ms，AP 处过时丢弃增加到 5，入队失败为 392；两台上传站点有 177 帧因生存期被丢弃，每一帧都已发送过，默认设置下为 0；它们发满七次的帧从 128 降到 24，因为生存期先一步把帧丢弃了。最后一秒送达帧的平均等待依次是 551 ms、117 ms、548 ms。',
+      meaning: '队列只是帧等待的地方，不产生空口时间（airtime）；两个参数改变的是在哪个环节放弃（②的取值与取法）。重传上限与生存期哪一个先到，标准都规定丢弃（①）；生存期从第一次发送起算，只有它短于一帧发满七次所需的时间，才会先起作用。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§10.23.2.1 与图 10-27（EDCA 参考模型，每个接入类别的发送队列）、§10.3.4.5（失败之后先发哪一帧超出本标准的范围）、§10.7（MSDU 发送限制，建议生存期取得足够大）、§10.4（非 QoS 站点的发送计时器从第一次尝试起算）、§10.3.4.4（重传上限与生存期）、§10.23.2.12.1（QoS 站点的计时器从交给 MAC 时起算，并注明两者起算时刻不同）、附录 C（dot11MaxTransmitMSDULifetime 缺省 512 TU，dot11EDCATableMSDULifetime 缺省 500 TU）、第 3 章（1 TU = 1024 µs）。',
-    '本仿真器的取值与取法：500 个 MSDU 的队列上限与「拒绝新到者」（沿用 ns-3 的 WifiMacQueue），失败帧放回队首，所有站点从入队起算的 500 ms 生存期，发送之前统一清除过期帧，不降速的业务源；随机种子、隐藏节点户型与 13.2 Mb/s 的视频源同样如此。',
+    '本仿真器的取值与取法：500 个 MSDU 的队列上限与「拒绝新到者」（沿用 ns-3 的 WifiMacQueue），失败帧放回队首，场景设置的 500 ms 与 20 ms 生存期，发送之前统一清除过期帧，不降速的业务源；随机种子、隐藏节点户型与 13.2 Mb/s 的视频源同样如此。',
   ],
   limits: [],
   scenario: () => retriesScenario({ limit: 500, lifetimeMs: 500 }),
@@ -126,14 +129,13 @@ export const queues: Lesson = {
       scenario: () => retriesScenario({ limit: 100, lifetimeMs: 500 }),
     },
     {
-      label: '短生存期：500 个 MSDU，生存期 100 ms',
-      scenario: () => retriesScenario({ limit: 500, lifetimeMs: 100 }),
+      label: '短生存期：500 个 MSDU，生存期 20 ms',
+      scenario: () => retriesScenario({ limit: 500, lifetimeMs: 20 }),
     },
   ],
   jumps: [
-    J('第一次因生存期丢帧（Hidden B）', dropOf('lifetime', 'sta-2')),
+    J('第一次因重传上限丢帧（Hidden B）', dropOf('retryLimit', 'sta-2')),
     J('第一次因队列满丢帧（AP）', dropOf('queueFull', 'ap')),
-    J('AP 第一次因生存期丢帧', dropOf('lifetime', 'ap')),
   ],
   observe: [],
   tryThis: [],
@@ -156,17 +158,17 @@ export const queues: Lesson = {
         '从这一帧排到队首时',
       ],
       answer: 1,
-      explain: '§10.4：非 QoS 站点从第一次尝试发送时开始计时；从交给 MAC 时开始计时是 QoS 站点的规则（§10.23.2.12.1）。本仿真器对所有站点都用后一种。',
+      explain: '§10.4：非 QoS 站点从第一次尝试发送时开始计时；从交给 MAC 时开始计时是 QoS 站点的规则（§10.23.2.12.1）。本仿真器照此区分。',
     },
     {
       q: '把队列从 100 帧加大到 500 帧，会有什么变化？',
       options: [
         'AP 送达的帧更多了',
-        '送达的仍是那 2644 帧，只是更晚，损失从入队失败转为生存期超时',
+        '送达的仍是那 2644 帧，只是更晚：入队失败减少，帧在队列里等待得更久',
         '没有任何变化',
       ],
       answer: 1,
-      explain: '更大的缓冲区不能产生空口时间，只会使帧等待得更久。默认设置下，最后一秒的平均等待是 472 ms。',
+      explain: '更大的缓冲区不能产生空口时间，只会使帧等待得更久。默认设置下，最后一秒的平均等待是 551 ms；100 帧的队列下是 117 ms。',
     },
   ],
 }

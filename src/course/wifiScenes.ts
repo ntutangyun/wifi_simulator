@@ -394,14 +394,10 @@ function gameServer(): ServerCfg {
  * is how a scene comes to look richer than it is; `tests/engine/tamper-inert.test.ts` asserts
  * the inertness instead.
  *
- * The four options are the four variants, and each one is a single axis off the base:
+ * The three options are the three variants, and each one is a single axis off the base:
  *
  *  - `busy` — two saturated laptops at the other end of the room. This is where the air first
  *    appears: 0.106 ms of queueing becomes 10.717 ms and the round trip 44.483 ms.
- *  - `accel` — the router's game mode, which is one boolean on the AP (`NodeCfg.gameAccel`) and
- *    moves the game flow from AC_BE to AC_VI. It is only ever set WITH `busy`, because in the
- *    quiet room it changes no outcome at all: `RX_OK` is 254 either way and only the backoff
- *    draws differ (`tests/engine/tamper-inert.test.ts`).
  *  - `overseas` — the 80/20/2 endpoint, quiet, so the difference is the WAN and nothing else.
  *  - `noServers` — the same room with `sc()`'s own default, where `stats.appRtt.n` is 0 and the
  *    engine has no way to answer "how long did the player wait".
@@ -414,8 +410,6 @@ function gameServer(): ServerCfg {
 export function cloudGameScenario(opts: {
   /** Two saturated laptops beside the phone: the only configuration where the air shows. */
   busy?: boolean
-  /** The router's game mode, which marks game traffic into AC_VI. Needs `busy` to show. */
-  accel?: boolean
   /** The 80 ms / 20 ms endpoint instead of the 25 ms / 3 ms one. */
   overseas?: boolean
   /** No cloud server at all: the same room, `sc()`'s default, and no application number. */
@@ -425,7 +419,6 @@ export function cloudGameScenario(opts: {
 } = {}): Scenario {
   const feats = { edca: true, txop: true, ampdu: true }
   const ap = node('ap', 'Router', 'ap', 5, 1, 'eht', 'idle', feats)
-  if (opts.accel) ap.gameAccel = true
   const phone = node('sta-1', 'Phone (gaming)', 'sta', 3, 5, 'eht', 'gaming', feats)
   if (opts.cheat) phone.tamper = TAMPER_PRESETS[opts.cheat]
   const nodes = [ap, phone]

@@ -1,5 +1,5 @@
 /** Pure helpers turning timeline records into per-node lane spans. */
-import { GEN2_CMD_NAME, GEN2_REPLY_NAME } from '../engine/ampBs'
+import { BS_CMD_NAME, BS_REPLY_NAME } from '../engine/ampBs'
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { MacStateName, RxFailReason, TLRecord } from '../model/records'
 import type { Ns } from '../model/types'
@@ -76,7 +76,7 @@ const STATE_SPAN: Record<string, SpanKind | null> = {
   idle: null, tx: null, rx: null,
   defer: 'defer', backoff: 'backoff',
   waitAck: 'sifs', waitCts: 'sifs', sifsResp: 'sifs',
-  ampWait: 'slot', bsWait: 'slot', uwbWait: 'slot',
+  ampWait: 'slot', uwbWait: 'slot',
 }
 
 interface OpenSpan {
@@ -368,8 +368,8 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
         f.kind === 'ampTrigger' ? T.ampTrigger :
         f.kind === 'ampAck' ? T.ampAck(dst) :
         f.kind === 'ampResp' ? T.ampResp(f.amp?.slot ?? 0) :
-        f.kind === 'ampRfid' ? T.ampRfid(GEN2_CMD_NAME[f.amp?.rfid?.cmd ?? 'query']) :
-        f.kind === 'ampBsReply' ? T.ampBsReply(GEN2_REPLY_NAME[f.amp?.bs?.reply ?? 'rn16'], f.amp?.bs?.slot ?? 0) :
+        f.kind === 'ampRfid' ? T.ampRfid(BS_CMD_NAME[f.amp?.rfid?.cmd ?? 'trigger']) :
+        f.kind === 'ampBsReply' ? T.ampBsReply(BS_REPLY_NAME[f.amp?.bs?.reply ?? 'id'], f.amp?.bs?.slot ?? 0) :
         f.kind === 'uwbPoll' ? T.uwbPoll(f.uwb?.schedule?.length ?? 0) :
         // Fix round 1: standard §10.32.9.1's RCM Validity Rounds. Without this branch the chain
         // falls through to the CTS label below, silently — the same bug every other UWB shape on
@@ -463,13 +463,12 @@ export function spanTooltip(s: LaneSpan, T: Strings['tooltips'], t?: Ns, nameOf:
     case 'sifs':
       return [`${T.sifsWait} · ${dur}`]
     case 'slot':
-      // One span kind, three meanings: a UWB device holding a scheduled slot, an Active Tx tag
-      // counting the AP's Acks, and a backscatter tag counting the reader's QueryReps.
+      // One span kind, two meanings: a UWB device holding a scheduled slot, and an Active Tx tag
+      // counting the AP's Acks. (A backscatter tag has no slot to wait for since 2026-11-11: every
+      // mono-static trigger allocates a single slot, PDT 11-26/1519r5 §39.3.3.)
       return s.state === 'uwbWait'
         ? [`${T.uwbWait} · ${dur}`, T.uwbWaitNote]
-        : s.state === 'bsWait'
-          ? [`${T.bsWait} · ${dur}`, T.bsWaitNote]
-          : [`${T.ampWait} · ${dur}`, T.ampWaitNote]
+        : [`${T.ampWait} · ${dur}`, T.ampWaitNote]
   }
 }
 

@@ -8,8 +8,24 @@ import type { Msdu } from './traffic'
 
 /** ns-3 WifiMacQueue MaxSize default: 500 packets per access category. */
 export const DEFAULT_QUEUE_LIMIT = 500
-/** ns-3 WifiMacQueue MaxDelay default (dot11EDCATableMSDULifetime role): 500 ms. */
-export const DEFAULT_MSDU_LIFETIME_NS: Ns = 500_000_000
+/** One time unit (TU), 1024 µs (§3.1). */
+export const TU_NS: Ns = 1_024_000
+/**
+ * dot11EDCATableMSDULifetime / dot11QAPEDCATableMSDULifetime default: 500 TU = 512 ms (Annex C
+ * MIB, DEFVAL { 500 }, UNITS "TUs"). A QoS STA starts the timer when the MSDU is passed to the MAC
+ * (§10.23.2.12.1). Until 2026-11-11 this was 500 ms, ns-3's WifiMacQueue MaxDelay.
+ */
+export const DEFAULT_MSDU_LIFETIME_NS: Ns = 500 * TU_NS
+/**
+ * dot11MaxTransmitMSDULifetime default: 512 TU = 524.288 ms (Annex C MIB, DEFVAL { 512 }). A STA
+ * using DCF starts the timer "on the initial attempt to transmit the MSDU" (§10.4), so an MSDU
+ * that has never been on the air never expires; the NOTE in §10.23.2.12.1 points out exactly this
+ * difference between DCF and EDCA.
+ */
+export const DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS: Ns = 512 * TU_NS
+
+/** Where an MSDU's transmit timer starts: EDCA at enqueue (§10.23.2.12.1), DCF at its first attempt (§10.4). */
+export type LifetimeFrom = 'enqueue' | 'firstTx'
 
 export class AcQueues {
   private q: Msdu[][] = [[], [], [], []]
@@ -66,10 +82,16 @@ export class AcQueues {
     return false
   }
 
-  /** Remove and return every MSDU of an access category queued longer than lifetimeNs. */
-  purgeExpired(ac: number, nowNs: Ns, lifetimeNs: Ns): Msdu[] {
+  /**
+   * Remove and return every MSDU of an access category whose transmit timer exceeds lifetimeNs.
+   * `from` says where the timer started: at enqueue (EDCA), or at the MSDU's first transmission
+   * attempt (DCF) — an MSDU never yet on the air then has no running timer.
+   */
+  purgeExpired(ac: number, nowNs: Ns, lifetimeNs: Ns, from: LifetimeFrom = 'enqueue'): Msdu[] {
     const queue = this.q[ac]
-    const age = (m: Msdu): Ns => nowNs - (m.enqueuedNs ?? m.bornNs)
+    const age = (m: Msdu): Ns => from === 'firstTx'
+      ? (m.firstTxNs === undefined ? 0 : nowNs - m.firstTxNs)
+      : nowNs - (m.enqueuedNs ?? m.bornNs)
     const expired = queue.filter((m) => age(m) > lifetimeNs)
     if (expired.length) this.q[ac] = queue.filter((m) => age(m) <= lifetimeNs)
     return expired

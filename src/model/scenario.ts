@@ -27,7 +27,7 @@ import {
   uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbBlockWholeSlots, uwbSlotFitNs, uwbSlotsPerTag, uwbWholeRoundSlots, type UwbReplyTime,
 } from '../uwb/phy'
-import { minGen, negotiated, type LinkId } from './caps'
+import { linkPlanFor, minGen, negotiated, type LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
 
 export type Material = 'drywall' | 'brick' | 'glass'
@@ -144,16 +144,18 @@ export interface NodeCfg {
   txopProtection?: TxopProtection
   /** Per-stream server binding (server id); unset streams use the first server of their kind. */
   servers?: Partial<Record<ProfileId, string>>
-  /**
-   * AP only: the router's "game acceleration" mode. Off (default) leaves game
-   * packets unmarked, so they contend as best effort (AC_BE); on, the router
-   * marks game flows into AC_VI, as the gaming modes of home routers do.
-   */
-  gameAccel?: boolean
   /** Station only: a tampered driver that ignores the broadcast EDCA parameters. */
   tamper?: TamperCfg
   /** Station only, with the p2pvideo stream: the station this phone streams to (via the AP). */
   p2pTarget?: string
+  /**
+   * AP or station on the 2.4 GHz link: dot11ShortSlotTimeOptionImplemented and …Activated. The
+   * 2.4 GHz BSS uses the short slot (9 µs) only when every one of its stations supports it, and the
+   * long slot (20 µs) otherwise (§11.1.3.2, §10.3.2.16; Table 18-5, Table 19-25). Absent: false for
+   * an 802.11g (`nonht`) radio — the ERP MIB default (Table 18-4) — and true for HE/EHT/UHR radios,
+   * where the standard leaves it implementation dependent (Table 19-24).
+   */
+  shortSlot?: boolean
   /** AP only, Wi-Fi 7 (eht) generation only: ambient-power (AMP) polling on the 2.4 GHz link. */
   ampAp?: AmpApCfg
   /** `kind: 'amp'` only: an ambient-power tag's identity and downlink sensitivity. */
@@ -177,23 +179,26 @@ export interface AmpApCfg {
   readMode: 'inline' | 'twoPhase'
   /**
    * The reader half of the backscatter tier: absent, the AP only runs Active Tx rounds. Present,
-   * it also runs EPC Gen2 inventory rounds — `q` slots of 2^Q, replies at `ulKbps`, a WUP of
-   * `wupMs` to boot the tags, `chargeDbm` up to the end of each command and `bsDbm` while the
-   * reply is expected, a TXOP of `txopMs`, and whether a successful inventory is followed by a
-   * Read and a Write.
+   * it also runs mono-static inventories (PDT 11-26/1519r5 §39.3.3): `slots` broadcast AMP
+   * Triggers for random access, each allocating one slot, with ACWE `acwe`; replies at `ulKbps`; a
+   * WUP of `wupMs` to boot the tags; `chargeDbm` up to the end of each frame and `bsDbm` while a
+   * reply is expected; and, when `read` is set, an AMP RFID frame carrying the UHF Read command to
+   * every identifier heard, which returns the tag's EPC. Every TXOP is bounded by the AP's AC_BK
+   * TXOP limit (§10.23.2.9).
    */
   backscatter?: AmpBackscatterCfg
 }
 
 export interface AmpBackscatterCfg {
-  q: number
+  /** ACWE of each broadcast trigger: a tag answers with probability 1/2^ACWE (§39.4, ACW = 2^ACWE − 1). */
+  acwe: number
+  /** Broadcast triggers per inventory (each allocates a single slot, §39.3.3). */
+  slots: number
   ulKbps: 250 | 1000
   wupMs: number
   chargeDbm: number
   bsDbm: number
-  txopMs: number
   read: boolean
-  write: boolean
 }
 
 export const DEFAULT_AMP_AP: AmpApCfg = {
@@ -201,12 +206,31 @@ export const DEFAULT_AMP_AP: AmpApCfg = {
 }
 
 /**
- * The reader's defaults: Gen2's Q = 2 (four slots), the slower of the two uplink rates, the
- * minimum wake-up preamble the framework allows (PM-73), and 11-25/0307r0's PEX_C = 10 dBm /
- * PEX_B = 0 dBm. `txopMs` is a model choice. Read on, Write off — a Write costs 3 ms of air.
+ * The reader's defaults: ACWE 2 (a tag answers one trigger in four) and four triggers per
+ * inventory, the slower of the two uplink rates, the minimum wake-up preamble the framework
+ * allows (PM-73), and 11-25/0307r0's PEX_C = 10 dBm / PEX_B = 0 dBm. Read on.
  */
 export const DEFAULT_AMP_BS: AmpBackscatterCfg = {
-  q: 2, ulKbps: 250, wupMs: 1, chargeDbm: 10, bsDbm: 0, txopMs: 4, read: true, write: false,
+  acwe: 2, slots: 4, ulKbps: 250, wupMs: 1, chargeDbm: 10, bsDbm: 0, read: true,
+}
+
+/**
+ * A reader section saved before 2026-11-11 described an EPC Gen2 inventory (`q`, 2^Q slots, a
+ * `txopMs` of its own, `write`). It still loads: Q becomes the ACWE and 2^Q the trigger count,
+ * which keeps the expected answers per slot the same; `txopMs` and `write` are dropped — the TXOP
+ * is the AP's AC_BK limit, and a Write's 2 ms response time does not fit in it.
+ */
+function legacyBackscatter(v: unknown): unknown {
+  if (typeof v !== 'object' || v === null) return v
+  const o = { ...(v as Record<string, unknown>) }
+  if (typeof o.q === 'number' && o.acwe === undefined) {
+    o.acwe = o.q
+    if (o.slots === undefined) o.slots = 2 ** o.q
+  }
+  delete o.q
+  delete o.txopMs
+  delete o.write
+  return o
 }
 
 /** How a tag answers: with a carrier of its own (Active Tx) or by reflecting the reader's. */
@@ -727,7 +751,12 @@ export interface Scenario {
   /** dot11RTSThreshold in PSDU octets. */
   rtsThresholdBytes: number
   snapshotIntervalMs: number
-  /** MAC transmit queues: MSDUs per access category and MSDU lifetime. Absent = 500 MSDUs, 500 ms. */
+  /**
+   * MAC transmit queues: MSDUs per access category, and the MSDU lifetime — dot11EDCATableMSDULifetime
+   * (from enqueue, §10.23.2.12.1) on an EDCA link, dot11MaxTransmitMSDULifetime (from the first
+   * transmission attempt, §10.4) on a DCF link. Absent = 500 MSDUs, and 500 TU (512 ms) / 512 TU
+   * (524.288 ms) respectively.
+   */
   queue?: { limit: number; lifetimeMs: number }
   /** UWB ranging session; required as soon as the scenario holds a `uwb` node. */
   uwb?: UwbSessionCfg
@@ -862,8 +891,11 @@ const NodeCfgSchema = z.preprocess(
     linkId: z.enum(['2g', '5g', '6g']).optional(),
     txopProtection: z.preprocess((v) => (v === 'boundary' ? 'multiple' : v), z.enum(['single', 'multiple'])).optional(),
     servers: z.record(ProfileSchema, z.string()).optional(),
-    gameAccel: z.boolean().optional(),
+    // `gameAccel` (the invented router "game mode", removed 2026-11-11: the standard has no such
+    // switch — MSCS, §11.25.3, is the AP-side classification and is not implemented) is no longer
+    // in the schema. zod strips unknown keys, so a scenario saved with it still loads, without it.
     p2pTarget: z.string().min(1).optional(),
+    shortSlot: z.boolean().optional(),
     tamper: z.object({
       allAsAc: z.number().int().min(0).max(3).optional(),
       aifsn: z.number().int().min(0).optional(),
@@ -881,19 +913,18 @@ const NodeCfgSchema = z.preprocess(
       ulKbps: z.union([z.literal(250), z.literal(1000), z.literal(4000)]),
       protection: z.enum(['ctsSelf', 'none']),
       readMode: z.enum(['inline', 'twoPhase']),
-      // EPC Gen2 allows Q 0…15; 8 is 256 slots, which is already more than a TXOP can offer
-      // (model). `wupMs` has the framework's 1 ms minimum under it (SFD PM-73); `txopMs` and the
-      // two power ranges are model choices wide enough for the lesson's variants.
-      backscatter: z.object({
-        q: z.number().int().min(0).max(8),
+      // ACWE as the Active Tx section's (0…4 here, a model bound); up to 256 triggers per
+      // inventory (model). `wupMs` has the framework's 1 ms minimum under it (SFD PM-73); the two
+      // power ranges are model choices wide enough for the lesson's variants.
+      backscatter: z.preprocess(legacyBackscatter, z.object({
+        acwe: z.number().int().min(0).max(4),
+        slots: z.number().int().min(1).max(256),
         ulKbps: z.union([z.literal(250), z.literal(1000)]),
         wupMs: z.number().min(1),
         chargeDbm: z.number().min(-10).max(30),
         bsDbm: z.number().min(-10).max(30),
-        txopMs: z.number().min(1).max(10),
         read: z.boolean(),
-        write: z.boolean(),
-      }).optional(),
+      })).optional(),
     }).optional(),
     ampTag: z.object({
       id16: z.number().int().min(1).max(0xfffe).optional(),
@@ -1388,8 +1419,8 @@ export function guardIntervalRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
  * ## The verdict, run through docs/inert-config-contract.md
  *
  * **Step 1 — is a lesson demonstrating it?** Measured across all 284 shipped scenes (every
- * `LESSONS` scenario and variant, `HOUSEHOLDS`, `defaultScenario`): sixteen carry `ampAp`, all
- * sixteen on a `kind: 'ap'` node whose generation is `eht`, and they belong to the five AMP
+ * `LESSONS` scenario and variant, `HOUSEHOLDS`, `defaultScenario`): fifteen carry `ampAp` (sixteen until the Write variant went, 2026-11-11), all
+ * of them on a `kind: 'ap'` node whose generation is `eht`, and they belong to the five AMP
  * lessons. **Not one would be deleted by this refusal**, and five of them teach the rule in
  * prose. `tests/model/amp-ap-refusal.test.ts` holds that census so it is a measurement rather
  * than this sentence.
@@ -1484,22 +1515,20 @@ export function tamperSetFields(t: TamperCfg): (keyof TamperCfg)[] {
 }
 
 /**
- * Why this plan would refuse the tampered driver or the game-mode switch on **this one node** -
- * one string per reason, empty when both are welcome. The single copy of all three rules and
- * their wording, read by `superRefine` below and by the editor's own panel
+ * Why this plan would refuse the tampered driver on **this one node** - one string per reason,
+ * empty when it is welcome. The single copy of both rules and their wording, read by `superRefine` below and by the editor's own panel
  * (`src/editor/planOps.ts` and `src/editor/FloorPlanEditor.tsx`), exactly as
  * `selectivityRefusals` is.
  *
- * **Three rules, and each refuses a configuration that is byte-for-byte the configuration
+ * **Two rules, and each refuses a configuration that is byte-for-byte the configuration
  * without the field** - measured in `tests/engine/tamper-inert.test.ts`, which is where the
- * evidence for every sentence below lives:
+ * evidence for every sentence below lives. (A third, for the router "game mode" boolean on a
+ * non-AP node, went with the boolean itself on 2026-11-11.)
  *
- *  1. `gameAccel` anywhere but on the access point. `simulation.ts` reads `ap.gameAccel === true`
- *     and nothing else, so the flag on a station is dropped on the way in.
- *  2. `tamper` anywhere but on a station. `simulation.ts` passes
+ *  1. `tamper` anywhere but on a station. `simulation.ts` passes
  *     `tamper: n.kind === 'sta' ? n.tamper : undefined` - an AP-side preset is dropped
  *     explicitly, and until this rule, silently.
- *  3. `tamper` on a link that can read **none** of the fields it sets (see
+ *  2. `tamper` on a link that can read **none** of the fields it sets (see
  *     {@link tamperReadableFields}). This is the one rule that is about the LINK rather than the
  *     node the field sits on, and the one that must not be written as "refuse every tamper on a
  *     non-EDCA link": `cw`, `noDouble` and `navInflate` are all perfectly effective under DCF,
@@ -1524,9 +1553,6 @@ export function tamperSetFields(t: TamperCfg): (keyof TamperCfg)[] {
  * defensible at all (the physics stays measurable from the side the schema still accepts).
  *
  * **What is deliberately NOT refused**, each with its reason:
- *  - `gameAccel: true` in a room with no `gaming` stream. Ticking the router's box before adding
- *    the phone's traffic is a reasonable intermediate state in the editor, and a schema that
- *    refuses it makes the editor hostile. Pinned by test instead.
  *  - `noDouble` on a station that will never collide, and `txopHog` on a queue that never holds
  *    a second frame. Whether a scene collides is not a property a schema can see.
  *  - `tamper: {}`. It sets no field at all, so rule 3's "sets something unreadable" does not
@@ -1534,9 +1560,6 @@ export function tamperSetFields(t: TamperCfg): (keyof TamperCfg)[] {
  */
 export function driverRefusalsFor(sc: Pick<Scenario, 'nodes'>, n: NodeCfg): string[] {
   const out: string[] = []
-  if (n.gameAccel === true && n.kind !== 'ap') {
-    out.push(`游戏模式（gameAccel）只能贴在接入点上，而「${n.name}」是一个 ${n.kind} 节点：引擎读的是接入点自己的这个布尔（simulation.ts 里的 ap.gameAccel === true），贴在别的节点上会被原样丢掉，仿真跑出来与没有它逐字节相同。请把它移到接入点上，或者去掉`)
-  }
   if (n.tamper !== undefined && n.kind !== 'sta') {
     out.push(`篡改驱动（tamper）只能贴在站点上，而「${n.name}」是一个 ${n.kind} 节点：引擎建 MAC 的时候写的是 tamper: n.kind === 'sta' ? n.tamper : undefined，所以贴在接入点或别的节点上会被一声不响地丢掉，仿真跑出来与没有它逐字节相同。请把它移到一台站点上，或者去掉`)
   }
@@ -1553,6 +1576,30 @@ export function driverRefusalsFor(sc: Pick<Scenario, 'nodes'>, n: NodeCfg): stri
 /** The same three rules over every node of a plan, flattened - what `superRefine` walks. */
 export function driverRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
   return sc.nodes.flatMap((n) => driverRefusalsFor(sc, n))
+}
+
+/**
+ * Does this radio support the short slot time (dot11ShortSlotTimeOptionImplemented and
+ * …Activated)? An explicit `shortSlot` wins; otherwise an 802.11g (ERP, `nonht`) radio does not —
+ * the Table 18-4 MIB default is false — and an HE/EHT/UHR radio does (Table 19-24 leaves it
+ * implementation dependent; this simulator's choice).
+ */
+export function supportsShortSlot(n: Pick<NodeCfg, 'shortSlot' | 'caps'>): boolean {
+  return n.shortSlot ?? n.caps.generation !== 'nonht'
+}
+
+/**
+ * Why `shortSlot` on this node would be inert: the slot-time rule (§11.1.3.2) is about the
+ * 2.4 GHz BSS, so the field means something only on an AP or a station that is a member of the
+ * 2.4 GHz link. On any other node the simulation is byte-for-byte the one without it.
+ * Judged against `docs/inert-config-contract.md`: refused rather than pinned, because no plan this
+ * repository ships sets the field off the 2.4 GHz link, and the refusal names where it belongs.
+ */
+export function shortSlotRefusals(sc: Pick<Scenario, 'nodes'>): string[] {
+  const on2g = new Set(linkPlanFor(sc.nodes).members['2g'])
+  return sc.nodes
+    .filter((n) => n.shortSlot !== undefined && (!(n.kind === 'ap' || n.kind === 'sta') || !on2g.has(n.id)))
+    .map((n) => `「${n.name}」不在 2.4 GHz 链路上（或不是接入点、站点）：短时隙选项（shortSlot）只决定 2.4 GHz 基本服务集用 9 µs 还是 20 µs 的时隙（§11.1.3.2），贴在这里不改变任何结果。请去掉它，或者把这台设备放到 2.4 GHz 链路上`)
 }
 
 /**
@@ -1750,14 +1797,16 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
     // legal-but-inert configuration should be refused at all or pinned by a test instead, and
     // what has to be measured across the whole course before either.
     //
-    // The tampered driver and the router's game mode (design doc 2026-10-05-built-but-untaught,
-    // section 7.5). Three rules, every one of them refusing a plan whose record stream is
+    // The tampered driver (design doc 2026-10-05-built-but-untaught, section 7.5). Two rules, every one of them refusing a plan whose record stream is
     // byte-for-byte the plan without the field; `driverRefusalsFor` above holds the single copy
     // of both the predicates and their wording, which the editor's own panel reads too, so the
     // red line beside the control and the schema's refusal can never explain the same rule
     // differently. Tagged `path: ['nodes']` the way the ranging rules are tagged `['uwb']`, so
     // the editor can tell a node issue from any other by its path rather than by its wording.
     for (const message of driverRefusals(sc)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes'], message })
+    }
+    for (const message of shortSlotRefusals(sc)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes'], message })
     }
     // Every ranging rule is tagged `path: ['uwb']` so the editor can tell a

@@ -250,8 +250,8 @@ export interface Strings {
     preset: string; presetPick: string; presetHint: string; brands: Record<'huawei' | 'xiaomi' | 'honor' | 'apple', string>; mloCapableNote: string
     servers: string; addServer: string; serverName: string; serverKind: string; serverRtt: string; serverRttHint: string; deleteServer: string
     streamServer: string; households: string; householdsPick: string
-    gameAccel: string; gameAccelHint: string
     p2pTarget: string; p2pTargetHint: string;
+    shortSlot: string; shortSlotHint: string
     tamper: string; tamperHint: string; tamperKinds: Record<'none' | 'custom' | 'escalate' | 'aifs' | 'cw' | 'noDouble' | 'txopHog' | 'navInflate' | 'greedy', string>
     serverJitter: string; serverJitterHint: string; serverProcess: string; serverProcessHint: string
     traffic: string; txPower: string; height: string
@@ -286,16 +286,15 @@ export interface Strings {
      * discarded" would be true and would leave the reader with nothing to do about it.
      */
     ampDropped: string
-    /** The AP's mono-static reader: an EPC Gen2-style inventory tunnelled in AMP RFID frames. */
+    /** The AP's mono-static reader: broadcast AMP Triggers with one slot each, then AMP RFID Read frames. */
     ampBs: string; ampBsEnable: string; ampBsEnableHint: string
     ampBsQ: string; ampBsQHint: string
+    ampBsSlots: string; ampBsSlotsHint: string
     ampBsUl: string; ampBsUlHint: string
     ampBsWup: string; ampBsWupHint: string
     ampBsCharge: string; ampBsChargeHint: string
     ampBsBs: string; ampBsBsHint: string
-    ampBsTxop: string; ampBsTxopHint: string
     ampBsRead: string; ampBsReadHint: string
-    ampBsWrite: string; ampBsWriteHint: string
     /** UWB ranging: the per-node fields (uwb/ui/UwbNodeFields.tsx). */
     uwbNode: string; uwbRole: string; uwbRoles: Record<'anchor' | 'tag', string>
     /** `mode: 'm2m'` only: the role line's own note that in this mode a tag is an initiator and an
@@ -510,7 +509,7 @@ export interface Strings {
     ampTag: string; aboc: string; abocHint: string; slot: string; slotHint: string
     ampCounts: string; ampCountsHint: string; ampRound: string; ampRoundHint: string; satOut: string
     ampPhase: Record<'random' | 'scheduled', string>
-    /** Backscatter tag rows: its Gen2 slot counter, its session flag, its reflections and the
+    /** Backscatter tag rows: the ABOC it drew for the trigger on the air, whether its EPC was read, its reflections and the
      * margin the last one had over the reader's own leakage floor. */
     bsCounter: string; bsCounterHint: string
     bsInventoried: string; bsInventoriedHint: string; bsYes: string; bsNo: string
@@ -777,11 +776,10 @@ export interface Strings {
     ifsChain: (kinds: string) => string
     navTitle: string; navNote: string; sifsWait: string
     ampTrigger: string; ampAck: (dst: string) => string; ampResp: (slot: number) => string
-    /** Backscatter: the Gen2 command name, and the Gen2 reply name with the slot it came back in. */
+    /** Backscatter: the downlink frame's name, and the reflected frame's name with the slot it came back in. */
     ampRfid: (cmd: string) => string; ampBsReply: (reply: string, slot: number) => string
     ampWait: string; ampWaitNote: string
     /** A backscatter tag counting down the reader's slots — powered, but not its turn. */
-    bsWait: string; bsWaitNote: string
     uwbPoll: (anchors: number) => string; uwbResp: (slot: number) => string
     /** SS-TWR with a deferred reply time (standard §10.29.6.3): the reply time in a message
      * of its own, a slot later than the Response it describes. */
@@ -1121,6 +1119,7 @@ export const STRINGS: Strings = {
     serverJitter: '广域网抖动', serverJitterHint: '每个报文的往返时延在 RTT 与 RTT + 抖动之间随机（每个方向各一半）',
     serverProcess: '处理时间', serverProcessHint: '服务器响应请求或回显 ping 所需的时间',
     p2pTarget: '发给', p2pTargetHint: '接收这路视频的手机；AP 收到每一帧后转发给它',
+    shortSlot: '支持短时隙（2.4 GHz）', shortSlotHint: 'dot11ShortSlotTimeOptionImplemented：2.4 GHz 基本服务集只有在每一台设备都支持短时隙时才用 9 µs 的时隙，否则用 20 µs（§11.1.3.2）。不勾选时按设备的缺省值：802.11g 不支持，Wi-Fi 6/7 支持。',
     tamper: '⚠ 篡改驱动', tamperHint: '该终端无视 AP 广播的 EDCA 参数。选择一种作弊方式，看看它给作弊者带来什么、让其他人付出什么。',
     tamperKinds: {
       none: '合规', custom: '自定义',
@@ -1132,7 +1131,6 @@ export const STRINGS: Strings = {
       navInflate: 'NAV 虚报——Duration 字段多报 3 ms',
       greedy: '贪婪——以上全部（经典作弊）',
     },
-    gameAccel: '🎮 游戏加速', gameAccelHint: '路由器游戏模式：把游戏流量标记进 AC_VI。关闭时游戏报文没有 DSCP 标记，和其他流量一样按尽力而为（AC_BE）竞争。',
     traffic: '业务', txPower: '发射功率', height: '高度',
     txopProt: 'TXOP 保护',
     txopProtHint: '本节点作为 TXOP 持有者时使用的 Duration 设置类别（IEEE Std 802.11-2024 §9.2.5.2）：单次保护，每一帧预约到下一帧及其应答结束；多重保护，每一帧预约到 TXOP 结束，提前结束时以 CF-End 归还。',
@@ -1159,16 +1157,15 @@ export const STRINGS: Strings = {
     ampEpcBad: 'EPC 必须是 24 个十六进制字符（96 位），或留空',
     ampBsNeedsReader: '该标签所在的场景里没有任何 AP 打开 RFID 盘点——请到 AP 自己的属性里打开它，否则场景无法通过校验',
     ampDropped: '接入点换了世代，它那一整节 AMP 轮询（802.11bp）已经被丢掉了：轮询间隔、时隙数、ACWE、上下行速率、保护、读取方式，以及整个 RFID 盘点小节。只有 Wi-Fi 7（EHT）的接入点能轮询，理由就写在那一节腾空之后留下的那段说明里。把下拉框切回 Wi-Fi 7 不会把这些数找回来，↶ 撤销（Ctrl+Z）可以。',
-    ampBs: 'RFID 盘点', ampBsEnable: '运行 EPC Gen2 盘点（单站式反向散射）',
+    ampBs: 'RFID 盘点', ampBsEnable: '运行单站反向散射盘点（AMP Trigger + AMP RFID）',
     ampBsEnableHint: 'AP 自己辐射载波并聆听标签反射回来的信号——关闭时不会有任何反向散射标签应答',
-    ampBsQ: 'Q', ampBsQHint: 'Query(Q)：每个标签从 [0, 2^Q − 1] 中抽取一个时隙计数器；Q = 2 即四个时隙。草案自身的 Q 自适应未建模',
+    ampBsQ: 'ACWE', ampBsQHint: '每帧广播触发帧的 ACWE：标签从 [0, 2^ACWE − 1] 中重新抽取 ABOC，抽到 0 才在这一帧唯一的时隙里作答（§39.3.3、§39.4）',
+    ampBsSlots: '触发帧数', ampBsSlotsHint: '一次盘点发出的广播触发帧数，每帧只分配一个时隙；一个 TXOP 装不下时在下一个 AC_BK TXOP 中继续，沿用同一个会话号',
     ampBsUl: '上行速率', ampBsUlHint: '标签反向散射应答所用的速率',
     ampBsWup: '唤醒载波（ms）', ampBsWupHint: '一个 TXOP 第一个 PPDU 前端的唤醒载波时长；标签需要在 −20 dBm 以上持续整个窗口才能启动',
     ampBsCharge: '充能功率', ampBsChargeHint: '直到每条命令结束为止所辐射的功率；标签必须在整个唤醒窗口内听到它才能启动——默认 10 dBm 时可达 30.9 cm，20 dBm 时可达 97.8 cm。超出这个距离的标签永远不会启动：没有泳道，也没有记录。',
     ampBsBs: '散射窗功率', ampBsBsHint: '等待应答期间辐射的功率；调高它并不会增加距离，因为阅读器自身的泄漏底噪也会同样升高——无论如何设置，应答距离在 250 kb/s 时都是 32.8 cm，1 Mb/s 时都是 23.2 cm',
-    ampBsTxop: 'TXOP（ms）', ampBsTxopHint: '一次盘点突发最多占用信道多久；装不下的盘点会在下一个 TXOP 中继续，沿用同一个会话与同一个时隙',
-    ampBsRead: 'ACK 后读取', ampBsReadHint: 'EPC 应答成功后跟一次 8 字节的 Read',
-    ampBsWrite: '读取后写入', ampBsWriteHint: 'Read 之后跟一次 Write，标签在 2 ms 后才应答——阅读器要在这段等待中一直保持载波，所以泳道上的 Write PPDU 长约 3 ms',
+    ampBsRead: '读取 EPC', ampBsReadHint: '对每个听到的标识发一帧 AMP RFID 帧，携带读 EPC 存储区的 Read 命令；应答里带回标签的 EPC',
     uwbNode: 'UWB 测距（802.15.4-2024）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
     uwbRoleM2mNote: '多对多测距（M2M，标准 §10.32.6/§10.32.7）里，标签是发起方、锚点是响应方；按 id 排在最前的标签担任控制器，在测距控制消息的 RDM 信息单元里为其余设备指定角色与时隙',
     uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
@@ -1367,18 +1364,18 @@ export const STRINGS: Strings = {
     ampRound: 'AMP 轮次', ampRoundHint: '该链路上正在进行的轮询轮次，以及目前已应答的标签',
     ampPhase: { random: '随机接入', scheduled: '调度' },
     satOut: '弃权 / 已听到',
-    bsCounter: '时隙计数器',
-    bsCounterHint: 'EPC Gen2 时隙计数器：收到 Query 时从 [0, 2^Q − 1] 均匀抽取；每收到一个 QueryRep 减一，减到 0 时标签反射自己的 RN16',
-    bsInventoried: '已盘点', bsYes: '是', bsNo: '否',
-    bsInventoriedHint: '读写器已在本会话中读到该标签的 EPC，因此它会保持沉默，直到出现新的会话号',
+    bsCounter: 'ABOC',
+    bsCounterHint: '标签为当前这帧广播触发帧抽取的 ABOC：从 [0, 2^ACWE − 1] 均匀抽取，每帧触发帧重新抽取（§39.4）；单站触发帧只分配一个时隙，抽到 0 的标签反射一帧带自己标识的 AMP Response',
+    bsInventoried: 'EPC 已读出', bsYes: '是', bsNo: '否',
+    bsInventoriedHint: '标签已经在一帧 Read 应答里反射出自己的 EPC。标签并不因此保持沉默：之后的触发帧它照样抽取 ABOC、照样可能作答（草案没有规定已读出的标签在会话内保持沉默）',
     bsReplies: '反射次数 / 碰撞次数',
     bsRepliesHint: '该标签已反射出的应答数，以及其中有多少次与另一个标签落在同一时隙',
     bsSnr: '读写器处余量',
     bsSnrHint: '上一次反射高出读写器自身泄漏底噪多少；在 250 kb/s 下要有 3 dB 才能解调，更快的 1 Mb/s 应答则要 9 dB',
     inventory: 'RFID 盘点', session: '会话',
-    inventoryHint: '正在进行的 EPC Gen2 盘点：会话号、正在开放的时隙，以及本次 TXOP 读到的标签数 / 碰撞时隙数 / 空时隙数',
+    inventoryHint: '正在进行的单站反向散射盘点：会话号、第几帧广播触发帧（每帧只分配一个时隙），以及本次 TXOP 的统计——解出标识的时隙数 / 读不出的时隙数 / 空时隙数，和 Read 读回的 EPC 个数',
     inventoryLast: '上一次盘点',
-    inventoryLastHint: '刚刚结束的那次 TXOP 的统计——读到的标签数 / 碰撞时隙数 / 空时隙数，以及这次会话在 2^Q 个时隙中走到了第几个；在下一次轮询之前，读写器只是在听着整个房间',
+    inventoryLastHint: '刚刚结束的那次 TXOP 的统计——解出标识的时隙数 / 读不出的时隙数 / 空时隙数，Read 读回的 EPC 个数，以及这次盘点发到了第几帧触发帧。一次 TXOP 受 AC_BK 的 TXOP 限制约束，没做完的部分在下一个 AC_BK TXOP 里继续',
   },
   uwb: {
     anchor: '锚点', tag: '标签', role: '角色',
@@ -1466,7 +1463,7 @@ export const STRINGS: Strings = {
       cts: 'CTS — 允许发送', ba: 'BlockAck — 块确认',
       trigger: 'Trigger — 触发帧', mba: '多站点 BlockAck', cfend: 'CF-End — 提前结束',
       ampTrigger: 'AMP 触发帧', ampAck: 'AMP 确认帧', ampResp: 'AMP 应答帧',
-      ampRfid: 'AMP RFID 命令帧', ampBsReply: '反向散射应答',
+      ampRfid: '单站下行帧（AMP Trigger / AMP RFID）', ampBsReply: '反向散射应答',
       uwbPoll: 'UWB 轮询帧', uwbResp: 'UWB 响应帧', uwbFinal: 'UWB 终结帧', uwbReport: 'UWB 测量报告帧',
       uwbSsDefer: 'UWB 延后报文',
       uwbInit: 'UWB 测距启动帧',
@@ -1495,8 +1492,8 @@ export const STRINGS: Strings = {
       ampTrigger: 'AP 按 P802.11bp 草案发送的环境能量触发帧：以慢速通断键控（OOK）PPDU 划出 N 个上行时隙，并规定标签如何从中选定一个——随机竞争还是按预定顺序。无电池的标签没有普通 Wi-Fi 接收机，正是这一帧才让一轮能够开始。',
       ampAck: 'AP 对某个 AMP 上行时隙的确认帧：同样由 AP 正常供电发出的 OOK PPDU，用来关闭它所确认的、由标签以收集到的能量主动发射作答的那个时隙。按照 P802.11bp 草案，没有自己时钟的标签靠数这些确认帧来判断时隙何时打开，因此每一帧同时也在提示下一个时隙。',
       ampResp: '标签在自己 AMP 上行时隙里的应答，用从 AP 载波上收集到的能量发送，而不是电池供电。按照 P802.11bp 草案，这一帧尽量精简——只有 ID，以及触发帧要求时才附带的一次传感器读数——这样收集到的能量刚好够发完。',
-      ampRfid: '读写器发给反向散射标签的命令：一条 EPC Gen2 命令——Query、QueryRep、ACK、Read、Write——被装进 P802.11bp 的 AMP RFID 帧里。整个 PPDU 里大部分时间根本不是数据而是载波：先是至少一毫秒的唤醒激励，把标签供上电；命令之后还有第二段激励，标签就靠反射它把答案送回去。',
-      ampBsReply: '标签在完全没有发射机的情况下作答。它没有振荡器，只是让天线在两种阻抗之间来回切换，于是读写器自己的载波被调制后反射回来，功率还低了约 6 dB。这个信号在房间里往返了两趟，回到读写器时远低于普通接收机能容忍的噪声——所以决定它能传多远的，是读写器的自泄漏和动态范围，而不是它的发射功率。',
+      ampRfid: '读写器发给反向散射标签的下行帧：一帧广播 AMP Trigger（只分配一个上行时隙，带会话号与 ACWE，§39.3.3），或一帧寻址到某个标签标识的 AMP RFID 帧，帧体里是 UHF 的 Read 命令。整个 PPDU 里大部分时间根本不是数据而是载波：先是至少一毫秒的唤醒激励，把标签供上电；帧之后还有第二段激励，标签就靠反射它把答案送回去。',
+      ampBsReply: '标签在完全没有发射机的情况下作答：对触发帧回一帧带自己 16 位标识的 AMP Response，对 Read 回一帧带 EPC 的 AMP RFID 帧。它没有振荡器，只是让天线在两种阻抗之间来回切换，于是读写器自己的载波被调制后反射回来，功率还低了约 6 dB。这个信号在房间里往返了两趟，回到读写器时远低于普通接收机能容忍的噪声——所以决定它能传多远的，是读写器的自泄漏和动态范围，而不是它的发射功率。',
       uwbPoll: '标签用它开启一轮测距：一帧广播的 UWB 帧，列出参与的锚点及其时隙顺序。它的发送时刻由标签自己的测距计数器读出，是后续所有距离计算的第一个时间戳。',
       uwbResp: '某一个锚点在它自己的测距时隙里的回答。在 SS-TWR 下，它还会带上锚点测得的回复时间，标签靠它才能从往返时间里减去锚点的处理时延。',
       uwbSsDefer: 'SS-TWR 延后回复时间下，锚点发响应帧的那一刻还不知道自己这次发送的时间戳，只能先空手作答。等它把发送时刻真正读回来，才用这一帧单独补给标签——回复时间因此是一条独立的消息，占自己的时隙，而不是响应帧的一部分。按标准，它装在一枚 RMI IE 里（§10.29.6.3）。',
@@ -1539,8 +1536,8 @@ export const STRINGS: Strings = {
       ampTrigger: '选中某个时隙的标签会在该时隙内用 AMP 应答帧作答；AP 依次确认每一个时隙，无论该时隙是否真的有标签应答。P802.11bp 草案正是靠这种「先应答、后确认」的节奏来化解竞争——标签根本不具备载波侦听能力。',
       ampAck: '轮次会被这一帧本身提示进入下一个时隙，或者在所有时隙都被应答并确认后结束。按照 P802.11bp 草案，标签没有自己的时钟，只能靠数这些确认帧来判断该在什么时候发送。',
       ampResp: '一个 SIFS 之后，AP 会为这个时隙发送一个确认帧，无论该时隙里是否真的有标签应答——沉默也是一种结果。P802.11bp 草案对触发帧打开的每个时隙都重复这一过程，之后要么结束这一轮，要么由 AP 开启新一轮。',
-      ampRfid: '凡是时隙计数器已经减到 0 的标签，都会在这个 PPDU 末尾那段激励里把答案反射回来——没有单独的上行，也不用等待任何间隔。随后读写器直接发出下一条命令：按照 P802.11bp 草案，反向散射应答之后不跟确认帧，因为下一条命令本身就是确认。',
-      ampBsReply: '读写器要么听见了，要么没听见，然后继续往下走：若只有一个应答被正确解出，就发 ACK 点名这个标签的随机数；若两个标签撞在一起或者根本没有回应，就发下一个时隙的 QueryRep。等所有时隙都发完、或者 TXOP 用尽，这一轮就结束。',
+      ampRfid: '对一帧触发帧，抽到 ABOC = 0 的标签在这个 PPDU 末尾那段激励里反射自己的标识；对一帧 Read，被寻址的标签反射自己的 EPC——没有单独的上行，也不用等待任何间隔。按照 P802.11bp 草案，接入点收到单站反向散射的应答之后不发确认帧（FM-35）。',
+      ampBsReply: '读写器要么听见了，要么没听见，然后继续往下走：解出一个标识，就在之后给这个标签发一帧 Read；两路反射撞在一起或者根本没有回应，就记一次读不出或空槽，接着发下一帧触发帧。下一帧放不进 AC_BK 的 TXOP 限制时，这个 TXOP 结束，余下的在下一个 AC_BK TXOP 里继续。',
       uwbPoll: '各个锚点按轮询帧分配的测距时隙依次作答。某个时隙如果一直沉默，就是一次超时：该锚点这一轮不贡献距离。',
       uwbResp: '在 SS-TWR 下，标签此时已经拿齐所需的一切，可以直接算出距离。在 DS-TWR 下，它会等所有锚点答完，再发出终结帧。',
       uwbSsDefer: '标签收到这份回复时间，从对该锚点的往返时间里减去它，就算出了到这个锚点的距离。各锚点的延后报文互不相干，谁先送到，标签就先测出到谁的距离。',
@@ -1667,12 +1664,12 @@ export const STRINGS: Strings = {
         slots: '时隙数', slotDuration: '时隙长度', acwe: 'ACWE',
         phase: '阶段', phaseName: { random: '随机接入', scheduled: '调度' },
         acksSlot: '确认的时隙', slot: '时隙', aboc: 'ABOC',
-        gen2Cmd: 'EPC Gen2 命令', sessionSlot: '会话 / 时隙',
-        q: 'Q', qValue: (q, slots) => `${q}（${slots} 个时隙）`,
+        gen2Cmd: '下行帧', sessionSlot: '会话 / 时隙',
+        q: 'ACWE', qValue: (acwe, acw) => `${acwe}（ACW ${acw}）`,
         rn16: 'RN16', wup: 'WUP-Excitation', bst: 'BST-Excitation',
         excitationPower: '激励功率',
         excitationValue: (charge, bs) => `${charge} dBm 充能 / ${bs} dBm 反向散射`,
-        gen2Reply: 'Gen2 应答', epc: 'EPC', incident: '入射激励',
+        gen2Reply: '反射的帧', epc: 'EPC', incident: '入射激励',
       },
       uwbValue: {
         fc: (sp) => `数据帧 · SP${sp} 测距 · PAN ID 压缩 · 16 位短地址`,
@@ -1785,12 +1782,10 @@ export const STRINGS: Strings = {
     ampTrigger: 'AMP 触发帧 — AP 为环境能量标签开放上行时隙',
     ampAck: (dst) => `AMP 确认 → ${dst} — 关闭一个时隙并开启下一个`,
     ampResp: (slot) => `时隙 ${slot} 内的 AMP 应答`,
-    ampRfid: (cmd) => `AMP RFID · ${cmd} —— 读写器激励信号中承载的一条 EPC Gen2 命令`,
+    ampRfid: (cmd) => `${cmd} —— 读写器激励信号中承载的一帧单站下行帧`,
     ampBsReply: (reply, slot) => `时隙 ${slot} 内反向散射回来的 ${reply} —— 读写器自己的载波被反射回来`,
     ampWait: '等待自己的时隙',
     ampWaitNote: '标签没有载波侦听：它靠数 AP 发出的 Ack 来计时，并在打开自己时隙的那个 Ack 之后一个 AMP SIFS（10 µs）发送。',
-    bsWait: '正在倒数自己的时隙',
-    bsWaitNote: '反向散射标签既没有时钟也没有发射机：只有读写器的载波在空中时它才活着，它靠数读写器发出的 QueryRep 一路倒数到自己的时隙。',
     uwbPoll: (n) => `UWB 轮询帧——标签对 ${n} 个锚点开启一轮测距`,
     uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
     uwbSsDefer: (slot) => `测距时隙 ${slot} 内的 UWB 延后报文——锚点补上它那一次响应的回复时间`,

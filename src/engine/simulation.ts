@@ -12,9 +12,10 @@ import {
   virtualId, widthOf,
   type LinkId,
 } from '../model/caps'
+import { TID_FOR_AC } from '../model/frames'
 import { makeEmitter, type EmitFn, type TLRecord } from '../model/records'
 import {
-  DEFAULT_SIX_GHZ_CENTER_MHZ, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, serverFor,
+  DEFAULT_SIX_GHZ_CENTER_MHZ, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, serverFor, supportsShortSlot,
   type NodeCfg, type Scenario,
 } from '../model/scenario'
 import type { Ns } from '../model/types'
@@ -30,7 +31,7 @@ import { Channel, type BsGeometry, type ChannelSpectrum } from './channel'
 import { EventQueue } from './events'
 import { hashStr } from './hash'
 import { WifiMac } from './mac'
-import { ERP_2G, mcsForRssi, OFDM_5G, PHY_MODES, TGI_NS, type PhyTiming } from './phy'
+import { ERP_2G, mcsForRssi, OFDM_5G, PHY_MODES, TGI_NS, withLongSlot, type PhyTiming } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
@@ -53,6 +54,18 @@ export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '2g': -6.5, '5g': 0,
 /** Interframe timing of a link's PHY: clause 18 ERP-OFDM on 2.4 GHz, clause 17 OFDM elsewhere. */
 export function timingFor(link: LinkId): PhyTiming {
   return link === '2g' ? ERP_2G : OFDM_5G
+}
+
+/**
+ * The timing a link's BSS actually runs: on 2.4 GHz the AP uses the long slot (20 µs) unless every
+ * member radio supports the short one (§11.1.3.2; the MAC variable aSlotTime, §10.3.2.16). AMP tags
+ * are not ERP/HT stations of the BSS and do not take part.
+ */
+export function bssTimingFor(link: LinkId, members: NodeCfg[]): PhyTiming {
+  const T = timingFor(link)
+  if (link !== '2g') return T
+  const radios = members.filter((m) => m.kind === 'ap' || m.kind === 'sta')
+  return radios.every(supportsShortSlot) ? T : withLongSlot(T)
 }
 
 /** An AMP tag with no transmitter of its own. A tag saved before the tier existed states no
@@ -265,7 +278,7 @@ export class Simulation {
               edca,
               txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
               isAp: n.kind === 'ap',
-              timing: timingFor(link),
+              timing: bssTimingFor(link, members),
               ampAp: polls ? n.ampAp : undefined,
               ampTiers: polls ? { active: activeTags, backscatter: bsTags && !!n.ampAp!.backscatter } : undefined,
               ampBsTagIds: polls ? members.filter(isBsTag).map((m) => m.id) : undefined,
@@ -332,7 +345,7 @@ export class Simulation {
                     if (relay === undefined || relay.src !== from) return
                     relayPending.delete(msduId)
                     const fwd = at + RELAY_FWD_NS
-                    this.q.schedule(fwd, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: fwd, ac: relay.ac, relayFromNs: relay.bornNs, sa: relay.src }))
+                    this.q.schedule(fwd, () => enqueue(ap.id, { id: msduId, bytes: relay.bytes, src: ap.id, dst: relay.finalDst!, bornNs: fwd, up: relay.up, ac: relay.ac, relayFromNs: relay.bornNs, sa: relay.src }))
                   }
                 : undefined,
             },
@@ -360,8 +373,14 @@ export class Simulation {
         if (msdu.finalDst) relayPending.set(msdu.id, msdu)
         const staId = atNode === ap.id ? msdu.dst : atNode
         const sta = byId.get(staId)
-        // a tampered driver may re-mark its own (uplink) frames; it cannot touch the AP's
-        const ac = atNode !== ap.id && sta?.tamper?.allAsAc !== undefined ? sta.tamper.allAsAc : msdu.ac
+        // a tampered driver may re-mark its own (uplink) frames; it cannot touch the AP's. It
+        // re-marks the user priority (to that AC's UP, so the TID agrees with the queue), and the
+        // AC follows from the UP as for every other frame (Table 10-1).
+        if (atNode !== ap.id && sta?.tamper?.allAsAc !== undefined) {
+          msdu.up = TID_FOR_AC[sta.tamper.allAsAc]
+          msdu.ac = sta.tamper.allAsAc
+        }
+        const ac = msdu.ac
         baseEmit({ t: this.nowNs, type: 'ARRIVAL', node: primaryVid(atNode), msduId: msdu.id, bytes: msdu.bytes, dst: msdu.dst })
         primaryMac(atNode).enqueue(msdu, ac)
         // MLO: wake the sibling link's MAC; OFDMA: poke the AP scheduler.
@@ -388,7 +407,7 @@ export class Simulation {
           const link = server
             ? { id: server.id, wanNs: Math.round(server.rttMs * 500_000), jitterNs: Math.round(server.jitterMs * 1_000_000), processNs: Math.round(server.processMs * 1_000_000) }
             : null
-          const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, gameAccel: ap.gameAccel === true, p2pTarget: n.p2pTarget })
+          const src = new TrafficSource(this.q, () => this.nowNs, rng, n.id, ap.id, profile, enqueue, { server: link, emit: baseEmit, p2pTarget: n.p2pTarget })
           list.push(src)
           src.start()
         })

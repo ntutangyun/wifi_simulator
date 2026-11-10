@@ -17,7 +17,7 @@ function StateBadge({ nv, t }: { nv: NodeView; t: number }) {
   const colors: Record<string, string> = {
     idle: '#555', defer: '#eab308', backoff: '#f59e0b', tx: '#3b82f6',
     rx: '#8b5cf6', waitAck: '#06b6d4', waitCts: '#06b6d4', sifsResp: '#06b6d4',
-    ampWait: '#0d9488', bsWait: '#5eead4', uwbWait: '#d97706',
+    ampWait: '#0d9488', uwbWait: '#d97706',
   }
   return (
     <span style={{
@@ -100,13 +100,13 @@ function NodeSection({ vid, nv, t, L, U, nameOf, serverName }: { vid: string; nv
       )}
 
       {nv.ampRound && (nv.ampRound.inventory
-        ? <div style={row}><Lbl hint={L.inventoryHint}>{L.inventory}</Lbl><span>{L.session} {nv.ampRound.inventory.session} · {L.slot} {nv.ampRound.inventory.slot}{nv.ampRound.slots ? `/${nv.ampRound.slots}` : ''} · {nv.ampRound.inventory.read} / {nv.ampRound.inventory.collisions} / {nv.ampRound.inventory.empties}</span></div>
+        ? <div style={row}><Lbl hint={L.inventoryHint}>{L.inventory}</Lbl><span>{L.session} {nv.ampRound.inventory.session} · {L.slot} {nv.ampRound.inventory.slot}{nv.ampRound.slots ? `/${nv.ampRound.slots}` : ''} · {nv.ampRound.inventory.identified} / {nv.ampRound.inventory.collisions} / {nv.ampRound.inventory.empties} · EPC {nv.ampRound.inventory.read}</span></div>
         : <div style={row}><Lbl hint={L.ampRoundHint}>{L.ampRound}</Lbl><span>{L.ampPhase[nv.ampRound.phase]} · {L.slot} {nv.ampRound.slot}/{nv.ampRound.slots} · {nv.ampRound.received.map(nameOf).join(', ') || '—'}</span></div>
       )}
       {/* Between TXOPs there is no round — and that is exactly when the reader's own tally is
           worth reading, because it is reported in the instant the round is cleared. */}
       {!nv.ampRound && nv.ampInventoryLast && (
-        <div style={row}><Lbl hint={L.inventoryLastHint}>{L.inventoryLast}</Lbl><span>{L.session} {nv.ampInventoryLast.session} · {L.slot} {nv.ampInventoryLast.slot} · {nv.ampInventoryLast.read} / {nv.ampInventoryLast.collisions} / {nv.ampInventoryLast.empties}</span></div>
+        <div style={row}><Lbl hint={L.inventoryLastHint}>{L.inventoryLast}</Lbl><span>{L.session} {nv.ampInventoryLast.session} · {L.slot} {nv.ampInventoryLast.slot} · {nv.ampInventoryLast.identified} / {nv.ampInventoryLast.collisions} / {nv.ampInventoryLast.empties} · EPC {nv.ampInventoryLast.read}</span></div>
       )}
 
       {!nv.amp && <>

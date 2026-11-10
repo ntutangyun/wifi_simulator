@@ -115,7 +115,7 @@ export const HOUSEHOLDS: Household[] = [
   {
     id: 'three-gamers',
     title: '三人开黑',
-    blurb: '华为 Mate 80 Pro、小米 17 Pro Max 和 iPhone 17 在同一台游戏服务器上开黑，电视同时在播视频。比较三部手机的 ping，再打开路由器的游戏加速。',
+    blurb: '华为 Mate 80 Pro、小米 17 Pro Max 和 iPhone 17 在同一台游戏服务器上开黑，电视同时在播视频。比较三部手机的 ping。',
     scenario: () => sc(twoRooms(), [
       ap(3, 4),
       phone('huawei-mate-80-pro', 'sta-1', 1.5, 2, ['gaming']),

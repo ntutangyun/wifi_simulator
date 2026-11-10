@@ -26,6 +26,12 @@ const dbm = (v: number): string => `${v} dBm`.replace('-', '−')
 const hasCjk = (s: string): boolean => /[一-鿿]/.test(s)
 
 const REACH_250_CM = (monoReachM(0, 250) * 100).toFixed(1)
+
+/** The backscatter glossary terms (2026-11-11, W7b: the draft's frames in place of EPC Gen2's). */
+const NEW_TERMS = [
+  'backscatter', 'mono-static', 'wup-excitation', 'bst-excitation', 'amp rfid frame',
+  'mono-static trigger', 'amp response (backscatter)', 'epc', 'reader dynamic range', 'self-leakage',
+]
 const REACH_1000_CM = (monoReachM(0, 1000) * 100).toFixed(1)
 const ACTIVATION_10_CM = (activationReachM(10) * 100).toFixed(1)
 const ACTIVATION_20_CM = (activationReachM(20) * 100).toFixed(1)
@@ -75,11 +81,14 @@ describe('Guide: Backscatter (mono-static) subsection', () => {
     expect(zh).toContain(`${AMP_BS_LOSS_DB} dB`)
   })
 
-  it('names the Gen2 inventory terms', () => {
-    expect(zh).toContain('EPC Gen2')
-    expect(zh).toContain('RN16')
-    expect(zh).toContain('WUP-Excitation')
-    expect(zh).toContain('BST-Excitation')
+  // 2026-11-11 (W7b): the inventory is the draft's — single-slot AMP Triggers, AMP Responses,
+  // AMP RFID frames carrying the UHF Read (PDT 11-26/1519r5 §39.3.3, 11-26/1520r3) — and the Guide
+  // no longer teaches EPC Gen2's Query/QueryRep/ACK/RN16 (proposal 11-25/0061r0, not adopted).
+  it('names the draft inventory terms, and none of the Gen2 ones it replaced', () => {
+    for (const t of ['AMP Trigger', 'AMP Response', 'AMP RFID', 'EPC', 'ACWE', 'WUP-Excitation', 'BST-Excitation', '2.528 ms']) {
+      expect(zh, t).toContain(t)
+    }
+    for (const gone of ['RN16', 'QueryRep', 'Query(Q)', 'EPC Gen2']) expect(zh, gone).not.toContain(gone)
   })
 })
 
@@ -89,12 +98,10 @@ describe('AMP glossary group: the new backscatter terms', () => {
   it('exists and covers every new term', () => {
     expect(group).toBeDefined()
     const terms = (group?.items ?? []).map((i) => i.term.toLowerCase())
-    for (const t of [
-      'backscatter', 'mono-static', 'wup-excitation', 'bst-excitation', 'epc gen2',
-      'q / slot counter', 'rn16', 'epc', 'reader dynamic range', 'self-leakage',
-    ]) {
+    for (const t of NEW_TERMS) {
       expect(terms, `missing glossary term: ${t}`).toContain(t)
     }
+    for (const gone of ['epc gen2', 'q / slot counter', 'rn16']) expect(terms, gone).not.toContain(gone)
   })
 
   it('reads in plain words: no engine identifiers anywhere in the group', () => {
@@ -121,11 +128,7 @@ describe('AMP glossary group: the new backscatter terms', () => {
   })
 
   it('every new term has alt and def text, in real Chinese', () => {
-    const newTerms = [
-      'backscatter', 'mono-static', 'wup-excitation', 'bst-excitation', 'epc gen2',
-      'q / slot counter', 'rn16', 'epc', 'reader dynamic range', 'self-leakage',
-    ]
-    for (const t of newTerms) {
+    for (const t of NEW_TERMS) {
       const item = group?.items.find((i) => i.term.toLowerCase() === t)
       expect(item, t).toBeDefined()
       expect(item!.alt, `${t}.alt`).toBeTruthy()
@@ -140,12 +143,12 @@ describe('AMP glossary group: the new backscatter terms', () => {
     expect(wup?.def).toContain(`${ACTIVATION_20_CM} cm`)
   })
 
-  it('pins the RN16 entry\'s airtime to bsReplyNs, not a retyped literal', () => {
-    const rn16Ns = bsReplyNs('rn16', 250)
-    expect(rn16Ns).toBe(112_000) // 48 µs sync + 64 µs data
-    const item = group?.items.find((i) => i.term.toLowerCase() === 'rn16')
+  it('pins the AMP Response entry\'s airtime to bsReplyNs, not a retyped literal', () => {
+    const idNs = bsReplyNs('id', 250)
+    expect(idNs).toBe(272_000) // 48 µs sync + 224 µs data
+    const item = group?.items.find((i) => i.term.toLowerCase() === 'amp response (backscatter)')
     for (const text of [item?.alt, item?.def]) {
-      expect(text).toContain(`${rn16Ns / 1000} µs`)
+      expect(text).toContain(`${idNs / 1000} µs`)
     }
   })
 
@@ -155,8 +158,8 @@ describe('AMP glossary group: the new backscatter terms', () => {
     expect(item?.def).toContain('2 毫秒')
   })
 
-  it('the EPC Gen2 entry expands SFD on first use', () => {
-    const item = group?.items.find((i) => i.term.toLowerCase() === 'epc gen2')
+  it('the AMP RFID frame entry expands SFD on first use', () => {
+    const item = group?.items.find((i) => i.term.toLowerCase() === 'amp rfid frame')
     expect(item?.def).toContain('框架文档（SFD）')
   })
 })
@@ -176,8 +179,8 @@ describe('EditorGuide: one entry per new control', () => {
 
   it('documents every new control, inside its own section', () => {
     for (const marker of [
-      '模式', 'EPC', 'RFID 盘点', '>Q<', '上行速率', '唤醒载波', '充能功率', '散射窗功率',
-      'TXOP', 'ACK 后读取', '读取后写入',
+      '模式', 'EPC', 'RFID 盘点', '>ACWE<', '触发帧数', '上行速率', '唤醒载波', '充能功率', '散射窗功率',
+      'TXOP', '读取 EPC',
     ]) {
       expect(zhSection, marker).toContain(marker)
     }
@@ -244,11 +247,14 @@ describe('README: backscatter conformance and simplifications', () => {
     expect(README).toContain('mono-static backscatter')
   })
 
-  it('records the new simplifications: nominal T1, no Q-adaptation, Friis below 1 m, two powers in one PPDU', () => {
+  it('records the simplifications: nominal T1, a fixed ACWE, Friis below 1 m, two powers in one PPDU', () => {
     // Exact phrases, not the bare word "nominal" (which also matches unrelated prose elsewhere).
     expect(README).toContain('Backscatter timing is nominal')
     expect(README).toContain('T1 (16 µs) is fixed rather than resampled every reply')
-    expect(README).toContain("Q-adaptation (QueryAdjust) is not modelled")
+    expect(README).toContain("The reader's ACWE is a scenario knob the run holds fixed")
+    // …and the inventory row names the draft's frames, not the Gen2 commands it replaced.
+    expect(README).toContain('Mono-static inventory: AMP Trigger + AMP RFID')
+    expect(README).not.toContain('Query / QueryRep / ACK / Read / Write / Select')
     expect(README).toContain('free-space (Friis), not the indoor Wi-Fi law')
     expect(README).toContain('5 cm floor')
     expect(README).toContain('two powers in one frame')

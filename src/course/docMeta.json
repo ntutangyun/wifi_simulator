@@ -21,7 +21,7 @@
    "docs": 2767
   }
  ],
- "cited": 81,
+ "cited": 84,
  "missing": [],
  "noText": [],
  "docs": {
@@ -31,6 +31,15 @@
    "title": "Specification Framework for TGbn",
    "orgs": [
     "Huawei"
+   ],
+   "gist": {}
+  },
+  "11-25/0061": {
+   "date": "2025-01-07",
+   "kind": "proposal",
+   "title": "AMP Mono-static Backscattering Operation",
+   "orgs": [
+    "NXP"
    ],
    "gist": {}
   },
@@ -49,6 +58,24 @@
    "title": "PDT AMP Triggering Procedure",
    "orgs": [
     "Huawei"
+   ],
+   "gist": {}
+  },
+  "11-26/1520": {
+   "date": "2026-07-30",
+   "kind": "proposal",
+   "title": "AMP RFID frame",
+   "orgs": [
+    "Huawei"
+   ],
+   "gist": {}
+  },
+  "11-26/1798": {
+   "date": "2026-09-11",
+   "kind": "pdt",
+   "title": "PDT frame exchange sequences for mono-static backscattering",
+   "orgs": [
+    "NXP"
    ],
    "gist": {}
   },

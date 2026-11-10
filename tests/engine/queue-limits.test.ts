@@ -1,14 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT } from '../../src/engine/queues'
+import { DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS, DEFAULT_MSDU_LIFETIME_NS, DEFAULT_QUEUE_LIMIT, TU_NS } from '../../src/engine/queues'
 import { defaultScenario, ScenarioSchema } from '../../src/model/scenario'
 import { makeBss, msdu } from './helpers'
 
 const NODES = ['ap', 'sta-1']
 
 describe('MAC queue limit (ns-3 WifiMacQueue MaxSize, DROP_NEWEST)', () => {
-  it('defaults to 500 MSDUs per access category and a 500 ms lifetime', () => {
+  // 2026-11-11 (W7b): the lifetimes are the MIB defaults, in TU (1 TU = 1024 µs), not ns-3's
+  // 500 ms: dot11EDCATableMSDULifetime / dot11QAPEDCATableMSDULifetime DEFVAL { 500 } TUs, and
+  // dot11MaxTransmitMSDULifetime DEFVAL { 512 } TUs (IEEE Std 802.11-2024 Annex C).
+  it('defaults to 500 MSDUs per access category, 500 TU under EDCA and 512 TU under DCF', () => {
     expect(DEFAULT_QUEUE_LIMIT).toBe(500)
-    expect(DEFAULT_MSDU_LIFETIME_NS).toBe(500_000_000)
+    expect(TU_NS).toBe(1_024_000)
+    expect(DEFAULT_MSDU_LIFETIME_NS).toBe(512_000_000)
+    expect(DEFAULT_MAX_TRANSMIT_MSDU_LIFETIME_NS).toBe(524_288_000)
   })
 
   it('an arrival that finds the queue full is dropped without being queued', () => {
@@ -25,9 +30,12 @@ describe('MAC queue limit (ns-3 WifiMacQueue MaxSize, DROP_NEWEST)', () => {
   })
 })
 
-describe('MSDU lifetime (dot11EDCATableMSDULifetime, ns-3 MaxDelay)', () => {
-  it('an MSDU older than its lifetime is discarded when the MAC next builds a transmission', () => {
-    const b = makeBss(NODES, { 'sta-1>ap': -90, 'ap>sta-1': -90 }, { msduLifetimeNs: 50_000_000 })
+describe('MSDU lifetime', () => {
+  // 2026-11-11 (W7b): this case used the DCF helper and pinned the EDCA rule. It now runs EDCA,
+  // where the timer starts when the MSDU is passed to the MAC (§10.23.2.12.1); the DCF rule —
+  // timer from the first transmission attempt (§10.4) — has its own case below.
+  it('EDCA: an MSDU older than its lifetime (from enqueue) is discarded when the MAC next builds a transmission', () => {
+    const b = makeBss(NODES, { 'sta-1>ap': -90, 'ap>sta-1': -90 }, { msduLifetimeNs: 50_000_000, edca: true })
     for (let i = 0; i < 4; i++) b.enqueue(1_000_000, 'sta-1', msdu('sta-1', 'ap'))
     b.runUntil(400_000_000)
     const life = b.recs('DROP', 'sta-1').filter((r) => r.reason === 'lifetime')
@@ -41,6 +49,27 @@ describe('MSDU lifetime (dot11EDCATableMSDULifetime, ns-3 MaxDelay)', () => {
     const firstLife = life[0].t
     const late = b.recs('TX_START', 'sta-1').filter((r) => r.t > firstLife && life.some((d) => d.msduId === r.frame.msduId && d.t < r.t))
     expect(late).toHaveLength(0)
+    // and an MSDU can expire without ever having been sent: the EDCA clock started at enqueue
+    const sentIds = new Set(b.recs('TX_START', 'sta-1').map((r) => r.frame.msduId))
+    expect(life.some((d) => !sentIds.has(d.msduId))).toBe(true)
+  })
+
+  it('DCF: the timer starts at the first transmission attempt, so an unsent MSDU never expires (§10.4)', () => {
+    const LIFE = 2_000_000
+    const b = makeBss(NODES, { 'sta-1>ap': -90, 'ap>sta-1': -90 }, { msduLifetimeNs: LIFE })
+    for (let i = 0; i < 6; i++) b.enqueue(1_000_000, 'sta-1', msdu('sta-1', 'ap'))
+    b.runUntil(400_000_000)
+    const life = b.recs('DROP', 'sta-1').filter((r) => r.reason === 'lifetime')
+    expect(life.length, 'a 2 ms lifetime does expire attempted MSDUs').toBeGreaterThan(0)
+    const tx = b.recs('TX_START', 'sta-1')
+    for (const d of life) {
+      const first = tx.find((r) => r.frame.msduId === d.msduId)
+      expect(first, `MSDU ${d.msduId} expired without an attempt`).toBeDefined()
+      expect(d.t - first!.t).toBeGreaterThan(LIFE)
+    }
+    // every MSDU queued for far longer than the lifetime before its first attempt was still sent
+    const late = tx.filter((r, i) => tx.findIndex((x) => x.frame.msduId === r.frame.msduId) === i && r.t - 1_000_000 > LIFE)
+    expect(late.length, 'MSDUs waited past the lifetime unsent and were still attempted').toBeGreaterThan(0)
   })
 })
 

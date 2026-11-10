@@ -263,14 +263,16 @@ it('the scheduled-Wi-Fi lessons quote the OFDMA and MU-MIMO PPDUs its own varian
   // with the TRS Control subfield (§9.2.4.7.1), padded to fill the last symbol (§10.12.6) — so the
   // equal parts are 4,897 octets and the PPDU 14,691; the airtimes did not move.
   const ofdmaClean = ofdma.find((r) => r.frame.muParts.length === 3 && new Set(r.frame.muParts.map((p) => p.bytes)).size === 1)!
-  expect(ofdmaClean.t).toBe(2_545_600)
+  // 2026-11-11 (W7b, the AP on dot11QAPEDCATable): the first such PPDU moved 9 µs earlier — the
+  // AP's AIFS[AC_VI] is 25 µs (AIFSN 1), not 34.
+  expect(ofdmaClean.t).toBe(2_536_600)
   expect(ofdmaClean.frame.txTimeNs).toBe(92_800)
   expect(ofdmaClean.frame.bytes).toBe(14_691)
   expect(ofdmaClean.frame.muParts.every((p) => p.bytes === 4_897)).toBe(true)
 
   // "65.6 µs … 8,612 B" — the first equal-payload 2-member MU-MIMO PPDU.
   const mumimoClean = mumimo.find((r) => new Set(r.frame.muParts.map((p) => p.bytes)).size === 1 && r.frame.muParts[0].bytes === 4_897)!
-  expect(mumimoClean.t).toBe(2_545_600)
+  expect(mumimoClean.t).toBe(2_536_600)
   expect(mumimoClean.frame.txTimeNs).toBe(65_600)
   expect(mumimoClean.frame.bytes).toBe(9_794)
 
@@ -308,15 +310,16 @@ it('the scheduled-Wi-Fi lessons quote the OFDMA and MU-MIMO PPDUs its own varian
     if (nextMu && nextMu.frame.muParts!.some((p) => p.dst === trimmed)) sweptIntoNextMu++
     else neither++
   }
-  // 2026-11-11: re-measured after W7a (DL MU acknowledged by TB BlockAcks, §26.5.2.3.4)
-  expect(twoMember.length).toBe(220)
-  expect(followedByTrimmedSu).toBe(114)
-  expect(sweptIntoNextMu).toBe(101)
-  expect(neither).toBe(5)
-  // the three cases are exhaustive, and the percentages round to 52 / 46 / 2
+  // 2026-11-11: re-measured after W7a (DL MU acknowledged by TB BlockAcks, §26.5.2.3.4), and again
+  // after W7b (the AP on dot11QAPEDCATable): the lesson's table reads 122 (56%) / 95 (43%) / 2 (1%)
+  expect(twoMember.length).toBe(219)
+  expect(followedByTrimmedSu).toBe(122)
+  expect(sweptIntoNextMu).toBe(95)
+  expect(neither).toBe(2)
+  // the three cases are exhaustive, and the percentages round to 56 / 43 / 1
   expect(followedByTrimmedSu + sweptIntoNextMu + neither).toBe(twoMember.length)
   const share3 = [followedByTrimmedSu, sweptIntoNextMu, neither].map((n) => Math.round((n / twoMember.length) * 100))
-  expect(share3).toEqual([52, 46, 2])
+  expect(share3).toEqual([56, 43, 1])
 })
 
 /**
@@ -590,9 +593,10 @@ it('`rate-cost`\u2019s try-this really needs two metres, and a third uploader re
   }
   // 2026-11-11, re-measured: 30.7% beside the near station, and 32.1, 32.5 and 42.8% at the other
   // three spots — no longer "26.3% and 36–42%"; the lesson's sentence needs rewriting by its owner
+  // 2026-11-11 (W7b, the AP on dot11QAPEDCATable, per-frame UP): the second spot is now 42.9%.
   expect(withThird(5.5, 4.3)).toBe(30.7) // beside the near station
   const others = [withThird(9, 5), withThird(14, 6.5), withThird(3, 5)]
-  expect(others).toEqual([32.1, 32.5, 42.8])
+  expect(others).toEqual([32.1, 42.9, 42.8])
   // and every one of them is far worse than the two-station baseline: more than three times its 8.9%
   for (const p of [30.7, ...others]) expect(p).toBeGreaterThan(d0.zeroPct * 3)
 })
@@ -622,17 +626,18 @@ it('the rate lessons’ claim that multi-user PPDUs report an outcome to the rat
     // "169 multi-user PPDUs carrying 492 parts addressed to phones … 620 outcome reports for
     // those phones in total, 128 from ordinary single-user frames and 492 from multi-user
     // parts (597 successes, 23 failures)" — 2026-11-11, re-measured: 172 PPDUs, 496 parts, 646
-    // reports, 150 single-user, 644 successes and 2 failures
-    expect(muPpdus.length).toBe(172)
-    expect(muParts.length).toBe(496)
-    expect(su.length).toBe(150)
-    expect(forPhones.length).toBe(646)
+    // reports, 150 single-user, 644 successes and 2 failures — and again 2026-11-11 (W7b, the AP on
+    // dot11QAPEDCATable): 180 PPDUs, 517 parts, 679 reports, 162 single-user, 674 and 5
+    expect(muPpdus.length).toBe(180)
+    expect(muParts.length).toBe(517)
+    expect(su.length).toBe(162)
+    expect(forPhones.length).toBe(679)
     // one report per single-user frame, and one per multi-user part addressed to a phone —
     // success or failure, symmetrically, which is what lets a rate used only inside
     // multi-user PPDUs adapt at all.
     expect(forPhones.length - su.length).toBe(muParts.length)
-    expect(forPhones.filter((p) => p.ok).length).toBe(644)
-    expect(forPhones.filter((p) => !p.ok).length).toBe(2)
+    expect(forPhones.filter((p) => p.ok).length).toBe(674)
+    expect(forPhones.filter((p) => !p.ok).length).toBe(5)
   } finally {
     RateControl.prototype.onSuccess = okOrig
     RateControl.prototype.onFailure = failOrig
