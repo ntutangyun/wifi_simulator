@@ -30,10 +30,12 @@ const FINAL_TIMES = [
 
 const POLL = makePoll('tag', ['a1', 'a2', 'a3', 'a4'], 'ds', 0, 0)
 const RESP = makeResp('a1', 'tag', 'ss', 0, 0, 1, 127_803)
-const RESP_DS = makeResp('a1', 'tag', 'ds', 0, 0, 1)
+// 2026-11-11 (W2b): an embedded DS Response carries Treply1 in an RRTI IE (§10.32.5, Figure 10-238).
+const RESP_DS = makeResp('a1', 'tag', 'ds', 0, 0, 1, 127_803)
+const RESP_DS_DEFERRED = makeResp('a1', 'tag', 'ds', 0, 0, 1, undefined, undefined, 'deferred')
 const FINAL = makeFinal('tag', FINAL_TIMES, 0, 0, 5)
-const REPORT = makeReport('a1', 'tag', 1_277_800, 1_278_100, 0, 0, 6)
-const ALL: FrameDesc[] = [POLL, RESP, RESP_DS, FINAL, REPORT]
+const REPORT = makeReport('a1', 'tag', { tround2: 1_278_100 }, 0, 0, 6)
+const ALL: FrameDesc[] = [POLL, RESP, RESP_DS, RESP_DS_DEFERRED, FINAL, REPORT]
 
 const fieldSum = (d: DecodedFrame): number =>
   d.users[0].subframes[0].mpdu.fields.reduce((s, f) => s + f.bytes, 0)
@@ -66,7 +68,8 @@ describe('uwbFrameFields', () => {
   it('carries one field per payload IE, in the order the frame lists them', () => {
     expect(fields(POLL).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieArc', 'ieRr', 'ieRdm', 'ieRrmc'])
     expect(fields(RESP).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc', 'ieRrti'])
-    expect(fields(RESP_DS).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc'])
+    expect(fields(RESP_DS).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc', 'ieRrti'])
+    expect(fields(RESP_DS_DEFERRED).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc'])
     // 2026-11-10: ONE RRTI IE listing every anchor's reply time — standard §10.29.8.1, Figure 10-208:
     // an RRTI List Length and one RRTI List element per reply time (it used to be one IE per anchor).
     expect(fields(FINAL).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
@@ -102,7 +105,9 @@ describe('uwbFrameFields', () => {
     expect(keyed(RESP, 'ieRrti')!.value).toBe(V.replyTime('127 803 RCTU = 2.000 µs'))
     expect(keyed(POLL, 'ieRdm')!.value)
       .toBe(V.rdm(4, [1, 2, 3, 4].map((i) => V.rdmSlot(`a${i}`, i)).join('、')))
-    expect(keyed(REPORT, 'ieRmi')!.value).toContain('treply1')
+    // 2026-11-11 (W2b): the report carries Tround2 alone (§10.32.5, Figure 10-238).
+    expect(keyed(REPORT, 'ieRmi')!.value).toContain('tround2')
+    expect(keyed(REPORT, 'ieRmi')!.value).not.toContain('treply1')
     expect(keyed(FINAL, 'ieRmi')!.value).toContain('a1')
     expect(keyed(FINAL, 'ieRmi')!.value).not.toContain('treply2') // that is the RRTI IEs' job
     const rrtiValue = keyed(FINAL, 'ieRrti')!.value!
@@ -126,7 +131,7 @@ describe('uwbFrameFields', () => {
     expect(keyed(blink, 'ieBlink')!.bytes).toBe(BLINK_IE_BYTES)
     expect(keyed(blink, 'ieBlink')!.value).toBe(V.blink(3, 7))
     // The shortest frame the simulator puts on the air, and the cheapest position there is.
-    expect(blink.bytes).toBeLessThan(uwbRespBytes('ds') + 1)
+    expect(blink.bytes).toBeLessThan(uwbRespBytes('ds', 'deferred') + 1)
     expect(ppduLayout(blink).reduce((s, p) => s + p.durNs, 0)).toBe(blink.txTimeNs)
   })
 

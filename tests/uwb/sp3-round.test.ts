@@ -258,7 +258,7 @@ describe('SP3 grouped ranging: a whole round', () => {
    *
    * It is **not** Task 1's 4.578, and the difference is the denominator, not a disagreement about
    * the conclusion. Task 1 measured the marker against the shortest SP1 frame there is
-   * (`uwbRespBytes('ds')`, 14 octets); a whole-round comparison against the embedded shape has to
+   * (`uwbRespBytes('ds', 'deferred')`, 14 octets); a whole-round comparison against the embedded shape has to
    * measure it against the frame that shape actually sends, the 20-octet embedded SS Response, which
    * the marker saves more against. Both are computed here from the same primitives so that neither
    * number can be mistaken for the other.
@@ -268,7 +268,7 @@ describe('SP3 grouped ranging: a whole round', () => {
     const emb = run(SP1_EMBEDDED)
     const saved = responderRangingAir(emb) - responderRangingAir(sp3)
     const againstEmbedded = uwbPpduNs(UWB_SS_DEFER_BYTES) / (uwbPpduNs(uwbRespBytes('ss', 'embedded')) - uwbSp3Ns())
-    const againstShortest = uwbPpduNs(UWB_SS_DEFER_BYTES) / (uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns())
+    const againstShortest = uwbPpduNs(UWB_SS_DEFER_BYTES) / (uwbPpduNs(uwbRespBytes('ds', 'deferred')) - uwbSp3Ns())
     expect(reportAir(sp3) / saved).toBeCloseTo(againstEmbedded, 6)
     expect(againstShortest).toBeGreaterThan(againstEmbedded)
   })
@@ -465,8 +465,11 @@ describe('SP3 grouped ranging: a whole round', () => {
       expect(typeof r.roundTripRctu).toBe('number')
     }
     expect(of(silent, 'UWB_SP3_REPORT').filter((r) => r.node !== 'tag-1')).toEqual([])
-    // The round is one slot longer, and only because the frame is in it.
-    const slotsOf = (rs: TLRecord[]) => of(rs, 'UWB_ROUND')[0].slots
+    // The exchange is one slot longer, and only because the frame is in it. 2026-11-11 (W2b): read off
+    // the last slot that carried a frame — the round itself is stretched to a whole divisor of the
+    // block (standard §10.32.2) and is 10 slots either way here.
+    const slotsOf = (rs: TLRecord[]) => 1 + Math.max(...of(rs, 'TX_START')
+      .filter((r) => r.frame.uwb?.block === 0 && r.frame.uwb.round === 0).map((r) => r.frame.uwb!.slot))
     expect(slotsOf(asked)).toBe(slotsOf(silent) + 1)
   })
 
@@ -479,7 +482,7 @@ describe('SP3 grouped ranging: a whole round', () => {
     expect(markerCount(sp1)).toBe(0)
     expect(responderRangingAir(sp3)).toBeLessThan(responderRangingAir(sp1))
     expect(responderRangingAir(sp1) - responderRangingAir(sp3))
-      .toBeCloseTo(2 * (uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns()), 6)
+      .toBeCloseTo(2 * (uwbPpduNs(uwbRespBytes('ds', 'deferred')) - uwbSp3Ns()), 6)
     // …and the initiator's own marker is there too: a DS round gets Figure 10-242's ranging
     // initiation for the same reason an SS one does, and `uwbSlotsPerTag` budgets its slot.
     expect(initiatorMarkerAir(sp3)).toBeCloseTo(uwbSp3Ns(), 6)

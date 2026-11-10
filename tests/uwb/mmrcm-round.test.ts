@@ -26,7 +26,7 @@ import type { TLRecord } from '../../src/model/records'
 import {
   DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
-import { UWB_TX_POWER_DBM, uwbMmrcmBytes } from '../../src/uwb/phy'
+import { UWB_TX_POWER_DBM, uwbMmrcmBytes, uwbWholeRoundSlots } from '../../src/uwb/phy'
 import {
   blockSlotStartNs, mmrcmAckSlots, mmrcmBitIndex, mmrcmResponders, roundPlan, roundSlots,
 } from '../../src/uwb/session'
@@ -230,10 +230,12 @@ describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit 
     expect(sent.map((r) => r.node).sort()).toEqual(['anc-1', 'anc-2', 'anc-walk'])
     for (const r of sent) {
       // One initiator per two-way round, so one list element. Measured against `phy.ts`, and pinned:
-      // 25 acknowledged slots need a 4-octet bitmap, so 15 + 2 + 1 + 4.
+      // 34 acknowledged slots need a 5-octet bitmap, so 15 + 2 + 1 + 5. (2026-11-11, W2b: 25 slots and
+      // 22 octets until the rounds were stretched to a whole divisor of the block, §10.32.2 — each of
+      // the set's first three rounds is now 10 slots, 3 of them idle.)
       expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(1, ACK_SLOTS))
-      expect(ACK_SLOTS).toBe(25)
-      expect(r.frame.bytes, r.node).toBe(22)
+      expect(ACK_SLOTS).toBe(34)
+      expect(r.frame.bytes, r.node).toBe(23)
       expect(r.frame.uwb?.ies, r.node).toEqual(['RMMRC'])
       expect(r.frame.uwb?.round, r.node).toBe(R - 1)
       expect(r.frame.uwb?.mmrc?.map((e) => e.initiator), r.node).toEqual(['tag-1'])
@@ -302,7 +304,10 @@ describe('a receipt confirmation is an extra message, not part of the measuremen
     const extra = mmrcmResponders(plan)
     expect(extra, 'one slot per responder — an anchor is what sends an MMRCM').toBe(ANCHORS)
     const off = roundPlan({ ...DEFAULT_UWB_SESSION, ...twrSession(false) }, ANCHORS)
-    expect(plan.slots).toBe(off.slots + extra)
+    // 2026-11-11 (W2b): both stretched to a whole divisor of the block's slots (§10.32.2).
+    expect(plan.slots).toBe(uwbWholeRoundSlots(
+      off.rangingSlots + extra, DEFAULT_UWB_SESSION.blockRstu, DEFAULT_UWB_SESSION.slotRstu, 'twr',
+    ))
     expect(slotsPerBlock(false)).toEqual([off.slots, off.slots, off.slots, off.slots])
     expect(slotsPerBlock(true)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots])
     const sentRounds = of(runWalk([NEAR], twrSession(true)), 'TX_START')

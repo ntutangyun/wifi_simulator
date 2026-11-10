@@ -409,9 +409,10 @@ describe('determinism, and every other mode byte-identical', () => {
   // rounds in their one block (audit #23). The run is one block rather than four now, which is why
   // ul-tdoa and m2m — untouched by either change — were re-captured with them.
   // All five re-captured again 2026-11-10 (W2): every PPDU is 896 chips longer (PHR 21 symbols, standard Table 16-2), which moves every instant in every mode; the RRTI and RMI content headers (§10.29.8.1/§10.29.8.4) lengthen the SS Response and the DS Final and reports.
+  // 2026-11-11 (W2b): twr-ss and twr-ds re-captured — the time-scheduled Poll's RDM IE now carries each responder's Ranging Slot Index (§10.32.9.8), rounds are stretched to a whole divisor of the block (§10.32.2), and the DS Response carries Treply1 while the report carries Tround2 alone (§10.32.5, Figure 10-238).
   const BEFORE: Record<string, string> = {
-    'twr-ss': 'f102a9db',
-    'twr-ds': '46dcfd97',
+    'twr-ss': 'e5e3b991',
+    'twr-ds': 'ea68b51b',
     'dl-tdoa': '5faa07e9',
     'ul-tdoa': 'fa986dce',
     m2m: '624bea16',

@@ -51,13 +51,16 @@ describe('uwb phy · frames and links', () => {
   // 2026-11-10: RRTI has a 1-octet content header (§10.29.8.1) → SS Response 21; the Final carries one
   // RMI (2-octet content header, §10.29.8.4) and one RRTI listing every responder → 18 + 12N; the
   // responder's unicast report is RMI 2 + 8 → 23 (audit #8).
-  it('poll 30 + 3N, response 21 (SS) / 14 (DS), final 18 + 12N, report 23', () => {
+  // 2026-11-11 (W2b): an embedded DS Response carries Treply1 in an RRTI IE and the responder's report
+  // carries Tround2 alone (§10.32.5, Figure 10-238) → DS Response 21 (14 deferred), report 9 + 8 + 2 = 19.
+  it('poll 30 + 3N, response 21 embedded / 14 deferred, final 18 + 12N, report 19', () => {
     expect(P.uwbPollBytes(1)).toBe(33); expect(P.uwbPollBytes(4)).toBe(42)
     expect(P.ARC_IE_BYTES).toBe(2 + 3); expect(P.RR_IE_BYTES).toBe(2 + 6)
     // RCPS: CP Table Length 1 + one 2-octet CP Table Element (§10.32.9.5), so a contention Poll is 35.
     expect(P.RCPS_IE_BYTES).toBe(2 + 1 + 2); expect(P.uwbPollBytes(4, 'contention')).toBe(35)
-    expect(P.uwbRespBytes('ss')).toBe(21); expect(P.uwbRespBytes('ds')).toBe(14)
-    expect(P.uwbFinalBytes(4)).toBe(66); expect(P.UWB_REPORT_BYTES).toBe(23)
+    expect(P.uwbRespBytes('ss')).toBe(21); expect(P.uwbRespBytes('ds')).toBe(21)
+    expect(P.uwbRespBytes('ds', 'deferred')).toBe(14); expect(P.UWB_BARE_RESP_BYTES).toBe(14)
+    expect(P.uwbFinalBytes(4)).toBe(66); expect(P.UWB_REPORT_BYTES).toBe(19)
     expect(P.RRTI_IE_BYTES).toBe(2 + 1 + 4); expect(P.RMI_FIXED_BYTES).toBe(2 + 2)
     // Deferred DS (§10.29.6.6, Figure 10-237): a bare Final and the initiator's deferred report.
     expect(P.uwbFinalBytes(4, 'deferred')).toBe(11); expect(P.uwbDsDeferredReportBytes(4)).toBe(15 + 40)

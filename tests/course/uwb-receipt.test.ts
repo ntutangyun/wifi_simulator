@@ -20,7 +20,7 @@ import {
   UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES, rmmrcBitmapBytes, uwbMaxMmrcmInitiators, uwbMmrcmBytes,
 } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
-import { rstuNs } from '../../src/uwb/phy'
+import { rstuNs, uwbWholeRoundSlots } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -120,12 +120,17 @@ describe('uwb-receipt · ② says what the engine does, and the engine does it',
   it('回复的时隙: after the set\'s last round of ranging, one per receiver, and the slots kept in every round', () => {
     const plan = roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS)
     const off = roundPlan(uwbReceiptTwrScenario(false).uwb!, ANCHORS)
-    expect(plan.slots - off.slots).toBe(ANCHORS)
+    // 2026-11-11 (W2b): one receipt slot per receiver on top of the ranging exchange, and the round
+    // stretched to a whole divisor of the block (standard §10.32.2): 8 + 3 → 20, against 8 → 10 off.
+    expect(plan.rangingSlots).toBe(off.rangingSlots)
+    expect(plan.slots).toBe(uwbWholeRoundSlots(
+      off.rangingSlots + ANCHORS, uwbReceiptTwrScenario(true).uwb!.blockRstu, uwbReceiptTwrScenario(true).uwb!.slotRstu, 'twr',
+    ))
     const conf = block0(twrOn).filter((r) => r.frame.kind === 'uwbMmrcm')
     const lastRound = Math.max(...block0(twrOn).map((r) => r.frame.uwb?.round ?? 0))
     expect(lastRound).toBe(VALIDITY - 1)
     for (const r of conf) expect(r.frame.uwb?.round).toBe(lastRound)
-    expect(conf.map((r) => r.frame.uwb?.slot)).toEqual([off.slots, off.slots + 1, off.slots + 2])
+    expect(conf.map((r) => r.frame.uwb?.slot)).toEqual([off.rangingSlots, off.rangingSlots + 1, off.rangingSlots + 2])
   })
 
   it('帧格式: the widths it names are the engine\'s', () => {
@@ -226,9 +231,13 @@ describe('uwb-receipt · ③ every figure the labs print is the run', () => {
       expect(cell('MMRCM')[col]).toBe(conf.length === 0 ? '0 帧' : `${conf.length} 帧，各 ${conf[0].frame.bytes} 字节`)
       expect(cell('四轮的测距结果')[col]).toBe(`${ofType(rs, 'UWB_RANGE').filter((r) => r.block === 0).length} 条`)
     }
-    // 「每一轮多 3 个时隙，只在第四轮里发出 3 帧回复；第 0 轮的测距结果距离完全相同」
-    const [more, which, frames] = fig(l.expect, /每一轮多 (\d+) 个时隙，只在第(.)轮里发出 (\d+) 帧回复/, 'lab 3 expect')
-    expect(Number(more)).toBe(ofType(twrOn, 'UWB_ROUND')[0].slots - ofType(twrOff, 'UWB_ROUND')[0].slots)
+    // 「每一轮要多留 3 个回复时隙，轮长又要整除测距块，于是从 10 个时隙变为 20 个；只在第四轮里发出 3 帧回复」
+    // (2026-11-11, W2b: the round is stretched to a whole divisor of the block, standard §10.32.2)
+    const [more, from, to, which, frames] = fig(l.expect,
+      /每一轮要多留 (\d+) 个回复时隙，轮长又要整除测距块，于是从 (\d+) 个时隙变为 (\d+) 个；只在第(.)轮里发出 (\d+) 帧回复/, 'lab 3 expect')
+    expect(Number(more)).toBe(ANCHORS)
+    expect(Number(from)).toBe(ofType(twrOff, 'UWB_ROUND')[0].slots)
+    expect(Number(to)).toBe(ofType(twrOn, 'UWB_ROUND')[0].slots)
     const conf = block0(twrOn).filter((r) => r.frame.kind === 'uwbMmrcm')
     expect(Number(frames)).toBe(conf.length)
     expect('零一二三四五'.indexOf(which!)).toBe(conf[0].frame.uwb!.round! + 1)

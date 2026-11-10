@@ -254,8 +254,9 @@ export interface UwbArcFields {
 export interface UwbInfo {
   /** Which STS packet configuration this frame uses: 1 for every SP1 frame this engine builds
    * (a full PPDU, SHR + STS + PHR + PSDU), 3 for the bare SP3 marker (`makeSp3`: SHR + STS only,
-   * standard §10.32.8.2). */
-  sp: 1 | 3
+   * standard §10.32.8.2), and 0 for a frame of a session whose sequence is switched off (`stsOff`,
+   * `withoutSts`: SHR + PHR + PSDU, no STS field, standard Table 16-1, Table 10-165 value 0). */
+  sp: 0 | 1 | 3
   method: 'ss' | 'ds'
   block: number
   round: number
@@ -271,9 +272,10 @@ export interface UwbInfo {
    * retry budget (RCMA IE). On the ancillary round's RCM (`uwbRcm`), the initiators' contention phase
    * (RCPS Phase Indicator 0) instead, with `phase: 0` and no RCMA IE (`maxAttempts` absent). */
   contention?: { firstSlot: number; lastSlot: number; maxAttempts?: number; phase?: 0 | 1 | 2 }
-  /** The ancillary round's RCM (`uwbRcm`, time schedule): its RDM IE with SIU = 1 (standard
-   * §10.32.9.8) — one element per slot the controller assigns, each naming the device, its role
-   * (1 = initiator: the sender of ancillary information, §10.35.1) and the slot index. */
+  /** An RDM IE with SIU = 1 (standard §10.32.9.8) — one element per slot the controller assigns, each
+   * naming the device, its role and the slot index. On the ancillary round's RCM (`uwbRcm`) the role is
+   * initiator (the sender of ancillary information, §10.35.1); on a time-scheduled ranging Poll it is
+   * responder, one element per responder at the slot of its ranging response (2026-11-11, W2b). */
   rdm?: { id: string; slot: number; initiator: boolean }[]
   /** Response (SS, embedded): the RRTI IE's reply time in RCTU; the SS deferred reply-time message:
    * the RMI IE's RX-to-TX Reply Time. */
@@ -290,8 +292,10 @@ export interface UwbInfo {
    * same two times per anchor in one RMI IE; an SP3 initiator report carries { id, tround1 }. A
    * deferred Final carries none (it has no IE at all). */
   finalTimes?: { id: string; tround1?: number; treply2?: number }[]
-  /** Report (DS): the responder's treply1 and tround2 (RMI IE). */
-  reportTimes?: { treply1: number; tround2: number }
+  /** Report (DS, RMI IE, one measurement): Tround2 in an embedded round (standard §10.32.5, Figure
+   * 10-238), or the TOF the responder computed in a deferred one (§10.29.6.6, Figure 10-206). Exactly
+   * one of the two is present. 2026-11-11 (W2b): both treply1 and tround2 until then. */
+  reportTimes?: { tround2?: number; tof?: number }
   /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
   dl?: UwbDlTimes
   /** Many-to-many (`uwbM2m`, standard §10.32.6/§10.32.7): this participant's own transmit time
@@ -339,6 +343,19 @@ export const UWB_MBPS = 6.81
  * `*` to know there is no one peer to name. model */
 export const UWB_BROADCAST = '*'
 
+/**
+ * The same frame as STS packet configuration 0 (standard Table 16-1: no STS field; the ARC IE's STS
+ * Packet Config value 0, Table 10-165): SHR + PHR + PSDU, 33 792 chips shorter on the air than its
+ * configuration-1 twin. What a session with `stsOff` sends (2026-11-11, W2b) — until then such a
+ * session still sent configuration-1 frames and only skipped the receiver's check. Only an SP1 frame
+ * has a configuration-0 form; anything else (an SP3 marker is SHR + STS and nothing else) is returned
+ * unchanged — the schema refuses `stsOff` beside `sp3` for that reason.
+ */
+export function withoutSts(f: FrameDesc): FrameDesc {
+  if (f.uwb?.sp !== 1) return f
+  return { ...f, txTimeNs: uwbPpduNs(f.bytes, false), uwb: { ...f.uwb, sp: 0 } }
+}
+
 function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, uwb: UwbInfo): FrameDesc {
   return { kind, src, dst, bytes, mbps: UWB_MBPS, durationFieldNs: 0, txTimeNs: uwbPpduNs(bytes), uwb }
 }
@@ -373,6 +390,13 @@ export interface PollOpts {
    * responder. The IE's *length* does not depend on the bits either way.
    */
   srrr?: UwbSrrrEntry[]
+  /**
+   * Time schedule: the Ranging Slot Index the RDM IE gives each responder, in `anchors` order
+   * (standard §10.32.9.8, SIU = 1; Figure 10-254) — carried so that a responder reads its slot off the
+   * frame it decoded (2026-11-11, W2b). Absent, the frame still lists the responders in slot order
+   * (`schedule`) and the inspector numbers them 1…N.
+   */
+  rdmSlots?: number[]
 }
 
 /**
@@ -383,7 +407,7 @@ export interface PollOpts {
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr, arc }: PollOpts = {},
+  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr, arc, rdmSlots }: PollOpts = {},
 ): FrameDesc {
   const arcBits: UwbArcFields = arc ?? {
     multiNode: 1,
@@ -416,6 +440,7 @@ export function makePoll(
     ies: srrr ? ['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'] : ['ARC', 'RR', 'RDM', 'RRMC'],
     arc: { ...arcBits },
     schedule: [...anchors],
+    ...(rdmSlots ? { rdm: anchors.map((id, i) => ({ id, slot: rdmSlots[i], initiator: false })) } : {}),
     ...(srrr ? { srrr: srrr.map((e) => ({ ...e })) } : {}),
   })
 }
@@ -449,11 +474,13 @@ export function makeInit(tag: string, method: 'ss' | 'ds', block: number, round:
   })
 }
 
-/** An anchor's Response in its slot; SS-TWR carries the reply time (RRTI) only when it is
- * embedded in this very frame — deferred and fixed carry neither, for opposite reasons (design
- * §2): deferred cannot, because the anchor does not yet know this frame's own send time, and
- * fixed has no need to, because the tag can already reconstruct `Treply` from the session config.
- * DS-TWR never carries a reply time here, embedded or not — its two-way times live in the Final. */
+/** An anchor's Response in its slot, with the RRMC IE (one-to-many: §10.32.4 Figure 10-235 for SS,
+ * RRMC IE (3) in §10.32.5 for DS). It carries the reply time (RRTI) only when it is embedded in this
+ * very frame — deferred and fixed carry neither, for opposite reasons (design §2): deferred cannot,
+ * because the anchor does not yet know this frame's own send time, and fixed has no need to, because
+ * the tag can already reconstruct `Treply` from the session config. A DS-TWR embedded Response
+ * carries Treply1 the same way (§10.32.5, Figure 10-238; 2026-11-11, W2b — until then it carried no
+ * reply time and the responder's report carried it instead). */
 export function makeResp(
   anchor: string, tag: string, method: 'ss' | 'ds', block: number, round: number, slot: number, replyRctu?: number,
   dl?: UwbDlTimes, replyTime: UwbReplyTime = 'embedded',
@@ -466,7 +493,8 @@ export function makeResp(
       sp: 1, method, block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
     })
   }
-  const carriesRrti = method === 'ss' && replyTime === 'embedded'
+  // 2026-11-11 (W2b): DS-TWR embedded carries its first reply time here too (§10.32.5, Figure 10-238).
+  const carriesRrti = replyTime === 'embedded'
   return uwbFrame('uwbResp', anchor, tag, uwbRespBytes(method, replyTime), {
     sp: 1, method, block, round, slot,
     ies: carriesRrti ? ['RRMC', 'RRTI'] : ['RRMC'],
@@ -755,14 +783,16 @@ export function makeDsDeferredReport(
   })
 }
 
-/** An anchor's measurement report (DS-TWR only): its own treply1 and tround2, unicast to the
- * initiator in one RMI IE — requested by the Reply Time Request and Round-trip Time Request bits of
- * the Poll's RRMC IE (§10.29.8.3, §10.32.5 Figure 10-238). */
+/** An anchor's measurement report (DS-TWR only), unicast to the initiator in one RMI IE with one
+ * measurement: its second round-trip time Tround2 (embedded: the first reply time already went back in
+ * the Response's RRTI IE — §10.32.5, Figure 10-238), or the TOF it computed (deferred: §10.29.6.6,
+ * Figure 10-206). 19 octets (`UWB_REPORT_BYTES`). */
 export function makeReport(
-  anchor: string, tag: string, treply1: number, tround2: number, block: number, round: number, slot: number,
+  anchor: string, tag: string, measurement: { tround2: number } | { tof: number },
+  block: number, round: number, slot: number,
 ): FrameDesc {
   return uwbFrame('uwbReport', anchor, tag, UWB_REPORT_BYTES, {
-    sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], reportTimes: { treply1, tround2 },
+    sp: 1, method: 'ds', block, round, slot, ies: ['RMI'], reportTimes: { ...measurement },
   })
 }
 

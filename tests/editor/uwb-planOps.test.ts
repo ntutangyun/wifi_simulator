@@ -393,8 +393,10 @@ describe('uwbSessionIssue', () => {
   })
 
   it('claims a bound on a session field, whose message never says UWB', () => {
-    const msg = uwbSessionIssue(withUwb(4, { slotRstu: 3 }))
-    expect(msg).toContain('300') // path ['uwb', 'slotRstu']
+    // 2026-11-11 (W2b): the 300 RSTU floor is gone (not in the standard); the field's own bound is now
+    // "a whole, positive number of RSTU".
+    const msg = uwbSessionIssue(withUwb(4, { slotRstu: 0 }))
+    expect(msg).toContain('0') // path ['uwb', 'slotRstu']
     expect(msg).not.toMatch(/UWB|ranging/i)
   })
 
@@ -1841,9 +1843,9 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
    * would say so rather than let the editor quietly offer a value that no longer fits.
    */
   it('the window the editor computes is the window the schema enforces, at every slot size', () => {
-    // Multiples of 3 RSTU, which the schema requires of a slot, from the field's own floor to
-    // twice the session default: the range a user can actually reach with the slot control.
-    for (const slotRstu of [300, 600, 900, 1200, 2400, 3600, 4800]) {
+    // Slots that divide the default 240 000 RSTU block (a block is a whole number of slots, standard
+    // §10.32.2 — 2026-11-11), from 300 RSTU to twice the session default.
+    for (const slotRstu of [300, 600, 960, 1200, 2400, 3000, 4800]) {
       for (const schedule of ['time', 'contention'] as const) {
         const { loRstu, hiRstu } = uwbFixedReplyWindowRstu(slotRstu, WALK_ANCHORS, schedule, 'ss')
         expect(loRstu, `slot ${slotRstu} should leave a non-empty window`).toBeLessThanOrEqual(hiRstu)
@@ -2061,7 +2063,13 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       const widerSlot: UwbSessionCfg = { ...atCap, slotRstu: 7_200 } // 33 slots a block, two rounds of 16
       expect(uwbSessionIssue(scene(widerSlot))).not.toBeNull()
       const slotRepair = uwbSessionRepair(widerSlot, WALK_ANCHORS)
-      expect(slotRepair).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(widerSlot, WALK_ANCHORS) })
+      // 2026-11-11 (W2b): the block also moves to the nearest whole number of the wider slots (standard
+      // §10.32.2), 33 × 7 200 RSTU, and the cap is read off that block.
+      const wholeBlock = 33 * 7_200
+      expect(slotRepair).toEqual({
+        blockRstu: wholeBlock,
+        ancillaryFrames: uwbAncillaryFramesCapFor({ ...widerSlot, blockRstu: wholeBlock }, WALK_ANCHORS),
+      })
       expect(slotRepair.ancillaryFrames).toBeLessThan(atCap.ancillaryFrames)
       expect(uwbSessionIssue(scene({ ...widerSlot, ...slotRepair }))).toBeNull()
     })

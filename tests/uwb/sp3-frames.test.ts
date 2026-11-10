@@ -30,9 +30,10 @@ describe('an SP3 marker is SHR + STS and nothing else — no PHR, no PSDU', () =
   })
 
   it('is shorter than the shortest SP1 frame by about 40 µs — the PHR plus the minimum PSDU', () => {
-    // The shortest SP1 frame on the air: a DS-TWR Response, which never carries a reply time
-    // (DS defers both two-way times to the Final/Report) — 14 octets, all MHR + RRMC + FCS.
-    const shortestSp1Ns = uwbPpduNs(uwbRespBytes('ds'))
+    // The shortest SP1 frame on the air: a Response that carries no reply time (a deferred round's,
+    // 2026-11-11: an embedded DS Response now carries Treply1, §10.32.5 Figure 10-238) — 14 octets,
+    // all MHR + RRMC + FCS.
+    const shortestSp1Ns = uwbPpduNs(uwbRespBytes('ds', 'deferred'))
     const savedNs = shortestSp1Ns - uwbSp3Ns()
     expect(savedNs).toBeGreaterThan(0)
     // Pinned to the number task 1's report quotes, so a retune of the PHY constants moves this
@@ -137,7 +138,7 @@ describe('there is no crossover: a whole SP3 grouped round costs more air time t
     // shortest possible SP1 frame. One report frame (`UWB_SS_DEFER_BYTES`'s own airtime) costs
     // several times that much, which is the arithmetic behind "the saving never buys the frame
     // back" — computed here, not stated.
-    const savedNs = uwbPpduNs(uwbRespBytes('ds')) - uwbSp3Ns()
+    const savedNs = uwbPpduNs(uwbRespBytes('ds', 'deferred')) - uwbSp3Ns()
     const multiple = reportNs / savedNs
     expect(multiple).toBeGreaterThan(1)
     // 2026-11-10: the report is now an RMI IE (§10.29.6.3), 19 octets, and the PHR is 21 symbols.

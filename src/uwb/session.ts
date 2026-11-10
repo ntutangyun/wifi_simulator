@@ -47,7 +47,7 @@ import type {
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsSlotsPerMs, type MmsLayout, type MmsPhy } from './mms'
 import {
-  mmsResponders, rstuNs, uwbAncillarySlots, uwbMmrcmSlots, uwbRoundSlotCount, uwbSlotsPerTag, type UwbReplyTime,
+  mmsResponders, rstuNs, uwbAncillarySlots, uwbMmrcmSlots, uwbRoundSlotCount, uwbSlotsPerTag, uwbWholeRoundSlots, type UwbReplyTime,
 } from './phy'
 
 export { rstuNs }
@@ -77,7 +77,8 @@ export interface RoundPlan {
   participants: number
   /**
    * The fixed length of every round of the session, in slots (standard §10.32.3.3: one round
-   * duration in block-based mode) — `uwbRoundSlotCount(rangingSlots, receipt slots, ancillary window)`.
+   * duration in block-based mode) — `uwbRoundSlotCount(rangingSlots, receipt slots, ancillary window)`,
+   * stretched to a whole divisor of the block's slot count (`uwbWholeRoundSlots`, §10.32.2).
    */
   slots: number
   /** The slots a ranging round's own exchange takes (`uwbSlotsPerTag`): Poll, responses, Final,
@@ -269,14 +270,16 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   )
   // The one round length (standard §10.32.3.3): the ranging round plus its receipt confirmations, or
   // the ancillary round, whichever is longer.
-  const slots = uwbRoundSlotCount(
+  // …stretched to the smallest length a whole number of which fills the block (standard §10.32.2,
+  // §10.32.3.3; `uwbWholeRoundSlots`): the slots past the exchange are idle.
+  const slots = uwbWholeRoundSlots(uwbRoundSlotCount(
     rangingSlots,
     uwbMmrcmSlots(cfg.mode, anchors, cfg.mmrcr),
     uwbAncillarySlots(
       cfg.mode, cfg.schedule, cfg.contentionSlots, cfg.ancillary, cfg.ancillaryFrames,
       cfg.ancillary && cfg.ancillaryRequest,
     ),
-  )
+  ), cfg.blockRstu, cfg.slotRstu, cfg.mode)
   const slotNs = rstuNs(cfg.slotRstu)
   const layout = cfg.mode === 'mms' ? mmsLayout(cfg.mms, mmsResponders(cfg.mms, anchors), slotsPerMs) : null
   const roundNs = slots * slotNs
@@ -695,6 +698,20 @@ export function mmrcmBitIndex(plan: RoundPlan, round: number, slot: number): num
  * then one measurement report per responder. SP3 changes the *ranging* frames and adds the
  * initiator's two; it does not redesign the double-sided exchange.
  */
+/**
+ * The slot responder `index` sends its ranging response in — a Response, or its SP3 marker — in a
+ * time-scheduled two-way round: the Ranging Slot Index the controller writes for it in the RCM's RDM
+ * IE (standard §10.32.9.8, SIU = 1). Read back by the responder: what it finds there, not the scene's
+ * anchor order, is where it answers (2026-11-11, W2b). Null when the round has no such slot.
+ */
+export function responderRangingSlot(p: RoundPlan, index: number): number | null {
+  for (let s = 1; s < p.rangingSlots; s++) {
+    const a = slotAction(p, s)
+    if ((a.kind === 'uwbResp' || a.kind === 'uwbSp3') && a.tx === 'anchor' && a.anchor === index) return s
+  }
+  return null
+}
+
 function sp3ReportAction(p: RoundPlan, index: number, slot: number): SlotAction {
   if (p.method === 'ss') {
     if (index < p.anchors) return { kind: 'uwbSsDefer', tx: 'anchor', anchor: index }

@@ -172,7 +172,11 @@ describe('uwb-reply-time · ③ every figure the labs print is the run', () => {
     const tx = ofType(rs, 'TX_START')
     expect(tx.map((r) => r.frame.kind)).toEqual(['uwbPoll', 'uwbResp', 'uwbSsDefer'])
     expect(l.expect).toContain(`${tx[0].frame.bytes} 字节的 Poll、${tx[1].frame.bytes} 字节的 Response 与 ${tx[2].frame.bytes} 字节的延后消息`)
+    // 2026-11-11 (W2b): the three-slot exchange runs in a 4-slot round, a whole divisor of the 100-slot
+    // block (standard §10.32.2).
     expect(l.expect).toContain(`写着 ${ofType(rs, 'UWB_ROUND')[0].slots} slots`)
+    expect(ofType(rs, 'UWB_ROUND')[0].slots).toBe(4)
+    expect(l.expect).toContain('排成 4 个时隙，最后一个空闲')
     const stamps = ofType(rs, 'UWB_TS').filter((r) => r.node === 'tag-1' && r.dir === 'rx')
     const respAt = stamps.find((r) => r.frameKind === 'uwbResp')!.t
     const range = tagRange(rs)
@@ -212,11 +216,12 @@ describe('uwb-reply-time · ③ every figure the labs print is the run', () => {
     expect(rows[3]).toEqual(['一轮的时隙数', 'A + 1', '2A + 1', 'A + 1'])
     expect(rows[4][0]).toBe(`A = ${DEMAND_ANCHORS} 时的时隙数`)
     expect(rows[4].slice(1)).toEqual([slots('embedded', DEMAND_ANCHORS), slots('deferred', DEMAND_ANCHORS), slots('fixed', DEMAND_ANCHORS)].map(String))
-    // one-anchor rounds: two, three, two
+    // one-anchor rounds: two, three, two slots of exchange (2026-11-11, W2b: counted off the frames on the
+    // air; the round itself is stretched to a whole divisor of the block, §10.32.2)
     for (const [rt, n] of [['embedded', 2], ['deferred', 3], ['fixed', 2]] as const) {
-      expect(ofType(runShape(rt), 'UWB_ROUND')[0].slots, rt).toBe(n)
+      expect(ofType(runShape(rt), 'TX_START').filter((r) => r.frame.uwb?.block === 0).length, rt).toBe(n)
     }
-    expect(l.expect).toContain('嵌入与固定一轮两个时隙，延后三个')
+    expect(l.expect).toContain('嵌入与固定的一轮用两个时隙，延后用三个')
     expect(l.expect).toContain(`相差的 ${resp('embedded') - resp('fixed')} 个字节就是 RRTI 信息单元`)
     // caps
     const caps = tableOf(l, '每种形态自己的锚点上限').rows
@@ -248,13 +253,16 @@ describe('uwb-reply-time · ③ every figure the labs print is the run', () => {
       dsE: tagRange(runShape('embedded', 'ds')).distM.toFixed(6),
       dsD: tagRange(runShape('deferred', 'ds')).distM.toFixed(6),
     }
+    // 2026-11-11 (W2b): deferred DS's tag reads the TOF the anchor reported, a whole number of RCTU in
+    // the RMI IE (§10.29.6.6 Figure 10-206, §10.29.8.4, §10.29.1.4).
     expect([got.embedded, got.deferred, got.fixed, got.dsE, got.dsD])
-      .toEqual([RANGE_M.embedded, RANGE_M.deferred, RANGE_M.fixed, RANGE_M.ds, RANGE_M.ds])
+      .toEqual([RANGE_M.embedded, RANGE_M.deferred, RANGE_M.fixed, RANGE_M.ds, RANGE_M.dsDeferredTag])
     for (const [rt, m] of [['embedded', 'ss'], ['deferred', 'ss'], ['fixed', 'ss'], ['embedded', 'ds'], ['deferred', 'ds']] as const) {
       expect(tagRange(runShape(rt, m, false)).distM.toFixed(6), `${m}/${rt} matched`).toBe(RANGE_M.matched)
     }
     const rows = tableOf(l, '同一段距离，五种方式的测量结果').rows
-    expect(rows.map((r) => r[1])).toEqual([RANGE_M.embedded, RANGE_M.deferred, RANGE_M.fixed, RANGE_M.ds, RANGE_M.ds].map((x) => `${x} m`))
+    expect(rows.map((r) => r[1])).toEqual([RANGE_M.embedded, RANGE_M.deferred, RANGE_M.fixed, RANGE_M.ds, RANGE_M.dsDeferredTag].map((x) => `${x} m`))
+    expect(l.expect).toContain(`取整之后是 ${RANGE_M.dsDeferredTag} m`)
     for (const r of rows) expect(r[2]).toBe(`${RANGE_M.matched} m`)
     expect(l.expect).toContain(`真值是 ${BENCH_M.toFixed(2)} m`)
     expect(RANGE_M.embedded).toBe(RANGE_M.deferred)

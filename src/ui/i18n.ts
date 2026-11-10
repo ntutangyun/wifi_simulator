@@ -730,7 +730,7 @@ export interface Strings {
         finalReply: (id: string, time: string) => string
         rmiFinal: (n: number, list: string) => string
         rmiFinalEntry: (id: string, time: string) => string
-        rmiReport: (treply1: string, tround2: string) => string
+        rmiReport: (field: 'tround2' | 'tof', value: string) => string
         txTime: (time: string) => string
         rxTimes: (n: number, list: string) => string
         coffs: (ppm: string) => string
@@ -1244,8 +1244,8 @@ export const STRINGS: Strings = {
     uwbAoaM2m: '到达角是锚点朝着固定的天线阵列、对准标签的一次发送测出来的——而本仿真器的多对多安排里没有锚点，也没有标签：每个参与者的一次发送要同时回答排在它前面的好几个人，没有哪一次发送是单独朝着谁的，也就没有单独的一对可供测方位角（design §5）',
     uwbScheduleMms: 'MMS 的测距周期在块开始之前就已排定——一个标签–锚点配对独占一个轮次（打开一对多开关时则是会话中的全部锚点），轮次内每个片段又独占一个时隙，一毫秒一个——因此根本没有留下可供竞争的响应窗口。选中该模式时还会把时隙改成草案自己的 600 RSTU（4ab 草案 15-22/0381r5 Table 1.2.3.2）。',
     uwbScheduleM2m: '本仿真器的多对多安排里，每一个时隙都已经排给了确定的参与者，在块开始之前就定好了顺序：竞争决定的是谁能占到一个时隙，而这里时隙早已分配完毕（design §5）。标准的多对多过程本身允许竞争，这是本仿真器的限制',
-    uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
-    uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
+    uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置。块由整数个轮组成（标准 §10.32.2），所以块长必须是时隙长的整数倍；轮长取能整除块的最小时隙数，多出的时隙空闲',
+    uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）、飞行时间与收发转换的上限 aTurnaroundTime（12 个前导符号，约 12.2 µs）',
     uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz。两者只有 1 米处的自由空间损耗不同（48.7 dB 对 50.5 dB），因此信道 9 在任何距离上都恒定多损耗约 1.8 dB。',
     uwbTsNoise: '时间戳噪声', uwbTsNoiseHint: '接收时间戳误差的 1-σ 值；100 ps 的计时误差折合 3 cm 的飞行距离，经双向测距公式折算后是 2.1 cm 的测距误差。该值是接收信噪比为 20 dB 时的水平：信号更弱时时间戳按 sqrt(20 dB / SNR) 变差，最多为此值的十倍',
     uwbCfoNoise: '时钟估计噪声', uwbCfoNoiseHint: '接收机估计载波频偏后残留误差的 1-σ 值；这正是 SS-TWR 无法抵消的那一部分',
@@ -1747,7 +1747,7 @@ export const STRINGS: Strings = {
         finalReply: (id, time) => `${id}：treply2 ${time}`,
         rmiFinal: (n, list) => `${n} 个锚点：${list}`,
         rmiFinalEntry: (id, time) => `${id} tround1 ${time}`,
-        rmiReport: (treply1, tround2) => `treply1 ${treply1} · tround2 ${tround2}`,
+        rmiReport: (field, value) => `${field === 'tof' ? 'TOF' : 'tround2'} ${value}`,
         txTime: (time) => `发送时刻 ${time}`,
         rxTimes: (n, list) => `${n} 个接收时刻：${list} RCTU`,
         coffs: (ppm) => `时钟偏差 ${ppm} ppm——相对锚点 0`,

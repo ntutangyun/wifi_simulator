@@ -2,8 +2,8 @@
  * `@uwb-slot-budget`, in the standard-first shape (2026-11-10).
  *
  * ① is checked for the clauses it cites and the figures it states against the engine's constants;
- * ② row by row against the engine (the slot-fit rule, the 200 ns guard, the 300 RSTU floor, the
- * editor's clamp, the receiver enabled only for an expected frame, the 127-octet cap on the Final);
+ * ② row by row against the engine (the slot-fit rule, the 200 ns guard, aTurnaroundTime — the
+ * 300 RSTU floor is gone since 2026-11-11, W2b — the editor's clamp, the receiver enabled only for an expected frame, the 127-octet cap on the Final);
  * ③ by reading every figure each lab prints back out of the lesson text and comparing it with a run
  * of the scene this lesson shares with `uwb-blocks`.
  */
@@ -16,9 +16,10 @@ import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKi
 import type { TimingSpec } from '../../src/course/diagram'
 import { MODULES } from '../../src/course/curriculum'
 import { clampField } from '../../src/editor/planOps'
+import { uwbSessionRepair, uwbSlotFloorRstu } from '../../src/uwb/ui/UwbSessionFields'
 import { roundPlan } from '../../src/uwb/session'
 import {
-  RSTU_CHIPS, UWB_SLOT_GUARD_NS, rstuNs, uwbFinalBytes, uwbMaxAnchors, uwbPpduNs, uwbSlotFitNs,
+  RSTU_CHIPS, UWB_SLOT_GUARD_NS, UWB_TURNAROUND_NS, rstuNs, uwbFinalBytes, uwbMaxAnchors, uwbPpduNs, uwbSlotFitNs,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
@@ -109,7 +110,8 @@ describe('uwb-slot-budget · the lesson', () => {
 })
 
 describe('uwb-slot-budget · ② says what the engine does, and the engine does it', () => {
-  it('the slot-fit rule: the Final plus the guard, 292 RSTU; 307 RSTU at five anchors', () => {
+  // 2026-11-11 (W2b): the rule also holds aTurnaroundTime (Table 12-1, §11.2.3), so 306 and 321 RSTU.
+  it('the slot-fit rule: the Final plus the guard plus aTurnaroundTime, 306 RSTU; 321 RSTU at five anchors', () => {
     const sim = implRow('时隙最短多长').sim
     expect(num(sim, /四个锚点时 (\d+) 字节/, 'Final')).toBe(uwbFinalBytes(ANCHORS))
     expect(num(sim, /空口 ([\d ]+) ns/, 'air')).toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)))
@@ -117,7 +119,7 @@ describe('uwb-slot-budget · ② says what the engine does, and the engine does 
     const r292 = num(sim, /合 (\d+) 个 RSTU/, 'rstu')
     expect(rstuNs(r292)).toBeGreaterThanOrEqual(uwbSlotFitNs(ANCHORS))
     expect(rstuNs(r292 - 1)).toBeLessThan(uwbSlotFitNs(ANCHORS))
-    expect(num(sim, /五个锚点时 Final 要 ([\d ]+) ns/, 'fit5')).toBe(uwbSlotFitNs(5))
+    expect(num(sim, /五个锚点时要 ([\d ]+) ns/, 'fit5')).toBe(uwbSlotFitNs(5))
     const r307 = num(sim, /即 (\d+) RSTU/, 'rstu5')
     expect(rstuNs(r307)).toBeGreaterThanOrEqual(uwbSlotFitNs(5))
     expect(rstuNs(r307 - 1)).toBeLessThan(uwbSlotFitNs(5))
@@ -133,14 +135,27 @@ describe('uwb-slot-budget · ② says what the engine does, and the engine does 
     expect(num(sim, /相当于 (\d+) m/, 'm')).toBe(Math.round(UWB_SLOT_GUARD_NS * 0.299792458))
   })
 
-  it('the 300 RSTU floor is the schema\'s, 250.0 µs, 7.3 µs over the fit', () => {
-    const sim = implRow('时隙的下限').sim
-    const floor = num(sim, /不得短于 (\d+) RSTU/, 'floor')
-    expect(num(sim, /即 ([\d.]+) µs/, 'µs') * 1000).toBe(rstuNs(floor))
-    expect(num(sim, /长 ([\d.]+) µs/, 'gap')).toBe(Number(((rstuNs(floor) - uwbSlotFitNs(ANCHORS)) / 1000).toFixed(1)))
-    expect(schemaIssues(floor)).toEqual([])
-    expect(schemaIssues(floor - 1)).toContain('Number must be greater than or equal to 300')
-    expect(rstuNs(floor)).toBeGreaterThan(uwbSlotFitNs(ANCHORS))
+  // 2026-11-11 (W2b): the standard has no floor (§10.32.2 asks only for one frame); the schema's 300 RSTU
+  // floor is gone, so a slot that fits the round is legal whatever its size.
+  it('no floor of the schema\'s own: 300 RSTU is refused only because the round does not fit it', () => {
+    const row = implRow('时隙的下限')
+    expect(row.kind).toBe('faithful')
+    expect(row.sim).toContain('已经去掉')
+    const floor = uwbSlotFloorRstu(SESSION, ANCHORS)
+    expect(floor).toBe(306)
+    expect(rstuNs(floor)).toBeGreaterThanOrEqual(uwbSlotFitNs(ANCHORS))
+    expect(rstuNs(floor - 1)).toBeLessThan(uwbSlotFitNs(ANCHORS))
+    expect(schemaIssues(300).join(' ')).toContain('aTurnaroundTime')
+    expect(schemaIssues(300).join(' ')).not.toContain('greater than or equal to 300')
+    // 320 RSTU divides the 240 000 RSTU block and fits the round: no issue at all
+    expect(schemaIssues(320)).toEqual([])
+  })
+
+  it('aTurnaroundTime: 12 preamble symbols, 12 212 ns, counted by the slot rule', () => {
+    const row = implRow('接收与发送之间的转换')
+    expect(num(row.sim, /留出 ([\d ]+) ns/, 'turnaround')).toBe(UWB_TURNAROUND_NS)
+    expect(num(row.sim, /12 × (\d+) 个码片/, 'chips')).toBe(508)
+    expect(uwbSlotFitNs(ANCHORS)).toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)) + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS)
   })
 
   it('the scene\'s slot is 2 ms and the Final fills 12.1 % of it', () => {
@@ -150,11 +165,12 @@ describe('uwb-slot-budget · ② says what the engine does, and the engine does 
     expect(num(sim, /占它的 ([\d.]+) %/, 'pct')).toBe(Number((uwbPpduNs(uwbFinalBytes(ANCHORS)) / PLAN.slotNs * 100).toFixed(1)))
   })
 
-  it('the editor clamps to the floor', () => {
-    expect(implRow('编辑器里的输入').sim).toContain('300 RSTU')
-    expect(clampField('295', 300, 60_000, true)).toBe(300)
-    expect(clampField('290', 300, 60_000, true)).toBe(300)
-    expect(clampField('2401', 300, 60_000, true)).toBe(2401)
+  it('the editor clamps to the slot-fit floor and moves the block to a whole number of slots', () => {
+    const floor = uwbSlotFloorRstu(SESSION, ANCHORS)
+    expect(num(implRow('编辑器里的输入').sim, /本场景 (\d+) RSTU/, 'floor')).toBe(floor)
+    expect(clampField('300', floor, 60_000, true)).toBe(floor)
+    expect(clampField('2401', floor, 60_000, true)).toBe(2401)
+    expect(uwbSessionRepair({ ...SESSION, slotRstu: floor }, ANCHORS, TAGS.length).blockRstu).toBe(239_904)
   })
 
   it('the anchor\'s radio wakes for an expected frame and closes when it is in', () => {
@@ -162,9 +178,11 @@ describe('uwb-slot-budget · ② says what the engine does, and the engine does 
     const states = ofType(recs(), 'MAC_STATE').filter((r) => r.node === 'anchor-1' && r.t < PLAN.roundNs)
     expect(states.map((r) => `${r.t}:${r.state}`)).toEqual([
       '0:uwbWait', '13:rx', '217898:idle',
-      '2000000:tx', '2183013:idle',
+      // 2026-11-11 (W2b): the DS Response carries Treply1 (21 octets) and the report Tround2 alone (19),
+      // §10.32.5 Figure 10-238.
+      '2000000:tx', '2190192:idle',
       '10000000:uwbWait', '10000013:rx', '10242513:idle',
-      '12000000:tx', '12192244:idle',
+      '12000000:tx', '12188141:idle',
     ])
   })
 
@@ -186,11 +204,12 @@ describe('uwb-slot-budget · ③ every figure the labs print is the run', () => 
   it('lab 1: the formula, and the share of its slot each frame fills', () => {
     const l = lab('一帧占自己时隙的几分之一')
     const f = blockOf(l, 'formula')
-    const m = /= ([\d ]+) \+ (\d+) = ([\d ]+) ns at N = (\d)/.exec(f.text)!
-    const [air, guard, fit, n] = [m[1], m[2], m[3], m[4]].map((x) => Number(x!.replace(/\s/g, '')))
+    const m = /= ([\d ]+) \+ (\d+) \+ ([\d ]+) = ([\d ]+) ns at N = (\d)/.exec(f.text)!
+    const [air, guard, turn, fit, n] = [m[1], m[2], m[3], m[4], m[5]].map((x) => Number(x!.replace(/\s/g, '')))
     expect(n).toBe(ANCHORS)
     expect(air).toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)))
     expect(guard).toBe(UWB_SLOT_GUARD_NS)
+    expect(turn).toBe(UWB_TURNAROUND_NS)
     expect(fit).toBe(uwbSlotFitNs(ANCHORS))
     const tx = ofType(recs(), 'TX_START').filter((r) => r.t < PLAN.roundNs)
     const poll = tx.find((r) => r.frame.kind === 'uwbPoll')!
@@ -256,29 +275,33 @@ describe('uwb-slot-budget · ③ every figure the labs print is the run', () => 
       .toEqual(tx.map((r) => r.frame.txTimeNs))
   })
 
-  it('lab 4: 295 and 290 both go to 300, and the steps are the engine\'s rule', () => {
+  // 2026-11-11 (W2b): the floor is the slot-fit rule (frame + guard + aTurnaroundTime), 306 RSTU here,
+  // and the block follows the slot to a whole number of slots (§10.32.2).
+  it('lab 4: 300 goes to 306 and the block to 239 904; 320 stays, and the steps are the engine\'s rule', () => {
     const l = lab('编辑器里的最短时隙')
     const items = blockOf(l, 'steps').items
     expect(num(items[0], /四个锚点时 (\d+) 字节/, 'final')).toBe(uwbFinalBytes(ANCHORS))
     expect(num(items[0], /空口 ([\d ]+) ns/, 'air')).toBe(uwbPpduNs(uwbFinalBytes(ANCHORS)))
-    expect(num(items[1], /加 (\d+) ns/, 'guard')).toBe(UWB_SLOT_GUARD_NS)
+    expect(num(items[1], /加 (\d+) ns 飞行余量/, 'guard')).toBe(UWB_SLOT_GUARD_NS)
+    expect(num(items[1], /与 ([\d ]+) ns 的 aTurnaroundTime/, 'turn')).toBe(UWB_TURNAROUND_NS)
     expect(num(items[1], /容量下限是 ([\d ]+) ns/, 'fit')).toBe(uwbSlotFitNs(ANCHORS))
-    const r291 = num(items[1], /合 (\d+) 个 RSTU 还多一点/, '291')
-    expect(rstuNs(r291)).toBeLessThan(uwbSlotFitNs(ANCHORS))
-    expect(rstuNs(num(items[1], /至少要 (\d+) 个 RSTU/, '292'))).toBeGreaterThanOrEqual(uwbSlotFitNs(ANCHORS))
-    expect(num(items[2], /即 ([\d.]+) µs/, '250') * 1000).toBe(rstuNs(300))
-    expect(num(items[2], /长 ([\d.]+) µs/, '7.3')).toBe(Number(((rstuNs(300) - uwbSlotFitNs(ANCHORS)) / 1000).toFixed(1)))
-    // the two inputs, both clamped to the floor
+    expect(rstuNs(num(items[1], /合 (\d+) 个 RSTU 还多一点/, '305'))).toBeLessThan(uwbSlotFitNs(ANCHORS))
+    const floor = num(items[1], /至少要 (\d+) 个 RSTU/, '306')
+    expect(floor).toBe(uwbSlotFloorRstu(SESSION, ANCHORS))
     const [a, b] = [...l.steps.join(' ').matchAll(/输入 (\d+)/g)].map((x) => Number(x[1]))
-    expect([a, b]).toEqual([295, 290])
-    expect(num(l.expect, /两次都变为 (\d+)/, '300')).toBe(clampField(String(a), 300, 60_000, true))
-    expect(clampField(String(b), 300, 60_000, true)).toBe(300)
-    expect(num(l.expect, /295 RSTU（([\d.]+) µs）/, '295')).toBe(Number((rstuNs(295) / 1000).toFixed(1)))
-    expect(num(l.expect, /290 RSTU（([\d.]+) µs）/, '290')).toBe(Number((rstuNs(290) / 1000).toFixed(1)))
+    expect([a, b]).toEqual([300, 320])
+    expect(num(l.expect, /300 变为 (\d+)/, '306')).toBe(clampField(String(a), floor, 60_000, true))
+    expect(clampField(String(b), floor, 60_000, true)).toBe(b)
+    expect(num(l.expect, /300 RSTU（([\d.]+) µs）/, '250')).toBe(Number((rstuNs(300) / 1000).toFixed(1)))
     expect(num(l.expect, /要求的 ([\d.]+) µs/, 'fit')).toBe(Number((uwbSlotFitNs(ANCHORS) / 1000).toFixed(1)))
-    expect(num(l.expect, /还差 ([\d.]+) µs/, 'short')).toBe(Number(((uwbSlotFitNs(ANCHORS) - rstuNs(290)) / 1000).toFixed(1)))
-    expect(rstuNs(295)).toBeGreaterThan(uwbSlotFitNs(ANCHORS))
-    expect(schemaIssues(295)).toEqual(['Number must be greater than or equal to 300'])
-    expect(schemaIssues(290)).toHaveLength(2)
+    expect(num(l.expect, /短 ([\d.]+) µs/, 'short')).toBe(Number(((uwbSlotFitNs(ANCHORS) - rstuNs(300)) / 1000).toFixed(1)))
+    const repaired = uwbSessionRepair({ ...SESSION, slotRstu: floor }, ANCHORS, TAGS.length)
+    expect(num(l.expect, /块长随之变为 ([\d ]+) RSTU/, 'block')).toBe(repaired.blockRstu)
+    expect(num(l.expect, /即 (\d+) 个时隙/, 'slots')).toBe(repaired.blockRstu! / floor)
+    expect(uwbSessionRepair({ ...SESSION, slotRstu: b }, ANCHORS, TAGS.length)).toEqual({})
+    expect(num(l.expect, /正好是 (\d+) 个 320 RSTU/, '750')).toBe(SESSION.blockRstu / b)
+    expect(schemaIssues(b)).toEqual([])
+    const scene = uwbBlocksScenario(floor)
+    expect(ScenarioSchema.safeParse({ ...scene, uwb: { ...scene.uwb!, blockRstu: repaired.blockRstu! } }).success).toBe(true)
   })
 })

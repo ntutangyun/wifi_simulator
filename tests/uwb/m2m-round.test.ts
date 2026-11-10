@@ -86,8 +86,10 @@ const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLReco
 const pairKey = (a: string, b: string): string => [a, b].sort().join('~')
 
 interface Measured {
-  /** Ranging slots the arrangement spent, read off the `UWB_ROUND` records the run emitted — the
-   * round's own account of its length, never a constant from `phy.ts`. */
+  /** Ranging slots the arrangement's exchange spent: the slots that carried a frame, read off the
+   * `TX_START` records the run emitted (one frame per slot), never a constant from `phy.ts`.
+   * 2026-11-11 (W2b): until then it was the `UWB_ROUND` record's round length, which now also counts
+   * the idle slots that stretch a round to a whole divisor of the block (standard §10.32.2). */
   slots: number
   /** Distinct pairs that ended up with a range. */
   pairs: Set<string>
@@ -108,7 +110,9 @@ function manyToMany(
   const slots = new Set(rounds.map((r) => r.slots))
   if (slots.size !== 1) throw new Error(`many-to-many: participants disagree on the round length: ${[...slots]}`)
   const ranges = of(rs, 'UWB_RANGE')
-  return { slots: rounds[0].slots, pairs: new Set(ranges.map((r) => pairKey(r.node, r.peer))), ranges, records: rs }
+  const busy = of(rs, 'TX_START').length
+  if (busy > rounds[0].slots) throw new Error(`many-to-many: ${busy} frames in a round of ${rounds[0].slots} slots`)
+  return { slots: busy, pairs: new Set(ranges.map((r) => pairKey(r.node, r.peer))), ranges, records: rs }
 }
 
 /**
@@ -127,7 +131,7 @@ function takingTurns(n: number): Measured {
     const rs = run(scenario(nodes, { mode: 'twr', method: 'ss', replyTime: 'embedded', ...QUIET }))
     const rounds = of(rs, 'UWB_ROUND')
     if (rounds.length !== 1) throw new Error(`taking turns: ${idOf(k)}'s turn ran ${rounds.length} rounds, not 1`)
-    slots += rounds[0].slots
+    slots += of(rs, 'TX_START').length
     for (const r of of(rs, 'UWB_RANGE')) {
       pairs.add(pairKey(r.node, r.peer))
       ranges.push(r)
@@ -293,7 +297,9 @@ describe('determinism, and every other mode byte-identical (design §8.7)', () =
     // standard's three content octets and the RR IE (block and round indices) joined it, so every
     // Poll is three octets longer (audit #9). UL-TDoA sends no RCM and did not move.
     // Re-captured again 2026-11-10 (W2), all four: every PPDU is 896 chips longer (PHR 21 symbols, standard Table 16-2), which moves every instant in every mode; the RRTI and RMI content headers (§10.29.8.1/§10.29.8.4) lengthen the SS Response and the DS Final and reports.
-    'twr/ss': '8a632d1c', 'twr/ds': '97fa4a89', 'dl-tdoa': '3ca6d9d3', 'ul-tdoa': 'f7339e40',
+    // 2026-11-11 (W2b): twr/ds re-captured — the DS Response carries Treply1 and the report Tround2 alone
+    // (§10.32.5, Figure 10-238), and the round is stretched to a whole divisor of the block (§10.32.2).
+    'twr/ss': '8a632d1c', 'twr/ds': 'e5a12d28', 'dl-tdoa': '3ca6d9d3', 'ul-tdoa': 'f7339e40',
   }
 
   const streamOf = (sc: Scenario): string => hashStr(JSON.stringify(
@@ -340,7 +346,11 @@ describe('Ruling 8: participants and anchors alias each other, and it is checked
         const plan = roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n)
         expect(plan.participants, `${method} N=${n}`).toBe(n)
         expect(plan.participants, `${method} N=${n}: the aliasing`).toBe(plan.anchors)
-        expect(plan.slots, `${method} N=${n}: slots`).toBe(method === 'ss' ? n : 2 * n)
+        expect(plan.rangingSlots, `${method} N=${n}: slots`).toBe(method === 'ss' ? n : 2 * n)
+        // 2026-11-11 (W2b): the round itself is stretched to a whole divisor of the block's slots
+        // (standard §10.32.2), the slots past the exchange idle.
+        expect(plan.slots, `${method} N=${n}: round`).toBeGreaterThanOrEqual(plan.rangingSlots)
+        expect(100 % plan.slots, `${method} N=${n}: whole rounds`).toBe(0)
         // One round per block, for the whole group (design §5) — not one per tag, of which m2m
         // has none.
         expect(plan.roundsPerBlock, `${method} N=${n}: rounds per block`).toBe(1)

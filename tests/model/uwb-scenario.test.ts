@@ -14,7 +14,7 @@ import { makeEmitter } from '../../src/model/records'
 import { UwbNetwork } from '../../src/uwb/network'
 import {
   rstuNs, UWB_BLINK_BYTES, uwbDlPollBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbLongestFrameBytes, uwbMaxAnchors, uwbNbSlotFitNs,
-  uwbPollBytes, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag,
+  uwbPollBytes, uwbRespBytes, uwbSlotFitNs, uwbSlotsPerTag, UWB_TURNAROUND_NS,
 } from '../../src/uwb/phy'
 
 /** The old `UWB_MAX_ANCHORS = 9` was always the embedded DS-TWR Final's own number; deleted in
@@ -103,9 +103,14 @@ describe('UWB nodes and sessions in the schema', () => {
   // Replaces "the ranging slot must be a whole number of 3-RSTU units" (2026-11-10, audit #10): that
   // rule is not in the standard, which only counts block and slot lengths in RSTU (§10.32.2). What is
   // pinned now is the standard's: any whole number of RSTU, and nothing that is not one.
+  // 2026-11-11 (W2b): …and the block is a whole number of slots, since it is a whole number of rounds
+  // of a whole number of slots each (§10.32.2) — so 2401 RSTU slots take a 240 100 RSTU block, and a
+  // 240 001 RSTU one is refused.
   it('the ranging slot and block are whole numbers of RSTU, with no multiple-of-3 rule', () => {
-    const odd = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2401, blockRstu: 240_001 })
+    const odd = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2401, blockRstu: 240_100 })
     expect(() => ScenarioSchema.parse(odd)).not.toThrow()
+    const ragged = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2401, blockRstu: 240_001 })
+    expect(() => ScenarioSchema.parse(ragged)).toThrow(/不是 2401 RSTU 时隙的整数倍.*§10\.32\.2/)
     const frac = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2400.5 })
     expect(() => ScenarioSchema.parse(frac)).toThrow()
     const good = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2400 })
@@ -121,20 +126,22 @@ describe('UWB nodes and sessions in the schema', () => {
   })
 
   // 2026-11-10: the Final is 18 + 12N octets (RMI/RRTI content headers, standard §10.29.8.4/.1) and
-  // every PPDU carries a 21-symbol PHR (Table 16-2), so the same 300 RSTU slot now carries four
-  // anchors' Final and not five.
-  it('every frame must fit its slot: 300 RSTU carries four anchors, not five', () => {
+  // every PPDU carries a 21-symbol PHR (Table 16-2). 2026-11-11 (W2b): the slot also has to hold
+  // aTurnaroundTime (12 preamble symbols, 12.212 µs — Table 12-1, §11.2.3, §16.1), and the 300 RSTU
+  // floor is gone; so a 306 RSTU slot carries four anchors' Final and not five.
+  it('every frame must fit its slot: 306 RSTU carries four anchors, not five', () => {
     // The Final is the round's longest frame: 242.500 µs at four anchors and 254.808 µs at five,
-    // plus 200 ns of flight guard, against a 300 RSTU slot of 250 µs.
-    expect(uwbSlotFitNs(4)).toBe(242_700)
-    expect(uwbSlotFitNs(5)).toBe(255_008)
-    expect(rstuNs(300)).toBe(250_000)
-    const shortSlot = { ...DEFAULT_UWB_SESSION, slotRstu: 300 }
+    // plus 200 ns of flight guard and the 12.212 µs turnaround, against a 306 RSTU slot of 255 µs.
+    expect(UWB_TURNAROUND_NS).toBe(12_212)
+    expect(uwbSlotFitNs(4)).toBe(242_700 + 12_212)
+    expect(uwbSlotFitNs(5)).toBe(255_008 + 12_212)
+    expect(rstuNs(306)).toBe(255_000)
+    const shortSlot = { ...DEFAULT_UWB_SESSION, slotRstu: 306, blockRstu: 306 * 800 }
     const anchors = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`anc-${i}`, 'anchor', i * 2, 0))
     const tag = uwbNode('tag-1', 'tag', 4, 4)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], shortSlot))).not.toThrow()
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], shortSlot)))
-      .toThrow(/300 RSTU.*250\.0 µs.*255\.0 µs/)
+      .toThrow(/306 RSTU.*255\.0 µs.*267\.2 µs/)
     // and the engine refuses the same round in nanoseconds, so the two cannot drift apart
     expect(() => network([...anchors(5), tag], shortSlot)).toThrow(/cannot carry a round of 5 anchors/)
     expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBeGreaterThan(uwbSlotFitNs(DS_EMBEDDED_CAP))
@@ -173,10 +180,13 @@ describe('UWB nodes and sessions in the schema', () => {
     }
     // 2026-11-10 (audit #3): a deferred DS round's longest frame is the initiator's deferred report,
     // 15 + 10N octets (standard §10.29.6.6) — 105 at nine anchors, which this slot cannot hold either,
-    // while five anchors' 65-octet report fits. The bare deferred Final (11 octets) binds nothing.
+    // while four anchors' 55-octet report fits (2026-11-11, W2b: five anchors' 65 octets no longer do,
+    // now that the slot also holds aTurnaroundTime). The bare deferred Final (11 octets) binds nothing.
     expect(uwbLongestFrameBytes(9, 'twr', 'time', 'ds', 'deferred')).toBe(uwbDsDeferredReportBytes(9))
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], { ...shortDs, replyTime: 'deferred' })))
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(4), tag], { ...shortDs, replyTime: 'deferred' })))
       .not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors(5), tag], { ...shortDs, replyTime: 'deferred' })))
+      .toThrow(/300 RSTU.*aTurnaroundTime/)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], { ...shortDs, replyTime: 'deferred' })))
       .toThrow(/300 RSTU/)
     expect(() => ScenarioSchema.parse(uwbScenario([...anchors(9), tag], shortDs))).toThrow(/300 RSTU/)
@@ -213,12 +223,13 @@ describe('UWB nodes and sessions in the schema', () => {
   })
 
   it('a contention round sizes the block-fit rule as 1 + contentionSlots, not per-anchor', () => {
-    // 9 slots (1 + 8 contention) × 2400 RSTU = 21 600 RSTU; a 240 000 RSTU block fits 11 tags.
+    // 9 slots (1 + 8 contention), stretched to 10 so that the 100-slot block holds a whole number of
+    // rounds (2026-11-11, W2b; standard §10.32.2) — so the block fits 10 tags, whatever the anchor count.
     const anchors = [0, 1, 2, 3].map((i) => uwbNode(`anc-${i}`, 'anchor', i * 3, 0))
     const tags = (n: number) => Array.from({ length: n }, (_, i) => uwbNode(`tag-${i}`, 'tag', i, 4))
     const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'contention', contentionSlots: 8 }
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)], cfg))).not.toThrow()
-    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(12)], cfg))).toThrow(/11 .*tag.*12/)
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(10)], cfg))).not.toThrow()
+    expect(() => ScenarioSchema.parse(uwbScenario([...anchors, ...tags(11)], cfg))).toThrow(/10 .*tag.*11/)
   })
 
   it('one-way ranging needs four anchors and a time schedule', () => {
@@ -241,20 +252,22 @@ describe('UWB nodes and sessions in the schema', () => {
   })
 
   it('one round must fit the block in every mode, DL-TDoA included', () => {
-    // 4 anchors, DL-TDoA: 5 slots × 2400 RSTU = 12 000 RSTU against a 3 000 RSTU block. Lifting
+    // 4 anchors, DL-TDoA: 5 slots × 2400 RSTU = 12 000 RSTU against a 4 800 RSTU block (two slots: a
+    // block is a whole number of slots since 2026-11-11, so the old 3 000 RSTU block is refused for
+    // that reason first). Lifting
     // the tags-per-block rule for DL-TDoA must not lift the floor under it: a round that outlives
     // its block would run into the next block's slots, and nothing downstream notices.
     const anchors = [0, 1, 2, 3].map((i) => uwbNode(`anc-${i}`, 'anchor', i * 3, 0))
     const tag = uwbNode('tag-1', 'tag', 4, 4)
-    const tiny = { blockRstu: 3000, slotRstu: 2400 }
+    const tiny = { blockRstu: 4800, slotRstu: 2400 }
     for (const mode of ['dl-tdoa', 'ul-tdoa', 'twr'] as const) {
       const sc = uwbScenario([...anchors, tag], { ...DEFAULT_UWB_SESSION, ...tiny, mode })
       if (mode === 'ul-tdoa') {
-        // A blink round is one slot of 2 400 RSTU, and that does fit a 3 000 RSTU block.
+        // A blink round is one slot of 2 400 RSTU, and that does fit a 4 800 RSTU block.
         expect(() => ScenarioSchema.parse(sc), mode).not.toThrow()
         continue
       }
-      expect(() => ScenarioSchema.parse(sc), mode).toThrow(/3000 RSTU.*blockRstu/)
+      expect(() => ScenarioSchema.parse(sc), mode).toThrow(/4800 RSTU.*blockRstu/)
       const bad = ScenarioSchema.safeParse(sc)
       expect(bad.success, mode).toBe(false)
       // …and it replaces the tags-per-block rule rather than doubling it: one mistake, one issue.
@@ -421,7 +434,7 @@ describe('the P802.15.4ab MMS session in the schema', () => {
     // 2403 RSTU is a legal slot everywhere else in the simulator and is refused here.
     expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), mmsSession({ slotRstu: 2403 }))))
       .toThrow(/MMS.*300 RSTU.*P802\.15\.4ab/)
-    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2403 })))
+    expect(() => ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2403, blockRstu: 240_300 })))
       .not.toThrow()
   })
 

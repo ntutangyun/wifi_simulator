@@ -75,13 +75,33 @@ export function psduSymbols(octets: number): number {
   return dataBits + RS_PARITY_BITS * blocks - PSDU_BITS_AT_PHR_RATE + TAIL_SYMBOLS
 }
 
-export function uwbPpduChips(octets: number): number {
-  return UWB_SHR_CHIPS + UWB_STS_CHIPS + UWB_PHR_CHIPS + psduSymbols(octets) * DATA_SYMBOL_CHIPS
+/**
+ * An HRP PPDU's length in chips. `sts` true (the default) is STS packet configuration 1 — SHR, STS,
+ * PHR, PSDU (standard Table 16-1); false is configuration 0, the packet with no STS field at all
+ * (Table 16-1, and the ARC IE's STS Packet Config value 0, Table 10-165: "No STS field included in
+ * the PPDU") — SHR, PHR, PSDU, 33 792 chips (about 67.7 µs) shorter. 2026-11-11 (W2b): until then a
+ * session with its sequence switched off still sent configuration-1 frames.
+ */
+export function uwbPpduChips(octets: number, sts = true): number {
+  return UWB_SHR_CHIPS + (sts ? UWB_STS_CHIPS : 0) + UWB_PHR_CHIPS + psduSymbols(octets) * DATA_SYMBOL_CHIPS
 }
 
-export function uwbPpduNs(octets: number): Ns {
-  return chipsToNs(uwbPpduChips(octets))
+export function uwbPpduNs(octets: number, sts = true): Ns {
+  return chipsToNs(uwbPpduChips(octets, sts))
 }
+
+/**
+ * aTurnaroundTime for the HRP UWB PHY: 12 symbol periods (standard Table 12-1, "The value is 12 for
+ * all other PHYs"), where MAC timing counts in **preamble** symbols, Tpsym (§16.1: "For the HRP UWB
+ * PHY, where MAC timing is specified in symbols, the duration of a preamble symbol (Tpsym) is used")
+ * — 12 × 508 chips = 6 096 chips, about 12.21 µs at the code length this engine uses (Table 16-5).
+ * Both turnarounds are bounded by it (§11.2.2, §11.2.3, §16.4.7/.8). A device that receives in one
+ * slot and transmits at the start of the next needs at least this long between the two, so a slot
+ * has to hold its frame, the flight and this (`uwbSlotFitNs`). 2026-11-11 (W2b): until then the slot
+ * rule left it out and a 300 RSTU floor of this simulator's own stood in for every margin.
+ */
+export const UWB_TURNAROUND_CHIPS = 12 * PSYM_CHIPS
+export const UWB_TURNAROUND_NS: Ns = chipsToNs(UWB_TURNAROUND_CHIPS)
 
 // --- Channel / path loss -----------------------------------------------------
 
@@ -346,8 +366,9 @@ export function rmiIeBytes(elements: number, times: number, addressed: boolean):
 /** One RMI entry in an embedded Final: the responder's short address 2 + its round-trip time 4. */
 export const RMI_FINAL_ENTRY_BYTES = UWB_SHORT_ADDR_BYTES + RMI_TIME_BYTES
 /** RMI IE in a responder's measurement report to the initiator (unicast): the fixed part + one
- * element of reply time and round-trip time, no address — 4 + 8 = 12 octets. */
-export const RMI_REPORT_IE_BYTES = rmiIeBytes(1, 2, false)
+ * element of one measurement — Tround2 (embedded DS, Figure 10-238) or the TOF (deferred DS, Figure
+ * 10-206) — no address: 4 + 4 = 8 octets. 2026-11-11 (W2b): 12 until then (reply time and round trip). */
+export const RMI_REPORT_IE_BYTES = rmiIeBytes(1, 1, false)
 
 /** The Poll's RDM IE: one entry per anchor, 3 + 3N octets. */
 export function rdmIeBytes(anchors: number): number {
@@ -373,12 +394,25 @@ export function uwbPollBytes(anchors: number, schedule: 'time' | 'contention' = 
   return UWB_MHR_BYTES + ARC_IE_BYTES + RR_IE_BYTES + rdmIeBytes(anchors) + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
 
-/** MHR + RRMC IE + FCS, plus the RRTI IE that carries the reply time — only when SS-TWR embeds
- * it in this very frame: 21 (SS embedded) / 14 (SS deferred or fixed, DS always). DS-TWR never
- * carries a reply time here at all: its Final does, or the initiator's deferred report does. */
+/** A Response that carries no reply time: MHR + RRMC IE + FCS = 14 octets. */
+export const UWB_BARE_RESP_BYTES = UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
+
+/**
+ * MHR + RRMC IE + FCS, plus the RRTI IE that carries the responder's reply time whenever the round
+ * embeds it in this very frame: 21 octets embedded, 14 deferred or fixed.
+ *
+ * - SS-TWR embedded: the one-to-many Response is `{Ranging, RRTI IE & RRMC IE}` (standard §10.32.4,
+ *   Figure 10-235 — the RRMC IE (1) rides the Response in the one-to-many procedure; the single-pair
+ *   Figure 10-204 has the RRTI alone).
+ * - DS-TWR embedded: when the initiator's RRMC IE (2) requests the first reply time and the second
+ *   round-trip time, the responder's Response is `{Ranging, RRMC IE and RRTI IE}` — Treply1 goes back
+ *   here, and only Tround2 is left for the responder's later report (§10.32.5, Figure 10-238).
+ *   2026-11-11 (W2b): until then the DS Response carried no RRTI and the report carried both times.
+ * - Deferred (ARC Deferred Mode 1, §10.32.9.1; Figures 10-206, 10-237) and fixed: no reply time here.
+ */
 export function uwbRespBytes(method: 'ss' | 'ds', replyTime: UwbReplyTime = 'embedded'): number {
-  const carriesRrti = method === 'ss' && replyTime === 'embedded'
-  return UWB_MHR_BYTES + RRMC_IE_BYTES + (carriesRrti ? RRTI_IE_BYTES : 0) + UWB_FCS_BYTES
+  void method
+  return UWB_BARE_RESP_BYTES + (replyTime === 'embedded' ? RRTI_IE_BYTES : 0)
 }
 
 /**
@@ -409,9 +443,22 @@ export function uwbDsDeferredReportBytes(anchors: number): number {
   return UWB_MHR_BYTES + rmiIeBytes(anchors, 2, true) + UWB_FCS_BYTES
 }
 
-/** MHR + the report's RMI IE 12 + FCS = 23: a responder's own reply time and second round trip,
- * unicast to the initiator, requested by the Reply Time Request and Round-trip Time Request bits of
- * the Poll's RRMC IE (§10.29.8.3, Figure 10-238). */
+/**
+ * A responder's measurement report of an SP1 DS-TWR round, unicast to the initiator: MHR + an RMI IE
+ * with **one** measurement, no address (4 + 4) + FCS = 19 octets.
+ *
+ * - Embedded (standard §10.32.5, Figure 10-238): the second round-trip time Tround2 — the first reply
+ *   time already went back in the Response's RRTI IE.
+ * - Deferred (§10.29.6.6, Figure 10-206; §10.32.5, Figure 10-239): the TOF the responder computed,
+ *   requested by the TOF Request field of the initiating RRMC IE ("The subsequent reporting of the
+ *   ranging result to the initiating end, using the RMI IE, depends on the value of the TOF Request
+ *   field").
+ *
+ * - SP3 DS-TWR is always the deferred shape (its markers carry no payload); the TOF report there is
+ *   requested by the SRRR IE's RTOF bit (§10.32.9.9), which the initiator sets in such a round.
+ *
+ * 2026-11-11 (W2b): until then every shape sent Treply1 and Tround2 (23 octets).
+ */
 export const UWB_REPORT_BYTES = UWB_MHR_BYTES + RMI_REPORT_IE_BYTES + UWB_FCS_BYTES
 
 /** The deferred reply-time message of SS-TWR (standard §10.29.6.3, Figure 10-203): an anchor whose
@@ -560,7 +607,7 @@ export function uwbDlPollBytes(responders: number, rxTimes = 0, coffs = false): 
 /** DL-TDoA Response (anchor i): the DS-TWR Response (no RRTI) plus the responder's TX time, its
  * RX time of the Poll and its clock offset. 14 + 6 + 6 + 4 = 30 octets. */
 export function uwbDlRespBytes(rxTimes = 1, coffs = true): number {
-  return uwbRespBytes('ds') + dlExtraBytes(rxTimes, coffs)
+  return UWB_BARE_RESP_BYTES + dlExtraBytes(rxTimes, coffs)
 }
 
 /** DL-TDoA Final (anchor 0): MHR + RRMC + anchor 0's TX time + its RX time of each response +
@@ -798,6 +845,37 @@ export function uwbInitiatorBlockSlots(roundSlots: number, initiatorRounds: numb
   return (initiatorRounds + (ancillaryRound ? 1 : 0)) * roundSlots
 }
 
+/**
+ * The round duration, in slots, a block-based session actually runs (standard §10.32.2: "Each ranging
+ * block consists of a whole number of ranging rounds"; §10.32.3.3: number of rounds = block duration ÷
+ * round duration). `needed` is the slots the round's exchange takes (`uwbRoundSlotCount`); the block
+ * and slot durations are the session's. The answer is the **smallest whole divisor of the block's slot
+ * count that is at least `needed`**: the round is "a period of sufficient duration to complete one
+ * entire range-measurement cycle" (§10.32.2), so it may be longer than its exchange, and the slots
+ * past the exchange are idle. The round duration is the controller's next higher layer's choice
+ * (ARC IE Ranging Round Duration, §10.32.9.1); taking the smallest legal one is this simulator's.
+ *
+ * Returns `needed` unchanged when the block is not a whole number of slots (the schema refuses that,
+ * `uwbBlockWholeSlots`) or when no round fits the block at all (the block-fit rule refuses that).
+ *
+ * Not applied to `mode: 'mms'`: the P802.15.4ab ranging cycle has its own slot layout, and aligning it
+ * is the 4ab-draft workstream's (W5). 2026-11-11 (W2b): until then the block's remainder after
+ * ⌊block ÷ round⌋ rounds was simply left unused — e.g. 200 ms blocks of 16 ms rounds, 8 ms over.
+ */
+export function uwbWholeRoundSlots(needed: number, blockRstu: number, slotRstu: number, mode: UwbMode): number {
+  if (mode === 'mms') return needed
+  if (!uwbBlockWholeSlots(blockRstu, slotRstu)) return needed
+  const blockSlots = blockRstu / slotRstu
+  for (let m = Math.max(1, needed); m <= blockSlots; m++) if (blockSlots % m === 0) return m
+  return needed
+}
+
+/** Whether a block is a whole number of slots — which it has to be, being a whole number of rounds of
+ * a whole number of slots each (standard §10.32.2). */
+export function uwbBlockWholeSlots(blockRstu: number, slotRstu: number): boolean {
+  return slotRstu > 0 && blockRstu % slotRstu === 0
+}
+
 // --- Ranging schedule units ----------------------------------------------------
 
 /** Ranging slot/block time units to nanoseconds: 1 RSTU = 416 chips at 499.2 Mchip/s
@@ -1006,7 +1084,7 @@ export function uwbLongestFrameBytes(
     return Math.max(pollBytes, uwbRespBytes('ss', replyTime), deferBytes)
   }
   // DS deferred: the Final is bare, and the initiator's deferred report (15 + 10N) is the frame that
-  // grows; the responders' reports are a fixed 23.
+  // grows; the responders' reports are a fixed 19.
   if (replyTime === 'deferred') {
     return Math.max(pollBytes, uwbFinalBytes(anchors, replyTime), uwbDsDeferredReportBytes(anchors), UWB_REPORT_BYTES)
   }
@@ -1119,8 +1197,12 @@ export const UWB_ANCHOR_SEARCH_CEILING = 64
 
 /**
  * The shortest ranging slot a round with N anchors fits in: the round's longest PPDU plus the
- * flight guard. In a shorter slot the receiver's deadline fires before the frame lands, and the
- * round loses every anchor to UWB_TIMEOUT with nothing to say why.
+ * flight guard plus aTurnaroundTime (`UWB_TURNAROUND_NS`, standard Table 12-1, §11.2.3: a device that
+ * receives in this slot may transmit at the start of the next). In a shorter slot the receiver's
+ * deadline fires before the frame lands, and the round loses every anchor to UWB_TIMEOUT with
+ * nothing to say why. 2026-11-11 (W2b): the turnaround term is new, and it replaced the 300 RSTU
+ * floor the schema used to add on top of this rule (the standard has no such floor, §10.32.2 asks
+ * only that a slot hold at least one frame). An MMS slot is the draft's own and is left as it was.
  *
  * In MMS it is the longest fragment of the train plus the same guard: a 256-unit RIF is 262.6 µs
  * and does not fit the 250 µs a 300 RSTU slot gives it.
@@ -1150,6 +1232,7 @@ export function uwbSlotFitNs(
     return mmsLongestFragmentNs(mms) + UWB_SLOT_GUARD_NS
   }
   return uwbPpduNs(uwbLongestFrameBytes(anchors, mode, schedule, method, replyTime, sp3)) + UWB_SLOT_GUARD_NS
+    + UWB_TURNAROUND_NS
 }
 
 /**
@@ -1167,7 +1250,7 @@ export function uwbSlotFitNs(
  * of this slice's ledger was written about.
  */
 export function uwbM2mSlotFitNs(participants: number): Ns {
-  return uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS
+  return uwbPpduNs(uwbM2mBytes(Math.max(0, participants - 1))) + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS
 }
 
 /** The room an MMS round's longest narrowband message needs. They are far longer than any

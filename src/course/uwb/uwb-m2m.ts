@@ -91,16 +91,17 @@ const SESSION: UwbSessionCfg = uwbM2mScenario().uwb!
 /** The N the comparison table is read at. */
 export const TABLE_NS = [3, 4, 6] as const
 
-/** Slots one many-to-many round of `n` participants takes, from the round planner itself. */
+/** Slots one many-to-many round's exchange of `n` participants takes, from the round planner itself
+ * (`rangingSlots`: since 2026-11-11 the round is stretched to a whole divisor of the block, §10.32.2). */
 export const m2mSlots = (n: number, method: 'ss' | 'ds'): number =>
-  roundPlan({ ...SESSION, method }, n).slots
+  roundPlan({ ...SESSION, method }, n).rangingSlots
 
 /**
  * Slots the arrangement the comparison is against takes: `n` one-to-many rounds, one per device
  * taking its turn as the tag, each of them a round of `n − 1` anchors.
  */
 export const takingTurnsSlots = (n: number): number =>
-  n * roundPlan({ ...SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n - 1).slots
+  n * roundPlan({ ...SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n - 1).rangingSlots
 
 /** Pairs in a group of `n`. */
 export const pairsOf = (n: number): number => (n * (n - 1)) / 2
@@ -190,7 +191,7 @@ export const uwbM2m: Lesson = {
     {
       heading: '与轮流担任标签相比',
       steps: [
-        '读下表：「轮流担任标签」是让每台设备轮流担任标签（tag）、其余担任锚点（anchor），各运行一轮后的合计。',
+        '读下表：「轮流担任标签」是让每台设备轮流担任标签（tag）、其余担任锚点（anchor），各运行一轮后的合计；时隙数指测距交互实际占用的时隙，轮为了整除测距块（ranging block）而多出的空闲时隙不计在内。',
         '「本仿真器的多对多」是把本课场景的设备数改为 3、4、6 后各运行一轮的结果。',
       ],
       blocks: [
@@ -211,7 +212,7 @@ export const uwbM2m: Lesson = {
         '对照下表读出两种形态的误差。',
       ],
       blocks: [
-        { kind: 'table', heading: '同样十五对，两种形态', head: ['形态', '时隙数', '最大误差', '平均误差'], rows: [
+        { kind: 'table', heading: '同样十五对，两种形态', head: ['形态', '交互占用的时隙', '最大误差', '平均误差'], rows: [
           ['单边', '6', '0.2175 m', '0.0828 m'],
           ['双边', '12', '0.001454 m', '0.000637 m'],
         ] },

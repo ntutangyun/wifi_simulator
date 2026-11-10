@@ -169,7 +169,9 @@ describe('uwb-contention · ③ every figure the labs print is the run', () => {
       const row = rows.find((r) => r[0] === String(S))!
       const rs = recs(v)
       expect(tagRounds(rs), v).toHaveLength(ROUNDS)
-      expect(row[1], v).toBe(`${(S + 1) * 2} ms`)
+      // 2026-11-11 (W2b): the round's own length, off the run — 1 + S slots of exchange stretched to a
+      // whole divisor of the block (standard §10.32.2), no longer the (S + 1) × 2 ms formula.
+      expect(row[1], v).toBe(`${tagRounds(rs)[0].slots * 2} ms`)
       expect(row[2], v).toBe((CONTENTION_ANCHORS * (1 - 1 / S) ** (CONTENTION_ANCHORS - 1)).toFixed(2))
       expect(row[3], v).toBe((tagRanges(rs).length / ROUNDS).toFixed(2))
       expect(row[4], v).toBe(String(ofType(rs, 'UWB_CONTEND_COLLISION').length))

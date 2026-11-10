@@ -88,12 +88,14 @@ const RT_CAP_SP3 = ((): number => {
 // copied table. `tests/ui/uwb-guide.test.ts` runs whole rounds for N = 3/4/6 and for the
 // DS-against-SS accuracy claim, so a drift in the engine fails there rather than going unnoticed.
 const M2M_NS = [3, 4, 6] as const
+// `rangingSlots`, the exchange itself: since 2026-11-11 (W2b) `slots` is the round stretched to a whole
+// divisor of the block (standard §10.32.2), its extra slots idle.
 const m2mSlots = (n: number, method: 'ss' | 'ds'): number =>
-  roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n).slots
+  roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n).rangingSlots
 /** N one-to-many rounds, one per device taking its turn as the tag — the arrangement many-to-many
  * replaces. Each round has `n − 1` anchors, so `roundPlan` at `n − 1` gives its length. */
 const takingTurnsSlots = (n: number): number =>
-  n * roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n - 1).slots
+  n * roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n - 1).rangingSlots
 const pairsOf = (n: number): number => (n * (n - 1)) / 2
 const perParticipant = (n: number): number[] => Array.from({ length: n }, (_, i) => n - 1 - i)
 const M2M_CAP = uwbMaxParticipants('ss') // 27 — uwbMaxParticipants('ds') searches the same frame law
@@ -130,8 +132,8 @@ const MMRCM_MAX_INITIATORS = uwbMaxMmrcmInitiators(MMRCM_SLOTS)
 const MMRCM_SET_PLAN = roundPlan(
   { ...DEFAULT_UWB_SESSION, method: 'ss', rcmValidityRounds: 4, initiatorRounds: 4, mmrcr: true }, 4,
 )
-const MMRCM_SET_SLOTS = mmrcmAckSlots(MMRCM_SET_PLAN, 0) // 32
-const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS) // 4
+const MMRCM_SET_SLOTS = mmrcmAckSlots(MMRCM_SET_PLAN, 0)
+const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS)
 
 // --- Section 19: SP3 grouped ranging, standard §10.32.8 / SRRR IE §10.32.9.9 -------------------
 // sp3-design §2.3 (the fix round that gave the initiator its own marker and its own RRTT report):
@@ -142,7 +144,7 @@ const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS) // 4
 // geometry, which is a property of the test scene, not of the round shape.
 const SP3_MARKER_NS = uwbSp3Ns() // the initiator's own marker costs exactly the same as a responder's
 const SP1_EMBEDDED_RESP_NS = uwbPpduNs(uwbRespBytes('ss', 'embedded')) // 20-octet embedded SS Response
-const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds')) // 14-octet DS Response: the shortest SP1 frame this engine sends
+const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds', 'deferred')) // 14-octet Response with no reply time (deferred DS, 2026-11-11): the shortest SP1 frame this engine sends
 const SP3_SAVING_EMBEDDED_NS = SP1_EMBEDDED_RESP_NS - SP3_MARKER_NS
 const SP3_SAVING_SHORTEST_NS = SP1_SHORTEST_RESP_NS - SP3_MARKER_NS
 const SP3_REPORT_NS = uwbPpduNs(uwbSp3ReportBytes(false)) // the deferred reply-time message RAOA did not lengthen
@@ -1002,8 +1004,10 @@ export function Guide() {
         </tbody>
       </table>
       <p style={p}>
-        标签在全部五种里都拿得到距离——在本仿真器里它既是控制方也是发起方（第 11 节）；它的轮询帧里 RRMC IE
-        的回复时间请求位与往返时间请求位置 1，所以 DS 的应答方都发报告（§10.29.8.3、§10.32.5 图 10-238）。
+        标签在全部五种里都拿得到距离——在本仿真器里它既是控制方也是发起方（第 11 节）。DS 嵌入时，它的轮询帧里
+        RRMC IE 请求第一段回复时间与第二次往返时间：应答方在应答帧的 RRTI IE 里带回 Treply1，测量报告里只带 Tround2
+        （§10.29.8.3、§10.32.5 图 10-238）；DS 延后时，它请求的是结果本身，应答方在测量报告的 RMI IE 里用 TOF 字段
+        带回自己算出的距离（§10.29.6.6 图 10-206）。
         <b>DS 的两种形态</b>都让锚点也拿到距离：嵌入时 Final 把标签的两个时间（tround1、treply2）带给它；
         延后时 Final 不带这两个数，发起方随后在测量报告阶段用一帧延后数据帧把它们发给应答方，由应答方算出距离
         （§10.29.6.6、§10.32.5）。单边测距的三种形态里锚点拿不到距离：标准的 RMI IE 有 TOF 字段
@@ -1015,7 +1019,9 @@ export function Guide() {
         SS 嵌入与 SS 延后 <b>4.998803 m</b>（一模一样，因为走的是同一套算术，只是换了一条载波）；
         SS 固定 <b>4.999345 m</b>（FRT<sub>1</sub> 取 1.1 个时隙；不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
         <code>ssTwrCorrected</code> 的 (1 − coffs) 修正项照样乘它——ppm 误差从另一扇门进来）；
-        DS 嵌入与 DS 延后 <b>4.999075 m</b>（比 SS 嵌入与 SS 延后都更接近真实值——这正是 DS-TWR 存在的理由）。
+        DS 嵌入 <b>4.999075 m</b>（比 SS 嵌入与 SS 延后都更接近真实值——这正是 DS-TWR 存在的理由）；
+        DS 延后 <b>5.001420 m</b>——标签拿到的是应答方算出的飞行时间，RMI IE 的 TOF 字段是测距计数单位的无符号整数
+        （§10.29.8.4、§10.29.1.4），取整之后与嵌入形态差半个计数单位以内（一个计数单位约 4.7 mm）。
         两端晶振对准时，五者在时间戳噪声之内<b>逐位相同</b>，都是 <b>5.001420 m</b>——
         搬运路线只决定谁在何时拿到这几个时间量，不决定算出来的是哪个距离。
       </p>

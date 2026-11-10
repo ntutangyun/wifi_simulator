@@ -7,10 +7,15 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_UWB_SESSION, type UwbSessionCfg } from '../../src/model/scenario'
 import type { UwbReplyTime } from '../../src/uwb/phy'
-import { uwbSlotsPerTag } from '../../src/uwb/phy'
+import { uwbSlotsPerTag, uwbWholeRoundSlots } from '../../src/uwb/phy'
 import { roundPlan, slotAction, type SlotAction } from '../../src/uwb/session'
 
 const session = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, ...over })
+/** 2026-11-11 (W2b): the round a plan runs is its exchange stretched to the smallest whole divisor of
+ * the block's 100 slots (standard §10.32.2: a block is a whole number of rounds); the slots past the
+ * exchange are idle. `rangingSlots` is the exchange. */
+const whole = (needed: number): number =>
+  uwbWholeRoundSlots(needed, DEFAULT_UWB_SESSION.blockRstu, DEFAULT_UWB_SESSION.slotRstu, 'twr')
 
 /** The five reply-time shapes design §4 tabulates, and the slot count each one owes a tag for a
  * given anchor count `a`. */
@@ -35,7 +40,8 @@ describe('uwbSlotsPerTag lays out the five shapes with the slot counts design §
   it('is the same number roundPlan reports, and RoundPlan carries the replyTime it was built from', () => {
     for (const s of SHAPES) {
       const p = roundPlan(session({ method: s.method, replyTime: s.replyTime }), 3)
-      expect(p.slots).toBe(s.slots(3))
+      expect(p.rangingSlots).toBe(s.slots(3))
+      expect(p.slots).toBe(whole(s.slots(3)))
       expect(p.replyTime).toBe(s.replyTime)
     }
   })
@@ -46,13 +52,15 @@ describe('slotAction walks every slot of every shape without throwing and withou
     for (const s of SHAPES) {
       const p = roundPlan(session({ method: s.method, replyTime: s.replyTime }), a)
       const seen = new Set<string>()
-      for (let slot = 0; slot < p.slots; slot++) {
+      for (let slot = 0; slot < p.rangingSlots; slot++) {
         expect(() => slotAction(p, slot)).not.toThrow()
         const action: SlotAction = slotAction(p, slot)
         const key = 'anchor' in action ? `${action.kind}:${action.anchor}` : action.kind
         expect(seen.has(key)).toBe(false) // no two slots claim the same (kind, anchor)
         seen.add(key)
       }
+      // …the stretch to a whole divisor of the block is idle (2026-11-11, W2b)…
+      for (let slot = p.rangingSlots; slot < p.slots; slot++) expect(slotAction(p, slot)).toEqual({ kind: 'idle' })
       // One slot past the end always throws: the round has no gap that silently no-ops instead.
       expect(() => slotAction(p, p.slots)).toThrow()
     }
@@ -60,7 +68,8 @@ describe('slotAction walks every slot of every shape without throwing and withou
 
   it('an SS deferred round at 3 anchors is a Poll, 3 Responses, then 3 deferred messages', () => {
     const p = roundPlan(session({ method: 'ss', replyTime: 'deferred' }), 3)
-    expect(p.slots).toBe(7)
+    expect(p.rangingSlots).toBe(7)
+    expect(p.slots).toBe(10) // 2026-11-11 (W2b): 7 stretched to 10, a divisor of the 100-slot block
     expect(slotAction(p, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
     for (let i = 0; i < 3; i++) {
       expect(slotAction(p, 1 + i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
@@ -68,7 +77,8 @@ describe('slotAction walks every slot of every shape without throwing and withou
     for (let i = 0; i < 3; i++) {
       expect(slotAction(p, 4 + i)).toEqual({ kind: 'uwbSsDefer', tx: 'anchor', anchor: i })
     }
-    expect(() => slotAction(p, 7)).toThrow(/SS round has 7 slots, asked for 7/)
+    for (const idle of [7, 8, 9]) expect(slotAction(p, idle)).toEqual({ kind: 'idle' })
+    expect(() => slotAction(p, 10)).toThrow(/SS round has 10 slots, asked for 10/)
   })
 })
 
@@ -111,7 +121,8 @@ describe('the embedded and fixed shapes are slot-for-slot identical to today', (
   // responders report.
   it('DS deferred, 4 anchors: 2A+3 slots — Final, the initiator deferred report, then the four reports', () => {
     const p = roundPlan(session({ replyTime: 'deferred' }), 4)
-    expect(p.slots).toBe(11)
+    expect(p.rangingSlots).toBe(11)
+    expect(p.slots).toBe(20) // 2026-11-11 (W2b): 11 stretched to 20, a divisor of the 100-slot block
     expect(slotAction(p, 5)).toEqual({ kind: 'uwbFinal', tx: 'tag' })
     expect(slotAction(p, 6)).toEqual({ kind: 'uwbReport', tx: 'tag' })
     for (let i = 0; i < 4; i++) {

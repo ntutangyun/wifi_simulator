@@ -153,9 +153,11 @@ describe('leaves every existing frame byte-identical', () => {
   })
 
   it('Report', () => {
-    const f = makeReport('a1', 'tag', 1_000, 2_000, 0, 0, 6)
+    const f = makeReport('a1', 'tag', { tround2: 2_000 }, 0, 0, 6)
     expect(f.bytes).toBe(UWB_REPORT_BYTES)
-    expect(f.bytes).toBe(23) // 2026-11-10: RMI content header 2, unicast so no address (§10.29.8.4)
+    // 2026-11-11 (W2b): one measurement — Tround2 (embedded, §10.32.5 Figure 10-238) or the TOF
+    // (deferred, §10.29.6.6 Figure 10-206); 23 with both times until then.
+    expect(f.bytes).toBe(19)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 

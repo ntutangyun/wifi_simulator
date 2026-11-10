@@ -56,23 +56,25 @@ describe('RoundPlan.srrr', () => {
   })
 })
 
+// 2026-11-11 (W2b): `plan.slots` is the exchange stretched to a whole divisor of the block's slots
+// (standard §10.32.2); the exchange itself — what this suite is about — is `rangingSlots`.
 describe('the slot shape sp3 changes, and the shapes it does not (design §4.1)', () => {
   it('SS-TWR: two slots more than the deferred SP1 round, both of them the initiator\'s own', () => {
     for (const anchors of [1, 2, 4]) {
       const off = roundPlan(session({ method: 'ss', sp3: false }), anchors)
       const on = roundPlan(session({ method: 'ss', sp3: true }), anchors)
       // One extra slot for the initiator's marker; its report needs one only when asked for.
-      expect(on.slots, `anchors=${anchors}`).toBe(off.slots + 1)
+      expect(on.rangingSlots, `anchors=${anchors}`).toBe(off.rangingSlots + 1)
       expect(on.roundNs, `anchors=${anchors}`).toBe(on.slots * on.slotNs)
       const asked = roundPlan(session({ method: 'ss', sp3: true, srrr: { raoa: false, rrtt: true } }), anchors)
-      expect(asked.slots, `anchors=${anchors}`).toBe(on.slots + 1)
+      expect(asked.rangingSlots, `anchors=${anchors}`).toBe(on.rangingSlots + 1)
     }
   })
 
   it('SS-TWR: the RCM, the initiator\'s marker, one marker per responder, then the reports', () => {
     const anchors = 3
     const p = roundPlan(session({ method: 'ss', sp3: true }), anchors)
-    expect(p.slots).toBe(2 * anchors + 2)
+    expect(p.rangingSlots).toBe(2 * anchors + 2)
     expect(slotAction(p, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
     expect(slotAction(p, 1)).toEqual({ kind: 'uwbSp3', tx: 'tag' })
     for (let k = 0; k < anchors; k++) {
@@ -88,7 +90,7 @@ describe('the slot shape sp3 changes, and the shapes it does not (design §4.1)'
   it('SS-TWR with RRTT asked: the initiator\'s own report opens the report phase', () => {
     const anchors = 3
     const p = roundPlan(session({ method: 'ss', sp3: true, srrr: { raoa: false, rrtt: true } }), anchors)
-    expect(p.slots).toBe(2 * anchors + 3)
+    expect(p.rangingSlots).toBe(2 * anchors + 3)
     expect(slotAction(p, anchors + 2)).toEqual({ kind: 'uwbReport', tx: 'tag' })
     for (let k = 0; k < anchors; k++) {
       expect(slotAction(p, anchors + 3 + k), `report ${k}`)
@@ -102,7 +104,7 @@ describe('the slot shape sp3 changes, and the shapes it does not (design §4.1)'
   it('DS-TWR: two slots more again — the Final, then the initiator deferred report', () => {
     const anchors = 3
     const p = roundPlan(session({ method: 'ds', sp3: true }), anchors)
-    expect(p.slots).toBe(2 * anchors + 4)
+    expect(p.rangingSlots).toBe(2 * anchors + 4)
     expect(slotAction(p, 1)).toEqual({ kind: 'uwbSp3', tx: 'tag' })
     expect(slotAction(p, anchors + 2)).toEqual({ kind: 'uwbFinal', tx: 'tag' })
     expect(slotAction(p, anchors + 3)).toEqual({ kind: 'uwbReport', tx: 'tag' })

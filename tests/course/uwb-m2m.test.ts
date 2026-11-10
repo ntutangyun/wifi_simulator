@@ -50,6 +50,11 @@ const heldBy = (rs: TLRecord[], ids: string[]): number[] =>
   ids.map((id) => ranges(rs).filter((r) => r.node === id).length)
 
 /** Each device taking a turn as the tag while the rest answer as anchors, summed over all N rounds. */
+/** Slots one run's exchange used: one frame a slot, read off the frames on the air. 2026-11-11 (W2b): the
+ * `UWB_ROUND` record's own length now also counts the idle slots that stretch a round to a whole divisor
+ * of the block (standard §10.32.2), so the exchange is counted off the air instead. */
+const busy = (rs: TLRecord[]): number => ofType(rs, 'TX_START').filter((r) => r.frame.uwb?.block === 0).length
+
 function takingTurns(n: number): { slots: number; records: number; pairs: Set<string> } {
   const from = uwbM2mScenario('ss', n)
   let slots = 0
@@ -62,7 +67,7 @@ function takingTurns(n: number): { slots: number; records: number; pairs: Set<st
     const rs = run({ ...from, nodes, uwb: { ...from.uwb!, mode: 'twr', method: 'ss', replyTime: 'embedded' } })
     const rounds = ofType(rs, 'UWB_ROUND')
     expect(rounds, `taking turns N=${n}, ${idOf(k)}'s turn`).toHaveLength(1)
-    slots += rounds[0].slots
+    slots += busy(rs)
     for (const r of ranges(rs)) {
       records += 1
       pairs.add(pairKey(r.node, r.peer))
@@ -267,12 +272,12 @@ describe('uwb-m2m · ③ every figure the labs print is the run', () => {
       const ss = run(uwbM2mScenario('ss', n))
       const ds = run(uwbM2mScenario('ds', n))
       expect(turnsCell).toBe(`${turns.slots} 个时隙、${turns.records} 条`)
-      expect(ssCell).toBe(`${ofType(ss, 'UWB_ROUND')[0].slots} 个时隙`)
-      expect(dsCell).toBe(`${ofType(ds, 'UWB_ROUND')[0].slots} 个时隙`)
+      expect(ssCell).toBe(`${busy(ss)} 个时隙`)
+      expect(dsCell).toBe(`${busy(ds)} 个时隙`)
       expect(pairsCell).toBe(`${ranges(ss).length} 条`)
       expect(new Set(ranges(ss).map((r) => pairKey(r.node, r.peer))).size).toBe(ranges(ss).length)
       // 「恰好是 N 倍，而且每一对测了两遍」
-      expect(turns.slots / ofType(ss, 'UWB_ROUND')[0].slots).toBe(n)
+      expect(turns.slots / busy(ss)).toBe(n)
       expect(turns.records).toBe(2 * turns.pairs.size)
       expect(turns.pairs.size).toBe(ranges(ss).length)
     }
@@ -285,7 +290,7 @@ describe('uwb-m2m · ③ every figure the labs print is the run', () => {
     for (const [name, slots, max, avg] of rows) {
       const rs = byName[name]
       const errs = errsOf(rs)
-      expect(Number(slots), name).toBe(ofType(rs, 'UWB_ROUND')[0].slots)
+      expect(Number(slots), name).toBe(busy(rs))
       const dp = (s: string) => (s.replace(' m', '').split('.')[1] ?? '').length
       expect(max, name).toBe(`${Math.max(...errs).toFixed(dp(max))} m`)
       expect(avg, name).toBe(`${mean(errs).toFixed(dp(avg))} m`)

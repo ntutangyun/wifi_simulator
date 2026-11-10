@@ -11,7 +11,8 @@
  * The base scene is the many-to-many round with participant `p-3` 14 dB down: it hears both others
  * and neither hears it, so one frame carries two entries with different bits, and `p-3` reads two
  * all-zero bitmaps. The variants are the two-way round with the request on and off, one control
- * message for four rounds of one block, which is what makes the bitmap 41 bits wide there.
+ * message for four rounds of one block, which is what makes the bitmap 68 bits wide there (2026-11-11, W2b: 41 until each round
+ * was stretched to a whole divisor of the block, §10.32.2 — 20 slots rather than 11).
  *
  * Every figure the labs print is read back out of the lesson text and compared with a run in
  * tests/course/uwb-receipt.test.ts.
@@ -125,10 +126,10 @@ export const uwbReceipt: Lesson = {
     { topic: '请求位', standard: 'ARC 控制字段的第 15 位 MMRCR（§10.32.9.1）', sim: '照此实现。双向轮变体里请求位开启与关闭时，这组第一轮的控制消息都是 39 字节，其余各轮的启动消息都是 14 字节。', kind: 'faithful' },
     { topic: '多对多里的请求', standard: '请求随测距控制消息的 ARC 信息单元发出（§10.36.1）', sim: '本仿真器的多对多一轮没有控制消息（见多对多那一课），请求只能由场景事先设定，这是待改正的偏差。', kind: 'differs' },
     { topic: '谁回、几个列表元素', standard: '接收方回 MMRCM，每个发起方一个列表元素（§10.36.1、§10.36.2.1）', sim: '照此实现：每个接收方一帧。多对多里每台设备把其余设备都当作发起方，一帧两个元素；双向轮里锚点（anchor）只收到标签（tag）一个发起方的消息，一帧一个元素。', kind: 'faithful' },
-    { topic: '回复的时隙', standard: '可以调度、竞争或两者结合，标准未规定位置（§10.36.1）', sim: '放在这组最后一轮测距之后，一个接收方一个时隙。ARC 只给出一个轮长（Ranging Round Duration，§10.32.9.1），所以每一轮都留着这几个时隙，其余各轮里空着。', kind: 'choice' },
+    { topic: '回复的时隙', standard: '可以调度、竞争或两者结合，标准未规定位置（§10.36.1）', sim: '放在这组最后一轮测距之后，一个接收方一个时隙。ARC 只给出一个轮长（Ranging Round Duration，§10.32.9.1），所以每一轮都留着这几个时隙，其余各轮里空着；轮长还要整除测距块（ranging block）（§10.32.2），双向轮变体的一轮因此排成 20 个时隙。', kind: 'choice' },
     { topic: '帧格式', standard: '标志一字节、列表长度一字节，元素为地址、一字节位图长度、位图（§10.36.2.1）', sim: '照此实现：单元头 2 字节、标志 1 字节、列表长度 1 字节，每个元素为短地址 2 字节、位图长度 1 字节、位图 ⌈S/8⌉ 字节；帧头（MAC header）9 字节与帧校验 2 字节是本仿真器的取值。', kind: 'faithful' },
     { topic: '地址长度', standard: 'Address Size 区分短地址与扩展地址（§10.36.2.1）', sim: '只实现短地址，扩展地址未实现。', kind: 'absent' },
-    { topic: '被确认的时隙', standard: '使用这个信息单元确认的那一轮或几轮里的时隙（§10.36.2.1）', sim: '取这组轮次里回复之前的全部时隙：多对多里是那一轮的 3 个时隙，双向轮变体里是 41 个时隙。', kind: 'choice' },
+    { topic: '被确认的时隙', standard: '使用这个信息单元确认的那一轮或几轮里的时隙（§10.36.2.1）', sim: '取这组轮次里回复之前的全部时隙：多对多里是那一轮的 3 个时隙，双向轮变体里是 68 个时隙。', kind: 'choice' },
     { topic: '位图的取值', standard: '收到那个时隙里发给它的消息记 1，否则记 0（§10.36.2.1）', sim: '照此实现；别的锚点发送的时隙恒为 0。', kind: 'faithful' },
     { topic: '多播', standard: 'MMRCM 可以用多播或多节点消息发出（§10.36.1）', sim: '双向轮里单播给标签；多对多里沿用整轮的广播地址。', kind: 'choice' },
     { topic: '只有一轮的双向轮次组', standard: '标准没有限制', sim: '编辑器不接受「双向轮 + 有效轮数 1 + 请求收妥确认」：这组只有一轮时，锚点在自己的时隙里应答本身就说明它收到了启动消息。这是本仿真器加的限制。', kind: 'differs' },
@@ -184,12 +185,12 @@ export const uwbReceipt: Lesson = {
         { kind: 'table', heading: '请求位开启与关闭，第 0 块', head: ['量什么', '请求位关闭', '请求位开启'], rows: [
           ['第一轮的控制消息', '39 字节', '39 字节'],
           ['其余各轮的启动消息', '14 字节', '14 字节'],
-          ['每一轮的时隙数', '8 个', '11 个'],
-          ['MMRCM', '0 帧', '3 帧，各 24 字节'],
+          ['每一轮的时隙数', '10 个', '20 个'],
+          ['MMRCM', '0 帧', '3 帧，各 27 字节'],
           ['四轮的测距结果', '24 条', '24 条'],
         ] },
       ],
-      expect: '控制消息与启动消息逐帧同长；请求开启后每一轮多 3 个时隙，只在第四轮里发出 3 帧回复；第 0 轮的测距结果距离完全相同。',
+      expect: '控制消息与启动消息逐帧同长；请求开启后每一轮要多留 3 个回复时隙，轮长又要整除测距块，于是从 10 个时隙变为 20 个；只在第四轮里发出 3 帧回复；第 0 轮的测距结果距离完全相同。',
       meaning: '请求位在 ARC 原有的控制字段里（①），代价全在回复一侧；回复不带时间量，不参与测距计算（②）。',
     },
     {
@@ -200,10 +201,10 @@ export const uwbReceipt: Lesson = {
         '读出位图的位数、字节数，以及哪几位是 1。',
       ],
       blocks: [
-        { kind: 'formula', heading: '帧长', text: 'MMRCM = 帧头 9 + 单元固定部分 4 + N × (地址 2 + 位图长度 1 + 位图 ⌈S/8⌉) + 帧校验 2\nS = 41 时：15 + 9N 字节，N 最多 12', note: 'N 是列表元素的个数，S 是被确认的时隙数；一帧的载荷（payload）不超过 127 字节决定了 N 的上限。' },
+        { kind: 'formula', heading: '帧长', text: 'MMRCM = 帧头 9 + 单元固定部分 4 + N × (地址 2 + 位图长度 1 + 位图 ⌈S/8⌉) + 帧校验 2\nS = 68 时：15 + 12N 字节，N 最多 9', note: 'N 是列表元素的个数，S 是被确认的时隙数；一帧的载荷（payload）不超过 127 字节决定了 N 的上限。' },
       ],
-      expect: '每个锚点一帧 24 字节、一个列表元素；位图 41 位、6 字节，其中 8 位为 1，即第 0、4、11、15、22、26、33、37 位——每一轮的启动消息与 Final。',
-      meaning: '一位对应一个时隙（①）；确认这组里回复之前的全部 41 个时隙，是本仿真器的取法，所以大多数位是别的锚点发送的时隙，恒为 0（②）。',
+      expect: '每个锚点一帧 27 字节、一个列表元素；位图 68 位、9 字节，其中 8 位为 1，即第 0、4、20、24、40、44、60、64 位——每一轮的启动消息与 Final。',
+      meaning: '一位对应一个时隙（①）；确认这组里回复之前的全部 68 个时隙，是本仿真器的取法，所以大多数位是别的锚点发送的时隙，恒为 0（②）。',
     },
   ],
   sources: [
@@ -213,7 +214,7 @@ export const uwbReceipt: Lesson = {
   limits: [],
   scenario: () => uwbReceiptScenario(),
   variants: [
-    { label: '双向轮：一个列表元素，41 位的位图', scenario: () => uwbReceiptTwrScenario(true) },
+    { label: '双向轮：一个列表元素，68 位的位图', scenario: () => uwbReceiptTwrScenario(true) },
     { label: '同一个双向轮，把请求位关闭', scenario: () => uwbReceiptTwrScenario(false) },
   ],
   jumps: [

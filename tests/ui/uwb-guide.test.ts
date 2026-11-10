@@ -247,7 +247,11 @@ describe('Guide section 15: reply time / round-trip time', () => {
     // exactly; fixed counts its delay on the responder's own crystal, so it does not.
     expect(skewed[0]).toBe(skewed[2])
     expect(skewed[1]).not.toBe(skewed[0])
-    expect(skewed[3]).toBe(skewed[4])
+    // 2026-11-11 (W2b): deferred DS's tag holds the TOF the responder computed, carried in the RMI
+    // IE's TOF field as a whole number of RCTU (§10.29.6.6 Figure 10-206, §10.29.8.4, §10.29.1.4) —
+    // the embedded figure to within half an RCTU, not bit for bit.
+    expect(Math.abs(skewed[3] - skewed[4])).toBeLessThan(0.5 * 0.0047)
+    expect(skewed[4]).not.toBe(skewed[3])
     // DS beats SS on a skewed pair, which is the whole reason DS-TWR exists.
     expect(Math.abs(skewed[3] - TRUE_M)).toBeLessThan(Math.abs(skewed[0] - TRUE_M))
     // Matched crystals collapse the five routes onto one answer.
@@ -766,7 +770,9 @@ describe('Guide section 16: many-to-many ranging (design §1/§2/§5)', () => {
       const recs = new Simulation(sc).runUntil(100_000_000).records
       const rounds = recs.filter((r) => r.type === 'UWB_ROUND')
       expect(rounds, `taking turns N=${n} turn ${k}`).toHaveLength(1)
-      slots += (rounds[0] as { slots: number }).slots
+      // 2026-11-11 (W2b): the exchange's slots are the slots that carried a frame — the round itself is
+      // stretched to a whole divisor of the block (standard §10.32.2), its extra slots idle.
+      slots += recs.filter((r) => r.type === 'TX_START').length
       ranges += recs.filter((r) => r.type === 'UWB_RANGE').length
     }
     return { slots, ranges }
@@ -778,12 +784,13 @@ describe('Guide section 16: many-to-many ranging (design §1/§2/§5)', () => {
       const m2mRounds = m2mRecs.filter((r) => r.type === 'UWB_ROUND')
       const m2mRanges = m2mRecs.filter((r) => r.type === 'UWB_RANGE')
       expect(m2mRounds.length, `N=${n}: a round ran at all`).toBeGreaterThan(0)
-      const m2mSlots = (m2mRounds[0] as { slots: number }).slots
+      const m2mSlots = m2mRecs.filter((r) => r.type === 'TX_START').length
       const pairs = (n * (n - 1)) / 2
       expect(m2mSlots, `N=${n} m2m slots`).toBe(n)
       expect(m2mRanges.length, `N=${n} m2m ranges`).toBe(pairs)
       // The Guide's own table cell is `roundPlan`'s answer — must agree with the round that ran.
-      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss' }, n).slots, `N=${n}`).toBe(m2mSlots)
+      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss' }, n).rangingSlots, `N=${n}`).toBe(m2mSlots)
+      expect((m2mRounds[0] as { slots: number }).slots, `N=${n}: the round holds the exchange`).toBeGreaterThanOrEqual(m2mSlots)
 
       const turns = takingTurns(n)
       expect(turns.slots, `N=${n} taking-turns slots`).toBe(n * n)
@@ -793,10 +800,11 @@ describe('Guide section 16: many-to-many ranging (design §1/§2/§5)', () => {
       const dsRecs = runM2m(n, { method: 'ds' })
       const dsRounds = dsRecs.filter((r) => r.type === 'UWB_ROUND')
       const dsRanges = dsRecs.filter((r) => r.type === 'UWB_RANGE')
-      const dsSlots = (dsRounds[0] as { slots: number }).slots
+      const dsSlots = dsRecs.filter((r) => r.type === 'TX_START').length
+      expect((dsRounds[0] as { slots: number }).slots).toBeGreaterThanOrEqual(dsSlots)
       expect(dsSlots, `N=${n} DS slots`).toBe(2 * n)
       expect(dsRanges.length, `N=${n} DS ranges`).toBe(pairs)
-      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ds' }, n).slots, `N=${n}`).toBe(dsSlots)
+      expect(roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ds' }, n).rangingSlots, `N=${n}`).toBe(dsSlots)
     }
   })
 
@@ -1282,7 +1290,7 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
   const us3 = (ns: number): string => (ns / 1000).toFixed(3)
   const SP3_MARKER_NS = uwbSp3Ns()
   const SP1_EMBEDDED_RESP_NS = uwbPpduNs(uwbRespBytes('ss', 'embedded'))
-  const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds'))
+  const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds', 'deferred'))
   const SAVING_EMBEDDED_NS = SP1_EMBEDDED_RESP_NS - SP3_MARKER_NS
   const SAVING_SHORTEST_NS = SP1_SHORTEST_RESP_NS - SP3_MARKER_NS
   const REPORT_NS = uwbPpduNs(uwbSp3ReportBytes(false))
@@ -1510,7 +1518,7 @@ describe('the SP3 / SRRR glossary terms, each with a provenance (sp3-design, tas
   it('the SP3 packet entry states the crossover arithmetic, matching the engine', () => {
     const item = find('SP3 包')!
     const sp3Ns = uwbSp3Ns()
-    const shortestNs = uwbPpduNs(uwbRespBytes('ds'))
+    const shortestNs = uwbPpduNs(uwbRespBytes('ds', 'deferred'))
     const embeddedNs = uwbPpduNs(uwbRespBytes('ss', 'embedded'))
     const reportNs = uwbPpduNs(uwbSp3ReportBytes(false))
     const rcmPerResponder = uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1))

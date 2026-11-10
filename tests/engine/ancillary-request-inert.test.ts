@@ -364,12 +364,14 @@ describe('ancillary request · pinned, not refused — four configurations state
    * session's one length, §10.32.3.3): slot 0 is its RCM, and the window — the message plus the
    * request's slot — has to fit the rest. In this hall the round is 6 slots, so 4 is granted and 5 is
    * not. (It used to be the block, 94 and 95, when the window was appended to a ranging round.)
+   * 2026-11-11 (W2b): the round is stretched to 10 slots, a whole divisor of the 100-slot block
+   * (standard §10.32.2), so 8 is granted and 9 is not.
    */
   it('a request past the ancillary round’s own capacity is refused by the controller, not by the schema', () => {
     const plan = roundPlan(scene({ ancillaryRequest: true, ancillaryRequestSlots: 1 }).uwb!, 4)
     // the boundary, from the engine's own predicate
     const edge = plan.slots - 1 - 1
-    expect(edge).toBe(4)
+    expect(edge).toBe(8)
     expect(ancillaryGrantFits(plan, edge)).toBe(true)
     expect(ancillaryGrantFits(plan, edge + 1)).toBe(false)
     // the schema accepts both, because the refusal is the controller's to make
@@ -428,12 +430,20 @@ describe('ancillary request · pinned, not refused — four configurations state
    * position fix at the round's end, the slot records — but not one ranging frame of block 0's
    * ranging round, which starts at the same instant and carries the same bytes.
    */
-  it('lengthens every round by the request’s slot, and leaves every ranging frame of the first round alone', () => {
+  // 2026-11-11 (W2b): the 6-slot round the request needs is stretched to 10, the next whole divisor of
+  // the 100-slot block (standard §10.32.2) — 5 → 10 rather than 5 → 6; the four extra slots are idle.
+  it('lengthens every round for the request’s slot, and leaves every ranging frame of the first round alone', () => {
     const plan = (o: Partial<UwbSessionCfg>) => roundPlan(scene(o).uwb!, 4)
-    expect(plan({ ancillaryRequest: true }).slots).toBe(plan({}).slots + 1)
+    expect(plan({ ancillaryRequest: true }).rangingSlots).toBe(plan({}).rangingSlots)
+    expect(plan({}).slots).toBe(5)
+    expect(plan({ ancillaryRequest: true }).slots).toBe(10)
     const off = run(scene({}), 220 * MS)
     const on = run(scene({ ancillaryRequest: true, ancillaryRequestSlots: FRAMES }), 220 * MS)
-    expect(on.length).toBeGreaterThan(off.length)
+    // The request frame is on the air in one run and not the other (2026-11-11: a record count no longer
+    // says so, since the stretched rounds also mean fewer rounds in the window).
+    const requests = (rs: TLRecord[]) => rs.filter((r) => r.type === 'TX_START' && r.frame.uwb?.raict?.request === true)
+    expect(requests(on).length).toBeGreaterThan(0)
+    expect(requests(off)).toEqual([])
     const round0 = (rs: TLRecord[]) => rs
       .filter((r) => r.type === 'TX_START' && r.frame.uwb?.block === 0 && r.frame.uwb?.round === 0)
       .map(({ seq: _seq, ...rest }) => rest)
@@ -442,6 +452,6 @@ describe('ancillary request · pinned, not refused — four configurations state
     const d = diff(
       off.filter((r) => r.type === 'UWB_ROUND').slice(0, 1), on.filter((r) => r.type === 'UWB_ROUND').slice(0, 1),
     )
-    expect(d.fields, 'the first round is one slot longer, and nothing else about it moved').toEqual(['slots', 'untilNs'])
+    expect(d.fields, 'the first round is longer, and nothing else about it moved').toEqual(['slots', 'untilNs'])
   })
 })

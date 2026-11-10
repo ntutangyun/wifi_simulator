@@ -140,7 +140,7 @@ export function onSp3Marker(
     // is what it would have to contain — so no range is finished in this slot, in either method.
     if (r.txPollCounter === null) return
     const tround1 = counterDiff(counter, r.txPollCounter)
-    r.peers.set(peer, { id: peer, rxRespCounter: counter, coffs, fom, tround1, treply2: null })
+    r.peers.set(peer, { id: peer, rxRespCounter: counter, coffs, fom, tround1, treply2: null, treply1: null })
   }
   dev.emit({
     t: dev.now(), type: 'UWB_SP3', node: dev.id, peer, slot, block: r.block, round: r.round,

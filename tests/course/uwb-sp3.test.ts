@@ -234,6 +234,12 @@ describe('uwb-sp3 · ③ every figure the labs print is the run', () => {
     expect(first.t).toBeGreaterThan(lastMarkerEnd)
   })
 
+/** Slots a run's first round of exchange used: one frame a slot, read off the air. 2026-11-11 (W2b): the
+ * `UWB_ROUND` record's own length now also counts the idle slots that stretch a round to a whole divisor
+ * of the block (standard §10.32.2). */
+const busy = (rs: TLRecord[]): number =>
+  ofType(rs, 'TX_START').filter((r) => r.frame.uwb?.block === 0 && r.frame.uwb.round === 0).length
+
   it('lab 2: three round shapes, their slots and airtime, and the two differences', () => {
     const l = lab('SP3 与两种 SP1')
     const rows = blockOf(l, 'table', '同一个大厅、同样 4 个锚点').rows
@@ -241,7 +247,7 @@ describe('uwb-sp3 · ③ every figure the labs print is the run', () => {
     for (const [name, slots, t] of rows) {
       const rs = runs[name]
       expect(rs, name).toBeDefined()
-      expect(Number(slots), name).toBe(ofType(rs, 'UWB_ROUND')[0].slots)
+      expect(Number(slots), name).toBe(busy(rs))
       expect(t, name).toBe(`${us(roundNs(rs))} µs`)
     }
     const [shorter, longer, n] = fig(l.expect, /SP3 比延后的 SP1 短 ([\d.]+) µs，比嵌在帧里的 SP1 长 ([\d.]+) µs；三种轮形都测得 (\d+) 条距离/, 'lab 2 expect')
@@ -313,8 +319,8 @@ describe('uwb-sp3 · ③ every figure the labs print is the run', () => {
     const [s0, s1, r0, r1, total, cross] = fig(l.expect,
       /时隙从 (\d+) 个变成 (\d+) 个，多出的是发起方的报告；每个响应方的报告从 (\d+) 字节变成 (\d+) 字节，多了一个 RAOA 信息单元；整轮 ([\d.]+) µs。只请求往返时间时，交叉点后移到 A = (\d+)/,
       'lab 4 expect')
-    expect(Number(s0)).toBe(ofType(base, 'UWB_ROUND')[0].slots)
-    expect(Number(s1)).toBe(ofType(both, 'UWB_ROUND')[0].slots)
+    expect(Number(s0)).toBe(busy(base))
+    expect(Number(s1)).toBe(busy(both))
     expect(Number(r0)).toBe(air(base).find((r) => r.frame.kind === 'uwbSsDefer')!.frame.bytes)
     expect(Number(r1)).toBe(Number(rb))
     expect(us(roundNs(both))).toBe(total)

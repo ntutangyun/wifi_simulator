@@ -18,7 +18,7 @@ import {
   makeDsDeferredReport, makeFinal, makePoll, makeResp, makeSsDefer, type UwbDlTimes,
 } from '../../src/uwb/frames'
 import {
-  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, UWB_SS_DEFER_BYTES, uwbDsDeferredReportBytes,
+  UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS, UWB_SS_DEFER_BYTES, UWB_TURNAROUND_NS, uwbDsDeferredReportBytes,
   uwbFinalBytes,
   uwbLongestFrameBytes, uwbMaxAnchors, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSlotFitNs,
 } from '../../src/uwb/phy'
@@ -33,7 +33,10 @@ describe('reply-time frame sizes (design §5)', () => {
     expect(uwbRespBytes('ss', 'embedded')).toBe(21)
     expect(uwbRespBytes('ss', 'fixed')).toBe(14)
     expect(uwbRespBytes('ss', 'deferred')).toBe(14)
-    expect(uwbRespBytes('ds', 'embedded')).toBe(14) // today's value, unchanged
+    // 2026-11-11 (W2b): an embedded DS Response carries Treply1 in its RRTI IE (§10.32.5, Figure
+    // 10-238); a deferred one carries none (Figures 10-206, 10-237).
+    expect(uwbRespBytes('ds', 'embedded')).toBe(21)
+    expect(uwbRespBytes('ds', 'deferred')).toBe(14)
   })
 
   // 2026-11-10 (audit #3): the deferred Final is a bare ranging frame — `{Ranging}` in standard
@@ -141,9 +144,9 @@ describe('the slot-fit rule is derived from the round\'s own shape too (design �
     }
     // …and the slot demand follows that frame, term for term, rather than one chosen frame.
     expect(uwbSlotFitNs(A, 'twr', 'time', undefined, 'ds', 'embedded'))
-      .toBe(uwbPpduNs(uwbFinalBytes(A)) + UWB_SLOT_GUARD_NS)
+      .toBe(uwbPpduNs(uwbFinalBytes(A)) + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS)
     expect(uwbSlotFitNs(A, 'twr', 'time', undefined, 'ss', 'embedded'))
-      .toBe(uwbPpduNs(uwbPollBytes(A)) + UWB_SLOT_GUARD_NS)
+      .toBe(uwbPpduNs(uwbPollBytes(A)) + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS)
   })
 
   it('measures the inaccuracy it removes: a third of the slot, asked of every SS round', () => {
@@ -166,7 +169,7 @@ describe('the slot-fit rule is derived from the round\'s own shape too (design �
     // here either: the flat 31-octet Poll beats both the 20- and the 14-octet Response.
     for (const replyTime of ['embedded', 'fixed'] as const) {
       expect(uwbSlotFitNs(A, 'twr', 'contention', undefined, 'ss', replyTime))
-        .toBe(uwbPpduNs(uwbLongestFrameBytes(A, 'twr', 'contention')) + UWB_SLOT_GUARD_NS)
+        .toBe(uwbPpduNs(uwbLongestFrameBytes(A, 'twr', 'contention')) + UWB_SLOT_GUARD_NS + UWB_TURNAROUND_NS)
     }
   })
 })

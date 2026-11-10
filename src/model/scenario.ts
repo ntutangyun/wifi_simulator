@@ -28,7 +28,7 @@ import {
   UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS,
   uwbAncillarySlots, uwbInitiatorBlockSlots, uwbM2mSlotFitNs, uwbRoundSlotCount,
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
-  uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
+  uwbBlockWholeSlots, uwbSlotFitNs, uwbSlotsPerTag, uwbWholeRoundSlots, type UwbReplyTime,
 } from '../uwb/phy'
 import { minGen, negotiated, type LinkId } from './caps'
 import type { CapabilityProfile, NodeKind, Vec3 } from './types'
@@ -560,14 +560,15 @@ export interface UwbSessionCfg {
    */
   attacker?: { advanceNs: number }
   /**
-   * Model: the session's ranging frames carry no scrambled timestamp sequence, so the receiver
-   * has nothing unforgeable to time and takes the relayed leading edge at face value
-   * (standard §10.32: an STS-less SP0 packet is a legal configuration, and ranging on it is
-   * what the standard's own security clause warns against).
+   * The session's ranging frames carry no scrambled timestamp sequence: every SP1 frame goes out as
+   * STS packet configuration 0 (standard Table 16-1 — SHR + PHR + PSDU, 33 792 chips shorter — and
+   * the ARC IE's STS Packet Config 0, Table 10-165), so the receiver has nothing unforgeable to time
+   * and takes a relayed leading edge at face value. 2026-11-11 (W2b): until then the frames kept
+   * their configuration-1 length and only the check was skipped.
    *
    * With it absent or false the sequence is there: a relayed frame does not correlate against
    * the key the session holds, the receiver rejects the stamp (`UWB_STS_REJECT`) and the round
-   * simply produces no range. It only ever matters when `attacker` is set.
+   * simply produces no range. The check only matters when `attacker` is set; the frame length always.
    */
   stsOff?: boolean
 }
@@ -1670,9 +1671,11 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       replyTime: z.enum(['embedded', 'deferred', 'fixed']).default('embedded'),
       fixedReplyRstu: z.number().int().min(0).default(UWB_DEFAULT_FIXED_REPLY_RSTU),
       // Lengths in whole RSTU (standard §10.32.2) and nothing more: the "multiple of 3 RSTU" rule this
-      // schema used to apply is not in the standard (audit #10) and is gone.
+      // schema used to apply is not in the standard (audit #10) and is gone, and so is the 300 RSTU
+      // floor on the slot (2026-11-11, W2b): §10.32.2 asks only that a slot hold at least one frame,
+      // which the slot-fit rule below checks (frame + flight + aTurnaroundTime, `uwbSlotFitNs`).
       blockRstu: z.number().int().positive(),
-      slotRstu: z.number().int().min(300),
+      slotRstu: z.number().int().positive(),
       channel: z.union([z.literal(5), z.literal(9)]),
       tsNoisePs: z.number().min(0),
       cfoNoisePpm: z.number().min(0),
@@ -1840,6 +1843,16 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // either and gets its own reason just below — this one is "no tag-initiated exchange to
         // contend for", m2m's is "there is nothing left to contend for at all".
         const mode = sc.uwb.mode
+        // A block is a whole number of rounds and a round a whole number of slots (standard §10.32.2),
+        // so a block is a whole number of slots. 2026-11-11 (W2b).
+        if (!uwbBlockWholeSlots(sc.uwb.blockRstu, sc.uwb.slotRstu)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: `${sc.uwb.blockRstu} RSTU 的块不是 ${sc.uwb.slotRstu} RSTU 时隙的整数倍：测距块由整数个测距轮组成，`
+              + '测距轮由整数个时隙组成（标准 §10.32.2），所以块长必须是时隙长的整数倍',
+          })
+        }
         if ((mode === 'dl-tdoa' || mode === 'ul-tdoa' || mode === 'mms') && sc.uwb.schedule !== 'time') {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -2177,6 +2190,23 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // Poll/Response/Final is an exchange *among anchors*, not the tag–anchor one SRRR
         // addresses — the other three never send an RCM at all, for the identical reason their own
         // rmnr/mmrcr rules above already give.
+        // 2026-11-11 (W2b): a session whose sequence is off sends STS packet configuration 0 (standard
+        // Table 16-1). An SP3 marker is SHR + STS and nothing else, so it has no configuration-0 form;
+        // and an MMS round's fragments are the draft's own packets, not SP1 PPDUs (未实现 there).
+        if (sc.uwb.stsOff === true && sp3) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'SP3 分组只有同步头与 STS（标准 §10.32.8.2），关掉序列就什么也不剩：stsOff 与 sp3 不能同时打开',
+          })
+        }
+        if (sc.uwb.stsOff === true && mode === 'mms') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'MMS 的片段是草案自己的分组，不是 SP1 帧：本仿真器没有为它实现不带 STS 的配置 0，请把 stsOff 关掉',
+          })
+        }
         if (sp3 && mode === 'dl-tdoa') {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -2505,7 +2535,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               code: z.ZodIssueCode.custom,
               path: ['uwb'],
               message: `${sc.uwb.slotRstu} RSTU 的测距时隙只有 ${(m2mSlotNs / 1000).toFixed(1)} µs，而 `
-                + `${participants} 个参与者的一轮多对多测距，最长的那一帧加上飞行时间要 ${(m2mNeedNs / 1000).toFixed(1)} µs：`
+                + `${participants} 个参与者的一轮多对多测距，最长的那一帧加上飞行余量与收发转换时间（aTurnaroundTime）要 ${(m2mNeedNs / 1000).toFixed(1)} µs：`
                 + '请加大 slotRstu 或减少参与者数量',
             })
           }
@@ -2641,7 +2671,12 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // `uwbRoundSlotCount`; and a tag's rounds per block are its ranging rounds plus that
           // ancillary round (`uwbInitiatorBlockSlots`).
           const runRounds = mode === 'twr' ? sc.uwb.initiatorRounds : 1
-          const roundLength = uwbRoundSlotCount(slots, mmrcrSlots, ancillarySlotCount)
+          // …stretched to the smallest whole divisor of the block's slot count (standard §10.32.2: a
+          // block is a whole number of rounds; `uwbWholeRoundSlots`, the one definition `roundPlan`
+          // lays the rounds out with).
+          const roundLength = uwbWholeRoundSlots(
+            uwbRoundSlotCount(slots, mmrcrSlots, ancillarySlotCount), sc.uwb.blockRstu, sc.uwb.slotRstu, mode,
+          )
           const roundSlots = uwbInitiatorBlockSlots(roundLength, runRounds, ancillarySlotCount > 0)
           const fits = Math.floor(sc.uwb.blockRstu / (roundSlots * sc.uwb.slotRstu))
           // Which extras this block spends, and which switch turns each of them off, named only when
@@ -2714,7 +2749,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
                 code: z.ZodIssueCode.custom,
                 path: ['uwb'],
                 message: `${sc.uwb.slotRstu} RSTU 的测距时隙只有 ${(slotNs / 1000).toFixed(1)} µs，而 `
-                  + `${anchors} 个 anchor 的一轮测距，最长的那一帧加上飞行时间要 ${(needNs / 1000).toFixed(1)} µs：`
+                  + `${anchors} 个 anchor 的一轮测距，最长的那一帧加上飞行余量与收发转换时间（aTurnaroundTime）要 ${(needNs / 1000).toFixed(1)} µs：`
                   + '请加大 slotRstu 或减少 anchor 数量',
               })
             }

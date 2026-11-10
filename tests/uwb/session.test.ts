@@ -71,14 +71,17 @@ describe('slotAction', () => {
     for (let i = 1; i <= 8; i++) {
       expect(slotAction(p, i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: -1 })
     }
-    expect(() => slotAction(p, 9)).toThrow(/contention round has 9 slots/)
+    // 2026-11-11 (W2b): the round is stretched to 10 slots, a divisor of the 100-slot block (§10.32.2).
+    expect(slotAction(p, 9)).toEqual({ kind: 'idle' })
+    expect(() => slotAction(p, 10)).toThrow(/contention round has 10 slots/)
   })
 })
 
 describe('roundPlan (contention)', () => {
   it('a contention round is 1 + contentionSlots, whatever the anchor count', () => {
     const p = roundPlan(session({ method: 'ss', schedule: 'contention', contentionSlots: 8 }), 4)
-    expect(p.slots).toBe(9)
+    expect(p.rangingSlots).toBe(9)
+    expect(p.slots).toBe(10) // 2026-11-11 (W2b): stretched to a divisor of the 100-slot block (§10.32.2)
     expect(p.schedule).toBe('contention')
     expect(p.contentionSlots).toBe(8)
   })
