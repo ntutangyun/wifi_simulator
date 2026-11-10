@@ -1723,9 +1723,14 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     expect(section).toMatch(/管制数/)
     expect(section).toContain('ETSI EN 303 687')
     expect(section).toMatch(/标准数/)
-    // The draft itself has no ED threshold — every review comment asking for one was rejected.
+    // The draft itself has no ED threshold. The review comments asking for one were NOT "rejected":
+    // the motion adopting the reject resolutions failed 25/14/1 (15-26/0348r1), so they stand as
+    // "no consensus" and the draft text is unchanged (docs/uwb-standard-audit.md, uwb-ssbd).
     expect(section).toMatch(/没有定义能量检测门限/)
-    expect(section).toMatch(/被否决/)
+    expect(section).toMatch(/没有写入草案/)
+    expect(section).toMatch(/25\/14\/1 未获通过/)
+    expect(section).toMatch(/未达成共识/)
+    expect(section).not.toMatch(/全部被否决/)
     // The regime itself is moving: the EU decision that voided the presumption of conformity.
     expect(section).toMatch(/2025\/893/)
     expect(section).toMatch(/撤销/)
@@ -1733,7 +1738,7 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
 
   it('lays out SSBD against contention scheduling on the four axes design doc §3.3 names', () => {
     for (const marker of [
-      '竞争式排程（标准 §10.32.2）', 'SSBD（标准 §10.45）',
+      '竞争式排程（标准 §10.32.2）', 'SSBD（草案 §10.45）',
       '先感知信道吗', '窗口', '哪部电台', 'contentionSlots',
     ]) {
       expect(section, marker).toContain(marker)
