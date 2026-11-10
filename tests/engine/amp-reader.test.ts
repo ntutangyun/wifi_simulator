@@ -316,9 +316,12 @@ describe('the reader’s RFID inventory round', () => {
   })
 
   it('a station beyond the command’s energy-detection reach does get in, and the reflection is lost', () => {
-    // The same reader and tag in a 40 m hall, with the saturated station 12 m away — past the
+    // The same reader and tag in a 40 m hall, with the saturated station 16 m away — past the
     // ~7 m the command holds its CCA busy, and still close enough that its 15 dBm arrives at the
-    // reader above the reply. Every slot answered (Q = 0, no Read), so a frame that starts
+    // reader above the reply. (2026-11-11: it stood at 12 m. With the 2.4 GHz EIFS at the
+    // standard's 1 Mb/s DSSS AckTxTime — 342 µs instead of 88 µs, Eq 10-7 — the station at
+    // 12 m deferred past every BST window of a 300 ms run; at 16 m it gets into them again,
+    // which is the case this test is about.) Every slot answered (Q = 0, no Read), so a frame that starts
     // inside a BST-Excitation lands on a reflection rather than on silence.
     expect(HALL_CAM_M).toBeGreaterThan(edReachM)
     const rs = new Simulation(hall()).runUntil(300 * MS).records
@@ -356,7 +359,7 @@ function inBstWindow(
 const edReachM = 10 ** ((DEFAULT_AMP_BS.chargeDbm - CCA_ED_DBM - PL0_DB) / (10 * PL_EXP))
 
 /** The saturated station's distance from the reader in the hall scene, well past `edReachM`. */
-const HALL_CAM_M = 12
+const HALL_CAM_M = 16
 
 /** The same reader and tag in a 40 m hall: the station is out of the command's energy reach. */
 function hall(): Scenario {

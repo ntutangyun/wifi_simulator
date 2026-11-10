@@ -193,7 +193,7 @@ describe('uwb-acquisition · ③ every figure the labs print is the run', () => 
 
   it('lab 2: the figure lays the same indices, and the SFD lane one SFD longer', () => {
     const spec = uwbAcquisitionTiming()
-    expect(spec.lanes[0].spans.filter((s) => s.tone === 'muted').map((s) => s.fromUs / 1000)).toEqual([0, 1, 2])
+    expect(spec.lanes[0].spans.filter((s) => s.tone === 'muted').map((s) => s.fromUs / 1000)).toEqual([0, 1, 2, 3, 6])
     expect(spec.lanes[2].spans.map((s) => s.fromUs / 1000)).toEqual([...ACQ_HEARD])
     for (const s of spec.lanes[2].spans) expect(s.toUs - s.fromUs).toBeCloseTo(SFD_FRAG_NS / 1000, 6)
   })
@@ -226,9 +226,9 @@ describe('uwb-acquisition · ③ every figure the labs print is the run', () => 
     expect(e).toContain(`被丢弃的${['', '一', '二', '三', '四', '五', '六', '七', '八'][lost.length]}列`)
     const margins = lost.map((t) => t.marginDb)
     expect(e).toContain(`余量在 ${Math.min(...margins).toFixed(1)} 到 ${Math.max(...margins).toFixed(1)} dB 之间`)
-    // and the why's 「22 dB 以上」 is the floor of that band
-    expect(Math.min(...margins)).toBeGreaterThan(22)
-    expect(uwbAcquisition.why).toContain('22 dB 以上')
+    // and the why's 「19 dB 以上」 is the floor of that band (2026-11-11: re-measured after W6)
+    expect(Math.min(...margins)).toBeGreaterThan(19)
+    expect(uwbAcquisition.why).toContain('19 dB 以上')
   })
 
   it('lab 4: the cost table, both fragment lengths', () => {

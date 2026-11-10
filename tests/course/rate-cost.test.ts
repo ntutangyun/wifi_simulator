@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
+import { ppduTiming } from '../../src/engine/phy'
 import { rate } from '../../src/course/tier2/rate'
 import { rateCost } from '../../src/course/tier2/rate-cost'
 import { rateFallback } from '../../src/course/tier2/rate-fallback'
@@ -172,13 +173,17 @@ describe('rate-cost · ② says what the engine does, and the engine does it', (
     for (const m of [0, 1, 2]) expect(holdBehind(m)).toBeGreaterThan(airAt(m))
   })
 
-  it('一帧的空口时间: 48 µs plus 13.6 µs a symbol, no PE — 524.0, 768.8 and 1,476.0 µs', () => {
+  it('一帧的空口时间: Eq 36-110 — 51.2 µs, 13.6 µs a symbol, the PE field, whole µs', () => {
+    // 2026-11-11 (W6): the preamble field by field, BCC (allowed at these rungs), PE (Table 36-61).
+    expect(implRow('一帧的空口时间').kind).toBe('faithful')
     const sim = implRow('一帧的空口时间').sim
-    const [pre, sym] = grab(sim, /前导码取代表值 ([\d.]+) µs，加上 ([\d.]+) µs 乘以数据符号数/, '② on the formula').map(val)
+    const [pre, sym] = grab(sim, /前导码逐个字段相加为 ([\d.]+) µs，加上 ([\d.]+) µs 乘以数据符号数/, '② on the formula').map(val)
     const ndbps = [117, 234, 351]
     for (const mcs of [0, 1, 2]) {
-      const nsym = Math.ceil((16 + 8 * 1530 + 6) / ndbps[mcs])
-      expect(airAt(mcs), `MCS ${mcs}`).toBe((pre + sym * nsym) * 1000)
+      const t = ppduTiming('eht', 1530, mcs)
+      expect(t.coding).toBe('bcc')
+      expect(t.nsym).toBe(Math.ceil((16 + 8 * 1530 + 6) / ndbps[mcs]))
+      expect(airAt(mcs), `MCS ${mcs}`).toBe(Math.ceil((pre + sym * t.nsym + t.peNs / 1000) - 1e-9) * 1000)
     }
     const [bytes, a2, a1, a0] = grab(sim, /(\d+) 字节的帧在 MCS 2、1、0 上分别是 ([\d.]+)、([\d.]+)、([\d,.]+) µs/, '② on the three airtimes')
     expect(new Set(far.map((r) => r.frame.bytes))).toEqual(new Set([val(bytes)]))

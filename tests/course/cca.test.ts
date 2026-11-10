@@ -125,7 +125,7 @@ describe('cca · ② says what the engine does, and the engine does it', () => {
   })
 
   it('the energy sum covers the whole channel, and this scene is 20 MHz throughout', () => {
-    expect(implRow('能量检测的范围').kind).toBe('differs')
+    expect(implRow('能量检测的范围').kind).toBe('faithful') // 2026-11-11 (W6): primary 20 MHz
     for (const r of ofType(recs(), 'TX_START')) expect(r.frame.widthMhz ?? 20).toBe(20)
   })
 

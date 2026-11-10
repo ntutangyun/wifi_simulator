@@ -93,7 +93,7 @@ const same = (printed: string, measured: number, what: string): void => {
   const dp = (fig.split('.')[1] ?? '').length
   expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`).toBe(Number(measured.toFixed(dp)))
 }
-const zh = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+const zh = (s: string): number => '零一二三四五六七八九十'.indexOf(s === '两' ? '二' : s)
 const members = (s: Scene): string[] => [...new Set(s.rs.flatMap((r) => (r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts
   ? r.frame.muParts.map((p) => p.dst) : [])))].sort()
 
@@ -246,13 +246,18 @@ describe('capstone · ③ every figure the labs print is the run', () => {
     const e = /从 ([\d.]+) 兆字节降到 ([\d.]+)，视频的等待从 ([\d.]+) ms 变成 ([\d.]+) ms/.exec(lab('关闭笔记本的第二台电台').expect)!
     same(e[1], base.upMb, 'backup before'); same(e[2], radioOff.upMb, 'backup after')
     same(e[3], base.rxWait('sta-2'), 'video before'); same(e[4], radioOff.rxWait('sta-2'), 'video after')
+    // 2026-11-11 (W6, re-measured): with the second radio off the tablet waits longer
+    const t = /平板的等待却从 ([\d.]+) ms 增加到 ([\d.]+) ms/.exec(lab('关闭笔记本的第二台电台').expect)!
+    same(t[1], base.rxWait('sta-4'), 'tablet before'); same(t[2], radioOff.rxWait('sta-4'), 'tablet after')
+    expect(radioOff.rxWait('sta-4')).toBeGreaterThan(base.rxWait('sta-4'))
   })
 
-  it('lab 4: the tablet upgrade, about one part in eight, and the two it groups', () => {
-    const e = /备份仍然送达 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)，约(.)分之一；.*都只编入电视与投影仪/.exec(lab('给平板换一台 Wi-Fi 6 电台').expect)!
+  it('lab 4: the tablet upgrade does not lower its wait, and the two it groups', () => {
+    // 2026-11-11 (W6, re-measured): it used to lower it by about an eighth
+    const e = /备份仍然送达 ([\d.]+) 兆字节，平板的等待从 ([\d.]+) ms 变成 ([\d.]+) ms，没有降低；.*都只编入电视与投影仪/.exec(lab('给平板换一台 Wi-Fi 6 电台').expect)!
     same(e[1], tabletNew.upMb, 'backup with the new tablet')
     same(e[2], base.rxWait('sta-4'), 'tablet before'); same(e[3], tabletNew.rxWait('sta-4'), 'tablet after')
-    expect(Math.round(base.rxWait('sta-4') / (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')))).toBe(zh(e[4]))
+    expect(tabletNew.rxWait('sta-4')).toBeGreaterThanOrEqual(base.rxWait('sta-4'))
     const names = Object.fromEntries(capstoneTopology().nodes.map((n) => [n.id, n.label]))
     expect(members(base).map((id) => names[id])).toEqual(['电视', '投影仪'])
     // the AC split the meaning rests on
@@ -268,10 +273,15 @@ describe('capstone · ③ every figure the labs print is the run', () => {
     same(b[1], base.air('sta-1'), 'rubric 5 GHz'); same(b[2], base.air('sta-1#6g'), 'rubric 6 GHz')
     expect(zh(b[3])).toBe(data(base.rs, 'sta-5').length)
     expect(base.upMb / radioOff.upMb).toBeGreaterThan(1.9)
-    expect(Math.round(base.rxWait('sta-4') / (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')))).toBe(zh(/大约(.)分之一/.exec(row('那台平板'))![1]))
-    // the order the lab expects: stopping frees most waiting, then the radio, then the tablet
+    const tb = /它的等待从 ([\d.]+) ms 变成 ([\d.]+) ms，没有降低/.exec(row('那台平板'))!
+    same(tb[1], base.rxWait('sta-4'), 'rubric tablet before'); same(tb[2], tabletNew.rxWait('sta-4'), 'rubric tablet after')
+    const rd = /平板的等待从 ([\d.]+) ms 增加到 ([\d.]+) ms/.exec(row('第二台电台'))!
+    same(rd[1], base.rxWait('sta-4'), 'rubric radio before'); same(rd[2], radioOff.rxWait('sta-4'), 'rubric radio after')
+    // the order the lab expects (2026-11-11, re-measured): stopping frees most waiting, the
+    // tablet next to nothing, and the radio off frees less than nothing
     const freed = (s: Scene) => ['sta-2', 'sta-4'].reduce((a, id) => a + base.rxWait(id) - s.rxWait(id), 0) + base.txWait('sta-3') - s.txWait('sta-3')
-    expect(freed(backupStopped)).toBeGreaterThan(freed(radioOff))
-    expect(freed(radioOff)).toBeGreaterThan(freed(tabletNew))
+    expect(freed(backupStopped)).toBeGreaterThan(freed(tabletNew))
+    expect(freed(tabletNew)).toBeGreaterThan(freed(radioOff))
+    expect(freed(radioOff)).toBeLessThan(0)
   })
 })

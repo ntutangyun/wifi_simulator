@@ -1655,7 +1655,7 @@ export const STRINGS: Strings = {
       ppdu: 'PPDU 结构', ppduHint: '先是前导码和 PHY 头，然后是承载 PSDU 的数据符号',
       segment: {
         legacyPreamble: 'STF + LTF', signal: 'SIGNAL', preamble: '前导码', muSig: 'SIG-B / EHT-SIG',
-        data: '数据', padding: '填充 / PE',
+        data: '数据', padding: '填充', pe: 'PE（包扩展）',
         usig: 'RL-SIG + U-SIG（12 µs）', ampSync: 'AMP-Sync（OOK 码片）', ampSig: 'AMP-SIG（2 字节）',
         ampData: 'AMP-Data（曼彻斯特 OOK）', signalExt: '信号扩展（6 µs）',
         ampWup: 'WUP 激励（给标签供电的载波）', ampBst: 'BST 激励（应答所反射的载波）',

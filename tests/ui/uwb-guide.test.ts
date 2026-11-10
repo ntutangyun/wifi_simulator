@@ -1830,7 +1830,8 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const BF = 7
     const biggest = Math.floor(pollSlackUs / BF)
     const maxFit = ranges(lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest }))
-    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 47, perBlock: 1, defaults: 50, maxFit: 3 })
+    // 2026-11-11: re-measured after W6 moved the Wi-Fi timing and the primary-20 MHz emission band
+    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 52, perBlock: 3, defaults: 49, maxFit: 5 })
     for (const n of [off, perBlock, defaults, maxFit]) expect(section).toContain(String(n))
     // The sharper reading the design doc's §5.4 insists on: the per-block rule costs nearly every
     // cycle, the defaults recover them, and turning the knob up makes it worse, not better.
@@ -1852,11 +1853,11 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const longestNs = Math.max(...rs
       .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'data')
       .map((r) => r.frame.txTimeNs))
-    expect(longestNs).toBe(469_600)
+    expect(longestNs).toBe(477_000) // 2026-11-11: re-measured after W6
     const pollSlackUs = nbSlotSlackNs(rstuNs(600), NB_POLL_BYTES) / 1000
     expect(pollSlackUs).toBe(424)
     expect(longestNs / 1000).toBeGreaterThan(pollSlackUs)
-    expect(section).toContain('469.6')
+    expect(section).toContain('477.0')
     expect(section).toContain(`${pollSlackUs} µs`)
   })
 

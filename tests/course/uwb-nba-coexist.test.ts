@@ -130,7 +130,8 @@ describe('uwb-nba-coexist · ② says what the engine does, and the engine does 
     for (const l of lbt()) expect(l.thresholdDbm).toBeCloseTo(NB_LBT_THRESHOLD_DBM, 9)
     expect(CCA_ED_DBM).toBe(-62)
     expect(implRow('Wi-Fi 的能量检测').sim).toContain('−62 dBm')
-    for (const t of ['跳变的生成式', '感知时长', 'Wi-Fi 的能量检测']) expect(implRow(t).kind, t).toBe('differs')
+    for (const t of ['跳变的生成式', '感知时长']) expect(implRow(t).kind, t).toBe('differs')
+    expect(implRow('Wi-Fi 的能量检测').kind).toBe('faithful') // 2026-11-11 (W6): primary 20 MHz
   })
 })
 
@@ -142,9 +143,16 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     const tag = lbt().filter((l) => l.node === TAG)
     expect(new Set(tag.map((l) => l.block)).size).toBe(tag.length)
     expect(tag).toHaveLength(BLOCKS)
-    const levels = [...new Set(tag.map((l) => l.foreignDbm.toFixed(2)))]
-    expect(levels).toHaveLength(1)
-    expect(e).toContain(`七次读到的都是 ${neg(levels[0])} dBm，比门限高 ${(tag[0].foreignDbm - NB_LBT_THRESHOLD_DBM).toFixed(1)} dB`)
+    // 2026-11-11 (W6): a 20 MHz Wi-Fi PPDU now sits on the router's primary 20 MHz channel, so
+    // what the tag reads depends on which PPDU was on the air: six readings of one level, one of
+    // another — every one above the threshold.
+    for (const l of tag) expect(l.foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
+    const count = new Map<string, number>()
+    for (const l of tag) count.set(l.foreignDbm.toFixed(2), (count.get(l.foreignDbm.toFixed(2)) ?? 0) + 1)
+    const [[common, n], [odd]] = [...count.entries()].sort((a, b) => b[1] - a[1])
+    const oddBlock = tag.find((l) => l.foreignDbm.toFixed(2) === odd)!.block
+    expect(n).toBe(6)
+    expect(e).toContain(`其中六次读到 ${neg(common)} dBm，比门限高 ${(Number(common) - NB_LBT_THRESHOLD_DBM).toFixed(1)} dB，第 ${oddBlock} 块那一次读到 ${neg(odd)} dBm`)
     expect(e).toContain(`共记下 ${ofType(recs(), 'UWB_TIMEOUT').length} 次超时`)
   })
 

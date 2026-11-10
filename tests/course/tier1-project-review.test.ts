@@ -15,7 +15,7 @@ import { tier1ProjectReview } from '../../src/course/tier1/tier1-project-review'
 import { projectFlat, projectJumps, projectVariants } from '../../src/course/tier1/tier1-project'
 import { saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
-import { Simulation } from '../../src/engine/simulation'
+import { Simulation, timingFor } from '../../src/engine/simulation'
 import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
@@ -28,6 +28,8 @@ import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKi
 import { lessonShapeSuite } from './kit'
 
 const MS = 1_000_000
+/** The Wi-Fi 7 laptops' ACK timeout: SIFS + slot + 24 µs (§6.7.4.4, Table 27-61; 2026-11-11, W6). */
+const EHT_ACK_TIMEOUT_NS = timingFor('5g', 'eht').ackTimeoutNs
 const SECS = 10
 const RUN_NS = SECS * 1e9
 const PAYLOAD_BITS = 12_000
@@ -39,7 +41,7 @@ const LIVING = 'sta-2'
 function times(mcs: number): { dataNs: number; tsNs: number; tcNs: number } {
   const dataNs = txTimeModeNs('eht', MSDU + MAC_HDR_BYTES + FCS_BYTES, mcs, { widthMhz: 20 })
   const ackNs = txTimeNs(ACK_BYTES, ctrlRespRateForMode('eht', mcs, mcsRateMbps('eht', mcs)))
-  return { dataNs, tsNs: dataNs + SIFS_NS + ackNs + DIFS_NS, tcNs: dataNs + ACK_TIMEOUT_NS + DIFS_NS }
+  return { dataNs, tsNs: dataNs + SIFS_NS + ackNs + DIFS_NS, tcNs: dataNs + EHT_ACK_TIMEOUT_NS + DIFS_NS }
 }
 const mix = (ts: number[]): number => ts.reduce((a, b) => a + b, 0) / ts.length
 function modelS(n: number, tsNs: number, tcNs: number): number {
@@ -193,8 +195,8 @@ describe('tier1-project-review · the lesson', () => {
 })
 
 describe('tier1-project-review · ② says what the engine does, and the engine does it', () => {
-  it('has rows of several kinds, one of them `differs`', () => {
-    expect(tierRows().filter((r) => r.kind === 'differs').map((r) => r.topic)).toEqual(['ACK 超时'])
+  it('has rows of several kinds, and since W6 (2026-11-11) none of them `differs`', () => {
+    expect(tierRows().filter((r) => r.kind === 'differs').map((r) => r.topic)).toEqual([])
     expect(new Set(tierRows().map((r) => r.kind)).size).toBeGreaterThan(2)
   })
 
@@ -210,11 +212,17 @@ describe('tier1-project-review · ② says what the engine does, and the engine 
     expect(starts.filter((r) => r.node === STUDY)[1]!.t).toBeLessThan(living.t + living.frame.txTimeNs)
   })
 
-  it('EIFS is 94 µs; the ACK timeout is 45 µs, 49 by HE’s figure', () => {
+  it('EIFS is 94 µs; the ACK timeout is HE’s 49 µs', () => {
     expect(figs(implRow('EIFS').sim, /取 (\d+) µs/, '② on EIFS')[0]! * 1000).toBe(EIFS_NS)
-    const [t, he] = figs(implRow('ACK 超时').sim, /ACK 超时为 (\d+) µs；按 HE 的取值应为 (\d+) µs/, '② on the ACK timeout')
-    expect(t! * 1000).toBe(ACK_TIMEOUT_NS)
-    expect(he! * 1000).toBe(SIFS_NS + SLOT_NS + 24_000)
+    const [s, sl, d, t] = figs(implRow('ACK 超时').sim, /ACK 超时为 (\d+) \+ (\d+) \+ (\d+) = (\d+) µs/, '② on the ACK timeout')
+    expect([s! * 1000, sl! * 1000, d! * 1000, t! * 1000]).toEqual([SIFS_NS, SLOT_NS, 24_000, EHT_ACK_TIMEOUT_NS])
+    expect(implRow('ACK 超时').kind).toBe('faithful')
+    expect(ACK_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS) // a clause 17 STA's, for contrast
+    // and the run waits exactly that long after a frame whose Ack never comes
+    const rs = base().records
+    const to = rs.find((r) => r.type === 'ACK_TIMEOUT' && r.node === STUDY)!
+    const end = rs.filter((r): r is Extract<TLRecord, { type: 'TX_END' }> => r.type === 'TX_END' && r.node === STUDY && r.t <= to.t).pop()!
+    expect(to.t - end.t).toBe(EHT_ACK_TIMEOUT_NS)
   })
 
   it('capture: 5 dB and 4 dB, the constants `channel.ts` really holds', () => {
@@ -307,7 +315,7 @@ describe('tier1-project-review · ③ every figure the labs print is the run', (
     same(aS!, mbps(vAlone(), STUDY), 'alone S'); same(aR!, 100 * pooled(vAlone(), [STUDY], vAlone().retries), 'alone retries')
   })
 
-  it('lab 2: the late start in the first millisecond, and 1,342 of 2,399', () => {
+  it('lab 2: the late start in the first millisecond, and 1,254 of 2,271', () => {
     const l = lab('第一次碰撞之后：没有听到开头的帧')
     expect(l.jump).toBe(1)
     const s = base()
@@ -355,9 +363,9 @@ describe('tier1-project-review · ③ every figure the labs print is the run', (
     expect(atAp(STUDY) - atAp(LIVING)).toBeGreaterThan(PREAMBLE_DETECT_SINR_DB)
   })
 
-  it('lab 4: the three waits after one frame: 45, 94 (9,499 of them) and 34 µs', () => {
+  it('lab 4: the three waits after one frame: 49, 94 and 34 µs', () => {
     const s = base()
-    expect(figs(rowOf('同一帧之后，各自要等多久', '碰撞的一方')[2]!, /^(\d+) µs$/, 'ack timeout')[0]! * 1000).toBe(ACK_TIMEOUT_NS)
+    expect(figs(rowOf('同一帧之后，各自要等多久', '碰撞的一方')[2]!, /^(\d+) µs$/, 'ack timeout')[0]! * 1000).toBe(EHT_ACK_TIMEOUT_NS)
     const eifsRow = rowOf('同一帧之后，各自要等多久', '客厅笔记本')
     const [got, need] = raw(eifsRow[1]!, /^([\d.]+) dB，而这一帧要求 ([\d.]+) dB$/, 'two SINRs')
     same(got!, mutual() - noiseDbm(20), 'what the living-room laptop gets')
@@ -368,9 +376,9 @@ describe('tier1-project-review · ③ every figure the labs print is the run', (
     expect(figs(rowOf('同一帧之后，各自要等多久', '什么都没检出的')[2]!, /DIFS, (\d+) µs/, 'DIFS')[0]! * 1000).toBe(DIFS_NS)
     const l = lab('同一帧之后，各自要等多久')
     const [e1, d1, count, to] = figs(l.expect, /写的是 (\d+) µs，而不是 (\d+)[\s\S]*?这样的等待有 ([\d,]+) 次。碰撞的一方等的是 (\d+) µs/, 'lab 4 expect')
-    expect([e1! * 1000, d1! * 1000, count, to! * 1000]).toEqual([EIFS_NS, DIFS_NS, s.eifs, ACK_TIMEOUT_NS])
-    const [m45, m49] = figs(l.meaning, /ACK 超时取 (\d+) µs，与按 HE 取值算出的 (\d+) µs 不同/, 'lab 4 meaning')
-    expect([m45! * 1000, m49! * 1000]).toEqual([ACK_TIMEOUT_NS, SIFS_NS + SLOT_NS + 24_000])
+    expect([e1! * 1000, d1! * 1000, count, to! * 1000]).toEqual([EIFS_NS, DIFS_NS, s.eifs, EHT_ACK_TIMEOUT_NS])
+    const [m49] = figs(l.meaning, /ACK 超时取 (\d+) µs，同样照标准/, 'lab 4 meaning')
+    expect(m49! * 1000).toBe(EHT_ACK_TIMEOUT_NS)
   })
 
   it('lab 5: the rubric’s figures and the lengthening', () => {
@@ -413,6 +421,7 @@ describe('tier1-project-review · the quiz prints the same run', () => {
     const src = tier1ProjectReview.sources!.join('\n')
     const [c, d] = figs(src, /捕获门限 (\d+) dB 与前导码检测门限 (\d+) dB/, '`sources`')
     expect([c, d]).toEqual([5, PREAMBLE_DETECT_SINR_DB])
-    expect(figs(src, /共用的 (\d+) µs ACK 超时/, '`sources` timeout')[0]! * 1000).toBe(ACK_TIMEOUT_NS)
+    // 2026-11-11 (W6): the ACK timeout is the standard's now, so `sources` no longer lists it among the engine's values
+    expect(src).not.toMatch(/µs ACK 超时/)
   })
 })

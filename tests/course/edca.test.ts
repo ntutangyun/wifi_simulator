@@ -5,7 +5,7 @@
  * collisions; the figures it prints are compared with the engine's own constants. ② is pinned row by
  * row against the engine, including the rows where it departs from the standard (the AP's parameter
  * set, the AC taken from the traffic profile). ③'s figures are read back out of the lesson text and
- * compared with a 400 ms run of the lesson's own scene — 400 ms because the run's one internal
+ * compared with a 500 ms run of the lesson's own scene — 500 ms because the run's one internal
  * collision is at 362.6426 ms.
  */
 import { describe, it, expect } from 'vitest'
@@ -20,11 +20,14 @@ import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
-const RUN_NS = 400 * MS
+const RUN_NS = 500 * MS // 2026-11-11 (W6): the run's one internal collision moved to 488.9 ms
 
 const recs = (): TLRecord[] => runOf(edca, undefined, RUN_NS)
 const by = (name: string) => EDCA_PARAMS.find((p) => p.name === name)!
 const msOf = (ns: number): string => (ns / MS).toFixed(4)
+/** Did a frame arrive at this node at this instant (an AIFS armed by an arrival, not by idle)? */
+const arrivedAt = (node: string, t: number): boolean =>
+  recs().some((r) => r.type === 'ARRIVAL' && r.node === node && r.t === t)
 
 const lab = (heading: string): Lab => {
   const l = edca.labs!.find((x) => x.heading === heading)
@@ -109,7 +112,7 @@ describe('edca · ② says what the engine does, and the engine does it', () => 
 
   it('the AP uses the non-AP STA table: VO AIFS 34 µs (AIFSN 2), BE windows past 63', () => {
     expect(implRow('接入点的参数').kind).toBe('differs')
-    const apVo = ofType(rs, 'IFS_START').filter((r) => r.node === 'ap' && r.ac === 3 && r.kind === 'AIFS' && r.untilNs > r.t)
+    const apVo = ofType(rs, 'IFS_START').filter((r) => r.node === 'ap' && r.ac === 3 && r.kind === 'AIFS' && r.untilNs > r.t && !arrivedAt(r.node, r.t))
     expect(new Set(apVo.map((r) => r.untilNs - r.t))).toEqual(new Set([aifsNs(2, OFDM_5G)]))
     expect(Math.max(...draws('ap').filter((d) => d.ac === 1).map((d) => d.cw))).toBeGreaterThan(63)
   })
@@ -183,11 +186,14 @@ describe('edca · ③ every figure the labs print is the run', () => {
     expect(span('空口').fromUs * US).toBe(-ba.frame.txTimeNs)
     expect(aifsNs(7, OFDM_5G) - aifsNs(2, OFDM_5G)).toBe(5 * OFDM_5G.slotNs)
 
-    const rows = tableOf(l.blocks!, '400 ms 里三台站点的 AIFS 与窗口').rows
+    const rows = tableOf(l.blocks!, '500 ms 里三台站点的 AIFS 与窗口').rows
     const nodeOf: Record<string, string> = { 通话站点: 'sta-1', 上传站点: 'sta-2', 备份站点: 'sta-3' }
     for (const [name, , aifs, windows] of rows) {
       const n = nodeOf[name]
-      const lens = new Set(ofType(rs, 'IFS_START').filter((r) => r.node === n && r.kind === 'AIFS' && r.untilNs > r.t).map((r) => r.untilNs - r.t))
+      // An AIFS armed by a frame that arrived while the medium had already been idle for a while
+      // records only the remainder (2026-11-11: such an arrival now lands inside one); the full
+      // AIFS is the one armed when the medium turns idle.
+      const lens = new Set(ofType(rs, 'IFS_START').filter((r) => r.node === n && r.kind === 'AIFS' && r.untilNs > r.t && !arrivedAt(n, r.t)).map((r) => r.untilNs - r.t))
       expect([...lens].map((x) => `${x / US} µs`), name).toEqual([aifs])
       const cws = [...new Set(ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === n).map((r) => r.cw))].sort((a, b) => a - b)
       expect(cws.join('、'), name).toBe(windows)

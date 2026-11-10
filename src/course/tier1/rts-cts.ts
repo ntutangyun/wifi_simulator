@@ -86,7 +86,7 @@ export const rtsCts: Lesson = {
     { topic: 'CTS 的 Duration', standard: 'RTS 的 Duration 减去一个 SIFS 与 CTS 自身（§9.3.1.3）', sim: '照此计算。', kind: 'faithful' },
     { topic: 'Duration 的单位与取整', standard: '以微秒为单位，向上取整（§9.3.1.2，§9.3.1.3）', sim: '本仿真器以纳秒整数记录，不取整，全场时钟一致，所以预约恰好在确认帧结束的那一纳秒到期。', kind: 'differs' },
     { topic: '回复 CTS 的条件', standard: 'NAV 为 0，或 RTS 的发送端地址等于记录的传输机会持有者地址（§10.3.2.9）', sim: '只检查 NAV 是否为 0，不实现传输机会持有者的例外。本课场景里接入点是每一帧的接收方，从不设置 NAV，所以两者没有区别。', kind: 'differs' },
-    { topic: 'CTS 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.9）', sim: '照此：45 µs。', kind: 'faithful' },
+    { topic: 'CTS 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.9）；aRxPHYStartDelay 取站点所支持的各 PHY 条款中最大的值（§6.7.4.4）', sim: '照此：两台站点都只支持第 17 章的正交频分复用（orthogonal frequency-division multiplexing, OFDM）PHY，aRxPHYStartDelay 为 20 µs，CTS 超时 45 µs。', kind: 'faithful' },
     { topic: '依据 RTS 的 NAV 复位', standard: '可以在 NAVTimeout 内没有开始接收时复位（§10.3.2.4）', sim: '照此实现，NAVTimeout 按标准的公式计算。本课场景里 RTS 只发给接入点，没有旁听站点收到 RTS，所以不出现这种复位。', kind: 'faithful' },
     { topic: 'RTS 的速率', standard: '基本速率集中的一个速率，空集时取强制速率之一（§10.6.6.2）', sim: '本仿真器没有基本速率集；RTS 取强制速率 6、12、24 Mb/s 中不高于数据帧速率的最高一档，所以随数据帧的速率变化。受保护的变体里 RTS 用过 24、12、6 Mb/s 三档，空口时间（airtime）分别是 28、36、52 µs。', kind: 'choice' },
     { topic: '判忙门限', standard: '−82 dBm 时以大于 90% 的概率检测（§17.3.10.6.1）', sim: '硬门限，同上一课：RTS 到达对面房间时比门限低 1.4 dB，每一次都收不到；CTS 到达那里是 −60.6 dBm，高于门限。', kind: 'differs' },

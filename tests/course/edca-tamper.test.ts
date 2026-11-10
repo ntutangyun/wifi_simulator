@@ -231,6 +231,11 @@ describe('edca-tamper · ③ every figure the labs print is the run', () => {
     expect(spread, 'the tightest whole bound that holds').toBeGreaterThan(Number(pts) - 1)
     expect(Number(coll)).toBe(base.coll)
     expect(l.steps[0]).toContain('2 秒')
+    // 2026-11-11 (W6): station 3's shortfall is the rate controller's — its data MCS, first and lowest
+    const mcs = ofType(run(tamperScenario()), 'TX_START').filter((r) => r.node === 'sta-3' && r.frame.kind === 'data').map((r) => r.frame.mcs!)
+    const [hi, lo] = grab(l.expect, /MCS）从 (\d+) 一路降到 (\d+)/, 'lab 1 MCS')
+    expect([mcs[0], Math.min(...mcs)]).toEqual([Number(hi), Number(lo)])
+    expect(Math.min(...base.tx)).toBe(base.tx[2])
   })
 
   const BY_LABEL: Record<string, TamperKind | undefined> = {
@@ -272,7 +277,16 @@ describe('edca-tamper · ③ every figure the labs print is the run', () => {
     expect(t.rows[5][0]).toBe('虚报时长、窗口坍缩、四种合在一起')
     expect(grab(t.rows[5][1], /([\d.]+) 到 ([\d.]+) %/, 'ceiling').map(Number)).toEqual(band(CEILING))
     const bands = RUNGS.map((k) => band([k]))
-    for (let i = 1; i < bands.length; i++) expect(bands[i][0]).toBeGreaterThan(bands[i - 1][1])
+    // 2026-11-11 (W6): the first two bands overlap — seed 7's fair round is the high end — and the
+    // lab says so; every later band clears the one before it.
+    expect(bands[1][0]).toBeLessThan(bands[0][1])
+    for (let i = 2; i < bands.length; i++) expect(bands[i][0]).toBeGreaterThan(bands[i - 1][1])
+    const e = lab('七种篡改：四级与一组').expect
+    expect(Number(grab(e, /不作弊的上端 ([\d.]+) % 来自种子 (\d+)/, 'top of the fair band')[0])).toBe(bands[0][1])
+    expect(Number(grab(e, /不作弊的上端 ([\d.]+) % 来自种子 (\d+)/, 'top of the fair band')[1])).toBe(7)
+    expect(shareOn(undefined, 7)).toBe(Math.max(...SEEDS.map((sd) => shareOn(undefined, sd))))
+    const fair = SEEDS.map((sd) => shareOn(undefined, sd))
+    expect(edcaTamper.why).toContain(`站点 1 的份额在 ${Math.floor(Math.min(...fair))} % 到 ${Math.ceil(Math.max(...fair))} % 之间`)
     // The first `it` to ask for the five-seed rounds runs all 40 of them (8 kinds × 5 seeds):
     // ~20 s alone, 52 s measured under the full suite's parallel load on 2026-11-11, which the
     // default 30 s timeout cut. The same budget as the file's other whole-sweep `it` below.
@@ -311,6 +325,9 @@ describe('edca-tamper · ③ every figure the labs print is the run', () => {
     const [pts, extra] = grab(l.meaning, /多拿到约 (\d+) 个百分点，代价是全场多出 (\d+) 次碰撞/, 'lab 2 meaning')
     expect(Number(pts)).toBe(Math.round(100 * (round('noDouble').share - round(undefined).share)))
     expect(Number(extra)).toBe(round('noDouble').coll - round(undefined).coll)
+    const [gLo, gHi] = grab(l.meaning, /其余四个种子上它多拿 (\d+) 到 (\d+) 个百分点/, 'the other seeds')
+    const gains = SEEDS.filter((sd) => sd !== 7).map((sd) => shareOn('noDouble', sd) - shareOn(undefined, sd))
+    expect([Math.floor(Math.min(...gains)), Math.floor(Math.max(...gains))]).toEqual([Number(gLo), Number(gHi)])
     // the jump this lab uses is the first backoff draw, and the variant it loads first is the first preset
     expect(l.jump).toBe(edcaTamper.jumps.findIndex((j) => j.label === '第一次退避抽取'))
     expect(l.more).toEqual([1, 2, 3, 4, 5, 6])

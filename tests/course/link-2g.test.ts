@@ -20,7 +20,7 @@ import { link2gScenario } from '../../src/course/wifiScenes'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { Simulation, LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { ACK_TX_TIME_6M_NS, CCA_PD_DBM, ERP_2G, NOISE_DBM, OFDM_5G, mcsForRssi, mcsRateMbps, noiseDbm } from '../../src/engine/phy'
+import { ACK_TX_TIME_1M_DSSS_NS, CCA_PD_DBM, ERP_2G, NOISE_DBM, OFDM_5G, mcsForRssi, mcsRateMbps, noiseDbm, timingForGen } from '../../src/engine/phy'
 import { negotiatedWidth, nodeLinks, virtualId } from '../../src/model/caps'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
@@ -143,8 +143,11 @@ describe('link-2g · ① cites the clauses it teaches, and its table is the stan
     expect(num(row('aSlotTime')[2]) * 1000).toBe(OFDM_5G.slotNs)
     expect(num(row('aSignalExtension')[1]) * 1000).toBe(ERP_2G.signalExtNs)
     expect(row('aSignalExtension')[2]).toBe(String(OFDM_5G.signalExtNs))
-    // the standard's 24 µs is NOT the engine's: that difference is the ACK timeout row of ②
+    // 2026-11-11 (W6): the standard's 24 µs is the engine's for an HE station on either band;
+    // the clause 17/18 base tables keep their own 20 µs
     expect(num(row('aRxPHYStartDelay')[1])).toBe(24)
+    expect(timingForGen(ERP_2G, 'he').rxStartDelayNs).toBe(24_000)
+    expect(timingForGen(OFDM_5G, 'he').rxStartDelayNs).toBe(24_000)
     expect(ERP_2G.rxStartDelayNs).toBe(20_000)
     expect(OFDM_5G.rxStartDelayNs).toBe(20_000)
   })
@@ -156,27 +159,27 @@ describe('link-2g · ① cites the clauses it teaches, and its table is the stan
 })
 
 describe('link-2g · ② says what the engine does, and the engine does it', () => {
-  it('not every row is faithful, and the two departures are marked differs', () => {
+  it('not every row is faithful; EIFS, the ACK timeout and ED are faithful since W6 (2026-11-11)', () => {
     expect(link2g.implementation!.some((r) => r.kind !== 'faithful')).toBe(true)
-    expect(implRow('EIFS 的长度').kind).toBe('differs')
-    expect(implRow('ACK 超时').kind).toBe('differs')
-    expect(implRow('能量检测的范围').kind).toBe('differs')
+    expect(implRow('EIFS 的长度').kind).toBe('faithful')
+    expect(implRow('ACK 超时').kind).toBe('faithful')
+    expect(implRow('能量检测的范围').kind).toBe('faithful')
     expect(implRow('频段路损偏移').kind).toBe('value')
     expect(implRow('2.4 GHz 的带宽上限').kind).toBe('faithful')
   })
 
-  it('EIFS: 10 + 28 + 50 = 88 µs off a 6 Mb/s acknowledgement, and every EIFS on the timeline is that', () => {
-    expect(ACK_TX_TIME_6M_NS).toBe(44_000)
-    expect(ERP_2G.eifsNs).toBe(ERP_2G.sifsNs + ERP_2G.difsNs + ACK_TX_TIME_6M_NS + ERP_2G.signalExtNs)
-    expect(ERP_2G.eifsNs).toBe(88_000)
+  it('EIFS: 10 + 304 + 28 = 342 µs off a 1 Mb/s DSSS acknowledgement (Eq 10-7), and every EIFS on the timeline is that', () => {
+    expect(ACK_TX_TIME_1M_DSSS_NS).toBe(304_000)
+    expect(ERP_2G.eifsNs).toBe(ERP_2G.sifsNs + ACK_TX_TIME_1M_DSSS_NS + ERP_2G.difsNs)
+    expect(ERP_2G.eifsNs).toBe(342_000)
     const sim = implRow('EIFS 的长度').sim
-    expect(sim).toContain(`${ERP_2G.sifsNs / 1000} + ${ERP_2G.difsNs / 1000} + ${(ACK_TX_TIME_6M_NS + ERP_2G.signalExtNs) / 1000} = ${ERP_2G.eifsNs / 1000} µs`)
-    expect(sim).toContain(`确认帧 ${ACK_TX_TIME_6M_NS / 1000} µs，加 ${ERP_2G.signalExtNs / 1000} µs`)
+    expect(sim).toContain(`${ERP_2G.sifsNs / 1000} + ${ACK_TX_TIME_1M_DSSS_NS / 1000} + ${ERP_2G.difsNs / 1000} = ${ERP_2G.eifsNs / 1000} µs`)
+    expect(sim).toContain(`确认帧 ${ACK_TX_TIME_1M_DSSS_NS / 1000} µs，即长前导码与物理层头 192 µs，加 14 字节 112 µs`)
     const eifs = ofType(recordsOf('pair', '2g', 7), 'IFS_START').filter((r) => r.kind === 'EIFS')
     expect([...new Set(eifs.map((r) => r.untilNs - r.t))]).toEqual([ERP_2G.eifsNs])
   })
 
-  it('ACK timeout: 39 µs and 45 µs measured, and the standard\'s 43 and 49 are 4 µs more', () => {
+  it('ACK timeout: 43 µs and 45 µs measured — the standard\'s, with the HE aRxPHYStartDelay of 24 µs', () => {
     const wait = (band: Band): number => {
       const rs = recordsOf('pair', band, 7)
       const sta = vid(band, 'sta-1')
@@ -185,11 +188,10 @@ describe('link-2g · ② says what the engine does, and the engine does it', () 
       return (to.t - end.t) / 1000
     }
     const sim = implRow('ACK 超时').sim
-    expect(wait('2g')).toBe(39)
-    expect(wait('5g')).toBe(45)
-    expect(sim).toContain(`10 + 9 + 20 = ${wait('2g')} µs`)
-    expect(sim).toContain(`16 + 9 + 20 = ${wait('5g')} µs`)
-    expect(sim).toContain(`${wait('2g') + 4} µs 与 ${wait('5g') + 4} µs`)
+    expect(wait('2g')).toBe(43)
+    expect(wait('5g')).toBe(49)
+    expect(sim).toContain(`10 + 9 + 24 = ${wait('2g')} µs`)
+    expect(sim).toContain(`16 + 9 + 24 = ${wait('5g')} µs`)
   })
 
   it('the band offset row names the three engine constants', () => {
@@ -324,7 +326,7 @@ describe('link-2g · ③ every figure the labs print is the run', () => {
     expect(link2g.quiz[1].explain).toContain(`${between.toFixed(2)} dBm`.replace('-', '−'))
   })
 
-  it('lab 3: ten seeds, both bands: the means, the counts, and the ten-fold', () => {
+  it('lab 3: ten seeds, both bands: the means, the counts, and the eleven-fold', () => {
     const l = lab('楼梯间：EIFS 只在 2.4 GHz 上出现')
     const tally = (band: Band) => {
       let ok = 0; let coll = 0; let eifs = 0; let bits = 0
@@ -353,15 +355,19 @@ describe('link-2g · ③ every figure the labs print is the run', () => {
     // over all ten seeds 5 GHz also shows a few txDuringRx, which the lab does not claim about
     const reasons = (band: Band) => [...new Set(ofType(recordsOf('pair', band, 7), 'RX_FAIL').map((r) => r.reason))]
     expect(link2g.scenario().seed).toBe(7)
-    expect(reasons('5g')).toEqual(['collision'])
+    // 2026-11-11 (W6): seed 7 on 5 GHz now also shows one txDuringRx, and the lab counts both
+    const fails5 = ofType(recordsOf('pair', '5g', 7), 'RX_FAIL')
+    expect(reasons('5g')).toEqual(['collision', 'txDuringRx'])
+    expect(l.expect).toContain(`${fails5.length} 次接收失败里 ${fails5.filter((r) => r.reason === 'collision').length} 次是碰撞，${fails5.filter((r) => r.reason === 'txDuringRx').length} 次是收到一半时本机开始发送而放弃`)
     expect(reasons('2g')).toEqual(['lowSinr'])
     expect(two.reasons).toEqual(['lowSinr'])
     expect(l.expect).toContain(`每一条 EIFS 都是 ${ERP_2G.eifsNs / 1000} µs`)
     expect(l.expect).toContain(`${(two.ok / five.ok).toFixed(1)} 倍`)
     expect(l.expect).toContain(`碰撞从 ${five.coll} 次降到 ${two.coll} 次`)
-    expect(l.meaning).toContain(`${ERP_2G.eifsNs / 1000} µs 是按 6 Mb/s`)
-    // 「十倍」 in why and the quiz is this ratio, rounded
-    expect(Math.round(two.ok / five.ok)).toBe(10)
+    expect(l.meaning).toContain(`${ERP_2G.eifsNs / 1000} µs 是按 1 Mb/s 的 DSSS 确认帧照式 10-7 算出的`)
+    // 「十一倍」 in why, the meaning and the quiz is this ratio, rounded (2026-11-11, after W6: 11.2)
+    expect(Math.round(two.ok / five.ok)).toBe(11)
+    for (const t of [link2g.why!, l.meaning, link2g.quiz[1].q]) expect(t).toContain('十一倍')
     expect(link2g.quiz[1].explain).toContain(`碰撞从 ${five.coll} 次降到 ${two.coll} 次`)
   }, 300_000)
 
@@ -390,7 +396,7 @@ describe('link-2g · ③ every figure the labs print is the run', () => {
     }
   })
 
-  it('lab 5: the 40 MHz cap, cell by cell, and the 11.5 % it still loses over twenty seeds', () => {
+  it('lab 5: the 40 MHz cap, cell by cell, and the 8.4 % it still loses over twenty seeds', () => {
     const l = lab('40 MHz 上限')
     const rows = tableOf(l, '两端都是 Wi-Fi 7').rows
     const row = (k: string) => rows.find((r) => r[0] === k)!
@@ -415,9 +421,10 @@ describe('link-2g · ③ every figure the labs print is the run', () => {
     expect(l.expect).toContain(`高 ${(noiseDbm(160) - noiseDbm(20)).toFixed(2)} dB`)
     expect(l.expect).toContain(`MCS ${b.mcs[0]}`)
     expect(l.expect).toContain(`MCS ${a.mcs[0]}`)
-    // why: 「选中的 MCS 高出四级，吞吐仍低一成多」
+    // why: 「选中的 MCS 高出四级，吞吐仍低近一成」 (2026-11-11, after W6: 8.4 %)
     expect(link2g.why).toContain(`高出${['', '一', '两', '三', '四', '五'][b.mcs[0]! - a.mcs[0]!]}级`)
-    expect(Number(loss)).toBeGreaterThan(10); expect(Number(loss)).toBeLessThan(20)
+    expect(link2g.why).toContain('吞吐仍低近一成')
+    expect(Number(loss)).toBeGreaterThan(5); expect(Number(loss)).toBeLessThan(10)
   }, 300_000)
 })
 
@@ -433,12 +440,12 @@ describe('link-2g · the figures in why and the quiz', () => {
 
   it('quiz 1 adds up the lab 1 table', () => {
     const e = link2g.quiz[0].explain
-    expect(e).toContain('34 + 139.2 + 16 + 28 = 217.2')
-    expect(e).toContain('28 + 145.2 + 10 + 34 = 217.2')
-    expect(34 + 139.2 + 16 + 28).toBeCloseTo(217.2, 6)
-    expect(28 + 145.2 + 10 + 34).toBeCloseTo(217.2, 6)
+    expect(e).toContain('34 + 146.4 + 16 + 28 = 224.4')
+    expect(e).toContain('28 + 152.4 + 10 + 34 = 224.4')
+    expect(34 + 146.4 + 16 + 28).toBeCloseTo(224.4, 6)
+    expect(28 + 152.4 + 10 + 34).toBeCloseTo(224.4, 6)
     const t = tableOf(lab('同一次交换的四段'), '一次零退避的交换')
-    expect(t.rows.map((r) => num(r[1]))).toEqual([34, 139.2, 16, 28, 217.2])
-    expect(t.rows.map((r) => num(r[2]))).toEqual([28, 145.2, 10, 34, 217.2])
+    expect(t.rows.map((r) => num(r[1]))).toEqual([34, 146.4, 16, 28, 224.4])
+    expect(t.rows.map((r) => num(r[2]))).toEqual([28, 152.4, 10, 34, 224.4])
   })
 })

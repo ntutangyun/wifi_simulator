@@ -77,7 +77,9 @@ describe('channel width multiplies the bits carried per symbol', () => {
   it('a fixed preamble means a single frame shrinks less than its data symbols do', () => {
     const narrow = txTimeModeNs('eht', 1530, 7)
     const wide = txTimeModeNs('eht', 1530, 7, { widthMhz: 160, nss: 2 })
-    expect(narrow / wide).toBeGreaterThan(2.5)
+    // 2026-11-11: with the standard's TXTIME the wide frame also pays a second EHT-LTF (two
+    // streams, Table 36-43) and a packet extension, so the ratio is 2.49 rather than above 2.5.
+    expect(narrow / wide).toBeGreaterThan(2.4)
     expect(narrow / wide).toBeLessThan(4)
   })
 

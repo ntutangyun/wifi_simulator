@@ -17,7 +17,8 @@ import { mumimo } from '../../src/course/tier2/mumimo'
 import { mumimoScenario } from '../../src/course/wifiScenes'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { PHY_MODES, toneRatio } from '../../src/engine/phy'
+import { PHY_MODES, preambleNsFor, txTimeModeNs } from '../../src/engine/phy'
+import { ppduLayout } from '../../src/model/frameFields'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { lessonShapeSuite, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -25,7 +26,9 @@ import { MODULES } from '../../src/course/curriculum'
 const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 500 * MS
-const OPENING_NS = PHY_MODES.eht.preambleNs + PHY_MODES.eht.muExtraPreambleNs
+/** The PPDU's own fields (2026-11-11, W6): preamble, MU signalling, data, PE, the µs rounding. */
+const seg = (r: Tx, key: string): number => ppduLayout(r.frame).find((s) => s.key === key)?.durNs ?? 0
+const symbolsOf = (r: Tx): number => ppduLayout(r.frame).find((s) => s.key === 'data')!.symbols!
 const MAC_SRC = readFileSync(new URL('../../src/engine/mac.ts', import.meta.url), 'utf8')
 const PHY_SRC = readFileSync(new URL('../../src/engine/phy.ts', import.meta.url), 'utf8')
 
@@ -45,7 +48,6 @@ const same = (printed: string, measured: number, what: string): void => {
   const dp = (fig.split('.')[1] ?? '').length
   expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`).toBe(Number(measured.toFixed(dp)))
 }
-const symbolsOf = (r: Tx): number => (r.frame.txTimeNs - OPENING_NS) / PHY_MODES.eht.symNs
 const rateOf = (r: Tx): number => (r.frame.muParts![0].bytes * 8) / (r.frame.txTimeNs / 1000)
 
 const lab = (heading: string): Lab => {
@@ -119,27 +121,32 @@ describe('mumimo-choose · ② says what the engine does, and the engine does it
     }
   })
 
-  it('the PHY: 48 + 4 µs opening, 13.6 µs symbols, the BCC-form ceiling, the longest member', () => {
-    const pre = /取一个代表值：([\d.]+) µs 前导码，多用户发送再加 ([\d.]+) µs/.exec(implRow('前导码的时长').sim)!
-    expect(Number(pre[1]) * US).toBe(PHY_MODES.eht.preambleNs)
-    expect(Number(pre[2]) * US).toBe(PHY_MODES.eht.muExtraPreambleNs)
+  it('the PHY: the preamble by stream count, 13.6 µs symbols, the LDPC count, the longest member', () => {
+    expect(implRow('前导码的时长').kind).toBe('faithful')
+    const [p4, p2] = /4 个 EHT-LTF，前导码 ([\d.]+) µs.*2 个 EHT-LTF，前导码 ([\d.]+) µs/.exec(implRow('前导码的时长').sim)!.slice(1).map(Number)
+    expect([p4 * US, p2 * US]).toEqual([preambleNsFor('eht', undefined, { nss: 4 }), preambleNsFor('eht', undefined, { nss: 2 })])
+    expect(implRow('多用户发送的信令').kind).toBe('differs')
+    expect(implRow('多用户发送的信令').sim).toContain(`${PHY_MODES.eht.muExtraPreambleNs / US} µs`)
     expect(Number(/每个数据符号 ([\d.]+) µs/.exec(implRow('数据符号的时长').sim)![1]) * US).toBe(PHY_MODES.eht.symNs)
-    const f = /⌈\((\d+) \+ (\d) × 字节数 \+ (\d)\) ÷ 每符号比特数⌉/.exec(implRow('数据符号数').sim)!
-    const e = /Math\.ceil\(\((\d+) \+ (\d) \* lengthBytes \+ (\d)\) \/ ndbps\)/.exec(PHY_SRC)!
-    expect(f.slice(1)).toEqual(e.slice(1))
+    expect(implRow('数据符号数').kind).toBe('faithful')
+    expect(PHY_SRC).toContain('heDataSymbols(lengthBytes, ndbps, ndbpsShort, rate, coding)')
     // 「本课的多用户发送使用 MCS 12 与 13，都只能用 LDPC」: EHT-MCS 10 to 14 are LDPC-only (§36.3.13.3.3)
     const printed = /使用 MCS (\d+) 与 (\d+)，都只能用 LDPC/.exec(implRow('数据符号数').standard)!.slice(1).map(Number)
     const used = new Set(runs.flatMap((rs) => muSends(rs).flatMap((r) => r.frame.muParts!.map((p) => p.mcs))))
     expect([...used].sort((x, y) => x - y)).toEqual(printed)
     for (const m of used) expect(m >= 10 && m <= 14, `MCS ${m} is LDPC-only`).toBe(true)
-    // every send of both variants: the opening once, then the longest member's symbols
-    const nssOf = (id: string): number => mumimo.scenario().nodes.find((n) => n.id === id)!.caps.nss ?? 1
+    // every send of both variants: the longest member's TXTIME, with the group's LTF count
     for (const rs of runs) {
       for (const r of muSends(rs)) {
         const mode = r.frame.mode!
-        const syms = (p: NonNullable<Tx['frame']['muParts']>[number]): number => Math.ceil((16 + 8 * p.bytes + 6)
-          / (PHY_MODES[mode].ndbps[p.mcs] * toneRatio(mode, r.frame.widthMhz ?? 20) * (p.nss ?? nssOf(p.dst)) * (p.ruFraction ?? 1)))
-        expect(r.frame.txTimeNs).toBe(OPENING_NS + PHY_MODES[mode].symNs * Math.max(...r.frame.muParts!.map(syms)))
+        const parts = r.frame.muParts!
+        const streams = parts.map((p) => p.nss ?? 1)
+        const ltfNss = r.frame.muKind === 'mumimo' ? streams.reduce((a, b) => a + b, 0) : Math.max(...streams)
+        const t = Math.max(...parts.map((p) => txTimeModeNs(mode, p.bytes, p.mcs, {
+          mu: true, widthMhz: r.frame.widthMhz, nss: p.nss ?? 1, ltfNss, ruFraction: p.ruFraction,
+        })))
+        expect(r.frame.txTimeNs).toBe(t)
+        expect(ppduLayout(r.frame).reduce((a, s) => a + s.durNs, 0)).toBe(r.frame.txTimeNs)
       }
     }
   })
@@ -167,12 +174,16 @@ describe('mumimo-choose · ③ every figure the labs print is the run', () => {
       same(rate.replace(' Mb/s', ''), rateOf(s), `${label}: per-member rate`)
     }
     const f = blockOf(l, 'formula')
-    const [open, per] = /整帧长度 = ([\d.]+) µs \+ ([\d.]+) µs × 数据符号数/.exec(f.text)!.slice(1).map(Number)
-    expect(open * US).toBe(OPENING_NS)
+    const [mu, per] = /整帧长度 = 前导码 \+ ([\d.]+) µs \+ ([\d.]+) µs × 数据符号数 \+ 包扩展，再取整到整微秒/.exec(f.text)!.slice(1).map(Number)
+    expect(mu * US).toBe(PHY_MODES.eht.muExtraPreambleNs)
     expect(per * US).toBe(PHY_MODES.eht.symNs)
-    const [again, pre, extra] = /([\d.]+) µs 是本仿真器取的 ([\d.]+) µs 前导码加上多用户发送的 ([\d.]+) µs/.exec(f.note!)!.slice(1).map(Number)
-    expect([again, pre * US, extra * US]).toEqual([open, PHY_MODES.eht.preambleNs, PHY_MODES.eht.muExtraPreambleNs])
-    expect((ofdma.frame.txTimeNs - OPENING_NS) / (mimo.frame.txTimeNs - OPENING_NS)).toBe(zh(/恰好相差(.)倍/.exec(f.note!)![1]))
+    for (const s of [ofdma, mimo]) {
+      const pre = seg(s, 'preamble') / US, pe = seg(s, 'pe') / US, n = symbolsOf(s)
+      const raw = Number((pre + mu + per * n + pe).toFixed(1))
+      expect(f.note!).toContain(`${pre} + ${mu} + ${per} × ${n} + ${pe} = ${raw} µs，取整为 ${(s.frame.txTimeNs / US).toFixed(1)} µs`)
+      expect(seg(s, 'muSig')).toBe(PHY_MODES.eht.muExtraPreambleNs)
+    }
+    expect(seg(ofdma, 'data') / seg(mimo, 'data')).toBe(zh(/恰好相差(.)倍/.exec(f.note!)![1]))
     const ratio = /整帧只相差 ([\d.]+) 倍/.exec(f.note!)![1]
     same(ratio, ofdma.frame.txTimeNs / mimo.frame.txTimeNs, 'the end-to-end ratio')
     // the same ratio in `why` and in an outcome
@@ -206,10 +217,13 @@ describe('mumimo-choose · ③ every figure the labs print is the run', () => {
       expect(Number(cell('裁减后的成员数')[c]), label).toBe(s.frame.muParts!.length)
       expect(cell('每个成员得到的子载波')[c], label).toBe(s.frame.muParts![0].ruFraction === 1 / 3 ? '三分之一' : '全部')
       expect(Number(cell('每个成员的符号数')[c]), label).toBe(symbolsOf(s))
-      const [o, p, n, total] = /([\d.]+) \+ ([\d.]+) × (\d+) = ([\d.]+) µs/.exec(cell('因此这次发送的时长是')[c])!.slice(1).map(Number)
-      expect([o * US, p * US, n]).toEqual([OPENING_NS, PHY_MODES.eht.symNs, symbolsOf(s)])
+      expect(cell('前导码（EHT-LTF 按流数计）')[c]).toBe(`${seg(s, 'preamble') / US} µs`)
+      expect(cell('包扩展')[c]).toBe(`${seg(s, 'pe') / US} µs`)
+      const [o, m, p, n, pe, raw, total] = /([\d.]+) \+ ([\d.]+) \+ ([\d.]+) × (\d+) \+ ([\d.]+) = ([\d.]+)，取整 ([\d.]+) µs/.exec(cell('因此这次发送的时长是')[c])!.slice(1).map(Number)
+      expect([o * US, m * US, p * US, n, pe * US]).toEqual([seg(s, 'preamble'), PHY_MODES.eht.muExtraPreambleNs, PHY_MODES.eht.symNs, symbolsOf(s), seg(s, 'pe')])
       same(String(total), s.frame.txTimeNs / US, `${label}: length`)
-      expect(Number((o + p * n).toFixed(1))).toBe(total)
+      expect(Number((o + m + p * n + pe).toFixed(1))).toBe(raw)
+      expect(Math.ceil(raw)).toBe(total)
       expect(val(cell('这一次合计交付')[c]), label).toBe(s.frame.bytes)
     }
     expect(val(/队首都有 ([\d,]+) 字节/.exec(tb.rows.find((r) => r[0].includes('都协商过'))![0])![1]))

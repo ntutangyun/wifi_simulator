@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  frameAnatomyBytes, preambleTiming, LEGACY_FRAME_US, HE_FRAME_US,
+  frameAnatomyBytes, preambleTiming, LEGACY_FRAME_US, HE_FRAME_US, HE_PE_US,
 } from '../../src/course/tier1/frame-anatomy-bytes'
 import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from '../../src/course/tier1/frame-anatomy'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
@@ -21,7 +21,7 @@ import { decodeFrame, ppduLayout, type Mpdu } from '../../src/model/frameFields'
 import { hasFeature } from '../../src/model/caps'
 import type { TLRecord } from '../../src/model/records'
 import {
-  ACK_BYTES, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, QOS_HDR_BYTES, TGI_NS, symNsFor, txTimeModeNs, txTimeNs,
+  ACK_BYTES, FCS_BYTES, MAC_HDR_BYTES, PHY_MODES, QOS_HDR_BYTES, TGI_NS, ppduTiming, preambleNsFor, symNsFor, txTimeNs,
 } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -125,19 +125,23 @@ describe('frame-anatomy-bytes · ② says what the engine does, and the engine d
     expect(implRow('N_DBPS').sim).toContain(`54 Mb/s 为 ${ndbpsOf(54)}，24 Mb/s 为 ${ndbpsOf(24)}`)
   })
 
-  it('HE: 13.6 µs symbols, one representative preamble per generation, no packet extension', () => {
+  it('HE: 13.6 µs symbols, the preamble field by field, the LDPC count and the packet extension', () => {
+    // 2026-11-11 (W6): Table 27-13 / Table 36-18 / §27.3.12.5.2 / Table 27-47.
     expect(implRow('HE 的数据符号').kind).toBe('faithful')
     expect(implRow('HE 的数据符号').sim).toContain(`${PHY_MODES.he.symNs / US} µs`)
-    expect(implRow('新一代的前导码').kind).toBe('value')
-    const [vht, he, eht, mu] = (implRow('新一代的前导码').sim.match(/\d+(?= µs)/g) ?? []).map(Number)
-    expect([vht, he, eht, mu].map((x) => x * US)).toEqual([PHY_MODES.vht.preambleNs, PHY_MODES.he.preambleNs, PHY_MODES.eht.preambleNs, PHY_MODES.he.muExtraPreambleNs])
+    expect(implRow('新一代的前导码').kind).toBe('faithful')
+    const [vht, he, eht] = (implRow('新一代的前导码').sim.match(/[\d.]+(?= µs)/g) ?? []).map(Number)
+    expect([vht, he, eht].map((x) => Math.round(x * US))).toEqual([PHY_MODES.vht.preambleNs, PHY_MODES.he.preambleNs, PHY_MODES.eht.preambleNs])
+    expect(implRow('多用户（multi-user, MU）帧的信令').kind).toBe('differs')
+    expect(implRow('多用户（multi-user, MU）帧的信令').sim).toContain(`${PHY_MODES.he.muExtraPreambleNs / US} µs`)
     expect(PHY_MODES.eht.muExtraPreambleNs).toBe(PHY_MODES.he.muExtraPreambleNs)
-    // the same preamble at one or two spatial streams
-    expect(txTimeModeNs('he', 1430, 11, { nss: 2 }) - txTimeModeNs('he', 1430, 11, { nss: 1 }))
-      .toBe(PHY_MODES.he.symNs * (Math.ceil(bits(1430) / (2 * PHY_MODES.he.ndbps[11])) - Math.ceil(bits(1430) / PHY_MODES.he.ndbps[11])))
-    expect(implRow('包扩展').kind).toBe('absent')
-    expect(qos.frame.txTimeNs).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.symNs * Math.ceil(bits(qos.frame.bytes) / PHY_MODES.he.ndbps[qos.frame.mcs!]))
-    expect(implRow('HE 的符号数').kind).toBe('differs')
+    // a second spatial stream adds a second HE-LTF (Table 21-13)
+    expect(preambleNsFor('he', TGI_NS.base, { nss: 2 }) - preambleNsFor('he')).toBe(7_200)
+    expect(implRow('包扩展').kind).toBe('value')
+    const t = ppduTiming('he', qos.frame.bytes, qos.frame.mcs!)
+    expect([t.coding, t.nsym, t.a, t.peNs]).toEqual(['ldpc', 1, 4, HE_PE_US * US])
+    expect(qos.frame.txTimeNs).toBe(PHY_MODES.he.preambleNs + PHY_MODES.he.symNs * t.nsym + t.peNs)
+    expect(implRow('HE 的符号数').kind).toBe('faithful')
   })
 
   it('the payloads are the scene\'s: 1500 B for the old laptop, 200 B for the phone', () => {
@@ -180,8 +184,9 @@ describe('frame-anatomy-bytes · ③ every figure the labs print is the run', ()
     expect((a.spans[1].toUs - a.spans[1].fromUs) * US / NONHT.symNs).toBe(Math.ceil(bits(legacy.frame.bytes) / ndbpsOf(legacy.frame.mbps)))
     expect(he.spans[0].toUs * US).toBe(PHY_MODES.he.preambleNs)
     expect(he.spans[1].toUs - he.spans[1].fromUs).toBeCloseTo(PHY_MODES.he.symNs / US, 9)
+    expect(he.spans[2].toUs - he.spans[2].fromUs).toBeCloseTo(HE_PE_US, 9)
     expect(spec.axis.toUs).toBe(LEGACY_FRAME_US)
-    expect(d.caption).toBe(`上面是旧笔记本 ${legacy.frame.bytes} B 的一帧：${NONHT.preambleNs / US} µs 的前导码与 SIGNAL，后面 ${(a.spans[1].toUs - a.spans[1].fromUs) * US / NONHT.symNs} 个符号。下面是手机 ${qos.frame.bytes} B 的一帧：本仿真器取 ${PHY_MODES.he.preambleNs / US} µs 的前导码，后面只有一个 ${PHY_MODES.he.symNs / US} µs 的符号。`)
+    expect(d.caption).toBe(`上面是旧笔记本 ${legacy.frame.bytes} B 的一帧：${NONHT.preambleNs / US} µs 的前导码与 SIGNAL，后面 ${(a.spans[1].toUs - a.spans[1].fromUs) * US / NONHT.symNs} 个符号。下面是手机 ${qos.frame.bytes} B 的一帧：${PHY_MODES.he.preambleNs / US} µs 的前导码，一个 ${PHY_MODES.he.symNs / US} µs 的符号，再加 ${HE_PE_US} µs 的包扩展。`)
   })
 
   it('lab 2: the phone\'s Wi-Fi 6 frame, cell by cell', () => {
@@ -190,13 +195,20 @@ describe('frame-anatomy-bytes · ③ every figure the labs print is the run', ()
     const w = workedRows(qos.frame, ndbps)
     expect(qos.frame.mode).toBe('he')
     expect(rows[2][0]).toBe(`HE MCS ${qos.frame.mcs} 的 N_DBPS`)
+    // LDPC: no tail bits (Table 27-13's N_tail = 0 for LDPC)
+    const t = ppduTiming('he', qos.frame.bytes, qos.frame.mcs!)
+    const ldpcBits = 16 + 8 * qos.frame.bytes
     expect(rows.map((r) => r[1])).toEqual([
-      w.len, w.bits, String(ndbps), String(w.nsym),
-      `${PHY_MODES.he.preambleNs / US} + ${w.nsym} × ${PHY_MODES.he.symNs / US} = ${qos.frame.txTimeNs / US} µs`,
+      w.len, `16 + 8 × ${qos.frame.bytes} = ${grouped(ldpcBits)}`, String(ndbps), String(Math.ceil(ldpcBits / ndbps)),
+      `${t.peNs / US} µs`,
+      `${PHY_MODES.he.preambleNs / US} + ${t.nsym} × ${PHY_MODES.he.symNs / US} + ${t.peNs / US} = ${qos.frame.txTimeNs / US} µs`,
     ])
-    expect(ppduLayout(qos.frame)[0].durNs).toBe(PHY_MODES.he.preambleNs)
+    expect(t.nsym).toBe(Math.ceil(ldpcBits / ndbps))
+    expect(ppduLayout(qos.frame).map((s) => [s.key, s.durNs])).toEqual([
+      ['preamble', PHY_MODES.he.preambleNs], ['data', t.nsym * PHY_MODES.he.symNs], ['pe', t.peNs],
+    ])
     expect(lab('手机的一帧：大部分是前导码').expect)
-      .toBe(`${qos.frame.txTimeNs / US} µs 中有 ${PHY_MODES.he.preambleNs / US} µs 是前导码，载荷只占一个符号。`)
+      .toBe(`${qos.frame.txTimeNs / US} µs 中有 ${PHY_MODES.he.preambleNs / US} µs 是前导码、${t.peNs / US} µs 是包扩展，载荷只占一个符号。`)
     expect(lab('手机的一帧：大部分是前导码').meaning).toContain(`${PHY_MODES.he.symNs / US} µs`)
     expect(lab('手机的一帧：大部分是前导码').meaning).toContain(`${PHY_MODES.he.preambleNs / US} µs`)
   })
@@ -252,12 +264,14 @@ describe('frame-anatomy-bytes · every figure the lesson prints is one this file
       String(ACK_BYTES), String(bits(ACK_BYTES)), String(ack.frame.txTimeNs / US),
       '1400', '100', '800', '53', '6.7',
       // the phone's frame
-      '200', String(qos.frame.bytes), String(bits(qos.frame.bytes)), String(PHY_MODES.he.ndbps[qos.frame.mcs!]),
+      '200', String(qos.frame.bytes), String(16 + 8 * qos.frame.bytes), String(PHY_MODES.he.ndbps[qos.frame.mcs!]),
       String(PHY_MODES.he.preambleNs / US), String(PHY_MODES.he.symNs / US), String(qos.frame.txTimeNs / US),
       // HE guard intervals and symbols; the other generations' representative preambles
       '0.8', '1.6', '3.2', '14.4', String(PHY_MODES.vht.preambleNs / US), String(PHY_MODES.eht.preambleNs / US),
       // the figure's ticks and the subscripts of T_SYM1 and T_PE
       '0', '50', '100', '150', '200', '7',
+      // clause 27: the two LDPC-only MCS indices (10 is above) and the 242-tone RU (2026-11-11)
+      '11', '242',
     ])
     const stray: string[] = []
     for (const s of readerTexts(frameAnatomyBytes)) {

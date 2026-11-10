@@ -186,7 +186,7 @@ describe('the event log renders the row a jump landed on', () => {
     expect(silent).toEqual([])
   })
 
-  it('names the three jumps the old "newest 160" rule cut, so the defect stays described', () => {
+  it('names the four jumps the old "newest 160" rule cut, so the defect stays described', () => {
     // The point of the fix, stated as the measurement that found it. If a lesson
     // edit makes one of these windows sparse the list shrinks and this fails —
     // which is the right outcome: the example in the docblocks would be stale.
@@ -194,7 +194,8 @@ describe('the event log renders the row a jump landed on', () => {
       const win = windowedRecords(c.store, c.target.t)
       return !win.slice(-LOG_ROWS).some((r) => r.seq === c.target.seq)
     }).map((c) => `${c.lesson}#${c.idx}`)
-    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2'])
+    // 2026-11-11 (W6): capstone#1 moved earlier (2.18 s) and its window is now dense enough to be cut too
+    expect(cut).toEqual(['edca#1', 'mumimo#2', 'mumimo-choose#2', 'capstone#1'])
   })
 
   it('keeps the row budget at 160, so the per-frame cost cannot have moved', () => {
@@ -244,13 +245,13 @@ describe('the event log renders the row a jump landed on', () => {
     // The two that are past the LOOKAHEAD, named: they are the reason the
     // search exists, and if a lesson edit adds a third the list says so.
     const pastLookahead = CASES.filter((c) => c.target.t > LOOKAHEAD_NS).map((c) => `${c.lesson}#${c.idx}`)
-    expect(pastLookahead).toEqual(['queues#2', 'capstone#1'])
+    expect(pastLookahead).toEqual(['queues#2']) // capstone#1 is inside the lookahead since W6 (2026-11-11)
     // The debt, measured, and its margin — the same shape `tests/course`'s
-    // ratchets use. 2.453 384 778 s is `capstone#1`, the furthest jump in the
-    // course; 546 615 222 ns is what is left of the 3 s horizon above it.
+    // ratchets use. 2.182 806 360 s is `capstone#1`, the furthest jump in the
+    // course; 817 193 640 ns is what is left of the 3 s horizon above it.
     const furthest = Math.max(...CASES.map((c) => c.target.t))
-    expect(furthest).toBe(2_453_384_778)
-    expect(JUMP_SEARCH_NS - furthest).toBe(546_615_222)
+    expect(furthest).toBe(2_182_806_360) // 2026-11-11, after W6 (2_453_384_778 before)
+    expect(JUMP_SEARCH_NS - furthest).toBe(817_193_640)
   })
 
   /**
@@ -306,10 +307,10 @@ describe('the event log renders the row a jump landed on', () => {
     // W12b's four, 289 before them.
     // 289, not the 291 the first draft of this said: the two `amp-slots` misses
     // were counted as synchronous AND as the 「没有」 case, in one breath.
-    expect(named('immediate').length).toBe(275)
+    // 276 since 2026-11-11 (W6): capstone#1 answers from the base batch now.
+    expect(named('immediate').length).toBe(276)
     expect(named('extend')).toEqual([
       'queues#2 AP 第一次因生存期丢帧',
-      'capstone#1 第一个触发帧',
     ])
     expect(named('miss')).toEqual([
       'amp-slots#3 第一次轮空（ACWE 3 变体）',

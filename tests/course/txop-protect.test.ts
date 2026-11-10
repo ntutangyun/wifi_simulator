@@ -257,7 +257,7 @@ describe('txop-protect · ② says what the engine does, and the engine does it'
 describe('txop-protect · ③ every figure the labs print is the run', () => {
   const b = boundary()
   const ms3 = (ns: number) => Number((ns / MS).toFixed(3))
-  const t0 = ofType(b, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+  const t0 = ofType(b, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
   const rts = txs(b, (r) => r.node === 'sta-1' && r.frame.kind === 'rts' && r.t === t0.t)[0]
   const cts = txs(b, (r) => r.frame.kind === 'cts' && r.t > t0.t)[0]
   const nav = ofType(b, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
@@ -308,7 +308,7 @@ describe('txop-protect · ③ every figure the labs print is the run', () => {
 
   it('lab 1: the worked table and the expect line', () => {
     const l = lab('一帧 RTS 预约到 TXOP 末尾')
-    const rows = tableOf(l, '从 0.736 ms 开始的那一串').rows
+    const rows = tableOf(l, '从 0.744 ms 开始的那一串').rows
     const cell = (label: string): string => {
       const r = rows.find((x) => x[0] === label)
       expect(r, `row 「${label}」`).toBeDefined()
@@ -345,14 +345,14 @@ describe('txop-protect · ③ every figure the labs print is the run', () => {
     // and t = 0: both stations open with an RTS and collide
     expect(new Set(txs(b, (r) => r.frame.kind === 'rts' && r.t === 0).map((r) => r.node))).toEqual(new Set(['sta-1', 'sta-2']))
     expect(l.steps[0]).toContain('t = 0')
-    // meaning: 「至少写到 3.264 ms」
+    // meaning: 「至少写到 3.272 ms」
     figure(grab(l.meaning, /至少写到 ([\d.]+) ms/, 'lab 1 meaning')[0], 'ms', nav.untilNs, 'the reservation end multiple protection repeats')
   })
 
-  it('lab 2: the single policy’s burst at 0.736 ms, and the 300 ms table', () => {
+  it('lab 2: the single policy’s burst at 0.744 ms, and the 300 ms table', () => {
     const l = lab('只预约一次交互：预约在中途到期')
     const s = single()
-    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
     const srts = txs(s, (r) => r.node === 'sta-1' && r.frame.kind === 'rts' && r.t === st0.t)[0]
     const scts = txs(s, (r) => r.frame.kind === 'cts' && r.t > st0.t)[0]
     const snav = ofType(s, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= st0.t)!

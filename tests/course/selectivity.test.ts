@@ -218,45 +218,55 @@ describe('selectivity · ③ every figure the labs print is the run', () => {
       expect(d).toBeLessThan(4.5)
     }
     const [a, z] = [rs[0], rs[4]]
-    expect(l.expect).toContain(`从 ${neg(a.medWorstDb, 2)} dB 到 ${neg(z.medWorstDb, 2)} dB；损失只从 ${a.medLossDb.toFixed(2)} dB 增加到 ${z.medLossDb.toFixed(2)} dB`)
-    expect(lesson.why).toContain(`从 20 MHz 的 ${Math.abs(a.medWorstDb).toFixed(2)} dB 加深到 320 MHz 的 ${Math.abs(z.medWorstDb).toFixed(2)} dB，有效信噪比的损失却一直在 ${a.medLossDb.toFixed(2)} dB 到 ${z.medLossDb.toFixed(2)} dB 之间`)
-    expect(Math.max(...rs.map((r) => r.medLossDb))).toBe(z.medLossDb)
-    expect(Math.min(...rs.map((r) => r.medLossDb))).toBe(a.medLossDb)
+    // 2026-11-11 (re-measured after W6): the loss's median stays in a band, its top at 160 MHz
+    const lo = Math.min(...rs.map((r) => r.medLossDb)), hi = Math.max(...rs.map((r) => r.medLossDb))
+    expect(l.expect).toContain(`从 ${neg(a.medWorstDb, 2)} dB 到 ${neg(z.medWorstDb, 2)} dB；损失一直在 ${lo.toFixed(2)} dB 到 ${hi.toFixed(2)} dB 之间`)
+    expect(lesson.why).toContain(`从 20 MHz 的 ${Math.abs(a.medWorstDb).toFixed(2)} dB 加深到 320 MHz 的 ${Math.abs(z.medWorstDb).toFixed(2)} dB，有效信噪比的损失却一直在 ${lo.toFixed(2)} dB 到 ${hi.toFixed(2)} dB 之间`)
+    expect(lo).toBe(a.medLossDb)
+    expect(hi - lo).toBeLessThan(1)
     expect(lesson.quiz[0].q).toContain(`有 ${z.bins} 格，本课那一轮最深一格的中位数比平均低 ${Math.abs(z.medWorstDb).toFixed(2)} dB`)
     expect(lesson.quiz[0].options[1]).toContain(`损失的中位数是 ${z.medLossDb.toFixed(2)} dB`)
   })
 
   it('lab 3: at an equal margin the wider channel drops less', () => {
-    const l = lab('余量相同的四档，越宽掉帧越少')
+    // 2026-11-11 (re-measured after W6): 80/160/320 MHz share the 3.62 dB margin; 20 and 40 MHz
+    // settle a whole MCS lower at 6.62 dB.
+    const l = lab('余量相同的三档，越宽掉帧越少')
     const t = tableOf(l, '五轮的掉帧率，各运行 150 ms')
     const rs = sweep()
     rs.forEach((r, i) => expect(t.rows[i]).toEqual([`${r.w} MHz`, `MCS ${r.topMcs}`, `${r.marginDb.toFixed(2)} dB`, `${r.fails} / ${r.ppdus}`, pct(r.fails, r.ppdus)]))
-    const matched = rs.slice(1)
+    const matched = rs.slice(2)
     expect(new Set(matched.map((r) => r.marginDb.toFixed(2))).size).toBe(1)
     expect(new Set(matched.map((r) => r.topMcs)).size).toBe(1)
     for (let i = 1; i < matched.length; i++) expect(matched[i].fails / matched[i].ppdus).toBeLessThan(matched[i - 1].fails / matched[i - 1].ppdus)
-    const r20 = rs[0]
-    expect(r20.marginDb).toBeGreaterThan(matched[0].marginDb)
-    expect(r20.fails / r20.ppdus).toBeLessThan(Math.max(...rs.map((r) => r.fails / r.ppdus)))
+    const [r20, r40] = rs
+    for (const r of [r20, r40]) expect(r.marginDb).toBeGreaterThan(matched[0].marginDb)
+    expect(r20.marginDb.toFixed(2)).toBe(r40.marginDb.toFixed(2))
+    expect(r20.topMcs).toBe(r40.topMcs)
     const m = matched[0]
     const last = matched[matched.length - 1]
-    expect(l.expect).toContain(`四档最常用 MCS ${m.topMcs}，余量都是 ${m.marginDb.toFixed(2)} dB，掉帧率从 ${pct(m.fails, m.ppdus)} 依次降到 ${pct(last.fails, last.ppdus)}`)
-    expect(l.expect).toContain(`20 MHz 多数帧停在 MCS ${r20.topMcs}，余量 ${r20.marginDb.toFixed(2)} dB，掉帧率 ${pct(r20.fails, r20.ppdus)}`)
-    expect(lesson.why).toContain(`从 40 MHz 的 ${pct(m.fails, m.ppdus)} 降到 320 MHz 的 ${pct(last.fails, last.ppdus)}`)
+    expect(l.expect).toContain(`三档最常用 MCS ${m.topMcs}，余量都是 ${m.marginDb.toFixed(2)} dB，掉帧率从 ${pct(m.fails, m.ppdus)} 依次降到 ${pct(last.fails, last.ppdus)}`)
+    expect(l.expect).toContain(`20 与 40 MHz 多数帧停在 MCS ${r20.topMcs}，余量 ${r20.marginDb.toFixed(2)} dB，掉帧率 ${pct(r20.fails, r20.ppdus)} 与 ${pct(r40.fails, r40.ppdus)}`)
+    expect(lesson.why).toContain(`从 80 MHz 的 ${pct(m.fails, m.ppdus)} 降到 320 MHz 的 ${pct(last.fails, last.ppdus)}`)
     const q = lesson.quiz[2]
-    expect(q.q).toContain(`20 MHz 的掉帧率 ${pct(r20.fails, r20.ppdus)}，低于 40 MHz 的 ${pct(m.fails, m.ppdus)}`)
-    expect(q.options[1]).toContain(`MCS ${r20.topMcs}，余量 ${r20.marginDb.toFixed(2)} dB，比其余四档的 ${m.marginDb.toFixed(2)} dB 大`)
+    expect(q.q).toContain(`40 MHz 的掉帧率 ${pct(r40.fails, r40.ppdus)}，低于 80 MHz 的 ${pct(m.fails, m.ppdus)}`)
+    expect(r40.fails / r40.ppdus).toBeLessThan(m.fails / m.ppdus)
+    expect(q.options[1]).toContain(`MCS ${r40.topMcs}，余量 ${r40.marginDb.toFixed(2)} dB，比 80 到 320 MHz 的 ${m.marginDb.toFixed(2)} dB 大`)
     expect(q.explain).toContain(`从 ${pct(m.fails, m.ppdus)} 降到 ${pct(last.fails, last.ppdus)}`)
   })
 
-  it('lab 4: with the section off every width visits MCS 0, with it on none does', () => {
+  it('lab 4: with the section off every width visits MCS 0; with it on fewer do', () => {
+    // 2026-11-11 (re-measured after W6): with the section on, 20 and 320 MHz stay above MCS 0
+    // while 40, 80 and 160 MHz still reach it.
     const l = lab('关掉分格')
     const t = tableOf(l, '笔记本用到的最低级别，各运行 150 ms')
     const rs = sweep()
     rs.forEach((r, i) => {
       expect(t.rows[i]).toEqual([`${r.w} MHz`, `MCS ${r.minMcs}`, `MCS ${flatMinMcs(i)}`])
       expect(flatMinMcs(i)).toBe(0)
-      expect(r.minMcs).toBeGreaterThan(0)
     })
+    const above = rs.filter((r) => r.minMcs > 0).map((r) => r.w)
+    const at0 = rs.filter((r) => r.minMcs === 0).map((r) => r.w)
+    expect(l.expect).toContain(`打开分格时，${above.join(' 与 ')} MHz 没有降到过 MCS 0，${at0.join('、')} MHz 仍有降到 MCS 0 的帧`)
   })
 })

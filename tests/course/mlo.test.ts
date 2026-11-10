@@ -283,9 +283,12 @@ describe('mlo · ③ every figure the labs print is the run', () => {
     expect(l.steps[1]).toContain(`编号 ${ids[0]}–${ids[ids.length - 1]}`)
   })
 
-  it('lab 3: the six failures, where each happened and which lane carried the set next', () => {
+  it('lab 3: the four failures of 1 s, where each happened and which lane carried the set next', () => {
+    // 2026-11-11 (W6): with the standard's TXTIME and AckTimeout the laptop fails only once in
+    // the first 300 ms, so this lab reads a 1 s run (the jump stays inside the 300 ms base run).
+    const rs = runOf(mlo, undefined, 1000 * MS)
     const l = lab('失败的一批由另一条链路发出')
-    const rows = tableOf(l, '300 ms 内笔记本的六次失败').rows
+    const rows = tableOf(l, '1 s 内笔记本的四次失败').rows
     const retries = ofType(rs, 'RETRY').filter((r) => r.node.startsWith('sta-1'))
     expect(rows).toHaveLength(retries.length)
     const band = (node: string) => (node.endsWith('#6g') ? '6 GHz' : '5 GHz')
@@ -302,14 +305,18 @@ describe('mlo · ③ every figure the labs print is the run', () => {
       expect(next, `row ${i}`).toBe(`${band(carrier.node)}，${carrier.t / MS} ms`)
       if (band(carrier.node) !== failedOn) other++
     }
-    const e = /六次失败都发生在 5 GHz.*其中(.)次，这一批帧下一次由 6 GHz 发出/.exec(l.expect)!
+    const e = /四次失败都发生在 5 GHz.*其中(.)次，这一批帧下一次由 6 GHz 发出/.exec(l.expect)!
     expect(zh(e[1])).toBe(other)
-    expect(zh('六')).toBe(retries.length)
-    // the jump lands on the RETRY of the row the steps name
+    expect(zh('四')).toBe(retries.length)
+    // the jump lands on the RETRY of the table's first row; the step names the row that moved
     const j = mlo.jumps[l.jump!]
     const hit = rs.find(j.find) as Extract<TLRecord, { type: 'RETRY' }>
     expect(hit.type).toBe('RETRY')
+    expect(hit.t).toBeLessThan(RUN_NS)
     expect(l.steps[0]).toContain(`第 ${hit.msduId} 帧`)
-    expect(rows.find((r) => r[0].includes(`第 ${hit.msduId} 帧`))![2]).toMatch(/^6 GHz/)
+    expect(rows[0]![0]).toContain(`第 ${hit.msduId} 帧`)
+    const moved = rows.filter((r) => r[2]!.startsWith('6 GHz'))
+    expect(moved).toHaveLength(1)
+    expect(l.steps[1]).toContain(moved[0]![0]!.split('，')[1]!)
   })
 })

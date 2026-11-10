@@ -23,7 +23,7 @@ import { type Lesson, hallwayHouse, node, sc, firstCfEnd, firstCfEndRelay, J } f
 
 /**
  * How far each policy's announcement reaches, on the run's own burst at
- * 0.736 ms, with that RTS as the zero point.
+ * 0.744 ms, with that RTS as the zero point.
  *
  * Every span is a record or the engine's own arithmetic over one:
  *  - 这一串 — the RTS at 0–28, the CTS at 44–72, and the five exchanges from the
@@ -56,7 +56,7 @@ export const protectPolicies: Lesson = {
   id: 'protect-policies',
   module: 7,
   title: '三种预告方式，以及提前释放剩余时间',
-  why: 'IEEE Std 802.11-2024 §9.2.5.2 为传输机会（transmit opportunity, TXOP）的发起方只规定了两类 Duration 设置：单次保护（single protection）每一帧只预约到下一帧及其应答，多重保护（multiple protection）可以预约到整串的预计结束，此后的每一帧至少重复一遍这个终点。本仿真器有三种策略：单次、「边界」与多重；「边界」只让开头的请求发送（request to send, RTS）按多重保护预约，不是标准的类别。在上一课的走廊户型里，多重策略与「边界」策略的运行结果完全相同：唯一收不到持有者的那台站点（station, STA）能收到接入点（access point, AP）的允许发送（clear to send, CTS），数据帧（data frame）里重复的终点它收不到，也不需要。预约通常比这一串实际用的时间长，§10.23.2.10 允许持有者发送一帧 CF-End（contention-free end）提前结束 TXOP，收到的站点把网络分配向量（network allocation vector, NAV）复位为 0；只收得到接入点的站点收不到这一帧，所以标准允许接入点在一个短帧间间隔（short interframe space, SIFS）之后再发一帧。本仿真器的接入点每次都转发，0.736 ms 那一串结束后，隐藏站点的预约因此提前 288 µs 结束。标准还有一种只发一帧的预约方式 CTS-to-self（CTS to self），开销比 RTS/CTS 低，但对隐藏站点不可靠；本仿真器的 Wi-Fi 站点没有实现它。',
+  why: 'IEEE Std 802.11-2024 §9.2.5.2 为传输机会（transmit opportunity, TXOP）的发起方只规定了两类 Duration 设置：单次保护（single protection）每一帧只预约到下一帧及其应答，多重保护（multiple protection）可以预约到整串的预计结束，此后的每一帧至少重复一遍这个终点。本仿真器有三种策略：单次、「边界」与多重；「边界」只让开头的请求发送（request to send, RTS）按多重保护预约，不是标准的类别。在上一课的走廊户型里，多重策略与「边界」策略的运行结果完全相同：唯一收不到持有者的那台站点（station, STA）能收到接入点（access point, AP）的允许发送（clear to send, CTS），数据帧（data frame）里重复的终点它收不到，也不需要。预约通常比这一串实际用的时间长，§10.23.2.10 允许持有者发送一帧 CF-End（contention-free end）提前结束 TXOP，收到的站点把网络分配向量（network allocation vector, NAV）复位为 0；只收得到接入点的站点收不到这一帧，所以标准允许接入点在一个短帧间间隔（short interframe space, SIFS）之后再发一帧。本仿真器的接入点每次都转发，0.744 ms 那一串结束后，隐藏站点的预约因此提前 288 µs 结束。标准还有一种只发一帧的预约方式 CTS-to-self（CTS to self），开销比 RTS/CTS 低，但对隐藏站点不可靠；本仿真器的 Wi-Fi 站点没有实现它。',
   outcomes: [
     '说出标准的两类 Duration 设置，以及本仿真器的三种策略各对应什么',
     '说明 CF-End 何时可以发送、收到后怎样处理，以及接入点为什么要再发一帧',
@@ -105,20 +105,20 @@ export const protectPolicies: Lesson = {
         {
           kind: 'diagram', heading: '同一串帧，三种策略各罩住多长',
           spec: policyReachTiming(),
-          caption: '零点取本轮 0.736 ms 发出的那一帧 RTS。单次策略下，CTS 只预约到第一次交互完成为止（416 µs）；「边界」策略预约到 TXOP 末尾（2 456 µs），但这一串在 2 152 µs 就结束了，于是两帧 CF-End 释放了最后那 288 µs。',
+          caption: '零点取本轮 0.744 ms 发出的那一帧 RTS。单次策略下，CTS 只预约到第一次交互完成为止（416 µs）；「边界」策略预约到 TXOP 末尾（2 456 µs），但这一串在 2 152 µs 就结束了，于是两帧 CF-End 释放了最后那 288 µs。',
         },
-        { kind: 'table', heading: '0.736 ms 那一串的结束过程，逐项数值', head: ['步骤', '数值'], rows: [
-          ['隐藏站 B 的预约持续到', '3.264 ms'],
-          ['最后一个确认帧结束于', '2.888 ms'],
+        { kind: 'table', heading: '0.744 ms 那一串的结束过程，逐项数值', head: ['步骤', '数值'], rows: [
+          ['隐藏站 B 的预约持续到', '3.272 ms'],
+          ['最后一个确认帧结束于', '2.896 ms'],
           ['预约还剩', '376 µs'],
           ['再进行一次交互需要', '416 µs'],
-          ['持有者的 CF-End 发于', '2.904 ms'],
-          ['接入点的 CF-End 发于', '2.948 ms'],
-          ['隐藏站 B 的 NAV 清零于', '2.976 ms'],
+          ['持有者的 CF-End 发于', '2.912 ms'],
+          ['接入点的 CF-End 发于', '2.956 ms'],
+          ['隐藏站 B 的 NAV 清零于', '2.984 ms'],
           ['提前释放的时间', '288 µs'],
         ] },
       ],
-      expect: '最后一个确认帧在 2.888 ms 结束，预约还剩 376 µs，不够再进行一次 416 µs 的交互；A 在 2.904 ms 发出 CF-End，接入点在 2.948 ms 再发一帧，B 在 2.976 ms 清零 NAV，比预约的 3.264 ms 早 288 µs。',
+      expect: '最后一个确认帧在 2.896 ms 结束，预约还剩 376 µs，不够再进行一次 416 µs 的交互；A 在 2.912 ms 发出 CF-End，接入点在 2.956 ms 再发一帧，B 在 2.984 ms 清零 NAV，比预约的 3.272 ms 早 288 µs。',
       meaning: 'B 收不到 A，它清零靠的是接入点那一帧，这正是 §10.23.2.10 NOTE 1 说的情况（①）。接入点每次都转发、持有者在放不进下一次交互时就发 CF-End，是本仿真器的取法（②）。',
     },
     {
@@ -128,25 +128,25 @@ export const protectPolicies: Lesson = {
         '跳到第一个由接入点发出的 CF-End，再运行满 300 ms。',
         '统计 CF-End 的总数与其中接入点发出的帧数，并载入「单次保护（逐次交换）」比较。',
       ],
-      expect: '300 ms 内共有 198 帧 CF-End，其中 99 帧由接入点发出，每一帧 A 或 B 的 CF-End 后面都跟着接入点的一帧；单次变体里一帧 CF-End 也没有，因为它的 RTS 从不预约到 TXOP 末尾，结束时没有剩余的预约可释放。',
+      expect: '300 ms 内共有 196 帧 CF-End，其中 98 帧由接入点发出，每一帧 A 或 B 的 CF-End 后面都跟着接入点的一帧；单次变体里一帧 CF-End 也没有，因为它的 RTS 从不预约到 TXOP 末尾，结束时没有剩余的预约可释放。',
       meaning: '本仿真器只在预约到 TXOP 末尾之后才发 CF-End（② 何时发送 CF-End）；接入点的转发对每一帧都发生（② 接入点再发一帧）。',
     },
     {
       heading: '多重策略与「边界」策略',
       variant: 1,
       steps: [
-        '载入「多重保护（数据帧携带剩余时间）」，悬停 0.736 ms 那一串里的数据帧，读出它们的 Duration。',
+        '载入「多重保护（数据帧携带剩余时间）」，悬停 0.744 ms 那一串里的数据帧，读出它们的 Duration。',
         '运行 300 ms，与本课场景、单次变体对照下表。',
       ],
       blocks: [
         { kind: 'table', heading: '同样的 300 ms，三种策略', head: ['300 ms 内的统计', '单次', '边界', '多重'], rows: [
-          ['碰撞次数', '46', '21', '21'],
-          ['成功送达的数据帧', '212', '614', '614'],
+          ['碰撞次数', '41', '26', '26'],
+          ['成功送达的数据帧', '269', '572', '572'],
           ['数据帧自己携带的 Duration，最长', '60 µs', '60 µs', '2.164 ms'],
-          ['发出的 CF-End（含接入点转发的）', '0', '198', '198'],
+          ['发出的 CF-End（含接入点转发的）', '0', '196', '196'],
         ] },
       ],
-      expect: '多重策略下，0.736 ms 那一串的五个数据帧依次写 2 084、1 668、1 252、836、420 µs，每一个都写到 3.264 ms；接入点的确认帧仍然写 0。碰撞、送达与 CF-End 的计数与「边界」策略逐一相同；「边界」与单次策略下数据帧只写 44 到 60 µs。',
+      expect: '多重策略下，0.744 ms 那一串的五个数据帧依次写 2 084、1 668、1 252、836、420 µs，每一个都写到 3.272 ms；接入点的确认帧仍然写 0。碰撞、送达与 CF-End 的计数与「边界」策略逐一相同；「边界」与单次策略下数据帧只写 44 到 60 µs。',
       meaning: '多重策略的数据帧照 §9.2.5.2 b) 重复预约的终点（②）。在这间房子里没有哪台站点需要它：唯一收不到 A 的 B 收得到接入点的 CTS，而 B 收不到 A 的数据帧（①）。',
     },
   ],

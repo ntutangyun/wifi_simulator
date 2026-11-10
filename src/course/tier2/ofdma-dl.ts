@@ -6,20 +6,19 @@
  * HE-SIG-B (§27.3.11.8.1, §26.5.1.2), every RU's PSDU padded to one end (§26.5.1.1), and the
  * acknowledgements that have to be solicited by a Trigger frame or a TRS Control subfield and
  * come back in HE TB PPDUs (§10.3.2.13.2, §26.4.4.3). ② what the engine does — an equal 1/n
- * split, at most four members, a fixed 44 + 4 µs opening, and BlockAcks nobody solicited.
- * ③ four runs.
+ * split, at most four members, a flat 4 µs for the HE-SIG-B, and BlockAcks nobody solicited;
+ * since 2026-11-11 (W6) the rest of the TXTIME follows Eq 27-149 (the 43.2 µs preamble, the
+ * LDPC symbol count of MCS 11, the packet extension). ③ four runs.
  *
  * What the lesson must never claim is a throughput win: with this fixed video load the frames
- * delivered are identical with OFDMA and without, and the whole gain is 1.44 ms of air over
- * 300 ms. The base scenario builder is unchanged, so the recorded timeline hash in
- * tests/fixtures/lesson-hashes.json stays byte-identical; the two variants are the base scene
- * with OFDMA switched off on some nodes. Every figure printed below is read back out of the
- * lesson text in tests/course/ofdma-dl.test.ts.
+ * delivered are identical with OFDMA and without, and the whole gain is a few ms of air over
+ * 300 ms. The two variants are the base scene with OFDMA switched off on some nodes. Every
+ * figure printed below is read back out of the lesson text in tests/course/ofdma-dl.test.ts.
  */
 import { type Lesson, oneRoom, node, sc, txOf, firstMuDl, J } from '../lessonKit'
 import type { Scenario } from '../../model/scenario'
 import type { FieldsSpec } from '../diagram'
-import { PHY_MODES } from '../../engine/phy'
+import { PHY_MODES, ppduTiming } from '../../engine/phy'
 
 /** The symbols each half-channel member of the run's MU PPDU needs for its 1434 B. */
 export const MU_SYMBOLS = 12
@@ -35,15 +34,18 @@ const us = (ns: number): number => Math.round(ns / 100) / 10
 export function muPpduFields(): FieldsSpec {
   const m = PHY_MODES.he
   const payloadNs = m.symNs * MU_SYMBOLS
+  // The member this run sends: 1434 B at HE-MCS 11 on half the channel (Eq 27-149).
+  const t = ppduTiming('he', 1434, 11, { mu: true, ruFraction: 0.5 })
   return {
     kind: 'fields',
     fields: [
       { label: '前导码', size: us(m.preambleNs) },
       { label: '多用户信令', size: us(m.muExtraPreambleNs) },
       { label: '各资源单元的数据', size: us(payloadNs) },
+      { label: '包扩展', size: us(t.peNs) },
     ],
     unit: 'µs',
-    total: `共 ${us(m.preambleNs + m.muExtraPreambleNs + payloadNs)} µs`,
+    total: `共 ${us(m.preambleNs + m.muExtraPreambleNs + payloadNs + t.peNs)} µs`,
   }
 }
 
@@ -69,7 +71,7 @@ export const ofdmaDl: Lesson = {
   id: 'ofdma-dl',
   module: 9,
   title: 'OFDMA 下行——一次发送服务多台设备',
-  why: 'IEEE 802.11-2024 的高效率（high efficiency, HE）物理层（physical layer, PHY），也就是 Wi-Fi 6，允许接入点（access point, AP）在一次发送里同时服务几台站点（station, STA），即多用户（multi-user, MU）发送：信道的子载波（sub-carrier）按标准的音调表分成若干资源单元（resource unit, RU），每台站点只解调分给自己的那一个。这种方式称为正交频分多址（orthogonal frequency-division multiple access, OFDMA），这样的一次发送称为多用户 PPDU（multi-user PPDU, MU PPDU），本课的发送方向是从接入点到站点，称为下行（downlink, DL）。资源单元的尺寸和位置是标准固定的几种，20 MHz 信道最多分成九个；哪台站点得到哪一个，写在前导码（preamble）的 HE-SIG-B 字段里；各资源单元的数据填充（padding）到同一时刻结束。站点要在同一时刻回复确认，必须由接入点用触发帧（Trigger frame）或 TRS Control 子字段征询，回复是基于触发的 PPDU（trigger-based PPDU, TB PPDU）；没有被征询就不回复。接入点选哪些站点、给每台多大的资源单元，标准不规定。本仿真器把信道等分给至多四个成员，成员不经征询就各自回一个块确认（block acknowledgement, BlockAck）。在本课三台电视的房间里，划分资源单元不会让任何一台电视变快：开与关 OFDMA，每台电视收到的帧完全相同；节省的只是空口时间（airtime），300 ms 里组成 45 对，空口忙碌时间少 1.44 ms。',
+  why: 'IEEE 802.11-2024 的高效率（high efficiency, HE）物理层（physical layer, PHY），也就是 Wi-Fi 6，允许接入点（access point, AP）在一次发送里同时服务几台站点（station, STA），即多用户（multi-user, MU）发送：信道的子载波（sub-carrier）按标准的音调表分成若干资源单元（resource unit, RU），每台站点只解调分给自己的那一个。这种方式称为正交频分多址（orthogonal frequency-division multiple access, OFDMA），这样的一次发送称为多用户 PPDU（multi-user PPDU, MU PPDU），本课的发送方向是从接入点到站点，称为下行（downlink, DL）。资源单元的尺寸和位置是标准固定的几种，20 MHz 信道最多分成九个；哪台站点得到哪一个，写在前导码（preamble）的 HE-SIG-B 字段里；各资源单元的数据填充（padding）到同一时刻结束。站点要在同一时刻回复确认，必须由接入点用触发帧（Trigger frame）或 TRS Control 子字段征询，回复是基于触发的 PPDU（trigger-based PPDU, TB PPDU）；没有被征询就不回复。接入点选哪些站点、给每台多大的资源单元，标准不规定。本仿真器把信道等分给至多四个成员，成员不经征询就各自回一个块确认（block acknowledgement, BlockAck）。在本课三台电视的房间里，划分资源单元不会让任何一台电视变快：开与关 OFDMA，每台电视收到的帧完全相同；节省的只是空口时间（airtime），300 ms 里组成 52 对，空口忙碌时间少 2.4544 ms。',
   outcomes: [
     '说出标准对下行多用户发送规定了什么：资源单元的尺寸与位置、怎样通告、怎样结束、确认怎样征询',
     '分清本仿真器的哪些做法照标准、哪些是它自己的取法或与标准不同',
@@ -100,7 +102,7 @@ export const ofdmaDl: Lesson = {
     ] },
   ],
   implementation: [
-    { topic: 'PPDU 格式与时长', standard: 'HE MU PPDU，前导码含 HE-SIG-B，HE-SIG-B 的符号数随分配变化（§27.3.11.8，§26.5.1.1）', sim: '三台电视是 HE 站点，接入点发 HE MU PPDU。时长 = 44 µs 前导码 + 4 µs 多用户信令 + 13.6 µs × 符号数；44 µs 与 4 µs 是本仿真器取的代表值，不按字段逐项相加，也不随成员数变化。', kind: 'value' },
+    { topic: 'PPDU 格式与时长', standard: 'HE MU PPDU，前导码含 HE-SIG-B，HE-SIG-B 的符号数随分配变化（§27.3.11.8，§26.5.1.1）；TXTIME 按式 (27-149) 计算（§27.4.3）', sim: '三台电视是 HE 站点，接入点发 HE MU PPDU。时长按式 (27-149)：前导码逐个字段相加（一个空间流（spatial stream） 43.2 µs）+ 多用户信令 + 13.6 µs × 符号数 + 包扩展，符号数按成员各自的编码计算（第 11 级只能用 LDPC），取最长的成员。多用户信令一律按 4 µs 计，即一个 HE-SIG-B 符号，不随成员数与资源单元分配变化，这一点与标准不同。', kind: 'differs' },
     { topic: '资源单元尺寸', standard: '七种固定尺寸，位置由表 27-8 至表 27-10 给出（§27.3.2.2）', sim: '不按音调表划分：每个成员分到信道的 1/n，n 是成员数；两个成员各占一半。', kind: 'differs' },
     { topic: '选哪些站点', standard: '标准未规定', sim: '只看接入点此刻的同一个接入类别（access category, AC）队列（queue）：有数据、并协商过 OFDMA 的目的站点不少于两个，才组成一次多用户发送，按排队先后取前四个；不足两个就发单用户帧。', kind: 'choice' },
     { topic: '成员数上限', standard: '20 MHz 最多九个资源单元（表 27-7）', sim: '至多四个成员。', kind: 'value' },
@@ -125,12 +127,13 @@ export const ofdmaDl: Lesson = {
           ['每个成员分到的信道', '1/2'],
           ['每个成员每符号比特数', '1950 × 0.5 = 975'],
           ['每个成员的字节', '1434 B'],
-          ['每个成员的符号数', '⌈(16 + 8 × 1434 + 6) ÷ 975⌉ = ⌈11494 ÷ 975⌉ = 12'],
-          ['这一帧的时长', '44 + 4 + 13.6 × 12 = 211.2 µs'],
+          ['每个成员的符号数', '⌈(16 + 8 × 1434) ÷ 975⌉ = ⌈11488 ÷ 975⌉ = 12（第 11 级只能用 LDPC，没有尾比特（tail bits））'],
+          ['包扩展', '16 µs'],
+          ['这一帧的时长', '43.2 + 4 + 13.6 × 12 + 16 = 226.4 µs'],
         ] },
       ],
-      expect: '你应该看到：1068.7 µs 接入点发出一个 211.2 µs 的 HE MU PPDU，成员是电视 3 和电视 1，各承载 1434 字节、各占半条信道、各需 12 个符号；电视 2 不在其中，那一刻接入点的队列里没有发给它的帧。',
-      meaning: '这说明：两个成员同时结束，这是标准的要求（①）；每个成员分到半条信道、时长按 44 + 4 + 13.6 × 符号数计算，是本仿真器的取法（②）。',
+      expect: '你应该看到：1083.9 µs 接入点发出一个 226.4 µs 的 HE MU PPDU，成员是电视 3 和电视 1，各承载 1434 字节、各占半条信道、各需 12 个符号；电视 2 不在其中，那一刻接入点的队列里没有发给它的帧。',
+      meaning: '这说明：两个成员同时结束，这是标准的要求（①）；每个成员分到半条信道、多用户信令按 4 µs 计，是本仿真器的取法；前导码、符号数与包扩展按式 (27-149) 计算（②）。',
     },
     {
       heading: '两个块确认同时开始',
@@ -139,7 +142,7 @@ export const ofdmaDl: Lesson = {
         '跳到同时发出的块确认。',
         '读出两个块确认的发送者、开始时刻和时长，再往前查看有没有触发帧。',
       ],
-      expect: '你应该看到：1295.9 µs，即那一帧结束后 16 µs，电视 1 和电视 3 同时开始各自的块确认，各 32 µs；整段运行里接入点一个触发帧也没有发。',
+      expect: '你应该看到：1326.3 µs，即那一帧结束后 16 µs，电视 1 和电视 3 同时开始各自的块确认，各 32 µs；整段运行里接入点一个触发帧也没有发。',
       meaning: '这说明：标准要求这两个确认由触发帧或 TRS Control 征询、以 HE TB PPDU 回复（①）；本仿真器省去了征询，确认是自动回的，这是与标准不同的地方（②）。',
     },
     {
@@ -151,17 +154,17 @@ export const ofdmaDl: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '300 ms，开与关 OFDMA', head: ['测量项', '开 OFDMA', '关 OFDMA'], rows: [
-          ['接入点的数据发送次数', '1016', '1061'],
-          ['其中包含两台电视的', '45', '0'],
+          ['接入点的数据发送次数', '1009', '1061'],
+          ['其中包含两台电视的', '52', '0'],
           ['电视 1 / 2 / 3 收到的帧', '352 / 355 / 354', '352 / 355 / 354'],
-          ['空口忙碌的总时间', '161.5 ms', '163.0 ms'],
+          ['空口忙碌的总时间', '176.6 ms', '179.1 ms'],
         ] },
         { kind: 'table', heading: '同样两个视频帧，两种发法', head: ['发法', '前导码', '每帧的符号', '空口时间', '确认'], rows: [
-          ['逐帧发送', '44 µs × 2', '6 + 6', '125.6 µs × 2', '两个 28 µs 的确认帧，先后发送'],
-          ['一个 HE MU PPDU', '44 + 4 µs', '12', '211.2 µs', '两个 32 µs 的块确认，同时开始'],
+          ['逐帧发送', '43.2 µs × 2', '6 + 6', '140.8 µs × 2', '两个 28 µs 的确认帧，先后发送'],
+          ['一个 HE MU PPDU', '43.2 + 4 µs', '12', '226.4 µs', '两个 32 µs 的块确认，同时开始'],
         ] },
       ],
-      expect: '你应该看到：开 OFDMA 时接入点发了 1016 次，其中 45 次包含两台电视；关掉后发了 1061 次。每台电视收到的帧两种情况完全相同。空口忙碌时间少 1.44 ms：每组成一对，前导码省下 40 µs，块确认比确认帧（acknowledgement, ACK）长，又多用 8 µs，45 × 32 µs = 1.44 ms。',
+      expect: '你应该看到：开 OFDMA 时接入点发了 1009 次，其中 52 次包含两台电视；关掉后发了 1061 次。每台电视收到的帧两种情况完全相同。空口忙碌时间少 2.4544 ms：每组成一对，前导码与包扩展合计省下 55.2 µs，块确认比确认帧（acknowledgement, ACK）长，又多用 8 µs，52 × 47.2 µs = 2.4544 ms。',
       meaning: '这说明：在平稳的视频流里，OFDMA 不增加送达的数据，只节省空口时间，标准也没有承诺更多（①）；组队的机会少，是因为本仿真器只把此刻队列里有数据的电视编在一起（②）。',
     },
     {
@@ -171,13 +174,13 @@ export const ofdmaDl: Lesson = {
         '载入「电视 1 关闭 OFDMA」，运行 300 ms。',
         '统计多用户发送的次数和成员。',
       ],
-      expect: '你应该看到：多用户发送只剩 11 次，成员都是电视 2 和电视 3；电视 1 只被单独服务。',
-      meaning: '这说明：只有协商过 OFDMA 的站点才会被编入（②的分组规则）；组队次数从 45 降到 11，取决于两条队列同时有数据的时刻。',
+      expect: '你应该看到：多用户发送只剩 12 次，成员都是电视 2 和电视 3；电视 1 只被单独服务。',
+      meaning: '这说明：只有协商过 OFDMA 的站点才会被编入（②的分组规则）；组队次数从 52 降到 12，取决于两条队列同时有数据的时刻。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§27.3.2.2 与表 27-7、表 27-8（资源单元的尺寸、数目与位置）、§27.5.1（各尺寸资源单元的速率参数）、§27.3.11.8.1（HE-SIG-B 的资源分配信息）、§26.5.1.2（STA_ID）、§26.5.1.1（各资源单元同时结束、HE-SIG-B 的符号数、下行多用户交换的成败）、§10.3.2.13.2 与 §26.4.4.3（多用户 PPDU 的确认怎样征询）、§26.5.2.3.1（HE TB PPDU 在 SIFS 之后发送）、§10.13 与表 27-61（aPPDUMaxTime 5.484 ms）。',
-    '本仿真器的取值与取法：44 µs 前导码、4 µs 多用户信令与 13.6 µs 的符号（代表值，不逐字段相加）；信道按成员数等分；一次至多四个成员；块确认不经征询、以 24 Mb/s 发送；同组互不干扰。1016、45、352 / 355 / 354、161.5 ms 等计数来自本课场景 300 ms 的运行，可以复现。',
+    '本仿真器的取值与取法：多用户信令一律按 4 µs 计、包扩展的名义填充 16 µs；信道按成员数等分；一次至多四个成员；块确认不经征询、以 24 Mb/s 发送；同组互不干扰。1009、52、352 / 355 / 354、176.6 ms 等计数来自本课场景 300 ms 的运行，可以复现。',
   ],
   limits: [],
   scenario: () => ofdmaDlScenario(),
@@ -210,7 +213,7 @@ export const ofdmaDl: Lesson = {
         '每台电视的速率更高了',
       ],
       answer: 1,
-      explain: '平稳的视频流需要多少数据就是多少，分组不可能多送。它用更少的固定开销传送同样多的数据——这里是在 300 ms 内节省了 1.44 ms 的空口时间。',
+      explain: '平稳的视频流需要多少数据就是多少，分组不可能多送。它用更少的固定开销传送同样多的数据——这里是在 300 ms 内节省了 2.4544 ms 的空口时间。',
     },
     {
       q: '按 IEEE 802.11-2024，HE MU PPDU 里的站点怎样回块确认？',

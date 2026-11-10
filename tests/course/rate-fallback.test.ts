@@ -21,7 +21,7 @@ import { rate } from '../../src/course/tier2/rate'
 import { rateFallback, fallbackExcursionTiming } from '../../src/course/tier2/rate-fallback'
 import { rateScenario } from '../../src/course/wifiScenes'
 import type { TLRecord } from '../../src/model/records'
-import { ACK_TIMEOUT_NS } from '../../src/engine/phy'
+import { Simulation, timingFor } from '../../src/engine/simulation'
 import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -64,7 +64,31 @@ const lostAt: boolean[] = far.map((t, i) => {
   return badTs.some((x) => x >= end && x < next)
 })
 /** The index (0-based) of the second of the first two failures in a row. */
-const pair = lostAt.findIndex((x, i) => i > 0 && x && lostAt[i - 1])
+/**
+ * The first pair of losses at the ceiling after which the next ten frames all go at MCS 1 and are
+ * all answered, and the eleventh is back at MCS 2: lab 1's one-rung excursion. (2026-11-11, after
+ * W6: the run's very first pair, `firstPair`, is followed by more losses and goes down to MCS 0.)
+ */
+const pair = lostAt.findIndex((x, i) => i > 0 && x && lostAt[i - 1] && far[i].frame.mcs === CEILING
+  && far.slice(i + 1, i + 11).every((r, k) => r.frame.mcs === CEILING - 1 && !lostAt[i + 1 + k]) && far[i + 11]?.frame.mcs === CEILING)
+const firstPair = lostAt.findIndex((x, i) => i > 0 && x && lostAt[i - 1])
+/** The three per-rung failure rates pooled over ten seeds: lab 2's 「十个种子合计」. */
+const TEN_SEEDS = [7, 1, 2, 3, 4, 5, 6, 8, 9, 10]
+const pooled = (() => {
+  const tot: Record<number, [number, number]> = { 0: [0, 0], 1: [0, 0], 2: [0, 0] }
+  for (const seed of TEN_SEEDS) {
+    const r2 = seed === 7 ? rs : [...new Simulation({ ...rateScenario(), seed }).runUntil(RUN_NS).records]
+    const f2 = data(r2, 'sta-2')
+    const bad = ofType(r2, 'RETRY').filter((r) => r.node === 'sta-2').map((r) => r.t)
+    f2.forEach((t, i) => {
+      const end = t.t + t.frame.txTimeNs
+      const next = i + 1 < f2.length ? f2[i + 1].t : Number.POSITIVE_INFINITY
+      tot[t.frame.mcs!][0]++
+      if (bad.some((x) => x >= end && x < next)) tot[t.frame.mcs!][1]++
+    })
+  }
+  return (mcs: number): number => pct(tot[mcs][1], tot[mcs][0])
+})()
 
 const runsAt = (want: number): number[] => {
   const out: number[] = []
@@ -168,8 +192,8 @@ describe('rate-fallback · the lesson', () => {
 })
 
 describe('rate-fallback · ② says what the engine does, and the engine does it', () => {
-  it('速率选择算法: the rule reproduces the run attempt for attempt, all 3,003 of them', () => {
-    expect(far.length).toBe(3_003)
+  it('速率选择算法: the rule reproduces the run attempt for attempt, all 2,880 of them', () => {
+    expect(far.length).toBe(2_880)
     let rung = CEILING, fails = 0, succ = 0
     for (let i = 0; i < far.length; i++) {
       expect(far[i].frame.mcs, `attempt ${i} at t=${far[i].t}`).toBe(rung)
@@ -207,9 +231,15 @@ describe('rate-fallback · ② says what the engine does, and the engine does it
     expect(implRow('可用的级别与上限').sim).toContain('减去 3 dB')
   })
 
-  it('失败的判定: the timeout is 45 µs, and both shapes of failure feed the rule', () => {
-    expect(ACK_TIMEOUT_NS).toBe(45_000)
-    expect(implRow('失败的判定').sim).toContain(`共 ${ACK_TIMEOUT_NS / 1000} µs`)
+  it('失败的判定: the timeout is 49 µs (HE aRxPHYStartDelay, 2026-11-11 W6), and both shapes of failure feed the rule', () => {
+    const ackTimeoutNs = timingFor('5g', rateScenario().nodes.find((n) => n.id === 'sta-2')!.caps.generation).ackTimeoutNs
+    expect(ackTimeoutNs).toBe(49_000)
+    expect(implRow('失败的判定').sim).toContain(`16 + 9 + 24，共 ${ackTimeoutNs / 1000} µs`)
+    // and every ACK timeout on the timeline is that long after the frame it closes
+    for (const to of timeouts.slice(0, 20)) {
+      const tx = far.filter((r) => r.t + r.frame.txTimeNs <= to.t).pop()!
+      expect(to.t - (tx.t + tx.frame.txTimeNs)).toBe(ackTimeoutNs)
+    }
     expect(timeouts.length).toBeLessThan(far.filter((_, i) => lostAt[i]).length)
   })
 
@@ -255,6 +285,12 @@ describe('rate-fallback · ③ every figure the labs print is the run', () => {
     expect(upAt).toBe(back + 1)
     expect(back - (pair + 1)).toBe(UP_AFTER)
     expect(lostAt.slice(pair + 1, back).filter(Boolean)).toHaveLength(0)
+    // 「更早的第 135 与第 136 次也连续没有答复 … 一直降到 MCS 0」
+    const [ea, eb] = grab(l.expect, /更早的第 (\d+) 与第 (\d+) 次也连续没有答复/, 'lab 1 on the earlier pair').map(val)
+    expect([ea, eb]).toEqual([firstPair, firstPair + 1])
+    expect(firstPair).toBeLessThan(pair)
+    const nextUp = far.findIndex((r, i) => i > firstPair && r.frame.mcs === CEILING)
+    expect(Math.min(...far.slice(firstPair, nextUp).map((r) => r.frame.mcs!))).toBe(0)
     // 「单独丢一帧时，下一帧的级别不变」
     const lone = far.map((_r, i) => i).filter((i) => lostAt[i] && !lostAt[i - 1] && !lostAt[i + 1] && i + 1 < far.length)
     expect(lone.length).toBeGreaterThan(50)
@@ -297,24 +333,30 @@ describe('rate-fallback · ③ every figure the labs print is the run', () => {
     expect(failures).toBe(far.filter((_, i) => lostAt[i]).length)
     const [p2, p1, p0] = grab(lab('三秒内的失败率与跌落').expect, /失败率是 ([\d.]+)%、([\d.]+)% 与 ([\d.]+)%/, 'lab 2 on the three rates').map(val)
     expect([p2, p1, p0]).toEqual([perRung(2).pct, perRung(1).pct, perRung(0).pct])
-    expect(Math.max(p2, p1, p0) - Math.min(p2, p1, p0)).toBeLessThan(1)
-    expect(p0).toBeLessThanOrEqual(p1)
+    const e2 = lab('三秒内的失败率与跌落').expect
+    expect(e2).toContain(`最低一级只有 ${perRung(0).n} 次尝试`)
+    // 2026-11-11 (after W6): seed 7's MCS 0 row is 87 attempts; the 「几乎相同」 claim is the
+    // ten-seed pool's, and the pool is within one point across the three rungs
+    const [q2, q1, q0] = grab(e2, /十个种子合计，三级的失败率是 ([\d.]+)%、([\d.]+)% 与 ([\d.]+)%/, 'lab 2 on the pool').map(val)
+    expect([q2, q1, q0]).toEqual([pooled(2), pooled(1), pooled(0)])
+    expect(Math.max(q2, q1, q0) - Math.min(q2, q1, q0)).toBeLessThan(1.5)
+    expect(q0).toBeLessThanOrEqual(q2)
   })
 
-  it('lab 2: 25 excursions, six of them to the bottom rung, and how long each lasts', () => {
+  it('lab 2: 30 excursions, three of them to the bottom rung, and how long each lasts', () => {
     const t = tableOf(lab('三秒内的失败率与跌落'), '同样这三秒内，以低于上限的级别发送的情况')
     const row = (needle: string): string => t.rows.find((r) => r[0].includes(needle))![1]
     const bottom = runsAt(0)
     expect(val(row('降到上限以下的次数'))).toBe(excursions())
     expect(val(row('其中一直降到最低一级的'))).toBe(bottom.length)
-    expect(row('这六次各持续了多少帧').split(', ').map(val)).toEqual([...bottom].sort((a, b) => a - b))
+    expect(row('各持续了多少帧').split(', ').map(val)).toEqual([...bottom].sort((a, b) => a - b))
     expect(row('规则允许的最短回升')).toBe(`${UP_AFTER} 帧`)
     const e = lab('三秒内的失败率与跌落').expect
     const [all, deep] = grab(e, /(\d+) 次跌落里有 (\d+) 次降到最低一级/, 'lab 2 on the excursions').map(val)
     expect([all, deep]).toEqual([excursions(), bottom.length])
-    expect(bottom.filter((n) => n === UP_AFTER)).toHaveLength(3)
-    expect(e).toContain('其中三次用了规则允许的最短十帧')
-    const rest = grab(e, /持续 (\d+)、(\d+)、(\d+) 帧/, 'lab 2 on the other three').map(val)
+    expect(bottom.filter((n) => n === UP_AFTER)).toHaveLength(1)
+    expect(e).toContain('其中一次用了规则允许的最短十帧')
+    const rest = grab(e, /持续 (\d+)、(\d+) 帧/, 'lab 2 on the other two').map(val)
     expect(rest).toEqual(bottom.filter((n) => n !== UP_AFTER).sort((a, b) => a - b))
   })
 
@@ -333,9 +375,10 @@ describe('rate-fallback · ③ every figure the labs print is the run', () => {
   it('the quiz’s three rates are lab 2’s', () => {
     const q = rateFallback.quiz[1]
     const [m1, m0] = grab(q.options[1], /([\d.]+)% 对 ([\d.]+)%/, 'quiz 2').map(val)
-    expect([m1, m0]).toEqual([perRung(1).pct, perRung(0).pct])
+    expect([m1, m0]).toEqual([pooled(1), pooled(0)])
     const [a, b, c] = grab(q.explain, /([\d.]+)%、([\d.]+)%、([\d.]+)%/, 'quiz 2 explain').map(val)
-    expect([a, b, c]).toEqual([perRung(2).pct, perRung(1).pct, perRung(0).pct])
+    expect([a, b, c]).toEqual([pooled(2), pooled(1), pooled(0)])
+    expect(rateFallback.why).toContain('十个随机种子合计，三个级别上每次尝试的失败率几乎相同')
   })
 })
 

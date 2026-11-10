@@ -213,7 +213,7 @@ export const GLOSSARY: GlossaryGroup[] = [
       {
         term: 'Preamble',
         alt: '前导（数据之前的 PHY 头）',
-        def: '每个 PPDU 无论净荷多少都要付出的固定开销：非 HT 20 µs、VHT 40 µs、HE 44 µs、EHT 48 µs。这正是小帧代价高昂的原因。',
+        def: '每个 PPDU 无论净荷多少都要付出的开销，按标准逐个字段相加：单个空间流时非 HT 20 µs、VHT 40 µs、HE 43.2 µs、EHT 51.2 µs，每多一档空间流就多几个训练字段（LTF）。这正是小帧代价高昂的原因。',
       },
       {
         term: 'MCS',

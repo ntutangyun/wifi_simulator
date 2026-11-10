@@ -122,10 +122,13 @@ describe('TXOP protection at the burst boundary', () => {
     expect(baseCollisions).toBeGreaterThan(5)
     // Per-exchange protection covers the first frame of each TXOP; the collisions it leaves are
     // the ones inside the burst, where the hidden station's NAV has already expired. Protecting
-    // the burst boundary removes more than half of them and trebles what reaches the AP.
-    expect(protCollisions).toBeLessThan(baseCollisions / 2)
+    // the burst boundary removes more than a third of them and more than doubles what reaches
+    // the AP (it trebled it before the re-measurement).
+    // (2026-11-11: re-measured after the standard's TXTIME and Duration rounding moved every
+    // instant — 26 against 41; it was "more than half".)
+    expect(protCollisions).toBeLessThan(baseCollisions * 2 / 3)
     const delivered = (recs: readonly TLRecord[]) =>
       recs.filter((r) => r.type === 'RX_OK' && r.node === 'ap' && r.frame.kind === 'data').length
-    expect(delivered(recs)).toBeGreaterThan(2.5 * delivered(base))
+    expect(delivered(recs)).toBeGreaterThan(2 * delivered(base))
   })
 })

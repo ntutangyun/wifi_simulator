@@ -17,7 +17,7 @@ import {
   DEFAULT_SIX_GHZ_CENTER_MHZ, ScenarioSchema, SIX_GHZ_GATE_MIN_WIDTH_MHZ, serverFor,
   type NodeCfg, type Scenario,
 } from '../model/scenario'
-import type { Ns } from '../model/types'
+import type { Generation, Ns } from '../model/types'
 import { applyRecord, cloneView, initViewState, type Snapshot, type ViewState } from '../model/view'
 import { nbListOverlapsSixGhz } from '../uwb/nb'
 import { UwbNetwork } from '../uwb/network'
@@ -30,7 +30,7 @@ import { Channel, type BsGeometry, type ChannelSpectrum } from './channel'
 import { EventQueue } from './events'
 import { hashStr } from './hash'
 import { WifiMac } from './mac'
-import { ERP_2G, mcsForRssi, OFDM_5G, PHY_MODES, TGI_NS, type PhyTiming } from './phy'
+import { ERP_2G, mcsForRssi, OFDM_5G, PHY_MODES, TGI_NS, timingForGen, type PhyTiming } from './phy'
 import { buildLinkTable } from './propagation'
 import { AcQueues } from './queues'
 import { RateControl } from './rate'
@@ -50,9 +50,34 @@ export interface Batch {
 /** Extra path loss per link relative to the 5 GHz table (higher frequency loses more; 2.4 GHz loses 6.5 dB less). */
 export const LINK_EXTRA_LOSS_DB: Record<LinkId, number> = { '2g': -6.5, '5g': 0, '6g': 1.2 }
 
-/** Interframe timing of a link's PHY: clause 18 ERP-OFDM on 2.4 GHz, clause 17 OFDM elsewhere. */
-export function timingFor(link: LinkId): PhyTiming {
-  return link === '2g' ? ERP_2G : OFDM_5G
+/**
+ * Interframe timing of a link's PHY: clause 18 ERP-OFDM on 2.4 GHz, clause 17 OFDM elsewhere —
+ * and, given the STA's generation, aRxPHYStartDelay / AckTimeout of the PHY clauses that STA
+ * supports (§6.7.4.4, `timingForGen`). Without a generation it is the band's clause 17/18 timing.
+ */
+export function timingFor(link: LinkId, gen?: Generation): PhyTiming {
+  const band = link === '2g' ? ERP_2G : OFDM_5G
+  return gen === undefined ? band : timingForGen(band, gen)
+}
+
+/**
+ * Lower edge of the 6 GHz BSS's primary 20 MHz channel, MHz.
+ *
+ * "A 6 GHz-only AP should set up the BSS with a primary 20 MHz channel that coincides with a
+ * preferred scanning channel (PSC)" (§26.17.2.3); PSCs are the 20 MHz channels centred at
+ * 5950 − 55 + 80·n MHz, n = 1…15 (§26.17.2.3.3). So the primary 20 MHz channel is the lowest
+ * 20 MHz subchannel of the operating channel that is a PSC, or — when the operating channel holds
+ * none (a 20 or 40 MHz channel off the PSC raster) — its lowest 20 MHz subchannel. Which
+ * subchannel is primary is the AP's choice; following the standard's "should" is the simulator's.
+ */
+export function primary20LoMhz(centerMhz: number, widthMhz: number): number {
+  const lo = centerMhz - widthMhz / 2
+  for (let i = 0; i < Math.max(1, Math.round(widthMhz / 20)); i++) {
+    const c = lo + 10 + 20 * i
+    const n = (c - 5895) / 80
+    if (Number.isInteger(n) && n >= 1 && n <= 15) return lo + 20 * i
+  }
+  return lo
 }
 
 /** An AMP tag with no transmitter of its own. A tag saved before the tier existed states no
@@ -197,6 +222,7 @@ export class Simulation {
               txPowerOf: (id) => byId.get(id)!.txPowerDbm,
               centerMhz,
               widthMhz,
+              primary20LoMhz: primary20LoMhz(centerMhz, widthMhz),
             }
           }
         }
@@ -265,7 +291,7 @@ export class Simulation {
               edca,
               txop: edca && hasFeature(n, 'txop') && hasFeature(ap, 'txop'),
               isAp: n.kind === 'ap',
-              timing: timingFor(link),
+              timing: timingFor(link, n.caps.generation),
               ampAp: polls ? n.ampAp : undefined,
               ampTiers: polls ? { active: activeTags, backscatter: bsTags && !!n.ampAp!.backscatter } : undefined,
               ampBsTagIds: polls ? members.filter(isBsTag).map((m) => m.id) : undefined,

@@ -239,7 +239,7 @@ describe('what uhr does NOT claim from the draft', () => {
     // Same airtime per symbol and same preamble at every GI tier, for every rung both ladders
     // share — so a throughput difference between the two modes can only come from N_DBPS.
     for (const gi of [TGI_NS.base, TGI_NS.double, TGI_NS.quad]) {
-      expect(preambleNsFor('uhr', gi)).toBe(PHY_MODES.eht.preambleNs)
+      expect(preambleNsFor('uhr', gi)).toBe(preambleNsFor('eht', gi))
       expect(symNsFor('uhr', gi)).toBe(PHY_MODES.eht.symNs)
     }
   })

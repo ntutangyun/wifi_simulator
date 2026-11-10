@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { Channel, type ChannelSpectrum, type PhyListener } from '../../src/engine/channel'
 import { EventQueue } from '../../src/engine/events'
 import { CCA_ED_DBM, noiseDbm, sinrThreshDb, txTimeNs } from '../../src/engine/phy'
-import { Simulation } from '../../src/engine/simulation'
+import { Simulation, primary20LoMhz } from '../../src/engine/simulation'
 import { Spectrum, uwbToWifiPathLossDb, type Emission } from '../../src/engine/spectrum'
 import type { FrameDesc } from '../../src/model/frames'
 import { makeEmitter, type TLRecord } from '../../src/model/records'
@@ -80,6 +80,7 @@ function setup(links: Record<string, number>, mode: SpectrumMode) {
     txPowerOf: () => 20,
     centerMhz: CENTER_MHZ,
     widthMhz: WIDTH_MHZ,
+    primary20LoMhz: primary20LoMhz(CENTER_MHZ, WIDTH_MHZ),
   }
   const ch = new Channel(q, () => now, table, emit, mode === 'none' ? undefined : hook)
   const noop: PhyListener = {

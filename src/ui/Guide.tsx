@@ -717,7 +717,7 @@ export function Guide() {
         规则（草案规定的是按发射时隙退避）：该设备在这个测距块剩余时间内不再发送任何窄带帧，也就丢掉了它在这块
         里的全部轮次。一个 20 dBm、80 MHz 的 Wi-Fi PPDU 会向 2.5 MHz 内投入 4.95 dBm，按 Wi-Fi 的路径损耗
         律，它在 <b>≈ 8.6 m</b> 处降到 {NB_LBT_DBM} dBm——在一台正在发射的 6E AP 的这个半径之内，每一次
-        评估都是忙。反方向也成立：一帧 {dbFmt(NB_TX_DBM)} dBm 的窄带帧落在 AP 的 80 MHz 信道内，在{' '}
+        评估都是忙。反方向也成立：一帧 {dbFmt(NB_TX_DBM)} dBm 的窄带帧落在 AP 的主 20 MHz 信道内，在{' '}
         <b>≈ 15 m</b> 处仍有 −62 dBm，因此在这个范围内 Wi-Fi 的能量检测反而会为它让路——与第 11 节那
         40 cm 恰好相反，这也正是这套电台才是共存故事中有趣那一半的原因。
       </p>
@@ -1603,7 +1603,7 @@ export function Guide() {
         <b> {SSBD_REPORT_SLACK_US} µs</b>（都从 <code>NB_WINDOW_SLOTS</code> 个测距时隙减去消息本身
         的收发时间算出，窄带发射用的是 600 RSTU 的 MMS 时隙）。{SSBD_BOUND_US} µs 的上界等不过
         仿真场景里任何一帧 Wi-Fi 数据帧；而要是把退避单位调到能塞进这格余量的最大值，付出的
-        {SSBD_POLL_SLACK_US} µs 仍然短于场景里最长的那一帧 Wi-Fi 数据帧（469.6 µs）——调大这个
+        {SSBD_POLL_SLACK_US} µs 仍然短于场景里最长的那一帧 Wi-Fi 数据帧（477.0 µs）——调大这个
         旋钮并不能换来更多，因为这段等待是从消息自己的窗口里扣出来的，窗口本身并没有变大。
       </p>
       <p style={p}>
@@ -1614,15 +1614,15 @@ export function Guide() {
           <tr><th style={cellHead}>设置</th><th style={cellHead}>测距成功次数</th></tr>
         </thead>
         <tbody>
-          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>47</td></tr>
-          <tr><td style={cell}>本仿真器既有的规则（一次忙检测封住整个测距块；草案没有这条规则）</td><td style={cell}><b>1</b></td></tr>
-          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}>50</td></tr>
-          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>3</b></td></tr>
+          <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>52</td></tr>
+          <tr><td style={cell}>本仿真器既有的规则（一次忙检测封住整个测距块；草案没有这条规则）</td><td style={cell}><b>3</b></td></tr>
+          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}>49</td></tr>
+          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>5</b></td></tr>
         </tbody>
       </table>
       <p style={p}>
         第二行是 SSBD 要替代的那条规则：一次忙检测就封住整个测距块剩余时间的窄带发射，
-        47 次周期里丢了 46 次。SSBD 的缺省参数把它们基本都要了回来——不是因为它等得过任何干扰，
+        52 次周期里丢了 49 次。SSBD 的缺省参数把它们基本都要了回来——不是因为它等得过任何干扰，
         而是因为 {SSBD_BOUND_US} µs 等不过任何一帧，退避总会用尽，收尾动作缺省又是照发，于是
         它和完全不先听后发几乎没有分别。而把退避单位调到最大反而更差：那段更长的等待仍然要从
         消息自己的窗口里扣，窗口之外的那一帧仍然挤得进来，于是发送的时机被推到窗口末尾，

@@ -19,7 +19,8 @@ import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKi
 import { ZH_TERMS, gradedProseTexts, zhAkaViolations, zhTermFailure } from '../../src/course/readability'
 import type { TLRecord } from '../../src/model/records'
 import { negotiatedNss, nssOf } from '../../src/model/caps'
-import { PHY_MODES, TGI_NS, TLTF_2X_NS, reqSinrDb, toneRatio, txTimeModeNs } from '../../src/engine/phy'
+import { PHY_MODES, TGI_NS, TLTF_2X_NS, preambleNsFor, reqSinrDb, toneRatio, txTimeModeNs } from '../../src/engine/phy'
+import { ppduLayout } from '../../src/model/frameFields'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -97,7 +98,7 @@ describe('streams · the lesson', () => {
   })
 
   it('marks what the engine does not do', () => {
-    expect(implRow('EHT-LTF 的个数').kind).toBe('differs')
+    expect(implRow('EHT-LTF 的个数').kind).toBe('faithful') // 2026-11-11 (W6)
     expect(implRow('最多几条流').kind).toBe('absent')
     expect(implRow('MIMO 信道').kind).toBe('absent')
     expect(implRow('降低流数').kind).toBe('absent')
@@ -135,17 +136,17 @@ describe('streams · ② says what the engine does, and the engine does it', () 
     expect(implRow('链路的流数').sim).toContain('两端中较小的那个')
   })
 
-  it('the preamble does not grow with the streams; Table 36-43 says it should, by 7.2 and 21.6 µs', () => {
-    for (const nss of [1, 2, 4]) {
-      expect(txTimeModeNs('eht', OCTETS, 13, { nss }) - PHY_MODES.eht.preambleNs).toBe(
-        PHY_MODES.eht.symNs * Math.ceil((16 + 8 * OCTETS + 6) / (PHY_MODES.eht.ndbps[13] * nss)))
-    }
+  it('the preamble grows with the streams as Table 36-43 says: 7.2 and 21.6 µs', () => {
+    // 2026-11-11 (W6): the preamble carries N_EHT-LTF from Table 36-43.
+    expect(implRow('EHT-LTF 的个数').kind).toBe('faithful')
     const extra = (nss: number) => ((LTF_FOR_NSS[nss] - LTF_FOR_NSS[1]) * ltfUs).toFixed(1)
+    for (const nss of [2, 4]) {
+      expect(((preambleNsFor('eht', TGI_NS.base, { nss }) - preambleNsFor('eht')) / US).toFixed(1)).toBe(extra(nss))
+    }
     const sim = implRow('EHT-LTF 的个数').sim
-    expect(sim).toContain(`前导码固定 ${PHY_MODES.eht.preambleNs / US} µs`)
-    expect(sim).toContain(`每个 ${ltfUs.toFixed(1)} µs 计，2 条流的前导码应比 1 条流长 ${extra(2)} µs，4 条流长 ${extra(4)} µs`)
+    expect(sim).toContain(`每个 ${ltfUs.toFixed(1)} µs，2 条流的前导码比 1 条流长 ${extra(2)} µs，4 条流长 ${extra(4)} µs`)
     expect(streams.quiz[1].explain).toContain(`每个 2× EHT-LTF ${ltfUs.toFixed(1)} µs，多 3 个就是 ${extra(4)} µs`)
-    expect(lab('一条、两条、四条流').meaning).toContain(`本应多 ${extra(4)} µs`)
+    expect(lab('一条、两条、四条流').meaning).toContain(`4 条流的前导码比 1 条流长 ${extra(4)} µs`)
   })
 
   it('the requirement takes no stream count, and the scenes cap at four', () => {
@@ -165,21 +166,27 @@ describe('streams · ③ every figure the labs print is the run', () => {
     const l = lab('一条、两条、四条流')
     const rows = tableOf(l, '1530 字节的帧，20 MHz').rows
     const data: number[] = []
+    const pre: number[] = []
     ;[0, 1, 2].forEach((v, i) => {
       const rs = runOf(streams, v, RUN_NS)
       const d = bigData(rs)
       const nss = linkNss(v)
       const t = one(d.map((r) => r.frame.txTimeNs))
       expect(one(d.map((r) => r.frame.bytes))).toBe(OCTETS)
+      const lay = ppduLayout(d[0]!.frame)
+      const seg = (k: string) => lay.find((s) => s.key === k)!
+      expect(lay.reduce((a, s) => a + s.durNs, 0)).toBe(t)
       expect(rows[i]).toEqual([String(nss), String(one(d.map((r) => r.frame.mcs))),
-        String(PHY_MODES.eht.ndbps[13] * nss), String((t - PHY_MODES.eht.preambleNs) / PHY_MODES.eht.symNs), `${us1(t)} µs`])
+        String(PHY_MODES.eht.ndbps[13] * nss), String(seg('data').symbols), `${us1(seg('preamble').durNs)} µs`, `${us1(t)} µs`])
+      expect(seg('preamble').durNs).toBe(preambleNsFor('eht', TGI_NS.base, { nss }))
       expect(one(ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ack').map((r) => r.frame.txTimeNs))).toBe(28 * US)
-      data.push(t - PHY_MODES.eht.preambleNs)
+      data.push(seg('data').durNs)
+      pre.push(seg('preamble').durNs)
     })
     expect(l.expect).toContain(`三个变体都是 MCS ${rows[0][1]}`)
     expect(l.expect).toContain(`数据部分从 ${us1(data[0])} µs 减半到 ${us1(data[1])} µs，4 条流时是 ${us1(data[2])} µs，而不是 ${us1(data[1] / 2)} µs`)
-    expect(l.expect).toContain(`前导码三档都是 ${PHY_MODES.eht.preambleNs / US} µs`)
-    expect(streams.why).toContain(`1 条流 ${rows[0][4]}，2 条流 ${rows[1][4]}，4 条流 ${rows[2][4]}`)
+    expect(l.expect).toContain(`前导码却从 ${us1(pre[0])} µs 增加到 ${us1(pre[1])} µs 与 ${us1(pre[2])} µs`)
+    expect(streams.why).toContain(`1 条流 ${rows[0][5]}，2 条流 ${rows[1][5]}，4 条流 ${rows[2][5]}`)
     expect(streams.why).toContain(`数据部分从 ${us1(data[0])} µs 减半到 ${us1(data[1])} µs，再到 ${us1(data[2])} µs，不是 ${us1(data[1] / 2)} µs`)
   })
 
@@ -208,9 +215,12 @@ describe('streams · ③ every figure the labs print is the run', () => {
     const single = txTimeModeNs('eht', OCTETS, 13, { widthMhz: 160, nss: 1 })
     const per = (nss: number) => PHY_MODES.eht.ndbps[13] * toneRatio('eht', 160) * nss
     expect(rows[0]).toEqual(['1（上一课）', String(per(1)), '1', `${us1(single)} µs`])
-    expect(rows[1]).toEqual([String(linkNss(4)), String(per(4)), String((t - PHY_MODES.eht.preambleNs) / PHY_MODES.eht.symNs), `${us1(t)} µs`])
-    expect(t).toBe(single)
-    expect(l.expect).toContain(`仍是 MCS ${one(d.map((r) => r.frame.mcs))}，一帧 ${us1(t)} µs`)
-    expect(streams.why).toContain(`4 条流也还是 ${us1(t)} µs`)
+    const syms = ppduLayout(d[0]!.frame).find((s) => s.key === 'data')!.symbols
+    expect(rows[1]).toEqual([String(linkNss(4)), String(per(4)), String(syms), `${us1(t)} µs`])
+    // 2026-11-11 (W6): one symbol either way, and four streams pay three more EHT-LTFs
+    expect(syms).toBe(1)
+    expect(t).toBeGreaterThan(single)
+    expect(l.expect).toContain(`仍是 MCS ${one(d.map((r) => r.frame.mcs))}，只有 1 个数据符号，一帧却是 ${us1(t)} µs，比上一课 160 MHz 单流的 ${us1(single)} µs 还长 ${us1(t - single)} µs`)
+    expect(streams.why).toContain(`4 条流反而要 ${us1(t)} µs`)
   })
 })

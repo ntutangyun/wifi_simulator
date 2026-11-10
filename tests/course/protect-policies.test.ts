@@ -185,7 +185,7 @@ describe('protect-policies · ② says what the engine does, and the engine does
 
 describe('protect-policies · ③ every figure the labs print is the run', () => {
   const rs = boundary()
-  const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+  const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
   const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
   const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
   const cf = txs(rs, (r) => r.frame.kind === 'cfend' && r.t > end.t)
@@ -205,7 +205,7 @@ describe('protect-policies · ③ every figure the labs print is the run', () =>
     expect([burst[2].fromUs, burst[2].toUs]).toEqual([rel(data[0].t), rel(end.t)])
     // lane 2: what the single run's CTS really carries for the same burst
     const s = single()
-    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+    const st0 = ofType(s, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
     const scts = txs(s, (r) => r.frame.kind === 'cts' && r.t > st0.t)[0]
     const one = lane('单次罩住').spans[0]
     expect(one.fromUs).toBe(rel(nav.t))
@@ -313,7 +313,7 @@ describe('protect-policies · ③ every figure the labs print is the run', () =>
     row('发出的 CF-End（含接入点转发的）').forEach((c, i) => expect(Number(c)).toBe(txs(runsByCol[i], (r) => r.frame.kind === 'cfend').length))
 
     const m = multiple()
-    const mt0 = ofType(m, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.736)!
+    const mt0 = ofType(m, 'TXOP_START').filter((r) => r.node === 'sta-1').find((r) => ms3(r.t) === 0.744)!
     const mend = ofType(m, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > mt0.t)!
     const mdata = txs(m, (r) => r.node === 'sta-1' && r.frame.kind === 'data' && r.t > mt0.t && r.t < mend.t)
     const [list, to] = grab(l.expect, /五个数据帧依次写 ([\d 、]+) µs，每一个都写到 ([\d.]+) ms/, 'lab 3 expect')

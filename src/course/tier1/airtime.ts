@@ -6,14 +6,14 @@
  * exchange this lesson times: the HE TXTIME (§27.4.3), the symbol and guard-interval
  * constants (§27.3.9 Table 27-13), the Ack frame (§9.3.1.4), the SIFS that precedes it
  * (§10.3.2.3.3, §10.3.2.11), the control response rate (§10.6.6.5.2 with §10.6.11) and the
- * AckTimeout. ② what this simulator does with each — including the four places it departs:
- * a single 44 µs preamble constant where the standard adds fields up to 43.2 µs, the BCC
- * symbol count on an MCS the standard codes with LDPC only, 52.8 instead of 52.0 µs on the
- * quadruple tier, and no propagation delay. ③ four runs.
+ * AckTimeout. ② what this simulator does with each. 2026-11-11 (W6): the engine computes the
+ * TXTIME field by field (43.2 µs preamble, the LDPC symbol count MCS 11 requires, the packet
+ * extension, 52.0 µs on the quadruple tier), so those four rows are faithful now; the 16 µs
+ * nominal packet padding is the receiver capability the simulator states. Still departing:
+ * no propagation delay. ③ four runs.
  *
- * The scenario builder is unchanged, so the recorded timeline hash in
- * tests/fixtures/lesson-hashes.json is byte-identical. Every figure printed below is read
- * back out of the lesson text in tests/course/airtime.test.ts and compared with a run.
+ * Every figure printed below is read back out of the lesson text in
+ * tests/course/airtime.test.ts and compared with a run.
  */
 import { PHY_MODES, SIFS_NS, TGI_NS, mcsRateMbps, symNsFor, txTimeModeNs } from '../../engine/phy'
 import type { TimingSpec } from '../diagram'
@@ -24,9 +24,11 @@ import { type Lesson, oneRoom, node, sc, firstData, firstAck, J } from '../lesso
  * answer are measured in the run; the preamble and the pause are the engine's
  * own constants, read from `PHY_MODES` and `SIFS_NS` rather than typed again.
  */
-// 125.6 is `giNumbers()[0].frameUs`, and a test welds the two.
-export const DATA_US = 125.6
+// 140.8 is `giNumbers()[0].frameUs`, and a test welds the two.
+export const DATA_US = 140.8
 export const PREAMBLE_US = PHY_MODES.he.preambleNs / 1000
+/** The packet extension of this frame: a = 4 at 16 µs nominal packet padding (Table 27-47). */
+export const PE_US = 16
 export const SIFS_US = SIFS_NS / 1000
 export const ACK_US = 28
 export const EXCHANGE_US = DATA_US + SIFS_US + ACK_US
@@ -63,15 +65,18 @@ export function exchangeTiming(): TimingSpec {
     lanes: [
       { label: '接入点', spans: [
         { label: '前导码', fromUs: 0, toUs: PREAMBLE_US },
-        { label: '6 个符号', fromUs: PREAMBLE_US, toUs: DATA_US, tone: 'accent' },
+        { label: '6 个符号', fromUs: PREAMBLE_US, toUs: DATA_US - PE_US, tone: 'accent' },
+        { label: 'PE', fromUs: DATA_US - PE_US, toUs: DATA_US },
       ] },
       { label: '电视', spans: [
         { label: '确认帧', fromUs: DATA_US + SIFS_US, toUs: EXCHANGE_US },
       ] },
     ],
-    // 141.6 — the instant the answer starts — is not a tick: its label collides with
-    // 125.6's at every panel width, and the 16 µs gap is what the figure draws anyway.
-    axis: { fromUs: 0, toUs: EXCHANGE_US, ticks: [0, PREAMBLE_US, DATA_US, EXCHANGE_US], unit: 'µs' },
+    // 156.8 — the instant the answer starts — is not a tick: its label collides with
+    // 140.8's at every panel width, and the 16 µs gap is what the figure draws anyway.
+    // 2026-11-11: EXCHANGE_US (184.8) is no longer a tick either — at 140.8 against 184.8 the two
+    // labels collide; the axis still ends there.
+    axis: { fromUs: 0, toUs: EXCHANGE_US, ticks: [0, PREAMBLE_US, DATA_US], unit: 'µs' },
   }
 }
 
@@ -79,7 +84,7 @@ export const airtime: Lesson = {
   id: 'airtime',
   module: 2,
   title: '帧要花“空口时间”',
-  why: '在一个房间里的一条信道上，同一时刻只能有一台设备发送，所以无线网络真正分配的是时间，而不是字节。IEEE 802.11-2024 用 TXTIME 公式给出一帧占用的空口时间（airtime）：开头是长度固定的前导码（preamble），后面是整数个数据符号（symbol），载荷（payload）翻倍时只有符号数翻倍。一次收发交互还包括一段短帧间间隔（short interframe space, SIFS）和接收方回复的确认帧（ACK）：发送方无法在发送的同时接收，只有确认帧能证明这一帧已经到达。确认帧的速率不是固定值，而是基本速率集里不超过数据帧（data frame）参考速率的最高一档；基本速率集里没有合适的速率时，取不超过它的最高一档强制速率（mandatory rate）。在本课的房间里，一次视频交互共 169.6 µs，传送载荷的只有 81.6 µs，其余都是固定开销。加长保护间隔（guard interval）会使每个符号都变长，同一级编码因此有三个速率；这个房间的空口远未占满，四倍保护间隔多用的空口时间全部落在原本空闲的时间里，送达的字节数不变。',
+  why: '在一个房间里的一条信道上，同一时刻只能有一台设备发送，所以无线网络真正分配的是时间，而不是字节。IEEE 802.11-2024 用 TXTIME 公式给出一帧占用的空口时间（airtime）：开头是长度固定的前导码（preamble），后面是整数个数据符号（symbol），载荷（payload）翻倍时只有符号数翻倍。一次收发交互还包括一段短帧间间隔（short interframe space, SIFS）和接收方回复的确认帧（ACK）：发送方无法在发送的同时接收，只有确认帧能证明这一帧已经到达。确认帧的速率不是固定值，而是基本速率集里不超过数据帧（data frame）参考速率的最高一档；基本速率集里没有合适的速率时，取不超过它的最高一档强制速率（mandatory rate）。在本课的房间里，一次视频交互共 184.8 µs，传送载荷的只有 81.6 µs，其余都是固定开销。加长保护间隔（guard interval）会使每个符号都变长，同一级编码因此有三个速率；这个房间的空口远未占满，四倍保护间隔多用的空口时间全部落在原本空闲的时间里，送达的字节数不变。',
   outcomes: [
     '按标准把一次收发交互分为四段，说出其中哪一段承载载荷（payload）',
     '按控制回应速率（control response rate）的规则算出确认帧（ACK）的速率与时长',
@@ -103,11 +108,11 @@ export const airtime: Lesson = {
     ] },
   ],
   implementation: [
-    { topic: '前导码部分的时长', standard: '36 µs 加若干个 HE-LTF 符号，逐个字段相加（§27.4.3，表 27-13）；一个 2x HE-LTF、0.8 µs 保护间隔时为 43.2 µs', sim: '取单一常数 44.0 µs，不随空间流（spatial stream）数与 HE-LTF 个数变化。', kind: 'differs' },
-    { topic: '包扩展', standard: '式 (27-149) 含包扩展，0 到 16 µs（§27.4.3，表 27-13）', sim: '不加包扩展。', kind: 'absent' },
+    { topic: '前导码部分的时长', standard: '36 µs 加若干个 HE-LTF 符号，逐个字段相加（§27.4.3，表 27-13）；一个 2x HE-LTF、0.8 µs 保护间隔时为 43.2 µs', sim: '逐个字段相加：一个空间流（spatial stream）时为 43.2 µs；HE-LTF 个数按表 21-13 随空间流数增加。', kind: 'faithful' },
+    { topic: '包扩展', standard: '式 (27-149) 含包扩展 T_PE；名义包扩展取决于接收方在 HE 能力元素中声明的名义填充（nominal packet padding），再按表 27-47 由预纠错填充因子 a 查出（§27.3.13，§26.12）', sim: '本仿真器没有能力交换，规定每个接收方都声明 16 µs 的名义填充；T_PE 按表 27-47 取 4a µs，本课这一帧 a = 4，包扩展 16 µs。', kind: 'value' },
     { topic: '数据符号的时长', standard: '12.8 µs 加保护间隔：13.6、14.4、16 µs（表 27-13）', sim: '照此取值。', kind: 'faithful' },
-    { topic: '数据符号的个数', standard: '调制与编码方式（modulation and coding scheme, MCS）第 10、11 级只能用 LDPC 编码，符号数按 §27.3.12.5.2 计算（§27.3.12.5）', sim: '一律按 ⌈(16 + 8 × 字节数 + 6) ÷ 每符号数据比特数⌉ 计数，这是 BCC 编码的算法，含 6 个尾比特（tail bits）。', kind: 'differs' },
-    { topic: '四倍保护间隔的前导码部分', standard: '4x HE-LTF 每个符号 16 µs，一个 HE-LTF 时前导码部分为 36 + 16 = 52.0 µs（表 27-13）', sim: '在 44.0 µs 上加 8.8 µs，即 52.8 µs。', kind: 'differs' },
+    { topic: '数据符号的个数', standard: '调制与编码方式（modulation and coding scheme, MCS）第 10、11 级只能用 LDPC 编码，符号数按 §27.3.12.5.2 计算（§27.3.12.5）', sim: '第 10、11 级按 §27.3.12.5.2 的 LDPC 算法计数（含 LDPC 附加符号段的判断）；BCC 与 LDPC 都允许时用 BCC，按式 (27-64) 计数。', kind: 'faithful' },
+    { topic: '四倍保护间隔的前导码部分', standard: '4x HE-LTF 每个符号 16 µs，一个 HE-LTF 时前导码部分为 36 + 16 = 52.0 µs（表 27-13）', sim: '照此计算：52.0 µs。', kind: 'faithful' },
     { topic: '保护间隔的收益', standard: '用来对抗时延扩展（§27.3.23）', sim: '不建模多径时延扩展：加长保护间隔只有时间代价，接收端的判决不受影响。', kind: 'absent' },
     { topic: '确认帧的格式', standard: '14 字节（§9.3.1.4）', sim: '14 字节，以非 HT 格式发送。', kind: 'faithful' },
     { topic: '确认帧的速率', standard: '基本速率集里不超过参考速率的最高一档，没有才取强制速率；还可以选备用速率（§10.6.6.5.2，§10.6.6.5.4）', sim: '没有基本速率集，直接在 6、12、24 Mb/s 里取不超过参考速率的最高一档，相当于基本速率集恰好是这三档；不选备用速率。', kind: 'value' },
@@ -126,16 +131,17 @@ export const airtime: Lesson = {
       blocks: [
         { kind: 'diagram', heading: '一次交互的时间分配（按比例绘制）', spec: exchangeTiming(), caption: '中间那段空白就是 16 µs 的短帧间间隔。' },
         { kind: 'table', heading: '这个房间里的一次交互', head: ['组成', '时长', '依据'], rows: [
-          ['数据帧的前导码', '44.0 µs', '本仿真器的常数（②）'],
+          ['数据帧的前导码', '43.2 µs', '表 27-13 逐个字段相加'],
           ['6 个数据符号 × 13.6 µs', '81.6 µs', '表 27-13 的符号时长'],
-          ['整个数据帧（1430 字节，第 11 级）', '125.6 µs', '前两行之和'],
+          ['包扩展', '16 µs', '表 27-47：a = 4，名义填充 16 µs（②）'],
+          ['整个数据帧（1430 字节，第 11 级）', '140.8 µs', '前三行之和'],
           ['应答之前的间隔', '16 µs', 'aSIFSTime'],
           ['确认帧（14 字节，24 Mb/s）', '28 µs', '§17.4.3'],
-          ['整次交互', '169.6 µs', '固定开销 88.0 µs，载荷 81.6 µs'],
+          ['整次交互', '184.8 µs', '固定开销 103.2 µs，载荷 81.6 µs'],
         ] },
       ],
-      expect: '你应该看到：每个数据帧都是 1430 字节、125.6 µs；确认帧在数据帧结束后 16 µs 开始，持续 28 µs。前 100 ms 里有 117 个数据帧、116 个确认帧，每个确认帧前的间隔都是 16 µs。169.6 µs 的交互中只有 81.6 µs 在传送载荷。',
-      meaning: '这说明：前导码、间隔和确认帧都不随载荷变化，这是 ① 的 TXTIME 公式的结构；44.0 µs 是本仿真器的取值，按表 27-13 逐个字段相加是 43.2 µs（②）。',
+      expect: '你应该看到：每个数据帧都是 1430 字节、140.8 µs；确认帧在数据帧结束后 16 µs 开始，持续 28 µs。前 100 ms 里有 117 个数据帧、116 个确认帧，每个确认帧前的间隔都是 16 µs。184.8 µs 的交互中只有 81.6 µs 在传送载荷。',
+      meaning: '这说明：前导码、包扩展、间隔和确认帧都不随载荷线性增长，这是 ① 的 TXTIME 公式的结构；前导码部分按表 27-13 逐个字段相加是 43.2 µs，包扩展的 16 µs 由接收方声明的名义填充决定（②）。',
     },
     {
       heading: '确认帧的速率与时长',
@@ -156,7 +162,7 @@ export const airtime: Lesson = {
         '载入本课场景，运行 100 ms。',
         '把所有数据帧与确认帧的时长加起来，与 100 ms 比较。',
       ],
-      expect: '你应该看到：117 个数据帧与 116 个确认帧共占用 17.9 ms，即前 100 ms 的 17.9 %；两次交互之间泳道空闲。',
+      expect: '你应该看到：117 个数据帧与 116 个确认帧共占用 19.7 ms，即前 100 ms 的 19.7 %；两次交互之间泳道空闲。',
       meaning: '这说明：这个房间的空口远未占满。占用率取决于场景的业务量，与标准无关；本课的视频业务模型是本仿真器的场景取值。',
     },
     {
@@ -174,18 +180,18 @@ export const airtime: Lesson = {
           `${r.mbps} Mb/s`,
         ]) },
         { kind: 'table', heading: '150 ms 内两种保护间隔', head: ['保护间隔', '帧数', '送达的字节数', '空口时间'], rows: [
-          ['0.8 µs', '350', '250 250', '26.88 ms'],
-          ['3.2 µs', '350', '250 250', '30.94 ms'],
+          ['0.8 µs', '350', '250 250', '29.54 ms'],
+          ['3.2 µs', '350', '250 250', '33.60 ms'],
         ] },
       ],
-      expect: '你应该看到：三档保护间隔下这一帧都是 6 个符号，只是每个符号变长；四倍保护间隔时帧数与送达的字节数都不变，空口时间从 26.88 ms 增加到 30.94 ms。',
+      expect: '你应该看到：三档保护间隔下这一帧都是 6 个符号，只是每个符号变长；四倍保护间隔时帧数与送达的字节数都不变，空口时间从 29.54 ms 增加到 33.60 ms。',
       meaning: '这说明：符号时长按 ① 的表 27-13 随保护间隔变化，同一级编码因此有三个速率；本仿真器不建模时延扩展，所以这里只看得到代价（②），这一轮的代价全部落在原本空闲的时间里。',
     },
   ],
   sources: [
     'IEEE Std 802.11-2024：§27.4.3（HE PPDU 的 TXTIME，式 (27-149)）、§27.3.9 表 27-13（各字段时长、保护间隔与符号时长）、§27.3.12.5（MCS 10、11 只用 LDPC）、§27.3.23（保护间隔对抗时延扩展）、§27.5 表 27-86（第 11 级的三列速率）、表 9-49（4x HE-LTF + 3.2 µs GI）。',
     '§9.3.1.4（确认帧格式）、§10.3.2.11（确认过程与 AckTimeout）、§10.3.2.3.3（SIFS）、表 27-61 与表 17-24（aSIFSTime 16 µs）、§10.6.6.5.2 与 §10.6.6.5.4（控制回应帧的主速率与备用速率）、§10.6.11 与表 10-10（非 HT 参考速率）、§17.1.1（强制速率 6、12、24 Mb/s）、§17.4.3（非 HT 帧的 TXTIME）。',
-    '本仿真器的取值与取法：44.0 µs 的 HE 前导码部分常数、没有包扩展、按 BCC 算法计数符号、四倍保护间隔时加 8.8 µs、没有基本速率集、没有传播时延。',
+    '本仿真器的取值与取法：每个接收方声明 16 µs 的名义填充、BCC 与 LDPC 都允许时用 BCC、没有基本速率集、没有传播时延。',
     '1430 字节的帧、产生它的视频业务模型，以及两台设备在房间里的位置，都是本仿真器的场景取值，标准正文里没有这些数字。',
   ],
   limits: [],
@@ -227,14 +233,14 @@ export const airtime: Lesson = {
       explain: '每个符号承载的比特越少，同样的载荷就需要越多符号，而每个符号的时长相同。两种情况下前导码部分完全相同。',
     },
     {
-      q: '把这一帧的载荷减半，那 169.6 µs 的交互会怎样？',
+      q: '把这一帧的载荷减半，那 184.8 µs 的交互会怎样？',
       options: [
         '也跟着减半',
         '减少 40.8 µs——正好是不再需要的那三个符号',
         '完全不变',
       ],
       answer: 1,
-      explain: '减少的只有符号数，从六个变成三个。前导码、间隔和应答帧都没有变，所以整次交互为 128.8 µs。',
+      explain: '减少的只有符号数，从六个变成三个。前导码、包扩展、间隔和应答帧都没有变（715 字节时预纠错填充因子仍是 a = 4，包扩展仍是 16 µs），所以整次交互为 144.0 µs。',
     },
     {
       q: '按标准，确认帧的速率怎样确定？',

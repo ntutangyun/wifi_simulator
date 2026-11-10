@@ -26,13 +26,13 @@ import { rolesStackScenario, firstRelayHop1, firstRelayHop2 } from './roles-stac
 export const RELAY_PAYLOAD_BYTES = 1400
 /** What the MAC makes of it on the air, in octets, and how long that takes at 20 MHz. */
 export const RELAY_FRAME_BYTES = 1430
-export const RELAY_FRAME_US = 125.6
+export const RELAY_FRAME_US = 140.8
 /** The AP's forwarding latency, in microseconds: `RELAY_FWD_NS` in src/engine/simulation.ts. */
 export const RELAY_FWD_US = 50
 /** The instants the figure prints, exactly as the lab's table writes them. */
 export const RELAY_HOP1_AT = '1.4157 ms'
-export const RELAY_HOP2_AT = '1.6353 ms'
-export const RELAY_DONE_AT = '1.8049 ms'
+export const RELAY_HOP2_AT = '1.6505 ms'
+export const RELAY_DONE_AT = '1.8353 ms'
 
 /**
  * One payload, from Phone B to Phone A: the two transmissions, the two answers
@@ -111,14 +111,14 @@ export const relayHops: Lesson = {
       blocks: [
         { kind: 'diagram', heading: '同一份载荷，两次发送', spec: relayHopsSequence(), caption: '图中的时刻就是时间轴上的时刻：两次发送各带一个确认帧，中间是接入点 50 µs 的转发。' },
         { kind: 'table', heading: '同一份载荷的五个时刻', head: ['时刻', '事件'], rows: [
-          ['1.4157 ms', '载荷到达手机 B，信道空闲，手机 B 立即发出一个 125.6 µs 的数据帧'],
-          ['1.5413 ms', '接入点接收完毕，16 µs 后回复一个 28 µs 的确认帧'],
-          ['1.5853 ms', '第一跳结束，用时 169.6 µs'],
-          ['1.6353 ms', '转发 50 µs 后，载荷进入发往手机 A 的队列，并立即发出'],
-          ['1.8049 ms', '手机 A 应答完毕；第二跳同样用时 169.6 µs'],
+          ['1.4157 ms', '载荷到达手机 B，信道空闲，手机 B 立即发出一个 140.8 µs 的数据帧'],
+          ['1.5565 ms', '接入点接收完毕，16 µs 后回复一个 28 µs 的确认帧'],
+          ['1.6005 ms', '第一跳结束，用时 184.8 µs'],
+          ['1.6505 ms', '转发 50 µs 后，载荷进入发往手机 A 的队列，并立即发出'],
+          ['1.8353 ms', '手机 A 应答完毕；第二跳同样用时 184.8 µs'],
         ] },
       ],
-      expect: '两跳各用 169.6 µs，中间是 50 µs 的转发；从载荷到达手机 B 到手机 A 应答完毕，全程 389.2 µs。',
+      expect: '两跳各用 184.8 µs，中间是 50 µs 的转发；从载荷到达手机 B 到手机 A 应答完毕，全程 419.6 µs。',
       meaning: '路径与标准一致（①）：同一 BSS 内的载荷由同一台接入点发送两次。50 µs 是本仿真器取的转发时延（②）；即使把它计为零，全程也仍是一跳的两倍，代价在于第二次排队与竞争，而不在于转发。',
     },
     {
@@ -146,9 +146,9 @@ export const relayHops: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '运行一秒的平均时延', head: ['场景', '电视（一跳）', '手机 A（两跳）', '手机 B（两跳）'], rows: [
-          ['本课场景', '0.73 ms', '1.31 ms', '1.33 ms'],
-          ['笔记本改为 idle', '0.32 ms', '0.68 ms', '0.70 ms'],
-          ['手机 B 移到手机 A 旁边', '0.67 ms', '1.28 ms', '1.27 ms'],
+          ['本课场景', '0.77 ms', '1.44 ms', '1.48 ms'],
+          ['笔记本改为 idle', '0.36 ms', '0.76 ms', '0.78 ms'],
+          ['手机 B 移到手机 A 旁边', '0.78 ms', '1.45 ms', '1.48 ms'],
         ] },
       ],
       expect: '每一行里手机互传的时延都约为电视的两倍；两部手机相距 0.5 m 时，时延没有缩短。',
@@ -157,7 +157,7 @@ export const relayHops: Lesson = {
   ],
   sources: [
     'IEEE Std 802.11-2024：§4.3.5.1（接入点与分发系统）、§4.5.2.1（同一 BSS 内的分发，输入与输出接入点相同）、§9.2.4.1.4 与表 9-3（To DS / From DS）、§9.3.2.1 与表 9-60（数据帧的地址字段）、§10.3.2.3.3、表 17-24 与表 27-61（SIFS，16 µs）、§10.3.2.14（重复帧的识别）、§11.20（TDLS）。',
-    '本仿真器的取值与取法：接入点转发时延 50 µs（src/engine/simulation.ts 的 RELAY_FWD_NS）、只在第一跳的帧被确认之后转发、字段视图里的地址 3 一律显示接入点。125.6 µs、28 µs、169.6 µs 与各个时刻都是本课场景的实测值。',
+    '本仿真器的取值与取法：接入点转发时延 50 µs（src/engine/simulation.ts 的 RELAY_FWD_NS）、只在第一跳的帧被确认之后转发、字段视图里的地址 3 一律显示接入点。140.8 µs、28 µs、184.8 µs 与各个时刻都是本课场景的实测值。',
   ],
   limits: [],
   scenario: rolesStackScenario,
@@ -186,7 +186,7 @@ export const relayHops: Lesson = {
         '因为第二跳的帧更长——多了一层帧头（MAC header）',
       ],
       answer: 1,
-      explain: '转发只占全程 389.2 µs 里的 50 µs，而且 50 µs 是本仿真器的取值。第二跳的开销来自它是一次完整的发送。',
+      explain: '转发只占全程 419.6 µs 里的 50 µs，而且 50 µs 是本仿真器的取值。第二跳的开销来自它是一次完整的发送。',
     },
     {
       q: '按表 9-60，第一跳（站点 → 接入点）的数据帧里，地址 3 应当填什么？',

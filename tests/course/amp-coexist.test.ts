@@ -26,6 +26,8 @@ const AP = 'ap#2g'
 const CAM = 'cam#2g'
 const TAGS = ['tag-1#2g', 'tag-2#2g']
 const NONE = 0, POLL20 = 1, WIFI_ONLY = 2
+/** The camera is an HE station: CTSTimeout = SIFS + slot + aRxPHYStartDelay (24 µs, Table 27-61) — §10.3.2.9, 2026-11-11 W6. */
+const CAM_CTS_TIMEOUT_NS = ERP_2G.sifsNs + ERP_2G.slotNs + 24 * US
 
 const recs = (variant?: number): TLRecord[] => runOf(ampCoexist, variant, RUN_NS)
 const txs = (rs: TLRecord[]) => ofType(rs, 'TX_START')
@@ -143,13 +145,24 @@ describe('amp-coexist · ② says what the engine does, and the engine does it',
     expect(EDCA_PARAMS[0].txopLimitNs).toBe(2_528_000)
   })
 
-  it('an RTS that met an AMP Ack inside its timeout window fails on the spot (§10.3.2.9)', () => {
-    const inside = camInSlot(rs)
+  it('an RTS whose timeout window saw an AMP frame start fails when that frame ends (§10.3.2.9)', () => {
+    // 2026-11-11 (W6): the in-slot RTS that used to meet an AMP Ack no longer does; the three RTS
+    // that start with the missed CTS-to-self each see the round's trigger start inside CTSTimeout.
     const timeouts = ofType(rs, 'CTS_TIMEOUT').filter((r) => r.node === CAM)
-    const [odd] = inside.filter((r) => !timeouts.some((t) => t.t === r.t + r.frame.txTimeNs + ERP_2G.ackTimeoutNs))
-    const end = odd.t + odd.frame.txTimeNs
-    const amp = ofType(rs, 'RX_OK').find((r) => r.node === CAM && r.t > end && r.frame.kind.startsWith('amp'))!
-    expect(ofType(rs, 'RETRY').some((r) => r.node === CAM && r.t === amp.t)).toBe(true)
+    const missed = unprotected(rs)
+    expect(missed.length).toBe(3)
+    for (const c of missed) {
+      const [rts] = txs(rs).filter((r) => r.node === CAM && r.t === c.t)
+      const end = rts.t + rts.frame.txTimeNs
+      const start = ofType(rs, 'RX_START').find((r) => r.node === CAM && r.t > end && r.frame.kind.startsWith('amp'))!
+      expect(start.frame.kind).toBe('ampTrigger')
+      expect(start.t).toBeLessThan(end + CAM_CTS_TIMEOUT_NS)
+      const amp = ofType(rs, 'RX_OK').find((r) => r.node === CAM && r.t > end && r.frame.kind.startsWith('amp'))!
+      expect(ofType(rs, 'RETRY').some((r) => r.node === CAM && r.t === amp.t)).toBe(true)
+      expect(timeouts.some((t) => t.t > rts.t && t.t <= amp.t)).toBe(false)
+    }
+    // every in-slot RTS times out at end + CTSTimeout
+    for (const r of camInSlot(rs)) expect(timeouts.some((t) => t.t === r.t + r.frame.txTimeNs + CAM_CTS_TIMEOUT_NS)).toBe(true)
   })
 
   it('the router answers no RTS while it runs a round', () => {
@@ -184,24 +197,24 @@ describe('amp-coexist · ③ every figure the labs print is the run', () => {
     expect([Number(m[5]), Number(m[6]), Number(m[7]), Number(m[8])]).toEqual([ERP_2G.sifsNs / US, 3, ERP_2G.slotNs / US, aifsNs(3, ERP_2G) / US])
     expect(f.note).toContain(`晚 ${(aifsNs(7, ERP_2G) - aifsNs(3, ERP_2G)) / US} µs`)
     const rs = recs()
-    const e = /两秒里轮询时钟要求 (\d+) 轮，也发出了 (\d+) 轮；CTS-to-self 平均比预定时刻晚 ([\d.]+) ms，最晚晚 ([\d.]+) ms。只有两轮准时：t = 0 的第一轮（路由器的 CTS-to-self 与摄像头的 RTS 同在 0 µs 开始），以及 ([\d.]+) s 那一轮/.exec(l.expect)!
+    const e = /两秒里轮询时钟要求 (\d+) 轮，也发出了 (\d+) 轮；CTS-to-self 平均比预定时刻晚 ([\d.]+) ms，最晚晚 ([\d.]+) ms。只有一轮准时：t = 0 的第一轮（路由器的 CTS-to-self 与摄像头的 RTS 同在 0 µs 开始）/.exec(l.expect)!
     expect(Number(e[1])).toBe(ROUNDS)
     expect(Number(e[2])).toBe(ofType(rs, 'AMP_ROUND').length)
     const late = lateNs(rs, 100)
     expect(e[3]).toBe((mean(late) / MS).toFixed(2))
     expect(e[4]).toBe((Math.max(...late) / MS).toFixed(2))
     const onTime = late.map((x, i) => [i, x] as const).filter(([, x]) => x === 0).map(([i]) => i)
-    expect(onTime.length).toBe(2)
+    expect(onTime.length).toBe(1)
     expect(roundCts(rs)[onTime[0]].t).toBe(0)
     expect(txs(rs).filter((r) => r.node === CAM && r.t === 0).map((r) => r.frame.kind)).toEqual(['rts'])
-    expect(roundCts(rs)[onTime[1]].t).toBe(Number(e[5]) * 1000 * MS)
+
     expect(ampCoexist.why).toContain(`它在开始退避（backoff）之前要等的仲裁帧间间隔（arbitration interframe space, AIFS）是 ${aifsNs(7, ERP_2G) / US} µs，AC_BE 只等 ${aifsNs(3, ERP_2G) / US} µs`)
   })
 
-  it('lab 2: the NAVs, the three missed rounds, the nine frames in a slot and the forty responses', () => {
+  it('lab 2: the NAVs, the three missed rounds, the ten frames in a slot and the forty responses', () => {
     const rs = recs()
     const e = lab('保护帧漏收的三轮').expect
-    const m = /摄像头在 (\d+) 轮里有 (\d+) 轮按 Duration 设了 (\d+) µs 的 NAV；漏收的三轮里，它的 RTS 都与 CTS-to-self 在同一时刻开始。整个运行里有 (\d+) 帧摄像头的帧落在时隙内，全是 RTS，都在这三轮里：(\d+) 帧以 CTS 超时告终，(\d+) 帧因超时窗口内收到一帧 AMP Ack 提前判失败。(\d+) 次作答有 (\d+) 次被确认（([\d.]+) %）；丢失的 (\d+) 次里，(\d+) 次是两个标签选中同一个时隙（共 (\d+) 次），(\d+) 次是与摄像头的帧相撞/.exec(e)!
+    const m = /摄像头在 (\d+) 轮里有 (\d+) 轮按 Duration 设了 (\d+) µs 的 NAV；漏收的三轮里，它的 RTS 都与 CTS-to-self 在同一时刻开始。整个运行里有 (\d+) 帧摄像头的帧落在时隙内，全是 RTS，都在这三轮里，(\d+) 帧都以 CTS 超时告终；这三轮开头与 CTS-to-self 同时发出的 (\d+) 帧 RTS，则因超时窗口内开始收到 AMP 触发帧，在触发帧收完时判失败。(\d+) 次作答有 (\d+) 次被确认（([\d.]+) %）；丢失的 (\d+) 次里，(\d+) 次是两个标签选中同一个时隙（共 (\d+) 次），(\d+) 次是与摄像头的帧相撞/.exec(e)!
     const n = m.slice(1).map(Number)
     const nav = camNav(rs)
     expect(n[0]).toBe(roundCts(rs).length)
@@ -217,7 +230,8 @@ describe('amp-coexist · ③ every figure the labs print is the run', () => {
     for (const r of inside) expect(windows.some((w) => r.t >= w.from && r.t <= w.to)).toBe(true)
     const timeouts = ofType(rs, 'CTS_TIMEOUT').filter((r) => r.node === CAM)
     expect(timeouts.length).toBe(n[4])
-    expect(inside.length - n[4]).toBe(n[5])
+    expect(inside.length).toBe(n[4])
+    expect(missed.length).toBe(n[5])
     expect(results(rs).length).toBe(n[6])
     expect(acked(rs)).toBe(n[7])
     expect(m[9]).toBe((n[7] / n[6] * 100).toFixed(1))

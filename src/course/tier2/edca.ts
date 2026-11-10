@@ -20,7 +20,7 @@
  *
  * The scenario builder and the jump predicates are unchanged, so the recorded timeline hash stays
  * identical (`edca-cost` loads the same scene). Every figure below is pinned in
- * tests/course/edca.test.ts against a 400 ms run.
+ * tests/course/edca.test.ts against a 500 ms run.
  */
 import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstVo, firstInternal, J } from '../lessonKit'
@@ -28,7 +28,7 @@ import { type Lesson, oneRoom, node, sc, firstVo, firstInternal, J } from '../le
 /**
  * The four categories' AIFS, drawn from one frame end to scale.
  *
- * The zero point is a real instant of this run — 23.0816 ms, the moment the air goes idle before
+ * The zero point is a real instant of this run — 23.1752 ms, the moment the air goes idle before
  * the caller's first voice frame — and the first lane is the frame that ended there: the access
  * point's 32 µs BlockAck, from 23.0496. 34 µs and 43 µs are records at that instant (the caller's
  * VO and the uploader's BE); 79 µs is the same sum, `aifsNs(AIFSN)`, for the category that had
@@ -105,15 +105,15 @@ export const edca: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '通话站点的第一帧语音，按步骤计算', head: ['步骤', '数值'], rows: [
-          ['介质重新空闲', '23.0816 ms'],
+          ['介质重新空闲', '23.1752 ms'],
           ['VO 的 AIFS = 16 + 2 × 9', '34 µs'],
-          ['第一个时隙边界，在 0 与 CWmin 3 之间抽取', '23.1156 ms · 抽到 2'],
-          ['同一个边界上计数减一', '23.1156 ms · 2 → 1'],
-          ['再过一个 9 µs 的空闲时隙', '23.1246 ms · 1 → 0'],
-          ['计数为零，在下一个边界发起 TXOP', '23.1336 ms'],
+          ['第一个时隙边界，在 0 与 CWmin 3 之间抽取', '23.2092 ms · 抽到 2'],
+          ['同一个边界上计数减一', '23.2092 ms · 2 → 1'],
+          ['再过一个 9 µs 的空闲时隙', '23.2182 ms · 1 → 0'],
+          ['计数为零，在下一个边界发起 TXOP', '23.2272 ms'],
         ] },
       ],
-      expect: '你应该看到：通话站点在 23.1156 ms 抽到 2，23.1336 ms 发送；接入点的语音队列在同一时刻同样抽到 2，也在 23.1336 ms 发送。两帧语音同时开始，都没有收到确认，两边各记一次重传。',
+      expect: '你应该看到：通话站点在 23.2092 ms 抽到 2，23.2272 ms 发送；接入点的语音队列在同一时刻同样抽到 2，也在 23.2272 ms 发送。两帧语音同时开始，都没有收到确认，两边各记一次重传。',
       meaning: '这说明：时隙边界上的操作照标准进行（①、②）。两个 VO 队列都从 0 到 3 里抽取，抽到同一个数的机会很大；EDCA 只区分不同类别，同一类别之间仍然靠随机抽取，抽到相同的数就在空中碰撞。',
     },
     {
@@ -121,17 +121,17 @@ export const edca: Lesson = {
       jump: 0,
       steps: [
         '在同一时刻查看各站点的 AIFS 记录，对照下图。',
-        '运行 400 ms，统计每台站点 AIFS 的长度与抽取时所用的窗口。',
+        '运行 500 ms，统计每台站点 AIFS 的长度与抽取时所用的窗口。',
       ],
       blocks: [
-        { kind: 'diagram', heading: '从同一个帧尾开始，四类各等多久', spec: edcaAifsTiming(), caption: '零点是本轮的 23.0816 ms：接入点（access point, AP）那个 32 µs 的块确认刚刚结束。此刻实际在等待的是 34 µs（通话站点）与 43 µs（上传站点）两条；79 µs 那条是按同一个计算式、以后台的 AIFSN 算出的。最上与最下相差 45 µs，正好五个时隙。' },
-        { kind: 'table', heading: '400 ms 里三台站点的 AIFS 与窗口', head: ['站点', '类别', '非零 AIFS 的长度', '抽取时的窗口'], rows: [
+        { kind: 'diagram', heading: '从同一个帧尾开始，四类各等多久', spec: edcaAifsTiming(), caption: '零点是本轮的 23.1752 ms：接入点（access point, AP）那个 32 µs 的块确认刚刚结束。此刻实际在等待的是 34 µs（通话站点）与 43 µs（上传站点）两条；79 µs 那条是按同一个计算式、以后台的 AIFSN 算出的。最上与最下相差 45 µs，正好五个时隙。' },
+        { kind: 'table', heading: '500 ms 里三台站点的 AIFS 与窗口', head: ['站点', '类别', '非零 AIFS 的长度', '抽取时的窗口'], rows: [
           ['通话站点', 'VO', '34 µs', '3、7'],
           ['上传站点', 'BE', '43 µs', '15、31'],
           ['备份站点', 'BK', '79 µs', '15、31'],
         ] },
       ],
-      expect: '你应该看到：三台站点的非零 AIFS 各只有一个长度，分别是 34、43、79 µs；通话站点的窗口只出现过 3 和 7，上传与备份站点只出现过 15 和 31。上传站点另有几段 103 µs 的等待，那是接收出错之后的等待，下一课讲。',
+      expect: '你应该看到：三台站点从介质转为空闲时开始的 AIFS 各只有一个长度，分别是 34、43、79 µs（帧在介质已经空闲了一段时间之后才到达时，记录里的 AIFS 只剩下余下的那一段）；通话站点的窗口只出现过 3 和 7，上传与备份站点只出现过 15 和 31。上传站点另有几段 103 µs 的等待，那是接收出错之后的等待，下一课讲。',
       meaning: '这说明：三台站点照表 9-194 取参数（②）。窗口从 CWmin 开始、失败一次加倍一次，VO 的 CWmax 是 7，所以通话站点的窗口不会超过 7。',
     },
     {
@@ -141,7 +141,7 @@ export const edca: Lesson = {
         '跳到接入点上的内部碰撞。',
         '查看同一时刻接入点的记录：哪一类发送了，哪一类的窗口变了。',
       ],
-      expect: '你应该看到：362.6426 ms 处接入点的 VO 与 BE 两个计数同时为零。VO 发送一帧语音给通话站点；BE 记一次内部碰撞，QSRC 从 3 变为 4，窗口从 127 加倍到 255，重新抽到 23。整轮 400 ms 只有这一次内部碰撞。',
+      expect: '你应该看到：488.9485 ms 处接入点的 VO 与 BE 两个计数同时为零。VO 发送一帧语音给通话站点；BE 记一次内部碰撞，QSRC 从 3 变为 4，窗口从 127 加倍到 255，重新抽到 193。整轮 500 ms 只有这一次内部碰撞。',
       meaning: '这说明：仲裁规则与窗口计算式照标准（①、②）：2^4 × (15 + 1) − 1 = 255。但按接入点自己的默认参数，BE 的 CWmax 是 63，127 与 255 都不会出现；这是本仿真器给接入点用了站点参数的结果（②）。内部碰撞只能发生在接入点上，因为本场景里只有它同时持有两类流量。',
     },
   ],
@@ -156,8 +156,8 @@ export const edca: Lesson = {
     node('sta-2', 'Uploader (BE)', 'sta', 6.5, 5, 'he', 'saturated'),
     node('sta-3', 'Backup (BK)', 'sta', 5, 6.5, 'he', 'backup'),
   ]),
-  // Jump 1 is the one INTERNAL_COLLISION of the run, at 362.6426 ms; the browser buffers 2 s of
-  // sim time up front, so it is reachable, and the test runs 400 ms so it sees it too.
+  // Jump 1 is the one INTERNAL_COLLISION of the run, at 488.9485 ms; the browser buffers 2 s of
+  // sim time up front, so it is reachable, and the test runs 500 ms so it sees it too.
   jumps: [
     J('第一次 VO 接入', firstVo),
     J('接入点上的内部碰撞', firstInternal),

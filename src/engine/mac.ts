@@ -24,11 +24,11 @@ import type { Channel, PhyListener } from './channel'
 import { EventQueue } from './events'
 import {
   ACK_BYTES, BA_BYTES, CF_END_BYTES, CTS_BYTES, DCF_PARAMS,
-  EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G, PHY_MODES,
+  EDCA_PARAMS, MAX_AMPDU_MPDUS, MAX_PPDU_NS, OFDM_5G,
   RTS_BYTES, SHORT_RETRY_LIMIT,
   GI_MODES, TGI_NS,
   aifsNs, ctrlRespRateFor, ctrlRespRateForMode, lowestMode, mcsInMode, mcsRateMbps,
-  multiStaBaBytes, preambleNsFor, symNsFor, triggerBytes, toneRatio, txTimeModeNs, txTimeNs,
+  durationFieldValueNs, maxPsduBytesForDur, multiStaBaBytes, triggerBytes, txTimeModeNs, txTimeNs,
   type AcParams, type PhyMode, type PhyTiming, type TxTimeOpts,
 } from './phy'
 import { Rng } from './rng'
@@ -206,10 +206,10 @@ export function maxPsduBytesFor(
   mode: PhyMode, mcs: number, ruFraction: number, durNs: Ns, widthMhz = 20, nss = 1,
   giNs: Ns = TGI_NS.base,
 ): number {
-  const m = PHY_MODES[mode]
-  const nsym = Math.floor((durNs - preambleNsFor(mode, giNs)) / symNsFor(mode, giNs))
-  const bits = nsym * m.ndbps[mcs] * toneRatio(mode, widthMhz) * nss * ruFraction
-  return Math.max(0, Math.floor((bits - 22) / 8))
+  // 2026-11-11: the inverse of the standard's TXTIME (`maxPsduBytesForDur`), for the HE TB / EHT TB
+  // PPDU this budget is always spent on — its 8 µs STF, its LTFs, its LDPC extra symbol segment
+  // and its packet extension included, which the old symbol-count arithmetic left out.
+  return maxPsduBytesForDur(mode, mcs, durNs, { ruFraction, widthMhz, nss, giNs, tb: true })
 }
 
 export class WifiMac implements PhyListener {
@@ -584,6 +584,16 @@ export class WifiMac implements PhyListener {
     const winner = this.edcafs[contending[0]]
     winner.backoff = null
     winner.needDraw = false
+    if (!this.secondaryIdleForPifs(contending[0])) {
+      // §10.23.2.5 e): a wide PPDU needs its secondary channels idle for PIFS before the TXOP;
+      // this STA keeps its operating width (static bandwidth — the simulator's choice among
+      // a)–e)), so it transmits nothing and invokes the backoff procedure, CW unchanged.
+      winner.backoff = this.rng.int(winner.cw)
+      this.emit({ t, type: 'BACKOFF_DRAW', node: this.nodeId, value: winner.backoff, cw: winner.cw, ac: this.acTag(winner) })
+      this.scheduleTick(winner)
+      for (const i of contending.slice(1)) this.startAccessAc(this.edcafs[i])
+      return
+    }
     this.transmitFor(winner, false)
     // Losers are penalised only if the winner really started an exchange.
     const winnerSent = this.inExchange()
@@ -608,6 +618,19 @@ export class WifiMac implements PhyListener {
       this.emit({ t, type: 'BACKOFF_DRAW', node: this.nodeId, value: loser.backoff, cw: loser.cw, ac: this.acTag(loser) })
       // no tick: the winner's exchange holds the medium; the loser resumes after it
     }
+  }
+
+  /**
+   * Were the secondary channels a wide PPDU from this EDCAF would occupy idle for PIFS (§10.23.2.5)?
+   * The width is that of the PPDU to the head MSDU's receiver; a Trigger or an AMP round starts
+   * with a 20 MHz non-HT frame and is never held back here.
+   */
+  private secondaryIdleForPifs(ei: number): boolean {
+    const head = this.queues.head(ei, this.reach)
+    if (!head) return true
+    const width = this.cfg.widthForPeer(head.dst)
+    if (width <= 20) return true
+    return this.now() - this.ch.secondaryIdleSinceNs(this.nodeId, width) >= this.T.sifsNs + this.T.slotNs
   }
 
   // ---------- transmission paths ----------
@@ -852,6 +875,7 @@ export class WifiMac implements PhyListener {
       qos: aggregate || this.qosWith(peer),
       mode, mcs, widthMhz, ac: this.acTag(e),
       giNs: this.frameGiNs(mode),
+      ...(nss > 1 ? { nss } : {}),
       msduBytes: msdus.map((m) => m.bytes),
       ampdu: aggregate ? { mpduCount: msdus.length, msduIds: msdus.map((m) => m.id) } : undefined,
     }
@@ -959,10 +983,14 @@ export class WifiMac implements PhyListener {
     // narrowest width any member negotiated. Stream count stays per member.
     const muWidth = Math.min(...dsts.map((d) => this.cfg.widthForPeer(d)))
     let ppduDur = 0
+    // One HE-LTF / EHT-LTF field for the whole PPDU: sized for the group's total streams under
+    // MU-MIMO (N_STS,total), for the largest RU's streams under OFDMA (§27.3.11.10, §36.3.12.10).
+    const streams = dsts.map((d) => this.cfg.nssForPeer(d))
+    const ltfNss = mumimo ? streams.reduce((a, b) => a + b, 0) : Math.max(...streams)
     for (const peer of dsts) {
       const mcs = mcsInMode(this.cfg.modeForPeer(peer), this.cfg.mcsForPeer(peer), modeAll)
       const nss = this.cfg.nssForPeer(peer)
-      const opts = mumimo ? { mu: true, widthMhz: muWidth, nss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss }
+      const opts = mumimo ? { mu: true, widthMhz: muWidth, nss, ltfNss } : { mu: true, ruFraction: frac, widthMhz: muWidth, nss, ltfNss }
       const airtime = (bytes: number[]) => this.airModeNs(modeAll, psduPlan(bytes, { mu: true }).psduBytes, mcs, opts)
       if (airtime([this.queues.headBytes(ei, peer) ?? 0]) > durCap) continue
       const msdus = this.queues.claim(ei, peer, MAX_AMPDU_MPDUS, (m, claimed) =>
@@ -973,7 +1001,8 @@ export class WifiMac implements PhyListener {
         dst: peer, src: this.nodeId, bytes, mcs, mbps: mcsRateMbps(modeAll, mcs, this.frameGiNs(modeAll) ?? TGI_NS.base),
         msduIds: msdus.map((m) => m.id), msduBytes: msdus.map((m) => m.bytes), mpduCount: msdus.length, ac,
         retryFlag: msdus.some((m) => m.sent),
-        ...(mumimo ? { nss } : { ruFraction: frac }),
+        // An OFDMA member's streams are recorded too when it has more than one: its RU carries them.
+        ...(mumimo ? { nss } : { ruFraction: frac, ...(nss > 1 ? { nss } : {}) }),
       })
       claims.push({ peer, msdus })
       ppduDur = Math.max(ppduDur, airtime(msdus.map((m) => m.bytes)))
@@ -1046,7 +1075,7 @@ export class WifiMac implements PhyListener {
         mode,
         Math.max(64, Math.min(u.bytes + 64, maxPsduBytesFor(mode, mcs, frac, 2_000_000 - this.T.signalExtNs, ulWidth, nss, this.cfg.giNs?.()))),
         mcs,
-        { ruFraction: frac, widthMhz: ulWidth, nss },
+        { ruFraction: frac, widthMhz: ulWidth, nss, tb: true },
       )
       ulDur = Math.max(ulDur, Math.min(need, 2_000_000))
       return {
@@ -1073,7 +1102,12 @@ export class WifiMac implements PhyListener {
     // §10.3.2.9: a Trigger expects a response like any other frame. If no
     // triggered PPDU has started within SIFS + slot + RxPHYStartDelay of the
     // trigger's end, the round failed — do not sit out the whole 2 ms window.
-    mu.rxTimeoutHandle = this.q.schedule(t + trigger.txTimeNs + this.T.ackTimeoutNs, () => this.onTriggerRespTimeout(mu))
+    // The awaited PPDUs are TB PPDUs of `mode`: an EHT AP waiting for EHT TB PPDUs uses their 32 µs
+    // aRxPHYStartDelay (Table 36-70, §6.7.4.4); otherwise the HE/clause 17 value of `ackTimeoutNs`.
+    const tbTimeout = mode === 'eht' || mode === 'uhr'
+      ? this.T.sifsNs + this.T.slotNs + this.T.rxStartDelayTbNs
+      : this.T.ackTimeoutNs
+    mu.rxTimeoutHandle = this.q.schedule(t + trigger.txTimeNs + tbTimeout, () => this.onTriggerRespTimeout(mu))
   }
 
   private onTriggerRespTimeout(mu: MuUlState): void {
@@ -1117,6 +1151,9 @@ export class WifiMac implements PhyListener {
   // ---------- exchange mechanics ----------
 
   private transmitFrame(frame: FrameDesc, expectResponse: boolean): void {
+    // The Duration field goes on the air in whole microseconds, rounded up, at most 32 767 µs
+    // (§9.2.4.2 Table 9-9; §9.3.1.2, §9.3.2.1). Every frame this MAC sends passes here.
+    frame.durationFieldNs = durationFieldValueNs(frame.durationFieldNs)
     this.corruptLast = false // EIFS ends when the station itself transmits
     this.cancelAllContention()
     this.setState('tx')
@@ -1692,7 +1729,8 @@ export class WifiMac implements PhyListener {
       const setAt = t
       this.navFromRtsAt = setAt
       const ctsTime = this.airNs(CTS_BYTES, ctrlRespRateFor(frame.mbps))
-      this.q.schedule(t + 2 * this.T.sifsNs + ctsTime + this.T.rxStartDelayNs + 2 * this.T.slotNs, () => {
+      // aRxPHYStartDelay of any format the data PPDU after the CTS may use (§6.7.4.4).
+      this.q.schedule(t + 2 * this.T.sifsNs + ctsTime + this.T.rxStartDelayAnyNs + 2 * this.T.slotNs, () => {
         if (this.navFromRtsAt === setAt && this.lastRxStartNs <= setAt && this.navUntil > this.now()) {
           this.navUntil = 0
           this.navSetBy = null

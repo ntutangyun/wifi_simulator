@@ -136,8 +136,10 @@ describe('uwb-coexist · the lesson', () => {
     for (const c of ['§16.4.1', '表 16-27', '§11.1.3.5', '§11.2.8', '§16.4.5', '§16.4.10', '§16.4.11', '§16.4', '式 27-148', '§27.3.22.6.3']) {
       expect(stdText(), c).toContain(c)
     }
+    // 2026-11-11 (W6): Wi-Fi energy detection on the primary 20 MHz channel was the one `differs`
+    // row; it is faithful now, and no `differs` is invented to keep the set complete.
     const kinds = new Set(uwbCoexist.implementation!.map((r) => r.kind))
-    for (const k of ['faithful', 'value', 'choice', 'differs', 'absent'] as const) expect(kinds, k).toContain(k)
+    for (const k of ['faithful', 'value', 'choice', 'absent'] as const) expect(kinds, k).toContain(k)
   })
 
   it('why states the standard\'s figures and the model\'s, as the engine has them', () => {
@@ -215,11 +217,12 @@ describe('uwb-coexist · ② says what the engine does, and the engine does it',
     expect(recs().filter((r) => (r.type === 'CCA_BUSY' || r.type === 'CCA_IDLE') && UWB_IDS.has(nodeOf(r) ?? ''))).toEqual([])
   })
 
-  it('energy detection is compared over the whole channel (differs)', () => {
+  it('energy detection is compared within the primary 20 MHz channel (faithful, 2026-11-11 W6)', () => {
     const row = implRow('Wi-Fi 的能量检测')
-    expect(row.kind).toBe('differs')
-    expect(num(row.sim, /整条 (\d+) MHz 信道/, 'width')).toBe(WIDTH_MHZ)
+    expect(row.kind).toBe('faithful')
+    expect(row.sim).toContain('主 20 MHz 信道内的功率')
     expect(num(row.sim, /与 ([−\d]+) dBm 比较/, 'ED')).toBe(CCA_ED_DBM)
+    expect(WIDTH_MHZ).toBeGreaterThan(20)
   })
 
   it('no retry inside the block: one timeout per loss, the anchor missing from that block', () => {

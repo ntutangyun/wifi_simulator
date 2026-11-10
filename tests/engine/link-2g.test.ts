@@ -10,12 +10,21 @@ type Rec<K extends TLRecord['type']> = Extract<TLRecord, { type: K }>
 
 describe('per-link PHY timing (802.11-2024 Table 17-21 / Table 18-5, §10.3.8)', () => {
   it('5 GHz OFDM keeps the clause 17 values', () => {
-    expect(OFDM_5G).toEqual({ sifsNs: 16_000, slotNs: 9_000, difsNs: 34_000, rxStartDelayNs: 20_000, ackTimeoutNs: 45_000, signalExtNs: 0, eifsNs: 94_000 })
+    expect(OFDM_5G).toEqual({
+      sifsNs: 16_000, slotNs: 9_000, difsNs: 34_000, rxStartDelayNs: 20_000, ackTimeoutNs: 45_000,
+      rxStartDelayAnyNs: 20_000, rxStartDelayTbNs: 20_000, signalExtNs: 0, eifsNs: 94_000,
+    })
   })
-  it('2.4 GHz ERP-OFDM: SIFS 10, short slot 9, DIFS 28, AckTimeout 39, 6 µs signal extension, EIFS 88', () => {
-    expect(ERP_2G).toEqual({ sifsNs: 10_000, slotNs: 9_000, difsNs: 28_000, rxStartDelayNs: 20_000, ackTimeoutNs: 39_000, signalExtNs: 6_000, eifsNs: 88_000 })
-    // EIFS = SIFS + DIFS + ACK at 6 Mb/s including its signal extension
-    expect(ERP_2G.eifsNs).toBe(ERP_2G.sifsNs + ERP_2G.difsNs + txTimeNs(ACK_BYTES, 6) + ERP_2G.signalExtNs)
+  it('2.4 GHz ERP-OFDM: SIFS 10, short slot 9, DIFS 28, AckTimeout 39, 6 µs signal extension, EIFS 342', () => {
+    expect(ERP_2G).toEqual({
+      sifsNs: 10_000, slotNs: 9_000, difsNs: 28_000, rxStartDelayNs: 20_000, ackTimeoutNs: 39_000,
+      rxStartDelayAnyNs: 20_000, rxStartDelayTbNs: 20_000, signalExtNs: 6_000, eifsNs: 342_000,
+    })
+    // 2026-11-11: EIFS = aSIFSTime + AckTxTime + DIFS (Eq 10-7) with AckTxTime at the lowest
+    // mandatory rate of the ERP PHY, 1 Mb/s DSSS long preamble: 192 + 14 × 8 = 304 µs (Table 10-8
+    // lists the same 304 µs). It used to price the Ack at 6 Mb/s ERP-OFDM (88 µs EIFS).
+    expect(ERP_2G.eifsNs).toBe(ERP_2G.sifsNs + ERP_2G.difsNs + 192_000 + ACK_BYTES * 8_000)
+    expect(txTimeNs(ACK_BYTES, 6) + ERP_2G.signalExtNs).toBe(50_000) // the old, non-standard AckTxTime
   })
   it('AIFS follows the link timing', () => {
     expect(aifsNs(3)).toBe(16_000 + 3 * 9_000)
@@ -80,7 +89,7 @@ describe('a MAC on the 2.4 GHz link', () => {
     const fail = bss.recs('RX_FAIL', 'sta-2')[0]
     expect(fail).toBeDefined()
     const eifs = bss.recs('IFS_START', 'sta-2').find((r) => r.kind === 'EIFS' && r.t >= fail.t)!
-    expect(eifs.untilNs - Math.max(eifs.t, fail.t)).toBe(88_000)
+    expect(eifs.untilNs - Math.max(eifs.t, fail.t)).toBe(342_000)
   })
 })
 
@@ -98,6 +107,11 @@ describe('a station on the 2.4 GHz link inside a Simulation', () => {
     expect(LINK_EXTRA_LOSS_DB).toEqual({ '2g': -6.5, '5g': 0, '6g': 1.2 })
     expect(timingFor('2g')).toBe(ERP_2G)
     expect(timingFor('5g')).toBe(OFDM_5G)
+    // 2026-11-11: with the STA's generation, aRxPHYStartDelay of the PHY clauses it supports
+    // (§6.7.4.4): 24 µs for an HE STA (Table 27-61) — AckTimeout 10 + 9 + 24 = 43 µs on 2.4 GHz.
+    expect(timingFor('2g', 'nonht')).toBe(ERP_2G)
+    expect(timingFor('2g', 'he').ackTimeoutNs).toBe(43_000)
+    expect(timingFor('5g', 'he').ackTimeoutNs).toBe(49_000)
   })
   it('records on the 2g lane use the 2.4 GHz timing and carry the extension', () => {
     const sim = new Simulation(twoBand())

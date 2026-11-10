@@ -109,11 +109,12 @@ function acqEdgeScenario(): Scenario {
 }
 
 /**
- * Which fragments of the tag's column reached the anchor in the round of block 1 — indices 3 to 7,
- * the first three lost to the router — and what each of the two settings does with that column.
- * The indices are read off the run and pinned in the test, so the figure cannot drift from it.
+ * Which fragments of the tag's column reached the anchor in the round of block 1 — indices 4, 5
+ * and 7, the other five lost to the router (2026-11-11: re-measured after W6 moved the Wi-Fi
+ * timing and band) — and what each of the two settings does with that column. The indices are
+ * read off the run and pinned in the test, so the figure cannot drift from it.
  */
-export const ACQ_HEARD: readonly number[] = [3, 4, 5, 6, 7]
+export const ACQ_HEARD: readonly number[] = [4, 5, 7]
 
 /** The same column of fragments, and the two fates the SFD attribute decides between. */
 export function uwbAcquisitionTiming(): TimingSpec {
@@ -140,7 +141,7 @@ export const uwbAcquisition: Lesson = {
   id: 'uwb-acquisition',
   module: 30,
   title: '首片段丢失，整轮作废',
-  why: 'IEEE 802.15.4-2024 的超宽带（ultra-wideband, UWB）包以同步头（SHR）开头，它由同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）组成；P802.15.4ab 草案中不使用窄带（narrowband, NB）射频的 UWB 驱动配置里，多毫秒（multi-millisecond, MMS）测距包也只在包头的第一个片段（fragment）里带这样一段 SYNC+SFD，其后的测距序列片段（ranging sequence fragment, RSF）不带 SFD。提案 15-25/0066r1 指出：这个片段若因干扰没有收到，就没有成功的信号捕获（acquisition），整个测距轮（ranging round）失败；它建议增加 RSF with SFD 设置（PIB 属性 phyUwbMmsRsfSfd），置 1 时每个 RSF 之后都附加一个 SFD，使每个片段都与包头的 SYNC+SFD 相同、都可以用来捕获。这是一份针对草案意见的决议提案，之后的公开文稿里找不到它被采纳的记录。本仿真器照提案实现了这个设置；捕获怎样判定标准与草案都没有规定，本仿真器的取法是按单个片段判定、不允许累加。在本课的房间里，路由器的 Wi-Fi 猝发使十四列片段中有七列丢失了包头片段而整列作废，这七列累加后的余量都在 22 dB 以上；置 1 之后十四列全部检出，距离从 3 个增加到 6 个，没有到 14 个，是因为收尾的报告处在同一次干扰之中。代价是峰值功率：本仿真器把每毫秒的能量当作定额，片段长了一个 SFD，峰值就低 0.188 dB，在余量小于这个值的链路（link）上，置 1 反而使每一轮都无法捕获。',
+  why: 'IEEE 802.15.4-2024 的超宽带（ultra-wideband, UWB）包以同步头（SHR）开头，它由同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）组成；P802.15.4ab 草案中不使用窄带（narrowband, NB）射频的 UWB 驱动配置里，多毫秒（multi-millisecond, MMS）测距包也只在包头的第一个片段（fragment）里带这样一段 SYNC+SFD，其后的测距序列片段（ranging sequence fragment, RSF）不带 SFD。提案 15-25/0066r1 指出：这个片段若因干扰没有收到，就没有成功的信号捕获（acquisition），整个测距轮（ranging round）失败；它建议增加 RSF with SFD 设置（PIB 属性 phyUwbMmsRsfSfd），置 1 时每个 RSF 之后都附加一个 SFD，使每个片段都与包头的 SYNC+SFD 相同、都可以用来捕获。这是一份针对草案意见的决议提案，之后的公开文稿里找不到它被采纳的记录。本仿真器照提案实现了这个设置；捕获怎样判定标准与草案都没有规定，本仿真器的取法是按单个片段判定、不允许累加。在本课的房间里，路由器的 Wi-Fi 猝发使十四列片段中有七列丢失了包头片段而整列作废，这七列累加后的余量都在 19 dB 以上；置 1 之后十四列全部检出，距离从 3 个增加到 6 个，没有到 14 个，是因为收尾的报告处在同一次干扰之中。代价是峰值功率：本仿真器把每毫秒的能量当作定额，片段长了一个 SFD，峰值就低 0.188 dB，在余量小于这个值的链路（link）上，置 1 反而使每一轮都无法捕获。',
   outcomes: [
     '说出提案 15-25/0066r1 的问题陈述、它建议的 RSF with SFD 设置与两个使用条件，以及它的采纳状态',
     '区分本仿真器的捕获判定（单个片段）与累加判定（多个片段的累加值）',
@@ -204,10 +205,10 @@ export const uwbAcquisition: Lesson = {
         '对照下图与公式：这一列丢的是哪几个片段，累加判定与捕获判定各看什么。',
       ],
       blocks: [
-        { kind: 'diagram', heading: '同一列片段，两种判定结果', spec: uwbAcquisitionTiming(), caption: '第二块那一轮里，标签（tag）的八个片段在锚点处的到达情况：前三个被干扰丢失。中间一行是不带 SFD 时唯一的捕获入口，恰好没有到达；最下面一行是置 1 之后可用的捕获入口。' },
-        { kind: 'formula', heading: '这一列的两种判定', text: '累加：−73.28 dBm + 10·log10(5) = −66.29 dBm ≥ −93 dBm  →  通过\n捕获：可用作捕获入口的只有片段 0，它没有到达  →  未通过', note: '两种判定都是本仿真器的取法（②）。' },
+        { kind: 'diagram', heading: '同一列片段，两种判定结果', spec: uwbAcquisitionTiming(), caption: '第二块那一轮里，标签（tag）的八个片段在锚点处的到达情况：片段 0 到 3 与片段 6 被干扰丢失。中间一行是不带 SFD 时唯一的捕获入口，恰好没有到达；最下面一行是置 1 之后可用的捕获入口。' },
+        { kind: 'formula', heading: '这一列的两种判定', text: '累加：−73.28 dBm + 10·log10(3) = −68.51 dBm ≥ −93 dBm  →  通过\n捕获：可用作捕获入口的只有片段 0，它没有到达  →  未通过', note: '两种判定都是本仿真器的取法（②）。' },
       ],
-      expect: '207.500 ms 那一行收到 5/8、余量 26.7 dB，结论却是 lost；收到的是片段 3, 4, 5, 6, 7，片段 0 没有到达。',
+      expect: '207.500 ms 那一行收到 3/8、余量 24.5 dB，结论却是 lost；收到的是片段 4, 5, 7，片段 0 没有到达。',
       meaning: '这正是提案的问题陈述（①）：包头片段丢失，这一轮就没有捕获；余量再大也无济于事，因为本仿真器的捕获判定不允许累加（②）。',
     },
     {
@@ -220,13 +221,13 @@ export const uwbAcquisition: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '四个场景，同一个房间', head: ['场景', '每列收到的片段', '检出', '每 1.3 秒的距离数'], rows: [
-          ['零长控制阶段，无 SFD', '5,6,5,2,6,4,6,4,5,6,6,5,6,6', '7 / 14', '3'],
+          ['零长控制阶段，无 SFD', '4,6,3,1,6,4,6,4,4,5,5,4,6,5', '7 / 14', '3'],
           ['每个 RSF 带 SFD', '与上一行完全相同的十四组', '14 / 14', '6'],
-          ['窄带辅助（Config 2）', '6,5,6,5,6,6,7,4,5,6,6,6,5,7', '14 / 14', '14'],
+          ['窄带辅助（Config 2）', '5,5,5,5,6,5,6,4,2,6,6,4,5,6', '14 / 14', '14'],
           ['把 Wi-Fi 移出这条信道', '8,8,8,8,8,8,8,8,8,8,8,8,8,8', '14 / 14', '14'],
         ] },
       ],
-      expect: '置 1 之后 207.500 ms 那一行收到的还是 5/8，余量低了 0.19 dB（26.5 dB，不是 26.7 dB），结论变为检出。无 SFD 时被丢弃的七列，累加后的余量在 22.7 到 27.5 dB 之间。',
+      expect: '置 1 之后 207.500 ms 那一行收到的还是 3/8，余量低了 0.19 dB（24.3 dB，不是 24.5 dB），结论变为检出。无 SFD 时被丢弃的七列，累加后的余量在 19.7 到 27.5 dB 之间。',
       meaning: '置 1 让每个片段都成为捕获入口（①的提案），所以同一列片段从作废变为检出；距离只到 6 个，是因为本课场景的报告是 SP0 包、处在同一次干扰之中。窄带辅助配置不做捕获判定（②），报告也经窄带送达，所以得到 14 个。',
     },
     {
