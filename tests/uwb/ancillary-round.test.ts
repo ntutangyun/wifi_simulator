@@ -438,12 +438,15 @@ describe('what switching the exchange on must not change', () => {
     // All five re-captured again 2026-11-10 (W2): every PPDU is 896 chips longer (PHR 21 symbols,
     // standard Table 16-2) and the SS Response / DS Final / reports carry the RRTI and RMI content
     // headers (§10.29.8.1/§10.29.8.4) — every instant of every mode moves.
+    // 2026-11-11 (W2b): twr-ss and twr-ds re-captured — the time-scheduled Poll's RDM IE now carries each responder's Ranging Slot Index (§10.32.9.8), rounds are stretched to a whole divisor of the block (§10.32.2), and the DS Response carries Treply1 while the report carries Tround2 alone (§10.32.5, Figure 10-238).
     const BEFORE: Record<string, string> = {
-      'twr-ss': 'fb3fe7e',
-      'twr-ds': '31a49863',
+      'twr-ss': '8934f1b0',
+      'twr-ds': 'fbf10307',
       'dl-tdoa': 'a2c21b25',
       'ul-tdoa': '426206f8',
-      m2m: 'ba086737',
+      // 2026-11-11 (W3): m2m re-captured — the standard's many-to-many round (§10.32.6): the controller's
+      // RCM, the initiators' initiation messages and the responders' RRTI responses, no TXT/RXT IEs.
+      m2m: '787241d9',
     }
     const CASES: [string, Partial<UwbSessionCfg>][] = [
       ['twr-ss', { method: 'ss' }],

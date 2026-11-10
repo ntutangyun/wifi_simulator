@@ -19,7 +19,7 @@ import {
   RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, SRRR_IE_BYTES, UWB_BAND_MHZ, UWB_BLINK_BYTES, UWB_CAPTURE_DB, UWB_CHIP_NS,
   UWB_IE_HDR_BYTES, UWB_MAX_INPUT_DBM_PER_MHZ, UWB_RX_SENS_DBM, UWB_SIR_MIN_DB, UWB_SS_DEFER_BYTES,
   UWB_TX_POWER_DBM, rmmrcBitmapBytes, rstuNs, uwbAncillaryBytes, uwbFinalBytes, uwbInitBytes,
-  uwbDsDeferredReportBytes, uwbM2mBytes, uwbMaxAnchors, uwbMaxMmrcmInitiators, uwbMaxParticipants,
+  uwbDsDeferredReportBytes, uwbM2mRcmBytes, uwbM2mRespBytes, uwbMaxAnchors, uwbMaxMmrcmInitiators,
   uwbMmrcmBytes, uwbPollBytes,
   UWB_MAX_PSDU_BYTES,
   uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
@@ -83,21 +83,23 @@ const RT_CAP_SP3 = ((): number => {
 })()
 
 // --- Section 16: many-to-many ranging, standard §10.32.6 SS / §10.32.7 DS ---------------------
-// Every slot count is `roundPlan`'s own answer — the same function the editor's plan line calls —
-// and the frame sizes and the participant cap are `uwbM2mBytes`/`uwbMaxParticipants`, never a
-// copied table. `tests/ui/uwb-guide.test.ts` runs whole rounds for N = 3/4/6 and for the
-// DS-against-SS accuracy claim, so a drift in the engine fails there rather than going unnoticed.
-const M2M_NS = [3, 4, 6] as const
-const m2mSlots = (n: number, method: 'ss' | 'ds'): number =>
-  roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n).slots
-/** N one-to-many rounds, one per device taking its turn as the tag — the arrangement many-to-many
- * replaces. Each round has `n − 1` anchors, so `roundPlan` at `n − 1` gives its length. */
-const takingTurnsSlots = (n: number): number =>
-  n * roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n - 1).slots
-const pairsOf = (n: number): number => (n * (n - 1)) / 2
-const perParticipant = (n: number): number[] => Array.from({ length: n }, (_, i) => n - 1 - i)
-const M2M_CAP = uwbMaxParticipants('ss') // 27 — uwbMaxParticipants('ds') searches the same frame law
-const M2M_BYTES_N6 = Array.from({ length: 6 }, (_, i) => uwbM2mBytes(i)) // 20/26/30/34/38/42
+// Every slot count is `roundPlan`'s own answer — the same function the editor's plan line calls — and
+// every frame size is `uwb/phy.ts`'s, never a copied table. `tests/ui/uwb-guide.test.ts` runs whole
+// rounds for each (M, N) row, so a drift in the engine fails there. 2026-11-11 (W3): the engine now
+// runs the standard's round (M initiators, N responders), not the earlier everyone-is-both shape.
+const M2M_ROWS = [[1, 4], [2, 4], [3, 3]] as const
+// `rangingSlots`, the exchange itself (the round is stretched to a whole divisor of the block, §10.32.2).
+const m2mSlots = (m: number, n: number, method: 'ss' | 'ds'): number =>
+  roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'm2m', method }, n, m).rangingSlots
+/** M one-to-many rounds, one per initiator taking its turn as the tag over the same N anchors. */
+const takingTurnsSlots = (m: number, n: number): number =>
+  m * roundPlan({ ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', replyTime: 'embedded' }, n).rangingSlots
+/** The frames of the 2 + 4 round, read off the sizing functions. */
+const M2M_RCM_BYTES = uwbM2mRcmBytes(2, 4)
+const M2M_INIT_BYTES = uwbInitBytes()
+const M2M_SS_RESP_BYTES = uwbM2mRespBytes('ss', 2)
+const M2M_DS_RESP_BYTES = uwbM2mRespBytes('ds', 2)
+const M2M_DS_FINAL_BYTES = uwbFinalBytes(4)
 
 // --- Section 17: RCM validity rounds, §10.32.9.1 / RMNR, §10.34 -------------------------------
 // The worked example: four anchors, one ranging round set of four rounds inside one block (the tag
@@ -130,8 +132,8 @@ const MMRCM_MAX_INITIATORS = uwbMaxMmrcmInitiators(MMRCM_SLOTS)
 const MMRCM_SET_PLAN = roundPlan(
   { ...DEFAULT_UWB_SESSION, method: 'ss', rcmValidityRounds: 4, initiatorRounds: 4, mmrcr: true }, 4,
 )
-const MMRCM_SET_SLOTS = mmrcmAckSlots(MMRCM_SET_PLAN, 0) // 32
-const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS) // 4
+const MMRCM_SET_SLOTS = mmrcmAckSlots(MMRCM_SET_PLAN, 0)
+const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS)
 
 // --- Section 19: SP3 grouped ranging, standard §10.32.8 / SRRR IE §10.32.9.9 -------------------
 // sp3-design §2.3 (the fix round that gave the initiator its own marker and its own RRTT report):
@@ -142,7 +144,7 @@ const MMRCM_SET_BITMAP_BYTES = rmmrcBitmapBytes(MMRCM_SET_SLOTS) // 4
 // geometry, which is a property of the test scene, not of the round shape.
 const SP3_MARKER_NS = uwbSp3Ns() // the initiator's own marker costs exactly the same as a responder's
 const SP1_EMBEDDED_RESP_NS = uwbPpduNs(uwbRespBytes('ss', 'embedded')) // 20-octet embedded SS Response
-const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds')) // 14-octet DS Response: the shortest SP1 frame this engine sends
+const SP1_SHORTEST_RESP_NS = uwbPpduNs(uwbRespBytes('ds', 'deferred')) // 14-octet Response with no reply time (deferred DS, 2026-11-11): the shortest SP1 frame this engine sends
 const SP3_SAVING_EMBEDDED_NS = SP1_EMBEDDED_RESP_NS - SP3_MARKER_NS
 const SP3_SAVING_SHORTEST_NS = SP1_SHORTEST_RESP_NS - SP3_MARKER_NS
 const SP3_REPORT_NS = uwbPpduNs(uwbSp3ReportBytes(false)) // the deferred reply-time message RAOA did not lengthen
@@ -1002,8 +1004,10 @@ export function Guide() {
         </tbody>
       </table>
       <p style={p}>
-        标签在全部五种里都拿得到距离——在本仿真器里它既是控制方也是发起方（第 11 节）；它的轮询帧里 RRMC IE
-        的回复时间请求位与往返时间请求位置 1，所以 DS 的应答方都发报告（§10.29.8.3、§10.32.5 图 10-238）。
+        标签在全部五种里都拿得到距离——在本仿真器里它既是控制方也是发起方（第 11 节）。DS 嵌入时，它的轮询帧里
+        RRMC IE 请求第一段回复时间与第二次往返时间：应答方在应答帧的 RRTI IE 里带回 Treply1，测量报告里只带 Tround2
+        （§10.29.8.3、§10.32.5 图 10-238）；DS 延后时，它请求的是结果本身，应答方在测量报告的 RMI IE 里用 TOF 字段
+        带回自己算出的距离（§10.29.6.6 图 10-206）。
         <b>DS 的两种形态</b>都让锚点也拿到距离：嵌入时 Final 把标签的两个时间（tround1、treply2）带给它；
         延后时 Final 不带这两个数，发起方随后在测量报告阶段用一帧延后数据帧把它们发给应答方，由应答方算出距离
         （§10.29.6.6、§10.32.5）。单边测距的三种形态里锚点拿不到距离：标准的 RMI IE 有 TOF 字段
@@ -1015,7 +1019,9 @@ export function Guide() {
         SS 嵌入与 SS 延后 <b>4.998803 m</b>（一模一样，因为走的是同一套算术，只是换了一条载波）；
         SS 固定 <b>4.999345 m</b>（FRT<sub>1</sub> 取 1.1 个时隙；不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
         <code>ssTwrCorrected</code> 的 (1 − coffs) 修正项照样乘它——ppm 误差从另一扇门进来）；
-        DS 嵌入与 DS 延后 <b>4.999075 m</b>（比 SS 嵌入与 SS 延后都更接近真实值——这正是 DS-TWR 存在的理由）。
+        DS 嵌入 <b>4.999075 m</b>（比 SS 嵌入与 SS 延后都更接近真实值——这正是 DS-TWR 存在的理由）；
+        DS 延后 <b>5.001420 m</b>——标签拿到的是应答方算出的飞行时间，RMI IE 的 TOF 字段是测距计数单位的无符号整数
+        （§10.29.8.4、§10.29.1.4），取整之后与嵌入形态差半个计数单位以内（一个计数单位约 4.7 mm）。
         两端晶振对准时，五者在时间戳噪声之内<b>逐位相同</b>，都是 <b>5.001420 m</b>——
         搬运路线只决定谁在何时拿到这几个时间量，不决定算出来的是哪个距离。
       </p>
@@ -1035,83 +1041,62 @@ export function Guide() {
         这是固定形态一个真实的弱点，本仿真器没有建模它。
       </p>
 
-      <h4 style={h}>16 · 多对多测距：标准的步骤，与本仿真器「一次发送既问也答」的安排（标准 §10.32.6 SS-TWR/§10.32.7 DS-TWR）</h4>
+      <h4 style={h}>16 · 多对多测距：M + N 帧测出 M × N 个距离（标准 §10.32.6 SS-TWR/§10.32.7 DS-TWR）</h4>
       <p style={p}>
-        <b>标准的多对多测距</b>（many-to-many ranging，M2M，§10.32.6、§10.32.7）里，发起方与应答方是两组
-        不同的设备：控制器先发控制消息（RCM）配置这一轮；M 个发起方在测距发起阶段各发一帧发起消息（带 RRMC IE，
-        请求回复时间）；N 个应答方在测距应答阶段各发一帧应答，帧里为每个发起方各带一个 RRTI IE。于是 M + N 帧
-        得到 M×N 对距离，单边形态由各发起方计算。双边形态里，应答方的应答同时开启第二次往返，每个发起方再发一帧
-        最终帧（RRTI IE 报回复时间、RMI IE 报往返时间），由<b>应答方</b>计算距离。两个阶段都可以按时间调度，也可以竞争。
+        <b>标准的多对多测距</b>（many-to-many ranging，M2M，§10.32.6、§10.32.7）里，发起方与响应方是两组
+        不同的设备。控制器先发测距控制消息（RCM）配置这一轮：ARC 信息单元的 Multi-node Mode 字段取 2
+        （表 10-163），RDM 信息单元为每台设备指定角色（发起方或响应方）与时隙（§10.32.9.8）。M 个发起方在测距启动阶段
+        各发一帧测距启动消息（带 RRMC 信息单元，单边形态请求回复时延）；N 个响应方在测距应答阶段各发一帧应答。
+        单边形态里，应答为每个发起方各带一个回复时延（RRTI 信息单元），每个发起方收到应答就算出到这个响应方的距离：
+        <b>M + N 帧得到 M × N 对距离</b>。双边形态里，应答带 RRMC 信息单元开始第二次往返，每个发起方再发一帧最终帧
+        （RRTI 信息单元报回复时延、RMI 信息单元报往返时间），由<b>响应方</b>算出距离：2M + N 帧。两个阶段都可以按时间调度，也可以竞争。
       </p>
       <p style={p}>
-        <b>本仿真器实现的是另一种安排，不是标准的步骤</b>：每台设备身兼发起方与应答方，帧里带自己的发送时刻
-        与它收到的各个接收时刻——这两种信息单元在 802.15.4-2024 里不存在；本仿真器也不发 RCM、ARC 或 RDM。
-        下面讲的都是这种安排。
-        第 11 节的双向测距里，要让 N 台设备两两都知道彼此的距离，得让每台设备轮流当一次标签——
-        N 轮、每轮 N 个时隙，一共 <b>N² 个时隙</b>。本仿真器的多对多测距
-        把它压成 <b>N 个时隙</b>：参与者 0…N−1 依次发送一次，谁的这一次发送，对排在它<i>后面</i>
-        的每个人是「问」，对排在它<i>前面</i>的每个人是「答」——一次发送同时承担两种作用，N 次发送
-        就能测出全部 N(N−1)/2 条距离。这里没有标签，也没有锚点：场景里的每一台 UWB 设备都是
-        参与者，<code>uwb.role</code> 只决定它在编辑器和场景图里画成什么样子，不影响谁跟谁测距
-        （design §5，另见节点面板的角色一节）。
+        <b>本仿真器照此实现按时间调度的一轮</b>（竞争式未实现）：场景里的标签是发起方、锚点是响应方，
+        按 id 排在最前的发起方担任控制器，把测距控制消息与自己的启动消息合成一帧放在时隙 0（控制器本身是发起方时，
+        §10.32.2 允许合并）；其余发起方依次发启动消息，然后各响应方依次应答，双边形态最后是各发起方的最终帧。
+        没收到控制消息、或 RDM 没有列出的设备不参加这一轮。下表把多对多与「每个发起方轮流当一次标签」相比，
+        时隙数指测距交互实际占用的时隙：
       </p>
       <table style={table}>
         <thead>
           <tr>
-            <th style={cellHead}>N</th>
-            <th style={cellHead}>轮流当标签：时隙</th>
-            <th style={cellHead}>轮流当标签：距离记录</th>
-            <th style={cellHead}>多对多 SS：时隙</th>
-            <th style={cellHead}>多对多 DS：时隙</th>
-            <th style={cellHead}>两者量到的距离</th>
+            <th style={cellHead}>M（发起方）</th>
+            <th style={cellHead}>N（响应方）</th>
+            <th style={cellHead}>轮流当标签（单边）：时隙</th>
+            <th style={cellHead}>多对多单边：时隙</th>
+            <th style={cellHead}>多对多双边：时隙</th>
+            <th style={cellHead}>距离</th>
           </tr>
         </thead>
         <tbody>
-          {M2M_NS.map((n) => (
-            <tr key={n}>
+          {M2M_ROWS.map(([m, n]) => (
+            <tr key={`${m}-${n}`}>
+              <td style={cell}>{m}</td>
               <td style={cell}>{n}</td>
-              <td style={cell}>{takingTurnsSlots(n)}</td>
-              <td style={cell}>{2 * pairsOf(n)}</td>
-              <td style={cell}>{m2mSlots(n, 'ss')}</td>
-              <td style={cell}>{m2mSlots(n, 'ds')}</td>
-              <td style={cell}>{pairsOf(n)}</td>
+              <td style={cell}>{takingTurnsSlots(m, n)}</td>
+              <td style={cell}>{m2mSlots(m, n, 'ss')}</td>
+              <td style={cell}>{m2mSlots(m, n, 'ds')}</td>
+              <td style={cell}>{m * n}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <p style={p}>
-        两种时隙数之比<b>恰好是 N</b>——不是巧合，是“一次发送同时承担两种作用”的直接推论（标准的多对多步骤是 M + N 帧，另当别论）。轮流当标签
-        还不只是慢：它把每一对距离测了<b>两遍</b>（各自的那一轮各测一次，N = 6 时是 30 条记录，
-        多对多只要 15 条），却仍然要花掉 N² 个时隙。费空口的那一种，恰好也是重复测量的那一种。
+        轮流当标签时每个发起方各占一轮，一轮是 1 + N 个时隙，共 M(1 + N) 个；多对多把 M 个启动消息排在一起，
+        N 个响应方各回一帧就答复了所有发起方，共 M + N 个。M = 1 时两者相同——那就是一对多测距。
       </p>
       <p style={p}>
-        <b>本仿真器的安排里，谁能把距离算出来（design §2）。</b>取一对参与者 i、j，i 排在 j 前面：i 在自己的
-        时隙发送，j 在自己的时隙发送时，帧里带着自己的发送时刻，以及它已经收到的、排在它前面
-        每一个人的接收时刻——因为 i 先发，j 发送时早已收到过 i。于是 <b>i 集齐了算距离要的
-        全部四个时间量</b>（自己测的两个，加上 j 的帧带来的两个），而 <b>j 算不出来</b>：
-        它缺的是「i 收到 j 的时刻」，可 i 发送的那一刻，这件事还没发生。<b>每一对距离，只有排在
-        前面的那一个参与者算得出来。</b>参与者 i 恰好拿到 N−1−i 条：N = 3 时依次是
-        <b> {perParticipant(3).join('、')}</b>，N = 6 时依次是 <b>{perParticipant(6).join('、')}</b>
-        ——参与者 0 拿到全部 N−1 条，<b>排在最后的参与者一条也算不出来</b>，它的那一次发送却要
-        带上前面每一个人的接收时刻，是全轮最长的一帧：它把自己的发送变成了对别人的服务，
-        自己却什么也没算到。
+        <b>帧的长度。</b>2 个发起方、4 个响应方时：控制器的测距控制消息 {M2M_RCM_BYTES} 字节（RDM 列出其余 5 台设备，
+        每台 3 字节），其余发起方的启动消息 {M2M_INIT_BYTES} 字节，单边形态的应答 {M2M_SS_RESP_BYTES} 字节
+        （RRTI 信息单元为每个发起方带 4 字节回复时延和 2 字节地址），双边形态的应答 {M2M_DS_RESP_BYTES} 字节，
+        双边形态的最终帧 {M2M_DS_FINAL_BYTES} 字节（每个响应方 6 字节往返时间加地址、6 字节回复时延加地址）。
+        单边应答随 M 变长，双边最终帧随 N 变长，控制消息随 M + N 变长；每一帧都不能超过 127 字节的 PSDU（§16.2.7），
+        RDM 最多列 63 台设备（§10.32.9.8），编辑器据此拒绝装不下的组合。
       </p>
       <p style={p}>
-        <b>DS 是两趟，不是两倍的帧。</b>DS-TWR 还需要两个时间量（tround2、treply2），它们要求
-        较早的那个参与者<b>再发一次</b>，所以多对多 DS 是两趟、每趟 N 个时隙——上表的 2N 列。
-        多花这一趟换来的是精度：六台设备、晶振拉开到接近标准允许的 ±20 ppm（§16.4.9）时，SS-TWR 的最大
-        误差 <b>0.2175 m</b>（平均 0.0828 m），DS-TWR 只有 <b>0.001454 m</b>（平均 0.000637 m）
-        ——约 150× 的差距，原因和第 15 节一样：SS-TWR 要把对方的回复间隔按自己估计的载波频偏
-        折算过来，而多对多的回复间隔动辄好几个时隙那么长，估计的残差就被放大成了分米级；
-        DS-TWR 则直接抵消掉这个偏差，从不需要去估计它。
-      </p>
-      <p style={p}>
-        <b>帧会长多大。</b>参与者 i 的一次发送带着 i 个接收时刻：MHR + RRMC + 自己的发送时刻
-        IE + 接收时刻 IE（i = 0 时没有这个 IE；这两个 IE 是本仿真器自己的）+ FCS——<code>uwbM2mBytes(i)</code>。六个参与者
-        的一轮里，六次发送依次是 <b>{M2M_BYTES_N6.join(' / ')}</b> 字节：越往后越长，因为要带的
-        接收时刻越多。127 字节的 PSDU 上限（标准 §16.2.7）换来一个可以算出来的参与者上限——
-        <code>uwbMaxParticipants</code>，从不写成字面量：一轮多对多最多容纳 <b>{M2M_CAP}</b> 个
-        参与者，SS 与 DS 算出的上限相同，因为撑爆帧长的是接收时刻的数量，不是要不要多走一趟。
+        <b>精度。</b>单边形态的回复时延要按发起方估计的载波频偏折算到它自己的时钟上，而多对多的回复时延跨好几个时隙，
+        估计残差被放大成厘米到分米级；双边形态直接抵消时钟偏差，误差小两个数量级（第 15 节）。
       </p>
 
       <h4 style={h}>17 · 一条控制消息管几轮，以及没收到的一方怎么说话（标准 §10.32.9.1 ARC IE RCM Validity Rounds / §10.34 测距消息未收到交互）</h4>
@@ -1207,8 +1192,8 @@ export function Guide() {
 
       <h4 style={h}>18 · 发起方怎么知道谁听见了自己（标准 §10.36 多消息收妥确认 MMRCM）</h4>
       <p style={p}>
-        第 16 节留了一个问题：在本仿真器的多对多安排里，排在最后的参与者一条距离也算不出来，它的那一次发送
-        却是全轮最长的一帧——它不知道自己有没有被收到。标准里能回答这一类问题的是 MMRCM
+        第 16 节的多对多测距里，一个发起方的启动消息若没有被某个响应方收到，它只能从那个响应方的应答里
+        看出少了给自己的回复时延，却不知道是哪一帧没被收到。标准里能回答这一类问题的是 MMRCM
         （multiple message receipt confirmation message，§10.36）：响应方用它确认收到了同一发起方或多个发起方的
         多条消息；控制器在 ARC IE 里再多置一位——
         <b>MMRCR</b>（控制字第 15 位，就是第 17 节 RCM 有效轮次占用的同一个字），请对端
@@ -1254,8 +1239,7 @@ export function Guide() {
         {' '}{RMMRC_ADDR_BYTES} 字节 + 长度 {RMMRC_BITMAP_LEN_BYTES} 字节 + 位图）是 <b>{MMRCM_ENTRY_BYTES}</b> 字节，
         整帧是 MHR + 信元头部 + 控制字节 + 列表长度字节 + N 个条目 + FCS，合起来是 <b>15 + 4N</b> 字节；
         第 17 节那组四轮（4 个锚点的单边测距）要确认 {MMRCM_SET_SLOTS} 个时隙，位图就是 {MMRCM_SET_BITMAP_BYTES} 字节。
-        多对多测距里一轮只有 N 个发送时隙，每个参与者都要在同一帧里
-        列出它这一轮听到的每一个在它之前发送的参与者，N 个发起方的帧长依次是：
+        多对多测距里每个响应方要在同一帧里为每个发起方各列一个条目，N 个发起方的帧长依次是：
       </p>
       <table style={table}>
         <thead>
@@ -1299,8 +1283,8 @@ export function Guide() {
       </table>
       <p style={p}>
         双向测距里一个响应方只听到一个发起方（那个标签），这一帧只有一个条目，两种计数看起来
-        是同一个数；多对多测距里一个参与者可能听到好几个在它之前发送的参与者，两种计数才分开——
-        条目数仍按发起方算，而占用的时隙与发出的帧数按响应方（这里就是参与者自己）算。
+        是同一个数；多对多测距里一个响应方确认 M 个发起方，两种计数才分开——
+        条目数按发起方算，而占用的时隙与发出的帧数按响应方算。
       </p>
       <p style={p}>
         <b>这里还有第二件容易被读成一回事的事：RMNR 和收妥位图，回答的不是同一个问题</b>
@@ -1333,9 +1317,9 @@ export function Guide() {
         </tbody>
       </table>
       <p style={p}>
-        两者回答的是同一件事（某一条消息收没收到）的不同粒度，而不是互相替代：第 16 节那个
-        「排在最后的参与者不知道自己有没有被听见」的问题，RMNR 答不了——多对多测距里没有
-        控制消息可以「仍然持有」（本仿真器的多对多安排不发控制消息），RMNR 的前提就不存在；能答的只有收妥位图。<b>打开收妥确认
+        两者回答的是同一件事（某一条消息收没收到）的不同粒度，而不是互相替代：RMNR 是响应方说
+        「我没收到」，收妥位图是响应方逐时隙说「我收到了哪几条」，后者能告诉多对多测距里的一个发起方
+        它的启动消息被哪些响应方收到了。<b>打开收妥确认
         不影响测距：</b>同一个场景打开 MMRCR 前后，UWB_RANGE 记录一一对应——块式结构中每一轮
         一样长（§10.32.3.3），收妥确认的时隙使每一轮都变长，所以测距发生的时刻后移，计数器在不同的时刻读数，
         距离只差测距计数器的一个计数单位以内；

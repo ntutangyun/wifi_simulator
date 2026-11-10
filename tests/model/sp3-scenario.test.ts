@@ -57,8 +57,10 @@ const fourAnchorsOneTag = (): NodeCfg[] => [
   uwbNode('tag-1', 'tag', 4, 4),
 ]
 
+// 2026-11-11 (W3, standard §10.32.6): one initiator (tag) and n − 1 responders (anchors) — an SS
+// round of n slots, as before.
 const m2mNodes = (n = 3): NodeCfg[] =>
-  Array.from({ length: n }, (_, i) => uwbNode(`p-${i}`, 'tag', i * 4, 0))
+  Array.from({ length: n }, (_, i) => uwbNode(`p-${i}`, i === 0 ? 'tag' : 'anchor', i * 4, 0))
 
 /** anchors(n) for the SRRR-capacity test: one tag, n anchors, spaced out so the block/slot-fit
  * rules (unrelated to this test) never fire first. */

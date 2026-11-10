@@ -185,8 +185,21 @@ describe('the frames the round actually put on the air (design §5, acceptance �
     expect(final(SHAPES[3])).toEqual([18 + 12]) // one anchor, embedded: RMI 4 + 6, RRTI 3 + 6
     expect(final(SHAPES[4])).toEqual([11]) // MHR + FCS, no IE
     const reports = (s: Shape): number[] => airOf(s).filter((f) => f.kind === 'uwbReport').map((f) => f.bytes)
-    expect(reports(SHAPES[3])).toEqual([23]) // the responder report alone
-    expect(reports(SHAPES[4])).toEqual([15 + 10, 23]) // initiator deferred report, then the responder report
+    // 2026-11-11 (W2b): the responder's report carries one measurement, 19 octets — Tround2 when
+    // embedded (§10.32.5, Figure 10-238: Treply1 went back in the Response's RRTI IE), the TOF it
+    // computed when deferred (§10.29.6.6, Figure 10-206).
+    expect(reports(SHAPES[3])).toEqual([19]) // the responder report alone
+    expect(reports(SHAPES[4])).toEqual([15 + 10, 19]) // initiator deferred report, then the responder report
+    const frames = (s: Shape) => of(run(scenario({ method: s.method, replyTime: s.replyTime, ...QUIET })), 'TX_START')
+      .map((r) => r.frame)
+    const reportOf = (s: Shape) => frames(s).find((f) => f.kind === 'uwbReport' && f.dst !== '*')!.uwb!.reportTimes!
+    expect(Object.keys(reportOf(SHAPES[3]))).toEqual(['tround2'])
+    expect(Object.keys(reportOf(SHAPES[4]))).toEqual(['tof'])
+    // …and the embedded DS Response is the one that carries Treply1.
+    const respOf = (s: Shape) => frames(s).find((f) => f.kind === 'uwbResp')!
+    expect(respOf(SHAPES[3]).uwb!.ies).toEqual(['RRMC', 'RRTI'])
+    expect(typeof respOf(SHAPES[3]).uwb!.replyRctu).toBe('number')
+    expect(respOf(SHAPES[4]).uwb!.ies).toEqual(['RRMC'])
   })
 })
 
@@ -296,7 +309,10 @@ describe('the embedded shapes are byte-identical to what they were before this s
   // Re-captured again 2026-11-10 (W2): every PPDU is 896 chips longer (PHR 21 symbols, Table 16-2),
   // the SS Response carries RRTI's content header (§10.29.8.1) and the DS Final and report the RMI
   // content header (§10.29.8.4).
-  const BEFORE: Record<'ss' | 'ds', string> = { ss: 'afa9572c', ds: 'a057bb1' }
+  // 2026-11-11 (W2b): ds re-captured — the embedded DS Response carries Treply1 in an RRTI IE and the
+  // responder's report Tround2 alone (§10.32.5, Figure 10-238), and the round is stretched to a whole
+  // divisor of the block (§10.32.2).
+  const BEFORE: Record<'ss' | 'ds', string> = { ss: 'afa9572c', ds: '1b0ab228' }
 
   it('is deterministic and byte-identical in the embedded shapes', () => {
     const got: Record<string, string> = {}

@@ -118,9 +118,10 @@ describe('uwb-dstwr · the lesson', () => {
     expect(std).toContain('只在发起方请求时')
   })
 
-  it('② carries a `differs` row and an `absent` row', () => {
+  // 2026-11-11 (W2b): the one `differs` row (Figure 10-238's split of the two times) is faithful now.
+  it('② carries an `absent` row and no `differs` row', () => {
     const kinds = uwbDstwr.implementation!.map((r) => r.kind)
-    expect(kinds).toContain('differs')
+    expect(kinds).not.toContain('differs')
     expect(kinds).toContain('absent')
   })
 })
@@ -145,16 +146,19 @@ describe('uwb-dstwr · ② says what the engine does, and the engine does it', (
     expect(implRow('Final 的内容').sim).toContain(`Final 为 ${uwbFinalBytes(0)} + ${uwbFinalBytes(1) - uwbFinalBytes(0)}A 字节，本课 ${final.frame.bytes} 字节`)
   })
 
-  it('the differs row: the Response carries no RRTI, the Report one RMI with both times', () => {
+  // 2026-11-11 (W2b): standard §10.32.5, Figure 10-238 — the Response carries Treply1 in an RRTI IE and
+  // the report Tround2 alone in an RMI IE. Until then the report carried both times (differs).
+  it('Figure 10-238: the Response carries Treply1 in an RRTI IE, the Report Tround2 alone', () => {
     const tx = ofType(recs(), 'TX_START')
     const resp = tx.find((r) => r.frame.kind === 'uwbResp')!
     const rep = tx.find((r) => r.frame.kind === 'uwbReport')!
-    expect(resp.frame.uwb!.ies).not.toContain('RRTI')
+    expect(resp.frame.uwb!.ies).toEqual(['RRMC', 'RRTI'])
     expect(rep.frame.uwb!.ies).toEqual(['RMI'])
+    expect(Object.keys(rep.frame.uwb!.reportTimes!)).toEqual(['tround2'])
     const sim = implRow('回报给发起方的两段时间').sim
-    expect(sim).toContain(`Response 不带 RRTI（${resp.frame.bytes} 字节）`)
-    expect(sim).toContain(`${rep.frame.bytes} 字节`)
-    expect(implRow('回报给发起方的两段时间').kind).toBe('differs')
+    expect(sim).toContain(`Treply1（${resp.frame.bytes} 字节）`)
+    expect(sim).toContain(`一个时间，${rep.frame.bytes} 字节`)
+    expect(implRow('回报给发起方的两段时间').kind).toBe('faithful')
   })
 
   it('both lanes compute, the anchor at the Final and the phone at each report, with dsTwr', () => {

@@ -36,13 +36,13 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import {
-  makeBlink, makeDsDeferredReport, makeFinal, makeInit, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr,
+  makeBlink, makeDsDeferredReport, makeFinal, makeInit, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr, withoutSts,
   makeSsDefer,
   UWB_BROADCAST, type UwbArcFields, type UwbFrameKind, type UwbMmrcEntry, type UwbSrrrEntry,
 } from './frames'
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
-import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState } from './device.m2m'
+import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState, type M2mSchedule } from './device.m2m'
 import {
   onSp3InitReport, onSp3Marker, onSp3Report, sp3ReplyTimeRequested, sp3ReportBearing, sp3Round, sp3SlotPeer,
   transmitSp3InitReport, transmitSp3Marker,
@@ -56,7 +56,7 @@ import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbMaxMmrcmInitiators, uwbSinrDb, t
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import {
-  mmrcmAckSlots, mmrcmBitIndex, roundCarriesAncillary, roundCarriesRcm, roundSetOf,
+  mmrcmAckSlots, mmrcmBitIndex, responderRangingSlot, roundCarriesAncillary, roundCarriesRcm, roundSetOf, slotAction,
   type AncillaryRcmSlotAction, type AncillarySlotAction, type MmrcmSlotAction, type RoundPlan, type SlotAction,
 } from './session'
 
@@ -212,6 +212,9 @@ interface PeerMeasurement {
   fom: number
   /** Poll→Response round trip, in the tag's own counter units. */
   tround1: number
+  /** DS-TWR embedded: the responder's first reply time Treply1, from its Response's RRTI IE (standard
+   * §10.32.5, Figure 10-238); null when the Response carried none (deferred, SP3). */
+  treply1: number | null
   /** Response→Final reply, in the tag's own counter units; known once the Final goes out. */
   treply2: number | null
 }
@@ -255,10 +258,9 @@ export interface RoundState {
   dl: DlRoundState | null
   /** Narrowband-assisted multi-millisecond state; non-null exactly in an MMS round. */
   mms: MmsRoundState | null
-  /** Many-to-many state; non-null exactly in an `m2m` round (standard §10.32.6/§10.32.7). It, not
-   * `plan.anchors`, is where a many-to-many path reads the round's participants: see
-   * `M2mRoundState.participants` and the slice ledger's Ruling 8 for why the two counts are not
-   * the same quantity. */
+  /** Many-to-many state; non-null exactly in an `m2m` round (standard §10.32.6/§10.32.7): the
+   * controller, and the schedule this device holds (from its own higher layer at the controller, from
+   * the RCM's RDM IE elsewhere). */
   m2m: M2mRoundState | null
   /**
    * Ranging ancillary information state (standard §10.35.1); non-null exactly on a block that runs
@@ -279,6 +281,10 @@ export interface RoundState {
   ancillaryWindow: number | null
   /** DS-TWR, anchor: the first-path quality of the Final, which scores the anchor's own range. */
   finalFom: number | null
+  /** Deferred DS-TWR, anchor: the TOF it computed from the initiator's deferred report, in RCTU — what
+   * its own report sends back when the initiating RRMC IE requested it (standard §10.29.6.6, Figure
+   * 10-206). Null until then. */
+  ownTofRctu: number | null
   /**
    * UL-TDoA, anchor: when this round's blink arrived, on the **infrastructure's common
    * timebase** rather than on this anchor's own crystal — that crystal is what the calibration
@@ -304,7 +310,7 @@ function freshRound(
     slot: 0, contendSlot: null, contendCollisionSlot: null,
     txPollCounter: null, txFinalCounter: null, peers: new Map(), ranges: [],
     pollNs: null,
-    rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false, finalFom: null,
+    rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false, finalFom: null, ownTofRctu: null,
     // Fresh every round: a tag that heard half a round keeps nothing of it, so a missing Poll
     // or Final can never be filled in from the round before.
     dl: plan.mode === 'dl-tdoa'
@@ -378,6 +384,17 @@ function setKey(plan: RoundPlan, block: number, round: number): string {
  * "shall be less than or equal to the RCM Validity Rounds" of *that* RCM. The value itself is the
  * controller's next higher layer's choice; this is the simulator's choice of it.
  */
+/**
+ * A DS-TWR round of the deferred shape: ARC Deferred Mode with the Final carrying no IE and the
+ * initiator's times following in a deferred Data frame (standard §10.29.6.6, §10.32.5 Figure 10-237) —
+ * `replyTime: 'deferred'`, and every SP3 DS round, whose markers can carry nothing. Its responders
+ * report the TOF they computed (Figure 10-206), where an embedded round's report Tround2 (Figure
+ * 10-238). 2026-11-11 (W2b).
+ */
+function dsDeferredShape(plan: RoundPlan): boolean {
+  return plan.method === 'ds' && (plan.replyTime === 'deferred' || sp3Round(plan))
+}
+
 function contentionAttemptCap(plan: RoundPlan, round: number, maxAttempts: number): number {
   return Math.min(maxAttempts, roundSetOf(plan, round).length)
 }
@@ -386,27 +403,32 @@ function contentionAttemptCap(plan: RoundPlan, round: number, maxAttempts: numbe
  * The ARC IE control bits this round's RCM carries (standard §10.32.9.1, Figure 10-244; Tables
  * 10-163 to 10-167), read off the round plan both ends share. See `UwbArcFields` in `frames.ts`.
  */
-function arcFieldsFor(plan: RoundPlan, round: number): UwbArcFields {
+export function arcFieldsFor(plan: RoundPlan, round: number, stsOff = false): UwbArcFields {
+  // Table 10-165: 0 when the session's frames carry no STS at all (`stsOff`, configuration 0).
+  const sts = (config: 1 | 3): 0 | 1 | 3 => (stsOff ? 0 : config)
   if (roundCarriesAncillary(plan, round)) {
     // The ancillary-information round's RCM (standard §10.35.1): Ranging Round Usage 3 (Table 10-164),
     // valid for this round alone, nothing deferred and no receipt confirmation requested.
     return {
-      multiNode: 1, roundUsage: 3, stsConfig: 1, scheduleMode: plan.schedule === 'contention' ? 0 : 1,
+      multiNode: 1, roundUsage: 3, stsConfig: sts(1), scheduleMode: plan.schedule === 'contention' ? 0 : 1,
       deferred: 0, timeStructure: 1, validityRounds: 1, mmrcr: 0,
     }
   }
   return {
-    // One initiator (the tag) and every anchor: one-to-many (Table 10-163, value 1).
-    multiNode: 1,
+    // One initiator (the tag) and every anchor: one-to-many (Table 10-163, value 1). Many-to-many
+    // (§10.32.6/§10.32.7): value 2. 2026-11-11 (W3).
+    multiNode: plan.mode === 'm2m' ? 2 : 1,
     // Table 10-164: 1 SS-TWR, 2 DS-TWR.
     roundUsage: plan.method === 'ss' ? 1 : 2,
-    // Table 10-165: STS packet structure #1 (SP1) or #3 (SP3).
-    stsConfig: plan.sp3 ? 3 : 1,
+    // Table 10-165: STS packet structure #1 (SP1) or #3 (SP3), or none (0).
+    stsConfig: sts(plan.sp3 ? 3 : 1),
     // Table 10-166: 0 contention-based, 1 scheduling-based.
     scheduleMode: plan.schedule === 'contention' ? 0 : 1,
     // §10.32.9.1: one when ranging slots are scheduled for deferred data frames after the ranging
     // exchange — SS-TWR's deferred reply-time messages, DS-TWR's reports, SP3's report phase.
-    deferred: plan.method === 'ds' || plan.replyTime === 'deferred' || plan.sp3 ? 1 : 0,
+    // A many-to-many round schedules no deferred data frame: its SS reply times ride the responses and
+    // its DS times ride the initiators' final frames (§10.32.6/§10.32.7), and no result is reported.
+    deferred: plan.mode === 'm2m' ? 0 : plan.method === 'ds' || plan.replyTime === 'deferred' || plan.sp3 ? 1 : 0,
     // Table 10-167: block-based (the RR IE travels with this RCM).
     timeStructure: 1,
     validityRounds: roundSetOf(plan, round).length,
@@ -433,6 +455,16 @@ interface HeldRcm {
   srrr: UwbSrrrEntry | null
   /** Ancillary round only: the slots the RCM's RDM IE assigned this device (time schedule). */
   assignedSlots: number[]
+  /**
+   * Time-scheduled ranging RCM: which responder of the round this device is, read off the slot its
+   * own RDM List element assigns it (standard §10.32.9.8: "Upon reception of the RCM, a controlee
+   * knows whether it is selected to participate in the ranging round(s)") — the responder whose
+   * ranging response sits in that slot. Its other frames of the round (a deferred reply-time message,
+   * a report) follow from that place in the round. Null when the RCM listed it nowhere, or carried no
+   * RDM IE (contention). 2026-11-11 (W2b): until then a responder answered in the slot its place in the
+   * scene's anchor list gave it, whatever the RCM said.
+   */
+  responder: number | null
 }
 
 const SSBD_STREAM = 0x1045
@@ -605,17 +637,18 @@ export class UwbDevice implements UwbRadio {
 
   /** Tag: open its round (UWB_ROUND) — in DL-TDoA that is the anchors' round, which every tag
    * opens a lane for because every tag measures the whole of it. Anchor: note the round it is
-   * about to serve. In a many-to-many round there is no such split: every participant both
-   * transmits and measures, so every one of them opens a round of its own (design §5). */
+   * about to serve. In a many-to-many round initiators compute (SS) and responders compute (DS), so
+   * every device of it opens a round of its own (standard §10.32.6/§10.32.7). */
   beginRound(
     block: number, round: number, plan: RoundPlan, tagId: string, anchors: string[],
     /** What the schedule knows about this round that the plan does not, because it changes from
      * block to block or from round to round: the narrowband channel of an MMS block, and the
-     * participant list of a many-to-many round. An options object rather than more positionals,
+     * roles of a many-to-many round. An options object rather than more positionals,
      * so the next such thing costs no caller a change. */
     opts: {
       nbChannel?: number | null
-      participants?: string[]
+      /** `mode: 'm2m'` only: the round's roles; only the controller reads them (`freshM2m`). */
+      m2m?: M2mSchedule
     } = {},
   ): void {
     const mp = plan.mms
@@ -633,25 +666,17 @@ export class UwbDevice implements UwbRadio {
       throw new Error("UwbDevice.beginRound: mode 'mms' needs the block's narrowband channel")
     }
     const mms = mp ? freshMms(mp, nbChannel) : null
-    // The same rule as the channel above, for the same reason: a many-to-many round is laid out
-    // over an *ordered participant list* (design §5), and the order is what decides which slot
-    // each device transmits in and which half of each pair it is. A caller that plans the round
-    // and forgets the list would leave every device unable to say where it stands, so it is said
-    // here rather than guessed — and `RoundPlan.anchors` is deliberately not used as a fallback:
-    // in this mode that number counts everyone rather than everyone-but-the-initiator, and a list
-    // rebuilt from a role filter would not be the list the schedule dispatched against (Ruling 8).
-    if (plan.mode === 'm2m' && opts.participants === undefined) {
-      throw new Error("UwbDevice.beginRound: mode 'm2m' needs the round's ordered participant list")
+    // A many-to-many round needs its controller and, at the controller, the schedule its higher layer
+    // decided (standard §10.32.9.8). A caller that plans the round and forgets them is a bug.
+    if (plan.mode === 'm2m' && opts.m2m === undefined) {
+      throw new Error("UwbDevice.beginRound: mode 'm2m' needs the round's roles")
     }
-    const m2m = plan.mode === 'm2m' && opts.participants !== undefined
-      ? freshM2m(plan, opts.participants, this.id)
-      : null
+    const m2m = plan.mode === 'm2m' && opts.m2m !== undefined ? freshM2m(this.id, opts.m2m) : null
     this.round = freshRound(
       block, round, plan, tagId, anchors, mms, m2m, plan.ancillaryFrames,
     )
-    // Many-to-many has no listener and no server: every participant measures the round it is in,
-    // so every participant opens a lane for it. `uwb.role` decides only how a node is drawn
-    // (design §5), and gating this on it would silence a whole round of all-anchor nodes.
+    // Many-to-many: initiators compute in SS and responders in DS (standard §10.32.6/§10.32.7), so
+    // every device of the round opens a lane for it.
     if (plan.mode !== 'm2m' && this.cfg.role !== 'tag') return
     this.emit({
       t: this.now(), type: 'UWB_ROUND', node: this.id, block, round,
@@ -677,8 +702,7 @@ export class UwbDevice implements UwbRadio {
     const r = this.round
     if (!r) return
     r.slot = slot
-    // …and for the same reason, every participant of a many-to-many round reports its own slot:
-    // each of them is measuring, so each of them has a lane the slot means something on.
+    // …and every device of a many-to-many round reports its own slot: each has a lane (see beginRound).
     if (this.cfg.role === 'tag' || r.plan.mode === 'm2m') {
       this.emit({ t: this.now(), type: 'UWB_SLOT', node: this.id, slot, untilNs: slotEndNs })
     }
@@ -705,7 +729,7 @@ export class UwbDevice implements UwbRadio {
     // The ancillary round's RCM (standard §10.35.1; ARC Ranging Round Usage = 3), sent by the
     // controller — the round's tag — and decoded by the responders.
     if (action.kind === 'uwbAncillaryRcm') {
-      if (this.id === r.tagId) transmitAncillaryRcm(this, r, arcFieldsFor(r.plan, r.round))
+      if (this.id === r.tagId) transmitAncillaryRcm(this, r, arcFieldsFor(r.plan, r.round, this.cfg.stsOff === true))
       else if (peers.anchors.includes(this.id)) this.listenFor(slot, r.tagId, 'uwbRcm')
       return
     }
@@ -717,10 +741,9 @@ export class UwbDevice implements UwbRadio {
     // ranging slot the train does not reach. No other mode ever schedules one, and after this
     // line every action below names a frame.
     if (action.kind === 'idle') return
-    // Many-to-many (standard §10.32.6/§10.32.7, design §3/§5): one transmitter per slot and
-    // everybody else listening — see ./device.m2m.
+    // Many-to-many (standard §10.32.6/§10.32.7): see ./device.m2m.
     if (r.plan.mode === 'm2m') {
-      onM2mSlot(this, slot, action, r, peers)
+      onM2mSlot(this, slot, action, r)
       return
     }
     // A `uwbM2m` action outside an m2m round. `slotAction` produces one for `mode: 'm2m'` and for
@@ -746,6 +769,8 @@ export class UwbDevice implements UwbRadio {
     // the tag simply listens through the whole window for whoever turns up.
     if (r.plan.schedule === 'contention' && action.kind === 'uwbResp') {
       if (this.cfg.role === 'anchor') {
+        // `contendSlot` is drawn only by a responder holding a valid RCM whose RCPS IE opened this
+        // phase (`drawContentionSlot`), so a responder without one stays silent here.
         if (r.contendSlot === slot && !this.repliesAtFixedDelay(r, action.kind)) {
           this.transmitFor(action, slot, r, peers)
         }
@@ -754,7 +779,19 @@ export class UwbDevice implements UwbRadio {
       this.listenOpen(slot)
       return
     }
-    const txId = action.tx === 'tag' ? peers.tag : peers.anchors[action.anchor]
+    // Who transmits in this slot, as this device knows it. The initiator (the controller) wrote the
+    // schedule, so it knows every slot's owner. A responder knows only its own place, and only from
+    // the RCM it holds (standard §10.32.9.8: the RDM IE allocates the time slots; "Upon reception of
+    // the RCM, a controlee knows whether it is selected to participate"): its own slots are those of
+    // the responder index its RDM element names (`HeldRcm.responder`), and a responder holding no
+    // valid RCM has no slot at all. 2026-11-11 (W2b): until then a responder took its slot from its
+    // place in the scene's anchor list, RCM or no RCM.
+    const responderSide = this.cfg.role === 'anchor' && r.plan.mode === 'twr'
+    const txId = action.tx === 'tag'
+      ? peers.tag
+      : responderSide
+        ? (action.anchor === this.heldResponder(r) ? this.id : null)
+        : peers.anchors[action.anchor]
     if (txId === this.id) {
       // …unless this round's responder answers at a fixed delay from the Poll rather than at the
       // slot boundary (standard §10.29.6.5). Its Response was armed the instant the Poll arrived
@@ -786,6 +823,14 @@ export class UwbDevice implements UwbRadio {
         // which is what keeps a responder's cost the two frames of its own.
         || ((action.kind === 'uwbSp3' || action.kind === 'uwbReport') && action.tx === 'tag')
     if (!mine) return
+    // …and a responder listens past slot 0 only while it holds a valid RCM from this initiator: one
+    // that never decoded the RCM was never told this round's schedule, so it does not know when the
+    // Final or the initiator's report will come (standard §10.32.9.8, §10.32.3.4). Slot 0 it does
+    // listen in — that is where the RCM itself arrives. 2026-11-11 (W2b): until then it kept its
+    // receiver on through the round by the scene's own timetable and logged a timeout for a Final it
+    // had never been scheduled to receive.
+    if (responderSide && action.kind !== 'uwbPoll' && !this.holdsValidRcmFor(r)) return
+    if (txId === null) return
     // An SP3 round's markers, at either end (standard §10.32.8.2), and the responders' reports at
     // the initiator: all of them waited on *by slot* rather than by sender.
     //
@@ -825,14 +870,9 @@ export class UwbDevice implements UwbRadio {
     const r = this.round
     this.round = null
     if (!r) return []
-    // Many-to-many closes at every participant and hands nothing back. Every range of the round
-    // was already reported in the slot the frame that completed it landed in (design §2: the
-    // earlier participant of each pair finishes the arithmetic on arrival), there is no fix to
-    // solve — a participant measures its peers, not its own position — and there is no contention
-    // budget for a feedback flag to refill. It comes before the role check below because in this
-    // mode `uwb.role` decides only how a node is drawn (design §5): an all-anchor round would
-    // otherwise close silently, with no UWB_ROUND_END against the UWB_ROUND each participant
-    // opened.
+    // Many-to-many closes at every device and hands nothing back: every range was reported in the slot
+    // the frame that completed it landed in (standard §10.32.6/§10.32.7), there is no fix to solve, and
+    // a responder computes in DS, so this comes before the role check below.
     if (r.plan.mode === 'm2m') {
       this.emit({ t: this.now(), type: 'UWB_ROUND_END', node: this.id, block: r.block, round: r.round })
       return []
@@ -997,7 +1037,7 @@ export class UwbDevice implements UwbRadio {
       // This device's own row of the list, and nothing else: one frame may answer several
       // initiators, and each of them learns only what was written about it. A frame that names none
       // of them is not an error — a broadcast confirmation in a many-to-many round reaches every
-      // participant, including ones it has nothing to say to — it simply produces no record here.
+      // device in earshot, including ones it has nothing to say to — it simply produces no record here.
       const mine = entries.find((e) => e.initiator === this.id)
       if (mine !== undefined) {
         this.emit({
@@ -1115,9 +1155,7 @@ export class UwbDevice implements UwbRadio {
       return
     }
 
-    // Many-to-many: one reception is both half of a round trip this device opened and the raw
-    // material of the answer it will send later, so it is routed on the mode rather than by frame
-    // kind — every frame of the round is the same kind (see ./device.m2m).
+    // Many-to-many (standard §10.32.6/§10.32.7): see ./device.m2m.
     if (r.plan.mode === 'm2m') {
       onM2mRx(this, r, from, frame, counter, coffs, fom)
       return
@@ -1175,11 +1213,6 @@ export class UwbDevice implements UwbRadio {
         else if (sp3Round(r.plan) && r.plan.method === 'ss') onSp3InitReport(this, r, r.slot, frame)
         else this.onDsDeferredReport(r, from, frame)
         break
-      case 'uwbM2m':
-        // Only an m2m round ever waits for one of these, and that round returned above. A
-        // many-to-many frame accepted by a two-way round's expectation would mean the two ends
-        // disagree about the mode, which nothing can do on purpose (Ruling 9).
-        throw new Error(`UwbDevice.onRxOk: a many-to-many frame from ${from} in a '${r.plan.mode}' round`)
       // No `case 'uwbRmnr'` here, and it is not an omission: the branch above returns on that kind
       // unconditionally, so `kind` is narrowed and tsc refuses the case outright ("not comparable")
       // rather than accepting a throw nobody could ever reach. Ruling 9 asks for a throw where a
@@ -1295,8 +1328,23 @@ export class UwbDevice implements UwbRadio {
       mmrcr: u?.arc?.mmrcr === 1,
       contention: u?.contention ? { ...u.contention } : null,
       srrr: u?.srrr?.find((e) => e.provider === this.id) ?? null,
-      assignedSlots: (u?.rdm ?? []).filter((e) => e.id === this.id).map((e) => e.slot),
+      assignedSlots: (u?.rdm ?? []).filter((e) => e.id === this.id && e.initiator).map((e) => e.slot),
+      responder: this.rdmResponder(r, frame),
     })
+  }
+
+  /** The responder index a time-scheduled ranging RCM's RDM IE gives this device (`HeldRcm.responder`). */
+  private rdmResponder(r: RoundState, frame: FrameDesc): number | null {
+    if (frame.kind !== 'uwbPoll' || r.plan.mode !== 'twr' || r.plan.schedule !== 'time') return null
+    const mine = (frame.uwb?.rdm ?? []).find((e) => e.id === this.id && !e.initiator)
+    if (mine === undefined) return null
+    const a = slotAction(r.plan, mine.slot)
+    return (a.kind === 'uwbResp' || a.kind === 'uwbSp3') && a.tx === 'anchor' ? a.anchor : null
+  }
+
+  /** Responder, time-scheduled two-way round: its place in the round per the RCM it holds, or null. */
+  private heldResponder(r: RoundState): number | null {
+    return this.heldRcmFor(r)?.responder ?? null
   }
 
   /** The RCM this device holds from `tagId` when it is still valid for round `round` of `block`. */
@@ -1333,8 +1381,7 @@ export class UwbDevice implements UwbRadio {
    * One of `initiator`'s openers arrived, in round `round` of block `block`: write that bit down (standard §10.36,
    * design §3.3). Called from the two places a device decodes an opener — `onInitiation`, which is
    * where both of a two-way round's openers land (the control message and the initiation message
-   * alike), and `onM2mRx` for a many-to-many round's pass-0 transmission, which *is* that mode's
-   * opener.
+   * alike), and `onM2mRx` for every message a many-to-many responder receives from an initiator.
    *
    * **This is the only writer**, and it writes only what this receiver experienced: it is called
    * from inside a reception, after the expectation has accepted the frame, so a bit can be set here
@@ -1435,17 +1482,15 @@ export class UwbDevice implements UwbRadio {
    * design §6's "one frame per initiator" read literally, and it is the reason this engine never
    * needs the multi-node downlink §6 declines to model.
    *
-   * A many-to-many round has no such split: every participant is initiator and responder at once
-   * (design §5), so a participant answers every *other* participant and its one frame carries N−1
-   * entries. This is the case §3.2's list and `uwbMmrcmBytes`' own `initiators` parameter exist
-   * for, and the addressing is the round's existing one — every frame of a many-to-many round is
-   * already `UWB_BROADCAST`, because the round has no tag for anything to be addressed to.
+   * A many-to-many round's responder confirms every initiator of the round (standard §10.36.1, Figure
+   * 10-272: devices B1…BM confirm the messages of A1…AN), as its held schedule names them — so its
+   * frame carries M entries. 2026-11-11 (W3): until then every participant answered every other.
    */
   private mmrcmAnswers(r: RoundState, responder: string): string[] {
     if (r.plan.mode !== 'm2m') return [r.tagId]
-    const m = r.m2m
-    if (!m) throw new Error(`mmrcmAnswers: a '${r.plan.mode}' round carries no many-to-many state`)
-    return m.participants.filter((id) => id !== responder)
+    const sched = r.m2m?.schedule
+    if (!sched || !sched.responders.includes(responder)) return []
+    return [...sched.initiators]
   }
 
   /**
@@ -1460,13 +1505,11 @@ export class UwbDevice implements UwbRadio {
    * absent: the one thing an anchor could have answered tag 2's round with is a bitmap it holds for
    * tag 1, and an anchor that never decoded tag 2 does not reach the frame at all.
    *
-   * In a many-to-many round the floor is already met by construction and there is nothing to check:
-   * there is no control message in the mode at all (the schema pins `rcmValidityRounds` at 1 for
-   * it), and the slot comes from the participant list every participant was handed with the round
-   * (`m2mParticipants`, in node-id order), not from anybody's IE.
+   * In a many-to-many round the request is the MMRCR bit of the controller's RCM (the round's
+   * `tagId`), which is where every responder's schedule came from (standard §10.36.1).
    */
   private mayConfirmTo(initiator: string, r: RoundState): boolean {
-    if (r.plan.mode === 'm2m') return true
+    if (r.plan.mode === 'm2m') return this.heldRcm(r.block, r.round, r.tagId)?.mmrcr === true
     // The confirmation answers the MMRCR bit of the ARC IE this responder actually decoded
     // (standard §10.36.1, §10.32.9.1), not the session's own switch.
     return this.heldRcm(r.block, r.round, initiator)?.mmrcr === true
@@ -1477,7 +1520,7 @@ export class UwbDevice implements UwbRadio {
    *
    * **Which device transmits from the slot** — the decision Task 2 left to this task: the responder
    * `action.index` names, read off the list the slots were laid out from. That is `peers.anchors` in
-   * a two-way round and the round's own participant list in a many-to-many one, which are the same
+   * a two-way round and the responders of the held schedule in a many-to-many one, which are the same
    * two lists `uwbMmrcmSlots` counts to decide how many of these slots exist — so the slot index and
    * the device it belongs to cannot disagree. It is **not** routed through `transmitFor`: that takes
    * a `ScheduledAction`, every member of which is a ranging frame with a `tx`/`anchor` shape this
@@ -1491,8 +1534,11 @@ export class UwbDevice implements UwbRadio {
   private onMmrcmSlot(
     slot: number, action: MmrcmSlotAction, r: RoundState, peers: { tag: string; anchors: string[] },
   ): void {
+    // A many-to-many device knows the responders only from its held schedule; without one it takes no
+    // part in the round's receipt confirmations either.
+    if (r.plan.mode === 'm2m' && !r.m2m?.schedule) return
     const responders = r.plan.mode === 'm2m'
-      ? (r.m2m?.participants ?? [])
+      ? (r.m2m?.schedule?.responders ?? [])
       : peers.anchors
     const txId = responders[action.index]
     // The schedule named a responder this round does not have, which would mean `uwbMmrcmSlots` and
@@ -1503,7 +1549,12 @@ export class UwbDevice implements UwbRadio {
         `UwbDevice.onMmrcmSlot: slot ${slot} names responder ${action.index}, and the round has ${responders.length}`,
       )
     }
-    if (txId !== this.id) {
+    // A two-way round's responder sends in the receipt slot of the responder index its held RCM's RDM
+    // IE gave it (`HeldRcm.responder`), not in its scene-order one (2026-11-11, W2b).
+    const mine = r.plan.mode === 'twr' && this.cfg.role === 'anchor'
+      ? this.heldResponder(r) === action.index
+      : txId === this.id
+    if (!mine) {
       if (this.mmrcmAnswers(r, txId).includes(this.id)) this.listenFor(slot, txId, 'uwbMmrcm')
       return
     }
@@ -1514,11 +1565,9 @@ export class UwbDevice implements UwbRadio {
     // slot does for an anchor that never heard the Poll.
     if (entries.length === 0) return
     // **The one invariant the schema's own arithmetic cannot carry over**: the frame has to fit the
-    // 127-octet PSDU. Both of this engine's modes clear it by a wide margin today — a two-way round
-    // lists one initiator (18 octets at R ≤ 8), and a many-to-many round lists N−1 of them while
-    // `uwbMaxParticipants` already caps N at 27 by a *different* frame's arithmetic — but those two
-    // caps are not tied to each other anywhere, and `rcmValidityRounds` may be set as high as 63,
-    // which widens every entry. So it is checked rather than argued: a sentence in a comment is what
+    // 127-octet PSDU. A two-way round lists one initiator (18 octets at R ≤ 8) and a many-to-many
+    // responder lists the M initiators (the schema refuses an M that does not fit), but
+    // `rcmValidityRounds` may be set as high as 63, which widens every entry. So it is checked rather than argued: a sentence in a comment is what
     // this slice has already had to replace once with a throw (`makeMmrcm`'s own width guard).
     const ackSlots = mmrcmAckSlots(r.plan, r.round)
     const cap = uwbMaxMmrcmInitiators(ackSlots)
@@ -1531,8 +1580,8 @@ export class UwbDevice implements UwbRadio {
     this.send(
       makeMmrcm(
         this.id,
-        // A two-way round's one initiator is an address; a many-to-many round has no tag to address
-        // anything to and every frame of it is already a broadcast (design §6).
+        // A two-way round's one initiator is an address; a many-to-many responder confirms several
+        // initiators at once, so its frame is broadcast (§10.36: "via multicast or multi-node messages").
         r.plan.mode === 'm2m' ? UWB_BROADCAST : r.tagId,
         r.block, r.round, slot, ackSlots, entries,
       ),
@@ -1578,9 +1627,12 @@ export class UwbDevice implements UwbRadio {
     // contention one (`contention` + `fixed` is a legal pairing — design §3.1 calls it the most
     // worth allowing, since a contention round wants the shortest frame it can get). Null means
     // it drew none and is sitting the round out.
-    const index = r.anchors.indexOf(this.id)
-    const slot = r.plan.schedule === 'contention' ? r.contendSlot : index + 1
-    if (slot === null || slot < 1 || index < 0) return
+    // 2026-11-11 (W2b): the time-scheduled slot is the one the held RCM's RDM IE assigned
+    // (`HeldRcm.responder`), not this device's place in the scene's anchor list.
+    const contention = r.plan.schedule === 'contention'
+    const index = contention ? r.anchors.indexOf(this.id) : this.heldResponder(r)
+    const slot = contention ? r.contendSlot : index === null ? null : index + 1
+    if (slot === null || slot < 1 || index === null || index < 0) return
     const rmarkerNs = this.clock.after(rxTrueNs, rxExtraNs, fixedReplyRctu(r.plan, slot))
     // The queue is given the instant the *PPDU* starts; the RMARKER is what the arithmetic above
     // aimed at, and `send` puts it one `UWB_RMARKER_NS` after the start (see `transmitFor`).
@@ -1661,7 +1713,7 @@ export class UwbDevice implements UwbRadio {
       return
     }
     if (r.plan.mode === 'm2m') {
-      transmitM2m(this, action, slot, r, txCounter)
+      transmitM2m(this, action, slot, r, txCounter, arcFieldsFor(r.plan, r.round, this.cfg.stsOff === true))
       return
     }
     switch (action.kind) {
@@ -1691,7 +1743,12 @@ export class UwbDevice implements UwbRadio {
           : makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
             schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
             maxAttempts: contentionAttemptCap(r.plan, r.round, this.cfg.maxAttempts),
-            arc: arcFieldsFor(r.plan, r.round),
+            // The RDM IE's Ranging Slot Index per responder (standard §10.32.9.8): what each responder
+            // reads its slot from.
+            rdmSlots: r.plan.schedule === 'time'
+              ? peers.anchors.map((_, i) => responderRangingSlot(r.plan, i) ?? i + 1)
+              : undefined,
+            arc: arcFieldsFor(r.plan, r.round, this.cfg.stsOff === true),
             // SP3's RCM also carries the SRRR IEs — one per (initiator, responder) pair, standard
             // §10.32.9.9 — so a request is five octets a responder, where §10.36's MMRCR bit rides
             // a control octet this frame carries anyway. RRT is always set: a deferred SS round has
@@ -1700,7 +1757,10 @@ export class UwbDevice implements UwbRadio {
             // still in force with it.
             srrr: sp3Round(r.plan)
               ? peers.anchors.map((provider) => ({
-                provider, raoa: r.plan.srrr.raoa, rrt: true, rrtt: r.plan.srrr.rrtt, rtof: false,
+                provider, raoa: r.plan.srrr.raoa, rrt: true, rrtt: r.plan.srrr.rrtt,
+                // 2026-11-11 (W2b): a DS round's responders report the TOF they compute (the deferred
+                // shape, Figure 10-206), and in an SP3 round that report is requested by RTOF.
+                rtof: r.plan.method === 'ds',
               }))
               : undefined,
           })
@@ -1708,7 +1768,7 @@ export class UwbDevice implements UwbRadio {
         // which is counted from the end of this PPDU at the responder (see `fixedReplyRctu`). It is
         // read off the frame this round actually sent, at both ends, which is what lets the two
         // messages differ in length without either end assuming the other's.
-        r.pollNs = opener.txTimeNs
+        r.pollNs = this.onAir(opener).txTimeNs
         this.send(opener, txCounter)
         break
       }
@@ -1734,7 +1794,9 @@ export class UwbDevice implements UwbRadio {
         //   deferred — it cannot ride this frame (this frame's own send time is what it would
         //              have to contain), so the follow-up message below carries it instead;
         //   fixed    — it need not ride any frame: the tag already knows it from the session.
-        const embedded = r.plan.method === 'ss' && r.plan.replyTime === 'embedded'
+        // 2026-11-11 (W2b): a DS-TWR Response embeds the first reply time too — `{Ranging, RRMC IE and
+        // RRTI IE}` when the initiator's RRMC IE (2) asked for it (standard §10.32.5, Figure 10-238).
+        const embedded = r.plan.replyTime === 'embedded'
         const replyRctu = embedded ? counterDiff(txCounter, r.rxPollCounter) : undefined
         this.send(
           makeResp(
@@ -1812,9 +1874,19 @@ export class UwbDevice implements UwbRadio {
         // anchor stays silent rather than putting a useless PPDU on the air.
         if (!r.finalListedMe) return
         if (r.rxPollCounter === null || r.txRespCounter === null || r.rxFinalCounter === null) return
-        const treply1 = counterDiff(r.txRespCounter, r.rxPollCounter)
+        // 2026-11-11 (W2b). Deferred (and SP3, which is always deferred): the TOF this anchor computed
+        // from the initiator's deferred report, requested by the initiating RRMC IE's TOF Request field
+        // (standard §10.29.6.6, Figure 10-206) — or, in an SP3 round, by the SRRR IE's RTOF bit
+        // (§10.32.9.9). Embedded: Tround2 alone; Treply1 already went back in the Response's RRTI IE
+        // (§10.32.5, Figure 10-238).
+        if (dsDeferredShape(r.plan)) {
+          if (r.ownTofRctu === null) return
+          if (sp3Round(r.plan) && this.heldRcmFor(r)?.srrr?.rtof !== true) return
+          this.send(makeReport(this.id, r.tagId, { tof: Math.round(r.ownTofRctu) }, r.block, r.round, slot), txCounter)
+          break
+        }
         const tround2 = counterDiff(r.rxFinalCounter, r.txRespCounter)
-        this.send(makeReport(this.id, r.tagId, treply1, tround2, r.block, r.round, slot), txCounter)
+        this.send(makeReport(this.id, r.tagId, { tround2 }, r.block, r.round, slot), txCounter)
         break
       }
     }
@@ -1831,7 +1903,7 @@ export class UwbDevice implements UwbRadio {
     const t = this.now()
     // The MHR's Sequence Number is a real per-device counter, as in any 802.15.4
     // device, so the decoder has a number to show instead of the schedule tuple.
-    const frame: FrameDesc = { ...desc, seqNo: this.seqNo }
+    const frame: FrameDesc = { ...this.onAir(desc), seqNo: this.seqNo }
     this.seqNo = (this.seqNo + 1) % 256
     this.setState('tx')
     if (txCounter !== null) {
@@ -1847,6 +1919,14 @@ export class UwbDevice implements UwbRadio {
     this.q.schedule(t + frame.txTimeNs, () => {
       if (this.state === 'tx' && this.txSeq === txId) this.setState('idle')
     }, 2)
+  }
+
+  /**
+   * The frame as this device puts it on the air: unchanged, or — in a session whose sequence is
+   * switched off — as STS packet configuration 0 (`withoutSts`; standard Table 16-1). 2026-11-11 (W2b).
+   */
+  onAir(desc: FrameDesc): FrameDesc {
+    return this.cfg.stsOff === true ? withoutSts(desc) : desc
   }
 
   // ---- measurements ---------------------------------------------------------
@@ -1898,7 +1978,10 @@ export class UwbDevice implements UwbRadio {
   private onResponse(r: RoundState, from: string, frame: FrameDesc, counter: number, coffs: number, fom: number): void {
     if (r.txPollCounter === null) return
     const tround1 = counterDiff(counter, r.txPollCounter)
-    r.peers.set(from, { id: from, rxRespCounter: counter, coffs, fom, tround1, treply2: null })
+    r.peers.set(from, {
+      id: from, rxRespCounter: counter, coffs, fom, tround1, treply2: null,
+      treply1: r.plan.method === 'ds' ? (frame.uwb?.replyRctu ?? null) : null,
+    })
     if (r.plan.method !== 'ss') return
     // Deferred: the reply time is not here and could not have been (design §2). The round trip
     // is banked above; `onSsDefer` finishes the range when the follow-up message lands, a whole
@@ -2016,15 +2099,27 @@ export class UwbDevice implements UwbRadio {
     const tround2 = counterDiff(r.rxFinalCounter, r.txRespCounter)
     // Scored by the Final's first-path quality, as the embedded shape's range is: the Final is the
     // last ranging frame of the exchange.
-    reportRange(this, r, from, 'ds', dsTwr(entry.tround1, treply1, tround2, entry.treply2), undefined, r.finalFom ?? 0)
+    const tof = dsTwr(entry.tround1, treply1, tround2, entry.treply2)
+    r.ownTofRctu = tof
+    reportRange(this, r, from, 'ds', tof, undefined, r.finalFom ?? 0)
   }
 
-  /** Tag, on an anchor's Report: the anchor's half of the double-sided exchange. */
+  /**
+   * Tag, on an anchor's Report (2026-11-11, W2b). Embedded (standard §10.32.5, Figure 10-238): the
+   * report carries Tround2, the Response's RRTI IE already brought Treply1, and the tag holds all four
+   * times. Deferred (§10.29.6.6, Figure 10-206): the report carries the TOF the responder computed,
+   * which is the tag's range as it stands.
+   */
   private onReport(r: RoundState, from: string, frame: FrameDesc, fom: number): void {
     const p = r.peers.get(from)
     const times = frame.uwb?.reportTimes
-    if (!p || p.treply2 === null || !times) return
-    reportRange(this, r, from, 'ds', dsTwr(p.tround1, times.treply1, times.tround2, p.treply2), undefined, fom)
+    if (!p || !times) return
+    if (times.tof !== undefined) {
+      reportRange(this, r, from, 'ds', times.tof, undefined, fom)
+      return
+    }
+    if (p.treply2 === null || p.treply1 === null || times.tround2 === undefined) return
+    reportRange(this, r, from, 'ds', dsTwr(p.tround1, p.treply1, times.tround2, p.treply2), undefined, fom)
   }
 
   setState(s: UwbDeviceState): void {

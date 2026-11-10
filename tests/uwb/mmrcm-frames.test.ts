@@ -6,12 +6,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  makeBlink, makeFinal, makeInit, makeM2m, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr,
+  makeBlink, makeFinal, makeInit, makeM2mResp, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr,
 } from '../../src/uwb/frames'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
   RMMRC_ADDR_BYTES, RMMRC_BITMAP_LEN_BYTES, RMMRC_FIXED_BYTES, UWB_BLINK_BYTES, UWB_IE_HDR_BYTES, UWB_MAX_PSDU_BYTES,
-  UWB_REPORT_BYTES, rmmrcEntryBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes, uwbMaxMmrcmInitiators,
+  UWB_REPORT_BYTES, rmmrcEntryBytes, uwbFinalBytes, uwbInitBytes, uwbM2mRespBytes, uwbMaxMmrcmInitiators,
   uwbMmrcmBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
 } from '../../src/uwb/phy'
 
@@ -153,9 +153,11 @@ describe('leaves every existing frame byte-identical', () => {
   })
 
   it('Report', () => {
-    const f = makeReport('a1', 'tag', 1_000, 2_000, 0, 0, 6)
+    const f = makeReport('a1', 'tag', { tround2: 2_000 }, 0, 0, 6)
     expect(f.bytes).toBe(UWB_REPORT_BYTES)
-    expect(f.bytes).toBe(23) // 2026-11-10: RMI content header 2, unicast so no address (§10.29.8.4)
+    // 2026-11-11 (W2b): one measurement — Tround2 (embedded, §10.32.5 Figure 10-238) or the TOF
+    // (deferred, §10.29.6.6 Figure 10-206); 23 with both times until then.
+    expect(f.bytes).toBe(19)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
@@ -166,9 +168,10 @@ describe('leaves every existing frame byte-identical', () => {
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
-  it('Many-to-many', () => {
-    const f = makeM2m('p1', 'ss', 0, 0, 1, { txCounter: 1_000, rxCounters: { p0: 500 } })
-    expect(f.bytes).toBe(uwbM2mBytes(1))
+  // 2026-11-11 (W3): the many-to-many SS response (standard §10.32.6), one RRTI element per initiator.
+  it('Many-to-many response', () => {
+    const f = makeM2mResp('a1', 'ss', 0, 0, 2, [{ id: 't0', replyRctu: 1_000 }, { id: 't1', replyRctu: 500 }])
+    expect(f.bytes).toBe(uwbM2mRespBytes('ss', 2))
     expect(f.bytes).toBe(26)
     expect(fieldSum(f)).toBe(f.bytes)
   })

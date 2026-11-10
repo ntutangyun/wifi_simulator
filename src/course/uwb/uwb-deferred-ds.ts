@@ -46,7 +46,7 @@ export const dsSlots = (anchors: number, replyTime: 'embedded' | 'deferred'): nu
 /** Octets of the round's frames, from the PHY — never typed as literals. */
 export const BYTES = {
   pollOne: uwbPollBytes(1),
-  respOne: uwbRespBytes('ds'),
+  respOne: uwbRespBytes('ds', 'deferred'),
   report: UWB_REPORT_BYTES,
   finalEmbeddedOne: uwbFinalBytes(1, 'embedded'),
   finalDeferredOne: uwbFinalBytes(1, 'deferred'),
@@ -84,11 +84,11 @@ export const FIG = {
   /** Embedded: the anchor finishes when the Final lands. */
   anchorRangeUs: '4.199',
   /** Embedded: the tag finishes when the anchor's report lands. */
-  tagRangeUs: '6.192',
+  tagRangeUs: '6.188',
   /** Deferred: the anchor finishes when the initiator's deferred report lands, a slot later. */
   anchorDeferredUs: '6.194',
   /** Deferred: the tag finishes when the anchor's report lands, a slot later again. */
-  tagDeferredUs: '8.192',
+  tagDeferredUs: '8.188',
 } as const
 
 /**
@@ -153,7 +153,7 @@ export const uwbDeferredDs: Lesson = {
     { topic: 'Deferred Mode 字段', standard: 'ARC 信息单元的 Deferred Mode 为 1 时另排时隙（§10.32.9.1）', sim: '两种形态的 Poll 里 ARC 的 Deferred Mode 都为 1：延后形态为发起方的延后数据帧排了时隙，嵌入形态也为锚点的报告排了时隙。', kind: 'faithful' },
     { topic: '延后数据帧的时隙', standard: '只要求另排时隙，不规定放在哪里', sim: '紧接在 Final 之后的一个时隙，所以 A 个锚点的一轮占 2A + 3 个时隙，嵌入形态是 2A + 2 个。', kind: 'choice' },
     { topic: '哪一端计算', standard: '响应方收到延后数据帧后计算（§10.29.6.6，§10.32.5）', sim: '照此：锚点在延后数据帧到达时算出距离。', kind: 'faithful' },
-    { topic: '发起方也得到距离', standard: '图 10-237 画的是发起方不请求结果的情形；请求时响应方在测量报告阶段发回测量（图 10-238）', sim: `本课的场景请求了：锚点随后发 ${BYTES.report} 字节的报告，一个 RMI 信息单元带回自己的回复时延与往返时间，手机据此也算出距离。图 10-238 里第一段回复时延由应答中的 RRTI 带回，本仿真器的 Response 不带 RRTI。`, kind: 'differs' },
+    { topic: '发起方也得到距离', standard: '图 10-237 画的是发起方不请求结果的情形；发起方在启动消息的 RRMC 信息单元里置 TOF Request 时，响应方在测量报告阶段用 RMI 信息单元把算出的飞行时间发回（§10.29.6.6 图 10-206，§10.32.5 图 10-239）', sim: `照此：本课的场景请求了结果，锚点随后发 ${BYTES.report} 字节的报告，一个 RMI 信息单元的 TOF 字段带回它算出的飞行时间；这个字段是测距计数单位的整数，手机直接采用它。`, kind: 'faithful' },
     { topic: '地址', standard: '短地址或扩展地址；RRTI 在约定次序时可省地址（§10.29.8.1，§10.29.8.4）', sim: `一律用 ${UWB_SHORT_ADDR_BYTES} 字节的短地址，嵌入式 Final 的 RRTI 列表项也带地址。换成扩展地址或省去 RRTI 的地址，${CAP.dsEmbedded} 与 ${CAP.dsDeferred} 这两个上限都要重算。`, kind: 'value' },
     { topic: '形态的选定', standard: '会话参数由上层或控制消息设定；RRTN 信息单元可用于协商回复时延（§10.29.8.6）', sim: '形态是场景事先给定的配置，整场不变；没有任何空口消息启停或重配会话，RRTN 信息单元未实现。', kind: 'absent' },
   ],
@@ -165,8 +165,8 @@ export const uwbDeferredDs: Lesson = {
         '载入本课场景（延后形态），跳到 Final，看它的长度与信息单元。',
         '看下一个时隙里手机发出的那一帧，再找锚点那条泳道的测距行出现的时刻。',
       ],
-      expect: `Final 在 4 ms 处发出，只有 ${BYTES.finalDeferredOne} 字节，不带任何信息单元；下一个时隙里手机发出 ${BYTES.deferredReportOne} 字节的延后数据帧，带一个 RMI 信息单元。整轮写着 ${dsSlots(1, 'deferred')} slots。锚点的测距行在 ${FIG.anchorDeferredUs} ms，即延后数据帧到达之后；手机的在 ${FIG.tagDeferredUs} ms，即锚点的报告到达之后。两者都是 ${RANGE_M.ds} m，真值 ${BENCH_M.toFixed(2)} m。`,
-      meaning: '这正是 ① 的一对多延后过程：Final 只完成第二次往返，两段时间由延后数据帧送到锚点。手机也得到距离，是因为本课的场景请求了报告（②）。',
+      expect: `Final 在 4 ms 处发出，只有 ${BYTES.finalDeferredOne} 字节，不带任何信息单元；下一个时隙里手机发出 ${BYTES.deferredReportOne} 字节的延后数据帧，带一个 RMI 信息单元。整轮写着 ${dsSlots(1, 'deferred')} slots。锚点的测距行在 ${FIG.anchorDeferredUs} ms，即延后数据帧到达之后；手机的在 ${FIG.tagDeferredUs} ms，即锚点的报告到达之后。锚点算出 ${RANGE_M.ds} m，真值 ${BENCH_M.toFixed(2)} m；手机读出 ${RANGE_M.dsDeferredTag} m，是锚点报告回来的飞行时间取整到测距计数单位之后的值。`,
+      meaning: '这正是 ① 的一对多延后过程：Final 只完成第二次往返，两段时间由延后数据帧送到锚点。手机也得到距离，是因为本课的场景请求了结果，锚点把算出的飞行时间报告回来（①、②）。',
     },
     {
       heading: '嵌入形态：Final 把两段时间带给锚点',
@@ -181,7 +181,7 @@ export const uwbDeferredDs: Lesson = {
           ['DS-TWR 延后', '✓ 收到报告时', '✓ 收到延后数据帧时'],
         ] },
       ],
-      expect: `Final 是 ${BYTES.finalEmbeddedOne} 字节，带 RMI 与 RRTI 两个信息单元，比延后形态多 ${BYTES.finalEmbeddedOne - BYTES.finalDeferredOne} 字节；整轮 ${dsSlots(1, 'embedded')} slots。锚点在 ${FIG.anchorRangeUs} ms 算出 ${RANGE_M.ds} m，手机在 ${FIG.tagRangeUs} ms 算出同一个数。延后形态把两行分别推迟到 ${FIG.anchorDeferredUs} ms 与 ${FIG.tagDeferredUs} ms，数值不变。`,
+      expect: `Final 是 ${BYTES.finalEmbeddedOne} 字节，带 RMI 与 RRTI 两个信息单元，比延后形态多 ${BYTES.finalEmbeddedOne - BYTES.finalDeferredOne} 字节；整轮 ${dsSlots(1, 'embedded')} slots。锚点在 ${FIG.anchorRangeUs} ms 算出 ${RANGE_M.ds} m，手机在 ${FIG.tagRangeUs} ms 算出同一个数。延后形态把两行分别推迟到 ${FIG.anchorDeferredUs} ms 与 ${FIG.tagDeferredUs} ms，锚点的数值不变。`,
       meaning: '两种形态的四段时间相同，只是发起方的两段时间晚一帧送到（①）；多出的一个时隙是本仿真器把延后数据帧排在 Final 之后的结果（②）。',
     },
     {
@@ -211,7 +211,7 @@ export const uwbDeferredDs: Lesson = {
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.29.6.6 与图 10-206（一对一延后双边过程）、§10.29.6.7 与图 10-207（一对一嵌入双边过程）、§10.32.5 与图 10-236、10-237、10-238（一对多双边过程，延后形态，测量报告）、§10.32.9.1（ARC 信息单元的 Deferred Mode 字段）、§10.29.8.4（RMI 信息单元）、§10.29.8.1（RRTI 信息单元）、§10.29.8.6（RRTN 信息单元）、§16.2.7（物理头的帧长字段）。这一课不依赖任何草案。',
-    '本仿真器的取值与取法：2 ms 的测距时隙（通常认为来自 FiRa 的缺省配置，FiRa 规范不在核查用的语料里）、时隙末尾 200 ns 的守卫、16 位短地址的帧头（9 字节）、RRTI 列表项也带地址、延后数据帧排在 Final 之后的下一个时隙、锚点的报告带回两段时间。锚点上限与最短时隙都由这些取值算出。',
+    '本仿真器的取值与取法：2 ms 的测距时隙（通常认为来自 FiRa 的缺省配置，FiRa 规范不在核查用的语料里）、时隙末尾 200 ns 的守卫、16 位短地址的帧头（9 字节）、RRTI 列表项也带地址、延后数据帧排在 Final 之后的下一个时隙。锚点上限与最短时隙都由这些取值算出。',
     '本课这一轮把时间戳噪声与时钟偏差估计噪声都设为零，两端之间也没有墙，所以两种形态的读数可以逐位比较。',
   ],
   limits: [],
@@ -254,7 +254,7 @@ export const uwbDeferredDs: Lesson = {
         '延后形态的距离误差更大',
       ],
       answer: 1,
-      explain: '四段时间都一样，只是发起方的两段时间晚一帧送到：锚点在延后数据帧到达时算出距离，比嵌入形态晚一个时隙，数值相同。',
+      explain: '四段时间都一样，只是发起方的两段时间晚一帧送到：锚点在延后数据帧到达时算出距离，比嵌入形态晚一个时隙，数值相同。手机在延后形态里读到的是锚点报告的飞行时间，按字段取整到测距计数单位。',
     },
   ],
 }

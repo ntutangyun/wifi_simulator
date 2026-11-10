@@ -298,8 +298,8 @@ export interface Strings {
     ampBsWrite: string; ampBsWriteHint: string
     /** UWB ranging: the per-node fields (uwb/ui/UwbNodeFields.tsx). */
     uwbNode: string; uwbRole: string; uwbRoles: Record<'anchor' | 'tag', string>
-    /** `mode: 'm2m'` only: the role line's own note that in this mode the role is drawing only —
-     * every node is a ranging participant regardless of it (design §5). Without this a reader
+    /** `mode: 'm2m'` only: the role line's own note that in this mode a tag is an initiator and an
+     * anchor a responder (standard §10.32.6/§10.32.7). Without this a reader
      * who picked 'tag' or 'anchor' before switching to many-to-many would think the choice had
      * gone wrong, rather than simply stopped mattering. */
     uwbRoleM2mNote: string
@@ -318,7 +318,7 @@ export interface Strings {
      * a different field in a different clause of a different document, design §3).
      */
     uwbReplyTime: string; uwbReplyTimeHint: string; uwbReplyTimeMmsOnly: string
-    /** `mode: 'm2m'` only: why the reply-time select is locked to 'embedded' (design §5) — a
+    /** `mode: 'm2m'` only: why the reply-time select is locked to 'embedded' (standard §10.32.6/§10.32.7) — a
      * different rule from MMS's `uwbReplyTimeMmsOnly`, so it gets its own key rather than
      * borrowing that one's wording about a draft feature many-to-many has nothing to do with. */
     uwbReplyTimeM2mOnly: string
@@ -336,10 +336,9 @@ export interface Strings {
      * `uwbTwrOnly` would both be false there. Picked by `uwbAoaHintKey` / `uwbScheduleHintKey`.
      */
     uwbAoaMms: string; uwbScheduleMms: string
-    /** Many-to-many's own reasons for the same two fields (design §5) — neither "the tag never
-     * transmits" (there is no tag) nor "the round is two-way but the signal has no frame" (MMS)
-     * describes it: there is simply no single anchor and no single tag's frame to point at or
-     * measure a bearing on, and every slot is already spoken for before the round starts. */
+    /** Many-to-many's own reasons for the same two fields: AoA is not implemented in this mode, and
+     * the standard allows contention there but this simulator implements the time-scheduled round only
+     * (standard §10.32.6; 2026-11-11, W3). */
     uwbAoaM2m: string; uwbScheduleM2m: string
     uwbBlock: string; uwbBlockHint: string; uwbSlot: string; uwbSlotHint: string
     uwbChannel: string; uwbChannelHint: string
@@ -434,10 +433,9 @@ export interface Strings {
      * would have cost a lesson's prose for a caveat that is irrelevant to the scene the lesson uses.
      */
     uwbPlanAppended: (slots: number) => string
-    /** `mode: 'm2m'` only: how many participants the round actually holds — every UWB node, not
-     * just the ones drawn as anchors, which is what `uwbCounts` above the panel would suggest on
-     * its own (design §5). */
-    uwbM2mParticipants: (participants: number) => string
+    /** `mode: 'm2m'` only: the round's roles (standard §10.32.6/§10.32.7) — tags are the initiators,
+     * anchors the responders, and the first initiator by id is the controller. 2026-11-11 (W3). */
+    uwbM2mParticipants: (initiators: number, responders: number) => string
     /**
      * `mode: 'mms'` only: the P802.15.4ab fragment train and the narrowband radio its control
      * plane runs on. The "draft" qualifier lives on the mode name and on `uwbMmsHint`; every
@@ -706,7 +704,12 @@ export interface Strings {
         /** §10.32.9.3's RR IE: the block and round indices, and the hopping mode and offset (always 0 here). */
         rr: (block: number, round: number) => string
         rdm: (n: number, list: string) => string
-        rdmSlot: (id: string, slot: number) => string
+        /** One RDM List element; `initiator` is its Ranging Role bit, printed when the RDM IE mixes
+         * roles (a many-to-many RCM, standard §10.32.9.8). */
+        rdmSlot: (id: string, slot: number, initiator?: boolean) => string
+        /** A many-to-many SS response's RRTI IE (standard §10.32.6): one reply time per initiator. */
+        rrtiM2m: (n: number, list: string) => string
+        rrtiM2mEntry: (id: string, time: string) => string
         rrmc: (slot: number, method: string) => string
         rcps: (first: number, last: number, phase: number) => string
         rcma: (n: number) => string
@@ -714,7 +717,7 @@ export interface Strings {
         finalReply: (id: string, time: string) => string
         rmiFinal: (n: number, list: string) => string
         rmiFinalEntry: (id: string, time: string) => string
-        rmiReport: (treply1: string, tround2: string) => string
+        rmiReport: (field: 'tround2' | 'tof', value: string) => string
         txTime: (time: string) => string
         rxTimes: (n: number, list: string) => string
         coffs: (ppm: string) => string
@@ -785,9 +788,6 @@ export interface Strings {
     /** The initiation-only message a later round of a valid RCM carries (standard §10.32.9.1):
      * no anchor list to quote, unlike `uwbPoll` — the slot table is still the earlier round's. */
     uwbInit: string
-    /** Many-to-many ranging (standard §10.32.6/§10.32.7): the slot this participant transmitted in
-     * and how many arrival times it reported alongside its own transmit time. */
-    uwbM2m: (slot: number, rxTimes: number) => string
     /** §10.34's ranging message non-receipt exchange: the slot this responder holds, standing in
      * for the response that never came. */
     uwbRmnr: (slot: number) => string
@@ -1169,7 +1169,7 @@ export const STRINGS: Strings = {
     ampBsRead: 'ACK 后读取', ampBsReadHint: 'EPC 应答成功后跟一次 8 字节的 Read',
     ampBsWrite: '读取后写入', ampBsWriteHint: 'Read 之后跟一次 Write，标签在 2 ms 后才应答——阅读器要在这段等待中一直保持载波，所以泳道上的 Write PPDU 长约 3 ms',
     uwbNode: 'UWB 测距（802.15.4-2024）', uwbRole: '角色', uwbRoles: { anchor: '锚点（位置固定，负责应答）', tag: '标签（测距并解算自身位置）' },
-    uwbRoleM2mNote: '本仿真器的多对多测距（M2M）安排下角色不影响测距：这里选锚点还是标签，只决定这个节点在场景图里画成什么样子，场景里的每一台 UWB 设备都会成为参与者，两两互相测距（design §5）',
+    uwbRoleM2mNote: '多对多测距（M2M，标准 §10.32.6/§10.32.7）里，标签是发起方、锚点是响应方；按 id 排在最前的标签担任控制器，在测距控制消息的 RDM 信息单元里为其余设备指定角色与时隙',
     uwbPpm: '晶振偏差', uwbPpmHint: '该设备测距时钟的频率偏差，单位 ppm；标准允许 ±20 ppm。留空则由本次仿真按随机种子抽取。',
     uwbPpmDrawn: '由种子抽取', uwbPpmRange: '±100 ppm；真实晶振通常在 ±20 以内',
     uwbYaw: '朝向',
@@ -1182,16 +1182,16 @@ export const STRINGS: Strings = {
     uwbMethods: { ss: 'SS-TWR（单边双向）', ds: 'DS-TWR（双边双向）' },
     uwbReplyTime: '回复时间走哪条路', uwbReplyTimeHint: '回复时间/往返时间信息从产生它的设备走到需要它的设备，走的是哪条路（标准 §10.29.6.3–.7）：嵌入——写进它自己测量的那一帧（RRTI IE），要求硬件能预约未来的发送时刻，本仿真默认走这一条；延后——先把那一帧发空，量出自己的真实发送时刻后，再用一条专门的后续报文补上；固定——回复时间（从收到发起帧的 RMARKER 到应答帧的 RMARKER）是两端事先约定的已知量，可用 RRTN IE 商定，一对多时每个应答方各有一个（§10.29.6.5、§10.32.2），这个数不在空口传送，但要求应答方精确控制发送时刻；本仿真器照此实现：第一个应答方的 FRT1 由下方固定回复时间一栏给出，第 i 个应答方取 FRT1 加 i − 1 个时隙，两端在带外约定（RRTN IE 未实现）。DS-TWR 没有“固定”这一种（标准只定义了它的嵌入式与延后两种），竞争调度里没有“延后”这一种（抽到的时隙没有固定的后续时隙可去）。',
     uwbReplyTimeMmsOnly: 'MMS 有它自己的“固定回复时间”（macMmsFixedReplyTime，见下方 MMS 小节）：那是 2025 年的一份提案，工作组没有采纳，时机也不同，与这里的三选一无关，因此在 MMS 模式下与测距方式一并置灰',
-    uwbReplyTimeM2mOnly: '本仿真器的多对多安排没有独立的响应帧：参与者自己的那一次发送已经带着发送时刻，与它收到的每一个接收时刻，这就是嵌入式的做法。标准的多对多过程（§10.32.6/§10.32.7）与此不同：应答方有自己的应答帧，为每个发起方各嵌一个 RRTI IE',
+    uwbReplyTimeM2mOnly: '标准的多对多过程把回复时延放在应答里（单边，§10.32.6）或发起方的最终帧里（双边，§10.32.7），不另发延后数据帧；本仿真器没有实现多对多的延后形态与固定回复时间形态',
     uwbReplyTimes: { embedded: '嵌入（今天的行为）', deferred: '延后', fixed: '固定' },
     uwbReplyTimeRstu: '固定回复时间',
     uwbReplyTimeRstuHint: '仅“固定”形态生效：第一个应答方的固定回复时间 FRT1（单位 RSTU），按标准从它收到的轮询帧的 RMARKER 量到它自己应答帧的 RMARKER（§10.32.2 图 10-226），用它自己的晶振计时；第 i 个应答方的 FRTi 取 FRT1 加 i − 1 个测距时隙，每个应答方一个值（取值由本仿真器定，标准把取值留给上层）。这个数从不上空口，但它同时是本仿真唯一一种发送不对齐时隙的形态：调得太小，应答方会在自己的时隙还没开始时发送；调得太大，会被自己时隙的边界切掉——两种情况整轮都以超时收场（design §6.1）。',
     uwbReplyTimeRstuOnly: '只有“固定”形态会用到这个数：回复时间走嵌入或延后那条路时，它写进帧里或量出来，用不着事先约定',
-    uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差（标准称单向测距／TDOA，§10.29.1.2.5；DL-TDoA、UL-TDoA 是业界 FiRa 的叫法）：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位——本仿真器的锚点彼此不同步、由标签修正时钟，这是 FiRa 式的方案，标准描述的是同步节点按已知偏移广播；UL-TDoA 则由标签发一帧闪发（标准的 blink），共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能得到三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。多对多测距（many-to-many, M2M）：标准（§10.32.6/§10.32.7）里发起方与应答方是两组设备，M + N 帧得到 M×N 对距离；本仿真器实现的是另一种安排，不是标准的步骤——没有标签也没有锚点，场景中的每一台 UWB 设备都轮流发送一次，一次发送同时是对排在它后面的人的“问”，也是对排在它前面的人的“答”，N 个参与者一轮只用 N 个时隙（SS-TWR）或 2N 个时隙（DS-TWR）就能测出全部两两距离——轮流当标签则要 N² 个时隙才做得到同一件事。以上四种模式都必须是时间调度的会话。',
+    uwbMode: '测距模式', uwbModeHint: '双向测距为每个锚点测出一个距离，由标签自己解算位置。两种单向模式改为测量到达时间差（标准称单向测距／TDOA，§10.29.1.2.5；DL-TDoA、UL-TDoA 是业界 FiRa 的叫法）：DL-TDoA 由锚点跑完整轮，全程不发射的标签据此自行定位——本仿真器的锚点彼此不同步、由标签修正时钟，这是 FiRa 式的方案，标准描述的是同步节点按已知偏移广播；UL-TDoA 则由标签发一帧闪发（标准的 blink），共享同一时基的锚点替它定位——这两种模式都需要四个锚点才能得到三个时间差。多毫秒测距（multi-millisecond ranging, MMS）又回到双向测距，但它默认是成对进行的：一个轮次只含一个标签和一个锚点，测距信号是一列片段，控制交互与测量报告则走一套单独的控制面——窄带电台只是这套控制面的两种配置之一。它对锚点数量没有下限要求，要求的是测距块能装下所有配对，即“标签数 × 锚点数 ≤ 每块轮次数”。多对多测距（many-to-many, M2M，§10.32.6/§10.32.7）：标签是发起方、锚点是响应方，按 id 排在最前的标签担任控制器；M 个发起方各发一帧启动消息、N 个响应方各回一帧应答，单边形态 M + N 帧得到 M × N 对距离，双边形态每个发起方再发一帧最终帧——轮流当标签则要 M(N + 1) 个时隙。以上四种模式都必须是时间调度的会话。',
     uwbModes: {
       twr: '双向测距（TWR）', 'dl-tdoa': '单向·下行（DL-TDoA）', 'ul-tdoa': '单向·上行（UL-TDoA）',
       mms: '多毫秒测距（MMS，802.15.4ab 草案）',
-      m2m: '多对多测距（M2M，本仿真器的安排）',
+      m2m: '多对多测距（M2M）',
     },
     uwbClockCorrection: '标签时钟校正', uwbClockCorrectionHint: 'DL-TDoA（「时钟修正」是业界与本仿真器的叫法，不是标准术语）：只接收不发送的标签先用本轮“轮询帧→终结帧”这段间隔测出自己晶振的快慢，再去做到达时间差。关掉它就能看到 ±20 ppm 的后果：误差为 20 ppm 乘以从轮询帧到被计时的那一帧之间的间隔——本系列课程那种五时隙轮次里最长 6 ms，即 36 米；若有九个锚点，最后一个应答帧在轮询帧后 16 ms，则是 96 米。',
     uwbDlOnly: '只有 DL-TDoA 用得上：这是那个“只听”的标签自己做的校正，其他模式里没有只听的标签',
@@ -1202,11 +1202,11 @@ export const STRINGS: Strings = {
     uwbAoaHint: '每个锚点在收到标签的每一帧时，都额外测量两根天线之间的相位差，并换算成方位角（视场为正前方左右各 90°，正前方 1-σ 约 2.7°，越靠边越差）。配合 DS-TWR（本仿真器里只有嵌入形态让锚点得到距离），锚点同时握有距离和方向，仅凭自己就能定出标签的位置——一个锚点，一个定位。相位差模型是本仿真器的，标准不规定到达角的测量方法。',
     uwbAoaTwrOnly: '只有双向测距时锚点才会收到标签发来的帧：DL-TDoA 中标签根本不发射，UL-TDoA 中标签那一帧闪发也不属于任何锚点参与应答的轮次',
     uwbAoaMms: 'MMS 中的标签确实会发射，测距也确实是双向的——它缺的不是“方向”，而是可供测方位角的那一帧。它的测距信号是一列“素”序列：没有前导、没有 SFD、没有 PHR，天线阵列根本找不到可以比较两路相位的东西。在这里让方位角无从测起的是信号本身，而不是交互的方向。',
-    uwbAoaM2m: '到达角是锚点朝着固定的天线阵列、对准标签的一次发送测出来的——而本仿真器的多对多安排里没有锚点，也没有标签：每个参与者的一次发送要同时回答排在它前面的好几个人，没有哪一次发送是单独朝着谁的，也就没有单独的一对可供测方位角（design §5）',
+    uwbAoaM2m: '本仿真器的多对多模式没有实现到达角测量',
     uwbScheduleMms: 'MMS 的测距周期在块开始之前就已排定——一个标签–锚点配对独占一个轮次（打开一对多开关时则是会话中的全部锚点），轮次内每个片段又独占一个时隙，一毫秒一个——因此根本没有留下可供竞争的响应窗口。选中该模式时还会把时隙改成草案自己的 600 RSTU（4ab 草案 15-22/0381r5 Table 1.2.3.2）。',
-    uwbScheduleM2m: '本仿真器的多对多安排里，每一个时隙都已经排给了确定的参与者，在块开始之前就定好了顺序：竞争决定的是谁能占到一个时隙，而这里时隙早已分配完毕（design §5）。标准的多对多过程本身允许竞争，这是本仿真器的限制',
-    uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置',
-    uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）以及其飞行时间',
+    uwbScheduleM2m: '标准的多对多过程允许启动消息与应答竞争发送（§10.32.6），本仿真器只实现了按时间调度的多对多测距',
+    uwbBlock: '测距块', uwbBlockHint: '测距块循环往复；每个标签在块内独占一个轮次，因此块长决定了标签多久刷新一次位置。块由整数个轮组成（标准 §10.32.2），所以块长必须是时隙长的整数倍；轮长取能整除块的最小时隙数，多出的时隙空闲',
+    uwbSlot: '测距时隙', uwbSlotHint: '一个测距时隙只装一帧；它必须容得下该轮次中最长的一帧（DS-TWR 的终结帧，长度随锚点数增长）、飞行时间与收发转换的上限 aTurnaroundTime（12 个前导符号，约 12.2 µs）',
     uwbChannel: '信道', uwbChannelHint: '信道 5 为 6489.6 MHz，信道 9 为 7987.2 MHz。两者只有 1 米处的自由空间损耗不同（48.7 dB 对 50.5 dB），因此信道 9 在任何距离上都恒定多损耗约 1.8 dB。',
     uwbTsNoise: '时间戳噪声', uwbTsNoiseHint: '接收时间戳误差的 1-σ 值；100 ps 的计时误差折合 3 cm 的飞行距离，经双向测距公式折算后是 2.1 cm 的测距误差。该值是接收信噪比为 20 dB 时的水平：信号更弱时时间戳按 sqrt(20 dB / SNR) 变差，最多为此值的十倍',
     uwbCfoNoise: '时钟估计噪声', uwbCfoNoiseHint: '接收机估计载波频偏后残留误差的 1-σ 值；这正是 SS-TWR 无法抵消的那一部分',
@@ -1219,7 +1219,7 @@ export const STRINGS: Strings = {
     uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '写进 RCMA IE（§10.32.9.6）的最大尝试次数：标准只规定一台设备最多尝试应答几次，且不得超过 RCM 有效轮次。本仿真器另加了自己的规则（标准里没有）：每轮结束时直接告知锚点是否被测到，测到就恢复满额，没测到就减一，用完则空过一轮再重新选取时隙。默认 3 次配 RCM 有效轮次 1，按标准本不合法',
     uwbRcmValidityRounds: 'RCM 有效轮次',
     uwbRcmValidityHint: '一条控制消息（RCM，Ranging Control Message）能管几轮测距（标准 §10.32.9.1，ARC IE 的 RCM Validity Rounds 字段，6 位，取值 0–63，含本轮在内的连续轮数，且不能超过本块剩下的轮数——一条控制消息不跨块）。1 表示每轮都带一条控制消息；调大之后，同一块里其余轮次只发测距启动消息，不再重发时隙表。调大到超过标签每块的轮数时，每块的轮数（initiatorRounds）随之调大。',
-    uwbRcmValidityTwrOnly: '本仿真器里只有双向测距才发 ARC IE 携带的控制消息：两种单向模式、MMS 和本仿真器的多对多安排都不发这一帧，这个字段只能是 1',
+    uwbRcmValidityTwrOnly: '本仿真器里只有双向测距的测距控制消息能管多轮：两种单向模式与 MMS 不发 ARC IE 携带的控制消息；多对多测距每个测距块只有一轮，控制消息的有效轮数不能超过块里剩余的轮数（§10.32.9.1），这个字段只能是 1',
     uwbRmnr: 'RMNR',
     uwbRmnrHint: '响应方手里还握着一条仍然有效的控制消息，却没收到本轮的测距启动消息时，发一帧测距消息未收到帧（RMNR，Ranging Message Non-Receipt，标准 §10.34）代替沉默——发出这一帧本身就确认了它仍持有控制消息',
     uwbRmnrTwrOnly: '只有双向测距才有 ARC IE 携带的控制消息：这几种模式里没有这样一条消息，也就没有谁能“仍然持有”它',
@@ -1237,7 +1237,7 @@ export const STRINGS: Strings = {
     uwbSp3DlTdoa: 'DL-TDoA 里收发 Poll、Response 与 Final 的是锚点之间，标签在这个模式下从不发送，没有一次标签－锚点往返可以压成 SP3 标记',
     uwbSp3UlTdoa: 'UL-TDoA 里标签只发一次闪烁帧，没有往返可言',
     uwbSp3Mms: 'MMS 的控制面走窄带电台的 nbPoll/nbResp/nbReport，不是这里的 ARC/SRRR IE，也没有 SP3 这种 UWB PHY 包格式的位置',
-    uwbSp3M2m: '本仿真器的多对多安排不发 RCM（标准的多对多过程是有 RCM 的）：每个参与者的一次发送本身既是问也是答，没有这样一条控制消息可以挂 SRRR IE',
+    uwbSp3M2m: '标准说 SP3 测距过程可以推广到多发起方多响应方（§10.32.8.1），但本仿真器没有实现多对多的 SP3 测距',
     uwbSp3Contention: '标准规定 SP3 测距只能用时间调度（§10.32.2）：SP3 包里没有任何字段能区分发送者，只能靠排定的时隙判断一帧是谁发的。请先把调度方式改回时间调度',
     uwbSp3NeedsDeferred: 'SP3 包没有载荷，测距帧测得的时间要靠随后的测量报告阶段另发一帧补上，所以本仿真器只在延后形态下开放 SP3（这是本仿真器的规则；标准 §10.29.6.5 提到固定回复时间也可以配合 SP3 包使用）：请先把回复时间改成延后，或者把 SP3 关掉',
     uwbSrrrRaoa: 'SRRR 请求到达角',
@@ -1261,7 +1261,7 @@ export const STRINGS: Strings = {
     uwbAncillaryFramesOff: '测距辅助信息交换关闭时这个数没有作用——打开上面的开关才会按它分帧发送',
     uwbPlan: (slots, rounds) => `每轮 ${slots} 个时隙 · 每块 ${rounds} 轮`,
     uwbPlanAppended: (slots: number) => `…每轮有 ${slots} 个时隙超出测距本身：块式结构只有一个测距轮时长，收妥确认落在一组轮次最后一轮的这几个时隙里，辅助信息交换轮也用同样的轮长，其余轮次的这几个时隙留空`,
-    uwbM2mParticipants: (participants) => `多对多测距：全部 ${participants} 台 UWB 设备都是参与者，按 id 排序决定发送顺序——上方的锚点/标签计数只影响画法，不影响这个数`,
+    uwbM2mParticipants: (initiators, responders) => `多对多测距：${initiators} 个发起方（标签）、${responders} 个响应方（锚点），一轮 ${initiators} + ${responders} 帧得到 ${initiators} × ${responders} 对距离（单边形态；双边形态每个发起方再发一帧最终帧）。按 id 排在最前的发起方担任控制器，在测距控制消息的 RDM 信息单元里为其余设备指定角色与时隙`,
     uwbMms: 'MMS 片段序列',
     uwbMmsHint: '802.15.4ab 草案中的多毫秒数据包：测距信号不再是一次突发，而是一列短片段（成对轮次里相隔一毫秒，一对多时间隔更长）。每个片段都可以把整整一毫秒的 37 nJ 能量额度（法规）花在自己那段短得多的长度里，而 X 个片段相干合并又能再换来 10·log10(X) dB。本节所有内容都是对 TG4ab 提案文稿的转述——已进入投票的 D05 在编号与细节上可能有所不同。',
     uwbMmsSet: '参数集',
@@ -1476,7 +1476,6 @@ export const STRINGS: Strings = {
       uwbPoll: 'UWB 轮询帧', uwbResp: 'UWB 响应帧', uwbFinal: 'UWB 终结帧', uwbReport: 'UWB 测量报告帧',
       uwbSsDefer: 'UWB 延后报文',
       uwbInit: 'UWB 测距启动帧',
-      uwbM2m: 'UWB 多对多测距帧',
       uwbRmnr: 'UWB 测距消息未收到帧（RMNR）',
       uwbBlink: 'UWB 闪发帧',
       uwbRsf: 'MMS 测距片段（RSF）',
@@ -1508,7 +1507,6 @@ export const STRINGS: Strings = {
       uwbResp: '某一个锚点在它自己的测距时隙里的回答。在 SS-TWR 下，它还会带上锚点测得的回复时间，标签靠它才能从往返时间里减去锚点的处理时延。',
       uwbSsDefer: 'SS-TWR 延后回复时间下，锚点发响应帧的那一刻还不知道自己这次发送的时间戳，只能先空手作答。等它把发送时刻真正读回来，才用这一帧单独补给标签——回复时间因此是一条独立的消息，占自己的时隙，而不是响应帧的一部分。按标准，它装在一枚 RMI IE 里（§10.29.6.3）。',
       uwbInit: '标签开启每一轮测距，本来要靠一帧轮询帧同时做两件事：告诉各锚点这一轮谁在哪个时隙答（配置），并打下这一轮计时的第一个时间戳（启动）。当更早一轮轮询帧定下的时隙表还在有效期内，标签就只发这一帧——没有 ARC，没有 RDM，只剩启动这一半。标准里这两件事本来就是两帧（§10.34 的插图画的正是两帧），本仿真器只在有效期开始的那一轮把它们合成一帧；往后的几轮，这一帧才是两者之中仍然要发的那一个。',
-      uwbM2m: '本仿真器的多对多安排里，每台设备只发这一种帧：带着自己的发送时刻，加上它收到的、排在它前面每一个参与者的到达时刻。对排在它后面的参与者，这一帧是「问」；对排在它前面的参与者，它自己就是「答」——一次发送同时承担两种作用，N 台设备因此只需要 N 个时隙，就能测得全部 N(N−1)/2 条距离，而不必像轮流当标签那样占用 N² 个。这不是标准的步骤：标准的多对多（§10.32.6/§10.32.7）里发起方与应答方是两组设备，帧里也没有这种发送／接收时刻信息单元。',
       uwbRmnr: '响应方手里还握着一条仍然有效的控制消息，却没收到这一轮的启动消息——它不像沉默超时那样把自己的时隙空出来，而是在里面发出这一帧。RMNR 信息元没有任何内容字段，它携带的两条信息全靠「发在哪、什么时候发」来传递：发出来这件事本身，就是「你的控制消息我收到了」；发的是 RMNR 而不是一次按时的回答，就是「这一轮的启动消息我没收到」。',
       uwbFinal: '标签在 DS-TWR 一轮末尾发出的帧：广播它测得的往返时间和回复时间，让每个锚点能把它们与自己的一对时间合并，把两边时钟的偏差一起抵消掉。',
       uwbReport: '锚点的测量报告：其中是只有它自己能测到的那两个时间。它们和终结帧里的数字合在一起，恰好凑齐该锚点的 DS-TWR 四时间戳等式。本仿真器每轮都发这一帧；标准里应答方只在发起方请求时才报告（§10.32.5）。',
@@ -1519,7 +1517,7 @@ export const STRINGS: Strings = {
       nbResp: '响应方对窄带 POLL 的答复（802.15.4ab 草案）：它听到了轮询，并将在随后的测距阶段发出自己的片段序列。',
       nbReport: '一份窄带测量报告（802.15.4ab 草案）：响应方测得的回复时间，或发起方测得的周转时间——计算距离所需的数字，由控制电台而非 UWB 电台携带。',
       uwbSp0: '同一套控制消息——轮询、响应、测量报告——但这台设备没有窄带电台（802.15.4ab 草案的配置 1）。于是它们改成 SP0 基本包，走 UWB 电台本身。代价写在链路预算里：一份提案（15-25/0194r0）估算，SP0 比测距包自带的那段 SYNC+SFD 更长、峰值功率更低，捕获性能差约 4 dB，所以有它在的时候，是它决定这一轮能不能建立起来。本仿真器让 SP0 按设备通常的突发功率发射，又把这 4 dB 计为门限的提高——两项并不独立，这是本仿真器的取值。',
-      uwbMmrcm: '多对多测距里，一个参与者只知道自己算出了到谁的距离，却不知道谁听见了自己——控制器可以在轮询帧里请求一次确认（标准 §10.36），这个请求本身不花一个字节，因为它只是 ARC IE 控制字里早就有的那两个字节中的一位。花钱的是这一帧：响应方把这组轮次里每个时隙有没有收到该发起方发给它的消息，逐发起方列成一张位图回送过去（每个时隙一位，§10.36.2.1；每个列表元素还带一个字节的位图长度）。',
+      uwbMmrcm: '发起方只知道自己算出了到谁的距离，却不知道谁收到了自己的消息——控制器可以在测距控制消息里请求一次确认（标准 §10.36），这个请求本身不花一个字节，因为它只是 ARC IE 控制字里早就有的那两个字节中的一位。花钱的是这一帧：响应方把这组轮次里每个时隙有没有收到该发起方发给它的消息，逐发起方列成一张位图回送过去（每个时隙一位，§10.36.2.1；每个列表元素还带一个字节的位图长度）。',
       uwbSp3: 'SP3 包（标准 §10.32.8）只有 SYNC、SFD 与 STS：没有 PHR，也没有载荷。'
         + '所以它是标准里最短的测距帧——约 141 µs，比最短的那种 SP1 响应短约 40 µs——'
         + '而同一个原因让它什么也装不了：既装不下身份，也装不下时间戳。'
@@ -1553,7 +1551,6 @@ export const STRINGS: Strings = {
       uwbResp: '在 SS-TWR 下，标签此时已经拿齐所需的一切，可以直接算出距离。在 DS-TWR 下，它会等所有锚点答完，再发出终结帧。',
       uwbSsDefer: '标签收到这份回复时间，从对该锚点的往返时间里减去它，就算出了到这个锚点的距离。各锚点的延后报文互不相干，谁先送到，标签就先测出到谁的距离。',
       uwbInit: '各个锚点照着更早一轮轮询帧给出的时隙表依次作答，就像那张表刚刚又发过一遍——配置没有变，只是没有再重复它。某个时隙如果一直沉默，仍然记一次超时；若该响应方开着测距消息未收到，它会改发那一帧，而不是沉默。',
-      uwbM2m: '排在它前面的每一个参与者，此刻手里已经凑齐了算这一对距离要用的全部四个时间戳，立刻能算出到它的距离；排在它后面的参与者还算不出来——要等到自己发送的那一刻才轮到它们把这一帧收进自己的时刻表。下一个参与者在下一个测距时隙接着发送，直到最后一个发完，这一轮的 N(N−1)/2 条距离才算齐。',
       uwbRmnr: '发起方由此把「这个锚点没收到启动消息」从「它不在了」或「它的回答丢了」里分出来——换作沉默超时，这三种情形在发起方看来毫无分别。这个锚点这一轮不贡献距离，但它的控制消息仍然有效：下一轮它还会照着原来的时隙表照常作答。',
       uwbFinal: '每个听到它的锚点都会在自己的时隙里回一帧测量报告；标签随即就每个锚点都集齐了四个时间戳，可以换算成距离。',
       uwbReport: '标签就该锚点完成 DS-TWR 计算。当足够多的锚点都报告完毕，它就解出自己的位置，这一轮结束；下一轮在下一个测距块开始。',
@@ -1700,7 +1697,9 @@ export const STRINGS: Strings = {
           + ' · Content Control 0x00（不带块长、轮长、时隙长与会话标识）',
         rr: (block, round) => `Ranging Block Index ${block} · Hopping Mode 0 · Round Index ${round} · Transmission Offset 0`,
         rdm: (n, list) => `${n} 台设备：${list}`,
-        rdmSlot: (id, slot) => `${id} 时隙 ${slot}`,
+        rdmSlot: (id, slot, initiator) => `${id}${initiator === undefined ? '' : initiator ? '（发起方）' : '（响应方）'} 时隙 ${slot}`,
+        rrtiM2m: (n, list) => `${n} 个发起方：${list}`,
+        rrtiM2mEntry: (id, time) => `${id}：回复时间 ${time}`,
         rrmc: (slot, method) => `时隙 ${slot} · ${method}`,
         rcps: (first, last, phase) => `CP Table Length 1 · 阶段指示 ${phase}（${['发起方竞争', '应答方竞争', '测量报告竞争'][phase] ?? '保留'}）· 时隙 ${first}…${last}`,
         rcma: (n) => `最多尝试 ${n} 次`,
@@ -1708,7 +1707,7 @@ export const STRINGS: Strings = {
         finalReply: (id, time) => `${id}：treply2 ${time}`,
         rmiFinal: (n, list) => `${n} 个锚点：${list}`,
         rmiFinalEntry: (id, time) => `${id} tround1 ${time}`,
-        rmiReport: (treply1, tround2) => `treply1 ${treply1} · tround2 ${tround2}`,
+        rmiReport: (field, value) => `${field === 'tof' ? 'TOF' : 'tround2'} ${value}`,
         txTime: (time) => `发送时刻 ${time}`,
         rxTimes: (n, list) => `${n} 个接收时刻：${list} RCTU`,
         coffs: (ppm) => `时钟偏差 ${ppm} ppm——相对锚点 0`,
@@ -1808,7 +1807,6 @@ export const STRINGS: Strings = {
     uwbResp: (slot) => `测距时隙 ${slot} 内的 UWB 响应帧`,
     uwbSsDefer: (slot) => `测距时隙 ${slot} 内的 UWB 延后报文——锚点补上它那一次响应的回复时间`,
     uwbInit: 'UWB 测距启动帧——仍沿用更早一轮的时隙表，这一轮不再重发配置',
-    uwbM2m: (slot, rxTimes) => `测距时隙 ${slot} 内的 UWB 多对多帧——自己的发送时刻，外加 ${rxTimes} 个已收到的到达时刻`,
     uwbRmnr: (slot) => `测距时隙 ${slot} 内的 UWB 测距消息未收到帧——持有有效控制消息，但本轮启动消息未收到`,
     uwbFinal: 'UWB 终结帧——标签广播它测得的时间（DS-TWR）',
     uwbReport: (dst) => `UWB 测量报告 → ${dst}`,

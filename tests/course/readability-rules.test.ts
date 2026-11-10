@@ -771,7 +771,7 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'uwb-geometry':            [4, 7, 3, 3, 3, 3, 2, 4],
     'uwb-coexist':             [5, 13, 5, 3, 3, 5, 3, 3],
     'uwb-contention':          [5, 9, 4, 4, 3, 3, 2, 4],
-    'uwb-m2m':                 [5, 12, 5, 4, 4, 5, 2, 2],
+    'uwb-m2m':                 [5, 17, 6, 4, 4, 4, 2, 3],
     'uwb-rcm-validity':        [6, 8, 5, 4, 4, 4, 3, 4],
     'uwb-receipt':             [6, 11, 4, 4, 4, 4, 2, 2],
     'uwb-sp3':                 [6, 14, 4, 4, 4, 4, 2, 2],

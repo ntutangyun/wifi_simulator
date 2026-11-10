@@ -6,12 +6,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  makeBlink, makeFinal, makeInit, makeM2m, makePoll, makeReport, makeResp, makeRmnr,
+  makeBlink, makeFinal, makeInit, makeM2mResp, makePoll, makeReport, makeResp, makeRmnr,
 } from '../../src/uwb/frames'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import {
   RMNR_IE_BYTES, UWB_BLINK_BYTES, UWB_IE_HDR_BYTES, UWB_REPORT_BYTES, uwbFinalBytes, uwbInitBytes,
-  uwbM2mBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
+  uwbM2mRespBytes, uwbPollBytes, uwbRespBytes, uwbRmnrBytes,
 } from '../../src/uwb/phy'
 
 const fieldsOf = (f: ReturnType<typeof makeResp>) => uwbFrameFields(f).users[0].subframes[0].mpdu.fields
@@ -104,10 +104,12 @@ describe('leaves every existing frame byte-identical', () => {
   })
 
   it('Report', () => {
-    const f = makeReport('a1', 'tag', 1_000, 2_000, 0, 0, 6)
+    const f = makeReport('a1', 'tag', { tround2: 2_000 }, 0, 0, 6)
     expect(f.kind).toBe('uwbReport')
     expect(f.bytes).toBe(UWB_REPORT_BYTES)
-    expect(f.bytes).toBe(23) // 24 before 2026-11-10: RMI content header 2 octets, unicast so no address (§10.29.8.4)
+    // 2026-11-11 (W2b): one measurement — Tround2 (embedded, §10.32.5 Figure 10-238) or the TOF
+    // (deferred, §10.29.6.6 Figure 10-206); 23 with both times until then.
+    expect(f.bytes).toBe(19)
     expect(f.uwb!.ies).toEqual(['RMI'])
     expect(fieldSum(f)).toBe(f.bytes)
   })
@@ -121,12 +123,17 @@ describe('leaves every existing frame byte-identical', () => {
     expect(fieldSum(f)).toBe(f.bytes)
   })
 
-  it('Many-to-many', () => {
-    const f = makeM2m('p1', 'ss', 0, 0, 1, { txCounter: 1_000, rxCounters: { p0: 500 } })
-    expect(f.kind).toBe('uwbM2m')
-    expect(f.bytes).toBe(uwbM2mBytes(1))
-    expect(f.bytes).toBe(26)
-    expect(f.uwb!.ies).toEqual(['RRMC', 'TXT', 'RXT'])
-    expect(fieldSum(f)).toBe(f.bytes)
+  // 2026-11-11 (W3): many-to-many responses are standard Response frames (§10.32.6/§10.32.7).
+  it('Many-to-many responses', () => {
+    const ss = makeM2mResp('a1', 'ss', 0, 0, 2, [{ id: 't0', replyRctu: 1_000 }])
+    expect(ss.kind).toBe('uwbResp')
+    expect(ss.bytes).toBe(uwbM2mRespBytes('ss', 1))
+    expect(ss.bytes).toBe(20)
+    expect(ss.uwb!.ies).toEqual(['RRTI'])
+    expect(fieldSum(ss)).toBe(ss.bytes)
+    const ds = makeM2mResp('a1', 'ds', 0, 0, 2, [])
+    expect(ds.bytes).toBe(14)
+    expect(ds.uwb!.ies).toEqual(['RRMC'])
+    expect(fieldSum(ds)).toBe(ds.bytes)
   })
 })

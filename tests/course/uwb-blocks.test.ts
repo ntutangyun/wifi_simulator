@@ -101,7 +101,9 @@ describe('uwb-blocks · the lesson', () => {
     }
     const kinds = new Set(uwbBlocks.implementation!.map((r) => r.kind))
     expect(kinds.size).toBeGreaterThan(1)
-    for (const k of ['faithful', 'value', 'choice', 'differs', 'absent'] as const) expect(kinds, k).toContain(k)
+    // 2026-11-11 (W2b): the two `differs` rows (RDM slots, whole rounds) are faithful now.
+    for (const k of ['faithful', 'value', 'choice', 'absent'] as const) expect(kinds, k).toContain(k)
+    expect(kinds).not.toContain('differs')
   })
 
   it('① states the RSTU and the RR IE width the engine uses', () => {
@@ -134,15 +136,19 @@ describe('uwb-blocks · ② says what the engine does, and the engine does it', 
     expect(num(sim, /即 ([\d.]+) ms/, 'round ms') * MS).toBe(PLAN.roundNs)
   })
 
-  it('one anchor fewer leaves the block a fractional number of rounds, floored (differs)', () => {
-    const row = implRow('块长不是轮长的整数倍时')
-    expect(row.kind).toBe('differs')
+  // 2026-11-11 (W2b): standard §10.32.2 — "Each ranging block consists of a whole number of ranging
+  // rounds". One anchor fewer needs 8 slots, and the round runs as 10, the smallest whole divisor of
+  // the block's 100 slots; until then the block held 12 rounds of 16 ms and 8 ms went unused.
+  it('one anchor fewer still leaves the block a whole number of rounds (faithful)', () => {
+    const row = implRow('块由整数个轮组成')
+    expect(row.kind).toBe('faithful')
     const three = roundPlan(SESSION, ANCHORS - 1)
-    expect(num(row.sim, /一轮 (\d+) ms/, 'round') * MS).toBe(three.roundNs)
+    expect(num(row.sim, /本轮只需 (\d+) 个时隙/, 'needed')).toBe(three.rangingSlots)
+    expect(num(row.sim, /排成 (\d+) 个时隙的轮/, 'slots')).toBe(three.slots)
+    expect(num(row.sim, /即 (\d+) ms/, 'round') * MS).toBe(three.roundNs)
     expect(num(row.sim, /(\d+) ms 的块/, 'block') * MS).toBe(three.blockNs)
-    expect(num(row.sim, /容纳 (\d+) 轮/, 'rounds')).toBe(three.roundsPerBlock)
-    expect(num(row.sim, /余下 (\d+) ms/, 'left') * MS).toBe(three.blockNs - three.roundsPerBlock * three.roundNs)
-    expect(three.blockNs % three.roundNs).not.toBe(0)
+    expect(num(row.sim, /正好容纳 (\d+) 轮/, 'rounds')).toBe(three.roundsPerBlock)
+    expect(three.roundsPerBlock * three.roundNs).toBe(three.blockNs)
   })
 
   it('the block structure is not in the frame: Content Control 0', () => {
@@ -162,9 +168,12 @@ describe('uwb-blocks · ② says what the engine does, and the engine does it', 
     }
   })
 
-  it('RDM: sent in the standard\'s format, but the anchors answer in list order (differs)', () => {
+  // 2026-11-11 (W2b): standard §10.32.9.8 — each responder reads its slot off its own RDM element.
+  it('RDM: sent in the standard\'s format, and each anchor answers in the slot its element names (faithful)', () => {
     const row = implRow('RDM 信息单元')
-    expect(row.kind).toBe('differs')
+    expect(row.kind).toBe('faithful')
+    const poll = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.frame
+    expect(poll.uwb!.rdm!.map((e) => [e.id, e.slot])).toEqual([['anchor-1', 1], ['anchor-2', 2], ['anchor-3', 3], ['anchor-4', 4]])
     expect(num(row.sim, /每个条目 (\d+) 个字节/, 'entry')).toBe(rdmIeBytes(ANCHORS + 1) - rdmIeBytes(ANCHORS))
     expect(num(row.sim, /共 (\d+) 个字节/, 'RDM')).toBe(rdmIeBytes(ANCHORS))
     // the responders answer in the order of the scene's anchor list, slot 1 onwards
@@ -317,10 +326,17 @@ describe('uwb-blocks · ③ every figure the labs print is the run', () => {
     const l = lab('少一个锚点')
     const three = roundPlan(SESSION, ANCHORS - 1)
     expect(l.expect).toContain(`“${STRINGS.editor.uwbPlan(three.slots, three.roundsPerBlock)}”`)
-    expect(num(l.expect, /从 (\d+) ms 缩短/, 'from') * MS).toBe(PLAN.roundNs)
-    expect(num(l.expect, /缩短到 (\d+) ms/, 'to') * MS).toBe(three.roundNs)
+    // 2026-11-11 (W2b): the same plan line as with four anchors — the 8-slot round runs as 10 (§10.32.2).
+    expect(three.slots).toBe(PLAN.slots)
+    expect(three.roundsPerBlock).toBe(PLAN.roundsPerBlock)
+    expect(num(l.expect, /本轮只需 (\d+) 个时隙/, 'needed')).toBe(three.rangingSlots)
+    expect(num(l.expect, /一轮仍排 (\d+) ms/, 'round') * MS).toBe(three.roundNs)
+    expect(num(l.expect, /后 (\d+) 个时隙空闲/, 'idle')).toBe(three.slots - three.rangingSlots)
     expect(num(l.expect, /块长保持 (\d+) ms/, 'block') * MS).toBe(three.blockNs)
-    expect(num(l.meaning, /取 (\d+) 轮/, 'rounds')).toBe(three.roundsPerBlock)
-    expect(num(l.meaning, /余下 (\d+) ms/, 'left') * MS).toBe(three.blockNs - three.roundsPerBlock * three.roundNs)
+    expect(num(l.meaning, /(\d+) 个时隙的轮是/, 'needed')).toBe(three.rangingSlots)
+    expect(num(l.meaning, /的轮是 (\d+) ms/, 'short') * MS).toBe(three.rangingSlots * three.slotNs)
+    expect(three.blockNs % (three.rangingSlots * three.slotNs)).not.toBe(0)
+    expect(num(l.meaning, /最小轮长 (\d+) 个时隙/, 'slots')).toBe(three.slots)
+    expect(num(l.meaning, /块里正好 (\d+) 轮/, 'rounds')).toBe(three.roundsPerBlock)
   })
 })

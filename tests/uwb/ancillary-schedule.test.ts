@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_UWB_SESSION, type UwbSessionCfg } from '../../src/model/scenario'
 import { roundPlan, slotAction, type RoundPlan } from '../../src/uwb/session'
-import { RAICT_IE_MIN_BYTES, raictIeBytes, uwbSlotsPerTag } from '../../src/uwb/phy'
+import { RAICT_IE_MIN_BYTES, raictIeBytes, uwbSlotsPerTag, uwbWholeRoundSlots } from '../../src/uwb/phy'
 import { makeAncillary } from '../../src/uwb/frames'
 
 const session = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, ...over })
@@ -47,7 +47,13 @@ describe('the ranging exchange does not change with ancillary/ancillaryFrames; t
     ] as const) {
       const p = roundPlan(session(over), 2)
       expect(p.rangingSlots, JSON.stringify(over)).toBe(base.rangingSlots)
-      expect(p.slots, JSON.stringify(over)).toBe(Math.max(base.rangingSlots, 1 + over.ancillaryFrames))
+      // 2026-11-11 (W2b): …stretched to the smallest whole divisor of the block's slot count (standard
+      // §10.32.2: a block is a whole number of rounds), `uwbWholeRoundSlots`.
+      const cfg = session(over)
+      expect(p.slots, JSON.stringify(over)).toBe(uwbWholeRoundSlots(
+        Math.max(base.rangingSlots, 1 + over.ancillaryFrames), cfg.blockRstu, cfg.slotRstu, cfg.mode,
+      ))
+      expect((cfg.blockRstu / cfg.slotRstu) % p.slots, JSON.stringify(over)).toBe(0)
       for (let slot = 0; slot < p.rangingSlots; slot++) {
         expect(slotAction(p, slot), `${JSON.stringify(over)} slot=${slot}`).toEqual(slotAction(base, slot))
       }

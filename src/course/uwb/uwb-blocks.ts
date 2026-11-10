@@ -5,9 +5,9 @@
  * (durations in RSTU, the RCM in slot 0, the ARC / RR / RDM IEs of a time-scheduled round, the
  * block structure set by the ARC IE's duration fields or by the higher layer, round hopping, the
  * receiver enabled only in expected slots); ② where this simulator follows that and where it picks
- * its own values and methods (the 200 ms block and 2 ms slot, the round length the method decides,
- * round k to phone k, the RDM IE sent but the responders' slots taken from the scene, no
- * synchronisation, a block that is not a whole number of rounds when an anchor is deleted); ③ five
+ * its own values and methods (the 200 ms block and 2 ms slot, the round length the method decides and
+ * the smallest whole divisor of the block rounds it up to, round k to phone k, the responders reading
+ * their slots off the RDM IE, no synchronisation); ③ five
  * guided runs, every figure of which is read back out of this file and compared with a run in
  * tests/course/uwb-blocks.test.ts.
  *
@@ -53,10 +53,10 @@ export const FIG = {
   slotRstu: 2_400, slotUs: 2_000, slots: 10,
   /** Each frame of the round: the slot it sits in and how long it is on the air, in µs. */
   frames: [
-    { slot: 0, airUs: 217.885 }, { slot: 1, airUs: 183.013 }, { slot: 2, airUs: 183.013 },
-    { slot: 3, airUs: 183.013 }, { slot: 4, airUs: 183.013 }, { slot: 5, airUs: 242.5 },
-    { slot: 6, airUs: 192.244 }, { slot: 7, airUs: 192.244 }, { slot: 8, airUs: 192.244 },
-    { slot: 9, airUs: 192.244 },
+    { slot: 0, airUs: 217.885 }, { slot: 1, airUs: 190.192 }, { slot: 2, airUs: 190.192 },
+    { slot: 3, airUs: 190.192 }, { slot: 4, airUs: 190.192 }, { slot: 5, airUs: 242.5 },
+    { slot: 6, airUs: 188.141 }, { slot: 7, airUs: 188.141 }, { slot: 8, airUs: 188.141 },
+    { slot: 9, airUs: 188.141 },
   ],
 } as const
 
@@ -88,7 +88,7 @@ export const uwbBlocks: Lesson = {
   id: 'uwb-blocks',
   module: 16,
   title: '块、轮与时隙',
-  why: '一个房间里有好几部手机，要同时各自测出距离。IEEE 802.15.4-2024 的多节点测距（§10.32）为此规定了三层时间结构：测距块（ranging block）由整数个测距轮（ranging round）组成，测距轮由整数个测距时隙（ranging slot）组成，各级时长都以 RSTU（ranging scheduling time unit）计；一个测距轮要足以完成一次完整的测量，一个测距时隙至少要能容纳一帧。按时间调度时，控制器知道所有受控设备：它在一轮的第 0 个时隙发出测距控制消息，用 RDM 信息单元为每个应答方指定时隙，用 RR 信息单元给出本轮的块号与轮号；块模式下块结构默认周期性重复。于是每台设备事先就知道自己在哪个时隙发送、在哪个时隙接收，设备之间不竞争信道，不需要退避（backoff），也不会发生碰撞。块长、时隙长、一轮有几个时隙、哪部手机使用哪一轮、轮里各帧的先后，标准都留给上层决定。本仿真器取块长 200 ms、时隙 2 ms，一轮的时隙数由测距方法与锚点（anchor）数决定，第 k 部手机始终使用第 k 轮；块长与时隙长由场景设定，不写进帧里。代价是节奏固定：每部手机每个块只完成一次测量，块内空闲的轮可以留给后加入的手机。',
+  why: '一个房间里有好几部手机，要同时各自测出距离。IEEE 802.15.4-2024 的多节点测距（§10.32）为此规定了三层时间结构：测距块（ranging block）由整数个测距轮（ranging round）组成，测距轮由整数个测距时隙（ranging slot）组成，各级时长都以 RSTU（ranging scheduling time unit）计；一个测距轮要足以完成一次完整的测量，一个测距时隙至少要能容纳一帧。按时间调度时，控制器知道所有受控设备：它在一轮的第 0 个时隙发出测距控制消息，用 RDM 信息单元为每个应答方指定时隙，用 RR 信息单元给出本轮的块号与轮号；块模式下块结构默认周期性重复。于是每台设备事先就知道自己在哪个时隙发送、在哪个时隙接收，设备之间不竞争信道，不需要退避（backoff），也不会发生碰撞。块长、时隙长、一轮有几个时隙、哪部手机使用哪一轮、轮里各帧的先后，标准都留给上层决定。本仿真器取块长 200 ms、时隙 2 ms，一轮的时隙数取既能容纳测距方法与锚点（anchor）数所需的时隙、又能整除块的最小值，第 k 部手机始终使用第 k 轮；块长与时隙长由场景设定，不写进帧里。代价是节奏固定：每部手机每个块只完成一次测量，块内空闲的轮可以留给后加入的手机。',
   outcomes: [
     '说出标准对测距块、测距轮与测距时隙各规定了什么，哪些长度与分配留给上层决定',
     '从日志中读出属于某一部手机的测距轮，并用块号、轮号与时隙号算出一帧的发送时刻',
@@ -119,10 +119,10 @@ export const uwbBlocks: Lesson = {
     { topic: '三层结构与时间单位', standard: '块由整数个轮组成、轮由整数个时隙组成，时长以 RSTU 计（§10.32.2，§10.29.1.5）', sim: '照此：一个块 240 000 RSTU（200.0 ms），可容纳 10 轮；一轮 10 个时隙；一个时隙 2 400 RSTU（2 000.0 µs）。RSTU 取 416 个码片，即 833.333 ns。', kind: 'faithful' },
     { topic: '块长与时隙长', standard: '由控制器的上层决定，标准不给取值', sim: '块长 200 ms、时隙 2 ms，是 FiRa 规范档案里的取值（语料库里没有 FiRa 规范，无法核实）。', kind: 'value' },
     { topic: '一轮有几个时隙', standard: 'ARC 信息单元的轮长以时隙个数计，由控制器决定（§10.32.9.1）', sim: '由测距方法决定：双边双向测距每个锚点两个时隙再加两个，四个锚点时一轮 10 个时隙，即 20.0 ms。', kind: 'choice' },
-    { topic: '块长不是轮长的整数倍时', standard: '一个块由整数个轮组成（§10.32.2）', sim: '块长保持不变，块内轮数向下取整，余下的时间不用：删除一个锚点后一轮 16 ms，200 ms 的块容纳 12 轮，余下 8 ms。', kind: 'differs' },
+    { topic: '块由整数个轮组成', standard: '一个块由整数个轮组成，块内轮数 = 块长 ÷ 轮长（§10.32.2，§10.32.3.3）', sim: '照此：所需的时隙数不能整除块内的时隙数时，一轮取能整除它的最小时隙数，多出的时隙空闲。删除一个锚点后本轮只需 8 个时隙，排成 10 个时隙的轮，即 20 ms，200 ms 的块正好容纳 10 轮。取最小的那个值是本仿真器的取法。', kind: 'faithful' },
     { topic: '块结构怎样告知', standard: '由 ARC 信息单元的三个时长字段给出，或由上层设定（§10.32.3.3）', sim: '由上层设定：三个长度来自场景配置，ARC 信息单元的 Content Control 为 0，不带时长字段。', kind: 'choice' },
     { topic: 'RR 信息单元', standard: '块号、轮跳转模式、轮号、发送偏移（§10.32.9.3）', sim: '照此：块号与轮号如实填写，轮跳转模式 0，发送偏移 0；连同 2 个字节的信息单元头共 8 个字节。', kind: 'faithful' },
-    { topic: 'RDM 信息单元', standard: '按时间调度时为每个应答方指定角色与时隙；事先约定时可以省略（§10.32.1，§10.32.9.8）', sim: '照格式发出：四个条目，每个条目 3 个字节，共 15 个字节。但应答方在测距轮里作答的时隙来自场景配置——相当于事先约定——并不从收到的 RDM 条目里读出。', kind: 'differs' },
+    { topic: 'RDM 信息单元', standard: '按时间调度时为每个应答方指定角色与时隙；事先约定时可以省略（§10.32.1，§10.32.9.8）', sim: '照此：四个条目，每个条目 3 个字节，共 15 个字节；每个应答方从自己的条目读出时隙。没有收到控制消息的锚点不知道自己的时隙，既不作答，也不在其后的时隙打开接收机。', kind: 'faithful' },
     { topic: '哪部手机使用哪一轮', standard: '由上层决定；允许下一个块跳到另一轮（§10.32.3.3）', sim: '第 k 部手机始终使用第 k 轮，不跳转；发送偏移始终为 0。', kind: 'choice' },
     { topic: '一轮里各帧的先后', standard: '图 10-225 只给出示例：控制消息兼启动消息、各个应答、Final、测量报告', sim: '时隙 0 是手机的 Poll（控制消息兼启动消息），时隙 1 到 4 是四个锚点按名单顺序的 Response，时隙 5 是 Final，时隙 6 到 9 是四个锚点的 Report。', kind: 'choice' },
     { topic: '接收机何时开启', standard: '上层可以只在预期有帧的时隙打开接收机（§10.32.3.4）', sim: '照此：一个锚点只在 Poll、自己的 Response、Final 与自己的 Report 这四个时隙开启射频，在其他锚点的时隙里接收机关闭。', kind: 'faithful' },
@@ -175,7 +175,7 @@ export const uwbBlocks: Lesson = {
         ] },
       ],
       expect: 'ARC 信息单元只带控制位，Content Control 为 0x00；RR 信息单元写着块号 0、轮号 0；RDM 信息单元列出四个锚点与它们的时隙 1 到 4。',
-      meaning: '三个信息单元都按标准的格式（①）；块长、轮长、时隙长不在帧里，由场景设定，这是标准允许的「由上层设定」（②）。锚点并不从 RDM 条目里读出自己的时隙，这一点与标准不同（②）。',
+      meaning: '三个信息单元都按标准的格式（①）；块长、轮长、时隙长不在帧里，由场景设定，这是标准允许的「由上层设定」（②）。每个锚点从自己的 RDM 条目读出时隙（①、②）。',
     },
     {
       heading: '三部手机，三轮，一个块',
@@ -219,13 +219,13 @@ export const uwbBlocks: Lesson = {
         '打开场景编辑器，删除一个锚点。',
         '查看 UWB 会话那一栏的规划行。',
       ],
-      expect: '规划行变为“每轮 8 个时隙 · 每块 12 轮”：一轮从 20 ms 缩短到 16 ms，块长保持 200 ms。',
-      meaning: '一轮的时隙数由测距方法与锚点数决定，是本仿真器的取法（②）。200 ms 不是 16 ms 的整数倍，本仿真器取 12 轮、余下 8 ms 不用；标准要求一个块由整数个轮组成（①），这里与标准不同（②）。',
+      expect: '规划行仍是“每轮 10 个时隙 · 每块 10 轮”：本轮只需 8 个时隙，一轮仍排 20 ms，后 2 个时隙空闲；块长保持 200 ms。',
+      meaning: '8 个时隙的轮是 16 ms，200 ms 不是它的整数倍；标准要求一个块由整数个轮组成（①），本仿真器于是取能整除块的最小轮长 10 个时隙，块里正好 10 轮（②）。',
     },
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.32.1（两种调度方式，RDM 信息单元可以省略）、§10.32.2 与图 10-223（块、轮、时隙，控制消息在第 0 个时隙，控制阶段与启动阶段可以合并）、图 10-225（双边双向测距一轮的示例）、§10.32.3.3（块模式，块结构的来源，轮的跳转）、§10.32.3.4（只在预期有帧的时隙打开接收机）、§10.32.9.1（ARC 信息单元的时长字段）、§10.32.9.3 与图 10-248（RR 信息单元）、§10.32.9.8（RDM 信息单元）、§10.29.1.5 与表 10-145（RSTU = 416 个码片，约 833.33 ns）。',
-    '本仿真器的取值与取法：200 ms 的块与 2 ms 的时隙（FiRa 规范档案里的取值，语料库中无法核实）、一轮的时隙数由测距方法决定、第 k 部手机始终使用第 k 轮、轮里各帧的先后、块长不是轮长整数倍时轮数向下取整、时隙边界对所有设备精确一致、漏收时只写超时记录、每轮末尾解一次位置。',
+    '本仿真器的取值与取法：200 ms 的块与 2 ms 的时隙（FiRa 规范档案里的取值，语料库中无法核实）、一轮的时隙数由测距方法决定并取能整除块的最小值、第 k 部手机始终使用第 k 轮、轮里各帧的先后、时隙边界对所有设备精确一致、漏收时只写超时记录、每轮末尾解一次位置。',
   ],
   limits: [],
   scenario: () => uwbBlocksScenario(2400),

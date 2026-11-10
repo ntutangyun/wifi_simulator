@@ -393,8 +393,10 @@ describe('uwbSessionIssue', () => {
   })
 
   it('claims a bound on a session field, whose message never says UWB', () => {
-    const msg = uwbSessionIssue(withUwb(4, { slotRstu: 3 }))
-    expect(msg).toContain('300') // path ['uwb', 'slotRstu']
+    // 2026-11-11 (W2b): the 300 RSTU floor is gone (not in the standard); the field's own bound is now
+    // "a whole, positive number of RSTU".
+    const msg = uwbSessionIssue(withUwb(4, { slotRstu: 0 }))
+    expect(msg).toContain('0') // path ['uwb', 'slotRstu']
     expect(msg).not.toMatch(/UWB|ranging/i)
   })
 
@@ -522,11 +524,11 @@ describe('why a field is greyed out', () => {
       expect(E[key], key).not.toMatch(/one-way|单向/)
       expect(E[key], key).not.toMatch(/never transmits|从不发射|根本不发射/)
     }
-    // …and each says the thing that is actually true of many-to-many: no anchor, no tag, every
-    // slot already spoken for (design §5).
-    expect(E.uwbAoaM2m).toMatch(/没有锚点/)
-    expect(E.uwbAoaM2m).toMatch(/没有标签/)
-    expect(E.uwbScheduleM2m).toMatch(/已经排给了确定的参与者/)
+    // …and each says what is true (2026-11-11, W3): the standard allows contention in many-to-many
+    // (§10.32.6) and this simulator implements neither it nor AoA in this mode.
+    expect(E.uwbAoaM2m).toMatch(/没有实现到达角/)
+    expect(E.uwbScheduleM2m).toMatch(/§10.32.6/)
+    expect(E.uwbScheduleM2m).toMatch(/只实现了按时间调度/)
   })
 })
 
@@ -567,9 +569,9 @@ describe('many-to-many mode in the editor (design §5)', () => {
     expect(uwbSessionIssue(withUwb(4, { aoa: true, ...uwbModePatch('m2m') }))).toBeNull()
   })
 
-  it('every UWB node is a participant, not just the ones drawn as anchors — the plan line reads all of them', () => {
-    // Two anchors and three tags: a two-way round would plan for 2 anchors, but a many-to-many
-    // round holds every device (design §5) — 5 participants, 5 SS slots.
+  it('the plan line reads both roles: tags are the initiators, anchors the responders', () => {
+    // 2026-11-11 (W3, standard §10.32.6): two anchors (responders) and three tags (initiators) — an SS
+    // many-to-many round of 3 + 2 = 5 slots.
     let sc = defaultScenario()
     for (let i = 0; i < 2; i++) sc = newAnchor(sc, { x: i, y: 0 }).sc
     for (let i = 0; i < 3; i++) sc = newUwbTag(sc, { x: i, y: 1 }).sc
@@ -578,12 +580,7 @@ describe('many-to-many mode in the editor (design §5)', () => {
     const markup = renderToStaticMarkup(createElement(UwbSessionFields, {
       session: sc.uwb!, anchors: 2, tags: 3, issue: null, onChange: () => {}, onRemove: () => {},
     }))
-    // roundPlan(session, 5).slots for SS many-to-many is exactly 5 — the plan the round the network
-    // would actually run, not `roundPlan(session, 2)`'s 2 (the bug a plan line reading `anchors`
-    // alone would have shown here).
-    expect(markup).toContain(STRINGS.editor.uwbPlan(5, 1))
-    expect(markup).not.toContain(STRINGS.editor.uwbPlan(2, 1))
-    expect(markup).toContain(STRINGS.editor.uwbM2mParticipants(5))
+    expect(markup).toContain(STRINGS.editor.uwbM2mParticipants(3, 2))
   })
 
   it('locks the reply-time select to embedded, with its own reason, distinct from MMS’s', () => {
@@ -1841,9 +1838,9 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
    * would say so rather than let the editor quietly offer a value that no longer fits.
    */
   it('the window the editor computes is the window the schema enforces, at every slot size', () => {
-    // Multiples of 3 RSTU, which the schema requires of a slot, from the field's own floor to
-    // twice the session default: the range a user can actually reach with the slot control.
-    for (const slotRstu of [300, 600, 900, 1200, 2400, 3600, 4800]) {
+    // Slots that divide the default 240 000 RSTU block (a block is a whole number of slots, standard
+    // §10.32.2 — 2026-11-11), from 300 RSTU to twice the session default.
+    for (const slotRstu of [300, 600, 960, 1200, 2400, 3000, 4800]) {
       for (const schedule of ['time', 'contention'] as const) {
         const { loRstu, hiRstu } = uwbFixedReplyWindowRstu(slotRstu, WALK_ANCHORS, schedule, 'ss')
         expect(loRstu, `slot ${slotRstu} should leave a non-empty window`).toBeLessThanOrEqual(hiRstu)
@@ -2061,7 +2058,13 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
       const widerSlot: UwbSessionCfg = { ...atCap, slotRstu: 7_200 } // 33 slots a block, two rounds of 16
       expect(uwbSessionIssue(scene(widerSlot))).not.toBeNull()
       const slotRepair = uwbSessionRepair(widerSlot, WALK_ANCHORS)
-      expect(slotRepair).toEqual({ ancillaryFrames: uwbAncillaryFramesCapFor(widerSlot, WALK_ANCHORS) })
+      // 2026-11-11 (W2b): the block also moves to the nearest whole number of the wider slots (standard
+      // §10.32.2), 33 × 7 200 RSTU, and the cap is read off that block.
+      const wholeBlock = 33 * 7_200
+      expect(slotRepair).toEqual({
+        blockRstu: wholeBlock,
+        ancillaryFrames: uwbAncillaryFramesCapFor({ ...widerSlot, blockRstu: wholeBlock }, WALK_ANCHORS),
+      })
       expect(slotRepair.ancillaryFrames).toBeLessThan(atCap.ancillaryFrames)
       expect(uwbSessionIssue(scene({ ...widerSlot, ...slotRepair }))).toBeNull()
     })

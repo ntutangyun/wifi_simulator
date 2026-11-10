@@ -197,8 +197,10 @@ describe('uwb-capstone · ③ every figure the labs print is the run', () => {
     for (const v of [undefined, V_FAR, V_FAST]) {
       expect(ofType(recs(v), 'UWB_POSITION').filter((f) => f.anchors.length !== 3).every((f) => f.method === 'aoa' && f.anchors.length === 1), String(v)).toBe(true)
     }
-    // the why's 「超时多了一倍以上」 and 「定位次数减半」
-    expect(count(V_FAR, 'UWB_TIMEOUT')).toBeGreaterThan(2 * count(undefined, 'UWB_TIMEOUT'))
+    // the why's 「超时增加八成以上」 and 「定位次数减半」 (2026-11-11, W2b: 「一倍以上」 until the walled anchor,
+    // holding no RCM, stopped waiting for the Final it was never scheduled for — standard §10.32.9.8)
+    expect(count(V_FAR, 'UWB_TIMEOUT')).toBeGreaterThan(1.8 * count(undefined, 'UWB_TIMEOUT'))
+    expect(count(V_FAR, 'UWB_TIMEOUT')).toBeLessThan(2 * count(undefined, 'UWB_TIMEOUT'))
     expect(ofType(recs(V_FAR), 'UWB_POSITION').length * 2).toBe(ofType(recs(), 'UWB_POSITION').length)
   })
 

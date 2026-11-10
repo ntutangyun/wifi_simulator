@@ -889,7 +889,10 @@ describe('UwbNetwork — six anchors contending, the numbers the lesson quotes',
 
   it.each([
     { S: 4, ranges: 50, collisions: 50, sitOuts: 0, fixes: 5 },
-    { S: 8, ranges: 97, collisions: 35, sitOuts: 0, fixes: 21 },
+    // 2026-11-11 (W2b): 21 fixes until the round was stretched to the whole 17-slot block (17 is prime,
+    // and a block is a whole number of rounds, standard §10.32.2); the 30th round now ends — and solves
+    // its fix — exactly at the block boundary, one nanosecond past the run.
+    { S: 8, ranges: 97, collisions: 35, sitOuts: 0, fixes: 20 },
     { S: 16, ranges: 135, collisions: 21, sitOuts: 0, fixes: 28 },
   ])('S = $S: $ranges responses heard in 30 rounds', ({ S, ranges, collisions, sitOuts, fixes }) => {
     const m = measure(S)

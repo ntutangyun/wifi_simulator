@@ -408,7 +408,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | 性能异常 | 文献 | Heusse 等人 2003 年那篇论文的题目 | 0 | 0 | — |
 | 速率控制 | 模型取值 | 选哪一级速率，标准留给实现者，这里是本仿真器的做法 | 2 | 1 | — |
 | 自动速率回退 | 文献 | Kamerman 与 Monteban 1997 年的算法名，IEEE 没有定义它 | 0 | 0 | `@rate-fallback` · `ARF` |
-| 上限 | 模型取值 | 仿真器用它指「一条链路能扛到的最高那一级」 | 8 | 4 | `@backoff` · `CW`；`@collisions-cw` · `CW`；`@retries-queues` · `retry limit`；`@txop-protect` · `multiple protection`；`@edca-tamper` · `TXOP limit`；`@rate` · `ceiling`；`@rate-fallback` · `excursion`；`@amp-slots` · `ACW` |
+| 上限 | 模型取值 | 仿真器用它指「一条链路能扛到的最高那一级」 | 8 | 3 | `@backoff` · `CW`；`@collisions-cw` · `CW`；`@retries-queues` · `retry limit`；`@txop-protect` · `multiple protection`；`@edca-tamper` · `TXOP limit`；`@rate` · `ceiling`；`@rate-fallback` · `excursion`；`@amp-slots` · `ACW` |
 | 尝试 | 模型取值 | 仿真器的一个计数单位（第几次尝试） | 9 | 5 | `@bianchi` · `collision probability`；`@uwb-contention` · `RCMA` |
 | 跌落 | 模型取值 | 仿真器用它指一次偏离 | 0 | 0 | `@rate-fallback` · `excursion` |
 | 饱和 | 文献 | Bianchi 模型的前提假设 | 6 | 2 | — |
@@ -526,7 +526,7 @@ git diff <sha>^ <sha> -- <path>       # 看改动是不是只有你打算改的�
 | `@uwb-deferred-ds` | 上限 | `why` | labs |
 | `@uwb-coexist` | 饱和 | `why` | 从未 |
 | `@uwb-contention` | 尝试 | `why` | 从未 |
-| `@uwb-m2m` | 上限 | `outcomes[2]` | 从未 |
+| `@uwb-m2m` | 上限 | `standard[4].heading` | 从未 |
 | `@uwb-m2m` | 残差 | `why` | 从未 |
 | `@uwb-receipt` | 上限 | `labs[3].blocks[0].note` | 从未 |
 | `@uwb-ancillary` | 上限 | `why` | 从未 |
@@ -866,11 +866,11 @@ W18 记下、留给我定的是：定义这个概念的那一课用 `门限`／`
 | --- | --- | --- |
 | 豁免词 | 25 | `ZH_TERMS_EXCLUDED` 的行数 |
 | 主路径存量债（课，词） | 35 | §10.5 的判据 |
-| 其中落在前段 | 16 | 同上 |
+| 其中落在前段 | 15 | 同上 |
 | 债涉及的课 | 25 | 同上 |
 | 债涉及的词 | 11 | 同上 |
 | 落在 `尝试` 与 `上限` 两个词上的债 | 17 | 同上 |
-| 这两个词的债里落在前段的 | 9 | 同上 |
+| 这两个词的债里落在前段的 | 8 | 同上 |
 | 主路径裸用 `门限` 的课（两张表都不在） | 38 | §10.5 末，遮掉两条复合行之后 |
 | 主路径裸用 `门限` 的处数 | 154 | 同上，逐个被走到的字符串计一处 |
 | 同处境的中心词（两张表都不在、主路径裸用） | 88 | §10.6 第 3 条第 1 理由；`ZH_TERMS` 某行的中文后缀 |

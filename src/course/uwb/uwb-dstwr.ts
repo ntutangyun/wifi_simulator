@@ -4,8 +4,8 @@
  * Standard-first shape (2026-11-10, docs/superpowers/plans/2026-11-10-uwb-standard-alignment.md):
  * ① IEEE Std 802.15.4-2024's DS-TWR — the formula and its NOTE (§10.29.1.2.3), the three-message
  * form (§10.29.1.2.4) and the one-to-many procedure with its optional measurement reports
- * (§10.32.5, Figures 10-236 and 10-238); ② what this simulator does with each point — including
- * that its Response carries no RRTI and its report carries both of the responder's times, where
+ * (§10.32.5, Figures 10-236 and 10-238); ② what this simulator does with each point — since
+ * 2026-11-11 (W2b) the Response carries Treply1 in an RRTI IE and the report Tround2 alone, as
  * Figure 10-238 splits them; ③ four runs.
  *
  * Same scene as uwb-sstwr, measured the other way: the same four anchors on a 3.50 m ring, the
@@ -47,7 +47,7 @@ export function uwbDstwrScenario(ppm: { tag: number; anchors: number }): Scenari
  */
 export const FIG = {
   poll: '0 ms', resp1: '2 ms', respRest: '4–8 ms', final: '10 ms',
-  anchorRange: '10.243 ms', tagRange: '12.192 ms', reportRest: '14–18 ms', report1: '12 ms',
+  anchorRange: '10.243 ms', tagRange: '12.188 ms', reportRest: '14–18 ms', report1: '12 ms',
   /** The distance both lanes print for anchor 1, to two decimals. */
   rangeM: '3.51 m',
 } as const
@@ -83,7 +83,7 @@ export const uwbDstwr: Lesson = {
   id: 'uwb-dstwr',
   module: 15,
   title: '两次往返，消去时钟误差',
-  why: '双边双向测距（double-sided two-way ranging, DS-TWR）是 IEEE 802.15.4-2024 的第二种双向测距（§10.29.1.2.3）：设备 A 发起第一次往返，设备 B 应答之后再发起第二次往返，由 A 应答。于是共有四段时间，两端各测两段：两次往返 Tround1、Tround2 与两段回复时延（reply time）Treply1、Treply2。标准给出的公式把两次往返相乘、两段回复时延相乘，两个乘积相减，再除以四段时间之和；它的注释说明，这个公式不要求两段回复时延相等：晶振（crystal）的频率偏差以百万分之几（parts per million, ppm）计，即使达到 20 ppm、两段回复时延不对称，时钟引起的误差通常也只有几皮秒。时钟误差是被抵消的，而不是被测出后修正的，时钟偏差（clock offset）一次也没有用到。四条消息可以减为三条：B 的应答同时作为第二次往返的开始（§10.29.1.2.4）。一对多时（§10.32.5），发起方广播启动消息，各响应方依次应答，发起方再广播一帧 Final，用测距测量信息（ranging measurement information, RMI）信息单元带各响应方的往返时间、用 RRTI 信息单元带各自的回复时延；每个响应方收到 Final 即可算出距离。发起方要得到距离，须在启动消息里请求，响应方才在测量报告阶段把自己的两段时间发回。本仿真器的场景请求了这份报告，所以手机与锚点（anchor）都算出距离，两者完全相同；剩下的误差只来自接收时间戳的噪声，不随等待时长增长。代价是一轮的时隙数从五个变为十个，空口占用率却几乎不变。',
+  why: '双边双向测距（double-sided two-way ranging, DS-TWR）是 IEEE 802.15.4-2024 的第二种双向测距（§10.29.1.2.3）：设备 A 发起第一次往返，设备 B 应答之后再发起第二次往返，由 A 应答。于是共有四段时间，两端各测两段：两次往返 Tround1、Tround2 与两段回复时延（reply time）Treply1、Treply2。标准给出的公式把两次往返相乘、两段回复时延相乘，两个乘积相减，再除以四段时间之和；它的注释说明，这个公式不要求两段回复时延相等：晶振（crystal）的频率偏差以百万分之几（parts per million, ppm）计，即使达到 20 ppm、两段回复时延不对称，时钟引起的误差通常也只有几皮秒。时钟误差是被抵消的，而不是被测出后修正的，时钟偏差（clock offset）一次也没有用到。四条消息可以减为三条：B 的应答同时作为第二次往返的开始（§10.29.1.2.4）。一对多时（§10.32.5），发起方广播启动消息，各响应方依次应答，发起方再广播一帧 Final，用测距测量信息（ranging measurement information, RMI）信息单元带各响应方的往返时间、用 RRTI 信息单元带各自的回复时延；每个响应方收到 Final 即可算出距离。发起方要得到距离，须在启动消息里请求：响应方在应答里用 RRTI 信息单元带回第一段回复时延，在测量报告阶段再发回第二次往返时间（图 10-238）。本仿真器的场景请求了这份报告，所以手机与锚点（anchor）都算出距离，两者完全相同；剩下的误差只来自接收时间戳的噪声，不随等待时长增长。代价是一轮的时隙数从五个变为十个，空口占用率却几乎不变。',
   outcomes: [
     '说出双边双向测距的四段时间各由哪一端测量，以及三条消息的形式',
     '解释为什么两段回复时延不必相等，时钟误差仍能抵消',
@@ -93,7 +93,7 @@ export const uwbDstwr: Lesson = {
   terms: [
     { term: 'DS-TWR', plain: '双边双向测距：进行两次往返，使两端的时钟误差相互抵消（§10.29.1.2.3）' },
     { term: 'Final', plain: '发起方的第三条消息，标准称为测距结束消息（ranging final message），完成第二次往返' },
-    { term: 'Report', plain: '本课里锚点在测量报告阶段发回的帧，带它自己测得的两段时间；标准里只有发起方请求时才发送' },
+    { term: 'Report', plain: '本课里锚点在测量报告阶段发回的帧，带它测得的第二次往返时间 Tround2；标准里只有发起方请求时才发送' },
     { term: 'RMI', plain: '测距测量信息信息单元：把回复时延、往返时间等测量发给一个或多个设备（§10.29.8.4）' },
   ],
   standard: [
@@ -108,13 +108,13 @@ export const uwbDstwr: Lesson = {
       '测距应答阶段：每个响应方在自己的时隙里应答，带 RRMC 信息单元（控制值 3）。它为启动消息的到达与应答的发出打时间戳，得到 Treply1；发起方为应答的到达打时间戳，得到 Tround1。',
       '测距结束阶段：发起方广播 Final，带 RMI（各响应方的 Tround1）与 RRTI（Final 相对于各响应方应答的回复时延 Treply2）。',
       '每个响应方为 Final 的到达打时间戳，得到 Tround2；此时四段时间齐全，它算出飞行时间。',
-      '测量报告阶段（只在发起方请求时）：响应方把发起方缺少的两段时间发回，发起方也算出飞行时间。',
+      '测量报告阶段（只在发起方请求时）：响应方把第二次往返时间发回——第一段回复时延已随应答送回——发起方也算出飞行时间。',
     ] },
   ],
   implementation: [
-    { topic: '一轮的帧', standard: '启动消息、各响应方的应答、Final，可选的测量报告（§10.32.5）', sim: '手机的 Poll（测距控制消息与启动消息合为一帧，带 ARC、RR、RDM、RRMC）、四个锚点各一帧 Response（带 RRMC）、一帧 Final（带 RMI 与 RRTI）、四个锚点各一帧 Report（带 RMI）。', kind: 'faithful' },
+    { topic: '一轮的帧', standard: '启动消息、各响应方的应答、Final，可选的测量报告（§10.32.5）', sim: '手机的 Poll（测距控制消息与启动消息合为一帧，带 ARC、RR、RDM、RRMC）、四个锚点各一帧 Response（带 RRMC、RRTI）、一帧 Final（带 RMI 与 RRTI）、四个锚点各一帧 Report（带 RMI）。', kind: 'faithful' },
     { topic: 'Final 的内容', standard: 'RMI 带往返时间，RRTI 带回复时延（§10.32.5）', sim: '照此：A 个锚点时 Final 为 18 + 12A 字节，本课 66 字节。', kind: 'faithful' },
-    { topic: '回报给发起方的两段时间', standard: '图 10-238：Treply1 由应答里的 RRTI 带回，Tround2 由测量报告里的 RMI 带回', sim: 'Response 不带 RRTI（14 字节）；两段时间都放在 Report 的一个 RMI 信息单元里（单播，一个列表项含回复时延与往返时间，23 字节）。用的都是标准的信息单元，交给手机的也是同样两段时间，但分配方式与图 10-238 不同。', kind: 'differs' },
+    { topic: '回报给发起方的两段时间', standard: '图 10-238：Treply1 由应答里的 RRTI 带回，Tround2 由测量报告里的 RMI 带回', sim: '照此：Response 带 RRTI 信息单元，内含这个锚点的 Treply1（21 字节）；Report 的 RMI 信息单元只带 Tround2（单播，一个列表项、一个时间，19 字节）。', kind: 'faithful' },
     { topic: '哪一端计算', standard: '响应方收到 Final 时计算；发起方在收到请求的报告后计算（§10.32.5，§10.29.8.3）', sim: '照此：锚点在 Final 到达时算出距离，手机在每份 Report 到达时用同样四段时间再算一次。', kind: 'faithful' },
     { topic: '计算公式', standard: '§10.29.1.2.3 的公式', sim: '照此计算，没有读取时钟偏差。', kind: 'faithful' },
     { topic: '地址', standard: '短地址或扩展地址；RRTI 在约定次序时可省地址（§10.29.8.1，§10.29.8.4）', sim: '一律用 2 字节的短地址，RRTI 列表项也带地址。换成扩展地址或省去 RRTI 的地址，Final 的长度要重算。', kind: 'value' },
@@ -152,13 +152,13 @@ export const uwbDstwr: Lesson = {
       blocks: [
         { kind: 'table', heading: '十个时隙分别由哪些帧占用', head: ['帧', '数量', '字节', '单帧空口时间'], rows: [
           ['Poll', '1', '42', '217.88 µs'],
-          ['Response', '4', '14', '183.01 µs'],
+          ['Response', '4', '21', '190.19 µs'],
           ['Final', '1', '66', '242.50 µs'],
-          ['Report', '4', '23', '192.24 µs'],
-          ['整轮合计', '10', '256', '1 961.41 µs'],
+          ['Report', '4', '19', '188.14 µs'],
+          ['整轮合计', '10', '268', '1 973.72 µs'],
         ] },
       ],
-      expect: '整轮那一行写着 10 个时隙，到 20 ms 结束，是上一课单边一轮的两倍长；在 20 000 µs 里辐射 1 961.41 µs，占 9.81 %，上一课的单边一轮是 9.79 %。',
+      expect: '整轮那一行写着 10 个时隙，到 20 ms 结束，是上一课单边一轮的两倍长；在 20 000 µs 里辐射 1 973.72 µs，占 9.87 %，上一课的单边一轮是 9.79 %。',
       meaning: '多出的 Final 与四份 Report 使时隙数与每台设备的唤醒次数翻倍，占用率几乎不变。每帧一个时隙是本仿真器的安排（②）；Report 是因为本课的场景请求了结果才发送的（①）。',
     },
     {
@@ -187,8 +187,8 @@ export const uwbDstwr: Lesson = {
           ['答案，两条泳道相同', '749.0 · 3.51 m'],
         ] },
       ],
-      expect: '四条锚点泳道的测距行都出现在 10.243 ms，即 Final 到达之时；手机的四条在 12.192 ms 起每 2 ms 一条，跟在每份报告之后。每一对读数完全相同。本轮结束时四个距离解出 (5.01, 3.98) m 的位置，真值 (5.00, 4.00) m；这个对称圆环的几何精度因子（geometric dilution of precision, GDOP）为 1.00，后面有专门一课讲它。',
-      meaning: '锚点先算出距离是标准的安排（①）；手机能算出同一个数，是因为本课的场景请求了报告（①），报告里两段时间的放法见 ②。',
+      expect: '四条锚点泳道的测距行都出现在 10.243 ms，即 Final 到达之时；手机的四条在 12.188 ms 起每 2 ms 一条，跟在每份报告之后。每一对读数完全相同。本轮结束时四个距离解出 (5.01, 3.98) m 的位置，真值 (5.00, 4.00) m；这个对称圆环的几何精度因子（geometric dilution of precision, GDOP）为 1.00，后面有专门一课讲它。',
+      meaning: '锚点先算出距离是标准的安排（①）；手机能算出同一个数，是因为本课的场景请求了结果：Treply1 随应答送回，Tround2 随报告送回（①、②）。',
     },
     {
       heading: '时间戳噪声留下的误差',
@@ -212,7 +212,7 @@ export const uwbDstwr: Lesson = {
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.29.1.2.3 与图 10-198（双边双向测距的公式与注释）、§10.29.1.2.4 与图 10-199（三条消息）、§10.32.5 与图 10-236、10-238（一对多双边双向测距，测量报告只在发起方请求时发送）、§10.32.2（各阶段）、§10.29.8.1（RRTI 信息单元）、§10.29.8.3（RRMC 信息单元，双边测距通常由响应方计算）、§10.29.8.4（RMI 信息单元）、§10.29.1（天线时延属性）。',
-    '本仿真器的取值与取法：每个接收时间戳 100 ps 的噪声、16 位短地址且 RRTI 也带地址、每帧一个 2 ms 的时隙、在时隙边界准时发射、没有天线时延、Response 不带 RRTI 而由 Report 带回两段时间。2 ms 时隙通常认为来自 FiRa 的缺省配置，FiRa 规范不在核查用的语料里。',
+    '本仿真器的取值与取法：每个接收时间戳 100 ps 的噪声、16 位短地址且 RRTI 也带地址、每帧一个 2 ms 的时隙、在时隙边界准时发射、没有天线时延。2 ms 时隙通常认为来自 FiRa 的缺省配置，FiRa 规范不在核查用的语料里。',
   ],
   limits: [],
   scenario: () => uwbDstwrScenario({ tag: 10, anchors: -10 }),
@@ -252,7 +252,7 @@ export const uwbDstwr: Lesson = {
       q: '按标准，一对多双边双向测距里发起方怎样得到距离？',
       options: [
         '收到 Final 就能算出',
-        '在启动消息的 RRMC 信息单元里请求，响应方在测量报告阶段把它测得的时间发回',
+        '在启动消息的 RRMC 信息单元里请求，响应方在应答与测量报告里把它测得的时间发回',
         '标准规定发起方永远得不到距离',
       ],
       answer: 1,

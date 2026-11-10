@@ -12,7 +12,7 @@ import { uwbIntroScenario } from '../../src/course/uwb/uwb-intro'
 import { ScenarioSchema } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
-import { C_M_PER_NS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, UWB_STS_CHIPS } from '../../src/uwb/phy'
+import { C_M_PER_NS, RCTU_NS, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, UWB_STS_CHIPS, chipsToNs, uwbPpduNs } from '../../src/uwb/phy'
 import { uwbPpduLayout } from '../../src/uwb/frameFields'
 import { fmtRecord } from '../../src/ui/format'
 import { MODULES } from '../../src/course/curriculum'
@@ -109,11 +109,20 @@ describe('uwb-sts · ② says what the engine does, and the engine does it', () 
     expect(ofType(rs, 'UWB_RANGE')).toHaveLength(0)
   })
 
-  it('「序列关闭」 keeps configuration 1’s length: the frame is the same, only the check is off', () => {
-    expect(implRow('关闭序列').kind).toBe('differs')
-    const len = (v: number) => ofType(recs(v), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.frame.txTimeNs
-    expect(len(V_OFF)).toBe(len(V_HONEST_20))
-    expect(len(V_ON)).toBe(len(V_HONEST_20))
+  // 2026-11-11 (W2b): standard Table 16-1 — a PPDU with no STS field is packet configuration 0; the ARC IE
+  // says so in its STS Packet Config field (Table 10-165). Until then 「序列关闭」 kept configuration 1's length.
+  it('「序列关闭」 sends configuration 0: no STS field, 33 792 chips shorter, ARC STS Packet Config 0', () => {
+    expect(implRow('关闭序列').kind).toBe('faithful')
+    const poll = (v: number) => ofType(recs(v), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.frame
+    expect(poll(V_OFF).uwb!.sp).toBe(0)
+    expect(poll(V_OFF).uwb!.arc!.stsConfig).toBe(0)
+    expect(poll(V_ON).uwb!.sp).toBe(1)
+    expect(poll(V_ON).txTimeNs).toBe(poll(V_HONEST_20).txTimeNs)
+    expect(poll(V_OFF).txTimeNs).toBe(uwbPpduNs(poll(V_OFF).bytes, false))
+    const sim = implRow('关闭序列').sim
+    expect(sim).toContain(`短 ${UWB_STS_CHIPS.toLocaleString('en-US').replace(/,/g, ' ')} 个码片，约 ${(chipsToNs(UWB_STS_CHIPS) / 1000).toFixed(1)} µs`)
+    // the timestamp sits after the SFD either way, so the relayed range is the same figure
+    expect(ofType(recs(V_OFF), 'UWB_RANGE')[0].distM.toFixed(2)).toBe(SPOOFED_M.replace(' m', ''))
   })
 
   it('the relay is one fixed advance on every reception', () => {

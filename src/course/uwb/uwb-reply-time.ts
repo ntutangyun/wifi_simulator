@@ -169,6 +169,10 @@ export const RANGE_M = {
   deferred: '4.998803',
   fixed: '4.998063',
   ds: '4.999075',
+  /** DS-TWR deferred, at the tag: the TOF the anchor computed and reported back in the RMI IE's TOF
+   * field, a whole number of RCTU (standard §10.29.6.6 Figure 10-206, §10.29.8.4, §10.29.1.4) — the
+   * anchor's own 4.999075 m rounded to the counter's grid (2026-11-11, W2b). */
+  dsDeferredTag: '5.001420',
   matched: '5.001420',
 } as const
 
@@ -274,7 +278,7 @@ export const uwbReplyTime: Lesson = {
           caption: `按比例绘制的三轮。嵌入那一轮的 Response 最长：${BYTES.respEmbedded} 字节中有 ${RRTI_IE_BYTES} 个是 RRTI 信息单元。固定与延后的 Response 都只有 ${BYTES.respFixed} 字节。延后的 Response 从第 1 个时隙的边界开始发送，第 2 个时隙里还有一条延后消息；固定的那一条位于第 1 个时隙内部，它的时刻由 Poll 的 RMARKER 加上约定的回复时间决定，与时隙边界无关。`,
         },
       ],
-      expect: `这一轮只有三帧：${BYTES.poll} 字节的 Poll、${BYTES.respDeferred} 字节的 Response 与 ${BYTES.defer} 字节的延后消息，整轮那一行写着 3 slots。测距行出现在 4.188 ms，即延后消息到达的时刻，而不是 2.183 ms 的 Response 到达时。`,
+      expect: `这一轮只有三帧：${BYTES.poll} 字节的 Poll、${BYTES.respDeferred} 字节的 Response 与 ${BYTES.defer} 字节的延后消息，三帧各占一个时隙，整轮那一行写着 4 slots：100 个时隙的块不能平分成 3 个时隙的轮，这一轮排成 4 个时隙，最后一个空闲。测距行出现在 4.188 ms，即延后消息到达的时刻，而不是 2.183 ms 的 Response 到达时。`,
       meaning: 'Response 到达时发起方只有往返时间，还不能算出距离，这正是 ① 的延后过程；延后消息单独占一个时隙是本仿真器的安排（②）。',
     },
     {
@@ -301,7 +305,7 @@ export const uwbReplyTime: Lesson = {
           ['DS-TWR 延后', `延后数据帧，${uwbDsDeferredReportBytes(0)} + ${DEFERRED_REPORT_GROWTH}A`, String(CAP.dsDeferred)],
         ] },
       ],
-      expect: `嵌入的 Response 是 ${BYTES.respEmbedded} 字节，固定与延后都是 ${BYTES.respFixed} 字节，相差的 ${RRTI_IE_BYTES} 个字节就是 RRTI 信息单元；嵌入与固定一轮两个时隙，延后三个。单边三种形态的上限都是 ${CAP.ssEmbedded}，双边嵌入是 ${CAP.dsEmbedded}，双边延后是 ${CAP.dsDeferred}。`,
+      expect: `嵌入的 Response 是 ${BYTES.respEmbedded} 字节，固定与延后都是 ${BYTES.respFixed} 字节，相差的 ${RRTI_IE_BYTES} 个字节就是 RRTI 信息单元；嵌入与固定的一轮用两个时隙，延后用三个。单边三种形态的上限都是 ${CAP.ssEmbedded}，双边嵌入是 ${CAP.dsEmbedded}，双边延后是 ${CAP.dsDeferred}。`,
       meaning: `延后省下的 ${RRTI_IE_BYTES} 个字节，换来一条 ${BYTES.defer} 字节的消息和每个锚点多一个时隙（②）。上限由轮中最长的一帧决定：单边的轮里没有 Final，最长的是每个锚点只增长 ${RDM_ENTRY_BYTES} 字节的 Poll；这些上限依赖本仿真器的地址取法（②）。`,
     },
     {
@@ -318,11 +322,11 @@ export const uwbReplyTime: Lesson = {
           ['SS-TWR 延后', `${RANGE_M.deferred} m`, `${RANGE_M.matched} m`],
           ['SS-TWR 固定', `${RANGE_M.fixed} m`, `${RANGE_M.matched} m`],
           ['DS-TWR 嵌入', `${RANGE_M.ds} m`, `${RANGE_M.matched} m`],
-          ['DS-TWR 延后', `${RANGE_M.ds} m`, `${RANGE_M.matched} m`],
+          ['DS-TWR 延后', `${RANGE_M.dsDeferredTag} m`, `${RANGE_M.matched} m`],
         ] },
       ],
-      expect: `真值是 ${BENCH_M.toFixed(2)} m。嵌入与延后读出完全相同的 ${RANGE_M.embedded} m；固定读出 ${RANGE_M.fixed} m；双边两种都是 ${RANGE_M.ds} m，最接近真值。两端频率一致时，五种读数都是 ${RANGE_M.matched} m。`,
-      meaning: '传送方式只决定 Treply 何时、以哪一帧到达，不改变计算（①）。固定形态的差异来自本仿真器让响应方按自己的晶振计时那段约定的时延（②）：晶振快 20 ppm，那段时延就短 20 ppm。',
+      expect: `真值是 ${BENCH_M.toFixed(2)} m。嵌入与延后读出完全相同的 ${RANGE_M.embedded} m；固定读出 ${RANGE_M.fixed} m；双边嵌入是 ${RANGE_M.ds} m，最接近真值；双边延后时手机读出的是锚点算出、再用 RMI 信息单元的 TOF 字段报告回来的飞行时间，这个字段是测距计数单位的整数，取整之后是 ${RANGE_M.dsDeferredTag} m。两端频率一致时，五种读数都是 ${RANGE_M.matched} m。`,
+      meaning: '传送方式只决定 Treply 何时、以哪一帧到达，不改变计算（①）；双边延后的手机读数不同，是因为它拿到的是锚点报告的结果，已按 RMI 信息单元的字段取整（①）。固定形态的差异来自本仿真器让响应方按自己的晶振计时那段约定的时延（②）：晶振快 20 ppm，那段时延就短 20 ppm。',
     },
     {
       heading: '固定回复时间的上下界',

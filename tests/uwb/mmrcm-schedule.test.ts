@@ -20,11 +20,17 @@ import {
   blockSlotStartNs, mmrcmResponders, roundCarriesMmrcm, roundPlan, roundSlotAction, roundSlots,
   slotAction, slotStartNs,
 } from '../../src/uwb/session'
+import { uwbWholeRoundSlots } from '../../src/uwb/phy'
 
 const session = (over: Partial<UwbSessionCfg> = {}): UwbSessionCfg => ({ ...DEFAULT_UWB_SESSION, ...over })
 /** A session whose tag runs `n` rounds a block, so a set of up to `n` rounds fits in one block. */
 const sets = (r: number, n: number, over: Partial<UwbSessionCfg> = {}): UwbSessionCfg =>
   session({ rcmValidityRounds: r, initiatorRounds: n, ...over })
+/** 2026-11-11 (W2b): a round is stretched to the smallest whole divisor of the block's slot count
+ * (standard §10.32.2: a block is a whole number of rounds) — `uwbWholeRoundSlots`, at the default
+ * 240 000 RSTU block and 2 400 RSTU slot every session here uses. */
+const whole = (needed: number, mode: UwbSessionCfg['mode'] = 'twr'): number =>
+  uwbWholeRoundSlots(needed, DEFAULT_UWB_SESSION.blockRstu, DEFAULT_UWB_SESSION.slotRstu, mode)
 
 describe('RoundPlan.mmrcr', () => {
   it('is read straight off the session config', () => {
@@ -85,10 +91,12 @@ describe('mmrcmResponders', () => {
     }
   })
 
-  it("is every participant for m2m — design §2's hint, checked rather than assumed", () => {
-    for (const n of [2, 3, 6]) {
-      const p = roundPlan(session({ mmrcr: true, mode: 'm2m' }), n)
-      expect(p.participants).toBe(n)
+  // 2026-11-11 (W3): in many-to-many the responders confirm the initiators' messages (standard §10.36.1,
+  // Figure 10-272), one MMRCM slot per responder — not every device as when every device was both.
+  it('is every responder for m2m, whatever the initiator count', () => {
+    for (const [m, n] of [[1, 2], [2, 4], [3, 3]]) {
+      const p = roundPlan(session({ mmrcr: true, mode: 'm2m' }), n, m)
+      expect(p.initiators).toBe(m)
       expect(mmrcmResponders(p)).toBe(n)
     }
   })
@@ -112,15 +120,15 @@ describe('roundSlots', () => {
     const off = roundPlan(sets(4, 8, { mmrcr: false, mode: 'twr' }), 2)
     const on = roundPlan(sets(4, 8, { mmrcr: true, mode: 'twr' }), 2)
     expect(on.rangingSlots).toBe(off.rangingSlots)
-    expect(off.slots).toBe(off.rangingSlots)
+    expect(off.slots).toBe(whole(off.rangingSlots))
     // +2, one per anchor — not +1. See `mmrcmResponders`' own test above.
-    expect(on.slots).toBe(on.rangingSlots + 2)
+    expect(on.slots).toBe(whole(on.rangingSlots + 2))
     expect(on.roundNs).toBe(on.slots * on.slotNs)
   })
 
   it('m2m: the one round holds every participant once more (rcmValidityRounds pinned at 1)', () => {
     const p = roundPlan(session({ mmrcr: true, mode: 'm2m', rcmValidityRounds: 1 }), 3)
-    expect(p.slots).toBe(p.rangingSlots + 3)
+    expect(p.slots).toBe(whole(p.rangingSlots + 3, 'm2m'))
   })
 })
 
@@ -175,8 +183,10 @@ describe('roundSlotAction', () => {
     for (let i = 0; i < 3; i++) {
       expect(roundSlotAction(p, 0, p.rangingSlots + i)).toEqual({ kind: 'uwbMmrcm', index: i })
     }
-    // One past the last responder is past the round itself.
-    expect(() => roundSlotAction(p, 0, p.rangingSlots + 3)).toThrow()
+    // One past the last responder is idle when the round was stretched to a whole divisor of the block
+    // (2026-11-11, W2b), and past the round itself otherwise.
+    if (p.slots > p.rangingSlots + 3) expect(roundSlotAction(p, 0, p.rangingSlots + 3)).toEqual({ kind: 'idle' })
+    else expect(() => roundSlotAction(p, 0, p.rangingSlots + 3)).toThrow()
   })
 
   it('a confirmation-slot index of a round that does not close a set is idle, not a confirmation', () => {

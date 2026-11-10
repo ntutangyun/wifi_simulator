@@ -19,8 +19,8 @@ import type {
 } from '../../model/scenario'
 import { roundPlan } from '../session'
 import {
-  mmsResponders, rstuNs, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX, uwbFixedReplyWindowRstu,
-  uwbInitiatorBlockSlots, uwbMmrcmSlots, uwbRoundSlotCount, uwbSlotsPerTag,
+  mmsResponders, RSTU_NS, rstuNs, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX, uwbFixedReplyWindowRstu,
+  uwbAncillarySlots, uwbInitiatorBlockSlots, uwbMmrcmSlots, uwbRoundSlotCount, uwbM2mSlotFitNs, uwbSlotFitNs, uwbSlotsPerTag, uwbWholeRoundSlots,
 } from '../phy'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
@@ -132,24 +132,27 @@ export function uwbAncillaryFramesCapFor(
   const rounds = Math.max(1, tags)
   // 2026-11-10: every round is one length (standard §10.32.3.3) and the exchange runs in a round of
   // its own after each tag's ranging rounds (§10.35), so one tag's share of the block holds
-  // `initiatorRounds + 1` rounds of the session's round length (`uwbInitiatorBlockSlots`). The
-  // longest round length the block allows is therefore its share divided by that many rounds, and
-  // the ancillary round spends slot 0 on its RCM.
-  const tagShare = Math.floor(session.blockRstu / (rounds * session.slotRstu))
-  const perRound = uwbInitiatorBlockSlots(1, session.initiatorRounds, true)
-  const roundMax = Math.floor(tagShare / perRound)
-  // The ranging round, with its receipt confirmations, has to fit that length too.
-  if (uwbRoundSlotCount(slots, mmrcrSlots, 0) > roundMax) return null
-  const windowMax = roundMax - 1
-  const floor = session.schedule === 'contention' ? session.contentionSlots : 0
-  // A contention window is priced at `max(frames, contentionSlots)` (`uwbAncillarySlots`), so no
-  // frame count is legal once `contentionSlots` alone overruns the round.
-  if (windowMax < floor) return null
-  // …less the request's own slot when the session asks for slots (standard §10.35.2.1): the two
-  // halves of the RAICT IE are different uses of one field, so the request costs a slot of its own.
-  // Under a time schedule the window is also an RDM IE's list (§10.32.9.8): at most 63 elements.
+  // `initiatorRounds + 1` rounds of the session's round length (`uwbInitiatorBlockSlots`).
+  // 2026-11-11 (W2b): and that round length is stretched to a whole divisor of the block's slots
+  // (`uwbWholeRoundSlots`, standard §10.32.2), a step function of the window — so the cap is searched,
+  // frame count by frame count, with the schema's own arithmetic rather than divided out.
   const request = session.ancillaryRequest ? 1 : 0
-  const cap = Math.min(windowMax, session.schedule === 'time' ? 63 : Infinity) - request
+  const floor = session.schedule === 'contention' ? session.contentionSlots : 0
+  const fitsWith = (frames: number): boolean => {
+    const window = uwbAncillarySlots(session.mode, session.schedule, session.contentionSlots, true, frames, request > 0)
+    const roundLength = uwbWholeRoundSlots(
+      uwbRoundSlotCount(slots, mmrcrSlots, window), session.blockRstu, session.slotRstu, session.mode,
+    )
+    const perTag = uwbInitiatorBlockSlots(roundLength, session.initiatorRounds, true)
+    return Math.floor(session.blockRstu / (perTag * session.slotRstu)) >= rounds
+  }
+  // Under a time schedule the window is also an RDM IE's list (§10.32.9.8): at most 63 elements,
+  // the request's own slot among them. A contention window is priced at `max(frames,
+  // contentionSlots)` (`uwbAncillarySlots`), so no count is legal once that floor alone overruns.
+  const ceiling = session.schedule === 'time' ? 63 - request : Math.floor(session.blockRstu / session.slotRstu)
+  if (!fitsWith(Math.max(1, floor))) return null
+  let cap = 0
+  for (let f = 1; f <= ceiling; f++) if (fitsWith(f)) cap = f
   return cap >= 1 ? cap : null
 }
 
@@ -195,6 +198,14 @@ export function uwbSessionRepair(
   session: UwbSessionCfg, anchors: number, tags: number = 1,
 ): Partial<UwbSessionCfg> {
   const patch: Partial<UwbSessionCfg> = {}
+  // A block is a whole number of slots (standard §10.32.2: a whole number of rounds of a whole number
+  // of slots each), so a slot or block edit that breaks that moves the block to the nearest multiple of
+  // the slot — the value moves, the feature stays (2026-11-11, W2b). Everything below reads the
+  // repaired block.
+  if (session.slotRstu > 0 && session.blockRstu % session.slotRstu !== 0) {
+    patch.blockRstu = Math.max(1, Math.round(session.blockRstu / session.slotRstu)) * session.slotRstu
+    session = { ...session, blockRstu: patch.blockRstu }
+  }
   if (session.replyTime === 'fixed') {
     const fixedReplyRstu = uwbFixedReplyRstuFor(session, anchors)
     if (fixedReplyRstu !== null && fixedReplyRstu !== session.fixedReplyRstu) patch.fixedReplyRstu = fixedReplyRstu
@@ -220,6 +231,24 @@ export function uwbSessionRepair(
 }
 
 const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 3 : 1)
+/**
+ * The shortest slot the slot field lets through: the slot-fit rule the schema applies (standard
+ * §10.32.2: a slot holds at least one frame; this engine's `uwbSlotFitNs` adds the flight guard and
+ * aTurnaroundTime), in the whole RSTU the field is in. An MMS session keeps the draft's 300 RSTU
+ * granularity (4ab draft 15-22/0381r5 Table 1.2.3.2). 2026-11-11 (W2b): this used to be a flat 300
+ * RSTU for every mode, a floor the standard does not have.
+ */
+export function uwbSlotFloorRstu(session: UwbSessionCfg, anchors: number, tags = 1): number {
+  if (session.mode === 'mms') return 300
+  const needNs = session.mode === 'm2m'
+    ? uwbM2mSlotFitNs(session.method, tags, anchors)
+    : uwbSlotFitNs(
+      Math.max(1, anchors), session.mode, session.schedule, undefined, session.method, session.replyTime, session.sp3,
+    )
+  let rstu = Math.max(1, Math.floor(needNs / RSTU_NS))
+  while (rstuNs(rstu) < needNs) rstu++
+  return rstu
+}
 
 /**
  * What picking a ranging mode changes. A one-way round is laid out in advance for every anchor,
@@ -470,9 +499,8 @@ export function uwbRmnrHintKey(
 /**
  * Why the receipt-confirmation-request toggle is live or not (standard §10.36's MMRCR, design §4 of
  * 2026-10-02-receipt-confirmation-design.md). Unlike `uwbRmnrHintKey`, the legal modes are two, not
- * one — two-way ranging and `'m2m'` — because a many-to-many participant has no other frame that
- * ever tells it who heard it (`UwbM2mTimes.rxCounters` only ever echoes receipt *forward*, to a
- * later participant, never back to the sender), while the schema refuses `mmrcr` outright for the
+ * one — two-way ranging and `'m2m'` (whose responders confirm the initiators' messages, standard
+ * §10.36.1) — while the schema refuses `mmrcr` outright for the
  * other three: DL-TDoA's non-controller anchors already say whether they heard the Poll by sending
  * or not sending a Response, UL-TDoA's blink opens no exchange an ARC IE could ride on, and MMS's
  * control plane is a different radio entirely. `'twr'` carries one further refusal `'m2m'` does
@@ -901,14 +929,12 @@ export function UwbSessionFields(
     const next: UwbSessionCfg = { ...session, ...patch }
     emit({ ...patch, ...uwbSessionRepair(next, anchors, tags) })
   }
-  // Many-to-many counts every UWB node as a participant (design §5) — the anchor/tag split is a
-  // drawing choice in this mode, not a headcount for its own round, so the plan line below must
-  // not read `anchors` alone the way every other mode's round does.
+  // Many-to-many (standard §10.32.6/§10.32.7): the tags are the initiators (M) and the anchors the
+  // responders (N), and the round is planned from both.
   const m2m = session.mode === 'm2m'
-  const participants = m2m ? anchors + tags : anchors
-  // With no anchor (or, in m2m, no participant at all) there is no round to plan; printing one
-  // built from a made-up anchor would contradict the issue line right beside it.
-  const plan = participants > 0 ? roundPlan(session, participants) : null
+  // With no anchor (or, in m2m, no initiator) there is no round to plan; printing one built from a
+  // made-up device would contradict the issue line right beside it.
+  const plan = anchors > 0 && (!m2m || tags > 0) ? roundPlan(session, anchors, m2m ? tags : 1) : null
   const orphan = anchors === 0 && tags === 0
   // A contention round has only the response to place, so the schema allows it with SS-TWR
   // alone; the window and the retry budget mean nothing until it is actually chosen.
@@ -1183,7 +1209,7 @@ export function UwbSessionFields(
         {/* Plain, like every other control: the slot is one of the fixed-reply window's own terms,
             and `onChange`'s reconciliation is what carries a stranded reply time with it rather
             than a patch of this field's own. */}
-        <RstuInput value={session.slotRstu} lo={300} hi={60_000} onCommit={(slotRstu) => onChange({ slotRstu })} />
+        <RstuInput value={session.slotRstu} lo={uwbSlotFloorRstu(session, anchors, tags)} hi={60_000} onCommit={(slotRstu) => onChange({ slotRstu })} />
         <span style={suffix}>RSTU · {ms(session.slotRstu)} ms</span>
       </label>
       <label style={label} title={E.uwbChannelHint}>
@@ -1214,7 +1240,7 @@ export function UwbSessionFields(
           `rcmValidityRounds` is 1 — read from the two functions the schema budgets with, never
           added up here. */}
       {plan && appendedSlots > 0 && <div style={note}>{E.uwbPlanAppended(appendedSlots)}</div>}
-      {m2m && <div style={note}>{E.uwbM2mParticipants(participants)}</div>}
+      {m2m && <div style={note}>{E.uwbM2mParticipants(tags, anchors)}</div>}
       {orphan && <div style={note}>{E.uwbNoNodes}</div>}
       {issue && <div style={issueStyle}>{issue}</div>}
       <button style={{ marginTop: 5 }} disabled={!orphan} title={orphan ? E.uwbRemoveSessionHint : E.uwbSessionInUse}

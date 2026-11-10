@@ -735,7 +735,7 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 三侧表比的是一个还在的字段和两个已不存在的字段。**把上限降到 0、把表里填上 0，
 得到的是一排什么也证明不了的绿勾**，所以这一行和这张表连同它们的仪器
 （`tests/course/coverageNumbers.ts` 的 `limitsRatchet()`、`sideDebts()`、`criterionP()`，
-以及 `tests/course/coverageNumbers.test.ts`）一起删掉了，历史在 `git log -p` 里。
+以及它自己的测试文件）一起删掉了，历史在 `git log -p` 里。
 **现在看着可读性的是这几样**：② 每一行都在括号规则读的主路径上、也在 `lessonMinutes` 计时的主路径上
 （`tests/course/readability.test.ts` 逐课断言）；`limits`、`observe`、`tryThis` 在每门课里都是空的，
 `picture`、`numbers`、`deeper` 不存在（`tests/course/limits.test.ts` 逐课断言，
@@ -746,11 +746,11 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 
 | 量 | 实测 | 断言在哪 | 余量 |
 | --- | --- | --- | --- |
-| 全课程主路径汉字 | **253 277** | `tests/course/readability.test.ts`：逐课下限 700，总和 > 100 000 且 < 300 000 | 无上沿（2026-11-10 起长度只是软上限：超过一次学完的课标「可分两次学」，不拒绝） |
-| 分钟数合计 | **2 515** | 只由本表对照，不再有等式 | — |
+| 全课程主路径汉字 | **254 419** | `tests/course/readability.test.ts`：逐课下限 700，总和 > 100 000 且 < 300 000 | 无上沿（2026-11-10 起长度只是软上限：超过一次学完的课标「可分两次学」，不拒绝） |
+| 分钟数合计 | **2 520** | 只由本表对照，不再有等式 | — |
 | 课数 | 91（Wi-Fi 52、AMP 5、UWB 34） | 同文件，`toBe(91)`，**精确** | — |
 | 模块数 | 32 | 同文件，`toBe(32)`，**精确**（切片 W12b 的 `@uhr-rate-ladder` 新开 M13，所以这个数又跟着动了一次；上一次是切片 W3 的 `@link-2g` 新开 M12。切片 W13 的 `@claim-to-contribution` 进的是**已存在的** M13，所以这个数没动——一个阶段一个模块买的就是这个，见 §15；2026-10-11 把 `@uwb-ancillary` 拆成两门时它又没动，理由是第三种：M24 本来就有两门，拆课加的是课不是模块） | — |
-| 场景数（含 variants） | **293** | `tests/fixtures/lesson-hashes.json` 共 **300** 条 = 293 + 7 个编辑器家庭 | — |
+| 场景数（含 variants） | **294** | `tests/fixtures/lesson-hashes.json` 共 **301** 条 = 294 + 7 个编辑器家庭 | — |
 
 **「余量」这一列也被核了（2026-10-09）。** 2026-11-11 之前这一列里有两个不同义的 `0`：
 棘轮那个是 `上限 − 实测债务`，可以非 0；分钟数合计那个是结构性的（当时那条判据是等式）。
@@ -760,7 +760,7 @@ Wi-Fi 与 AMP 57 门在 2026-11-11）：`limits` 原来说的事，现在逐条�
 另外第一行的「逐课下限 700」和 `tests/course/coverageNumbers.ts` 的 `MAIN_PATH_BAND` 比。
 那一格原来还写着上沿 4 400 和离它最近的那门课；2026-11-10 长度改成软上限后，上沿撤了，那一格改写「无上沿」。
 
-**一门新课的典型主路径是 2 000–3 500 字**（全课程 91 门的均值 2 783 = 253 277 / 91；
+**一门新课的典型主路径是 2 000–3 500 字**（全课程 91 门的均值 2 796 = 254 419 / 91；
 最近九门新课，最新的在前：`uwb-ancillary-loss` 2 639、`claim-to-contribution` 3 113、`uhr-rate-ladder` 2 891、`link-2g` 3 274、
 `amp-backscatter` 2 860、`uwb-ancillary-request` 2 826、`wan-rtt` 3 186、`edca-tamper` 3 366、
 `ru-diversity` 2 903）。

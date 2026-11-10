@@ -29,10 +29,6 @@ export const FRAME_KINDS = [
   // later round's message is the one of those two standard messages that remains — not a lighter
   // Poll. docs/superpowers/specs/2026-10-01-rcm-validity-design.md §2
   'uwbInit',
-  // Many-to-many ranging (standard §10.32.6 SS / §10.32.7 DS): one participant's transmission,
-  // a question to everyone after it and an answer to everyone before it — neither a Poll nor a
-  // Response. `docs/superpowers/specs/2026-09-30-many-to-many-design.md` §4.
-  'uwbM2m',
   // The ranging message non-receipt exchange (standard §10.34): a responder that holds a valid
   // RCM but missed this round's initiation message sends this instead of sitting silent in its
   // slot. Its own kind, not a second use of 'uwbResp': the whole point of the lesson is that this

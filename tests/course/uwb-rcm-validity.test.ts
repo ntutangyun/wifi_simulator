@@ -86,7 +86,9 @@ describe('uwb-rcm-validity · the lesson', () => {
       expect(stdText(), c).toContain(c)
     }
     const kinds = new Set(uwbRcmValidity.implementation!.map((r) => r.kind))
-    for (const k of ['faithful', 'value', 'choice', 'differs', 'absent'] as const) expect(kinds, k).toContain(k)
+    // 2026-11-11 (W2b): the RDM row is faithful now and the split-messages row a choice.
+    for (const k of ['faithful', 'value', 'choice'] as const) expect(kinds, k).toContain(k)
+    expect(kinds).not.toContain('differs')
   })
 
   it('the validity field is bits 9 to 14, six bits, 0 to 63 — as ① and `sources` say and the editor allows', () => {
@@ -135,14 +137,15 @@ describe('uwb-rcm-validity · ② says what the engine does, and the engine does
     expect(openers(recs(), 1)[0].frame.kind).toBe('uwbPoll')
   })
 
-  it('slots come from the scene: the walled anchor still waits in slots 0 and 5 (differs)', () => {
+  // 2026-11-11 (W2b): standard §10.32.9.8 — a responder reads its slot off its RDM element; one holding no
+  // valid RCM has no slot and keeps its receiver off past slot 0 (it used to wait for the Final too).
+  it('slots come from the RDM IE: the walled anchor waits only in slot 0 (faithful)', () => {
     const row = implRow('应答方怎样知道自己的时隙')
-    expect(row.kind).toBe('differs')
-    const mine = ofType(recs(WALLED), 'UWB_TIMEOUT').filter((r) => r.node === WALLED_ANCHOR && r.t < PLAN.roundNs)
-    const slots = [num(row.sim, /在第 (\d+) 与/, 'a'), num(row.sim, /与第 (\d+) 个时隙/, 'b')]
-    expect(mine.map((r) => r.slot)).toEqual(slots)
-    expect(slotAction(PLAN, slots[0]).kind).toBe('uwbPoll')
-    expect(slotAction(PLAN, slots[1]).kind).toBe('uwbFinal')
+    expect(row.kind).toBe('faithful')
+    const mine = ofType(recs(WALLED), 'UWB_TIMEOUT').filter((r) => r.node === WALLED_ANCHOR)
+    expect(mine.length).toBeGreaterThan(0)
+    expect(new Set(mine.map((r) => r.slot))).toEqual(new Set([num(row.sim, /只写下第 (\d+) 个时隙/, 'slot')]))
+    expect(slotAction(PLAN, 0).kind).toBe('uwbPoll')
     // and it never answers
     expect(ofType(recs(WALLED), 'TX_START').filter((r) => r.node === WALLED_ANCHOR)).toEqual([])
   })
@@ -156,9 +159,13 @@ describe('uwb-rcm-validity · ② says what the engine does, and the engine does
     expect(num(sim, /= (\d+) 字节/, 'rmnr')).toBe(uwbRmnrBytes())
   })
 
-  it('no static scene of this lesson sends an RMNR (absent)', () => {
-    expect(implRow('同一轮里的两帧').kind).toBe('absent')
-    for (const v of [SHARED, EVERY, WALLED]) expect(ofType(recs(v), 'UWB_RMNR'), String(v)).toEqual([])
+  // 2026-11-11 (W2b): the Wi-Fi laptop of the third scene makes the non-receipt state real (§10.34.1).
+  it('only the third scene sends an RMNR, and only in a set\'s later rounds (choice)', () => {
+    expect(implRow('同一轮里的两帧').kind).toBe('choice')
+    for (const v of [SHARED, EVERY]) expect(ofType(recs(v), 'UWB_RMNR'), String(v)).toEqual([])
+    const sent = ofType(recs(WALLED), 'TX_START').filter((r) => r.frame.kind === 'uwbRmnr')
+    expect(sent.length).toBeGreaterThan(0)
+    for (const r of sent) expect(r.frame.uwb!.round, r.node).toBeGreaterThan(0)
   })
 })
 
@@ -244,22 +251,34 @@ describe('uwb-rcm-validity · ③ every figure the labs print is the run', () =>
     expect(openers(recs(), 0).map((r) => r.frame.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])
   })
 
-  it('lab 5: the walled anchor sends nothing, the tag times out twice a round and fixes on three', () => {
-    const l = lab('砖墙后的锚点')
-    expect(uwbRcmValidity.variants![l.variant!].scenario().uwb!.rmnr).toBe(true)
+  it('lab 5: the walled anchor stays silent; the others send RMNR when Wi-Fi drowns an initiation message', () => {
+    const l = lab('砖墙后的锚点与一台笔记本')
+    const v = uwbRcmValidity.variants![l.variant!].scenario()
+    expect(v.uwb!.rmnr).toBe(true)
     const rs = recs(WALLED)
-    expect(ofType(rs, 'UWB_RMNR')).toEqual([])
     expect(ofType(rs, 'TX_START').filter((r) => r.node === WALLED_ANCHOR)).toEqual([])
+    const sent = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbRmnr')
+    const first = sent[0]
+    expect(l.expect).toContain(`第 ${first.frame.uwb!.block} 块第 ${first.frame.uwb!.round} 轮的启动消息`)
+    const firstRound = sent.filter((r) => r.frame.uwb!.block === first.frame.uwb!.block && r.frame.uwb!.round === first.frame.uwb!.round)
+    expect(firstRound.map((r) => r.node)).toEqual(['anchor-1', 'anchor-2', 'anchor-3'])
+    expect(l.expect).toContain(`一帧 ${first.frame.bytes} 字节的 RMNR`)
+    // the drowned initiation messages at those three anchors
+    const lost = ofType(rs, 'UWB_INTERFERED').filter((r) => r.from === 'uwb-1' && r.t < first.t && r.t > first.t - PLAN.slotNs * 2)
+    expect(lost.map((r) => r.node).sort()).toEqual(['anchor-1', 'anchor-2', 'anchor-3'])
+    const heard = ofType(rs, 'UWB_RMNR').filter((r) => r.block === first.frame.uwb!.block && r.round === first.frame.uwb!.round)
+    expect(heard.map((r) => r.peer)).toEqual(['anchor-2', 'anchor-3'])
+    const rounds = new Set(sent.map((r) => `${r.frame.uwb!.block}:${r.frame.uwb!.round}`))
+    expect(num(l.expect, /这样的轮出现 (\d+) 次/, 'rounds')).toBe(rounds.size)
+    expect(num(l.expect, /共发出 (\d+) 帧 RMNR/, 'frames')).toBe(sent.length)
+    // an undisturbed round: two timeouts at the tag, both the walled anchor's, and a fix on three
     const perRound = num(l.expect, /标签每轮留下 (\d+) 次超时/, 'timeouts')
-    const rounds = ofType(rs, 'UWB_ROUND').filter((r) => r.block === 0)
-    for (const r of rounds) {
-      const t = ofType(rs, 'UWB_TIMEOUT').filter((x) => x.node === 'uwb-1' && x.t > r.t && x.t <= r.t + PLAN.roundNs)
-      expect(t, `round ${r.round}`).toHaveLength(perRound)
-      expect(new Set(t.map((x) => x.peer)), `round ${r.round}`).toEqual(new Set([WALLED_ANCHOR]))
-    }
-    const fixes = ofType(rs, 'UWB_POSITION').filter((f) => f.block === 0)
-    expect(fixes).toHaveLength(rounds.length)
-    for (const f of fixes) expect(f.anchors).toHaveLength(num(l.expect, /其余 (\d+) 个锚点/, 'n'))
+    const r0 = ofType(rs, 'UWB_ROUND').find((r) => r.block === 0 && r.round === 0)!
+    const t0 = ofType(rs, 'UWB_TIMEOUT').filter((x) => x.node === 'uwb-1' && x.t > r0.t && x.t <= r0.t + PLAN.roundNs)
+    expect(t0).toHaveLength(perRound)
+    expect(new Set(t0.map((x) => x.peer))).toEqual(new Set([WALLED_ANCHOR]))
+    const fix0 = ofType(rs, 'UWB_POSITION').find((f) => f.block === 0 && f.t <= r0.t + PLAN.roundNs)!
+    expect(fix0.anchors).toHaveLength(num(l.expect, /其余 (\d+) 个锚点/, 'n'))
   })
 })
 
@@ -279,7 +298,7 @@ describe('uwb-rcm-validity · the figures quoted in the quiz and `sources`', () 
   })
 
   it('the scene runs as the schema accepts it', () => {
-    for (const s of [uwbRcmValidityScenario(), uwbRcmValidityScenario(1), uwbRcmValidityScenario(VALIDITY, true, true)] as Scenario[]) {
+    for (const s of [uwbRcmValidityScenario(), uwbRcmValidityScenario(1), uwbRcmValidityScenario(VALIDITY, true, true, true)] as Scenario[]) {
       expect(() => ScenarioSchema.parse(s)).not.toThrow()
       expect(() => new Simulation(s)).not.toThrow()
     }

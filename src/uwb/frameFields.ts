@@ -41,7 +41,6 @@ const SUBTYPE: Record<UwbFrameKind, string> = {
   uwbPoll: 'UWB Poll', uwbResp: 'UWB Response', uwbFinal: 'UWB Final', uwbReport: 'UWB Report',
   uwbSsDefer: 'UWB Deferred Reply Time',
   uwbInit: 'UWB Ranging Initiation',
-  uwbM2m: 'UWB Many-to-Many',
   uwbRmnr: 'UWB Ranging Message Non-Receipt',
   uwbBlink: 'UWB Blink',
   uwbRsf: 'MMS Ranging Fragment', uwbRif: 'MMS Integrity Fragment',
@@ -110,7 +109,9 @@ function ies(u: UwbInfo): Ie[] {
         if (u.rdm) {
           out.push({
             key: 'ieRdm', bytes: rdmIeBytes(u.rdm.length),
-            value: V.rdm(u.rdm.length, u.rdm.map((e) => V.rdmSlot(e.id, e.slot)).join('、')),
+            value: V.rdm(u.rdm.length, u.rdm.map((e) => (
+              u.arc?.multiNode === 2 ? V.rdmSlot(e.id, e.slot, e.initiator) : V.rdmSlot(e.id, e.slot)
+            )).join('、')),
           })
           break
         }
@@ -141,6 +142,14 @@ function ies(u: UwbInfo): Ie[] {
           out.push({ key: 'ieRrti', bytes: RRTI_IE_BYTES, value: V.replyTime(rctuText(u.replyRctu)) })
           break
         }
+        // A many-to-many SS response (standard §10.32.6): one addressed reply time per initiator.
+        if (u.rrti) {
+          out.push({
+            key: 'ieRrti', bytes: rrtiIeBytes(u.rrti.length, true),
+            value: V.rrtiM2m(u.rrti.length, u.rrti.map((t) => V.rrtiM2mEntry(t.id, rctuDur(t.replyRctu))).join(' · ')),
+          })
+          break
+        }
         const list = u.finalTimes ?? []
         out.push({
           key: 'ieRrti', bytes: rrtiIeBytes(list.length, true),
@@ -153,10 +162,14 @@ function ies(u: UwbInfo): Ie[] {
         // times its present bits say, and an address when the frame is broadcast.
         if (!u.finalTimes) {
           if (u.reportTimes) {
-            // A responder's report to the initiator: unicast, reply time + round-trip time.
+            // A responder's report to the initiator: unicast, one measurement — Tround2 (embedded,
+            // Figure 10-238) or the TOF it computed (deferred, Figure 10-206). 2026-11-11 (W2b).
+            const tof = u.reportTimes.tof
             out.push({
               key: 'ieRmi', bytes: RMI_REPORT_IE_BYTES,
-              value: V.rmiReport(rctuText(u.reportTimes.treply1), rctuText(u.reportTimes.tround2)),
+              value: tof !== undefined
+                ? V.rmiReport('tof', rctuText(tof))
+                : V.rmiReport('tround2', rctuText(u.reportTimes.tround2 ?? 0)),
             })
           } else {
             // SS-TWR's deferred reply-time message (§10.29.6.3): unicast, one reply time.
@@ -188,21 +201,16 @@ function ies(u: UwbInfo): Ie[] {
           })
         break
       }
-      // --- one-way ranging (DL-TDoA) and many-to-many (standard §10.32.6/§10.32.7) ---
-      // Both carry the same two times — the sender's own transmit instant and the arrival
-      // times it holds — so both read through `u.dl ?? u.m2m` rather than duplicating these two
-      // cases; only `u.dl` ever carries a clock offset (`COFF` below), which is why the two are
-      // still separate types (design §4: many-to-many's `coffs` is measured on receive, not sent,
-      // so a type that gave it one would have a field nothing ever fills in).
+      // --- one-way ranging (DL-TDoA) ---
       case 'TXT': {
-        const times = u.dl ?? u.m2m
-        if (!times) throw new Error('uwbFrameFields: TXT IE on a frame with neither dl nor m2m times')
+        const times = u.dl
+        if (!times) throw new Error('uwbFrameFields: TXT IE on a frame with no DL-TDoA times')
         out.push({ key: 'ieTxTime', bytes: TX_TIME_IE_BYTES, value: V.txTime(rctuText(times.txCounter)) })
         break
       }
       case 'RXT': {
-        const times = u.dl ?? u.m2m
-        if (!times) throw new Error('uwbFrameFields: RXT IE on a frame with neither dl nor m2m times')
+        const times = u.dl
+        if (!times) throw new Error('uwbFrameFields: RXT IE on a frame with no DL-TDoA times')
         // The RX counters the sender holds, in the round's slot order: 4 octets each.
         const rx = Object.entries(times.rxCounters)
         out.push({
@@ -480,6 +488,16 @@ export function uwbPpduLayout(f: FrameDesc): PpduSegment[] {
   if (f.uwb?.nb) return nbPpduLayout(f)
   if (f.uwb?.sp0) return sp0PpduLayout()
   if (isSp3Frame(f.kind)) return sp3PpduLayout()
+  // STS packet configuration 0 (standard Table 16-1): no STS field, so the PHR follows the SFD and
+  // the RMARKER (the first chip after the SFD, §10.29.1.1) is the PHR's first chip. 2026-11-11 (W2b).
+  if (f.uwb?.sp === 0) {
+    return [
+      { key: 'sync', durNs: SYNC_NS },
+      { key: 'sfd', durNs: SFD_NS },
+      { key: 'phr', durNs: PHR_NS, rmarkerNs: UWB_RMARKER_OFFSET_NS },
+      { key: 'psdu', durNs: f.txTimeNs - (SYNC_NS + SFD_NS + PHR_NS) },
+    ]
+  }
   const head = SYNC_NS + SFD_NS + 2 * STS_GAP_NS + STS_NS + PHR_NS
   return [
     { key: 'sync', durNs: SYNC_NS },

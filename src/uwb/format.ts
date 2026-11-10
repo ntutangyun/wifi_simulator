@@ -21,7 +21,6 @@ const KIND_SHORT: Record<UwbFrameKind, string> = {
   uwbPoll: 'poll', uwbResp: 'resp', uwbFinal: 'final', uwbReport: 'report', uwbBlink: 'blink',
   uwbSsDefer: 'defer',
   uwbInit: 'init',
-  uwbM2m: 'm2m',
   uwbRmnr: 'rmnr',
   uwbRsf: 'RSF', uwbRif: 'RIF', nbPoll: 'nb-poll', nbResp: 'nb-resp', nbReport: 'nb-report',
   uwbSp0: 'sp0',
@@ -43,11 +42,8 @@ function roundName(mode: UwbMode, method: 'ss' | 'ds'): string {
   // An MMS round is two-way, but naming it "SS-TWR" would hide what makes it different: the
   // narrowband control plane and the fragment train. 4ab draft 15-22/0381r5 §1.1
   if (mode === 'mms') return 'MMS'
-  // Many-to-many is two-way ranging too (standard §10.32.6/§10.32.7), but "SS-TWR" would hide
-  // what makes its round shape different: no single tag, every participant asking and answering
-  // in the same transmission (`device.m2m.ts`). Exercised by `tests/uwb/m2m-round.test.ts` and
-  // `tests/ui/uwb-guide.test.ts`, which read this string off a `UWB_ROUND` a real many-to-many
-  // round emits.
+  // Many-to-many is two-way ranging too (standard §10.32.6/§10.32.7), with M initiators and N
+  // responders in one round (`device.m2m.ts`).
   if (mode === 'm2m') return `${method.toUpperCase()}-M2M`
   return METHOD_SHORT[mode]
 }

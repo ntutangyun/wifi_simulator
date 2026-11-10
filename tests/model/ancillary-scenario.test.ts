@@ -63,10 +63,12 @@ const fourAnchorsOneTag = (): NodeCfg[] => [
   uwbNode('tag-1', 'tag', 4, 4),
 ]
 
+// 2026-11-11 (W3, standard §10.32.6): a many-to-many round needs initiators (tags) and responders
+// (anchors) — one initiator and two responders here.
 const m2mNodes = (): NodeCfg[] => [
   uwbNode('p-0', 'tag', 0, 0),
-  uwbNode('p-1', 'tag', 4, 0),
-  uwbNode('p-2', 'tag', 8, 0),
+  uwbNode('p-1', 'anchor', 4, 0),
+  uwbNode('p-2', 'anchor', 8, 0),
 ]
 
 describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () => {
@@ -136,7 +138,7 @@ describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () 
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), off)).success).toBe(true)
   })
 
-  it('m2m: no independent control message, so there is no ARC-IE window to reuse', () => {
+  it('m2m: the ancillary exchange is not implemented in this mode', () => {
     const on: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', ancillary: true }
     const r = ScenarioSchema.safeParse(uwbScenario(m2mNodes(), on))
     expect(r.success).toBe(false)

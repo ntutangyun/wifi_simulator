@@ -26,7 +26,7 @@ import type { TLRecord } from '../../src/model/records'
 import {
   DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
-import { UWB_TX_POWER_DBM, uwbMmrcmBytes } from '../../src/uwb/phy'
+import { UWB_TX_POWER_DBM, uwbMmrcmBytes, uwbWholeRoundSlots } from '../../src/uwb/phy'
 import {
   blockSlotStartNs, mmrcmAckSlots, mmrcmBitIndex, mmrcmResponders, roundPlan, roundSlots,
 } from '../../src/uwb/session'
@@ -230,10 +230,12 @@ describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit 
     expect(sent.map((r) => r.node).sort()).toEqual(['anc-1', 'anc-2', 'anc-walk'])
     for (const r of sent) {
       // One initiator per two-way round, so one list element. Measured against `phy.ts`, and pinned:
-      // 25 acknowledged slots need a 4-octet bitmap, so 15 + 2 + 1 + 4.
+      // 34 acknowledged slots need a 5-octet bitmap, so 15 + 2 + 1 + 5. (2026-11-11, W2b: 25 slots and
+      // 22 octets until the rounds were stretched to a whole divisor of the block, §10.32.2 — each of
+      // the set's first three rounds is now 10 slots, 3 of them idle.)
       expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(1, ACK_SLOTS))
-      expect(ACK_SLOTS).toBe(25)
-      expect(r.frame.bytes, r.node).toBe(22)
+      expect(ACK_SLOTS).toBe(34)
+      expect(r.frame.bytes, r.node).toBe(23)
       expect(r.frame.uwb?.ies, r.node).toEqual(['RMMRC'])
       expect(r.frame.uwb?.round, r.node).toBe(R - 1)
       expect(r.frame.uwb?.mmrc?.map((e) => e.initiator), r.node).toEqual(['tag-1'])
@@ -302,7 +304,10 @@ describe('a receipt confirmation is an extra message, not part of the measuremen
     const extra = mmrcmResponders(plan)
     expect(extra, 'one slot per responder — an anchor is what sends an MMRCM').toBe(ANCHORS)
     const off = roundPlan({ ...DEFAULT_UWB_SESSION, ...twrSession(false) }, ANCHORS)
-    expect(plan.slots).toBe(off.slots + extra)
+    // 2026-11-11 (W2b): both stretched to a whole divisor of the block's slots (§10.32.2).
+    expect(plan.slots).toBe(uwbWholeRoundSlots(
+      off.rangingSlots + extra, DEFAULT_UWB_SESSION.blockRstu, DEFAULT_UWB_SESSION.slotRstu, 'twr',
+    ))
     expect(slotsPerBlock(false)).toEqual([off.slots, off.slots, off.slots, off.slots])
     expect(slotsPerBlock(true)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots])
     const sentRounds = of(runWalk([NEAR], twrSession(true)), 'TX_START')
@@ -459,18 +464,17 @@ describe('two initiators, one responder, two different bitmaps', () => {
 
 // --- Many-to-many: one frame, several initiators, one bit each -------------------
 //
-// The mode design §2 opens with, and the one the schema keeps `mmrcr` for even at
-// `rcmValidityRounds: 1` — a participant's transmission is only ever echoed *forward*
-// (`UwbM2mTimes.rxCounters`), never back to the sender, so this one bit is the only thing in the
-// mode that ever tells a participant it was heard. Here `p-3` transmits 14 dB down: the other two
-// never decode it, and it decodes them — so its own confirmations come back all-zero while the
-// same frame's other entry is one. **One frame, two entries, two different answers** is what a
-// receipt state keyed by nothing at all could not produce.
+// 2026-11-11 (W3): the standard's many-to-many round (§10.32.6) — the controller `i-1`'s RCM carries
+// the MMRCR bit (§10.32.9.1), and each responder confirms both initiators (§10.36.1, Figure 10-272).
+// `i-2` transmits 14 dB down: no responder decodes its initiation message, and it decodes everybody —
+// so the confirmations it reads come back all-zero while the same frames' other entry is one. **One
+// frame, two entries, two different answers.**
 
 const M2M: NodeCfg[] = [
-  uwbNode('p-1', 1, 1, 'anchor'),
-  uwbNode('p-2', 7, 2, 'anchor'),
-  uwbNode('p-3', 3, 6, 'tag', UWB_TX_POWER_DBM - 14),
+  uwbNode('i-1', 7, 2, 'tag'),
+  uwbNode('i-2', 3, 6, 'tag', UWB_TX_POWER_DBM - 14),
+  uwbNode('r-1', 1, 1, 'anchor'),
+  uwbNode('r-2', 9, 7, 'anchor'),
 ]
 
 describe('many-to-many: one frame per responder, one entry per initiator', () => {
@@ -479,39 +483,35 @@ describe('many-to-many: one frame per responder, one entry per initiator', () =>
   }
   const rs = new Simulation(scenario(M2M, session)).runUntil(100 * MS).records
 
-  it('builds the scene it claims to: p-3 is heard by nobody and hears everybody', () => {
-    expect(of(rs, 'RX_OK').filter((r) => r.from === 'p-3'), 'nobody decodes p-3').toHaveLength(0)
-    for (const from of ['p-1', 'p-2']) {
-      expect(of(rs, 'RX_OK').filter((r) => r.node === 'p-3' && r.from === from), `p-3 ← ${from}`)
+  it('builds the scene it claims to: i-2 is heard by no responder and hears everybody', () => {
+    expect(of(rs, 'RX_OK').filter((r) => r.from === 'i-2'), 'nobody decodes i-2').toHaveLength(0)
+    for (const from of ['i-1', 'r-1', 'r-2']) {
+      expect(of(rs, 'RX_OK').filter((r) => r.node === 'i-2' && r.from === from), `i-2 ← ${from}`)
         .not.toHaveLength(0)
     }
   })
 
-  it('carries one entry per other participant, with the heard and the unheard side by side', () => {
+  it('carries one entry per initiator, with the heard and the unheard side by side', () => {
     const sent = of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')
-    expect(sent.map((r) => r.node).sort()).toEqual(['p-1', 'p-2', 'p-3'])
-    // 2026-11-10 (audit #11): one bit per slot of the round (standard §10.36.2.1) — the N slots the
-    // participants transmit in, participant j in slot j.
+    expect(sent.map((r) => r.node).sort()).toEqual(['r-1', 'r-2'])
+    // One bit per slot of the round's exchange (standard §10.36.2.1): RCM, i-2's initiation, two responses.
     for (const r of sent) {
-      expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(2, 3))
+      expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(2, 4))
       expect(r.frame.uwb?.mmrc?.length, r.node).toBe(2)
-      for (const e of r.frame.uwb?.mmrc ?? []) expect(e.received, `${r.node} → ${e.initiator}`).toHaveLength(3)
     }
-    // p-1's own frame: it heard p-2 (slot 1) and not p-3 (slot 2), in the same frame, from the same state.
-    const one = sent.find((r) => r.node === 'p-1')
+    const one = sent.find((r) => r.node === 'r-1')
     expect(one?.frame.uwb?.mmrc).toEqual([
-      { initiator: 'p-2', received: [false, true, false] },
-      { initiator: 'p-3', received: [false, false, false] },
+      { initiator: 'i-1', received: [true, false, false, false] },
+      { initiator: 'i-2', received: [false, false, false, false] },
     ])
   })
 
-  it('tells p-3 what it could not learn any other way: nobody heard it', () => {
-    const atFar = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'p-3')
-    expect(atFar.map((r) => r.peer).sort(), 'both other participants answered it').toEqual(['p-1', 'p-2'])
-    for (const r of atFar) expect(r.received, r.peer).toEqual([false, false, false])
-    // …and the answer in the other direction is the opposite bit — p-2 heard p-1 in slot 0.
-    const atOne = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'p-1' && r.peer === 'p-2')
+  it('tells i-2 that no responder heard it', () => {
+    const atQuiet = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'i-2')
+    expect(atQuiet.map((r) => r.peer).sort(), 'both responders answered it').toEqual(['r-1', 'r-2'])
+    for (const r of atQuiet) expect(r.received, r.peer).toEqual([false, false, false, false])
+    const atOne = of(rs, 'UWB_MMRCM').filter((r) => r.node === 'i-1' && r.peer === 'r-2')
     expect(atOne).toHaveLength(1)
-    expect(atOne[0].received).toEqual([true, false, false])
+    expect(atOne[0].received).toEqual([true, false, false, false])
   })
 })

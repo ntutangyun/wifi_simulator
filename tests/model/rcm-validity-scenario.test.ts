@@ -56,10 +56,12 @@ const fourAnchorsOneTag = (): NodeCfg[] => [
   uwbNode('tag-1', 'tag', 4, 4),
 ]
 
+// 2026-11-11 (W3, standard §10.32.6): a many-to-many round needs initiators (tags) and responders
+// (anchors) — one initiator and two responders here.
 const m2mNodes = (): NodeCfg[] => [
   uwbNode('p-0', 'tag', 0, 0),
-  uwbNode('p-1', 'tag', 4, 0),
-  uwbNode('p-2', 'tag', 8, 0),
+  uwbNode('p-1', 'anchor', 4, 0),
+  uwbNode('p-2', 'anchor', 8, 0),
 ]
 
 describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => {
@@ -201,7 +203,7 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), defaults)).success).toBe(true)
   })
 
-  it('m2m: every transmission is its own question and answer, so both fields are refused off-default', () => {
+  it('m2m: one round a block (§10.32.9.1) and RMNR not implemented there, so both fields are refused off-default', () => {
     const rounds: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', rcmValidityRounds: 4 }
     expect(ScenarioSchema.safeParse(uwbScenario(m2mNodes(), rounds)).success).toBe(false)
     const rmnr: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'm2m', method: 'ss', rmnr: true }

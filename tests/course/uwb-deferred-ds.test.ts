@@ -83,9 +83,10 @@ describe('uwb-deferred-ds · the lesson', () => {
     expect(uwbDeferredDs.variants!.map((v) => v.scenario().uwb!.replyTime)).toEqual(['embedded'])
   })
 
-  it('② carries `differs` and `absent` rows', () => {
+  // 2026-11-11 (W2b): the one `differs` row (the responder's report) follows Figure 10-206 now.
+  it('② carries an `absent` row and no `differs` row', () => {
     const kinds = uwbDeferredDs.implementation!.map((r) => r.kind)
-    expect(kinds).toContain('differs')
+    expect(kinds).not.toContain('differs')
     expect(kinds).toContain('absent')
   })
 })
@@ -172,10 +173,16 @@ describe('uwb-deferred-ds · ③ every figure the labs print is the run', () => 
     expect(FIG.tagDeferredUs).toBe(ms3(t.t))
     expect(l.expect).toContain(`锚点的测距行在 ${ms3(a.t)} ms`)
     expect(l.expect).toContain(`手机的在 ${ms3(t.t)} ms`)
+    // 2026-11-11 (W2b): the tag's range is the TOF the anchor reported in the RMI IE's TOF field, a whole
+    // number of RCTU (§10.29.6.6 Figure 10-206, §10.29.8.4, §10.29.1.4) — not its own four-time sum.
     expect(a.distM.toFixed(6)).toBe(RANGE_M.ds)
-    expect(t.distM.toFixed(6)).toBe(RANGE_M.ds)
+    expect(t.distM.toFixed(6)).toBe(RANGE_M.dsDeferredTag)
+    expect(t.tofRctu).toBe(Math.round(a.tofRctu))
     expect(a.trueDistM).toBe(BENCH_M)
-    expect(l.expect).toContain(`都是 ${RANGE_M.ds} m，真值 ${BENCH_M.toFixed(2)} m`)
+    expect(l.expect).toContain(`锚点算出 ${RANGE_M.ds} m，真值 ${BENCH_M.toFixed(2)} m；手机读出 ${RANGE_M.dsDeferredTag} m`)
+    const rep = txOf(rs, 'uwbReport', 'anchor-1')[0]
+    expect(rep.frame.bytes).toBe(BYTES.report)
+    expect(rep.frame.uwb!.reportTimes).toEqual({ tof: Math.round(a.tofRctu) })
   })
 
   it('lab 2: the embedded Final, and the same distance a slot earlier', () => {
