@@ -139,7 +139,7 @@ export const uwbCapstone: Lesson = {
   numbers: [
     { kind: 'table', heading: '四个场景，七个块', head: [
       '数字及其读取位置',
-      '现状', '锚点 3 挪远',
+      '现状', '锚点 3 移远',
       '每 100 ms 一个块', '一轮测完三个锚点',
     ], rows: [
       ['定位次数——运行中的 UWB_POSITION 记录',

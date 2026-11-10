@@ -92,7 +92,7 @@ lessonShapeSuite(queues, { sameSceneAs: 'retries-queues', runNs: RUN_NS })
 describe('queues · the lesson’s own scene', () => {
   it('follows its first half, sits in the same module, and owns the queue and the clock', () => {
     expect(queues.id).toBe('queues')
-    expect(MODULES[queues.module].title).toBe('听不见的邻居与损失')
+    expect(MODULES[queues.module].title).toBe('隐藏节点与帧丢失')
     expect(queues.module).toBe(retriesQueues.module)
     expect(queues.needs).toEqual(['retries-queues'])
     expect(queues.terms!.map((t) => t.term)).toEqual(['queue', 'lifetime'])
@@ -266,7 +266,7 @@ describe('queues · the waiting times', () => {
   })
 
   it('it stops growing because nothing older than 500 ms is ever sent', () => {
-    // 「前两秒等待一路往上涨，之后卡在 472 ms 不动：到这时候，比 500 ms 更老的帧根本不会被发出去。」
+    // 「前两秒等待时间持续上升，之后稳定在 472 ms：此时，等待超过 500 ms 的帧根本不会被发出。」
     expect(Math.max(...apDelays(recs()).map((x) => x.ms))).toBeLessThan(501)
   })
 })
@@ -480,9 +480,9 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     expect(queues.scenario().queue?.lifetimeMs ?? DEFAULT_MSDU_LIFETIME_NS / MS,
       'which is what this scene runs with').toBe(DEFAULT_MSDU_LIFETIME_NS / MS)
     // 「三帧在同一瞬间被扔掉……其中两帧一次空口都没轮上过」
-    const three = counted(pictureText, new RegExp(`(${ZH})帧在同一瞬间被扔掉`),
+    const three = counted(pictureText, new RegExp(`(${ZH})帧在同一时刻被丢弃`),
       '`picture` on the frames dropped together')
-    const two = counted(pictureText, new RegExp(`其中(${ZH})帧一次空口都没轮上过`),
+    const two = counted(pictureText, new RegExp(`其中(${ZH})帧一次也没有获得发送机会`),
       '`picture` on how many never flew')
     const first = drops(base, 'lifetime', 'sta-2')[0]
     const together = drops(base, 'lifetime', 'sta-2').filter((r) => r.t === first.t)
@@ -496,14 +496,14 @@ describe('queues · every printed figure is read back out of the lesson', () => 
   it('the five steps: both defaults, and the 194 the access point throws out', () => {
     expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(5)
     // step 1: 「已经有 500 帧在等，它就入队失败」
-    const [limit] = figs(steps[0], /已经有 (\d+) 帧在等/, 'step 1’s queue limit')
+    const [limit] = figs(steps[0], /已有 (\d+) 帧在等待/, 'step 1’s queue limit')
     expect(limit).toBe(DEFAULT_QUEUE_LIMIT)
     // step 2: 「超过生存期（这里 500 ms）」 and 「扔掉的 194 帧里，有 188 帧连一次空口都没轮上
     //  过，另外 6 帧是试过、失败、又等到老的」
-    const [lifeMs] = figs(steps[1], /超过生存期（这里 (\d+) ms）/, 'step 2’s lifetime')
+    const [lifeMs] = figs(steps[1], /超过生存期（这里是 (\d+) ms）/, 'step 2’s lifetime')
     expect(lifeMs * MS).toBe(DEFAULT_MSDU_LIFETIME_NS)
     const [stale, never, had] = figs(steps[1],
-      /扔掉的 (\d+) 帧里，有 (\d+) 帧连一次空口都没轮上过，另外 (\d+) 帧/,
+      /丢弃的 (\d+) 帧中，有 (\d+) 帧一次也没有获得发送机会，另外 (\d+) 帧/,
       'step 2’s three counts')
     const apStale = drops(base, 'lifetime', 'ap')
     expect(apStale.length).toBe(stale)
@@ -526,7 +526,7 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     const attempt = counted(rows[0][1], new RegExp(`第(${ZH})次尝试失败`),
       'the attempt the first row names')
     expect(attempt).toBe(SHORT_RETRY_LIMIT)
-    const [lifeMs] = figs(rows[1][1], /等了超过 (\d+) ms/, 'the lifetime the second row names')
+    const [lifeMs] = figs(rows[1][1], /等待超过 (\d+) ms/, 'the lifetime the second row names')
     expect(lifeMs * MS).toBe(DEFAULT_MSDU_LIFETIME_NS)
     const [limit] = figs(rows[2][1], /已有 (\d+) 帧在等/, 'the limit the third row names')
     expect(limit).toBe(DEFAULT_QUEUE_LIMIT)
@@ -564,31 +564,31 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     expect(seconds * 1_000 * MS).toBe(RUN_NS)
   })
 
-  it('「旋钮做不到的事」 and 「旋钮能改的是在哪里放弃」: the same delivery, the losses that move', () => {
-    const same = prose('旋钮做不到的事')
+  it('「这些参数无法改变的结果」 and 「这些参数能改变的是在哪个环节放弃」: the same delivery, the losses that move', () => {
+    const same = prose('这些参数无法改变的结果')
     const [delivered2] = figs(same, /都是同一个数：(\d+) 帧/, 'the delivery it says does not move')
     const runs = [base, shortQ, shortLife]
-    const times = counted(same, new RegExp(`(${ZH})次运行里`), 'the runs it compares')
+    const times = counted(same, new RegExp(`(${ZH})次运行中`), 'the runs it compares')
     expect(runs.length).toBe(times)
     for (const [i, r] of runs.entries()) {
       expect(delivered(r).ap, `run ${i + 1} delivers the same number`).toBe(delivered2)
     }
-    const moves = prose('旋钮能改的是')
-    const [fullFrom, fullTo] = figs(moves, /入队失败从 (\d+) 涨到 (\d+)/, 'the turned-away pair')
-    const [staleFrom, staleTo] = figs(moves, /等到过时的从 (\d+) 变成 (\d+)/, 'the stale pair')
+    const moves = prose('这些参数能改变的是')
+    const [fullFrom, fullTo] = figs(moves, /入队失败从 (\d+) 增加到 (\d+)/, 'the turned-away pair')
+    const [staleFrom, staleTo] = figs(moves, /过时丢弃从 (\d+) 降为 (\d+)/, 'the stale pair')
     expect([fullFrom, fullTo], 'turned away, defaults then short queue')
       .toEqual([drops(base, 'queueFull').length, drops(shortQ, 'queueFull').length])
     expect([staleFrom, staleTo], 'stale at the access point, defaults then short queue')
       .toEqual([drops(base, 'lifetime', 'ap').length, drops(shortQ, 'lifetime', 'ap').length])
-    const [lifeStale] = figs(moves, /AP 处过时从 \d+ 涨到 (\d+)/, 'the stale count under a short lifetime')
+    const [lifeStale] = figs(moves, /AP 处过时丢弃从 \d+ 增加到 (\d+)/, 'the stale count under a short lifetime')
     expect(lifeStale).toBe(drops(shortLife, 'lifetime', 'ap').length)
     const [also] = figs(moves, /同样的 (\d+) 帧/, 'the delivery it restates')
     expect(also).toBe(delivered2)
   })
 
-  it('「还有一个表里看不到的连带后果」: the 987, the under-20, and the attempts that fall', () => {
-    const text = prose('表里看不到的连带后果')
-    const [lost] = figs(text, /有 (\d+) 帧因生存期超时被丢掉/, 'the frames the uploaders lose to age')
+  it('「表中看不到的一项连带影响」: the 987, the under-20, and the attempts that fall', () => {
+    const text = prose('表中看不到的一项连带影响')
+    const [lost] = figs(text, /有 (\d+) 帧因生存期超时被丢弃/, 'the frames the uploaders lose to age')
     const [under] = figs(text, /这个数不到 (\d+)/, 'and what it is by default')
     const [from, to] = figs(text, /从 (\d+) 降到 (\d+)/, 'the attempts that fall with it')
     const uploads = (rs: TLRecord[], reason: Drop['reason']): number =>
@@ -599,12 +599,12 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     expect(uploads(base, 'lifetime')).toBeGreaterThan(under / 2)
     expect([from, to], 'the uploads that used every attempt, defaults then short lifetime')
       .toEqual([uploads(base, 'retryLimit'), uploads(shortLife, 'retryLimit')])
-    // 「换一个旋钮，有时会连带改掉另一种损失的数目」
+    // 「调整一个参数，有时会连带改变另一种损失的数目」
     expect(to, 'and the short lifetime really does cut them').toBeLessThan(from)
   })
 
   it('the wait table: six windows, their six means, and the figure it stops at', () => {
-    const t = tableWith('送达的帧等了多久')
+    const t = tableWith('送达帧的等待时间')
     const rows = t.rows
     expect(rows, 'the table states exactly the six rows this reads').toHaveLength(6)
     const delays = apDelays(base)
@@ -616,10 +616,10 @@ describe('queues · every printed figure is read back out of the lesson', () => 
       expect(Math.round(mean(mine.map((d) => d.ms))), `the mean wait in ${from}–${to} s`)
         .toBe(printed)
     }
-    // 「前两秒等待一路往上涨，之后卡在 472 ms 不动」
-    const why = prose('这张表为什么会停住')
+    // 「前两秒等待时间持续上升，之后稳定在 472 ms」
+    const why = prose('等待时间为什么不再增加')
     const seconds = counted(why, new RegExp(`前(${ZH})秒`), 'the stretch it says climbs')
-    const [stuck] = figs(why, /卡在 (\d+) ms 不动/, 'the figure it stops at')
+    const [stuck] = figs(why, /稳定在 (\d+) ms/, 'the figure it stops at')
     const climbing = rows.filter((r) => figs(r[0], /([\d.]+)–/, 'row')[0] < seconds)
     expect(climbing.length, 'the rows inside that stretch').toBeGreaterThan(1)
     for (let i = 1; i < climbing.length; i++) {
@@ -630,7 +630,7 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     expect(new Set(tail.map((r) => figs(r[1], /(\d+) ms/, 'mean')[0])), 'and the tail does not move')
       .toEqual(new Set([stuck]))
     // 「比 500 ms 更老的帧根本不会被发出去」
-    const [lifeMs] = figs(why, /比 (\d+) ms 更老的帧/, 'the lifetime it explains that with')
+    const [lifeMs] = figs(why, /等待超过 (\d+) ms 的帧/, 'the lifetime it explains that with')
     expect(lifeMs * MS).toBe(DEFAULT_MSDU_LIFETIME_NS)
     // 「根本不会被发出去」 is about SENDING: the purge runs before the head is taken, so nothing
     // older than the lifetime ever goes on the air — while a frame already taken can be
@@ -656,9 +656,9 @@ describe('queues · every printed figure is read back out of the lesson', () => 
 
   it('`deeper`: the head-of-line frame, its sequence number and its five attempts', () => {
     const [seq] = figs(deeperText, /序列号 (\d+)/, '`deeper` on the frame at the head')
-    const attempts = counted(deeperText, new RegExp(`自己用掉了(${ZH})次尝试`),
+    const attempts = counted(deeperText, new RegExp(`用掉了(${ZH})次尝试`),
       '`deeper` on the attempts it used')
-    const two = counted(deeperText, new RegExp(`后面(${ZH})帧一次都没轮上`),
+    const two = counted(deeperText, new RegExp(`后面(${ZH})帧一次也没有获得发送机会`),
       '`deeper` on the frames behind it')
     const first = drops(base, 'lifetime', 'sta-2')[0]
     const together = drops(base, 'lifetime', 'sta-2').filter((r) => r.t === first.t)
@@ -706,13 +706,13 @@ describe('queues · every printed figure is read back out of the lesson', () => 
   it('`observe` and the quiz: two instants found by hand, and the delivery that does not move', () => {
     const obs = queues.observe.join('\n')
     // 「1 963 852 µs 第一次队列满丢帧」
-    const [firstFull] = figs(obs, /([\d\s]+) µs 第一次队列满丢帧/, '`observe` on the first overflow')
+    const [firstFull] = figs(obs, /([\d\s]+) µs 第一次因队列满丢帧/, '`observe` on the first overflow')
     // to the microsecond the lesson prints it to: the record itself is 1 963 851.557 µs
     expect(Math.round(drops(base, 'queueFull', 'ap')[0].t / 1_000)).toBe(firstFull)
     // 「2 182 806 µs 处 AP 一次丢掉四帧，年龄在 500.2 到 502.6 ms 之间」
-    const [at] = figs(obs, /([\d\s]+) µs 处 AP 一次丢掉/, '`observe` on the second instant')
-    const four = counted(obs, new RegExp(`一次丢掉(${ZH})帧`), '`observe` on how many')
-    const [ageLo, ageHi] = figs(obs, /年龄在 ([\d.]+) 到 ([\d.]+) ms 之间/, '`observe` on their ages')
+    const [at] = figs(obs, /([\d\s]+) µs 处 AP 一次丢弃/, '`observe` on the second instant')
+    const four = counted(obs, new RegExp(`一次丢弃(${ZH})帧`), '`observe` on how many')
+    const [ageLo, ageHi] = figs(obs, /已排队时长在 ([\d.]+) 到 ([\d.]+) ms 之间/, '`observe` on their ages')
     const batch = drops(base, 'lifetime', 'ap').filter((r) => Math.round(r.t / 1_000) === at)
     expect(batch.length, `frames dropped at ${at} µs`).toBe(four)
     const enq = new Map<number, number>()
@@ -725,7 +725,7 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     expect([from, to]).toEqual([
       queues.variants![0].scenario().queue!.limit, DEFAULT_QUEUE_LIMIT,
     ])
-    const [still] = figs(quizText, /还是那 (\d+) 帧/, 'the quiz on the delivery')
+    const [still] = figs(quizText, /仍是那 (\d+) 帧/, 'the quiz on the delivery')
     expect(still).toBe(delivered(base).ap)
     const [lastSecond] = figs(quizText, /最后一秒的平均等待是 (\d+) ms/, 'the quiz on the last second')
     const tail = apDelays(base).filter((d) => d.atNs >= RUN_NS - 1_000 * MS)
@@ -760,19 +760,19 @@ describe('queues · every printed figure is read back out of the lesson', () => 
       drops(rs, 'lifetime').filter((d) => d.node !== 'ap').length
 
     // every count of what the access point threw out for age, wherever it is stated
-    const stales = [...everywhere.matchAll(/过时从 (\d+) 涨到|扔掉的 (\d+) 帧里|AP 处过时从 (\d+)/g)]
+    const stales = [...everywhere.matchAll(/过时丢弃从 (\d+) (?:增加到|降为)|丢弃的 (\d+) 帧中/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(stales.length, 'the lesson states that count more than once').toBeGreaterThan(1)
     for (const n of stales) expect(n, 'frames the access point threw out for age').toBe(apStale.length)
     // every count of the ones that never flew
-    const nevers = [...everywhere.matchAll(/有 (\d+) 帧连一次空口都没轮上过|上面的 (\d+) 帧/g)]
+    const nevers = [...everywhere.matchAll(/有 (\d+) 帧一次也没有获得发送机会|上面的 (\d+) 帧/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(nevers.length, 'the lesson states that count more than once').toBeGreaterThan(1)
     for (const n of nevers) {
       expect(n, 'of them, the ones that never flew').toBe(apStale.filter((r) => !flew.has(r.msduId)).length)
     }
     // every count of what the uploaders lose to age under the short lifetime
-    const lost = [...everywhere.matchAll(/有 (\d+) 帧因生存期超时被丢掉|和这 (\d+) 帧/g)]
+    const lost = [...everywhere.matchAll(/有 (\d+) 帧因生存期超时被丢弃|与这 (\d+) 帧/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(lost.length, 'the lesson states that count more than once').toBeGreaterThan(1)
     for (const n of lost) expect(n, 'the uploaders’ losses to age').toBe(uploadsLife(shortLife))
@@ -782,12 +782,12 @@ describe('queues · every printed figure is read back out of the lesson', () => 
       .toBe(under)
     expect(uploadsLife(base), 'and it really is under it').toBeLessThan(under)
     // every statement of the delivery that does not move
-    const delivers = [...everywhere.matchAll(/都是同一个数：(\d+) 帧|同样的 (\d+) 帧|还是那 (\d+) 帧|送达的都是 (\d+) 帧/g)]
+    const delivers = [...everywhere.matchAll(/都是同一个数：(\d+) 帧|同样的 (\d+) 帧|仍是那 (\d+) 帧|送达的都是 (\d+) 帧/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(delivers.length, 'the lesson states the delivery more than twice').toBeGreaterThan(2)
     for (const n of delivers) expect(n, 'frames the access point delivers').toBe(delivered(base).ap)
     // every statement of the wait the table stops at
-    const stuck = [...everywhere.matchAll(/卡在 (\d+) ms 不动|那张 (\d+) ms 的等待表|平均等待是 (\d+) ms/g)]
+    const stuck = [...everywhere.matchAll(/稳定在 (\d+) ms|那张表中 (\d+) ms 的等待|平均等待是 (\d+) ms/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(stuck.length, 'the lesson states that wait more than once').toBeGreaterThan(1)
     const lastSec = apDelays(base).filter((d) => d.atNs >= RUN_NS - 1_000 * MS)
@@ -815,15 +815,15 @@ describe('queues · every printed figure is read back out of the lesson', () => 
     expect(Math.round(Math.max(...gaps)), 'the longest gap between two arrivals').toBe(period + hi)
     expect(Math.round(Math.min(...gaps)), 'and the shortest').toBe(period)
     // the wait table's last window ends where the run does
-    const rows = tableWith('送达的帧等了多久').rows
+    const rows = tableWith('送达帧的等待时间').rows
     const [, end] = figs(rows[rows.length - 1][0], /([\d.]+)–([\d.]+) s/, 'the last window')
     expect(end * 1_000 * MS, 'the last window of the table ends where the run ends').toBe(RUN_NS)
     // and every statement of the two defaults, anywhere in the lesson
-    const limits = [...everywhere.matchAll(/已经有 (\d+) 帧在等|已有 (\d+) 帧在等|(\d+) 帧的队列上限|(\d+) 个 MSDU 的队列上限/g)]
+    const limits = [...everywhere.matchAll(/已有 (\d+) 帧在等待|(\d+) 帧的队列上限|(\d+) 个 MSDU 的队列上限/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(limits.length, 'the lesson states the queue limit more than once').toBeGreaterThan(1)
     for (const n of limits) expect(n, 'the queue limit').toBe(DEFAULT_QUEUE_LIMIT)
-    const lifes = [...everywhere.matchAll(/超过生存期（这里 (\d+) ms）|等了超过 (\d+) ms|(\d+) ms 的生存期|年龄逼近 (\d+) ms|比 (\d+) ms 更老/g)]
+    const lifes = [...everywhere.matchAll(/超过生存期（这里是 (\d+) ms）|等待超过 (\d+) ms|(\d+) ms 的生存期|已排队时长接近 (\d+) ms/g)]
       .flatMap((m) => m.slice(1).filter(Boolean).map(Number))
     expect(lifes.length, 'the lesson states the lifetime more than twice').toBeGreaterThan(2)
     for (const n of lifes) expect(n * MS, 'the lifetime').toBe(DEFAULT_MSDU_LIFETIME_NS)

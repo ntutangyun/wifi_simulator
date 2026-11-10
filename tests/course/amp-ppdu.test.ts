@@ -273,7 +273,7 @@ describe('amp-ppdu · the 1 Mb/s experiment', () => {
  * (「四分之一」, 「不到六分之一」), which live nowhere but the prose.
  *
  * **The reader column of the strip table is not read, and that is deliberate.** 「每一台 Wi-Fi
- * 射频」 / 「标签」 / 「没人：它换来的是标签的处理时间」 is an argument about who decodes what, and
+ * 射频」 / 「标签」 / 「无：它为标签提供处理时间」 is an argument about who decodes what, and
  * an assertion over it would fail about how a sentence is written — the class the 2026-09-25
  * ruling deletes. The boundary it draws IS graded, as a figure: the rows above the AMP half sum
  * to the formula's own 32 µs.
@@ -319,7 +319,7 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
   }
 
   it('the strip table: eight rows against the eight segments the simulator draws, in order', () => {
-    const t = tableWith('这条带子由什么组成')
+    const t = tableWith('这条条带由什么组成')
     const strip = decodeFrame(trig.frame, CTX).ppdu
     expect(t.rows, 'one row per segment of the PPDU, and no more').toHaveLength(strip.length)
     t.rows.forEach((row, i) => {
@@ -395,9 +395,9 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
       same(t.rows[i][2].replace(' µs', ''), tx.frame.txTimeNs / US,
         `row ${i}: and the frame the run sends`)
     }
-    // 「只报自己身份的作答是 7 个字节 … 这里的作答把读数直接带在里面，所以是 15 个字节」
+    // 「只报告自身身份的作答是 7 个字节 … 这里的作答直接携带读数，所以是 15 个字节」
     const p = (ampPpdu.numbers! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-    const two = /只报自己身份的作答是 (\d+) 个字节[^]*?所以是 (\d+) 个字节/.exec(p)
+    const two = /只报告自身身份的作答是 (\d+) 个字节[^]*?所以是 (\d+) 个字节/.exec(p)
     expect(two, 'the paragraph no longer contrasts the two answer sizes').not.toBeNull()
     expect([Number(two![1]), Number(two![2])], 'the bare answer and the one carrying a reading')
       .toEqual([ampRespBytes(false), ampRespBytes(true)])
@@ -405,9 +405,9 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
 
   it('the rate paragraph: the four-fold step, the quarter, and the 138 µs no rate touches', () => {
     const p = (ampPpdu.numbers! as { heading?: string; text?: string }[])
-      .filter((x) => (x.heading ?? '').includes('提高速率省下了什么')).map((x) => x.text ?? '')[0]
+      .filter((x) => (x.heading ?? '').includes('提高速率节省了什么')).map((x) => x.text ?? '')[0]
     expect(p, 'the rate paragraph is gone').toBeDefined()
-    const m = /速率提高([一二三四五六七八九十]+)倍，作答占用的空口时间就真的只剩([一二三四五六七八九十]+)分之一：(\d+) µs 变成 (\d+) µs[^]*?(\d+) µs 任凭速率怎么变都省不掉，所以它只能降到 (\d+) µs/
+    const m = /速率提高到([一二三四五六七八九十]+)倍，作答占用的空口时间确实只剩([一二三四五六七八九十]+)分之一：(\d+) µs 变为 (\d+) µs[^]*?(\d+) µs 不随速率变化，所以它只能降到 (\d+) µs/
       .exec(p!)
     expect(m, 'the rate paragraph is no longer in the shape this reads').not.toBeNull()
     const ext = ERP_2G.signalExtNs
@@ -443,8 +443,8 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
   })
 
   it('the Ack formula: the octets, the wrapper, and the CTS it is compared with', () => {
-    const f = formulaWith('330 µs 花在哪儿')
-    const m = /^(\d+) kb\/s 下的 (\d+) 个字节 = (\d+) µs \+ (\d+) µs 的外壳 = (\d+) µs$/.exec(f.text)
+    const f = formulaWith('330 µs 由什么组成')
+    const m = /^(\d+) kb\/s 下的 (\d+) 个字节 = (\d+) µs \+ (\d+) µs 的固定开销 = (\d+) µs$/.exec(f.text)
     expect(m, 'the Ack formula is no longer in the shape this reads').not.toBeNull()
     expect(Number(m![1]), 'the rate').toBe(ack.frame.amp!.kbps)
     expect(Number(m![2]), 'the octets an Ack carries').toBe(AMP_ACK_BYTES)
@@ -498,8 +498,8 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
     same(`${n(9)}`, (lastAck.t - cts.t) / US, 'the round the terms add up to')
     // and the share, to the decimals the lesson prints
     same(m![11], (100 * (lastAck.t - cts.t)) / (n(10) * MS), `its share of ${n(10)} ms`)
-    // the note: 「触发帧现在在 318 µs 结束，时隙 1 在 328 µs 打开；CTS Duration 是 1620 µs」
-    const note = /触发帧现在在 (\d+) µs 结束，时隙 (\d+) 在 (\d+) µs 打开；覆盖这一轮的 CTS Duration 是 (\d+) µs/
+    // the note: 「触发帧现在在 318 µs 结束，时隙 1 在 328 µs 开始；CTS Duration 是 1620 µs」
+    const note = /触发帧现在在 (\d+) µs 结束，时隙 (\d+) 在 (\d+) µs 开始；覆盖这一轮的 CTS Duration 是 (\d+) µs/
       .exec(f.note ?? '')
     expect(note, 'the note no longer states the two instants and the Duration').not.toBeNull()
     same(note![1], ends(fast, 'ampTrigger')[0].t / US, 'when the trigger ends')
@@ -554,8 +554,8 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
     for (const v of vers) expect(v, 'the version number it names').toBe(0)
     expect(ampPpdu.scenario().nodes.find((n) => n.kind === 'ap')!.caps.generation,
       'and the router really is the generation whose version that is').toBe('eht')
-    // 「都是 2.4 GHz Wi-Fi 原本就有的东西」: the band this scene's own link runs in
-    const band = /([\d.]+) GHz Wi-Fi 原本就有/.exec(src)
+    // 「都是 2.4 GHz Wi-Fi 原有的部分」: the band this scene's own link runs in
+    const band = /([\d.]+) GHz Wi-Fi 原有的部分/.exec(src)
     expect(band, '`sources` no longer names the band those three come from').not.toBeNull()
     const BAND_OF: Record<string, string> = { '2.4': '2g', '5': '5g', '6': '6g' }
     expect(BAND_OF[band![1]], `「${band![1]} GHz」 is not a band this model has an id for`)
@@ -567,13 +567,13 @@ describe('amp-ppdu · every printed figure is read back out of the lesson', () =
   it('`observe`, `tryThis` and the variant label: two instants, the body, and the rate', () => {
     const rs = recs()
     const obs = ampPpdu.observe.join('\n')
-    // 「打开 1226 µs 那帧 Ack：ID 字段两个字节，点名的是 Door tag」
+    // 「打开 1226 µs 那帧 Ack：ID 字段两个字节，标明的是 Door tag」
     const named = /打开 (\d+) µs 那帧 Ack/.exec(obs)
     expect(named, '`observe` no longer names the Ack it asks the reader to open').not.toBeNull()
     const first = txs(rs, 'ampAck').find((r) => r.t === Number(named![1]) * US)
     expect(first, `no Ack at ${named![1]} µs`).toBeDefined()
     expect(first!.frame.dst, 'and that one names a tag').not.toBe(first!.frame.src)
-    // 「再打开 2982 µs 那一帧，它收尾的是一个空时隙——同样 330 µs、同样四个字节」
+    // 「再打开 2982 µs 那一帧，它跟在一个空时隙之后——同样 330 µs、同样四个字节」
     const empty = /打开 (\d+) µs 那一帧[^]*?同样 (\d+) µs、同样([一二三四五六七八九十两]+)个字节/.exec(obs)
     expect(empty, '`observe` no longer names the empty-slot Ack').not.toBeNull()
     const second = txs(rs, 'ampAck').find((r) => r.t === Number(empty![1]) * US)

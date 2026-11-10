@@ -241,9 +241,9 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
       '失败数 0 → 那一课的场景真的丢帧（五台站点在一米圆上，重传数等于重叠数），于是查表之下那一层损失反馈看得见了'],
     ['ifs', 'edca', 'AIFS[AC]',
       '业务档位：本课两台都跑 saturated 的单一 DIFS → edca 的四台各带一类业务，四条队列各等一份不同长度的 AIFS'],
-    ['backoff', 'txop', '一次成功只换来一帧',
+    ['backoff', 'txop', '一次竞争成功只能发送一帧',
       '节点世代：两台站点 nonht（GEN_FEATURES.nonht 是空集）→ txop 的两台 vht，于是 edca/ampdu/txop 三个标志都协商上'],
-    ['anomaly', 'txop', '没有发送机会（TXOP），也不聚合',
+    ['anomaly', 'txop', '没有传输机会（transmit opportunity, TXOP），也不聚合',
       '同一个轴：两台站点 nonht → txop 的两台 vht。引擎一直建着 TXOP 与聚合，缺的是本场景的站点用不上它们'],
     ['width', 'selectivity', '本课这四档的信道是平的',
       '顶层两节：selectivityScenario 就是 widthScenario 外加 fading 与 selectivity（节点的 feats 两课完全相同，所以这个轴不在节点上）'],
@@ -265,11 +265,11 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
     // (radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23, rate-fallback 36 → fading 38).
     ['radio-primer', 'fading', '本课的场景没有打开',
       '顶层一节：fadingScenario 的瑞利与莱斯两个变体写了 fading 一节，于是 RX_START 这一行真的印出 shadow 与 fast 两个数，而本课的四个变体里这两个字段根本不出现'],
-    ['mcs-ladder', 'fading', '让同一条链路自己在几级之间来回',
+    ['mcs-ladder', 'fading', '让同一条链路在几级之间来回变化',
       '顶层一节：同一条链路在那一课的瑞利变体里用到 MCS 0 到 3 四个级别、降档 22 次升档 19 次（种子 7），而本课四个变体里级别恒定'],
-    ['bianchi', 'fading', '那时同一条链路会在几级之间来回，本课那两张表立刻不再适用',
+    ['bianchi', 'fading', '此时同一条链路的速率会在几级之间变化，本课的两张表随即不再适用',
       '顶层一节：固定速率这个前提在那一课的场景里逐帧不成立——1000 ms 里 848 帧分布在四个级别上（瑞利，种子 7），而本课的圆弧是把它布置成真的'],
-    ['rate-vs-model', 'fading', '那时这张速率直方图就不再是单一成因的了',
+    ['rate-vs-model', 'fading', '此时这张速率直方图就不再只反映单一原因',
       '顶层一节，而解除的方式是给出互补的那一半：本课的直方图单一成因是碰撞，那一课的单一成因是链路变差（单链路场景，COLLISION 恒为 0，失败全部 lowSinr），两课合起来才是两个成因'],
     ['rate-fallback', 'fading', '所以这里 337 次失败没有一次来自链路变差',
       '顶层一节，加上站点数 2 → 1：在本课自己的两站点场景上打开衰落会凭空多出 514 个碰撞，所以那一课换成单链路场景，于是它的失败 100% 来自链路变差，而本课是 0%'],
@@ -284,9 +284,9 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
     // the promise a coherent one. The fourth site the design document asked for
     // (`rate-cost`) is NOT here: its limit is `unmodelled`, criterion A forbids an `until`
     // there, and the honest field for it is `seeAlso` — see the ledger below.
-    ['retries-queues', 'wan-rtt', '它们的 servers 是空的',
+    ['retries-queues', 'wan-rtt', '它们的 servers 为空',
       '顶层一节 servers：[] → 一台游戏服务器，于是 stats.appRtt 从 0 个样本变成 5000 ms 里 20 个，28.688 ms 的往返里只有 0.106 ms 是空口的——而本课三个场景连一次应用往返都量不出来'],
-    ['queues', 'wan-rtt', '场景里放一台服务器之后会出现另一种反馈',
+    ['queues', 'wan-rtt', '场景中加入一台服务器之后会出现另一种反馈',
       '顶层一节 servers：本课的业务源节奏自成一条开环时钟；那一课的场景里答复要等请求被确认才来（traffic.ts 的 onUplinkDelivered → sendPage / emitDl），这是一条真的反馈路径，只不过不是降速那一种'],
     ['edca-cost', 'wan-rtt', '它的 servers 是空的',
       '顶层一节 servers：本课语音来回两个方向都是 20 ms 的本机时钟；放一台通话服务器之后回程变成对每一个已被确认的语音帧的回声（traffic.ts 的 scheduleVoice 的 `if (!this.server)` 分支），于是排队时延第一次有了一个应用层的分母'],
@@ -428,7 +428,7 @@ describe('the backlog quotes the UI string that actually shipped', () => {
 describe('the six `seeAlso` sites are a frozen ledger too', () => {
   const SEE_ALSO_SITES: readonly [string, string, string][] = [
     ['anomaly', 'rate-vs-model', '这里的速率控制只有两个计数'],
-    ['anomaly', 'rate-vs-model', '它分不清碰撞与衰落'],
+    ['anomaly', 'rate-vs-model', '它无法区分碰撞与衰落'],
     ['mcs-ladder', 'rate-vs-model', '真实速率控制的输入还要更多'],
     // The three sites of the built-but-untaught slice (2026-10-05). Each one is a limit the
     // design document asked to carry an `until`, and each one is `unmodelled` rather than
@@ -444,7 +444,7 @@ describe('the six `seeAlso` sites are a frozen ledger too', () => {
     //    management frame — that limit is not lifted anywhere in this course.
     // The kinds were NOT changed to admit an `until`: a promise has to be false or the kind
     // has to be, and here it is the promise.
-    ['rate-cost', 'wan-rtt', '引擎里确实有一种会等的流'],
+    ['rate-cost', 'wan-rtt', '引擎里确实有一种会等待的流'],
     ['edca', 'wan-rtt', '游戏档不走 acForProfile'],
     ['edca', 'edca-tamper', '这里只能靠篡改驱动那一项配置来模拟'],
   ]

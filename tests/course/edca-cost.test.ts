@@ -120,15 +120,15 @@ describe('edca-cost · what the three stations actually did', () => {
 
   it('the backup speaks first at 55 ms, the uploader at 0.088 ms, the caller at 23 ms', () => {
     /*
-     * **The first watch call-out, read out of the lesson.** 「跳到备份站点的第一帧：它落在整轮
-     * 的第 55 ms。上传站点从 0.088 ms 起就一直在发，通话站点第一次发送是在 23 ms」 — three
+     * **The first watch call-out, read out of the lesson.** 「跳到备份站点的第一帧：它出现在整轮
+     * 的第 55 ms。上传站点从 0.088 ms 起就一直在发送，通话站点第一次发送是在 23 ms」 — three
      * instants, uncovered by the 「第」 rule change of 2026-10-14, and until now asserted with
      * the three figures typed on this side. Each is read against the first data frame of the
      * station the sentence names, at the precision it is printed to, and their ORDER is read
      * too: the whole point of the call-out is that the backup is last.
      */
     const pic = edcaCost.picture!.map((b) => (b as { text?: string }).text ?? '').join(' ')
-    const w = /跳到备份站点的第一帧：它落在整轮的第 (\d+) ms。上传站点从 ([\d.]+) ms 起就一直在发，通话站点第一次发送是在 (\d+) ms/
+    const w = /跳到备份站点的第一帧：它出现在整轮的第 (\d+) ms。上传站点从 ([\d.]+) ms 起就一直在发送，通话站点第一次发送是在 (\d+) ms/
       .exec(pic)
     expect(w, 'the watch call-out on the three first frames is gone').not.toBeNull()
     const firsts = { backup: firstData(rs, 'sta-3').t, upload: firstData(rs, 'sta-2').t,
@@ -377,15 +377,15 @@ describe('edca-cost · every figure the prose prints, read back out of it', () =
       '`numbers` on the two mean draws')
     same(String(narrow), meanDrawn('sta-1'), 'what the call draws on average')
     same(String(wide), meanDrawn('sta-3'), 'against what the backup draws')
-    // 「通话的帧平均等 1.49 ms，备份的帧平均等 10.23 ms，约七倍」
+    // 「通话的帧平均等待 1.49 ms，备份的帧平均等待 10.23 ms，约为七倍」
     const [callMs, backMs, timesCn] = raw(NUMS,
-      /通话的帧平均等 ([\d.]+) ms，备份的帧平均等 ([\d.]+) ms，约(.)倍/, '`numbers` on the two waits')
+      /通话的帧平均等待 ([\d.]+) ms，备份的帧平均等待 ([\d.]+) ms，约为(.)倍/, '`numbers` on the two waits')
     same(callMs!, meanQueueWait(rs, 'sta-1') / 1000, 'the call’s own wait')
     same(backMs!, meanQueueWait(rs, 'sta-3') / 1000, 'and the backup’s')
     expect(Math.round(meanQueueWait(rs, 'sta-3') / meanQueueWait(rs, 'sta-1')),
       'the ratio, to the nearest whole number').toBe(cn(timesCn!))
-    // 「而备份站点在 300 ms 里只抽了 14 次倒数」
-    const [windowMs, backDraws] = figs(NUMS, /而备份站点在 (\d+) ms 里只抽了 (\d+) 次倒数/,
+    // 「而备份站点在 300 ms 里只抽取了 14 次倒数值」
+    const [windowMs, backDraws] = figs(NUMS, /而备份站点在 (\d+) ms 里只抽取了 (\d+) 次倒数值/,
       '`numbers` on the backup’s draws')
     expect(windowMs! * MS, 'the window every figure of this lesson is measured over').toBe(RUN_NS)
     expect(backDraws, 'and the draws it makes in it').toBe(draws(rs, 'sta-3').length)
@@ -414,9 +414,9 @@ describe('edca-cost · every figure the prose prints, read back out of it', () =
     expect(limMbps, 'the same rate `limits` names').toBe(mbps)
     const [limAck] = figs(LIM, /EIFS 里那个 (\d+) µs 的确认帧/, '`limits` on the answer’s own length')
     expect(limAck! * US, 'the answer the engine times at that rate').toBe(ACK_TX_TIME_6M_NS)
-    // 「300 ms 里只有上传站点碰上过解不出来的帧，一共七次，每次都要多等一段 103 µs」
+    // 「300 ms 里只有上传站点遇到过解不出来的帧，一共七次，每次都要等一段 103 µs 的更长静默」
     const [msWindow, timesCn2, waitUs] = raw(NUMS,
-      /(\d+) ms 里只有上传站点碰上过解不出来的帧，一共(.)次，每次都要多等一段 (\d+) µs/,
+      /(\d+) ms 里只有上传站点遇到过解不出来的帧，一共(.)次，每次都要等一段 (\d+) µs 的更长静默/,
       '`numbers` on who ever owes one')
     expect(val(msWindow!) * MS, 'the same window').toBe(RUN_NS)
     /*
@@ -432,7 +432,7 @@ describe('edca-cost · every figure the prose prints, read back out of it', () =
       expect(ifsLens(rs, node, 'EIFS'), `${node} never owes one`).toEqual([])
     }
     // the outcome line and `picture` print the same figure, and the quiz contrasts it
-    const [outUs] = figs(OUT, /那 (\d+) µs 是怎么算的/, 'the outcome line’s own figure')
+    const [outUs] = figs(OUT, /那 (\d+) µs 如何计算/, 'the outcome line’s own figure')
     expect(outUs, 'the same wait').toBe(total)
     const [picMs, picUs, picPlain] = figs(PIC,
       /：([\d.]+) ms 处它开始了一段 (\d+) µs 的等待，比它那一类平时的 (\d+) µs 长得多/,
@@ -457,8 +457,8 @@ describe('edca-cost · every figure the prose prints, read back out of it', () =
      */
     const PHY_SRC = readFileSync(new URL('../../src/engine/phy.ts', import.meta.url), 'utf8')
     const TRAFFIC_SRC = readFileSync(new URL('../../src/engine/traffic.ts', import.meta.url), 'utf8')
-    // 「那 103 µs 是引擎三个常数拼出来的」 — a fourth printing of the longer wait
-    const [again] = figs(LIM, /那 (\d+) µs 是引擎三个常数拼/, '`limits` on the longer wait')
+    // 「那 103 µs 由引擎的三个常数组合而成」 — a fourth printing of the longer wait
+    const [again] = figs(LIM, /那 (\d+) µs 由引擎的三个常数组合/, '`limits` on the longer wait')
     expect(again! * US, 'the same wait the steps add up')
       .toBe(OFDM_5G.eifsNs - OFDM_5G.difsNs + aifsNs(by('BE').aifsn, OFDM_5G))
     // 「phy.ts 的 ACK_TX_TIME_6M_NS」 — the 6 inside the identifier, which the file really exports
@@ -484,8 +484,8 @@ describe('edca-cost · every figure the prose prints, read back out of it', () =
     const [realMbps] = figs(LIM, /最低强制速率可能是 (\d+) Mb\/s/, '`limits` on the real floor')
     expect(realMbps, 'slower than anything this engine sends').toBeLessThan(
       figs(NUMS, /这里是 (\d+) Mb\/s/, 'the engine’s own floor')[0]!)
-    // 「语音来回两个方向都按每 20 ms 一帧 200 字节的本机时钟走」 — the generator's own two numbers
-    const [everyMs, bytes] = figs(LIM, /都按每 (\d+) ms 一帧 (\d+) 字节的本机时钟走/,
+    // 「语音上下两个方向都按本机时钟每 20 ms 发送一帧 200 字节」 — the generator's own two numbers
+    const [everyMs, bytes] = figs(LIM, /都按本机时钟每 (\d+) ms 发送一帧 (\d+) 字节/,
       '`limits` on the voice clock')
     const [srcMs, srcJitter] = figs(TRAFFIC_SRC,
       /const at = this\.now\(\) \+ (\d+) \* MS \+ Math\.floor\(this\.rng\.next\(\) \* (\d+) \* MS\)/,
@@ -500,21 +500,21 @@ describe('edca-cost · every figure the prose prints, read back out of it', () =
   })
 
   it('reads `observe` and `limits` on the figures they print again', () => {
-    // 「块上那段静默是 79 µs。300 ms 里它只抽了 14 次倒数，通话站点抽了 33 次，上传站点抽了 107 次」
+    // 「块上那段静默是 79 µs。300 ms 里它只抽取了 14 次倒数值，通话站点抽取了 33 次，上传站点抽取了 107 次」
     const [silence, windowMs, back, call, up] = figs(OBS,
-      /块上那段静默是 (\d+) µs。(\d+) ms 里它只抽了 (\d+) 次倒数，通话站点抽了 (\d+) 次，上传站点抽了 (\d+) 次/,
+      /块上那段静默是 (\d+) µs。(\d+) ms 里它只抽取了 (\d+) 次倒数值，通话站点抽取了 (\d+) 次，上传站点抽取了 (\d+) 次/,
       '`observe` on the three draw counts')
     expect(silence! * US, 'the backup’s own silence').toBe(aifsNs(by('BK').aifsn, OFDM_5G))
     expect(windowMs! * MS, 'the window').toBe(RUN_NS)
     expect([back, call, up], 'the draws each station makes')
       .toEqual([draws(rs, 'sta-3').length, draws(rs, 'sta-1').length, draws(rs, 'sta-2').length])
-    // 「把三台站点的排队时延并排读：1.49 ms、2.23 ms、10.23 ms」
-    const three = raw(OBS, /并排读：([\d.]+) ms、([\d.]+) ms、([\d.]+) ms/,
+    // 「把三台站点的排队时延并排比较：1.49 ms、2.23 ms、10.23 ms」
+    const three = raw(OBS, /并排比较：([\d.]+) ms、([\d.]+) ms、([\d.]+) ms/,
       '`observe` on the three waits')
     expect(three, 'the three waits, in the order the table lists the stations')
       .toEqual(['sta-1', 'sta-2', 'sta-3'].map((n) => (meanQueueWait(rs, n) / 1000).toFixed(2)))
-    // `limits`: 「每 20 ms 一帧 200 字节」 and 「1.49 ms 与 10.23 ms 只是 MAC 层…」
-    const [everyMs, bytes] = figs(LIM, /都按每 (\d+) ms 一帧 (\d+) 字节的本机时钟走/,
+    // `limits`: 「每 20 ms 发送一帧 200 字节」 and 「1.49 ms 与 10.23 ms 只是 MAC 层…」
+    const [everyMs, bytes] = figs(LIM, /都按本机时钟每 (\d+) ms 发送一帧 (\d+) 字节/,
       '`limits` on the voice clock')
     const voice = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'sta-1')
     expect(voice.length, 'the call really enqueues on that clock')

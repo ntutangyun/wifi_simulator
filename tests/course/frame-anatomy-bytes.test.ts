@@ -231,12 +231,12 @@ describe('frame-anatomy-bytes · from bytes to microseconds', () => {
      * one that rounds up. The two figures beside them are read out of the sentence as well, so
      * step 6 is READ here rather than quoted in a comment above an assertion of its figures.
      */
-    const six = /再带上业务标记把第 (\d+) 步重做一遍：(\d+) B；到第 (\d+) 步，向上取整得到的仍是 (\d+) 个符号/
+    const six = /再加上业务标记重做第 (\d+) 步：(\d+) B；到第 (\d+) 步，向上取整得到的仍是 (\d+) 个符号/
       .exec(steps.items[5]!)
     expect(six, 'step 6 no longer redoes two of the steps by number').not.toBeNull()
     const [redo, tagged, round, syms] = six!.slice(1).map(Number) as [number, number, number, number]
     expect(steps.items[redo - 1], `step ${redo} is the one that counts this frame’s bytes`)
-      .toMatch(/^先数这一帧的字节/)
+      .toMatch(/^先计算这一帧的字节数/)
     expect(steps.items[round - 1], `step ${round} is the one that rounds up`).toContain('向上取整')
     expect(tagged, 'the tagged frame’s bytes, as step 6 states them')
       .toBe(QOS_HDR_BYTES + 1500 + FCS_BYTES)
@@ -359,7 +359,7 @@ describe("frame-anatomy-bytes · what the guard interval costs this lesson's own
     // The three halves of the claim: the author picks, the engine does not, the standard does
     // not specify a rule either — it specifies only which tiers exist, each tier's symbol
     // duration, and that GI_TYPE names the one in use.
-    expect(lim!.text).toContain('引擎不替它选')
+    expect(lim!.text).toContain('引擎不会代为选择')
     expect(lim!.text).toContain('标准也不规定')
     expect(lim!.text).toContain('GI_TYPE')
   })
@@ -470,7 +470,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
   })
 
   it('the byte formula: both counts, and the two bytes that cost nothing', () => {
-    const f = formulas.find((x) => x.heading.includes('数一帧的字节'))!
+    const f = formulas.find((x) => x.heading.includes('一帧的字节数'))!
     const [hdr, payload, fcs, total] = figs(f.text, /^(\d+) \+ (\d+) \+ (\d+) = (\d+) B/,
       'the plain count')
     const [qosHdr, payload2, fcs2, qosTotal] = figs(f.text,
@@ -482,7 +482,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     expect(qosHdr + payload2 + fcs2, 'and the other one').toBe(qosTotal)
     expect(legacy.frame.bytes, 'which is the frame the run really sends').toBe(total)
     expect(qosHdr - hdr, 'the mark costs two bytes').toBe(2)
-    // 「多出的那两个字节没有多占一个符号，所以在这里不花空口时间」
+    // 「多出的那两个字节没有多占用一个符号，所以在这里不增加空口时间」
     expect(txTimeModeNs('nonht', qosTotal, 7), 'and the two bytes cost no airtime')
       .toBe(txTimeModeNs('nonht', total, 7))
   })
@@ -519,8 +519,8 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     const [airtime] = n(rows[5][1])
     expect(pre * 1_000 + symbols * symUs * 1_000, 'the table’s own arithmetic').toBe(airtime * 1_000)
     expect(legacy.frame.txTimeNs, 'which is this frame’s airtime').toBe(airtime * 1_000)
-    // step 5: 「前导码变成 44 或 48 µs，符号变成 13.6 µs」
-    const newer = figs(steps[4], /前导码变成 (\d+) 或 (\d+) µs，符号变成 ([\d.]+) µs/,
+    // step 5: 「前导码变为 44 或 48 µs，符号变为 13.6 µs」
+    const newer = figs(steps[4], /前导码变为 (\d+) 或 (\d+) µs，符号变为 ([\d.]+) µs/,
       'step 5’s newer sizes')
     expect([newer[0] * 1_000, newer[1] * 1_000], 'the two newer preambles')
       .toEqual([PHY_MODES.he.preambleNs, PHY_MODES.eht.preambleNs])
@@ -533,7 +533,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     expect(Math.ceil((service + 8 * marked + tail) / ndbpsValue), 'which it really is').toBe(symbols)
   })
 
-  it('the caption’s ladder, and 「一个小帧要花多少」', () => {
+  it('the caption’s ladder, and 「一个小帧占用多少时间」', () => {
     // 「上面是旧笔记本 1528 B 的一帧：20 µs 的前导码，后面 57 个符号。下面是手机 230 B 的一
     //  帧：前导码 44 µs，后面只有一个符号。」
     const [bigBytes, bigPre, bigSyms] = figs(caption,
@@ -559,10 +559,10 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     expect(new Set(modes.filter((m) => PHY_MODES[m].muExtraPreambleNs > 0)
       .map((m) => PHY_MODES[m].muExtraPreambleNs)), 'which modes add it, and how much')
       .toEqual(new Set([muExtra * 1_000]))
-    // 「同一套算术用在一个 14 B 的回复上：两个符号，一共 28 µs，其中 20 µs 是前导码」
+    // 「同样的算法用于一个 14 B 的应答帧：两个符号，一共 28 µs，其中 20 µs 是前导码」
     const small = (L.numbers!.find((x) => (x as { heading?: string }).heading?.includes('小帧')) as
       { text: string }).text
-    const [ackBytes, ackRate] = figs(small, /(\d+) B 的回复上：它在 (\d+) Mb\/s 下/, 'the answer')
+    const [ackBytes, ackRate] = figs(small, /(\d+) B 的应答帧：它在 (\d+) Mb\/s 下/, 'the answer')
     // 「只占两个符号」 — 两 is the quantified form, which `zhNumeral` does not read
     const ackSyms = zhNumeral(/只占([一二三四五六七八九十两]+)个符号/.exec(small)![1].replace('两', '二'))!
     const [ackUs, ackPre] = figs(small, /一共 (\d+) µs 空口时间——其中 (\d+) µs 是前导码/,
@@ -634,7 +634,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     expect(shares.length, 'the quiz states that share more than once').toBeGreaterThan(1)
     for (const sh of shares) same(sh, (100 * (was - now)) / was, 'the share, wherever it appears')
     const [lessBytes, lessBits, qRate, qNdbps, lessSyms, lessUs] = figs(quiz,
-      /少 (\d+) B 就是少 (\d+) 比特，(\d+) Mb\/s 下一个符号装 (\d+) 比特，于是少 (\d+) 个符号、(\d+) µs/,
+      /少 (\d+) B 就是少 (\d+) 比特，(\d+) Mb\/s 下一个符号承载 (\d+) 比特，因此少 (\d+) 个符号、(\d+) µs/,
       'the quiz’s own arithmetic')
     expect(qRate, 'the rate the quiz works at').toBe(legacy.frame.mbps)
     expect(lessBytes, 'the bytes it removes').toBe(was - now)
@@ -660,7 +660,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
       expect(bytes[i] + 1500 + FCS_BYTES, `「${bytes[i]} + 1500 + 4」`).toBe(bytes[i + 1])
       expect([MAC_HDR_BYTES, QOS_HDR_BYTES], 'and the header is one of the two').toContain(bytes[i])
     }
-    const airtimes = all(/一共 (\d+) µs 空口时间|这一帧占用空口', '(\d+) µs|都是 (\d+) µs|旧笔记本那一帧 (\d+) µs/g)
+    const airtimes = all(/一共 (\d+) µs 空口时间|这一帧占用的空口时间', '(\d+) µs|都是 (\d+) µs|旧笔记本那一帧 (\d+) µs/g)
       .filter((x) => x > 100)
     expect(airtimes.length, 'the lesson states the legacy airtime more than once').toBeGreaterThan(1)
     for (const a of airtimes) expect(a * 1_000, 'the legacy frame’s airtime').toBe(legacy.frame.txTimeNs)
@@ -709,7 +709,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
       expect([bytes, qos.frame.bytes], 'over one of this lesson’s two frames').toContain(len)
     }
     // 「54 Mb/s」 and 「216」, wherever they appear together
-    const rates = [...everywhere.matchAll(/(\d+) Mb\/s 时是 (\d+)|(\d+) Mb\/s 下一个符号能装的比特数——(\d+)|(\d+) Mb\/s 下，/g)]
+    const rates = [...everywhere.matchAll(/(\d+) Mb\/s 时是 (\d+)|(\d+) Mb\/s 下一个符号能承载的比特数——(\d+)|(\d+) Mb\/s 下，/g)]
       .map((m) => m.slice(1).filter(Boolean).map(Number))
     expect(rates.length, 'the lesson names a rate with its bits more than once').toBeGreaterThan(2)
     for (const pair of rates) {
@@ -720,7 +720,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     }
     // every statement of the legacy preamble, the symbol, the symbol count and the airtime
     for (const [re, want, what] of [
-      [/(\d+) µs，加上 \d+ × \d+ µs|前导码那 (\d+) µs|(\d+) µs 的前导码与 \d+ µs 的符号/g,
+      [/(\d+) µs，加上 \d+ × \d+ µs|前导码的 (\d+) µs|(\d+) µs 的前导码与 \d+ µs 的符号/g,
         nonht.preambleNs / 1_000, 'the legacy preamble'],
       [/加上 \d+ × (\d+) µs|与 (\d+) µs 的符号是标准里的数值|符号仍是 (\d+) µs/g,
         nonht.symNs / 1_000, 'the legacy symbol'],
@@ -759,7 +759,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     // SERVICE 字段、PSDU、6 个尾比特」, 「取整式里的 16 和 6」, and 「54 Mb/s 下，1528 B 的
     // 一帧需要 ⌈(16 + 12 224 + 6) ÷ 216⌉」
     const deeper2 = (L.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-    const [svcBits] = figs(deeper2, /装着 (\d+) 比特的 SERVICE/, '`deeper` on the SERVICE field')
+    const [svcBits] = figs(deeper2, /包含 (\d+) 比特的 SERVICE/, '`deeper` on the SERVICE field')
     const [tailBits] = figs(deeper2, /PSDU、(\d+) 个尾比特/, '`deeper` on the tail bits')
     const [svcAgain, tailAgain] = figs(deeper2, /取整式里的 (\d+) 和 (\d+) 就是它们/,
       '`deeper` restating the two')
@@ -791,14 +791,14 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     // in µs, never multiplied up: 12.8 + 0.8 times a thousand is 13600.000000000002
     expect(Number((dft + base).toFixed(3)), 'which add to the newer symbol')
       .toBe(Number((PHY_MODES.he.symNs / 1_000).toFixed(3)))
-    // 「真实的 10 m 距离要走 33 ns，而时隙之所以必须有 9 µs 那么长」: physics, and a constant
-    const [metres, ns] = figs(lim, /(\d+) m 距离要走 (\d+) ns/, '`limits` on the flight time')
+    // 「真实环境中 10 m 的距离需要传播 33 ns，而时隙之所以必须长达 9 µs」: physics, and a constant
+    const [metres, ns] = figs(lim, /(\d+) m 的距离需要传播 (\d+) ns/, '`limits` on the flight time')
     expect(Math.round((metres / 299_792_458) * 1e9), `${metres} m at the speed of light in ns`)
       .toBe(ns)
-    const [slot] = figs(lim, /必须有 (\d+) µs 那么长/, '`limits` on the slot')
+    const [slot] = figs(lim, /必须长达 (\d+) µs/, '`limits` on the slot')
     expect(slot * 1_000).toBe(SLOT_NS)
     // 「1500 字节的 IP 包其实是 1508 字节的 MSDU，整帧应该是 26 + 1508 + 4 = 1538 字节」
-    const [snap] = figs(lim, /要先放 (\d+) 个八位组/, '`limits` on the LLC/SNAP octets')
+    const [snap] = figs(lim, /要先加上 (\d+) 个八位组/, '`limits` on the LLC/SNAP octets')
     const [ip, msdu] = figs(lim, /(\d+) 字节的 IP 包其实是 (\d+) 字节的 MSDU/,
       '`limits` on the payload and the MSDU')
     const [hdr, msdu2, fcs, whole] = figs(lim, /整帧应该是 (\d+) \+ (\d+) \+ (\d+) = (\d+) 字节/,
@@ -809,7 +809,7 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     expect(hdr + msdu + fcs, '`limits`’ own sum').toBe(whole)
     expect(whole - (QOS_HDR_BYTES + ip + FCS_BYTES), 'the octets the engine does not carry')
       .toBe(snap)
-    const [again] = figs(lim, /这 (\d+) 字节从头到尾不存在/, '`limits` restating them')
+    const [again] = figs(lim, /这 (\d+) 字节始终不存在/, '`limits` restating them')
     expect(again).toBe(snap)
     // 「1530 里只有两个数是标准的：26 字节的 QoS 数据帧头（24 加两字节 QoS Control）与 4 字节
     //  的 FCS。中间那 1500 是本仿真器自己定的」 — every one of those five, and the sum
@@ -819,11 +819,11 @@ describe('frame-anatomy-bytes · every printed figure is read back out of the le
     expect([qosHdr, plain, fcs2], 'the QoS header, the plain one, and the check')
       .toEqual([QOS_HDR_BYTES, MAC_HDR_BYTES, FCS_BYTES])
     expect(qosHdr - plain, 'the two bytes the mark adds').toBe(2)
-    const [payload2] = figs(lim, /中间那 (\d+) 是本仿真器自己定的/, '`limits` on the payload')
+    const [payload2] = figs(lim, /中间的 (\d+) 是本仿真器自己设定的/, '`limits` on the payload')
     expect(qosHdr + payload2 + fcs2, '`limits`’ own three figures against its own total')
       .toBe(whole2)
     expect(whole2, 'which is the marked count the formula produces').toBe(qosTotal)
-    const [payload3] = figs(lim, /载荷被定成了 (\d+)，/, '`limits` restating the payload')
+    const [payload3] = figs(lim, /载荷被设定为 (\d+)，/, '`limits` restating the payload')
     expect(payload3).toBe(payload2)
     expect(payload2, 'and that payload is what the generator really hands down')
       .toBe(legacy.frame.bytes - MAC_HDR_BYTES - FCS_BYTES)

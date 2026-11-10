@@ -245,11 +245,11 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
   }
   const ZH = '[〇一二三四五六七八九十两]+'
 
-  it('「这里的分组为什么永远不是三个」: four antennas, two streams each, and the third needs six', () => {
+  it('「这里的分组为什么永远不会有三个成员」: four antennas, two streams each, and adding a third needs six', () => {
     const antennas = counted(pictureText, new RegExp(`这台路由器有(${ZH})根`), 'the router’s antennas')
     const each = counted(pictureText, new RegExp(`每部手机协商到(${ZH})条流`), 'each phone’s streams')
-    const members = counted(pictureText, new RegExp(`(${ZH})部手机就把四根占满`), 'how many fit')
-    const third = counted(pictureText, new RegExp(`第三部还得再要(${ZH})条`), 'what a third would need')
+    const members = counted(pictureText, new RegExp(`(${ZH})部手机就占满了四根`), 'how many fit')
+    const third = counted(pictureText, new RegExp(`再加上第三部，就需要(${ZH})条`), 'what a third would need')
 
     expect(ap.caps.nss, 'the router’s own antenna count').toBe(antennas)
     for (const id of PHONES) {
@@ -260,7 +260,7 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     expect(third).toBeGreaterThan(antennas)
     // and the run keeps to it: never more than that many members when space is divided
     expect(new Set(spaceSends.map((r) => r.frame.muParts!.length))).toEqual(new Set([members]))
-    // 「切片没有这道坎——三部手机各占一片都塞得下」
+    // 「按频率划分没有这一限制——三部手机各占一部分都能容纳」
     expect(new Set(freqSends.map((r) => r.frame.muParts!.length)).has(3)).toBe(true)
   })
 
@@ -277,7 +277,7 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     expect(mac, `the MAC no longer uses ${minBytes} bytes as the head-of-queue threshold`)
       .toContain(`MUMIMO_MIN_BYTES = ${minBytes}`)
 
-    // 「三部要的流数，对比路由器的四条」 → 「6 > 4」: an inequality, checked as one
+    // 「三部所需的流数，与路由器的四条对比」 → 「6 > 4」: an inequality, checked as one
     const [want, have] = figs(rows[2][1], /^(\d+) > (\d+)$/, 'the streams wanted against the antennas')
     expect(want).toBe(PHONES.length * sc.nodes.find((n) => n.id === 'sta-1')!.caps.nss!)
     expect(have).toBe(ap.caps.nss)
@@ -290,7 +290,7 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     for (const r of spaceSends) {
       for (const p of r.frame.muParts!) {
         expect(p.nss, `a member of the send at ${r.t}`).toBe(streams)
-        // 「每个成员拿到的信道：全部」 — a cell with no figure is a claim too
+        // 「每个成员得到的信道：全部」 — a cell with no figure is a claim too
         expect(p.ruFraction, `a member of the send at ${r.t} got a slice, not the whole channel`)
           .toBeUndefined()
       }
@@ -300,8 +300,8 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
 
   it('step 6: one gap later the group is settled, 162 of 169 times and no other way', () => {
     const [gapUs] = figs(steps[5], /隔 (\d+) µs/, 'the gap before the acknowledgement')
-    const [total] = figs(steps[5], /的 (\d+) 次分组发送里/, 'the sends step 6 counts')
-    const [ok] = figs(steps[5], /有 (\d+) 次是这样/, 'the sends one round settles')
+    const [total] = figs(steps[5], /的 (\d+) 次分组发送中/, 'the sends step 6 counts')
+    const [ok] = figs(steps[5], /有 (\d+) 次如此/, 'the sends one round settles')
     const rest = counted(steps[5], new RegExp(`另外(${ZH})次`), 'the sends it does not')
 
     expect(freqSends.length, 'the sends of the variant step 6 counts').toBe(total)
@@ -313,7 +313,7 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     }
     expect(settled, `sends acknowledged exactly ${gapUs} µs after they end`).toBe(ok)
     expect(total - settled, 'and the rest, which the laptop talked over').toBe(rest)
-    // 「另外七次是笔记本的发送与它相撞」: every one of them really is a collision
+    // 「另外七次与笔记本的发送发生了碰撞」: every one of them really is a collision
     for (const s of freqSends) {
       const bas = txs(byFreq, (r) => (r.frame.kind === 'ba' || r.frame.kind === 'mba')
         && r.t === s.t + s.frame.txTimeNs + gapUs * US)
@@ -326,11 +326,11 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
   it('steps 1 to 4: the list is cut to four, needs two, and is trimmed until the streams fit', () => {
     expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
     const least = counted(steps[0], new RegExp(`名单上不到(${ZH})部`), 'the members a group needs')
-    const most = counted(steps[0], new RegExp(`只留前(${ZH})部`), 'the members a list is cut to')
+    const most = counted(steps[0], new RegExp(`只保留前(${ZH})部`), 'the members a list is cut to')
     const [threshold] = figs(steps[1], /至少 ([\d,]+) 字节/, 'the bytes a member needs queued')
-    const need = counted(steps[2], new RegExp(`(${ZH})部两流手机要四条`), 'the phones that fit')
-    const over = counted(steps[2], new RegExp(`再加第三部就要(${ZH})条`), 'what a third would need')
-    const survivors = counted(steps[3], new RegExp(`幸存者不足(${ZH})部`), 'the survivors a group needs')
+    const need = counted(steps[2], new RegExp(`(${ZH})部两流手机需要四条`), 'the phones that fit')
+    const over = counted(steps[2], new RegExp(`再加第三部就需要(${ZH})条`), 'what a third would need')
+    const survivors = counted(steps[3], new RegExp(`剩余成员不足(${ZH})部`), 'the survivors a group needs')
 
     expect(least).toBe(2)
     expect(survivors).toBe(least)
@@ -348,17 +348,17 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
       expect(r.frame.muParts!.reduce((s, p) => s + (p.nss ?? 1), 0), `the send at ${r.t}`)
         .toBeLessThanOrEqual(ap.caps.nss!)
     }
-    // step 5: 「每个成员的那一份都在同一瞬间结束」 — one PPDU, so one end for all of them
+    // step 5: 「每个成员的那一份都在同一时刻结束」 — one PPDU, so one end for all of them
     for (const r of spaceSends) {
       expect(new Set(r.frame.muParts!.map(() => r.t + r.frame.txTimeNs)).size).toBe(1)
     }
   })
 
-  it('「被裁掉的那部手机接下来去哪儿了」: 196 sends, and the three fates with their three shares', () => {
+  it('「被裁掉的那部手机接下来的情况」: 196 sends, and the three fates with their three shares', () => {
     const [sends] = figs(trimmedProse, /这段仿真里的 (\d+) 次两成员发送/, 'the sends it counts')
     const [su, suPct] = figs(trimmedProse, /有 (\d+) 次（(\d+)%）紧接着/, 'the trimmed phone’s own send')
     const [paired, pairedPct] = figs(trimmedProse, /有 (\d+) 次（(\d+)%）出现在下一次/, 'the next pairing')
-    const [neither, neitherPct] = figs(trimmedProse, /还有 (\d+) 次（(\d+)%）两样都不是/, 'neither of those')
+    const [neither, neitherPct] = figs(trimmedProse, /还有 (\d+) 次（(\d+)%）两者都不是/, 'neither of those')
 
     // the same classification tests/course/quoted-timestamps.test.ts makes, derived here from
     // the prose's own figures instead of from literals
@@ -393,9 +393,9 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     const caption = (mumimo.picture!.find((x) => (x as { kind?: string }).kind === 'diagram') as
       { caption: string }).caption
     const [capWidth] = figs(caption, /各占整条 (\d+) MHz/, 'the width the caption gives each part')
-    const parts = counted(caption, new RegExp(`路由器同时瞄着手机 2 和手机 3，(${ZH})份`),
+    const parts = counted(caption, new RegExp(`路由器同时对准手机 2 和手机 3，(${ZH})份`),
       'the parts the caption counts')
-    const capStreams = counted(caption, new RegExp(`它也要(${ZH})条流`), 'the streams the trimmed phone wanted')
+    const capStreams = counted(caption, new RegExp(`它也需要(${ZH})条流`), 'the streams the trimmed phone wanted')
     const capAntennas = counted(caption, new RegExp(`而(${ZH})根天线已经被占满`), 'the antennas it would need')
 
     const first = spaceSends[0]
@@ -406,10 +406,10 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     expect(parts * capStreams).toBe(capAntennas)
 
     const text = mumimo.observe!.join('\n')
-    const [obsWidth] = figs(text, /都占着整条 (\d+) MHz/, '`observe` on the width of a part')
+    const [obsWidth] = figs(text, /都占用整条 (\d+) MHz/, '`observe` on the width of a part')
     const obsParts = counted(text, new RegExp(`只有(${ZH})份，每一份`), '`observe` on the parts')
     const obsStreams = counted(text, new RegExp(`各用自己的(${ZH})条流`), '`observe` on the streams')
-    const never = counted(text, new RegExp(`这个块都长不过(${ZH})份`), '`observe` on what it never exceeds')
+    const never = counted(text, new RegExp(`这个块都不会超过(${ZH})份`), '`observe` on what it never exceeds')
     expect(obsWidth).toBe(capWidth)
     expect(obsParts).toBe(parts)
     expect(obsStreams).toBe(capStreams)
@@ -425,8 +425,8 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     // 「比路由器拥有的多出一半」: a ratio, and it is the router's own antenna count it is over
     expect(quizText).toContain('多出一半')
     expect((streams - ap.caps.nss!) / ap.caps.nss!, 'how much more than the router has').toBe(0.5)
-    // 「两部手机就用满了全部四条」
-    const used = counted(quizText, new RegExp(`(${ZH})部手机就用满了全部四条`), 'the phones that fill it')
+    // 「两部手机就占满了全部四条」
+    const used = counted(quizText, new RegExp(`(${ZH})部手机就占满了全部四条`), 'the phones that fill it')
     expect(used * phones).toBe(ap.caps.nss)
     // the explanation states each phone's streams a second time, in its own words
     const again = counted(quizText, new RegExp(`每部手机协商到(${ZH})条流`),
@@ -435,14 +435,14 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
   })
 
   it('`limits` quotes the whole-channel claim, and `sources` the same group cap as the steps', () => {
-    // 「所以「每份都占着整条信道、各用自己的两条流」在时间轴上是真的，在射频上是乐观的」:
+    // 「所以「每份都占用整条信道、各用自己的两条流」在时间轴上是成立的，在射频上则是偏乐观的」:
     // the sentence that concedes the power split quotes the figure it is conceding about
     const streams = counted(limitText, new RegExp(`各用自己的(${ZH})条流`),
       '`limits` on the streams it calls optimistic')
     for (const r of spaceSends) {
       for (const p of r.frame.muParts!) expect(p.nss, `a member of the send at ${r.t}`).toBe(streams)
     }
-    // 「“一组最多四个成员”与 1,000 字节的门槛都是引擎自己的规定」 — `sources` states the cap too
+    // 「“一组最多四个成员”与 1,000 字节的门限都是引擎自己的规定」 — `sources` states the cap too
     const most = counted(mumimo.sources!.join('\n'), new RegExp(`一组最多(${ZH})个成员`),
       '`sources` on the group cap')
     expect(mac, `the MAC no longer cuts a group to ${most}`).toContain(`slice(0, ${most})`)
@@ -451,24 +451,24 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
   it('`tryThis`: a group stops at four members, and by space it never passes two', () => {
     const text = mumimo.tryThis!.join('\n')
     const most = counted(text, new RegExp(`一组最多(${ZH})个成员`), 'the members a group stops at')
-    const never = counted(text, new RegExp(`都长不过(${ZH})份`), 'what a send by space never passes')
+    const never = counted(text, new RegExp(`都不会超过(${ZH})份`), 'what a send by space never passes')
     expect(mac, `the MAC no longer cuts a group to ${most}`).toContain(`slice(0, ${most})`)
     expect(Math.max(...spaceSends.map((r) => r.frame.muParts!.length))).toBe(never)
-    // 「天线数是一道硬坎，队列长短改变不了它」 — it is the antennas, not the queues
+    // 「天线数是一个硬性限制，队列长短无法改变它」 — it is the antennas, not the queues
     expect(never * sc.nodes.find((n) => n.id === 'sta-1')!.caps.nss!).toBe(ap.caps.nss)
     expect(mac, 'the trim rule is no longer the antenna sum').toContain('streams <= this.cfg.ownNss()')
   })
 
   it('`limits`: halving the power is 3 dB, and the cap is one line of arithmetic', () => {
-    const members = counted(limitText, new RegExp(`(${ZH})个成员各拿一半`),
+    const members = counted(limitText, new RegExp(`(${ZH})个成员各得一半`),
       '`limits` on how many members share the power')
-    const [loss] = figs(limitText, /各拿一半就是各少 ([\d.]+) dB/,
+    const [loss] = figs(limitText, /各得一半就是各少 ([\d.]+) dB/,
       '`limits` on what each member loses')
     // the only way this figure can be wrong: it is ten times the log of that many shares
     const dp = String(loss).includes('.') ? String(loss).split('.')[1].length : 0
     expect(Number((10 * Math.log10(members)).toFixed(dp)), `splitting power ${members} ways`).toBe(loss)
     expect(members).toBe(Math.max(...spaceSends.map((r) => r.frame.muParts!.length)))
-    // 「一组最多四个成员也是引擎写下的数」
+    // 「一组最多四个成员也是引擎设定的数」
     const most = counted(limitText, new RegExp(`一组最多(${ZH})个成员`), '`limits` on the group cap')
     expect(mac).toContain(`slice(0, ${most})`)
     // 「组内流数之和不超过接入点自己的天线数」是引擎唯一的裁剪规则
@@ -496,8 +496,8 @@ describe('mumimo · every printed figure is read back out of the lesson', () => 
     }
     expect(named.length, 'the files `limits` and `sources` cite').toBe(3)
     expect(syms.length, 'the identifiers they name').toBe(3)
-    // 「1,000 字节的门槛都是引擎自己的规定」: `sources` quotes the same threshold the steps do
-    const [a] = figs(texts, /([\d,]+) 字节的门槛/, '`sources` on the threshold')
+    // 「1,000 字节的门限都是引擎自己的规定」: `sources` quotes the same threshold the steps do
+    const [a] = figs(texts, /([\d,]+) 字节的门限/, '`sources` on the threshold')
     const [b] = figs(steps[1], /至少 ([\d,]+) 字节/, 'the steps on the threshold')
     expect(a).toBe(b)
 

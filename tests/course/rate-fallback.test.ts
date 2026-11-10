@@ -108,7 +108,7 @@ lessonShapeSuite(rateFallback, { runNs: JUMP_NS, sameSceneAs: 'rate' })
 
 describe('rate-fallback · the lesson’s own scene', () => {
   it('is the second half of the rate lesson and says so in `needs`', () => {
-    expect(MODULES[rateFallback.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[rateFallback.module].title).toBe('容量参数与速率控制')
     expect(rateFallback.needs).toEqual(['rate', 'anomaly'])
     expect(rateFallback.terms!.map((t) => t.term)).toEqual(['ARF', 'excursion'])
   })
@@ -432,7 +432,7 @@ describe('rate-fallback · the missing trigger, and the lesson that supplies it'
     expect(lim!.kind).toBe('out-of-scope')
     expect(lim!.seeAlso).toBeUndefined()
     // it concedes the mechanism's own trigger is absent from its own scene
-    expect(lim!.text).toContain('没有本来该有的那个触发源')
+    expect(lim!.text).toContain('缺少本应存在的那个触发因素')
     expect(lim!.text).toContain('没有一次来自链路变差')
     // and it names where to turn it on, which is what makes this a scenario class
     expect(lim!.text).toContain('时变链路（衰落）')
@@ -560,7 +560,7 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
       '「几乎不动」: inside one point of each other').toBeLessThan(1)
     expect(p0, 'and the longest frames are not the worst off').toBeLessThanOrEqual(p1!)
     // 「MCS 0 上那九十次尝试也太少」
-    const [fewCn] = raw(DEEP, /MCS 0 上那(..)次尝试也太少/, '`deeper` on the thin row')
+    const [fewCn] = raw(DEEP, /MCS 0 上的(..)次尝试样本太少/, '`deeper` on the thin row')
     // 「九十」 is ninety: the tens digit times ten
     expect(cn(fewCn![0]!) * 10, 'the attempts that row is built on').toBe(rung(0).n)
   })
@@ -576,7 +576,7 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
       else if (below > 0) { excursions++; below = 0 }
     }
     if (below > 0) excursions++
-    const [drops] = figs(row('跌到上限以下的次数'), /^(\d+)$/, 'the excursions')
+    const [drops] = figs(row('降到上限以下的次数'), /^(\d+)$/, 'the excursions')
     expect(drops, 'the excursions this run makes').toBe(excursions)
     const runsAt = (want: number): number[] => {
       const out: number[] = []
@@ -589,19 +589,19 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
       return out
     }
     const bottom = runsAt(0)
-    const [toBottom] = figs(row('其中一直跌到最底一级的'), /^(\d+)$/, 'the deep ones')
+    const [toBottom] = figs(row('其中一直降到最低一级的'), /^(\d+)$/, 'the deep ones')
     expect(toBottom, 'the excursions that reach the bottom rung').toBe(bottom.length)
     const lengths = raw(row('这六次各持续了多少帧'), /^([\d, ]+)$/, 'their lengths')[0]!
       .split(', ').map(val)
     expect(lengths, 'how long each of them lasts').toEqual([...bottom].sort((a, b) => a - b))
-    const [climb] = figs(row('规则允许的最短爬升'), /^(\d+) 帧$/, 'the shortest climb')
+    const [climb] = figs(row('规则允许的最短回升'), /^(\d+) 帧$/, 'the shortest climb')
     expect(climb, 'the successes the rule needs to step up').toBe(UP_AFTER)
     expect(Math.min(...lengths), 'which three of the six manage exactly').toBe(climb)
-    // 「25 次跌落、其中 6 次触底、规则允许的最短爬升是十帧」 — `limits` prints all three again
-    const [limDrops, limBottom] = figs(LIM, /(\d+) 次跌落、其中 (\d+) 次触底/,
+    // 「25 次跌落、其中 6 次降到最低一级、规则允许的最短回升是十帧」 — `limits` prints all three again
+    const [limDrops, limBottom] = figs(LIM, /(\d+) 次跌落、其中 (\d+) 次降到最低一级/,
       '`limits` on the same two counts')
     expect([limDrops, limBottom], 'the same two').toEqual([drops, toBottom])
-    const [limClimbCn] = raw(LIM, /规则允许的最短爬升是(.)帧/, '`limits` on the climb')
+    const [limClimbCn] = raw(LIM, /规则允许的最短回升是(.)帧/, '`limits` on the climb')
     // 「十」 on its own is ten, which is what `cn` returns for it
     expect(cn(limClimbCn!), 'the same climb, in words').toBe(climb)
     // 「FAILURES_TO_STEP_DOWN = 2 与 SUCCESSES_TO_STEP_UP = 10」
@@ -609,8 +609,8 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
       /FAILURES_TO_STEP_DOWN = (\d+) 与 SUCCESSES_TO_STEP_UP = (\d+)/,
       '`limits` on the engine’s two constants')
     expect([down, up], 'the two thresholds this lesson is about').toEqual([DOWN_AFTER, UP_AFTER])
-    // 「连着第二次失败，级别就降一级」 — the picture states the step down as an ordinal
-    const [secondCn] = raw(PIC, /连着第(.)次失败，级别就降一级/, '`picture` on the step down')
+    // 「连续第二次失败时，级别降一级」 — the picture states the step down as an ordinal
+    const [secondCn] = raw(PIC, /连续第(.)次失败时，级别降一级/, '`picture` on the step down')
     expect(cn(secondCn!), 'the failure that costs a rung').toBe(down)
     // and the glossary row states the rule in both directions
     const arf = rateFallback.terms!.find((x) => x.term === 'ARF')!.plain
@@ -633,15 +633,15 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
       same(String(us), airAt(after!) / 1000, `the air one frame takes at MCS ${after}`)
     }
     expect(rungNow, 'and the ladder ends where it started').toBe(CEILING)
-    // the caption: 「每帧从 524.0 µs 变成 768.8 µs。此后十帧全部被答复」
-    // 「连着两帧没等到答复，下一帧就落到 MCS 1」 — the rung the caption falls to
-    const [capRung] = figs(caption(), /下一帧就落到 MCS (\d+)/, 'the caption on the rung it falls to')
+    // the caption: 「每帧从 524.0 µs 变为 768.8 µs。此后十帧全部收到答复」
+    // 「连续两帧没有收到答复，下一帧就降到 MCS 1」 — the rung the caption falls to
+    const [capRung] = figs(caption(), /下一帧就降到 MCS (\d+)/, 'the caption on the rung it falls to')
     expect(capRung, 'one rung under the ceiling').toBe(CEILING - 1)
     expect(far.some((r) => r.frame.mcs === capRung), 'which the run really uses').toBe(true)
-    const [was, now] = figs(caption(), /每帧从 ([\d.]+) µs 变成 ([\d.]+) µs/, 'the caption on the step')
+    const [was, now] = figs(caption(), /每帧从 ([\d.]+) µs 变为 ([\d.]+) µs/, 'the caption on the step')
     same(String(was), airAt(CEILING) / 1000, 'the frame at the ceiling')
     same(String(now), airAt(CEILING - 1) / 1000, 'and one rung down')
-    const [capDownCn, capUpCn] = raw(caption(), /两帧失败降掉的一级，要(.)帧连续成功才能回去/,
+    const [capDownCn, capUpCn] = raw(caption(), /两帧失败降掉的一级，要连续成功(.)帧才能恢复/,
       'the caption on the two counts')
       .concat(['十'])
     expect(cn(capUpCn!), 'the successes it takes to climb back').toBe(UP_AFTER)
@@ -649,9 +649,9 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
   })
 
   it('reads the two shapes a failure takes, and the near station that has none', () => {
-    // 「这三秒里远端站点有 337 次尝试失败…其中 254 次以一条 ACK 超时记录收场…另外 83 次」
+    // 「这三秒内远端站点有 337 次尝试失败…其中 254 次以一条 ACK 超时记录结束…另外 83 次」
     const [all, viaTimeout, viaReception] = figs(DEEP,
-      /远端站点有 (\d+) 次尝试失败[^]*?其中 (\d+) 次以一条 ACK 超时记录收场[^]*?另外 (\d+) 次/,
+      /远端站点有 (\d+) 次尝试失败[^]*?其中 (\d+) 次以一条 ACK 超时记录结束[^]*?另外 (\d+) 次/,
       '`deeper` on the two shapes of a failure')
     expect(all, 'the failures the run really has').toBe(far.filter((_, i) => lostAt[i]).length)
     expect(viaTimeout, 'the ones that end in an ACK timeout').toBe(timeouts.length)
@@ -659,12 +659,12 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
     // 「这里 337 次失败没有一次来自链路变差」 — `limits` prints the same count
     const [limAll] = figs(LIM, /这里 (\d+) 次失败没有一次来自链路/, '`limits` on the same failures')
     expect(limAll, 'the same count').toBe(all)
-    // 「近端站点三秒里一帧未丢：4,010 帧，一次 ACK 超时也没有」
+    // 「近端站点三秒内一帧未丢：4,010 帧，没有一次 ACK 超时」
     const [nearFrames] = figs(OBS, /一帧未丢：([\d,]+) 帧/, '`observe` on the near station')
     expect(nearFrames, 'what the near station sends').toBe(near.length)
     expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1'), 'and it loses nothing')
       .toHaveLength(0)
-    // 「近端站点的 2,666 次冻结，无一例外都是以进去时的那个值出来的」
+    // 「近端站点的 2,666 次冻结，无一例外都以冻结前的数值恢复」
     const [freezes] = figs(DEEP, /近端站点的 ([\d,]+) 次冻结/, '`deeper` on the freezes')
     type Bo = Extract<TLRecord, { type: 'BACKOFF_FREEZE' | 'BACKOFF_RESUME' }>
     const evs = rs.filter((r): r is Bo =>
@@ -679,8 +679,8 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
     }
     expect(freezes, 'the freezes the near station serves').toBe(held)
     expect(same2, 'and every one of them comes back at the value it went in at').toBe(held)
-    // 「六次里有三次做到了；其余三次分别持续 13、19、28 帧」
-    const [threeCn] = raw(OBS, /六次里有(.)次做到了/, '`observe` on the fastest climbs')
+    // 「六次里有三次达到了；其余三次分别持续 13、19、28 帧」
+    const [threeCn] = raw(OBS, /六次里有(.)次达到了/, '`observe` on the fastest climbs')
     const bottom = ((): number[] => {
       const out: number[] = []
       let len = 0
@@ -699,8 +699,8 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
   })
 
   it('reads both experiments and the question about the two rungs', () => {
-    // 「从占 3.0% 变成占 26.3%」
-    const [was, now] = figs(TRY, /从占 ([\d.]+)% 变成占 ([\d.]+)%/, '`tryThis` on the third uploader')
+    // 「占比从 3.0% 变为 26.3%」
+    const [was, now] = figs(TRY, /占比从 ([\d.]+)% 变为 ([\d.]+)%/, '`tryThis` on the third uploader')
     same(String(was), pct(far.filter((r) => r.frame.mcs === 0).length, far.length),
       'the bottom-rung share with one neighbour')
     expect(now, 'and with a third uploader beside the near station').toBe(thirdAt(5.5, 4.3))
@@ -721,18 +721,18 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
     const shares = spots.map(([x, y]) => thirdAt(x, y))
     expect(Math.floor(Math.min(...shares)), 'the low end, rounded down').toBe(lo)
     expect(Math.ceil(Math.max(...shares)), 'and the high end, rounded up').toBe(hi)
-    // the quiz: 「真要说的话是 MCS 1 的：11.8% 对 11.1%」 and 「11.1%、11.8%、11.1%」
-    // 「几乎是它 MCS 1 帧的两倍长」 — the question names the rung it compares against
-    const [askedRung, timesCn] = raw(QUIZ, /几乎是它 MCS (\d+) 帧的(.)倍长/,
+    // the quiz: 「如果一定要比较，是 MCS 1 的：11.8% 对 11.1%」 and 「11.1%、11.8%、11.1%」
+    // 「长度几乎是它 MCS 1 帧的两倍」 — the question names the rung it compares against
+    const [askedRung, timesCn] = raw(QUIZ, /长度几乎是它 MCS (\d+) 帧的(.)倍/,
       'the question’s own rung and ratio')
     expect(val(askedRung!), 'the rung the bottom frame is compared with').toBe(CEILING - 1)
     expect(Math.round(airAt(0) / airAt(val(askedRung!))), 'and how many times longer it is')
       .toBe(cn(timesCn!))
-    const [qRung, qHi, qLo] = figs(QUIZ, /真要说的话是 MCS (\d+) 的：([\d.]+)% 对 ([\d.]+)%/,
+    const [qRung, qHi, qLo] = figs(QUIZ, /如果一定要比较，是 MCS (\d+) 的：([\d.]+)% 对 ([\d.]+)%/,
       'the question’s own two rates')
     same(String(qHi), rung(qRung!).pct, `the rate at MCS ${qRung}`)
     same(String(qLo), rung(0).pct, 'against the bottom rung’s')
-    const three = figs(QUIZ, /表里的数几乎不动：([\d.]+)%、([\d.]+)%、([\d.]+)%/,
+    const three = figs(QUIZ, /表中的数几乎相同：([\d.]+)%、([\d.]+)%、([\d.]+)%/,
       'the explanation’s three rates')
     expect(three, 'the three rows of the table, in the order the table prints them')
       .toEqual([rung(CEILING).pct, rung(1).pct, rung(0).pct])
@@ -740,13 +740,13 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
 
   it('reads the figure’s own axis note: zero is the frame the fall begins at', () => {
     /*
-     * **The axis note is a figure too** (sweep of 2026-10-14): 「0 是跌落前那一帧的开头」 says
+     * **The axis note is a figure too** (sweep of 2026-10-14): 「0 为跌落前那一帧的起点」 says
      * where the drawing's zero is, and the drawing's own axis has to start there — which is what
      * makes every instant in the caption relative to the frame that failed.
      */
     const spec = fallbackExcursionTiming()
     const texts = JSON.stringify(spec)
-    const [zero] = figs(texts, /（(\d+) 是跌落前那一帧的开头）/, 'the figure’s own axis note')
+    const [zero] = figs(texts, /（(\d+) 为跌落前那一帧的起点）/, 'the figure’s own axis note')
     expect(spec.axis!.fromUs, 'the axis really starts there').toBe(zero)
     const first = spec.lanes[0]!.spans[0]!
     expect(first.fromUs, 'and so does the first span the figure draws').toBe(zero)
@@ -756,10 +756,10 @@ describe('rate-fallback · every figure the prose prints, read back out of it', 
     // 「答复应当在帧结束后 45 µs 内到达」, and `sources` says where that figure comes from
     const [us] = figs(PIC, /答复应当在帧结束后 (\d+) µs 内到达/, '`picture` on the deadline')
     expect(us! * 1000, 'the timeout the engine applies').toBe(ACK_TIMEOUT_NS)
-    const [srcUs] = figs(SRC, /等的那 (\d+) µs 是本仿真器的 ACK 超时/, '`sources` on the same deadline')
+    const [srcUs] = figs(SRC, /前等待的 (\d+) µs 是本仿真器的 ACK 超时/, '`sources` on the same deadline')
     expect(srcUs, 'the same figure').toBe(us)
-    // 「一次失败会把成功计数清空，自己记为 1」
-    const [one] = figs(PIC, /会把成功计数清空，自己记为 (\d+)/, '`picture` on the failure counter')
+    // 「一次失败会把成功计数清零，并把失败计数记为 1」
+    const [one] = figs(PIC, /会把成功计数清零，并把失败计数记为 (\d+)/, '`picture` on the failure counter')
     expect(one, 'the first failure counts as one').toBe(1)
     expect(one, 'and two of them are what a step down takes').toBeLessThan(DOWN_AFTER + 1)
     // 「在 40 dB 余量下它始终满足」

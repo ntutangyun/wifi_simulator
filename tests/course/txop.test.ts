@@ -480,7 +480,7 @@ describe('txop · every printed figure is read back out of the lesson', () => {
   })
 
   it('the ceiling table: three rows for four access categories, each from `EDCA_PARAMS`', () => {
-    const t = tableWith('按类别看上限')
+    const t = tableWith('各类别的上限')
     // the row labels name the categories; every one of the engine's four must appear in some row,
     // and every row's figure must be that category's own limit. A fifth row, or a category the
     // table quietly dropped, fails here — the figures alone would not notice either.
@@ -514,7 +514,7 @@ describe('txop · every printed figure is read back out of the lesson', () => {
       () => figure(cell('最短的突发'), Math.min(...us) * US, 'the shortest burst'),
       () => figure(cell('最长的突发'), Math.max(...us) * US, 'the longest burst'),
       () => figure(cell('平均突发'), (us.reduce((a, b) => a + b, 0) / us.length) * US, 'the mean burst'),
-      () => figure(cell('它得到的上限'), t0.untilNs - t0.t, 'the ceiling it was given'),
+      () => figure(cell('它的上限'), t0.untilNs - t0.t, 'the ceiling it was given'),
     ]
     function cell(label: string): string {
       const row = t.rows.find((r) => r[0] === label)
@@ -570,11 +570,11 @@ describe('txop · every printed figure is read back out of the lesson', () => {
     figure(`${lease![1]} µs`, EDCA_PARAMS.find((p) => p.name === 'VI')!.txopLimitNs, 'the video lease')
     figure(`${lease![1]} µs`, t0.untilNs - t0.t, 'which is the lease this run hands out')
     // step 2: 「一段 16 µs 的停顿」
-    const pause = /一段 (\d+) µs 的停顿/.exec(items[1])
+    const pause = /一段 (\d+) µs 的间隔/.exec(items[1])
     expect(pause, 'step 2 no longer states the pause').not.toBeNull()
     figure(`${pause![1]} µs`, OFDM_5G.sifsNs, 'the pause inside an exchange')
     // step 4: 「16 µs 比任何竞争者必须听到的最短静默（34 µs）还短」
-    const gap = /(\d+) µs 比任何竞争者必须听到的最短静默（(\d+) µs）还短/.exec(items[3])
+    const gap = /(\d+) µs 比任何竞争者必须侦听到的最短静默（(\d+) µs）还短/.exec(items[3])
     expect(gap, 'step 4 no longer compares the pause with the shortest silence').not.toBeNull()
     figure(`${gap![1]} µs`, OFDM_5G.sifsNs, 'the pause, where step 4 states it again')
     figure(`${gap![2]} µs`, Math.min(...EDCA_PARAMS.map((p) => aifsNs(p.aifsn, OFDM_5G))),
@@ -585,17 +585,17 @@ describe('txop · every printed figure is read back out of the lesson', () => {
   })
 
   it('the worked table: eight rows of the first burst, instants and arithmetic alike', () => {
-    const t = tableWith('照着步骤走一遍')
+    const t = tableWith('按步骤计算一遍')
     const sifs = OFDM_5G.sifsNs / US
     const ROWS: readonly (readonly [RegExp, (cell: string, l: RegExpExecArray) => void])[] = [
-      [/^第一帧发出去的时刻$/, (c) => figure(c, t0.t, 'when the first frame goes out')],
+      [/^第一帧发送的时刻$/, (c) => figure(c, t0.t, 'when the first frame goes out')],
       // 「于是占用的期限在 4 096 µs 之后，即」 → 4.979 ms: the label carries a figure too
       [/^于是占用的期限在 ([\d\s]+) µs 之后，即$/, (c, l) => {
         figure(`${l[1]} µs`, t0.untilNs - t0.t, 'the lease the label names')
         figure(c, t0.untilNs, 'and where it therefore ends')
       }],
       // 「发给电视 2，188 µs，再加 16 + 28 µs：回答到手于」 → 1.115 ms
-      [/^发给电视 (\d)，(\d+) µs，再加 (\d+) \+ (\d+) µs：回答到手于$/, (c, l) => {
+      [/^发给电视 (\d)，(\d+) µs，再加 (\d+) \+ (\d+) µs：收到应答于$/, (c, l) => {
         expect(data0[0].frame.dst, 'the television the first frame goes to').toBe(`sta-${l[1]}`)
         figure(`${l[2]} µs`, data0[0].frame.txTimeNs, 'the frame’s own airtime')
         figure(`${l[3]} µs`, OFDM_5G.sifsNs, 'the pause after it')
@@ -620,12 +620,12 @@ describe('txop · every printed figure is read back out of the lesson', () => {
         expect(c.includes('✓'), 'the cell says it fits').toBe(true)
         expect(acksIn[1].t, 'and it does').toBeLessThan(t0.untilNs)
       }],
-      [/^于是隔一段停顿，发给电视 (\d) 的帧出发于$/, (c, l) => {
+      [/^于是间隔一段时间后，发给电视 (\d) 的帧开始发送于$/, (c, l) => {
         expect(data0[1].frame.dst, 'the other television').toBe(`sta-${l[1]}`)
         figure(c, data0[1].t, 'when its frame goes out')
         expect(data0[1].t - acksIn[0].t, 'one pause after the answer').toBe(OFDM_5G.sifsNs)
       }],
-      [/^回答到达，队列空了，本轮结束于$/, (c) => {
+      [/^应答到达，队列已空，本轮结束于$/, (c) => {
         figure(c, end0.t, 'when the hold ends')
         expect(end0.t, 'which is the second answer landing').toBe(acksIn[1].t)
       }],
@@ -645,7 +645,7 @@ describe('txop · every printed figure is read back out of the lesson', () => {
 
   it('the watch call-out: the empty queue, the six slots, and the 412 that pay nothing', () => {
     const p = (txop.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-    const m = /本轮 ([\d.]+) ms 结束、队列已空，(\d+) µs 之后它仍然抽到 (\d+) 个时隙（slot time）并数完[^]*?下一帧 ([\d.]+) ms 才到[^]*?整轮 (\d+) 串突发里，有 (\d+) 串都是在帧到达的那一纳秒就发出去的/
+    const m = /本轮在 ([\d.]+) ms 结束、队列已空，(\d+) µs 之后它仍然抽到 (\d+) 个时隙（slot time）并完成倒数[^]*?下一帧在 ([\d.]+) ms 才到达[^]*?整轮 (\d+) 串突发里，有 (\d+) 串都是在帧到达的同一纳秒发出的/
       .exec(p)
     expect(m, 'the watch call-out is gone, or its shape changed').not.toBeNull()
     figure(`${m![1]} ms`, end0.t, 'when the first hold ends')
@@ -727,13 +727,13 @@ describe('txop · every printed figure is read back out of the lesson', () => {
     expect(Number(one![1]), 'which is the run table’s own row, restated in a limit')
       .toBe(bs.filter((b) => b.frames === 1).length)
     // 「那 16 µs 的停顿在这里是一个精确常数」
-    const pause = /那 (\d+) µs 的停顿在这里是一个精确常数/.exec(ls.join('\n'))
+    const pause = /那 (\d+) µs 的间隔在这里是一个精确常数/.exec(ls.join('\n'))
     expect(pause, '`limits` no longer names the pause it calls exact').not.toBeNull()
     figure(`${pause![1]} µs`, OFDM_5G.sifsNs, 'the pause the fourth limit is about')
     // 「不少型号把尽力而为那一类设成 0——那等于每次竞争成功只发一帧」: the figure is about real
     // access points, and what IS checkable is the equivalence it claims — a zero limit is this
     // lesson's own 「关掉这个功能」 variant, whose bursts carry one frame each.
-    const off = /设成 (\d+)——那等于每次竞争成功只发一帧/.exec(ls.join('\n'))
+    const off = /设成 (\d+)——这等于每次竞争成功只发一帧/.exec(ls.join('\n'))
     expect(off, '`limits` no longer says what a zero limit amounts to').not.toBeNull()
     // and the figure is exactly the value that turns the feature off: the MAC gates a burst on
     // `txopLimitNs > 0`, so 0 means one frame per win and 1 would not. (The 「不少型号」 is a

@@ -65,7 +65,7 @@ lessonShapeSuite(width, { runNs: RUN_NS })
 
 describe('width · the lesson’s own scene', () => {
   it('is a Tier 2 lesson that needs the two Tier 1 lessons its words come from', () => {
-    expect(MODULES[width.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[width.module].title).toBe('容量参数与速率控制')
     // §6 of the re-pacing plan: the rung ladder and the noise floor are their own
     // lessons now, so the two Tier 1 ids this lesson's words come from are those.
     expect(width.needs).toEqual(['mcs-ladder', 'noise-floor', 'airtime'])
@@ -404,7 +404,7 @@ describe('width · the figure is the run’s own four airtimes', () => {
 describe('width · the subcarrier table adds up', () => {
   const rows = width.numbers!
     .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
-    .find((b) => b.heading?.includes('子载波数是怎么来的'))!.rows
+    .find((b) => b.heading?.includes('子载波数的来源'))!.rows
   const n = (s: string): number => Number(s.replace(/[^0-9]/g, ''))
 
   it('has data + pilot === total on every row', () => {
@@ -487,7 +487,7 @@ describe('width · the flat-channel limit, the direction it changed, and the les
     expect(entry!.kind, 'a promise to lift is only coherent about a scenario class').toBe('out-of-scope')
     // the rewritten opening: the scene first, so the 「这个模型答不了：」 prefix reads
     expect(entry!.text).toContain('本课这四档的信道是平的')
-    expect(entry!.text).toContain('不要拿本课的场景去问')
+    expect(entry!.text).toContain('不要用本课的场景去分析')
     // and the trunk no longer opens on the multiplier, which is what made the prefix a non-sentence
     expect(entry!.text.startsWith('带宽在这里只是一个倍数')).toBe(false)
 
@@ -518,13 +518,13 @@ describe('width · the flat-channel limit, the direction it changed, and the les
     expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
     // the prediction has to be made before it is contradicted, or the quotation marks argue with
     // something the text never said (review finding 6)
-    expect(text).toContain('听起来就该越糟')
+    expect(text).toContain('直觉上性能就应该越差')
     expect(text).toContain('编码跨整条信道')
     expect(text).toContain('格间相关')
     // the conclusion, stated without any of the numbers behind it
-    expect(text).toContain('可余量可比时的掉帧率是随带宽一路下降的')
+    expect(text).toContain('但余量可比时的掉帧率随带宽增加一路下降')
     // and it still says which of its own figures the floor's rise is
-    expect(text).toContain('噪声地板按带宽抬高的那一份')
+    expect(text).toContain('噪声地板随带宽升高的那一部分')
   })
 
   it('prints no figure of the measurement, and `selectivity` prints every one', () => {
@@ -776,7 +776,7 @@ describe('width · every figure the prose prints, read back out of it', () => {
   })
 
   it('the step table of the living room, and the inversion it explains', () => {
-    const rows = tableOf('照着步骤走一遍').rows
+    const rows = tableOf('按步骤计算一遍').rows
     /*
      * The position is read out of `tryThis` — 「把笔记本拖到路由器右边七格半、下面两格」 — in
      * squares off the router's own place, so neither coordinate is typed here.
@@ -937,7 +937,7 @@ describe('width · every figure the prose prints, read back out of it', () => {
     expect(Math.round(PHY_MODES.eht.sensDbm[0]! - noiseDbm(20, theirs!) - reqSinrDb('eht', 0)),
       'and the one the sensitivity table carries').toBe(0)
     // 「信道按 2.03125 MHz 一格各抽一次衰落」
-    const [bin] = raw(limitsText, /按 ([\d.]+) MHz 一格各抽一次衰落/, '`limits` on the selectivity grid')
+    const [bin] = raw(limitsText, /按 ([\d.]+) MHz 一格各抽取一次衰落/, '`limits` on the selectivity grid')
     same(bin!, selBinWidthMhz(), 'the grid `selectivity.ts` uses')
     // 「跑三轮、runUntil(150 ms)」 and the two deltas
     const [ms] = figs(limitsText, /runUntil\((\d+) ms\)/, '`limits` on its own measurement')
@@ -996,10 +996,10 @@ describe('width · every figure the prose prints, read back out of it', () => {
       'the steps on where the airtime goes')
     same(stepPre!, PHY_MODES.eht.preambleNs / US, 'the preamble, in the steps')
     same(stepSym!, PHY_MODES.eht.symNs / US, 'and the symbol')
-    const [quizPre] = raw(quizText, /(\d+) µs 的前导码纹丝不动/, 'the quiz on the preamble')
+    const [quizPre] = raw(quizText, /(\d+) µs 的前导码保持不变/, 'the quiz on the preamble')
     same(quizPre!, PHY_MODES.eht.preambleNs / US, 'the preamble, in the quiz')
-    // 「变短的只有后面那截数据：81.6、40.8、27.2，到最宽的一档只剩一个 13.6 µs 的符号」
-    const data = figs(nums, /那截数据：([\d.]+)、([\d.]+)、([\d.]+)，/,
+    // 「缩短的只有后面的数据部分：81.6、40.8、27.2，到最宽的一档只剩一个 13.6 µs 的符号」
+    const data = figs(nums, /后面的数据部分：([\d.]+)、([\d.]+)、([\d.]+)，/,
       'the caption on the data part of each of the first three')
     data.forEach((us, i) => {
       same(String(us), (airtimes[i]! - PHY_MODES.eht.preambleNs) / US,
@@ -1034,11 +1034,11 @@ describe('width · every figure the prose prints, read back out of it', () => {
     same(floor!, noiseDbm(WIDTHS[0]), 'the floor of the narrowest channel')
     same(perDouble!, noiseDbm(2 * WIDTHS[0]) - noiseDbm(WIDTHS[0]), 'and one doubling of it')
     // every 「3 dB 速率余量」 is the engine's own margin
-    for (const v of everyFig(/\+ (\d) dB 速率余量|是 (\d) dB 这个速率余量/g, 'the rate margin', 2)) {
+    for (const v of everyFig(/\+ (\d) dB 速率余量|由 (\d) dB 这个速率余量/g, 'the rate margin', 2)) {
       expect(val(v), 'the margin `phy.ts` exports').toBe(RATE_MARGIN_DB)
     }
     // the living-room table: every airtime cell, and the row that is slower than the one above
-    const rows = tableOf('同一台笔记本，挪到客厅中间').rows
+    const rows = tableOf('同一台笔记本，移到客厅中间').rows
     rows.forEach((row, i) => {
       const w = val(row[0]!)
       expect(WIDTHS, `row ${i}: a width this lesson runs`).toContain(w)
@@ -1047,7 +1047,7 @@ describe('width · every figure the prose prints, read back out of it', () => {
       expect(val(row[1]!), `${w} MHz: the rung it sends at there`).toBe(tx.frame.mcs)
       same(row[2]!, tx.frame.txTimeNs / US, `${w} MHz: and the airtime it takes`)
     })
-    const [slowerThan] = figs(rows[3]![3]!, /却比 (\d+) MHz 还慢/, 'the last row’s own remark')
+    const [slowerThan] = figs(rows[3]![3]!, /但比 (\d+) MHz 还慢/, 'the last row’s own remark')
     const slowRun = bigData(moved(WIDTHS.indexOf(160), LIVING_ROOM.x, LIVING_ROOM.y))[0]!
     const fastRun = bigData(moved(
       WIDTHS.indexOf(slowerThan as 20 | 40 | 80 | 160), LIVING_ROOM.x, LIVING_ROOM.y))[0]!
@@ -1080,7 +1080,7 @@ describe('width · every figure the prose prints, read back out of it', () => {
     const [zh] = raw(quizText, /子载波是(.)倍/, 'the quiz on the tone multiple')
     expect(zhNumeral(zh!.replace(/两/g, '二')), 'eight times the tones')
       .toBe(Math.round(toneRatio('eht', 160) / toneRatio('eht', 20)))
-    // 「81.6 µs 的符号最后只剩一个 13.6 µs 的符号。48 µs 的前导码纹丝不动，此时已占了整帧四分之三以上」
+    // 「81.6 µs 的符号最后只剩一个 13.6 µs 的符号。48 µs 的前导码保持不变，此时已占整帧的四分之三以上」
     const [dataUs, oneSym, pre] = figs(quizText,
       /([\d.]+) µs 的符号最后只剩一个 ([\d.]+) µs 的符号。(\d+) µs 的前导码/,
       'the quiz on where the time goes')

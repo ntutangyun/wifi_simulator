@@ -1,5 +1,5 @@
 /**
- * UWB Tier 1 · M14 两只钟 · After the deferral the anchor is only a transponder.
+ * UWB Tier 1 · M14 两个时钟 · After the deferral the anchor is only a transponder.
  *
  * The second half of the reply-time pair. `uwb-reply-time` establishes the one
  * constraint — a frame cannot carry a number that measures its own transmit

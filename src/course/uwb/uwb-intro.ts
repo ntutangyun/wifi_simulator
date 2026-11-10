@@ -29,7 +29,7 @@
  * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
  * §2 · M13). It **stays whole** — it is the track's opener and a reader may
  * arrive knowing only Wi-Fi Tier 1 — and it sheds padding instead:
- *  - §4 gives it a `timing` figure, 两只钟上的四个计数读数, and the figure
+ *  - §4 gives it a `timing` figure, 两个时钟上的四个计数读数, and the figure
  *    replaces prose: the paragraph that announced the four UWB_TS records and
  *    their order is gone, because the figure shows which two stamps each device
  *    owns and its caption carries the unit (RCTU) that paragraph introduced.

@@ -308,7 +308,7 @@ describe('selectivity · the figures the lesson reads off its own five rounds', 
       .find((b) => b.heading?.includes('两端的两个量'))!
     expect(ends.heading).toContain('四万次抽样')
     expect(mainText).toContain('最窄一档 2.03 dB，最宽一档 2.36 dB')
-    expect(mainText).toContain('宽的那一头两把尺碰巧给出同一个数')
+    expect(mainText).toContain('宽的那一端两种测量恰好给出同一个数')
     // the gap the sentence names, measured: this round's 20 MHz median against the block's 2.30
     const rs = sweep()
     expect(2.3 - rs[0].medLossDb).toBeCloseTo(0.27, 2)
@@ -804,8 +804,8 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
     const loss = ends.rows.find((r) => r[0]!.includes('损失中位数'))!
     const [narrowWorst, wideWorst] = [worst[1]!, worst[2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a worst-bin cell')[0]!))
     const [narrowLoss, wideLoss] = [loss[1]!, loss[2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a loss cell')[0]!))
-    // 「上面一行每翻一倍深约 3 dB」, over the four doublings the table spans.
-    const [perDouble] = figs(NUMS, /上面一行每翻一倍深约 (\d+) dB/, '`numbers` on the deepening')
+    // 「上面一行每翻一倍加深约 3 dB」, over the four doublings the table spans.
+    const [perDouble] = figs(NUMS, /上面一行每翻一倍加深约 (\d+) dB/, '`numbers` on the deepening')
     const doublings = Math.log2(320 / 20)
     expect((wideWorst - narrowWorst) / doublings, 'the deepening a doubling buys, as the prose rounds it')
       .toBeCloseTo(perDouble!, 0)
@@ -836,7 +836,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
       '`numbers` on this round’s own pair')
     same(ownNarrow!, rs[0]!.medLossDb, 'this round’s narrow loss')
     same(ownWide!, rs[4]!.medLossDb, 'and its wide one')
-    same(raw(NUMS, /窄的那一头差了 ([\d.]+) dB/, '`numbers` on the gap between rulers')[0]!,
+    same(raw(NUMS, /窄的那一端相差 ([\d.]+) dB/, '`numbers` on the gap between rulers')[0]!,
       narrowLoss - rs[0]!.medLossDb, 'the gap between the two rulers at the narrow end')
     expect(val(ownWide!), 'while at the wide end they agree to the printed decimals')
       .toBe(wideLoss)
@@ -849,7 +849,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
       .find((b) => b.heading?.includes('两端的两个量'))!
     const tableNarrow = val(raw(ends.rows[0]![1]!, /^([\d.]+) dB$/, 'the table’s narrow cell')[0]!)
     const [w, own, shallower] = figs(NUMS,
-      /这一课的 (\d+) MHz 变体跑下来，最深那一格的中位数是比均值低 ([\d.]+) dB，比表里那一格浅了约 ([\d.]+) dB/,
+      /这一课的 (\d+) MHz 变体运行下来，最深那一格的中位数比均值低 ([\d.]+) dB，比表中那一格浅约 ([\d.]+) dB/,
       '`numbers` on the round against the table')
     expect(w, 'the variant it is about').toBe(WIDTHS[0])
     same(String(own), -rs[0]!.medWorstDb, 'the deepest bin this round’s median shows')
@@ -882,7 +882,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
     expect(w20, 'the width that tone count belongs to').toBe(WIDTHS[0])
     expect(occ(ALL, 'Wi-Fi 6／7'), 'the two generations the grid applies to, named once').toBe(1)
     // 「落在「每 20 MHz 九块」这张网格之外」 and 「在 320 MHz 上看到两个 2.36」
-    const [gridW] = figs(NUMS, /落在「每 (\d+) MHz 九块」这张网格之外/, '`numbers` on the grid')
+    const [gridW] = figs(NUMS, /落在「每 (\d+) MHz 九块」这一网格之外/, '`numbers` on the grid')
     expect(RU26_PER_20MHZ, 'nine blocks of that width').toBe(selBins(gridW!))
     const [coincW, coincDb] = figs(NUMS, /在 (\d+) MHz 上看到两个 ([\d.]+)/, '`numbers` on the coincidence')
     expect(coincW, 'the width the two rulers agree at').toBe(WIDTHS[4])
@@ -914,12 +914,12 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
     expect([a, b], 'the table’s own two loss cells')
       .toEqual([ends.rows[1]![1]!, ends.rows[1]![2]!].map((c) => val(raw(c, /^([\d.]+) dB$/, 'a cell')[0]!)))
     const rs = WIDTHS.map((_w, i) => rowOf(i))
-    const [own, w, ms] = figs(SRC, /([\d.]+) dB 是这一课 (\d+) MHz 变体自己那 (\d+) ms 跑出来的/,
+    const [own, w, ms] = figs(SRC, /([\d.]+) dB 是这一课 (\d+) MHz 变体自己运行 (\d+) ms 得到的/,
       '`sources` on this round’s own figure')
     same(String(own), -rs[0]!.medWorstDb, 'the deepest bin this round shows')
     expect(w, 'the variant it is about').toBe(WIDTHS[0])
     expect(ms * MS, 'and the length this file runs it for').toBe(RUN_NS)
-    const [engineMs] = figs(SRC, /引擎那边同一个场景跑 (\d+) ms 读到的是另一个数/,
+    const [engineMs] = figs(SRC, /引擎测试中同一个场景运行 (\d+) ms 得到的是另一个数/,
       '`sources` on the engine’s own length')
     expect(engineMs, 'the length the engine sweep runs, which is longer').toBeGreaterThan(ms!)
     const ROUND = readFileSync(new URL('../engine/selectivity-round.test.ts', import.meta.url), 'utf8')
@@ -941,7 +941,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
     expect(table.rows.map((r) => val(r[0]!)), 'the five widths').toEqual([...WIDTHS])
     expect(table.rows.map((r) => val(r[1]!)), 'and their bin counts').toEqual(WIDTHS.map(selBins))
     // 「14.66 % 到 0.75 %，端到端十九倍」
-    const [from, to] = figs(NUMS, /([\d.]+) % 到 ([\d.]+) %，端到端十九倍/, '`numbers` on the span')
+    const [from, to] = figs(NUMS, /([\d.]+) % 到 ([\d.]+) %，两端相差十九倍/, '`numbers` on the span')
     expect([String(from), String(to)], 'the two ends of the span').toEqual([printed[0], printed[4]])
     // 「十九倍」 is a floor — the ratio is 19.55, and the sentence says nineteen times over.
     expect(from! / to!, 'the ratio the prose names in characters').toBeGreaterThan(19)
@@ -975,7 +975,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
       expect(val(groups.find((x) => x !== undefined)!), 'the margin the table rests on').toBe(pooled)
     }
     // 「不是速率余量固定留的 3 dB」: the margin the rate picker leaves, out of `phy.ts`.
-    const [rateMargin] = figs(TERMS, /速率余量固定留的 (\d+) dB/, 'the `margin` gloss on the rate margin')
+    const [rateMargin] = figs(TERMS, /速率余量固定保留的 (\d+) dB/, 'the `margin` gloss on the rate margin')
     expect(rateMargin, 'the margin `dataRateFor` adds to every sensitivity')
       .toBe(figs(PHY, /rssiDbm >= r\.sensDbm \+ (\d+)/, 'the margin in `phy.ts`')[0])
   })
@@ -987,7 +987,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
     same(String(rise), noiseDbm(to!) - noiseDbm(from!), 'the noise floor’s own rise')
     // Printed again in the next sentence, and again in `deeper` as a coincidence to warn about.
     for (const groups of every([NUMS, DEEP].join('\n'),
-      /这 ([\d.]+) dB 抵掉了|与噪声地板那一节的 ([\d.]+) dB 数值相同/g,
+      /抵消了这 ([\d.]+) dB|与噪声地板那一节的 ([\d.]+) dB 数值相同/g,
       'the same rise, twice more', 2)) {
       expect(val(groups.find((x) => x !== undefined)!), 'the rise the two sentences name').toBe(rise)
     }
@@ -1023,12 +1023,12 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
       }
       return (100 * n) / N
     }
-    const [k, ricePct] = figs(ALL, /K = (\d+) dB）?抽逐格偏差，([\d.]+) % 落在这个窗口里/,
+    const [k, ricePct] = figs(ALL, /K = (\d+) dB）?抽取逐格偏差，([\d.]+) % 落在这个窗口里/,
       '`numbers` on the Rician share')
     const rice = inside({ shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rician', ricianKdB: k })
     expect(Math.round(rice * 10) / 10, 'the share of Rician draws inside the window')
       .toBeCloseTo(ricePct!, 0)
-    const [rayPct] = figs(NUMS, /才有 ([\d.]+) % 落在窗口外被夹住/, '`numbers` on the Rayleigh share')
+    const [rayPct] = figs(NUMS, /才有 ([\d.]+) % 落在窗口外而被限幅/, '`numbers` on the Rayleigh share')
     const ray = 100 - inside({ shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' })
     expect(Math.round(ray * 10) / 10, 'and the share of Rayleigh draws outside it')
       .toBeCloseTo(rayPct!, 0)
@@ -1074,7 +1074,7 @@ describe('selectivity · every figure the prose prints, read back out of it', ()
     const rs = WIDTHS.map((_w, i) => rowOf(i))
     // 「worst bin 从约 10 dB 深到约 23 dB——每翻一倍约 3 dB」
     const [shallow, deep, perDouble] = figs(OBS,
-      /worst bin 从约 (\d+) dB 深到约 (\d+) dB——每翻一倍约 (\d+) dB/, 'the first observe line')
+      /worst bin 从约 (\d+) dB 加深到约 (\d+) dB——每翻一倍约 (\d+) dB/, 'the first observe line')
     expect(Math.round(-rs[0]!.medWorstDb), 'the narrow end, as the line rounds it').toBe(shallow)
     expect(Math.round(-rs[4]!.medWorstDb), 'and the wide end').toBe(deep)
     expect((deep! - shallow!) / Math.log2(320 / 20), 'the deepening a doubling buys')

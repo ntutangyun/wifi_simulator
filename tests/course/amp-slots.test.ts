@@ -612,7 +612,7 @@ describe('amp-slots · both printed tables are read back out of the lesson', () 
         // and the Ack that closes it names the router itself, which is the rest of the cell
         const closing = acks.find((r) => r.t >= slots[i].t && r.t < slots[i].untilNs + 1_000_000)
         expect(closing, `row ${i}: no ampAck closes the collided slot`).toBeDefined()
-        expect(closing!.frame.dst, `row ${i}: 「Ack 点名的是路由器自己」`).toBe(closing!.frame.src)
+        expect(closing!.frame.dst, `row ${i}: 「Ack 标明的是路由器自己」`).toBe(closing!.frame.src)
       } else {
         const t = num(row[3])
         expect(Number.isNaN(t), `row ${i}: an acknowledged slot states the time it closed`).toBe(false)
@@ -697,7 +697,7 @@ describe('amp-slots · both printed tables are read back out of the lesson', () 
   })
 
   it('the sit-out sentence: the draws, the sit-outs and the rate', () => {
-    const m = /实测 (\d+) 次中空转 (\d+) 次，([\d.]+) %/.exec(prose())
+    const m = /实测 (\d+) 次中轮空 (\d+) 次，([\d.]+) %/.exec(prose())
     expect(m, 'the sit-out sentence is gone, or its shape changed').not.toBeNull()
     const rs = recs(ACWE3)
     const draws = ofType(rs, 'AMP_ABOC')
@@ -709,13 +709,13 @@ describe('amp-slots · both printed tables are read back out of the lesson', () 
   })
 
   it('the Ack census: a hundred and twenty Acks, and who each of them named', () => {
-    const m = /(.+?)轮下来，(\d+) 帧 Ack 里 (\d+) 帧点名了某个标签，(\d+) 帧写的是路由器自己/.exec(prose())
+    const m = /(.+?)轮下来，(\d+) 帧 Ack 里 (\d+) 帧标明了某个标签，(\d+) 帧标明的是路由器自己/.exec(prose())
     expect(m, 'the Ack census sentence is gone, or its shape changed').not.toBeNull()
     const rs = recs()
     const acks = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'ampAck')
     expect(Number(m![2]), 'Acks in the run').toBe(acks.length)
     expect(Number(m![2]), 'which is one per slot of every round').toBe(4 * ROUNDS)
-    // 「点名了某个标签」 vs 「写的是路由器自己」: the self-addressed Ack is the collided-slot one
+    // 「标明了某个标签」 vs 「标明的是路由器自己」: the self-addressed Ack is the collided-slot one
     const toTag = acks.filter((r) => r.frame.dst !== r.frame.src).length
     expect(Number(m![3]), 'Acks that named a tag').toBe(toTag)
     expect(Number(m![4]), 'and Acks that named the router itself').toBe(acks.length - toTag)
@@ -900,7 +900,7 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     expect(bases.length, 'the lesson gives the window formula more than once').toBeGreaterThan(1)
     for (const b of bases) expect(b, 'the same formula every time').toEqual(bases[0])
     const [base, off] = bases[0]!
-    // 「slot = ABOC + 1（当 ABOC < N），否则空转」 and 「在第 ABOC + 1 个时隙发送」
+    // 「slot = ABOC + 1（当 ABOC < N），否则轮空」 and 「在第 ABOC + 1 个时隙发送」
     const slotOffs = [...EVERYWHERE.matchAll(/slot = ABOC \+ (\d)|在第 ABOC \+ (\d) 个时隙发送/g)]
       .flatMap((m) => m.slice(1).filter((x) => x !== undefined)).map(val)
     expect(slotOffs.length, 'and the slot rule more than once').toBeGreaterThan(1)
@@ -953,7 +953,7 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     expect(abocs(undefined), 'every tag draws once a round, all run long').toHaveLength(draws!)
     expect(draws! / ROUNDS, 'which is one draw per tag per round')
       .toBe(ampSlots.scenario().nodes.length - 1)
-    // 「标签在 0 到 ACW 之间抽一个数」 — `terms` and `picture`; the 0 is the floor of every draw
+    // 「标签在 0 到 ACW 之间随机抽取一个数」 — `terms` and `picture`; the 0 is the floor of every draw
     for (const v of everyFig(/在 (\d) 到 ACW 之间/g, 'the floor of the window', 2)) {
       expect(Math.min(...abocs(ACWE3).map((r) => r.aboc)), 'the smallest draw the run made')
         .toBe(val(v))
@@ -961,9 +961,9 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
   })
 
   it('the round’s own arithmetic, term by term, and what it costs at each poll interval', () => {
-    // 「轮询间隔从 100 ms 收紧到 20 ms，于是三十轮正好装进 600 ms」
+    // 「轮询间隔从 100 ms 缩短到 20 ms，于是三十轮正好占满 600 ms」
     const [was, now, window] = figs(nums,
-      /轮询间隔从 (\d+) ms 收紧到 (\d+) ms，于是三十轮正好装进 (\d+) ms/,
+      /轮询间隔从 (\d+) ms 缩短到 (\d+) ms，于是三十轮正好占满 (\d+) ms/,
       '`numbers` on the two poll intervals and the window')
     expect(was, 'the interval every other AMP scene uses, which is the engine’s own default')
       .toBe(DEFAULT_AMP_AP.pollIntervalMs)
@@ -1016,8 +1016,8 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       const d = abocs(undefined).find((a) => a.node === r.node && a.slot === collided.slot)!
       expect(d.aboc, `${r.node} had drawn that number`).toBe(draw)
     }
-    // 「以及 2972 µs（时隙关闭那一瞬）的一条 COLLISION」 — and one RX_MISS per response, no RX_FAIL
-    const [closeUs] = figs(nums, /以及 (\d+) µs（时隙关闭那一瞬）的一条 COLLISION/,
+    // 「以及 2972 µs（时隙结束的那一刻）的一条 COLLISION」 — and one RX_MISS per response, no RX_FAIL
+    const [closeUs] = figs(nums, /以及 (\d+) µs（时隙结束的那一刻）的一条 COLLISION/,
       '`numbers` on when the collision is recorded')
     expect(collided.until / US, 'which is the instant that slot closes').toBe(closeUs)
     const colls = ofType(rs, 'COLLISION').filter((r) => r.t === collided.until)
@@ -1028,18 +1028,18 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     for (const m of missed) expect(m.reason, 'and all for the same reason').toBe('preambleSinr')
     expect(ofType(rs, 'RX_FAIL').filter((r) => r.node === AP), 'and no RX_FAIL at all')
       .toHaveLength(0)
-    // 「2982 µs 那帧 Ack 和平常一样是 330 µs 的 PPDU……三个标签都在 3312 µs 读到它」
+    // 「2982 µs 那帧 Ack 和平常一样是 330 µs 的 PPDU……三个标签都在 3312 µs 收到它」
     const [ackAt, ackUs, readAt] = figs(nums,
-      /(\d+) µs 那帧 Ack 和平常一样是 (\d+) µs 的 PPDU[\s\S]*?都在 (\d+) µs 读到它/,
+      /(\d+) µs 那帧 Ack 和平常一样是 (\d+) µs 的 PPDU[\s\S]*?都在 (\d+) µs 收到它/,
       '`numbers` on the Ack that closes it')
     const ackTx = txs(rs, 'ampAck').find((r) => r.t / US === ackAt)
     expect(ackTx, 'an Ack starts at that instant').toBeDefined()
     expect(ackTx!.frame.dst, 'and its ID field carries the router itself').toBe(ackTx!.frame.src)
     expect(ackTx!.frame.txTimeNs / US, 'an Ack’s own length').toBe(ackUs)
     expect(ackAt! + ackUs!, 'and the tags read it when it ends').toBe(readAt)
-    // 「三十轮下来，120 帧 Ack 里 46 帧点名了某个标签，74 帧写的是路由器自己」
+    // 「三十轮下来，120 帧 Ack 里 46 帧标明了某个标签，74 帧标明的是路由器自己」
     const [acks, toTag, toSelf] = figs(nums,
-      /(\d+) 帧 Ack 里 (\d+) 帧点名了某个标签，(\d+) 帧写的是路由器自己/,
+      /(\d+) 帧 Ack 里 (\d+) 帧标明了某个标签，(\d+) 帧标明的是路由器自己/,
       '`numbers` on the Ack census')
     const all = txs(rs, 'ampAck')
     expect(all, 'one Ack per slot per round').toHaveLength(acks!)
@@ -1107,13 +1107,13 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     expect(val(us!) * US, 'and this is the air they hold open').toBe((slots - reach1) * SLOT_NS)
     same(share!, (100 * (slots - reach1) * SLOT_NS) / ROUND_NS, 'as a share of the round')
     // the quiz prices the same pair again
-    const [quizUs, quizShare] = raw(quizText, /照样要花 (\d+) µs，占每轮的 ([\d.]+) %/,
+    const [quizUs, quizShare] = raw(quizText, /仍然要占用 (\d+) µs，占每轮的 ([\d.]+) %/,
       'the quiz on the same two figures')
     expect(val(quizUs!), 'the quiz states the same microseconds').toBe(val(us!))
     expect(val(quizShare!), 'and the same share').toBe(val(share!))
-    // 「可达时隙里 88.3 % 以碰撞收场，整整 600 ms 只送达 7 个读数（每轮 0.23 个）」
+    // 「可达时隙里 88.3 % 以碰撞告终，整整 600 ms 只送达 7 个读数（每轮 0.23 个）」
     const [collided, wholeRun, delivered, each] = raw(nums,
-      /可达时隙里 ([\d.]+) % 以碰撞收场，整整 (\d+) ms 只送达 (\d+) 个读数（每轮 ([\d.]+) 个）/,
+      /可达时隙里 ([\d.]+) % 以碰撞告终，整整 (\d+) ms 只送达 (\d+) 个读数（每轮 ([\d.]+) 个）/,
       '`numbers` on what ACWE 1 delivers')
     expect(val(wholeRun!) * MS, 'the window, which this sentence prints again').toBe(RUN_NS)
     const c1 = slotCensus(recs(ACWE1), reach1)
@@ -1131,9 +1131,9 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     expect(val(coll3!), 'the collided slots of the whole run').toBe(c3.collision)
     expect(val(read3!), 'the readings it delivered').toBe(readingsDelivered(recs(ACWE3)))
     same(each3!, readingsDelivered(recs(ACWE3)) / ROUNDS, 'and the same per round')
-    // 「ACWE 2 落在中间，46 个读数、每轮 1.53 个，送达最少的那个标签送出 4 个，而 ACWE 3 下是 6 个」
+    // 「ACWE 2 落在中间，46 个读数、每轮 1.53 个，送达读数最少的标签也送达了 4 个，而 ACWE 3 下是 6 个」
     const [read2, each2, worst2, worst3] = raw(nums,
-      /ACWE 2 落在中间，(\d+) 个读数、每轮 ([\d.]+) 个，送达最少的那个标签送出 (\d+) 个，而 ACWE 3 下是 (\d+) 个/,
+      /ACWE 2 落在中间，(\d+) 个读数、每轮 ([\d.]+) 个，送达读数最少的标签也送达了 (\d+) 个，而 ACWE 3 下是 (\d+) 个/,
       '`numbers` on the middle')
     expect(val(read2!), 'the readings at ACWE 2').toBe(readingsDelivered(recs()))
     same(each2!, readingsDelivered(recs()) / ROUNDS, 'and the same per round')
@@ -1217,23 +1217,23 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     const ctsTx = txs(rs, 'cts')[0]!
     const lastInPoll = ofType(rs, 'TX_END').filter((r) => r.t < cfgOf(TWO_PHASE).pollIntervalMs * MS).pop()!
     expect((lastInPoll.t - ctsTx.t) / US, 'the first two-phase poll, end to end').toBe(both)
-    // 「内联模式下同样的三个读数只花了 4190 µs，两阶段多花 2430 µs」
-    const [inline, more] = figs(two.note!, /只花了 (\d+) µs，两阶段多花 (\d+) µs/,
+    // 「内联模式下同样的三个读数只用了 4190 µs，两阶段多用 2430 µs」
+    const [inline, more] = figs(two.note!, /只用了 (\d+) µs，两阶段多用 (\d+) µs/,
       'the note on what the second phase costs')
     expect(inline! * US, 'the inline round').toBe(ROUND_NS)
     expect(both! - inline!, 'and the difference the note prints').toBe(more)
     const firstPoll = (x: TLRecord[]): TLRecord[] => x.filter((r) => r.t < 20 * MS)
     expect(readingsDelivered(firstPoll(rs)), 'for the same readings as inline’s first round')
       .toBe(readingsDelivered(firstPoll(recs())))
-    // 「它的 CTS-to-self 要预留 7512 µs」, and 「三十轮里有 4 轮一个标签也没听到」
+    // 「它的 CTS-to-self 要预留 7512 µs」, and 「三十轮里有 4 轮一个标签也没有收到」
     const [reserve] = figs(two.note!, /要预留 (\d+) µs/, 'the note on the CTS-to-self')
     expect(reserve! * US, 'what the CTS-to-self really reserves').toBe(ctsTx.frame.durationFieldNs)
-    const [silent] = figs(two.note!, /三十轮里有 (\d+) 轮一个标签也没听到/,
+    const [silent] = figs(two.note!, /三十轮里有 (\d+) 轮一个标签也没有收到/,
       'the note on the rounds with no scheduled phase')
     expect(silent, 'the polls that heard nobody').toBe(ROUNDS - scheduled.length)
-    // 「两种模式送达的读数一样多，都是 46 个：内联花了 154 730 µs 的 PPDU，两阶段花了 167 130 µs，多 8.0 %」
+    // 「两种模式送达的读数一样多，都是 46 个：内联模式的 PPDU 共占用 154 730 µs，两阶段占用 167 130 µs，多 8.0 %」
     const [both46, airInline, airTwo, pct] = raw(nums,
-      /都是 (\d+) 个：内联花了 ([\d\s]+) µs 的 PPDU，两阶段花了 ([\d\s]+) µs，多 ([\d.]+) %/,
+      /都是 (\d+) 个：内联模式的 PPDU 共占用 ([\d\s]+) µs，两阶段占用 ([\d\s]+) µs，多 ([\d.]+) %/,
       '`numbers` on the air the two modes spend')
     expect(val(both46!), 'the readings inline delivers').toBe(readingsDelivered(recs()))
     expect(val(both46!), 'and the readings two-phase delivers').toBe(readingsDelivered(rs))
@@ -1248,9 +1248,9 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     const obs = ampSlots.observe.join('\n')
     const trys = ampSlots.tryThis.join('\n')
     const { slots } = cfgOf(undefined)
-    // 「三帧回应在 2444 µs 一起开始、在 2972 µs 结束，COLLISION 就落在那里。打开 2982 µs 那帧 Ack」
+    // 「三帧回应在 2444 µs 同时开始、在 2972 µs 结束，COLLISION 就记录在这一时刻。打开 2982 µs 那帧 Ack」
     const [from, to, ackAt] = figs(obs,
-      /三帧回应在 (\d+) µs 一起开始、在 (\d+) µs 结束[\s\S]*?打开 (\d+) µs 那帧 Ack/,
+      /三帧回应在 (\d+) µs 同时开始、在 (\d+) µs 结束[\s\S]*?打开 (\d+) µs 那帧 Ack/,
       '`observe` on the collided slot')
     const collided = perSlot(undefined).find((s) => s.n > 1)!
     expect(collided.t / US, 'when those responses start').toBe(from)
@@ -1275,9 +1275,9 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       '`observe` on how many values Tag 3 draws')
     expect(zhNumeral(howMany!), 'four of them, which that sentence writes in Chinese')
       .toBe(acwOf(undefined) + 1)
-    // 「跳到 678 µs 的第一次空转：Tag 3 从 [0, 7] 抽到 5，整轮保持沉默」
+    // 「跳到 678 µs 的第一次轮空：Tag 3 从 [0, 7] 抽到 5，整轮保持沉默」
     const [sitAt, lo, hi, drew] = figs(obs,
-      /跳到 (\d+) µs 的第一次空转：Tag 3 从 \[(\d), (\d)\] 抽到 (\d)/,
+      /跳到 (\d+) µs 的第一次轮空：Tag 3 从 \[(\d), (\d)\] 抽到 (\d)/,
       '`observe` on the first sit-out')
     const sit = abocs(ACWE3).filter((r) => r.slot === null)[0]!
     expect(sit.t / US, 'when the first sit-out is recorded').toBe(sitAt)
@@ -1299,7 +1299,7 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     same(t2!, readingsDelivered(recs()) / ROUNDS, 'ACWE 2 per round')
     same(t3!, readingsDelivered(recs(ACWE3)) / ROUNDS, 'ACWE 3 per round')
     /*
-     * 「用编辑器在同样 2 m 的距离上再加第七个标签……送达率从每轮 1.53 个读数掉到 1.03 个，碰撞
+     * 「用编辑器在同样 2 m 的距离上再加第七个标签……送达率从每轮 1.53 个读数降到 1.03 个，碰撞
      * 时隙占比从 45.0 % 升到 59.2 %——模型预测 55.5 %」. `ampSlotsScenario` keeps a seventh
      * position on the ring for exactly this experiment, so this IS the reader's own run.
      */
@@ -1313,7 +1313,7 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     }
     const seven = [...new Simulation(sevenScene).runUntil(RUN_NS).records]
     const [was, now, wasColl, nowColl, predicted] = raw(trys,
-      /从每轮 ([\d.]+) 个读数掉到 ([\d.]+) 个，碰撞时隙占比从 ([\d.]+) % 升到 ([\d.]+) %——模型预测 ([\d.]+) %/,
+      /从每轮 ([\d.]+) 个读数降到 ([\d.]+) 个，碰撞时隙占比从 ([\d.]+) % 升到 ([\d.]+) %——模型预测 ([\d.]+) %/,
       '`tryThis` on what the seventh tag costs')
     same(was!, readingsDelivered(recs()) / ROUNDS, 'what six tags deliver')
     same(now!, readingsDelivered(seven) / ROUNDS, 'and what seven do')
@@ -1360,7 +1360,7 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       }
     }
     /*
-     * 「于是 1 − p 就是空转率」 and 「1 − p 预言 ACWE 3 下有一半抽取会空转」. A tolerance is right
+     * 「于是 1 − p 就是轮空率」 and 「1 − p 预测 ACWE 3 下有一半抽取会轮空」. A tolerance is right
      * here and nowhere else in this file: this compares a MODEL with a measurement, not a
      * printed figure with one — 50.6 % against the predicted 50 % — and the printed 50.6 % and
      * 91 are read exactly by the sit-out test above.
@@ -1374,7 +1374,7 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
           .toBeCloseTo(sits / drawn.length, 1)
       }
     }
-    // 「ACWE 1 与 2 下公式给出 p = 1，实测也确实一次空转都没有」
+    // 「ACWE 1 与 2 下公式给出 p = 1，实测也确实一次轮空都没有」
     const [noSitA, noSitB, pIs] = figs(nums, /ACWE (\d) 与 (\d) 下公式给出 p = (\d)/,
       '`numbers` on where nothing sits out')
     for (const acwe of [noSitA!, noSitB!]) {
@@ -1387,8 +1387,8 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       expect(abocs(variant).filter((r) => r.acw > 0 && r.slot === null),
         `ACWE ${acwe}: and nothing sits out`).toHaveLength(0)
     }
-    // 「ABOC 是从 0 到 ACW = 1 之间抽的」 (the quiz, about ACWE 1)
-    const [floor, acw1] = figs(quizText, /ABOC 是从 (\d) 到 ACW = (\d) 之间抽的/,
+    // 「ABOC 是从 0 到 ACW = 1 之间抽取的」 (the quiz, about ACWE 1)
+    const [floor, acw1] = figs(quizText, /ABOC 是从 (\d) 到 ACW = (\d) 之间抽取的/,
       'the quiz on the window at ACWE 1')
     expect(acw1, 'the window ACWE 1 gives').toBe(acwOf(ACWE1))
     expect(Math.min(...abocs(ACWE1).map((r) => r.aboc)), 'and the floor of every draw').toBe(floor)
@@ -1423,10 +1423,10 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       'the run whose window is narrower than its round', 3)) {
       expect(val(v), 'the only run that cannot fill its own round').toBe(starved[0])
     }
-    // 「ACWE 3 是另一端，宽松得多」 / 「1 − p 预言 ACWE 3 下有一半抽取会空转」
+    // 「ACWE 3 是另一端，宽松得多」 / 「1 − p 预测 ACWE 3 下有一半抽取会轮空」
     const sitting = runs.filter((v) => pOf(v) < 1).map((v) => cfgOf(v).acwe)
     expect(sitting, 'exactly one run sits out at all').toHaveLength(1)
-    for (const v of everyFig(/ACWE (\d) 是另一端|预言 ACWE (\d) 下有一半/g,
+    for (const v of everyFig(/ACWE (\d) 是另一端|预测 ACWE (\d) 下有一半/g,
       'the run whose draws sit out', 2)) {
       expect(val(v), 'the only run whose draws fall outside the slots').toBe(sitting[0])
     }
@@ -1460,9 +1460,9 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
     for (const v of everyFig(/Tag (\d)/g, 'a tag the prose names', 8)) {
       expect(TAGS, `Tag ${v} is a node of this scene`).toContain(`tag-${val(v)}#2g`)
     }
-    // 「时隙 3、4 从构造上就不可达」 / 「时隙 3 和 4 里永远什么都没有」 — three sites of one pair
+    // 「时隙 3、4 从构造上就不可达」 / 「时隙 3 和 4 始终为空」 — three sites of one pair
     const unreachable = Array.from({ length: slots - reach1 }, (_x, i) => reach1 + 1 + i)
-    const pairs = [...EVERYWHERE.matchAll(/时隙 (\d)\s*[、和]\s*(\d)\s*(?:从构造上|里永远)/g)]
+    const pairs = [...EVERYWHERE.matchAll(/时隙 (\d)\s*[、和]\s*(\d)\s*(?:从构造上|始终为空)/g)]
       .map((m) => [val(m[1]!), val(m[2]!)])
     expect(pairs.length, 'the lesson names that pair of slots three times')
       .toBeGreaterThanOrEqual(3)
@@ -1478,8 +1478,8 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       '`observe` on whose sit-out it is')
     expect(abocs(ACWE3).filter((r) => r.slot === null)[0]!.node, 'the first tag to sit out')
       .toBe(`tag-${sitTag}#2g`)
-    // 「随机阶段听到了 Tag 2、Tag 1 和 Tag 4，调度触发帧按这个顺序列出它们」
-    const order = [...raw(nums, /随机阶段听到了 Tag (\d)、Tag (\d) 和 Tag (\d)/,
+    // 「随机阶段收到了 Tag 2、Tag 1 和 Tag 4，调度触发帧按这个顺序列出它们」
+    const order = [...raw(nums, /随机阶段收到了 Tag (\d)、Tag (\d) 和 Tag (\d)/,
       '`numbers` on whom the random phase heard')].map(val)
     const sched = txs(recs(TWO_PHASE), 'ampTrigger')
       .filter((r) => (r.frame.amp?.staIds ?? []).length > 0)[0]!
@@ -1493,14 +1493,14 @@ describe('amp-slots · every figure the prose prints, read back out of it', () =
       .filter((r) => (r.frame.amp?.staIds ?? []).length > 0)
     const listed = (scheduled[0]!.frame.amp!.staIds ?? []).length
     // 「两阶段调度触发帧里每个标签 2 字节的 ID（amp.ts 的 AMP_STA_ID_BYTES）与 6 字节的触发帧
-    //  帧体（AMP_TRIGGER_BODY_BYTES）都是本仿真器自己选的宽度」
+    //  帧体（AMP_TRIGGER_BODY_BYTES）都是本仿真器自行选定的宽度」
     const [idWidth, bodyWidth] = figs(limitsText,
       /每个标签 (\d+) 字节的 ID（amp\.ts 的 AMP_STA_ID_BYTES）与 (\d+) 字节的触发帧帧体/,
       '`limits` on the two widths it owns')
     expect(idWidth, 'the ID width `amp.ts` really exports').toBe(AMP_STA_ID_BYTES)
     expect(bodyWidth, 'and the trigger body').toBe(AMP_TRIGGER_BODY_BYTES)
-    // 「调度触发帧可能用不一样的字节数，810 µs 这个数字也会跟着变」
-    const [schedUs] = figs(limitsText, /(\d+) µs 这个数字也会跟着变/,
+    // 「调度触发帧可能使用不同的字节数，810 µs 这个数字也会随之改变」
+    const [schedUs] = figs(limitsText, /(\d+) µs 这个数字也会随之改变/,
       '`limits` on the figure those widths decide')
     expect(schedUs! * US, 'the scheduled trigger this run really builds')
       .toBe(ampDlPpduNs(250, ampTriggerBytes(listed), EXT))

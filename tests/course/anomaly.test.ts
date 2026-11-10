@@ -89,7 +89,7 @@ lessonShapeSuite(anomaly, { runNs: RUN_NS })
 
 describe('anomaly · the lesson’s own scene', () => {
   it('leans on airtime and the collision lesson, and names the anomaly itself', () => {
-    expect(MODULES[anomaly.module].title).toBe('听不见的邻居与损失')
+    expect(MODULES[anomaly.module].title).toBe('隐藏节点与帧丢失')
     // §6 of the re-pacing plan: `backoff`'s second half owns the deadline and the
     // doubling this lesson's step 2 and its unacknowledged turns lean on.
     expect(anomaly.needs).toEqual(['airtime', 'collisions-cw'])
@@ -422,7 +422,7 @@ describe('anomaly · which of its limits another lesson actually lifts', () => {
   const byNeedle = (n: string) => anomaly.limits.find((l) => l.text.includes(n))!
 
   it('points the two rate-control limits at a deeper read, not at a lift', () => {
-    for (const needle of ['这里的速率控制只有两个计数', '它分不清碰撞与衰落']) {
+    for (const needle of ['这里的速率控制只有两个计数', '它无法区分碰撞与衰落']) {
       const lim = byNeedle(needle)
       expect(lim.seeAlso, `${needle} should be a deeper read`).toBe('rate-vs-model')
       expect(lim.until, `${needle} is not lifted by any lesson`).toBeUndefined()
@@ -432,12 +432,12 @@ describe('anomaly · which of its limits another lesson actually lifts', () => {
   it('and `rate-vs-model` restates both rather than removing them', () => {
     const rvm = LESSONS.find((l) => l.id === 'rate-vs-model')!
     const text = rvm.limits.map((l) => l.text).join(' / ')
-    expect(text).toContain('连续两次失败降一档，连续十次成功涨一档')
+    expect(text).toContain('连续两次失败降一档，连续十次成功升一档')
     expect(text).toContain('没有任何机制去区分两者')
   })
 
   it('promises the TXOP limit as a lift, on the kind that can be lifted', () => {
-    const lim = byNeedle('没有发送机会（TXOP），也不聚合')
+    const lim = byNeedle('没有传输机会（transmit opportunity, TXOP），也不聚合')
     expect(lim.until).toBe('txop')
     // not `unmodelled`: the engine builds both, this scene's stations just cannot use them
     expect(lim.kind).toBe('out-of-scope')
@@ -446,10 +446,10 @@ describe('anomaly · which of its limits another lesson actually lifts', () => {
     // prefix to 「这个模型答不了：」, and the sentence used to start 「每一轮的长短只由速率
     // 决定」 — a reader meets 「这个模型答不了：每一轮的长短只由速率决定」 and can conclude
     // the engine does not model frame length, which is the opposite of true. The scope goes
-    // first, the way `backoff`'s limit already did (「这个场景里一次成功只换来一帧」); the
+    // first, the way `backoff`'s limit already did (「这个场景里一次竞争成功只能发送一帧」); the
     // `width` trunk was fixed for the same reason, and that lesson's test pins it too.
-    expect(lim.text.startsWith('本场景的站点不打业务标记')).toBe(true)
-    expect(lim.text).toContain('每一轮的长短只由速率决定')
+    expect(lim.text.startsWith('本场景的站点不为帧标注业务类别')).toBe(true)
+    expect(lim.text).toContain('每一轮的时长只由速率决定')
   })
 
   it('and the axis really is the station generation: nonht here, vht there', () => {
@@ -473,9 +473,9 @@ describe('anomaly · which of its limits another lesson actually lifts', () => {
   it('and `backoff` says nearly the same thing on the same kind, which is how the mislabel showed', () => {
     const bo = LESSONS.find((l) => l.id === 'backoff')!.limits.find((l) => l.until === 'txop')!
     expect(bo.kind).toBe('out-of-scope')
-    for (const shared of ['不打业务标记', '没有发送机会（TXOP）', '连发一串']) {
+    for (const shared of ['不为帧标注业务类别', '没有传输机会（transmit opportunity, TXOP）', '连续发送多帧']) {
       expect(bo.text, `backoff: ${shared}`).toContain(shared)
-      expect(byNeedle('没有发送机会（TXOP），也不聚合').text, `anomaly: ${shared}`).toContain(shared)
+      expect(byNeedle('没有传输机会（transmit opportunity, TXOP），也不聚合').text, `anomaly: ${shared}`).toContain(shared)
     }
   })
 })
@@ -559,8 +559,8 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
 
   it('reads the figure’s own heading and caption: three turns each, two lengths', () => {
     // 「同一段 3.6 ms 里，两台各三轮」
-    const [ms] = figs(diagramHeading(), /同一段 ([\d.]+) ms 里/, 'the figure’s own window')
-    const [eachCn] = raw(diagramHeading(), /两台各(.)轮/, 'the figure’s own turn count')
+    const [ms] = figs(diagramHeading(), /同一段 ([\d.]+) ms 内/, 'the figure’s own window')
+    const [eachCn] = raw(diagramHeading(), /两台站点各(.)轮/, 'the figure’s own turn count')
     const spans = anomalyTiming().lanes.map((l) => l.spans.length)
     expect(spans, 'the figure draws that many turns in each lane')
       .toEqual([cn(eachCn!), cn(eachCn!)])
@@ -568,7 +568,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
     same(String(ms), (axis.toUs - axis.fromUs) / 1000, 'the window the figure is drawn over')
     // 「近端每轮 248 µs，远端每轮 704 µs，两边装的都是 1528 字节」
     const [nearUs, farUs, bytes] = figs(caption(),
-      /近端每轮 (\d+) µs，远端每轮 (\d+) µs，两边装的都是 (\d+) 字节/, 'the caption on the two turns')
+      /近端每轮 (\d+) µs，远端每轮 (\d+) µs，双方承载的都是 (\d+) 字节/, 'the caption on the two turns')
     expect(nearUs, 'the near station’s turn, as the run really sends it')
       .toBe(stats('sta-1').perTurnUs)
     expect(farUs! * 1000, 'the far station’s best turn, which is its shortest frame')
@@ -627,7 +627,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
       expect(turns, `the turns ${node} wins`).toBe(s.turns)
       const [perTurn] = figs(row('每轮的空口时间')[i]!, /^(\d+) µs$/, `${node}’s turn length`)
       expect(perTurn, `the air one of its turns takes`).toBe(s.perTurnUs)
-      const [airMs, share] = figs(row('占住的空口时间')[i]!, /^([\d.]+) ms · ([\d.]+) %$/,
+      const [airMs, share] = figs(row('占用的空口时间')[i]!, /^([\d.]+) ms · ([\d.]+) %$/,
         `${node}’s air and share`)
       same(String(airMs), s.airMs, `the air ${node} holds`)
       same(String(share), s.sharePct, 'and its share of the window')
@@ -657,7 +657,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
     const s = stats('sta-2')
     expect([turns, ok], 'what it wins and what it gets answered').toEqual([s.turns, s.ok])
     // 「远端 154 轮里有 19 轮整帧失败」 — `limits` prints the difference
-    const [limTurns, lost] = figs(LIM, /远端 (\d+) 轮里有 (\d+) 轮整帧失败/, '`limits` on the failures')
+    const [limTurns, lost] = figs(LIM, /远端 (\d+) 轮中有 (\d+) 轮整帧失败/, '`limits` on the failures')
     expect(limTurns, 'the same turns').toBe(turns)
     expect(lost, 'and the ones that failed whole').toBe(s.turns - s.ok)
     // 「时间轴上一次碰撞都没记」 and 「那个场景里各站点的到达电平相差 34.4 dB」
@@ -678,7 +678,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
      * 0.1 dB). What is read is the claim: the engine's threshold for the rung this station runs
      * really is a single number, and a reception a tenth of a decibel under it is under it.
      */
-    const [epsilon] = figs(LIM, /够就全收、差 ([\d.]+) dB 就全废/, '`limits` on the hard line')
+    const [epsilon] = figs(LIM, /满足就整帧接收成功，差 ([\d.]+) dB 就整帧失败/, '`limits` on the hard line')
     const rung = data(rs, 'sta-2')[0]!.frame.mbps
     const need = sinrThreshDb(rung)
     expect(need - epsilon!, 'a tenth of a decibel under the requirement is under it')
@@ -690,7 +690,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
 
   it('reads what `observe` says about the two lanes, window and all', () => {
     // 「检视器：前 200 ms 里两者的轮次相当，可远端占用的空口时间是近端的两倍多」
-    const [obsMs] = figs(OBS, /前 (\d+) ms 里两者的轮次相当/, '`observe` on its own window')
+    const [obsMs] = figs(OBS, /前 (\d+) ms 内两者的轮次相当/, '`observe` on its own window')
     expect(obsMs! * MS, 'the window every figure of this lesson is counted over').toBe(RUN_NS)
     const near = stats('sta-1')
     const far = stats('sta-2')
@@ -707,7 +707,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
      * had always said 「送达」 for the same pair).
      */
     const [ms, together, alone] = figs(NUMS,
-      /同样的 (\d+) ms 里近端送达的就不是 (\d+) 帧，而是 (\d+) 帧/, '`numbers` on the near station alone')
+      /同样的 (\d+) ms 内近端送达的不是 (\d+) 帧，而是 (\d+) 帧/, '`numbers` on the near station alone')
     expect(ms! * MS, 'the same window').toBe(RUN_NS)
     expect(together, 'what the near station delivers with the far one there').toBe(stats('sta-1').ok)
     expect(alone, 'and what it delivers alone').toBe(acked(nearAloneRun(), 'sta-1'))
@@ -722,7 +722,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
       .toBeGreaterThan(Math.max(stats('sta-1').turns, stats('sta-2').turns))
     // `tryThis` prints the near station's pair again
     const [tryMs, tryWas, tryNow] = figs(TRY,
-      /近端 (\d+) ms 内送达的帧数从 (\d+) 跳到 (\d+)/, '`tryThis` on the same experiment')
+      /近端 (\d+) ms 内送达的帧数从 (\d+) 增加到 (\d+)/, '`tryThis` on the same experiment')
     expect(tryMs! * MS, 'the same window again').toBe(RUN_NS)
     expect([tryWas, tryNow], 'the same two counts `numbers` prints')
       .toEqual([stats('sta-1').ok, acked(nearAloneRun(), 'sta-1')])
@@ -731,13 +731,13 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
   it('reads the steps: one DIFS, the window it draws from, and the answer', () => {
     // 「16 µs 的间隔加两个 9 µs 的时隙，合 34 µs」
     const [sifs, slotsCn, slot, difs] = raw(NUMS,
-      /(\d+) µs 的间隔加(.)个 (\d+) µs 的时隙，合 (\d+) µs/, 'the steps on the wait before a draw')
+      /(\d+) µs 的间隔加(.)个 (\d+) µs 的时隙，合计 (\d+) µs/, 'the steps on the wait before a draw')
     expect(val(sifs!) * 1000, 'the short interframe space').toBe(SIFS_NS)
     expect(val(slot!) * 1000, 'one slot').toBe(SLOT_NS)
     expect(val(sifs!) + cn(slotsCn!) * val(slot!), 'the sum the sentence states').toBe(val(difs!))
     expect(val(difs!) * 1000, 'which is the space the engine applies').toBe(DIFS_NS)
     // 「在 0 到自己的竞争窗口之间抽一个整数时隙数——窗口从 15 起步」
-    const [from, start] = figs(NUMS, /在 (\d+) 到自己的竞争窗口（contention window, CW）之间[^]*?窗口从 (\d+) 起步/,
+    const [from, start] = figs(NUMS, /在 (\d+) 到自己的竞争窗口（contention window, CW）之间[^]*?窗口初始值为 (\d+)/,
       'the steps on the draw')
     expect(start, 'the window both stations start from').toBe(CW_MIN)
     const draws = ofType(rs, 'BACKOFF_DRAW')
@@ -750,7 +750,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
     expect(nearUs, 'the near station’s turn').toBe(stats('sta-1').perTurnUs)
     expect(farUs, 'and the far station’s mean turn').toBe(stats('sta-2').perTurnUs)
     // 「接入点回一个 14 字节的确认帧」
-    const [ackBytes] = figs(NUMS, /接入点回一个 (\d+) 字节的确认帧/, 'the steps on the answer')
+    const [ackBytes] = figs(NUMS, /接入点回复一个 (\d+) 字节的确认帧/, 'the steps on the answer')
     expect(ackBytes, 'the acknowledgement the engine sends').toBe(ACK_BYTES)
     expect(new Set(txs(rs, (r) => r.frame.kind === 'ack').map((r) => r.frame.bytes)),
       'and every answer of the run is that size').toEqual(new Set([ackBytes]))
@@ -767,7 +767,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
         .toEqual(new Set([val(b!)]))
     }
     // 「它的吞吐量就是每秒被确认的轮次乘 1528 字节再乘 8 比特」
-    const [bytes, bits] = figs(NUMS, /每秒被确认的轮次乘 (\d+) 字节再乘 (\d+) 比特/,
+    const [bytes, bits] = figs(NUMS, /每秒被确认的轮次乘以 (\d+) 字节再乘以 (\d+) 比特/,
       'the steps on the throughput')
     expect(bytes, 'the payload it multiplies by').toBe(BYTES)
     expect(bits, 'and the bits in an octet').toBe(8)
@@ -778,7 +778,7 @@ describe('anomaly · every figure the prose prints, read back out of it', () => 
     //   检测底、4 dB 的前导检测余量」
     const [bytes] = figs(SRC, /这里的速率、(\d+) 字节的帧长/, '`sources` on the frame length')
     expect(bytes, 'the payload every frame of this scene carries').toBe(BYTES)
-    const [floor, margin] = figs(SRC, /(−\d+) dBm 的检测底、(\d+) dB 的前导检测余量/,
+    const [floor, margin] = figs(SRC, /(−\d+) dBm 的检测下限、(\d+) dB 的前导检测余量/,
       '`sources` on the two model values')
     expect(margin, 'the preamble-detection margin the engine applies').toBe(PREAMBLE_DETECT_SINR_DB)
     expect(floor, 'and the preamble-detect floor it exports').toBe(CCA_PD_DBM)

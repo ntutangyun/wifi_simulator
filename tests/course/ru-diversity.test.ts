@@ -170,7 +170,7 @@ describe('ru-diversity · where it sits and what it ships', () => {
   })
 
   it('ships the two legs as its own variants, and the schema accepts both', () => {
-    expect(lesson.variants!.map((v) => v.label)).toEqual(['两个成员（各四格）', '分片关掉（整条九格）'])
+    expect(lesson.variants!.map((v) => v.label)).toEqual(['两个成员（各四格）', 'OFDMA 关闭（整条九格）'])
     // Variant 0 is the base scene, so a reader flipping the switch flips one capability and
     // nothing else; the fixture records both and they have to be the same run.
     expect(lesson.variants![0]!.scenario()).toEqual(lesson.scenario())
@@ -200,7 +200,7 @@ describe('ru-diversity · the arithmetic the prose interpolates', () => {
     expect(mainText).toContain('2.03125')
     // The two figures the watch call-out and the observe line both read off a record.
     expect(mainText).toContain(`over bins 0–${selMemberBins(20, 1 / 2) - 1} of ${selBins(20)}`)
-    expect(mainText).toContain('第 8 格（格号从 0 数起）两台都没拿')
+    expect(mainText).toContain('第 8 格（格号从 0 开始计）两台都没有分到')
     expect(selBins(20) - 1).toBe(8)
     // …and the standard's two constants the `sources` quote.
     expect(RU26_TONES).toBe(26)
@@ -216,7 +216,7 @@ describe('ru-diversity · the arithmetic the prose interpolates', () => {
   it('builds every cell of the share table from selBins and selMemberBins', () => {
     const table = lesson.numbers!
       .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
-      .find((b) => b.heading?.includes('谁也没拿的那几格'))!
+      .find((b) => b.heading?.includes('未分配给任何成员的格'))!
     expect(table.rows.length).toBe(6)
     const want = ([w, n]: readonly [number, number]): string[] => [
       `${w} MHz，${n} 个成员`,
@@ -248,7 +248,7 @@ describe('ru-diversity · the arithmetic the prose interpolates', () => {
     const combos = widths.flatMap((w) => counts.map((n) => selBins(w) / n))
     expect(combos.length).toBe(15)
     expect(combos.filter((x) => !Number.isInteger(x)).length).toBe(3)
-    expect(mainText).toContain('十五种（带宽，成员数）组合里只有三种等分不出整数格')
+    expect(mainText).toContain('十五种（带宽，成员数）组合里只有三种等分后不是整数格')
   })
 
   /** The MU-MIMO-within-OFDMA floors `limits` and `sources` both quote, folded into bins. */
@@ -273,7 +273,7 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
     const dl = ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap')
     expect(dl.length).toBe(347)
     expect(new Set(dl.map((r) => r.frame.mcs))).toEqual(new Set([0]))
-    expect(mainText).toContain('每一帧都走最低一级的调制与编码方式')
+    expect(mainText).toContain('每一帧都使用最低一级的调制与编码方式')
 
     const sc = lesson.scenario()
     const links = buildLinkTable(sc.nodes, sc.walls)
@@ -296,7 +296,7 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
     // it is exactly 2 x 12 dB — the engine's own material constant, never a number chosen here.
     expect(bare.get('ap')!.get('sta-1')! - walled.get('ap')!.get('sta-1')!)
       .toBeCloseTo(2 * WALL_LOSS_DB.brick, 6)
-    expect(mainText).toContain('两道砖墙各吃掉十二个分贝')
+    expect(mainText).toContain('两道砖墙各造成十二分贝的损耗')
   })
 
   it('splits all but one of its downlink sends in two, on the OFDMA path only', () => {
@@ -315,9 +315,9 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
     for (const m of members) starts.set(m.sel.node, new Set([...(starts.get(m.sel.node) ?? []), m.sel.binStart]))
     for (const [id, s] of starts) expect(s.size, `${id} always took the same run`).toBe(2)
     /*
-     * 「按 muParts 的次序给一段连着的格号，而不是让每个成员都从第 0 格开始」 — `deeper` on what
+     * 「按 muParts 的次序分配一段连续的格号，而不是让每个成员都从第 0 格开始」 — `deeper` on what
      * the model does instead, and the 「第」 rule change of 2026-10-14 uncovered its figure. It
-     * is the bin the numbering starts at, which the lesson also states as 「格号从 0 数起」 and
+     * is the bin the numbering starts at, which the lesson also states as 「格号从 0 开始计」 and
      * which the records answer: one member of every pair really does begin there, and the other
      * does not, so 「不是每个成员都从第 0 格开始」 is a measured fact about this very run.
      */
@@ -376,7 +376,7 @@ describe('ru-diversity · the scene, before any of it is read as evidence', () =
     expect(fmtRecord(member).indexOf('selectivity')).toBe('sta-1 ⇠ ap '.length)
     expect(fmtNs(member.t)).toHaveLength(13)
     expect(mainText).not.toContain('selectivity 开头那一行')
-    expect(mainText).toContain('行首是时间戳，这个词在两个节点名之后')
+    expect(mainText).toContain('行首是时间戳，这个词位于两个节点名之后')
     /*
      * **C9, and the correction Task 6c made to it: there is no narrow-screen warning any more,
      * because the row no longer runs off any screen.**
@@ -447,10 +447,10 @@ describe('ru-diversity · the two legs, at one measured margin', () => {
     // What the table prints, to the cell.
     const table = lesson.numbers!
       .filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')
-      .find((b) => b.heading?.includes('同一个实测余量组里的两腿'))!
+      .find((b) => b.heading?.includes('同一个实测余量组里的两种配置'))!
     expect(table.rows.map((r) => [r[3], r[4]])).toEqual([
-      ['282 条里 74 条', '26.24 %'],
-      ['138 条里 25 条', '18.12 %'],
+      ['282 条中 74 条', '26.24 %'],
+      ['138 条中 25 条', '18.12 %'],
     ])
     expect(table.heading).toContain('1000 ms')
     /*
@@ -462,7 +462,7 @@ describe('ru-diversity · the two legs, at one measured margin', () => {
     const offAll = dlRows(runOf(lesson, WHOLE, GATE_NS))
     expect(offAll.length).toBe(140)
     expect(whole.length).toBe(138)
-    expect(mainText).toContain('140 条里的 138 条')
+    expect(mainText).toContain('140 条中的 138 条')
   })
 
   /**
@@ -483,8 +483,8 @@ describe('ru-diversity · the two legs, at one measured margin', () => {
     // to any precision a reader could see.
     expect(new Set(on.map((r) => r.threshDb)).size).toBe(1)
     expect(new Set(on.map((r) => r.meanSinrDb.toFixed(9))).size).toBe(1)
-    expect(mainText).toContain('只差小数第十四位')
-    expect(mainText).toContain('是浮点数自己的噪声')
+    expect(mainText).toContain('只在小数点后第十四位有差别')
+    expect(mainText).toContain('属于浮点数自身的误差')
     // The observe line's two readings off the same record.
     expect(on[0]!.meanSinrDb).toBeCloseTo(12.54, 2)
     expect(on[0]!.threshDb).toBeCloseTo(8.99, 2)
@@ -527,8 +527,8 @@ describe('ru-diversity · the two legs, at one measured margin', () => {
     expect((12 / whole.length * 100)).toBeCloseTo(8.7, 1)
     expect((59 / half.length * 100)).toBeCloseTo(20.9, 1)
     for (const s of ['九格 2.098 dB，四格 2.068 dB', '2.167 dB 降到 1.804 dB',
-      '4.439 dB 涨到 5.420 dB', '7.007 dB 走到 12.006 dB',
-      '138 条有 12 条，四格里 282 条有 59 条', '8.7 % 涨到 20.9 %']) {
+      '4.439 dB 升高到 5.420 dB', '7.007 dB 变为 12.006 dB',
+      '138 条有 12 条，四格中 282 条有 59 条', '8.7 % 升高到 20.9 %']) {
       expect(mainText, s).toContain(s)
     }
   })
@@ -544,7 +544,7 @@ describe('ru-diversity · the two legs, at one measured margin', () => {
     expect(dh).toBeGreaterThan(dw)
     expect(dropRate(half)).toBeGreaterThan(dropRate(whole))
     expect(mainText).toContain('比均值低 11.917 dB')
-    expect(mainText).toContain('只有 7.547 dB')
+    expect(mainText).toContain('只低 7.547 dB')
   })
 
   /**
@@ -620,8 +620,8 @@ describe('ru-diversity · the window this claim lives in', () => {
     expect(sweep[2]!.whole).toBeCloseTo(0.3925, 4)
     expect(sweep[0]!.half).toBeCloseTo(0.1844, 4)
     expect(sweep[0]!.whole).toBeCloseTo(0.0656, 4)
-    for (const s of ['余量掉到 2.381 dB', '整条九格 39.25 %，成员四格 37.67 %',
-      '余量 4.826 dB', '18.44 % 对 6.56 %']) {
+    for (const s of ['余量降到 2.381 dB', '整条九格 39.25 %，成员四格 37.67 %',
+      '余量 4.826 dB', '成员四格 18.44 % 对整条九格 6.56 %']) {
       expect(mainText, s).toContain(s)
     }
   }, 300_000)
@@ -690,15 +690,15 @@ describe('ru-diversity · the window this claim lives in', () => {
      * provide: 15 dB as a pure-function tie (the table's last row says so in those words), and
      * `ofdma-dl`'s measured 15.4 dB median.
      */
-    expect(mainText).toContain('这道窗口的下边缘没有量到一个数，量到的是一个区间')
-    expect(mainText).toContain('3.547 dB 上方向是正的，2.381 dB 上已经反了')
+    expect(mainText).toContain('这个窗口的下边界没有测出一个确定的数，测出的是一个区间')
+    expect(mainText).toContain('在 3.547 dB 处方向为正，在 2.381 dB 处已经相反')
     // The bracket's own width, as the prose rounds it: 3.547 - 2.381 = 1.166 dB.
     expect(legs().key - 2.381).toBeLessThan(1.2)
-    expect(mainText).toContain('离它不到 1.2 dB')
+    expect(mainText).toContain('距离它不到 1.2 dB')
     // The two unanchored figures are gone, and the pure-function tie keeps its label.
     expect(mainText).not.toContain('余量 3 到 15 dB')
     expect(mainText).not.toContain('约一个分贝')
-    expect(mainText).toContain('十五个分贝以上')
+    expect(mainText).toContain('十五分贝以上')
     expect(mainText).toContain('纯函数抽样，不是一轮仿真')
   }, 300_000)
 
@@ -735,7 +735,7 @@ describe('ru-diversity · the window this claim lives in', () => {
     // Non-vacuity: the windows are genuinely fading, so the smallness is about position.
     for (const m of means) expect(m).toBeLessThan(18)
     expect(limitsText).toContain('真实差距精确为零')
-    expect(limitsText).toContain('落在它自己的抽样标准误的量级里')
+    expect(limitsText).toContain('处于它自身抽样标准误的量级')
   })
 })
 
@@ -820,8 +820,8 @@ describe('ru-diversity · the direction a finite coherence bandwidth would move 
     }
 
     // What the lesson says about all of this, and the one number it is allowed: none.
-    expect(limitsText).toContain('两腿都塌成一个有效样本、差距归零')
-    expect(limitsText).toContain('真实住宅信道落在差距还明显存在的那一端')
+    expect(limitsText).toContain('两种配置都只剩一个有效样本、差距降为零')
+    expect(limitsText).toContain('真实住宅信道处于差距仍然明显存在的那一端')
     for (const n of ['7 格', '9 格', 'L ≥']) expect(limitsText, n).not.toContain(n)
   }, 300_000)
 })
@@ -846,8 +846,8 @@ describe('ru-diversity · what `deeper` and `tryThis` promise the reader', () =>
     // Not one group, ever — the `tryThis` says 「一次也没装两个成员」 and means it.
     expect(dl.filter((r) => r.frame.muParts !== undefined).length).toBe(0)
     expect(selRows(rs).filter((x) => x.sel.ruFraction !== undefined).length).toBe(0)
-    expect(mainText).toContain('1000 ms 里 349 次下行发送一次也没装两个成员')
-    expect(deeperText).toContain('349 次下行发送一次也没有编成组')
+    expect(mainText).toContain('1000 ms 内 349 次下行发送一次也没有包含两个成员')
+    expect(deeperText).toContain('349 次下行发送一次也没有组成组')
   })
 
   /**
@@ -862,15 +862,15 @@ describe('ru-diversity · what `deeper` and `tryThis` promise the reader', () =>
         .filter((r) => r.frame.kind === 'data' && r.from === 'ap').length
     expect(delivered(SPLIT)).toBe(216)
     expect(delivered(WHOLE)).toBe(224)
-    expect(deeperText).toContain('开着分片 216 帧，关掉 224 帧')
+    expect(deeperText).toContain('启用时 216 帧，关闭时 224 帧')
     for (const v of [SPLIT, WHOLE]) {
       expect(ofType(runOf(lesson, v, GATE_NS), 'DROP').length, String(v)).toBeGreaterThan(1800)
     }
-    expect(deeperText).toContain('两轮都丢掉一千八百多个 MSDU')
+    expect(deeperText).toContain('两轮都丢弃了一千八百多个 MSDU')
     const bas = (v: number | undefined): number =>
       ofType(runOf(lesson, v, GATE_NS), 'TX_START').filter((r) => r.frame.kind === 'ba').length
     expect(bas(SPLIT)).toBeGreaterThan(1.7 * bas(WHOLE))
-    expect(deeperText).toContain('开着分片时每次发送要回两个确认，关掉时只回一个')
+    expect(deeperText).toContain('启用 OFDMA 时每次发送要返回两个确认，关闭时只返回一个')
   })
 
   /**
@@ -905,7 +905,7 @@ describe('ru-diversity · what `deeper` and `tryThis` promise the reader', () =>
     }
     // The calibration the lesson quotes, and the only reason the modelled legs are mentionable.
     expect(Math.abs(rates[1]! - dropRate(half))).toBeLessThan(0.02)
-    expect(deeperText).toContain('两者吻合在两个百分点以内')
+    expect(deeperText).toContain('两者相差在两个百分点以内')
     // And the four modelled percentages appear nowhere a reader can see.
     for (const n of ['29.39', '32.89', '26.82', '17.57']) expect(text, n).not.toContain(n)
   }, 300_000)
@@ -925,14 +925,14 @@ describe('ru-diversity · what `deeper` and `tryThis` promise the reader', () =>
     expect(new Set(margins.map((m) => m.toFixed(3)))).toEqual(new Set(['12.195']))
     expect(up.filter((x) => !selRowDecoded(rs, x)).length).toBe(0)
     expect(limitsText).toContain('12.195 dB')
-    expect(limitsText).toContain('80 条接收一条也没掉')
+    expect(limitsText).toContain('80 条接收一条也没有丢失')
 
     // The 5 dB the entry names: an AP at 20 dBm against a station at 15 dBm on one path loss.
     const sc = lesson.scenario()
     const links = buildLinkTable(sc.nodes, sc.walls)
     expect(links.get('ap')!.get('sta-1')! - links.get('sta-1')!.get('ap')!).toBeCloseTo(5, 9)
-    expect(limitsText).toContain('接入点发 20 dBm、站点发 15 dBm')
-    expect(limitsText).toContain('比它高 5 dB 的那条路')
+    expect(limitsText).toContain('接入点发射 20 dBm、站点发射 15 dBm')
+    expect(limitsText).toContain('比上行高 5 dB 的那条路径')
   })
 })
 
@@ -1006,22 +1006,22 @@ describe('ru-diversity · the eight limits are each about this engine', () => {
     expect(kindOf('位置完全不起作用')).toBe('unmodelled')
     expect(t).toContain('真实差距精确为零')
     expect(t).toContain('不是一个效应')
-    expect(t).toContain('格间独立是频率分集偏多的那一边')
+    expect(t).toContain('格间独立假设会高估频率分集')
     // The two halves, each with its own direction, and the admission that neither has a figure.
-    expect(t).toContain('两半相反')
-    expect(t).toContain('成员自己那一份付的代价被低估了')
+    expect(t).toContain('两部分方向相反')
+    expect(t).toContain('成员自身那一份付出的代价被低估了')
     expect(t).toContain('这个差被高估了')
-    expect(t).toContain('差距归零')
-    expect(t).toContain('这张表的方向站得住；它的大小站不住')
-    expect(t).toContain('只有方向，没有数')
+    expect(t).toContain('差距降为零')
+    expect(t).toContain('这张表的方向是可靠的；它的大小则不可靠')
+    expect(t).toContain('只有方向，没有数值')
     // ...and the unconditional sentence it replaces is gone.
     expect(t).not.toContain('所以本课量到的代价比真实信道里的更小')
   })
 
   it('unmodelled: the decode threshold has no length term, and that flatters this table', () => {
-    const t = only('decodeThreshDb 只读速率，不读字节数')
-    expect(kindOf('decodeThreshDb 只读速率，不读字节数')).toBe('unmodelled')
-    expect(t).toContain('decodeThreshDb 只读速率，不读字节数')
+    const t = only('decodeThreshDb 只读取速率，不读取字节数')
+    expect(kindOf('decodeThreshDb 只读取速率，不读取字节数')).toBe('unmodelled')
+    expect(t).toContain('decodeThreshDb 只读取速率，不读取字节数')
     expect(t).toContain('8 个百分点')
     expect(t).toContain('真实接收机的长帧误包率更高')
     // The gap the sentence is about, measured: 26.24 − 18.12 is a little over 8 points.
@@ -1048,15 +1048,15 @@ describe('ru-diversity · the eight limits are each about this engine', () => {
     expect(t).toContain('下界')
     expect(t).toContain('容量')
     expect(t).toContain('β')
-    expect(t).toContain('标准从未给过 β')
+    expect(t).toContain('标准从未给出 β')
     // The direction, and which way it pushes the table against the other two mechanisms.
-    expect(t).toContain('成员那一份越薄')
-    expect(t).toContain('这个下界离真实越远')
-    expect(t).toContain('真实的尾部代价比本课量到的更大')
-    expect(t).toContain('往大处推')
-    expect(t).toContain('都只能是方向，不是数')
+    expect(t).toContain('成员那一份越窄')
+    expect(t).toContain('这个下界与真实值相距越远')
+    expect(t).toContain('真实的尾部代价比本课测得的更大')
+    expect(t).toContain('向增大方向偏移')
+    expect(t).toContain('都只能给出方向，不能给出数值')
     // Kept apart from the inter-bin entry, by §10.2's own requirement.
-    expect(t).toContain('两件事要分开记')
+    expect(t).toContain('两件事要分开理解')
   })
 
   /**
@@ -1080,9 +1080,9 @@ describe('ru-diversity · the eight limits are each about this engine', () => {
     const t = only('mcsForPeer，')
     expect(kindOf('mcsForPeer，')).toBe('out-of-scope')
     for (const str of ['resolveLock', '载波侦听', '前导检测', '捕获效应（capture effect）',
-      '成员的解调读它那一片的格，而它的选级读整条信道的那一个值',
-      '速率环为什么不降一档把它补回来', '那只在这个场景上成立',
-      '连续两次失败', '先掉两帧再降一档', '分不出「这一片薄」与「这条链路差」']) {
+      '成员的解调读取它那一部分的格，而它的选级读取整条信道的那一个值',
+      '速率控制为什么不降一级来补偿', '这只在这个场景中成立',
+      '连续两次失败', '先丢失两帧再降一级', '无法区分「这一部分窄」与「这条链路差」']) {
       expect(t, str).toContain(str)
     }
   })
@@ -1100,7 +1100,7 @@ describe('ru-diversity · the eight limits are each about this engine', () => {
     expect(kindOf('orthogonalGroup')).toBe('out-of-scope')
     expect(t).toContain('orthogonalGroup')
     expect(t).toContain('干扰与噪声在每一格里是同一个数')
-    expect(t).toContain('格号区间属于那一片资源单元，不属于某一台设备')
+    expect(t).toContain('格号区间属于那个资源单元，而不属于某一台设备')
     expect(t).toContain('mumimo-choose')
   })
 
@@ -1108,9 +1108,9 @@ describe('ru-diversity · the eight limits are each about this engine', () => {
     const t = only('cfg.mcsForPeer')
     expect(kindOf('cfg.mcsForPeer')).toBe('out-of-scope')
     expect(t).toContain('cfg.mcsForPeer')
-    expect(t).toContain('closeTbPpdu 一次也不调 onTxOutcome')
-    expect(t).toContain('从来没有闭合过')
-    expect(t).toContain('不要拿本课的结论去读上行多用户的掉帧')
+    expect(t).toContain('closeTbPpdu 从不调用 onTxOutcome')
+    expect(t).toContain('从未闭合')
+    expect(t).toContain('不要用本课的结论去解释上行多用户的丢帧')
   })
 })
 
@@ -1153,7 +1153,7 @@ describe('ru-diversity · the numbers this lesson may not print', () => {
       expect(text, n).not.toContain(n)
     }
     // Non-vacuity: the guard has to be reading a file with this lesson's own prose in it.
-    expect(src).toContain('成员那一片的格数')
+    expect(src).toContain('成员的格数——资源单元变窄后')
     expect(src.length).toBeGreaterThan(10_000)
   })
 
@@ -1161,8 +1161,8 @@ describe('ru-diversity · the numbers this lesson may not print', () => {
     // `deeper` prints 216 and 224 and then disqualifies them; the main path compares ratios.
     expect(mainText).not.toContain('216')
     expect(mainText).not.toContain('224')
-    expect(deeperText).toContain('这个差不能当成这一课的证据')
-    expect(deeperText).toContain('比的是比例，不是条数')
+    expect(deeperText).toContain('这个差值不能作为本课的证据')
+    expect(deeperText).toContain('比较的是比例，而不是条数')
   })
 })
 
@@ -1349,7 +1349,7 @@ describe('ru-diversity · the two figures `observe` prints with the window they 
    */
   it('reads the window and the count of synthesis records in it', () => {
     const text = (lesson.observe ?? []).join('\n')
-    const m = /本课默认载入的 (\d+) ms 里，接入点发出的合成记录一共 (\d+) 条，其中 (\d+) 条是整条信道/
+    const m = /本课默认载入的 (\d+) ms 内，接入点发出的合成记录共 (\d+) 条，其中 (\d+) 条是整条信道/
       .exec(text)
     expect(m, '`observe` no longer prints this in the shape this test reads').not.toBeNull()
     const [ms, total, whole] = m!.slice(1).map(Number)
@@ -1571,7 +1571,7 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
   })
 
   it('reads the share table’s own cells out of the cells, label column included', () => {
-    const t = tableBy('谁也没拿的那几格')
+    const t = tableBy('未分配给任何成员的格')
     expect(t.rows.length, 'the rows of the share table').toBe(6)
     for (const row of t.rows) {
       const [w, n] = figs(row[0]!, /(\d+) MHz，(\d+) 个成员/, `the label of 「${row[0]}」`)
@@ -1584,7 +1584,7 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
         `the leftover bins on row 「${row[0]}」`)
     }
     // The heading of the other table is a figure too: the length every figure below it is measured over.
-    same(raw(tableBy('同一个实测余量组里的两腿').heading!, /（(\d+) ms/, 'the gate table’s heading')[0]!,
+    same(raw(tableBy('同一个实测余量组里的两种配置').heading!, /（(\d+) ms/, 'the gate table’s heading')[0]!,
       GATE_NS / MS, 'the round length the two legs are measured over')
   })
 
@@ -1602,9 +1602,9 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
 
   it('reads the gate table and its two denominators out of the prose', () => {
     const { on, group, key, half, whole } = legs()
-    const t = tableBy('同一个实测余量组里的两腿')
+    const t = tableBy('同一个实测余量组里的两种配置')
     for (const [i, leg] of [half, whole].entries()) {
-      const [all, bad] = figs(t.rows[i]![3]!, /(\d+) 条里 (\d+) 条/, `the counts of leg ${i}`)
+      const [all, bad] = figs(t.rows[i]![3]!, /(\d+) 条中 (\d+) 条/, `the counts of leg ${i}`)
       expect(all, `the receptions of leg ${i}`).toBe(leg.length)
       expect(bad, `the failures of leg ${i}`).toBe(leg.filter((x) => x.failed).length)
       same(raw(t.rows[i]![4]!, /([\d.]+) %/, `the drop rate of leg ${i}`)[0]!,
@@ -1613,12 +1613,12 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
       same(t.rows[i]![2]!, leg[0]!.bins, `the bins of leg ${i}`)
     }
     // The grouping paragraph: the group, the round it came out of, and the strays.
-    const [dl, inGroup] = figs(NUMS, /装下了这一轮 (\d+) 条下行（downlink, DL）接收里的 (\d+) 条/,
+    const [dl, inGroup] = figs(NUMS, /包含这一轮 (\d+) 条下行（downlink, DL）接收中的 (\d+) 条/,
       'the grouping paragraph on its own denominator')
     expect(dl, 'the member leg’s whole round').toBe(on.length)
     expect(inGroup, 'and the group inside it').toBe(group.length)
-    same(raw(NUMS, /掉出组外的那 (\d+) 条/, 'the strays')[0]!, on.length - group.length, 'the strays')
-    const [wAll, wIn] = figs(NUMS, /按同一条规则是 (\d+) 条里的 (\d+) 条/,
+    same(raw(NUMS, /落在组外的那 (\d+) 条/, 'the strays')[0]!, on.length - group.length, 'the strays')
+    const [wAll, wIn] = figs(NUMS, /按同一条规则是 (\d+) 条中的 (\d+) 条/,
       'the whole-channel leg’s denominator')
     expect(wAll, 'the whole-channel leg’s own round').toBe(dlRows(runOf(lesson, WHOLE, GATE_NS)).length)
     expect(wIn, 'and the group inside it').toBe(whole.length)
@@ -1631,7 +1631,7 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
     const { half, whole } = legs()
     const h = half.map((r) => r.lossDb)
     const w = whole.map((r) => r.lossDb)
-    const [nine, four, less] = raw(NUMS, /九格 ([\d.]+) dB，四格 ([\d.]+) dB，四格还低了 ([\d.]+) dB/,
+    const [nine, four, less] = raw(NUMS, /九格 ([\d.]+) dB，四格 ([\d.]+) dB，四格还低 ([\d.]+) dB/,
       'the two mean losses')
     same(nine!, mean(w), 'the nine-bin leg’s mean loss')
     same(four!, mean(h), 'the four-bin leg’s mean loss')
@@ -1639,27 +1639,27 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
     const [mw, mh] = raw(NUMS, /([\d.]+) dB 降到 ([\d.]+) dB/, 'the two medians')
     same(mw!, q(w, 0.5), 'the nine-bin median')
     same(mh!, q(h, 0.5), 'the four-bin median')
-    const [pw, ph] = raw(NUMS, /([\d.]+) dB 涨到 ([\d.]+) dB/, 'the two ninetieth percentiles')
+    const [pw, ph] = raw(NUMS, /([\d.]+) dB 升高到 ([\d.]+) dB/, 'the two ninetieth percentiles')
     same(pw!, q(w, 0.9), 'the nine-bin p90')
     same(ph!, q(h, 0.9), 'the four-bin p90')
-    const [dw, dh] = raw(NUMS, /从 ([\d.]+) dB 走到 ([\d.]+) dB/, 'the two deepest receptions')
+    const [dw, dh] = raw(NUMS, /从 ([\d.]+) dB 变为 ([\d.]+) dB/, 'the two deepest receptions')
     same(dw!, Math.max(...w), 'the deepest nine-bin reception')
     same(dh!, Math.max(...h), 'the deepest four-bin reception')
     // Both directions the paragraph claims, so the figures are not merely equal to themselves.
     expect(val(mh!), 'the median moves down').toBeLessThan(val(mw!))
     expect(val(ph!), 'and p90 moves up').toBeGreaterThan(val(pw!))
     // The better-than-mean counts, and the percentages computed from them.
-    const [nw, cw, nh, ch] = figs(NUMS, /九格里 (\d+) 条有 (\d+) 条，四格里 (\d+) 条有 (\d+) 条/,
+    const [nw, cw, nh, ch] = figs(NUMS, /九格中 (\d+) 条有 (\d+) 条，四格中 (\d+) 条有 (\d+) 条/,
       'the better-than-mean counts')
     expect(nw, 'the nine-bin population').toBe(whole.length)
     expect(nh, 'the four-bin population').toBe(half.length)
     expect(cw, 'the nine-bin receptions better than their own mean').toBe(w.filter((x) => x <= 0).length)
     expect(ch, 'the four-bin ones').toBe(h.filter((x) => x <= 0).length)
-    const [pctW, pctH] = raw(NUMS, /占比从 ([\d.]+) % 涨到 ([\d.]+) %/, 'the two shares')
+    const [pctW, pctH] = raw(NUMS, /占比从 ([\d.]+) % 升高到 ([\d.]+) %/, 'the two shares')
     same(pctW!, (100 * cw!) / nw!, 'the nine-bin share, from the counts beside it')
     same(pctH!, (100 * ch!) / nh!, 'and the four-bin share')
     // The deepest bin, which runs the other way — the misreading the paragraph exists to block.
-    const [bw, bh] = raw(NUMS, /比均值低 ([\d.]+) dB，四格那一腿只有 ([\d.]+) dB/, 'the two deepest bins')
+    const [bw, bh] = raw(NUMS, /比均值低 ([\d.]+) dB，四格配置只低 ([\d.]+) dB/, 'the two deepest bins')
     same(bw!, -q(whole.map((r) => r.worstBinDb), 0.5), 'the nine-bin leg’s median worst bin')
     same(bh!, -q(half.map((r) => r.worstBinDb), 0.5), 'the four-bin leg’s')
     expect(val(bh!), 'shallower on the leg that drops more').toBeLessThan(val(bw!))
@@ -1686,26 +1686,26 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
     const here = leg(13.5)
     const outward = leg(14.5)
     // One metre out: the margin the prose prints, and the pair that runs backwards.
-    same(raw(NUMS, /余量掉到 ([\d.]+) dB/, 'the margin one metre out')[0]!, outward.key, 'the margin one metre out')
+    same(raw(NUMS, /余量降到 ([\d.]+) dB/, 'the margin one metre out')[0]!, outward.key, 'the margin one metre out')
     const [revW, revH] = raw(NUMS, /整条九格 ([\d.]+) %，成员四格 ([\d.]+) %/, 'the reversed pair')
     same(revW!, 100 * outward.whole, 'the nine-bin drop rate one metre out')
     same(revH!, 100 * outward.half, 'the four-bin one')
     expect(val(revH!), 'and out there the four-bin leg drops LESS').toBeLessThan(val(revW!))
     // One metre in: still forward.
-    same(raw(NUMS, /往里挪一米，余量 ([\d.]+) dB/, 'the margin one metre in')[0]!, inward.key,
+    same(raw(NUMS, /向内移动一米，余量 ([\d.]+) dB/, 'the margin one metre in')[0]!, inward.key,
       'the margin one metre in')
-    const [fwdH, fwdW] = raw(NUMS, /（([\d.]+) % 对 ([\d.]+) %）/, 'the forward pair')
+    const [fwdH, fwdW] = raw(NUMS, /（成员四格 ([\d.]+) % 对整条九格 ([\d.]+) %）/, 'the forward pair')
     same(fwdH!, 100 * inward.half, 'the four-bin drop rate one metre in')
     same(fwdW!, 100 * inward.whole, 'the nine-bin one')
     expect(val(fwdH!), 'and in there it drops MORE').toBeGreaterThan(val(fwdW!))
     // The bracket, and how the prose rounds the distance to its lower edge.
-    const [above, below] = raw(NUMS, /([\d.]+) dB 上方向是正的，([\d.]+) dB 上已经反了/, 'the bracket')
+    const [above, below] = raw(NUMS, /在 ([\d.]+) dB 处方向为正，在 ([\d.]+) dB 处已经相反/, 'the bracket')
     same(above!, here.key, 'the margin the direction still holds at')
     same(below!, outward.key, 'and the one it has reversed at')
     const gap = val(above!) - val(below!)
-    same(raw(NUMS, /离它不到 ([\d.]+) dB/, 'the distance to the lower edge')[0]!,
+    same(raw(NUMS, /距离它不到 ([\d.]+) dB/, 'the distance to the lower edge')[0]!,
       Math.ceil(gap * 10) / 10, 'the bracket’s width, rounded up to the tenth the prose prints')
-    expect(gap, 'and it really is under that').toBeLessThan(val(raw(NUMS, /离它不到 ([\d.]+) dB/, 'x')[0]!))
+    expect(gap, 'and it really is under that').toBeLessThan(val(raw(NUMS, /距离它不到 ([\d.]+) dB/, 'x')[0]!))
   }, 600_000)
 
   it('reads the 15.4 dB of the scene this lesson is not taught on, both printings', () => {
@@ -1724,7 +1724,7 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
   it('reads `deeper` and `tryThis` off their own rounds', () => {
     const delivered = (v: number | undefined): number =>
       ofType(runOf(lesson, v, GATE_NS), 'RX_OK').filter((r) => r.frame.kind === 'data' && r.from === 'ap').length
-    const [split, whole, ns] = figs(DEEP, /开着分片 (\d+) 帧，关掉 (\d+) 帧（(\d+) ms/,
+    const [split, whole, ns] = figs(DEEP, /启用时 (\d+) 帧，关闭时 (\d+) 帧（(\d+) ms/,
       '`deeper` on the frames delivered')
     expect(split, 'the frames delivered with the split on').toBe(delivered(SPLIT))
     expect(whole, 'and with it off').toBe(delivered(WHOLE))
@@ -1737,25 +1737,25 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
     tv3.caps.nss = 1
     const three = ofType(runScene('three', { ...base, nodes: [...base.nodes, tv3] }), 'TX_START')
       .filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap')
-    for (const [ms, sends] of every(ALL, /(\d+) ms 里 (\d+) 次下行发送/g, 'the third television’s round', 2)) {
+    for (const [ms, sends] of every(ALL, /(\d+) ms 内 (\d+) 次下行发送/g, 'the third television’s round', 2)) {
       expect(val(ms!), 'the round the third television is measured over').toBe(GATE_NS / MS)
       expect(val(sends!), 'the downlink sends it makes').toBe(three.length)
     }
     expect(three.filter((r) => r.frame.muParts !== undefined).length, 'and not one of them grouped').toBe(0)
     // The two legs' bin counts, as `tryThis` names them.
-    const [four, nine] = figs(TRY, /每次接收读 (\d+) 格还是读 (\d+) 格/, '`tryThis` on the two legs')
+    const [four, nine] = figs(TRY, /每次接收读取 (\d+) 格还是 (\d+) 格/, '`tryThis` on the two legs')
     expect(four, 'the member leg’s bins').toBe(selMemberBins(20, 1 / 2))
     expect(nine, 'the whole-channel leg’s').toBe(selBins(20))
     // The margin agreement `tryThis` counts, read off the whole-channel leg.
     const { key } = legs()
     const off = dlRows(runOf(lesson, WHOLE, GATE_NS))
-    const [all, agree, differ] = figs(TRY, /(\d+) 条里有 (\d+) 条是，剩下 (\d+) 条不是/,
+    const [all, agree, differ] = figs(TRY, /(\d+) 条中有 (\d+) 条如此，其余 (\d+) 条不是/,
       '`tryThis` on the margins that agree')
     expect(all, 'the whole-channel leg’s round').toBe(off.length)
     expect(agree, 'the receptions at the same margin').toBe(off.filter((r) => r.margin === key).length)
     expect(differ, 'and the ones that are not').toBe(off.length - off.filter((r) => r.margin === key).length)
     // The drop rates `tryThis` quotes, which are the gate table's two cells read a second time.
-    const [lo, hi] = raw(TRY, /比例从 ([\d.]+) % 涨到 ([\d.]+) %/, '`tryThis` on the two drop rates')
+    const [lo, hi] = raw(TRY, /比例从 ([\d.]+) % 升高到 ([\d.]+) %/, '`tryThis` on the two drop rates')
     same(lo!, 100 * dropRate(legs().whole), 'the nine-bin drop rate')
     same(hi!, 100 * dropRate(legs().half), 'the four-bin one')
   })
@@ -1763,7 +1763,7 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
   it('reads the payload asymmetry and the percentage points it flatters', () => {
     const big = (v: number | undefined) => ofType(runOf(lesson, v, GATE_NS), 'TX_START')
       .filter((r) => r.frame.kind === 'data' && r.frame.src === 'ap' && r.frame.bytes > 2000)
-    const [whole, split] = figs(LIM, /(\d+) 字节，而成员那一腿每个成员只扛 (\d+) 字节/,
+    const [whole, split] = figs(LIM, /(\d+) 字节，而成员配置每个成员只承载 (\d+) 字节/,
       '`limits` on the two payloads')
     expect(new Set(big(WHOLE).map((r) => r.frame.bytes)), 'the whole-channel leg’s payload').toEqual(new Set([whole]))
     expect(new Set(big(SPLIT).flatMap((r) => r.frame.muParts!.map((p) => p.bytes))), 'each member’s')
@@ -1788,7 +1788,7 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
     const base = LESSONS.find((l) => l.id === 'ofdma-ul')!.scenario()
     const rs = runScene('ofdma-ul|sel', { ...base, fading: RAYLEIGH, selectivity: {} })
     const up = selRows(rs).filter((x) => x.sel.from !== 'ap' && x.sel.ruFraction !== undefined)
-    const [dB, n] = raw(LIM, /上行成员的余量是 ([\d.]+) dB，(\d+) 条接收一条也没掉/,
+    const [dB, n] = raw(LIM, /上行成员的余量是 ([\d.]+) dB，(\d+) 条接收一条也没有丢失/,
       '`limits` on the uplink margin')
     expect(new Set(up.map((x) => (x.sel.meanSinrDb - x.sel.threshDb).toFixed(3))), 'one margin, to three decimals')
       .toEqual(new Set([val(dB!).toFixed(3)]))
@@ -1798,19 +1798,19 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
       'the round the uplink figure is measured over')
     // The two transmit powers, and the asymmetry the entry computes from them.
     const sc = lesson.scenario()
-    const [apDbm, staDbm] = figs(LIM, /接入点发 (\d+) dBm、站点发 (\d+) dBm/, '`limits` on the two powers')
+    const [apDbm, staDbm] = figs(LIM, /接入点发射 (\d+) dBm、站点发射 (\d+) dBm/, '`limits` on the two powers')
     expect(apDbm, 'the access point’s transmit power').toBe(sc.nodes.find((x) => x.id === 'ap')!.txPowerDbm)
     expect(staDbm, 'the station’s').toBe(sc.nodes.find((x) => x.id === 'sta-1')!.txPowerDbm)
     const links = buildLinkTable(sc.nodes, sc.walls)
-    same(raw(LIM, /比它高 (\d+) dB 的那条路/, '`limits` on the asymmetry')[0]!,
+    same(raw(LIM, /比上行高 (\d+) dB 的那条路径/, '`limits` on the asymmetry')[0]!,
       links.get('ap')!.get('sta-1')! - links.get('sta-1')!.get('ap')!, 'the asymmetry, from the two powers')
     expect(apDbm! - staDbm!, 'which is the difference of the two figures beside it')
-      .toBe(val(raw(LIM, /比它高 (\d+) dB 的那条路/, 'x')[0]!))
+      .toBe(val(raw(LIM, /比上行高 (\d+) dB 的那条路径/, 'x')[0]!))
   })
 
   it('reads the loss the observe line promises, and the two citations that carry a figure', () => {
-    // 「loss 多半在 2 dB 上下」: the median of the leg a reader loads first, to the decibel.
-    same(raw(OBS, /loss 多半在 (\d+) dB 上下/, '`observe` on the loss')[0]!,
+    // 「loss 大多在 2 dB 左右」: the median of the leg a reader loads first, to the decibel.
+    same(raw(OBS, /loss 大多在 (\d+) dB 左右/, '`observe` on the loss')[0]!,
       q(legs().half.map((r) => r.lossDb), 0.5), 'the member leg’s median loss, to the decibel')
     expect(legs().half.some((r) => r.lossDb <= 0), 'and 「偶尔是负的」 happens').toBe(true)
     /*
@@ -1824,14 +1824,18 @@ describe('ru-diversity · every figure the prose prints, read back out of it', (
     expect(lessonNote, 'the note the lesson cites is the one the engine cites').toBe(engineNote)
     expect(occ(ALL, `NOTE ${lessonNote}`), 'and it is cited once').toBe(1)
     /*
-     * **The slice number in `limits` is read against the slice ledger.** 「4a 记过一次这样的不
-     * 对称」 points at a row of `docs/uwb-modellable-backlog.md`, and that row has to be the
-     * frequency-selectivity slice for the sentence to mean anything.
+     * **The lesson `limits` points at for the earlier asymmetry is read against that lesson.**
+     * This sentence used to name a development slice (「4a 记过一次这样的不对称」), which is
+     * repository jargon a reader cannot follow; it now names the lesson, 「频率选择性」, whose
+     * own text is where the same rate-selection asymmetry (mcsForPeer reads the static mean,
+     * demodulation reads the bins) was first recorded. Both halves are asserted: the name, and
+     * that the named lesson really does say it.
      */
-    const [slice] = raw(LIM, /(\d[a-z]) 记过一次/, '`limits` on the slice that recorded the asymmetry')
-    const ledger = readFileSync(new URL('../../docs/uwb-modellable-backlog.md', import.meta.url), 'utf8')
-    const row = ledger.split('\n').find((l) => l.startsWith(`| ${slice} |`))
-    expect(row, `the ledger has no row for slice ${slice}`).toBeDefined()
-    expect(row, `slice ${slice} is the frequency-selectivity slice`).toContain('频率选择性')
+    const [named] = raw(LIM, /「(.+?)」那一课记录过一次这样的不对称/, '`limits` on the lesson that recorded the asymmetry')
+    expect(named).toBe('频率选择性')
+    const selLesson = LESSONS.find((l) => l.id === 'selectivity')!
+    const selText = JSON.stringify(selLesson)
+    expect(selText, 'the selectivity lesson is the one that names the static-mean rate choice').toContain('mcsForPeer')
+    expect(selText, 'and it is the lesson that teaches frequency selectivity').toContain('平坦抽样')
   })
 })

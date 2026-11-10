@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "RTS/CTS：让接收方替你预约信道", the second half of `hidden`
+ * Every empirical claim in "RTS/CTS：由接收方代为预约信道", the second half of `hidden`
  * (2026-09-25 re-pacing, §2 M5).
  *
  * The scene is `hidden`'s, so `lessonShapeSuite(..., { sameSceneAs: 'hidden' })`
@@ -69,7 +69,7 @@ lessonShapeSuite(rtsCts, { sameSceneAs: 'hidden', runNs: RUN_NS })
 describe('rts-cts · the lesson’s own scene', () => {
   it('follows its first half, sits in the same module, and owns RTS and CTS', () => {
     expect(rtsCts.id).toBe('rts-cts')
-    expect(MODULES[rtsCts.module].title).toBe('听不见的邻居与损失')
+    expect(MODULES[rtsCts.module].title).toBe('隐藏节点与帧丢失')
     expect(rtsCts.module).toBe(hidden.module)
     expect(rtsCts.needs).toEqual(['hidden'])
     // the owner table of the readability programme gives this material RTS, CTS and
@@ -434,7 +434,7 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
   const far = rts.node === 'sta-1' ? 'sta-2' : 'sta-1'
 
   it('the on/off table: three rows, two columns, and the window they are counted over', () => {
-    const t = tableWith('同样的 300 ms，关与开')
+    const t = tableWith('同样的 300 ms：关闭与开启')
     const [ms] = figs(t.head[0], /(\d+) ms 内的统计/, 'the window the table counts over')
     expect(ms * MS).toBe(RUN_NS)
     const [offCol, onCol] = [1, 2]
@@ -453,8 +453,8 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
   })
 
   it('「RTS/CTS 的成本与收益」: the cut, the two frame sizes, and the sevenfold delivery', () => {
-    const [cut] = figs(costProse, /少了约 (\d+)%/, 'the cut it claims')
-    const [ask, answer] = figs(costProse, /(\d+) 字节的提问和一个 (\d+) 字节的回答/,
+    const [cut] = figs(costProse, /减少了约 (\d+)%/, 'the cut it claims')
+    const [ask, answer] = figs(costProse, /(\d+) 字节的 RTS 和一个 (\d+) 字节的 CTS/,
       'the two frames it costs')
     const times = counted(costProse, new RegExp(`是原来的(${ZH})倍`), 'the delivery it buys')
     const hitOff = caughtData(off).length
@@ -521,7 +521,7 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     expect(was - less1 - less2, 'the row’s own arithmetic').toBe(now)
     expect(cts.frame.durationFieldNs / 1_000, 'which is the answer’s own Duration').toBe(now)
     // row 8: 「790 + 424 = 1214 µs」 and the station it freezes at 13
-    const [held] = figs(rows[7][0], /在 (\d+) 冻结/, 'row 8: the value the far station freezes at')
+    const [held] = figs(rows[7][0], /冻结在 (\d+)/, 'row 8: the value the far station freezes at')
     const [ctsEnd, dur, until] = n(rows[7][1])
     expect((cts.t + cts.frame.txTimeNs) / 1_000, 'when the answer ends').toBe(ctsEnd)
     expect(dur, 'plus its Duration').toBe(now)
@@ -549,10 +549,10 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     const [hdr, fcs] = figs(steps[0], /(\d+) 字节帧头（MAC header）、(\d+) 字节校验/,
       'step 1’s header and check')
     expect([hdr, fcs]).toEqual([MAC_HDR_BYTES, FCS_BYTES])
-    const [threshold] = figs(steps[0], /变体里是 (\d+) 字节/, 'step 1’s threshold')
+    const [threshold] = figs(steps[0], /变体中是 (\d+) 字节/, 'step 1’s threshold')
     expect(rtsCts.variants![0].scenario().rtsThresholdBytes).toBe(threshold)
     // step 2: 「一个 20 字节的 RTS」
-    const [ask] = figs(steps[1], /一个 (\d+) 字节的 RTS/, 'step 2’s question')
+    const [ask] = figs(steps[1], /这个 RTS 长 (\d+) 字节/, 'step 2’s question')
     expect(ask).toBe(RTS_BYTES)
     // step 3: 「已低于 −82 dBm」
     const [floor] = figs(steps[2], /已低于 (−[\d.]+) dBm/, 'step 3’s floor')
@@ -560,7 +560,7 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     expect(links.get(rts.node)!.get(far)!, 'and the question really is under it')
       .toBeLessThan(floor)
     // step 4: 「隔 16 µs 之后，接入点回一个 14 字节的 CTS」
-    const [gap, answer] = figs(steps[3], /隔 (\d+) µs 之后，接入点回一个 (\d+) 字节的 CTS/,
+    const [gap, answer] = figs(steps[3], /间隔 (\d+) µs 之后，接入点回复一个 (\d+) 字节的 CTS/,
       'step 4’s gap and answer')
     expect(gap * 1_000).toBe(SIFS_NS)
     expect(answer).toBe(CTS_BYTES)
@@ -573,15 +573,15 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
       .toEqual(new Set([bytes]))
     // the caption: 「提问到 Hidden B 处只有 −83.4 dBm……回答到那里有 −60.6 dBm，于是它在 13 上
     //  冻结，预约挂到 1214 µs」
-    const [askLevel] = figs(pictureText, /提问到 Hidden B 处只有 (−[\d.]+) dBm/,
+    const [askLevel] = figs(pictureText, /RTS 到达 Hidden B 处只有 (−[\d.]+) dBm/,
       'the caption on the question’s level')
-    const [answerLevel] = figs(pictureText, /回答到那里有 (−[\d.]+) dBm/,
+    const [answerLevel] = figs(pictureText, /CTS 到达那里有 (−[\d.]+) dBm/,
       'the caption on the answer’s level')
-    const [held] = figs(pictureText, /于是它在 (\d+) 上冻结/, 'the caption on the frozen value')
-    const [until] = figs(pictureText, /预约挂到 (\d+) µs/, 'the caption on where the reservation lands')
+    const [held] = figs(pictureText, /于是它冻结在 (\d+)/, 'the caption on the frozen value')
+    const [until] = figs(pictureText, /预约持续到 (\d+) µs/, 'the caption on where the reservation lands')
     same(raw(pictureText, /只有 (−[\d.]+) dBm/, 'the question’s level')[0],
       links.get(rts.node)!.get(far)!, 'the question’s level at the far room')
-    same(raw(pictureText, /回答到那里有 (−[\d.]+) dBm/, 'the answer’s level')[0],
+    same(raw(pictureText, /CTS 到达那里有 (−[\d.]+) dBm/, 'the answer’s level')[0],
       links.get(cts.node)!.get(far)!, 'the answer’s level there')
     expect(askLevel).toBeLessThan(CCA_PD_DBM)
     expect(answerLevel).toBeGreaterThan(CCA_PD_DBM)
@@ -595,9 +595,9 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
   })
 
   it('`deeper`: the 25 of 32, the 7 that are not, and both thresholds', () => {
-    const [left, q2q] = figs(deeperText, /剩下的 (\d+) 次碰撞里，(\d+) 次是 RTS 撞上 RTS/,
+    const [left, q2q] = figs(deeperText, /余下的 (\d+) 次碰撞中，(\d+) 次是 RTS 与 RTS 碰撞/,
       '`deeper` on the remaining collisions')
-    const [onData] = figs(deeperText, /另外 (\d+) 次确实撞上了数据帧/, '`deeper` on the rest')
+    const [onData] = figs(deeperText, /另外 (\d+) 次确实涉及数据帧/, '`deeper` on the rest')
     expect(left).toBe(ofType(on, 'COLLISION').length)
     expect(onData).toBe(caughtData(on).length)
     expect(q2q + onData, '`deeper`’s own two parts against its own total').toBe(left)
@@ -621,9 +621,9 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     const twenty = counted(deeperText, new RegExp(`只有(${ZH})字节`), '`deeper` on an RTS')
     expect(twenty).toBe(RTS_BYTES)
     // 「门限设在 500 字节……每个数据帧都是 1528 字节……门限留在 3000」
-    const [low] = figs(deeperText, /门限设在 (\d+) 字节/, '`deeper` on the protected threshold')
+    const [low] = figs(deeperText, /门限设为 (\d+) 字节/, '`deeper` on the protected threshold')
     const [frame] = figs(deeperText, /每个数据帧都是 (\d+) 字节/, '`deeper` on the frame')
-    const [high] = figs(deeperText, /门限留在 (\d+)/, '`deeper` on the unprotected threshold')
+    const [high] = figs(deeperText, /门限保持在 (\d+)/, '`deeper` on the unprotected threshold')
     expect(low).toBe(rtsCts.variants![0].scenario().rtsThresholdBytes)
     expect(high).toBe(rtsCts.scenario().rtsThresholdBytes)
     expect(new Set(txs(on, (r) => r.frame.kind === 'data').map((r) => r.frame.bytes)))
@@ -634,17 +634,17 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
 
   it('`limits`: the margin the hard line leaves, both thresholds, and the rate of a protection frame', () => {
     const [level, floor, margin] = figs(limitText,
-      /提问到远端 (−[\d.]+) dBm，比 (−[\d.]+) dBm 低 ([\d.]+) dB/, '`limits` on the margin')
-    same(raw(limitText, /提问到远端 (−[\d.]+) dBm/, 'the level')[0],
+      /RTS 到达远端为 (−[\d.]+) dBm，比 (−[\d.]+) dBm 低 ([\d.]+) dB/, '`limits` on the margin')
+    same(raw(limitText, /RTS 到达远端为 (−[\d.]+) dBm/, 'the level')[0],
       links.get(rts.node)!.get(far)!, 'the question’s level at the far room')
     expect(floor).toBe(CCA_PD_DBM)
     same(raw(limitText, /低 ([\d.]+) dB/, 'the margin')[0], CCA_PD_DBM - level,
       'how far under the line it sits')
     expect(margin, 'and the margin really is that small').toBeLessThan(2)
     // 「这 1.4 dB 会被反复跨过……远没有 94 % 这么稳」
-    const [again] = figs(limitText, /这 ([\d.]+) dB 会被反复跨过/, '`limits` restating the margin')
+    const [again] = figs(limitText, /电平会反复越过这 ([\d.]+) dB/, '`limits` restating the margin')
     expect(again).toBe(margin)
-    const [cut] = figs(limitText, /远没有 (\d+) % 这么稳/, '`limits` on the cut it calls unstable')
+    const [cut] = figs(limitText, /远不如 (\d+) % 这样稳定/, '`limits` on the cut it calls unstable')
     const hitOff = caughtData(off).length
     expect(Math.round((100 * (hitOff - caughtData(on).length)) / hitOff / 10) * 10)
       .toBe(Math.round(cut / 10) * 10)
@@ -681,7 +681,7 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     expect(new Set(rates), 'and the rungs it uses are mandatory rates')
       .toEqual(new Set(rates.filter((r) => MANDATORY_MBPS.includes(r))))
     // 「245 条一次不差」
-    const [count] = figs(limitText, /(\d+) 条一次不差/, '`limits` on the reservations')
+    const [count] = figs(limitText, /(\d+) 条全部如此/, '`limits` on the reservations')
     const navs = ofType(on, 'NAV_SET').filter((r) => r.node === far)
     expect(navs.length).toBe(count)
     for (const nv of navs) {
@@ -698,7 +698,7 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     expect(wallsCrossed(pos('sta-1'), pos('sta-2'), sc.walls), '`sources` on the walls between them')
       .toHaveLength(walls)
     // `observe`: 「300 ms 里有 245 条」
-    const [ms, count] = figs(rtsCts.observe.join('\n'), /(\d+) ms 里有 (\d+) 条/,
+    const [ms, count] = figs(rtsCts.observe.join('\n'), /(\d+) ms 内共有 (\d+) 条/,
       '`observe` on the reservations')
     expect(ms * MS).toBe(RUN_NS)
     expect(ofType(on, 'NAV_SET').filter((r) => r.node === far).length).toBe(count)
@@ -725,7 +725,7 @@ describe('rts-cts · every printed figure is read back out of the lesson', () =>
     expect([from, to]).toEqual([
       rtsCts.scenario().rtsThresholdBytes, rtsCts.variants![0].scenario().rtsThresholdBytes,
     ])
-    const [unchanged] = figs(quizText, /帧还是 (\d+) 字节/, 'the quiz on the frame that does not change')
+    const [unchanged] = figs(quizText, /帧仍是 (\d+) 字节/, 'the quiz on the frame that does not change')
     for (const run of [off, on]) {
       expect(new Set(txs(run, (r) => r.frame.kind === 'data').map((r) => r.frame.bytes)))
         .toEqual(new Set([unchanged]))

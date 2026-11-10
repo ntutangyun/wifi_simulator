@@ -198,13 +198,13 @@ describe('mcs-ladder · choosing a rung, step by step', () => {
      * merge starts at the first step, and the steps merged are exactly the ones that COMPUTE a
      * rung, so the step after them is 「就用这一级发」. The sentence is itself the last step.
      */
-    const sc = /第 (\d+) 到 (\d+) 步可并成一次查表/.exec(items.join('\n'))
+    const sc = /第 (\d+) 到 (\d+) 步可合并为一次查表/.exec(items.join('\n'))
     expect(sc, 'the shortcut step no longer says which steps it merges').not.toBeNull()
     const [lo, hi] = [Number(sc![1]), Number(sc![2])]
     expect(lo, 'it merges from the first step').toBe(1)
     expect(items[hi], `step ${hi + 1} is the first one the shortcut does NOT merge`)
-      .toMatch(/^就用这一级发/)
-    expect(items.findIndex((s) => s.includes('可并成一次查表')) + 1,
+      .toMatch(/^以这一级发送/)
+    expect(items.findIndex((s) => s.includes('可合并为一次查表')) + 1,
       'and the shortcut is the last step, which is the number the quiz calls it by')
       .toBe(items.length)
     const quiz = mcsLadderLesson.quiz
@@ -223,7 +223,7 @@ describe('mcs-ladder · choosing a rung, step by step', () => {
     expect(q, 'the quiz no longer states the link it asks about').not.toBeNull()
     const dbm = Number(q![1]!.replace('−', '-'))
     const width = Number(q![2])
-    const walk = /第 (\d+) 级够，第 (\d+) 级不够；那 (\d+) dB 已经含在这张表里/.exec(quiz)
+    const walk = /第 (\d+) 级满足，第 (\d+) 级不满足；那 (\d+) dB 已经包含在这张表里/.exec(quiz)
     expect(walk, 'the explanation no longer walks the two rungs').not.toBeNull()
     const [fits, misses, margin] = walk!.slice(1, 4).map(Number) as [number, number, number]
     expect(mcsForRssi('eht', dbm, undefined, width), `${dbm} dBm at ${width} MHz`).toBe(fits)
@@ -328,7 +328,7 @@ describe('mcs-ladder · rate selection after frequency selectivity', () => {
   it('says the per-bin ripple exists now and that selection still reads the mean', () => {
     expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
     expect(text).toContain('mcsForPeer')
-    expect(text).toContain('频率选择性一个字都不进去')
+    expect(text).toContain('频率选择性完全不参与')
   })
 
   /**
@@ -420,8 +420,8 @@ describe('mcs-ladder · the lookup-table limit promises only the half that is ke
     // what it lifts: the lookup table's floor becomes visible because this scene fails
     expect(rvmLimits).toContain('重传数才等于重叠数')
     // what it does NOT lift, restated in its own words — the other end of "never lifted"
-    expect(rvmLimits).toContain('既不看是否收到了坏帧，也不发探测帧')
-    expect(rvmLimits).toContain('引擎一个也没有实现')
+    expect(rvmLimits).toContain('既不检查是否收到了出错的帧，也不发送探测帧')
+    expect(rvmLimits).toContain('引擎均未实现')
     // **The target forwards nothing about THIS limit**, which is what matters here and is the
     // claim this assertion used to make of the whole lesson. It cannot any more: when the
     // `fading` lesson landed, `rate-vs-model`'s own time-invariance limit (the 57.8 dB link whose
@@ -432,8 +432,8 @@ describe('mcs-ladder · the lookup-table limit promises only the half that is ke
     const forwarding = rvm.limits.filter((l) => l.until || l.seeAlso)
     expect(forwarding.map((l) => l.until ?? l.seeAlso)).toEqual(['fading'])
     expect(forwarding[0].kind).toBe('out-of-scope')
-    expect(forwarding[0].text).toContain('这张速率直方图就不再是单一成因的了')
-    for (const needle of ['重传数才等于重叠数', '既不看是否收到了坏帧', '引擎一个也没有实现']) {
+    expect(forwarding[0].text).toContain('这张速率直方图就不再只反映单一原因')
+    for (const needle of ['重传数才等于重叠数', '既不检查是否收到了出错的帧', '引擎均未实现']) {
       const lim = rvm.limits.find((l) => l.text.includes(needle))!
       expect([lim.until, lim.seeAlso], needle).toEqual([undefined, undefined])
     }
@@ -490,7 +490,7 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     expect(h, 'the heading no longer states the ladder, the extract and the width').not.toBeNull()
     expect(zhCount(h![1]), 'the rungs the ladder has').toBe(rungs.length)
     expect(zhCount(h![2]), 'and the rungs this table prints').toBe(t.rows.length)
-    const floor = tableWith('照着步骤走一遍').rows
+    const floor = tableWith('的计算过程').rows
       .find((r) => r[0].includes('噪声地板'))![1]
     same(floor, noiseDbm(Number(h![3])), `the noise floor at the ${h![3]} MHz the heading names`)
     // every row, every column: the index, the modulation, the bits, the rate, the sensitivity
@@ -532,8 +532,8 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     const inTable = [...new Set(tableWith('十四级中的六级').rows
       .map((r) => /^(\d+)-QAM/.exec(r[1])?.[1]).filter(Boolean).map(Number))].sort((a, b) => a - b)
     expect(listed, 'the gloss lists the QAM orders the table uses').toEqual(inTable)
-    // 「1/2 表示一半是消息、一半是冗余」
-    const half = /(\d+)\/(\d+) 表示一半是消息/.exec(p)
+    // 「1/2 表示一半是信息、一半是冗余」
+    const half = /(\d+)\/(\d+) 表示一半是信息/.exec(p)
     expect(half, 'the gloss no longer reads a coding rate out loud').not.toBeNull()
     expect(Number(half![1]) / Number(half![2]), 'and that rate really is a half').toBe(0.5)
   })
@@ -547,7 +547,7 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     expect(Number(m![1]), 'the SNR the marker stops at, rounded down to half a dB')
       .toBe(Math.floor(lb.snrDb * 2) / 2)
     expect(Number(m![1]), 'which is the figure the widget is actually given').toBe(w.params!.snrDb)
-    // 「余量已经算进去了」: the rungs it lights are the ones the margin allows
+    // 「余量已经计入」: the rungs it lights are the ones the margin allows
     expect(rungs.filter((r) => Number(m![1]) >= r.reqSinrDb + RATE_MARGIN_DB).map((r) => r.mcs),
       'the rungs that fit at that SNR').toEqual([0, 1, 2, 3])
   })
@@ -564,10 +564,10 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     const margin = /所需 SINR \+ (\d+) dB ≤ SNR/.exec(items[2])
     expect(margin, 'step 3 no longer states the margin').not.toBeNull()
     same(`${margin![1]}`, RATE_MARGIN_DB, 'the rate margin step 3 keeps')
-    // step 5: 「在 20 MHz 上」, and 「比标准表格的假设多听见 3 dB，恰好与余量相抵」
+    // step 5: 「在 20 MHz 上」, and 「接收灵敏度比标准表格的假设好 3 dB，恰好与余量相抵」
     const width = /在 (\d+) MHz 上/.exec(items[4])
     expect(width, 'step 5 no longer names the width its shortcut holds at').not.toBeNull()
-    const extra = /多听见 (\d+) dB/.exec(items[4])
+    const extra = /比标准表格的假设好 (\d+) dB，恰好与余量相抵/.exec(items[4])
     expect(extra, 'step 5 no longer states the dB that cancels the margin').not.toBeNull()
     same(`${extra![1]}`, RATE_MARGIN_DB, 'the dB the shortcut cancels against')
     // and the shortcut really does agree with the arithmetic, at the width it names
@@ -579,7 +579,7 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
   })
 
   it('the worked column: six rows, the two verdicts included', () => {
-    const t = tableWith('照着步骤走一遍')
+    const t = tableWith('的计算过程')
     const rssi = val(t.rows.find((r) => r[0].includes('到达电平'))![1])
     const snr = rssi - noiseDbm(20)
     const ROWS: readonly (readonly [RegExp, (cell: string, l: RegExpExecArray) => void])[] = [
@@ -592,7 +592,7 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
       // 「第 3 级的要求，加上余量」 → 「16.99 + 3 = 19.99 dB ✓」: a sum, and a verdict
       [/^第 (\d+) 级的要求，加上余量$/, (c, l) => verdict(c, Number(l[1]), snr)],
       [/^第 (\d+) 级的要求，加上余量$/, (c, l) => verdict(c, Number(l[1]), snr)],
-      [/^于是这一帧发出去时用的是$/, (c) => {
+      [/^因此这一帧发送时使用$/, (c) => {
         const m = /^MCS (\d+)$/.exec(c)
         expect(m, `「${c}」 is not 「MCS n」`).not.toBeNull()
         expect(Number(m![1]), 'the rung the sender picks').toBe(mcsForRssi('eht', rssi, undefined, 20))
@@ -662,8 +662,8 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     expect(rungsSaid, 'observe[0] no longer lists the four rungs').not.toBeNull()
     expect(rungsSaid![1].split('、').map(Number), 'the rung of the first data frame, variant by variant')
       .toEqual(L.variants!.map((_v, i) => txs(variantRecs(i), 'sta-1', 'data')[0].frame.mcs))
-    // 「129.6、143.2、415.2、768.8 µs」 and 「往下走十二级 … 多花近六倍」
-    const air = /空口时间：([\d.、]+) µs。往下走([一二三四五六七八九十]+)级，同样的 (\d+) 个字节要多花近([一二三四五六七八九十]+)倍/
+    // 「129.6、143.2、415.2、768.8 µs」 and 「下降十二级后 … 增加到近六倍」
+    const air = /空口时间：([\d.、]+) µs。下降([一二三四五六七八九十]+)级后，同样的 (\d+) 个字节所需的空口时间增加到近([一二三四五六七八九十]+)倍/
       .exec(o[1])
     expect(air, 'observe[1] no longer lists the four airtimes').not.toBeNull()
     const printed = air![1].split('、')
@@ -685,8 +685,8 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
   })
 
   it('both experiments, read out of `tryThis`', () => {
-    // 「把滑杆先调到 15.9 dB，再调到 62.3 dB：最高可用级从 MCS 1 变成 MCS 13——46 dB 换来十二级」
-    const a = /把滑杆先调到 ([\d.]+) dB，再调到 ([\d.]+) dB：最高可用级从 MCS (\d+) 变成 MCS (\d+)——(\d+) dB 换来([一二三四五六七八九十]+)级/
+    // 「把滑块先调到 15.9 dB，再调到 62.3 dB：最高可用等级从 MCS 1 变为 MCS 13——46 dB 对应十二级」
+    const a = /把滑块先调到 ([\d.]+) dB，再调到 ([\d.]+) dB：最高可用等级从 MCS (\d+) 变为 MCS (\d+)——(\d+) dB 对应([一二三四五六七八九十]+)级/
       .exec(L.tryThis![0])
     expect(a, 'the slider experiment is gone, or its shape changed').not.toBeNull()
     const top = (mode: 'he' | 'eht', snr: number) =>
@@ -698,16 +698,16 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     for (const snr of [Number(a![1]), Number(a![2])]) {
       expect(positions, `${snr} dB is a position in the table`).toContain(snr)
     }
-    // 「46 dB 换来十二级」: both halves, to the dB the sentence rounds to
+    // 「46 dB 对应十二级」: both halves, to the dB the sentence rounds to
     same(a![5], Number(a![2]) - Number(a![1]), 'the dB between the two settings')
     expect(zhCount(a![6]), 'and the rungs they buy').toBe(Number(a![4]) - Number(a![3]))
-    // 「再按下 HE（Wi-Fi 6）那个模式按钮，最快的两级就消失了」
-    const he = /按下 HE（Wi-Fi 6）那个模式按钮，最快的([两一二三四五六七八九十]+)级就消失了/
+    // 「再按下 HE（Wi-Fi 6）那个模式按钮，最快的两级就会消失」
+    const he = /按下 HE（Wi-Fi 6）那个模式按钮，最快的([两一二三四五六七八九十]+)级就会消失/
       .exec(L.tryThis![0])
     expect(he, 'the HE half of the experiment is gone').not.toBeNull()
     expect(zhCount(he![1]), 'the rungs HE does not have').toBe(rungs.length - mcsLadder('he').length)
-    // 「把发射功率从 15 dBm 降到 12 dBm … 时长从 768.8 µs 拉到 1476.0 µs」
-    const b = /从 (\d+) dBm 降到 (\d+) dBm[^]*?时长从 ([\d.]+) µs 拉到 ([\d.]+) µs：(\d+) dB 几乎让空口时间翻倍/
+    // 「把发射功率从 15 dBm 降到 12 dBm … 时长从 768.8 µs 增加到 1476.0 µs」
+    const b = /从 (\d+) dBm 降到 (\d+) dBm[^]*?时长从 ([\d.]+) µs 增加到 ([\d.]+) µs：(\d+) dB 使空口时间几乎翻倍/
       .exec(L.tryThis![1])
     expect(b, 'the transmit-power experiment is gone, or its shape changed').not.toBeNull()
     const far = PRIMER_DISTANCES[PRIMER_DISTANCES.length - 1]
@@ -730,7 +730,7 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     expect(q1, 'quiz 1 no longer states the two airtimes').not.toBeNull()
     same(q1![1], txs(variantRecs(0), 'sta-1', 'data')[0].frame.txTimeNs / 1000, 'the desk’s airtime')
     same(q1![2], txs(variantRecs(3), 'sta-1', 'data')[0].frame.txTimeNs / 1000, 'and the far wall’s')
-    const e1 = /这一帧走 MCS (\d+) 而不是 MCS (\d+)/.exec(L.quiz[0].explain!)
+    const e1 = /这一帧使用 MCS (\d+) 而不是 MCS (\d+)/.exec(L.quiz[0].explain!)
     expect(e1, 'quiz 1’s explanation no longer names the two rungs').not.toBeNull()
     expect([Number(e1![1]), Number(e1![2])], 'the far wall’s rung and the desk’s')
       .toEqual([txs(variantRecs(3), 'sta-1', 'data')[0].frame.mcs,
@@ -860,11 +860,11 @@ describe('mcs-ladder · every printed figure is read back out of the lesson', ()
     for (const r of rows) {
       same(r[3], mcsRateMbps('eht', Number(r[0]), TGI_NS.base), `MCS ${r[0]}: the rate at that tier`)
     }
-    // the quiz's wrong option: 「MCS 4：离 −70 dBm 只差 3 dB，余量正好补上」 — the sensitivity
+    // the quiz's wrong option: 「MCS 4：与 −70 dBm 只差 3 dB，正好由余量补足」 — the sensitivity
     // it names is that rung's own, and the shortcut's answer is the rung below it
     const q = L.quiz.find((x) => x.q.includes('−73 dBm'))!
-    const wrong = q.options.find((o) => o.includes('余量正好补上'))!
-    const m = /MCS (\d+)：离 (−[\d.]+) dBm 只差 (\d+) dB/.exec(wrong)
+    const wrong = q.options.find((o) => o.includes('正好由余量补足'))!
+    const m = /MCS (\d+)：与 (−[\d.]+) dBm 只差 (\d+) dB/.exec(wrong)
     expect(m, 'the quiz no longer offers that option').not.toBeNull()
     same(m![2], PHY_MODES.eht.sensDbm[Number(m![1])], `MCS ${m![1]}: its own sensitivity`)
     expect(Number(m![3]), 'the margin it wants to add').toBe(RATE_MARGIN_DB)

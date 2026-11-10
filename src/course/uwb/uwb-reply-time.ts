@@ -1,5 +1,5 @@
 /**
- * UWB Tier 1 · M14 两只钟 · You cannot put a number inside the frame that measures it.
+ * UWB Tier 1 · M14 两个时钟 · You cannot put a number inside the frame that measures it.
  *
  * IEEE Std 802.15.4-2024 §10.29.6 lists five two-way ranging procedures. They
  * measure the same distance with the same arithmetic (`src/uwb/ranging.ts` is

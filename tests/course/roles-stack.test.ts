@@ -54,7 +54,7 @@ lessonShapeSuite(rolesStack, { runNs: RUN_NS })
 
 describe('roles-stack · the lesson itself', () => {
   it('opens the module about roles and owns the architecture words', () => {
-    expect(MODULES[rolesStack.module].title).toBe('一张网里的角色')
+    expect(MODULES[rolesStack.module].title).toBe('一个网络中的角色')
     // decode-thresholds joined when rule 2 stopped grading vacuously: the opening
     // sentence uses its `rate margin`, so the lesson has to declare it.
     expect(rolesStack.needs).toEqual(['radio-primer', 'decode-thresholds'])
@@ -364,8 +364,8 @@ describe('roles-stack · every figure the prose prints, read back out of it', ()
     const b = sc.nodes.find((n) => n.id === 'sta-4')!.pos
     const apart = Math.hypot(a.x - b.x, a.y - b.y)
     for (const [text, re, what] of [
-      [PIC, /隔着 (\d+) m，第一帧就解不出来/, 'the caption on the two phones'],
-      [DEEP, /隔着房间 (\d+) m，信干噪比支持不了/, '`deeper` on the same distance'],
+      [PIC, /相距 (\d+) m，连对方发出的第一帧都无法解码/, 'the caption on the two phones'],
+      [DEEP, /两者相隔 (\d+) m，信干噪比不足以支持/, '`deeper` on the same distance'],
     ] as [string, RegExp, string][]) {
       expect(figs(text, re, what)[0], what).toBe(apart)
     }

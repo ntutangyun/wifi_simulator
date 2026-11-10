@@ -187,7 +187,7 @@ describe('protect-policies · the figure of the three reaches', () => {
     expect(bnd.toUs - bnd.fromUs).toBe(cts.frame.durationFieldNs / US)
     expect(bnd.label).toBe('2 456 µs')
     // lane 4: the two CF-End copies, and the reservation ending with the second
-    const back = lane('还回去').spans[0]
+    const back = lane('释放').spans[0]
     expect(back.fromUs).toBe(rel(cf[0].t))
     expect(back.toUs).toBe(rel(clear.t))
     expect(bnd.toUs - back.toUs).toBe(288)
@@ -372,7 +372,7 @@ describe('protect-policies · every figure the prose prints, read back out of it
 
   it('reads the two Duration rules, and the range the other policy writes', () => {
     // 「把开场那句提问的 Duration 写成整轮末尾减去提问自身，这里是 2 500 µs，回答则…写 2 456 µs」
-    const [askUs, answerUs] = figs(NUMS, /这里是 ([\d ]+) µs，回答则再扣掉一段停顿和它自己，写 ([\d ]+) µs/,
+    const [askUs, answerUs] = figs(NUMS, /这里是 ([\d ]+) µs，CTS 则再扣除一段间隔和它自身，写为 ([\d ]+) µs/,
       'the step on the two announcements')
     const ask = txs(rs, (r) => r.frame.kind === 'rts' && r.t >= t0.t)[0]!
     const answer = txs(rs, (r) => r.frame.kind === 'cts' && r.t > ask.t)[0]!
@@ -381,7 +381,7 @@ describe('protect-policies · every figure the prose prints, read back out of it
     expect(askUs! - answerUs!, 'the pause and the answer the second one takes off')
       .toBe((OFDM_5G.sifsNs + answer.frame.txTimeNs) / US)
     // 「也就是边界保护始终写的那个 44 到 60 µs」
-    const [lo, hi] = figs(NUMS, /也就是边界保护始终写的那个 (\d+) 到 (\d+) µs/,
+    const [lo, hi] = figs(NUMS, /也就是边界保护始终填写的那个 (\d+) 到 (\d+) µs/,
       'the step on the range a data frame carries')
     const durs = dataDurs(rs)
     expect(Math.min(...durs) / US, 'the shortest Duration a data frame of this run carries').toBe(lo)
@@ -394,19 +394,19 @@ describe('protect-policies · every figure the prose prints, read back out of it
   })
 
   it('reads the worked ending as one burst’s own records', () => {
-    const t = tables().find((x) => x.rows.some((r) => r[0]!.includes('还回去的时间')))!
+    const t = tables().find((x) => x.rows.some((r) => r[0]!.includes('释放的时间')))!
     const row = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
     const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
     const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!
     const cf = txs(rs, (r) => r.frame.kind === 'cfend' && r.t > end.t)
     const clear = ofType(rs, 'NAV_CLEAR').find((r) => r.node === 'sta-2' && r.t > end.t)!
-    same(raw(row('预告出去的预约管到'), /^([\d.]+) ms$/, 'the announced end')[0]!,
+    same(raw(row('预告的预约持续到'), /^([\d.]+) ms$/, 'the announced end')[0]!,
       nav.untilNs / MS, 'where the reservation was announced to')
-    same(raw(row('最后一个回答落在'), /^([\d.]+) ms$/, 'the last answer')[0]!,
+    same(raw(row('最后一个确认落在'), /^([\d.]+) ms$/, 'the last answer')[0]!,
       end.t / MS, 'when the burst really ends')
     const [leftUs] = figs(row('已预告的预约还剩'), /^(\d+) µs$/, 'what was left on it')
     expect(leftUs! * US, 'the time left on the announcement').toBe(nav.untilNs - end.t)
-    const [needUs] = figs(row('再做一次交互需要'), /^(\d+) µs ✗$/, 'what one more exchange needs')
+    const [needUs] = figs(row('再进行一次交互需要'), /^(\d+) µs ✗$/, 'what one more exchange needs')
     expect(needUs, 'more than was left — which is why the burst stops').toBeGreaterThan(leftUs!)
     /*
      * **「跳到第一个 CF-End（约 2.90 ms）」 — an instruction, printed twice** (`picture` and
@@ -429,14 +429,14 @@ describe('protect-policies · every figure the prose prints, read back out of it
     expect(cf[1]!.node, 'and who repeats it').toBe('ap')
     same(raw(row('于是远端站点的预约结束于'), /^([\d.]+) ms$/, 'the clear')[0]!,
       clear.t / MS, 'when the hidden station drops its reservation')
-    const [backUs] = figs(row('还回去的时间'), /^(\d+) µs$/, 'the time handed back')
+    const [backUs] = figs(row('释放的时间'), /^(\d+) µs$/, 'the time handed back')
     expect(backUs! * US, 'which is what the announcement had left').toBe(nav.untilNs - clear.t)
     // `picture` and `observe` print three of those figures again
     for (const text of [PIC, OBS]) {
       const [left] = figs(text, /预约还剩 (\d+) µs/, 'the same remainder')
       expect(left, 'the same remainder').toBe(leftUs)
     }
-    const [closeMs, insteadMs] = figs(PIC, /那条紫条在 ([\d.]+) ms 收尾，而不是等到预告的 ([\d.]+) ms/,
+    const [closeMs, insteadMs] = figs(PIC, /那条紫色条在 ([\d.]+) ms 结束，而不是等到预告的 ([\d.]+) ms/,
       '`picture` on the two ends')
     same(String(closeMs), clear.t / MS, 'when the bar really closes')
     same(String(insteadMs), nav.untilNs / MS, 'against where it was announced to')
@@ -453,7 +453,7 @@ describe('protect-policies · every figure the prose prints, read back out of it
      */
     // 「µs（0 是那句提问）」 — the axis unit, which says where the drawing's zero is
     const spec = policyReachTiming()
-    const [zero] = figs(spec.axis!.unit!, /（(\d+) 是那句提问）/, 'the figure’s axis note')
+    const [zero] = figs(spec.axis!.unit!, /（(\d+) 是那一帧 RTS）/, 'the figure’s axis note')
     expect(zero, 'where the axis really starts').toBe(spec.axis!.fromUs)
     const burst = spec.lanes.find((l) => l.label === '这一串')!
     const rts = burst.spans.find((s) => s.label === 'RTS')!
@@ -468,8 +468,8 @@ describe('protect-policies · every figure the prose prints, read back out of it
     const sTxop = ofType(single1, 'TXOP_START').filter((r) => r.node === 'sta-1')
       .find((r) => ms(r.t) === 0.736)!
     const sAnswer = txs(single1, (r) => r.frame.kind === 'cts' && r.t > sTxop.t)[0]!
-    const ending = tables().find((x) => x.rows.some((r) => r[0]!.includes('还回去的时间')))!
-    const [needUs] = figs(ending.rows.find((r) => r[0]!.includes('再做一次交互需要'))![1]!,
+    const ending = tables().find((x) => x.rows.some((r) => r[0]!.includes('释放的时间')))!
+    const [needUs] = figs(ending.rows.find((r) => r[0]!.includes('再进行一次交互需要'))![1]!,
       /^(\d+) µs ✗$/, 'what one more exchange needs')
     expect(needUs! * US, 'what one more exchange really needs')
       .toBe(sAnswer.frame.durationFieldNs)
@@ -485,7 +485,7 @@ describe('protect-policies · every figure the prose prints, read back out of it
     expect(Object.keys(LINK_EXTRA_LOSS_DB), 'a band this engine has no link for')
       .not.toContain(`${limG}g`)
     // 「一台普通的 5 GHz 接入点并不会这样帮忙」 — the band this lesson's own room is on
-    const [bandG] = figs(LIM, /一台普通的 (\d) GHz 接入点并不会这样帮忙/, '`limits` on the ordinary one')
+    const [bandG] = figs(LIM, /一台普通的 (\d) GHz 接入点并不会代为重复发送/, '`limits` on the ordinary one')
     const scene = ScenarioSchema.parse(protectPolicies.scenario())
     const ap = scene.nodes.find((n) => n.kind === 'ap')!
     expect(ap.linkId ?? '5g', 'the link this lesson’s own access point is on').toBe(`${bandG}g`)
@@ -510,11 +510,11 @@ describe('protect-policies · every figure the prose prints, read back out of it
     // 「零点取本轮 0.736 ms 那句提问…只预约到第一次交互做完为止（416 µs）；…（2 456 µs），
     //   可这一串 2 152 µs 就完了，于是两份 CF-End 把最后那 288 µs 还了回去」
     const cap = caption()
-    const [zeroMs] = figs(cap, /零点取本轮 ([\d.]+) ms 那句提问/, 'the caption’s own zero point')
+    const [zeroMs] = figs(cap, /零点取本轮 ([\d.]+) ms 发出的那一帧 RTS/, 'the caption’s own zero point')
     same(String(zeroMs), t0.t / MS, 'the burst the figure is drawn from')
-    const [singleUs] = figs(cap, /只预约到第一次交互做完为止（(\d+) µs）/, 'the caption on single')
+    const [singleUs] = figs(cap, /只预约到第一次交互完成为止（(\d+) µs）/, 'the caption on single')
     const [boundaryUs] = figs(cap, /边界保护预约到本轮末尾（([\d ]+) µs）/, 'the caption on boundary')
-    const [burstUs, backUs] = figs(cap, /可这一串 ([\d ]+) µs 就完了，于是两份 CF-End 把最后那 (\d+) µs 还了回去/,
+    const [burstUs, backUs] = figs(cap, /但这一串在 ([\d ]+) µs 就结束了，于是两份 CF-End 释放了最后那 (\d+) µs/,
       'the caption on what was handed back')
     const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'sta-1' && r.t > t0.t)!
     const nav = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-2' && r.t >= t0.t)!

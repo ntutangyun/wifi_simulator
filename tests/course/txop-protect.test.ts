@@ -388,7 +388,7 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
       .toEqual(protectSequence())
     // its caption states two of the run's instants and counts the exchanges in Chinese numerals
     const cap = (blk as { caption?: string }).caption ?? ''
-    const m = /一直管到 ([\d.]+) ms[^]*?A 的([一二三四五六七八九十]+)次交互到 ([\d.]+) ms 才结束/.exec(cap)
+    const m = /一直持续到 ([\d.]+) ms[^]*?A 的([一二三四五六七八九十]+)次交互到 ([\d.]+) ms 才结束/.exec(cap)
     expect(m, 'the caption no longer states where the reservation reaches and when the burst ends')
       .not.toBeNull()
     expect(Number(m![1]), 'the caption’s reach of the far station’s reservation').toBe(ms3(nav.untilNs))
@@ -418,11 +418,11 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
   })
 
   it('the cost table: three rows in two different units, each to its own decimals', () => {
-    const t = tableWith('用来预告的那些帧')
+    const t = tableWith('用于预告的那些帧')
     const CHECK: readonly (readonly [string, (rs: TLRecord[]) => number])[] = [
-      ['花在提问、回答与收尾小帧上的空口时间', announcingNs],
-      ['每送达一帧所花的空口时间', (rs) => allAirNs(rs) / delivered(rs)],
-      ['隐藏站点装上的预约，平均有多长', meanNavNs],
+      ['用于 RTS、CTS 与结束短帧的空口时间', announcingNs],
+      ['每送达一帧占用的空口时间', (rs) => allAirNs(rs) / delivered(rs)],
+      ['隐藏站点设置的预约的平均时长', meanNavNs],
     ]
     expect(t.rows, 'the table holds exactly the rows this reads').toHaveLength(CHECK.length)
     for (const [label, q] of CHECK) {
@@ -468,7 +468,7 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
   })
 
   it('the four steps: the turn’s limit, the question’s own length, and both Durations', () => {
-    const items = stepsWith('一句提问怎么管住整串')
+    const items = stepsWith('一帧 RTS 如何覆盖整串')
     expect(items, 'the lesson walks the burst in exactly the steps this reads').toHaveLength(4)
     // step 1: 「这里的上限是 2 528 µs」
     const cap = /上限是 ([\d\s]+) µs/.exec(items[0])
@@ -478,7 +478,7 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
     const q = /一帧 (\d+) 字节的 RTS/.exec(items[1])
     expect(q, 'step 2 no longer states the question’s size').not.toBeNull()
     expect(Number(q![1]), 'the bytes a question costs').toBe(rts.frame.bytes)
-    const dur = /整轮减去提问自身的 (\d+) µs：([\d\s]+) µs/.exec(items[1])
+    const dur = /整轮减去 RTS 自身的 (\d+) µs：([\d\s]+) µs/.exec(items[1])
     expect(dur, 'step 2 no longer states the subtraction it describes').not.toBeNull()
     figure(`${dur![1]} µs`, rts.frame.txTimeNs, 'the question’s own airtime')
     figure(`${dur![2]} µs`, rts.frame.durationFieldNs, 'and the Duration it therefore carries')
@@ -486,11 +486,11 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
     expect(val(dur![2]) + val(dur![1]), 'the two figures really do add up to the turn')
       .toBe((t0.untilNs - t0.t) / US)
     // step 3: 「剩下的 2 456 µs」
-    const left = /剩下的 ([\d\s]+) µs/.exec(items[2])
+    const left = /剩余的 ([\d\s]+) µs/.exec(items[2])
     expect(left, 'step 3 no longer states what the answer carries').not.toBeNull()
     figure(`${left![1]} µs`, cts.frame.durationFieldNs, 'the Duration of the answer')
     // step 4: 「这一帧是 44 µs，本轮最多也就 60 µs」
-    const dd = /这一帧是 (\d+) µs，本轮最多也就 (\d+) µs/.exec(items[3])
+    const dd = /这一帧是 (\d+) µs，本轮最多也只有 (\d+) µs/.exec(items[3])
     expect(dd, 'step 4 no longer states the Durations a data frame carries').not.toBeNull()
     figure(`${dd![1]} µs`, data[0].frame.durationFieldNs, 'what the first data frame announces')
     figure(`${dd![2]} µs`,
@@ -502,31 +502,31 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
     const t = tableWith('从 0.736 ms 开始的那一串')
     const ROWS: readonly (readonly [RegExp, (cell: string, label: RegExpExecArray) => void])[] = [
       // 「提问发出，Duration 2 500 µs」 → 0.736 ms
-      [/^提问发出，Duration ([\d\s]+) µs$/, (cell, l) => {
+      [/^RTS 发出，Duration ([\d\s]+) µs$/, (cell, l) => {
         figure(`${l[1]} µs`, rts.frame.durationFieldNs, 'the Duration the question carries')
         figure(cell, t0.t, 'when the question goes out')
       }],
       // 「回答到手，Duration 2 456 µs」 → 0.808 ms. The answer STARTS at 0.780 (the figure above
       // prints that instant); 0.808 is when its last bit lands, which is also the instant the far
       // station loads its reservation. Both readings of 「到手」 are asserted, and they coincide.
-      [/^回答到手，Duration ([\d\s]+) µs$/, (cell, l) => {
+      [/^收到 CTS，Duration ([\d\s]+) µs$/, (cell, l) => {
         figure(`${l[1]} µs`, cts.frame.durationFieldNs, 'the Duration the answer carries')
         figure(cell, cts.t + cts.frame.txTimeNs, 'when the answer finishes arriving')
         expect(nav.t, 'which is the instant the far station loads its reservation')
           .toBe(cts.t + cts.frame.txTimeNs)
       }],
       // 「于是远端站点的预约一直管到」 → 3.264 ms
-      [/^于是远端站点的预约一直管到$/, (cell) => figure(cell, nav.untilNs, 'where the reservation reaches')],
+      [/^于是远端站点的预约一直持续到$/, (cell) => figure(cell, nav.untilNs, 'where the reservation reaches')],
       // 「五次交互，每次 416 µs；最后一个回答落在」 → 2.888 ms
-      [/^([一二三四五六七八九十]+)次交互，每次 (\d+) µs；最后一个回答落在$/, (cell, l) => {
+      [/^([一二三四五六七八九十]+)次交互，每次 (\d+) µs；最后一个确认落在$/, (cell, l) => {
         expect(zhNumeral(l[1]), 'the exchanges the burst holds').toBe(data.length)
         figure(`${l[2]} µs`, data[1].t - data[0].t, 'one exchange')
         figure(cell, end.t, 'and when the last answer lands')
       }],
       // 「这一串从提问到最后一个回答，一共」 → 2 152 µs
-      [/^这一串从提问到最后一个回答，一共$/, (cell) => figure(cell, end.t - t0.t, 'the span of the burst')],
+      [/^这一串从 RTS 到最后一个确认，一共$/, (cell) => figure(cell, end.t - t0.t, 'the span of the burst')],
       // 「于是预告出去的时间还多出」 → 376 µs
-      [/^于是预告出去的时间还多出$/, (cell) => figure(cell, nav.untilNs - end.t, 'the time announced and unused')],
+      [/^于是预告的时间还多出$/, (cell) => figure(cell, nav.untilNs - end.t, 'the time announced and unused')],
     ]
     expect(t.rows, 'the table walks exactly the steps this reads').toHaveLength(ROWS.length)
     for (const [i, [re, check]] of ROWS.entries()) {
@@ -537,8 +537,8 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
   })
 
   it('the census of the collisions that survive, read out of the paragraph', () => {
-    const p = textWith('剩下的那些碰撞')
-    const m = /剩下的 (\d+) 次碰撞里，有 (\d+) 次是两句提问撞在一起[^]*?各损失 (\d+) 字节[^]*?只有 (\d+) 次撞上了正在进行中的数据帧/
+    const p = textWith('剩余的那些碰撞')
+    const m = /剩余的 (\d+) 次碰撞里，有 (\d+) 次是两帧 RTS 相互碰撞[^]*?各损失 (\d+) 字节[^]*?只有 (\d+) 次与正在进行中的数据帧发生碰撞/
       .exec(p)
     expect(m, 'the collision census is gone, or its shape changed').not.toBeNull()
     const locked = lockedAt(b)
@@ -559,7 +559,7 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
   it('both observe lines: the third attempt, the two Durations, and the 24-of-29 census', () => {
     const o = txopProtect.observe!
     // 「两台站点都在 t = 0 发出提问，撞在一起」
-    const zero = /都在 t = (\d+) 发出提问/.exec(o[0])
+    const zero = /都在 t = (\d+) 发出 RTS/.exec(o[0])
     expect(zero, 'observe[0] no longer says when the two questions go out').not.toBeNull()
     const openers = txs(b, (r) => r.frame.kind === 'rts' && r.t === Number(zero![1]))
     expect(new Set(openers.map((r) => r.node)), 'both stations ask at that instant')
@@ -572,11 +572,11 @@ describe('txop-protect · every printed figure is read back out of the lesson', 
       .toBe(txs(b, (r) => r.node === 'sta-1' && r.frame.kind === 'rts' && r.t <= t0.t).length)
     figure(`${win![3]} µs`, rts.frame.durationFieldNs, 'the Duration it announces')
     // 「接入点在 0.780 ms 的回答携带 2456 µs」, and 「一直紫到 3.264 ms」
-    const ans = /接入点在 ([\d.]+) ms 的回答携带 (\d+) µs/.exec(o[0])
+    const ans = /接入点在 ([\d.]+) ms 的 CTS 携带 (\d+) µs/.exec(o[0])
     expect(ans, 'observe[0] no longer states the answer').not.toBeNull()
     figure(`${ans![1]} ms`, cts.t, 'when the answer goes out')
     figure(`${ans![2]} µs`, cts.frame.durationFieldNs, 'and what it carries')
-    const purple = /一直紫到 ([\d.]+) ms/.exec(o[0])
+    const purple = /一直显示紫色到 ([\d.]+) ms/.exec(o[0])
     expect(purple, 'observe[0] no longer says how far the far station’s lane is held').not.toBeNull()
     figure(`${purple![1]} ms`, nav.untilNs, 'the reservation the lane draws')
     // 「“第一次碰撞”落在 t = 28 µs」: the instant the two simultaneous questions end

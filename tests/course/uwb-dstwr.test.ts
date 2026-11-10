@@ -206,7 +206,7 @@ describe('uwb-dstwr · the figure', () => {
 
 describe('uwb-dstwr · the lesson’s own place in the track', () => {
   it('is the fourth lesson of the UWB track and needs the single-sided one', () => {
-    expect(MODULES[uwbDstwr.module].title).toBe('两只钟')
+    expect(MODULES[uwbDstwr.module].title).toBe('两个时钟')
     expect(uwbDstwr.id).toBe('uwb-dstwr')
     expect(uwbDstwr.needs).toEqual(['uwb-sstwr'])
     expect(uwbDstwr.terms!.map((t) => t.term)).toEqual(['DS-TWR', 'Final', 'Report', 'RMI'])

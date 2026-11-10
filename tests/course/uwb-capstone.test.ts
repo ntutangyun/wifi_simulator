@@ -501,7 +501,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
   /** The scene a column of the four-scene table is about, by the words of its own heading. */
   const sceneOf = (head: string): number | undefined => {
     if (head.includes('现状')) return undefined
-    if (head.includes('挪远')) return V_FAR
+    if (head.includes('移远')) return V_FAR
     if (head.includes('一个块')) return V_FAST
     if (head.includes('一轮')) return V_OTM
     throw new Error(`no scene for the column 「${head}」`)
@@ -746,7 +746,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
   it('reads the anchor the brief moves, and the draft it names twice', () => {
     /*
      * **Three figures got past the reads above** (sweep of 2026-10-14), and two of them are the
-     * same anchor's number: 「锚点 3 挪远」 in the table's own column heading and 「把锚点 3 挪到
+     * same anchor's number: 「锚点 3 移远」 in the table's own column heading and 「把锚点 3 挪到
      * 另一个房间」 in the quiz. Read as what they name: the one node this variant moves.
      */
     const base = uwbCapstone.scenario()
@@ -755,7 +755,7 @@ describe('uwb-capstone · every figure the prose prints, read back out of it', (
       .filter((n, i) => JSON.stringify(n.pos) !== JSON.stringify(far.nodes[i]!.pos))
       .map((n) => n.id)
     for (const [text, re, what] of [
-      [table(0).head.join('\n'), /锚点 (\d) 挪远/, 'the column heading'],
+      [table(0).head.join('\n'), /锚点 (\d) 移远/, 'the column heading'],
       [QUIZ, /把锚点 (\d) 移到另一个房间/, 'the quiz'],
     ] as [string, RegExp, string][]) {
       const [n] = figs(text, re, what)

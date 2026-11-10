@@ -254,8 +254,8 @@ const UWB_SPINE: GroupSpec[] = [
       { id: 'grid', why: '这几个单元装的正是块号、轮号与时隙号——没有网格就没有号可装' },
     ],
     match: (r) => sec(r, '六') && !has(r, /SRRR IE/) },
-  { id: 'one2many', title: '一对多', note: '广播 Poll 点名，逐锚点作答 §10.32.4／.5',
-    intro: '一台控制器广播一次 Poll 把一串锚点一次点名，锚点各自在自己的时隙里作答。'
+  { id: 'one2many', title: '一对多', note: '广播 Poll 逐一指定锚点，各锚点依次作答 §10.32.4／.5',
+    intro: '一台控制器广播一次 Poll，一次指定一串锚点，锚点各自在自己的时隙里作答。'
       + '它省的是问话：N 个锚点本来要 N 次问答，现在一问 N 答。定位解算要的三条以上距离，'
       + '正是这样一轮里拿到的。',
     family: 'core',
@@ -286,7 +286,7 @@ const UWB_SPINE: GroupSpec[] = [
     ],
     match: (r) => has(r, /SP3 分组下的测距|SRRR IE/) },
   { id: 'recover', title: '测距之外的消息处理', note: '未收到 §10.34、辅助信息 §10.35、收妥确认 §10.36',
-    intro: '一轮测距周围还有几句话要说：谁没收到启动消息、谁要另外捎一条信息、谁确认收妥了哪几条。'
+    intro: '一轮测距周围还有几句话要说：谁没收到启动消息、谁要另外携带一条信息、谁确认收妥了哪几条。'
       + '这三节管的就是控制器与响应方之间、测距以外的往来，它们挂在控制字与各自的信息单元上。',
     family: 'core',
     needs: [
@@ -569,7 +569,7 @@ const WIFI_SPINE: GroupSpec[] = [
     family: 'draft',
     needs: [
       { id: 'phy-timing', why: '它跑在同一片空口上，帧长仍按同一套前导码与符号算' },
-      { id: 'dcf', why: '一轮点名要先占住信道（CTS-to-self），占的是 DCF 的那条规矩' },
+      { id: 'dcf', why: '一轮调度式测距要先占住信道（CTS-to-self），占的是 DCF 的那条规矩' },
     ],
     match: (r) => sec(r, '十一') },
   { id: 'wifi-absent', title: '决定不建的', note: '读者会合理期待、而本仓库明确不建的那一批',

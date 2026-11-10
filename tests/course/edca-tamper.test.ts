@@ -16,7 +16,7 @@
  *
  * The second half of the file is the other direction: the three places a cheat is byte-identical
  * to not cheating. The per-record proof lives in `tests/engine/tamper-inert.test.ts`; what is
- * here is the one the lesson ships as a variant, 「开黑的房间 + 霸占信道」, where every consequence
+ * here is the one the lesson ships as a variant, 「联机游戏的房间 + 霸占信道」, where every consequence
  * is equal and only the announced deadline differs.
  */
 import { describe, it, expect } from 'vitest'
@@ -225,7 +225,7 @@ describe('edca-tamper · the inflated Duration travels through the access point'
 
 describe('edca-tamper · the variant where a cheat does nothing', () => {
   /**
-   * 「开黑的房间 + 霸占信道」. The sharpest shape of "legal and provably inert" this slice found:
+   * 「联机游戏的房间 + 霸占信道」. The sharpest shape of "legal and provably inert" this slice found:
    * the record COUNT is equal, every consequence is equal, and the only thing that differs is
    * the number the cheater announces. 「差异条数 > 0」 is asserted too — without it this test
    * would also pass if nothing at all had changed, which is a different and wrong claim.
@@ -297,7 +297,7 @@ describe('edca-tamper · the figures the lesson prints are read back out of it',
   const cell = (s: string): number => Number(s.replace(/[\s%]/g, ''))
 
   it('the per-configuration table: share, both compliant counts and the collisions, cell by cell', () => {
-    const rows = tableOf('七种改法各跑两秒')
+    const rows = tableOf('七种改法各运行两秒')
     expect(rows, 'the lesson prints one row per configuration plus the honest one').toHaveLength(8)
     for (const row of rows) {
       const kind = BY_LABEL[row[0]]
@@ -434,7 +434,7 @@ describe('edca-tamper · the ninety figures outside those two tables, read back 
      * spread has to be under the printed bound, and over the bound one below it, so the only
      * number that passes is the one the measurement gives.
      */
-    const [points] = figs(PIC, /彼此差不到 (\d+) 个百分点/, 'the watch call-out on the spread')
+    const [points] = figs(PIC, /彼此相差不到 (\d+) 个百分点/, 'the watch call-out on the spread')
     expect(spread, `the widest pair is ${spread.toFixed(2)} points apart`).toBeLessThan(points!)
     expect(spread, 'and the printed bound is the tightest whole one that holds').toBeGreaterThan(points! - 1)
   })
@@ -501,17 +501,17 @@ describe('edca-tamper · the ninety figures outside those two tables, read back 
      * of 2026-10-13 caught this site on it: 8 001 µs over the video limit still rounds to two.
      * So the figure is read against the preset that sets it, and the ratio is read on top.
      */
-    const [hog] = figs(NUMS, /([\d ]{5,}) µs 恰好是视频那一类上限的约两倍/, 'the sentence on the ratio')
+    const [hog] = figs(NUMS, /([\d ]{5,}) µs 是视频那一类上限的约两倍/, 'the sentence on the ratio')
     expect(hog, 'the value the cheat fills in').toBe(TAMPER_PRESETS.txopHog.txopLimitUs)
     expect(Math.round((hog! * 1000) / vi.txopLimitNs), 'the ratio the sentence rounds to 「约两倍」').toBe(2)
     expect(NUMS, 'and it says 「约」, because it is 1.95').toContain('约两倍')
   })
 
   it('the seed, read off the scene the lesson loads', () => {
-    same(raw(NUMS, /七种改法各跑两秒（种子 (\d+)）/, 'the gate table’s heading')[0]!,
+    same(raw(NUMS, /七种改法各运行两秒（种子 (\d+)）/, 'the gate table’s heading')[0]!,
       tamperScenario().seed!, 'the seed the shipped scene runs on')
     // The round length the same heading names, in words, against the one every figure uses.
-    expect(NUMS, 'and the length, which the heading gives in characters').toContain('各跑两秒')
+    expect(NUMS, 'and the length, which the heading gives in characters').toContain('各运行两秒')
     expect(RUN_NS / MS, 'two seconds').toBe(2000)
   })
 
@@ -552,18 +552,18 @@ describe('edca-tamper · the ninety figures outside those two tables, read back 
   })
 
   it('the two collision claims, both of them read off the rounds', () => {
-    const [from, to] = figs(NUMS, /把碰撞从 (\d+) 推到 (\d+)/, 'the collisions the lightest cheat adds')
+    const [from, to] = figs(NUMS, /使碰撞从 (\d+) 次增加到 (\d+) 次/, 'the collisions the lightest cheat adds')
     expect(from, 'the honest round’s collisions').toBe(round(undefined).coll)
     expect(to, 'and the no-double round’s').toBe(round('noDouble').coll)
     expect(to, 'which really is the higher of the two').toBeGreaterThan(from!)
     // The two figures the same sentence computes from the table: the points gained and the price.
-    const [points] = figs(NUMS, /它多拿到的那 (\d+) 个百分点/, 'the points the lightest cheat gains')
+    const [points] = figs(NUMS, /它多获得的那 (\d+) 个百分点/, 'the points the lightest cheat gains')
     expect(points, 'the share it gains over the honest round, as the prose rounds it')
       .toBe(Math.round(100 * (round('noDouble').share - round(undefined).share)))
     same(raw(NUMS, /全场多出的 (\d+) 次碰撞/, 'the collisions it costs the room')[0]!, to! - from!,
       'the collisions it costs the room')
     // 「虚报时长与四种合体把碰撞打到 1 次」: both of them, at that figure.
-    const [one] = figs(NUMS, /把碰撞打到 (\d+) 次/, 'the collisions the two heaviest leave')
+    const [one] = figs(NUMS, /使碰撞降到 (\d+) 次/, 'the collisions the two heaviest leave')
     expect([round('navInflate').coll, round('greedy').coll], 'both of the two heaviest cheats')
       .toEqual([one, one])
   })
@@ -582,9 +582,9 @@ describe('edca-tamper · the ninety figures outside those two tables, read back 
     const [was, now] = raw(NUMS, /本来最长 ([\d .]+) µs，现在是 ([\d .]+) µs/, 'the two NAVs the steps print')
     same(was!, clean.max / 1000, 'the longest NAV without the cheat')
     same(now!, cheat.max / 1000, 'and with it')
-    same(raw(NUMS, /一微秒不差地多了 ([\d ]+)/, 'the difference the step claims')[0]!,
+    same(raw(NUMS, /恰好多出 ([\d ]+)/, 'the difference the step claims')[0]!,
       (cheat.max - clean.max) / 1000, 'the difference between the two, in µs')
-    const [lo, hi] = figs(NUMS, /次数从 (\d+) 次涨到 (\d+) 次/, 'the two NAV counts')
+    const [lo, hi] = figs(NUMS, /次数从 (\d+) 次增加到 (\d+) 次/, 'the two NAV counts')
     expect([lo, hi], 'the times the compliant station is held down, either way').toEqual([clean.n, cheat.n])
     // The third observe line prints the same pair the other way round.
     const [obsNow, obsWas] = raw(OBS, /最长的一条是 ([\d .]+) µs，而不作弊那一轮同一处是 ([\d .]+) µs/,
@@ -613,7 +613,7 @@ describe('edca-tamper · the ninety figures outside those two tables, read back 
       .toEqual([...[two, ten, thirty]].sort((a, b) => a! - b!))
     expect(ten, 'the exempt one really does sit between them').toBeGreaterThan(two!)
     expect(ten, 'from both sides').toBeLessThan(thirty!)
-    const [zero] = figs(NUMS, /加起来是 (\d+) 次/, 'the reason it is inert')
+    const [zero] = figs(NUMS, /合计 (\d+) 次/, 'the reason it is inert')
     /*
      * **The zero is the reason, measured at every length the prose names.** A station that
      * neither collides nor loses an acknowledgement never doubles a window, so refusing to

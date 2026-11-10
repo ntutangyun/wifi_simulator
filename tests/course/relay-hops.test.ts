@@ -85,7 +85,7 @@ lessonShapeSuite(relayHops, { runNs: RUN_NS, sameSceneAs: 'roles-stack' })
 
 describe('relay-hops · the lesson itself', () => {
   it('is the second lesson of the module about roles, and needs the first', () => {
-    expect(MODULES[relayHops.module].title).toBe('一张网里的角色')
+    expect(MODULES[relayHops.module].title).toBe('一个网络中的角色')
     expect(relayHops.needs).toEqual(['roles-stack'])
     expect(relayHops.terms!.map((t) => t.term)).toEqual(['DS'])
   })
@@ -355,43 +355,43 @@ describe('relay-hops · every figure the prose prints, read back out of it', () 
 
   it('reads the five steps as one payload’s own records, figure by figure', () => {
     const [s0, s1, s2, s3, s4] = steps()
-    // 「1.4157 ms，它到达手机 B；屋里正安静，手机 B 立刻把它发了出去。」
+    // 「1.4157 ms，它到达手机 B；此时信道空闲，手机 B 立即将它发出。」
     const arrivalB = at('ARRIVAL', 'sta-4')
     const [arrMs, phoneB] = raw(s0!, /^([\d.]+) ms，它到达手机 (.)；/, 'step 1 on the arrival')
     expect(arrMs, 'when the payload reaches the phone').toBe(asMs(arrivalB.t).replace(' ms', ''))
     expect(hop1.node, `手机 ${phoneB} is the phone that sends it`).toBe('sta-4')
-    expect(hop1.t, 'and 「立刻」 means it goes out at that same instant').toBe(arrivalB.t)
-    // 「这一帧长 125.6 µs。接入点在 1.5413 ms 收齐，隔 16 µs 后作答。」
-    const [frameUs] = figs(s1!, /这一帧长 ([\d.]+) µs/, 'step 2 on the frame')
+    expect(hop1.t, 'and 「立即」 means it goes out at that same instant').toBe(arrivalB.t)
+    // 「这一帧时长 125.6 µs。接入点在 1.5413 ms 接收完毕，16 µs 后应答。」
+    const [frameUs] = figs(s1!, /这一帧时长 ([\d.]+) µs/, 'step 2 on the frame')
     expect(frameUs! * 1000, 'the air this frame really takes').toBe(hop1.frame.txTimeNs)
     const rxAp = rs.find((r) => r.type === 'RX_OK' && r.node === 'ap' && r.t >= hop1.t)!
-    const [gotMs, silenceUs] = raw(s1!, /接入点在 ([\d.]+) ms 收齐，隔 (\d+) µs 后作答/,
+    const [gotMs, silenceUs] = raw(s1!, /接入点在 ([\d.]+) ms 接收完毕，(\d+) µs 后应答/,
       'step 2 on the access point')
     same(gotMs!, rxAp.t / MS, 'when the access point has it whole')
     const ack1 = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'ack'
       && r.node === 'ap' && r.t > hop1.t)!
     expect(val(silenceUs!) * 1000, 'the silence it keeps before answering').toBe(ack1.t - rxAp.t)
     expect(val(silenceUs!) * 1000, 'which is the engine’s own short silence').toBe(SIFS_NS)
-    // 「这个回复占 28 µs 空口。第一跳在 1.5853 ms 结束，花掉 169.6 µs。」
-    const [ackUs] = figs(s2!, /这个回复占 (\d+) µs 空口/, 'step 3 on the answer')
+    // 「这个应答在空口上占 28 µs。第一跳在 1.5853 ms 结束，共用时 169.6 µs。」
+    const [ackUs] = figs(s2!, /这个应答在空口上占 (\d+) µs/, 'step 3 on the answer')
     expect(ackUs! * 1000, 'the air the answer really takes').toBe(ack1.frame.txTimeNs)
     const deqB = at('DEQUEUE', 'sta-4')
-    const [endMs, hopUs] = raw(s2!, /第一跳在 ([\d.]+) ms 结束，花掉 ([\d.]+) µs/, 'step 3 on the first hop')
+    const [endMs, hopUs] = raw(s2!, /第一跳在 ([\d.]+) ms 结束，共用时 ([\d.]+) µs/, 'step 3 on the first hop')
     same(endMs!, deqB.t / MS, 'when the first hop is done')
     expect(val(hopUs!) * 1000, 'and what it cost').toBe(deqB.t - hop1.t)
-    // 「转发花 50 µs，于是 1.6353 ms 时这份载荷进入发往手机 A 的队列，并立刻发出。」
+    // 「转发用时 50 µs，因此在 1.6353 ms 时这份载荷进入发往手机 A 的队列，并立即发出。」
     const arrAp = at('ARRIVAL', 'ap')
     const [fwdUs, queueMs, phoneA] = raw(s3!,
-      /转发花 (\d+) µs，于是 ([\d.]+) ms 时这份载荷进入发往手机 (.) 的队列/, 'step 4 on the forward')
+      /转发用时 (\d+) µs，因此在 ([\d.]+) ms 时这份载荷进入发往手机 (.) 的队列/, 'step 4 on the forward')
     expect(val(fwdUs!) * 1000, 'how long the forward really takes').toBe(arrAp.t - deqB.t)
     expect(val(fwdUs!), 'which is the constant the lesson names').toBe(RELAY_FWD_US)
     same(queueMs!, arrAp.t / MS, 'when it enters the queue for the other phone')
     expect(hop2.frame.dst, `手机 ${phoneA} is who the second hop goes to`).toBe('sta-3')
-    expect(hop2.t, '「并立刻发出」: the second hop starts at that instant').toBe(arrAp.t)
-    // 「到 1.8049 ms，手机 A 已经作答。第二跳同样花 169.6 µs：全程 389.2 µs。」
+    expect(hop2.t, '「并立即发出」: the second hop starts at that instant').toBe(arrAp.t)
+    // 「到 1.8049 ms，手机 A 已经应答完毕。第二跳同样用时 169.6 µs：全程 389.2 µs。」
     const deqAp = at('DEQUEUE', 'ap')
     const [doneMs, hop2Us, allUs] = raw(s4!,
-      /到 ([\d.]+) ms，手机 . 已经作答。第二跳同样花 ([\d.]+) µs：全程 ([\d.]+) µs/,
+      /到 ([\d.]+) ms，手机 . 已经应答完毕。第二跳同样用时 ([\d.]+) µs：全程 ([\d.]+) µs/,
       'step 5 on the end')
     same(doneMs!, deqAp.t / MS, 'when the far phone has answered')
     expect(val(hop2Us!) * 1000, 'what the second hop cost').toBe(deqAp.t - hop2.t)
@@ -423,7 +423,7 @@ describe('relay-hops · every figure the prose prints, read back out of it', () 
     expect(tb.head.length, 'a route, a hop count and an average').toBe(3)
     const [windowCn] = raw(
       (relayHops.numbers!.find((b) => b.kind === 'table') as unknown as { heading: string }).heading,
-      /整整(.)秒的平均/, 'the table’s own window')
+      /整整(.)秒内的平均时延/, 'the table’s own window')
     expect(cn(windowCn!) * 1000 * MS, 'the window every average is taken over').toBe(RUN_NS)
     for (const row of tb.rows) {
       const [label, hops, avg] = row as [string, string, string]
@@ -457,37 +457,37 @@ describe('relay-hops · every figure the prose prints, read back out of it', () 
     const arrAp = at('ARRIVAL', 'ap')
     expect(allUs! * 1000, 'the whole way').toBe(deqAp.t - arrivalB.t)
     expect(fwdUs! * 1000, 'of which the forward is this much').toBe(arrAp.t - deqB.t)
-    // 「就算把它算成 0，两跳也还是 169.6 × 2 = 339.2 µs，对一跳的 169.6 µs」
-    const [zero, hopsCn] = raw(DEEP, /就算把它算成 (\d)，(.)跳也还是/, '`deeper` on dropping the forward')
+    // 「即使把它计为 0，两跳也仍是 169.6 × 2 = 339.2 µs，而一跳是 169.6 µs」
+    const [zero, hopsCn] = raw(DEEP, /即使把它计为 (\d)，(.)跳也仍是/, '`deeper` on dropping the forward')
     expect(val(zero), 'the forward, counted as nothing').toBe(0)
     expect(cn(hopsCn!), 'the hops that remain').toBe(carrying(id).length)
     const [one, times, sum, against] = figs(DEEP,
-      /([\d.]+) × (\d) = ([\d.]+) µs，对一跳的 ([\d.]+) µs/, '`deeper` on the two hops')
+      /([\d.]+) × (\d) = ([\d.]+) µs，而一跳是 ([\d.]+) µs/, '`deeper` on the two hops')
     expect(one! * 1000, 'what one hop really costs').toBe(deqB.t - hop1.t)
     expect(against, 'the same hop, printed again as the one-hop case').toBe(one)
     expect(times, 'how many of them the relay pays').toBe(carrying(id).length)
     expect(sum, 'and their sum, which is the lesson’s own arithmetic').toBe(one! * times!)
     expect((sum! + fwdUs!) * 1000, 'and with the forward back in, the whole way')
       .toBe(deqAp.t - arrivalB.t)
-    // 「每一份载荷…都要在空口上走两趟」 and 「说出两跳比一跳多花的是什么」
+    // 「每一份载荷…都要在空口上传送两次」 and 「说出两跳比一跳多出的开销是什么」
     for (const [text, re, what] of [
-      [WHY, /都要在空口上走(.)趟/, '`why` on the two trips'],
-      [WHY, /说出(.)跳比一跳多花的是什么/, 'the outcome on the two hops'],
+      [WHY, /都要在空口上传送(.)次/, '`why` on the two trips'],
+      [WHY, /说出(.)跳比一跳多出的开销是什么/, 'the outcome on the two hops'],
     ] as [string, RegExp, string][]) {
       expect(cn(raw(text, re, what)[0]!), what).toBe(carrying(id).length)
     }
   })
 
   it('reads `observe`, both experiments and the quiz against the same runs', () => {
-    // 「50 份载荷跟在同一个前导码后面」
+    // 「50 份载荷共用同一个前导码」
     const ul = rs.find(firstUplinkData) as Tx
-    const [burst] = figs(OBS, /(\d+) 份载荷跟在同一个前导码/, '`observe` on the burst')
+    const [burst] = figs(OBS, /(\d+) 份载荷共用同一个前导码/, '`observe` on the burst')
     expect(burst, 'the subframes that one preamble really carries').toBe(ul.frame.ampdu?.mpduCount)
-    // 「跑满一秒，电视的接收数值稳定在约 0.7 ms，而手机互传是 1.3 ms」
-    const [secCn] = raw(OBS, /跑满(.)秒/, '`observe` on the window')
+    // 「运行满一秒，电视接收的平均时延稳定在约 0.7 ms，而手机互传是 1.3 ms」
+    const [secCn] = raw(OBS, /运行满(.)秒/, '`observe` on the window')
     expect(cn(secCn!) * 1000 * MS, 'the window those averages are taken over').toBe(RUN_NS)
     const [tvMs, p2pMs] = raw(OBS,
-      /电视的接收数值稳定在约 ([\d.]+) ms，而手机互传是 ([\d.]+) ms/, '`observe` on the two averages')
+      /电视接收的平均时延稳定在约 ([\d.]+) ms，而手机互传是 ([\d.]+) ms/, '`observe` on the two averages')
     same(tvMs!, mean(view.nodes['sta-2']!.stats.rxLatency) / MS, 'the television’s average')
     for (const p of PHONES) same(p2pMs!, mean(view.nodes[p]!.stats.relayLatency) / MS, `${p} average`)
     // 「把手机 B 拖到手机 A 旁边…仍约 1.3 ms」
@@ -495,11 +495,11 @@ describe('relay-hops · every figure the prose prints, read back out of it', () 
     const b = moved.nodes.find((n) => n.id === 'sta-4')!
     b.pos = { ...b.pos, x: 2.5, y: 6 }
     const movedView = run(moved, 1000).view
-    const [movedMs] = raw(TRY, /每一份载荷仍要绕经接入点，仍约 ([\d.]+) ms/, '`tryThis` on the moved phone')
+    const [movedMs] = raw(TRY, /每一份载荷仍要经过接入点，时延仍约 ([\d.]+) ms/, '`tryThis` on the moved phone')
     for (const p of PHONES) {
       same(movedMs!, mean(movedView.nodes[p]!.stats.relayLatency) / MS, `${p} with the phone moved`)
     }
-    // 「把笔记本改成 idle 再跑一遍。手机互传降到约 0.7 ms，电视降到约 0.3 ms」
+    // 「把笔记本改成 idle 再运行一遍。手机互传降到约 0.7 ms，电视降到约 0.3 ms」
     const idle = rolesStackScenario()
     idle.nodes.find((n) => n.id === 'sta-1')!.profiles = ['idle']
     const idleView = run(idle, 1000).view
@@ -535,10 +535,10 @@ describe('relay-hops · every figure the prose prints, read back out of it', () 
     const fwdNs = arrAp.t - deqB.t
     for (const [text, re, what] of [
       [NUMS, /不是因为那 (\d+) µs 的转发/, 'the paragraph under the table'],
-      [DEEP, /那 (\d+) µs 是模型，不是标准/, '`deeper`’s own heading'],
-      [DEEP, /接入点把载荷转发出去所花的 (\d+) µs/, '`deeper` on the forward'],
+      [DEEP, /那 (\d+) µs 是模型取值，不是标准规定/, '`deeper`’s own heading'],
+      [DEEP, /接入点转发载荷所用的 (\d+) µs/, '`deeper` on the forward'],
       [LIM, /那 (\d+) µs 是一个常数/, '`limits` on the forward'],
-      [QUIZ, /因为接入点要花 (\d+) µs 把它转发过去/, 'the quiz’s wrong option'],
+      [QUIZ, /因为接入点需要 (\d+) µs 来转发它/, 'the quiz’s wrong option'],
     ] as [string, RegExp, string][]) {
       expect(figs(text, re, what)[0]! * 1000, what).toBe(fwdNs)
     }

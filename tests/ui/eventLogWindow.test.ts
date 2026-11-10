@@ -305,7 +305,7 @@ describe('the event log renders the row a jump landed on', () => {
       'capstone#1 第一个触发帧',
     ])
     expect(named('miss')).toEqual([
-      'amp-slots#3 第一次空转（ACWE 3 变体）',
+      'amp-slots#3 第一次轮空（ACWE 3 变体）',
       'amp-slots#4 第一帧调度型触发帧（两阶段变体）',
     ])
 

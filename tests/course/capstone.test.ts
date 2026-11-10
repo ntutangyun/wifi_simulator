@@ -267,13 +267,13 @@ describe('capstone · the method the brief asks the learner to follow', () => {
       .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-4').toFixed(2)} ms`))
     /*
      * **`tryThis` quotes that table by column number**, and the 「第」 rule change of 2026-10-14
-     * uncovered the figure beside it: 「对照表第四列：备份照样送到 78.1 兆字节，平板的等待只从
+     * uncovered the figure beside it: 「对照表第四列：备份仍然送达 78.1 兆字节，平板的等待只从
      * 39.06 ms 降到 34.31」. The ordinal is a claim about WHICH column — and the column it names
      * has to be the one whose cells carry those three figures, all of which are read above
      * against their own runs.
      */
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
-    const ref = /对照表第(.)列：备份照样送到 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)/
+    const ref = /对照表第(.)列：备份仍然送达 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)/
       .exec(capstone.tryThis.join(' '))
     expect(ref, '`tryThis` no longer points at a column of the comparison table').not.toBeNull()
     const col = cn(ref![1]!)
@@ -318,8 +318,8 @@ describe('capstone · why the tablet upgrade is nearly free of effect', () => {
  *    column a change, so each cell is read against the run that column describes and the lane
  *    that row names — the base five seconds, the backup stopped, its second radio off, and the
  *    tablet replaced.
- *  - **the two columns that do not move are read as the invariant they state.** 「电视拿到的都是
- *    大约 8.3 兆字节，平板拿到的都是不多不少 88,200 字节」 is read over all four runs, which is
+ *  - **the two columns that do not move are read as the invariant they state.** 「电视收到的都是
+ *    大约 8.3 兆字节，平板收到的都恰好是 88,200 字节」 is read over all four runs, which is
  *    what makes the sentence a claim about the changes rather than about one of them.
  *  - **the experiment's figures are read against the table's own**: every figure in `tryThis`
  *    and in the quiz is one the table already prints, so the two places cannot drift apart.
@@ -363,7 +363,7 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
   /** The run a column of the four-way table is about, by the words of its own heading. */
   const sceneOf = (head: string): Scene => {
     if (head.includes('原样') || head.includes('现在')) return base
-    if (head.includes('停掉') || head.includes('关掉备份')) return backupStopped
+    if (head.includes('停止备份') || head.includes('关闭备份')) return backupStopped
     if (head.includes('第二台电台') || head.includes('单链路')) return radioOff
     if (head.includes('平板')) return tabletNew
     throw new Error(`no run for the column 「${head}」`)
@@ -378,8 +378,8 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
       expect(hiPct, `and of ${hi} GHz`).toBe(base.air('sta-1#6g'))
       expect([lo, hi], 'the two bands it holds, in that order').toEqual([5, 6])
     }
-    // 「其余没有一台到得了百分之二」
-    const [twoCn] = raw(NUMS, /其余没有一台到得了百分之(.)/, '`numbers` on everybody else')
+    // 「其余没有一台达到百分之二」
+    const [twoCn] = raw(NUMS, /其余没有一台达到百分之(.)/, '`numbers` on everybody else')
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
     for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) {
       expect(base.air(id), `${id} is under that`).toBeLessThan(cn(twoCn!))
@@ -427,9 +427,9 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
   })
 
   it('reads the two columns that do not move, over all four runs', () => {
-    // 「四个场景里，电视拿到的都是大约 8.3 兆字节，平板拿到的都是不多不少 88,200 字节」
+    // 「四个场景里，电视收到的都是大约 8.3 兆字节，平板收到的都恰好是 88,200 字节」
     const [mb, bytes] = figs(NUMS,
-      /电视拿到的都是大约 ([\d.]+) 兆字节，平板拿到的都是不多不少 ([\d,]+) 字节/,
+      /电视收到的都是大约 ([\d.]+) 兆字节，平板收到的都恰好是 ([\d,]+) 字节/,
       '`numbers` on what nothing changes')
     for (const s of [base, backupStopped, radioOff, tabletNew]) {
       expect(Math.round(s.got('sta-2') / 1e5) / 10, 'the television’s megabytes').toBe(mb)
@@ -438,9 +438,9 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
   })
 
   it('reads both experiments and the question against the table’s own figures', () => {
-    // 「视频从 2.26 ms 到 0.21，语音通话从 1.90 到 0.83，平板的网页从 39.06 到 0.50」
+    // 「视频从 2.26 ms 降到 0.21，语音通话从 1.90 降到 0.83，平板的网页从 39.06 降到 0.50」
     const [video, videoTo, voice, voiceTo, tablet, tabletTo] = figs(TRY,
-      /视频从 ([\d.]+) ms 到 ([\d.]+)，语音通话从 ([\d.]+) 到 ([\d.]+)，平板的网页从 ([\d.]+) 到 ([\d.]+)/,
+      /视频从 ([\d.]+) ms 降到 ([\d.]+)，语音通话从 ([\d.]+) 降到 ([\d.]+)，平板的网页从 ([\d.]+) 降到 ([\d.]+)/,
       '`tryThis` on the first change')
     same(String(video), base.rxWait('sta-2'), 'the television’s wait as it stands')
     same(String(videoTo), backupStopped.rxWait('sta-2'), 'and with the backup stopped')
@@ -457,8 +457,8 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
       expect(now, 'which is a smaller improvement than stopping the backup')
         .toBeGreaterThan(backupStopped.rxWait('sta-4'))
     }
-    // 「它那 39.06 ms 不是链路慢」 — `deeper` prints it again
-    const [deepMs] = figs(DEEP, /它那 ([\d.]+) ms 不是链路慢/, '`deeper` on the same wait')
+    // 「它那 39.06 ms 不是因为链路慢」 — `deeper` prints it again
+    const [deepMs] = figs(DEEP, /它那 ([\d.]+) ms 不是因为链路慢/, '`deeper` on the same wait')
     same(String(deepMs), base.rxWait('sta-4'), 'the same wait, in `deeper`')
     // 「所以平板那 39.06 ms 是一个静止房间里的数」 — and in `limits`
     const [limMs] = figs(LIM, /所以平板那 ([\d.]+) ms 是一个静止房间里的数/, '`limits` on the same wait')
@@ -473,7 +473,7 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
      * below.
      */
     const [dopp, shortSym, longSym, shortUs, longUs, holdMs, times] = figs(LIM,
-      /Doppler 子字段为 (\d+) 时，HE TB PPDU 里那个中段训练字段的周期只有两档，(\d+) 个符号或 (\d+) 个符号（Table 9-\d+ 与 §26\.\d+），折成 (\d+) µs 与 (\d+) µs；而本仿真器慢的那一层握着 (\d+) ms，差 (\d+) 倍/,
+      /Doppler 子字段为 (\d+) 时，HE TB PPDU 里那个中段训练字段的周期只有两档，(\d+) 个符号或 (\d+) 个符号（Table 9-\d+ 与 §26\.\d+），折成 (\d+) µs 与 (\d+) µs；而本仿真器较慢的那一层取 (\d+) ms，相差 (\d+) 倍/,
       '`limits` on the scale the standard quantifies')
     /*
      * **The two reaches are the symbol counts in this engine's own symbol time.** `symNsFor('he')`
@@ -484,7 +484,7 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
     const symNs = symNsFor('he', TGI_NS.base)
     expect(shortUs! * 1_000, 'what the shorter periodicity folds into').toBe(shortSym! * symNs)
     expect(longUs! * 1_000, 'and what the longer one folds into').toBe(longSym! * symNs)
-    // 「而本仿真器慢的那一层握着 100 ms」 — the configured value `fading.ts` really defaults to
+    // 「而本仿真器较慢的那一层取 100 ms」 — the configured value `fading.ts` really defaults to
     expect(holdMs, 'the coherence time this engine holds').toBe(FADING_DEFAULTS.coherenceMs)
     // 「差 735 倍」 — against the shorter reach, which is the comparison the sentence makes
     expect(times, 'how many of the shorter reach fit inside that window')
@@ -503,18 +503,18 @@ describe('capstone · every figure the prose prints, read back out of it', () =>
   })
 
   it('reads `limits` on the two shares it quotes and the window it keeps', () => {
-    // 「58.7% 与 90.6% 是这一次退避抽签的结果」
-    const [lo, hi] = figs(LIM, /：([\d.]+)% 与 ([\d.]+)% 是这一次退避抽签的结果/,
+    // 「58.7% 与 90.6% 是这一次退避抽取的结果」
+    const [lo, hi] = figs(LIM, /：([\d.]+)% 与 ([\d.]+)% 是这一次退避抽取的结果/,
       '`limits` on the two shares')
     expect([lo, hi], 'the laptop’s two lanes, a fourth time')
       .toEqual([base.air('sta-1'), base.air('sta-1#6g')])
-    // 「饱和档位维持一个恒定 20 帧在手的窗口」
+    // 「饱和档位始终保持 20 帧待发」
     /*
-     * **「恒定 20 帧在手」 is the window the refill keeps, not the depth an enqueue finds.**
+     * **「始终保持 20 帧待发」 is the window the refill keeps, not the depth an enqueue finds.**
      * Two lanes draw from this one queue, so the depth at an enqueue runs from 1 to the window;
      * what the figure names is the ceiling, and the run really reaches it.
      */
-    const [window] = figs(LIM, /维持一个恒定 (\d+) 帧在手的窗口/, '`limits` on the saturated window')
+    const [window] = figs(LIM, /饱和档位始终保持 (\d+) 帧待发/, '`limits` on the saturated window')
     const depth = base.rs.filter((r): r is Extract<TLRecord, { type: 'ENQUEUE' }> =>
       r.type === 'ENQUEUE' && r.node === 'sta-1').map((r) => r.depth)
     expect(Math.max(...depth), 'the deepest the backup’s queue ever gets').toBe(window)

@@ -72,7 +72,7 @@ describe('retries-queues · the scene', () => {
   })
 
   it('names the lessons whose words it uses', () => {
-    expect(MODULES[retriesQueues.module].title).toBe('听不见的邻居与损失')
+    expect(MODULES[retriesQueues.module].title).toBe('隐藏节点与帧丢失')
     // §6 of the re-pacing plan: the deadline and the doubling this lesson leans on are
     // `collisions-cw`'s, not `backoff`'s, after the split of M4.
     expect(retriesQueues.needs).toEqual(['airtime', 'collisions-cw'])
@@ -444,7 +444,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
 
   it('reads the seven-attempt table as one frame’s own history', () => {
     const t = table()
-    const [attemptsCn] = raw(t.heading!, /一帧，(.)次尝试/, 'the table’s own heading')
+    const [attemptsCn] = raw(t.heading!, /一帧的(.)次尝试/, 'the table’s own heading')
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
     expect(cn(attemptsCn!), 'the attempts a frame gets').toBe(SHORT_RETRY_LIMIT)
     expect(t.rows, 'one row per attempt').toHaveLength(SHORT_RETRY_LIMIT)
@@ -483,7 +483,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
       .toBe(Math.round(attempts[6]!.t / 1000))
     // 「第三到第四次之间隔了 2497 µs，第四到第五次只隔 2091 µs」
     const [gap34, gap45] = figs(cap,
-      /第三到第四次之间隔了 ([\d ]+) µs，第四到第五次只隔 ([\d ]+) µs/, 'the caption on the two gaps')
+      /第三次与第四次之间相隔 ([\d ]+) µs，第四次与第五次之间只隔 ([\d ]+) µs/, 'the caption on the two gaps')
     /*
      * **The caption measures the silence, not the period**: the figure draws each attempt as a
      * span, and 「隔了」 is from the end of one span to the start of the next — which is what a
@@ -496,7 +496,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
     expect(gap45, 'the later gap being the shorter of the two — 「不是每次都拉大」')
       .toBeLessThan(gap34!)
     // 「排在它后面那一帧，要等到 27 741 µs 才轮得上」
-    const [nextAt] = figs(cap, /要等到 ([\d ]+) µs 才轮得上/, 'the caption on the frame behind')
+    const [nextAt] = figs(cap, /要到 ([\d ]+) µs 才开始发送/, 'the caption on the frame behind')
     const next = ofType(rs, 'TX_START').find((r) => r.node === firstDrop.node && r.t > firstDrop.t)!
     expect(nextAt, 'when the frame behind it finally goes out').toBe(Math.round(next.t / 1000))
     expect(next.frame.retryFlag, 'and it is a new frame, not another attempt').toBe(false)
@@ -505,7 +505,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
   it('reads the deadline the steps add up, and the ladder they climb', () => {
     // 「回答必须在这一帧结束后的 45 µs 之内开始——16 µs 的间隔、一个 9 µs 的时隙，再加…20 µs」
     const [total, sifs, slot, start] = figs(NUMS,
-      /的 (\d+) µs 之内开始——(\d+) µs 的间隔、一个 (\d+) µs 的时隙（slot time），再加电台报出“开始收了”所需的 (\d+) µs/,
+      /的 (\d+) µs 之内开始——(\d+) µs 的间隔、一个 (\d+) µs 的时隙（slot time），再加电台报告“开始接收”所需的 (\d+) µs/,
       'the steps on the answer’s deadline')
     expect(sifs! * 1000, 'the short interframe space').toBe(SIFS_NS)
     expect(slot! * 1000, 'one slot').toBe(SLOT_NS)
@@ -513,13 +513,13 @@ describe('retries-queues · every figure the prose prints, read back out of it',
     expect(sifs! + slot! + start!, 'the sum the sentence states').toBe(total)
     expect(total! * 1000, 'which is the timeout the engine applies').toBe(ACK_TIMEOUT_NS)
     // 「竞争窗口则加宽成自己的两倍再加一，最多到 1023」
-    const [twice, plus, cwMax] = figs(NUMS, /加宽成自己的(.)倍再加(.)，最多到 (\d+)/,
+    const [twice, plus, cwMax] = figs(NUMS, /扩大为原来的(.)倍再加(.)，最大为 (\d+)/,
       'the steps on the window')
       .map((x, i) => (i < 2 ? x : x))
     // 「两」 is the counting form of 「二」, which is what these two sentences use
     const cnOf = (s: string): number =>
       '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
-    const [twiceCn, plusCn] = raw(NUMS, /加宽成自己的(.)倍再加(.)，/, 'the steps’ two Chinese numerals')
+    const [twiceCn, plusCn] = raw(NUMS, /扩大为原来的(.)倍再加(.)，/, 'the steps’ two Chinese numerals')
     expect(cwMax, 'the widest window the engine allows').toBe(CW_MAX)
     let cw = CW_MIN
     for (let k = 1; k < SHORT_RETRY_LIMIT; k++) {
@@ -532,7 +532,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
     // 「当一帧的尝试次数达到重传上限七次，它就被丢弃…而窗口弹回 15」
     const [limitCn] = raw(NUMS, /达到重传上限(.)次/, 'the steps on the limit')
     expect(cnOf(limitCn!), 'the attempts a frame gets').toBe(SHORT_RETRY_LIMIT)
-    const [back] = figs(NUMS, /而窗口弹回 (\d+)，靠的是队列自己的失败次数/, 'the steps on the reset')
+    const [back] = figs(NUMS, /而窗口恢复为 (\d+)，依据的是队列自身的失败次数/, 'the steps on the reset')
     expect(back, 'the window the engine falls back to').toBe(CW_MIN)
     expect(cwAfter[cwAfter.length - 1]!.cw, 'which is what the run really does at the limit').toBe(back)
   })
@@ -540,7 +540,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
   it('reads the table’s reading note: the air one attempt costs, and the four counts', () => {
     // 「第一次尝试占 276 µs 空口时间，第七次要 704 µs」
     const [first, seventh] = figs(NUMS,
-      /第一次尝试占 (\d+) µs 空口时间，第七次要 (\d+) µs/, '`numbers` on the two airtimes')
+      /第一次尝试占用 (\d+) µs 空口时间，第七次需要 (\d+) µs/, '`numbers` on the two airtimes')
     expect(first! * 1000, 'the air the first attempt takes').toBe(attempts[0]!.frame.txTimeNs)
     expect(seventh! * 1000, 'and the seventh').toBe(attempts[6]!.frame.txTimeNs)
     expect(seventh, 'the slower attempt taking longer for the same payload').toBeGreaterThan(first!)
@@ -557,7 +557,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
     }
     // 「三秒里 Hidden A 送达 76 帧、在重传上限上丢掉 62 帧，Hidden B 是 69 与 61」
     const [aOk, aLost, bOk, bLost] = figs(NUMS,
-      /三秒里 Hidden A 送达 (\d+) 帧、在重传上限上丢掉 (\d+) 帧，Hidden B 是 (\d+) 与 (\d+)/,
+      /三秒内 Hidden A 送达 (\d+) 帧、因达到重传上限丢弃 (\d+) 帧，Hidden B 分别是 (\d+) 与 (\d+)/,
       '`numbers` on the two stations')
     expect(aOk, 'what Hidden A delivers').toBe(delivered(rs)['sta-1'])
     expect(bOk, 'what Hidden B delivers').toBe(delivered(rs)['sta-2'])
@@ -568,14 +568,14 @@ describe('retries-queues · every figure the prose prints, read back out of it',
   it('reads the two counters coming apart, instant for instant', () => {
     // 「504 465 µs 处 Hidden B 一次丢掉三个老帧，紧接着那一帧第一次失败时读数是 retries = 1，
     //   而队列计数器已经是 6；第二次是 2 对 7——到这里窗口弹回 15」
-    const [at, oldCn] = raw(DEEP, /([\d ]+) µs 处 Hidden B 一次丢掉(.)个老帧/,
+    const [at, oldCn] = raw(DEEP, /([\d ]+) µs 处 Hidden B 一次丢弃(.)个旧帧/,
       '`deeper` on the expiry instant')
     const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
     const life = drops(rs, 'lifetime', 'sta-2')
     expect(val(at!), 'the instant the old frames expire').toBe(Math.round(life[0]!.t / 1000))
     expect(cn(oldCn!), 'how many go at once').toBe(life.filter((r) => r.t === life[0]!.t).length)
     const [r1, q1, r2, q2, back] = figs(DEEP,
-      /读数是 retries = (\d+)，而队列计数器已经是 (\d+)；第二次是 (\d+) 对 (\d+)——到这里窗口弹回 (\d+)/,
+      /读数是 retries = (\d+)，而队列计数器已经是 (\d+)；第二次是 (\d+) 对 (\d+)——此时窗口恢复为 (\d+)/,
       '`deeper` on the two counters')
     const next = ofType(rs, 'TX_START').find((r) => r.node === 'sta-2' && r.t >= life[0]!.t)!
     const nextFails = ofType(rs, 'RETRY').filter((r) => r.msduId === next.frame.msduId)
@@ -606,7 +606,7 @@ describe('retries-queues · every figure the prose prints, read back out of it',
     expect(fmtRecord(last), 'and the line the log really prints')
       .toContain(`(retries=${retries} QSRC=${qsrc})`)
     // 「窗口从 15 一路涨到 1023」
-    const [from, to] = figs(QUIZ, /窗口从 (\d+) 一路涨到 (\d+)/, 'the quiz on the ladder')
+    const [from, to] = figs(QUIZ, /窗口从 (\d+) 逐步增大到 (\d+)/, 'the quiz on the ladder')
     expect([from, to], 'the two ends of the engine’s ladder').toEqual([CW_MIN, CW_MAX])
     /*
      * 「第七次尝试为什么发生在 26 940 µs，而不是紧挨着第六次？」 — the question's own instant,
@@ -681,14 +681,14 @@ describe('retries-queues · every figure the prose prints, read back out of it',
       .toBeGreaterThan(0.9)
     expect(runMbps / mbps!, 'and never over it').toBeLessThanOrEqual(1)
     // 「决定队列的失败计数何时把窗口弹回 15」 — `limits` prints the reset a fourth time
-    const [limBack] = figs(LIM, /把窗口弹回 (\d+)/, '`limits` on the same reset')
+    const [limBack] = figs(LIM, /使窗口恢复为 (\d+)/, '`limits` on the same reset')
     expect(limBack, 'the same floor, a fourth time').toBe(CW_MIN)
     /*
      * **The two figures from the lesson next door.** 「28.688 ms 的往返里只有 0.106 ms 属于
      * 空口」 is `@wan-rtt`'s own measurement, quoted here; so it is read against that lesson's
      * prose rather than re-measured, because the same figure in two lessons has to be one figure.
      */
-    const [rtt, air] = figs(LIM, /那里 ([\d.]+) ms 的往返里只有 ([\d.]+) ms 属于空口/,
+    const [rtt, air] = figs(LIM, /那里 ([\d.]+) ms 的往返中只有 ([\d.]+) ms 属于空口/,
       '`limits` on the lesson next door')
     const wan = blockText(wanRtt.numbers) + '\n' + blockText(wanRtt.picture)
     expect(wan, 'the round trip that lesson measures').toContain(String(rtt))

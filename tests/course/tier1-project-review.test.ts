@@ -572,9 +572,9 @@ describe('tier1-project-review · every figure the prose prints, read back out o
         same(predPct[1]!, 100 * p, `the collision chance the model gives 「${label}」`)
       }
     }
-    // 「少了 28 %：客厅笔记本被压到调制与编码方式（MCS）0」
+    // 「少了 28 %：客厅笔记本降到调制与编码方式（MCS）0」
     const third = rowOf('三个变体', '多一台平板')
-    const [shortBy, rung] = figs(third[3]!, /少了 (\d+) %：客厅笔记本被压到调制与编码方式（MCS）(\d+)/,
+    const [shortBy, rung] = figs(third[3]!, /少了 (\d+) %：客厅笔记本降到调制与编码方式（MCS）(\d+)/,
       'the third variant’s own cause')
     const st = vThird()
     const ids = [STUDY, LIVING, 'sta-4']
@@ -609,9 +609,9 @@ describe('tier1-project-review · every figure the prose prints, read back out o
     const links = buildLinkTable(sc.nodes, sc.walls)
     const gap = Math.abs(links.get(STUDY)!.get('ap')! - links.get(LIVING)!.get('ap')!)
     expect(Math.round(gap), 'how far apart the two arrive at the router').toBe(apart)
-    // 「2,399 次笔记本互撞中有 1,342 次」 and 「10.46 % → 23.15 %」
+    // 「2,399 次笔记本之间的碰撞中有 1,342 次」 and 「10.46 % → 23.15 %」
     const late = rowOf('差距出在哪里', '前导码未检出')
-    const [pairTotal, pairLate] = figs(late[1]!, /^([\d,]+) 次笔记本互撞中有 ([\d,]+) 次$/, 'the late starts')
+    const [pairTotal, pairLate] = figs(late[1]!, /^([\d,]+) 次笔记本之间的碰撞中有 ([\d,]+) 次$/, 'the late starts')
     const key = [STUDY, LIVING].sort().join('+')
     expect(pairTotal, 'the collisions between the two laptops').toBe(s.pairTotal.get(key))
     expect(pairLate, 'and the ones that began late').toBe(s.pairLate.get(key))
@@ -628,7 +628,7 @@ describe('tier1-project-review · every figure the prose prints, read back out o
       .toEqual(figs(frames[1]!, /^([\d.]+) \/ ([\d.]+) µs$/, 'the predicted pair'))
     expect([gotShort, gotLong], 'and the two measured means')
       .toEqual(figs(frames[2]!, /全程均值 ([\d.]+) \/ ([\d.]+) µs/, 'the measured pair'))
-    const [shortfall] = figs(longer[2]!, /吞吐少掉的 ([\d.]+) %/, 'the shortfall it explains')
+    const [shortfall] = figs(longer[2]!, /吞吐减少的 ([\d.]+) %/, 'the shortfall it explains')
     const ids = [STUDY, LIVING]
     const pred = modelS(2, mix(ids.map((id) => times(s.firstMcs.get(id)!).tsNs)),
       mix(ids.map((id) => times(s.firstMcs.get(id)!).tcNs)))
@@ -638,7 +638,7 @@ describe('tier1-project-review · every figure the prose prints, read back out o
 
   it('reads the three waits and the level that decides between them', () => {
     const s = base()
-    // 「碰撞的一方 | 回答没有来 | 45 µs」
+    // 「碰撞的一方 | 应答没有到达 | 45 µs」
     const [ackTo] = figs(rowOf('同一帧之后', '碰撞的一方')[2]!, /^(\d+) µs$/, 'the ACK timeout')
     expect(ackTo! * 1000, 'the timeout a station waits when no answer comes').toBe(ACK_TIMEOUT_NS)
     // 「客厅笔记本 | 21.35 dB，而这一帧要求 44.99 dB | EIFS，94 µs——共 9,499 次」
@@ -697,13 +697,13 @@ describe('tier1-project-review · every figure the prose prints, read back out o
       'the share capture keeps', 4).map((g) => [g.find((x) => x !== undefined)!])) {
       expect(Math.round(100 * (1 - rt! / ov!)), 'the share capture keeps').toBe(val(pct!))
     }
-    // 「捕获要求新前导码比手上那一帧强 5 dB」 and 「换成 3 dB 或 8 dB，这个比例就变了」
+    // 「捕获要求新前导码比正在接收的那一帧强 5 dB」 and 「换成 3 dB 或 8 dB，这个比例就变了」
     /*
      * **The capture margin is a constant of `channel.ts`**, and the entry names that file — so a
      * reader who goes there has to find the same number. It is read out of the source, which is
      * the only instrument there is: the margin is not configurable, so no run can measure it.
      */
-    const [captureDb] = figs(LIM, /捕获要求新前导码比手上那一帧强 (\d+) dB/, '`limits` on the capture margin')
+    const [captureDb] = figs(LIM, /捕获要求新前导码比正在接收的那一帧强 (\d+) dB/, '`limits` on the capture margin')
     const CH = readFileSync(new URL('../../src/engine/channel.ts', import.meta.url), 'utf8')
     expect(captureDb, 'the margin `channel.ts` really requires')
       .toBe(figs(CH, /CAPTURE_MARGIN_DB = (\d+)/, 'the margin in `channel.ts`')[0])
@@ -717,9 +717,9 @@ describe('tier1-project-review · every figure the prose prints, read back out o
     const [lo, hi] = figs(LIM, /换成 (\d+) dB 或 (\d+) dB/, '`limits` on the two counterfactuals')
     expect(lo, 'one below the engine’s own margin').toBeLessThan(captureDb!)
     expect(hi, 'and one above it').toBeGreaterThan(captureDb!)
-    // 「那 2399 次笔记本互撞之所以能逐次判定」
+    // 「那 2399 次笔记本之间的碰撞之所以能逐次归因」
     const key = [STUDY, LIVING].sort().join('+')
-    expect(figs(LIM, /那 (\d+) 次笔记本互撞/, '`limits` on the pair’s collisions')[0],
+    expect(figs(LIM, /那 (\d+) 次笔记本之间的碰撞/, '`limits` on the pair’s collisions')[0],
       'the collisions between the two laptops').toBe(s.pairTotal.get(key))
     /*
      * **「一台发完 415 µs 的帧」 is the frame at the rung that variant starts on**, not the longest
@@ -733,9 +733,9 @@ describe('tier1-project-review · every figure the prose prints, read back out o
 
   it('reads both observe lines and the quiz’s own four figures', () => {
     const s = base()
-    // 「书房笔记本 129.6 µs 的色块结束，然后在 406.6 µs 又发了一次——落在客厅笔记本那个仍在进行的 524.0 µs 帧里」
+    // 「书房笔记本 129.6 µs 的色块结束，然后在 406.6 µs 又发送了一次——此时客厅笔记本那个 524.0 µs 的帧仍在传送」
     const [first, again, long] = figs(OBS,
-      /书房笔记本 ([\d.]+) µs 的色块结束，然后在 ([\d.]+) µs 又发了一次——落在客厅笔记本那个仍在进行的 ([\d.]+) µs 帧里/,
+      /书房笔记本 ([\d.]+) µs 的色块结束，然后在 ([\d.]+) µs 又发送了一次——此时客厅笔记本那个 ([\d.]+) µs 的帧仍在传送/,
       'the first observe line')
     const starts = s.records.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
       r.type === 'TX_START' && r.frame.kind === 'data')
@@ -763,7 +763,7 @@ describe('tier1-project-review · every figure the prose prints, read back out o
     expect(occ(QUIZ, `${retryPct} %`), 'the retry rate, printed twice in the quiz').toBe(2)
     same(raw(QUIZ, /实际有 ([\d.]+) % 的尝试重叠/, 'the quiz on the overlap rate')[0]!,
       100 * pooled(s, [STUDY, LIVING], s.overlaps), 'the overlap rate the run shows')
-    const [apart] = figs(QUIZ, /两台笔记本之间差着 (\d+) dB/, 'the quiz on the gap between them')
+    const [apart] = figs(QUIZ, /两台笔记本之间相差 (\d+) dB/, 'the quiz on the gap between them')
     const sc = tier1ProjectReview.scenario()
     const links = buildLinkTable(sc.nodes, sc.walls)
     expect(Math.round(Math.abs(links.get(STUDY)!.get('ap')! - links.get(LIVING)!.get('ap')!)),
@@ -784,8 +784,8 @@ describe('tier1-project-review · every figure the prose prints, read back out o
     const frames = rowOf('预测对实测', '数据帧')
     expect([shortUs, longUs], 'the two frames the first table predicts')
       .toEqual(figs(frames[1]!, /^([\d.]+) \/ ([\d.]+) µs$/, 'the predicted pair'))
-    // 「占空口却是 21.2% 与 78.8%」
-    const [airA, airB] = figs(NUMS, /占空口却是 ([\d.]+)% 与 ([\d.]+)%/, 'the rubric on the airtime split')
+    // 「占用的空口却是 21.2% 与 78.8%」
+    const [airA, airB] = figs(NUMS, /占用的空口却是 ([\d.]+)% 与 ([\d.]+)%/, 'the rubric on the airtime split')
     const air = rowOf('预测对实测', '空口占比')
     expect([airA, airB], 'the measured split, as the first table prints it')
       .toEqual(figs(air[2]!, /^([\d.]+) % \/ ([\d.]+) %$/, 'the measured split'))

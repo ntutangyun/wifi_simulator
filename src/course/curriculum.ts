@@ -152,14 +152,14 @@ export interface CourseModule {
 
 export const MODULES: CourseModule[] = [
   { tier: 0, title: '信号与链路' },
-  { tier: 0, title: '一张网里的角色' },
+  { tier: 0, title: '一个网络中的角色' },
   { tier: 0, title: '帧与空口时间' },
   { tier: 0, title: '等待与退避' },
-  { tier: 0, title: '听不见的邻居与损失' },
+  { tier: 0, title: '隐藏节点与帧丢失' },
   { tier: 0, title: '在纸上预测 DCF' },
   { tier: 0, title: '第一阶段项目' },
   { tier: 1, title: 'QoS 与效率' },
-  { tier: 1, title: '容量旋钮与速率控制' },
+  { tier: 1, title: '容量参数与速率控制' },
   { tier: 1, title: '被调度的 Wi-Fi 6/7' },
   { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp', basis: ['p802-11bp'] },
   { tier: 1, title: '真实应用' },
@@ -171,7 +171,7 @@ export const MODULES: CourseModule[] = [
   // give: COURSE_ORDER's own order IS the 「next lesson」 button (CoursePanel.tsx), so a Wi-Fi
   // module parked after the UWB track would make 「next」 jump out of the UWB track at its last
   // lesson. Every lesson of the modules below moved up by one index with it.
-  { tier: 2, title: '2.4 GHz 这条链路' },
+  { tier: 2, title: '2.4 GHz 链路' },
   // Tier 3's first module, and — like tier 2's above — designed to be its only one. §6.1 of
   // docs/superpowers/specs/2026-10-10-tier4-design.md assessed the six slices this tier was
   // sketched with: two are already delivered elsewhere, one is recommended folded into
@@ -185,7 +185,7 @@ export const MODULES: CourseModule[] = [
   // COURSE_ORDER's own order IS the 「next lesson」 button.
   { tier: 3, title: '草案里的 Wi-Fi 8' },
   { tier: 4, title: '飞行时间' },
-  { tier: 4, title: '两只钟' },
+  { tier: 4, title: '两个时钟' },
   { tier: 4, title: '会话网格' },
   { tier: 4, title: '定位' },
   // The only module where both radios are in the room: it reads a UWB round
@@ -258,13 +258,13 @@ export const MODULES: CourseModule[] = [
 export const COURSE_ORDER: string[] = [
   // M0 · tier 0 · 信号与链路
   'radio-primer', 'noise-floor', 'decode-thresholds', 'mcs-ladder',
-  // M1 · tier 0 · 一张网里的角色
+  // M1 · tier 0 · 一个网络中的角色
   'roles-stack', 'relay-hops',
   // M2 · tier 0 · 帧与空口时间
   'frame-anatomy', 'frame-qos-fcs', 'frame-anatomy-bytes', 'small-frames', 'airtime',
   // M3 · tier 0 · 等待与退避
   'ifs', 'cca', 'backoff', 'collisions-cw', 'nav',
-  // M4 · tier 0 · 听不见的邻居与损失
+  // M4 · tier 0 · 隐藏节点与帧丢失
   'hidden', 'rts-cts', 'anomaly', 'retries-queues', 'queues',
   // M5 · tier 0 · 在纸上预测 DCF
   'bianchi', 'bianchi-vs-sim', 'rate-vs-model',
@@ -272,7 +272,7 @@ export const COURSE_ORDER: string[] = [
   'tier1-project', 'tier1-project-review',
   // M7 · tier 1 · QoS 与效率
   'edca', 'edca-cost', 'ampdu', 'txop', 'txop-protect', 'protect-policies', 'edca-tamper',
-  // M8 · tier 1 · 容量旋钮与速率控制
+  // M8 · tier 1 · 容量参数与速率控制
   'width', 'selectivity', 'streams', 'rate', 'rate-fallback', 'rate-cost', 'fading',
   // M9 · tier 1 · 被调度的 Wi-Fi 6/7
   'ofdma-dl', 'ru-diversity', 'ofdma-ul', 'mumimo', 'mumimo-choose', 'mlo', 'mlo-gain',
@@ -280,13 +280,13 @@ export const COURSE_ORDER: string[] = [
   'amp-intro', 'amp-ppdu', 'amp-slots', 'amp-coexist', 'amp-backscatter',
   // M11 · tier 1 · 真实应用
   'wan-rtt', 'capstone',
-  // M12 · tier 2 · 2.4 GHz 这条链路
+  // M12 · tier 2 · 2.4 GHz 链路
   'link-2g',
   // M13 · tier 3 · 草案里的 Wi-Fi 8
   'uhr-rate-ladder', 'claim-to-contribution',
   // M14 · tier 4 · 飞行时间
   'uwb-intro', 'uwb-frame', 'uwb-sts',
-  // M15 · tier 4 · 两只钟
+  // M15 · tier 4 · 两个时钟
   'uwb-sstwr', 'uwb-dstwr', 'uwb-reply-time', 'uwb-deferred-ds',
   // M16 · tier 4 · 会话网格
   'uwb-blocks', 'uwb-slot-budget',

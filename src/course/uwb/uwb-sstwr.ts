@@ -1,5 +1,5 @@
 /**
- * UWB Tier 1 · M14 两只钟 · The clock inside the reply time.
+ * UWB Tier 1 · M14 两个时钟 · The clock inside the reply time.
  *
  * Why a reply time measured on the other radio's crystal makes the range too
  * long, how the error grows with the slot the anchor answered in, and what the
@@ -13,7 +13,7 @@
  * §2 · M14). It **stays whole** — §2 keeps five UWB lessons whole deliberately,
  * because a ramp without its correction leaves the reader with a defect and no
  * fix — and it sheds padding instead:
- *  - §4 gives it a `timing` figure, Tround 与 Treply 画在两只钟上，四个时隙上的
+ *  - §4 gives it a `timing` figure, Tround 与 Treply 画在两个时钟上，四个时隙上的
  *    斜坡. It replaces prose: 「等得越久，谎话越大」 is gone entirely (§5.2 deletes
  *    that metaphor, and the figure's four bars ARE the ramp), and the opening of
  *    「出问题的是等待，不是飞行」 — the two-clocks narration — is now the caption's.

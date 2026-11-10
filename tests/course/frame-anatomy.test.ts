@@ -443,10 +443,10 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
 
   it('reads the Duration formula, all four printings of it', () => {
     const ack = txs.find((r) => r.frame.kind === 'ack' && r.frame.dst === 'sta-1')!
-    // 「16 µs 的静默 + 28 µs 的回复 = 44 µs」, 「16 + 28 = 44 µs」, and twice more outside `numbers`.
+    // 「16 µs 的静默 + 28 µs 的应答 = 44 µs」, 「16 + 28 = 44 µs」, and twice more outside `numbers`.
     const sites: [string, RegExp][] = [
-      [NUMS, /(\d+) µs 的静默 \+ (\d+) µs 的回复 = (\d+) µs/],
-      [NUMS, /就是那段静默加上那个回复，(\d+) \+ (\d+) = (\d+) µs/],
+      [NUMS, /(\d+) µs 的静默 \+ (\d+) µs 的应答 = (\d+) µs/],
+      [NUMS, /就是那段静默加上应答，(\d+) \+ (\d+) = (\d+) µs/],
     ]
     for (const [text, re] of sites) {
       const [silence, answer, total] = figs(text, re, 'the Duration formula')
@@ -461,8 +461,8 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
      * plus an Ack at that rate has to be the field this frame carries.
      */
     const rated: [string, RegExp][] = [
-      [SRC, /的 (\d+) µs，是 (\d+) µs 加上本场景中回复在 (\d+) Mb\/s 下所占的 (\d+) µs/],
-      [LIM, /的 (\d+) µs，是本仿真器[^（]*（(\d+) µs 加上 (\d+) Mb\/s 下 (\d+) µs 的回复）/],
+      [SRC, /的 (\d+) µs，是 (\d+) µs 加上本场景中应答在 (\d+) Mb\/s 下所占的 (\d+) µs/],
+      [LIM, /的 (\d+) µs，是本仿真器[^（]*（(\d+) µs 加上 (\d+) Mb\/s 下 (\d+) µs 的应答）/],
     ]
     for (const [text, re] of rated) {
       const [total, silence, rate, answer] = figs(text, re, 'the Duration with the answer’s own rate')
@@ -483,9 +483,9 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
   it('reads the two direction bits, in both directions', () => {
     const dl = txs.find((r) => r.frame.kind === 'data' && r.frame.src === 'ap')!
     const dm = firstMpdu(dl.frame)
-    // 「上行发往接入点是 1 和 0，下行回来是 0 和 1」
+    // 「上行发往接入点为 1 和 0，下行为 0 和 1」
     const [upTo, upFrom, downTo, downFrom] = figs(NUMS,
-      /发往接入点是 (\d) 和 (\d)，下行（downlink, DL）回来是 (\d) 和 (\d)/,
+      /发往接入点为 (\d) 和 (\d)，下行（downlink, DL）为 (\d) 和 (\d)/,
       'the steps on the two direction bits')
     expect([String(upTo), String(upFrom)], 'the uplink frame’s own two bits')
       .toEqual([bitOf(m, 'toDs'), bitOf(m, 'fromDs')])
@@ -551,14 +551,14 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
     // 「B0–B1 恒为 0」, and the HT control field B15 would add.
     expect(raw(rows[0]![2]!, /恒为 (\d)/, 'the protocol-version row')[0], 'the version this engine writes')
       .toBe(bitOf(m, 'protocolVersion'))
-    const [htcBytes] = figs(rows[10]![2]!, /头后跟着 (\d+) B 的 HT 控制字段/, 'the HTC row')
+    const [htcBytes] = figs(rows[10]![2]!, /帧头后跟随 (\d+) B 的 HT 控制字段/, 'the HTC row')
     expect(htcBytes, 'the HT control field’s own size, which this engine never adds').toBe(4)
     expect(bitOf(m, 'htc'), 'so the bit is zero').toBe('0')
   })
 
   it('reads the fourth address and the management frames, which this scene never shows', () => {
     const [both, fourth, from, to] = figs(DEEP,
-      /同时为 (\d) 时才会出现地址 (\d)[^]*?也从 (\d+) B 长到 (\d+) B/, '`deeper` on the fourth address')
+      /同时为 (\d) 时才会出现地址 (\d)[^]*?也从 (\d+) B 增加到 (\d+) B/, '`deeper` on the fourth address')
     expect(both, 'the value both direction bits take in that case').toBe(1)
     expect(fourth, 'the address that appears').toBe(m.fields.filter((f) => f.key.startsWith('addr')).length + 1)
     expect(from, 'the header this scene does carry').toBe(MAC_HDR_BYTES)
@@ -566,8 +566,8 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
     // It never happens here, which is the `limits` entry beside it.
     expect(txs.every((r) => firstMpdu(r.frame).fields.filter((f) => f.key.startsWith('addr')).length <= 3),
       'no frame of this run carries a fourth address').toBe(true)
-    // 「管理帧……类型 00——带的是完整的 24 B 帧头」
-    const [mgmtType, mgmtHdr] = figs(DEEP, /类型 (\d+)——带的是完整的 (\d+) B 帧头/,
+    // 「管理帧……类型 00——携带完整的 24 B 帧头」
+    const [mgmtType, mgmtHdr] = figs(DEEP, /类型 (\d+)——携带完整的 (\d+) B 帧头/,
       '`deeper` on management frames')
     const types = raw(deepTable().rows[1]![2]!, /^(\d+) 管理帧/, 'the type code of a management frame')
     expect(String(mgmtType).padStart(2, '0'), 'the type code the table gives them').toBe(types[0])
@@ -615,7 +615,7 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
       expect(always, `and ${key} really never moves`).toContain(key)
     }
     // The 15-bit Duration field and its ceiling, which is one arithmetic step apart.
-    const [durBits, ceiling] = figs(LIM, /是 (\d+) 位、以微秒为单位、要向上取整，最大只装得下 ([\d ]+) µs/,
+    const [durBits, ceiling] = figs(LIM, /是 (\d+) 位、以微秒为单位、要向上取整，最大只能表示 ([\d ]+) µs/,
       '`limits` on the real Duration field')
     expect(2 ** durBits! - 1, 'the largest value that many bits hold').toBe(ceiling)
     expect(legacy.frame.durationFieldNs / 1000, 'and this engine’s own value is far inside it')
@@ -643,7 +643,7 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
     expect(addrs.length, 'which is three on this frame').toBe(3)
     // The steps name all three with their roles, in order.
     const [a1, a2, a3] = figs(NUMS,
-      /地址 (\d)（Address 1）是接入点（RA），地址 (\d) 是发出这一帧的射频（TA），地址 (\d) 是这段路程的远端（DA）/,
+      /地址 (\d)（Address 1）是接入点（RA），地址 (\d) 是发出这一帧的射频（TA），地址 (\d) 是这段路径的远端（DA）/,
       'the steps on the three roles')
     expect(field(m, `addr${a1}`).roles, 'the first address is the receiver').toContain('RA')
     expect(field(m, `addr${a1}`).node, 'and on an uplink frame that is the access point').toBe('ap')
@@ -678,7 +678,7 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
       .map((r) => field(firstMpdu(r.frame), `addr${always}`).node)),
       'and it really is the access point on every data frame').toEqual(new Set(['ap']))
     // The quiz's own two: which address must catch the frame, and which is the payload's own end.
-    const [must] = figs(QUIZ, /地址 (\d) 永远是必须接住这一帧的/, 'the quiz on the receiver')
+    const [must] = figs(QUIZ, /地址 (\d) 永远是必须接收这一帧的/, 'the quiz on the receiver')
     expect(field(m, `addr${must}`).roles, 'the receiver address').toContain('RA')
     const [real] = figs(QUIZ, /地址 (\d) 才是这份载荷真正要去的/, 'the quiz on the destination')
     expect(field(m, `addr${real}`).roles, 'the destination address').toContain('DA')
@@ -743,10 +743,10 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
     expect(bytes, 'the header a fourth address would make')
       .toBe(MAC_HDR_BYTES + field(m, 'addr1').bytes)
     const [, , , deepBytes] = figs(DEEP,
-      /同时为 \d 时才会出现地址 \d[^]*?也从 (\d+) B 长到 (\d+) B/, '`deeper` on the same header')
+      /同时为 \d 时才会出现地址 \d[^]*?也从 (\d+) B 增加到 (\d+) B/, '`deeper` on the same header')
       .concat([0, 0])
     expect(deepBytes === undefined ? bytes : bytes, 'and `deeper` prints the same figure').toBe(bytes)
-    expect(DEEP, 'which it does in bytes of its own').toContain(`长到 ${bytes} B`)
+    expect(DEEP, 'which it does in bytes of its own').toContain(`增加到 ${bytes} B`)
   })
 
   it('reads both observe lines, the experiment and the quiz', () => {
@@ -759,9 +759,9 @@ describe('frame-anatomy · every figure the prose prints, read back out of it', 
     expect(dur! * 1000, 'the Duration it reads').toBe(legacy.frame.durationFieldNs)
     expect(field(m, 'seqCtl').value, 'the sequence control it quotes').toBe(`SN ${sn} · FN ${fn}`)
     expect(total, 'and the frame’s own size').toBe(legacy.frame.bytes)
-    // 「同一个计数值 11 再发一次。回头找 11.650 ms 的原帧：号码相同，重发比特是 0」
+    // 「同一个计数值 11 再发送一次。回到 11.650 ms 处的原帧：计数值相同，重发比特为 0」
     const [again, atMs, origRetry] = figs(OBS,
-      /同一个计数值 (\d+) 再发一次。回头找 ([\d.]+) ms 的原帧：号码相同，重发比特是 (\d)/,
+      /同一个计数值 (\d+) 再发送一次。回到 ([\d.]+) ms 处的原帧：计数值相同，重发比特为 (\d)/,
       'the second observe line')
     expect(again, 'the counter value the retransmission repeats').toBe(retry.frame.seqNo)
     const orig = txs.find((r) => r.frame.src === 'sta-1' && r.frame.seqNo === again && !r.frame.retryFlag)!

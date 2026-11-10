@@ -470,21 +470,21 @@ describe('the three kinds of slot, as a figure', () => {
 
   it('draws σ, T_s and T_c from the engine, to scale on one axis', () => {
     const spec = bianchiSlotTiming()
-    expect(spec.lanes.map((l) => l.label)).toEqual(['空的', '成功的', '碰撞的'])
+    expect(spec.lanes.map((l) => l.label)).toEqual(['空闲', '成功', '碰撞'])
 
     // the empty slot is the slot time itself
-    expect(lane('空的').spans).toEqual([{ label: '9 µs', fromUs: 0, toUs: SLOT_NS / 1000 }])
+    expect(lane('空闲').spans).toEqual([{ label: '9 µs', fromUs: 0, toUs: SLOT_NS / 1000 }])
     expect(SLOT_NS / 1000).toBe(9)
 
     // a successful slot: the frame, then everything the frame does not pay for
-    const ok = lane('成功的').spans
+    const ok = lane('成功').spans
     expect(ok[0].toUs).toBe(t.dataNs / 1000)
     expect(ok[1].toUs).toBe(t.tsNs / 1000)
     expect(ok[1].toUs - ok[1].fromUs).toBe((t.tsNs - t.dataNs) / 1000)
-    expect(ok[1].label).toBe('回答与等待 94 µs')
+    expect(ok[1].label).toBe('应答与等待 94 µs')
 
     // a collided slot ends 15 µs earlier, which is the lesson's own T_c − T_s
-    const bad = lane('碰撞的').spans
+    const bad = lane('碰撞').spans
     expect(bad[0].toUs).toBe(t.dataNs / 1000)
     expect(bad[1].toUs).toBe(t.tcNs / 1000)
     expect(bad[1].label).toBe('期限与等待 79 µs')
@@ -496,7 +496,7 @@ describe('the three kinds of slot, as a figure', () => {
   })
 
   it('the caption is true of the figure: the empty slot is under 1 % of a successful one', () => {
-    // 「空的那一条几乎看不见，而碰撞的那一条几乎和成功的一样长」
+    // 「空闲的那一条几乎看不见，而碰撞的那一条几乎与成功的一样长」
     expect(SLOT_NS / t.tsNs).toBeLessThan(0.01)
     expect(t.tcNs / t.tsNs).toBeGreaterThan(0.99)
   })
@@ -526,8 +526,8 @@ describe('bianchi · the fixed-rate premise, and the lesson that takes it away',
     expect(lim!.kind).toBe('out-of-scope')
     expect(lim!.seeAlso, 'a lift and a deeper read are different promises').toBeUndefined()
     // the limit says the premise is arranged rather than absent, which is why it is a scenario class
-    expect(lim!.text).toContain('不是引擎里的一个开关，而是布置出来的')
-    expect(lim!.text).toContain('本课那两张表立刻不再适用')
+    expect(lim!.text).toContain('不是引擎中的一个开关，而是通过场景布置实现的')
+    expect(lim!.text).toContain('本课的两张表随即不再适用')
   })
 
   it('and the axis is a top-level scenario section, absent here and written there', () => {
@@ -631,7 +631,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     // so they are read out of the formula and put back into it — the identity is the pin.
     const [offset, half] = figs(f.text, /p\^i \(W_i \+ (\d+)\)\/(\d+)/, 'the denominator of τ')
     const [attempts, pow, W, m] = figs(f.note!,
-      /L = (\d+) 是一帧拿到的尝试次数，W_i = (\d+)\^min\(i,m\)·W 是第 i 次尝试时的窗口，其中 W = (\d+)、m = (\d+)/,
+      /L = (\d+) 是一帧可用的尝试次数，W_i = (\d+)\^min\(i,m\)·W 是第 i 次尝试时的窗口，其中 W = (\d+)、m = (\d+)/,
       'the four numbers the note names')
     expect([W, m, attempts], 'the window, the doublings and the attempts this MAC gives a frame')
       .toEqual([CW_MIN + 1, Math.log2((CW_MAX + 1) / (CW_MIN + 1)), SHORT_RETRY_LIMIT])
@@ -655,7 +655,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
   })
 
   it('the model table: four rows, each one the solver and the throughput formula', () => {
-    const t = tableOf('这两个方程预测出什么')
+    const t = tableOf('这两个方程的预测结果')
     const [fastMbps, slowMbps] = [t.head[3], t.head[4]].map((h) =>
       val(raw(h, /(\d+) Mb\/s 下的吞吐/, 'the rate this column is quoted at')[0]))
     for (const mbps of [fastMbps, slowMbps]) {
@@ -680,7 +680,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
 
   it('the cost of a success and of a collision, term by term', () => {
     const f = formulaWith('T_s =')
-    const [msdu, dataUs] = figs(f.note!, /(\d+) 字节的帧在慢速率上占 (\d+) µs 空口时间/,
+    const [msdu, dataUs] = figs(f.note!, /(\d+) 字节的帧在低速率上占用 (\d+) µs 空口时间/,
       'the frame the note sizes')
     const t = dcfTimes(msdu, SLOW_MBPS)
     same(String(dataUs), t.dataNs / 1000, 'the data frame on the air')
@@ -698,7 +698,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
       .toEqual([ACK_TIMEOUT_NS, DIFS_NS])
     same(String(tc), t.tcNs / 1000, 'and what a collision costs')
     // the ACK's own duration is restated in `numbers` and in `sources`
-    for (const v of everyFig(/一个确认帧（ACK）——这里 (\d+) µs|控制响应速率发送，(\d+) µs/g,
+    for (const v of everyFig(/一个确认帧（ACK）——这里是 (\d+) µs|控制响应速率发送，(\d+) µs/g,
       'the answer’s duration', 2)) {
       same(v, t.ackNs / 1000, 'the ACK, wherever the lesson gives its length')
     }
@@ -706,19 +706,19 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
 
   it('the seven steps: the four numbers, the bracket, the slot, and the payload', () => {
     const [W, m, attempts] = figs(STEPS,
-      /W = (\d+)，最小的窗口；m = (\d+)，窗口最多还能翻几倍；L = (\d+)/, 'the four numbers of step 1')
+      /W = (\d+)，最小的窗口；m = (\d+)，窗口最多可翻倍的次数；L = (\d+)/, 'the four numbers of step 1')
     expect([W, m, attempts], 'the engine’s own window, doublings and attempts')
       .toEqual([CW_MIN + 1, Math.log2((CW_MAX + 1) / (CW_MIN + 1)), SHORT_RETRY_LIMIT])
     // step 2 restates the stage window and the two sums
     const [pow] = figs(STEPS, /W_i = (\d+)\^min\(i,m\)·W/, 'step 2 on the stage window')
-    const [offset, half] = figs(STEPS, /p\^i\(W_i \+ (\d+)\)\/(\d+) 加起来作分母/,
+    const [offset, half] = figs(STEPS, /p\^i\(W_i \+ (\d+)\)\/(\d+) 求和作为分母/,
       'step 2 on the denominator')
     expect([pow, offset, half], 'the same algebra the formula prints').toEqual([2, 1, 2])
     // step 3: 「(1 − τ) 的 n − 1 次方」
     const [oneA, lessA] = figs(STEPS, /概率是 \((\d+) − τ\) 的 n − (\d+) 次方/, 'step 3')
     expect([oneA, lessA], 'one minus τ, over the other stations').toEqual([1, 1])
     // step 4: the bracket the solver really bisects
-    const [lo, hi] = figs(STEPS, /把 (\d+) 到 (\d+) 二分/, 'the bracket step 4 halves')
+    const [lo, hi] = figs(STEPS, /把区间 (\d+) 到 (\d+) 二分/, 'the bracket step 4 halves')
     for (const n of [2, 5, 10, 20]) {
       const { p } = solveBianchi({ n, ...PARAMS })
       expect(p, `n = ${n}: the root is inside the bracket`).toBeGreaterThan(lo)
@@ -727,9 +727,9 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     // steps 5 and 6: P_tr, P_s and the weighted mean, read off the step and recomputed
     const [ptrOne] = figs(STEPS, /P_tr = (\d+) − \(1 − τ\)\^n/, 'step 5 on P_tr')
     const [psOne, psLess] = figs(STEPS, /P_s = n·τ·\((\d+) − τ\)\^\(n−(\d+)\) ÷ P_tr/, 'step 5 on P_s')
-    const [wOne] = figs(STEPS, /那三种情形：\((\d+) − P_tr\)σ/, 'step 6 on the empty slot')
+    const [wOne] = figs(STEPS, /三种情形加权：\((\d+) − P_tr\)σ/, 'step 6 on the empty slot')
     const [wOneB] = figs(STEPS, /P_tr\((\d+) − P_s\)T_c/, 'step 6 on the collision')
-    const [slotUs] = figs(STEPS, /σ 是时隙长度，这里 (\d+) µs/, 'the slot step 6 weights with')
+    const [slotUs] = figs(STEPS, /σ 是时隙长度，这里是 (\d+) µs/, 'the slot step 6 weights with')
     expect(slotUs * 1000, 'the slot this engine counts in').toBe(SLOT_NS)
     const n = 5
     const sol = solveBianchi({ n, ...PARAMS })
@@ -757,7 +757,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     expect(n, 'and the crowd this lesson’s own scene has')
       .toBe(bianchi.scenario().nodes.filter((x) => x.profiles.includes('saturated')).length)
     const sol = solveBianchi({ n, W, m, attempts })
-    same(rowOf('五台站点', '同时满足两句话的 p')[1], sol.p, 'the p that satisfies both sentences')
+    same(rowOf('五台站点', '同时满足两个关系的 p')[1], sol.p, 'the p that satisfies both sentences')
     /*
      * The two sums are computed at the SOLVED p, not at the four-decimal p the row above prints:
      * Σ p^i at 0.2722 is 1.3739 and at the p the solver holds it is 1.3738, which is the figure
@@ -795,7 +795,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
   it('the measured sentences: the five-station run, the ten-station run and the three seeds', () => {
     const five = base()
     const [attempts, collided, measured, predicted] = raw(EVERYWHERE,
-      /跑十秒：([\d,]+) 次尝试，其中 ([\d,]+) 次撞上了别人，也就是 ([\d.]+)%，而预测是 ([\d.]+)%/,
+      /运行十秒：([\d,]+) 次尝试，其中 ([\d,]+) 次与其他站点发生碰撞，即 ([\d.]+)%，而预测是 ([\d.]+)%/,
       'the one measured sentence')
     expect(val(attempts), 'the attempts the run really made').toBe(five.attempts)
     expect(val(collided), 'and how many of them met somebody else').toBe(five.collided)
@@ -804,7 +804,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     // `tryThis`: the ten-station experiment
     const ten = variant(1, 'n10')
     const [a10, c10, acks, got, want] = raw(bianchi.tryThis.join('\n'),
-      /([\d,]+) 次尝试、([\d,]+) 次碰撞、([\d,]+) 个回答——([\d.]+) Mb\/s，预测是 ([\d.]+)/,
+      /([\d,]+) 次尝试、([\d,]+) 次碰撞、([\d,]+) 个应答——([\d.]+) Mb\/s，预测是 ([\d.]+)/,
       'the ten-station experiment')
     expect([val(a10), val(c10), val(acks)], 'what the ten-station run really did')
       .toEqual([ten.attempts, ten.collided, ten.acks])
@@ -849,7 +849,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     expect(printed, 'the printed formula is the infinite-retry τ this model solves')
       .toBeCloseTo(inf.tau, 10)
     // 「把 (1 − (2p)^m)/(1 − 2p) 按 Σ_{k<m}(2p)^k 这个和来算，p = ½ 就只是一个普通点」
-    const [sumTwo] = figs(deep, /按 Σ_\{k<m\}\((\d)p\)\^k 这个和来算/, 'the sum it is rewritten as')
+    const [sumTwo] = figs(deep, /按 Σ_\{k<m\}\((\d)p\)\^k 这个和式计算/, 'the sum it is rewritten as')
     let geo = 0
     for (let k = 0; k < m; k++) geo += (sumTwo * 0.5) ** k
     expect(Number.isFinite(2 / (W + 1 + 0.5 * W * geo)),
@@ -857,15 +857,15 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     expect(figs(deep, /而不是 (\d)\/(\d)/, 'the quotient it avoids'), 'zero over zero')
       .toEqual([0, 0])
     // 「从 48.09% 抬到 49.59%」: the two solvers at twenty stations
-    const [without, with_] = raw(deep, /碰撞概率从 ([\d.]+)% 抬到 ([\d.]+)%/,
+    const [without, with_] = raw(deep, /碰撞概率从 ([\d.]+)% 升高到 ([\d.]+)%/,
       'what the finite chain moves')
     same(without, 100 * inf.p, 'the infinite chain’s own collision probability')
     same(with_, 100 * solveBianchi({ n: 20, ...PARAMS }).p, 'and the finite one’s')
-    const twenty = tableOf('这两个方程预测出什么').rows.find((r) => val(r[0]) === 20)!
+    const twenty = tableOf('这两个方程的预测结果').rows.find((r) => val(r[0]) === 20)!
     same(with_, 100 * solveBianchi({ n: val(twenty[0]), ...PARAMS }).p,
       'which is the figure the table prints, as `deeper` says it is')
     // 「n − 1 枚同样的硬币」 and the exponents of the second equation, wherever `deeper` writes them
-    for (const v of everyFig(/n − (\d+) 台站点|n − (\d+) 枚同样的硬币|\^\(n−(\d+)\)/g,
+    for (const v of everyFig(/n − (\d+) 台站点|n − (\d+) 枚相同的硬币|\^\(n−(\d+)\)/g,
       'one fewer than the crowd', 4)) {
       expect(val(v), 'the other stations are all but this one').toBe(1)
     }
@@ -889,7 +889,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     const [capture] = figs(lim, /CAPTURE_MARGIN_DB = (\d+) dB/, 'the capture margin it names')
     expect(readFileSync('src/engine/channel.ts', 'utf8'),
       '`channel.ts` really defines it at that value').toContain(`CAPTURE_MARGIN_DB = ${capture}`)
-    expect(figs(lim, /按精确的 (\d+) µs 排下一次递减/, 'the slot it decrements on')[0] * 1000)
+    expect(figs(lim, /按精确的 (\d+) µs 调度下一次递减/, 'the slot it decrements on')[0] * 1000)
       .toBe(SLOT_NS)
     // 「aCWmin 15 与 aCWmax 1023 … 于是 W = 16、m = 6」
     const [cwMin, cwMax] = figs(src, /aCWmin (\d+) 与 aCWmax (\d+)/, 'the two the clause fixes')
@@ -910,9 +910,9 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
     expect(base().records.filter((r) => r.type === 'TX_START' && r.t === t0 * MS).length,
       'every station starts in that instant')
       .toBe(scen.nodes.filter((x) => x.profiles.includes('saturated')).length)
-    same(raw(bianchi.observe.join('\n'), /这堆叠加直到 ([\d.]+) ms 才结束/,
+    same(raw(bianchi.observe.join('\n'), /这次多帧重叠直到 ([\d.]+) ms 才结束/,
       'when the pile-up clears')[0], first.t / MS, 'the end of the opening collision')
-    for (const v of everyFig(/都是 (\d+) µs，每个回答|在慢速率上占 (\d+) µs|= (\d+) \+ \d+ \+ \d+ \+ \d+ =|_c = (\d+) \+/g,
+    for (const v of everyFig(/都是 (\d+) µs，每个应答|在低速率上占用 (\d+) µs|= (\d+) \+ \d+ \+ \d+ \+ \d+ =|_c = (\d+) \+/g,
       'the data frame’s own airtime', 4)) {
       same(v, dcfTimes(MSDU_BYTES, SLOW_MBPS).dataNs / 1000,
         'the frame, wherever the lesson gives its length')
@@ -942,7 +942,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
         'note' in b ? b.note ?? '' : ''].join('\n')).join('\n')
     const [sumTwo] = figs(deep0, /按 Σ_\{k<m\}\((\d)p\)\^k/, 'the sum it is rewritten as')
     // every statement of the payload is the same payload, and that one is 1528 octets on the air
-    for (const v of everyFig(/(\d+) 字节的帧在慢速率上占|(\d+) 字节的载荷在空口上是/g,
+    for (const v of everyFig(/(\d+) 字节的帧在低速率上占用|(\d+) 字节的载荷在空口上是/g,
       'the payload the model carries', 2)) {
       expect(val(v), 'the same payload wherever the lesson names it').toBe(MSDU_BYTES)
     }
@@ -950,7 +950,7 @@ describe('bianchi · every figure the lesson prints, read back out of its own pr
       'and that payload is the frame `sources` says goes on the air')
       .toBe(Number(/字节的载荷在空口上是 (\d+) 字节/.exec(EVERYWHERE)![1]))
     // the bracket of step 4 is the unit interval `solveBianchi` bisects
-    const [lo, hi] = figs(STEPS, /把 (\d+) 到 (\d+) 二分/, 'the bracket step 4 halves')
+    const [lo, hi] = figs(STEPS, /把区间 (\d+) 到 (\d+) 二分/, 'the bracket step 4 halves')
     const solver = readFileSync('src/course/tier1/bianchiModel.ts', 'utf8')
     expect(solver, `\`solveBianchi\` starts its bisection at ${lo}`).toContain(`let lo = ${lo}`)
     expect(solver, `and ends it at ${hi}`).toContain(`let hi = ${hi}`)

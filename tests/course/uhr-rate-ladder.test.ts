@@ -134,7 +134,7 @@ describe('uhr-rate-ladder · the ladder table is read off the engine, cell by ce
   /** The four new rungs, as the lesson's first table prints them. */
   it('prints the engine index, the draft number, the sensitivity and the N_DBPS of each new rung', () => {
     const t = table('四个新档')
-    expect(t.head).toEqual(['引擎索引', '草案档号', '星座与码率', '灵敏度', 'N_DBPS', '顶掉的档'])
+    expect(t.head).toEqual(['引擎索引', '草案档号', '星座与码率', '灵敏度', 'N_DBPS', '被取代的档'])
     expect(t.rows).toHaveLength(4)
     for (const row of t.rows) {
       const idx = num(row[0]!)
@@ -176,7 +176,7 @@ describe('uhr-rate-ladder · the ladder table is read off the engine, cell by ce
 
 describe('uhr-rate-ladder · the four spots, and the windows they sit in', () => {
   it('the printed level, distance and selected rungs at each spot', () => {
-    const t = table('这间房的四个位置')
+    const t = table('这个房间的四个位置')
     expect(t.rows).toHaveLength(4)
     const spots: Spot[] = ['desk', 'near', 'mid', 'far']
     t.rows.forEach((row, i) => {
@@ -250,7 +250,7 @@ describe('uhr-rate-ladder · the four spots, and the windows they sit in', () =>
 
 describe('uhr-rate-ladder · at a fixed position the gain IS the N_DBPS ratio', () => {
   it('window for window, to four places, and the printed goodput figures are those runs', () => {
-    const t = table('这间房的四个位置')
+    const t = table('这个房间的四个位置')
     const spots: Spot[] = ['desk', 'near', 'mid', 'far']
     t.rows.forEach((row, i) => {
       const spot = spots[i]!
@@ -382,7 +382,7 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
 
   it('the printed per cents and seed counts are those twenty runs', () => {
     const t = table('打开起伏之后')
-    expect(t.head).toEqual(['位置', '窗口宽', '定点', '只开阴影', '阴影＋按帧瑞利'])
+    expect(t.head).toEqual(['位置', '窗口宽', '定点', '仅开启阴影', '阴影＋按帧瑞利'])
     expect(t.rows).toHaveLength(3)
     const spots: Spot[] = ['near', 'mid', 'far']
     t.rows.forEach((row, i) => {
@@ -402,7 +402,7 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
         expect(Number(wins), `${spot} ${fade}: printed seed count`).toBe(Math.round(r.win * SEEDS.length))
         // the mechanism, read off both arms rather than argued: the finer ladder fails more
         expect(r.uFail, `${spot} ${fade}: uhr RX_FAIL`).toBeGreaterThan(r.eFail)
-        // and it visits more rungs in the same walk, which is what 「踩到的档更多」 means
+        // and it visits more rungs in the same walk, which is what 「使用过的档更多」 means
         expect(r.uRungs, `${spot} ${fade}: uhr rungs`).toBeGreaterThan(r.eRungs)
       }
     })
@@ -495,7 +495,7 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
     }
 
     // read the two sixty-seed figures back out of the prose rather than restating them here
-    const spread = uhrRateLadder.numbers!.find((b) => b.heading === '为什么这两列都不能只跑一次')!
+    const spread = uhrRateLadder.numbers!.find((b) => b.heading === '为什么这两列都不能只运行一次')!
     const quoted = /两批不同的六十个给出 \+([\d.]+) % 与 \+([\d.]+) %/.exec((spread as { text: string }).text)
     expect(quoted, 'the prose no longer names two sixty-seed figures').not.toBeNull()
     const farPrime = gainOver('far', 'both', PRIME60)
@@ -511,8 +511,8 @@ describe('uhr-rate-ladder · what the rungs are worth once the level wanders', (
       .toBeGreaterThan(0.5)
 
     // and the near row's own sentence: the zero there cannot even be given a sign
-    const zero = uhrRateLadder.numbers!.find((b) => b.heading === '这张表里最该读的是第一行那个零')!
-    const near = /换六十个种子它是 \+([\d.]+) %/.exec((zero as { text: string }).text)
+    const zero = uhrRateLadder.numbers!.find((b) => b.heading === '这张表中最值得注意的是第一行那个零')!
+    const near = /换成六十个种子，它是 \+([\d.]+) %/.exec((zero as { text: string }).text)
     expect(near, 'the near row no longer claims a direction').not.toBeNull()
     const nearPrime = gainOver('near', 'shadow', PRIME60)
     expect(Number(near![1]), '墙后一步 only-shadow, 1 + 59 primes').toBeCloseTo(nearPrime, 1)
@@ -672,15 +672,15 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
       expect([...PHY_MODES.uhr.ndbps], `${a} is a rung of the finer ladder`).toContain(a)
       expect([...PHY_MODES.eht.ndbps], `${b} is a rung of the coarser one`).toContain(b)
     }
-    const pcts = figs(uhrRateLadder.why!, /这间房里是 \+([\d.]+) %、\+([\d.]+) % 与 \+([\d.]+) %/,
+    const pcts = figs(uhrRateLadder.why!, /在这个房间里是 \+([\d.]+) %、\+([\d.]+) % 与 \+([\d.]+) %/,
       '`why` on the three paper gains')
     pcts.forEach((p, i) => {
       expect(p, `the ${i + 1}th gain as a per cent, to one decimal`)
         .toBe(Number(((ratios[i][2] - 1) * 100).toFixed(1)))
     })
-    // 「+33.3 % 缩到 +11.8 %，+6.7 % 一分不剩」: the first two are the fading table's own cells
+    // 「+33.3 % 缩小到 +11.8 %，+6.7 % 则完全消失」: the first two are the fading table's own cells
     const [paper, left, gone] = figs(uhrRateLadder.why!,
-      /\+([\d.]+) % 缩到 \+([\d.]+) %，\+([\d.]+) % 一分不剩/, '`why` on what fading leaves')
+      /\+([\d.]+) % 缩小到 \+([\d.]+) %，\+([\d.]+) % 则完全消失/, '`why` on what fading leaves')
     expect(paper, 'the biggest paper gain').toBe(Math.max(...pcts))
     expect(gone, 'and the smallest').toBe(Math.min(...pcts))
     const fade = table('打开起伏之后')
@@ -850,9 +850,9 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     // 「而索引 13 已经是 4096-QAM 5/6」 — the top of the coarse ladder, named by its own rung
     const [top] = figs(deep, /而索引 (\d+) 已经是 4096-QAM/, 'the top of the coarse ladder')
     expect(top, 'the last index it has').toBe(PHY_MODES.eht.ndbps.length - 1)
-    // 「一条信号极好的链路会挑到索引 17 的 256-QAM 2/3，比它本来跑得到的慢」: the append would
+    // 「一条信号极好的链路会选到索引 17 的 256-QAM 2/3，比它本来能达到的速率慢」: the append would
     // put a slower rung above a faster one, which is the whole argument
-    const [picked] = figs(deep, /会挑到索引 (\d+) 的 256-QAM/, 'the index it would pick')
+    const [picked] = figs(deep, /会选到索引 (\d+) 的 256-QAM/, 'the index it would pick')
     expect(picked, 'which is the last of the appended ones').toBe(to)
     const appended = [...PHY_MODES.eht.ndbps, ...NEW_RUNGS.map((r) => r.nd)]
     expect(appended[picked], 'and its N_DBPS is below the one at the index under it')
@@ -901,25 +901,25 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     expect(fineSet.length, 'the finer ladder visits more rungs than the coarser one')
       .toBeGreaterThan(coarseSet.length)
     const shadowSeed = uhrRateLadder.variants!
-      .find((v) => v.label.includes('Wi-Fi 8 · 开阴影'))!.scenario().seed!
+      .find((v) => v.label.includes('Wi-Fi 8 · 开启阴影'))!.scenario().seed!
     for (const [gen, set] of [['uhr', fineSet], ['eht', coarseSet]] as const) {
       const used = rungsUsed(recs(scene(gen, 'mid', 'shadow', shadowSeed), RUN_NS))
         .sort((a, b) => a - b)
       expect(set.sort((a, b) => a - b), `${gen}: the rungs that walk really visits`).toEqual(used)
     }
-    // 「而这一次它赢 6.9 %，换成种子 17 它输 9.7 %」: the two per cents of that one walk
+    // 「而这一次它高出 6.9 %，换成种子 17 则低 9.7 %」: the two per cents of that one walk
     const gain = (seed: number): number => {
       const u = goodputMbps(recs(scene('uhr', 'mid', 'shadow', seed), RUN_NS), RUN_NS)
       const e = goodputMbps(recs(scene('eht', 'mid', 'shadow', seed), RUN_NS), RUN_NS)
       return (100 * (u - e)) / e
     }
     const [won, otherSeed, lost] = raw(obs,
-      /这一次它赢 ([\d.]+) %，换成种子 (\d+) 它输 ([\d.]+) %/, '`observe` on the two seeds')
+      /这一次它高出 ([\d.]+) %，换成种子 (\d+) 则低 ([\d.]+) %/, '`observe` on the two seeds')
     same(won, gain(shadowSeed), 'what the finer ladder wins on the shipped seed')
     same(lost, -gain(val(otherSeed)), 'and what it loses on the other one')
     // and `numbers` states the same two runs: 「种子 2 是 +6.9 %，种子 17 是 −9.7 %」
     const [seedA, wonA, seedB, lostA] = raw(EVERYWHERE,
-      /只换随机种子：开阴影之后种子 (\d+) 是 \+([\d.]+) %，种子 (\d+) 是 −([\d.]+) %/,
+      /只换随机种子：开启阴影之后种子 (\d+) 是 \+([\d.]+) %，种子 (\d+) 是 −([\d.]+) %/,
       '`numbers` on the same pair of seeds')
     expect(val(seedA), 'the first is the seed the two faded variants ship').toBe(shadowSeed)
     expect(val(seedB), 'and the second is the one the experiment switches to').toBe(val(otherSeed))
@@ -931,20 +931,20 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     const t0 = uhrRateLadder.tryThis[0]
     const [seed] = figs(t0, /随机种子都改成 (\d+)/, 'the seed `tryThis` switches to')
     const [fineMbps, fell, coarseMbps] = raw(t0,
-      /Wi-Fi 8 从 ([\d.]+) 掉到 ([\d.]+) Mb\/s，而 Wi-Fi 7 守在 ([\d.]+)/,
+      /Wi-Fi 8 从 ([\d.]+) 降到 ([\d.]+) Mb\/s，而 Wi-Fi 7 保持在 ([\d.]+)/,
       'the three goodputs it quotes')
     const at = (gen: 'eht' | 'uhr', s: number): number =>
       goodputMbps(recs(scene(gen, 'mid', 'shadow', s), RUN_NS), RUN_NS)
     /*
-     * 「从 39.76 掉到 32.72」: the 「从」 is the shipped 「开阴影」 variant, whose own seed is read off
+     * 「从 39.76 降到 32.72」: the 「从」 is the shipped 「开启阴影」 variant, whose own seed is read off
      * the scenario it builds rather than retyped — the experiment is 「change THAT seed to 17」.
      */
     const shipped = uhrRateLadder.variants!
-      .find((v) => v.label.includes('Wi-Fi 8 · 开阴影'))!.scenario().seed!
+      .find((v) => v.label.includes('Wi-Fi 8 · 开启阴影'))!.scenario().seed!
     same(fineMbps, at('uhr', shipped), 'the finer ladder on the seed the variant ships')
     same(fell, at('uhr', seed), 'and on the seed this experiment switches to')
     same(coarseMbps, at('eht', seed), 'while the coarser one holds')
-    const [lost] = raw(t0, /细阶梯输掉 ([\d.]+) %/, 'what the finer ladder loses')
+    const [lost] = raw(t0, /细阶梯低 ([\d.]+) %/, 'what the finer ladder loses')
     same(lost, 100 * (1 - at('uhr', seed) / at('eht', seed)), 'the loss on that seed')
     // 「两边的接收失败数：18 对 8」
     const [fineFail, coarseFail] = figs(t0, /接收失败数：(\d+) 对 (\d+)/, 'the two failure counts')
@@ -996,7 +996,7 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
       windowDb.set(sfd, (windowDb.get(sfd) ?? 0) + 0.1)
     }
     const [narrow, wideStep] = figs(EVERYWHERE,
-      /有三个只给自己留了 (\d+) 分贝的灵敏度间隔，只有 16-QAM 5\/6 占了 (\d+) 分贝/,
+      /有三个与相邻档的灵敏度间隔只有 (\d+) 分贝，只有 16-QAM 5\/6 有 (\d+) 分贝/,
       '`picture` on the four windows in decibels')
     const inDb = NEW_RUNGS.map((r) => Number((windowDb.get(UHR_SFD_MCS[r.i]!) ?? 0).toFixed(1)))
     expect(inDb.filter((d) => d === narrow).length, 'three of the four windows are that wide')
@@ -1009,15 +1009,15 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     expect(Number((windowDb.get(UHR_SFD_MCS[named.i]!) ?? 0).toFixed(1)),
       '16-QAM 5/6 is the one with the wider window').toBe(wideStep)
     // 「可窗口只有 1 到 3 分贝宽」: the two ends of that same list
-    const [lo, hi] = figs(EVERYWHERE, /可窗口只有 (\d+) 到 (\d+) 分贝宽/,
+    const [lo, hi] = figs(EVERYWHERE, /但窗口只有 (\d+) 到 (\d+) 分贝宽/,
       '`picture` on how wide the windows get')
     expect([Math.min(...inDb), Math.max(...inDb)], 'the narrowest and the widest of them')
       .toEqual([lo, hi])
     // 「同一个位置上，路径损耗指数是 3.0」
     const [exp] = figs(EVERYWHERE, /指数是 ([\d.]+)/, '`picture` on the path-loss exponent')
     expect(exp, 'the exponent this engine spreads with').toBe(PL_EXP)
-    // 「按 5 厘米一格扫过整间客厅」: the grid `limits` says the windows were measured on
-    const [cm] = figs(EVERYWHERE, /按 (\d+) 厘米一格扫过/, '`limits` on the grid it swept')
+    // 「以 5 厘米为步长扫描整个客厅」: the grid `limits` says the windows were measured on
+    const [cm] = figs(EVERYWHERE, /以 (\d+) 厘米为步长扫描/, '`limits` on the grid it swept')
     expect(cm / 100, 'the step the window measurement above uses').toBe(0.05)
   })
 
@@ -1040,8 +1040,8 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     const fade = table('打开起伏之后')
     const cell = (row: number, col: number): number =>
       val(/([−-]?[\d.]+)\s*%/.exec(fade.rows[row][col])![1])
-    const [tight] = figs(EVERYWHERE, /定点上值 \+([\d.]+) %/, 'the fixed-position gain of the top window')
-    const [faded] = figs(EVERYWHERE, /一分不剩：均值 −([\d.]+) %/, 'and what it keeps once it wanders')
+    const [tight] = figs(EVERYWHERE, /定点上的收益是 \+([\d.]+) %/, 'the fixed-position gain of the top window')
+    const [faded] = figs(EVERYWHERE, /这一收益就完全消失：均值 −([\d.]+) %/, 'and what it keeps once it wanders')
     expect(-faded, 'which is the table’s own shadow-only cell for that window').toBe(cell(0, 3))
     // 「两批不同的六十个给出 +7.4 % 与 +8.7 %，都比表上印的 +11.78 % 低」
     const [under] = figs(EVERYWHERE, /都比表上印的 \+([\d.]+) % 低/,
@@ -1052,7 +1052,7 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     expect(quizFixed, 'the quiz states the same fixed-position gain').toBe(tight)
     expect(quizFaded, 'and the same faded one').toBe(faded)
     // 「这一格的接收失败数是 32 对 135」, in `numbers` and in the quiz
-    const fails = [...EVERYWHERE.matchAll(/接收失败数(?:在这一格里)?是 (\d+) 对 (\d+)/g)]
+    const fails = [...EVERYWHERE.matchAll(/接收失败数(?:在这个位置)?是 (\d+) 对 (\d+)/g)]
       .map((m) => [val(m[1]), val(m[2])])
     expect(fails.length, 'the lesson states that pair more than once').toBeGreaterThan(1)
     for (const pair of fails) expect(pair, 'the same pair both times').toEqual(fails[0])
@@ -1061,7 +1061,7 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     expect(seedList, 'as many seeds as the table says').toHaveLength(howMany)
     /*
      * 「这一格」 is the first row of the fading table with the slow layer alone: the paragraph
-     * around this pair is about 「均值 −0.04 %」, which is that row's 「只开阴影」 cell.
+     * around this pair is about 「均值 −0.04 %」, which is that row's 「仅开启阴影」 cell.
      */
     const near = (gen: 'eht' | 'uhr'): number => {
       let n = 0
@@ -1126,7 +1126,7 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     expect(eMcs, 'and the coarser one’s, in the variant beside it')
       .toBe(mcsForRssi('eht', rssiUp('mid'), undefined, w))
     // 「草案管这两档叫 MCS 20 和 MCS 4」: the draft's number for each of those two rungs
-    const [dU, dE] = figs(pic, /草案管这两档叫 MCS (\d+) 和 MCS (\d+)/,
+    const [dU, dE] = figs(pic, /草案把这两档称为 MCS (\d+) 和 MCS (\d+)/,
       '`picture` on what the draft calls them')
     expect(dU, 'the draft number of the rung the finer ladder picked').toBe(UHR_SFD_MCS[uMcs]!)
     expect(dE, 'while on the coarser ladder the index IS the draft number').toBe(eMcs)
@@ -1203,7 +1203,7 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     })
     // 「「墙后一步」是 256-QAM 2/3 那一档的窗口，1 分贝宽、地板上 0.25 米宽，定点上值 +6.71 %」
     const [pair, dbW, mW, pct] = raw(EVERYWHERE,
-      /「墙后一步」是 (\S+ \d\/\d) 那一档的窗口，([\d.]+) 分贝宽、地板上 ([\d.]+) 米宽，定点上值 \+([\d.]+) %/,
+      /「墙后一步」是 (\S+ \d\/\d) 那一档的窗口，([\d.]+) 分贝宽、地板上 ([\d.]+) 米宽，定点上的收益是 \+([\d.]+) %/,
       '`numbers` on the narrow top window')
     const nearRung = mcsForRssi('uhr', rssiUp('near'), undefined, w)
     expect(val(dbW!), 'the window that rung has, in decibels').toBe(inDb.get(UHR_SFD_MCS[nearRung]!)!)
@@ -1213,16 +1213,16 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     const ownRow = table('四个新档').rows.find((r) => val(r[0]!) === nearRung)!
     expect(pair, 'the pair named is the one that table gives that very index').toBe(ownRow[2])
     // 「中间那一行小得最少，因为它的窗口有 3 分贝宽，是四个新档里唯一一个」
-    const [midDb] = figs(EVERYWHERE, /它的窗口有 (\d+) 分贝宽，是四个新档里唯一一个/,
+    const [midDb] = figs(EVERYWHERE, /它的窗口有 (\d+) 分贝宽，是四个新档中唯一一个/,
       '`numbers` on why the middle row loses least')
     expect(midDb, 'the window the middle row’s rung has').toBe(inDb.get(sfdAt('mid'))!)
     expect(NEW_RUNGS.filter((r) => inDb.get(UHR_SFD_MCS[r.i]!) === midDb),
       'and it is the only one of the four that wide').toHaveLength(1)
-    // 「再往回推到 6.0 米，差又回来。那 3 分贝的窗口在地板上一共 1.45 米宽」
+    // 「再移回到 6.0 米，差值又出现了。那 3 分贝的窗口在地板上一共 1.45 米宽」
     const t1 = uhrRateLadder.tryThis[1]!
-    const [backTo] = figs(t1, /再往回推到 ([\d.]+) 米/, '`tryThis` on where the gap comes back')
+    const [backTo] = figs(t1, /再移回到 ([\d.]+) 米/, '`tryThis` on where the gap comes back')
     /*
-     * 「再往回推到 6.0 米」 is **where the laptop started**, and that is what makes this figure
+     * 「再移回到 6.0 米」 is **where the laptop started**, and that is what makes this figure
      * checkable at all: 「the gap is back」 alone holds anywhere inside a window 1.45 m wide, so
      * 6.1 would satisfy it too. The distance is the shipped spot's own.
      */
@@ -1237,11 +1237,11 @@ describe('uhr-rate-ladder · every figure the prose prints, read back out of it'
     expect(onFloor(sfdAt('mid')), 'the widest of the four, which is what the sentence claims')
       .toBe(Math.max(...[...spans.keys()].map(onFloor)))
     /*
-     * 「笔记本因此被摆在离目标窗口 5 分贝的地方」. The two directions of the same link differ by
+     * 「笔记本因此被放在距目标窗口 5 分贝的位置」. The two directions of the same link differ by
      * exactly that much at every spot in this scene, which is why a budget computed for the
      * router's transmit direction put the laptop in the wrong place by that many decibels.
      */
-    const [away] = figs(EVERYWHERE, /离目标窗口 (\d+) 分贝的地方/,
+    const [away] = figs(EVERYWHERE, /距目标窗口 (\d+) 分贝的位置/,
       '`limits` on the measurement that went wrong the first time')
     const link = buildLinkTable(base.nodes, base.walls)
     expect(away, 'downlink minus uplink on this lesson’s own link')

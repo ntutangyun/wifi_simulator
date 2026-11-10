@@ -207,7 +207,7 @@ describe('mumimo-choose · the two divisions are exclusive here, and the standar
     expect(t, 'no limit mentions MU-MIMO within OFDMA').toBeDefined()
     expect(t!.kind).toBe('out-of-scope')
     for (const s of ['DL MU-MIMO within OFDMA', 'UL MU-MIMO within OFDMA', '能力位', 'MIB 变量',
-      'HE 不小于 106 音调', 'EHT 不小于 242 音调', '最少四格与九格', 'useMumimo', '建成了互斥']) {
+      'HE 不小于 106 音调', 'EHT 不小于 242 音调', '最少四格与九格', 'useMumimo', '设计为互斥']) {
       expect(t!.text, s).toContain(s)
     }
     // …and it no longer reads as "a real scheduler could be cleverer".
@@ -257,7 +257,7 @@ describe('mumimo-choose · the two divisions are exclusive here, and the standar
  *    the tail bits and the eight bits of a byte are the three constants `phy.ts` divides by
  *    `ndbps`, so a planted one makes the lesson's own ceiling disagree with the frame.
  *  - **the two resource-unit floors are read as the grid they fold onto**: 106 and 242 tones are
- *    the standard's (class (a)), and what is read is 「折成 26 音调的格就是最少四格与九格」 —
+ *    the standard's (class (a)), and what is read is 「换算为 26 音调的格就是最少四格与九格」 —
  *    the floors over this engine's own bin, in Chinese numerals.
  */
 describe('mumimo-choose · every figure the prose prints, read back out of it', () => {
@@ -350,16 +350,16 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
     expect(extra! * US, 'and what the multi-user signalling adds')
       .toBe(PHY_MODES.eht.muExtraPreambleNs)
     expect(preamble! + extra!, 'which together are the opening').toBe(opening)
-    // 「可整帧算下来只差 1.41 倍」 — in the note, in an outcome and in `observe`
+    // 「但整帧算下来只相差 1.41 倍」 — in the note, in an outcome and in `observe`
     const ratios = [
-      figs(formula.note, /只差 ([\d.]+) 倍/, 'the note on the ratio')[0]!,
-      figs(WHY, /整帧为什么只差 ([\d.]+) 倍/, 'the outcome on the same ratio')[0]!,
+      figs(formula.note, /只相差 ([\d.]+) 倍/, 'the note on the ratio')[0]!,
+      figs(WHY, /整帧为什么只相差 ([\d.]+) 倍/, 'the outcome on the same ratio')[0]!,
       figs(OBS, /只有 ([\d.]+) 倍/, '`observe` on the same ratio')[0]!,
     ]
     expect(new Set(ratios).size, 'one ratio, three places').toBe(1)
     same(String(ratios[0]), ofdma.frame.txTimeNs / mimo.frame.txTimeNs, 'the two lengths’ ratio')
-    // 「干净的三倍增益」 — the data段 alone, in Chinese
-    const [threeCn] = raw(formula.note, /干净的(.)倍增益/, 'the note on the data gain')
+    // 「恰好三倍的增益」 — the data段 alone, in Chinese
+    const [threeCn] = raw(formula.note, /恰好(.)倍的增益/, 'the note on the data gain')
     expect((ofdma.frame.txTimeNs - OPENING_NS) / (mimo.frame.txTimeNs - OPENING_NS),
       'the data segments’ own ratio').toBe(cn(threeCn!))
     // 「本仿真器为 Wi-Fi 7 帧取 13.6 µs」 — the term says it again
@@ -388,7 +388,7 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
         'the ceiling gives the symbols that send really took').toBe(symbolsOf(send))
     }
     // 「按频率划分时，每符号比特数要乘上它分到的子载波占比」
-    const [shareCn] = raw(NUMS, /每个成员拿到的子载波.*?(三分之一)/s, 'the table on the share')
+    const [shareCn] = raw(NUMS, /每个成员得到的子载波.*?(三分之一)/s, 'the table on the share')
     expect(shareCn, 'a third of the sub-carriers').toBe('三分之一')
     expect(new Set(ofdma.frame.muParts!.map((p) => p.ruFraction)), 'which the parts really carry')
       .toEqual(new Set([1 / ofdma.frame.muParts!.length]))
@@ -403,21 +403,21 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
     const cell = (needle: string): string[] => tb.rows.find((r) => r[0]!.includes(needle))!.slice(1)
     for (const [c, label] of tb.head.slice(1).entries()) {
       const send = sendOf(label!)
-      // 「裁完后的成员数」 and 「每个成员的符号数」
-      expect(val(cell('裁完后的成员数')[c]!), `${label}: the members left`)
+      // 「裁减后的成员数」 and 「每个成员的符号数」
+      expect(val(cell('裁减后的成员数')[c]!), `${label}: the members left`)
         .toBe(send.frame.muParts!.length)
       expect(val(cell('每个成员的符号数')[c]!), `${label}: the symbols each takes`)
         .toBe(symbolsOf(send))
-      // 「于是这次发送的长度是」: read as the arithmetic it prints
-      const [open, per, syms, total] = figs(cell('于是这次发送的长度是')[c]!,
+      // 「因此这次发送的时长是」: read as the arithmetic it prints
+      const [open, per, syms, total] = figs(cell('因此这次发送的时长是')[c]!,
         /([\d.]+) \+ ([\d.]+) × (\d+) = ([\d.]+) µs/, `${label}: the length cell`)
       expect(open! * US, `${label}: the opening`).toBe(OPENING_NS)
       expect(per! * US, `${label}: the symbol`).toBe(PHY_MODES.eht.symNs)
       expect(syms, `${label}: the symbols`).toBe(symbolsOf(send))
       same(String(total), send.frame.txTimeNs / 1000, `${label}: and the product plus the opening`)
       expect(open! + per! * syms!, `${label}: the arithmetic the cell prints`).toBe(total)
-      // 「这一次合起来交付」
-      same(cell('这一次合起来交付')[c]!.replace(' B', ''), send.frame.bytes,
+      // 「这一次合计交付」
+      same(cell('这一次合计交付')[c]!.replace(' B', ''), send.frame.bytes,
         `${label}: what the send delivers altogether`)
       // 「都协商过 MU-MIMO，且队首都有 1,000 字节」: a yes/no cell, and the threshold in its label
       expect(cell('都协商过 MU-MIMO')[c], `${label}: whether every candidate qualified`)
@@ -442,7 +442,7 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
     for (const [text, re, what] of [
       [PIC, /低于 ([\d,]+) 字节，它就按频率划分/, '`picture` on the threshold'],
       [NUMS, /每一部队首那一帧都有 ([\d,]+) 字节吗/, 'the step on the threshold'],
-      [SRC, /([\d,]+) 字节的门槛/, '`sources` on the threshold'],
+      [SRC, /([\d,]+) 字节的门限/, '`sources` on the threshold'],
       [QUIZ, /队首那一帧不到 ([\d,]+) 字节/, 'the quiz on the threshold'],
     ] as [string, RegExp, string][]) {
       expect(figs(text, re, what)[0], what).toBe(val(value!))
@@ -458,11 +458,11 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
     /*
      * **Exempt, class (a): the two tone floors.** 「HE 不小于 106 音调，EHT 不小于 242 音调」 are
      * the standard's own and no corpus ships with this repo; `sources` cites the clauses. What is
-     * read is the sentence that follows them — 「折成 26 音调的格就是最少四格与九格」 — which is
+     * read is the sentence that follows them — 「换算为 26 音调的格就是最少四格与九格」 — which is
      * those floors over this engine's own bin, and the bin is `RU26_TONES`.
      */
     const [he, eht, bin] = figs(LIM,
-      /HE 不小于 (\d+) 音调，EHT 不小于 (\d+) 音调，折成 (\d+) 音调的格/, '`limits` on the floors')
+      /HE 不小于 (\d+) 音调，EHT 不小于 (\d+) 音调，换算为 (\d+) 音调的格/, '`limits` on the floors')
     expect(bin, 'the grid this engine splits a channel into').toBe(RU26_TONES)
     const [fourCn, nineCn] = raw(LIM, /就是最少(.)格与(.)格/, '`limits` on the two counts')
     expect(Math.floor(he! / bin!), 'the HE floor, in bins').toBe(cn(fourCn!))
@@ -492,9 +492,9 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
       expect(perSymbol! * US, `${what}: and the symbol`).toBe(PHY_MODES.eht.symNs)
       expect((preamble! + extra!) * US, `${what}: which together are the opening`).toBe(OPENING_NS)
     }
-    // 「两条路上，4,306 字节分别要三个符号和一个符号」
-    const [bytes] = figs(NUMS, /两条路上，([\d,]+) 字节分别要/, 'the step on the payload')
-    const [manyCn, oneCn] = raw(NUMS, /分别要(.)个符号和(.)个符号/, 'the step on the two counts')
+    // 「两种方式下，4,306 字节分别需要三个符号和一个符号」
+    const [bytes] = figs(NUMS, /两种方式下，([\d,]+) 字节分别需要/, 'the step on the payload')
+    const [manyCn, oneCn] = raw(NUMS, /分别需要(.)个符号和(.)个符号/, 'the step on the two counts')
     for (const send of [ofdma, mimo]) {
       for (const part of send.frame.muParts!) {
         expect(part.bytes, 'the payload every member of either send carries').toBe(bytes)
@@ -527,14 +527,14 @@ describe('mumimo-choose · every figure the prose prints, read back out of it', 
   it('reads `observe` against the same two sends', () => {
     // 「每份各占三分之一条信道，单成员速率 371.2 Mb/s；…525.1 Mb/s」
     const [ofdmaRate, mimoRate] = figs(OBS,
-      /单成员速率 ([\d.]+) Mb\/s；第二个变体里，同样的块只装两份，各自独占整条信道，([\d.]+) Mb\/s/,
+      /单成员速率 ([\d.]+) Mb\/s；第二个变体中，同样的块只包含两份，各自独占整条信道，([\d.]+) Mb\/s/,
       '`observe` on the two rates')
     same(String(ofdmaRate), rateOf(ofdma), 'the rate one member of the wider group sees')
     same(String(mimoRate), rateOf(mimo), 'and of the narrower one')
-    // 「同一份 4,306 字节，一边要三个数据符号，一边只要一个」
+    // 「同一份 4,306 字节，一边需要三个数据符号，一边只需要一个」
     const [bytes] = figs(OBS, /同一份 ([\d,]+) 字节/, '`observe` on the payload')
     expect(bytes, 'the payload both sends carry per member').toBe(ofdma.frame.muParts![0]!.bytes)
-    const [manyCn, oneCn] = raw(OBS, /一边要(.)个数据符号，一边只要(.)个/,
+    const [manyCn, oneCn] = raw(OBS, /一边需要(.)个数据符号，一边只需要(.)个/,
       '`observe` on the two symbol counts')
     expect([cn(manyCn!), cn(oneCn!)], 'the symbols the two sends really take')
       .toEqual([symbolsOf(ofdma), symbolsOf(mimo)])

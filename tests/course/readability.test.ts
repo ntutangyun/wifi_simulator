@@ -958,11 +958,11 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
  *    named in the field and never named on that lesson's graded main path.
  *
- * **This ratchet is criterion Q, and the number is 278.** It is NOT the same
+ * **This ratchet is criterion Q, and the number is 277.** It is NOT the same
  * criterion as P, even though the two coincided at 296 before slice 3d — and the
  * fact that they coincide here is precisely why the distinction is spelled out
  * rather than assumed. They are measurably different criteria: on `sources` Q is
- * 193 today (182 when this was written) and P was 176, on `deeper` Q is 86 today (86 then) and
+ * 193 today (182 when this was written) and P was 176, on `deeper` Q is 88 today (86 then) and
  * P was 76. If a later reader finds
  * these two numbers equal again, that is a coincidence of this corpus, not a
  * definition.
@@ -994,7 +994,7 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    * **The number itself is `LIMITS_DEBT_CEILING` in `./coverageNumbers`**, so this `it`'s title, the
    * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
    *
-   * **This number is the ceiling AND the current value: the debt stands at exactly 278 (287 until the 2026-11-10 `why` rewrites, the UWB simulator-internals cleanup and the UWB standard-wording pass paid nine pairs).** There
+   * **This number is the ceiling AND the current value: the debt stands at exactly 277 (287 until the 2026-11-10 `why` rewrites, the UWB simulator-internals cleanup and the standard-wording pass over both tracks paid ten pairs).** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
    * adds a `limits` entry:
@@ -1005,8 +1005,8 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    *    bigger number here;
    *  - if that sentence will not fit, the other legal move is to pay one of the existing 287
    *    back, which is the same work on a different lesson — and since W17 it costs nothing else:
-   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 85
-   *    and 192), so a repayment that does not also pay the same (lesson, term) pair on the other
+   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 84
+   *    and 189), so a repayment that does not also pay the same (lesson, term) pair on the other
    *    side no longer spends anybody's margin;
    *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
    *    build is red.

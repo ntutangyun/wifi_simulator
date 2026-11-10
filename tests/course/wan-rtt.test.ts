@@ -284,7 +284,7 @@ describe('wan-rtt · what the reader is told to try', () => {
  *
  * All twenty cells were exact; this is wiring. What it buys is that the lesson's own copy of each
  * figure is now the thing under test — including the last row, whose two round-trip cells say
- * 「量不出来」 and 「—」 rather than a number, and that claim is checked as a claim: with no server
+ * 「无法测量」 and 「—」 rather than a number, and that claim is checked as a claim: with no server
  * in the scene there is no application round trip to measure.
  */
 describe('wan-rtt · the five-row table is read back out of the lesson', () => {
@@ -329,10 +329,10 @@ describe('wan-rtt · the five-row table is read back out of the lesson', () => {
     }
   })
 
-  it('the last row says 「量不出来」, and that is a claim about the scene, not a gap', () => {
+  it('the last row says 「无法测量」, and that is a claim about the scene, not a gap', () => {
     const row = rows()[4]
     expect([row[1], row[2]], 'the two round-trip cells of the server-less row')
-      .toEqual(['量不出来', '—'])
+      .toEqual(['无法测量', '—'])
     // there is nothing to measure: no server, so no reply to tie a round trip to
     expect(phoneStats(NO_SERVERS).appRtt.n, 'application round trips recorded with no server')
       .toBe(0)
@@ -348,7 +348,7 @@ describe('wan-rtt · the five-row table is read back out of the lesson', () => {
     expect(sum, 'the formula no longer states its three terms and their total').not.toBeNull()
     expect(Number(sum![1]) + Number(sum![2]) + Number(sum![3]), 'the arithmetic the lesson shows')
       .toBeCloseTo(Number(sum![4]), 6)
-    const note = /实测 ([\d.]+) 毫秒，比算出来的多 ([\d.]+)[^]*?= (\d+)，实测 ([\d.]+)/.exec(f!.note ?? '')
+    const note = /实测 ([\d.]+) 毫秒，比计算值多 ([\d.]+)[^]*?= (\d+)，实测 ([\d.]+)/.exec(f!.note ?? '')
     expect(note, 'the note no longer states the two measurements in the shape this reads').not.toBeNull()
     const base = Number(meanMs(phoneStats(undefined).appRtt).toFixed(3))
     const overseas = Number(meanMs(phoneStats(OVERSEAS).appRtt).toFixed(3))
@@ -433,7 +433,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
   }
   /**
    * A Chinese numeral, including the hundreds `zhNumeral` stops short of — this lesson prints
-   * 「二百一十帧」 and 「涨了一百倍」, and both are figures a reader sees.
+   * 「二百一十帧」 and 「是原来的一百倍」, and both are figures a reader sees.
    */
   const zh = (x: string): number => {
     let total = 0
@@ -466,12 +466,12 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
      * not what the lesson prints — the ledger's own note on this now.
      */
     for (const [oneWay] of every([PIC, NUMS].join('\n'),
-      /(?:建成单向|走单向|答复再走一次) ([\d.]+) 毫秒/g,
+      /(?:建模为单向|经过单向|答复再经过一次) ([\d.]+) 毫秒/g,
       'the one-way WAN delay, printed three times', 3)) {
       same(oneWay!, game.rttMs / 2, 'the one-way WAN delay, which is half the endpoint’s round trip')
     }
-    // 「服务器自己算答案的 2 毫秒」 and the same figure in the steps.
-    for (const [proc] of every([PIC, NUMS].join('\n'), /(?:算答案的|等) (\d+) 毫秒(?:。|处理)/g,
+    // 「服务器自身处理的 2 毫秒」 and the same figure in the steps.
+    for (const [proc] of every([PIC, NUMS].join('\n'), /(?:自身处理的|等) (\d+) 毫秒(?:。|处理)/g,
       'the server’s processing time, printed twice', 2)) {
       same(proc!, game.processMs, 'the server’s own processing time')
     }
@@ -480,7 +480,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
       'the overseas endpoint’s one-way delay')
     // 「每隔大约 30 毫秒」: the game stream's own mean gap, to the ten it is printed at.
     const ticks = uplink().filter((r) => r.bytes !== 64).map((r) => r.t)
-    const [gap] = figs(PIC, /每隔大约 (\d+) 毫秒向服务器送一个状态包/, '`picture` on the tick rate')
+    const [gap] = figs(PIC, /每隔大约 (\d+) 毫秒向服务器发送一个状态包/, '`picture` on the tick rate')
     expect(gap, 'the mean gap between two state packets, to the nearest ten milliseconds')
       .toBe(Math.round(meanGapMs(ticks) / 10) * 10)
     expect(meanGapMs(ticks), `the measured mean gap is ${meanGapMs(ticks).toFixed(1)} ms`)
@@ -492,12 +492,12 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     const s = phoneStats(undefined)
     const air = Number(meanMs(s.txLatency).toFixed(3))
     const trip = Number(meanMs(s.appRtt).toFixed(3))
-    // 「花的都是 0.106 毫秒，二百一十帧一帧不差」: one value, and how many frames carry it.
-    const [printed, frames] = raw(PIC, /花的都是 ([\d.]+) 毫秒，(.+?)帧一帧不差/,
+    // 「用时都是 0.106 毫秒，二百一十帧全部相同」: one value, and how many frames carry it.
+    const [printed, frames] = raw(PIC, /用时都是 ([\d.]+) 毫秒，(.+?)帧全部相同/,
       '`picture` on the quiet room’s air')
     same(printed!, air, 'the enqueue-to-ack of the quiet room')
     expect(s.txLatency.n, 'the frames that all took exactly that long').toBe(zh(frames!))
-    expect(s.txLatency.maxNs, 'and 「一帧不差」 means the worst is the mean')
+    expect(s.txLatency.maxNs, 'and 「全部相同」 means the worst is the mean')
       .toBe(Math.round(s.txLatency.sumNs / s.txLatency.n))
     // The mean round trip, and the ratio the lesson divides out of the two.
     same(raw(PIC, /应用往返的均值是 ([\d.]+) 毫秒/, '`picture` on the round trip')[0]!, trip,
@@ -518,21 +518,21 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
   it('reads the busy room’s rise, and the hundredfold it is printed as', () => {
     const quiet = phoneStats(undefined)
     const busy = phoneStats(BUSY)
-    const [from, to] = raw(PIC, /立刻从 ([\d.]+) 毫秒涨到 ([\d.]+) 毫秒/, '`picture` on the air')
+    const [from, to] = raw(PIC, /立即从 ([\d.]+) 毫秒增加到 ([\d.]+) 毫秒/, '`picture` on the air')
     same(from!, meanMs(quiet.txLatency), 'the air in the quiet room')
     same(to!, meanMs(busy.txLatency), 'and in the busy one')
-    const times = zh(raw(PIC, /涨了(.+?)倍/, '`picture` on the factor')[0]!)
+    const times = zh(raw(PIC, /是原来的(.+?)倍/, '`picture` on the factor')[0]!)
     expect(Math.round(meanMs(busy.txLatency) / meanMs(quiet.txLatency) / 100) * 100,
       'the factor, to the hundred it is printed at').toBe(times)
     // And the round trip, which moves by half rather than by a hundred.
-    const [tFrom, tTo] = raw(PIC, /应用往返只从 ([\d.]+) 涨到 ([\d.]+) 毫秒/,
+    const [tFrom, tTo] = raw(PIC, /应用往返只从 ([\d.]+) 增加到 ([\d.]+) 毫秒/,
       '`picture` on the round trip’s rise')
     same(tFrom!, meanMs(quiet.appRtt), 'the round trip in the quiet room')
     same(tTo!, meanMs(busy.appRtt), 'and in the busy one')
     expect(meanMs(busy.appRtt) / meanMs(quiet.appRtt), 'which is nowhere near a hundredfold')
       .toBeLessThan(2)
     // 「因为广域网那 25 毫秒一点没变」, printed in `picture` and again in `observe`.
-    for (const [ms] of every([PIC, OBS].join('\n'), /广域网那 (\d+) 毫秒(?:一点没变|一动不动)/g,
+    for (const [ms] of every([PIC, OBS].join('\n'), /广域网那 (\d+) 毫秒(?:保持不变)/g,
       'the WAN that does not move, printed twice', 2)) {
       same(ms!, game.rttMs, 'the endpoint’s own round trip')
     }
@@ -557,7 +557,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
 
   it('reads the jitter the hand-check adds, out of the endpoint’s own field', () => {
     const f = wanRtt.numbers!.find((b) => b.kind === 'formula') as { text: string; note: string }
-    const [lo, hi, expected] = figs(f.text, /两个方向各从 (\d+) 到 ([\d.]+) 毫秒均匀抽，合起来期望 ([\d.]+)/,
+    const [lo, hi, expected] = figs(f.text, /两个方向各在 (\d+) 到 ([\d.]+) 毫秒之间均匀取值，合计期望 ([\d.]+)/,
       'the formula on the jitter')
     expect(lo, 'the draw starts at zero').toBe(0)
     same(String(hi), game.jitterMs / 2, 'one direction’s jitter, which is half the endpoint’s field')
@@ -602,7 +602,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     expect(Math.max(...gaps), 'and the widest').toBeLessThanOrEqual(1.1 * period!)
     expect(period! % 10, 'the period is printed as a round number of milliseconds').toBe(0)
     // 「五秒钟得二十个样本」: the samples the mean is taken over, and the window they come from.
-    const [secs, samples] = raw(NUMS, /([一-龥]{1,3})秒钟得([一-龥]{1,3})个样本/,
+    const [secs, samples] = raw(NUMS, /([一-龥]{1,3})秒钟得到([一-龥]{1,3})个样本/,
       'the steps on the samples')
     expect(zh(secs!) * 1000 * MS, 'the window every figure is measured over').toBe(RUN_NS)
     expect(phoneStats(undefined).appRtt.n, 'the round-trip samples it holds').toBe(zh(samples!))
@@ -621,11 +621,11 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     // The two figures it moves, mean and worst.
     const busy = phoneStats(BUSY)
     const accel = phoneStats(ACCEL)
-    const [qFrom, qTo] = raw(NUMS, /把忙起来时的排队从 ([\d.]+) 毫秒压到 ([\d.]+) 毫秒/,
+    const [qFrom, qTo] = raw(NUMS, /把繁忙时的排队从 ([\d.]+) 毫秒降到 ([\d.]+) 毫秒/,
       '`numbers` on the queueing')
     same(qFrom!, meanMs(busy.txLatency), 'the queueing without the game mode')
     same(qTo!, meanMs(accel.txLatency), 'and with it')
-    const [mFrom, mTo] = raw(NUMS, /最大值从 ([\d.]+) 毫秒压到 ([\d.]+) 毫秒/, '`numbers` on the worst')
+    const [mFrom, mTo] = raw(NUMS, /最大值从 ([\d.]+) 毫秒降到 ([\d.]+) 毫秒/, '`numbers` on the worst')
     same(mFrom!, maxMs(busy.txLatency), 'the worst without it')
     same(mTo!, maxMs(accel.txLatency), 'and with it')
     // The paragraph's own claim: the tail comes down harder than the mean.
@@ -643,7 +643,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
       for (const r of [...new Simulation(sc).runUntil(RUN_NS).records]) applyRecord(vs, r)
       return vs.nodes['sta-1'].stats.txOk
     }
-    const [frames] = figs(NUMS, /收到的帧数两边都是 (\d+)，一帧不差/, '`numbers` on the quiet room')
+    const [frames] = figs(NUMS, /收到的帧数两边都是 (\d+)，完全相同/, '`numbers` on the quiet room')
     expect([txOk(quiet), txOk(accelQuiet)], 'the frames each side gets out').toEqual([frames, frames])
     /*
      * **The records that differ are the countdowns, not the draws** — the correction this
@@ -651,13 +651,13 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
      * records are the one thing that does NOT move: 210 of them either way, because the phone
      * still contends once per frame. What halves is `BACKOFF_DEC`, since a window of 7 has
      * fewer slots to count down than one of 15. The figure printed with it is also the figure
-     * 「一帧不差」 is about, and it was 254 — a number this scene does not produce anywhere.
+     * 「完全相同」 is about, and it was 254 — a number this scene does not produce anywhere.
      */
     const decs = (sc: Scenario): number => [...new Simulation(sc).runUntil(RUN_NS).records]
       .filter((r) => r.type === 'BACKOFF_DEC' && r.node === 'sta-1').length
     const draws = (sc: Scenario): number => [...new Simulation(sc).runUntil(RUN_NS).records]
       .filter((r) => r.type === 'BACKOFF_DRAW' && r.node === 'sta-1').length
-    const [was, now] = figs(NUMS, /倒数记录从 ([\d ]+) 条降到 ([\d ]+) 条/,
+    const [was, now] = figs(NUMS, /倒计数记录从 ([\d ]+) 条降到 ([\d ]+) 条/,
       '`numbers` on the countdown records')
     expect([decs(quiet), decs(accelQuiet)], 'the countdown records, either way').toEqual([was, now])
     expect(draws(quiet), 'while the draws themselves do not move').toBe(draws(accelQuiet))
@@ -669,7 +669,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     expect(vi, 'the video category’s minimum window').toBe(EDCA_PARAMS.find((p) => p.name === 'VI')!.cwMin)
     expect(be, 'and best effort’s').toBe(EDCA_PARAMS.find((p) => p.name === 'BE')!.cwMin)
     // The quiz prints the same pair the other way round.
-    const [qBe, qVi] = figs(QUIZ, /抽签范围从 (\d+) 变成 (\d+)/, 'the quiz on the two windows')
+    const [qBe, qVi] = figs(QUIZ, /抽取范围从 (\d+) 变成 (\d+)/, 'the quiz on the two windows')
     expect([qBe, qVi], 'the same two windows, in the order the switch moves between them')
       .toEqual([be, vi])
   })
@@ -703,11 +703,11 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     expect(LIM, 'and the exempt spread is still presented as an outside measurement')
       .toContain('散布约 20 毫秒')
     // 「海外那一档的 80/20 同样是选的」: that endpoint's own two fields.
-    const [oRtt, oJitter] = figs(LIM, /海外那一档的 (\d+)\/(\d+) 同样是选的/, '`limits` on the overseas pair')
+    const [oRtt, oJitter] = figs(LIM, /海外那一档的 (\d+)\/(\d+) 同样是选定的/, '`limits` on the overseas pair')
     expect([oRtt, oJitter], 'the overseas endpoint’s round trip and jitter')
       .toEqual([overseas.rttMs, overseas.jitterMs])
     // The round trip the first `limits` entry quotes, which is the busy room's own.
-    same(raw(LIM, /所以这里的 ([\d.]+) 毫秒是一个被动等出来的数/, '`limits` on the busy round trip')[0]!,
+    same(raw(LIM, /所以这里的 ([\d.]+) 毫秒是被动等待得到的数值/, '`limits` on the busy round trip')[0]!,
       meanMs(phoneStats(BUSY).appRtt), 'the busy room’s mean round trip')
   })
 
@@ -738,7 +738,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
 
   it('reads all three observe lines and both tryThis paragraphs', () => {
     const s = phoneStats(undefined)
-    const [trip, air, ratio] = raw(OBS, /「应用往返」读 ([\d.]+) 毫秒，「入队到确认」读 ([\d.]+) 毫秒。把两个数相除：([\d.]+)/,
+    const [trip, air, ratio] = raw(OBS, /「应用往返」显示 ([\d.]+) 毫秒，「入队到确认」显示 ([\d.]+) 毫秒。把两个数相除：([\d.]+)/,
       'the first observe line')
     same(trip!, meanMs(s.appRtt), 'the round trip a reader reads off the panel')
     same(air!, meanMs(s.txLatency), 'and the air under it')
@@ -747,7 +747,7 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     same(raw(OBS, /入队到确认仍然是 ([\d.]+) 毫秒/, 'the second observe line')[0]!,
       meanMs(phoneStats(NO_SERVERS).txLatency), 'the air with no server in the room')
     // The busy variant, printed a third time here.
-    const [busyAir, busyTrip] = raw(OBS, /入队到确认涨到 ([\d.]+) 毫秒，应用往返涨到 ([\d.]+) 毫秒/,
+    const [busyAir, busyTrip] = raw(OBS, /入队到确认增加到 ([\d.]+) 毫秒，应用往返增加到 ([\d.]+) 毫秒/,
       'the third observe line')
     same(busyAir!, meanMs(phoneStats(BUSY).txLatency), 'the busy room’s air, in `observe`')
     same(busyTrip!, meanMs(phoneStats(BUSY).appRtt), 'and its round trip')
@@ -801,11 +801,11 @@ describe('wan-rtt · every other figure the prose prints, read back out of it', 
     const s = phoneStats(undefined)
     same(raw(QUIZ, /这台手机的应用往返是 ([\d.]+) 毫秒/, 'the first quiz question')[0]!,
       meanMs(s.appRtt), 'the round trip the question asks about')
-    const [rtt, proc, jitter] = figs(QUIZ, /(\d+) 毫秒是广域网来回，(\d+) 毫秒是服务器算答案，([\d.]+) 毫秒是抖动的期望/,
+    const [rtt, proc, jitter] = figs(QUIZ, /(\d+) 毫秒是广域网来回，(\d+) 毫秒是服务器处理，([\d.]+) 毫秒是抖动的期望/,
       'the first quiz explanation')
     expect([rtt, proc, jitter], 'the three terms, which are the endpoint’s own fields')
       .toEqual([game.rttMs, game.processMs, game.jitterMs / 2])
-    const [left] = figs(QUIZ, /剩下给空口的只有 ([\d.]+) 毫秒/, 'the quiz on what is left for the air')
+    const [left] = figs(QUIZ, /剩下属于空口的只有 ([\d.]+) 毫秒/, 'the quiz on what is left for the air')
     same(String(left), meanMs(s.appRtt) - (rtt! + proc! + jitter!), 'what is left over for the air')
     // …and of that, the enqueue-to-ack is the figure the answer gives — printed twice in the quiz,
     // once as the option a reader picks and once in the explanation under it.

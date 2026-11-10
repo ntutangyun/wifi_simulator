@@ -515,8 +515,11 @@ describe('lessonTexts · the census over the whole course', () => {
     // teaser (「这一课要量的是……什么」) into a summary that states the conclusions, at the user's
     // request. A deliberate course-wide edit, re-measured rather than widened. 224 → 378 the same
     // day, when the Wi-Fi and AMP lessons got the same treatment and the whole course had it.
+    // `title` 11 → 12, also 2026-11-10: the standard-written-Chinese pass (wording contract §11)
+    // rewrote 29 Wi-Fi/AMP titles, and the plain written form runs longer than the colloquial one
+    // it replaced (「两台听不见彼此的站点」 → 「两台相互收不到信号的站点」). Re-measured, not widened.
     const MEANS: readonly (readonly [Section, number])[] = [
-      ['title', 11], ['why', 378], ['outcomes', 79], ['terms', 89],
+      ['title', 12], ['why', 378], ['outcomes', 79], ['terms', 89],
       ['picture', 640], ['numbers', 726], ['deeper', 366], ['sources', 204],
       ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
       ['variantLabel', 16], ['jumpLabel', 26],

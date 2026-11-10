@@ -93,7 +93,7 @@ lessonShapeSuite(rate, { runNs: JUMP_NS })
 
 describe('rate · the lesson’s own scene', () => {
   it('is the Tier 2 rate lesson, and names the lessons its words come from', () => {
-    expect(MODULES[rate.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[rate.module].title).toBe('容量参数与速率控制')
     // §6 of the re-pacing plan: the rung ladder and the alibi for the rate anomaly are
     // their own lessons now, so those are the ids this lesson's words come from.
     expect(rate.needs).toEqual(['mcs-ladder', 'retries-queues', 'rate-vs-model', 'width'])
@@ -257,7 +257,7 @@ describe('rate · the two experiments', () => {
  * frame counts come off `tryThis`.
  *
  * `limits` is read too, and its sharpest figure turns into a measurement of its own: 「差 0.01 dB
- * 就整帧丢掉」 is asserted as one hundredth of a decibel flipping `mcsForRssi` from one rung to
+ * 就整帧丢弃」 is asserted as one hundredth of a decibel flipping `mcsForRssi` from one rung to
  * the next, which is what a cliff with no transition band means. Beside it: the two decimal
  * places the ceiling is printed to, the 3 dB margin that is this simulator's own pick, and the
  * two noise figures the requirement is derived with and the floor is computed with — the sentence
@@ -352,14 +352,14 @@ describe('rate · every printed figure is read back out of the lesson', () => {
         `MCS ${mcs}’s airtime in µs`)
       same(cell(row[3], '%', `MCS ${mcs}’s share`), (mine.length / far.length) * 100,
         `MCS ${mcs}’s share of the ${far.length} frames this station sent`)
-      // 「它的上限」 and 「最底一级」: the two rows that claim something about the ladder's ends
+      // 「它的上限」 and 「最低一级」: the two rows that claim something about the ladder's ends
       if (row[0].includes('上限')) expect(Math.max(...rungsUsed)).toBe(mcs)
-      if (row[0].includes('最底')) expect(Math.min(...rungsUsed)).toBe(mcs)
+      if (row[0].includes('最低')) expect(Math.min(...rungsUsed)).toBe(mcs)
     }
   })
 
-  it('「降一级要付什么」: nearly three times the air at the bottom, never more than a halving', () => {
-    const text = prose('降一级要付什么')
+  it('「降一级的代价」: nearly three times the air at the bottom, never more than a halving', () => {
+    const text = prose('降一级的代价')
     const times = counted(text, /将近上限([〇一二三四五六七八九十两]+)倍/, 'the cost at the bottom rung')
     const airOf = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.txTimeNs
     const ratio = airOf(Math.min(...rungsUsed)) / airOf(Math.max(...rungsUsed))
@@ -367,7 +367,7 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     expect(Math.round(ratio), `${airOf(Math.min(...rungsUsed)) / US} µs over `
       + `${airOf(Math.max(...rungsUsed)) / US} µs`).toBe(times)
     expect(ratio, '「将近」 says the bottom rung has not reached that multiple').toBeLessThan(times)
-    // 「每一块信号能装的比特数就减半或接近减半」: 减半 is to halve, and the sentence bounds the
+    // 「同样长的一段信号所承载的比特数就减半或接近减半」: 减半 is to halve, and the sentence bounds the
     // step on one side only — so this does too. No rung carries more than half the one above.
     expect(text).toContain('减半或接近减半')
     const rates = rungsUsed.map((m) => far.find((r) => r.frame.mcs === m)!.frame.mbps)
@@ -377,13 +377,13 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     }
   })
 
-  it('「那台根本不用做选择的站点」: one metre, three seconds, 4,010 frames, 58.7 dB to spare', () => {
-    const text = prose('那台根本不用做选择的站点')
-    const metres = counted(text, /离接入点([〇一二三四五六七八九十两]+)米远/, 'how far the near station is')
-    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒里发了/, 'the window it is counted over')
-    const [frames] = figs(text, /发了 ([\d,]+) 帧/, 'how many frames it sent')
-    const [rung] = figs(text, /帧帧都在 MCS (\d+) 上/, 'the rung it never leaves')
-    const rungsLost = counted(text, /谁也没有开出最密的那([〇一二三四五六七八九十两]+)级/,
+  it('「无需做选择的那台站点」: one metre, three seconds, 4,010 frames, 58.7 dB to spare', () => {
+    const text = prose('无需做选择的那台站点')
+    const metres = counted(text, /距接入点([〇一二三四五六七八九十两]+)米的近端站点/, 'how far the near station is')
+    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒内发送了/, 'the window it is counted over')
+    const [frames] = figs(text, /发送了 ([\d,]+) 帧/, 'how many frames it sent')
+    const [rung] = figs(text, /每一帧都使用 MCS (\d+)，/, 'the rung it never leaves')
+    const rungsLost = counted(text, /两端都没有启用最高的([〇一二三四五六七八九十两]+)级/,
       'how many rungs the agreed capabilities cost it')
 
     const nearNode = sc.nodes.find((n) => n.id === 'sta-1')!
@@ -393,7 +393,7 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     expect(near.length).toBe(frames)
     expect(new Set(near.map((r) => r.frame.mcs))).toEqual(new Set([rung]))
     expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1'),
-      '「没有一帧等不到答复」').toHaveLength(0)
+      '「每一帧都收到了答复」').toHaveLength(0)
     // 「58.7 dB 足以支持最高一级」, and the rung it sits on is the capability cap instead —
     // that many rungs below the top, with 4096-QAM never negotiated
     same(raw(text, /([\d.]+) dB 足以支持最高一级/, 'the signal it has to spare')[0],
@@ -412,7 +412,7 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     expect(negotiatedWidth(sc.nodes.find((n) => n.id === 'sta-2')!, ap)).toBe(width)
     same(raw(steps[1], /噪声地板 ([−\d.]+) dBm/, 'step 2’s noise floor')[0], noiseDbm(width),
       `the noise floor of ${width} MHz`)
-    const [cap] = figs(steps[2], /上限先被压到 MCS (\d+)/, 'step 3’s capability cap')
+    const [cap] = figs(steps[2], /上限先被限制为 MCS (\d+)/, 'step 3’s capability cap')
     // the cap is "everything below this mode's lowest 4096-QAM rung", which the mode itself
     // carries — a run that measures it needs a link with signal to spare, which is the near
     // one: it sits on the cap and not where its signal would let it go
@@ -467,7 +467,7 @@ describe('rate · every printed figure is read back out of the lesson', () => {
 
   it('`observe` quotes the three airtimes, the ceiling, and the near station’s census', () => {
     const text = rate.observe!.join('\n')
-    const printed = raw(text, /是 ([\d,.]+) µs，降一级是 ([\d,.]+) µs，到最底一级是 ([\d,.]+) µs/,
+    const printed = raw(text, /是 ([\d,.]+) µs，降一级是 ([\d,.]+) µs，到最低一级是 ([\d,.]+) µs/,
       '`observe` on the three airtimes')
     for (let i = 0; i < 3; i++) {
       const air = far.find((r) => r.frame.mcs === rungsUsed[i])!.frame.txTimeNs
@@ -475,14 +475,14 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     }
     const [ceiling] = figs(text, /在上限 MCS (\d+) 上/, '`observe` on the ceiling')
     expect(Math.max(...rungsUsed)).toBe(ceiling)
-    // 「一次也没有发到 MCS 2 以上」: the rung it names must BE the ceiling, not merely above
-    // it — 「MCS 3 以上」 would also be true of this run, and `scripts/figure-planting.ts` found
+    // 「一次也没有以高于 MCS 2 的级别发送」: the rung it names must BE the ceiling, not merely
+    // above it — 「高于 MCS 3」 would also be true of this run, and `scripts/figure-planting.ts` found
     // all four sites that say it editable for exactly that reason.
-    const [never] = figs(text, /一次也没有发到 MCS (\d+) 以上/, '`observe` on what it never exceeds')
+    const [never] = figs(text, /一次也没有以高于 MCS (\d+) 的级别发送/, '`observe` on what it never exceeds')
     expect(far.filter((r) => r.frame.mcs! > never)).toHaveLength(0)
     expect(Math.max(...rungsUsed), 'and that rung is the ceiling itself').toBe(never)
     const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒 [\d,]+ 帧/, '`observe`’s own window')
-    const [frames, rung] = figs(text, /秒 ([\d,]+) 帧，全部在 MCS (\d+) 上/,
+    const [frames, rung] = figs(text, /秒 ([\d,]+) 帧，全部使用 MCS (\d+)，/,
       '`observe` on the near station')
     expect(RUN_NS).toBe(seconds * 1_000 * MS)
     expect(near.length).toBe(frames)
@@ -491,35 +491,35 @@ describe('rate · every printed figure is read back out of the lesson', () => {
 
   it('`tryThis`: half a metre changes nothing, two raise the ceiling, five remove the bottom rung', () => {
     const text = rate.tryThis!.join('\n')
-    // 「挪半米」: 半 is the word for a half, and zhNumeral does not read it — the two moves that
+    // 「移近半米」: 半 is the word for a half, and zhNumeral does not read it — the two moves that
     // follow are whole metres and are read as numbers.
-    expect(text, 'the first move is no longer half a metre').toContain('朝接入点挪半米')
-    const two = counted(text, /挪([〇一二三四五六七八九十两]+)米才管用/, 'the move that does something')
-    const five = counted(text, /改成朝接入点挪([〇一二三四五六七八九十两]+)米/, 'the third move')
-    const [from, to] = figs(text, /上限从 MCS (\d+) 抬到 MCS (\d+)/, 'the ceiling the second move raises')
-    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒里交付的帧数/, '`tryThis`’s window')
-    const [before, after] = figs(text, /帧数从 ([\d,]+) 变成 ([\d,]+)/, 'the frames that move buys')
+    expect(text, 'the first move is no longer half a metre').toContain('向接入点移近半米')
+    const two = counted(text, /移近([〇一二三四五六七八九十两]+)米才有效果/, 'the move that does something')
+    const five = counted(text, /改为向接入点移近([〇一二三四五六七八九十两]+)米/, 'the third move')
+    const [from, to] = figs(text, /上限从 MCS (\d+) 提高到 MCS (\d+)/, 'the ceiling the second move raises')
+    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒内交付的帧数/, '`tryThis`’s window')
+    const [before, after] = figs(text, /帧数从 ([\d,]+) 增加到 ([\d,]+)/, 'the frames that move buys')
 
     expect(RUN_NS).toBe(seconds * 1_000 * MS)
-    // 「什么也不会发生：它跨不过任何门限，整段仿真一帧不差地重来一遍」
+    // 「结果没有任何变化：它没有越过任何门限，整段仿真逐帧完全相同地重现」
     expect(moved(0.5).trace, 'half a metre changed the run after all').toBe(moved(0).trace)
     expect(moved(0).ceiling, 'where the ceiling starts').toBe(from)
     expect(moved(0).frames, 'the frames it delivers there').toBe(before)
     expect(moved(two).ceiling, `${two} metres closer`).toBe(to)
     expect(moved(two).frames, `${two} metres closer`).toBe(after)
-    // 「这回最底一级一次都不出现了」
+    // 「这一次最低一级一次也不出现」
     expect(moved(five).zero, `${five} metres closer`).toBe(0)
     expect(moved(0).zero, 'and the bottom rung does occur where it starts').toBeGreaterThan(0)
   })
 
   it('the quiz: twenty answered frames in a row, and the ceiling still does not move', () => {
-    const twenty = counted(quizText, /连着成功了([〇一二三四五六七八九十两]+)次/,
+    const twenty = counted(quizText, /连续成功了([〇一二三四五六七八九十两]+)次/,
       'the streak the quiz asks about')
-    const [ceiling] = figs(quizText, /MCS (\d+) 是那个角落的信号定下的上限/, 'the quiz on the ceiling')
+    const [ceiling] = figs(quizText, /MCS (\d+) 是那个角落的信号决定的上限/, 'the quiz on the ceiling')
     expect(Math.max(...rungsUsed), 'the quiz names the ceiling itself').toBe(ceiling)
     // the question and the explanation say it twice more, and each has to be that same rung
-    for (const m of quizText.matchAll(/MCS (\d+) 以上/g)) {
-      expect(Number(m[1]), `「${m[0]}」 in the quiz`).toBe(ceiling)
+    for (const m of quizText.matchAll(/MCS (\d+) 以上|高于 MCS (\d+)/g)) {
+      expect(Number(m[1] ?? m[2]), `「${m[0]}」 in the quiz`).toBe(ceiling)
     }
     // an attempt failed iff its own deadline fired: one ACK timeout, one frame end plus the
     // timeout, which is how `@hidden` pins the same rule
@@ -536,7 +536,7 @@ describe('rate · every printed figure is read back out of the lesson', () => {
   })
 
   it('`limits`: one hundredth of a decibel really does decide a whole rung', () => {
-    const [cliff] = figs(limitText, /差 ([\d.]+) dB 就整帧丢掉/, '`limits` on how sharp the cliff is')
+    const [cliff] = figs(limitText, /差 ([\d.]+) dB 就整帧丢弃/, '`limits` on how sharp the cliff is')
     // There is no transition band anywhere in this engine: the requirement is a single number,
     // so the rung the signal supports flips across that hundredth of a decibel.
     const next = Math.max(...rungsUsed) + 1
@@ -553,15 +553,15 @@ describe('rate · every printed figure is read back out of the lesson', () => {
   })
 
   it('`limits`: the margin is this simulator’s pick, and the two noise figures are not the same', () => {
-    const [margin] = figs(limitText, /那 (\d+) dB 速率余量是本仿真器挑的/, '`limits` on the margin')
+    const [margin] = figs(limitText, /中的 (\d+) dB 速率余量是本仿真器选定的/, '`limits` on the margin')
     expect(margin).toBe(RATE_MARGIN_DB)
-    const [clause] = figs(limitText, /拿第 (\d+) 章的最小灵敏度/,
+    const [clause] = figs(limitText, /用第 (\d+) 章的最小灵敏度/,
       '`limits` on where the requirements come from')
     expect(rate.sources!.join('\n'), `\`sources\` does not name clause ${clause} too`)
       .toContain(`第 ${clause} 章`)
-    const [reversed] = figs(limitText, /按 (\d+) dB 噪声系数算的噪声地板/,
+    const [reversed] = figs(limitText, /按 (\d+) dB 噪声系数计算的噪声地板/,
       '`limits` on the noise figure the requirement is derived with')
-    const [own] = figs(limitText, /噪声地板自己按 (\d+) dB 算/,
+    const [own] = figs(limitText, /噪声地板本身按 (\d+) dB 计算/,
       '`limits` on the noise figure this engine computes with')
     expect(own).toBe(NOISE_FIGURE_DB)
     expect(noiseDbm(20)).toBe(noiseDbm(20, own))
@@ -571,8 +571,8 @@ describe('rate · every printed figure is read back out of the lesson', () => {
     /*
      * **And the standard's own noise figure is read as the one that reproduces the engine's
      * requirements**, not merely as 「something other than 7」. The 「第」 rule change of
-     * 2026-10-14 uncovered it: 「拿第 36 章的最小灵敏度减去按 10 dB 噪声系数算的噪声地板反推出
-     * 来的」 was checked only as `reversed !== own`, which an 11 satisfies as happily as a 10.
+     * 2026-10-14 uncovered it: 「用第 36 章的最小灵敏度减去按 10 dB 噪声系数计算的噪声地板反推
+     * 得到的」 was checked only as `reversed !== own`, which an 11 satisfies as happily as a 10.
      * The identity it describes is exact — every rung's required SINR is its sensitivity minus
      * the floor computed at THAT noise figure — so every rung is walked.
      */
@@ -580,7 +580,7 @@ describe('rate · every printed figure is read back out of the lesson', () => {
       expect(reqSinrDb('eht', mcs), `rung ${mcs} is its sensitivity over that floor`)
         .toBeCloseTo(PHY_MODES.eht.sensDbm[mcs]! - noiseDbm(20, reversed), 9)
     }
-    // 「换一个余量，远端那条链路的上限就换一个位置」
+    // 「改变这个余量，远端那条链路的上限就随之改变」
     const rssi = links.get('sta-2')!.get('ap')!
     expect(mcsForRssi('eht', rssi, 11, 20), 'with the margin this simulator picked')
       .toBe(Math.max(...rungsUsed))

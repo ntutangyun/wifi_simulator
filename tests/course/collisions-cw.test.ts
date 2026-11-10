@@ -88,7 +88,7 @@ describe('collisions-cw · the deadline', () => {
   })
 
   it('the first collision is a t = 0 start with no draw at all, reported at 248 µs', () => {
-    // 「两台站点都发现信道空着，都走完了一个长度为零的间隙，于是连抽都没抽就同时开了口」
+    // 「两台站点都发现信道空闲，都经过了一段长度为零的间隔，于是没有选取退避值就同时开始发送」
     const cols = ofType(recs(), 'COLLISION')
     expect(cols[0].t).toBe(248_000)
     expect(cols[0].nodes.slice().sort()).toEqual(BOTH)
@@ -169,7 +169,7 @@ describe('collisions-cw · the window that doubles', () => {
     expect(meanOf(15).toFixed(2)).toBe('7.15')
     expect(meanOf(31).toFixed(2)).toBe('16.07')
     expect(meanOf(63).toFixed(2)).toBe('23.80')
-    // 「从 31 抽出来的平均等待…比从下限抽的 7.15 个多了一倍有余」
+    // 「从 31 选取的平均等待…比从下限选取的 7.15 个多出一倍以上」
     expect(meanOf(31)).toBeGreaterThan(2 * meanOf(15))
   })
 
@@ -239,12 +239,12 @@ describe('collisions-cw · the timing figure is the run', () => {
     // the two lanes really are the same span, which is the caption's whole claim
     expect(lane('STA-1').spans[0]).toEqual(lane('STA-2').spans[0])
 
-    const wait = lane('等回答').spans[0]
+    const wait = lane('等待应答').spans[0]
     expect(wait.fromUs).toBe(248)
     expect((wait.toUs - wait.fromUs) * 1000).toBe(ACK_TIMEOUT_NS)
     expect(wait.toUs).toBe(ofType(recs(), 'ACK_TIMEOUT')[0].t / 1000)
 
-    const again = lane('重来').spans[0]
+    const again = lane('重新竞争').spans[0]
     const difs = ofType(recs(), 'IFS_START').find((r) => r.node === 'sta-1' && r.t === 293_000)!
     expect(again.fromUs).toBe(difs.t / 1000)
     expect(again.toUs).toBe(difs.untilNs / 1000)
@@ -333,7 +333,7 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
   const steps = (collisionsCw.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
   const caption = (collisionsCw.numbers!.find((x) => x.kind === 'diagram') as
     { caption: string }).caption
-  const rateProse = (collisionsCw.numbers!.find((x) => (x as { heading?: string }).heading === '出错的频率') as
+  const rateProse = (collisionsCw.numbers!.find((x) => (x as { heading?: string }).heading === '碰撞的频率') as
     { text: string }).text
   const pictureText = (collisionsCw.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
   const deeperText = (collisionsCw.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
@@ -365,13 +365,13 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
   const firstTimeout = timeouts[0]
 
   it('the deadline table: its three parts, their sum, and the one clause they come from', () => {
-    // `outcomes` states the deadline too — 「把 45 µs 的期限拆成三段」 — and the three parts it
+    // `outcomes` states the deadline too — 「把 45 µs 的期限分解为三段」 — and the three parts it
     // promises are the three rows below, which is the one figure in this lesson's own outcomes
     const out = collisionsCw.outcomes!.join('\n')
-    const [promised] = figs(out, /把 (\d+) µs 的期限拆成/, '`outcomes` on the deadline')
-    const parts = counted(out, new RegExp(`拆成(${ZH})段`), '`outcomes` on how many parts')
+    const [promised] = figs(out, /把 (\d+) µs 的期限分解为/, '`outcomes` on the deadline')
+    const parts = counted(out, new RegExp(`分解为(${ZH})段`), '`outcomes` on how many parts')
     expect(promised * 1_000).toBe(ACK_TIMEOUT_NS)
-    const rows = tableWith('那个期限为什么落在这里').rows
+    const rows = tableWith('这个期限为什么取这个值').rows
     expect(rows.length - 1, 'the parts the table breaks it into').toBe(parts)
     expect(rows, 'the table states exactly the four rows this reads').toHaveLength(4)
     const [sifs, slot, delay, total] = rows.map((r) => Number(r[1]))
@@ -395,11 +395,11 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
 
   it('the caption: the deadline, the doubling, the redraw, and the two draws it compares', () => {
     const [deadline, at] = figs(caption, /(\d+) µs 的期限在 (\d+) µs 到期/, 'the caption on the deadline')
-    const [cw] = figs(caption, /两边的窗口在同一刻翻倍到 (\d+)/, 'the caption on the new window')
-    const [redraw] = figs(caption, /各走一个 DIFS 到 (\d+) µs 才重新抽/, 'the caption on the redraw')
-    const [a, b] = figs(caption, /STA-1 抽到 (\d+)、STA-2 抽到 (\d+)/, 'the caption on the two draws')
+    const [cw] = figs(caption, /双方的窗口在同一时刻翻倍到 (\d+)/, 'the caption on the new window')
+    const [redraw] = figs(caption, /各等待一个 DIFS 到 (\d+) µs 才重新选取/, 'the caption on the redraw')
+    const [a, b] = figs(caption, /STA-1 选到 (\d+)、STA-2 选到 (\d+)/, 'the caption on the two draws')
     const [opens] = figs(caption, /STA-2 在 (\d+) µs 先发送/, 'the caption on who opens')
-    const [held] = figs(caption, /正好冻在两者之差 (\d+) 上/, 'the caption on the frozen value')
+    const [held] = figs(caption, /恰好冻结在两者之差 (\d+) 上/, 'the caption on the frozen value')
 
     expect(deadline * 1_000).toBe(ACK_TIMEOUT_NS)
     expect(firstTimeout.t / 1_000, 'when the deadline fires').toBe(at)
@@ -427,12 +427,12 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
     for (const f of zero) {
       expect([0, f.frame.txTimeNs / 1_000], `${f.node}’s frame`).toEqual(from)
     }
-    const wait = lane('等回答').spans[0]
+    const wait = lane('等待应答').spans[0]
     same(raw(wait.label ?? '', /^(\d+) µs$/, 'the deadline lane’s label')[0],
       ACK_TIMEOUT_NS / 1_000, 'the deadline the figure draws')
     expect((wait.toUs - wait.fromUs) * 1_000, 'and the span it labels').toBe(ACK_TIMEOUT_NS)
     expect(wait.fromUs, 'which starts where the frames end').toBe(from[1])
-    const difs = lane('重来').spans[0]
+    const difs = lane('重新竞争').spans[0]
     expect(difs.label).toBe('DIFS')
     const ifs = ofType(rs, 'IFS_START').find((r) => r.t === firstTimeout.t)!
     expect([difs.fromUs, difs.toUs], 'the gap the figure draws')
@@ -448,7 +448,7 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
     expect(sum * 1_000).toBe(ACK_TIMEOUT_NS)
     // step 3: 「CW 的两倍再加一」, the ceiling, and the ladder it prints
     const [ceil] = figs(steps[2], /上限是 (\d+)/, 'step 3’s ceiling')
-    const ladder = figs(steps[2], /于是 (\d+)、(\d+)、(\d+)/, 'step 3’s first three rungs')
+    const ladder = figs(steps[2], /依次为 (\d+)、(\d+)、(\d+)/, 'step 3’s first three rungs')
     expect(ceil).toBe(CW_MAX)
     expect(ladder[0]).toBe(CW_MIN)
     for (let i = 1; i < ladder.length; i++) {
@@ -463,10 +463,10 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
     expect(seventh).toBe(SHORT_RETRY_LIMIT)
   })
 
-  it('the doubling table and 「出错的频率」: the same three windows and the same two censuses', () => {
-    const rows = tableWith('翻倍在本轮里管用吗').rows
+  it('the doubling table and 「碰撞的频率」: the same three windows and the same two censuses', () => {
+    const rows = tableWith('翻倍在本轮中是否有效').rows
     expect(rows, 'the table states exactly the three rows this reads').toHaveLength(3)
-    const [ms] = figs(tableWith('翻倍在本轮里管用吗').head[1], /(\d+) ms/, 'the window it counts over')
+    const [ms] = figs(tableWith('翻倍在本轮中是否有效').head[1], /(\d+) ms/, 'the window it counts over')
     expect(ms * MS).toBe(RUN_NS)
     for (const r of rows) {
       const [cw] = figs(r[0], /CW = (\d+)/, `the window 「${r[0]}」 names`)
@@ -474,30 +474,30 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
       expect(mine.length, `draws from CW = ${cw}`).toBe(Number(r[1]))
       same(r[2], meanOf(cw), `the mean draw from CW = ${cw}`)
     }
-    // 「300 ms 里这两台站点一共发出 864 帧，碰撞 47 次——大约二十次里错一次」
-    const [window2] = figs(rateProse, /(\d+) ms 里/, 'the window the census is over')
+    // 「300 ms 内这两台站点一共发出 864 帧，碰撞 47 次——大约每二十次发生一次」
+    const [window2] = figs(rateProse, /(\d+) ms 内/, 'the window the census is over')
     const [frames, hits] = figs(rateProse, /一共发出 (\d+) 帧，碰撞 (\d+) 次/, 'the census')
-    const inTwenty = counted(rateProse, new RegExp(`大约(${ZH})次里错一次`), 'the rate it rounds to')
+    const inTwenty = counted(rateProse, new RegExp(`大约每(${ZH})次发生一次`), 'the rate it rounds to')
     expect(window2 * MS).toBe(RUN_NS)
     expect(d.length).toBe(frames)
     expect(cols.length).toBe(hits)
     // 「大约」: one significant figure, so the rate rounds to that many attempts per collision
     expect(Math.round(frames / hits / 10) * 10, `${frames} frames, ${hits} collisions`)
       .toBe(inTwenty)
-    // 「整轮下来只有五次抽取来自宽达 63 的窗口，一次也没走到 127」
-    const five = counted(rateProse, new RegExp(`只有(${ZH})次抽取来自宽达 (\\d+) 的窗口`),
+    // 「整轮只有五次选取来自宽达 63 的窗口，一次也没有达到 127」
+    const five = counted(rateProse, new RegExp(`只有(${ZH})次选取来自宽达 (\\d+) 的窗口`),
       'the draws from the widest window')
     const [widest] = figs(rateProse, /宽达 (\d+) 的窗口/, 'the widest window used')
-    const [never] = figs(rateProse, /一次也没走到 (\d+)/, 'the window never reached')
+    const [never] = figs(rateProse, /一次也没有达到 (\d+)/, 'the window never reached')
     expect(draws().filter((r) => r.cw === widest).length).toBe(five)
     expect(draws().filter((r) => r.cw >= never), `draws from CW = ${never} or wider`).toHaveLength(0)
     expect(never, 'which is the next rung above the widest one used').toBe(2 * widest + 1)
-    // 「从 31 抽出来的平均等待是 16.07 个时隙，比从下限抽的 7.15 个多了一倍有余」
+    // 「从 31 选取的平均等待是 16.07 个时隙，比从下限选取的 7.15 个多出一倍以上」
     const [mid, midMean, floorMean] = figs(rateProse,
-      /从 (\d+) 抽出来的平均等待是 ([\d.]+) 个时隙，比从下限抽的 ([\d.]+) 个/, 'the two means')
+      /从 (\d+) 选取的平均等待是 ([\d.]+) 个时隙，比从下限选取的 ([\d.]+) 个/, 'the two means')
     same(String(midMean), meanOf(mid), `the mean draw from CW = ${mid}`)
     same(String(floorMean), meanOf(CW_MIN), 'the mean draw from the floor')
-    expect(midMean / floorMean, '「多了一倍有余」').toBeGreaterThan(2)
+    expect(midMean / floorMean, '「多出一倍以上」').toBeGreaterThan(2)
   })
 
   it('`picture`, `deeper`, `observe` and `tryThis`: the same instants, read where they are printed', () => {
@@ -516,24 +516,24 @@ describe('collisions-cw · every printed figure is read back out of the lesson',
       const last = ofType(rs, 'CW_CHANGE').filter((r) => r.node === n && r.t <= retry.t).pop()!
       expect(last.cw, `${n}’s window at the first retry`).toBe(cw)
     }
-    // `deeper`: 「重传前的 DIFS 是从 293 µs 超时结束那一刻起算的，而不是从 248 µs 碰撞帧结束」
-    const [from, notFrom] = figs(deeperText, /从 (\d+) µs 超时结束那一刻起算的，而不是从 (\d+) µs/,
+    // `deeper`: 「重传前的 DIFS 是从 293 µs 超时结束的时刻起算的，而不是从 248 µs 碰撞帧结束」
+    const [from, notFrom] = figs(deeperText, /从 (\d+) µs 超时结束的时刻起算的，而不是从 (\d+) µs/,
       '`deeper` on where the gap starts')
     expect(firstTimeout.t / 1_000).toBe(from)
     expect(zero[0].t + zero[0].frame.txTimeNs, 'and the frames really end at the other one')
       .toBe(notFrom * 1_000)
     const ifs = ofType(rs, 'IFS_START').find((r) => r.t === from * 1_000)
     expect(ifs, `no gap starts at ${from} µs`).toBeDefined()
-    // 「整轮仿真里一个 EIFS 都没有启动过」
+    // 「整轮仿真中没有启动过一次 EIFS」
     expect(ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS'), 'EIFS gaps').toHaveLength(0)
-    // `observe`: 「之后两台站点的 CW 都变成 31」 and 「约 8.1 ms 处的第二次碰撞」
-    const [obsCw] = figs(collisionsCw.observe.join('\n'), /CW 都变成 (\d+)/, '`observe` on the window')
+    // `observe`: 「之后两台站点的 CW 都变为 31」 and 「约 8.1 ms 处的第二次碰撞」
+    const [obsCw] = figs(collisionsCw.observe.join('\n'), /CW 都变为 (\d+)/, '`observe` on the window')
     expect(obsCw).toBe(cw)
     const [second] = figs(collisionsCw.observe.join('\n'), /约 ([\d.]+) ms 处的第二次碰撞/,
       '`observe` on the second collision')
     same(String(second), cols[1].t / MS, 'when the second collision happens')
-    // `tryThis`: 「一步步走到 293 µs。空口上什么也没有发生」
-    const [until] = figs(collisionsCw.tryThis.join('\n'), /一步步走到 (\d+) µs/,
+    // `tryThis`: 「逐步推进到 293 µs。空口上没有任何信号」
+    const [until] = figs(collisionsCw.tryThis.join('\n'), /逐步推进到 (\d+) µs/,
       '`tryThis` on where to walk')
     expect(until).toBe(from)
     expect(ofType(rs, 'TX_START').some((r) => r.t > notFrom * 1_000 && r.t < until * 1_000),

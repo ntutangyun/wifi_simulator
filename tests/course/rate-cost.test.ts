@@ -84,7 +84,7 @@ lessonShapeSuite(rateCost, { sameSceneAs: 'rate-fallback', runNs: JUMP_NS })
 
 describe('rate-cost · the lesson’s own scene', () => {
   it('follows its parent in the capacity module and names the two words it adds', () => {
-    expect(MODULES[rateCost.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[rateCost.module].title).toBe('容量参数与速率控制')
     expect(MODULES[rateCost.module].title).toBe(MODULES[rateFallback.module].title)
     expect(trackOf(rateCost)).toBe('wifi')
     expect(rateCost.needs).toEqual(['rate-fallback'])
@@ -347,9 +347,9 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
   }
 
   it('reads the three rungs of the steps, and the frame that does not change', () => {
-    // 「同样的 1530 字节，只是这一帧更长——上限上 524.0 µs，降一级 768.8 µs，最底一级 1 476.0 µs」
+    // 「同样是 1530 字节，只是这一帧更长——上限上 524.0 µs，降一级 768.8 µs，最低一级 1 476.0 µs」
     const [bytes, top, one, bottom] = figs(PIC,
-      /同样的 (\d+) 字节，只是这一帧更长——上限上 ([\d.]+) µs，降一级 ([\d. ]+) µs，最底一级 ([\d. ]+) µs/,
+      /同样是 (\d+) 字节，只是这一帧更长——上限上 ([\d.]+) µs，降一级 ([\d. ]+) µs，最低一级 ([\d. ]+) µs/,
       'the steps on the three rungs')
     expect(new Set(far.map((r) => r.frame.bytes)), 'the payload every frame of the run carries')
       .toEqual(new Set([bytes]))
@@ -357,8 +357,8 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
     same(String(one), airAt(CEILING - 1) / 1000, 'one rung down')
     same(String(bottom), airAt(0) / 1000, 'and at the bottom rung')
     expect(bottom! > one! && one! > top!, 'and they really do get longer').toBe(true)
-    // 「所以这台邻居被挡住的…上限上 615.0 µs，最底一级 1 579.0 µs」
-    const [holdTop, holdBottom] = figs(PIC, /上限上 ([\d.]+) µs，最底一级 ([\d. ]+) µs。/,
+    // 「所以这个邻居被阻挡的…上限上 615.0 µs，最低一级 1 579.0 µs」
+    const [holdTop, holdBottom] = figs(PIC, /上限上 ([\d.]+) µs，最低一级 ([\d. ]+) µs。/,
       'the steps on the two freezes')
     same(String(holdTop), holdBehind(CEILING) / 1000, 'the freeze behind a ceiling frame')
     same(String(holdBottom), holdBehind(0) / 1000, 'and behind a bottom-rung one')
@@ -373,28 +373,28 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
       expect(hit, `no row 「${needle}」`).toBeDefined()
       return hit!
     }
-    const [frames] = figs(row('跑在上限之下的帧数')[1]!, /^(\d+)$/, 'the frames below the ceiling')
+    const [frames] = figs(row('以低于上限的级别发送的帧数')[1]!, /^(\d+)$/, 'the frames below the ceiling')
     expect(frames, 'the frames the far station sends under its ceiling').toBe(below.length)
-    const [framePct] = figs(row('占它三秒里发出的帧数')[1]!, /^([\d.]+)%$/, 'their share of its frames')
+    const [framePct] = figs(row('占它三秒内发出的帧数')[1]!, /^([\d.]+)%$/, 'their share of its frames')
     expect(framePct, 'of everything it sent').toBe(pct(below.length, far.length))
-    const [airPct] = figs(row('占它三秒里的空口时间')[1]!, /^([\d.]+)%$/, 'their share of its air')
+    const [airPct] = figs(row('占它三秒内的空口时间')[1]!, /^([\d.]+)%$/, 'their share of its air')
     expect(airPct, 'of the air it took').toBe(pct(air(below), air(far)))
     expect(airPct, 'which is the larger of the two shares — the whole point').toBeGreaterThan(framePct!)
-    const [spent] = figs(row('这些帧实际花掉的空口时间')[1]!, /^([\d.]+) ms$/, 'what they really took')
+    const [spent] = figs(row('这些帧实际占用的空口时间')[1]!, /^([\d.]+) ms$/, 'what they really took')
     same(String(spent), air(below) / MS, 'the air those frames took')
-    const [would] = figs(row('同样这些帧若跑在上限上')[1]!, /^([\d.]+) ms$/, 'what they would have taken')
+    const [would] = figs(row('同样这些帧若以上限发送')[1]!, /^([\d.]+) ms$/, 'what they would have taken')
     same(String(would), (below.length * airAt(CEILING)) / MS, 'the same frames at the ceiling')
-    const [extra] = figs(row('于是多占用')[1]!, /^([\d.]+) ms$/, 'the difference')
+    const [extra] = figs(row('因此多占用')[1]!, /^([\d.]+) ms$/, 'the difference')
     same(String(extra), (air(below) - below.length * airAt(CEILING)) / MS, 'what the fallback costs')
     expect(Math.round((spent! - would!) * 10) / 10, 'which is the subtraction the two rows above make')
       .toBe(extra)
     const [ofRun] = figs(row('占整段三秒仿真')[1]!, /^([\d.]+)%$/, 'its share of the run')
     expect(ofRun, 'of the window every figure is measured over')
       .toBe(pct(air(below) - below.length * airAt(CEILING), RUN_NS))
-    // 「本次最短的一趟：最底一级上的十帧 | 14.8 ms，而在上限上只要 5.2 ms」
-    const tripRow = row('最短的一趟')
-    const [tenCn] = raw(tripRow[0]!, /最底一级上的(.)帧/, 'the trip’s own frame count')
-    const [cost, atTop] = figs(tripRow[1]!, /^([\d.]+) ms，而在上限上只要 ([\d.]+) ms$/,
+    // 「本次最短的一次：最低一级上的十帧 | 14.8 ms，而在上限上只需 5.2 ms」
+    const tripRow = row('最短的一次')
+    const [tenCn] = raw(tripRow[0]!, /最低一级上的(.)帧/, 'the trip’s own frame count')
+    const [cost, atTop] = figs(tripRow[1]!, /^([\d.]+) ms，而在上限上只需 ([\d.]+) ms$/,
       'the trip’s two costs')
     same(String(cost), (cn(tenCn!) * airAt(0)) / MS, 'ten frames at the bottom rung')
     same(String(atTop), (cn(tenCn!) * airAt(CEILING)) / MS, 'and the same ten at the ceiling')
@@ -410,7 +410,7 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
       byRung.set(mcs!, us!)
     }
     expect([...byRung.keys()].sort(), 'the three rungs the far station uses').toEqual([0, 1, 2])
-    // 「从上限到最底一级：每帧多等 | 964.0 µs」
+    // 「从上限到最低一级：每帧多等 | 964.0 µs」
     const [more] = figs(t.rows[3]![1]!, /^([\d.]+) µs$/, 'the difference between the two ends')
     same(String(more), (holdBehind(0) - holdBehind(CEILING)) / 1000, 'how much more the bottom rung holds')
     expect(Math.round((byRung.get(0)! - byRung.get(CEILING)!) * 10) / 10,
@@ -419,16 +419,16 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
     const obs = figs(OBS, /就更长——([\d.]+)、([\d.]+)、([\d,.]+) µs/, '`observe` on the same three')
     expect(obs, 'the same three, in the same order').toEqual([byRung.get(2), byRung.get(1), byRung.get(0)])
     const [qFrame, qHold] = figs(QUIZ,
-      /([\d,.]+) µs——就是那一帧的空口时间[^]*?([\d,.]+) µs——从冻住那一刻/,
+      /([\d,.]+) µs——就是那一帧的空口时间[^]*?([\d,.]+) µs——从冻结那一刻/,
       'the question’s wrong answer and its right one')
     same(String(qFrame), airAt(0) / 1000, 'the frame’s own airtime, which is the wrong answer')
     same(String(qHold), holdBehind(0) / 1000, 'and the freeze, which is the right one')
-    const [qTop] = figs(QUIZ, /在上限上的那些帧后面只等 ([\d.]+) µs/, 'the explanation’s other end')
+    const [qTop] = figs(QUIZ, /对于以上限发送的那些帧，同一个邻居只需等待 ([\d.]+) µs/, 'the explanation’s other end')
     expect(qTop, 'the freeze behind a ceiling frame').toBe(byRung.get(CEILING))
     // 「615.0、859.8、1 579.0 µs 这三个冻结时长是本仿真器几个时间常数的产物」, and the 45 µs
     const lim = figs(LIM, /([\d.]+)、([\d.]+)、([\d. ]+) µs 这三个冻结时长/, '`limits` on the same three')
     expect(lim, 'the same three a third time').toEqual([byRung.get(2), byRung.get(1), byRung.get(0)])
-    const [timeoutUs] = figs(LIM, /用的是引擎自己定的 (\d+) µs 超时/, '`limits` on the timeout')
+    const [timeoutUs] = figs(LIM, /用的是引擎自己设定的 (\d+) µs 超时/, '`limits` on the timeout')
     expect(timeoutUs! * 1000, 'the timeout the engine applies').toBe(ACK_TIMEOUT_NS)
     const timeouts = ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2')
     expect(timeouts.length, 'and the run really times out on it').toBeGreaterThan(0)
@@ -439,9 +439,9 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
   })
 
   it('reads why it is 1.67 times and not three', () => {
-    // 「最底一级的一帧几乎是上限上的三倍长（1 476.0 对 524.0 µs），可这 607 帧总共只花了 1.67 倍」
+    // 「最低一级的一帧几乎是上限上的三倍长（1 476.0 对 524.0 µs），但这 607 帧总共只用了 1.67 倍」
     const [bottom, top, frames, times] = figs(DEEP,
-      /（([\d. ]+) 对 ([\d.]+) µs），可这 (\d+) 帧总共只花了 ([\d.]+) 倍的时间/,
+      /（([\d. ]+) 对 ([\d.]+) µs），但这 (\d+) 帧总共只用了 ([\d.]+) 倍的时间/,
       '`deeper` on the ratio')
     same(String(bottom), airAt(0) / 1000, 'the bottom rung’s frame')
     same(String(top), airAt(CEILING) / 1000, 'against the ceiling’s')
@@ -452,9 +452,9 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
     expect(Math.round(airAt(0) / airAt(CEILING)), 'the per-frame ratio, to the nearest whole')
       .toBe(cn(nearlyCn!))
     expect(times, 'while the bill’s ratio is smaller than that').toBeLessThan(cn(nearlyCn!))
-    // 「607 帧里有 517 帧在 MCS 1 上，每帧多 47%；只有 90 帧掉到了最底一级，那里每帧多 182%」
+    // 「607 帧里有 517 帧在 MCS 1 上，每帧多 47%；只有 90 帧降到了最低一级，那里每帧多 182%」
     const [all, oneDown, rung, overOne, atBottom, overBottom] = figs(DEEP,
-      /(\d+) 帧里有 (\d+) 帧在 MCS (\d+) 上，每帧多 (\d+)%；只有 (\d+) 帧掉到了最底一级，那里每帧多 (\d+)%/,
+      /(\d+) 帧里有 (\d+) 帧在 MCS (\d+) 上，每帧多 (\d+)%；只有 (\d+) 帧降到了最低一级，那里每帧多 (\d+)%/,
       '`deeper` on where the frames went')
     expect(all, 'the frames below the ceiling again').toBe(below.length)
     expect(oneDown, `the frames at MCS ${rung}`).toBe(far.filter((r) => r.frame.mcs === rung).length)
@@ -472,9 +472,9 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
   })
 
   it('reads `observe`’s two fractions and the near station it is about', () => {
-    // 「远端站点跑在上限之下的帧只占五分之一，却占掉将近三成的空口时间」
+    // 「远端站点以低于上限的级别发送的帧只占五分之一，却占用了将近三成的空口时间」
     const [fifth] = raw(OBS, /只占(.)分之一/, '`observe` on the share of frames')
-    const [tenths] = raw(OBS, /却占掉将近(.)成的空口时间/, '`observe` on the share of air')
+    const [tenths] = raw(OBS, /却占用了将近(.)成的空口时间/, '`observe` on the share of air')
     expect(Math.round(100 / cn(fifth!)), 'a fifth of the frames, to the nearest point')
       .toBe(Math.round(pct(below.length, far.length)))
     expect(cn(tenths!) * 10, 'and getting on for three tenths of the air')
@@ -486,14 +486,14 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
       .toHaveLength(0)
     expect(new Set(near.map((r) => r.frame.mcs)).size, 'and never changes rung').toBe(1)
     // 「一次跌落至少要十帧才爬得回来」
-    const [climbCn] = raw(OBS, /一次跌落至少要(.)帧才爬得回来/, '`observe` on the climb')
+    const [climbCn] = raw(OBS, /一次跌落至少要(.)帧才能恢复/, '`observe` on the climb')
     expect(cn(climbCn!), 'the frames a rung takes to win back').toBeGreaterThan(0)
   })
 
   it('reads both experiments, and the saturation window `limits` names', () => {
     // 「337 次失败一次也不剩：它三秒里发 4,395 帧，帧帧都在上限上」
     const [fails, quietFrames] = figs(TRY,
-      /([\d,]+) 次失败一次也不剩：它三秒里发 ([\d,]+) 帧/, '`tryThis` on the quiet neighbour')
+      /([\d,]+) 次失败全部消失：它三秒内发送 ([\d,]+) 帧/, '`tryThis` on the quiet neighbour')
     expect(fails, 'the failures the far station has with a neighbour there')
       .toBe([...ofType(rs, 'RETRY'), ...ofType(rs, 'DROP')].filter((r) => r.node === 'sta-2').length)
     const quiet = changedOf('quiet', (sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.profiles = ['idle'] })
@@ -503,7 +503,7 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
     // 「上限抬到 MCS 3，三秒交付的帧数从 3,003 变成 3,712，而多占用的时间从 212.2 ms 降到
     //   96.9 ms——占仿真的 3.2%」
     const [ceil, was, now, wasMs, nowMs, nowPct] = figs(TRY,
-      /上限抬到 MCS (\d+)，三秒交付的帧数从 ([\d,]+) 变成 ([\d,]+)，而多占用的时间从 ([\d.]+) ms 降到 ([\d.]+) ms——占仿真的 ([\d.]+)%/,
+      /上限提高到 MCS (\d+)，三秒交付的帧数从 ([\d,]+) 增加到 ([\d,]+)，而多占用的时间从 ([\d.]+) ms 降到 ([\d.]+) ms——占仿真的 ([\d.]+)%/,
       '`tryThis` on the two metres')
     const closer = changedOf('closer', twoMetresCloser)
     expect(ceil, 'the ceiling two metres buys').toBe(closer.ceiling)
@@ -519,7 +519,7 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
      * queue, every enqueue of the run finds it at exactly that depth — which is what makes it a
      * window rather than a bound, and what a `<=` read would have missed (sweep of 2026-10-14).
      */
-    const [window] = figs(LIM, /维持的是一个恒定 (\d+) 帧在手的窗口/, '`limits` on the saturated window')
+    const [window] = figs(LIM, /维持的是一个恒定持有 (\d+) 帧的窗口/, '`limits` on the saturated window')
     const depth = ofType(rs, 'ENQUEUE').filter((r) => r.node === 'sta-2').map((r) => r.depth)
     expect(Math.max(...depth), 'the deepest the far station’s queue gets').toBe(window)
     const settled = depth.slice(depth.indexOf(window!))
@@ -534,9 +534,9 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
      * figures are in these two questions, each of them a second printing of a figure the tables
      * above state. So every one is read against the same measurement its table cell is.
      */
-    // 「跌落中的帧只占远端站点帧数的 20.2%，为什么吃掉 29.7% 的空口时间？」
+    // 「跌落中的帧只占远端站点帧数的 20.2%，为什么占用了 29.7% 的空口时间？」
     const [framePct, airPct] = figs(QUIZ,
-      /跌落中的帧只占远端站点帧数的 ([\d.]+)%，为什么吃掉 ([\d.]+)% 的空口时间/,
+      /跌落中的帧只占远端站点帧数的 ([\d.]+)%，为什么占用了 ([\d.]+)% 的空口时间/,
       'the second question’s two shares')
     expect(framePct, 'the share of frames below the ceiling').toBe(pct(below.length, far.length))
     expect(airPct, 'and their share of the air').toBe(pct(air(below), air(far)))
@@ -549,9 +549,9 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
     expect(atBottom, 'and the frames at the bottom').toBe(far.filter((r) => r.frame.mcs === 0).length)
     expect(overOne, 'what one rung down costs over the ceiling').toBe(over(airAt(CEILING - 1)))
     expect(overBottom, 'and what the bottom rung costs').toBe(over(airAt(0)))
-    // 「加起来这 607 帧花了 530.3 ms，而它们若都在上限上只要 318.1 ms」
+    // 「这 607 帧合计占用 530.3 ms，而它们若都以上限发送只需 318.1 ms」
     const [all, spent, would] = figs(QUIZ,
-      /加起来这 ([\d,]+) 帧花了 ([\d.]+) ms，而它们若都在上限上只要 ([\d.]+) ms/,
+      /这 ([\d,]+) 帧合计占用 ([\d.]+) ms，而它们若都以上限发送只需 ([\d.]+) ms/,
       'the explanation’s three totals')
     expect(all, 'the frames below the ceiling, all of them').toBe(below.length)
     expect(all, 'which is the two rungs added up').toBe(oneDown! + atBottom!)
@@ -560,13 +560,13 @@ describe('rate-cost · every figure the prose prints, read back out of it', () =
     // …and both of them are the figures the bill table states, so the two places cannot drift
     const t = tables()[0]!
     const cellOf = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
-    expect(`${spent} ms`, 'the same air the bill table prints').toBe(cellOf('实际花掉的空口时间'))
-    expect(`${would} ms`, 'and the same ceiling figure').toBe(cellOf('若跑在上限上'))
+    expect(`${spent} ms`, 'the same air the bill table prints').toBe(cellOf('实际占用的空口时间'))
+    expect(`${would} ms`, 'and the same ceiling figure').toBe(cellOf('若以上限发送'))
   })
 
   it('reads `deeper`’s pointer back to the rule that keeps the bill down', () => {
-    // 「上一课数过，25 次跌落里只有 6 次深到最底一级」
-    const [drops, deep] = figs(DEEP, /(\d+) 次跌落里只有 (\d+) 次深到最底一级/,
+    // 「上一课统计过，25 次跌落里只有 6 次降到最低一级」
+    const [drops, deep] = figs(DEEP, /(\d+) 次跌落里只有 (\d+) 次降到最低一级/,
       '`deeper` on the parent lesson’s count')
     /*
      * **The count belongs to the lesson before this one**, and this one says so. What is read

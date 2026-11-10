@@ -176,7 +176,7 @@ describe('claim-to-contribution · the scene it rides', () => {
     const rs = arm('uhr', 'far', 'both', 2)
     const at = (i: number): number => rs.find(L.jumps[i].find)!.t
     expect(L.jumps.map((j) => j.label)).toEqual([
-      '第一帧跑在那个新档上', '第一次接收失败', '第一次掉出那个新档', '第一次抽到一个深阴影',
+      '第一帧使用那个新档', '第一次接收失败', '第一次从那个新档降档', '第一次出现深阴影',
     ])
     expect(at(0)).toBe(88_000)
     expect(at(1)).toBe(16_905_600)
@@ -191,15 +191,15 @@ describe('claim-to-contribution · the scene it rides', () => {
 })
 
 describe('claim-to-contribution · gate one, the four seed batches', () => {
-  const t = tableOf('同一格，四批种子')
+  const t = tableOf('同一位置，四批种子')
   const ROWS: readonly (readonly [string, Spot, 'shadow' | 'both'])[] = [
-    ['墙后一步 · 只阴影', 'near', 'shadow'],
-    ['客厅中段 · 只阴影', 'mid', 'shadow'],
+    ['墙后一步 · 仅阴影', 'near', 'shadow'],
+    ['客厅中段 · 仅阴影', 'mid', 'shadow'],
     ['客厅深处 · 两层', 'far', 'both'],
   ]
 
   it('prints one row per batch and one column per position, in four columns', () => {
-    expect(t.head[0]).toBe('这一批种子')
+    expect(t.head[0]).toBe('种子批次')
     expect(t.head.slice(1)).toEqual(ROWS.map(([label]) => label))
     expect(t.rows.map((r) => r[0])).toEqual(BATCHES.map(([name]) => name))
     // **Four columns, and the orientation is a measurement rather than a preference.** The first
@@ -281,7 +281,7 @@ describe('claim-to-contribution · gate one, the four seed batches', () => {
 })
 
 describe('claim-to-contribution · gate two, the instrument that reads nothing', () => {
-  const t = tableOf('相干时间那个旋钮')
+  const t = tableOf('相干时间参数')
   const flat = (coh: number): TLRecord[] =>
     run(uhrLadderScenario('uhr', 'far', 'both', { seed: 2, sigmaDb: 0, coherenceMs: coh }),
       RUN_NS, `uhr/far/flat/${coh}`)
@@ -319,8 +319,8 @@ describe('claim-to-contribution · gate two, the instrument that reads nothing',
   })
 
   it('the two shipped variants are that pair, and the fixture carries ONE hash for them', () => {
-    expect(L.variants![5].label).toBe('Wi-Fi 8 · 阴影关着 · 相干 5 毫秒')
-    expect(L.variants![6].label).toBe('Wi-Fi 8 · 阴影关着 · 相干 500 毫秒')
+    expect(L.variants![5].label).toBe('Wi-Fi 8 · 关闭阴影 · 相干 5 毫秒')
+    expect(L.variants![6].label).toBe('Wi-Fi 8 · 关闭阴影 · 相干 500 毫秒')
     const a = L.variants![5].scenario(); const b = L.variants![6].scenario()
     // they differ, and in exactly one field — otherwise the identical hash below proves nothing
     expect(a).not.toEqual(b)
@@ -373,7 +373,7 @@ describe('claim-to-contribution · gate three, what survives', () => {
   })
 
   it('even that arm carries a condition, which is the `deeper` block the lesson adds for it', () => {
-    // 「墙后一步那一格的算术是 1 248 / 1 170 = 1.0667，而 300 毫秒实测 +7.17 %、600 毫秒实测 +6.71 %」
+    // 「墙后一步那个位置的计算值是 1 248 / 1 170 = 1.0667，而 300 毫秒实测 +7.17 %、600 毫秒实测 +6.71 %」
     const arith = PHY_MODES.uhr.ndbps[11]! / PHY_MODES.eht.ndbps[7]!
     expect([PHY_MODES.uhr.ndbps[11], PHY_MODES.eht.ndbps[7]]).toEqual([1248, 1170])
     expect(arith).toBeCloseTo(1.0667, 4)
@@ -452,7 +452,7 @@ describe('claim-to-contribution · the public record it cites, stated once each'
    */
   it.each([
     ['8 523 条', 3], ['618 个条款', 3], ['7 874 条', 3], ['712 个条款', 3],
-    ['143 处', 4], ['49 个三级小节', 3], ['里的 26 个', 3], ['36 处', 2],
+    ['143 处', 4], ['49 个三级小节', 3], ['中的 26 个', 3], ['36 处', 2],
     ['763 份', 2], ['1 682 份', 2], ['2 767 份', 1], ['2 739 行', 1],
     ['框架 r19', 2], ['LB291', 1], ['LB296', 1],
     ['Motion #42', 2], ['Motion #216', 3], ['Motion #417', 2],
@@ -471,8 +471,8 @@ describe('claim-to-contribution · the public record it cites, stated once each'
     expect(s).toContain('11-26/1613r0')
     // and the clause/comment pairs are not crossed: D1.0 is the bigger comment count on the
     // smaller clause count, which is the one thing a transposition would break
-    expect(/11-25\/1772r16[^；]*8 523 条意见落在 618 个条款上/.test(s)).toBe(true)
-    expect(/11-26\/1613r0[^；]*7 874 条落在 712 个条款上/.test(s)).toBe(true)
+    expect(/11-25\/1772r16[^；]*8 523 条意见涉及 618 个条款/.test(s)).toBe(true)
+    expect(/11-26\/1613r0[^；]*7 874 条涉及 712 个条款/.test(s)).toBe(true)
   })
 
   it('declares the draft in prose, which is what puts the amber line on the page', () => {
@@ -500,7 +500,7 @@ describe('claim-to-contribution · the public record it cites, stated once each'
  *    one site only. The sweep of 2026-10-14 is what made that count exact: reading five of the
  *    eleven left the quiz's two unwatched, and 「at least twice」 (the rule the corpus counts used
  *    to carry) is satisfied by any one surviving copy.
- *  - **a quoted variant label is a figure too.** 「切到「Wi-Fi 8 · 种子 13」」 is an instruction,
+ *  - **a quoted variant label is a figure too.** 「切换到「Wi-Fi 8 · 种子 13」」 is an instruction,
  *    and a planted digit leaves it grammatical and dead; every citation is resolved against the
  *    shipped variant list, which is then resolved against the seed its scene really runs.
  *  - **「到小数第六位完全相同」 is read at six decimals**, which is the one place in this course
@@ -582,7 +582,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
   const offGain = (spot: Spot, ns: number): number => (off('uhr', spot, ns) / off('eht', spot, ns) - 1) * 100
 
   it('reads the four batch figures at every site that prints them', () => {
-    // 「同一格换一批六十个种子算出 7.40 %，换另外六十个是 8.65 %，一百二十个是 6.60 %」
+    // 「同一位置换一批六十个种子算出 7.40 %，换另外六十个是 8.65 %，一百二十个是 6.60 %」
     const [b60a, b60b, b120] = raw(WHY,
       /换一批六十个种子算出 ([\d.]+) %，换另外六十个是 ([\d.]+) %，一百二十个是 ([\d.]+) %/,
       '`why` on the three other batches')
@@ -593,17 +593,17 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     const sites: [string, RegExp, string][] = [
       [WHY, /细阶梯比粗阶梯快 ([\d.]+) %/, '`why` on the printed batch'],
       [PIC, /那个 ([\d.]+) % 是什么的函数/, 'the `picture` heading'],
-      [PIC, /最后一行印着 \+([\d.]+) %/, '`picture` on the row it came from'],
-      [PIC, /这一格快 ([\d.]+) %/, '`picture` on what it is not'],
-      [PIC, /而上一课那张表在同一格印的是 \+([\d.]+) %/, 'the watch block on the same row'],
-      [QUIZ, /上一课在客厅深处那一格印了 \+([\d.]+) %/, 'the quiz question'],
-      [QUIZ, /就写 \+([\d.]+) %，因为那是课文印的那一批/, 'the quiz option that reports it bare'],
+      [PIC, /最后一行给出 \+([\d.]+) %/, '`picture` on the row it came from'],
+      [PIC, /这个位置快 ([\d.]+) %/, '`picture` on what it is not'],
+      [PIC, /而上一课那张表在同一位置给出的是 \+([\d.]+) %/, 'the watch block on the same row'],
+      [QUIZ, /上一课在客厅深处那个位置给出 \+([\d.]+) %/, 'the quiz question'],
+      [QUIZ, /就写 \+([\d.]+) %，因为那是课文给出的那一批/, 'the quiz option that reports it bare'],
     ]
     for (const [text, re, what] of sites) same(raw(text, re, what)[0]!, FAR[0]!, what)
     // 「表头也写明了它是二十个种子的均值」
     const [twentyCn] = raw(PIC, /它是(..)个种子的均值/, '`picture` on what the mean is over')
     expect(cn(twentyCn!), 'the seeds that batch really has').toBe(BATCHES[0]![1].length)
-    // 「同一格、同一对阶梯，只换随机种子表：四批给出 +11.78、+7.40、+8.65、+6.60 %」
+    // 「同一位置、同一对阶梯，只更换随机种子表：四批给出 +11.78、+7.40、+8.65、+6.60 %」
     const four = raw(PIC, /四批给出 \+([\d.]+)、\+([\d.]+)、\+([\d.]+)、\+([\d.]+) %/,
       'gate one on the four batches')
     for (const [i, printed] of four.entries()) same(printed!, FAR[i]!, `gate one: batch ${i}`)
@@ -620,19 +620,19 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
      * 13 as happily as a 12, so half the claim would sit unwatched. (The bottom is what this
      * read found false: the lesson said 7 until today — see the ledger's table of false figures.)
      */
-    const [lo, hi] = figs(QUIZ, /剩下的量级在 (\d+) % 到 (\d+) % 之间/, 'the quiz on the band')
+    const [lo, hi] = figs(QUIZ, /剩余收益的量级在 (\d+) % 到 (\d+) % 之间/, 'the quiz on the band')
     expect(lo, 'the bottom of the band, at the whole per cent below the lowest batch')
       .toBe(Math.floor(Math.min(...FAR)))
     expect(hi, 'and the top, at the whole per cent above the highest')
       .toBe(Math.ceil(Math.max(...FAR)))
-    // 「纸面上的 +33.3 % 还掉大半」 — the no-fading arm of this very cell
-    const [paper] = raw(QUIZ, /纸面上的 \+([\d.]+) % 还掉大半/, 'the quiz on the fading-free figure')
+    // 「失去了理论值 +33.3 % 的大半」 — the no-fading arm of this very cell
+    const [paper] = raw(QUIZ, /失去了理论值 \+([\d.]+) % 的大半/, 'the quiz on the fading-free figure')
     same(paper!, offGain('far', RUN_NS), 'the same cell with no fading at all')
     expect(FAR[0]! * 2, 'and the faded one really is less than half of it').toBeLessThan(val(paper!))
   })
 
   it('reads the three classes, and the mechanism under all of them', () => {
-    // 「第二类是客厅中段只开阴影那一格，四批种子给出 +8.18 / +9.19 / +8.19 / +9.43 %」
+    // 「第二类是客厅中段只开启阴影的那一项，四批种子给出 +8.18 / +9.19 / +8.19 / +9.43 %」
     const four = raw(PIC, /四批种子给出 \+([\d.]+) \/ \+([\d.]+) \/ \+([\d.]+) \/ \+([\d.]+) %/,
       '`picture` on the second class')
     for (const [i, printed] of four.entries()) same(printed!, MID[i]!, `the mid cell, batch ${i}`)
@@ -641,7 +641,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     // 「稳稳地快不到一成」 — the band the class is allowed to be written as
     expect(Math.max(...MID), 'and under the one tenth the sentence allows itself').toBeLessThan(10)
     // 「第三类是墙后一步那一格，二十个种子给 −0.04 %、六十个给 +2.10 %，连正负都不在了」
-    const [twenty, sixty] = raw(PIC, /二十个种子给 (−[\d.]+) %、六十个给 \+([\d.]+) %/,
+    const [twenty, sixty] = raw(PIC, /二十个种子给出 (−[\d.]+) %、六十个给出 \+([\d.]+) %/,
       '`picture` on the third class')
     same(twenty!, NEAR[0]!, 'the twenty-seed batch behind the wall')
     same(sixty!, NEAR[1]!, 'and the sixty-seed one')
@@ -664,12 +664,12 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
   })
 
   it('reads what one run says, on the three seeds the lesson names', () => {
-    // 「最差的那个种子说细阶梯慢 6.15 %，最好的那个说它快 57.04 %」
-    const [worst, best] = raw(WHY, /最差的那个种子说细阶梯慢 ([\d.]+) %，最好的那个说它快 ([\d.]+) %/,
+    // 「最差的那个种子给出细阶梯慢 6.15 %，最好的那个给出快 57.04 %」
+    const [worst, best] = raw(WHY, /最差的那个种子给出细阶梯慢 ([\d.]+) %，最好的那个给出快 ([\d.]+) %/,
       '`why` on the two extremes')
     // 「二十个种子里最差的是种子 13——Wi-Fi 8 跑 9.160、Wi-Fi 7 跑 9.760 Mb/s，细阶梯慢 6.15 %」
     const w = raw(NUMS,
-      /最差的是种子 (\d+)——Wi-Fi 8 跑 ([\d.]+)、Wi-Fi 7 跑 ([\d.]+) Mb\/s，细阶梯慢 ([\d.]+) %/,
+      /最差的是种子 (\d+)——Wi-Fi 8 为 ([\d.]+)、Wi-Fi 7 为 ([\d.]+) Mb\/s，细阶梯慢 ([\d.]+) %/,
       '`numbers` on the worst seed')
     const [u13, e13, loss13] = single(val(w[0]!))
     same(w[1]!, u13, `seed ${w[0]}: the finer ladder’s goodput`)
@@ -688,26 +688,26 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     const spread = BATCHES[0]![1].map((s) => single(s)[2])
     same(w[3]!, -Math.min(...spread), 'the worst single run of the twenty')
     same(b[3]!, Math.max(...spread), 'and the best')
-    // 「而这一课载入的那一跑用的是种子 2，给出 +21.63 %」
-    const own = raw(NUMS, /这一课载入的那一跑用的是种子 (\d+)，给出 \+([\d.]+) %/,
+    // 「而这一课载入的那次运行用的是种子 2，给出 +21.63 %」
+    const own = raw(NUMS, /这一课载入的那次运行用的是种子 (\d+)，给出 \+([\d.]+) %/,
       '`numbers` on the lesson’s own run')
     const [u2, e2, gain2] = single(val(own[0]!))
     same(own[1]!, gain2, 'what the lesson’s own seed gives')
     expect(val(own[0]!), 'and that really is the seed the scene loads').toBe(L.scenario().seed)
     // the watch block: both rungs, both goodputs, the gain and the window
-    const watch = raw(PIC, /两边跑完 (\d+) 毫秒，吞吐是 ([\d.]+) 对 ([\d.]+) Mb\/s，也就是 \+([\d.]+) %/,
+    const watch = raw(PIC, /两边运行 (\d+) 毫秒，吞吐是 ([\d.]+) 对 ([\d.]+) Mb\/s，也就是 \+([\d.]+) %/,
       '`picture` on the two arms')
     expect(val(watch[0]!) * MS, 'the window both arms run').toBe(RUN_NS)
     same(watch[1]!, u2, 'the finer ladder’s goodput in the lesson’s own run')
     same(watch[2]!, e2, 'and the coarser one’s')
     same(watch[3]!, gain2, 'and the gain between them')
-    // 「阴影与瑞利两层都开着，种子 2——跳到第一帧跑在新档上的那一刻」 — the watch block's own seed
-    const [watchSeed] = figs(PIC, /两层都开着，种子 (\d+)——跳到第一帧/,
+    // 「阴影与瑞利两层都开启，种子 2——跳到第一帧使用新档发送的时刻」 — the watch block's own seed
+    const [watchSeed] = figs(PIC, /两层都开启，种子 (\d+)——跳到第一帧/,
       '`picture` on the seed it tells the reader to load')
     expect(watchSeed, 'the seed the scene really loads').toBe(L.scenario().seed)
     const [uhrMcs] = figs(PIC, /调制与编码方式（modulation and coding scheme, MCS）是 (\d+)/,
       '`picture` on the finer ladder’s rung')
-    const [ehtMcs] = figs(PIC, /再切到「Wi-Fi 7 · 同一格」：eht，MCS (\d+)/,
+    const [ehtMcs] = figs(PIC, /再切换到「Wi-Fi 7 · 同一位置」：eht，MCS (\d+)/,
       '`picture` on the coarser ladder’s rung')
     const firstRung = (gen: Gen): number => {
       const r = arm(gen, 'far', 'both', 2).find((x) => x.type === 'TX_START' && x.frame.kind === 'data')
@@ -716,15 +716,15 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     expect(firstRung('uhr'), 'the rung the finer ladder opens on').toBe(uhrMcs)
     expect(firstRung('eht'), 'and the coarser one').toBe(ehtMcs)
     // `observe` prints the same figures again, and the seed-13 pair
-    const o = raw(OBS, /模式是 uhr、档位 (\d+)；切到「Wi-Fi 7 · 同一格」是 eht、档位 (\d+)；两边 (\d+) 毫秒的吞吐是 ([\d.]+) 对 ([\d.]+) Mb\/s/,
+    const o = raw(OBS, /模式是 uhr、档位 (\d+)；切换到「Wi-Fi 7 · 同一位置」是 eht、档位 (\d+)；两边 (\d+) 毫秒的吞吐是 ([\d.]+) 对 ([\d.]+) Mb\/s/,
       '`observe` on the two arms')
     expect([val(o[0]!), val(o[1]!)], 'the same two rungs').toEqual([uhrMcs, ehtMcs])
     expect(val(o[2]!) * MS, 'the same window').toBe(RUN_NS)
     expect([o[3], o[4]], 'and the same two goodputs').toEqual([watch[1], watch[2]])
-    const o13 = raw(OBS, /同样只读吞吐：([\d.]+) 对 ([\d.]+) Mb\/s/, '`observe` on the seed-13 pair')
+    const o13 = raw(OBS, /同样只读取吞吐：([\d.]+) 对 ([\d.]+) Mb\/s/, '`observe` on the seed-13 pair')
     expect(o13, 'the same pair as `numbers`').toEqual([w[1], w[2]])
     // `tryThis` prints the seed-47 pair and all four answers of that cell
-    const t47 = raw(TRY, /各跑一次：([\d.]+) 对 ([\d.]+) Mb\/s，细阶梯快 ([\d.]+) %/,
+    const t47 = raw(TRY, /各运行一次：([\d.]+) 对 ([\d.]+) Mb\/s，细阶梯快 ([\d.]+) %/,
       '`tryThis` on the seed-47 pair')
     expect(t47, 'the same three figures as `numbers`').toEqual([b[1], b[2], b[3]])
     const answers = raw(TRY,
@@ -738,16 +738,16 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
   })
 
   it('reads the coherence sweep at the precision the claim is made to', () => {
-    const t = tableOf('相干时间那个旋钮')
+    const t = tableOf('相干时间参数')
     // 「（客厅深处、瑞利开着、300 毫秒、种子 2，Wi-Fi 8 的吞吐）」 — the heading's own two figures
     const heading = (L.numbers!.find((b) => b.kind === 'table'
-      && b.heading?.includes('相干时间那个旋钮')) as unknown as { heading: string }).heading
+      && b.heading?.includes('相干时间参数')) as unknown as { heading: string }).heading
     const head = raw(heading, /(\d+) 毫秒、种子 (\d+)，Wi-Fi 8 的吞吐/, 'the table’s own heading')
     expect(val(head[0]!) * MS, 'the window every cell of it runs').toBe(RUN_NS)
     expect(val(head[1]!), 'and the seed').toBe(L.scenario().seed)
     // 「把阴影的标准差改成 0，再把相干时间从 5 毫秒扫到 500 毫秒：四行输出到小数第六位完全相同」
     const g2 = raw(PIC,
-      /把阴影的标准差改成 (\d)，再把相干时间从 (\d+) 毫秒扫到 (\d+) 毫秒：(.)行输出到小数第(.)位完全相同/,
+      /把阴影的标准差改为 (\d)，再把相干时间从 (\d+) 毫秒扫描到 (\d+) 毫秒：(.)行输出到小数点后第(.)位完全相同/,
       'gate two on the sweep')
     const sweep = t.rows.map((r) => nums(r[0]!)[0]!)
     expect([sweep[0], sweep.at(-1)], 'the two ends the gate sweeps between')
@@ -763,7 +763,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
       expect(coh(ms, val(g2[0]!) as 0).toFixed(dp), `${ms} ms at sigma ${g2[0]}`).toBe(flat[i])
     }
     // 「左边四行到小数第六位完全相同…两边的记录都是 9 472 条，接收失败都是 11 次」
-    const [againCn, againDp] = raw(NUMS, /左边(.)行到小数第(.)位完全相同/, '`numbers` on the same four rows')
+    const [againCn, againDp] = raw(NUMS, /左边(.)行到小数点后第(.)位完全相同/, '`numbers` on the same four rows')
     expect([cn(againCn!), cn(againDp!)], 'the same rows and the same precision')
       .toEqual([t.rows.length, dp])
     const [records, fails] = figs(NUMS, /两边的记录都是 ([\d ]+) 条，接收失败都是 (\d+) 次/,
@@ -774,11 +774,11 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
       expect(rs.length, `${ms} ms: the records that run leaves`).toBe(records)
       expect(failures(rs), `${ms} ms: and its failed receptions`).toBe(fails)
     }
-    // 「右边那一列是同一个字段在标准差 4 分贝下的样子，从 13.960 走到 28.000 Mb/s」
-    const [sigmaDb] = figs(NUMS, /同一个字段在标准差 (\d) 分贝下的样子/, '`numbers` on the other column')
+    // 「右边那一列是同一个字段在标准差 4 分贝下的结果，从 13.960 变化到 28.000 Mb/s」
+    const [sigmaDb] = figs(NUMS, /同一个字段在标准差 (\d) 分贝下的结果/, '`numbers` on the other column')
     expect(uhrLadderScenario('uhr', 'far', 'both', { seed: 2 }).fading!.shadowSigmaDb,
       'the sigma this scene really runs at').toBe(sigmaDb)
-    const [from, to] = raw(NUMS, /从 ([\d.]+) 走到 ([\d.]+) Mb\/s/, '`numbers` on the range')
+    const [from, to] = raw(NUMS, /从 ([\d.]+) 变化到 ([\d.]+) Mb\/s/, '`numbers` on the range')
     const live = t.rows.map((r) => nums(r[2]!)[0]!)
     expect([live[0], live.at(-1)], 'the first and last cell of that column')
       .toEqual([val(from!), val(to!)])
@@ -814,7 +814,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     expect(back, 'the sigma it puts back').toBe(sigmaDb)
     /*
      * The quiz asks the same sweep again, and then answers it with the two ends of the live
-     * column — 「标准差改回 4 分贝，同一个字段就把答案从 13.960 带到 28.000 Mb/s」. Both ends are
+     * column — 「标准差改回 4 分贝，同一个字段就使结果从 13.960 变化到 28.000 Mb/s」. Both ends are
      * read, because this is the anti-vacuity half of gate two: the figure that makes 「读不到」
      * different from 「没用」 is the one the SAME field gives when the shadow is switched on.
      */
@@ -825,14 +825,14 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
       .toEqual([sweep[0], sweep.at(-1)])
     const [onAgain] = figs(QUIZ, /标准差改回 (\d) 分贝/, 'the quiz on the sigma it puts back')
     expect(onAgain, 'the sigma the scene itself runs at').toBe(sigmaDb)
-    const qq = raw(QUIZ, /就把答案从 ([\d.]+) 带到 ([\d.]+) Mb\/s/, 'the quiz on the two answers')
+    const qq = raw(QUIZ, /就使结果从 ([\d.]+) 变化到 ([\d.]+) Mb\/s/, 'the quiz on the two answers')
     same(qq[0]!, coh(sweep[0]!, 4), `${sweep[0]} ms at sigma ${sigmaDb}`)
     same(qq[1]!, coh(sweep.at(-1)!, 4), `${sweep.at(-1)} ms at sigma ${sigmaDb}`)
   })
 
   it('reads the mechanism sentence at every site, and the half that makes it mean something', () => {
     /*
-     * 「因为算阴影的那一步在标准差为 0 时直接返回 0，还没走到相干时间那一行」 — the sentence gate
+     * 「因为计算阴影的那一步在标准差为 0 时直接返回 0，还没有执行到相干时间那一行」 — the sentence gate
      * two turns on, printed three times, and BOTH of its zeros are figures: the sigma the claim
      * is about, and the value the step returns. Read off the records' own `shadowDb`, and read
      * with its other half — at the scene's own sigma that same field returns many values —
@@ -841,7 +841,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     const shadows = (sc: Scenario, key: string): number[] => run(sc, RUN_NS, key)
       .flatMap((r) => (r.type === 'RX_START' && r.shadowDb !== undefined ? [r.shadowDb] : []))
     const sites: [string, RegExp, string][] = [
-      [PIC, /算阴影的那一步在标准差为 (\d) 时直接返回 (\d)/, 'gate two’s own sentence'],
+      [PIC, /计算阴影的那一步在标准差为 (\d) 时直接返回 (\d)/, 'gate two’s own sentence'],
       [NUMS, /标准差为 (\d) 时它直接返回 (\d)/, '`numbers` on the same step'],
     ]
     /*
@@ -862,7 +862,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
         .toEqual([returns])
     }
     // the quiz states the same mechanism with the sigma alone, and then the other half of it
-    const [quizSigma] = figs(QUIZ, /算阴影那一步在标准差为 (\d) 时先返回了/,
+    const [quizSigma] = figs(QUIZ, /计算阴影的那一步在标准差为 (\d) 时提前返回/,
       'the quiz on the same step')
     expect(quizSigma, 'the same sigma all three sites name').toBe(figs(...sites[0]!)[0])
     const lively = shadows(uhrLadderScenario('uhr', 'far', 'both', { seed: 2, coherenceMs: 5 }),
@@ -874,7 +874,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
   it('reads every variant the prose tells the reader to switch to, as a variant that exists', () => {
     /*
      * **The figures inside a quoted variant label are pinned by the variant list, and nothing
-     * else can pin them.** 「切到「Wi-Fi 8 · 种子 13」」 is an instruction; a planted digit leaves
+     * else can pin them.** 「切换到「Wi-Fi 8 · 种子 13」」 is an instruction; a planted digit leaves
      * the sentence grammatical and the instruction dead, which is exactly the defect a reader
      * hits and no measurement sees. So every quoted fragment that looks like one of this
      * lesson's labels has to BE one — and the test at the end of this file then ties each label
@@ -929,7 +929,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
      * 1 248 / 1 170」 in `deeper`, whose own two figures are read against the two arms' goodputs
      * in the test above. Both sites are planted separately, so neither can cover for the other.
      */
-    const [bits] = figs(DEEP, /墙后一步那一格的算术是 ([\d ]+) \//,
+    const [bits] = figs(DEEP, /墙后一步那个位置的计算值是 ([\d ]+) \//,
       '`deeper` on the rung behind the wall')
     expect((tones * Math.log2(qam!) * num!) / den!,
       'the rung those four figures multiply out to, which is the rung the lesson measures')
@@ -938,13 +938,13 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
   })
 
   it('reads both fixed-point arms, and the condition `deeper` puts on one of them', () => {
-    // 「把两层起伏都关掉，同一格的差是 39.040 对 29.280 Mb/s，正好等于…624 / 468」
+    // 「把两层起伏都关闭，同一位置的结果是 39.040 对 29.280 Mb/s，比值正好等于…624 / 468」
     const g3 = raw(PIC,
-      /同一格的差是 ([\d.]+) 对 ([\d.]+) Mb\/s，正好等于两档每符号（symbol）数据比特数之比 (\d+) \/ (\d+)/,
+      /同一位置的结果是 ([\d.]+) 对 ([\d.]+) Mb\/s，比值正好等于两档每符号（symbol）数据比特数之比 (\d+) \/ (\d+)/,
       'gate three on the fixed-point arm')
     same(g3[0]!, off('uhr', 'far'), 'the finer ladder with no fading at all')
     same(g3[1]!, off('eht', 'far'), 'and the coarser one')
-    const [seedsCn, lengthsCn] = raw(PIC, /而(.)个种子、(.)种跑长给出同一个比值/,
+    const [seedsCn, lengthsCn] = raw(PIC, /而(.)个种子、(.)种运行时长给出同一个比值/,
       'gate three on what it holds over')
     // 「624 / 468 = 1.3333；实测 39.040 / 29.280 = 1.3333」
     const f = L.numbers!.find((b) => b.kind === 'formula')! as unknown as { text: string; note: string }
@@ -955,9 +955,9 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     expect(line[5], 'one ratio, printed twice').toBe(line[2])
     same(line[2]!, val(line[0]!) / val(line[1]!), 'the ladder’s own arithmetic')
     same(line[5]!, off('uhr', 'far') / off('eht', 'far'), 'and the ratio the two runs really give')
-    // 「种子 1、2、7、17、99 五个种子，300 毫秒与 600 毫秒两种跑长，十个组合给出同一个比值」
+    // 「种子 1、2、7、17、99 五个种子，300 毫秒与 600 毫秒两种运行时长，十个组合给出同一个比值」
     const note = raw(f.note,
-      /种子 (\d+)、(\d+)、(\d+)、(\d+)、(\d+) (.)个种子，(\d+) 毫秒与 (\d+) 毫秒(.)种跑长，(.)个组合给出同一个比值/,
+      /种子 (\d+)、(\d+)、(\d+)、(\d+)、(\d+) (.)个种子，(\d+) 毫秒与 (\d+) 毫秒(.)种运行时长，(.)个组合给出同一个比值/,
       'the note on the seeds and the lengths')
     const seeds = note.slice(0, 5).map(val)
     expect(cn(note[5]!), 'the seeds it names').toBe(seeds.length)
@@ -999,23 +999,23 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
      * +6.71 %」 — the arm that carries a condition, and the condition is the run length.
      */
     const d = raw(DEEP,
-      /墙后一步那一格的算术是 ([\d ]+) \/ ([\d ]+) = ([\d.]+)，而 (\d+) 毫秒实测 \+([\d.]+) %、(\d+) 毫秒实测 \+([\d.]+) %/,
+      /墙后一步那个位置的计算值是 ([\d ]+) \/ ([\d ]+) = ([\d.]+)，而 (\d+) 毫秒实测 \+([\d.]+) %、(\d+) 毫秒实测 \+([\d.]+) %/,
       '`deeper` on the near arm')
     same(d[2]!, val(d[0]!) / val(d[1]!), 'that pair’s own ratio')
     expect([val(d[3]!) * MS, val(d[5]!) * MS], 'the two windows it measures over')
       .toEqual([RUN_NS, LONG_NS])
     same(d[4]!, offGain('near', RUN_NS), 'the near arm over the short run')
     same(d[6]!, offGain('near', LONG_NS), 'and over the long one')
-    // 「差的那半个百分点不是阶梯，是跑长：300 毫秒结束时最后一组聚合被切断」
-    const [cut] = figs(DEEP, /是跑长：(\d+) 毫秒结束时最后一组聚合被切断/,
+    // 「相差的那半个百分点并非来自阶梯，而是来自运行时长：300 毫秒结束时最后一组聚合被截断」
+    const [cut] = figs(DEEP, /而是来自运行时长：(\d+) 毫秒结束时最后一组聚合被截断/,
       '`deeper` on which of the two runs gets cut')
     expect(cut! * MS, 'the shorter window, which is this lesson’s own').toBe(RUN_NS)
     expect(cut! * MS, 'and it really is the shorter of the two it just measured').toBe(
       Math.min(val(d[3]!) * MS, val(d[5]!) * MS))
     expect(val(d[4]!), 'the shorter run is the one that overshoots').toBeGreaterThan(val(d[6]!))
     expect(val(d[4]!), 'and the arithmetic is below both').toBeGreaterThan((val(d[2]!) - 1) * 100)
-    // 「客厅中段与客厅深处那两格在两种跑长下都给 +11.11 % 与 +33.33 %」
-    const two = raw(DEEP, /那两格在(.)种跑长下都给 \+([\d.]+) % 与 \+([\d.]+) %/,
+    // 「客厅中段与客厅深处那两个位置在两种运行时长下都给出 +11.11 % 与 +33.33 %」
+    const two = raw(DEEP, /那两个位置在(.)种运行时长下都给出 \+([\d.]+) % 与 \+([\d.]+) %/,
       '`deeper` on the other two cells')
     expect(cn(two[0]!), 'over the same two windows').toBe(2)
     for (const ns of [RUN_NS, LONG_NS]) {
@@ -1036,7 +1036,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     expect(cn(def[0]!), 'the batches this lesson runs').toBe(BATCHES.length)
     // 「所以「n = 60」说的是样本的大小，不是样本本身」 — and 60 is a size two of these batches have,
     // which is the whole point of the sentence: the size does not name the table.
-    const [n60] = figs(DEEP, /所以「n = (\d+)」说的是样本的大小/, '`deeper` on what n names')
+    const [n60] = figs(DEEP, /所以「n = (\d+)」描述的是样本的大小/, '`deeper` on what n names')
     const sizesOf = BATCHES.map(([, s]) => s.length)
     expect(sizesOf.filter((s) => s === n60).length,
       'the batches that have exactly that many seeds, which is why the size is not the table')
@@ -1064,7 +1064,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
      * partner, so the count was the one thing in the sentence that was not true.)
      */
     const p = raw(DEEP,
-      /客厅深处两层那一格是 \+([\d.]+) % 对 \+([\d.]+) %，墙后一步只阴影那一格是 \+([\d.]+) % 对 \+([\d.]+) %，(.)格两两对下来没有一对相同/,
+      /客厅深处两层那一项是 \+([\d.]+) % 对 \+([\d.]+) %，墙后一步仅阴影那一项是 \+([\d.]+) % 对 \+([\d.]+) %，(.)格两两对比，没有一对相同/,
       '`deeper` on the two sixty-seed batches')
     same(p[0]!, FAR[1]!, '`deeper`: the prime-sixty batch, deep in the living room')
     same(p[1]!, FAR[2]!, '`deeper`: and the one-to-sixty')
@@ -1085,7 +1085,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
      * states between them, and that is read here.
      */
     const tbd = raw(SRC,
-      /全文 ([\d ]+) 行里 TBD 共 (\d+) 处，落在它 (\d+) 个三级小节里的 (\d+) 个，最多的一节是无缝漫游（(\d+) 处）/,
+      /全文 ([\d ]+) 行里 TBD 共 (\d+) 处，分布在它 (\d+) 个三级小节中的 (\d+) 个，最多的一节是无缝漫游（(\d+) 处）/,
       '`sources` on the TBD count')
     const [lines, count, sections, withTbd, worst] = tbd.map(val)
     expect(withTbd, 'the sections that carry one are some of the sections').toBeLessThanOrEqual(sections!)
@@ -1094,7 +1094,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
       .toBeGreaterThanOrEqual(count!)
     expect(count, 'and a document cannot hold more TBDs than it has lines').toBeLessThan(lines!)
     const cat = raw(SRC,
-      /「([\d ]+) 份提案、([\d ]+) 份意见决议文稿」出自同一份语料的目录统计，这两类加上其余(..)类文稿正好是它记的 ([\d ]+) 份/,
+      /「([\d ]+) 份提案、([\d ]+) 份意见决议文稿」出自同一份语料的目录统计，这两类加上其余(..)类文稿正好是它记录的 ([\d ]+) 份/,
       '`sources` on the catalogue')
     const [proposals, resolutions, total] = [val(cat[0]!), val(cat[1]!), val(cat[3]!)]
     expect(proposals + resolutions, 'the two classes are part of the whole').toBeLessThan(total)
@@ -1105,7 +1105,7 @@ describe('claim-to-contribution · every figure the prose prints, read back out 
     expect([val(term[0]!), val(term[1]!)], 'stated the same way in both places')
       .toEqual([resolutions, proposals])
     const lb = raw(TERMS,
-      /收到 ([\d ]+) 条意见，落在 ([\d ]+) 个条款上；D2\.0 那一轮（LB296）是 ([\d ]+) 条、([\d ]+) 个条款/,
+      /收到 ([\d ]+) 条意见，涉及 ([\d ]+) 个条款；D2\.0 那一轮（LB296）是 ([\d ]+) 条、([\d ]+) 个条款/,
       'the term on the two ballots')
     const [d1, d1Clauses, d2, d2Clauses] = lb.map(val)
     expect(d1, 'the first ballot drew more comments').toBeGreaterThan(d2!)

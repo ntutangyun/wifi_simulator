@@ -159,7 +159,7 @@ describe('uwb-intro · the units', () => {
 })
 
 describe('uwb-intro · the figure of the round', () => {
-  // §4 gives this lesson a `timing` figure, 两只钟上的四个计数读数. Every instant it
+  // §4 gives this lesson a `timing` figure, 两个时钟上的四个计数读数. Every instant it
   // prints is read back out of the run here, so the picture cannot drift from the
   // timeline: the two frames each device sends, and the two it receives.
   const rs = recs()

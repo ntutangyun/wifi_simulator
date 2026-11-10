@@ -350,7 +350,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
     expect(phoneTid, 'the mark the phone’s own frame carries').toBe(tidOf(firstMpdu(qos.frame)))
     expect(phoneTid, 'which is this engine’s mark for voice').toBe(TID_FOR_AC[acOf('语音')])
     // 「那个用 Wi-Fi 5 做备份的笔记本标的是 1——背景」
-    const [gen, bkTid] = figs(NUMS, /那个用 Wi-Fi (\d) 做备份的笔记本标的是 (\d)/,
+    const [gen, bkTid] = figs(NUMS, /那台用 Wi-Fi (\d) 做备份的笔记本标的是 (\d)/,
       'the paragraph on the backup laptop')
     const agg = txs.find((r) => r.frame.ampdu !== undefined)!
     const am = decode(agg.frame).users[0]!.subframes[0]!.mpdu
@@ -361,7 +361,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
       .toContain(`Wi-Fi ${gen}`)
     // 「它的 QoS 控制字段写着“TID 6 · Normal Ack”」 — observe prints the field whole
     const [obsMs, obsField] = raw(OBS,
-      /第一个 QoS 数据帧在 ([\d.]+) ms.*?写着“(TID \d+ · Normal Ack)”/s, '`observe` on the first one')
+      /第一个 QoS 数据帧于 ([\d.]+) ms.*?写着“(TID \d+ · Normal Ack)”/s, '`observe` on the first one')
     same(obsMs!, qos.t / MS, 'when the first marked frame goes out')
     expect(obsField, 'the field, exactly as the decoder renders it').toBe(qosOf(firstMpdu(qos.frame)))
     expect(qos.frame.src, 'and the phone is who sends it').toBe('sta-2')
@@ -375,7 +375,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
     const [hdr] = figs(WHY, /每一帧都有的那 (\d+) 个字节/, '`why` on the header before this lesson')
     expect(hdr, 'the header every frame has').toBe(MAC_HDR_BYTES)
     for (const [text, re, what, want] of [
-      [WHY, /多插(.)个字节/, '`why` on the two it adds', extra],
+      [WHY, /多插入(.)个字节/, '`why` on the two it adds', extra],
       [WHY, /固定有(.)个字节/, '`why` on the four at the end', FCS_BYTES],
       [PIC, /再加(.)个字节/, '`picture` on the two it adds', extra],
       [PIC, /这(.)个字节，就是普通数据帧/, '`picture` on what the difference is', extra],
@@ -425,7 +425,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
      * live things, which `limits` says in so many words below.
      */
     // 「把重发比特（Retry bit）置 1，再发一次——12.013 ms 那一帧就是这么来的」
-    const [bit, retryMs] = raw(s3!, /把重发比特（Retry bit）置 (\d)，再发一次——([\d.]+) ms/,
+    const [bit, retryMs] = raw(s3!, /把重发比特（Retry bit）置 (\d)，再发送一次——([\d.]+) ms/,
       'step 4 on the retry')
     expect(bitOf(firstMpdu(retry.frame), 'retry'), 'the bit that frame really carries').toBe(bit)
     same(retryMs!, retry.t / MS, 'when the retry goes out')
@@ -467,7 +467,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
         .toContain(r)
     }
     // 「十四帧只换回一个回复，靠的就是它」
-    const [fourteenCn, oneCn] = raw(DEEP, /(..)帧只换回(.)个回复/, '`deeper` on the aggregate')
+    const [fourteenCn, oneCn] = raw(DEEP, /(..)帧只需(.)个应答/, '`deeper` on the aggregate')
     const agg = txs.find((r) => r.frame.ampdu !== undefined)!
     expect(cn(fourteenCn!), 'the subframes that aggregate really carries')
       .toBe(agg.frame.ampdu!.mpduCount)
@@ -478,14 +478,14 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
     expect(qosOf(decode(agg.frame).users[0]!.subframes[0]!.mpdu),
       'and inside it those same two bits read as the request').toContain('Implicit BAR')
     // 「那两个字节里只有两样东西是活的：TID 与确认策略」
-    const [liveCn] = raw(LIM, /只有(.)样东西是活的/, '`limits` on what is modelled')
+    const [liveCn] = raw(LIM, /只有(.)项真正起作用/, '`limits` on what is modelled')
     expect(qosOf(firstMpdu(qos.frame)).split(' · ').length, 'the live halves of that field')
       .toBe(cn(liveCn!))
     /*
      * 「同一段业务在别家设备上可能标成 2 或 4」 — both are priorities the table lists, and
      * neither is a mark this engine writes: that is the whole claim.
      */
-    const [other1, other2] = figs(LIM, /可能标成 (\d) 或 (\d)/, '`limits` on other implementations')
+    const [other1, other2] = figs(LIM, /可能标为 (\d) 或 (\d)/, '`limits` on other implementations')
     const ups = table().rows.flatMap((r) => r[1]!.split('、').join(',').split(',')
       .map((x) => val(x.trim())))
     for (const x of [other1!, other2!]) {
@@ -520,7 +520,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
      * and 「什么都没少」 is what makes it wrong, measured in the experiment read above.
      */
     const [fallbackAc] = figs(FF_SRC, /TID_FOR_AC\[a\.ac \?\? (\d)\]/, 'the decoder’s own fallback')
-    const [notTid] = figs(QUIZ, /只是 TID 变成了 (\d)/, 'the quiz’s wrong option')
+    const [notTid] = figs(QUIZ, /只是 TID 变为 (\d)/, 'the quiz’s wrong option')
     expect(notTid, 'the mark a frame with no category of its own gets')
       .toBe(TID_FOR_AC[fallbackAc!])
     expect(EDCA_PARAMS[fallbackAc!]!.name, 'which is the category it falls back to').toBe('BE')
@@ -531,7 +531,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
      * a mark this engine writes, and the two come from two different classes, which is what the
      * sentence is for.
      */
-    const [a, b] = figs(LIM, /可能标成 (\d) 或 (\d)/, '`limits` on other implementations')
+    const [a, b] = figs(LIM, /可能标为 (\d) 或 (\d)/, '`limits` on other implementations')
     const rowOf = (up: number): number => table().rows
       .findIndex((r) => r[1]!.split('、').join(',').split(',').map((x) => val(x.trim())).includes(up))
     for (const x of [a!, b!]) {
@@ -562,7 +562,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
     const plainPhone = offRs.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data'
       && r.frame.src === 'sta-2')!
     const pm = firstMpdu(plainPhone.frame, off)
-    const [backTo] = figs(QUIZ, /帧头回到 (\d+) B/, 'the quiz on the header it goes back to')
+    const [backTo] = figs(QUIZ, /帧头恢复为 (\d+) B/, 'the quiz on the header it goes back to')
     expect(backTo! + field(pm, 'body').bytes + FCS_BYTES, 'the header it really goes back to')
       .toBe(plainPhone.frame.bytes)
     expect(pm.fields.some((x) => x.key === 'qos'), 'with no such field at all').toBe(false)
@@ -571,7 +571,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
      * this engine really writes (for best effort), which is what makes the option plausible;
      * what makes it wrong is measured above: the field is gone, not rewritten.
      */
-    const [notTid] = figs(QUIZ, /只是 TID 变成了 (\d)/, 'the quiz’s other wrong option')
+    const [notTid] = figs(QUIZ, /只是 TID 变为 (\d)/, 'the quiz’s other wrong option')
     expect([...TID_FOR_AC], 'a mark this engine does write, for another class').toContain(notTid)
     expect(tidOf(firstMpdu(qos.frame)), 'but not the one the phone carried').not.toBe(notTid)
     // 「把旧笔记本改成 Wi-Fi 5…标记写的是 0——尽力而为」
@@ -582,7 +582,7 @@ describe('frame-qos-fcs · every figure the prose prints, read back out of it', 
     const vhtRs = runEdited(vht, 40 * MS)
     const [tryGen] = figs(TRY, /把旧笔记本改成 Wi-Fi (\d)/, '`tryThis` on the generation')
     expect(GEN_LABEL[old.caps.generation], 'the generation it is set to').toContain(`Wi-Fi ${tryGen}`)
-    const [tryTid] = figs(TRY, /标记写的是 (\d)——尽力而为/, '`tryThis` on the mark it then writes')
+    const [tryTid] = figs(TRY, /标记值为 (\d)——尽力而为/, '`tryThis` on the mark it then writes')
     const vhtAgg = vhtRs.find((r): r is Tx => r.type === 'TX_START' && r.frame.src === 'sta-1'
       && r.frame.ampdu !== undefined)!
     expect(tidOf(decode(vhtAgg.frame, vht).users[0]!.subframes[0]!.mpdu),

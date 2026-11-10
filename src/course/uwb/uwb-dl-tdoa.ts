@@ -161,7 +161,7 @@ export const uwbDlTdoa: Lesson = {
       ['七个块之后的 badge-1',
         'error 19.6 cm, GDOP 0.85, ellipse 19.8 × 10.3 cm, DL-TDoA'],
     ] },
-    { kind: 'steps', heading: '一个时间差，一步一步', items: [
+    { kind: 'steps', heading: '一个时间差：逐步说明', items: [
       '时隙 0。anchor-1 广播 Poll，帧中携带它自身的发送计数值。每个胸牌用自己的计数器为这次到达打上时间戳——即日志中的一行 UWB_TS——两个数都被保存。',
       '时隙 1 至 3。其余三个依次作答。每一帧 Response 中携带：自身的发送计数值、为 Poll 到达记录的计数值，以及从 Poll 载波上测得的、相对 anchor-1 的时钟偏差。',
       '时隙 4。anchor-1 发出 Final 结束这一轮，帧中同样携带发送计数值。至此，对同一段跨度，胸牌掌握了两份记录：它自己的两个到达时刻，以及 anchor-1 的两个发送时刻。',

@@ -52,7 +52,7 @@ lessonShapeSuite(streams, { runNs: RUN_NS })
 
 describe('streams · the lesson’s own scene', () => {
   it('needs the width lesson, and owns two words of its own', () => {
-    expect(MODULES[streams.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[streams.module].title).toBe('容量参数与速率控制')
     expect(streams.needs).toEqual(['width'])
     // `sub-carrier`, `symbol` and `noise floor` are width's words; this lesson adds the two
     // the picture is built on.
@@ -337,7 +337,7 @@ describe('streams · the one-station limit, and the lesson that changes the room
     expect(lim!.seeAlso).toBeUndefined()
     expect(lim!.text).toContain('只有一台站点')
     // it already says what the lift requires, which is what makes the axis checkable
-    expect(lim!.text).toContain('至少有两台设备同时排着队的房间')
+    expect(lim!.text).toContain('至少有两台设备同时有数据待发的房间')
   })
 
   it('and the axis is the station count, not a capability flag: one here, four there', () => {
@@ -455,14 +455,14 @@ describe('streams · every figure the lesson prints, read back out of its own pr
       'the tones a 20 MHz channel carries')
     const [bits] = figs(EVERYWHERE, /每根子载波一次携带 (\d+) 个比特/, 'the bits a tone carries')
     const [tones2, bits2, five, six, perStream] = figs(EVERYWHERE,
-      /一条流一个符号装 (\d+) × (\d+) × (\d+)\/(\d+) = (\d+) 个数据比特/, 'the chain, multiplied out')
+      /一条流一个符号承载 (\d+) × (\d+) × (\d+)\/(\d+) = (\d+) 个数据比特/, 'the chain, multiplied out')
     expect([tones2, bits2], 'the same tones and the same bits').toEqual([tones, bits])
     expect(tones * bits * (five / six), 'the lesson’s own arithmetic').toBe(perStream)
     expect(perStream, 'and that is what this engine says a symbol carries')
       .toBe(PHY_MODES.eht.ndbps[13] * toneRatio('eht', width))
-    // 「234 × 4 = 936 个并排的星座点，每个带 12 个原始比特，六分之五是数据，合起来 9360」
+    // 「234 × 4 = 936 个并列的星座点，每个承载 12 个编码后的比特，其中六分之五是数据，合计 9360」
     const [t3, nss, points, bits3, total] = figs(EVERYWHERE,
-      /(\d+) × (\d+) = (\d+) 个并排的星座点，每个带 (\d+) 个原始比特，六分之五是数据，合起来 (\d+)/,
+      /(\d+) × (\d+) = (\d+) 个并列的星座点，每个承载 (\d+) 个编码后的比特，其中六分之五是数据，合计 (\d+)/,
       'the constellation points of four streams')
     expect([t3, bits3], 'the same tones and bits again').toEqual([tones, bits])
     expect(t3 * nss, 'the points a symbol holds').toBe(points)
@@ -499,9 +499,9 @@ describe('streams · every figure the lesson prints, read back out of its own pr
           .toEqual([ap.caps.widthMhz, negotiatedNss(ap, sta)])
       }
     }
-    // 「落在两流的 88.8 µs 上，而不是四流的 75.2 µs」, in the caption
+    // 「空口时间是两流的 88.8 µs，而不是四流的 75.2 µs」, in the caption
     const [two, four] = raw(EVERYWHERE,
-      /落在两流的 ([\d.]+) µs 上，而不是四流的 ([\d.]+) µs/, 'the two airtimes the caption compares')
+      /空口时间是两流的 ([\d.]+) µs，而不是四流的 ([\d.]+) µs/, 'the two airtimes the caption compares')
     const octets = one(bigData(runOf(streams, 3, RUN_NS)).map((r) => r.frame.bytes))
     same(two, txTimeModeNs('eht', octets, 13, { nss: 2 }) / 1000, 'two streams')
     same(four, txTimeModeNs('eht', octets, 13, { nss: 4 }) / 1000, 'and four')
@@ -514,7 +514,7 @@ describe('streams · every figure the lesson prints, read back out of its own pr
     expect([apAnt, staAnt], 'what the two ends really have').toEqual([
       nssOf(sc.nodes.find((n) => n.id === 'ap')!), nssOf(sc.nodes.find((n) => n.id === 'sta-1')!),
     ])
-    const [runs] = figs(labels, /链路跑 (\d+) 条流/, 'what the link runs')
+    const [runs] = figs(labels, /链路使用 (\d+) 条流/, 'what the link runs')
     expect(runs, 'the smaller of the two').toBe(Math.min(apAnt, staAnt))
     const [perSym] = figs(labels, /每符号 (\d+) 比特/, 'the bits a symbol carries there')
     expect(perSym, 'that many streams of this rung').toBe(PHY_MODES.eht.ndbps[13] * runs)
@@ -532,12 +532,12 @@ describe('streams · every figure the lesson prints, read back out of its own pr
     expect(pre * 1000, 'the preamble of this generation').toBe(PHY_MODES.eht.preambleNs)
     expect(sym * 1000, 'and its symbol').toBe(PHY_MODES.eht.symNs)
     // the worked table: the two ends, the streams, the rung, the bits, the symbols, the airtime
-    const ends = rowOf('照着步骤走一遍', '两端各能跑几条')
-    const runs = rowOf('照着步骤走一遍', '于是链路跑')
-    const rung = rowOf('照着步骤走一遍', '级别')
-    const perSym = rowOf('照着步骤走一遍', '每符号比特数')
-    const nsym = rowOf('照着步骤走一遍', '符号数')
-    const airtime = rowOf('照着步骤走一遍', '空口时间')
+    const ends = rowOf('按步骤计算一遍', '两端各支持几条')
+    const runs = rowOf('按步骤计算一遍', '于是链路使用')
+    const rung = rowOf('按步骤计算一遍', '级别')
+    const perSym = rowOf('按步骤计算一遍', '每符号比特数')
+    const nsym = rowOf('按步骤计算一遍', '符号数')
+    const airtime = rowOf('按步骤计算一遍', '空口时间')
     const [bitsLabel] = figs(nsym[0], /⌈(\d+) ÷ 它⌉/, 'the bits the frame becomes')
     for (const [col, v] of [[1, 2], [2, 3]] as const) {
       const sc = streams.variants![v].scenario()
@@ -636,12 +636,12 @@ describe('streams · every figure the lesson prints, read back out of its own pr
       expect([...counts].map((n) => Number(airtimeAt(n).toFixed(dp))),
         `${v} µs is the airtime of one of these stream counts`).toContain(val(v))
     }
-    // 「81.6 µs 变 40.8 µs。从两条到四条本该再减半到 20.4 µs，但帧只能按整数个符号发出去，所以
+    // 「81.6 µs 变 40.8 µs。从两条到四条本应再减半到 20.4 µs，但帧只能按整数个符号发出去，所以
     //  停在 27.2 µs」: the data part at one, two and four streams, and the halving that is not one
     const dataUs = (nss: number): number =>
       (txTimeModeNs('eht', octets, mcs, { nss }) - PHY_MODES.eht.preambleNs) / 1000
     const [one1, two1, halfOfTwo, four1] = raw(streams.observe.join('\n'),
-      /正好减半，([\d.]+) µs 变 ([\d.]+) µs。从两条到四条本该再减半到 ([\d.]+) µs[^]*?所以停在 ([\d.]+) µs/,
+      /正好减半，([\d.]+) µs 变 ([\d.]+) µs。从两条到四条本应再减半到 ([\d.]+) µs[^]*?所以停在 ([\d.]+) µs/,
       '`observe` on the data part')
     same(one1, dataUs(1), 'the data part of one stream')
     same(two1, dataUs(2), 'and of two')
@@ -655,9 +655,9 @@ describe('streams · every figure the lesson prints, read back out of its own pr
           `variant ${i + 1} runs at that rung`).toBe(val(v))
       }
     }
-    // 「带宽那个倍数每翻一倍都要付 3 dB」, and the two places the lesson says it again
+    // 「带宽那个倍数每翻一倍都要付出 3 dB」, and the two places the lesson says it again
     const narrow = Math.min(...widths)
-    for (const v of everyFig(/每翻一倍都要付 (\d+) dB|多要了 (\d+) dB 的信号|这就是那 (\d+) dB/g,
+    for (const v of everyFig(/每翻一倍都要付出 (\d+) dB|多提供 (\d+) dB 的信号|这就是那 (\d+) dB/g,
       'what a doubling of the width costs', 3)) {
       expect(val(v), 'the floor rises by that much when the channel doubles')
         .toBe(Math.round(noiseDbm(2 * narrow) - noiseDbm(narrow)))

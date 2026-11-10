@@ -135,7 +135,7 @@ describe('ifs · what that buys in this run', () => {
      * the gap in front of it is the one gap of the run with no length at all.
      */
     const lim = ifs.limits.map((l) => l.text).join(' ')
-    const m = /于是第一帧落在 (\d+) µs，第一段间隙长度为(.)/.exec(lim)
+    const m = /因此第一帧在 (\d+) µs 发出，第一段间隔长度为(.)/.exec(lim)
     expect(m, '`limits` no longer states where the first frame falls').not.toBeNull()
     expect(Number(m![1]) * 1000, 'where the first frame really falls').toBe(txs('data')[0]!.t)
     expect(m![2], 'and the length it gives that first gap').toBe('零')
@@ -360,13 +360,13 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
   })
 
   it('the caption: the first turn’s five instants, the draw, and the run’s whole census', () => {
-    const [short, long] = figs(caption, /(\d+) µs 对 (\d+) µs/, 'the two waits the figure draws')
+    const [short, long] = figs(caption, /(\d+) µs 与 (\d+) µs/, 'the two waits the figure draws')
     const [frameEnd] = figs(caption, /帧在 (\d+) µs 结束/, 'when the frame ends')
     const [ackEnd] = figs(caption, /(\d+) µs 结束；DIFS/, 'when the answer ends')
-    const [difsEnd] = figs(caption, /DIFS 从那里走到 (\d+) µs/, 'when the long wait ends')
+    const [difsEnd] = figs(caption, /DIFS 从那里持续到 (\d+) µs/, 'when the long wait ends')
     const [drawn] = figs(caption, /这次抽到 (\d+) 个时隙/, 'the wait it draws')
-    const [next] = figs(caption, /下一帧落在 (\d+) µs/, 'when the next frame goes out')
-    const [answers, after] = figs(caption, /本轮 (\d+) 个回答，个个都在帧尾之后 (\d+) µs 开始/,
+    const [next] = figs(caption, /下一帧在 (\d+) µs 开始/, 'when the next frame goes out')
+    const [answers, after] = figs(caption, /本轮 (\d+) 个应答，每一个都在帧尾之后 (\d+) µs 开始/,
       'the census of answers')
 
     expect(short * US).toBe(SIFS_NS)
@@ -401,9 +401,9 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
   })
 
   it('`picture` and `tryThis` both say the long wait adds exactly two slots, and the run never adds more', () => {
-    const inPicture = counted(pictureText, /短间隙再加([〇一二三四五六七八九十两]+)个时隙/,
+    const inPicture = counted(pictureText, /短帧间间隔再加([〇一二三四五六七八九十两]+)个时隙/,
       '`picture` on how the long wait is built')
-    const again = counted(pictureText, /多出来的这([〇一二三四五六七八九十两]+)个时隙/,
+    const again = counted(pictureText, /多出的这([〇一二三四五六七八九十两]+)个时隙/,
       '`picture` on the extra wait')
     const exactly = counted(ifs.tryThis!.join('\n'), /恰好([〇一二三四五六七八九十两]+)个时隙/,
       '`tryThis` on what the reader should measure')
@@ -415,7 +415,7 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
       if (g.untilNs > g.t) expect(g.untilNs - g.t, `the gap at ${g.t}`).toBe(SIFS_NS + exactly * SLOT_NS)
     }
     // and the ruler `tryThis` hands the reader is the engine's slot, at a span the strip can show
-    const [ruler] = figs(ifs.tryThis!.join('\n'), /拿 (\d+) µs 的时隙刻度/, '`tryThis`’s ruler')
+    const [ruler] = figs(ifs.tryThis!.join('\n'), /用 (\d+) µs 的时隙刻度/, '`tryThis`’s ruler')
     expect(ruler * US).toBe(SLOT_NS)
     // **The window is pinned to a range and not to a figure, and that is the whole of what can
     // be pinned.** `scripts/figure-planting.ts` reports it as unpinned — 「约 200 µs」 edited to
@@ -432,7 +432,7 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
 
   it('`observe` and the quiz quote the same two waits, and the first frame at zero', () => {
     const [short] = figs(ifs.observe!.join('\n'), /每一次都是 (\d+) µs 的/, '`observe` on the short wait')
-    const [long] = figs(ifs.observe!.join('\n'), /走完一个 (\d+) µs 的 DIFS/, '`observe` on the long wait')
+    const [long] = figs(ifs.observe!.join('\n'), /等完一个 (\d+) µs 的 DIFS/, '`observe` on the long wait')
     expect(short * US).toBe(SIFS_NS)
     expect(long * US).toBe(DIFS_NS)
     const [quizLong] = figs(quizText, /一个完整的 DIFS，(\d+) µs/, 'the quiz option naming the long wait')
@@ -440,7 +440,7 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
     expect(quizLong * US).toBe(DIFS_NS)
     expect(quizShort * US).toBe(SIFS_NS)
     // 「本轮第一帧就落在 0 µs」, and the first gap it did not have to wait out
-    const [first] = figs(quizText, /本轮第一帧就落在 (\d+) µs/, 'where the first frame lands')
+    const [first] = figs(quizText, /本轮第一帧就在 (\d+) µs 发出/, 'where the first frame lands')
     expect(data[0].t).toBe(first * US)
     const zero = gaps.filter((g) => g.untilNs === g.t)
     expect(zero.map((g) => g.t), 'the gaps of no length at all').toEqual([first * US])
@@ -469,7 +469,7 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
     expect(rx.length).toBeGreaterThan(500)
     for (const r of rx) expect(starts.has(r.t), `a reception starting at ${r.t}, after its own frame`).toBe(true)
     // and the slot is the figure that pays for both, which `limits` prints as well
-    const [slot] = figs(limitText, /时隙之所以要 (\d+) µs/, '`limits` on what the slot pays for')
+    const [slot] = figs(limitText, /时隙之所以长达 (\d+) µs/, '`limits` on what the slot pays for')
     expect(slot * US).toBe(SLOT_NS)
   })
 
@@ -515,7 +515,7 @@ describe('ifs · every printed figure is read back out of the lesson', () => {
     // the only gap of this run that has no length — the lesson's claim is that the station
     // which has never heard the medium busy is treated as having been idle all along.
     expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
-    expect(steps[2]).toContain('长度是零')
+    expect(steps[2]).toContain('长度为零')
     expect(gaps.filter((g) => g.untilNs === g.t).map((g) => g.t)).toEqual([0])
     // step 4: that first frame goes out with no draw before it
     expect(data[0].t).toBe(0)

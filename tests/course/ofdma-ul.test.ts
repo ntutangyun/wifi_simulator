@@ -395,9 +395,9 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
     expect(lim.text).toContain('selCombine')
     expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
     // what the engine does now, and where the share is carried
-    expect(lim.text).toContain('各自读到的是自己那一片的格数')
-    expect(lim.text).toContain('份额与下标写在被触发的那一帧自己身上')
-    expect(lim.text).toContain('截到整数格')
+    expect(lim.text).toContain('各自读取的是自己那一部分的格数')
+    expect(lim.text).toContain('份额与下标写在被触发的那一帧本身')
+    expect(lim.text).toContain('截断为整数格')
     // 4a's three retired claims
     expect(lim.text).not.toContain('拿到的是整条信道的格数')
     expect(lim.text).not.toContain('并不问')
@@ -415,10 +415,10 @@ describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed
   })
 
   it('keeps it apart from the power correction, and prints its bins off the engine', () => {
-    expect(lim.text).toContain('与上面那条功率修正没有被执行是两回事')
+    expect(lim.text).toContain('与上面那条功率修正未被执行是两回事')
     expect(selBins(20)).toBe(RU26_PER_20MHZ)
     expect(selMemberBins(20, 1 / 2)).toBe(4)
-    expect(lim.text).toContain(`${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格`)
+    expect(lim.text).toContain(`${selBins(20)} 格中的 ${selMemberBins(20, 1 / 2)} 格`)
     expect(lim.text).toContain('26 音调资源单元恰好就是一格')
     // what is still out of scope: one share for the whole round, named by the function that sets it
     expect(lim.text).toContain('transmitTrigger')
@@ -540,7 +540,7 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
   it('reads the round’s six rows, and the chain that adds up to its total', () => {
     // 「28 + 6 × 2 = 40 B，用 24 Mb/s 发，36 µs」
     const [common, perUser, users, bytes, mbps, us] = figs(NUMS,
-      /(\d+) \+ (\d+) × (\d+) = (\d+) B，用 (\d+) Mb\/s 发，(\d+) µs/, 'the trigger frame’s own row')
+      /(\d+) \+ (\d+) × (\d+) = (\d+) B，以 (\d+) Mb\/s 发出，(\d+) µs/, 'the trigger frame’s own row')
     expect(users, 'the users this trigger names').toBe(UPLOADERS.length)
     expect(common + perUser! * users!, 'the arithmetic the row prints').toBe(bytes)
     expect(bytes, 'which is what the engine builds').toBe(triggerBytes(users!))
@@ -628,8 +628,8 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
       'the rate the trigger goes out at, named twice', 2)) {
       expect(val(mbps!), 'the rate this round’s trigger uses').toBe(trigger.frame.mbps)
     }
-    // 「28 字节是给所有人的公共信息，每点一台名再加 6 字节」
-    const [common, perUser] = figs(NUMS, /(\d+) 字节是给所有人的公共信息，每点一台名再加 (\d+) 字节/,
+    // 「28 字节是面向所有设备的公共信息，每指定一台设备再加 6 字节」
+    const [common, perUser] = figs(NUMS, /(\d+) 字节是面向所有设备的公共信息，每指定一台设备再加 (\d+) 字节/,
       'the steps on the trigger’s own size')
     expect(common! + perUser! * UPLOADERS.length, 'what the engine builds for this many users')
       .toBe(triggerBytes(UPLOADERS.length))
@@ -646,13 +646,13 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
     for (const [us] of every(NUMS, /隔 (\d+) µs/g, 'the gap, named twice in the steps', 2)) {
       expect(val(us!) * US, 'one short interframe space').toBe(SIFS_NS)
     }
-    // 「触发帧结束后 45 µs 仍没有任何回答开始」, printed in the steps and again in `limits`.
-    for (const [us] of every([NUMS, LIM].join('\n'), /(\d+) µs (?:仍没有任何回答|还没有任何回答)/g,
+    // 「触发帧结束后 45 µs 仍没有任何应答开始」, printed in the steps and again in `limits`.
+    for (const [us] of every([NUMS, LIM].join('\n'), /(\d+) µs 仍没有任何应答/g,
       'the response timeout, named twice', 2)) {
       expect(val(us!) * US, 'the timeout the engine waits').toBe(ACK_TIMEOUT_NS)
     }
-    // 「上限是一个 2 ms 的回答装得下的量」 and the same 2 ms in `limits`, twice more.
-    for (const [ms] of every([NUMS, LIM].join('\n'), /一个 (\d+) ms 的回答/g,
+    // 「上限是一个 2 ms 的应答能容纳的量」 and the same 2 ms in `limits`, twice more.
+    for (const [ms] of every([NUMS, LIM].join('\n'), /一个 (\d+) ms 的应答/g,
       'the cap on one answer, named three times', 3)) {
       expect(val(ms!) * MS, 'the length the engine caps an answer at').toBe(2 * MS)
     }
@@ -674,7 +674,7 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
     }
     const trig = byLabel('触发帧')
     expect(val(trig[1]!), 'the triggers the access point sends').toBe(triggers(rs).length)
-    const unanswered = byLabel('没人回答')
+    const unanswered = byLabel('无人应答')
     expect(val(unanswered[1]!), 'the ones nobody answered')
       .toBe(triggers(rs).filter((x) => !triggered.some((a) => a.t > x.t && a.t < x.t + 3 * MS)).length)
     expect(val(unanswered[2]!), 'and the bytes those brought back').toBe(0)
@@ -689,25 +689,25 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
     expect(val(cont[2]!), 'which is the larger of the two').toBeGreaterThan(val(tb[2]!))
     // The step table beside it: the backlog, the share, the symbols and the airtime’s own terms.
     const steps = (ofdmaUl.numbers!.find((b) => b.kind === 'table'
-      && (b as { heading?: string }).heading?.includes('照着步骤走')) as { rows: string[][] }).rows
+      && (b as { heading?: string }).heading?.includes('按步骤计算')) as { rows: string[][] }).rows
     const step = (needle: string): string => steps.find((r) => r[0]!.includes(needle))![1]!
     expect(val(step('子载波占比')), 'one over the users the trigger names').toBe(1 / UPLOADERS.length)
     expect(val(step('有积压的设备')), 'the uploaders with something to send').toBe(UPLOADERS.length)
     const [preUs, symUs, count] = figs(step('指定为'), /(\d+) \+ ([\d.]+) × (\d+) =/,
       'the airtime formula’s own three terms')
-    expect(val(step('几个符号')), 'the symbols that backlog takes').toBe(count)
+    expect(val(step('多少个符号')), 'the symbols that backlog takes').toBe(count)
     expect(preUs! * US, 'the opening of a TB PPDU').toBe(PHY_MODES.he.preambleNs)
     expect(symUs! * US, 'and one symbol of it').toBe(PHY_MODES.he.symNs)
   })
 
   it('reads the guard-interval entry, which is about a combination the standard does not mandate', () => {
-    // The engine's own combination: 「基于触发的上行 PPDU 跑在 0.8 µs 的保护间隔上」, printed
+    // The engine's own combination: 「基于触发的上行 PPDU 使用 0.8 µs 的保护间隔」, printed
     // three times in this entry — the engine's value, the pair it makes, and the capability bit.
-    for (const [us] of every(LIM, /([\d.]+) µs 的保护间隔上|\(\d× LTF, ([\d.]+) µs\)/g,
+    for (const [us] of every(LIM, /([\d.]+) µs 的保护间隔——|\(\d× LTF, ([\d.]+) µs\)/g,
       'the short guard interval, named twice', 2).map((g) => [g.find((x) => x !== undefined)!])) {
       expect(val(us!) * 1000, 'the guard interval the engine runs every PPDU at').toBe(TGI_NS.base)
     }
-    const [gi] = figs(LIM, /跑在 ([\d.]+) µs 的保护间隔上/, '`limits` on the engine’s own GI')
+    const [gi] = figs(LIM, /使用 ([\d.]+) µs 的保护间隔/, '`limits` on the engine’s own GI')
     expect(gi! * 1000, 'the guard interval the engine runs every PPDU at').toBe(TGI_NS.base)
     // The two mandatory sets, as pairs: HE is (2×, 1.6) and (4×, 3.2); EHT adds (1×, 1.6).
     const he = figs(LIM, /HE TB 的强制集是 \((\d+)×, ([\d.]+)\) 与 \((\d+)×, ([\d.]+)\)/,
@@ -735,7 +735,7 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
      * offers only those two. The 「第」 rule change of 2026-10-14 uncovered both figures: the
      * sets above are read, this restatement of them was not.
      */
-    const [why1, why2] = figs(LIM, /第二条理由：([\d.]+) 与 ([\d.]+) 恰好是 TB PPDU 那一行的强制集/,
+    const [why1, why2] = figs(LIM, /第二个理由：([\d.]+) 与 ([\d.]+) 恰好是 TB PPDU 那一行的强制集/,
       '`limits` on why the scene offers two of them')
     expect([why1! * 1000, why2! * 1000], 'the two the engine doubles and quadruples to')
       .toEqual([TGI_NS.double, TGI_NS.quad])
@@ -756,13 +756,13 @@ describe('ofdma-ul · every figure the prose prints, read back out of it', () =>
     // Read as digits, not as numbers: 「000」 is a group of a grouped literal, not zero.
     const groups = raw(LIM, /里那个 (\d)_(\d+)_(\d+)/, '`limits` on the constant in `mac.ts`')
     expect(Number(groups.join('')), 'the cap, in nanoseconds, as the source writes it').toBe(2 * MS)
-    // 「本课「有积压的设备 2」这一行」 and 「一个 2 ms 的回答最多装得下 17 425 B」
-    // 「一个回答的长度被引擎封在 2 ms」: the same cap the steps name, worded differently.
-    const [cappedMs] = figs(LIM, /长度被引擎封在 (\d+) ms/, '`limits` on the engine’s own cap')
+    // 「本课「有积压的设备 2」这一行」 and 「一个 2 ms 的应答最多能容纳 17 425 B」
+    // 「一个应答的长度被引擎限制在 2 ms」: the same cap the steps name, worded differently.
+    const [cappedMs] = figs(LIM, /长度被引擎限制在 (\d+) ms/, '`limits` on the engine’s own cap')
     expect(cappedMs! * MS, 'the length the engine caps an answer at').toBe(2 * MS)
     const [backlogged] = figs(LIM, /有积压的设备 (\d+)」/, '`limits` on the backlogged devices')
     expect(backlogged, 'the uploaders this scene has').toBe(UPLOADERS.length)
-    const [capB] = figs(LIM, /最多装得下 ([\d ]+) B/, '`limits` on the cap')
+    const [capB] = figs(LIM, /最多能容纳 ([\d ]+) B/, '`limits` on the cap')
     expect(capB, 'the cap the engine computes')
       .toBe(maxPsduBytesFor('he', answers[0]!.frame.mcs!, 1 / UPLOADERS.length, 2 * MS, 20, 1))
   })

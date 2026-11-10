@@ -458,13 +458,13 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     expect(2 ** m! * w!, 'and the doublings it allows').toBe(CW_MAX + 1)
     expect(l, 'the attempts a frame gets').toBe(SHORT_RETRY_LIMIT)
     expect([...arc5().rateMix.keys()], 'the one rate this arc allows').toEqual([mbps])
-    // 「n = 5 在圆弧上（速率钉在 6 Mb/s）」 — the variant's own label, and `picture`'s
-    const [labelN, labelMbps] = figs(LABELS, /n = (\d+) 在圆弧上（速率钉在 (\d+) Mb\/s）/,
+    // 「n = 5 在圆弧上（速率固定为 6 Mb/s）」 — the variant's own label, and `picture`'s
+    const [labelN, labelMbps] = figs(LABELS, /n = (\d+) 在圆弧上（速率固定为 (\d+) Mb\/s）/,
       'the first variant’s label')
     expect(labelN, 'the stations that variant puts on the arc')
       .toBe(bianchiVsSimVariants[0]!.scenario().nodes.filter((x) => x.kind === 'sta').length)
     expect(labelMbps, 'and the rate it pins them to').toBe(mbps)
-    const [picN] = figs(PIC, /先切到「n = (\d+) 在圆弧上」/, '`picture` on the variant it opens')
+    const [picN] = figs(PIC, /先切换到「n = (\d+) 在圆弧上」/, '`picture` on the variant it opens')
     expect(picN, 'the same variant the watch call-out sends the reader to').toBe(labelN)
   })
 
@@ -483,7 +483,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
       same(String(gotS), arcAt(n!).mbps, `the run’s own at n = ${n}`)
     }
     // 「每个碰撞数都落在预测的 10% 以内，每个吞吐都在 5% 以内」
-    const [pBound, sBound] = figs(NUMS, /每个碰撞数都落在预测的 (\d+)% 以内，每个吞吐都在 (\d+)% 以内/,
+    const [pBound, sBound] = figs(NUMS, /每个碰撞比例都落在预测值的 (\d+)% 以内，每个吞吐量都在 (\d+)% 以内/,
       '`numbers` on how close the two columns are')
     const relP = rows.map((r) => {
       const n = val(r[0]!)
@@ -512,7 +512,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
   it('reads the slot-clock difference, and the claim it makes about a figure it will not pin', () => {
     // 「二十台站点的实测值就从 45.83% 升到 47.9% 左右——约是它与 49.59% 之间差距的一半」
     const [measured, probe, predicted] = figs(NUMS,
-      /二十台站点的实测值就从 ([\d.]+)% 升到 ([\d.]+)% 左右——约是它与 ([\d.]+)% 之间差距的一半/,
+      /二十台站点的实测值从 ([\d.]+)% 升高到 ([\d.]+)% 左右——约为它与 ([\d.]+)% 之间差距的一半/,
       '`numbers` on the slot clock')
     same(String(measured), 100 * arc20().p, 'the measurement that probe starts from')
     same(String(predicted), 100 * predict(20).p, 'and the prediction it moves towards')
@@ -527,7 +527,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     expect(srcProbe, 'the same figure, where `sources` says where it comes from').toBe(probe)
     // 「五台站点的圆弧记录了 1029 次这种更长的等待，每一次都让某个邻居…多被挡在竞争之外 60 µs」
     const [deferrals, extraUs] = figs(NUMS,
-      /五台站点的圆弧记录了 ([\d,]+) 次这种更长的等待，每一次都让某个邻居比其他人多被挡在竞争之外 (\d+) µs/,
+      /五台站点的圆弧记录了 ([\d,]+) 次这种更长的等待，每一次都使某个邻居比其他站点多 (\d+) µs 不能参与竞争/,
       '`numbers` on the restart times')
     expect(deferrals, 'the extended spaces the arc run really logs').toBe(arc5().eifs)
     const [eifsUs, difsUs] = figs(SRC, /这里是 (\d+) µs，而 DIFS 是 (\d+) µs/,
@@ -538,7 +538,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
   it('reads the cost of a pile-up, both conventions of it', () => {
     // 「一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，二十台时值 0.2% 的吞吐」
     const [earlyUs, shareP, thruP] = figs(NUMS,
-      /一次碰撞比一次成功早结束 (\d+) µs，约占一次交互的 ([\d.]+)%，二十台时值 ([\d.]+)% 的吞吐/,
+      /一次碰撞比一次成功早结束 (\d+) µs，约占一次交互的 ([\d.]+)%，二十台时对吞吐量的影响为 ([\d.]+)%/,
       '`numbers` on the cost of a collision')
     const t = dcfTimes(1500, 6)
     expect(earlyUs! * 1000, 'how much earlier a collision ends').toBe(t.tsNs - t.tcNs)
@@ -548,7 +548,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     }).mbps
     same(String(thruP), (100 * (S(t.tcNs) - S(t.tsNs))) / S(t.tsNs), 'and what it is worth at twenty')
     // 「改用论文自己的取值，预测反而往另一边挪 0.6%」
-    const [otherWay] = figs(NUMS, /预测反而往另一边挪 ([\d.]+)%/, '`numbers` on the paper’s own convention')
+    const [otherWay] = figs(NUMS, /预测反而向另一方向偏移 ([\d.]+)%/, '`numbers` on the paper’s own convention')
     const paperTc = t.dataNs + 34_000
     const moved = (100 * (S(t.tcNs) - S(paperTc))) / S(paperTc)
     same(String(otherWay), Math.abs(moved), 'how far the paper’s convention moves it')
@@ -562,7 +562,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     same(String(pred2), 100 * predict(2).p, 'and its prediction')
     expect(got2, 'which the measurement is above, uniquely').toBeGreaterThan(pred2!)
     // 「各站点自己的碰撞率从 42.9% 铺到 52.1%」
-    const [lo, hi] = figs(DEEP, /各站点自己的碰撞率从 ([\d.]+)% 铺到 ([\d.]+)%/,
+    const [lo, hi] = figs(DEEP, /各站点自己的碰撞率分布在 ([\d.]+)% 到 ([\d.]+)%/,
       '`deeper` on the per-station spread')
     const per = arc20().perStationP.map((x) => 100 * x)
     same(String(lo), Math.min(...per), 'the luckiest station of the twenty')
@@ -575,7 +575,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
       return scen
     })())
     const [tries, hits, dropped] = figs(DEEP,
-      /([\d,]+) 次尝试，其中 ([\d,]+) 次碰撞，一个回答也没有，([\d,]+) 帧被放弃/,
+      /([\d,]+) 次尝试，其中 ([\d,]+) 次碰撞，没有一个应答，([\d,]+) 帧被放弃/,
       '`deeper` on the no-window corner')
     expect(tries, 'the attempts five window-less stations make').toBe(cheatAll.attempts)
     expect(hits, 'the collisions among them').toBe(cheatAll.collided)
@@ -589,15 +589,15 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
       first.tamper = { ...TAMPER_PRESETS.cw }
       return scen
     })())
-    const [all, mine] = figs(DEEP, /它就拿走 ([\d,]+) 次尝试中的 ([\d,]+) 次/,
+    const [all, mine] = figs(DEEP, /它就占去 ([\d,]+) 次尝试中的 ([\d,]+) 次/,
       '`deeper` on the one cheat’s share')
     expect(all, 'the attempts that run makes in all').toBe(cheatOne.attempts)
     const cheatId = cheatOne.records.find((r) => r.type === 'TX_START')!.node
     expect(mine, 'and the cheat’s own share of them').toBe(cheatOne.attemptsBy.get(cheatId))
-    const [restCn] = raw(DEEP, /四台遵守规则的站点十秒里一共只发出(.)帧/, '`deeper` on the rest')
+    const [restCn] = raw(DEEP, /四台遵守规则的站点十秒内一共只发出(.)帧/, '`deeper` on the rest')
     expect('零一二三四五六七八九'.indexOf(restCn!), 'what the four rule-followers get out')
       .toBe(all! - mine!)
-    const [mbps] = figs(DEEP, /而信道仍跑出 ([\d.]+) Mb\/s/, '`deeper` on the channel’s throughput')
+    const [mbps] = figs(DEEP, /而信道吞吐量仍达到 ([\d.]+) Mb\/s/, '`deeper` on the channel’s throughput')
     same(String(mbps), cheatOne.mbps, 'what the channel still carries')
     // …which is one payload over one clean exchange: the single-station ceiling
     const t = dcfTimes(1500, 6)
@@ -622,7 +622,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     expect(seed, 'the seed every figure of this lesson is measured on').toBe(arc.seed)
     expect(dbm, 'and the power that pins the rate')
       .toBe(arc.nodes.find((n) => n.kind === 'sta')!.txPowerDbm)
-    const [limDbm] = figs(LIM, /才把它压住（(−\d+) dBm 的圆弧）/, '`limits` on the same power')
+    const [limDbm] = figs(LIM, /才使速率保持不变（(−\d+) dBm 的圆弧）/, '`limits` on the same power')
     expect(limDbm, 'the same power, where `limits` explains why it is there').toBe(dbm)
   })
 
@@ -631,7 +631,7 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     const [blockUs] = figs(OBS, /每个绿色色块都是同样的 (\d+) µs/, '`observe` on one data frame')
     expect(blockUs! * 1000, 'the frame this arc sends, every time').toBe(dcfTimes(1500, 6).dataNs)
     const misses = arc5().records.filter((r) => r.type === 'RX_MISS' && r.node === 'ap').length
-    const [missed, retried] = figs(OBS, /十秒里 ([\d,]+) 次错失，恰好对应 ([\d,]+) 次重传/,
+    const [missed, retried] = figs(OBS, /十秒内 ([\d,]+) 次错失，恰好对应 ([\d,]+) 次重传/,
       '`observe` on the two counts')
     expect(missed, 'what the access point misses').toBe(misses)
     expect(retried, 'and what the stations retry').toBe(arc5().collided)
@@ -643,16 +643,16 @@ describe('bianchi-vs-sim · every figure the prose prints, read back out of it',
     expect([qMissed, qRetried], 'the same pair, a second time').toEqual([missed, retried])
     // 「把 n = 20 的圆弧跑十秒，把实测的 45.83% 放到预测的 49.59% 旁边」
     const [tryN, tryGot, tryPred] = figs(TRY,
-      /把 n = (\d+) 的圆弧跑十秒，把实测的 ([\d.]+)% 放到预测的 ([\d.]+)% 旁边/,
+      /把 n = (\d+) 的圆弧运行十秒，把实测的 ([\d.]+)% 与预测的 ([\d.]+)% 对照/,
       '`tryThis` on the first experiment')
     same(String(tryGot), 100 * arcAt(tryN!).p, 'the measurement that experiment reads')
     same(String(tryPred), 100 * predict(tryN!).p, 'and the prediction beside it')
     // 「实跑在 23,335 次尝试里碰撞 23,330 次，什么也没送到，放弃 3,330 帧」
     const [tryTries, tryHits, tryDrops] = figs(TRY,
-      /实跑在 ([\d,]+) 次尝试里碰撞 ([\d,]+) 次，什么也没送到，放弃 ([\d,]+) 帧/,
+      /实测在 ([\d,]+) 次尝试中碰撞 ([\d,]+) 次，没有送达任何帧，放弃 ([\d,]+) 帧/,
       '`tryThis` on the corner it checks')
     const deepTriple = figs(DEEP,
-      /([\d,]+) 次尝试，其中 ([\d,]+) 次碰撞，一个回答也没有，([\d,]+) 帧被放弃/,
+      /([\d,]+) 次尝试，其中 ([\d,]+) 次碰撞，没有一个应答，([\d,]+) 帧被放弃/,
       '`deeper` on the same corner')
     expect([tryTries, tryHits, tryDrops], 'the same three figures `deeper` prints')
       .toEqual(deepTriple)

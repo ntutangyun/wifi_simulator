@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in "两台听不见彼此的站点", the first half of the old
+ * Every empirical claim in "两台相互收不到信号的站点", the first half of the old
  * `hidden` (2026-09-25 re-pacing, §2 M5), measured against the lesson's own
  * scene: an access point in a hallway with one saturated legacy station in each
  * end room.
@@ -64,7 +64,7 @@ lessonShapeSuite(hidden, { runNs: RUN_NS })
 
 describe('hidden · the lesson’s own scene', () => {
   it('follows the collision lesson, the NAV lesson and the CCA lesson, and owns the hidden node', () => {
-    expect(MODULES[hidden.module].title).toBe('听不见的邻居与损失')
+    expect(MODULES[hidden.module].title).toBe('隐藏节点与帧丢失')
     // §6 of the re-pacing plan: `backoff` gave the deadline and the doubling to
     // `collisions-cw`, and `cca` is what the two thresholds of step 2 come from.
     expect(hidden.needs).toEqual(['collisions-cw', 'nav', 'cca'])
@@ -336,13 +336,13 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
   it('the steps: both thresholds, the level that misses them, and the timeout', () => {
     expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(5)
     // step 2: 「到达电平不低于 −82 dBm；或者空中所有能量加起来不低于 −62 dBm」
-    const lines = /到达电平不低于 ([−\d.]+) dBm；或者空中所有能量加起来不低于 ([−\d.]+) dBm/
+    const lines = /到达电平不低于 ([−\d.]+) dBm；或者空中所有能量之和不低于 ([−\d.]+) dBm/
       .exec(steps[1])
     expect(lines, 'step 2 no longer states the two thresholds').not.toBeNull()
     same(lines![1], CCA_PD_DBM, 'the preamble-detection threshold')
     same(lines![2], CCA_ED_DBM, 'and the energy one')
     // step 3: 「只有 −83.4 dBm：比前导检测那条线还低 1.4 dB，比能量检测那条线低二十多分贝」
-    const m = /只有 ([−\d.]+) dBm：比前导检测（preamble detection）那条线还低 ([\d.]+) dB，比能量检测（energy detection, ED）那条线低([一二三四五六七八九十]+)多分贝/
+    const m = /只有 ([−\d.]+) dBm：比前导检测（preamble detection）门限还低 ([\d.]+) dB，比能量检测（energy detection, ED）门限低([一二三四五六七八九十]+)多分贝/
       .exec(steps[2])
     expect(m, 'step 3 no longer states what the other room arrives at').not.toBeNull()
     const other = links.get('sta-1')!.get('sta-2')!
@@ -364,7 +364,7 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
   })
 
   it('the exchange table: both rows, their instants, their counts and their walls', () => {
-    const t = tableWith('整场交互里，远端站点听得见什么')
+    const t = tableWith('整个交互过程中远端站点能收到什么')
     expect(t.rows, 'the table states exactly the two frames this reads').toHaveLength(2)
     // row 1: 「近端的 1528 字节数据帧 · 1.95 – 2.31 ms · 两堵 · 径直数了过去：106、105、……66」
     const r0 = /^近端的 (\d+) 字节数据帧$/.exec(t.rows[0][0])
@@ -377,7 +377,7 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
     const walls0 = zhCount(t.rows[0][2].replace('堵', ''))
     expect(walls0, 'the walls the table says lie between the two stations')
       .toBe(wallsCrossed(pos('sta-1'), pos('sta-2'), sc.walls).length)
-    const counted = /径直数了过去：(\d+)、(\d+)、……(\d+)/.exec(t.rows[0][3])
+    const counted = /计数持续递减：(\d+)、(\d+)、……(\d+)/.exec(t.rows[0][3])
     expect(counted, 'the first row no longer says what the far station counted').not.toBeNull()
     const decs = ofType(rs, 'BACKOFF_DEC')
       .filter((r) => r.node === 'sta-2' && r.t >= near.t && r.t <= near.t + near.frame.txTimeNs)
@@ -396,7 +396,7 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
     expect(walls1, 'the walls between the access point and the far station')
       .toBe(wallsCrossed(pos('ap'), pos('sta-2'), sc.walls).length)
     expect(walls1, 'which is fewer than between the two stations — the whole row').toBeLessThan(walls0!)
-    const froze = /在 (\d+) 冻结，等完 (\d+) µs 的 ACK 和 (\d+) µs 的等待，(\d+) µs 从 (\d+) 继续/
+    const froze = /在 (\d+) 冻结，经过 (\d+) µs 的 ACK 和 (\d+) µs 的等待后，(\d+) µs 从 (\d+) 继续/
       .exec(t.rows[1][3])
     expect(froze, 'the second row no longer says what the freeze did').not.toBeNull()
     const freeze = ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-2' && r.t === ack.t)!
@@ -413,7 +413,7 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
 
   it('the closing census, read out of the paragraph and out of `observe`', () => {
     const p = (hidden.numbers! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-    const m = /(\d+) ms 里这个房间碰撞 (\d+) 次，每一次都夹着一个数据帧（data frame），两台站点合起来只送达 (\d+) 帧/
+    const m = /(\d+) ms 内这个房间碰撞 (\d+) 次，每一次都涉及一个数据帧（data frame），两台站点合计只送达 (\d+) 帧/
       .exec(p)
     expect(m, 'the census paragraph is gone, or its shape changed').not.toBeNull()
     same(m![1], RUN_NS / MS, 'the window it counts over')
@@ -421,10 +421,10 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
     expect(Number(m![2]), 'every one of them on a data frame').toBe(caughtData(rs).length)
     expect(Number(m![3]), 'and the frames delivered').toBe(acked(rs, 'sta-1') + acked(rs, 'sta-2'))
     // 「它的 Duration 是零，没有什么可预告的」
-    expect(/Duration 是零/.test(p), 'the paragraph still says the ACK announces nothing').toBe(true)
+    expect(/Duration 为零/.test(p), 'the paragraph still says the ACK announces nothing').toBe(true)
     expect(ack.frame.durationFieldNs, 'and it does').toBe(0)
     // observe[0] states the same census again, in its own words
-    const o = /(\d+) ms 里 (\d+) 次/.exec(hidden.observe![0])
+    const o = /(\d+) ms 内 (\d+) 次/.exec(hidden.observe![0])
     expect(o, 'observe[0] no longer counts the collisions').not.toBeNull()
     expect([Number(o![1]), Number(o![2])], 'the same window and the same count')
       .toEqual([RUN_NS / MS, ofType(rs, 'COLLISION').length])
@@ -445,7 +445,7 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
     expect(open(y - 0.4), 'a door on that line lets them hear each other').toBeGreaterThan(CCA_PD_DBM)
     expect(open(1), 'and one lower down does not').toBe(links.get('sta-1')!.get('sta-2')!)
     // quiz 2: 「既没到 −82 dBm 的前导检测门限，也没到 −62 dBm 的能量门限」
-    const q = /既没到 ([−\d.]+) dBm 的前导检测门限，也没到 ([−\d.]+) dBm 的能量门限/
+    const q = /既未达到 ([−\d.]+) dBm 的前导检测门限，也未达到 ([−\d.]+) dBm 的能量门限/
       .exec(hidden.quiz[1].options[hidden.quiz[1].answer])
     expect(q, 'the quiz’s right answer no longer states the two thresholds').not.toBeNull()
     same(q![1], CCA_PD_DBM, 'the preamble threshold, as the quiz states it')
@@ -456,13 +456,13 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
     const ls = hidden.limits.map((l) => l.text)
     const all = ls.join('\n')
     // 「−83.4 dBm 是一个定数，只比门限低 1.4 dB」
-    const m = /([−\d.]+) dBm 是一个定数，只比门限低 ([\d.]+) dB/.exec(all)
+    const m = /([−\d.]+) dBm 是一个定值，只比门限低 ([\d.]+) dB/.exec(all)
     expect(m, '`limits` no longer states the level and its margin').not.toBeNull()
     const other = links.get('sta-1')!.get('sta-2')!
     same(m![1], other, 'the level the first limit is about')
     same(m![2], CCA_PD_DBM - other, 'and how far under the line it sits')
     // 「到达 −82.0 dBm 就一定判忙，−82.1 dBm 就一定判不出」
-    const hard = /到达 ([−\d.]+) dBm 就一定判忙，([−\d.]+) dBm 就一定判不出/.exec(all)
+    const hard = /到达 ([−\d.]+) dBm 就一定判忙，([−\d.]+) dBm 就一定不判忙/.exec(all)
     expect(hard, '`limits` no longer states the hard line').not.toBeNull()
     same(hard![1], CCA_PD_DBM, 'the level that is certainly busy')
     expect(val(hard![2]), 'and the one a tenth of a dB below it')
@@ -500,7 +500,7 @@ describe('hidden · every printed figure is read back out of the lesson', () => 
    */
   it('`limits`: the shadow sigma that would cross this margin is the editor’s own default', () => {
     const l = hidden.limits.find((x) => x.text.includes('阴影标准差'))!.text
-    const m = /默认 ([\d.]+) dB 的阴影标准差足以让这 ([\d.]+) dB 的余量被反复跨过/.exec(l)
+    const m = /默认 ([\d.]+) dB 的阴影标准差足以使电平反复越过这 ([\d.]+) dB 的余量/.exec(l)
     expect(m, '`limits` no longer states the sigma and the margin it would cross').not.toBeNull()
     // the sigma is the one a scenario gets the moment it switches fading on, and the margin is
     // the same one the first limit states — so the sentence's 「足以」 is arithmetic, not a feeling

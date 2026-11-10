@@ -439,8 +439,8 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     expect(pathLossDb(oneM), 'the loss at one metre').toBeCloseTo(pl0, 12)
     expect(pathLossDb(base) - pathLossDb(oneM), 'and ten times further costs that')
       .toBeCloseTo(exp, 9)
-    // 「距离翻倍要多损耗 9.0 dB」 and the quiz's 「30·log10(2) = 9.03 dB」
-    same(raw(EVERYWHERE, /距离翻倍要多损耗 ([\d.]+) dB/, 'what doubling costs')[0],
+    // 「距离每翻一倍，损耗增加 9.0 dB」 and the quiz's 「30·log10(2) = 9.03 dB」
+    same(raw(EVERYWHERE, /距离每翻一倍，损耗增加 ([\d.]+) dB/, 'what doubling costs')[0],
       pathLossDb(2 * oneM) - pathLossDb(oneM), 'the cost of doubling')
     const [thirty, ten, two, nine] = figs(EVERYWHERE,
       /(\d+)·log(\d+)\((\d+)\) = ([\d.]+) dB/, 'the quiz’s own arithmetic for it')
@@ -471,15 +471,15 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     for (const [drywall, brick, glass] of lists) {
       expect({ drywall, brick, glass }, 'the engine’s own wall table').toEqual(WALL_LOSS_DB)
     }
-    // 「后两条多出来的 12，就是书房与客厅之间那堵砖墙」 — the figure caption
-    for (const v of everyFig(/多出来的 (\d+)，就是书房与客厅之间那堵砖墙/g, 'the wall in the figure', 1)) {
+    // 「后两条多出的 12，就是书房与客厅之间那堵砖墙的损耗」 — the figure caption
+    for (const v of everyFig(/多出的 (\d+)，就是书房与客厅之间那堵砖墙/g, 'the wall in the figure', 1)) {
       expect(val(v), 'that wall is brick').toBe(WALL_LOSS_DB.brick)
     }
-    // the quiz: 「12 dB 的砖墙换成 3 dB 的玻璃」, 「省下的是 12 − 3 = 9 dB」
+    // the quiz: 「12 dB 的砖墙换成 3 dB 的玻璃」, 「减少的损耗是 12 − 3 = 9 dB」
     const [brick, glass] = figs(EVERYWHERE, /(\d+) dB 的砖墙换成 (\d+) dB 的玻璃/,
       'the swap the quiz makes')
     expect([brick, glass], 'brick for glass').toEqual([WALL_LOSS_DB.brick, WALL_LOSS_DB.glass])
-    const [b2, g2, saved] = figs(EVERYWHERE, /省下的是 (\d+) − (\d+) = (\d+) dB/,
+    const [b2, g2, saved] = figs(EVERYWHERE, /减少的损耗是 (\d+) − (\d+) = (\d+) dB/,
       'what the swap saves')
     expect([b2, g2], 'the same two').toEqual([brick, glass])
     expect(b2 - g2, 'and the saving is their difference').toBe(saved)
@@ -512,9 +512,9 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     expect([val(routerDbm), val(laptopDbm)], 'the same two powers').toEqual([router, laptop])
     same(routerMw, mw(val(routerDbm)), 'the router’s power in milliwatts')
     same(laptopMw, mw(val(laptopDbm)), 'and the laptop’s')
-    // 「隔着 9 m 和一堵砖墙之后 … 只剩 5.85 × 10⁻⁸ mW，也就是 −72.3 dBm」
+    // 「隔着 9 m 和一堵砖墙之后 … 只有 5.85 × 10⁻⁸ mW，也就是 −72.3 dBm」
     const [metres, mant, pow, asDbm] = raw(EVERYWHERE,
-      /隔着 (\d+) m 和一堵砖墙之后，这台笔记本在路由器处只剩 ([\d.]+) × (\d+)⁻⁸ mW，也就是 −([\d.]+) dBm/,
+      /隔着 (\d+) m 和一堵砖墙之后，这台笔记本的信号到达路由器时只有 ([\d.]+) × (\d+)⁻⁸ mW，也就是 −([\d.]+) dBm/,
       '`deeper` on what arrives, in milliwatts')
     const rssi = budgetAt(val(metres)).rssiDbm
     same(`-${asDbm}`, rssi, 'the level that arrives')
@@ -534,19 +534,19 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
       expect(/砖墙/.test(r[0]), `row ${i + 1}: 「砖墙」 exactly when the ray crosses one`)
         .toBe(wallsFor(d).length > 0)
     })
-    // 「−30 dBm 是贴着路由器发送，−80 dBm 是隔着半间屋子」: the two ends of the scale `picture`
-    // draws, which this lesson's own four places sit between.
+    // 「−30 dBm 相当于紧挨着路由器发送，−80 dBm 相当于隔着半个房间」: the two ends of the scale
+    // `picture` draws, which this lesson's own four places sit between.
     const [near, far] = figs(EVERYWHERE,
-      /−(\d+) dBm 是贴着路由器发送，−(\d+) dBm 是隔着半间屋子/, '`picture` on the scale')
+      /−(\d+) dBm 相当于紧挨着路由器发送，−(\d+) dBm 相当于隔着半个房间/, '`picture` on the scale')
     const levels = PRIMER_DISTANCES.map((d) => budgetAt(d).rssiDbm)
     expect(Math.max(...levels), 'the closest place is below the top of the scale')
       .toBeLessThan(-near)
     expect(Math.min(...levels), 'and the furthest is above its bottom').toBeGreaterThan(-far)
-    // 「9 m 处共 75.3 dB」 and 「剩下 −72.3 dBm」
-    const [metres, loss] = raw(EVERYWHERE, /距离每涨十倍再减 \d+ dB——(\d+) m 处共 ([\d.]+) dB/,
+    // 「9 m 处共 75.3 dB」 and 「结果为 −72.3 dBm」
+    const [metres, loss] = raw(EVERYWHERE, /距离每增大十倍，再减去 \d+ dB——(\d+) m 处共 ([\d.]+) dB/,
       'the loss the steps work out')
     same(loss, pathLossDb(val(metres)), 'the path loss at that distance')
-    same(`-${raw(EVERYWHERE, /只穿一堵砖墙，剩下 −([\d.]+) dBm/, 'what is left after the wall')[0]}`,
+    same(`-${raw(EVERYWHERE, /只穿过一堵砖墙，结果为 −([\d.]+) dBm/, 'what is left after the wall')[0]}`,
       budgetAt(val(metres)).rssiDbm, 'the RSSI of the living-room link')
     /*
      * Every 「−N dBm」 the lesson prints — `picture`'s two ends of the scale, the table, `deeper`,
@@ -561,7 +561,7 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
      * only as good as the narrowest set that still contains every figure.
      */
     const walk = figs(radioPrimer.tryThis.join('\n'),
-      /从 ([\d.]+) m 挪到 (\d+) m，再挪到 (\d+) m/, 'the walk `tryThis` sends the reader on')
+      /从 ([\d.]+) m 移到 (\d+) m，再移到 (\d+) m/, 'the walk `tryThis` sends the reader on')
     const links: [number, readonly ('brick' | 'glass')[]][] = [
       ...PRIMER_DISTANCES.map((d) => [d, wallsFor(d)] as [number, readonly 'brick'[]]),
       ...walk.map((d) => [d, ['brick']] as [number, readonly 'brick'[]]),
@@ -579,7 +579,7 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
 
   it('`tryThis` and the quiz: the walk down the centre line, and the glass swap', () => {
     const [d1, d2, d3] = figs(radioPrimer.tryThis.join('\n'),
-      /从 ([\d.]+) m 挪到 (\d+) m，再挪到 (\d+) m/, 'the three places the reader walks to')
+      /从 ([\d.]+) m 移到 (\d+) m，再移到 (\d+) m/, 'the three places the reader walks to')
     expect([d2 / d1, d3 / d2], 'each one twice as far as the last').toEqual([2, 2])
     const levels = raw(radioPrimer.tryThis.join('\n'),
       /接收电平依次是 −([\d.]+)、−([\d.]+)、−([\d.]+) dBm/, 'the three levels')
@@ -635,13 +635,13 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     expect(desk, 'what the router acknowledged at the desk').toBe(acked(0))
     expect(far, 'and at the far wall').toBe(acked(3))
     expect(far * 3, '「不到三分之一」').toBeLessThan(desk)
-    // 「差别全在那 46 dB 的距离与砖墙」
-    const [gap] = figs(obs, /那 (\d+) dB 的距离与砖墙/, 'the gap between the two places')
+    // 「差别完全来自距离与砖墙造成的 46 dB 损耗」
+    const [gap] = figs(obs, /距离与砖墙造成的 (\d+) dB 损耗/, 'the gap between the two places')
     expect(Math.round(budgetAt(PRIMER_DISTANCES[0]).rssiDbm - budgetAt(PRIMER_DISTANCES[3]).rssiDbm),
       'which is the difference of the two levels').toBe(gap)
-    // `deeper` on the reply: 「前三个变体都是 24 Mb/s，只有到远端墙边才降到 12 Mb/s，28 µs 对 32 µs」
+    // `deeper` on the reply: 「前三个变体都是 24 Mb/s，只有到远端墙边才降到 12 Mb/s，空口时间分别为 28 µs 和 32 µs」
     const [fast, slow, fastUs, slowUs] = figs(EVERYWHERE,
-      /前三个变体都是 (\d+) Mb\/s，只有到远端墙边才降到 (\d+) Mb\/s，空口时间 (\d+) µs 对 (\d+) µs/,
+      /前三个变体都是 (\d+) Mb\/s，只有到远端墙边才降到 (\d+) Mb\/s，空口时间分别为 (\d+) µs 和 (\d+) µs/,
       '`deeper` on the router’s reply')
     const ackOf = (i: number) => txs(variantRecs(i), 'ap', 'ack')[0].frame
     for (const i of [0, 1, 2]) {
@@ -650,12 +650,12 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     expect(ackOf(3).mbps, 'and at the far wall it drops').toBe(slow)
     same(String(fastUs), ackOf(0).txTimeNs / 1000, 'how long the faster reply takes')
     same(String(slowUs), ackOf(3).txTimeNs / 1000, 'and the slower one')
-    // 「两端的天线都在地面以上 1 m」 and 「6 GHz 链路还要再多 1.2 dB」
+    // 「两端的天线都在地面以上 1 m」 and 「6 GHz 链路的损耗还要多 1.2 dB」
     const [height] = figs(EVERYWHERE, /两端的天线都在地面以上 (\d+) m/, 'the antenna height')
     for (const n of radioPrimer.scenario().nodes) {
       expect(n.pos.z, `${n.id} stands that high`).toBe(height)
     }
-    for (const v of everyFig(/(?:再多|多付的) ([\d.]+) dB/g, 'what a 6 GHz link pays', 2)) {
+    for (const v of everyFig(/(?:损耗还要多|多出的) ([\d.]+) dB/g, 'what a 6 GHz link pays', 2)) {
       same(v, BAND_EXTRA_LOSS_DB['6g'], 'the extra loss of the higher band')
     }
   })
@@ -671,17 +671,17 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
     const quiz = radioPrimer.quiz.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
     const decade = pathLossDb(10) - pathLossDb(1)
     const step = pathLossDb(2) - pathLossDb(1)
-    // 「−30 dBm 是贴着路由器发送，−80 dBm 是隔着半间屋子」: the two ends of the scale are this
-    // flat's own extremes, each rounded to the nearest ten decibels.
+    // 「−30 dBm 相当于紧挨着路由器发送，−80 dBm 相当于隔着半个房间」: the two ends of the scale
+    // are this flat's own extremes, each rounded to the nearest ten decibels.
     const [near, far] = figs(EVERYWHERE,
-      /−(\d+) dBm 是贴着路由器发送，−(\d+) dBm 是隔着半间屋子/, '`picture` on the scale')
+      /−(\d+) dBm 相当于紧挨着路由器发送，−(\d+) dBm 相当于隔着半个房间/, '`picture` on the scale')
     const tens = (x: number): number => Math.round(x / 10) * 10
     const levels = PRIMER_DISTANCES.map((d) => budgetAt(d).rssiDbm)
     expect(-near, 'the top of the scale is the desk, to the ten').toBe(tens(Math.max(...levels)))
     expect(-far, 'and the bottom is the far wall').toBe(tens(Math.min(...levels)))
     // the decade of distance: `numbers` restates it, and the quiz argues about it twice
     for (const v of everyFig(
-      /距离每涨十倍再减 (\d+) dB|(\d+) dB：公式里写着 (\d+)|(\d+) 是距离涨十倍对应的分贝/g,
+      /距离每增大十倍，再减去 (\d+) dB|(\d+) dB：公式里写着 (\d+)|(\d+) 是距离增大十倍对应的分贝/g,
       'the decibels a decade of distance costs', 4)) {
       same(v, decade, 'what ten times the distance costs')
     }
@@ -698,22 +698,22 @@ describe('radio-primer · every figure the lesson prints, read back out of its o
         .toBeLessThan(step)
     }
     // the quiz's own walk, and the wall swap in its second question
-    const [from, to] = figs(quiz, /笔记本从 ([\d.]+) m 挪到 (\d+) m/, 'the move the quiz asks about')
+    const [from, to] = figs(quiz, /笔记本从 ([\d.]+) m 移到 (\d+) m/, 'the move the quiz asks about')
     expect(to / from, 'twice as far').toBe(2)
     same(`-${raw(quiz, /= [\d.]+ dB，−([\d.]+) 变成/, 'where that move starts')[0]}`,
       budgetAt(from, ['brick']).rssiDbm, 'the level before the move')
     for (const v of everyFig(/升高 (\d+) dB：\d+ dB 的砖墙换成/g, 'what the swap gains', 1)) {
       expect(val(v), 'brick less glass').toBe(WALL_LOSS_DB.brick - WALL_LOSS_DB.glass)
     }
-    for (const v of everyFig(/升高 (\d+) dB：那堵墙整个没了/g, 'the wrong answer’s own figure', 1)) {
+    for (const v of everyFig(/升高 (\d+) dB：相当于那堵墙完全不存在/g, 'the wrong answer’s own figure', 1)) {
       expect(val(v), 'which is the whole brick wall, not the difference')
         .toBe(WALL_LOSS_DB.brick)
     }
-    for (const v of everyFig(/玻璃仍要拿走 (\d+) dB/g, 'what glass still takes', 1)) {
+    for (const v of everyFig(/玻璃仍有 (\d+) dB 损耗/g, 'what glass still takes', 1)) {
       expect(val(v), 'the glass wall').toBe(WALL_LOSS_DB.glass)
     }
-    // 「6 GHz 链路还要再多 1.2 dB」 and `sources` saying it again: the band and its own extra
-    const bands = [...EVERYWHERE.matchAll(/(\d) GHz (?:链路还要再多|多付的) ([\d.]+) dB/g)]
+    // 「6 GHz 链路的损耗还要多 1.2 dB」 and `sources` saying it again: the band and its own extra
+    const bands = [...EVERYWHERE.matchAll(/(\d) GHz (?:链路的损耗还要多|多出的) ([\d.]+) dB/g)]
     expect(bands.length, 'the lesson names that band more than once').toBeGreaterThan(1)
     for (const m of bands) {
       const key = `${m[1]}g` as keyof typeof BAND_EXTRA_LOSS_DB

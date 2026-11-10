@@ -90,7 +90,7 @@ describe('fading · where it sits and what it assumes', () => {
   it('is the seventh lesson of tier 2’s M8, right after `rate-cost`', () => {
     expect(fading.module).toBe(8)
     expect(MODULES[8].tier).toBe(1)
-    expect(MODULES[8].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[8].title).toBe('容量参数与速率控制')
     const i = COURSE_ORDER.indexOf('fading')
     expect(COURSE_ORDER[i - 1]).toBe('rate-cost')
     // The cost of this placement, written down: M8 goes from six lessons to seven, which makes
@@ -203,7 +203,7 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
     // `observe[0]` names the seed-7 pair. 「2.71」 and 「10.31」 appeared nowhere in tests/.
     // Read out of the lesson rather than retyped, so there is no figure on this side to drift.
     const text = fading.observe[0]
-    const m = /掉帧率反而从 ([\d.]+)% 涨到 ([\d.]+)%（种子 (\d+)）/.exec(text)
+    const m = /丢帧率反而从 ([\d.]+)% 升高到 ([\d.]+)%（种子 (\d+)）/.exec(text)
     expect(m, 'observe[0] no longer names the two drop rates in the shape this reads').not.toBeNull()
     const seed = Number(m![3])
     const to2 = (x: number): number => Number(x.toFixed(2))
@@ -623,7 +623,7 @@ describe('fading · the five limits this lesson lifts, and the eleven it does no
     }
     // the dB-vs-power asymmetry, which is the docblock error this slice corrected
     expect(byKind.get('threshold')).toContain('−50 dB')
-    expect(byKind.get('unmodelled')).toContain('没有多普勒')
+    expect(byKind.get('unmodelled')).toContain('没有建模多普勒')
     // and the one the whole conclusion rests on
     expect(byKind.get('out-of-scope')).toContain('mcsForPeer')
   })
@@ -739,18 +739,18 @@ describe('fading · every figure the prose prints, read back out of it', () => {
   it('the coherence time, and the shadow that never moves while it is switched off', () => {
     for (const [text, re, what] of [
       [TERMS, /本仿真器取 (\d+) ms/, '`terms`'],
-      [PIC, /而 (\d+) ms 这个相干时间是本仿真器选的/, '`picture`'],
+      [PIC, /而 (\d+) ms 这个相干时间是本仿真器选定的/, '`picture`'],
       [LIMITS, /相干时间 (\d+) ms、瑞利/, '`limits`'],
     ] as const) {
       expect(val(raw(text, re, what)[0]!), `${what}: the coherence time this simulator picks`)
         .toBe(FADING_DEFAULTS.coherenceMs)
     }
-    // 「shadow 一直是 +0.0」 — the base scene runs Rayleigh at sigma 0, so the slow layer is off
+    // 「shadow 始终是 +0.0」 — the base scene runs Rayleigh at sigma 0, so the slow layer is off
     const rows = ofType(run(scene(RAYLEIGH)).recs, 'RX_START')
       .filter((r) => r.node === 'ap' && r.from === 'sta-1')
     expect(rows.length, 'the base run does report receptions').toBeGreaterThan(100)
     for (const [text, re, what] of [
-      [PIC, /shadow 一直是 \+([\d.]+)/, '`picture`'],
+      [PIC, /shadow 始终是 \+([\d.]+)/, '`picture`'],
       [OBS, /所以那个值是 \+([\d.]+)/, '`observe`'],
     ] as const) {
       const [flat] = raw(text, re, `${what} on the shadow`)
@@ -766,7 +766,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     const seeds = figs(heading, /五个种子（(\d+) \/ (\d+) \/ (\d+) \/ (\d+) \/ (\d+)）/,
       'the table’s own list of seeds')
     expect(seeds, 'the seeds this file measures on').toEqual(SEEDS)
-    same(raw(heading, /各跑 (\d+) ms/, 'the table’s own duration')[0]!, RUN_NS / MS,
+    same(raw(heading, /各运行 (\d+) ms/, 'the table’s own duration')[0]!, RUN_NS / MS,
       'the window every figure of this table is measured over')
     // the bucket width is in the table's HEAD, which is its own site
     same(raw(blockText(table(0).head), /有失败的 (\d+) ms 窗口/,
@@ -780,7 +780,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
         same(spread[1]!, Math.min(...per.map((r) => r.dropPct)), `row ${i}: the lowest drop rate`)
         same(spread[2]!, Math.max(...per.map((r) => r.dropPct)), `row ${i}: and the highest`)
       } else {
-        const [one] = raw(cell(0, i, 1), /([\d.]+)%，五个种子一个样/, `row ${i}: the drop rate`)
+        const [one] = raw(cell(0, i, 1), /([\d.]+)%，五个种子结果相同/, `row ${i}: the drop rate`)
         for (const r of per) same(one!, r.dropPct, `row ${i}: the drop rate on every seed`)
       }
       // the rungs cell: either one rung or a span of them
@@ -812,8 +812,8 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     })
     // the Rician label carries the engine's own K factor, in the table and in the quiz
     for (const [text, re, what] of [
-      [NUMS, /莱斯 K = (\d) dB 的信道比瑞利温和得多/, '`numbers`'],
-      [QUIZ, /莱斯 K = (\d) dB 的信道比瑞利温和，为什么/, 'the first question'],
+      [NUMS, /莱斯 K = (\d) dB 的信道起伏比瑞利浅得多/, '`numbers`'],
+      [QUIZ, /莱斯 K = (\d) dB 的信道起伏比瑞利浅，为什么/, 'the first question'],
       [LIMITS, /瑞利、K = (\d) dB。标准里没有信道模型表/, '`limits`'],
     ] as const) {
       expect(val(raw(text, re, what)[0]!), `${what}: the K factor fading.ts defaults to`)
@@ -828,7 +828,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
       .toBe(about)
     expect(Math.min(...sent), 'and every seed is near it').toBeGreaterThan(about! - 50)
     expect(Math.max(...sent), 'from both sides').toBeLessThan(about! + 50)
-    // 「掉帧率却是瑞利的 2.5 到 4 倍，而吞吐高出 78%」
+    // 「丢帧率却是瑞利的 2.5 到 4 倍，而吞吐量高出 78%」
     /*
      * **A prose defect, found by writing this read-back on 2026-10-13.** The lesson printed
      * 「2.5 到 4 倍」, and the five per-seed ratios are 2.539 / 2.553 / 2.934 / 3.802 / **9.488** —
@@ -838,7 +838,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
      * satisfy, and this assertion is what says so.
      */
     const [loTimes, hiTimes, faster] = figs(NUMS,
-      /掉帧率却是瑞利的 ([\d.]+) 到 ([\d.]+) 倍，而吞吐高出 (\d+)%/, '`numbers` on the conclusion')
+      /丢帧率却是瑞利的 ([\d.]+) 到 ([\d.]+) 倍，而吞吐量高出 (\d+)%/, '`numbers` on the conclusion')
     const ray = perSeed(RAYLEIGH)
     const ric = perSeed(RICIAN)
     const ratios = SEEDS.map((_s, i) => ric[i]!.dropPct / ray[i]!.dropPct)
@@ -851,9 +851,9 @@ describe('fading · every figure the prose prints, read back out of it', () => {
 
   it('the mechanism table, seed 7, cell by cell', () => {
     const heading = table(1).heading!
-    expect(val(raw(heading, /都在种子 (\d+) 上量过/, 'the table’s own seed')[0]!),
+    expect(val(raw(heading, /均在种子 (\d+) 上测得/, 'the table’s own seed')[0]!),
       'the seed every cell of it is measured on').toBe(SEEDS[0])
-    const [deepDb] = figs(cell(1, 0, 0), /抽到的值低于 −(\d+) dB 的比例/,
+    const [deepDb] = figs(cell(1, 0, 0), /取值低于 −(\d+) dB 的比例/,
       'the first row’s own threshold')
     const share = (f: FadingCfg): number =>
       (100 * draws(f).filter((v) => v < -deepDb!).length) / draws(f).length
@@ -861,7 +861,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
       'how often Rayleigh draws deeper than that')
     same(raw(cell(1, 0, 2), /([\d.]+)%/, 'Rician’s deep-fade share')[0]!, share(RICIAN),
       'and how often Rician does')
-    same(raw(cell(1, 1, 0), /(\d+) ms 里发出的数据帧/, 'the second row’s own window')[0]!,
+    same(raw(cell(1, 1, 0), /(\d+) ms 内发出的数据帧/, 'the second row’s own window')[0]!,
       RUN_NS / MS, 'the window the counts are over')
     expect(val(cell(1, 1, 1)), 'the frames Rayleigh sends')
       .toBe(rates(run(scene(RAYLEIGH)).recs).sent)
@@ -888,9 +888,9 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     for (const [text, re, what] of [
       [NUMS, /而那一级只剩 ([\d.]+) dB 的信噪比/, '`numbers`'],
       [DEEP, /最小的 ([\d.]+) dB 对应最高那一级/, '`deeper`'],
-      [OBS, /一直坐在只剩 ([\d.]+) dB 余量的那一级上/, '`observe`'],
-      [TRY, /而最高一级之上还有 ([\d.]+) dB/, '`tryThis`'],
-      [QUIZ, /坐在只剩 ([\d.]+) dB 余量的那一级上/, 'the first answer'],
+      [OBS, /始终停留在只剩 ([\d.]+) dB 余量的那一级上/, '`observe`'],
+      [TRY, /但最高一级之上还有 ([\d.]+) dB/, '`tryThis`'],
+      [QUIZ, /停留在只剩 ([\d.]+) dB 余量的那一级上/, 'the first answer'],
     ] as const) {
       expect(val(raw(text, re, what)[0]!), `${what}: the margin the top rung has`)
         .toBe(topMargin())
@@ -901,7 +901,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     const sc = { ...scene(RAYLEIGH), selectivity: {} } as Scenario
     const sel = ofType(run(sc).recs, 'WIFI_SEL').filter((r) => r.node === 'ap' && r.from === 'sta-1')
     const [count, p5, mid, p95, values] = raw(DEEP,
-      /量过 (\d+) 次接收：余量的第 5 百分位 ([\d.]+) dB、中位 ([\d.]+) dB、第 95 百分位 ([\d.]+) dB，而全部取值只有(.)个/,
+      /测量了 (\d+) 次接收：余量的第 5 百分位 ([\d.]+) dB、中位 ([\d.]+) dB、第 95 百分位 ([\d.]+) dB，而全部取值只有(.)个/,
       '`deeper` on the margin ladder')
     expect(sel.length, 'the receptions that run reports').toBe(val(count!))
     /*
@@ -933,7 +933,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
       .toBeLessThan(unfaded!)
     // the two layers' asymmetry, over the engine's own samplers
     const [draws200k, shadowMean, shadowSd] = raw(DEEP,
-      /（(\d+) 万次抽取量到 \+([\d.]+) dB，标准差 ([\d.]+)）/, '`deeper` on the slow layer')
+      /（(\d+) 万次取值测得 \+([\d.]+) dB，标准差 ([\d.]+)）/, '`deeper` on the slow layer')
     // 「20 万」 — the count is in digits and only the unit is a Chinese word
     const n = val(draws200k!) * 10_000
     expect(shadowDraws(FADING_DEFAULTS.shadowSigmaDb).length, 'the draws this read is over')
@@ -953,7 +953,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
       'the closed form those two give')
     expect(Math.abs(val(closed!) - -avg(draws(RAYLEIGH))),
       'and the 200 000 draws land near it').toBeLessThan(0.02)
-    same(raw(DEEP, /它把平均电平压低了 ([\d.]+) dB/, '`deeper` on what Rayleigh costs')[0]!,
+    same(raw(DEEP, /它还把平均电平降低了 ([\d.]+) dB/, '`deeper` on what Rayleigh costs')[0]!,
       -avg(draws(RAYLEIGH)), 'the level Rayleigh takes off the link')
   })
 
@@ -967,12 +967,12 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     expect(run(scene(SHADOW4), listWindow! * MS).hash,
       'which is why a shadowed row would record the same hash')
       .toBe(run(scene(undefined), listWindow! * MS).hash)
-    same(raw(NUMS, /跑满 (\d+) ms 才量得出来/, '`numbers` on what it takes instead')[0]!,
+    same(raw(NUMS, /运行满 (\d+) ms 才能测出来/, '`numbers` on what it takes instead')[0]!,
       RUN_NS / MS, 'the window this file measures over')
     // the coherence table's heading, and every row of it
     const heading = table(2).heading!
     const [sigma, seed, width] = figs(heading,
-      /阴影 σ (\d+) dB、关掉快层、种子 (\d+)，把失败按 (\d+) ms 分到十个窗口里/,
+      /阴影 σ (\d+) dB、关闭快变层、种子 (\d+)，把失败按 (\d+) ms 分到十个窗口里/,
       'the coherence table’s own heading')
     expect(sigma, 'the sigma that table runs').toBe(SHADOW4.shadowSigmaDb)
     expect(seed, 'the seed it runs').toBe(SEEDS[0])
@@ -993,7 +993,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
         expect(listed[1]!.split(', ').map(Number), `row ${i}: the ten counts it prints`)
           .toEqual(got)
       } else {
-        const [values] = figs(row[1]!, /整轮只抽到 (\d+) 个阴影值/, `row ${i}: the last row`)
+        const [values] = figs(row[1]!, /整轮只取到 (\d+) 个阴影值/, `row ${i}: the last row`)
         expect(got.reduce((a, b) => a + b, 0), `row ${i}: no failure at all`).toBe(0)
         expect(Math.ceil(RUN_NS / MS / ms!), `row ${i}: the shadow values a round draws`)
           .toBe(values)
@@ -1012,10 +1012,10 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     expect(symUs, 'the symbol length the engine already has').toBe(PHY_MODES.he.symNs / 1000)
     expect(shortUs, 'the shorter period those symbols give').toBe(shortSym! * symUs!)
     expect(longUs, 'and the longer one').toBe(longSym! * symUs!)
-    const [lShort, lLong] = figs(LIMITS, /中段训练字段的 (\d+) 或 (\d+) 个符号/,
+    const [lShort, lLong] = figs(LIMITS, /中段训练字段 (\d+) 或 (\d+) 个符号/,
       '`limits` on the same two periods')
     expect([lShort, lLong], '`limits` names the same two').toEqual([shortSym, longSym])
-    const [lShortUs, lLongUs] = figs(LIMITS, /折成 (\d+) µs 与 (\d+) µs/,
+    const [lShortUs, lLongUs] = figs(LIMITS, /换算为 (\d+) µs 与 (\d+) µs/,
       '`limits` on what they come to')
     expect([lShortUs, lLongUs], 'and the same two durations').toEqual([shortUs, longUs])
     const [coherence, ratio] = figs(LIMITS, /比这里的 (\d+) ms 小 (\d+) 倍/,
@@ -1038,7 +1038,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
      * walked through, and they stay, with this argument beside them.
      */
     const [sLo, sHi, kLo, kHi] = figs(LIMITS,
-      /阴影标准差常报 (\d+) 到 (\d+) dB、K 常报 (\d+) 到 (\d+) dB/,
+      /阴影标准差常见报告值为 (\d+) 到 (\d+) dB、K 常见报告值为 (\d+) 到 (\d+) dB/,
       '`limits` on the reported ranges')
     expect(sigmaPick, 'the sigma sits strictly inside the reported range').toBeGreaterThan(sLo!)
     expect(sigmaPick, 'from both sides').toBeLessThan(sHi!)
@@ -1047,17 +1047,17 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     expect(sLo, 'and each range really is a range').toBeLessThan(sHi!)
     expect(kLo, 'both of them').toBeLessThan(kHi!)
     // the clamp: measured as the floor 200 000 draws actually hit
-    const [floor] = raw(LIMITS, /它不许深过 −(\d+) dB/, '`limits` on the clamp')
+    const [floor] = raw(LIMITS, /它不允许低于 −(\d+) dB/, '`limits` on the clamp')
     // `Math.min(...xs)` with 200 000 arguments overflows the call stack
     expect(draws(RAYLEIGH).reduce((a, b) => Math.min(a, b), Infinity),
       'the deepest fade the sampler ever returns').toBe(-val(floor!))
-    const [clampN, hits] = raw(LIMITS, /(\d+) 万次抽取里撞到约(.)次/, '`limits` on how often')
+    const [clampN, hits] = raw(LIMITS, /(\d+) 万次取值中约有(.)次触及/, '`limits` on how often')
     expect(draws(RAYLEIGH).length, 'the draws that count is over')
       .toBe(val(clampN!) * 10_000)
     expect(draws(RAYLEIGH).filter((v) => v === -val(floor!)).length,
       'and how many of them hit the floor')
       .toBeLessThanOrEqual(2 * zhNumeral(hits!.replace(/两/g, '二'))!)
-    const [powerMean] = figs(LIMITS, /E\[\|h\|²\] = (\d) 说的是功率域平均为一/,
+    const [powerMean] = figs(LIMITS, /E\[\|h\|²\] = (\d) 指的是功率域平均为一/,
       '`limits` on the two domains')
     const power = draws(RAYLEIGH).map((v) => 10 ** (v / 10))
     expect(avg(power), 'the power-domain mean the sampler is scaled to')
@@ -1068,7 +1068,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
   it('`observe`, `tryThis` and the quiz: the inert configuration and the two rate stories', () => {
     // `tryThis` 1: sigma 2 dB with no fast layer hashes like no fading at all
     const [trySigma, tryCoherence, frames, drops, rung] = figs(TRY,
-      /阴影标准差填 (\d) dB，相干时间留 (\d+) ms。[\s\S]*?逐哈希相同：(\d+) 帧、(\d) 掉帧、级别恒为 (\d)/,
+      /阴影标准差填 (\d) dB，相干时间保持 (\d+) ms。[\s\S]*?哈希完全相同：(\d+) 帧、(\d) 丢帧、级别恒为 (\d)/,
       '`tryThis` on the inert configuration')
     expect(tryCoherence, 'the coherence time it leaves alone').toBe(FADING_DEFAULTS.coherenceMs)
     const inert: FadingCfg = { shadowSigmaDb: trySigma!, coherenceMs: tryCoherence!, smallScale: 'none' }
@@ -1078,11 +1078,11 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     expect(frames, '`tryThis`: the frames it sends').toBe(base.sent)
     expect(drops, 'and the frames it drops').toBe(base.failed)
     expect(Object.keys(rungs(undefined)).map(Number), 'on that one rung').toEqual([rung])
-    const [smallSigma] = figs(TRY, /([\d.]+) dB 的阴影一帧都翻不动/, '`tryThis` on why')
+    const [smallSigma] = figs(TRY, /([\d.]+) dB 的阴影不会使任何一帧失败/, '`tryThis` on why')
     expect(smallSigma, 'the sigma that cannot move a frame').toBe(trySigma)
     // `tryThis` 2 and the second question: sigma 4, coherence 500 ms, 1000 ms, no failure
     const [bigSigma, from, to] = figs(TRY,
-      /把阴影标准差调回 (\d) dB[\s\S]*?再把相干时间从 (\d+) ms 改成 (\d+) ms/,
+      /把阴影标准差调回 (\d) dB[\s\S]*?再把相干时间从 (\d+) ms 改为 (\d+) ms/,
       '`tryThis` on the long coherence time')
     expect(bigSigma, 'the sigma it goes back to').toBe(SHADOW4.shadowSigmaDb)
     expect(from, 'the coherence time it starts from').toBe(FADING_DEFAULTS.coherenceMs)
@@ -1090,12 +1090,12 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     expect(rates(run(scene(long)).recs).failed, 'and at that one there is no failure at all')
       .toBe(0)
     const [qSigma, qCoherence, qRun] = figs(QUIZ,
-      /阴影标准差 (\d) dB、相干时间 (\d+) ms，跑 (\d+) ms 一次失败也没有/, 'the second question')
+      /阴影标准差 (\d) dB、相干时间 (\d+) ms，运行 (\d+) ms 没有一次失败/, 'the second question')
     expect([qSigma, qCoherence], 'the quiz names the same two').toEqual([bigSigma, to])
     expect(qRun, 'over the same window').toBe(RUN_NS / MS)
     const [qLong] = figs(QUIZ, /([\d.]+) ms 时阴影已经接近常数/, 'the second question’s first option')
     expect(qLong, 'the same coherence time, in the option that is wrong about why').toBe(to)
-    const [qStill] = figs(QUIZ, /相干时间超过 (\d+) ms 之后引擎就不再抽阴影/,
+    const [qStill] = figs(QUIZ, /相干时间超过 (\d+) ms 之后引擎就不再生成阴影值/,
       'the second question’s third option')
     expect(qStill, 'and in the other wrong option').toBe(FADING_DEFAULTS.coherenceMs)
     const [qList] = figs(QUIZ, /那份哈希清单的 (\d+) ms 窗口/, 'the second explanation')
@@ -1110,7 +1110,7 @@ describe('fading · every figure the prose prints, read back out of it', () => {
      * instant is measured too, so the claim is a fact about where it falls rather than about
      * the number printed.
      */
-    const [tenSec] = figs(TRY, /把仿真跑到 (\d+) 秒，失败就回来了/, '`tryThis` on the longer run')
+    const [tenSec] = figs(TRY, /把仿真时长延长到 (\d+) 秒，失败就会重新出现/, '`tryThis` on the longer run')
     const longRun = run(scene(long), tenSec! * 1000 * MS).recs
     const firstFail = ofType(longRun, 'RX_FAIL')
       .filter((r) => r.node === 'ap' && r.from === 'sta-1')[0]

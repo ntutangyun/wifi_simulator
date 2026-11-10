@@ -588,7 +588,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
   })
 
   it('「量具」: the transform period, the width it computes at, and the rung', () => {
-    const text = (airtime.numbers!.find((x) => (x as { text?: string }).text?.startsWith('量具')) as
+    const text = (airtime.numbers!.find((x) => (x as { text?: string }).text?.startsWith('数据来源')) as
       { text: string }).text
     const [dft] = figs(text, /符号时长就是 ([\d.]+) µs 的离散傅里叶变换/, '「量具」 on the transform period')
     const [width] = figs(text, /在 (\d+) MHz、单流、单用户/, '「量具」 on the width')
@@ -604,7 +604,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
   })
 
   it('the formula and its note name the symbol the table prints', () => {
-    const [symUs] = figs(formula.note, /就是上表里那 ([\d.]+) µs/, 'the note’s symbol length')
+    const [symUs] = figs(formula.note, /就是上表中的 ([\d.]+) µs/, 'the note’s symbol length')
     same(String(symUs), he.symNs / US, 'a symbol’s length in µs')
     // 「空口时间 = 前导码 + 符号时长 × ⌈载荷比特数 ÷ 每符号比特数⌉」, against the engine, for
     // every frame size — the formula is the claim, so it is checked as one
@@ -616,12 +616,12 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
   })
 
   it('`picture`: the frame, its preamble, the answer’s fourteen bytes and the caption’s shares', () => {
-    const [frame, preamble] = figs(pictureText, /走完那六步是 ([\d.]+) µs，其中 ([\d.]+) µs 是前导码/,
+    const [frame, preamble] = figs(pictureText, /按那六步算出的时长是 ([\d.]+) µs，其中 ([\d.]+) µs 是前导码/,
       '`picture` on the frame and its preamble')
     same(String(frame), data[0].frame.txTimeNs / US, 'the frame’s airtime in µs')
     same(String(preamble), he.preambleNs / US, 'the preamble in µs')
     // 「讲字节数的那一课已经把这件事算过……走完那六步」: six steps, and they are that lesson's
-    const sixth = counted(pictureText, new RegExp(`走完那(${ZH})步`), 'the steps it cites')
+    const sixth = counted(pictureText, new RegExp(`按那(${ZH})步算出`), 'the steps it cites')
     const bytesLesson = LESSONS.find((l) => l.id === 'frame-anatomy-bytes')!
     const theirSteps = bytesLesson.numbers!.find((x) => x.kind === 'steps') as { items: string[] }
     expect(theirSteps.items, `@frame-anatomy-bytes states ${sixth} steps`).toHaveLength(sixth)
@@ -631,9 +631,9 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
 
     // the caption: 「中间那道空白就是 16 µs 的停顿。169.6 µs 里，只有 81.6 µs 在搬运载荷——
     //  其余 88.0 µs 是前导码、停顿和确认。」
-    const [pause] = figs(caption, /空白就是 (\d+) µs 的停顿/, 'the caption’s pause')
+    const [pause] = figs(caption, /空白就是 (\d+) µs 的间隔/, 'the caption’s pause')
     const [whole, load, fixed] = figs(caption,
-      /([\d.]+) µs 里，只有 ([\d.]+) µs 在搬运载荷——其余 ([\d.]+) µs/, 'the caption’s three shares')
+      /([\d.]+) µs 中，只有 ([\d.]+) µs 在传送载荷——其余 ([\d.]+) µs/, 'the caption’s three shares')
     expect(pause * US).toBe(SIFS_NS)
     expect(us(data[0].frame.txTimeNs + SIFS_NS + acks[0].frame.txTimeNs)).toBe(whole)
     expect(us(data[0].frame.txTimeNs - he.preambleNs)).toBe(load)
@@ -648,7 +648,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
     // document, which this repository does not hold. What is checked is the half that is here:
     // the four clause numbers are the ones `sources` gives, and the three tiers the lesson
     // promises are the three the engine builds.
-    const [pages] = figs(pictureText, /的 ([\d\s]+) 页里/, 'the page count it cites')
+    const [pages] = figs(pictureText, /的 ([\d\s]+) 页中/, 'the page count it cites')
     expect(pages).toBeGreaterThan(1000)
     for (const c of (pictureText.match(/§[\d.]+/g) ?? [])) {
       expect(sourcesText, `the picture cites ${c} and \`sources\` does not`).toContain(c)
@@ -675,11 +675,11 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
       .toBe(false)
     // step 3: 「同一套算术用在 14 个字节上：在 24 Mb/s 下是两个 4 µs 的符号，前面挂一段 20 µs
     //  的前导码，合计 28 µs。再补上它前面那 16 µs 的停顿……125.6 + 16 + 28 = 169.6 µs」
-    const [ackBytes] = figs(steps[2], /用在 (\d+) 个字节上/, 'step 3’s answer length')
+    const [ackBytes] = figs(steps[2], /用于 (\d+) 个字节/, 'step 3’s answer length')
     const [rate] = figs(steps[2], /在 (\d+) Mb\/s 下/, 'step 3’s rate')
     const nsym = counted(steps[2], new RegExp(`下是(${ZH})个`), 'step 3’s symbol count')
     const [symUs, preUs, total] = figs(steps[2],
-      /个 ([\d.]+) µs 的符号，前面挂一段 ([\d.]+) µs 的前导码，合计 ([\d.]+) µs/,
+      /个 ([\d.]+) µs 的符号，前面加一段 ([\d.]+) µs 的前导码，合计 ([\d.]+) µs/,
       'step 3’s arithmetic')
     const nonht = PHY_MODES.nonht
     expect(rate).toBe(picked)
@@ -689,7 +689,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
       .toEqual(new Set([ackBytes]))
     expect(Math.ceil((16 + 8 * ackBytes + 6) / RATES.find((r) => r.mbps === rate)!.ndbps)).toBe(nsym)
     // 「再补上它前面那 16 µs 的停顿」, stated again before the sum and read again
-    const [pauseAgain] = figs(steps[2], /再补上它前面那 (\d+) µs 的停顿/, 'step 3’s pause')
+    const [pauseAgain] = figs(steps[2], /再加上它前面那 (\d+) µs 的间隔/, 'step 3’s pause')
     expect(pauseAgain * US).toBe(SIFS_NS)
     expect(preUs * US + nsym * nonht.symNs).toBe(total * US)
     expect(txTimeNs(ackBytes, rate)).toBe(total * US)
@@ -730,7 +730,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
     const [ppdus, dataFrames, ackFrames] = figs(text, /(\d+) 帧（(\d+) 个数据帧和它们的 (\d+) 个确认帧）/,
       '`observe` on the frames delivered')
     const [octets] = figs(text, /、([\d\s]+) 字节/, '`observe` on the octets delivered')
-    const [before, after] = figs(text, /空口时间从 ([\d.]+) ms 涨到 ([\d.]+) ms/,
+    const [before, after] = figs(text, /空口时间从 ([\d.]+) ms 增加到 ([\d.]+) ms/,
       '`observe` on the air it costs')
 
     expect(giNumbers().map((r) => r.giUs), 'the tier the label names is a tier of the table')
@@ -760,14 +760,14 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
     const [frame, preamble, symUs] = figs(airtime.tryThis[0],
       /拿 ([\d.]+) µs 的色块减去 ([\d.]+) µs 的前导码，再把剩下的除以 ([\d.]+) µs/,
       '`tryThis`’s subtraction')
-    const sixth = counted(airtime.tryThis[0], new RegExp(`刚好得到(${ZH})个符号`), 'the answer it promises')
+    const sixth = counted(airtime.tryThis[0], new RegExp(`恰好是(${ZH})个符号`), 'the answer it promises')
     expect(us(data[0].frame.txTimeNs)).toBe(frame)
     expect(us(he.preambleNs)).toBe(preamble)
     expect(us(he.symNs)).toBe(symUs)
     expect(Math.round((frame - preamble) / symUs), 'the division it asks for').toBe(sixth)
 
     const [gen] = raw(airtime.tryThis[1], /改成 (802\.11\w) 再载入/, 'the generation it asks for')
-    const [stretched] = figs(airtime.tryThis[1], /拉长到了 (\d+) µs/, 'the airtime it promises')
+    const [stretched] = figs(airtime.tryThis[1], /延长到 (\d+) µs/, 'the airtime it promises')
     expect(gen).toBe('802.11a')
     const base = airtime.scenario()
     const legacy: Scenario = {
@@ -785,10 +785,10 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
   it('the quiz: halving the payload costs three symbols, not half the exchange', () => {
     const [whole] = figs(quizText, /那 ([\d.]+) µs 的交互会怎样/, 'the quiz on the exchange')
     const [saved] = figs(quizText, /减少 ([\d.]+) µs/, 'the quiz on what halving saves')
-    const [lands] = figs(quizText, /整次交互落在 ([\d.]+) µs/, 'the quiz on where it lands')
+    const [lands] = figs(quizText, /整次交互为 ([\d.]+) µs/, 'the quiz on where it lands')
     const [from, to] = [counted(quizText, new RegExp(`从(${ZH})个变成`), 'the symbols before'),
       counted(quizText, new RegExp(`变成(${ZH})个`), 'the symbols after')]
-    const dropped = counted(quizText, new RegExp(`用不上的那(${ZH})个符号`), 'the symbols no longer needed')
+    const dropped = counted(quizText, new RegExp(`不再需要的那(${ZH})个符号`), 'the symbols no longer needed')
 
     const exchange = data[0].frame.txTimeNs + SIFS_NS + acks[0].frame.txTimeNs
     expect(us(exchange)).toBe(whole)
@@ -816,7 +816,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
     expect(us(he.preambleNs)).toBe(preamble)
     expect(us(he.preambleNs + SIFS_NS + acks[0].frame.txTimeNs)).toBe(fixed)
     expect(new Set(data.map((r) => r.frame.widthMhz))).toEqual(new Set([width]))
-    const [tier] = figs(l0, /而 ([\d.]+) µs 本身还是一档/, '`limits` restating the preamble')
+    const [tier] = figs(l0, /而 ([\d.]+) µs 本身也只对应其中一档/, '`limits` restating the preamble')
     expect(tier).toBe(preamble)
     expect(us(preambleNsFor('he', TGI_NS.base))).toBe(tier)
     expect(us(preambleNsFor('he', TGI_NS.quad))).toBe(quad)
@@ -829,8 +829,8 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
 
   it('`limits`: the 8.8 µs the long training field costs, split the way it is spent', () => {
     const ltf = airtime.limits.find((x) => x.text.includes('4× LTF') && x.text.includes('信道估计'))!
-    const [extra] = figs(ltf.text, /前导码多 ([\d.]+) µs/, '`limits` on what the 4× LTF costs')
-    const [a, b, c, d] = figs(ltf.text, /（([\d.]+) \+ ([\d.]+) 变成 ([\d.]+) \+ ([\d.]+) µs）/,
+    const [extra] = figs(ltf.text, /前导码增加 ([\d.]+) µs/, '`limits` on what the 4× LTF costs')
+    const [a, b, c, d] = figs(ltf.text, /（([\d.]+) \+ ([\d.]+) 变为 ([\d.]+) \+ ([\d.]+) µs）/,
       '`limits` on how that cost is made up')
     const [again] = figs(ltf.text, /所以这 ([\d.]+) µs 在这里/, '`limits` restating the cost')
     expect(us(preambleNsFor('he', TGI_NS.quad) - preambleNsFor('he', TGI_NS.base))).toBe(extra)
@@ -842,8 +842,8 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
 
   it('`limits`: the pause is exact to the nanosecond, every one of the run’s answers', () => {
     const l = airtime.limits.find((x) => x.text.includes('scheduleResponse'))!.text
-    const [pause] = figs(l, /那 (\d+) µs 的停顿/, '`limits` on the pause')
-    const [answers] = figs(l, /本轮 (\d+) 个回答/, '`limits` on how many answers it counted')
+    const [pause] = figs(l, /那 (\d+) µs 的间隔/, '`limits` on the pause')
+    const [answers] = figs(l, /本轮 (\d+) 个应答/, '`limits` on how many answers it counted')
     expect(pause * US).toBe(SIFS_NS)
     // **This figure was 254 until 2026-10-12, and 254 is `@ifs`'s.** That lesson's saturated
     // uploader answers 254 times in 100 ms; this lesson's video TV answers 116 times in the
@@ -883,7 +883,7 @@ describe('airtime · every printed figure is read back out of the lesson', () =>
     const [symUs] = figs(sourcesText, /而 ([\d.]+) µs 的符号不是代表值/, '`sources` on the symbol')
     const [dft, a, b, c] = figs(sourcesText,
       /T_DFT \+ T_GI，([\d.]+) µs 加 ([\d.]+)／([\d.]+)／([\d.]+) µs/, '`sources` on the three tiers')
-    const [pause] = figs(sourcesText, /(\d+) µs 的停顿是 aSIFSTime/, '`sources` on the pause')
+    const [pause] = figs(sourcesText, /(\d+) µs 的间隔是 aSIFSTime/, '`sources` on the pause')
     const [bytes] = figs(sourcesText, /([\d,]+) 字节的帧、产生它的视频业务模型/, '`sources` on the frame')
     expect(preamble * US).toBe(he.preambleNs)
     expect(us(he.symNs)).toBe(symUs)

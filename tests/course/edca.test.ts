@@ -93,7 +93,7 @@ describe('edca · the lesson’s own scene', () => {
     const rs = recs()
     const ics = ofType(rs, 'INTERNAL_COLLISION')
     expect(ics).toHaveLength(1)
-    // "一次，在 362.6426 ms：语音赢，尽力而为那条记一次重传"
+    // "一次，在 362.6426 ms：语音发送，尽力而为那条记一次重传"
     expect(ics[0].t / MS).toBe(362.6426)
     expect(ics[0].node).toBe('ap')
     const ac = (name: string) => EDCA_PARAMS.findIndex((p) => p.name === name)
@@ -424,8 +424,8 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     for (const n of [a!, b!, c!]) {
       expect(sifs! * US + n * slot! * US, `the sum at AIFSN ${n}`).toBe(aifsNs(n, OFDM_5G))
     }
-    // 「把仲裁帧间间隔数…钉死在 2」 — the old one-size-fits-all wait is that same sum
-    const [fixed] = figs(formulaNote(), /钉死在 (\d+)：一个常数被改成了参数/, 'the note on the old wait')
+    // 「把仲裁帧间间隔数…固定为 2」 — the old one-size-fits-all wait is that same sum
+    const [fixed] = figs(formulaNote(), /固定为 (\d+)：一个常数被改成了参数/, 'the note on the old wait')
     expect(aifsNs(fixed!, OFDM_5G), 'which is the engine’s own DIFS').toBe(OFDM_5G.difsNs)
     // the steps print two of the three silences again
     const [twoSlots, twoUs, sevenSlots, sevenUs] = raw(NUMS,
@@ -447,8 +447,8 @@ describe('edca · every figure the prose prints, read back out of it', () => {
 
   it('reads the caption against the lanes the figure draws', () => {
     const cap = caption()
-    // 「零点取本轮的 23.0816 ms：接入点那个 32 µs 的回答刚刚结束」
-    const [zeroMs, answerUs] = figs(cap, /零点取本轮的 ([\d.]+) ms：接入点（access point, AP）那个 (\d+) µs 的回答刚刚结束/,
+    // 「零点取本轮的 23.0816 ms：接入点那个 32 µs 的应答刚刚结束」
+    const [zeroMs, answerUs] = figs(cap, /零点取本轮的 ([\d.]+) ms：接入点（access point, AP）那个 (\d+) µs 的应答刚刚结束/,
       'the caption on its own zero point')
     const tx = firstData(rs, 'sta-1')
     const ifs = ofType(rs, 'IFS_START')
@@ -458,9 +458,9 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     expect(before, 'one frame really ends there').toHaveLength(1)
     expect(before[0]!.node, 'and it is the access point’s').toBe('ap')
     expect(answerUs! * US, 'its own airtime').toBe(before[0]!.frame.txTimeNs)
-    // 「这一刻真的在跑的是 34 µs 和 43 µs 两条；79 µs 那条是同一个和式按后台的时隙数算出来的」
+    // 「此刻实际在运行的是 34 µs 和 43 µs 两条；79 µs 那条是按同一个公式、以后台的时隙数算出来的」
     const [a1, a2, drawn] = figs(cap,
-      /真的在跑的是 (\d+) µs 和 (\d+) µs 两条[^]*?；(\d+) µs 那条是同一个和式/,
+      /实际在运行的是 (\d+) µs 和 (\d+) µs 两条[^]*?；(\d+) µs 那条是按同一个公式/,
       'the caption on which lanes are running')
     const running = new Set(ofType(rs, 'IFS_START')
       .filter((r) => r.t === ifs.t && r.kind === 'AIFS').map((r) => (r.untilNs - r.t) / US))
@@ -498,7 +498,7 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     const tx = firstData(rs, 'sta-1')
     const ifs = ofType(rs, 'IFS_START')
       .filter((r) => r.node === 'sta-1' && r.kind === 'AIFS' && r.t < tx.t).at(-1)!
-    same(raw(row('空中重新安静下来'), /^([\d.]+) ms$/, 'the quiet instant')[0]!, ifs.t / MS,
+    same(raw(row('信道重新空闲'), /^([\d.]+) ms$/, 'the quiet instant')[0]!, ifs.t / MS,
       'when the air goes quiet')
     // 「这一类的 AIFS = 16 + 2 × 9 | 34 µs」
     const label = t.rows.find((r) => r[0]!.includes('AIFS ='))![0]!
@@ -508,7 +508,7 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     expect(aifsn, 'and the caller’s own AIFSN').toBe(by('VO').aifsn)
     const [silence] = figs(row('AIFS ='), /^(\d+) µs$/, 'the silence it comes to')
     expect(silence! * US, 'which is what the record really lasts').toBe(ifs.untilNs - ifs.t)
-    same(raw(row('计数器可以从这一刻开始走'), /^([\d.]+) ms$/, 'when the counter may start')[0]!,
+    same(raw(row('计数器从这一刻起可以递减'), /^([\d.]+) ms$/, 'when the counter may start')[0]!,
       ifs.untilNs / MS, 'the end of that silence')
     // 「在 0 与最小竞争窗口 3 之间抽取 | 2」
     const [from, cwMin] = figs(row('之间抽取').length > 0
@@ -536,30 +536,30 @@ describe('edca · every figure the prose prints, read back out of it', () => {
     const [waitUs] = figs(row('已经停在零的计数器'), /^(\d+) µs$/, 'the boundary a zero waits')
     expect(waitUs! * US, 'the slot between the last decrement and the frame')
       .toBe(tx.t - decs[1]!.t)
-    same(raw(row('这一帧语音发出去的时刻'), /^([\d.]+) ms$/, 'when the frame goes out')[0]!,
+    same(raw(row('这一帧语音发送的时刻'), /^([\d.]+) ms$/, 'when the frame goes out')[0]!,
       tx.t / MS, 'the instant the voice frame leaves')
-    // 「同一刻起步的后台队列，此时还欠着 | 27 µs」
-    const [owed] = figs(row('还欠着'), /^(\d+) µs$/, 'what a background queue would still owe')
+    // 「同一时刻开始等待的后台队列，此时还差 | 27 µs」
+    const [owed] = figs(row('此时还差'), /^(\d+) µs$/, 'what a background queue would still owe')
     expect(owed! * US, 'the rest of its own silence at that instant')
       .toBe(aifsNs(by('BK').aifsn, OFDM_5G) - (tx.t - ifs.t))
   })
 
   it('reads the internal collision, `observe`, `limits` and the question', () => {
-    // 「整轮里它触发过一次，在 362.6426 ms：语音赢，尽力而为那条记一次重传、窗口从 127 翻到 255」
+    // 「整轮里它发生过一次，在 362.6426 ms：语音发送，尽力而为那条记一次重传、窗口从 127 翻倍到 255」
     const [atMs, was, now] = figs(NUMS,
-      /整轮里它触发过一次，在 ([\d.]+) ms：语音赢，尽力而为那条记一次重传、窗口从 (\d+) 翻到 (\d+)/,
+      /整轮里它发生过一次，在 ([\d.]+) ms：语音发送，尽力而为那条记一次重传、窗口从 (\d+) 翻倍到 (\d+)/,
       '`numbers` on the internal collision')
     const cw = ofType(rs, 'CW_CHANGE').filter((r) => r.node === 'ap' && r.cw === now)
     expect(cw.length, 'the access point really doubles that window').toBeGreaterThan(0)
     same(String(atMs), cw[0]!.t / MS, 'when the internal collision happens')
     expect(now, 'twice the window before it, plus one').toBe(2 * was! + 1)
     expect(now, 'and never past this class’s largest').toBeLessThanOrEqual(by('BE').cwMax)
-    // `observe`: 「块上的窗口从不宽过 7」, 「从不窄于 15，而且上面那段静默是 79 µs」
-    const [voMax] = figs(OBS, /块上的窗口从不宽过 (\d+)/, '`observe` on the caller’s windows')
+    // `observe`: 「块上的窗口从不超过 7」, 「窗口从不小于 15，而且上面那段静默是 79 µs」
+    const [voMax] = figs(OBS, /块上的窗口从不超过 (\d+)/, '`observe` on the caller’s windows')
     expect(Math.max(...draws(rs, 'sta-1').map((d) => d.cw)), 'the widest window the caller draws from')
       .toBe(voMax)
     expect(voMax, 'which is this class’s own largest').toBe(by('VO').cwMax)
-    const [bkMin, bkSilence] = figs(OBS, /从不窄于 (\d+)，而且上面那段静默是 (\d+) µs/,
+    const [bkMin, bkSilence] = figs(OBS, /窗口从不小于 (\d+)，而且上面那段静默是 (\d+) µs/,
       '`observe` on the background station')
     expect(Math.min(...draws(rs, 'sta-3').map((d) => d.cw)), 'the narrowest window it draws from')
       .toBe(bkMin)

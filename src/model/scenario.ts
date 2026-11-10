@@ -1520,8 +1520,9 @@ export function tamperSetFields(t: TamperCfg): (keyof TamperCfg)[] {
  *     node the field sits on, and the one that must not be written as "refuse every tamper on a
  *     non-EDCA link": `cw`, `noDouble` and `navInflate` are all perfectly effective under DCF,
  *     and refusing them would delete real behaviour instead of an empty configuration. The
- *     combined `greedy` preset stays legal on a DCF link for exactly that reason - four of its
- *     five fields are unreadable there and the fifth pair is not, so it runs, and what it runs
+ *     combined `greedy` preset stays legal on a DCF link for exactly that reason - three of its
+ *     five fields (`allAsAc`, `aifsn`, `txopLimitUs`) are unreadable there and the remaining
+ *     `cwMin`/`cwMax` pair is not, so it runs, and what it runs
  *     is byte-for-byte `cw`.
  *
  * **What this rule costs, stated rather than discovered later.** `Simulation`'s constructor

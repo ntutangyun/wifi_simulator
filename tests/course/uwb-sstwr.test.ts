@@ -84,7 +84,7 @@ const stepItems = (): string[] =>
 
 describe('uwb-sstwr · the lesson’s own place in the track', () => {
   it('is the third lesson of the UWB track and needs the frame lesson', () => {
-    expect(MODULES[uwbSstwr.module].title).toBe('两只钟')
+    expect(MODULES[uwbSstwr.module].title).toBe('两个时钟')
     expect(uwbSstwr.id).toBe('uwb-sstwr')
     expect(uwbSstwr.needs).toEqual(['uwb-frame'])
     // the five new words, in the order the "New words" table lists them
@@ -466,7 +466,7 @@ describe('uwb-sstwr · what the clock-offset correction puts back', () => {
 })
 
 /**
- * The `timing` figure §4 asks of this lesson (Tround 与 Treply 画在两只钟上，四个
+ * The `timing` figure §4 asks of this lesson (Tround 与 Treply 画在两个时钟上，四个
  * 时隙上的斜坡). Its geometry — nothing outside the viewBox, no two labels touching
  * — is checked course-wide in tests/course/diagram.test.ts; what belongs here is
  * that every instant and every number in it is this run's own.

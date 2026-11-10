@@ -59,7 +59,7 @@ describe('nav · the lesson’s own scene', () => {
 describe('nav · where the 44 µs comes from', () => {
   it('a data frame announces the pause plus the answer, and the answer announces nothing', () => {
     // the "where the 44 µs comes from" table: pause 16 µs, answer 28 µs, data frame writes
-    //  44 µs, answer writes 0 µs — and 「576 个数据帧写下的都是同一个 44 µs」
+    //  44 µs, answer writes 0 µs — and 「576 个数据帧填写的都是同一个 44 µs」
     const data = txs('data')
     const acks = txs('ack')
     expect(data.length).toBe(576)
@@ -76,7 +76,7 @@ describe('nav · where the 44 µs comes from', () => {
   })
 
   it('the Listener’s 513 countdowns end at the exact nanosecond the answer ends', () => {
-    // 「旁听者的倒计时恰好在回答结束的那一纳秒到期——513 次无一例外」and the observation
+    // 「旁听站点的倒计时恰好在应答结束的那一纳秒到期——513 次无一例外」and the observation
     //  "check any of the Listener's 513 of them"
     const navs = ofType(recs(), 'NAV_SET').filter((r) => r.node === 'sta-3')
     expect(navs.length).toBe(513)
@@ -145,7 +145,7 @@ describe('nav · one long freeze, taken apart', () => {
     // spec the reader is actually shown, plus the caption's four instants.
     const air = lane('空口').spans
     const dur = lane('Duration').spans[0]
-    const a = lane('A 在等的').spans
+    const a = lane('A 等待的原因').spans
 
     const freeze = ofType(recs(), 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === 498_000)!
     expect(freeze.value).toBe(3)
@@ -247,7 +247,7 @@ describe('nav · one long freeze, taken apart', () => {
  *
  * What follows is the other half of each of them, with no figure on this side. The reservation's
  * three ingredients come off the table's own cells (and the table's own heading), the census of
- * 「每一次都是同一个数」 off its sentence, the caption's seven figures off the caption, the
+ * 「每一次都是同一个值」 off its sentence, the caption's seven figures off the caption, the
  * diagram's `44 µs` label off the span it labels, the arithmetic of step 1 off step 1,
  * `deeper`'s 「约四分之三」 off its own numerator and denominator, and `observe`, `tryThis` and
  * `sources` off theirs. `limits` is read too — the graded walk never reads it, and it carries the
@@ -323,7 +323,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
     const written = figure(table.rows[2][1], 'what a data frame writes down')
     const closing = figure(table.rows[3][1], 'what the answer writes down')
 
-    // 「回答之前的停顿」 — the gap the engine really leaves between a frame and its answer
+    // 「应答之前的停顿」 — the gap the engine really leaves between a frame and its answer
     expect(pause).toBe(SIFS_NS)
     expect(acks.length).toBeGreaterThan(500)
     for (const a of acks) {
@@ -332,7 +332,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
       expect(a.t - (d!.t + d!.frame.txTimeNs), `the silence before the answer at ${a.t}`).toBe(pause)
     }
 
-    // 「14 个字节，按控制回应规则定的 24 Mb/s」: both figures, and the rule that picks the rate
+    // 「14 个字节，按控制回应规则确定的 24 Mb/s」: both figures, and the rule that picks the rate
     const [bytes] = figs(table.rows[1][0], /(\d+) 个字节/, 'the answer’s length')
     const [mbps] = figs(table.rows[1][0], /(\d+) Mb\/s/, 'the answer’s rate')
     expect(bytes).toBe(ACK_BYTES)
@@ -349,7 +349,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
     expect(new Set(data.map((r) => r.frame.durationFieldNs))).toEqual(new Set([written]))
     expect(new Set(acks.map((r) => r.frame.durationFieldNs))).toEqual(new Set([closing]))
     // the heading prints the same figure as the row it is the heading of
-    expect(figs(table.heading, /^(\d+) µs 是怎么来的/, 'the heading')[0] * US).toBe(written)
+    expect(figs(table.heading, /^(\d+) µs 的组成/, 'the heading')[0] * US).toBe(written)
     // and the table adds up the way it says it does
     expect(pause + answer, 'the table’s own two ingredients against its own total').toBe(written)
 
@@ -384,14 +384,14 @@ describe('nav · every printed figure is read back out of the lesson', () => {
       `the table cites ${table.rows[2][2]} for the Duration field and \`sources\` does not`).toBe(true)
   })
 
-  it('「每一次都是同一个数」: the frames counted, the one figure they write, the countdowns checked', () => {
-    const [frames] = figs(census, /里 (\d+) 个数据帧/, 'the frames counted')
+  it('「每一次都是同一个值」: the frames counted, the one figure they write, the countdowns checked', () => {
+    const [frames] = figs(census, /中 (\d+) 个数据帧/, 'the frames counted')
     const [written] = figs(census, /同一个 (\d+) µs/, 'the reservation every one of them writes')
     const [times] = figs(census, /(\d+) 次无一例外/, 'the countdowns checked')
     expect(data.length).toBe(frames)
     expect(new Set(data.map((r) => r.frame.durationFieldNs))).toEqual(new Set([written * US]))
     expect(listener.length).toBe(times)
-    // 「恰好在回答结束的那一纳秒到期」 — the nanosecond, not the microsecond
+    // 「恰好在应答结束的那一纳秒到期」 — the nanosecond, not the microsecond
     const ends = new Set(acks.map((r) => r.t + r.frame.txTimeNs))
     for (const n of listener) {
       expect(n.untilNs - n.t, `the Listener’s countdown at ${n.t}`).toBe(written * US)
@@ -401,11 +401,11 @@ describe('nav · every printed figure is read back out of the lesson', () => {
 
   it('the caption: the freeze, its three spans, its total, and the counter it resumes from', () => {
     const [at] = figs(caption, /A 在 (\d+) µs 冻结/, 'when A freezes')
-    const [total] = figs(caption, /三段加起来 (\d+) µs/, 'the whole freeze')
+    const [total] = figs(caption, /三段合计 (\d+) µs/, 'the whole freeze')
     const [heard] = figs(caption, /第一段 (\d+) µs/, 'the span its own ear covers')
-    const [booked] = figs(caption, /中间那 (\d+) µs/, 'the span that is only booked')
+    const [booked] = figs(caption, /中间 (\d+) µs/, 'the span that is only booked')
     const [free] = figs(caption, /最后 (\d+) µs 才是真正的空闲/, 'the span that is really idle')
-    const [until] = figs(caption, /(\d+) µs 走完之后/, 'when A may count again')
+    const [until] = figs(caption, /到 (\d+) µs 之后/, 'when A may count again')
     const [owed] = figs(caption, /计数从 (\d+) 继续/, 'the counter it resumes from')
 
     const freeze = ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === at * US)
@@ -429,7 +429,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
     expect(resume!.t - freeze!.t, 'the whole freeze').toBe(total * US)
     // and the caption's own three spans add to the caption's own total
     expect(heard + booked + free, 'the caption’s three spans against its own total').toBe(total)
-    // 「那是空口变忙时它还欠着的空闲时隙数」: the three are counted off as slots
+    // 「那是空口变忙时它尚未完成的空闲时隙数」: the three are counted off as slots
     const tx = ofType(rs, 'TX_START').find((r) => r.node === 'sta-1' && r.t > resume!.t)!
     expect(tx.t - resume!.t).toBe(owed * SLOT_NS)
   })
@@ -441,9 +441,9 @@ describe('nav · every printed figure is read back out of the lesson', () => {
     const set = ofType(rs, 'NAV_SET').find((r) => r.node === 'sta-1' && r.t === dur.fromUs * US)
     expect(set, 'the labelled span is not a reservation of this run').toBeDefined()
     expect(set!.untilNs).toBe(dur.toUs * US)
-    // tryThis: 「说出：它此刻等的是三段等待里的哪一段」
+    // tryThis: 「说出：它此刻处于三段等待中的哪一段」
     const spans = counted(nav.tryThis!.join('\n'), /([〇一二三四五六七八九十两]+)段等待/, 'the spans the reader walks')
-    expect(lane('A 在等的').spans).toHaveLength(spans)
+    expect(lane('A 等待的原因').spans).toHaveLength(spans)
   })
 
   it('step 1 adds the two up in front of the reader, and step 2 writes nothing down', () => {
@@ -452,9 +452,9 @@ describe('nav · every printed figure is read back out of the lesson', () => {
     expect(new Set(acks.map((r) => r.frame.txTimeNs))).toEqual(new Set([answer * US]))
     expect((pause + answer) * US, 'step 1’s own sum').toBe(sum * US)
     expect(new Set(data.map((r) => r.frame.durationFieldNs))).toEqual(new Set([sum * US]))
-    const [zero] = figs(steps[1], /确认帧带的就是 (\d+) µs/, 'what the closing frame writes')
+    const [zero] = figs(steps[1], /确认帧携带的就是 (\d+) µs/, 'what the closing frame writes')
     expect(new Set(acks.map((r) => r.frame.durationFieldNs))).toEqual(new Set([zero * US]))
-    // 「而写着零的 Duration，谁的计时器也装不上」
+    // 「而值为零的 Duration 不会为任何站点设置计时器」
     expect(ofType(rs, 'NAV_SET').some((r) => r.source.startsWith('ack')),
       'an answer that writes nothing down still armed somebody').toBe(false)
   })
@@ -462,7 +462,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
   it('`deeper`: the total is first computable three quarters of the way into the wait', () => {
     const text = (nav.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
     const [total] = figs(text, /(\d+) µs 这个总数/, 'the total')
-    const [known] = figs(text, /最早要到 (\d+) µs 才算得出来/, 'when it becomes computable')
+    const [known] = figs(text, /最早要到 (\d+) µs 才能算出/, 'when it becomes computable')
     const [gone] = figs(text, /已经过去了 (\d+) µs/, 'how much of the wait had gone by then')
     const [free] = figs(text, /最后那 (\d+) µs/, 'the span that could still grow')
 
@@ -487,9 +487,9 @@ describe('nav · every printed figure is read back out of the lesson', () => {
   })
 
   it('`observe` and `tryThis` quote the same countdowns and the same two instants', () => {
-    const [times] = figs(nav.observe!.join('\n'), /旁听者的 (\d+) 条/, 'the countdowns the reader may check')
+    const [times] = figs(nav.observe!.join('\n'), /旁听站点的 (\d+) 条/, 'the countdowns the reader may check')
     expect(listener.length).toBe(times)
-    const [from, to] = figs(nav.tryThis!.join('\n'), /从 (\d+) µs 走到 (\d+) µs/, 'the walk the reader is asked to take')
+    const [from, to] = figs(nav.tryThis!.join('\n'), /从 (\d+) µs 逐步推进到 (\d+) µs/, 'the walk the reader is asked to take')
     expect(ofType(rs, 'BACKOFF_FREEZE').some((r) => r.node === 'sta-1' && r.t === from * US),
       `nothing freezes Talker A at ${from} µs`).toBe(true)
     expect(ofType(rs, 'BACKOFF_RESUME').some((r) => r.node === 'sta-1' && r.t === to * US),
@@ -499,7 +499,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
   it('`limits`: the real field’s width, and what this engine’s ideal one never has to hold', () => {
     const ideal = nav.limits.find((x) => x.text.includes('durationFieldNs'))!.text
     const [bits] = figs(ideal, /是 (\d+) 位/, 'the width of the real field')
-    const [max] = figs(ideal, /最大只装得下 ([\d\s]+) µs/, 'what the real field holds')
+    const [max] = figs(ideal, /最大只能表示 ([\d\s]+) µs/, 'what the real field holds')
     expect(2 ** bits - 1, `${bits} bits of microseconds`).toBe(max)
     // so the limit is about resolution and drift, not about range: every reservation this engine
     // writes would fit in the real field with room to spare
@@ -516,7 +516,7 @@ describe('nav · every printed figure is read back out of the lesson', () => {
     const sources = counted(busy, /只有([〇一二三四五六七八九十两]+)个来源/, 'the sources of 「忙」')
     const alsoTwo = counted(busy, /只是其中([〇一二三四五六七八九十两]+)条/, 'how many of them a real device has')
     const one = counted(nav.limits.find((x) => x.text.includes('intra-BSS'))!.text,
-      /每台站点只有([〇一二三四五六七八九十两]+)只 NAV/, 'how many countdowns a station holds')
+      /每台站点只有([〇一二三四五六七八九十两]+)个 NAV/, 'how many countdowns a station holds')
 
     const m = /private mediumBusy\(\): boolean \{\s*return ([^\n]+)\n/.exec(mac)
     expect(m, 'mac.ts no longer has the one-line mediumBusy this sentence is about').not.toBeNull()

@@ -564,7 +564,7 @@ describe('amp-coexist · the figures the lesson prints are read back out of it',
   ]
 
   const tableRows = (): string[][] => {
-    const b = ampCoexist.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes('四种跑法'))
+    const b = ampCoexist.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes('四种运行配置'))
     expect(b, 'the four-run table is gone from `numbers`').toBeDefined()
     return (b as Extract<typeof b, { kind: 'table' }>).rows
   }
@@ -616,7 +616,7 @@ describe('amp-coexist · the figures the lesson prints are read back out of it',
   it('the slot census: eighty slots, and where all forty responses went', () => {
     // The counts in the second half are Chinese numerals, not digits, so `zhNumeral` reads them
     // — the same parser `wifi-coverage.test.ts` uses on 「最近九门新课」.
-    const m = /标签一共送出 (\d+) 帧回应，(\d+) 帧拿到了确认——([\d.]+) %。丢掉的([一-鿿]+)帧里，([一-鿿]+)帧是两个标签抽到了同一个时隙，([一-鿿]+)轮里发生了([一-鿿]+)次；另外([一-鿿]+)帧输给了摄像头/
+    const m = /标签一共送出 (\d+) 帧回应，(\d+) 帧得到了确认——([\d.]+) %。丢失的([一-鿿]+)帧里，([一-鿿]+)帧是两个标签抽到了同一个时隙，([一-鿿]+)轮里发生了([一-鿿]+)次；另外([一-鿿]+)帧与摄像头的帧发生碰撞而丢失/
       .exec(prose())
     expect(m, 'the slot-census sentence is gone, or its shape changed').not.toBeNull()
     const rs = recs()
@@ -640,11 +640,11 @@ describe('amp-coexist · the figures the lesson prints are read back out of it',
     expect(zh(6), 'rounds in the run').toBe(ofType(rs, 'AMP_ROUND').length)
     expect(zh(5) + zh(8), 'the two causes account for every lost frame')
       .toBe(res.length - acked(rs))
-    // 「三次都落在它没听见公告的那几个轮里」: rounds whose CTS the camera never heard
+    // 「三次都发生在摄像头没有收到通告的那几个轮里」: rounds whose CTS the camera never heard
     expect(roundCts(rs).length - camNav(rs).length, 'rounds the camera took no NAV from')
       .toBe(zh(8))
 
-    const census = /(\d+) 个时隙里 (\d+) 个安静无声，(\d+) 个装着一帧回应，(\d+) 个装着两帧/.exec(prose())
+    const census = /(\d+) 个时隙里 (\d+) 个为空，(\d+) 个含一帧回应，(\d+) 个含两帧/.exec(prose())
     expect(census, 'the 80-slot census is gone from the same paragraph').not.toBeNull()
     expect(Number(census![1]), 'slots in the run').toBe(ss.length)
     expect([Number(census![2]), Number(census![3]), Number(census![4])], 'empty, one, two')
@@ -654,7 +654,7 @@ describe('amp-coexist · the figures the lesson prints are read back out of it',
   })
 
   it('the airtime paragraph: what is reserved, what is modulated, and both percentages', () => {
-    const m = /每 100 ms 里预留 (\d+) µs——([\d.]+) %——但其中真正被调制（modulation）到空口上的只有 (\d+) µs：每秒 ([\d\s]+) µs，占信道的 ([\d.]+) %/
+    const m = /每 100 ms 里预留 (\d+) µs——([\d.]+) %——但其中实际有调制（modulation）信号在空口上传送的只有 (\d+) µs：每秒 ([\d\s]+) µs，占信道的 ([\d.]+) %/
       .exec(prose())
     expect(m, 'the airtime paragraph is gone, or its shape changed').not.toBeNull()
     const rs = recs()
@@ -706,7 +706,7 @@ describe('amp-coexist · the figures the lesson prints are read back out of it',
   })
 
   it('the cost sentence: both throughputs, and the percentage it draws from them', () => {
-    const m = /轮询开着时摄像头能送出 ([\d.]+) Mb\/s，把标签从同一间屋子里拿掉后是 ([\d.]+) Mb\/s：为了一个只占 ([\d.]+) % 空口时间的轮，它付出了 ([\d.]+) % 的吞吐/
+    const m = /轮询开着时摄像头能送出 ([\d.]+) Mb\/s，把标签从同一个房间中移除后是 ([\d.]+) Mb\/s：为了一个只占 ([\d.]+) % 空口时间的轮，它付出了 ([\d.]+) % 的吞吐/
       .exec(prose())
     expect(m, 'the cost sentence is gone, or its shape changed').not.toBeNull()
     const withRound = Number(camMbps(recs()).toFixed(2))
@@ -722,7 +722,7 @@ describe('amp-coexist · the figures the lesson prints are read back out of it',
   })
 
   it('taking the protection away: the camera stops hearing the round, and both counts move', () => {
-    const m = /落进上行时隙的摄像头帧从九帧涨到 (\d+) 帧。(\d+) 帧回应只有 (\d+) 帧成功——([\d.]+) %，而有 CTS-to-self 时是 ([\d.]+) %——路由器记下了 (\d+) 次原因为 collision 的接收失败，而此前只有 (\d+) 次/
+    const m = /落在上行时隙内的摄像头帧从九帧增加到 (\d+) 帧。(\d+) 帧回应只有 (\d+) 帧成功——([\d.]+) %，而有 CTS-to-self 时是 ([\d.]+) %——路由器记录了 (\d+) 次原因为 collision 的接收失败，而此前只有 (\d+) 次/
       .exec(prose())
     expect(m, 'the no-protection paragraph is gone, or its shape changed').not.toBeNull()
     const bare = recs(NONE)
@@ -827,8 +827,8 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     // 「每 100 ms 回应一次轮询」
     const [pollMs] = figs(pic, /每 (\d+) ms 回应一次轮询/, '`picture` on the poll interval')
     expect(pollMs, 'the interval this scene polls at').toBe(POLL_MS)
-    // 「下文每个数字都是在头两秒里量出来的」 — a Chinese numeral, read with the course's reader
-    const [secs] = raw(pic, /头(.)秒里量出来的/, '`picture` on the window')
+    // 「下文每个数字都是在前两秒内测得的」 — a Chinese numeral, read with the course's reader
+    const [secs] = raw(pic, /前(.)秒内测得的/, '`picture` on the window')
     expect(zhNumeral(secs!.replace(/两/g, '二'))! * 1000 * MS, 'the window this file measures over')
       .toBe(RUN_NS)
     /*
@@ -908,14 +908,14 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     expect(want, 'the rounds the poll clock asks for').toBe(RUN_NS / (POLL_MS * MS))
     expect(zhNumeral(did!.replace(/两/g, '二')), 'and the rounds the AP really started')
       .toBe(roundCts(rs).length)
-    // 「CTS-to-self 平均比「到点」晚 5.17 ms 才出去，最晚的一次晚了 12.86 ms」
-    const [avg, worst] = raw(EVERYWHERE, /平均比“到点”晚 ([\d.]+) ms 才出去，最晚的一次晚了 ([\d.]+) ms/,
+    // 「CTS-to-self 平均比预定时刻晚 5.17 ms 才发出，最晚的一次晚了 12.86 ms」
+    const [avg, worst] = raw(EVERYWHERE, /平均比预定时刻晚 ([\d.]+) ms 才发出，最晚的一次晚了 ([\d.]+) ms/,
       '`numbers` on how late the rounds are')
     same(avg!, mean(late) / 1000, 'the mean lateness of the twenty rounds')
     same(worst!, Math.max(...late) / 1000, 'and the worst of them')
-    // 「二十个轮里只有两个正好卡在点上」 and the two it names: t = 0 and the one at 1.8 s
+    // 「二十个轮里只有两个恰好在预定时刻发出」 and the two it names: t = 0 and the one at 1.8 s
     const onTime = late.map((x, i) => [x, i] as const).filter(([x]) => x === 0)
-    const [howMany] = raw(EVERYWHERE, /个轮里只有(.)个正好卡在点上/, '`numbers` on how many were on time')
+    const [howMany] = raw(EVERYWHERE, /个轮里只有(.)个恰好在预定时刻发出/, '`numbers` on how many were on time')
     expect(zhNumeral(howMany!.replace(/两/g, '二')), 'the rounds that went out on the tick')
       .toBe(onTime.length)
     const [t0, firstUs] = figs(EVERYWHERE, /因为 t = (\d) 时谁都还没有退避（backoff）值.*?都在 (\d+) µs 开始发送/,
@@ -964,8 +964,8 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
       .toBe(camNav(rs).length)
     expect(num(navUs!) * US, 'the NAV it set from them').toBe(cover! * US)
     for (const n of camNav(rs)) expect(n.untilNs - n.t, 'every one of them').toBe(cover! * US)
-    // 「有意思的是漏掉的那三帧」 — and they are the rounds whose CTS started in the same nanosecond
-    const [missed] = raw(nums, /漏掉的那(.)帧/, '`numbers` on the ones it missed')
+    // 「值得注意的是漏收的那三帧」 — and they are the rounds whose CTS started in the same nanosecond
+    const [missed] = raw(nums, /漏收的那(.)帧/, '`numbers` on the ones it missed')
     expect(zhNumeral(missed!.replace(/两/g, '二')), 'the announcements it never decoded')
       .toBe(roundCts(rs).length - camNav(rs).length)
     const clashes = roundCts(rs).filter((c) => txs(rs).some((r) => r.node === CAM && r.t === c.t))
@@ -975,14 +975,14 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
 
   it('the nine frames that landed in a slot, and the two ways they ended', () => {
     const rs = recs()
-    // 「整个运行里只有九帧摄像头的帧落进了上行时隙」
-    const [nine] = raw(nums, /只有(.)帧摄像头的帧落进了上行时隙/,
+    // 「整个运行里只有九帧摄像头的帧落在了上行时隙内」
+    const [nine] = raw(nums, /只有(.)帧摄像头的帧落在了上行时隙内/,
       '`numbers` on the camera frames that landed in a slot')
     const landed = camInSlot(rs)
     expect(zhNumeral(nine!.replace(/两/g, '二')), 'the frames that did').toBe(landed.length)
     for (const r of landed) expect(r.frame.kind, 'every one of them an RTS').toBe('rts')
-    // 「九次里有八次以 CTS 超时收场；第九次结束得更早」
-    const [all, timeouts] = raw(nums, /(.)次里有(.)次以 CTS 超时收场；第(?:.)次结束得更早/,
+    // 「九次里有八次以 CTS 超时告终；第九次结束得更早」
+    const [all, timeouts] = raw(nums, /(.)次里有(.)次以 CTS 超时告终；第(?:.)次结束得更早/,
       '`numbers` on how they ended')
     expect(zhNumeral(all!.replace(/两/g, '二')), 'all of them').toBe(landed.length)
     const outs = ofType(rs, 'CTS_TIMEOUT').filter((r) => r.node === CAM)
@@ -993,15 +993,15 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
 
   it('the response tally, and the census of the eighty slots', () => {
     const rs = recs()
-    // 「标签一共送出 40 帧回应，29 帧拿到了确认——72.5 %」
-    const [sent, ok, pct] = raw(nums, /标签一共送出 (\d+) 帧回应，(\d+) 帧拿到了确认——([\d.]+) %/,
+    // 「标签一共送出 40 帧回应，29 帧得到了确认——72.5 %」
+    const [sent, ok, pct] = raw(nums, /标签一共送出 (\d+) 帧回应，(\d+) 帧得到了确认——([\d.]+) %/,
       '`numbers` on the tally')
     expect(num(sent!), 'the responses the tags sent').toBe(results(rs).length)
     expect(num(ok!), 'and the ones that were acknowledged').toBe(acked(rs))
     same(pct!, (100 * acked(rs)) / results(rs).length, 'and the share that is')
-    // 「丢掉的十一帧里，八帧是两个标签抽到了同一个时隙，二十轮里发生了四次；另外三帧输给了摄像头」
+    // 「丢失的十一帧里，八帧是两个标签抽到了同一个时隙，二十轮里发生了四次；另外三帧与摄像头的帧发生碰撞而丢失」
     const [lostN, pairN, roundsN, timesN, camN] = raw(nums,
-      /丢掉的(.+?)帧里，(.)帧是两个标签抽到了同一个时隙，(.+?)轮里发生了(.)次；另外(.)帧输给了摄像头/,
+      /丢失的(.+?)帧里，(.)帧是两个标签抽到了同一个时隙，(.+?)轮里发生了(.)次；另外(.)帧与摄像头的帧发生碰撞而丢失/,
       '`numbers` on where the lost ones went')
     const zh = (s: string): number => zhNumeral(s.replace(/两/g, '二'))!
     expect(zh(lostN!), 'the responses that were not acknowledged')
@@ -1013,9 +1013,9 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     expect(zh(roundsN!), 'out of that many rounds').toBe(roundCts(rs).length)
     expect(zh(camN!), 'while the rest went to the camera')
       .toBe(results(rs).length - acked(rs) - doubled.length * 2)
-    // 「80 个时隙里 44 个安静无声，32 个装着一帧回应，4 个装着两帧」
+    // 「80 个时隙里 44 个为空，32 个含一帧回应，4 个含两帧」
     const [total, quiet, one, two] = figs(nums,
-      /(\d+) 个时隙里 (\d+) 个安静无声，(\d+) 个装着一帧回应，(\d) 个装着两帧/,
+      /(\d+) 个时隙里 (\d+) 个为空，(\d+) 个含一帧回应，(\d) 个含两帧/,
       '`numbers` on the census of the slots')
     const per = slots(rs).map(
       (s) => txs(rs).filter((r) => TAGS.includes(r.node) && r.t >= s.t && r.t < s.untilNs).length)
@@ -1057,9 +1057,9 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     same(perRound!, ampAirNs(fast) / rounds / US, 'the PPDU a single round spends')
     same(perSec!, ampAirNs(fast) / (RUN_NS / (1000 * MS)) / US, 'and what a second of them spends')
     same(share!, (100 * ampAirNs(fast)) / RUN_NS, 'which is that share of the air')
-    // 「摄像头跌到 77.41 Mb/s——比只有 Wi-Fi 时的 105.29 Mb/s 低 26.49 %」
+    // 「摄像头降到 77.41 Mb/s——比只有 Wi-Fi 时的 105.29 Mb/s 低 26.49 %」
     const [fell, alone, down] = raw(EVERYWHERE,
-      /摄像头跌到 ([\d.]+) Mb\/s——比只有 Wi-Fi 时的 ([\d.]+) Mb\/s 低 ([\d.]+) %/,
+      /摄像头降到 ([\d.]+) Mb\/s——比只有 Wi-Fi 时的 ([\d.]+) Mb\/s 低 ([\d.]+) %/,
       '`numbers` on what it costs the camera')
     same(fell!, camMbps(fast), 'the camera’s goodput at five times the polling')
     same(alone!, camMbps(wifiOnly), 'and with no tags at all')
@@ -1070,8 +1070,8 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     expect(num(sent!), 'the responses that run sends').toBe(results(fast).length)
     expect(num(ok!), 'and the ones acknowledged').toBe(acked(fast))
     same(pct!, (100 * acked(fast)) / results(fast).length, 'and the share that is')
-    // 「四种跑法下它送达的视频帧都是 2365 帧，13.24 Mb/s，一帧不差」
-    const [frames, mbps5] = raw(EVERYWHERE, /四种跑法下它送达的视频帧都是 (\d+) 帧，([\d.]+) Mb\/s/,
+    // 「四种运行配置下它送达的视频帧都是 2365 帧，13.24 Mb/s，完全相同」
+    const [frames, mbps5] = raw(EVERYWHERE, /四种运行配置下它送达的视频帧都是 (\d+) 帧，([\d.]+) Mb\/s/,
       '`numbers` on the phone’s own band')
     for (const v of [undefined, NONE, POLL20, WIFI_ONLY]) {
       expect(phoneFrames(recs(v)), 'the frames the phone takes delivery of, in every run')
@@ -1091,7 +1091,7 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     const none = recs(NONE)
     const cover = roundCts(rs)[0]!.frame.durationFieldNs
     // 「4140 µs」: the Duration, wherever it appears
-    for (const v of everyFig(/(\d+) µs，正好是后面那个轮|NAV 设了 (\d+) µs|等满 (\d+) µs|覆盖了它之后的 (\d+) µs/g,
+    for (const v of everyFig(/(\d+) µs，正好覆盖后面那个轮|NAV 设了 (\d+) µs|等待 (\d+) µs|覆盖了它之后的 (\d+) µs/g,
       'the Duration the protection frame carries', 3)) {
       expect(num(v) * US, 'what the round reserves after the frame itself').toBe(cover)
     }
@@ -1124,18 +1124,18 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     for (const v of everyFig(/(\d+) kb\/s/g, 'the uplink rate', 2)) {
       expect(num(v), 'the rate the tags answer at').toBe(NODE('ap').ampAp!.ulKbps)
     }
-    // 「从八次无人应答变成 78 次，自己的吞吐反而跌到 94.08 Mb/s——比被 NAV 挡住时的 99.89 Mb/s 还低」
+    // 「无人应答的 RTS 从八次增加到 78 次，自己的吞吐反而降到 94.08 Mb/s——比受 NAV 约束时的 99.89 Mb/s 还低」
     const [to78, fell, held] = raw(EVERYWHERE,
-      /从八次无人应答变成 (\d+) 次，自己的吞吐反而跌到 ([\d.]+) Mb\/s——比被 NAV 挡住时的 ([\d.]+) Mb\/s 还低/,
+      /RTS 从八次增加到 (\d+) 次，自己的吞吐反而降到 ([\d.]+) Mb\/s——比受 NAV 约束时的 ([\d.]+) Mb\/s 还低/,
       '`numbers` on why protecting the round made the camera faster')
     expect(num(to78!), 'the unanswered RTS of the unprotected run')
       .toBe(ofType(none, 'CTS_TIMEOUT').filter((r) => r.node === CAM).length)
     same(fell!, camMbps(none), 'the camera’s goodput there')
     same(held!, camMbps(rs), 'and with the round protected')
     expect(camMbps(none), 'which really is the lower of the two').toBeLessThan(camMbps(rs))
-    // 「本课测到的 3 次 collision」 — `limits`, about the base run
+    // 「本课测得的 3 次 collision」 — `limits`, about the base run
     const [cols] = figs((ampCoexist.limits ?? []).map((l) => l.text).join('\n'),
-      /本课测到的 (\d+) 次 collision/, '`limits` on the collisions it measured')
+      /本课测得的 (\d+) 次 collision/, '`limits` on the collisions it measured')
     expect(cols, 'the collisions the AP records in the shipped run')
       .toBe(ofType(rs, 'RX_FAIL').filter((r) => r.node === AP && r.reason === 'collision').length)
     // 「每 20 ms 轮询一次」 — the variant's own label
@@ -1159,7 +1159,7 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
       expect(intervals, `${v} ms is an interval this lesson runs`).toContain(num(v))
     }
     // 「5.17 ms」 — the question states it, and so does a distractor
-    for (const v of everyFig(/就要 ([\d.]+) ms|晚 ([\d.]+) ms 才发出去/g,
+    for (const v of everyFig(/就要 ([\d.]+) ms|晚 ([\d.]+) ms 才发出/g,
       'the mean lateness, wherever it appears', 2)) {
       same(v, mean(lateUs(rs, POLL_MS)) / 1000, 'the mean the run really has')
     }
@@ -1172,7 +1172,7 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     // and the claim the distractor gets wrong: the phone loses nothing at all
     expect(phoneGoodput(recs(POLL20)), 'while the phone loses none of its own')
       .toBe(phoneGoodput(recs(WIFI_ONLY)))
-    // 「四种跑法下它都送达同样的 2365 帧」 — the quiz says it too
+    // 「四种运行配置下它都送达同样的 2365 帧」 — the quiz says it too
     for (const v of everyFig(/都是 (\d+) 帧，|同样的 (\d+) 帧/g, 'the phone’s own frames', 2)) {
       for (const variant of [undefined, NONE, POLL20, WIFI_ONLY]) {
         expect(phoneFrames(recs(variant)), 'the frames the phone takes, in every run')
@@ -1187,8 +1187,8 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     // 「跳到 0 µs 的第一帧 CTS-to-self：摄像头的 RTS 在同一瞬间开始」
     const [ctsUs] = figs(obs, /跳到 (\d+) µs 的第一帧 CTS-to-self/, '`observe` on the first round')
     expect(roundCts(rs)[0]!.t / US, 'when the first CTS-to-self goes out').toBe(ctsUs)
-    // 「再跳到摄像头第一次设 NAV 的时刻，111.914 ms——那是第二个轮的——看它完整等满 4140 µs」
-    const [navMs, navUs] = raw(obs, /第一次设 NAV 的时刻，([\d.]+) ms——那是第二个轮的——看它完整等满 (\d+) µs/,
+    // 「再跳到摄像头第一次设置 NAV 的时刻，111.914 ms——对应第二个轮——看它完整等待 4140 µs」
+    const [navMs, navUs] = raw(obs, /第一次设置 NAV 的时刻，([\d.]+) ms——对应第二个轮——看它完整等待 (\d+) µs/,
       '`observe` on the first NAV')
     const first = camNav(rs)[0]!
     same(navMs!, first.t / MS, 'when the camera first sets a NAV')
@@ -1203,9 +1203,9 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     expect(txs(none).find((r) => r.node === CAM)!.t / US, 'and when the RTS it waited on started')
       .toBe(startUs)
     // 「再走到下一次超时，890 µs——它的 RTS 从 817 µs 开始，正落在时隙 1 里……于是路由器在
-    //  1156 µs 记下一条原因为 collision 的 RX_FAIL」
+    //  1156 µs 记录一条原因为 collision 的 RX_FAIL」
     const [outUs2, rtsUs, slotNo, failUs] = figs(obs,
-      /再走到下一次超时，(\d+) µs——它的 RTS 从 (\d+) µs 开始，正落在时隙 (\d) 里.*?于是路由器在 (\d+) µs 记下一条原因为 collision 的 RX_FAIL/,
+      /再前进到下一次超时，(\d+) µs——它的 RTS 从 (\d+) µs 开始，正落在时隙 (\d) 内.*?于是路由器在 (\d+) µs 记录一条原因为 collision 的 RX_FAIL/,
       '`observe` on the second timeout')
     const outs = ofType(none, 'CTS_TIMEOUT').filter((r) => r.node === CAM)
     expect(outs[1]!.t / US, 'the next timeout').toBe(outUs2)
@@ -1215,8 +1215,8 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     expect(inSlot.slot, 'the slot it landed in').toBe(slotNo)
     const fail = ofType(none, 'RX_FAIL').find((r) => r.node === AP && r.reason === 'collision')!
     expect(fail.t / US, 'and when the AP recorded the collision').toBe(failUs)
-    // 「它那条泳道每次都一模一样——2365 帧，第一帧在 883.111 µs」
-    const [frames, firstPhone] = raw(obs, /一模一样——(\d+) 帧，第一帧在 ([\d.]+) µs/,
+    // 「它那条泳道每次都完全相同——2365 帧，第一帧在 883.111 µs」
+    const [frames, firstPhone] = raw(obs, /完全相同——(\d+) 帧，第一帧在 ([\d.]+) µs/,
       '`observe` on the phone’s own lane')
     const phoneTx = (x: TLRecord[]): TLRecord[] =>
       txs(x).filter((r) => r.node === 'ap' && r.frame.kind === 'data')
@@ -1231,10 +1231,10 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
   it('`tryThis`: both experiments, and the quiz’s own two figures', () => {
     const rs = recs()
     const none = recs(NONE)
-    // 「确认率从 72.5 % 掉到 17.5 %，落进时隙的摄像头帧从 9 帧涨到 79 帧……无人应答的 RTS 从
-    //  8 次变成 78 次，吞吐从 99.89 Mb/s 掉到 94.08 Mb/s」
+    // 「确认率从 72.5 % 降到 17.5 %，落在时隙内的摄像头帧从 9 帧增加到 79 帧……无人应答的 RTS 从
+    //  8 次增加到 78 次，吞吐从 99.89 Mb/s 降到 94.08 Mb/s」
     const [was, now, inWas, inNow, rtsWas, rtsNow, mbWas, mbNow] = raw(trys,
-      /确认率从 ([\d.]+) % 掉到 ([\d.]+) %，落进时隙的摄像头帧从 (\d+) 帧涨到 (\d+) 帧[^]*?无人应答的 RTS 从 (\d+) 次变成 (\d+) 次，吞吐从 ([\d.]+) Mb\/s 掉到 ([\d.]+) Mb\/s/,
+      /确认率从 ([\d.]+) % 降到 ([\d.]+) %，落在时隙内的摄像头帧从 (\d+) 帧增加到 (\d+) 帧[^]*?无人应答的 RTS 从 (\d+) 次增加到 (\d+) 次，吞吐从 ([\d.]+) Mb\/s 降到 ([\d.]+) Mb\/s/,
       '`tryThis` on the unprotected run')
     const rate = (x: TLRecord[]): number => (100 * acked(x)) / results(x).length
     same(was!, rate(rs), 'the acknowledged share with protection')
@@ -1265,9 +1265,9 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     expect(edDbm, 'the threshold it is now above').toBe(CCA_ED_DBM)
     expect(rssiOn('2g', buildLinkTable(moved.nodes, moved.walls), 'tag-2', 'cam'),
       'and it really is above it there').toBeGreaterThan(CCA_ED_DBM)
-    // 「路由器记下的碰撞从 25 次变成一次也没有，被确认的读数从 7 个涨到 26 个」
+    // 「路由器记录的碰撞从 25 次降为零，被确认的读数从 7 个增加到 26 个」
     const [colWas, ackWas, ackNow] = figs(trys,
-      /路由器记下的碰撞从 (\d+) 次变成一次也没有，被确认的读数从 (\d+) 个涨到 (\d+) 个/,
+      /路由器记录的碰撞从 (\d+) 次降为零，被确认的读数从 (\d+) 个增加到 (\d+) 个/,
       '`tryThis` on what moving it buys')
     const collisions = (x: TLRecord[]): number =>
       ofType(x, 'RX_FAIL').filter((r) => r.node === AP && r.reason === 'collision').length
@@ -1292,8 +1292,8 @@ describe('amp-coexist · every figure the prose prints, read back out of it', ()
     }).length
     expect(zhNumeral(silent!.replace(/两/g, '二')), 'the rounds a tag sat out of')
       .toBe(shortRounds)
-    // the quiz: 「平均要比轮询时钟「到点」晚 5.17 ms」 and 「AIFS 是 73 µs，而摄像头是 37 µs」
-    const [qLate] = raw(quizText, /晚 ([\d.]+) ms 才发出去/, 'the quiz on the lateness')
+    // the quiz: 「平均要比轮询时钟的预定时刻晚 5.17 ms」 and 「AIFS 是 73 µs，而摄像头是 37 µs」
+    const [qLate] = raw(quizText, /晚 ([\d.]+) ms 才发出？/, 'the quiz on the lateness')
     same(qLate!, mean(lateUs(rs, POLL_MS)) / 1000, 'the same mean the paragraph states')
     const [qBk, qBe] = figs(quizText, /AIFS 是 (\d+) µs，而摄像头是 (\d+) µs/,
       'the quiz on the two AIFS values')

@@ -312,13 +312,13 @@ describe('module 4 lessons', () => {
       6, 6, 6, 6,
     ])
     expect(MODULES.map((m) => m.title)).toEqual([
-      '信号与链路', '一张网里的角色', '帧与空口时间', '等待与退避',
-      '听不见的邻居与损失', '在纸上预测 DCF', '第一阶段项目',
-      'QoS 与效率', '容量旋钮与速率控制', '被调度的 Wi-Fi 6/7',
+      '信号与链路', '一个网络中的角色', '帧与空口时间', '等待与退避',
+      '隐藏节点与帧丢失', '在纸上预测 DCF', '第一阶段项目',
+      'QoS 与效率', '容量参数与速率控制', '被调度的 Wi-Fi 6/7',
       '环境能量物联网（802.11bp）', '真实应用',
-      '2.4 GHz 这条链路',
+      '2.4 GHz 链路',
       '草案里的 Wi-Fi 8',
-      '飞行时间', '两只钟', '会话网格', '定位',
+      '飞行时间', '两个时钟', '会话网格', '定位',
       '共存', '竞争式测距', '多对多测距', '控制消息的有效期', '多消息收妥确认', 'SP3 分组测距',
       '测距辅助信息', '单向测距', '角度', '感知',
       '多毫秒片段', '窄带控制面', '另一种控制面与子轮', '测距综合实践',
@@ -345,7 +345,7 @@ describe('module 4 lessons', () => {
 
   it('lesson 15 is about channel width and offers one variant per width', () => {
     const l = LESSONS.find((x) => x.id === 'width')!
-    expect(MODULES[l.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[l.module].title).toBe('容量参数与速率控制')
     expect(l.variants?.length).toBe(4)
     const widths = l.variants!.map((v) => widthOf(v.scenario().nodes.find((n) => n.id === 'sta-1')!))
     expect(widths).toEqual([20, 40, 80, 160])
@@ -363,7 +363,7 @@ describe('module 4 lessons', () => {
 
   it('lesson 16 is about spatial streams and its link runs at the smaller end', () => {
     const l = LESSONS.find((x) => x.id === 'streams')!
-    expect(MODULES[l.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[l.module].title).toBe('容量参数与速率控制')
     expect(l.variants!.length).toBeGreaterThanOrEqual(3)
   })
 
@@ -397,7 +397,7 @@ describe('lessons 17 and 18', () => {
 
   it('lesson 18 shows the modulation moving', () => {
     const l = LESSONS.find((x) => x.id === 'rate')!
-    expect(MODULES[l.module].title).toBe('容量旋钮与速率控制')
+    expect(MODULES[l.module].title).toBe('容量参数与速率控制')
     const recs = new Simulation(l.scenario()).runUntil(3_000 * 1_000_000).records
     const mcss = recs
       .filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')

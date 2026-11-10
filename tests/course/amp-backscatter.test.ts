@@ -1,5 +1,5 @@
 /**
- * Every empirical claim in 《反向散射：标签靠反射说话》, measured against the lesson's own
+ * Every empirical claim in 《反向散射：标签以反射应答》, measured against the lesson's own
  * scenario and its four variants at 1000 ms. Standard and model constants are checked against
  * the engine's exports (src/engine/ampBs.ts, src/model/scenario.ts) rather than re-typed, and
  * the two reach figures are the engine's own closed forms rather than arithmetic repeated here.
@@ -166,7 +166,7 @@ describe('amp-backscatter · the two reaches, and why only one of them grows', (
   })
 
   it('0.309 m powers a tag and 0.328 m decodes one, and only the first grows with the power', () => {
-    // numbers: "这条线落在 0.309 m" / "对应 0.328 m" / "随之推到 0.978 m" / "一动不动，还是 0.328 m"
+    // numbers: "这条线落在 0.309 m" / "对应 0.328 m" / "随之移到 0.978 m" / "保持不变，仍是 0.328 m"
     expect(activationReachM(DEFAULT_AMP_BS.chargeDbm)).toBeCloseTo(0.309, 3)
     expect(activationReachM(20)).toBeCloseTo(0.978, 3)
     expect(monoReachM(DEFAULT_AMP_BS.bsDbm, 250)).toBeCloseTo(0.328, 3)
@@ -197,7 +197,7 @@ describe('amp-backscatter · the table of six tags, measured', () => {
   const boot = (node: string) => ofType(rs, 'AMP_BS_BOOT').filter((r) => r.node === node)
 
   it('the incident power each tag harvests, to two decimals', () => {
-    // table: "−13.72 dBm" / "−19.14 dBm" / "−22.24 dBm（没醒过）"
+    // table: "−13.72 dBm" / "−19.14 dBm" / "−22.24 dBm（未被唤醒）"
     expect(boot(TAGS[0])[0].incidentDbm).toBeCloseTo(-13.72, 2)
     expect(boot(TAGS[4])[0].incidentDbm).toBeCloseTo(-19.14, 2)
     // 40 cm: below AMP_BS_ACTIVATION_DBM, so the PPDU never decodes at the tag and the tag
@@ -230,7 +230,7 @@ describe('amp-backscatter · the table of six tags, measured', () => {
   it('how many readings each tag yields in one second', () => {
     // table: "4、6、5、6 次" / "2 次" / "0 次"
     expect(TAGS.map((t) => epcCount(rs, t))).toEqual([4, 6, 5, 6, 2, 0])
-    // observe: "一秒钟 50 次 RN16 只换来 23 次读到"
+    // observe: "一秒钟 50 次 RN16 只得到 23 次读到"
     expect(replies(rs, 'rn16').length).toBe(50)
     expect(replies(rs, 'epc').length).toBe(23)
     // every tag that is awake answers once a session, ten sessions in the second
@@ -285,7 +285,7 @@ describe('amp-backscatter · one TXOP, one slot', () => {
 
   it('ten sessions a second, all of them finished, and 8.3 % of the air', () => {
     const rs = recs()
-    // numbers: "一秒钟 77 帧命令占掉 82.8 ms，也就是 8.3 %"
+    // numbers: "一秒钟内 77 帧命令占用 82.8 ms，也就是 8.3 %"
     expect(ofType(rs, 'AMP_RFID').length).toBe(77)
     expect(rfidAirtimeNs(rs) / MS).toBeCloseTo(82.838, 3)
     expect(Math.round((rfidAirtimeNs(rs) / RUN_NS) * 1000) / 10).toBe(8.3)
@@ -297,7 +297,7 @@ describe('amp-backscatter · one TXOP, one slot', () => {
   })
 })
 
-describe('amp-backscatter · 「读不出」不等于「两张一起答」', () => {
+describe('amp-backscatter · 「读不出」不等于「两张同时应答」', () => {
   it('a 10.8 dB difference is read, and an equal pair is not', () => {
     const rs = recs()
     // numbers: "collisions 只有 9" against 50 answers and 23 readings — so most lost answers are
@@ -311,8 +311,8 @@ describe('amp-backscatter · 「读不出」不等于「两张一起答」', () 
   })
 
   it('Q = 0 is the one run where every slot collides, and nothing is read', () => {
-    // observe: "五张醒着的标签全部抽到 0 …… 一秒钟读到 0 张，十个槽十次读不出" /
-    //          "这是全部五种跑法里唯一一个 collisions 等于开出槽数的"
+    // observe: "五张已唤醒的标签全部抽到 0 …… 一秒钟读到 0 张，十个槽十次读不出" /
+    //          "这是全部五种运行配置中唯一一个 collisions 等于开启槽数的"
     const rs = recs(2)
     expect(ofType(rs, 'AMP_BS_COUNTER').every((r) => r.counter === 0 && r.q === 0)).toBe(true)
     expect(tally(rs)).toEqual({ off: 10, read: 0, col: 10, emp: 0 })
@@ -346,7 +346,7 @@ describe('amp-backscatter · turning the reader up, and speeding it up, both rea
 
   it('回应 1 Mb/s loses the 28 cm tag outright and buys back 25.7 ms of air', () => {
     // tryThis: "28 cm 上那张标签彻底读不到了，次数降到 21" /
-    //          "命令占掉的空口时间从 82.8 ms 降到 57.1 ms"
+    //          "命令占用的空口时间从 82.8 ms 降到 57.1 ms"
     const rs = recs(1)
     expect(replies(rs, 'rn16').filter((r) => r.node === TAGS[4]).length).toBe(10)
     expect(epcCount(rs, TAGS[4])).toBe(0)
@@ -468,7 +468,7 @@ describe('amp-backscatter · the printed table and sentences are read back out o
           .toBe(Number(b.incidentDbm.toFixed(2)))
       }
       const r = reply(node)
-      if (row[3] === '（没醒过）') {
+      if (row[3] === '（未被唤醒）') {
         expect(b, `row ${i} says the tag never woke, so it may leave no boot record`).toBeUndefined()
         expect(r, 'and no reply either').toBeUndefined()
         expect(row[4], 'so its margin cell is a dash, not a number').toBe('—')
@@ -486,13 +486,13 @@ describe('amp-backscatter · the printed table and sentences are read back out o
       expect(counts, `row ${i}: the readings each tag yielded in the second`)
         .toEqual(nodes.map((t) => epcCount(rs, t)))
     }
-    // the three rows account for all six tags, which is what 「六张标签的下场」 claims
+    // the three rows account for all six tags, which is what 「六张标签的结果」 claims
     const covered = sixTags().reduce((n, _row, i) => n + (i === 0 ? 4 : 1), 0)
     expect(covered, 'the table covers every tag in the scene').toBe(TAGS.length)
   })
 
   it('the 20 dBm variant: one reach moves, the other does not, and the total goes DOWN', () => {
-    const m = /把激励抬了 (\d+) dB。上电那条线随之推到 ([\d.]+) m[^]*?抽了 (\d+) 次计数、反射了 (\d+) 次 RN16。读得到那条线一动不动，还是 ([\d.]+) m[^]*?余量是 [−-]([\d.]+) dB[^]*?从 (\d+) 降到 (\d+)/
+    const m = /把激励提高了 (\d+) dB。上电那条线随之移到 ([\d.]+) m[^]*?抽取了 (\d+) 次计数、反射了 (\d+) 次 RN16。可读取那条线保持不变，仍是 ([\d.]+) m[^]*?余量是 [−-]([\d.]+) dB[^]*?从 (\d+) 降到 (\d+)/
       .exec(prose())
     expect(m, 'the 20 dBm paragraph is gone, or its shape changed').not.toBeNull()
     const lift = Number(m![1])
@@ -550,7 +550,7 @@ describe('amp-backscatter · the printed table and sentences are read back out o
   })
 
   it('the airtime sentence: the command count, the milliseconds and the share', () => {
-    const m = /一秒钟 (\d+) 帧命令占掉 ([\d.]+) ms，也就是 ([\d.]+) %/.exec(prose())
+    const m = /一秒钟内 (\d+) 帧命令占用 ([\d.]+) ms，也就是 ([\d.]+) %/.exec(prose())
     expect(m, 'the airtime sentence is gone, or its shape changed').not.toBeNull()
     expect(Number(m![1]), 'command PPDUs in the second').toBe(ofType(rs, 'AMP_RFID').length)
     expect(Number(m![2]), 'the milliseconds they occupy')
@@ -560,7 +560,7 @@ describe('amp-backscatter · the printed table and sentences are read back out o
   })
 
   it('the collisions sentence: fifty answers, twenty-three readings, nine collisions', () => {
-    const m = /一秒钟 (\d+) 次 RN16 只换来 (\d+) 次读到，而 collisions 只有 (\d+)/.exec(prose())
+    const m = /一秒钟 (\d+) 次 RN16 只得到 (\d+) 次读到，而 collisions 只有 (\d+)/.exec(prose())
     expect(m, 'the collisions sentence is gone, or its shape changed').not.toBeNull()
     const t = tally(rs)
     expect(Number(m![1]), 'RN16 reflections in the second').toBe(replies(rs, 'rn16').length)
@@ -579,7 +579,7 @@ describe('amp-backscatter · the printed table and sentences are read back out o
   })
 
   it('the Read and Write airtimes the last paragraph prints', () => {
-    const m = /Read 的回应是 (\d+) 个字节的存储内容，(\d+) µs[^]*?标签要 (\d+) ms 才答得出来[^]*?长 (\d+) µs/
+    const m = /Read 的回应是 (\d+) 个字节的存储内容，(\d+) µs[^]*?标签需要 (\d+) ms 才能应答[^]*?长 (\d+) µs/
       .exec(prose())
     expect(m, 'the Read/Write paragraph is gone, or its shape changed').not.toBeNull()
     expect(Number(m![2]), 'the Read reply airtime').toBe(bsReplyNs('read', 250) / 1_000)
@@ -704,8 +704,8 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
         .toBeCloseTo(sum! - twice! * pl, 9)
     }
     /*
-     * 「把激励抬高 10 dB，它要在上面分辨回应的那个底也抬高 10 dB」, which the quiz says twice more
-     * (once in a distractor: 「反射损耗也跟着涨了 10 dB」).
+     * 「把激励提高 10 dB，它分辨回应所依据的本底也提高 10 dB」, which the quiz says twice more
+     * (once in a distractor: 「反射损耗也随之增加了 10 dB」).
      *
      * **The first version of this read asserted an identity in the figure itself** — that the
      * floor rises by exactly the lift — which is true of EVERY lift, so planting 10 → 11 stayed
@@ -713,7 +713,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
      */
     const lift = Math.max(...lifted) - CFG.chargeDbm
     for (const v of everyFig(
-      /抬高 (\d+) dB|抬了 (\d+) dB|跟着激励一起抬了 (\d+) dB|跟着涨了 (\d+) dB/g,
+      /提高 (\d+) dB|提高了 (\d+) dB|随激励一起升高了 (\d+) dB|随之增加了 (\d+) dB/g,
       'the lift the sentence and the quiz talk about', 4)) {
       expect(num(v), 'the lift the 「激励 20 dBm」 variant really applies').toBe(lift)
     }
@@ -733,8 +733,8 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     const steps = (ampBackscatter.picture ?? []).flatMap(
       (b) => ('items' in b ? b.items : []),
     ).join('\n')
-    // 「每张醒着的标签在 0 到 2^Q − 1 之间抽一个计数」 and 「抽到 0 的那些立刻……」
-    const [lo, base, off] = figs(steps, /在 (\d) 到 (\d)\^Q − (\d) 之间抽一个计数/,
+    // 「每张已唤醒的标签在 0 到 2^Q − 1 之间随机抽取一个计数」 and 「抽到 0 的标签立即……」
+    const [lo, base, off] = figs(steps, /在 (\d) 到 (\d)\^Q − (\d) 之间随机抽取一个计数/,
       'the steps on the range a tag draws from')
     const counters = ofType(recs(), 'AMP_BS_COUNTER')
     expect(counters.length, 'the run really draws counters').toBeGreaterThan(0)
@@ -746,7 +746,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     expect([...new Set(counters.map((r) => r.counter))].sort((a, b) => a - b),
       'and every value in between is drawn').toEqual(
       Array.from({ length: base! ** CFG.q }, (_x, i) => lo! + i))
-    const [fires] = figs(steps, /抽到 (\d) 的那些立刻/, 'the steps on which draw answers at once')
+    const [fires] = figs(steps, /抽到 (\d) 的标签立即/, 'the steps on which draw answers at once')
     expect(fires, 'the counter that answers in this very frame').toBe(lo)
     // 「反射一个 16 位随机数 RN16」 — and the engine's own RN16 is that wide
     const [rnBits] = figs(steps, /反射一个 (\d+) 位随机数 RN\d+/, 'the steps on the random number')
@@ -763,8 +763,8 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     // octets `GEN2_REPLY_BYTES`' own comment accounts for
     expect(readBytes! + 1 + 2 + 2, 'the whole Read reply those bytes sit in')
       .toBe(GEN2_REPLY_BYTES.read)
-    // 「每两帧命令之间只隔 16 µs，而标签能在这 16 µs 里活下来」 — twice in one sentence
-    const gaps = figs(steps, /只隔 (\d+) µs，而标签能在这 (\d+) µs 里活下来/,
+    // 「每两帧命令之间只间隔 16 µs，而标签能在这 16 µs 内维持工作」 — twice in one sentence
+    const gaps = figs(steps, /只间隔 (\d+) µs，而标签能在这 (\d+) µs 内维持工作/,
       'the steps on the gap between two commands')
     expect(gaps[0], 'the gap `ampBs.ts` leaves').toBe(AMP_BS_T1_NS / 1000)
     expect(gaps[1], 'and the same gap, restated in the same sentence').toBe(gaps[0])
@@ -778,7 +778,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     expect(epcBits! / 8 + 2 + 2, 'the whole EPC reply that code sits in')
       .toBe(GEN2_REPLY_BYTES.epc)
     // 「本轮一共开出 2^Q 个槽」 — and the run offers exactly that many
-    const [slotBase] = figs(terms, /本轮一共开出 (\d)\^Q 个槽/, '`terms` on how many slots a round has')
+    const [slotBase] = figs(terms, /本轮共开启 (\d)\^Q 个槽/, '`terms` on how many slots a round has')
     const rounds = inv(recs())
     expect(rounds.length, 'the run really runs inventory rounds').toBeGreaterThan(0)
     // one AMP_INVENTORY per transmit opportunity, and a 4 ms one holds a single slot — so the
@@ -805,17 +805,17 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
       'the activation floor', 3)) {
       expect(-num(v), 'the floor `ampBs.ts` wakes a tag at').toBe(AMP_BS_ACTIVATION_DBM)
     }
-    for (const v of everyFig(/按 (\d+) dBm 的激励算|(\d+) dBm 的充电激励/g, 'the charge excitation', 2)) {
+    for (const v of everyFig(/按 (\d+) dBm 的激励计算|(\d+) dBm 的充电激励/g, 'the charge excitation', 2)) {
       expect(num(v), 'the excitation this scene charges with').toBe(CFG.chargeDbm)
     }
     // the two reaches, wherever they appear: the activation one and the decode one
-    for (const v of everyFig(/这条线落在 ([\d.]+) m|推到 ([\d.]+) m/g, 'the activation reach', 2)) {
+    for (const v of everyFig(/这条线落在 ([\d.]+) m|移到 ([\d.]+) m|增大到 ([\d.]+) m/g, 'the activation reach', 2)) {
       const m = num(v)
       const lifted = [CFG.chargeDbm, CFG.chargeDbm + 10]
         .map((e) => Number(activationReachM(e).toFixed(3)))
       expect(lifted, `${m} m is the activation reach at one of the two excitations`).toContain(m)
     }
-    for (const v of everyFig(/对应 ([\d.]+) m|还是 ([\d.]+) m|跟着它们变|收到 ([\d.]+) m/g,
+    for (const v of everyFig(/对应 ([\d.]+) m|仍是 ([\d.]+) m|也随之改变|缩短到 ([\d.]+) m/g,
       'the decode reach', 2)) {
       if (!/[\d.]/.test(v)) continue
       const m = num(v)
@@ -823,12 +823,12 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
       expect(both, `${m} m is the decode reach at one of the two uplink rates`).toContain(m)
     }
     // 「250 kb/s 的回应要 3 dB 信噪比」 — and the other rate's requirement, in `tryThis`
-    const [kbps, snr] = figs(EVERYWHERE, /(\d+) kb\/s 的回应要 (\d) dB 信噪比/,
+    const [kbps, snr] = figs(EVERYWHERE, /(\d+) kb\/s 的回应需要 (\d) dB 信噪比/,
       'the SNR the slower uplink needs')
     expect(kbps, 'the uplink rate this scene answers at').toBe(CFG.ulKbps)
     expect(snr, 'and the SNR `ampBs.ts` asks of it').toBe(AMP_BS_REQ_SNR_DB[CFG.ulKbps])
     // 「差 0.1 dB 就一条记录也不留」 — `limits` on how hard the threshold is
-    const [eps] = figs(limitsText, /差 ([\d.]+) dB 就一条记录也不留/,
+    const [eps] = figs(limitsText, /低 ([\d.]+) dB 就不产生任何记录/,
       '`limits` on how sharp the activation floor is')
     const dead = CM[CM.length - 1]! / 100
     const incident = CFG.chargeDbm - (freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(dead))
@@ -873,8 +873,8 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
       AMP_BS_LOSS_DB, AMP_BS_ISOLATION_DB, AMP_BS_READER_DR_DB,
     ])
     expect(i! + d! - l!, 'and the constant they add up to').toBe(sum)
-    // 「0.328 m 这个距离跟着它们变」 — the decode reach, and it really moves with them
-    const [reach] = figs(limitsText, /([\d.]+) m 这个距离跟着它们变/,
+    // 「0.328 m 这个距离也随之改变」 — the decode reach, and it really moves with them
+    const [reach] = figs(limitsText, /([\d.]+) m 这个距离也随之改变/,
       '`limits` on which distance those three decide')
     same(String(reach), monoReachM(CFG.chargeDbm, CFG.ulKbps), 'the decode reach')
     // 「标签那 96 位的编号」 and 「把它改到 10 ms，一轮清点就从四次传输机会缩到两次」
@@ -900,7 +900,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     same(p1!, bootAt(num(cm1!)), `the incident power at ${cm1} cm`)
     same(p2!, bootAt(num(cm2!)), `and at ${cm2} cm`)
     // 「再去看 40 cm 上那一张，整整一秒钟它一条记录也没有」
-    const [deadCm] = figs(obs, /再去看 (\d+) cm 上那一张/, '`observe` on the tag that never woke')
+    const [deadCm] = figs(obs, /再查看 (\d+) cm 上那一张/, '`observe` on the tag that never woke')
     expect(Math.max(...CM), 'which is the furthest tag of the scene').toBe(deadCm)
     const deadIdx = CM.findIndex((c) => c === deadCm)
     const deadNode = SCENE.nodes.filter((n) => n.kind !== 'ap')[deadIdx]!.id
@@ -908,7 +908,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
       'and it leaves no record at all').toHaveLength(0)
     // 「选中 Tag 5（28 cm）……只剩 5.72 dB 余量……一秒钟它只被读到 2 次」
     const [tagNo, tagCm, margin, reads] = raw(obs,
-      /选中 Tag (\d)（(\d+) cm）[^]*?只剩 ([\d.]+) dB 余量[^]*?一秒钟它只被读到 (\d) 次/,
+      /选中 Tag (\d)（(\d+) cm）[^]*?只有 ([\d.]+) dB 余量[^]*?一秒钟它只被读到 (\d) 次/,
       '`observe` on the middle tag’s second')
     const node = `tag-${tagNo}#2g`
     expect(TAGS, `Tag ${tagNo} is a tag of this scene`).toContain(node)
@@ -917,9 +917,9 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     const r5 = ofType(rs, 'AMP_BS_REPLY').find((r) => r.node === node)!
     same(margin!, r5.snrDb, 'the margin its reflection comes back with')
     expect(num(reads!), 'and the readings it yielded in the second').toBe(epcCount(rs, node))
-    // 「载入「Q = 0：只开一个槽」变体：五张醒着的标签全部抽到 0……一秒钟读到 0 张，十个槽十次读不出」
+    // 「载入「Q = 0：只开一个槽」变体：五张已唤醒的标签全部抽到 0……一秒钟读到 0 张，十个槽十次读不出」
     const [q, drew, read, slots, cols] = figs(obs,
-      /「Q = (\d)：只开一个槽」变体：五张醒着的标签全部抽到 (\d)[^]*?一秒钟读到 (\d) 张，(十)?个槽(十)?次读不出/,
+      /「Q = (\d)：只开一个槽」变体：五张已唤醒的标签全部抽到 (\d)[^]*?一秒钟读到 (\d) 张，(十)?个槽(十)?次读不出/,
       '`observe` on the Q = 0 variant') as (number | undefined)[]
     const qZero = ampBackscatter.variants!.findIndex((v) => v.label.includes(`Q = ${q}`))
     expect(qZero, 'the variant that label names').toBeGreaterThanOrEqual(0)
@@ -936,9 +936,9 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
   })
 
   it('`tryThis`: the two knobs, both turned the better way, both reading less', () => {
-    // 「前者把上电距离从 0.309 m 推到 0.978 m，读到的次数从 23 降到 22」
+    // 「前者把上电距离从 0.309 m 增大到 0.978 m，读到的次数从 23 降到 22」
     const [was, now, from, to] = raw(trys,
-      /把上电距离从 ([\d.]+) m 推到 ([\d.]+) m，读到的次数从 (\d+) 降到 (\d+)/,
+      /把上电距离从 ([\d.]+) m 增大到 ([\d.]+) m，读到的次数从 (\d+) 降到 (\d+)/,
       '`tryThis` on the 20 dBm variant')
     const strong = ampBackscatter.variants!.findIndex((v) => v.label.includes('20 dBm'))
     expect(strong, 'the variant it names').toBeGreaterThanOrEqual(0)
@@ -949,9 +949,9 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     expect(num(from!), 'the readings the shipped scene yields').toBe(tally(recs()).read)
     expect(num(to!), 'and the readings the stronger one yields').toBe(tally(recs(strong)).read)
     expect(num(to!), 'which is fewer, and that is the point').toBeLessThan(num(from!))
-    // 「后者把读得到的距离从 0.328 m 收到 0.232 m……次数降到 21，而命令占掉的空口时间从 82.8 ms 降到 57.1 ms」
+    // 「后者把可读取距离从 0.328 m 缩短到 0.232 m……次数降到 21，而命令占用的空口时间从 82.8 ms 降到 57.1 ms」
     const [dWas, dNow, dReads, aWas, aNow] = raw(trys,
-      /把读得到的距离从 ([\d.]+) m 收到 ([\d.]+) m[^]*?次数降到 (\d+)，而命令占掉的空口时间从 ([\d.]+) ms 降到 ([\d.]+) ms/,
+      /把可读取距离从 ([\d.]+) m 缩短到 ([\d.]+) m[^]*?次数降到 (\d+)，而命令占用的空口时间从 ([\d.]+) ms 降到 ([\d.]+) ms/,
       '`tryThis` on the 1 Mb/s variant')
     const fast = ampBackscatter.variants!.findIndex((v) => v.label.includes('1 Mb/s'))
     expect(fast, 'the variant it names').toBeGreaterThanOrEqual(0)
@@ -963,7 +963,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     same(aWas!, rfidAirtimeNs(recs()) / MS, 'the air the commands of the shipped scene take')
     same(aNow!, rfidAirtimeNs(recs(fast)) / MS, 'and the air the faster rate takes')
     // 「一轮清点从四次传输机会缩到两次」 — Chinese numerals, read with the course's own reader
-    const [four, two] = raw(trys, /一轮清点从(.)次传输机会缩到(.)次/,
+    const [four, two] = raw(trys, /一轮清点所需的传输机会从(.)次减少到(.)次/,
       '`tryThis` on what a 10 ms TXOP buys')
     const txops = (ms: number): number => {
       const s = ampBackscatterScenario()
@@ -992,7 +992,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
   it('every distance, every excitation and every budget, at every place the lesson prints one', () => {
     const radii = [...new Set(CM)].sort((a, b) => a - b)
     // 「两条距离，差不到 2 cm」 — the heading's own claim about the two reaches
-    const [gapCm] = figs(EVERYWHERE, /两条距离，差不到 (\d+) cm/, 'the heading on the two reaches')
+    const [gapCm] = figs(EVERYWHERE, /两个距离，相差不到 (\d+) cm/, 'the heading on the two reaches')
     const gap = (monoReachM(CFG.chargeDbm, CFG.ulKbps) - activationReachM(CFG.chargeDbm)) * 100
     expect(Math.ceil(gap), 'the gap between them, to the centimetre the heading rounds to')
       .toBe(gapCm)
@@ -1035,7 +1035,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
       ], `${ms} ms is a duration this lesson measures`).toContain(ms)
     }
     // 「于是 Q = 2 的一轮要四次传输机会、14.9 ms 才清点完」
-    const [q, ms] = raw(EVERYWHERE, /于是 Q = (\d) 的一轮要四次传输机会、([\d.]+) ms 才清点完/,
+    const [q, ms] = raw(EVERYWHERE, /因此 Q = (\d) 的一轮需要四次传输机会、([\d.]+) ms 才能清点完毕/,
       '`numbers` on what a round costs')
     expect(num(q!), 'the Q this scene ships').toBe(CFG.q)
     same(ms!, session, 'and how long one of its sessions takes')
@@ -1119,8 +1119,8 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
     const pl = freeSpacePl0Db(FREQ_24G_MHZ) + 20 * Math.log10(d)
     expect(CFG.chargeDbm - twice! * pl - loss!, 'and the return those terms give')
       .toBeCloseTo(bsReplyDbm(CFG.chargeDbm, pl), 9)
-    // 「把单站读写器的激励从 10 dBm 抬到 20 dBm」 — the two the question names are the two it runs
-    const [was, now] = figs(quizText, /激励从 (\d+) dBm 抬到 (\d+) dBm/,
+    // 「把单站读写器的激励从 10 dBm 提高到 20 dBm」 — the two the question names are the two it runs
+    const [was, now] = figs(quizText, /激励从 (\d+) dBm 提高到 (\d+) dBm/,
       'the quiz on the two excitations')
     expect(was, 'the one the scene ships').toBe(CFG.chargeDbm)
     expect(ampBackscatter.variants!.map(
@@ -1135,7 +1135,7 @@ describe('amp-backscatter · every figure the prose prints, read back out of it'
       expect(r, `${node} answers at all`).toBeDefined()
       return r!.rxDbmAtAp
     }
-    const [nearCm, farCm] = figs(quizText, /同一个槽里 (\d+) cm 和 (\d+) cm 两张标签一起反射/,
+    const [nearCm, farCm] = figs(quizText, /同一个槽里 (\d+) cm 和 (\d+) cm 两张标签同时反射/,
       'the quiz on which two tags collide')
     same(diff!, rxOf(nearCm!) - rxOf(farCm!), 'the difference the two really arrive with')
     // 「Query 1516 + ACK 1009 + Read 1064 再加三段 16 µs 就是 3637 µs，而开下一个槽之前还要为

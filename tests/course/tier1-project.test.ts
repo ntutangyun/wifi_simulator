@@ -472,12 +472,12 @@ describe('tier1-project · every figure the brief prints, read back out of its o
   })
 
   it('（a）: the two link budgets, cell for cell, and the rung the margin excludes', () => {
-    // 「一条 20 MHz 信道上的噪声是 −93.99 dBm」, and every 「3 dB 余量」 the lesson states
+    // 「一条 20 MHz 信道上的噪声地板（noise floor）是 −93.99 dBm」, and every 「3 dB 余量」 the lesson states
     const [width, floorDbm] = raw(EVERYWHERE,
-      /一条 (\d+) MHz 信道上的噪声是 −([\d.]+) dBm/, 'the floor the SNR column is read against')
+      /一条 (\d+) MHz 信道上的噪声地板（noise floor）是 −([\d.]+) dBm/, 'the floor the SNR column is read against')
     expect(val(width), 'the width this scene runs at').toBe(node('ap').caps.widthMhz)
     same(`-${floorDbm}`, NOISE, 'the noise floor at that width')
-    for (const v of everyFig(/(?:再加|再留|留) (\d+) dB 余量|这里是 (\d+) dB，好让/g,
+    for (const v of everyFig(/(?:再加|再留|留) (\d+) dB 余量|这里是 (\d+) dB，使链路/g,
       'the margin a rung is taken with', 3)) {
       expect(val(v), 'the margin this engine keeps above the required SINR').toBe(RATE_MARGIN_DB)
     }
@@ -581,7 +581,7 @@ describe('tier1-project · every figure the brief prints, read back out of its o
     expect(attempts, 'and how many attempts a frame gets').toBe(SHORT_RETRY_LIMIT)
     const { tau, p } = solveBianchi({ n: 2, W: w, m, attempts })
     same(raw(rowOf('numbers', '（c）预测', '某个时隙')[1], /τ = ([\d.]+)/, 'τ')[0], tau, 'τ')
-    same(raw(rowOf('numbers', '（c）预测', '撞上别人')[1], /p = ([\d.]+) %/, 'p')[0], 100 * p, 'p')
+    same(raw(rowOf('numbers', '（c）预测', '与对方发生碰撞')[1], /p = ([\d.]+) %/, 'p')[0], 100 * p, 'p')
     const [a, b, two, mean] = raw(rowOf('numbers', '（c）预测', '一次通用的交换')[1],
       /\(([\d.]+) \+ ([\d.]+)\) \/ (\d+) = ([\d.]+) µs/, 'the generic exchange')
     same(a, fast.tsNs / 1000, 'the fast exchange')
@@ -643,7 +643,7 @@ describe('tier1-project · every figure the brief prints, read back out of its o
         const { p } = solveBianchi({ n, W: CW_MIN + 1, m: 6, attempts: SHORT_RETRY_LIMIT })
         same(r[3].replace(' %', ''), 100 * p, `${starts}: the collision probability`)
       } else {
-        expect(n, '「没有人可撞」: one contender, so there is nobody').toBe(1)
+        expect(n, '「没有碰撞对象」: one contender, so there is nobody').toBe(1)
       }
       const theirs = contenders.map((x) => times(rungAt(x.id)))
       if (r[4].includes('→')) {
@@ -668,7 +668,7 @@ describe('tier1-project · every figure the brief prints, read back out of its o
     // the path-loss law, the brick wall, the margin and the floor — in `limits` AND in `sources`
     for (const where of [lim, src]) {
       const [pl0, exp, base, wall, margin, width, floorDbm] = figs(where,
-        /路径损耗公式 ([\d.]+) \+ (\d+)·log(\d+)\(d\)、砖墙 (\d+) dB、每一级所需 ?(?:信干噪比|SINR) ?之上再留 (\d+) dB 余量，以及 (\d+) MHz (?:下|信道) −([\d.]+) dBm 的噪声底/,
+        /路径损耗公式 ([\d.]+) \+ (\d+)·log(\d+)\(d\)、砖墙 (\d+) dB、每一级所需 ?(?:信干噪比|SINR) ?之上再留 (\d+) dB 余量，以及 (\d+) MHz (?:下|信道) −([\d.]+) dBm 的噪声地板/,
         'the four engine values the brief rests on')
       expect(pl0, 'the loss at one metre').toBe(PL0_DB)
       expect(exp, 'ten times the path-loss exponent').toBe(10 * PL_EXP)
@@ -696,7 +696,7 @@ describe('tier1-project · every figure the brief prints, read back out of its o
       same(us, first.frame.txTimeNs / 1000, `${id}: and the block the reader sees`)
     }
     const [sifs, ack, difs] = raw(obs,
-      /间隙是 (\d+) µs[^]*?回答本身是 (\d+) µs。其后还跟着 (\d+) µs 的等待/,
+      /间隙是 (\d+) µs[^]*?应答本身是 (\d+) µs。其后还有 (\d+) µs 的等待/,
       '`observe` on the gap, the answer and the wait')
     expect([val(sifs) * 1000, val(difs) * 1000], 'the two waits').toEqual([SIFS_NS, DIFS_NS])
     same(ack, fast.ackNs / 1000, 'and the answer itself')
@@ -708,13 +708,13 @@ describe('tier1-project · every figure the brief prints, read back out of its o
     same(quizSnr, farSnr, 'the SNR the quiz reasons about')
     expect(val(quizNext), 'the rung it could not take').toBe(rungOf('sta-2') + 1)
     same(quizNextReq, reqSinrDb('eht', val(quizNext)), 'what that rung requires')
-    const [over, snrA, fits, snrB, overAgain] = raw(quiz,
-      /而 ([\d.]+) \+ \d+ 超过了 ([\d.]+)[^]*?走：([\d.]+) \+ \d+ 装得进 ([\d.]+)，([\d.]+) \+ \d+ 装不进/,
+    const [over, snrA, fits, snrB, overAgain, snrC] = raw(quiz,
+      /而 ([\d.]+) \+ \d+ 超过了 ([\d.]+)[^]*?工作：([\d.]+) \+ \d+ 不超过 ([\d.]+)，([\d.]+) \+ \d+ 超过了 ([\d.]+)/,
       'the quiz’s own arithmetic, both ways round')
     same(over, reqSinrDb('eht', val(quizNext)), 'the requirement that does not fit')
     same(overAgain, reqSinrDb('eht', val(quizNext)), 'and the same one, restated')
     same(fits, reqSinrDb('eht', rungOf('sta-2')), 'the requirement that does')
-    for (const v of [snrA, snrB]) same(v, farSnr, 'the SNR both are measured against')
+    for (const v of [snrA, snrB, snrC]) same(v, farSnr, 'the SNR all three are measured against')
     for (const v of everyFig(/留 (\d+) dB 余量，而/g, 'the margin the quiz adds', 1)) {
       expect(val(v), 'the same margin').toBe(RATE_MARGIN_DB)
     }
@@ -735,7 +735,7 @@ describe('tier1-project · every figure the brief prints, read back out of its o
       expect(val(v), 'the width every device in this flat runs at').toBe(node('ap').caps.widthMhz)
     }
     // 「48 µs」: `picture` quotes the preamble the previous lesson measured
-    for (const v of everyFig(/量到的 (\d+) µs/g, 'the preamble `picture` quotes', 1)) {
+    for (const v of everyFig(/测得的 (\d+) µs/g, 'the preamble `picture` quotes', 1)) {
       expect(val(v) * 1000, 'the preamble of this generation').toBe(PHY_MODES.eht.preambleNs)
     }
     // the quiz argues about two rungs: the one the far laptop takes and the one above it
@@ -744,7 +744,7 @@ describe('tier1-project · every figure the brief prints, read back out of its o
     expect([...rungs].sort((a, b) => a - b), 'the rung it takes and the rung it cannot')
       .toEqual([rungOf('sta-2'), rungOf('sta-2') + 1])
     // and every 「+ 3」 in its arithmetic is the margin
-    for (const v of everyFig(/\+ (\d+) 超过了|\+ (\d+) 装得进|\+ (\d+) 装不进/g,
+    for (const v of everyFig(/\+ (\d+) 超过了|\+ (\d+) 不超过/g,
       'the margin the quiz adds', 3)) {
       expect(val(v), 'the margin a rung is taken with').toBe(RATE_MARGIN_DB)
     }

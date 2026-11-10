@@ -141,7 +141,7 @@ export const uwbUlTdoa: Lesson = {
       ['七个块之后的 badge-1',
         'error 2.1 cm, GDOP 0.85, ellipse 3.2 × 1.7 cm, UL-TDoA'],
     ] },
-    { kind: 'steps', heading: '一次定位，一步一步', items: [
+    { kind: 'steps', heading: '一次定位：逐步说明', items: [
       '会话只给 badge-1 分配一个时隙，此外没有其他内容。它发出一帧闪发后，射频就关闭到下一个块。没有任何应答，也没有任何一条记录返回给它。',
       '收到这帧闪发的每个锚点，都为它的 RMARKER（ranging marker）打上时间戳。锚点会用自己的晶振记录一个计数值供日志显示——即日志中的那行 UWB_TS——但定位并不使用这个计数值。',
       '定位使用的是锚点公共时基（common time base）上的到达时刻：真实飞行时间，加上这台接收机的时间戳噪声，再加上这个锚点自身的校准剩余误差。有线同步已经消除了它的晶振误差。',

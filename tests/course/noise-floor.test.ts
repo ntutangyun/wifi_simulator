@@ -288,13 +288,13 @@ describe('noise-floor · the ratio after frequency selectivity', () => {
 
   it('says the floor stays flat per bin and the numerator goes per bin', () => {
     expect(text).toContain(`${selBinWidthMhz()} MHz 一格`)
-    expect(text).toContain('分母一格一格都一样')
-    expect(text).toContain('按容量合成的那一个')
+    expect(text).toContain('分母在每一格都相同')
+    expect(text).toContain('按容量合成后的值')
   })
 
   it('names the flat interference term as the simplification it is, and keeps Doppler absent', () => {
-    expect(text).toContain('对热噪声是精确的，对一个干扰者是一处简化')
-    expect(text).toContain('多普勒仍然没有')
+    expect(text).toContain('对热噪声是精确的，对一个干扰源则是一种简化')
+    expect(text).toContain('多普勒仍然没有建模')
   })
 
   it('no longer says the fading is one value across the whole channel width', () => {
@@ -378,7 +378,7 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
      * carrying the noise figure.
      */
     const terms = f!.text.split('→')[0]!.split('=')[1]!.split('+').map((x) => x.trim())
-    const ord = /前(.)项是室温下的热噪声，第 (\d+) 项是接收机自己的噪声系数/.exec(f!.note!)
+    const ord = /前(.)项是室温下的热噪声，第 (\d+) 项是接收机自身的噪声系数/.exec(f!.note!)
     expect(ord, 'the note no longer numbers the terms').not.toBeNull()
     expect(terms.length, 'the terms the formula really adds up').toBe(Number(ord![2]))
     expect('零一二三四五六七八九'.indexOf(ord![1]!.replace('两', '二')), 'the thermal ones before it')
@@ -412,14 +412,14 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     })
     expect(widths.slice(1).map((w, i) => w / widths[i]),
       'every column is twice the width of the one before it').toEqual(widths.slice(1).map(() => 2))
-    // 「收进来的噪声就多一倍，也就是多 3.01 dB」
-    same(raw(EVERYWHERE, /也就是多 ([\d.]+) dB/, 'what a doubling adds')[0],
+    // 「收进的噪声功率就增加一倍，也就是增加 3.01 dB」
+    same(raw(EVERYWHERE, /也就是增加 ([\d.]+) dB/, 'what a doubling adds')[0],
       noiseDbm(2 * widths[0]) - noiseDbm(widths[0]), 'the cost of one doubling')
-    // 「接收 160 MHz 就收进 20 MHz 的八倍」, and the 9.03 dB that costs
+    // 「接收 160 MHz 就收进 20 MHz 的八倍噪声」, and the 9.03 dB that costs
     const [wide, narrow] = figs(EVERYWHERE, /接收 (\d+) MHz 就收进 (\d+) MHz 的八倍/,
       'the two widths `picture` compares')
     expect(wide / narrow, 'eight times the bandwidth').toBe(8)
-    for (const v of everyFig(/正好少 ([\d.]+) dB|八倍——([\d.]+) dB，SNR 正好掉这/g,
+    for (const v of everyFig(/正好降低 ([\d.]+) dB|八倍——即 ([\d.]+) dB，SNR 正好降低这/g,
       'what eight times the bandwidth costs', 2)) {
       same(v, noiseDbm(wide) - noiseDbm(narrow), 'the cost of going that wide')
     }
@@ -484,7 +484,7 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     same(`-${lvl2}`, sig, 'the same level')
     same(`-${raised2}`, dbm(mw(floor) + mw(NEIGHBOUR_DBM)), 'over the raised floor')
     same(sinr, sig - dbm(mw(floor) + mw(NEIGHBOUR_DBM)), 'and the ratio')
-    for (const v of everyFig(/比刚才少 ([\d.]+) dB|一次就拿走 ([\d.]+) dB/g,
+    for (const v of everyFig(/比上一步低 ([\d.]+) dB|使结果比 SNR 低 ([\d.]+) dB/g,
       'what one neighbour costs', 2)) {
       same(v, (sig - floor) - (sig - dbm(mw(floor) + mw(NEIGHBOUR_DBM))), 'the loss it causes')
     }
@@ -504,7 +504,7 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
         'items' in b ? b.items.join('\n') : ''].join('\n')).join('\n')
     const floor = noiseDbm(WIDTH)
     // 「噪声 −93.99 dBm = 3.99 × 10⁻¹⁰ mW，邻居 −85 dBm = 3.16 × 10⁻⁹ mW，和是 3.56 × 10⁻⁹ mW
-    //  = −84.48 dBm。较强的那一项占主导，噪声只让它多了 0.52 dB」
+    //  = −84.48 dBm。较强的一项起主导作用，噪声只使总和增加 0.52 dB」
     const [f, fm, nb, nm, sum, sm] = raw(deep,
       /噪声 −([\d.]+) dBm = ([\d.]+) × 10⁻¹⁰ mW，邻居 −(\d+) dBm = ([\d.]+) × 10⁻⁹ mW，和是 ([\d.]+) × 10⁻⁹ mW = −([\d.]+) dBm/,
       '`deeper` on the same sum')
@@ -514,7 +514,7 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     same(nm, mw(NEIGHBOUR_DBM) * 1e9, 'in milliwatts')
     same(sum, (mw(floor) + mw(NEIGHBOUR_DBM)) * 1e9, 'their sum')
     same(`-${sm}`, dbm(mw(floor) + mw(NEIGHBOUR_DBM)), 'and the sum in dBm')
-    same(raw(deep, /噪声只让它多了 ([\d.]+) dB/, 'what the noise adds to the louder term')[0],
+    same(raw(deep, /噪声只使总和增加 ([\d.]+) dB/, 'what the noise adds to the louder term')[0],
       dbm(mw(floor) + mw(NEIGHBOUR_DBM)) - NEIGHBOUR_DBM, 'the little the floor adds')
     // 「两个同为 −85 dBm 的邻居是两倍功率，即 +3.01 dB：−81.99 dBm，而不是 −170」
     const [two, plus, both, never] = figs(deep,
@@ -524,9 +524,9 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     same(String(plus), dbm(2 * mw(NEIGHBOUR_DBM)) - NEIGHBOUR_DBM, 'twice the power')
     same(`-${both}`, dbm(2 * mw(NEIGHBOUR_DBM)), 'and where that lands')
     expect(never, 'while adding the decibels would land nowhere real').toBe(2 * -NEIGHBOUR_DBM)
-    // 「20 MHz 上还能用第 3 级，换到 160 MHz 只剩 12.6 dB」
+    // 「在 20 MHz 上还能使用第 3 级的那条链路，换到 160 MHz 后只有 12.6 dB」
     const [narrow, mcs, wide, left] = figs(deep,
-      /(\d+) MHz 上还能用第 (\d+) 级[^]*?换到 (\d+) MHz 只剩 ([\d.]+) dB/,
+      /(\d+) MHz 上还能使用第 (\d+) 级[^]*?换到 (\d+) MHz 后只有 ([\d.]+) dB/,
       '`deeper` on what the wider channel costs')
     same(String(left), budgetAt(9, wide).snrDb, `the ratio at ${wide} MHz`)
     expect(budgetAt(9, narrow).mbps, `the rung at ${narrow} MHz`)
@@ -544,7 +544,7 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
      * with the 0, which is a claim too: this frame is the first thing on the air in that run.
      */
     const [spanFrom, spanTo, sifs, end] = figs(obs,
-      /数据帧从 (\d+) 走到 ([\d.]+) µs，(\d+) µs 后路由器的确认帧（ACK）开始，到 ([\d.]+) µs 结束/,
+      /数据帧从 (\d+) 持续到 ([\d.]+) µs，(\d+) µs 后路由器的确认帧（ACK）开始，到 ([\d.]+) µs 结束/,
       '`observe` on the first exchange')
     const recs = variantRecs(2)
     const data = txs(recs, 'sta-1', 'data')[0]
@@ -558,9 +558,9 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     // 「四个变体各跑 100 ms」
     expect(figs(obs, /各跑 (\d+) ms/, 'the window every variant runs for')[0] * MS,
       'the window this file runs them for').toBe(RUN_NS)
-    // 「客厅只剩 12.16 dB——比远端墙边独享空口的 15.9 dB 还低」
+    // 「客厅只有 12.16 dB——比远端墙边独占空口时的 15.9 dB 还低」
     const [withNeighbour, farWall] = raw(obs,
-      /客厅只剩 ([\d.]+) dB——比远端墙边独享空口的 ([\d.]+) dB 还低/, 'the comparison it draws')
+      /客厅只有 ([\d.]+) dB——比远端墙边独占空口时的 ([\d.]+) dB 还低/, 'the comparison it draws')
     same(withNeighbour, budgetAt(9).rssiDbm - dbm(mw(floor) + mw(NEIGHBOUR_DBM)),
       'the living room with a neighbour')
     same(farWall, budgetAt(PRIMER_DISTANCES[3]).snrDb, 'against the far wall with none')
@@ -568,33 +568,33 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
     // `tryThis` 1: the width moves the floor and not the level
     const try1 = noiseFloor.tryThis[0]
     const [from, to] = figs(try1, /把带宽从 (\d+) MHz 换到 (\d+) MHz/, 'the two widths')
-    same(`-${raw(try1, /停在 −([\d.]+) dBm/, 'the level that does not move')[0]}`,
+    same(`-${raw(try1, /保持在 −([\d.]+) dBm 不变/, 'the level that does not move')[0]}`,
       budgetAt(9).rssiDbm, 'the level')
-    const [was, now] = raw(try1, /地板却从 −([\d.]+) 抬到 −([\d.]+) dBm/, 'the floor that does')
+    const [was, now] = raw(try1, /噪声地板却从 −([\d.]+) 升高到 −([\d.]+) dBm/, 'the floor that does')
     same(`-${was}`, noiseDbm(from), `the floor at ${from} MHz`)
     same(`-${now}`, noiseDbm(to), `and at ${to} MHz`)
     const [cost, before, after] = raw(try1,
-      /SNR 正好少 ([\d.]+) dB：([\d.]+) 掉到 ([\d.]+)。/, 'what that costs the ratio')
+      /SNR 正好降低 ([\d.]+) dB：从 ([\d.]+) 降到 ([\d.]+)。/, 'what that costs the ratio')
     same(cost, noiseDbm(to) - noiseDbm(from), 'the cost')
     same(before, budgetAt(9, from).snrDb, 'the ratio before')
     same(after, budgetAt(9, to).snrDb, 'and after')
     // `tryThis` 2: the distance moves the level and not the floor
     const try2 = noiseFloor.tryThis[1]
-    const [at20, from2, to2] = figs(try2, /把带宽调回 (\d+) MHz，再把距离从 (\d+) m 拉到 (\d+) m/,
+    const [at20, from2, to2] = figs(try2, /把带宽调回 (\d+) MHz，再把距离从 (\d+) m 增大到 (\d+) m/,
       'the width it goes back to, and the two distances')
     expect(at20, 'the width the scene runs at').toBe(WIDTH)
-    same(`-${raw(try2, /接收电平掉到 −([\d.]+) dBm/, 'where the level lands')[0]}`,
+    same(`-${raw(try2, /接收电平降到 −([\d.]+) dBm/, 'where the level lands')[0]}`,
       budgetAt(to2).rssiDbm, 'the level at the far wall')
-    same(raw(try2, /SNR ([\d.]+) dB：地板只跟带宽走/, 'the ratio that is left')[0],
+    same(raw(try2, /SNR 为 ([\d.]+) dB：噪声地板只取决于带宽/, 'the ratio that is left')[0],
       budgetAt(to2).snrDb, 'the ratio')
-    expect(noiseDbm(WIDTH), '「地板一点没动」').toBe(budgetAt(from2).noiseDbm)
+    expect(noiseDbm(WIDTH), '「噪声地板没有变化」').toBe(budgetAt(from2).noiseDbm)
     // the quiz: the level, the neighbour, both answers, and the width question
     const quiz = noiseFloor.quiz.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
     same(`-${raw(quiz, /笔记本（−([\d.]+) dBm）/, 'the level the quiz starts from')[0]}`,
       budgetAt(9).rssiDbm, 'the level')
-    same(raw(quiz, /还是 ([\d.]+) dB：别人的帧是信号/, 'the wrong answer’s own figure')[0],
+    same(raw(quiz, /仍是 ([\d.]+) dB：其他设备的帧是信号/, 'the wrong answer’s own figure')[0],
       budgetAt(9).snrDb, 'the ratio without the neighbour')
-    same(raw(quiz, /约 ([\d.]+) dB：邻居叠到了噪声地/, 'the right answer’s')[0],
+    same(raw(quiz, /约 ([\d.]+) dB：邻居的功率叠加到了噪声地/, 'the right answer’s')[0],
       budgetAt(9).rssiDbm - dbm(mw(floor) + mw(NEIGHBOUR_DBM)), 'and with it')
     const [qNarrow, qWide] = figs(quiz, /信道从 (\d+) MHz 换成 (\d+) MHz/, 'the quiz’s two widths')
     for (const v of everyFig(/升高约 (\d+) dB/g, 'how far the floor rises', 2)) {
@@ -632,22 +632,22 @@ describe('noise-floor · every figure the lesson prints, read back out of its ow
       expect(legal, `${v} MHz is one of the widths this engine has a floor for`)
         .toContain(val(v))
     }
-    // 「再把距离从 9 m 拉到 14 m」: both are places this lesson has a variant for
+    // 「再把距离从 9 m 增大到 14 m」: both are places this lesson has a variant for
     const [, from, to] = figs(noiseFloor.tryThis[1],
-      /把带宽调回 (\d+) MHz，再把距离从 (\d+) m 拉到 (\d+) m/, 'the two distances')
+      /把带宽调回 (\d+) MHz，再把距离从 (\d+) m 增大到 (\d+) m/, 'the two distances')
     for (const d of [from, to]) {
       expect([...PRIMER_DISTANCES], `${d} m is one of this lesson’s four places`).toContain(d)
     }
     expect(budgetAt(from).rssiDbm, 'and the level really falls between them')
       .toBeGreaterThan(budgetAt(to).rssiDbm)
     // the quiz's own floor, and its own nine decibels (the wrong answer moves them the other way)
-    for (const v of everyFig(/远高于 −([\d.]+) dBm 的地板/g, 'the floor the quiz compares with', 1)) {
+    for (const v of everyFig(/远高于 −([\d.]+) dBm 的噪声地板/g, 'the floor the quiz compares with', 1)) {
       same(`-${v}`, noiseDbm(WIDTH), 'the floor')
     }
     const [narrow, wide] = figs(
       noiseFloor.quiz.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n'),
       /信道从 (\d+) MHz 换成 (\d+) MHz/, 'the two widths the quiz moves between')
-    for (const v of everyFig(/下降约 (\d+) dB，地板不变/g, 'the wrong answer’s own figure', 1)) {
+    for (const v of everyFig(/下降约 (\d+) dB，噪声地板不变/g, 'the wrong answer’s own figure', 1)) {
       expect(val(v), 'the same nine decibels, moved onto the wrong quantity')
         .toBe(Math.round(noiseDbm(wide) - noiseDbm(narrow)))
     }

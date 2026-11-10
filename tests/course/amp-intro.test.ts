@@ -278,7 +278,7 @@ describe('amp-intro · a second of polling', () => {
       expect(new Set(a.map((r) => r.acw))).toEqual(new Set([acw]))
       expect(a.every((r) => r.aboc >= 0 && r.aboc <= acw)).toBe(true)
       /*
-       * 「每个标签从 0、1、2、3 中抽一个 ABOC，在第 ABOC + 1 个时隙作答」 — the offset is read
+       * 「每个标签从 0、1、2、3 中随机选取一个 ABOC，在第 ABOC + 1 个时隙作答」 — the offset is read
        * out of `deeper` rather than typed here, which is what the 「第」 rule change of
        * 2026-10-14 uncovered: a 2 in that sentence would put every tag in the wrong slot and
        * this file would not have noticed.
@@ -434,7 +434,7 @@ describe('amp-intro · what the log shows', () => {
  *    330) = 4190 µs = 100 ms 的 4.19 %」 has all nine of its figures parsed out, the sum has to
  *    equal the measured round, and the percentage has to equal the sum over the measured period.
  *  - **the nine gaps and the two silent slots are counted, not quoted.** 「90 µs 是那九个间隔，
- *    1056 µs 是两个没人用的时隙」 reads both the count and the product out of the sentence, and
+ *    1056 µs 是两个无人使用的时隙」 reads both the count and the product out of the sentence, and
  *    the sentence's own three parts have to add up to its own total.
  *  - **the ACWE algebra is read with its own exponent.** 「ACWE，这里取 2，于是窗口 ACW = 2² − 1
  *    = 3」 is parsed into base, exponent and offset, and the window has to be what the records
@@ -601,9 +601,9 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     same(raw(f.text, /的 ([\d.]+) %/, 'the share of the period')[0]!,
       (100 * total! * US) / (periodMs! * MS), 'the share of the period the round costs')
     // The note: it names the round again, then splits it three ways.
-    const [noteTotal] = figs(f.note, /这 ([\d ]+) µs 里/, 'the note’s own printing of the round')
+    const [noteTotal] = figs(f.note, /这 ([\d ]+) µs 中/, 'the note’s own printing of the round')
     expect(noteTotal, 'the round, printed a second time at the head of the note').toBe(total)
-    const [air] = figs(f.note, /真正有帧在空中的只有 ([\d ]+) µs/, 'the note on the airtime')
+    const [air] = figs(f.note, /实际有帧在空口传送的只有 ([\d ]+) µs/, 'the note on the airtime')
     const frames = firstRound([...txs(rs, 'cts'), ...txs(rs, 'ampTrigger'),
       ...txs(rs, 'ampAck'), ...txs(rs, 'ampResp')])
     expect(air! * US, 'the frames of the round, added up')
@@ -611,7 +611,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     const [gapTotal, gapCount] = raw(f.note, /([\d ]+) µs 是那([一二三四五六七八九十]+)个间隔/,
       'the note on the gaps')
     expect(zh(gapCount!) * (AMP_SIFS_NS / US), 'the gaps, counted and multiplied out').toBe(val(gapTotal!))
-    const [idleTotal, idleCount] = raw(f.note, /([\d ]+) µs 是([一二三四五六七八九十两]+)个没人用的时隙/,
+    const [idleTotal, idleCount] = raw(f.note, /([\d ]+) µs 是([一二三四五六七八九十两]+)个无人使用的时隙/,
       'the note on the silent slots')
     expect(zh(idleCount!) * (round.slotNs / US), 'the silent slots, counted out').toBe(val(idleTotal!))
     const used = new Set(firstRound(ofType(rs, 'AMP_RESULT')).map((r) => r.slot))
@@ -621,7 +621,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
   })
 
   it('reads the second of polling, which the prose counts in characters', () => {
-    const [periodMs] = figs(NUMS, /路由器每 ([\d ]+) ms 整点开启一轮/, 'the period')
+    const [periodMs] = figs(NUMS, /路由器每隔 ([\d ]+) ms 准时开始一轮/, 'the period')
     const starts = txs(rs, 'cts').map((r) => r.t)
     expect(periodMs! * MS, 'the period between two rounds').toBe(starts[1]! - starts[0]!)
     const [rounds, slots, acks, answers] = raw(NUMS,
@@ -632,14 +632,14 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     expect(zh(answers!), 'and the answers the tags give').toBe(txs(rs, 'ampResp').length)
     expect(zh(slots!), 'which is the rounds times the slots of one').toBe(zh(rounds!) * 4)
     // Which Acks name a tag, and which name the router itself.
-    const [named, self] = raw(NUMS, /其中(.+?)帧点名了某个标签，另外(.+?)帧写的是路由器自己/,
+    const [named, self] = raw(NUMS, /其中(.+?)帧标明了某个标签，另外(.+?)帧标明的是路由器自己/,
       'the Acks that name a tag')
     const ackDsts = txs(rs, 'ampAck').map((r) => r.frame.dst)
     expect(zh(named!), 'the Acks that name a tag').toBe(ackDsts.filter((d) => d !== 'ap').length)
     expect(zh(self!), 'and the ones that name the router').toBe(ackDsts.filter((d) => d === 'ap').length)
     expect(zh(named!) + zh(self!), 'together they are every Ack of the second').toBe(zh(acks!))
     // Both tags answered every round, and how those answers ended.
-    const [all, acked, lost] = raw(NUMS, /两个标签都在全部(.+?)轮里作了答：(.+?)次被确认、(.+?)次丢失/,
+    const [all, acked, lost] = raw(NUMS, /两个标签都在全部(.+?)轮里作答：各有(.+?)次被确认、(.+?)次丢失/,
       'how the answers ended')
     for (const tag of TAGS) {
       expect(results(rs, tag).length, `${tag} answered every round`).toBe(zh(all!))
@@ -654,7 +654,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     const coll = ofType(rs, 'COLLISION')
     const lost = ofType(rs, 'AMP_RESULT').filter((r) => !r.acked)
     expect(rows.length, 'one row per collision').toBe(coll.length)
-    const [periodMs] = figs(NUMS, /路由器每 ([\d ]+) ms 整点开启一轮/, 'the period')
+    const [periodMs] = figs(NUMS, /路由器每隔 ([\d ]+) ms 准时开始一轮/, 'the period')
     for (const [i, row] of rows.entries()) {
       const c = coll[i]!
       expect(val(row[0]!), `row ${i}: the round it happened in`)
@@ -663,7 +663,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
       expect(val(row[1]!), `row ${i}: the slot both tags drew`).toBe(slot.slot)
       same(raw(row[2]!, /^([\d ]+) µs$/, `row ${i}: when they collided`)[0]!, c.t / US,
         `row ${i}: when they collided`)
-      // 「Ack 点名」 is 「路由器自己」: the Ack after a collision names its own sender.
+      // 「Ack 标明」 is 「路由器自己」: the Ack after a collision names its own sender.
       const ack = txs(rs, 'ampAck').find((r) => r.t > c.t)!
       expect(ack.frame.dst, `row ${i}: the Ack names the router`).toBe(ack.frame.src)
       expect(row[3], `row ${i}: and the cell says so`).toBe('路由器自己')
@@ -673,7 +673,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
         `row ${i}: when the tags learn`)
     }
     // The sentence above the table: it is not weak signal, it is two tags on one slot.
-    const [twice, often] = raw(NUMS, /([一二三四五六七八九十]+)轮里有([一二三四五六七八九十两]+)轮，两个标签抽到了同一个数/,
+    const [twice, often] = raw(NUMS, /([一二三四五六七八九十]+)轮里有([一二三四五六七八九十两]+)轮，两个标签选到了同一个数/,
       'the reason for the losses')
     expect(zh(twice!), 'the rounds of the second').toBe(ofType(rs, 'AMP_ROUND').length)
     expect(zh(often!), 'and the ones both tags drew the same slot in').toBe(coll.length)
@@ -706,7 +706,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     same(raw(DEEP, /仍有 ([\d.]+) dB 余量/, '`deeper` on the uplink margin')[0]!, ul - ampUlSensDbm(250),
       'the uplink margin, printed a second time')
     const [kbps, floor, wifi, diff] = figs(DEEP,
-      /路由器接收 (\d+) kb\/s 作答的 −(\d+) dBm 底线，比一帧普通 Wi-Fi 必须跨过的 −(\d+) dBm 还低约 (\d+) dB/,
+      /路由器接收 (\d+) kb\/s 作答的 −(\d+) dBm 门限，比一帧普通 Wi-Fi 必须达到的 −(\d+) dBm 还低约 (\d+) dB/,
       '`deeper` on what the floor is bought with')
     const rate = s.nodes[0]!.ampAp!.ulKbps
     expect(kbps, 'the uplink rate this scene runs at').toBe(rate)
@@ -726,11 +726,11 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
       .toBe(acw)
     expect(acw, 'which is the window the records carry')
       .toBe([...new Set(ofType(rs, 'AMP_ABOC').map((r) => r.acw))][0])
-    // 「每个标签从 0、1、2、3 中抽一个 ABOC」: every value of the window, and nothing else.
-    const [drawList] = raw(DEEP, /每个标签从 ([\d、 ]+?) 中抽一个 ABOC/, '`deeper` on the draw’s range')
+    // 「每个标签从 0、1、2、3 中随机选取一个 ABOC」: every value of the window, and nothing else.
+    const [drawList] = raw(DEEP, /每个标签从 ([\d、 ]+?) 中随机选取一个 ABOC/, '`deeper` on the draw’s range')
     expect(drawList!.split('、').map((x) => Number(x.trim())),
       'the values a draw can take').toEqual([...Array(acw! + 1).keys()])
-    // 「只有当……ACW + 1 > N 时，标签才会空转一轮」: the condition itself, before the numbers.
+    // 「只有当……ACW + 1 > N 时，标签才会有整轮不发送的情况」: the condition itself, before the numbers.
     const [condPlus] = figs(DEEP, /也就是 ACW \+ (\d+) > N 时/, '`deeper` on the condition’s shape')
     // 「ACW + 1 = 4 = N」: why no tag ever sits a round out, with both sides read.
     const [plus, n] = figs(DEEP, /这里 ACW \+ (\d+) = (\d+) = N/, '`deeper` on the condition')
@@ -740,12 +740,12 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     expect(ofType(rs, 'AMP_ABOC').filter((r) => r.slot === null).length,
       'so no tag sits a round out').toBe(0)
     // The same list of draws, printed a second time as the reason — the sweep found all four.
-    const [again] = raw(DEEP, /所以([\d、 ]+?) 每一个结果都指向一个真实存在的时隙/,
+    const [again] = raw(DEEP, /所以([\d、 ]+?) 每一个取值都对应一个实际存在的时隙/,
       '`deeper` on the draws that all land somewhere')
     expect(again!.split('、').map((x) => Number(x.trim())),
       'every value of the window, printed again').toEqual([...Array(acw! + 1).keys()])
-    // 「抽到 3 就落在时隙 4」, and it happens in this run.
-    const [drew, lands] = figs(DEEP, /抽到 (\d+) 就落在时隙 (\d+)/, '`deeper` on the last slot')
+    // 「取到 3 就对应时隙 4」, and it happens in this run.
+    const [drew, lands] = figs(DEEP, /取到 (\d+) 就对应时隙 (\d+)/, '`deeper` on the last slot')
     expect(drew! + plus!, 'the slot that draw points at').toBe(lands)
     expect(lands, 'the last slot there is').toBe(round.slots)
     expect(ofType(rs, 'AMP_ABOC').some((r) => r.aboc === drew && r.slot === lands),
@@ -791,7 +791,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     expect([250, 1000], 'the rate the thresholds are quoted at is one the engine has').toContain(kbps)
     expect(ulSinr, 'and the uplink one at that rate')
       .toBe(AMP_UL_REQ_SINR_DB[kbps === 250 ? 250 : 1000])
-    const [srcKbps, srcFloor] = figs(SRC, /路由器接收 (\d+) kb\/s 作答的 −(\d+) dBm 底线/,
+    const [srcKbps, srcFloor] = figs(SRC, /路由器接收 (\d+) kb\/s 作答的 −(\d+) dBm 门限/,
       '`sources` on the floor')
     expect(srcKbps, 'the rate the floor is quoted at').toBe(kbps)
     expect(-srcFloor!, 'the floor itself')
@@ -799,17 +799,17 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
   })
 
   it('reads both observe lines off the log, and the experiment’s own level', () => {
-    // 「触发帧结束，隔一个 10 µs 的间隔，时隙 1 就打开」
-    const [gapUs, slotNo] = figs(OBS, /隔一个 (\d+) µs 的间隔，时隙 (\d+) 就打开/,
+    // 「触发帧结束后，经过一个 10 µs 的间隔，时隙 1 开始」
+    const [gapUs, slotNo] = figs(OBS, /经过一个 (\d+) µs 的间隔，时隙 (\d+) 开始/,
       'the first observe line')
     const trigEnd = ends(rs, 'ampTrigger')[0]!
     const slot1 = firstRound(ofType(rs, 'AMP_SLOT'))[0]!
     expect(gapUs! * US, 'the gap between the trigger and the first slot').toBe(slot1.t - trigEnd.t)
     expect(slotNo, 'the slot that opens there').toBe(slot1.slot)
     // The two log lines, word for word out of `fmtRecord`.
-    const [quotedAboc] = raw(OBS, /打印成 “(ABOC \d+ of \[\d+, \d+\] → slot \d+)”/,
+    const [quotedAboc] = raw(OBS, /输出为 “(ABOC \d+ of \[\d+, \d+\] → slot \d+)”/,
       'the observe line’s ABOC quote')
-    const [quotedResult] = raw(OBS, /打印成 “(slot \d+: acknowledged)”/,
+    const [quotedResult] = raw(OBS, /输出为 “(slot \d+: acknowledged)”/,
       'the observe line’s result quote')
     const tagAboc = aboc(rs, 'tag-1#2g')
     const tagResults = results(rs, 'tag-1#2g')
@@ -823,7 +823,7 @@ describe('amp-intro · every figure the prose prints, read back out of it', () =
     // `tryThis`: the level the reader is told to raise the threshold past.
     const s = ampIntro.scenario()
     const links = buildLinkTable(s.nodes, s.walls)
-    same(raw(TRY, /抬到高于它实际收到的 (−[\d.]+) dBm/, '`tryThis` on the arrival level')[0]!,
+    same(raw(TRY, /提高到高于它实际收到的 (−[\d.]+) dBm/, '`tryThis` on the arrival level')[0]!,
       rssiOn('2g', links, 'ap', 'tag-2'), 'what the Door tag actually receives')
     // The variant's label, which is reader-visible text with a figure in it.
     const [mbps] = figs(ampIntro.variants![0]!.label, /(\d+) Mb\/s/, 'the variant’s own label')
