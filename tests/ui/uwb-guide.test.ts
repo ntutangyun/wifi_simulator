@@ -25,7 +25,7 @@ import {
   MMS_COMBINE_MAX_DB, MMS_SETS, UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, rifNs, rsfNs,
 } from '../../src/uwb/mms'
 import {
-  NB_CHANNELS, NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES,
+  NB_CHANNELS, NB_LBT_CCA_US, NB_PHY_CCA_DURATION_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM, NB_POLL_BYTES,
   NB_REPORT_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../../src/uwb/nb'
 import {
@@ -1747,7 +1747,8 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const defaults = UwbSsbdSchema.parse({})
     const boundUs = ssbdBoundNs(defaults) / 1000
     const staleUs = ssbdBoundNs({ ...defaults, backoffMultiplier: 2, ccaUs: 1 }) / 1000
-    expect(boundUs).toBe(74)
+    // 2026-11-11 (audit #20): six CCAs of phyCcaDuration (128 µs) — it was 74 µs with a 9 µs CCA.
+    expect(boundUs).toBe(788)
     expect(staleUs).toBe(46)
     expect(section).toContain(`${boundUs} µs`)
     expect(section).toContain(`${staleUs} µs`)
@@ -1765,7 +1766,7 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
   it('states the actual wait is less than the bound, and calls the bound the algorithm’s, not the engine’s cost', () => {
     const defaults = UwbSsbdSchema.parse({})
     const boundUs = ssbdBoundNs(defaults) / 1000
-    const actualUs = boundUs - (defaults.maxBackoffs + 1) * NB_LBT_CCA_US
+    const actualUs = boundUs - (defaults.maxBackoffs + 1) * NB_PHY_CCA_DURATION_US
     expect(actualUs).toBe(20)
     expect(section).toContain(`${actualUs} µs`)
     expect(section).toMatch(/算法的.{0,4}上界/)
@@ -1830,14 +1831,10 @@ describe('Guide section 21: spectrum sensing based deferral (standard §10.45, a
     const BF = 7
     const biggest = Math.floor(pollSlackUs / BF)
     const maxFit = ranges(lesson('pairwise', { minBf: BF, maxBf: BF, unitBackoffUs: biggest }))
-    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 47, perBlock: 1, defaults: 50, maxFit: 3 })
+    // 2026-11-11 (W5): every access method runs the POLL's window out on the router's channel.
+    expect({ off, perBlock, defaults, maxFit }).toEqual({ off: 47, perBlock: 0, defaults: 0, maxFit: 0 })
     for (const n of [off, perBlock, defaults, maxFit]) expect(section).toContain(String(n))
-    // The sharper reading the design doc's §5.4 insists on: the per-block rule costs nearly every
-    // cycle, the defaults recover them, and turning the knob up makes it worse, not better.
-    expect(perBlock).toBeLessThan(off / 10)
-    expect(defaults).toBeGreaterThan(perBlock * 10)
-    expect(maxFit).toBeLessThan(defaults)
-    expect(maxFit).toBeLessThanOrEqual(off)
+    expect(section).toContain('三种做信道接入的设置都一次也没有测成')
   })
 
   /**
@@ -1946,9 +1943,12 @@ describe('the LBT glossary entry, qualified rather than rewritten (task 5)', () 
   const group = GLOSSARY.find((g) => g.id === 'uwb-mms')
   const lbt = group?.items.find((i) => i.term === 'LBT / frame-based equipment')
 
-  it('still says a busy verdict costs the whole block — true of every session with ssbd off', () => {
+  // 2026-11-11 (audit #19): a busy verdict costs one transmission slot (CSMA-CA per slot,
+  // §10.39.8.3); the whole-block cost is the early proposal's, and the entry says so.
+  it('says the whole-block cost is the early proposal’s, and the engine accesses per slot', () => {
     expect(lbt).toBeDefined()
-    expect(lbt!.def).toMatch(/整整一个测距块/)
+    expect(lbt!.def).toMatch(/判忙就在这个测距块余下的时间里不再发送/)
+    expect(lbt!.def).toMatch(/每个发射时隙/)
   })
 
   it('now says which path that is, and that the per-slot alternative exists', () => {

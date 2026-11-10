@@ -1,7 +1,7 @@
 import type { Material, UwbMode } from '../model/scenario'
 import type { Ns } from '../model/types'
 import { mmsLayout, mmsLongestFragmentNs, MMS_SLOTS_PER_MS, NB_WINDOW_SLOTS, type MmsPhy } from './mms'
-import { NB_LBT_CCA_US, NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs } from './nb'
+import { NB_PHY_CCA_DURATION_US, NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs } from './nb'
 import { chipsToNs, freeSpacePl0Db, UWB_CHIP_HZ, UWB_CHIP_NS, UWB_RX_SENS_DBM } from './units'
 
 // --- Chip, RCTU, RSTU units -------------------------------------------------
@@ -1220,9 +1220,9 @@ export interface SsbdBoundCfg {
   /** The overturned `2 × BF` draw (CID 489/493 replaced it with `random(BF)`, i.e. a multiplier
    * of 1). Defaults to 1 — the current text — never 2. */
   backoffMultiplier?: 1 | 2
-  /** The CCA duration, in microseconds. Defaults to the engine's own `NB_LBT_CCA_US` (CID 490/495
-   * deleted the SSBD-specific `macSsbdCcaDuration` in favour of the PHY's `phyCcaDuration`, which
-   * this engine already reads as `NB_LBT_CCA_US` for every other narrowband LBT check). */
+  /** The CCA duration, in microseconds. Defaults to the PHY's phyCcaDuration,
+   * `NB_PHY_CCA_DURATION_US` = 128 µs (CID 490/495 deleted the SSBD-specific `macSsbdCcaDuration`
+   * in favour of the PHY's `phyCcaDuration`; standard Table 12-2 recommends 8 symbol periods). */
   ccaUs?: number
 }
 
@@ -1236,12 +1236,12 @@ export interface SsbdBoundCfg {
  * published examples (46 µs at the defaults, 2.088 ms tuned) are stale. They reproduce only under
  * `backoffMultiplier: 2` and `ccaUs: 1` — the two premises CID 489/493 and CID 490/495
  * subsequently overturned — and under the text this engine actually implements (`random(BF)`, CCA
- * = `NB_LBT_CCA_US`) the default bound is 74 µs, not 46. Both numbers are this same function
+ * = phyCcaDuration, 128 µs) the default bound is not 46 µs. Both numbers are this same function
  * called with different `cfg`, never two formulas.
  */
 export function ssbdBoundNs(cfg: SsbdBoundCfg): Ns {
   const mult = cfg.backoffMultiplier ?? 1
-  const ccaUs = cfg.ccaUs ?? NB_LBT_CCA_US
+  const ccaUs = cfg.ccaUs ?? NB_PHY_CCA_DURATION_US
   let totalUs = 0
   for (let i = 0; i <= cfg.maxBackoffs; i++) {
     totalUs += mult * Math.min(cfg.minBf + i, cfg.maxBf) * cfg.unitBackoffUs + ccaUs

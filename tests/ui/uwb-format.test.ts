@@ -186,7 +186,7 @@ describe('the event log expands a UWB frame in 802.15.4 vocabulary', () => {
 
 const NB_LBT = rec({
   type: 'UWB_NB_LBT', node: 'tag-1', channel: 3, foreignDbm: -41.96, thresholdDbm: -71.02,
-  block: 0, round: 0,
+  block: 0, round: 0, slot: 0, nb: 1, be: 0, backoffNs: 0, outcome: 'retry',
 })
 const TRAIN = rec({
   type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rsf', fragments: 8, heard: 8,
@@ -198,9 +198,14 @@ const TRAIN_LOST = rec({
 })
 
 describe('the MMS log lines', () => {
-  it('says what a busy listen-before-talk check cost', () => {
+  // 2026-11-11 (audit #19): CSMA-CA per transmission slot, not a block skipped.
+  it('says what a busy CSMA-CA check did, and when channel access gave up', () => {
     expect(fmtUwbRecord(NB_LBT))
-      .toBe('tag-1 NB LBT busy on ch 3: -42.0 dBm ≥ -71.0 — skipping the block')
+      .toBe('tag-1 NB CSMA-CA on ch 3, slot 0: CCA busy -42.0 dBm ≥ -71.0 (NB 1) — backing off')
+    expect(fmtUwbRecord({ ...NB_LBT, nb: 5, outcome: 'fail' } as never))
+      .toBe('tag-1 NB CSMA-CA on ch 3, slot 0: CCA busy -42.0 dBm ≥ -71.0 (NB 5) — channel access failure, not sent')
+    expect(fmtUwbRecord({ ...NB_LBT, be: 1, backoffNs: 320_000, outcome: 'noRoom' } as never))
+      .toBe('tag-1 NB CSMA-CA on ch 3, slot 0: no room in the window for a 320 µs backoff (BE 1) — not sent')
   })
 
   it('says what a train came to, in one line', () => {

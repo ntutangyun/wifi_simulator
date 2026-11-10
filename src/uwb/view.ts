@@ -91,18 +91,13 @@ export interface UwbMmsView {
   /** The narrowband channel of the last control message this node sent or received; null until
    * one has. The session hops it per block, so it is state, not configuration. */
   nbChannel: number | null
-  /** Listen-before-talk checks that found the channel busy (this run). */
+  /** CSMA-CA clear-channel assessments that found the channel busy (this run): every
+   * `UWB_NB_LBT` record with outcome `retry` or `fail`. */
   lbtBusy: number
-  /** Ranging blocks lost to one of those — a busy check stops every narrowband transmission
-   * until the next block, so it is blocks, not messages, that the rule costs. Counted as
-   * *distinct* blocks rather than as checks: the two happen to agree while a device that has
-   * found the channel busy stops checking until the next block, and they must not silently
-   * stop agreeing if that ever changes. */
-  skippedBlocks: number
-  /** The block the last busy check fell in, so the count above can tell a second check in the
-   * same block from the first check of the next one. Blocks only ever move forwards in the
-   * record stream, so one number is enough — no set is needed. Null until one lands. */
-  lastLbtBlock: number | null
+  /** Narrowband transmissions channel access gave up on — a CSMA-CA failure (`fail`) or a window
+   * with no room left for the next backoff (`noRoom`). Each costs one message in one transmission
+   * slot, not a block (4ab draft §10.39.8.3; 2026-11-11, audit #19). */
+  accessFailures: number
   /**
    * Spectrum-sensing-based-deferral attempts this node ran (standard §10.45 — a P802.15.4ab
    * **draft** clause; see `phy.ts`'s `ssbdBoundNs`). Zero in every session with `ssbd` off, which
@@ -110,9 +105,8 @@ export interface UwbMmsView {
    *
    * Counted per **record**, and a record is one CCA that decided something: the one that ended an
    * attempt, plus any whose drawn backoff had to be cut to fit its window. Not per *block*, which
-   * is the whole difference between this counter and `lbtBusy`/`skippedBlocks` above — those two
-   * measure a rule whose unit is the block, and this one a rule whose unit is the transmission
-   * slot (§10.39.8.3).
+   * is what separates this counter from `lbtBusy`/`accessFailures` above, which count CSMA-CA's busy
+   * checks and failures (a session without SSBD).
    */
   ssbd: number
   /** What those attempts actually waited, in nanoseconds, after each draw was clamped to the room
@@ -230,7 +224,7 @@ export function initUwbNodeView(cfg: UwbNodeCfg): UwbNodeView {
     interfered: 0,
     contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
     mms: {
-      trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+      trains: {}, nbChannel: null, lbtBusy: 0, accessFailures: 0,
       ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
     },
     position: null,
@@ -412,13 +406,8 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
     case 'UWB_NB_LBT': {
       const u = vs.nodes[r.node]?.uwb
       if (u) {
-        u.mms.lbtBusy += 1
-        // A busy check stops this node's narrowband radio for the rest of the block, so what
-        // the rule costs is blocks: a second check inside one block would not cost a second.
-        if (u.mms.lastLbtBlock !== r.block) {
-          u.mms.skippedBlocks += 1
-          u.mms.lastLbtBlock = r.block
-        }
+        if (r.outcome !== 'noRoom') u.mms.lbtBusy += 1
+        if (r.outcome !== 'retry') u.mms.accessFailures += 1
       }
       return true
     }
@@ -465,7 +454,7 @@ export function applyUwbRecord(vs: ViewState, r: TLRecord): boolean {
       if (u) {
         u.mms.ssbd += 1
         u.mms.ssbdWaitNs += r.backoffNs
-        if (r.outcome === 'failOnEnd') u.mms.ssbdFailed += 1
+        if (r.outcome === 'failOnEnd' || r.outcome === 'noRoom') u.mms.ssbdFailed += 1
       }
       return true
     }

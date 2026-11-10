@@ -40,8 +40,10 @@ describe('the control and report phases are as long as the control plane makes t
   it('narrowband-assisted keeps the two-slot windows it always had', () => {
     const one = mmsLayout(phy(), 1)
     expect([one.controlSlots, one.reportSlots]).toEqual([4, 4])
+    // Three responders: a POLL and a RESP window in each of the three sub-rounds (2026-11-11, audit
+    // #22 — one sub-round per responder, 15-25/0213r2).
     const three = mmsLayout(phy(), 3)
-    expect([three.controlSlots, three.reportSlots]).toEqual([8, 12])
+    expect([three.controlSlots, three.reportSlots]).toEqual([12, 12])
     expect([one.windowSlots, one.reportWindowSlots]).toEqual([2, 2])
   })
 

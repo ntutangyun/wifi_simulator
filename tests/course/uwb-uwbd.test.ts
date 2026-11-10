@@ -18,10 +18,10 @@ import {
 import { ScenarioSchema } from '../../src/model/scenario'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import {
-  MMS_DRAFT_DEFAULTS, MMS_SP0_NS, MMS_SP0_PENALTY_DB, MMS_SP0_RX_SENS_DBM, MMS_SP0_SEGMENT_NS,
-  UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, rsfNs, type MmsPhy,
+  MMS_DRAFT_DEFAULTS, MMS_SP0_NS, MMS_SP0_PENALTY_DB, MMS_SP0_SEGMENT_NS,
+  UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, mmsSp0TxDbm, rsfNs, type MmsPhy,
 } from '../../src/uwb/mms'
-import { UWB_TX_POWER_DBM, uwbPathLossDb, uwbPl0Db } from '../../src/uwb/phy'
+import { uwbPathLossDb, uwbPl0Db } from '../../src/uwb/phy'
 import { UWB_RX_SENS_DBM } from '../../src/uwb/units'
 import { fmtRecord } from '../../src/ui/format'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
@@ -58,6 +58,8 @@ const stdText = (): string => uwbUwbd.standard!
 
 const FRAG_NS = rsfNs(40, 64)
 const FRAG_DBM = mmsFragmentDbm(FRAG_NS)
+/** The SP0 transmit power: the leading fragment's less the proposal's ~4 dB (audit #17, 2026-11-11). */
+const SP0_DBM = mmsSp0TxDbm({ rsfs: 8, rifs: 0, nMsr: 40, gap: 64, stsLen: 64, gapMs: 1, ...MMS_DRAFT_DEFAULTS })
 const PL0 = uwbPl0Db(9)
 const lossAt = (m: number): number => uwbPathLossDb(PL0, m, 0)
 /** The largest distance at which `tx` still clears `sens` under this channel's free-space law. */
@@ -116,26 +118,25 @@ describe('uwb-uwbd · the lesson', () => {
 })
 
 describe('uwb-uwbd · ② says what the engine does, and the engine does it', () => {
-  it('is not all faithful, and the double count is a differs row', () => {
-    expect(implRow('SP0 的功率与门限').kind).toBe('differs')
+  // 2026-11-11 (audit #17): the proposal's ~4 dB is the peak-power loss, counted once.
+  it('the SP0 cost is counted once now, and the row is faithful', () => {
+    expect(implRow('SP0 的功率与门限').kind).toBe('faithful')
     expect(implRow('SOR 消息').kind).toBe('absent')
     expect(implRow('零长控制阶段').kind).toBe('faithful')
   })
 
-  it('the 14.54 dB, both halves, from the engine', () => {
+  it('the 4 dB, once, from the engine', () => {
     const sim = implRow('SP0 的功率与门限').sim
+    expect(SP0_DBM).toBeCloseTo(FRAG_DBM - MMS_SP0_PENALTY_DB, 9)
     expect(sim).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
     expect(sim).toContain(`${(FRAG_NS / 1000).toFixed(3)} µs 的片段为 ${dbm(FRAG_DBM)} dBm`)
-    expect(sim).toContain(`${dbm(UWB_TX_POWER_DBM)} dBm`)
-    expect(sim).toContain(`相差 ${(FRAG_DBM - UWB_TX_POWER_DBM).toFixed(2)} dB`)
-    expect(sim).toContain(`SP0 ${dbm(MMS_SP0_RX_SENS_DBM).replace('.00', '')} dBm，片段 ${dbm(UWB_RX_SENS_DBM).replace('.00', '')} dBm`)
-    expect(sim).toContain(`合计 ${(FRAG_DBM - UWB_TX_POWER_DBM + MMS_SP0_PENALTY_DB).toFixed(2)} dB`)
-    // and the formula of lab 2 states the same three lines
-    const f = lab('二十米处的锚点收不到轮询').blocks!.find((b) => b.kind === 'formula') as Extract<Block, { kind: 'formula' }>
+    expect(sim).toContain(`SP0 比它低 ${MMS_SP0_PENALTY_DB} dB 发射（${dbm(SP0_DBM)} dBm），两者都按 ${dbm(UWB_RX_SENS_DBM).replace('.00', '')} dBm 判定`)
+    const f = lab('二十米处的锚点也收得到轮询').blocks!.find((b) => b.kind === 'formula') as Extract<Block, { kind: 'formula' }>
     expect(f.text).toContain(`10·log10(${UWB_MS_BUDGET_NJ} nJ / ${(FRAG_NS / 1000).toFixed(3)} µs) = ${dbm(FRAG_DBM)} dBm`)
-    expect(f.text).toContain(`SP0 发射功率 = ${dbm(UWB_TX_POWER_DBM)} dBm  →  相差 ${(FRAG_DBM - UWB_TX_POWER_DBM).toFixed(2)} dB`)
-    expect(f.text).toContain(`再差 ${MMS_SP0_PENALTY_DB} dB`)
-    expect(f.note).toContain(`${(FRAG_DBM - UWB_TX_POWER_DBM + MMS_SP0_PENALTY_DB).toFixed(2)} dB`)
+    expect(f.text).toContain(`SP0 发射功率 = ${dbm(FRAG_DBM)} − ${MMS_SP0_PENALTY_DB} = ${dbm(SP0_DBM)} dBm`)
+    // the run radiates every SP0 packet at that power
+    const tx = new Set(recs().flatMap((r) => (r.type === 'TX_START' && r.frame.kind === 'uwbSp0' ? [r.frame.uwb!.sp0!.txDbm] : [])))
+    expect([...tx]).toEqual([SP0_DBM])
   })
 
   it('SP0 is the short column, one length for all three messages', () => {
@@ -193,47 +194,39 @@ describe('uwb-uwbd · ③ every figure the labs print is the run', () => {
   })
 
   it('lab 2: the level table is the channel law at 10 m and 20 m', () => {
-    const rows = tableOf(lab('二十米处的锚点收不到轮询'), '这条走廊上的两个锚点').rows
+    const rows = tableOf(lab('二十米处的锚点也收得到轮询'), '这条走廊上的两个锚点').rows
     for (const [col, d] of [[1, 10], [2, 20]] as const) {
       const L = lossAt(d)
       expect(rows[0][col], `${d} m loss`).toBe(`${L.toFixed(2)} dB`)
       expect(rows[1][col], `${d} m fragment`).toBe(`${dbm(FRAG_DBM - L)} dBm`)
-      expect(rows[2][col], `${d} m SP0`).toBe(`${dbm(UWB_TX_POWER_DBM - L)} dBm`)
-      const m = UWB_TX_POWER_DBM - L - MMS_SP0_RX_SENS_DBM
-      expect(rows[3][col], `${d} m margin`).toBe(m >= 0 ? `高出 ${m.toFixed(2)} dB` : `低了 ${(-m).toFixed(2)} dB`)
+      expect(rows[2][col], `${d} m SP0`).toBe(`${dbm(SP0_DBM - L)} dBm`)
+      const m = SP0_DBM - L - UWB_RX_SENS_DBM
+      expect(rows[3][col], `${d} m margin`).toBe(`高出 ${m.toFixed(2)} dB`)
     }
-    // the near anchor's fragments arrive at the level the table states, in the run itself
     const near = ofType(recs(), 'UWB_MMS_TRAIN').find((t) => t.node === 'anchor-1' || t.peer === 'anchor-1')!
     expect(dbm(near.rxDbm)).toBe(dbm(FRAG_DBM - lossAt(10)))
   })
 
-  it('lab 2: the far anchor’s empty window, quoted as the log prints it, and the two reaches', () => {
-    const e = lab('二十米处的锚点收不到轮询').expect
-    const m = /([\d.]+) ms 写着 “([^”]+)”，([\d.]+) ms 标签在自己的窗口里也没有收到消息/.exec(e)
+  it('lab 2: the far anchor’s SP0 reception, quoted as the log prints it, the range, and the two reaches', () => {
+    const e = lab('二十米处的锚点也收得到轮询').expect
+    const m = /([\d.]+) ms 写着 “([^”]+)”，([\d.]+) ms 标签收到远处锚点的应答/.exec(e)
     expect(m).not.toBeNull()
-    const timeouts = ofType(recs(), 'UWB_TIMEOUT')
-    const quoted = timeouts.find((r) => fmtRecord(r).includes(m![2]))
-    expect(quoted, m![2]).toBeDefined()
-    expect(m![1]).toBe(ms3(quoted!.t))
-    const tagMiss = timeouts.find((r) => r.node === 'tag-1' && r.t > quoted!.t)!
-    expect(m![3]).toBe(ms3(tagMiss.t))
-    // the far anchor never transmits at all
-    expect(recs().some((r) => r.type === 'TX_START' && r.node === 'anchor-2')).toBe(false)
-    expect(e).toContain(`SP0 包的作用距离是 ${reach(UWB_TX_POWER_DBM, MMS_SP0_RX_SENS_DBM).toFixed(2)} m`)
+    const rx = ofType(recs(), 'RX_OK').filter((r) => r.frame.kind === 'uwbSp0')
+    const quoted = rx.find((r) => r.node === 'anchor-2')!
+    expect(fmtRecord(quoted)).toContain(m![2])
+    expect(m![1]).toBe(ms3(quoted.t))
+    expect(m![3]).toBe(ms3(rx.find((r) => r.node === 'tag-1' && r.t > quoted.t)!.t))
+    const far = ofType(recs(), 'UWB_RANGE').find((r) => r.node === 'tag-1' && r.peer === 'anchor-2')!
+    expect(e).toContain(`${ms3(far.t)} ms 标签测得 ${far.distM.toFixed(2)} m`)
+    expect(e).toContain(`SP0 包的作用距离是 ${reach(SP0_DBM, UWB_RX_SENS_DBM).toFixed(2)} m`)
     expect(e).toContain(`单个片段是 ${reach(FRAG_DBM, UWB_RX_SENS_DBM).toFixed(2)} m`)
+    expect(uwbUwbd.why).toContain(`SP0 包的作用距离是 ${reach(SP0_DBM, UWB_RX_SENS_DBM).toFixed(2)} m，单个片段是 ${reach(FRAG_DBM, UWB_RX_SENS_DBM).toFixed(2)} m`)
+    expect(uwbUwbd.quiz[1].options[1]).toContain(`${reach(SP0_DBM, UWB_RX_SENS_DBM).toFixed(2)} m 对 ${reach(FRAG_DBM, UWB_RX_SENS_DBM).toFixed(2)} m`)
   })
 
-  it('lab 2: counted once, at the fragment’s power, the far SP0 would clear the threshold', () => {
-    const once = FRAG_DBM - lossAt(20)
-    const mn = lab('二十米处的锚点收不到轮询').meaning
-    expect(mn).toContain(`二十米处到达 ${dbm(once)} dBm`)
-    expect(mn).toContain(`比 ${dbm(MMS_SP0_RX_SENS_DBM).replace('.00', '')} dBm 的门限高出 ${(once - MMS_SP0_RX_SENS_DBM).toFixed(2)} dB`)
-    expect(once).toBeGreaterThan(MMS_SP0_RX_SENS_DBM)
-  })
-
-  it('lab 3: the far anchor’s two verdicts, its margin, and the report window that comes up empty', () => {
-    const e = lab('零长控制阶段：捕获通过，报告送不回').expect
-    const m = /([\d.]+) ms 与 ([\d.]+) ms 两条判定都是 (\d)\/(\d) 收到、余量 ([\d.]+) dB、检出；而 ([\d.]+) ms 是 “([^”]+)”/.exec(e)
+  it('lab 3: the far anchor’s two verdicts, its margin, and the SP0 report that now arrives', () => {
+    const l3 = lab('三种控制面的测距结果')
+    const m = /([\d.]+) ms 与 ([\d.]+) ms 两条判定都是 (\d)\/(\d) 收到、余量 ([\d.]+) dB、检出；([\d.]+) ms 标签收到远处锚点的 SP0 报告并测得 ([\d.]+) m/.exec(l3.expect)
     expect(m).not.toBeNull()
     const far = ofType(recs(NONE), 'UWB_MMS_TRAIN').filter((t) => t.node === 'anchor-2' || t.peer === 'anchor-2')
     expect([m![1], m![2]]).toEqual([ms3(far[0].t), ms3(far[1].t)])
@@ -243,21 +236,22 @@ describe('uwb-uwbd · ③ every figure the labs print is the run', () => {
       expect(t.marginDb.toFixed(1)).toBe(m![5])
       expect(t.detected).toBe(true)
     }
-    const miss = ofType(recs(NONE), 'UWB_TIMEOUT').find((r) => fmtRecord(r).includes(m![7]))
-    expect(miss, m![7]).toBeDefined()
-    expect(m![6]).toBe(ms3(miss!.t))
+    const r = ofType(recs(NONE), 'UWB_RANGE').find((x) => x.node === 'tag-1' && x.peer === 'anchor-2')!
+    expect([m![6], m![7]]).toEqual([ms3(r.t), r.distM.toFixed(2)])
+    expect(l3.meaning).toContain(`二十米处仍有 ${(SP0_DBM - lossAt(20) - UWB_RX_SENS_DBM).toFixed(2)} dB 的余量`)
   })
 
   it('lab 3: ranges per block, and which anchors they belong to', () => {
-    const rows = tableOf(lab('零长控制阶段：捕获通过，报告送不回'), '三种控制面各自的测距结果').rows
+    const rows = tableOf(lab('三种控制面的测距结果'), '三种控制面各自的测距结果').rows
     const anchorsOf = (v?: number): string[] =>
       [...new Set(ofType(recs(v), 'UWB_RANGE').map((r) => (r.node === 'tag-1' ? r.peer : r.node)))].sort()
     for (const [i, v] of [NBA, undefined, NONE].entries()) {
       const n = ofType(recs(v), 'UWB_RANGE').length
       expect(rows[i][3], String(v)).toBe(String(n))
-      expect(lab('零长控制阶段：捕获通过，报告送不回').expect).toContain(`${n} 个`)
-      expect(anchorsOf(v).includes('anchor-2'), String(v)).toBe(rows[i][2] === '测得')
-      expect(anchorsOf(v)).toContain('anchor-1')
+      expect(lab('三种控制面的测距结果').expect).toContain(`每块都是 ${n} 个距离`)
+      expect(anchorsOf(v)).toEqual(['anchor-1', 'anchor-2'])
+      expect(rows[i].slice(1, 3)).toEqual(['测得', '测得'])
     }
+    expect(uwbUwbd.why).toContain(`每块都得到 ${ofType(recs(), 'UWB_RANGE').length} 个距离`)
   })
 })

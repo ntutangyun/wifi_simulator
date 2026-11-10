@@ -5,9 +5,9 @@
  * TG4ab proposals the draft grew from say about multi-millisecond ranging — the energy budget
  * (15-22/0205r0), the fragment and its RMARKER (15-23/0100r2), the ranging cycle and its
  * narrowband messages (15-22/0381r5) — with the document each point comes from; ② where this
- * simulator follows them and where not (the one-to-many round spaces a device's fragments
- * (R + 1) slots apart instead of the proposal's 1 200 RSTU, audit #22, still open under W5);
- * ③ five guided runs on the two-wall hall.
+ * simulator follows them (2026-11-11, W5: the one-to-many round is one sub-round per responder,
+ * fragments 1 200 RSTU apart, audit #22; its POLL is 12 + 3N octets); ③ five guided runs on the
+ * two-wall hall.
  *
  * The room is built so that one 4z frame cannot cross it: three anchors in the first bay, the
  * tag in the third, two brick partitions and 24 dB between them. Every fragment lands about
@@ -115,14 +115,14 @@ export const uwbMms: Lesson = {
       '报告阶段：应答方用窄带 Report（消息号 0x07）发回 5 个字节的回复时延（reply time），发起方的 Report（0x06）携带 5 个字节的转向时间。',
       '时隙、测距轮与测距块（ranging block）的长度都应取 300 RSTU（250 µs）的整数倍；时隙长度的缺省值为 600 RSTU（0.5 ms）。',
     ] },
-    { heading: '一对多（15-22/0381r5 表 1.6.3.1）', text: '提案为一对多测距另设一组消息：一对多 Poll（0x10）列出应答方的数目、每个应答方的时隙数和每个应答方 3 个字节的地址；每个应答方各回一条一对多 Response（0x11），各发一条一对多 Report（0x12）。' },
+    { heading: '一对多（15-22/0381r5 表 1.6.3.1；15-25/0213r2）', text: '提案为一对多测距另设一组消息：一对多 Poll（0x10）列出应答方的数目、每个应答方的时隙数和每个应答方 3 个字节的地址；每个应答方各回一条一对多 Response（0x11），各发一条一对多 Report（0x12）。草案的一对多测距按应答方分成子轮：第一个子轮的一对多 Poll 列出全部应答方（Message Control 1），以后各子轮的 Poll 不带列表（Message Control 0）；每个子轮里发起方与那个应答方像成对测距一样交替发送片段（15-25/0213r2，CID 474）。' },
     { heading: '窄带射频与时间戳的置信度', text: '窄带消息使用 IEEE Std 802.15.4-2024 第 13 章的 O-QPSK（offset quadrature phase-shift keying）物理层（250 kb/s）；提案 15-22/0381r5 把它放在 UNII-3 与 UNII-5 频段的 2.5 MHz 信道上，控制与报告信道的允许列表（allow list）缺省为 3 号信道。每个测距计数值附带一个字节的品质因数（figure of merit, FoM），给出时间戳落在某个置信区间内的置信水平（标准 §10.29.1.7）；怎样估计由实现决定，标准里没有「路径被遮挡」这一标记。' },
   ],
   implementation: [
     { topic: '片段的长度', standard: '序列符号重复若干次，扩频因子 4（15-23/0100r2）', sim: '本场景重复 40 次，每个符号 4 × (128 + 2 × 64) 个码片（chip），一个片段 40 960 个码片，即 82.051 µs。', kind: 'faithful' },
     { topic: '片段的功率', standard: '每 500 MHz 每毫秒 37 nJ（15-22/0205r0 引述的法规）', sim: '每个片段都用满一毫秒的 37 nJ，功率 = 37 nJ ÷ 片段长度；不核对峰值功率限制，也不累计一毫秒里实际发出的能量。', kind: 'choice' },
     { topic: '片段数', standard: 'X 取 1、2、4、8、16，测距周期的缺省值为 8（15-23/0100r2，15-22/0381r5）', sim: '基准场景 X = 8；「四个片段」变体 X = 4；「参数集 rsf-1」变体采用提案 15-23/0502r3 的一个参数集（parameter set），X = 16。', kind: 'value' },
-    { topic: '同一台设备两个片段的间隔', standard: '1 200 RSTU，即 1 ms（15-22/0381r5 §1.1）', sim: '成对轮次照此为 1 ms；一对多轮次里标签（tag）与三个锚点轮流占用片段时隙，同一台设备的片段相隔 (应答方数 + 1) 个时隙，即 2 ms。这是待改正的偏差。', kind: 'differs' },
+    { topic: '同一台设备两个片段的间隔', standard: '1 200 RSTU，即 1 ms（15-22/0381r5 §1.1）；交织时应答方的片段晚 500 µs（15-24/0633r1）', sim: '照此：成对与一对多都是 1 ms。一对多轮次按三个锚点分成三个子轮，每个子轮里标签（tag）与那个锚点交替发送，锚点晚一个时隙（500 µs）。', kind: 'faithful' },
     { topic: '测距标记', standard: '第一个 RSF 中第一个脉冲的峰值（15-23/0100r2）', sim: '发送与接收时间戳都取在第一个片段上；接收时间戳到整串判定之后才输出。', kind: 'faithful' },
     { topic: '接收机怎样合并与判决', standard: '提案未规定', sim: '取收到的第一个片段的电平，加 10·log10(收到的片段数)，再减去 −93 dBm 的灵敏度；差值不为负即判为检出。这是理想的等量相加，不计相位误差。', kind: 'choice' },
     { topic: '控制阶段', standard: 'Poll、Response 各占一个窗口，缺省 2 个时隙；收不到 Response 就终止周期（15-22/0381r5 §1.1）', sim: '照此：每条窄带消息固定占两个时隙；只有完成 Poll 与 Response 交互的那一对才进入测距阶段。', kind: 'faithful' },
@@ -152,17 +152,18 @@ export const uwbMms: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '第 0 块的那一轮', head: ['时刻', '日志行'], rows: [
-          ['0 ms', 'tag-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)'],
+          ['0 ms', 'tag-1 → * NBPOLL 21 B @0.25 Mbps (864.0 µs)'],
           ['1.000 ms', 'anchor-1 → tag-1 NBRESP 12 B @0.25 Mbps (576.0 µs)'],
-          ['4.000 ms', 'tag-1 → * UWBRSF 0 B @0 Mbps (82.1 µs)'],
-          ['18.500 ms', 'anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.997 ppm · responders: anchor-1, anchor-2, anchor-3'],
-          ['20.000 ms', 'anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)'],
-          ['20.608 ms', 'tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)'],
-          ['26.000 ms', 'tag-1 position (14.24, 4.08) m, true (13.00, 4.00), error 1.24 m, GDOP 2.93, 3 anchors'],
+          ['2.000 ms', 'tag-1 → anchor-1 UWBRSF 0 B @0 Mbps (82.1 µs)'],
+          ['9.500 ms', 'anchor-1 RSF train ← tag-1: 8/8 heard, -100.3 dBm + 9.0 dB = margin 1.8 dB → detected, ratio -39.995 ppm · responders: anchor-1, anchor-2, anchor-3'],
+          ['12.000 ms', 'anchor-1 → tag-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)'],
+          ['12.608 ms', 'tag-1 range → anchor-1 (SS): 14.26 m (true 13.04 m, raw 17.25 m)'],
+          ['14.000 ms', 'tag-1 → * NBPOLL 12 B @0.25 Mbps (576.0 µs)'],
+          ['42.000 ms', 'tag-1 position (14.24, 4.08) m, true (13.00, 4.00), error 1.24 m, GDOP 2.93, 3 anchors'],
         ] },
       ],
-      expect: '这一轮共 52 个时隙、26 ms。窄带 Poll 在 0 ms 发出，三个锚点的 Response 在 1、2、3 ms；第一个片段在 4 ms，每个片段 0 字节；第一条判定在 18.500 ms，第一条 Report 在 20.000 ms，第一个距离在 20.608 ms。',
-      meaning: '控制阶段、测距阶段、报告阶段的顺序照提案 15-22/0381r5（①）；片段不承载任何数据，回复时延要等窄带 Report 送到，标签才能算出距离。',
+      expect: '这一轮共 84 个时隙、42 ms，按三个锚点分成三个子轮，每个 28 个时隙。第一个子轮的窄带 Poll 在 0 ms 发出，21 字节，列出三个锚点；anchor-1 的 Response 在 1 ms；第一个片段在 2 ms，每个片段 0 字节；第一条判定在 9.500 ms，第一条 Report 在 12.000 ms，第一个距离在 12.608 ms。后两个子轮的 Poll 在 14 ms 与 28 ms，各 12 字节。',
+      meaning: '控制阶段、测距阶段、报告阶段的顺序照提案 15-22/0381r5，按应答方分子轮照草案（①）；片段不承载任何数据，回复时延要等窄带 Report 送到，标签才能算出距离。',
     },
     {
       heading: '一串片段的判定：八个与四个',
@@ -190,15 +191,15 @@ export const uwbMms: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: '同一个块，两种安排', head: ['量', '一轮询问三个锚点', '每轮只询问一个'], rows: [
-          ['同一台设备相邻两个片段的间隔', '2 ms', '1 ms'],
-          ['一轮的时隙数', '52', '28'],
-          ['一轮的时长', '26 ms', '14 ms'],
+          ['同一台设备相邻两个片段的间隔', '1 ms', '1 ms'],
+          ['一轮的时隙数', '84', '28'],
+          ['一轮的时长', '42 ms', '14 ms'],
           ['每块的轮数', '1', '3'],
-          ['本块得出定位的时刻', '26 ms', '42 ms'],
+          ['本块得出定位的时刻', '42 ms', '42 ms'],
         ] },
       ],
-      expect: '一对多的一轮里，标签的片段每 2 ms 一个；成对轮次里每 1 ms 一个。一对多用一轮完成三个距离，定位在 26 ms 得出；成对要三轮，定位推迟到 42 ms。',
-      meaning: '成对轮次的 1 ms 间隔照提案（①）；一对多轮次的 2 ms 是本仿真器与提案不同之处（②）。',
+      expect: '两种安排里标签的片段都是每 1 ms 一个。一对多的一轮由三个子轮组成，正好是三个成对轮次首尾相接；两者都在 42 ms 得出定位。区别在控制消息：一对多只有第一个 Poll 列出三个锚点（21 字节），另外两个 Poll 各 12 字节。',
+      meaning: '一对多测距按应答方分子轮、每个子轮像成对测距一样交替发送，是草案的做法（①），所以片段间隔与时长都与成对轮次相同（②）。',
     },
     {
       heading: '测得距离，但偏长',
@@ -207,14 +208,14 @@ export const uwbMms: Lesson = {
         '跳到第一次测距，对照真实距离读出差值。',
         '再看第 0 块的定位结果。',
       ],
-      expect: '三条距离 14.26、14.22、13.97 m，真值 13.04、13.04、12.76 m，都偏长约 1.2 m；按 2 ns × 2 道墙的往返延迟算，偏差是 1.199 m。定位 (14.24, 4.08) m，误差 1.24 m。',
+      expect: '三条距离 14.26、14.22、13.96 m，真值 13.04、13.04、12.76 m，都偏长约 1.2 m；按 2 ns × 2 道墙的往返延迟算，偏差是 1.199 m。定位 (14.24, 4.08) m，误差 1.24 m。',
       meaning: '这一偏差来自本仿真器的穿墙延迟（②），每轮相同，是固定偏移而不是噪声；片段只使测量得以完成，不使它更准确。',
     },
   ],
   sources: [
     'P802.15.4ab 草案（截至 2026 年 9 月，投票稿为 D05，仍在 Sponsor 投票复审中）。草案仅对会员开放，本课依据 TG4ab 文稿：15-22/0205r0（每 500 MHz 每毫秒 37 nJ 的能量预算、紧耦合的窄带射频）、15-23/0100r2（RSF 与 RIF 的结构、重复次数与片段数的取值、RSF 的测距标记）、15-22/0381r5（§1.1 测距周期、表 1.2.3.2 的缺省值、表 1.6.3.1 的窄带消息、300 RSTU 整数倍的规定）。已投票的 D05 可能与此不同。',
     'IEEE Std 802.15.4-2024：第 13 章（O-QPSK 物理层）、§10.29.1.2.2（单边双向测距）、§10.29.1.7（品质因数）。',
-    '本仿真器的取值与取法：22 × 8 m 的大厅、两道各 12 dB 的砖墙、每道砖墙 2 ns 的首径延迟、−93 dBm 的灵敏度、10·log10(X) 的合并规则与硬判决、200 ms 的测距块、一对多轮次 2 ms 的片段间隔。',
+    '本仿真器的取值与取法：22 × 8 m 的大厅、两道各 12 dB 的砖墙、每道砖墙 2 ns 的首径延迟、−93 dBm 的灵敏度、10·log10(X) 的合并规则与硬判决、200 ms 的测距块。',
   ],
   limits: [],
   scenario: () => uwbMmsScenario('base'),
@@ -255,14 +256,14 @@ export const uwbMms: Lesson = {
       explain: '15-23/0100r2 把 RSF 的测距标记定义为第一个 RSF 中第一个脉冲的峰值，一个分组只有这一个。',
     },
     {
-      q: '哪一项是本仿真器与提案不同的地方？',
+      q: '三个锚点的一对多轮次里，同一台设备相邻两个片段相隔多久？',
       options: [
-        '成对轮次里同一台设备的片段每 1 ms 发一个',
-        '一对多轮次里同一台设备的片段每 2 ms 发一个',
-        '时隙长度取 600 RSTU',
+        '2 ms：每一毫秒要为四台设备各留一个时隙',
+        '1 ms：每个锚点一个子轮，子轮里标签与那个锚点交替，锚点晚 500 µs',
+        '500 µs',
       ],
       answer: 1,
-      explain: '15-22/0381r5 §1.1 规定片段以 1 200 RSTU（1 ms）的固定间隔发出；本仿真器的一对多轮次让标签与三个锚点轮流占用片段时隙，间隔成了 2 ms。',
+      explain: '15-22/0381r5 §1.1 规定片段以 1 200 RSTU（1 ms）的固定间隔发出；草案的一对多测距按应答方分子轮（15-25/0213r2），每个子轮里交替发送，间隔仍是 1 ms。',
     },
   ],
 }

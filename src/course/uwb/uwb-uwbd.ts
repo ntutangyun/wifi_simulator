@@ -4,14 +4,13 @@
  *
  * Standard-first shape (2026-11-10): ① what the P802.15.4ab draft and the TG4ab contribution
  * 15-25/0194r0 say about the two control-plane configurations, the SP0 packet and the proposed
- * zero-length control phase; ② how this simulator implements each point — including the one place
- * it departs from the proposal it cites (audit #17: the SP0 peak-power loss is counted twice, once
- * as 10.54 dB of transmit power and once as a 4 dB threshold); ③ three guided runs.
+ * zero-length control phase; ② how this simulator implements each point — the SP0 peak-power loss
+ * counted once, as the proposal's ~4 dB below the leading fragment (2026-11-11, W5: audit #17; it
+ * used to be counted twice, as 10.54 dB of transmit power and again as a 4 dB threshold); ③ three
+ * guided runs.
  *
- * The scene is a 22 m hall with one anchor at 10 m and one at 20 m. Measured: Config 2 ranges both
- * anchors, Config 1 with SP0 never reaches the far anchor, and Config 1 with a zero-length control
- * phase detects the far anchor's train and still produces no range, because this scene's REPORT is
- * an SP0 packet on the same threshold.
+ * The scene is a 22 m hall with one anchor at 10 m and one at 20 m. Measured: all three control
+ * planes range both anchors; an SP0 packet reaches 56.53 m and one fragment 89.59 m.
  *
  * Every figure the lesson prints is read back out of its text and compared with a run in
  * tests/course/uwb-uwbd.test.ts.
@@ -19,11 +18,12 @@
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
 import type { FieldsSpec } from '../diagram'
+import type { TLRecord } from '../../model/records'
 import {
   MMS_SP0_SEGMENT_NS, MMS_SP0_NS, rsfNs,
 } from '../../uwb/mms'
 import {
-  J, anchor, firstUwbRange, firstUwbRsf, firstUwbSp0, firstUwbTimeout, firstUwbTrain,
+  J, anchor, firstUwbRange, firstUwbRsf, firstUwbSp0, firstUwbTrain,
   rangingLab, uwbSc, uwbTag, type Lesson,
 } from '../lessonKit'
 
@@ -96,15 +96,19 @@ export function uwbUwbdHeadFields(): FieldsSpec {
   }
 }
 
+/** The far anchor receiving the tag's SP0 POLL — the reception the double count used to lose. */
+export const farAnchorSp0 = (r: TLRecord): boolean =>
+  r.type === 'RX_OK' && r.node === 'anchor-2' && r.frame.kind === 'uwbSp0'
+
 export const uwbUwbd: Lesson = {
   id: 'uwb-uwbd',
   module: 30,
   title: '不依赖窄带射频',
-  why: 'P802.15.4ab 草案为多毫秒（multi-millisecond, MMS）测距规定了两套控制面配置：窄带辅助配置（Config 2）用另一部窄带（narrowband, NB）射频传送控制消息，超宽带（ultra-wideband, UWB）驱动配置（Config 1）则把轮询与应答改为超宽带信道上的 SP0 包，设备可以省去窄带射频。草案正在审议，提案 15-25/0194r0 引述了这两套配置，并据脉冲数之比估计：SP0 比测距包包头那个由同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）组成的 SYNC+SFD 片段（fragment）更长、峰值功率更低，捕获（acquisition）性能约差 4 dB；这个数是提案的估计，不是草案规定的门限。同一份提案还建议允许把控制阶段的两个时隙数置零，由测距包包头的 SYNC+SFD 片段充当轮询与应答，这一建议是否被采纳，公开材料无法确认。本仿真器实现了这两套配置与零长控制阶段，但在 SP0 的代价上与提案不同：它让 SP0 按设备通常的发射功率（transmit power）发送、比片段低 10.54 dB，又把那约 4 dB 计为接收门限的提高，同一项损失计了两次，合计 14.54 dB；这是待改正的偏差。在这个取值下，本课走廊上十米处的锚点（anchor）能完成测距，二十米处的锚点收不到 SP0 轮询，一个片段也不发送；改用零长控制阶段后，远处锚点的整列片段被检出，但本课场景的报告仍是 SP0 包，距离仍然送不回来。',
+  why: 'P802.15.4ab 草案为多毫秒（multi-millisecond, MMS）测距规定了两套控制面配置：窄带辅助配置（Config 2）用另一部窄带（narrowband, NB）射频传送控制消息，超宽带（ultra-wideband, UWB）驱动配置（Config 1）则把轮询与应答改为超宽带信道上的 SP0 包，设备可以省去窄带射频。草案正在审议，提案 15-25/0194r0 引述了这两套配置，并据脉冲数之比估计：SP0 比测距包包头那个由同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）组成的 SYNC+SFD 片段（fragment）更长、峰值功率更低，捕获（acquisition）性能约差 4 dB；这个数是提案的估计，不是草案规定的门限。同一份提案还建议允许把控制阶段的两个时隙数置零，由测距包包头的 SYNC+SFD 片段充当轮询与应答，这一建议是否被采纳，公开材料无法确认。本仿真器实现了这两套配置与零长控制阶段，并把那约 4 dB 只计一次：SP0 包的发射功率（transmit power）比包头片段低 4 dB，按与片段相同的门限判定。于是 SP0 包的作用距离是 56.53 m，单个片段是 89.59 m；本课走廊上十米与二十米处的两个锚点（anchor），在三种控制面下都能完成测距，每块都得到 4 个距离。',
   outcomes: [
     '说出草案的两套控制面配置分别在哪条信道上传送轮询、应答与报告',
     '说出提案 15-25/0194r0 对 SP0 与零长控制阶段说了什么，以及它们的采纳状态',
-    '分清本仿真器在 SP0 代价上的取值与提案的估计有何不同，并预测三种控制面各自能否得出距离',
+    '说出本仿真器怎样计入 SP0 的代价，并据此算出 SP0 包与片段各自的作用距离',
   ],
   needs: ['uwb-mms', 'uwb-nba'],
   terms: [
@@ -133,8 +137,8 @@ export const uwbUwbd: Lesson = {
     { topic: 'SP0 包的时长', standard: '提案的对照表给出短包 117.6 µs 与长包 170.1 µs 两列', sim: '三条 SP0 消息都取短包那一列，117.6 µs，PSDU 固定 12 字节，不随应答方个数变长。', kind: 'value' },
     { topic: '控制阶段的时隙数', standard: '草案只把时隙数作为参数（1–15，提案建议 0–15）', sim: '一个 SP0 窗口占一个测距时隙（ranging slot），一个窄带窗口占两个（最长的窄带消息放不进一个 600 RSTU（ranging scheduling time unit）的时隙）；零长控制阶段不占时隙。', kind: 'value' },
     { topic: '零长控制阶段', standard: '提案 15-25/0194r0：两个时隙数都为零时不发 SP0，由 SYNC+SFD 片段充当轮询与应答，只用于 Config 1', sim: '照提案实现，只在 Config 1 下可选；报告阶段的时隙数不随之置零。', kind: 'faithful' },
-    { topic: 'SP0 的功率与门限', standard: '提案估计 SP0 因峰值功率较低而捕获性能差约 4 dB；草案没有规定门限', sim: '本仿真器与提案不同：片段按每毫秒 37 nJ 的能量定额发射（82.051 µs 的片段为 −3.46 dBm），SP0 却按设备通常的发射功率 −14.00 dBm 发射，相差 10.54 dB；又把约 4 dB 计为门限的提高（SP0 −89 dBm，片段 −93 dBm）。提案的约 4 dB 本身就是峰值功率较低造成的损失，所以同一项被计了两次，合计 14.54 dB。这是待改正的偏差。', kind: 'differs' },
-    { topic: '捕获判定', standard: '标准与草案都未规定', sim: '按单个包判定，不允许累加：SP0 包不低于 −89 dBm、或零长控制阶段时包头片段不低于 −93 dBm 才算捕获；捕获失败则这一轮不产生任何距离。', kind: 'choice' },
+    { topic: 'SP0 的功率与门限', standard: '提案估计 SP0 因峰值功率较低而捕获性能差约 4 dB；草案没有规定门限', sim: '照提案只计一次：片段按每毫秒 37 nJ 的能量定额发射（82.051 µs 的片段为 −3.46 dBm），SP0 比它低 4 dB 发射（−7.46 dBm），两者都按 −93 dBm 判定。4 dB 取的是提案结论句的整数。本仿真器以前让 SP0 按 −14.00 dBm 发射、又把门限提高 4 dB，同一项计了两次。', kind: 'faithful' },
+    { topic: '捕获判定', standard: '标准与草案都未规定', sim: '按单个包判定，不允许累加：SP0 包不低于 −93 dBm 才算收到，测距包的包头片段也要单独不低于 −93 dBm 才算捕获；捕获失败则这一轮不产生任何距离。', kind: 'choice' },
     { topic: '报告', standard: '报告阶段经窄带或超宽带，由 SOR 约定', sim: 'Config 1 的报告是 SP0 包：每个锚点报告自己的回复时延（reply time），标签（tag）报告往返时间，由取得两个数的一端算出距离；判定门限与 SP0 控制包相同。', kind: 'choice' },
   ],
   labs: [
@@ -158,48 +162,48 @@ export const uwbUwbd: Lesson = {
       meaning: '两套配置用哪条信道传送控制消息是草案的内容（①）；一个窗口占几个时隙是本仿真器的取值（②），所以 UWB 驱动配置的一轮更短。',
     },
     {
-      heading: '二十米处的锚点收不到轮询',
+      heading: '二十米处的锚点也收得到轮询',
       jump: 4,
       steps: [
-        '跳到远处锚点没有收到任何消息的那个窗口。',
+        '跳到远处锚点收到 SP0 轮询的那一刻。',
         '对照下表，比较 SP0 包与单个片段在两个距离上的到达电平。',
       ],
       blocks: [
-        { kind: 'formula', heading: '本仿真器计入的 14.54 dB', text: '片段 10·log10(37 nJ / 82.051 µs) = −3.46 dBm\nSP0 发射功率 = −14.00 dBm  →  相差 10.54 dB\n门限：片段 −93 dBm，SP0 −89 dBm  →  再差 4 dB', note: '两项相加 14.54 dB。提案只估计了约 4 dB，而且这 4 dB 就是峰值功率较低造成的；这里把它计了两次（②）。' },
+        { kind: 'formula', heading: 'SP0 的代价只计一次', text: '片段 10·log10(37 nJ / 82.051 µs) = −3.46 dBm\nSP0 发射功率 = −3.46 − 4 = −7.46 dBm\n门限：片段与 SP0 都是 −93 dBm', note: '提案的约 4 dB 就是 SP0 峰值功率较低造成的损失，所以只体现在发射功率上一次（②）。' },
         { kind: 'table', heading: '这条走廊上的两个锚点', head: ['量', '十米处的锚点', '二十米处的锚点'], rows: [
           ['路径损耗（path loss）', '70.50 dB', '76.52 dB'],
           ['一个片段到达时', '−73.95 dBm', '−79.98 dBm'],
-          ['SP0 包到达时', '−84.50 dBm', '−90.52 dBm'],
-          ['相对 SP0 门限 −89 dBm', '高出 4.50 dB', '低了 1.52 dB'],
+          ['SP0 包到达时', '−77.95 dBm', '−83.98 dBm'],
+          ['相对门限 −93 dBm', '高出 15.05 dB', '高出 9.02 dB'],
         ] },
       ],
-      expect: '12.500 ms 写着 “anchor-2 UWB slot 0: no sp0 from tag-1”，13.000 ms 标签在自己的窗口里也没有收到消息；远处锚点没有收到轮询，一个片段也没有发送。按本仿真器的取值，SP0 包的作用距离是 16.80 m，单个片段是 89.59 m。',
-      meaning: '失败来自本仿真器对 SP0 的取值（②，differs）：若只按提案的约 4 dB 计算，SP0 按片段的功率发送，二十米处到达 −79.98 dBm，比 −89 dBm 的门限高出 9.02 dB，这个锚点就能完成测距。',
+      expect: '12.118 ms 写着 “anchor-2 ⇠ UWBSP0 from tag-1 OK”，12.618 ms 标签收到远处锚点的应答；随后两端的片段都被检出，23.118 ms 标签测得 19.99 m。按本仿真器的取值，SP0 包的作用距离是 56.53 m，单个片段是 89.59 m。',
+      meaning: 'SP0 比片段低 4 dB，作用距离因此短一截（①的估计，②的取法），但在这条 22 m 的走廊上还远没有用到头。',
     },
     {
-      heading: '零长控制阶段：捕获通过，报告送不回',
+      heading: '三种控制面的测距结果',
       variant: 1,
       more: [0],
       steps: [
-        '载入「零长控制阶段」，看远处锚点的两条片段列判定，再看随后的报告窗口。',
+        '载入「零长控制阶段」，看远处锚点的两条片段列判定，再看随后的报告。',
         '对照下表读出三种控制面每个 200 ms 测距块（ranging block）得到的距离数。',
       ],
       blocks: [
         { kind: 'table', heading: '三种控制面各自的测距结果', head: ['控制面', '十米处', '二十米处', '每块的距离数'], rows: [
           ['窄带辅助（Config 2）', '测得', '测得', '4'],
-          ['UWB 驱动 + SP0', '测得', '没有发送任何片段', '2'],
-          ['UWB 驱动 + 零长', '测得', '整列检出，报告未送达', '2'],
+          ['UWB 驱动 + SP0', '测得', '测得', '4'],
+          ['UWB 驱动 + 零长', '测得', '测得', '4'],
         ] },
       ],
-      expect: '18.500 ms 与 19.000 ms 两条判定都是 8/8 收到、余量 22.1 dB、检出；而 21.500 ms 是 “tag-1 UWB slot 20: no sp0 from anchor-2”。窄带辅助每块 4 个距离，两种 UWB 驱动形态各 2 个。',
-      meaning: '零长控制阶段让包头片段充当轮询，捕获按单个片段判定（①的提案，②的判定方法），所以远处锚点的片段被检出；但本课场景的报告仍是 SP0 包（②），受同一门限限制。',
+      expect: '18.500 ms 与 19.000 ms 两条判定都是 8/8 收到、余量 22.1 dB、检出；21.118 ms 标签收到远处锚点的 SP0 报告并测得 19.99 m。三种控制面每块都是 4 个距离。',
+      meaning: '零长控制阶段让包头片段充当轮询，捕获按单个片段判定（①的提案，②的判定方法）；报告仍是 SP0 包，比片段低 4 dB，在二十米处仍有 9.02 dB 的余量。',
     },
   ],
   sources: [
     'P802.15.4ab 草案（正在审议，仅对会员开放）：两套控制面配置与 SOR 消息的字段，按 TG4ab 文稿 15-25/0194r0 的引述（草案 §10.39.11.1.3.9、§10.39.11.1.3.13）。',
     '15-25/0194r0（提案，针对草案意见 266–270）：SP0 两列时长、按脉冲数之比的 6.3／5.3／3.8 dB 与「约 4 dB」的结论、何时使用 SP0、零长控制阶段；零长控制阶段是否被采纳无法确认。',
     'IEEE Std 802.15.4-2024：§16.2.1 与图 16-3（STS 包配置 0，即 SP0）；第 13 章的 O-QPSK 窄带物理层（physical layer, PHY）。',
-    '本仿真器的取值与取法：SP0 一律取短包 117.6 µs、按 −14.00 dBm 发射、门限 −89 dBm（与提案不同，待改正）；片段按每毫秒 37 nJ 发射、门限 −93 dBm；一个 SP0 窗口一个时隙、一个窄带窗口两个时隙；捕获按单个包判定、失败则整轮作废；这条走廊的自由空间路径损耗。',
+    '本仿真器的取值与取法：SP0 一律取短包 117.6 µs、比包头片段低 4 dB 发射；片段按每毫秒 37 nJ 发射；两者门限都是 −93 dBm；一个 SP0 窗口一个时隙、一个窄带窗口两个时隙；捕获按单个包判定、失败则整轮作废；这条走廊的自由空间路径损耗。',
   ],
   limits: [],
   scenario: () => uwbUwbdScenario('base'),
@@ -212,7 +216,7 @@ export const uwbUwbd: Lesson = {
     J('第一列片段里的第一个', firstUwbRsf),
     J('对端如何判定这一列片段', firstUwbTrain),
     J('第一个得出的距离', firstUwbRange),
-    J('远处锚点未收到任何消息的那个窗口', firstUwbTimeout),
+    J('远处锚点收到 SP0 轮询', farAnchorSp0),
   ],
   observe: [],
   tryThis: [],
@@ -225,17 +229,17 @@ export const uwbUwbd: Lesson = {
         'SP0 与片段发射功率之差',
       ],
       answer: 1,
-      explain: '提案按 4.3、3.4、2.4 倍的脉冲数之比算出 6.3、5.3 与 3.8 dB，结论句概括为约 4 dB；草案没有据此规定门限。本仿真器把它当门限，又另外让 SP0 低 10.54 dB 发射，同一项计了两次。',
+      explain: '提案按 4.3、3.4、2.4 倍的脉冲数之比算出 6.3、5.3 与 3.8 dB，结论句概括为约 4 dB；草案没有据此规定门限。本仿真器让 SP0 比包头片段低 4 dB 发射，只计这一次。',
     },
     {
-      q: '零长控制阶段下，二十米处那个锚点的整列片段被检出了，为什么还是没有距离？',
+      q: '按本仿真器的取值，SP0 包与单个片段的作用距离为什么不同？',
       options: [
-        '片段没有打上时间戳',
-        '本课场景的报告也是 SP0 包，按 −89 dBm 判定，而在那个距离上它只有 −90.52 dBm',
-        '零长控制阶段不发送报告',
+        '两者的接收门限不同',
+        'SP0 比包头片段低 4 dB 发射，门限相同，所以作用距离短一截：56.53 m 对 89.59 m',
+        'SP0 只能在一个时隙里发送',
       ],
       answer: 1,
-      explain: '捕获已经通过。报告用 SP0 包、门限 −89 dBm 都是本仿真器的取法与取值；提案并没有说零长控制阶段之后的报告必须是 SP0。',
+      explain: '门限都是 −93 dBm；差别只在发射功率上的 4 dB，在自由空间里就是作用距离的 10^(4/20) 倍之差。',
     },
   ],
 }

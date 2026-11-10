@@ -116,14 +116,17 @@ describe('uwb-mms · ② says what the engine does, and the engine does it', () 
     expect(implRow('片段数').kind).toBe('value')
   })
 
-  it('differs: a one-to-many round spaces a device’s fragments 2 ms apart; a pair round 1 ms', () => {
-    expect(implRow('同一台设备两个片段的间隔').kind).toBe('differs')
+  // 2026-11-11 (audit #22): one sub-round per responder (15-25/0213r2), 1 ms apart, the responder
+  // 500 µs behind (15-24/0633r1). It used to be (R + 1) slots — 2 ms here.
+  it('faithful: a device’s fragments are 1 ms apart in both round shapes, the responder half a millisecond behind', () => {
+    expect(implRow('同一台设备两个片段的间隔').kind).toBe('faithful')
     const otm = fragTimes('base', TAG)
     const pair = fragTimes('pairwise', TAG)
-    expect(otm[1] - otm[0]).toBe((ANCHORS.length + 1) * rstuNs(600))
-    expect(otm[1] - otm[0]).toBe(2 * MS)
+    expect(otm[1] - otm[0]).toBe(rstuNs(1200))
     expect(pair[1] - pair[0]).toBe(rstuNs(1200))
-    expect(implRow('同一台设备两个片段的间隔').sim).toContain('即 2 ms')
+    const anc = ofType(recs('base'), 'TX_START').find((r) => r.frame.kind === 'uwbRsf' && r.node === ANCHORS[0])!
+    expect(anc.t - otm[0]).toBe(rstuNs(600))
+    expect(implRow('同一台设备两个片段的间隔').sim).toContain('锚点晚一个时隙（500 µs）')
   })
 
   it('the transmit stamp is the first fragment; no receive stamp before the verdict', () => {
@@ -203,6 +206,7 @@ describe('uwb-mms · ③ every figure the labs print is the run', () => {
       ofType(rs, 'UWB_MMS_TRAIN').find((t) => t.node === 'anchor-1')!,
       tx.find((r) => r.frame.kind === 'nbReport')!,
       ofType(rs, 'UWB_RANGE')[0],
+      tx.filter((r) => r.frame.kind === 'nbPoll')[1] as TLRecord,
       ofType(rs, 'UWB_POSITION')[0],
     ]
     expect(rows).toHaveLength(picks.length)
@@ -212,11 +216,14 @@ describe('uwb-mms · ③ every figure the labs print is the run', () => {
     })
     // the expect line's figures
     const plan = roundPlan(uwbMmsScenario('base').uwb!, ANCHORS.length)
-    expect(l.expect).toContain(`共 ${plan.slots} 个时隙、${plan.roundNs / MS} ms`)
-    const resp = tx.filter((r) => r.frame.kind === 'nbResp' && r.t < plan.roundNs).map((r) => r.t / MS)
-    expect(l.expect).toContain(`Response 在 ${resp.join('、')} ms`)
+    expect(l.expect).toContain(`共 ${plan.slots} 个时隙、${plan.roundNs / MS} ms，按三个锚点分成三个子轮，每个 ${plan.slots / 3} 个时隙`)
+    expect(l.expect).toContain(`anchor-1 的 Response 在 ${picks[1].t / MS} ms`)
+    expect(l.expect).toContain(`窄带 Poll 在 0 ms 发出，${tx[0].frame.bytes} 字节`)
     expect(l.expect).toContain(`第一个片段在 ${picks[2].t / MS} ms`)
     for (const i of [3, 4, 5]) expect(l.expect).toContain(`${(picks[i].t / MS).toFixed(3)} ms`)
+    const polls = tx.filter((r) => r.frame.kind === 'nbPoll' && r.t < plan.roundNs)
+    expect(l.expect).toContain(`后两个子轮的 Poll 在 ${polls[1].t / MS} ms 与 ${polls[2].t / MS} ms，各 ${polls[1].frame.bytes} 字节`)
+    expect([polls[0].frame.bytes, polls[1].frame.bytes, polls[2].frame.bytes]).toEqual([21, 12, 12])
   })
 
   it('lab 3: eight fragments clear the receiver by 1.77 dB, four miss it by 1.24 dB', () => {
@@ -236,7 +243,7 @@ describe('uwb-mms · ③ every figure the labs print is the run', () => {
     expect(l.expect).toContain(`相差 ${(combineGainDb(8) - combineGainDb(4)).toFixed(2)} dB`)
   })
 
-  it('lab 4: 2 ms against 1 ms, one 52-slot round against three of 28', () => {
+  it('lab 4: 1 ms in both, one 84-slot round against three of 28, the fix at the same instant', () => {
     const rows = tableOf(lab('一对多与成对：片段间隔与一块的长度'), '同一个块，两种安排').rows
     const otm = fragTimes('base', TAG)
     const pair = fragTimes('pairwise', TAG)
@@ -250,8 +257,8 @@ describe('uwb-mms · ③ every figure the labs print is the run', () => {
     const fix = (v: UwbMmsVariant) => ofType(recs(v), 'UWB_POSITION')[0].t / MS
     expect(rows[4].slice(1)).toEqual([`${fix('base')} ms`, `${fix('pairwise')} ms`])
     const e = lab('一对多与成对：片段间隔与一块的长度').expect
-    expect(e).toContain(`定位在 ${fix('base')} ms 得出`)
-    expect(e).toContain(`推迟到 ${fix('pairwise')} ms`)
+    expect(fix('base')).toBe(fix('pairwise'))
+    expect(e).toContain(`两者都在 ${fix('base')} ms 得出定位`)
   })
 
   it('lab 5: every range is long by about 1.2 m; the bias is 1.199 m; the fix is off by 1.24 m', () => {

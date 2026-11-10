@@ -1,15 +1,16 @@
 /**
  * The two shapes one MMS round can take, side by side.
  *
- * `mmsLayout` has always laid the round out *interleaved*: every device sends one fragment per
- * millisecond, and a millisecond is therefore R + 1 slots wide. P802.15.4ab §10.39.7 adds a
- * second shape — *non-interleaved* sub-rounds, in which each device owns a stretch of the round
- * to itself and sends its whole train there, one sub-round per device.
+ * Interleaved, a round is one pairwise sub-round per responder: the initiator's fragment opens
+ * each millisecond and the responder's follows 500 µs later (15-24/0633r1; one sub-round per
+ * responder, 15-25/0213r2 CID 474). 2026-11-11 (audit #22): a one-to-many interleaved round used to
+ * share one millisecond of (R + 1) slots among everybody. P802.15.4ab §10.39.7 adds a second shape —
+ * *non-interleaved* sub-rounds, in which each device owns a stretch of the round to itself and
+ * sends its whole train there, one sub-round per device.
  *
- * What is pinned here: the interleaved arithmetic is untouched by the new branch (every stored
- * plan replays off it, so a drift of one slot would be a fixture diff); the non-interleaved
- * branch costs one sub-round per device without multiplying the ranging phase; reversed order
- * really does put the responder's sub-round first; a fragment still goes out once a millisecond
+ * What is pinned here: the pairwise interleaved arithmetic is the one that always shipped (every
+ * stored pair plan replays off it); the non-interleaved branch costs one sub-round per device
+ * without multiplying the ranging phase; a fragment still goes out once a millisecond
  * in a sub-round where only one device transmits, which is the regulatory premise the whole
  * mechanism rests on; and `slotFragment` inverts `fragmentSlot` in **both** shapes, because
  * `device.mms.ts` places its own fragments with one and the schedule reads them back with the
@@ -24,19 +25,35 @@ const phy = (over: Partial<MmsPhy> = {}): MmsPhy => ({
   ...MMS_DRAFT_DEFAULTS, ...over,
 })
 
-describe('the interleaved round is the one that always shipped', () => {
-  it('is one sub-round, and a millisecond is still R + 1 slots', () => {
-    const l = mmsLayout(phy(), 3)
-    expect(l.subRounds).toBe(1)
-    expect(l.subRoundStart(0)).toBe(0)
-    expect(l.fragmentSlot('responder', 'rsf', 0, 1)).toBe(l.controlSlots + 2)
+describe('the interleaved round: one pairwise sub-round per responder', () => {
+  it('is the pair round that always shipped when there is one responder', () => {
+    const l = mmsLayout(phy(), 1)
+    expect([l.subRounds, l.slots, l.controlSlots, l.rpSlots, l.reportSlots]).toEqual([1, 28, 4, 20, 4])
+    expect([l.pollSlot(0), l.respSlot(0)]).toEqual([0, 2])
+    expect(l.fragmentSlot('initiator', 'rsf', 3)).toBe(4 + 2 * 3)
+    expect(l.fragmentSlot('responder', 'rsf', 3)).toBe(4 + 2 * 3 + 1)
+    expect([l.reportSlot('responder'), l.reportSlot('initiator')]).toEqual([24, 26])
   })
 
-  it('keeps its control phase at the top of the round', () => {
+  // 2026-11-11 (audit #22): 15-25/0213r2 (CID 474) gives each responder a sub-round with its own
+  // One-to-many Poll, so the one-to-many round is R copies of the pair round.
+  it('repeats the pair round once per responder, each with its own POLL', () => {
+    const one = mmsLayout(phy(), 1)
     const l = mmsLayout(phy(), 3)
-    expect(l.respSlot(0)).toBe(2)
-    expect(l.respSlot(2)).toBe(6)
-    expect(l.controlSlots).toBe(8)
+    expect(l.subRounds).toBe(3)
+    expect(l.polls).toBe(3)
+    expect(l.slots).toBe(3 * one.slots)
+    for (let r = 0; r < 3; r++) {
+      const at = r * one.slots
+      expect(l.subRoundStart(r)).toBe(at)
+      expect(l.pollSlot(r)).toBe(at)
+      expect(l.pollFor(r)).toBe(r)
+      expect(l.respSlot(r)).toBe(at + 2)
+      expect(l.fragmentSlot('initiator', 'rsf', 0, r)).toBe(at + 4)
+      expect(l.fragmentSlot('responder', 'rsf', 0, r)).toBe(at + 5)
+      expect(l.reportSlot('initiator', r)).toBe(at + 26)
+    }
+    expect(l.controlSlots).toBe(12)
   })
 })
 
@@ -91,18 +108,11 @@ describe('the non-interleaved round of §10.39.7', () => {
     expect(l.rpSlots).toBe(17 * l.slotsPerMs)
   })
 
-  it('reversed order puts the responder’s sub-round first', () => {
-    const l = mmsLayout(phy({ nonInterleaved: true, reversedOrder: true }), 1)
-    expect(l.fragmentSlot('responder', 'rsf', 0))
-      .toBeLessThan(l.fragmentSlot('initiator', 'rsf', 0))
-    expect(l.respSlot(0)).toBe(0)
-  })
-
-  it('reversed order keeps the responders in responder order, initiator last', () => {
-    const l = mmsLayout(phy({ nonInterleaved: true, reversedOrder: true }), 3)
-    expect(l.respSlot(0)).toBe(l.subRoundStart(0))
-    expect(l.respSlot(2)).toBe(l.subRoundStart(2))
-    expect(l.fragmentSlot('initiator', 'rsf', 0)).toBe(l.subRoundStart(3) + 2)
+  it('has one POLL, at the head of the initiator’s own sub-round, for every responder', () => {
+    const l = mmsLayout(phy({ nonInterleaved: true }), 3)
+    expect([l.polls, l.pollSlot(0)]).toEqual([1, 0])
+    for (let r = 0; r < 3; r++) expect(l.pollFor(r)).toBe(0)
+    expect(() => l.pollSlot(1)).toThrow(/one POLL/)
   })
 
   it('leaves every fragment and every report inside the round', () => {
@@ -155,9 +165,18 @@ describe('a millisecond is a millisecond whoever is transmitting', () => {
     expect(l.fragmentSlot('initiator', 'rsf', 1) - l.fragmentSlot('initiator', 'rsf', 0)).toBe(4)
   })
 
-  it('interleaved still spaces by the device count', () => {
-    const l = mmsLayout(phy(), 3)
-    expect(l.fragmentSlot('initiator', 'rsf', 1) - l.fragmentSlot('initiator', 'rsf', 0)).toBe(4)
+  // 2026-11-11 (audit #22): a millisecond, with the responder 500 µs behind (15-24/0633r1), however
+  // many responders — it used to be (R + 1) slots, 2 ms at three responders.
+  it('interleaved keeps a millisecond whatever the device count, the responder half a millisecond behind', () => {
+    for (const r of [1, 3, 6]) {
+      const l = mmsLayout(phy(), r)
+      expect(l.fragmentSlot('initiator', 'rsf', 1, r - 1) - l.fragmentSlot('initiator', 'rsf', 0, r - 1)).toBe(2)
+      expect(l.fragmentSlot('responder', 'rsf', 0, r - 1) - l.fragmentSlot('initiator', 'rsf', 0, r - 1)).toBe(1)
+      expect(l.respOffsetSlots).toBe(1)
+    }
+    // At 300 RSTU a millisecond is four slots and the responder two behind: 500 µs again.
+    const short = mmsLayout(phy(), 2, 4)
+    expect([short.fragGapSlots, short.respOffsetSlots]).toEqual([4, 2])
   })
 
   it('reports the spacing it used, and nobody else has to work it out', () => {
@@ -165,7 +184,7 @@ describe('a millisecond is a millisecond whoever is transmitting', () => {
     // slot length, and the receiver walks its RMARKER back over that. A second opinion anywhere
     // is a receiver reading the wrong clock ratio.
     expect(mmsLayout(phy(), 1).fragGapSlots).toBe(2)
-    expect(mmsLayout(phy(), 3).fragGapSlots).toBe(4)
+    expect(mmsLayout(phy(), 3).fragGapSlots).toBe(2)
     expect(mmsLayout(phy({ nonInterleaved: true }), 3).fragGapSlots).toBe(2)
     expect(mmsLayout(phy({ nonInterleaved: true }), 3, 4).fragGapSlots).toBe(4)
   })
@@ -179,21 +198,18 @@ describe('a millisecond is a millisecond whoever is transmitting', () => {
 describe('slotFragment inverts fragmentSlot in both shapes', () => {
   it('round-trips every fragment of every device', () => {
     for (const nonInterleaved of [false, true]) {
-      for (const reversedOrder of [false, true]) {
-        if (reversedOrder && !nonInterleaved) continue // the schema refuses that pair
-        // and at two slot lengths, because non-interleaved reads the millisecond off the slot
-        for (const spm of [2, 3]) {
-          const l = mmsLayout(phy({ nonInterleaved, reversedOrder, rifs: 4 }), 2, spm)
-          const tag = `ni=${nonInterleaved} rev=${reversedOrder} spm=${spm}`
-          for (const kind of ['rsf', 'rif'] as const) {
-            const n = kind === 'rsf' ? 8 : 4
-            for (let i = 0; i < n; i++) {
-              expect(l.slotFragment(l.fragmentSlot('initiator', kind, i)), `${tag} init ${kind} ${i}`)
-                .toMatchObject({ side: 'initiator', kind, index: i })
-              for (let r = 0; r < 2; r++) {
-                expect(l.slotFragment(l.fragmentSlot('responder', kind, i, r)), `${tag} r${r} ${kind} ${i}`)
-                  .toMatchObject({ side: 'responder', kind, index: i, responder: r })
-              }
+      // and at two slot lengths, because the millisecond is read off the slot
+      for (const spm of [2, 3]) {
+        const l = mmsLayout(phy({ nonInterleaved, rifs: 4 }), 2, spm)
+        const tag = `ni=${nonInterleaved} spm=${spm}`
+        for (const kind of ['rsf', 'rif'] as const) {
+          const n = kind === 'rsf' ? 8 : 4
+          for (let i = 0; i < n; i++) {
+            for (let r = 0; r < 2; r++) {
+              expect(l.slotFragment(l.fragmentSlot('initiator', kind, i, r)), `${tag} init r${r} ${kind} ${i}`)
+                .toMatchObject({ side: 'initiator', kind, index: i, ...(nonInterleaved ? {} : { responder: r }) })
+              expect(l.slotFragment(l.fragmentSlot('responder', kind, i, r)), `${tag} r${r} ${kind} ${i}`)
+                .toMatchObject({ side: 'responder', kind, index: i, responder: r })
             }
           }
         }
@@ -209,8 +225,10 @@ describe('slotFragment inverts fragmentSlot in both shapes', () => {
         for (const kind of ['rsf', 'rif'] as const) {
           const n = kind === 'rsf' ? 8 : 4
           for (let i = 0; i < n; i++) {
-            owned.add(l.fragmentSlot('initiator', kind, i))
-            for (let r = 0; r < 2; r++) owned.add(l.fragmentSlot('responder', kind, i, r))
+            for (let r = 0; r < 2; r++) {
+              owned.add(l.fragmentSlot('initiator', kind, i, r))
+              owned.add(l.fragmentSlot('responder', kind, i, r))
+            }
           }
         }
         for (let slot = 0; slot < l.slots; slot++) {
@@ -218,8 +236,9 @@ describe('slotFragment inverts fragmentSlot in both shapes', () => {
           if (owned.has(slot)) expect(l.slotFragment(slot), tag).not.toBeNull()
           else expect(l.slotFragment(slot), tag).toBeNull()
         }
-        // 12 initiator + 24 responder fragments, and no slot carries two of them
-        expect(owned.size).toBe(36)
+        // Non-interleaved the initiator's 12 fragments are one train for both responders; interleaved
+        // it sends them once per sub-round. 24 responder fragments either way, no slot carrying two.
+        expect(owned.size).toBe(nonInterleaved ? 36 : 48)
       }
     }
   })

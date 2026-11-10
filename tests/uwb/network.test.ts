@@ -10,7 +10,7 @@ import {
 } from '../../src/model/scenario'
 import { brick, node as wifiNode, rangingLab } from '../../src/course/lessonKit'
 import { mmsSet, ratioSigma, rsfNs } from '../../src/uwb/mms'
-import { nbBand, nbCenterMhz, nbChannelForBlock, NB_LBT_THRESHOLD_DBM } from '../../src/uwb/nb'
+import { nbBand, nbCenterMhz, nbChannelForBlock, NB_LBT_THRESHOLD_DBM, NB_PHY_CCA_DURATION_US } from '../../src/uwb/nb'
 import { UwbChannel } from '../../src/uwb/channel'
 import { UwbClock } from '../../src/uwb/clock'
 import { UwbDevice } from '../../src/uwb/device'
@@ -1679,15 +1679,24 @@ describe('UwbNetwork — MMS, the narrowband control plane', () => {
     return { lo: band.lo - 10, hi: band.hi + 10 }
   }
 
-  it('a busy listen-before-talk check costs the whole block, not one message', () => {
+  // 2026-11-11 (audit #19): channel access runs per transmission slot — CSMA-CA (standard §6.3.2.1)
+  // as the draft's §10.39.8.3 asks — and a busy channel costs the message of that slot. It used to
+  // silence the radio for the rest of the block.
+  it('a busy channel fails the POLL’s own CSMA-CA, in its own slot', () => {
     // A Wi-Fi emission parked over the control channel, loud enough at the tag to sit above the
     // draft's −71.02 dBm energy-detection threshold.
     const recs = runWithSpectrum(overNbChannel(), { nbLbt: 'on' })
     const busy = of(recs, 'UWB_NB_LBT')
-    expect(busy.map((r) => [r.node, r.channel, r.block, r.round]))
-      .toEqual([['tag-1', DEFAULT_UWB_SESSION.mms.nbChannels[0], 0, 0]])
-    expect(busy[0].thresholdDbm).toBeCloseTo(NB_LBT_THRESHOLD_DBM, 9)
-    expect(busy[0].foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
+    expect(busy.length).toBeGreaterThan(0)
+    for (const r of busy) {
+      expect([r.node, r.channel, r.block, r.round, r.slot]).toEqual(['tag-1', DEFAULT_UWB_SESSION.mms.nbChannels[0], 0, 0, 0])
+      expect(r.thresholdDbm).toBeCloseTo(NB_LBT_THRESHOLD_DBM, 9)
+    }
+    // Every CCA but the attempt's end backs off; the attempt ends in a failure or in a window with
+    // no room left, and nothing is sent.
+    expect(busy.slice(0, -1).every((r) => r.outcome === 'retry')).toBe(true)
+    expect(['fail', 'noRoom']).toContain(busy[busy.length - 1].outcome)
+    for (const r of busy.filter((x) => x.outcome !== 'noRoom')) expect(r.foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
     // Nothing goes on the air at all: with no poll there is no cycle, on either side.
     expect(of(recs, 'TX_START')).toEqual([])
     // The responder is left waiting for a poll that never came, and says so exactly once.
@@ -1701,12 +1710,17 @@ describe('UwbNetwork — MMS, the narrowband control plane', () => {
       [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ nbLbt: 'on' }), [],
     ), 14 * MS)
     expect(of(rs, 'UWB_NB_LBT')).toEqual([])
-    // A clear check must not move the stream either: the same session with the check off is
-    // record for record the same run.
+    // A clear check still takes its time: every narrowband transmission goes out phyCcaDuration
+    // (128 µs, audit #20) after the instant it would have gone out with the check off, and the
+    // ranges are the same ranges.
     const off = run(mmsScene(
       [{ x: 1, y: 1, z: 1, ppm: 5 }], [{ x: 4, y: 4, z: 1, ppm: -15 }], mmsCfg({ nbLbt: 'off' }), [],
     ), 14 * MS)
-    expect(rs).toEqual(off)
+    const nbTx = (x: TLRecord[]) => of(x, 'TX_START').filter((r) => r.frame.uwb?.nb).map((r) => r.t)
+    expect(nbTx(rs).length).toBe(nbTx(off).length)
+    expect(nbTx(rs).length).toBeGreaterThan(0)
+    nbTx(rs).forEach((t, i) => expect(t - nbTx(off)[i]).toBe(NB_PHY_CCA_DURATION_US * 1000))
+    expect(of(rs, 'UWB_RANGE').map((r) => r.distM)).toEqual(of(off, 'UWB_RANGE').map((r) => r.distM))
   })
 
   it('draws nothing and says nothing when the mediator is there and the channel is clear', () => {

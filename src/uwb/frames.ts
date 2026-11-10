@@ -7,7 +7,7 @@
 import type { FrameDesc, FrameKind } from '../model/frames'
 import type { Ns } from '../model/types'
 import {
-  mmsFragmentDbm, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PSDU_BYTES, rifNs, rsfAirNs, type MmsPhy,
+  mmsFragmentDbm, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PSDU_BYTES, rifNs, rsfNs, type MmsPhy,
 } from './mms'
 import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
@@ -199,11 +199,14 @@ export interface UwbNbMsg {
   replyRctu?: number
   /** Initiator's REPORT: the TurnAroundTime it measured, in RCTU. */
   roundTripRctu?: number
-  /** One-to-many POLL: the responders this round is addressed to, in slot order — the draft's
-   * Number of Responders, SlotsPerResponder and Responder Address list (4ab draft
-   * 15-22/0381r5 Table 1.6.3.1, 0x10). A responder that does not find itself here is not in
-   * this round. */
+  /** One-to-many POLL at Message Control 1 (the first sub-round's): the responders this round is
+   * addressed to, in sub-round order — the draft's Number of Responders, SlotsPerResponder and
+   * Responder Address list (4ab draft 15-22/0381r5 Table 1.6.3.1, 0x10). A responder that does not
+   * find itself here is not in this round. Absent on a later sub-round's POLL (Message Control 0). */
   responders?: string[]
+  /** RESP at Message Control 2: the responder's Predicted Reply Time, in RCTU (resolution
+   * 15-25/0681r1). */
+  predictedReplyRctu?: number
 }
 
 /**
@@ -218,10 +221,15 @@ export interface UwbNbMsg {
  */
 export interface UwbSp0Msg {
   role: 'poll' | 'resp' | 'report'
+  /** The power this SP0 packet is radiated at (dBm): the leading fragment's less the proposal's
+   * ~4 dB (`mms.ts#mmsSp0TxDbm`, 15-25/0194r0). */
+  txDbm: number
   /** Responder's REPORT: the ReplyTime it measured, in RCTU. */
   replyRctu?: number
   /** Initiator's REPORT: the TurnAroundTime it measured, in RCTU. */
   roundTripRctu?: number
+  /** RESP at Message Control 2: the Predicted Reply Time, in RCTU (resolution 15-25/0681r1). */
+  predictedReplyRctu?: number
 }
 
 /**
@@ -866,10 +874,7 @@ function mmsFrame(
 export function makeRsf(
   src: string, dst: string, index: number, phy: MmsPhy, block: number, round: number, slot: number,
 ): FrameDesc {
-  // `rsfAirNs`, not `rsfNs`: with `rsfSfd` set the draft puts an SFD after every RSF, and the
-  // fragment that goes out is that much longer — which `mmsFrame` then charges the millisecond
-  // energy budget for. The RMARKER is unaffected; it is this fragment's first pulse either way.
-  return mmsFrame('uwbRsf', src, dst, rsfAirNs(phy), block, round, slot, {
+  return mmsFrame('uwbRsf', src, dst, rsfNs(phy.nMsr, phy.gap), block, round, slot, {
     kind: 'rsf', index, of: phy.rsfs, nMsr: phy.nMsr, gap: phy.gap,
   })
 }
@@ -917,26 +922,41 @@ export function makeNbPoll(tag: string, anchor: string, channel: number, block: 
   })
 }
 
-/** The initiator's one-to-many POLL (message 0x10): one broadcast that opens the round for every
- * responder it names, and tells each of them which slots are its own.
- * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+/**
+ * The initiator's one-to-many POLL (message 0x10), opening one ranging sub-round.
+ *
+ * The first sub-round's POLL is Message Control 1: Number of Responders, Slots Per Responder and
+ * the Responder Address List — 12 + 3N octets (`nbOtmPollBytes`) — which tells every responder it
+ * names which sub-round is its own. Every later sub-round's POLL is Message Control 0, whose content
+ * is two zero octets: a 12-octet frame naming nobody (`responders` absent). 4ab draft 15-22/0381r5
+ * Table 1.6.3.1; 15-25/0213r2 (CID 474: Message Control 1 in slot 0, 0 in a later sub-round).
+ */
 export function makeNbPollOtm(
   tag: string, responders: string[], channel: number, block: number, round: number,
+  slot: number = NB_POLL_SLOT, first = true,
 ): FrameDesc {
-  return nbFrame('nbPoll', tag, UWB_BROADCAST, nbOtmPollBytes(responders.length), block, round, NB_POLL_SLOT, {
-    channel, msgId: NB_MSG_ID.pollOtm, responders: [...responders],
-  })
+  return first
+    ? nbFrame('nbPoll', tag, UWB_BROADCAST, nbOtmPollBytes(responders.length), block, round, slot, {
+      channel, msgId: NB_MSG_ID.pollOtm, responders: [...responders],
+    })
+    : nbFrame('nbPoll', tag, UWB_BROADCAST, NB_POLL_BYTES, block, round, slot, {
+      channel, msgId: NB_MSG_ID.pollOtm,
+    })
 }
 
 /** The responder's narrowband RESP: it heard the POLL and will range. In a one-to-many round it
  * answers in its own RESP window, which is why the slot is passed rather than fixed.
- * 4ab draft 15-22/0381r5 Table 1.6.3.1 */
+ *
+ * `predictedReplyRctu` set is the RESP at Message Control 2: its five content octets carry the
+ * Predicted Reply Time instead of zeros, so the frame keeps its 12 octets. Resolution 15-25/0681r1
+ * (minutes 15-26/0006r0); 4ab draft 15-22/0381r5 Table 1.6.3.1 for the frame. */
 export function makeNbResp(
   anchor: string, tag: string, channel: number, block: number, round: number,
-  slot: number = NB_RESP_SLOT, otm = false,
+  slot: number = NB_RESP_SLOT, otm = false, predictedReplyRctu?: number,
 ): FrameDesc {
   return nbFrame('nbResp', anchor, tag, NB_RESP_BYTES, block, round, slot, {
     channel, msgId: otm ? NB_MSG_ID.respOtm : NB_MSG_ID.resp,
+    ...(predictedReplyRctu !== undefined ? { predictedReplyRctu } : {}),
   })
 }
 
@@ -944,7 +964,7 @@ export function makeNbResp(
  * A narrowband REPORT, in the report slot its sender owns: the two differ only in their
  * message-ID octet, which names the end that sent it, and in which of the exchange's two times is
  * present. Ordinarily the responder's carries the ReplyTime it measured and the initiator's the
- * TurnAroundTime — see `sender` for the round where that pairing comes apart.
+ * TurnAroundTime.
  * 4ab draft 15-22/0381r5 Table 1.6.3.1 / 1.6.3.2
  */
 export function makeNbReport(
@@ -953,16 +973,9 @@ export function makeNbReport(
   /** One-to-many round: the same message, under the message ids the draft gives it (0x12 from a
    * responder, 0x13 from the initiator). 4ab draft 15-22/0381r5 Table 1.6.3.1 */
   otm = false,
-  /**
-   * Which end sent it, which is what the two message ids actually name.
-   *
-   * It is not the same question as which time is inside. They coincide in a round where the
-   * initiator transmits first — the responder replies, so the responder's REPORT carries the reply
-   * time — and the draft's reversed order breaks that: there the responder measures the round trip
-   * and the initiator the reply, while 0x12 is still the responder's message and 0x13 still the
-   * initiator's. So the sender says, and the time it happens to carry is the default for every
-   * caller that never reversed anything. 4ab draft 15-22/0381r5 Table 1.6.3.1, 15-25/0556r2
-   */
+  /** Which end sent it, which is what the two message ids name. The initiator always transmits
+   * first, so the responder's REPORT carries the reply time and the initiator's the round trip,
+   * and the default follows from the time. 4ab draft 15-22/0381r5 Table 1.6.3.1 */
   sender: 'initiator' | 'responder' = times.replyRctu !== undefined ? 'responder' : 'initiator',
 ): FrameDesc {
   // A REPORT exists to carry one of the two times. With neither, the message would have nothing
@@ -1013,34 +1026,32 @@ function sp0Frame(
   }
 }
 
-/** The initiator's SP0 POLL, which opens a UWB-driven round.
+/** The initiator's SP0 POLL, which opens a UWB-driven round (or, one-to-many interleaved, one
+ * responder's sub-round — so it is addressed to that responder).
  *
- * A one-to-many round broadcasts it, and — unlike the narrowband one-to-many POLL — it names no
- * responders: the table gives the SP0 packet one PSDU length, and stretching it by three octets
- * per address would be this engine's invention. A responder acts on the POLL because the round
- * it was given lists it, which is the same check `onMmsSlot` already makes of every slot it
- * touches. 4ab draft 15-25/0194r0
+ * The non-interleaved one-to-many round broadcasts a single POLL, and — unlike the narrowband
+ * one-to-many POLL — it names no responders: the table gives the SP0 packet one PSDU length, and
+ * stretching it by three octets per address would be this engine's invention. The round's
+ * responder list stands in for the missing addresses there, which is out-of-band knowledge a real
+ * device would not have: modelled, and named. 4ab draft 15-25/0194r0
  *
- * **So a one-to-many round under Config 1 is an approximation, and here is exactly where.** The
- * draft's one-to-many POLL works by naming its responders (15-22/0381r5 Table 1.6.3.1, message
- * 0x10, with `Number of Responders`, `SlotsPerResponder` and the address list); a twelve-octet
- * SP0 PSDU has no room for that list, so nothing in this engine's SP0 POLL tells a responder
- * which slots are its own. The round's responder list stands in for the missing addresses, which
- * is a piece of out-of-band knowledge a real device would not have. The combination is not
- * forbidden — the draft prohibits neither one-to-many nor a UWB-driven control plane, and
- * refusing it here would be inventing a prohibition, just as growing the PSDU would be inventing
- * a frame. It is modelled, and named. model */
+ * `txDbm` is `mmsSp0TxDbm` of the session's train. */
 export function makeSp0Poll(
-  tag: string, dst: string, block: number, round: number, slot: number,
+  tag: string, dst: string, block: number, round: number, slot: number, txDbm: number,
 ): FrameDesc {
-  return sp0Frame(tag, dst, block, round, slot, { role: 'poll' })
+  return sp0Frame(tag, dst, block, round, slot, { role: 'poll', txDbm })
 }
 
-/** The responder's SP0 RESP: it acquired the POLL and will range. 4ab draft 15-25/0194r0 */
+/** The responder's SP0 RESP: it acquired the POLL and will range. With `predictedReplyRctu` it is
+ * the Response Compact frame at Message Control 2 (resolution 15-25/0681r1). 4ab draft 15-25/0194r0 */
 export function makeSp0Resp(
-  anchor: string, tag: string, block: number, round: number, slot: number,
+  anchor: string, tag: string, block: number, round: number, slot: number, txDbm: number,
+  predictedReplyRctu?: number,
 ): FrameDesc {
-  return sp0Frame(anchor, tag, block, round, slot, { role: 'resp' })
+  return sp0Frame(anchor, tag, block, round, slot, {
+    role: 'resp', txDbm,
+    ...(predictedReplyRctu !== undefined ? { predictedReplyRctu } : {}),
+  })
 }
 
 /** An SP0 measurement report, in the report window its sender owns — the responder's ReplyTime
@@ -1049,13 +1060,13 @@ export function makeSp0Resp(
  * a frame of their own. 4ab draft 15-25/0194r0 */
 export function makeSp0Report(
   src: string, dst: string, block: number, round: number, slot: number,
-  times: { replyRctu?: number; roundTripRctu?: number },
+  times: { replyRctu?: number; roundTripRctu?: number }, txDbm: number,
 ): FrameDesc {
   if (times.replyRctu === undefined && times.roundTripRctu === undefined) {
     throw new Error(`makeSp0Report: ${src} built a REPORT with neither a reply nor a round-trip time`)
   }
   return sp0Frame(src, dst, block, round, slot, {
-    role: 'report',
+    role: 'report', txDbm,
     // Absent, not undefined, so a REPORT compares equal to a hand-built one.
     ...(times.replyRctu !== undefined ? { replyRctu: times.replyRctu } : {}),
     ...(times.roundTripRctu !== undefined ? { roundTripRctu: times.roundTripRctu } : {}),

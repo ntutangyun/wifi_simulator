@@ -206,12 +206,22 @@ export type UwbRecord =
   /** The tag's round is over (emitted after any UWB_POSITION it produced): the radio goes
    * off until the next block, and the view's `slot` returns to null. */
   | { type: 'UWB_ROUND_END'; node: string; block: number; round: number }
-  /** P802.15.4ab: a narrowband transmission that never happened. The device sampled the
-   * channel's foreign power before transmitting (the draft's listen-before-talk) and found it
-   * at or above the energy-detection threshold, so it transmits nothing on narrowband for the
-   * rest of the block. Emitted on a **busy** check only — a clear one is the ordinary case and
-   * says nothing. */
-  | { type: 'UWB_NB_LBT'; node: string; channel: number; foreignDbm: number; thresholdDbm: number; block: number; round: number }
+  /**
+   * P802.15.4ab: one CSMA-CA event of a narrowband transmission (standard §6.3.2.1, run per
+   * transmission slot as the draft's §10.39.8.3 asks where regulation requires listen-before-talk).
+   * `outcome`: `'retry'` — a CCA averaged over phyCcaDuration found the channel at or above the
+   * threshold, NB rose to `nb` and the device backs off again; `'fail'` — the same, with NB past
+   * macMaxCsmaBackoffs: a channel access failure, nothing is sent in this slot; `'noRoom'` — the next
+   * backoff (`backoffNs`, at backoff exponent `be`) and CCA would leave no room for the frame to end
+   * inside its window, so the attempt ends there (`foreignDbm` is the no-reading sentinel). A clear
+   * CCA is the ordinary case and emits nothing. 2026-11-11: replaces the record of a busy reading
+   * that silenced the radio for the rest of the block.
+   */
+  | {
+    type: 'UWB_NB_LBT'; node: string; channel: number; foreignDbm: number; thresholdDbm: number
+    block: number; round: number; slot: number; nb: number; be: number; backoffNs: Ns
+    outcome: 'retry' | 'fail' | 'noRoom'
+  }
   /**
    * P802.15.4ab: what one receiver made of one peer's fragment train, at the slot after that
    * train's last fragment. `fragments` is how many the train held (X for an RSF train, Y for an
@@ -301,9 +311,9 @@ export type UwbRecord =
    * draw itself had to be cut down to fit the window before any CCA ran at all (the window's own
    * slack was already too small, independent of how the CCA came back).
    *
-   * Emitted at the device running the algorithm, in **every narrowband transmit slot, not once a
-   * block** (contrast `UWB_NB_LBT`, which this record does **not** replace: a session with `ssbd`
-   * off keeps emitting `UWB_NB_LBT` exactly as it always has, byte for byte).
+   * `'noRoom'` — the window has no room left even for the CCA itself (phyCcaDuration), so the
+   * attempt ends without one. Emitted at the device running the algorithm, in every narrowband
+   * transmit slot (a session without `ssbd` runs CSMA-CA instead and emits `UWB_NB_LBT`).
    *
    * One record per CCA that *decided* something, which is the CCA that ends the attempt plus any
    * whose draw had to be clamped — and not the busy ones the loop simply continues past, because
@@ -314,5 +324,5 @@ export type UwbRecord =
   | {
     type: 'UWB_SSBD'; node: string; block: number; round: number; slot: number; channel: number
     nb: number; bf: number; drawnUnits: number; backoffNs: Ns; foreignDbm: number; thresholdDbm: number
-    outcome: 'idle' | 'txOnEnd' | 'failOnEnd' | 'clamped'
+    outcome: 'idle' | 'txOnEnd' | 'failOnEnd' | 'clamped' | 'noRoom'
   }

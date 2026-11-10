@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import { nbSlotSlackNs, rstuNs, ssbdBoundNs } from '../../src/uwb/phy'
 import { NB_WINDOW_SLOTS } from '../../src/uwb/mms'
 import {
-  NB_LBT_CCA_US, NB_POLL_BYTES, NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs,
+  NB_PHY_CCA_DURATION_US, NB_POLL_BYTES, NB_REPORT_BYTES, nbOtmPollBytes, nbPpduNs,
 } from '../../src/uwb/nb'
 
 describe('ssbdBoundNs — standard §10.45 (draft), the worst-case latency bound', () => {
@@ -24,8 +24,10 @@ describe('ssbdBoundNs — standard §10.45 (draft), the worst-case latency bound
    * `txOnEnd`, which this bound does not depend on. */
   const DEFAULTS = { minBf: 1, maxBf: 5, maxBackoffs: 5, unitBackoffUs: 1 }
 
-  it('computes the default bound as 74 µs under the current text, not the appendix’s 46', () => {
-    expect(ssbdBoundNs(DEFAULTS)).toBe(74_000)
+  // 2026-11-11 (audit #20): each CCA lasts phyCcaDuration, 8 symbol periods = 128 µs (standard
+  // Table 12-2; CID 490/495 has SSBD read the PHY's attribute). It was 9 µs, the ETSI minimum.
+  it('computes the default bound as 788 µs — six 128 µs CCAs and 20 µs of backoff — not the appendix’s 46', () => {
+    expect(ssbdBoundNs(DEFAULTS)).toBe(788_000)
     expect(ssbdBoundNs(DEFAULTS)).not.toBe(46_000)
   })
 
@@ -36,10 +38,10 @@ describe('ssbdBoundNs — standard §10.45 (draft), the worst-case latency bound
     expect(ssbdBoundNs({ ...DEFAULTS, backoffMultiplier: 2, ccaUs: 1 })).toBe(46_000)
   })
 
-  it('the default bound is read off NB_LBT_CCA_US, not a copied-in literal', () => {
+  it('the default bound is read off NB_PHY_CCA_DURATION_US, not a copied-in literal', () => {
     let expectedUs = 0
     for (let i = 0; i <= DEFAULTS.maxBackoffs; i++) {
-      expectedUs += Math.min(DEFAULTS.minBf + i, DEFAULTS.maxBf) * DEFAULTS.unitBackoffUs + NB_LBT_CCA_US
+      expectedUs += Math.min(DEFAULTS.minBf + i, DEFAULTS.maxBf) * DEFAULTS.unitBackoffUs + NB_PHY_CCA_DURATION_US
     }
     expect(ssbdBoundNs(DEFAULTS)).toBe(expectedUs * 1000)
   })
@@ -68,13 +70,15 @@ describe('nbSlotSlackNs — the room left in a narrowband window (NB_WINDOW_SLOT
     expect(nbSlotSlackNs(slotNs, NB_REPORT_BYTES)).toBe(392_000)
   })
 
-  it('a one-to-many POLL at 4 responders overruns its own window: −24 µs before clamping, 0 after', () => {
-    // NB_WINDOW_SLOTS is a fixed 2 and does not scale with the message, so this negative is
-    // pre-existing — not this slice's doing — but `max(0, …)` must not hide it: it is a real
-    // answer (one configuration where a backoff cannot fit at all), not a defensive floor.
-    const bytes = nbOtmPollBytes(4)
+  // 2026-11-11: the one-to-many POLL is 12 + 3N octets (15-22/0381r5 Table 1.6.3.1), not 14 + 3N, so
+  // four responders fit (40 µs left) and it is five that overrun.
+  it('a one-to-many POLL at 5 responders overruns its own window: −56 µs before clamping, 0 after', () => {
+    // NB_WINDOW_SLOTS is a fixed 2 and does not scale with the message, so `max(0, …)` must not
+    // hide this: it is a real answer (one configuration where a backoff cannot fit at all).
+    expect(NB_WINDOW_SLOTS * slotNs - nbPpduNs(nbOtmPollBytes(4))).toBe(40_000)
+    const bytes = nbOtmPollBytes(5)
     const unclamped = NB_WINDOW_SLOTS * slotNs - nbPpduNs(bytes)
-    expect(unclamped).toBe(-24_000)
+    expect(unclamped).toBe(-56_000)
     expect(nbSlotSlackNs(slotNs, bytes)).toBe(0)
   })
 })

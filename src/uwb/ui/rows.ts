@@ -146,7 +146,7 @@ export function uwbRespondersText(u: UwbNodeView, S: UwbRespondersStrings, name:
 /** The three phrases the narrowband control rows need. */
 export interface UwbNbStrings {
   nbChannelAt: (channel: number, centerMhz: number) => string
-  lbtBusyCount: (checks: number, blocks: number) => string
+  lbtBusyCount: (checks: number, failures: number) => string
   ssbdCount: (checks: number, waitNs: number, failed: number) => string
 }
 
@@ -159,7 +159,9 @@ export function uwbNbChannelText(u: UwbNodeView, S: UwbNbStrings): string | null
 }
 
 export function uwbLbtText(u: UwbNodeView, S: UwbNbStrings): string | null {
-  return u.mms.lbtBusy === 0 ? null : S.lbtBusyCount(u.mms.lbtBusy, u.mms.skippedBlocks)
+  return u.mms.lbtBusy === 0 && u.mms.accessFailures === 0
+    ? null
+    : S.lbtBusyCount(u.mms.lbtBusy, u.mms.accessFailures)
 }
 
 /**

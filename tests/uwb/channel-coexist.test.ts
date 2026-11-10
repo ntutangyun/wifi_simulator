@@ -284,33 +284,53 @@ describe('UwbChannel . listen before talk on the narrowband channel', () => {
     node('far', { x: AP_POS.x, y: AP_POS.y + 9.5, z: AP_POS.z }, 'anchor'),
   ]
 
+  /** One CCA of `durNs` started at t = 0, run to its end. (2026-11-11, audit #20: the reading is the
+   * foreign power averaged over phyCcaDuration, standard §11.2.8 b), not one instantaneous value.) */
+  const cca = (h: ReturnType<typeof harness>, id: string, channel: number, durNs = 128_000) => {
+    let out: { busy: boolean; foreignDbm: number } | null = null
+    h.at(0, () => h.ch.ccaMeasure(id, channel, durNs, (r) => { out = r }))
+    h.runUntil(10 * durNs)
+    expect(out).not.toBeNull()
+    return out as unknown as { busy: boolean; foreignDbm: number }
+  }
+
   it('is busy inside 8.6 m of a transmitting 6E AP and clear outside it', () => {
     // -75 dBm/MHz over 2.5 MHz. 4ab draft 15-22/0381r5 s1.4.2
     expect(NB_LBT_THRESHOLD_DBM).toBeCloseTo(-71.02, 2)
     const h = harness(true, lbtNodes)
     h.s.emit('wifi', wifiEmission(20))
 
-    const near = h.ch.lbtBusy('near', NB_UNII5)
-    const far = h.ch.lbtBusy('far', NB_UNII5)
+    const near = cca(h, 'near', NB_UNII5)
+    const far = cca(harness(true, lbtNodes), 'far', NB_UNII5)
     // an 80 MHz 20 dBm PPDU puts 4.95 dBm into 2.5 MHz; under the Wi-Fi law that is
     // -70.04 dBm at 8 m and -72.28 dBm at 9.5 m, so the crossing is at 8.63 m
     expect(near.foreignDbm).toBeCloseTo(-70.04, 2)
-    expect(far.foreignDbm).toBeCloseTo(-72.28, 2)
     expect(near.busy).toBe(true)
     expect(far.busy).toBe(false)
   })
 
+  it('averages over the detection time: a PPDU on the air for half of it reads 3 dB lower', () => {
+    const h = harness(true, lbtNodes)
+    const e = wifiEmission(20)
+    h.at(0, () => h.s.emit('wifi', e))
+    h.at(64_000, () => h.s.retire('wifi', e))
+    const half = cca(h, 'near', NB_UNII5)
+    expect(half.foreignDbm).toBeCloseTo(-70.04 - 10 * Math.log10(2), 2)
+    // -73.05 dBm: under the threshold, where one instantaneous reading at t = 0 would have said busy
+    expect(half.busy).toBe(false)
+  })
+
   it('reads nothing but the mediator: a silent AP, a UNII-3 channel and no mediator are all clear', () => {
     const quiet = harness(true, lbtNodes)
-    expect(quiet.ch.lbtBusy('near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
+    expect(cca(quiet, 'near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
 
     const loud = harness(true, lbtNodes)
     loud.s.emit('wifi', wifiEmission(20))
     // the same PPDU, a UNII-3 channel: nothing of it lands in the band at all
-    expect(loud.ch.lbtBusy('near', NB_UNII3)).toEqual({ busy: false, foreignDbm: -Infinity })
+    expect(cca(loud, 'near', NB_UNII3)).toEqual({ busy: false, foreignDbm: -Infinity })
 
     const uncoupled = harness(false, lbtNodes)
-    expect(uncoupled.ch.lbtBusy('near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
+    expect(cca(uncoupled, 'near', NB_UNII5)).toEqual({ busy: false, foreignDbm: -Infinity })
   })
 })
 

@@ -8,14 +8,16 @@
  * `trainDetected` may add `10·log10(heard)` dB to a fragment nobody could have heard alone.
  *
  * Config 1 (UWB-driven) has no narrowband radio, so the time base has to come out of the packet
- * itself: the leading SYNC+SFD fragment, or the SP0 control frame when the control phase is not
- * zero-length. That judgement is made on ONE fragment with NO combining, and that is the whole
- * distinction pinned here — four fragments 6 dB down are a detected train and still an
- * unacquired packet.
+ * itself: its leading SYNC+SFD fragment, which the packet carries whether or not SP0 control frames
+ * went before it (15-25/0194r0). That judgement is made on ONE fragment with NO combining, and that
+ * is the whole distinction pinned here — four fragments 6 dB down are a detected train and still an
+ * unacquired packet. Miss it and the round is lost outright, because nothing after it can be
+ * timestamped.
  *
- * Miss it and the round is lost outright, because nothing after it can be timestamped. That is
- * the cost `phyUwbMmsRsfSfd` buys off: an SFD after every RSF makes any RSF able to open the
- * packet, so a burst of interference over the head of the train is survivable.
+ * 2026-11-11 (audit #17, #18): the SP0 path used to count the packet as acquired, and an `rsfSfd`
+ * option (proposal 15-25/0066r1 for CID 963 — withdrawn by its commenter, 15-25/0082r8) let any
+ * RSF open it; the option is gone and the SP0 path judges the head like the zero-length one. SP0's
+ * own ~4 dB is charged once, as a lower transmit power (`mmsSp0TxDbm`), not again as a threshold.
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
@@ -24,8 +26,8 @@ import {
 } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
-  acquired, combineGainDb, trainDetected, MMS_DRAFT_DEFAULTS, MMS_SP0_PENALTY_DB,
-  MMS_SP0_RX_SENS_DBM, type MmsPhy,
+  acquired, combineGainDb, mmsFragmentDbm, mmsSp0TxDbm, rsfNs, trainDetected, MMS_DRAFT_DEFAULTS,
+  MMS_SP0_PENALTY_DB, type MmsPhy,
 } from '../../src/uwb/mms'
 import { UWB_TX_POWER_DBM } from '../../src/uwb/phy'
 import { UWB_RX_SENS_DBM } from '../../src/uwb/units'
@@ -79,69 +81,33 @@ describe('UWB-driven acquisition is one fragment on its own', () => {
 })
 
 describe('what an SP0 control frame costs, and where that cost is charged', () => {
-  it('lives on the SP0 frame own reception threshold, 4 dB above the fragments', () => {
-    // One threshold, one place. The SP0 packet really crosses the channel in this engine, so
-    // the 4 dB is the sensitivity that packet is delivered against — and nowhere else.
-    expect(MMS_SP0_RX_SENS_DBM).toBe(UWB_RX_SENS_DBM + MMS_SP0_PENALTY_DB)
+  it('is radiated 4 dB below the packet’s own leading fragment — the one count of the peak-power loss', () => {
+    // 15-25/0194r0: "Longer SP0 Frame is sent at lower peak power level", ~4 dB against the
+    // SYNC+SFD fragment. That 4 dB IS the loss, so it is the transmit power and nothing else.
+    const p = phy({ control: 'uwbd', uwbdControl: 'sp0' })
+    expect(mmsSp0TxDbm(p)).toBeCloseTo(mmsFragmentDbm(rsfNs(p.nMsr, p.gap)) - MMS_SP0_PENALTY_DB, 9)
+    expect(MMS_SP0_PENALTY_DB).toBe(4)
   })
 
-  it('gets the direction right: SP0 is the harder thing to acquire', () => {
-    // Longer and at a lower peak power, so it is SP0 that defines the link budget when it is
-    // there — never the other way round.
-    expect(MMS_SP0_PENALTY_DB).toBeGreaterThan(0)
-  })
-
-  it('is not charged a second time on the fragments that follow it', () => {
-    // With SP0 in front of the packet the receiver was primed by receiving that packet, so it
-    // accumulates blind exactly as Config 2 does and `acquired` has nothing left to judge.
-    // Charging the 4 dB here as well would be one threshold decided in two places.
+  it('opens the packet on its leading fragment with SP0 in front too', () => {
+    // The packet after the SP0 frames still starts with its SYNC+SFD fragment, and that is what the
+    // receiver acquires on: a quiet head loses the round with or without SP0.
     const sp0 = phy({ control: 'uwbd', uwbdControl: 'sp0' })
-    expect(acquired(sp0, f(UWB_RX_SENS_DBM - 50))).toBe(true)
-    expect(acquired(sp0, [])).toBe(true)
-    // …and the zero-length control phase, which has no SP0 packet to have been primed by, is
-    // judged at the plain sensitivity with no penalty at all.
+    expect(acquired(sp0, f(UWB_RX_SENS_DBM))).toBe(true)
+    expect(acquired(sp0, f(UWB_RX_SENS_DBM - 0.1))).toBe(false)
+    expect(acquired(sp0, [])).toBe(false)
     expect(acquired(uwbd(), f(UWB_RX_SENS_DBM))).toBe(true)
     expect(acquired(uwbd(), f(UWB_RX_SENS_DBM - 0.1))).toBe(false)
   })
-})
 
-describe('an SFD after every RSF is what saves the round', () => {
-  it('RSF with SFD lets a later fragment open the packet', () => {
-    const lost = [{ rssiDbm: -120 }, { rssiDbm: UWB_RX_SENS_DBM }]
-    expect(acquired(uwbd({ rsfSfd: false }), lost)).toBe(false)
-    // nMsr 64 because the draft allows the SFD only at an RSF length of 32 or 64 — the schema
-    // refuses the rest, so a legal phy is the only kind worth testing.
-    expect(acquired(uwbd({ rsfSfd: true, nMsr: 64 }), lost)).toBe(true)
-  })
-
-  it('loses a whole audible train to one inaudible head, and rsfSfd gives it back', () => {
-    // The case the lesson is built on: interference sits over the head of the train and the
-    // other seven fragments arrive loud. Without the SFD there is exactly one chance to open
-    // the packet and it was taken away, so eight fine fragments are worth nothing.
+  it('loses a whole audible train to one inaudible head', () => {
     const head = -120
     const rest = UWB_RX_SENS_DBM + 6
     const train = f(head, rest, rest, rest, rest, rest, rest, rest)
-    expect(acquired(uwbd({ rsfSfd: false }), train)).toBe(false)
-    expect(acquired(uwbd({ rsfSfd: true, nMsr: 64 }), train)).toBe(true)
+    expect(acquired(uwbd(), train)).toBe(false)
+    expect(acquired(phy({ control: 'uwbd', uwbdControl: 'sp0' }), train)).toBe(false)
     // And it is acquisition, not detection, that decided it: the train itself was never in doubt.
     expect(trainDetected(rest, 8)).toBe(true)
-  })
-
-  it('does not rescue a train no fragment of which is audible on its own', () => {
-    // The SFD adds chances, not sensitivity. Eight fragments 1 dB down are still eight
-    // fragments that cannot open a packet.
-    const train = f(...Array.from({ length: 8 }, () => UWB_RX_SENS_DBM - 1))
-    expect(acquired(uwbd({ rsfSfd: true, nMsr: 64 }), train)).toBe(false)
-  })
-
-  it('has nothing to give back when an SP0 packet already opened the round', () => {
-    // The SFD buys extra chances to find the packet, and with SP0 in front there was never a
-    // chance to lose: the control packet handed over the time base, so the train is accumulated
-    // blind whichever fragment arrived. That is the SP0 path's own trade, not this one's.
-    const train = f(-120, UWB_RX_SENS_DBM + 1)
-    expect(acquired(phy({ control: 'uwbd', uwbdControl: 'sp0', rsfSfd: false }), train)).toBe(true)
-    expect(acquired(uwbd({ rsfSfd: false }), train)).toBe(false)
-    expect(acquired(uwbd({ rsfSfd: true, nMsr: 64 }), train)).toBe(true)
   })
 })
 
@@ -189,28 +155,19 @@ const QUIET_M = 140
  * them. 4ab draft 15-25/0194r0 */
 const UWBD = { control: 'uwbd', nbChannels: [] as number[], nbLbt: 'off' } as const
 
-/** The same pair, ranging in the two-way mode instead: a 4z Poll at the node's own power, judged
- * at the plain `UWB_RX_SENS_DBM`. It is the control for the SP0 threshold below. */
-function twrPairScene(apartM: number): Scenario {
-  const sc = pairScene(apartM)
-  return { ...sc, uwb: { ...sc.uwb!, mode: 'twr' } }
-}
-
 describe('where the SP0 4 dB is really charged', () => {
-  it('costs an SP0 packet the last stretch of link a 4z frame still has', () => {
-    // `MMS_SP0_RX_SENS_DBM` runs out just under 17 m at this power on channel 9; the plain
-    // sensitivity a 4z frame is judged at reaches past 26 m. So 14 m and 22 m bracket the SP0
-    // threshold, and the 4 dB between the two is the whole of what separates them.
-    const near = run(pairScene(14, { ...UWBD, uwbdControl: 'sp0' }), 400 * MS)
+  it('reaches as far as a packet 4 dB under the fragment, judged at the plain sensitivity', () => {
+    // At the default train's −3.46 dBm fragment the SP0 packet goes out at −7.46 dBm and is judged
+    // against UWB_RX_SENS_DBM: it still arrives at 50 m and the round ranges, and at 60 m it does
+    // not. (Charged twice — the node's −14 dBm burst power *and* a threshold 4 dB up — it ran out
+    // under 17 m.)
+    const near = run(pairScene(50, { ...UWBD, uwbdControl: 'sp0' }), 400 * MS)
     expect(near.some((r) => r.type === 'RX_OK' && r.frame.kind === 'uwbSp0')).toBe(true)
-    const far = run(pairScene(22, { ...UWBD, uwbdControl: 'sp0' }), 400 * MS)
+    expect(rangesOf(near).length).toBeGreaterThan(0)
+    const far = run(pairScene(60, { ...UWBD, uwbdControl: 'sp0' }), 400 * MS)
     expect(far.some((r) => r.type === 'RX_OK' && r.frame.kind === 'uwbSp0')).toBe(false)
-    // …and the round goes with it, because under Config 1 with SP0 being primed IS having
-    // received that packet: nobody was told there was a peer, so no train goes out.
+    // …and the round goes with it: with SP0 in front, being primed is having received that packet.
     expect(far.some((r) => r.type === 'TX_START' && r.frame.kind === 'uwbRsf')).toBe(false)
-    // The control: the same 22 m carries a two-way Poll of the same transmitter perfectly well.
-    const twr = run(twrPairScene(22), 400 * MS)
-    expect(twr.some((r) => r.type === 'RX_OK' && r.frame.kind === 'uwbPoll')).toBe(true)
   })
 })
 

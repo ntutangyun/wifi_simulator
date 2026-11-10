@@ -2,26 +2,21 @@
  * `@uwb-acquisition`, in the standard-first shape (2026-11-10).
  *
  * ① teaches the standard's SHR (§16.2.6), the draft's UWB-driven MMS packet and the proposal
- * 15-25/0066r1 — its problem statement and the RSF with SFD bit, adoption unconfirmed. ② says how
- * the engine implements it, including the acquisition rule the engine chose and audit #18 (an SP0
- * control phase is treated as having acquired, a differs row).
+ * 15-25/0066r1 — its problem statement, and its RSF with SFD bit, whose CID 963 was withdrawn
+ * (15-25/0082r8). ② (2026-11-11, W5, audit #18): with an SP0 control phase the packet's leading
+ * SYNC+SFD fragment still has to be acquired, and the withdrawn attribute is gone.
  *
  * Every figure the labs print is read back out of the lesson text here and compared with a run or
  * with the engine's own constants.
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ACQ_6G_CENTER_MHZ, ACQ_HEARD, ACQ_N_MSR, EDGE_ANCHOR_X, EDGE_TAG_X,
+  ACQ_6G_CENTER_MHZ, ACQ_HEARD, ACQ_N_MSR,
   uwbAcquisition, uwbAcquisitionScenario, uwbAcquisitionTiming,
 } from '../../src/course/uwb/uwb-acquisition'
-import { DEFAULT_UWB_SESSION, ScenarioSchema, UwbMmsSchema, type Scenario } from '../../src/model/scenario'
-import type { TLRecord } from '../../src/model/records'
-import { Simulation } from '../../src/engine/simulation'
+import { DEFAULT_UWB_SESSION, ScenarioSchema } from '../../src/model/scenario'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
-import {
-  MMRS_LEN, MMS_RSF_SFD_N_MSR, MMS_SP0_SEGMENT_NS, MMS_SPREAD, UWB_MS_BUDGET_NJ,
-  combineGainDb, mmsFragmentDbm, rsfAirNs, rsfChips, rsfNs,
-} from '../../src/uwb/mms'
+import { MMRS_LEN, MMS_SPREAD, combineGainDb, rsfChips, rsfNs } from '../../src/uwb/mms'
 import { UWB_RX_SENS_DBM } from '../../src/uwb/units'
 import { UWB_SIR_MIN_DB } from '../../src/uwb/phy'
 import { LESSON_6G_WIDTH_MHZ, isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
@@ -31,12 +26,9 @@ import { lessonShapeSuite, ofType, runOf } from './kit'
 const MS = 1_000_000
 /** Seven ranging blocks — the window the lesson's tables are counted over. */
 const RUN_NS = 1300 * MS
-/** Three blocks: the edge scene has six trains, which is the whole claim. */
-const EDGE_NS = 450 * MS
-const SFD = 0
+const SP0 = 0
 const NBA = 1
 const CLEAR = 2
-const EDGE = 3
 
 const recs = (v?: number) => runOf(uwbAcquisition, v, RUN_NS)
 const trains = (v?: number) => ofType(recs(v), 'UWB_MMS_TRAIN')
@@ -46,22 +38,6 @@ const at = (v: number | undefined, ms: number) => {
   const t = trains(v).find((x) => Math.abs(x.t - ms * MS) < MS / 2)
   expect(t, `train at ${ms} ms`).toBeDefined()
   return t!
-}
-
-const PHY = { ...DEFAULT_UWB_SESSION.mms, nMsr: ACQ_N_MSR }
-const FRAG_NS = rsfAirNs({ ...PHY, rsfSfd: false })
-const SFD_FRAG_NS = rsfAirNs({ ...PHY, rsfSfd: true })
-const SFD_COST_DB = mmsFragmentDbm(SFD_FRAG_NS) - mmsFragmentDbm(FRAG_NS)
-
-const side = new Map<string, TLRecord[]>()
-const recordsOf = (sc: Scenario, ns: number): TLRecord[] => {
-  const k = `${ns}|${JSON.stringify(sc)}`
-  if (!side.has(k)) side.set(k, [...new Simulation(sc).runUntil(ns).records])
-  return side.get(k)!
-}
-const edgeWithout = (): Scenario => {
-  const sc = uwbAcquisitionScenario('edge')
-  return { ...sc, uwb: { ...sc.uwb!, mms: { ...sc.uwb!.mms, rsfSfd: false } } }
 }
 
 const lab = (heading: string): Lab => {
@@ -95,49 +71,23 @@ describe('uwb-acquisition · the lesson', () => {
     for (const sc of all) expect(() => ScenarioSchema.parse(sc)).not.toThrow()
   })
 
-  it('① names the standard clauses, the proposal and its status, and both conditions', () => {
+  it('① names the standard clauses, the proposal, and the withdrawal of CID 963', () => {
     const std = stdText()
-    for (const s of ['§16.2.6', '图 16-5', '§16.2.6.2', '§16.2.6.3', 'P802.15.4ab', '15-25/0066r1', '采纳状态未确认', '§10.38.9.3.10', 'phyUwbMmsRsfSfd']) {
+    for (const s of ['§16.2.6', '图 16-5', '§16.2.6.2', '§16.2.6.3', 'P802.15.4ab', '15-25/0066r1', '15-25/0194r0',
+      '15-25/0082r8', 'CID 963', '已由提出者撤回', '§10.38.9.3.10', 'phyUwbMmsRsfSfd']) {
       expect(std, s).toContain(s)
     }
-    expect(std).toContain('Sequence Code Index 为 9–32，且 RSF 片段长度为 32 或 64')
-    expect(MMS_RSF_SFD_N_MSR.map(String)).toEqual(['32', '64'])
   })
 })
 
 describe('uwb-acquisition · ② says what the engine does, and the engine does it', () => {
-  it('is not all faithful, and audit #18 is a differs row', () => {
-    expect(implRow('有 SP0 控制阶段时').kind).toBe('differs')
-    expect(implRow('RSF with SFD').kind).toBe('faithful')
-  })
-
-  it('the editor refuses the attribute off the two fragment lengths', () => {
-    const mms = uwbAcquisitionScenario('sfd').uwb!.mms
-    expect([mms.nMsr, mms.rsfSfd, mms.control, mms.uwbdControl]).toEqual([ACQ_N_MSR, true, 'uwbd', 'none'])
-    expect(UwbMmsSchema.safeParse({ ...mms, nMsr: 40 }).success).toBe(false)
-  })
-
-  it('the SFD length, the fragment before and after, and the 46 400 ns a train', () => {
-    const sim = implRow('SFD 的时长').sim
-    const sfdNs = SFD_FRAG_NS - FRAG_NS
-    expect(sfdNs).toBe(MMS_SP0_SEGMENT_NS.sfd)
-    expect(stdText().length).toBeGreaterThan(0)
-    expect(implRow('SFD 的时长').standard).toContain(`${(sfdNs / 1000).toFixed(1)} µs`)
-    expect(sim).toContain(`取 ${sfdNs.toLocaleString('en').replace(',', ' ')} ns`)
-    expect(sim).toContain(`从 ${(FRAG_NS / 1000).toFixed(3)} µs 变为 ${(SFD_FRAG_NS / 1000).toFixed(3)} µs`)
-    expect(sim).toContain(`多占 ${(8 * sfdNs).toLocaleString('en').replace(',', ' ')} ns`)
-    // the round does not move by a nanosecond
-    const bounds = (rs: TLRecord[]) => rs.filter((r) => r.type === 'UWB_ROUND' || r.type === 'UWB_ROUND_END').map((r) => [r.type, r.t])
-    expect(bounds(recs(SFD))).toEqual(bounds(recs()))
-  })
-
-  it('the peak-power cost, both fragment lengths, from the energy budget', () => {
-    const sim = implRow('片段的峰值功率').sim
-    expect(sim).toContain(`${UWB_MS_BUDGET_NJ} nJ`)
-    expect(sim).toContain(`从 ${minus(mmsFragmentDbm(FRAG_NS), 3)} dBm 降到 ${minus(mmsFragmentDbm(SFD_FRAG_NS), 3)} dBm，低 ${(-SFD_COST_DB).toFixed(3)} dB`)
-    const p32 = { ...DEFAULT_UWB_SESSION.mms, nMsr: 32 as const }
-    const c32 = mmsFragmentDbm(rsfAirNs({ ...p32, rsfSfd: false })) - mmsFragmentDbm(rsfAirNs({ ...p32, rsfSfd: true }))
-    expect(sim).toContain(`32 长的片段低 ${c32.toFixed(3)} dB`)
+  // 2026-11-11 (audit #18): the SP0 path judges the leading fragment like the zero-length one.
+  it('the SP0 control phase is faithful now, and the withdrawn attribute is absent', () => {
+    expect(implRow('有 SP0 控制阶段时').kind).toBe('faithful')
+    expect(implRow('RSF 附加 SFD').kind).toBe('absent')
+    const mms = uwbAcquisitionScenario('sp0').uwb!.mms as unknown as Record<string, unknown>
+    expect([mms.control, mms.uwbdControl]).toEqual(['uwbd', 'sp0'])
+    expect('rsfSfd' in mms).toBe(false)
   })
 
   it('acquisition: −93 dBm on one fragment; interference: −12 dB SIR', () => {
@@ -145,13 +95,6 @@ describe('uwb-acquisition · ② says what the engine does, and the engine does 
     expect(implRow('Wi-Fi 干扰').sim).toContain(`${minus(UWB_SIR_MIN_DB, 0)} dB`)
   })
 
-  it('the RMARKER does not move: on the interference-free scene, every stamp and range is the same', () => {
-    const clear = uwbAcquisitionScenario('clear')
-    const withSfd: Scenario = { ...clear, uwb: { ...clear.uwb!, mms: { ...clear.uwb!.mms, rsfSfd: true } } }
-    const stamps = (sc: Scenario) => recordsOf(sc, RUN_NS).filter((r) => r.type === 'UWB_TS').map((r) => [r.t, r.node, r.counter])
-    expect(stamps(withSfd)).toEqual(stamps(clear))
-    expect(stamps(clear).length).toBeGreaterThan(0)
-  })
 })
 
 describe('uwb-acquisition · ③ every figure the labs print is the run', () => {
@@ -191,88 +134,55 @@ describe('uwb-acquisition · ③ every figure the labs print is the run', () => 
     expect(f.text).toContain(`${minus(firstLost.rxDbm, 2)} dBm + 10·log10(${firstLost.heard}) = ${minus(firstLost.rxDbm + combineGainDb(firstLost.heard), 2)} dBm ≥ ${minus(UWB_RX_SENS_DBM, 0)} dBm`)
   })
 
-  it('lab 2: the figure lays the same indices, and the SFD lane one SFD longer', () => {
+  it('lab 2: the figure lays the same indices, and the one opener', () => {
     const spec = uwbAcquisitionTiming()
     expect(spec.lanes[0].spans.filter((s) => s.tone === 'muted').map((s) => s.fromUs / 1000)).toEqual([0, 1, 2])
-    expect(spec.lanes[2].spans.map((s) => s.fromUs / 1000)).toEqual([...ACQ_HEARD])
-    for (const s of spec.lanes[2].spans) expect(s.toUs - s.fromUs).toBeCloseTo(SFD_FRAG_NS / 1000, 6)
+    expect(spec.lanes[1].spans.map((s) => s.fromUs / 1000)).toEqual([0])
+    for (const l of spec.lanes) for (const s of l.spans) expect(s.toUs - s.fromUs).toBeCloseTo(rsfNs(ACQ_N_MSR, DEFAULT_UWB_SESSION.mms.gap) / 1000, 6)
   })
 
   it('lab 3: the four scenes, cell for cell', () => {
-    const rows = tableOf(lab('每个 RSF 带 SFD'), '四个场景，同一个房间').rows
+    const rows = tableOf(lab('带上 SP0 控制包也一样'), '四个场景，同一个房间').rows
     const heard = (v?: number) => trains(v).map((t) => t.heard).join(',')
     const cells = (v?: number) => [`${trains(v).filter((t) => t.detected).length} / ${trains(v).length}`, String(ofType(recs(v), 'UWB_RANGE').length)]
-    expect(rows[0][1]).toBe(heard())
-    expect(heard(SFD)).toBe(heard())
-    expect(rows[1][1]).toBe('与上一行完全相同的十四组')
     expect(trains().length).toBe(14)
-    expect(rows[2][1]).toBe(heard(NBA))
-    expect(rows[3][1]).toBe(heard(CLEAR))
-    for (const [i, v] of [undefined, SFD, NBA, CLEAR].entries()) expect(rows[i].slice(2), String(v)).toEqual(cells(v))
-  })
-
-  it('lab 3: the same row with the attribute on, and the band of the seven discarded trains', () => {
-    const e = lab('每个 RSF 带 SFD').expect
-    const m = /置 1 之后 ([\d.]+) ms 那一行收到的还是 (\d)\/8，余量低了 ([\d.]+) dB（([\d.]+) dB，不是 ([\d.]+) dB），结论变为检出/.exec(e)
-    expect(m).not.toBeNull()
-    const base = at(undefined, Number(m![1]))
-    const sfd = at(SFD, Number(m![1]))
-    expect([String(sfd.heard), String(base.heard)]).toEqual([m![2], m![2]])
-    expect(sfd.marginDb.toFixed(1)).toBe(m![4])
-    expect(base.marginDb.toFixed(1)).toBe(m![5])
-    expect((base.marginDb - sfd.marginDb).toFixed(2)).toBe(m![3])
-    expect([base.detected, sfd.detected]).toEqual([false, true])
-    const lost = trains().filter((t) => !t.detected)
-    expect(e).toContain(`被丢弃的${['', '一', '二', '三', '四', '五', '六', '七', '八'][lost.length]}列`)
-    const margins = lost.map((t) => t.marginDb)
-    expect(e).toContain(`余量在 ${Math.min(...margins).toFixed(1)} 到 ${Math.max(...margins).toFixed(1)} dB 之间`)
-    // and the why's 「22 dB 以上」 is the floor of that band
-    expect(Math.min(...margins)).toBeGreaterThan(22)
-    expect(uwbAcquisition.why).toContain('22 dB 以上')
-  })
-
-  it('lab 4: the cost table, both fragment lengths', () => {
-    const rows = tableOf(lab('余量小于代价的链路'), '这个设置的代价：两个允许的片段长度').rows
-    for (const [i, n] of [[0, 64], [1, 32]] as const) {
-      const p = { ...DEFAULT_UWB_SESSION.mms, nMsr: n }
-      const off = rsfAirNs({ ...p, rsfSfd: false })
-      const on = rsfAirNs({ ...p, rsfSfd: true })
-      expect(rows[i].slice(1)).toEqual([
-        `${(off / 1000).toFixed(3)} µs`, `${(on / 1000).toFixed(3)} µs`,
-        `${minus(mmsFragmentDbm(off), 3)} → ${minus(mmsFragmentDbm(on), 3)} dBm，低 ${(mmsFragmentDbm(off) - mmsFragmentDbm(on)).toFixed(3)} dB`,
-      ])
+    for (const [i, v] of [undefined, SP0, NBA, CLEAR].entries()) {
+      expect(rows[i][1], String(v)).toBe(heard(v))
+      expect(rows[i].slice(2), String(v)).toEqual(cells(v))
     }
-    expect(uwbAcquisition.why).toContain(`峰值就低 ${(-SFD_COST_DB).toFixed(3)} dB`)
   })
 
-  it('lab 4: the edge link — its level, its margin, both verdicts and the timestamps', () => {
-    const l = lab('余量小于代价的链路')
-    const rows = tableOf(l, '隔着两道砖墙的 5.40 m').rows
-    expect(Math.abs(EDGE_TAG_X - EDGE_ANCHOR_X).toFixed(2)).toBe('5.40')
-    const off = ofType(recordsOf(edgeWithout(), EDGE_NS), 'UWB_MMS_TRAIN')
-    const on = ofType(runOf(uwbAcquisition, EDGE, EDGE_NS), 'UWB_MMS_TRAIN')
-    expect(rows[0][1]).toBe(`${minus(off[0].rxDbm, 2)} dBm，灵敏度 ${minus(UWB_RX_SENS_DBM, 0)} dBm`)
-    expect(rows[1][1]).toBe(`${(off[0].rxDbm - UWB_RX_SENS_DBM).toFixed(2)} dB，比 SFD 的 ${(-SFD_COST_DB).toFixed(3)} dB 还小`)
-    const zh = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二']
-    const stampsOff = recordsOf(edgeWithout(), EDGE_NS).filter((r) => r.type === 'UWB_TS')
-    const stampsOn = runOf(uwbAcquisition, EDGE, EDGE_NS).filter((r) => r.type === 'UWB_TS')
-    expect(off.every((t) => t.detected)).toBe(true)
-    expect(on.every((t) => !t.detected)).toBe(true)
-    expect(rows[2][1]).toBe(`${zh[off.length]}列全部捕获，${zh[stampsOff.length]}条时间戳`)
-    expect(rows[3][1]).toBe(`${zh[on.length]}列没有一列捕获，没有接收时间戳`)
-    expect(stampsOn.filter((r) => r.type === 'UWB_TS' && r.dir === 'rx')).toHaveLength(0)
-    expect(on.every((t) => t.heard === t.fragments && t.fragments === 8)).toBe(true)
-    expect(l.expect).toContain(`${zh[on.length]}列片段每列都收到 8/8`)
-    // no range either way
-    expect(ofType(recordsOf(edgeWithout(), EDGE_NS), 'UWB_RANGE')).toHaveLength(0)
-    expect(ofType(runOf(uwbAcquisition, EDGE, EDGE_NS), 'UWB_RANGE')).toHaveLength(0)
+  it('lab 3: SP0 received, the head lost, and the train still thrown away', () => {
+    const e = lab('带上 SP0 控制包也一样').expect
+    const m = /带 SP0 控制相位时 ([\d.]+) ms 那一行收到 (\d)\/8、余量 ([\d.]+) dB，结论仍是 lost/.exec(e)
+    expect(m).not.toBeNull()
+    const t = at(SP0, Number(m![1]))
+    expect(String(t.heard)).toBe(m![2])
+    expect(t.marginDb.toFixed(1)).toBe(m![3])
+    expect(t.detected).toBe(false)
+    // the SP0 POLL of that round did arrive at the anchor, so priming was not what failed
+    const rs = recs(SP0)
+    const pollOk = rs.filter((r) => r.type === 'RX_OK' && r.node === 'anchor-1' && r.frame.kind === 'uwbSp0' && r.t < t.t)
+    expect(pollOk.length).toBeGreaterThan(0)
+    // complete SP0 exchanges: blocks where the tag received the anchor's RESP
+    const resp = new Set(rs.filter((r) => r.type === 'RX_OK' && r.node === 'tag-1' && r.frame.kind === 'uwbSp0'
+      && r.frame.uwb?.sp0?.role === 'resp').map((r) => Math.floor(r.t / (200 * MS))))
+    const zh = ['零', '一', '二', '三', '四', '五', '六', '七']
+    expect(e).toContain(`七个块里只有${zh[resp.size]}轮的 SP0 一问一答完整成功`)
+    expect(e).toContain(`八列片段检出${zh[trains(SP0).filter((x) => x.detected).length]}列`)
+    expect(trains(SP0).length).toBe(8)
+    expect(ofType(rs, 'UWB_RANGE')).toHaveLength(0)
   })
 
-  it('the why: seven of fourteen thrown away, and ranges 3 → 6', () => {
+  it('the why: seven of fourteen thrown away, the 22 dB floor, 3 ranges, and none with SP0', () => {
     const w = uwbAcquisition.why!
-    expect(w).toContain(`距离从 ${ofType(recs(), 'UWB_RANGE').length} 个增加到 ${ofType(recs(SFD), 'UWB_RANGE').length} 个`)
-    expect(w).toContain(`没有到 ${trains().length} 个`)
+    const lost = trains().filter((t) => !t.detected)
+    expect([trains().length, lost.length]).toEqual([14, 7])
     expect(w).toContain('十四列片段中有七列')
-    expect([trains().length, trains().filter((t) => !t.detected).length]).toEqual([14, 7])
+    expect(Math.min(...lost.map((t) => t.marginDb))).toBeGreaterThan(22)
+    expect(w).toContain('22 dB 以上')
+    expect(w).toContain(`1.3 秒只得到 ${ofType(recs(), 'UWB_RANGE').length} 个距离`)
+    expect(w).toContain(`八列里只检出三列`)
+    expect(w).toContain(`全部 ${ofType(recs(NBA), 'UWB_RANGE').length} 个距离`)
   })
 })

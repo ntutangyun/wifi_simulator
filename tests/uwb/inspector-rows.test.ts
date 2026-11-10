@@ -20,7 +20,7 @@ const tag: UwbNodeView = {
   },
   tdoa: {}, tdoaRef: null, aoa: {},
   mms: {
-    trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+    trains: {}, nbChannel: null, lbtBusy: 0, accessFailures: 0,
     ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
   },
   position: {
@@ -173,8 +173,7 @@ const mmsTag: UwbNodeView = {
     },
     nbChannel: 3,
     lbtBusy: 2,
-    skippedBlocks: 2,
-    lastLbtBlock: 1,
+    accessFailures: 1,
     ssbd: 0,
     ssbdWaitNs: 0,
     ssbdFailed: 0,
@@ -220,14 +219,14 @@ describe('the narrowband control rows', () => {
     expect(uwbNbChannelText(mmsTag, S)).toBe('3 · 5733.75 MHz')
   })
 
-  it('counts the busy checks and the blocks they cost', () => {
-    expect(uwbLbtText(mmsTag, S)).toBe('2 次忙 · 跳过 2 个块')
+  it('counts the busy checks and the messages channel access gave up on', () => {
+    expect(uwbLbtText(mmsTag, S)).toBe('2 次判忙 · 1 条未发出')
   })
 
   it('counts the per-slot sensing separately, with what it waited', () => {
     // standard §10.45 (draft): the other of the two channel-access paths, and the row only a
     // session that turned it on ever shows. 2 500 ns of backoff reads as 2.5 µs.
-    const ssbd = { ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null, ssbd: 6, ssbdWaitNs: 2_500 } }
+    const ssbd = { ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0, accessFailures: 0, ssbd: 6, ssbdWaitNs: 2_500 } }
     expect(uwbSsbdText(ssbd, S)).toBe('6 次感知 · 共等 2.5 µs')
     // A refusal is named only when there was one — FailOnEnd is the only way to get one.
     expect(uwbSsbdText({ ...ssbd, mms: { ...ssbd.mms, ssbdFailed: 2 } }, S))
@@ -240,7 +239,7 @@ describe('the narrowband control rows', () => {
     expect(uwbSsbdText(tag, S)).toBeNull()
     // …nor the listen-before-talk row when every check this run was clear, nor the sensing row
     // in a session that never turned §10.45 on.
-    expect(uwbLbtText({ ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0 } }, S)).toBeNull()
+    expect(uwbLbtText({ ...mmsTag, mms: { ...mmsTag.mms, lbtBusy: 0, accessFailures: 0 } }, S)).toBeNull()
     expect(uwbSsbdText(mmsTag, S)).toBeNull()
   })
 })

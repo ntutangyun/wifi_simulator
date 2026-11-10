@@ -63,7 +63,7 @@ describe('the UWB view reducer', () => {
       sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, ancillaryGranted: null, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: {
-        trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+        trains: {}, nbChannel: null, lbtBusy: 0, accessFailures: 0,
         ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
       },
       position: null,
@@ -157,7 +157,7 @@ describe('the UWB view reducer', () => {
       sp3: 0, sp3Reports: 0, ancillary: 0, ancillaryMissing: 0, ancillaryGranted: null, interfered: 0,
       contend: null, contendCollisions: 0, ranges: {}, tdoa: {}, tdoaRef: null, aoa: {},
       mms: {
-        trains: {}, nbChannel: null, lbtBusy: 0, skippedBlocks: 0, lastLbtBlock: null,
+        trains: {}, nbChannel: null, lbtBusy: 0, accessFailures: 0,
         ssbd: 0, ssbdWaitNs: 0, ssbdFailed: 0,
       },
       position: null,
@@ -349,40 +349,26 @@ describe('the MMS half of a node view', () => {
     expect('integrity' in vs.nodes['tag-1'].uwb!.ranges['anc-3']).toBe(false)
   })
 
-  it('counts a busy listen-before-talk check, and the block it cost', () => {
-    const lbt = (block: number, round: number) => ({
-      type: 'UWB_NB_LBT' as const, node: 'tag-1', channel: 3,
-      foreignDbm: -41.9, thresholdDbm: -71.02, block, round,
+  // 2026-11-11 (audit #19): channel access is per transmission slot, so the view counts busy CCAs
+  // and the messages they cost, not blocks.
+  it('counts busy CSMA-CA checks, and the transmissions channel access gave up on', () => {
+    const lbt = (slot: number, nb: number, outcome: 'retry' | 'fail' | 'noRoom') => ({
+      type: 'UWB_NB_LBT' as const, node: 'tag-1', channel: 3, foreignDbm: -41.9, thresholdDbm: -71.02,
+      block: 0, round: 0, slot, nb, be: 1, backoffNs: 320_000, outcome,
     })
     const vs = fresh()
-    apply(vs, [lbt(0, 0), lbt(1, 0)])
+    apply(vs, [lbt(0, 1, 'retry'), lbt(0, 1, 'noRoom'), lbt(26, 1, 'retry'), lbt(26, 5, 'fail')])
     const u = vs.nodes['tag-1'].uwb!
-    expect(u.mms.lbtBusy).toBe(2)
-    expect(u.mms.skippedBlocks).toBe(2)
+    // three CCAs read busy (a `noRoom` end ran no CCA), and two messages were not sent
+    expect(u.mms.lbtBusy).toBe(3)
+    expect(u.mms.accessFailures).toBe(2)
     // It is the transmitter's own record: the anchor learns nothing from it.
     expect(vs.nodes['anc-1'].uwb!.mms.lbtBusy).toBe(0)
   })
 
-  it('counts blocks, not checks: a second busy check inside one block costs no second block', () => {
-    // The device stops checking for the rest of a block it found busy, so this is not what the
-    // engine produces today — but the two counters mean different things and must not quietly
-    // become one number if that ever changes.
-    const lbt = (block: number, round: number) => ({
-      type: 'UWB_NB_LBT' as const, node: 'tag-1', channel: 3,
-      foreignDbm: -41.9, thresholdDbm: -71.02, block, round,
-    })
-    const vs = fresh()
-    apply(vs, [lbt(0, 0), lbt(0, 1), lbt(0, 2), lbt(3, 0)])
-    const u = vs.nodes['tag-1'].uwb!
-    expect(u.mms.lbtBusy).toBe(4)
-    expect(u.mms.skippedBlocks).toBe(2)
-    expect(u.mms.lastLbtBlock).toBe(3)
-  })
-
   it('counts the per-slot sensing, what it waited, and only the attempts it refused', () => {
-    // standard §10.45 (draft): the other channel-access path, whose unit is the transmission
-    // slot and not the block — so two attempts in one block are two of everything here, which is
-    // exactly what the pair of counters above would collapse.
+    // standard §10.45 (draft): the other channel-access path, run per transmission slot like
+    // CSMA-CA.
     const ssbd = (slot: number, outcome: 'idle' | 'txOnEnd' | 'failOnEnd' | 'clamped', backoffNs: number) => ({
       type: 'UWB_SSBD' as const, node: 'tag-1', block: 0, round: 0, slot, channel: 3,
       nb: 0, bf: 1, drawnUnits: 1, backoffNs, foreignDbm: -41.9, thresholdDbm: -71.02, outcome,
@@ -393,9 +379,9 @@ describe('the MMS half of a node view', () => {
     expect(u.mms.ssbd).toBe(4)
     expect(u.mms.ssbdWaitNs).toBe(6_000)
     expect(u.mms.ssbdFailed).toBe(1)
-    // The per-block counters stay untouched: the two rules are alternatives, never layers.
+    // The CSMA-CA counters stay untouched: the two methods are alternatives, never layers.
     expect(u.mms.lbtBusy).toBe(0)
-    expect(u.mms.skippedBlocks).toBe(0)
+    expect(u.mms.accessFailures).toBe(0)
     // …and it is the sensing device's own record, like the busy check above.
     expect(vs.nodes['anc-1'].uwb!.mms.ssbd).toBe(0)
   })
@@ -453,7 +439,7 @@ describe('applyUwbRecord claims every UWB record type', () => {
     UWB_CONTEND: { type: 'UWB_CONTEND', node: 'anc-1', slot: 2, attempt: 1 },
     UWB_CONTEND_COLLISION: { type: 'UWB_CONTEND_COLLISION', node: 'tag-1', slot: 2 },
     UWB_ROUND_END: { type: 'UWB_ROUND_END', node: 'tag-1', block: 1, round: 0 },
-    UWB_NB_LBT: { type: 'UWB_NB_LBT', node: 'tag-1', channel: 0, foreignDbm: -70, thresholdDbm: -80, block: 1, round: 0 },
+    UWB_NB_LBT: { type: 'UWB_NB_LBT', node: 'tag-1', channel: 0, foreignDbm: -70, thresholdDbm: -80, block: 1, round: 0, slot: 0, nb: 1, be: 0, backoffNs: 0, outcome: 'retry' },
     UWB_MMS_TRAIN: { type: 'UWB_MMS_TRAIN', node: 'tag-1', peer: 'anc-1', kind: 'rsf', fragments: 4, heard: 4, rxDbm: -80, gainDb: 6, marginDb: 6, detected: true, ratioPpm: null, block: 1, round: 0 },
     UWB_INTERFERED: { type: 'UWB_INTERFERED', node: 'tag-1', from: 'anc-1', foreignDbm: -60, sirDb: -3 },
     UWB_STS_REJECT: { type: 'UWB_STS_REJECT', node: 'anc-1', peer: 'tag-1', frameKind: 'uwbPoll', advanceNs: 20 },

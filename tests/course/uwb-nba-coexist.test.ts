@@ -36,7 +36,8 @@ const neg = (s: string): string => s.replace(/^-/, '−')
 const lbt = (v?: number) => ofType(recs(v), 'UWB_NB_LBT')
 const tagRanges = (v?: number) => ofType(recs(v), 'UWB_RANGE').filter((r) => r.node === TAG)
 const fixes = (v?: number) => ofType(recs(v), 'UWB_POSITION')
-const skippedBlocks = (v: number | undefined, node: string): number[] => [...new Set(lbt(v).filter((l) => l.node === node).map((l) => l.block))]
+/** Blocks in which `node`'s channel access gave up at least once (2026-11-11: CSMA-CA per slot). */
+const skippedBlocks = (v: number | undefined, node: string): number[] => [...new Set(lbt(v).filter((l) => l.node === node && l.outcome !== 'retry').map((l) => l.block))]
 const nbFrames = (v?: number) => ofType(recs(v), 'TX_START').filter((r) => NB_KINDS.has(r.frame.kind))
 const wifiRxFail = (rs: TLRecord[]) => ofType(rs, 'RX_FAIL').filter((r) => !UWB_IDS.has(r.node))
 /** Goodput in Mb/s, MSDU sizes taken from the engine's own ENQUEUE records. */
@@ -64,7 +65,7 @@ const implRow = (topic: string) => {
   return row!
 }
 
-lessonShapeSuite(uwbNbaCoexist, { sameSceneAs: 'uwb-nba', runNs: RUN_NS })
+lessonShapeSuite(uwbNbaCoexist, { runNs: RUN_NS })
 
 describe('uwb-nba-coexist · the lesson', () => {
   it('is in the standard-first shape, in the narrowband module', () => {
@@ -85,11 +86,16 @@ describe('uwb-nba-coexist · the lesson', () => {
 
   it('the why states the run’s conclusions', () => {
     const why = uwbNbaCoexist.why!
-    const margins = ofType(recs(), 'UWB_MMS_TRAIN').filter((t) => t.detected).map((t) => t.marginDb)
+    // the same room on the clear channel: every train clears the receiver by more than 30 dB
+    const margins = ofType(recs(V_OUT), 'UWB_MMS_TRAIN').filter((t) => t.detected).map((t) => t.marginDb)
+    expect(margins.length).toBeGreaterThan(0)
     expect(Math.min(...margins)).toBeGreaterThan(30)
     expect(why).toContain('余量超过 30 dB')
     expect(skippedBlocks(undefined, TAG)).toHaveLength(BLOCKS)
-    expect(why).toContain(`只测得 ${tagRanges().length} 个距离`)
+    expect(tagRanges()).toHaveLength(0)
+    expect(nbFrames()).toHaveLength(0)
+    expect(why).toContain('整段 1.3 秒一个距离也没有')
+    expect(why).toContain('128 µs')
     expect(fixes()).toEqual([])
     expect(fixes(V_OUT)).toHaveLength(BLOCKS)
     expect(why).toContain(`会话得到 ${tagRanges(V_NOLBT).length} 个距离`)
@@ -107,20 +113,23 @@ describe('uwb-nba-coexist · ② says what the engine does, and the engine does 
     expect(NBA_CHANNELS).toMatchObject({ base: [200], outside: [100], hop: [100, 150, 200, 210], noLbt: [200] })
   })
 
-  it('differs: UNII-5 always listens; UNII-3 never, unless the scene forces it', () => {
-    expect(implRow('何时执行先听后发').kind).toBe('differs')
+  it('choice: the regulation is modelled as UNII-5 required, UNII-3 not, unless the scene forces it', () => {
+    expect(implRow('何时执行先听后发').kind).toBe('choice')
     expect(nbLbtRequired(50, 'auto')).toBe(true)
     expect(nbLbtRequired(49, 'auto')).toBe(false)
     expect(nbLbtRequired(3, 'on')).toBe(true)
     expect(nbLbtRequired(200, 'off')).toBe(false)
   })
 
-  it('differs: a busy check silences that device for the rest of the block', () => {
-    expect(implRow('判忙之后').kind).toBe('differs')
-    const rs = recs()
-    for (const l of lbt()) {
-      const end = (l.block + 1) * 200 * MS
-      expect(ofType(rs, 'TX_START').filter((r) => r.node === l.node && NB_KINDS.has(r.frame.kind) && r.t > l.t && r.t < end), `${l.node}@${l.t}`).toEqual([])
+  // 2026-11-11 (audit #19): faithful — CSMA-CA per transmission slot (§10.39.8.3). It used to
+  // silence the device for the rest of the block.
+  it('faithful: every transmission slot runs its own CSMA-CA, not one check a block', () => {
+    expect(implRow('判忙之后').kind).toBe('faithful')
+    const tag = lbt().filter((l) => l.node === TAG)
+    // several attempts in each block — the POLL of every sub-round tries again
+    for (let b = 0; b < BLOCKS; b++) {
+      const slots = new Set(tag.filter((l) => l.block === b && l.outcome !== 'retry').map((l) => l.slot))
+      expect(slots.size, String(b)).toBeGreaterThan(1)
     }
   })
 
@@ -130,22 +139,22 @@ describe('uwb-nba-coexist · ② says what the engine does, and the engine does 
     for (const l of lbt()) expect(l.thresholdDbm).toBeCloseTo(NB_LBT_THRESHOLD_DBM, 9)
     expect(CCA_ED_DBM).toBe(-62)
     expect(implRow('Wi-Fi 的能量检测').sim).toContain('−62 dBm')
-    for (const t of ['跳变的生成式', '感知时长', 'Wi-Fi 的能量检测']) expect(implRow(t).kind, t).toBe('differs')
+    expect(implRow('Wi-Fi 的能量检测').kind).toBe('differs')
+    expect(implRow('跳变的生成式').kind).toBe('faithful')
+    expect(implRow('感知时长').kind).toBe('value')
   })
 })
 
 describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => {
-  it('lab 1: the first busy check, the tag’s seven, the blocks and the timeouts', () => {
-    const e = lab('一次判忙，损失一个块').expect
+  it('lab 1: the first busy check, the tag’s POLLs, the levels and the timeouts', () => {
+    const e = lab('每条 Poll 都等不到空闲的信道').expect
     const first = lbt()[0]
     expect(e).toContain(`${(first.t / MS).toFixed(3)} ms 的「${fmtRecord(first)}」`)
-    const tag = lbt().filter((l) => l.node === TAG)
-    expect(new Set(tag.map((l) => l.block)).size).toBe(tag.length)
-    expect(tag).toHaveLength(BLOCKS)
-    const levels = [...new Set(tag.map((l) => l.foreignDbm.toFixed(2)))]
-    expect(levels).toHaveLength(1)
-    expect(e).toContain(`七次读到的都是 ${neg(levels[0])} dBm，比门限高 ${(tag[0].foreignDbm - NB_LBT_THRESHOLD_DBM).toFixed(1)} dB`)
-    expect(e).toContain(`共记下 ${ofType(recs(), 'UWB_TIMEOUT').length} 次超时`)
+    const busy = lbt().filter((l) => l.node === TAG && l.outcome !== 'noRoom').map((l) => l.foreignDbm)
+    expect(Math.min(...busy)).toBeGreaterThan(NB_LBT_THRESHOLD_DBM)
+    expect(e).toContain(`读数在 ${neg(Math.min(...busy).toFixed(2))} 到 ${neg(Math.max(...busy).toFixed(2))} dBm 之间`)
+    expect(e).toContain(`共记下`.length > 0 ? `记下 ${ofType(recs(), 'UWB_TIMEOUT').length} 次超时` : '')
+    expect(nbFrames()).toHaveLength(0)
   })
 
   it('lab 2: four control-channel settings', () => {
@@ -161,7 +170,7 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
       expect(rows[i][4], String(v)).toBe(String(fixes(v).length))
     })
     const e = lab('控制信道的四种配置').expect
-    expect(e).toContain(`跳变恢复了${['', '一', '两', '三'][fixes(V_HOP).length]}个块`)
+    expect(e).toContain(`跳变恢复了${['', '一', '两', '三', '四'][fixes(V_HOP).length]}个块`)
     expect(e).toContain(`得到 ${tagRanges(V_NOLBT).length} 个距离、${fixes(V_NOLBT).length} 次定位`)
     expect(uwbNbaScenario('base').nodes.filter((n) => n.uwb?.role === 'anchor')).toHaveLength(3)
     expect(uwbNbaScenario('outside').nodes.filter((n) => n.uwb?.role === 'anchor')).toHaveLength(4)
@@ -208,6 +217,7 @@ describe('uwb-nba-coexist · ③ every figure the labs print is the run', () => 
     const levels = [...new Set(hit.map((i) => i.foreignDbm.toFixed(2)))]
     expect(levels).toHaveLength(1)
     expect(l.expect).toContain(`有 ${hit.length} 条窄带消息接收失败`)
+    expect(rows[0].slice(1)).toEqual(['0', '0'])
     expect(l.expect).toContain(`外来功率 ${neg(levels[0])} dBm`)
   })
 })
@@ -225,6 +235,7 @@ describe('uwb-nba-coexist · the quiz repeats the run', () => {
     const now = mbps(recs(V_NOLBT), 'laptop#6g')
     expect(text).toContain(`下降 ${((was - now) / was * 100).toFixed(2)} %`)
     expect(text).toContain(`从 ${was.toFixed(3)} Mb/s 降到 ${now.toFixed(3)} Mb/s`)
-    expect(text).toContain(`七个块里只测得${['', '', '', '', '四'][tagRanges().length]}个距离`)
+    expect(text).toContain('为什么基准场景一个距离也没有')
+    expect(tagRanges()).toHaveLength(0)
   })
 })

@@ -546,7 +546,9 @@ describe('lessonTexts · the census over the whole course', () => {
       ['title', 12], ['why', 383], ['outcomes', 87], ['terms', 102],
       ['picture', 583], ['numbers', 726], ['deeper', 300], ['sources', 186],
       ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
-      ['variantLabel', 16], ['jumpLabel', 26],
+      // jumpLabel 26 → 23 (W5, 2026-11-11): uwb-nba-coexist and uwb-ssbd lost five jumps to records
+      // the standard-aligned engine no longer emits in their base scenes.
+      ['variantLabel', 16], ['jumpLabel', 23],
     ]
     const TOLERANCE = 0.1
     for (const [s, recorded] of MEANS) {
@@ -772,8 +774,10 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'uwb-mms':                 [0, 0, 3, 3, 6, 3, 0, 5],
     'uwb-mms-numbers':         [0, 0, 3, 3, 3, 4, 0, 4],
     'uwb-nba':                 [0, 0, 3, 3, 5, 3, 0, 4],
-    'uwb-nba-coexist':         [0, 0, 3, 3, 4, 4, 0, 3],
-    'uwb-ssbd':                [0, 0, 3, 3, 5, 3, 0, 4],
+    // W5 (2026-11-11): the inside-channel scene no longer ranges, so its range jump went; the
+    // SSBD scene never reaches its end action, so the txOnEnd/idle/range/fix jumps went.
+    'uwb-nba-coexist':         [0, 0, 3, 3, 4, 4, 0, 1],
+    'uwb-ssbd':                [0, 0, 3, 3, 5, 3, 0, 1],
     'uwb-uwbd':                [0, 0, 2, 3, 4, 4, 0, 5],
     'uwb-acquisition':         [0, 0, 2, 3, 4, 4, 0, 4],
     'uwb-subrounds':           [0, 0, 2, 3, 4, 4, 0, 4],

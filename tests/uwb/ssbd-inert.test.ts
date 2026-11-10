@@ -52,11 +52,11 @@ import {
 import { mmsLayout, mmsSlotsPerMs, NB_WINDOW_SLOTS } from '../../src/uwb/mms'
 import {
   nbBand, nbLbtRequired, nbOtmPollBytes, nbPpduNs,
-  NB_LBT_CCA_US, NB_LBT_THRESHOLD_DBM, NB_REPORT_BYTES,
+  NB_PHY_CCA_DURATION_US, NB_LBT_THRESHOLD_DBM, NB_REPORT_BYTES,
 } from '../../src/uwb/nb'
 import {
   nbSlotSlackNs, rstuNs, ssbdBoundNs, uwbNbSlotFitNs,
-  SSBD_BF_UNIT_MAX, UWB_TX_POWER_DBM,
+  UWB_TX_POWER_DBM,
 } from '../../src/uwb/phy'
 import { UwbNetwork } from '../../src/uwb/network'
 
@@ -94,6 +94,8 @@ const ANCHORS = [
   uwbNode('anc-2', 4, 1, 'anchor', -7),
   uwbNode('anc-3', 1, 4, 'anchor', 11),
   uwbNode('anc-4', 7, 1, 'anchor', 3),
+  // 2026-11-11: the one-to-many cap rose to four (12 + 3N octets), so one past it needs a fifth.
+  uwbNode('anc-5', 7, 4, 'anchor', -2),
 ]
 const TAG = uwbNode('tag-1', 4, 4, 'tag', -15)
 
@@ -193,6 +195,8 @@ const DEFAULTS: UwbSsbdCfg = UwbMmsSchema.parse({ ...DEFAULT_UWB_SESSION.mms, ss
 /** The largest wait the *first* attempt of any slot can draw, in ns: `random(BF)` is inclusive of
  * both ends, so attempt 0 draws at most `minBf` units (`ssbdBoundNs`'s own first term). */
 const firstDrawMaxNs = (cfg: UwbSsbdCfg): number => cfg.minBf * cfg.unitBackoffUs * US
+/** One CCA: phyCcaDuration, which every narrowband CCA now lasts (2026-11-11, audit #20). */
+const CCA_NS = NB_PHY_CCA_DURATION_US * US
 
 describe('§5 的五个组合，每个都要证明它不是空的', () => {
   // ---------------------------------------------------------------------------------------------
@@ -201,7 +205,8 @@ describe('§5 的五个组合，每个都要证明它不是空的', () => {
   describe('1. 场景里没有 6 GHz Wi-Fi 链路', () => {
     const noWifi = (ssbd: Partial<UwbSsbdCfg> | null): Scenario =>
       ScenarioSchema.parse(scene(mmsSession(ssbd ? { ssbd } : {})))
-    const RUN_NS = 3 * BLOCK_NS
+    // Short of block 3's POLL: with SSBD it goes out a CCA later, past the end of the window.
+    const RUN_NS = 3 * BLOCK_NS - 1
 
     it('没有中介也每个时隙据实报一条：结果都是 idle，而退避并非恒为 0', () => {
       // The premise, checked before any record is read: `Simulation` builds a `Spectrum` only for
@@ -261,12 +266,14 @@ describe('§5 的五个组合，每个都要证明它不是空的', () => {
       const b = nbTx(off)
       expect(a).toHaveLength(b.length)
       expect(a.length).toBeGreaterThan(0)
+      // Every message goes out one CCA plus the drawn backoff later (2026-11-11: the CCA lasts
+      // phyCcaDuration, 128 µs, where it used to be an instantaneous reading).
       for (const [i, x] of a.entries()) {
         expect(x.node).toBe(b[i].node)
-        expect(x.t - b[i].t).toBeGreaterThanOrEqual(0)
-        expect(x.t - b[i].t).toBeLessThanOrEqual(firstDrawMaxNs(DEFAULTS))
+        expect(x.t - b[i].t).toBeGreaterThanOrEqual(CCA_NS)
+        expect(x.t - b[i].t).toBeLessThanOrEqual(CCA_NS + firstDrawMaxNs(DEFAULTS))
       }
-      expect(Math.max(...a.map((x, i) => x.t - b[i].t))).toBeGreaterThan(0)
+      expect(Math.max(...a.map((x, i) => x.t - b[i].t))).toBeGreaterThan(CCA_NS)
     })
   })
 
@@ -315,18 +322,12 @@ describe('§5 的五个组合，每个都要证明它不是空的', () => {
       const b = nbTx(off)
       expect(a).toHaveLength(b.length)
       expect(a.length).toBeGreaterThan(0)
-      // **What the bound actually is.** One attempt, so the displacement cannot exceed
-      // `minBf × unitBackoffUs` — one unit, 1 µs at these defaults. `ssbdBoundNs` is larger by
-      // exactly the one CCA it charges and this engine does not spend (the reading is an
-      // instantaneous point read, `NB_LBT_CCA_US` of model latency that costs no wall time), so
-      // the algorithm's own bound stays above what the loop waits rather than below it.
+      // **What the bound actually is.** One attempt: one CCA of phyCcaDuration (128 µs) and at most
+      // `minBf × unitBackoffUs` of backoff — which is exactly `ssbdBoundNs` at maxBackoffs 0.
       const disp = a.map((x, i) => x.t - b[i].t)
-      expect(Math.max(...disp)).toBeLessThanOrEqual(firstDrawMaxNs(CFG))
-      expect(Math.min(...disp)).toBeGreaterThanOrEqual(0)
-      expect(firstDrawMaxNs(CFG)).toBeLessThan(ssbdBoundNs(CFG))
-      // …and it is **not** byte-identical: something really did move, which is the acceptance
-      // §5.3 kept and the reason the other one had to go.
-      expect(Math.max(...disp)).toBeGreaterThan(0)
+      expect(Math.max(...disp)).toBeLessThanOrEqual(CCA_NS + firstDrawMaxNs(CFG))
+      expect(Math.min(...disp)).toBeGreaterThanOrEqual(CCA_NS)
+      expect(CCA_NS + firstDrawMaxNs(CFG)).toBe(ssbdBoundNs(CFG))
     })
 
     it('它仍然不是今天那条按块的规则：那条把整块都吃掉了', () => {
@@ -375,58 +376,42 @@ describe('§5 的五个组合，每个都要证明它不是空的', () => {
       expect(timeouts(f)).toEqual(timeouts(p))
     })
 
-    it('一次检测、一条记录、整块静音：按块那条路的形状', () => {
+    // 2026-11-11 (audit #19): without SSBD the device runs CSMA-CA, also per transmission slot
+    // (4ab draft §10.39.8.3). It used to latch a busy reading for the rest of the block.
+    it('不开 SSBD 时是 CSMA-CA：每个时隙各自接入、各自失败，不再封住整块', () => {
       const p = perBlock()
       const lbt = of(p, 'UWB_NB_LBT')
       expect(of(p, 'UWB_SSBD')).toEqual([])
-      // One record per device per block — and the block's **first** round is the only one that
-      // carries one, because the busy verdict latches `nbSkipBlock` and the device stops asking.
-      expect(lbt.length).toBe(BLOCKS)
-      for (let b = 0; b < BLOCKS; b++) {
-        const inBlock = lbt.filter((r) => r.block === b)
-        expect(inBlock).toHaveLength(1)
-        expect(inBlock[0].round).toBe(0)
-      }
-      // …and the rounds after it leave nothing at all: no record, and no narrowband transmission.
-      for (const l of lbt) {
-        const after = nbTx(p, l.node).filter((x) => x.t > l.t && x.t < (l.block + 1) * BLOCK_NS)
-        expect(after).toEqual([])
-      }
+      // Every round of every block tries its POLL again, in its own slot.
+      const rounds = (b: number): number[] =>
+        [...new Set(lbt.filter((r) => r.block === b).map((r) => r.round))].sort((x, y) => x - y)
+      for (let b = 0; b < BLOCKS; b++) expect(rounds(b).length).toBeGreaterThan(1)
+      // …and every attempt ends in a failure or in a window with no room left: nothing is sent.
+      const ends = lbt.filter((r) => r.outcome !== 'retry')
+      expect(ends.length).toBeGreaterThan(0)
+      for (const e of ends) expect(['fail', 'noRoom']).toContain(e.outcome)
+      expect(nbTx(p)).toEqual([])
     })
 
-    it('每个时隙 maxBackoffs + 1 次 CCA、每个时隙一条记录：FailOnEnd 那条路的形状', () => {
+    it('每个时隙一条结束记录：窗口装得下几次 128 µs 的 CCA，就感知几次', () => {
       const cfg = UwbMmsSchema.parse({ ...DEFAULT_UWB_SESSION.mms, ssbd: { txOnEnd: false } }).ssbd!
       const f = fail()
       const recs = of(f, 'UWB_SSBD')
       expect(of(f, 'UWB_NB_LBT')).toEqual([])
       expect(recs.length).toBeGreaterThan(0)
-      // One record per narrowband transmit slot, every one of them an ending, and the ending is a
-      // channel-access failure: nothing is transmitted and nothing is left behind.
+      // One record per narrowband transmit slot, every one of them an ending, and nothing sent.
       expect(new Set(recs.map(slotKey)).size).toBe(recs.length)
-      expect([...new Set(recs.map((r) => r.outcome))]).toEqual(['failOnEnd'])
-      // **Discriminator 1: how many times the channel was sensed.** `nb` on an ending record is
-      // how many busy checks preceded it, so each of these slots ran `maxBackoffs + 1` CCAs,
-      // against the one the per-block path runs for a whole block.
-      for (const r of recs) expect(r.nb).toBe(cfg.maxBackoffs)
-      const blockCcas = of(perBlock(), 'UWB_NB_LBT').length
-      expect(blockCcas).toBe(BLOCKS)
-      const ccas = recs.length * (cfg.maxBackoffs + 1)
-      expect(ccas).toBeGreaterThan(blockCcas * (cfg.maxBackoffs + 1))
-      // **Discriminator 2: which rounds carry a record.** This is the one that cannot be faked by
-      // a louder counter — the per-block path records in round 0 of each block and is silent for
-      // the rest of it; this path records in **every** round the block holds, because nothing is
-      // latched and every slot asks again.
+      for (const r of recs) expect(['failOnEnd', 'noRoom']).toContain(r.outcome)
+      // 2026-11-11 (audit #20): six CCAs of 128 µs (maxBackoffs + 1) do not fit a POLL's 424 µs of
+      // room, so the window runs out first: every slot here ends `noRoom` after at most three
+      // busy CCAs — the bound `ssbdBoundNs` (788 µs) is now longer than the window itself.
+      expect(ssbdBoundNs(cfg)).toBeGreaterThan(nbSlotSlackNs(SLOT_NS, NB_REPORT_BYTES))
+      expect([...new Set(recs.map((r) => r.outcome))]).toEqual(['noRoom'])
+      for (const r of recs) expect(r.nb).toBeLessThanOrEqual(Math.floor(nbSlotSlackNs(SLOT_NS, 12) / CCA_NS))
+      // Per slot, like the CSMA-CA path: every round of every block carries records.
       const roundsOf = (rs: { block: number; round: number }[], b: number): number[] =>
         [...new Set(rs.filter((r) => r.block === b).map((r) => r.round))].sort((x, y) => x - y)
-      const blockRecs = of(perBlock(), 'UWB_NB_LBT')
-      for (let b = 0; b < BLOCKS; b++) {
-        const mine = roundsOf(recs, b)
-        expect(mine).toEqual(roundsOf(recs, 0))
-        expect(mine.length).toBeGreaterThan(1)
-        expect(roundsOf(blockRecs, b)).toEqual([0])
-      }
-      // …so the two counts stand in the ratio of rounds to blocks, not one to one.
-      expect(recs.length).toBe(blockRecs.length * roundsOf(recs, 0).length)
+      for (let b = 0; b < BLOCKS; b++) expect(roundsOf(recs, b).length).toBeGreaterThan(1)
     })
   })
 
@@ -488,63 +473,29 @@ describe('§5 的五个组合，每个都要证明它不是空的', () => {
       expect(minAccepted).toBeGreaterThan(0)
     })
 
-    it('有感知、无退避：响应方开到上限，POLL 的窗口用尽之后每一次都是 clamped 而退避为 0', () => {
-      // The behaviour §5 (4) was named for, at the configuration that is actually reachable: the
-      // most responders a round may hold, so the one-to-many POLL's window has the least room of
-      // any legal window, and a backoff unit large enough that the first draw spends all of it.
-      // The clamp is against the room **left** in the slot, so once the waiting has reached that
-      // room every later attempt of the same slot draws a wait it cannot afford at all.
-      expect(CAP).toBeGreaterThan(1)
-      expect(CAP_SLACK_NS).toBeGreaterThan(0)
-      const BF = 7
-      // Deliberately the largest unit whose **whole** draw still fits the window: the first
-      // attempt of a slot can therefore never be clamped, so every clamp below is proof that
-      // earlier waiting in the same slot had already taken the room — the "room left" semantics,
-      // and not a clamp recomputed against the full slack each time.
-      const unitBackoffUs = Math.floor(CAP_SLACK_NS / US / BF)
-      expect(unitBackoffUs).toBeLessThanOrEqual(SSBD_BF_UNIT_MAX)
-      expect(BF * unitBackoffUs * US).toBeLessThanOrEqual(CAP_SLACK_NS)
-      const rs = run({
-        anchors: CAP, oneToMany: true, eirpDbm: BUSY_EIRP_DBM,
-        ssbd: { minBf: BF, maxBf: BF, unitBackoffUs, maxBackoffs: 20 },
-      })
+    // 2026-11-11: the one-to-many POLL is 12 + 3N octets, so the cap rose to four responders and
+    // its window keeps 40 µs — less than one 128 µs CCA (audit #20). A legal configuration whose
+    // POLL can never be sent under SSBD: pinned here, and reported by a record in every round.
+    it('上限处 POLL 的窗口装不下一次 CCA：每一次都是 noRoom，并且记录在案', () => {
+      expect(CAP).toBe(4)
+      expect(CAP_SLACK_NS).toBeLessThan(CCA_NS)
+      const rs = run({ anchors: CAP, oneToMany: true, ssbd: {} })
       const poll = of(rs, 'UWB_SSBD').filter((r) => r.node === TAG.id && r.slot === POLL_SLOT)
       expect(poll.length).toBeGreaterThan(0)
-      // Sensing happened in every one of them, and nothing ever waited past its own window.
-      for (const r of poll) {
-        expect(r.foreignDbm).toBeGreaterThanOrEqual(NB_LBT_THRESHOLD_DBM)
-        expect(r.backoffNs).toBeLessThanOrEqual(CAP_SLACK_NS)
-      }
-      // The records that say so: a draw was made, it was cut to nothing, and the record carries
-      // both numbers so a reader can tell which of the two happened. A clamp recomputed against
-      // the whole slack afresh could never produce one of these, because the slack is positive.
-      const inert = poll.filter((r) => r.outcome === 'clamped' && r.backoffNs === 0)
-      expect(inert.length).toBeGreaterThan(0)
-      for (const r of inert) {
-        expect(r.drawnUnits).toBeGreaterThan(0)
-        expect(r.drawnUnits * unitBackoffUs * US).toBeGreaterThan(r.backoffNs)
-      }
+      expect([...new Set(poll.map((r) => r.outcome))]).toEqual(['noRoom'])
+      // The first sub-round's POLL (the one with the list) never goes out; the later sub-rounds'
+      // twelve-octet POLLs do, and name nobody, so no responder can act on them.
+      expect(nbTx(rs, TAG.id).filter((r) => r.frame.kind === 'nbPoll' && r.frame.uwb!.slot === POLL_SLOT)).toEqual([])
     })
 
-    it('退避本身没有被这个窗口关掉：同一个上限下，小一点的单位照样等得出来', () => {
-      // The companion half of the claim — "no backoff fits" has to be a statement about the
-      // window and the unit together, not about one-to-many rounds as such. At the same responder
-      // cap and the draft's own defaults, every backoff the algorithm can take fits the same
-      // window with room to spare, and nothing is ever clamped.
-      // The sum of the waits, which is not `ssbdBoundNs` itself: that bound also charges one
-      // `NB_LBT_CCA_US` per attempt, and this engine's CCA is an instantaneous point reading that
-      // costs no wall time, so the algorithm's latency bound (74 µs at the defaults) is larger
-      // than the longest the engine can actually wait (20 µs) by exactly that sum.
-      const ccaNs = (DEFAULTS.maxBackoffs + 1) * NB_LBT_CCA_US * US
-      const waitBoundNs = ssbdBoundNs(DEFAULTS) - ccaNs
-      expect(ssbdBoundNs(DEFAULTS)).toBeGreaterThan(CAP_SLACK_NS)
-      expect(waitBoundNs).toBeLessThan(CAP_SLACK_NS)
-      const rs = run({ anchors: CAP, oneToMany: true, eirpDbm: BUSY_EIRP_DBM, ssbd: {} })
-      const poll = of(rs, 'UWB_SSBD').filter((r) => r.node === TAG.id && r.slot === POLL_SLOT)
+    it('少一个应答方，窗口就装得下一次 CCA：清净的信道上 POLL 照常发出', () => {
+      const r = CAP - 1
+      expect(nbSlotSlackNs(SLOT_NS, nbOtmPollBytes(r))).toBeGreaterThanOrEqual(CCA_NS)
+      const rs = run({ anchors: r, oneToMany: true, ssbd: {} })
+      const poll = of(rs, 'UWB_SSBD').filter((x) => x.node === TAG.id && x.slot === POLL_SLOT)
       expect(poll.length).toBeGreaterThan(0)
-      expect(poll.filter((r) => r.outcome === 'clamped')).toEqual([])
-      expect(poll.some((r) => r.backoffNs > 0)).toBe(true)
-      expect(Math.max(...poll.map((r) => r.backoffNs))).toBeLessThanOrEqual(CAP_SLACK_NS)
+      for (const x of poll) expect(['idle', 'clamped']).toContain(x.outcome)
+      expect(nbTx(rs, TAG.id).filter((x) => x.frame.kind === 'nbPoll' && x.frame.uwb!.slot === POLL_SLOT).length).toBe(poll.length)
     })
   })
 

@@ -2,10 +2,7 @@ import { z } from 'zod'
 // src/uwb/phy.ts imports nothing of the model at run time (only `mms.ts`, `nb.ts` and the
 // determinism hash, which in turn take nothing from here but types), so the schema can measure
 // a ranging slot with the very functions the ranging engine uses, without a cycle.
-import {
-  MMS_DRAFT_DEFAULTS, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_RSF_SFD_N_MSR,
-  mmsSlotsPerMs, type MmsPhy,
-} from '../uwb/mms'
+import { MMS_DRAFT_DEFAULTS, mmsSlotsPerMs, type MmsPhy } from '../uwb/mms'
 // `src/engine/fading.ts` takes only `./hash` (no imports of its own) and this folder's `types`,
 // so the schema can hold the fading defaults the sampling functions were written against
 // without a cycle — one figure for each knob, in one place.
@@ -253,8 +250,10 @@ export interface UwbNodeCfg {
  */
 export type UwbMode = 'twr' | 'dl-tdoa' | 'ul-tdoa' | 'mms' | 'm2m'
 
-/** Whether a narrowband transmission listens before it talks: 'auto' follows the draft's rule
- * (mandatory in UNII-5, optional in UNII-3), 'on' and 'off' are the scenario's override. */
+/** Whether a narrowband transmission runs channel access (CSMA-CA, or SSBD when set) before it
+ * talks. The draft asks for it where regulation requires it (§10.39.8.3); 'auto' is this
+ * simulator's model of the regulation — required in UNII-5, not in UNII-3, the reading of
+ * 15-22/0381r5 §1.4.2 — and 'on' (elected for coexistence) and 'off' are the scenario's choice. */
 export type NbLbt = 'auto' | 'on' | 'off'
 
 /** Which side of an MMS pair round sends a narrowband measurement report: the responder in the
@@ -370,12 +369,6 @@ export interface UwbSessionCfg {
    * `slotRstu` — the higher layers' choice of values (FRTi > FRTj for i > j), exchanged out of band
    * here (the standard allows the RRTN IE or an out-of-band mechanism). Until 2026-11-10 this delay
    * was counted from the end of the Poll (audit #5).
-   *
-   * This is a *different* setting from `UwbMmsCfg.fixedReplyRstu` (the P802.15.4ab draft's
-   * `macMmsFixedReplyTime`, nullable, 300–612 000 RSTU): the two share a name because they are
-   * the same concept — a responder's delay pinned in advance rather than measured — in two
-   * different documents (the published standard's §10.29.6.5 here, the draft's own field there),
-   * for two different round shapes. Setting one does nothing to the other.
    *
    * Default is one slot plus 240 RSTU (`UWB_DEFAULT_FIXED_REPLY_RSTU`): the first responder's Response
    * then starts about 200 µs into slot 1, inside the two-sided bound the schema's `fixed` slot-fit
@@ -930,7 +923,7 @@ const NodeCfgSchema = z.preprocess(
  * tagged "draft", and for why it has five fields rather than the draft's six). Every bound below
  * is a cross-field or range rule the object can check against nothing but its own fields, so it
  * lives here rather than in `UwbMmsSchema`'s or the scenario's own `superRefine` — the same
- * reasoning `UwbMmsSchema`'s own doc comment gives for its six draft-feature fields.
+ * reasoning `UwbMmsSchema`'s own doc comment gives for its four draft-feature fields.
  *
  * Every field carries a default so `ssbd: {}` is a legal, minimal way to turn the feature on at
  * the draft's own numbers (design doc §4.1's table) — the same shape `fading: {}` already uses
@@ -996,7 +989,7 @@ export const UwbSsbdSchema = z.object({
  * the wording the editor shows — and an issue raised on the field would stop that refinement
  * running at all.
  *
- * The six draft-feature fields go the other way: each rule below reads nothing but this object's own
+ * The four draft-feature fields go the other way: each rule below reads nothing but this object's own
  * fields, so a setting that contradicts another setting of the same object is wrong whatever the
  * session does with it, and it is refused here rather than only in MMS mode. `ssbd`'s own two
  * local rules (`control`/`nbLbt`) join them for the same reason — only the third rule the design
@@ -1018,13 +1011,14 @@ export const UwbMmsSchema = z.object({
   // A scenario saved before one-to-many rounds existed reads back pairwise, which is what it
   // was: the field has to carry a default or the editor would refuse every such plan.
   oneToMany: z.boolean().default(false),
-  // The six draft-feature fields, every one defaulted to the behaviour that shipped, so a plan saved
-  // before them reads back as the session it was.
+  // The four draft-feature fields, every one defaulted to the behaviour that shipped, so a plan saved
+  // before them reads back as the session it was. 2026-11-11: `fixedReplyRstu` and `reversedOrder`
+  // (proposals 15-25/0224r2 and 15-25/0556r2, superseded by resolution 15-25/0681r1) and `rsfSfd`
+  // (proposal 15-25/0066r1 for CID 963, which its commenter withdrew) are not in the draft and are
+  // gone; zod drops them from a plan saved before, which therefore reads back without them.
   control: z.enum(['nba', 'uwbd']).default('nba'),
   nonInterleaved: z.boolean().default(false),
-  fixedReplyRstu: z.number().int().nullable().default(null),
-  reversedOrder: z.boolean().default(false),
-  rsfSfd: z.boolean().default(false),
+  predictedReplyTime: z.boolean().default(false),
   uwbdControl: z.enum(['sp0', 'none']).default('sp0'),
   // `null` — the default — is today's behaviour, byte for byte; a scenario saved before this
   // slice existed reads back unchanged. See `UwbSsbdCfg`'s own doc comment for the five fields.
@@ -1039,58 +1033,22 @@ export const UwbMmsSchema = z.object({
       message: '零长度控制相位只属于 UWB 驱动配置：窄带辅助配置的控制相位跑在窄带电台上，这里选 none 不改变任何东西（15-25/0194r0）',
     })
   }
-  if (mms.rsfSfd && mms.control !== 'uwbd') {
+  // 预测回复时间只用于非交织模式：决议 15-25/0681r1 把它写成应答紧凑帧（Message Control = 2）的
+  // 内容，并写明「This format ... is applicable to non-interleaved mode」——只有在非交织模式里，
+  // 应答方发出应答帧时已经收完发起方的包、知道它的 RMARKER。
+  if (mms.predictedReplyTime && !mms.nonInterleaved) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['rsfSfd'],
-      message: 'RSF 带 SFD 只在 UWB 驱动配置下有意义：窄带辅助模式里没有包首 SYNC+SFD 可丢',
+      path: ['predictedReplyTime'],
+      message: '预测回复时间只用于非交织模式：决议 15-25/0681r1 把它放在应答紧凑帧（Message Control = 2）里，只有非交织模式下应答方发应答帧时已经收完发起方的包',
     })
   }
-  // 这两个长度来自 `MMS_RSF_SFD_N_MSR`：编辑器的置灰规则读的是同一份清单，
-  // 免得校验与控件各自抄一遍草案。
-  if (mms.rsfSfd && !MMS_RSF_SFD_N_MSR.includes(mms.nMsr)) {
+  // 它由应答紧凑帧携带：零长度控制相位没有应答帧，也就没有地方放它。
+  if (mms.predictedReplyTime && mms.control === 'uwbd' && mms.uwbdControl === 'none') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['rsfSfd'],
-      message: `草案只在 RSF 片段长度为 ${MMS_RSF_SFD_N_MSR.join(' 或 ')} 时允许 RSF 带 SFD（15-25/0066r1）`,
-    })
-  }
-  // 固定回复时间是从“收完对方整个 MMS 包”起算的（较晚的修订如此），
-  // 而该时刻需要的到达时间估计只在非交织模式的包末才拿得到；
-  // 交织模式里两端的片段互相穿插，根本没有这样一个“收完了”的起点。
-  if (mms.fixedReplyRstu !== null && !mms.nonInterleaved) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fixedReplyRstu'],
-      message: '固定回复时间只属于非交织模式：它从收完对方整个 MMS 包起算，而这个到达时间估计只在非交织的包末才拿得到（15-25/0224r2、15-25/0556r2）',
-    })
-  }
-  // 固定回复时间是一对一的：草案把回复时间放在 One-to-one Response Compact 帧里，
-  // 而一个共用的常量会让所有应答方在同一个时刻一起开发。
-  if (mms.fixedReplyRstu !== null && mms.oneToMany) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fixedReplyRstu'],
-      message: '固定回复时间是一对一的：草案把它放在 One-to-one Response Compact 帧里，而一对多时一个共用常量会让每个应答方在同一时刻一起发（15-25/0224r2）',
-    })
-  }
-  // 这一条不是草案的禁令：草案把「固定回复时间」和「反序」两个位放在同一个八位组里
-  // （MMS Number of Fragments Configuration 的 bit 6 与 bit 7），并没有禁止同时置位。
-  // 拒绝的理由是本仿真器自己的自洽：一台设备不能既是开场先发包的那一方，
-  // 又是「收到对方的包之后固定时间再回复」的那一方——后者要的起点，前者根本没有。
-  if (mms.fixedReplyRstu !== null && mms.reversedOrder) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fixedReplyRstu'],
-      message: '这是本仿真器的自洽规则，不是草案的禁令（草案把这两个位放在同一个八位组里，并没有禁止同时置位）：反序下应答方就是开场先发 MMS 包的那一方，而固定回复时间要的正是“收完对方的包”这个起点，它一台设备身上同时当不了这两个角色。反序自己那 600 RSTU 的偏移是发起方从进入测距阶段起算的，与这一项是两回事（15-25/0224r2、15-25/0556r2）',
-    })
-  }
-  if (mms.fixedReplyRstu !== null
-    && (mms.fixedReplyRstu < MMS_FIXED_REPLY_RSTU_MIN || mms.fixedReplyRstu > MMS_FIXED_REPLY_RSTU_MAX)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fixedReplyRstu'],
-      message: `固定回复时间要落在 ${MMS_FIXED_REPLY_RSTU_MIN}…${MMS_FIXED_REPLY_RSTU_MAX} RSTU（约 0.25…510 ms）：这是草案给 macMmsFixedReplyTime 的取值范围，下界正是一个 MMS 测距时隙的最小长度（15-25/0224r2）`,
+      path: ['predictedReplyTime'],
+      message: '预测回复时间由应答紧凑帧携带（15-25/0681r1）；零长度控制相位没有应答帧，请改用 SP0 控制相位或关掉这一项',
     })
   }
   // UWB 驱动配置（配置 1）那一侧根本没有窄带电台：控制面的三条消息改成 UWB PHY 上的 SP0 包，
@@ -1123,14 +1081,6 @@ export const UwbMmsSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['ssbd'],
       message: 'SSBD 是“需要先听时”使用的信道接入方法之一（标准 §10.45，一条草案条款）：先听后发关着就没有 CCA 可以跑，开着 ssbd 会是一个什么都不检测的配置。请把 ssbd 关掉，或者把 nbLbt 改成 auto 或 on',
-    })
-  }
-  // 反序的意义是“响应方先发”，而交织模式里两端本来就在同一毫秒里各发一片，没有先后可换。
-  if (mms.reversedOrder && !mms.nonInterleaved) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['reversedOrder'],
-      message: '反序只属于非交织模式：交织时两端在同一毫秒里各发一个片段，没有“谁先发”可以调换（15-25/0556r2）',
     })
   }
 })

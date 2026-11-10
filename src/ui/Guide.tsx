@@ -7,12 +7,13 @@ import { FADING_DEFAULTS, RICIAN_K_DEFAULT_DB } from '../engine/fading'
 import { DEFAULT_SIX_GHZ_CENTER_MHZ, DEFAULT_UWB_SESSION, UwbSsbdSchema, sixGhzChannelNo } from '../model/scenario'
 import { AOA_SIGMA_CLAMP_DEG, AOA_SIGMA_PHI_RAD, aoaSigmaDeg, antennaSpacingM } from '../uwb/aoa'
 import {
-  MMS_COMBINE_MAX_DB, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN, MMS_SETS,
+  MMS_COMBINE_MAX_DB, MMS_SETS,
   MMS_SLOTS_PER_MS, MMS_SP0_MBPS, MMS_SP0_NS, MMS_SP0_PENALTY_DB, MMS_SP0_SEGMENT_NS, MS_RSTU,
   UWB_MS_BUDGET_NJ, mmsFragmentDbm, mmsLayout, rifNs, rsfNs,
 } from '../uwb/mms'
 import {
-  NB_CHANNELS, NB_CHANNEL_MHZ, NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM,
+  NB_CHANNELS, NB_CHANNEL_MHZ, NB_CSMA, NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM,
+  NB_PHY_CCA_DURATION_US, NB_UNIT_BACKOFF_US,
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_TX_DBM, nbCenterMhz, nbPpduNs,
 } from '../uwb/nb'
 import {
@@ -213,13 +214,13 @@ const ANCILLARY_SLOT_MS = (ANCILLARY_SLOT_NS / 1e6).toFixed(1)
 // outcome of an actual 1.3 s run of the `uwb-nba-coexist` lesson scene, and `tests/ui/uwb-guide.test.ts`
 // recomputes every one of them from a fresh `Simulation`, never comparing this file's prose to itself.
 const SSBD_DEFAULTS = UwbSsbdSchema.parse({})
-const SSBD_BOUND_US = ssbdBoundNs(SSBD_DEFAULTS) / 1000 // 74
+const SSBD_BOUND_US = ssbdBoundNs(SSBD_DEFAULTS) / 1000 // 788
 /** The TFD appendix's own stale example: reproduces only under the two premises CID 489/493 and
  * CID 490/495 later overturned (`2 × BF`, a 1 µs CCA) — the same function, a different `cfg`. */
 const SSBD_BOUND_STALE_US = ssbdBoundNs({ ...SSBD_DEFAULTS, backoffMultiplier: 2, ccaUs: 1 }) / 1000 // 46
 /** What the engine actually waits at the defaults: the bound minus the sensing time it also
  * charges (`maxBackoffs + 1` CCAs) — the wording trap §5.5 of the design doc points at. */
-const SSBD_ACTUAL_MAX_US = SSBD_BOUND_US - (SSBD_DEFAULTS.maxBackoffs + 1) * NB_LBT_CCA_US // 20
+const SSBD_ACTUAL_MAX_US = SSBD_BOUND_US - (SSBD_DEFAULTS.maxBackoffs + 1) * NB_PHY_CCA_DURATION_US
 const SSBD_SLOT_RSTU = 600 // the draft's own MMS slot — see Section 12 below
 const SSBD_SLOT_NS = rstuNs(SSBD_SLOT_RSTU)
 const SSBD_POLL_SLACK_US = nbSlotSlackNs(SSBD_SLOT_NS, NB_POLL_BYTES) / 1000 // 424
@@ -539,11 +540,12 @@ export function Guide() {
         本节内容全部来自 <b>IEEE P802.15.4ab</b>——一份尚未获批的草案（截至 2026 年 9 月处于
         Sponsor ballot 复审阶段）。投票稿仅对会员开放，因此本仿真器是依据该任务组的提案文稿建模的：
         15-22/0381r5（测距周期、时隙划分与先听后说规则）、15-23/0100r2（片段定义与窄带物理层）、
-        15-23/0502r3（必选参数集）以及 15-22/0205r0（毫秒能量预算）；本节后半那五项特性另有五份 2025 年
-        的提案——15-25/0194r0（两套控制面配置与零长度控制阶段）、15-25/0066r1（RSF 带 SFD）、
-        15-25/0292r1 与 15-25/0331r1（非交织子轮及其控制阶段）、15-25/0224r2 与 15-25/0556r2
-        （固定回复时间与反序）——一律转述，绝不照抄。这五份里有几份只是提案：零长度控制阶段与 RSF 带 SFD
-        是否已纳入草案无法确认；固定回复时间与反序则<b>没有被采纳</b>，工作组通过的是替代决议 15-25/0681r1（见下文）。
+        15-23/0502r3（必选参数集）以及 15-22/0205r0（毫秒能量预算）；本节后半的草案特性另有几份 2025 年
+        的文稿——15-25/0194r0（两套控制面配置与零长度控制阶段）、
+        15-25/0292r1 与 15-25/0331r1（非交织子轮及其控制阶段）、决议 15-25/0681r1（预测回复时间）
+        ——一律转述，绝不照抄。零长度控制阶段只是提案，是否已纳入草案无法确认；RSF 带 SFD 的意见（CID 963）
+        已由提出者撤回（15-25/0082r8），不在草案里，本仿真器也不实现；固定回复时间（15-25/0224r2）与反序
+        （15-25/0556r2）被决议 15-25/0681r1 取代，同样不在草案里、本仿真器也不实现。
         D05 在编号与细节上可能与此不同；下文凡标注<i>模型取值</i>处，都是本仿真器自己的选择，而非草案规定。
       </p>
       <p style={p}>
@@ -616,9 +618,8 @@ export function Guide() {
         3.4 倍脉冲数即 5.3 dB；两边同为 PSR64 时 2.3 倍、2.4 倍即 3.8 dB。提案的结论句把这些取整成
         「约 4 dB」——这是提案对 SP0 峰值功率较低、因而更难捕获的估计，不是草案规定的门限。方向别弄反：
         SP0 更长、峰值更低，所以<i>更难</i>捕获——它在用时，是它而不是片段决定链路预算。
-        本仿真器的处理与提案不同（模型取值）：SP0 不按毫秒能量预算、而按设备通常的突发功率发射，
-        从天线发出时就比一个片段低十个多分贝（<code>uwb-uwbd</code> 一课的片段配置下为 10.54 dB），再用 {MMS_SP0_PENALTY_DB} dB 抬高 SP0 的投递门限——
-        而提案的约 4 dB 本身就来自峰值功率较低，两项并不独立，同一项代价算了两次。
+        本仿真器按提案只计一次：SP0 包的发射功率取会话首个片段（即包首 SYNC+SFD 片段）的功率再减{' '}
+        {MMS_SP0_PENALTY_DB} dB，按普通的 UWB 灵敏度判定能否收到（这 4 dB 取的是提案结论句的整数，取值）。
       </p>
       <p style={p}>
         <b>于是还有第三档：零长度的控制阶段</b>——这只是提案 15-25/0194r0 的建议，是否已纳入草案无法确认，
@@ -627,12 +628,9 @@ export function Guide() {
         SP0 帧被跳过，SOR 的时间偏移直接指向测距包的 SYNC+SFD 片段（该片段的长度由 RSF 片段长度字段
         决定），成对轮次降到 {MMS_SLOTS_NO_CTRL} 个时隙；取 1–15 则 SP0 在用。提案自己给出的理由只有
         一句——比起把控制阶段做成可选，零长更实际。这一档只属于配置 1。它也是唯一真要“捕获”的一档：
-        配置 2 里窄带交互已经把时基交给了两端，配置 1 带 SP0 时时基来自那个包，而零长时前面什么都没有，
-        包首那个片段必须自己够 {dbFmt(UWB_RX_SENS_DBM)} dBm——<b>捕获不累加</b>，四个低 6 dB 的片段可以
-        同时是一列检出的序列和一个没被打开的包。这正是 <code>phyUwbMmsRsfSfd</code>（<b>RSF 带 SFD</b>，
-        提案 15-25/0066r1，是否已被采纳无法确认）要解决的问题：按提案，置 1 后每个 RSF 后面都跟一个帧起始定界符
-        （start-of-frame delimiter, SFD），该片段与同一个包里在它之前的 SYNC+SFD 片段完全相同，于是任何
-        一个片段都能开包；仅当 Sequence Code Index 为 9–32 且 RSF 片段长度为 32 或 64 时才可置 1。
+        配置 2 里窄带交互已经把时基交给了两端；配置 1 的 MMS 包无论前面有没有 SP0 都以一个 SYNC+SFD 片段开头，
+        捕获与载波频偏估计都取自它，所以配置 1 的两档都要求包首那个片段自己够 {dbFmt(UWB_RX_SENS_DBM)} dBm——
+        <b>捕获不累加</b>，四个低 6 dB 的片段可以同时是一列检出的序列和一个没被打开的包。
       </p>
       <p style={p}>
         <b>成对的测距周期</b>（4ab 草案 0381r5 §1.1）。一个 MMS 轮次里只有一个发起方（标签）和一个响应方
@@ -685,47 +683,41 @@ export function Guide() {
         意见，不是草案认下的缺点。
       </p>
       <p style={p}>
-        <b>非交织换来的是一个明确的时刻：对方整个 MMS 包收完了。</b>2025 年的两份提案（15-25/0224r2、
-        15-25/0556r2）在它之上提出了两个选项，本仿真器实现了它们，但<b>工作组没有采纳</b>：针对 D03 上
-        这几条意见，电话会无异议通过的是替代决议 15-25/0681r1（纪要 15-26/0006r0）——不设固定回复时间
-        参数，改由应答方在一对一与一对多 Response Compact 帧里携带预测回复时间（Predicted Reply Time），
-        只用于非交织形态；反序也不在这份决议里。所以下面两项是<b>已被替代的提案</b>，不是草案的选项。
-        <b>固定回复时间</b>（提案中的 <code>macMmsFixedReplyTimeEnable</code>，Boolean，默认 FALSE；
-        <code>macMmsFixedReplyTime</code>，整数，{MMS_FIXED_REPLY_RSTU_MIN}…{MMS_FIXED_REPLY_RSTU_MAX}{' '}
-        RSTU，默认 {MMS_DRAFT_SLOT_RSTU} RSTU——15-25/0224r2）让应答方从一个固定时刻起偏移这么久
-        再发，于是回复时间（reply time，T<sub>reply</sub>）成了双方事先约定的常量、或由 One-to-one
-        Response Compact 帧传来的一个数，不必再写进报告 compact 帧——提案说省下的是能量（15-25/0556r2）。
-        提案的条文把起点写作 MmsRangingRxOnTime，即收到对方包的起点；本仿真器从收完对方整个 MMS 包起算，
-        这是本仿真器的取法。提案自述的前提是应答方能准确估计到达时间，而「这在非交织模式的
-        MMS 包末尾才可能」，并且能精确控制自己相对到达时间的发送时刻；精度代价是测距精度取决于这个
-        回复时间估计得有多准。<b>反序</b>（15-25/0556r2）则让应答方先发自己的 MMS 包，发起方自进入测距
-        阶段起偏移 {MMS_DRAFT_SLOT_RSTU} RSTU 再发；先发的一方测得的是往返时间、后发的测得回复时间，
-        于是「谁算得出距离」换到了另一边。按提案，两者各占 MMS Number of Fragments Configuration 那一字节的一位
-        （bit 6 与 bit 7；bit 0–2 是 RSF 片段数、bit 3–5 是 RIF 片段数），而且 0556r2 明确规定了两位同时置位
-        时的发送时序：应答方先发，发起方收到应答方的包之后隔那个固定回复时间再发。本仿真器拒绝这一组合
-        ——这是本仿真器的取舍（模型取值），不是提案的禁令。
+        <b>非交织换来的是一个明确的时刻：应答方发应答帧时已经收完发起方整个 MMS 包。</b>决议 15-25/0681r1
+        （纪要 15-26/0006r0，无异议通过）利用了这一点：一对一与一对多 Response Compact 帧的 Message Control
+        增加取值 2，此时 Message Content 是 5 个八位组的<b>预测回复时间</b>（Predicted Reply Time）——应答方测量的、
+        从它收到的发起方片段的 RMARKER 到它随后将要发出的片段的 RMARKER 之间的时间，单位见 §10.29.1.4。
+        这一格式只用于非交织模式，用来省掉单独的回复时间报告。本仿真器照此实现（编辑器里的「预测回复时间」）：
+        应答方在自己子轮开头的应答帧里带上这个值，不再发测量报告；发起方收到应答方的片段后用自己的往返时间与这个值
+        直接算出距离。2025 年提案中的固定回复时间（15-25/0224r2）与反序（15-25/0556r2）被这份决议取代，
+        不在草案里，本仿真器不实现。
       </p>
       <p style={p}>
-        <b>先听后说</b>。窄带电台与 Wi-Fi 6E 共用 6 GHz，在这个频段里管制规定（例如欧盟的 ETSI EN 303 687
-        对“基于帧的设备”的规定）要求每次发送前评估信道；P802.15.4ab 草案只在法规要求或为了共存时才要求先听后说，
-        执行时在每个发射时隙上各做一次信道接入（CSMA-CA 或第 21 节的 SSBD）。早期提案 0381r5 §1.4.2 引用的
-        ETSI 规定是：每次发送前至少评估 {NB_LBT_CCA_US} µs，能量检测门限{' '}
-        {dbFmt(NB_LBT_EDT_DBM_PER_MHZ)} dBm/MHz——这两个数出自 ETSI，现行草案正文没有给出；换算到
-        {NB_CHANNEL_MHZ} MHz 的整个信道上即 <b>{NB_LBT_DBM} dBm</b>（把每 MHz 的门限换算到占用带宽上，
-        是本引擎的读法，模型取值）。编辑器里<i>自动</i>一档的「UNII-5 执行、UNII-3 不执行」是本仿真器的规则
-        ——草案把是否执行交给当地法规；模型用一次瞬时频谱读数来代表整个评估窗口。判忙的处理也是本仿真器的
-        规则（草案规定的是按发射时隙退避）：该设备在这个测距块剩余时间内不再发送任何窄带帧，也就丢掉了它在这块
-        里的全部轮次。一个 20 dBm、80 MHz 的 Wi-Fi PPDU 会向 2.5 MHz 内投入 4.95 dBm，按 Wi-Fi 的路径损耗
-        律，它在 <b>≈ 8.6 m</b> 处降到 {NB_LBT_DBM} dBm——在一台正在发射的 6E AP 的这个半径之内，每一次
-        评估都是忙。反方向也成立：一帧 {dbFmt(NB_TX_DBM)} dBm 的窄带帧落在 AP 的 80 MHz 信道内，在{' '}
-        <b>≈ 15 m</b> 处仍有 −62 dBm，因此在这个范围内 Wi-Fi 的能量检测反而会为它让路——与第 11 节那
+        <b>先听后说</b>。窄带电台与 Wi-Fi 6E 共用 6 GHz。P802.15.4ab 草案 §10.39.8.3（经 15-25/0307r1、
+        15-25/0427r4 改写）只在法规要求时要求信道接入：收发两端在每个发射时隙上各自独立地用标准 §6.3.2 的
+        CSMA-CA 或第 21 节的 SSBD，配合 CCA 模式 1 或 3，相邻时隙用同一信道也照做；法规不要求时同样的方法可以用来
+        改善共存。哪条法规适用是部署的事：编辑器里<i>自动</i>一档按早期提案 0381r5 §1.4.2 的说法建模——UNII-5 要求、
+        UNII-3 不要求（本仿真器的取法）。没有打开 SSBD 时用 CSMA-CA（标准 §6.3.2.1）：退避
+        random(2<sup>BE</sup> − 1) 个单位退避周期（{NB_UNIT_BACKOFF_US} µs = aTurnaroundTime 12 个符号 +
+        phyCcaDuration 8 个符号），再做一次 CCA；空闲就发送，忙则 NB 加一、BE 加一（上限 {NB_CSMA.maxBe}），
+        NB 超过 {NB_CSMA.maxBackoffs} 次即信道接入失败。macMinBe 取 {NB_CSMA.minBe}（标准缺省为 3，范围允许 0；
+        取 0 是本仿真器的取值——缺省值下第一次退避就可能长达 7 × {NB_UNIT_BACKOFF_US} µs，而一个窄带窗口只有 1 ms）。
+        每次 CCA 按 phyCcaDuration = {NB_PHY_CCA_DURATION_US} µs（标准表 12-2 推荐的 8 个符号周期，草案没有给出别的值）
+        对外部功率积分；门限沿用早期提案引用的 ETSI 数值 {dbFmt(NB_LBT_EDT_DBM_PER_MHZ)} dBm/MHz（ETSI 自己要求的
+        最短评估时间是 {NB_LBT_CCA_US} µs），换算到 {NB_CHANNEL_MHZ} MHz 的整个信道即 <b>{NB_LBT_DBM} dBm</b>
+        （换算是本引擎的读法）。下一次退避与 CCA 之后窗口里已放不下这一帧时，这一时隙放弃发送——标准没有说
+        MAC 遇到时隙用完怎么办，这是本仿真器的取法。一个 20 dBm、80 MHz 的 Wi-Fi PPDU 会向 2.5 MHz 内投入
+        4.95 dBm，按 Wi-Fi 的路径损耗律，它在 <b>≈ 8.6 m</b> 处降到 {NB_LBT_DBM} dBm——在一台持续发射的 6E AP
+        的这个半径之内，评估多半是忙。反方向也成立：一帧 {dbFmt(NB_TX_DBM)} dBm 的窄带帧落在 AP 的 80 MHz
+        信道内，在 <b>≈ 15 m</b> 处仍有 −62 dBm，因此在这个范围内 Wi-Fi 的能量检测反而会为它让路——与第 11 节那
         40 cm 恰好相反，这也正是这套电台才是共存故事中有趣那一半的原因。
       </p>
       <p style={p}>
-        <b>跳信道。</b>会话带着一份窄带信道白名单，每个测距块从中挑一个。草案用一个以会话种子与块序号为输入的
-        伪随机生成式（NbaPrng）来决定这个选择；早期提案 0381r5 §1.5.3 用的是以会话 PRNG 种子为密钥、对块序号
-        加密的 AES-128-CTR。本仿真器两者都没有实现，而是用自己的字符串哈希顶替（模型取值），这样回放时仍会
-        挑中同样的信道，而引擎里不必引入密码算法。纯 UNII-3 的
+        <b>跳信道。</b>会话带着一份窄带信道白名单，每个测距块从中挑一个。草案 §10.39.8.4.3 的生成式是
+        NbaPrng(macMmsPrngSeed, RangingBlockIndex)：以一个八位组的种子为密钥、对块序号做一次 AES-128 分组加密
+        （两者都按 128 位无符号整数、高位补零），取输出的第 0–31 位为 PrngValue，所选信道 = 白名单[PrngValue mod n]
+        （15-24/0223r1、15-24/0658r1；15-26/0215r2 与 15-26/0408r2 给了测试向量）。本仿真器照此实现，并用这些
+        测试向量校验；种子取场景种子对 256 的余数（种子由上层在建立会话时商定，取哪个值是本仿真器的取值）。纯 UNII-3 的
         白名单根本不会与任何 6 GHz Wi-Fi 信道重叠——这也是默认会话完全不在乎场景里有没有 Wi-Fi 的原因。
       </p>
       <p style={p}>
@@ -739,8 +731,7 @@ export function Guide() {
         <b>已知的简化</b>（在 README 所列各项之外）：时间戳精度不随信噪比改善，因此草案最引人注目的那项精度
         主张<i>并未</i>建模——本仿真器只复现它带来的覆盖距离与时钟比率；测距周期默认成对，也可以开成
         一对多，但仅此两种；没有初始化握手、没有公开广播、也没有捕获包——会话由场景直接配置；窄带路径损耗按自由空间
-        加穿墙计算；先听后说只取一次瞬时读数，而非对 {NB_LBT_CCA_US} µs 积分；窄带信道中心频率公式是由频段
-        边界反推的；信道切换用哈希顶替了草案的伪随机生成式；固定回复时间与反序实现的是已被替代的提案。
+        加穿墙计算；窄带信道中心频率公式是由频段边界反推的；CCA 的读数只计入 Wi-Fi 一侧的发射功率。
       </p>
 
       <h4 style={h}>13 · 时变链路：两层衰落（默认关闭）</h4>
@@ -1539,15 +1530,13 @@ export function Guide() {
         <b>草案自己的附录给的例子已经过期。</b>那份附录给了两个延迟上界：缺省参数下
         <b> {SSBD_BOUND_STALE_US} µs</b>，调参之后 2.088 ms。这两个数只在两个后来被评审意见推翻的
         前提下才算得出来——退避抽的是 <code>2 × BF</code> 而不是 <code>random(BF)</code>（CID 489/
-        493），CCA 只记 1 µs 而不是 9 µs（CID 490/495，这个 9 µs 正是本引擎既有的
-        <code> phyCcaDuration</code> 读数）。按草案现在的文字重新算，同一个函数在缺省参数下读出
+        493），CCA 只记 1 µs 而不是物理层的 <code>phyCcaDuration</code>（CID 490/495；标准表 12-2 在
+        物理层条款没有另行推荐时推荐 8 个符号周期，即 {NB_PHY_CCA_DURATION_US} µs）。按草案现在的文字重新算，同一个函数在缺省参数下读出
         <b> {SSBD_BOUND_US} µs</b>，不是 46 µs。<b>上界要算出来，不能照抄草案自己的例子</b>——这是本
-        引擎最严格的一条举证限度：草案自己的附录就是一个过期值（这个例子与几个缺省值是否保留到 D05，无法核实）。而算出来的这个数还要再澄清一句：
-        {SSBD_BOUND_US} µs 是算法的<b>上界</b>——每一次退避都判忙、每一次都抽到能抽到的最大值时
-        的和——引擎在缺省参数下实际等掉的只有 <b>{SSBD_ACTUAL_MAX_US} µs</b>，因为 CCA
-        本身是一次瞬时读数，不占用时间。这个数要当成<b>算法的上界</b>来读——每一次都判忙、每一次
-        都抽到最大值时的和——而不是当成引擎每次实际要等的那个数：一个是最坏情形的和，
-        一个是每次都要付的数，不是一回事。
+        引擎最严格的一条举证限度：草案自己的附录就是一个过期值（这个例子与几个缺省值是否保留到 D05，无法核实）。
+        {SSBD_BOUND_US} µs 是算法的<b>上界</b>——每一次都判忙、每一次都抽到最大值时六次 CCA 与六段退避的和；
+        其中退避最多只占 {SSBD_ACTUAL_MAX_US} µs，其余 {SSBD_BOUND_US - SSBD_ACTUAL_MAX_US} µs 全是感知本身。
+        它比一个 POLL 窗口留给信道接入的余量还长，所以在一个持续判忙的信道上，引擎里的尝试会在收尾动作之前就用完窗口。
       </p>
       <p style={p}>
         <b>判忙的门限是一个管制数，不是标准数——而这个管制本身也在变。</b>P802.15.4ab 的草案正文
@@ -1599,12 +1588,10 @@ export function Guide() {
       <p style={p}>
         <b>最后一行是这一节真正的结论所在。</b>本仿真器里竞争式排程的等待发生在轮与轮之间，不挤占任何一帧
         自己的空间；SSBD 的等待发生在<b>消息自己还要用的那个窗口里面</b>——一个窄带 POLL/RESP
-        窗口留给退避的余量是 <b>{SSBD_POLL_SLACK_US} µs</b>、REPORT 窗口是
+        窗口留给信道接入的余量是 <b>{SSBD_POLL_SLACK_US} µs</b>、REPORT 窗口是
         <b> {SSBD_REPORT_SLACK_US} µs</b>（都从 <code>NB_WINDOW_SLOTS</code> 个测距时隙减去消息本身
-        的收发时间算出，窄带发射用的是 600 RSTU 的 MMS 时隙）。{SSBD_BOUND_US} µs 的上界等不过
-        仿真场景里任何一帧 Wi-Fi 数据帧；而要是把退避单位调到能塞进这格余量的最大值，付出的
-        {SSBD_POLL_SLACK_US} µs 仍然短于场景里最长的那一帧 Wi-Fi 数据帧（469.6 µs）——调大这个
-        旋钮并不能换来更多，因为这段等待是从消息自己的窗口里扣出来的，窗口本身并没有变大。
+        的收发时间算出，窄带发射用的是 600 RSTU 的 MMS 时隙）。一次感知就要 {NB_PHY_CCA_DURATION_US} µs，
+        这格余量只放得下三次；而场景里最长的那一帧 Wi-Fi 数据帧（469.6 µs）比整格余量还长——在时域里等不到它结束。
       </p>
       <p style={p}>
         量出来是这样（<code>uwb-nba-coexist</code> 课程场景，1.3 s，读 <b>UWB_RANGE</b> 条数）：
@@ -1615,18 +1602,16 @@ export function Guide() {
         </thead>
         <tbody>
           <tr><td style={cell}>先听后发整个关闭</td><td style={cell}>47</td></tr>
-          <tr><td style={cell}>本仿真器既有的规则（一次忙检测封住整个测距块；草案没有这条规则）</td><td style={cell}><b>1</b></td></tr>
-          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}>50</td></tr>
-          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>3</b></td></tr>
+          <tr><td style={cell}>CSMA-CA（不开 SSBD，标准 §6.3.2.1）</td><td style={cell}><b>0</b></td></tr>
+          <tr><td style={cell}>SSBD，缺省参数</td><td style={cell}><b>0</b></td></tr>
+          <tr><td style={cell}>SSBD，退避单位调到能塞进窗口的最大值</td><td style={cell}><b>0</b></td></tr>
         </tbody>
       </table>
       <p style={p}>
-        第二行是 SSBD 要替代的那条规则：一次忙检测就封住整个测距块剩余时间的窄带发射，
-        47 次周期里丢了 46 次。SSBD 的缺省参数把它们基本都要了回来——不是因为它等得过任何干扰，
-        而是因为 {SSBD_BOUND_US} µs 等不过任何一帧，退避总会用尽，收尾动作缺省又是照发，于是
-        它和完全不先听后发几乎没有分别。而把退避单位调到最大反而更差：那段更长的等待仍然要从
-        消息自己的窗口里扣，窗口之外的那一帧仍然挤得进来，于是发送的时机被推到窗口末尾，
-        反而更容易撞上邻道一帧更长的 Wi-Fi 帧。
+        三种做信道接入的设置都一次也没有测成：路由器的发射在 {NB_PHY_CCA_DURATION_US} µs 的感知里平均下来仍高于门限，
+        每一次尝试都在接入成功之前用完了窗口，手机的 POLL 一条也没有发出。缺省参数下 SSBD 的收尾动作「照常发送」
+        要等第六次感知判忙才轮得到，而窗口只放得下三次，所以它从不起作用；把退避调大只会更早用完窗口。
+        只有完全不先听后发才得到 47 个距离，代价转给了 Wi-Fi（见 <code>uwb-nba-coexist</code>）。
       </p>
       <h4 style={h}>动手试试</h4>
       <p style={p}>

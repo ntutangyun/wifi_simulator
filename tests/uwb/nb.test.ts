@@ -4,9 +4,8 @@ import {
   NB_LBT_CCA_US, NB_LBT_EDT_DBM_PER_MHZ, NB_LBT_THRESHOLD_DBM, NB_MSG_ID, NB_PHR_SYMBOLS,
   NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, NB_RX_SENS_DBM, NB_SHR_SYMBOLS, NB_SIR_MIN_DB,
   NB_SYMBOL_CHIPS, NB_SYMBOL_US, NB_TX_DBM, nbBand, nbCenterMhz, nbChannelForBlock, nbLbtRequired,
-  nbPl0Db, nbPpduNs,
+  nbaPrngValue, nbPl0Db, nbPpduNs,
 } from '../../src/uwb/nb'
-import { hashStr } from '../../src/engine/hash'
 import { UWB_RX_SENS_DBM } from '../../src/uwb/phy'
 
 describe('the narrowband PHY', () => {
@@ -102,9 +101,11 @@ describe('the per-block channel hop', () => {
     expect(nbChannelForBlock([3], 7, 99)).toBe(3)
   })
 
-  it('is the simulator’s hash, so a replay picks the same channels', () => {
+  // 2026-11-11: the draft's NbaPrng (AES-128 of the block index under the seed, §10.39.8.4.3),
+  // replacing the simulator's own string hash. The draft's test vectors are in nb-prng.test.ts.
+  it('is the draft’s NbaPrng, so a replay picks the same channels', () => {
     const list = [3, 7, 60, 200]
-    expect(nbChannelForBlock(list, 7, 5)).toBe(list[hashStr('7:5') % list.length])
+    expect(nbChannelForBlock(list, 7, 5)).toBe(list[nbaPrngValue(7, 5) % list.length])
     expect(nbChannelForBlock(list, 7, 5)).toBe(nbChannelForBlock(list, 7, 5))
     // A different seed or a different block is a different draw, with no Math.random anywhere.
     const seven = Array.from({ length: 20 }, (_, b) => nbChannelForBlock(list, 7, b))
