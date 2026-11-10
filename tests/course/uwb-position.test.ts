@@ -1,42 +1,34 @@
 /**
- * Every empirical claim in "From four ranges to a point", measured against the
- * lesson's own scenario. The solver, the range sigma and the inspector rows come
- * from the engine's own exports (src/uwb/position.ts, src/uwb/phy.ts,
- * src/uwb/ui/rows.ts) rather than being re-typed here, and the inspector rows
- * are replayed through the player's own reducer (initViewState + applyRecord),
- * so they are the panel's by construction.
+ * `@uwb-position`, in the standard-first shape (2026-11-10).
  *
- * The lesson was split by the readability programme: everything about the
- * anchors' geometry — GDOP, the error ellipse, the brick wall and the
- * three-anchor layout — moved to `uwb-geometry`, and so did its pins
- * (tests/course/uwb-geometry.test.ts). The scenario builder stays here, with
- * the checks on all three of its scenes, because `uwb-geometry` calls it.
+ * ① is checked for the clauses it cites and for saying nothing of the solver; ② row by row
+ * against the engine (the solver, the range sigma and the record come from the engine's own
+ * exports); ③ figure by figure: every number the labs print is read back out of the lesson text
+ * and compared with a run. The scenario builder lives here, so its three scenes are pinned here
+ * too; `uwb-geometry` loads the same builder.
  */
 import { describe, it, expect } from 'vitest'
 import { uwbPosition, uwbPositionScenario } from '../../src/course/uwb/uwb-position'
-import { uwbIntro } from '../../src/course/uwb/uwb-intro'
 import { DEFAULT_UWB_SESSION, ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import type { Block, Lesson } from '../../src/course/lessonKit'
-import { lessonStrings } from '../../src/course/readability'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { fmtRecord } from '../../src/ui/format'
 import { wallsCrossed } from '../../src/engine/propagation'
 import { C_M_PER_NS } from '../../src/uwb/phy'
-import { rangeSigmaM, solvePosition, type AnchorPos, type Fix } from '../../src/uwb/position'
+import { MIN_DET, rangeSigmaM, solvePosition, type AnchorPos } from '../../src/uwb/position'
 import { uwbFixRow } from '../../src/uwb/ui/rows'
 import type { UwbNodeView } from '../../src/uwb/view'
 import { applyRecord, initViewState } from '../../src/model/view'
 import { STRINGS } from '../../src/ui/i18n'
-import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
+import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
-/** Seven ranging blocks: enough that "seven blocks" and the error list are a sample, not an anecdote. */
+/** Seven ranging blocks. */
 const RUN_NS = 1300 * MS
 const BLOCKS = 7
 const TAG = { x: 4, y: 3.5, z: 1.0 }
 const ANCHOR_Z = 2.2
-/** The four corners the lesson installs, in the order the scenario lists them. */
 const CORNERS: [string, number, number][] = [
   ['anchor-1', 0.5, 0.5], ['anchor-2', 9.5, 0.5], ['anchor-3', 0.5, 7.5], ['anchor-4', 9.5, 7.5],
 ]
@@ -44,673 +36,220 @@ const SIGMA_R = rangeSigmaM(DEFAULT_UWB_SESSION.tsNoisePs)
 
 const scenarioOf = (variant?: number): Scenario =>
   variant === undefined ? uwbPosition.scenario() : uwbPosition.variants![variant].scenario()
-
-/** This lesson's records, from the kit's shared memo: one run per variant per worker. */
 const recs = (variant?: number): TLRecord[] => runOf(uwbPosition, variant, RUN_NS)
 
-// The contract every migrated lesson owes, written once in tests/course/kit.ts. The
-// last jump is the second block's fix, so the shape suite needs the long run too —
-// and asking for the same length keeps it on the memoised records these tests use.
 lessonShapeSuite(uwbPosition, { runNs: RUN_NS })
 
 const fixes = (variant?: number) => ofType(recs(variant), 'UWB_POSITION')
 const fixErr = (f: Extract<TLRecord, { type: 'UWB_POSITION' }>) => Math.hypot(f.x - f.trueX, f.y - f.trueY)
-/** The tag's own ranges (the anchors compute their copies too); one per anchor per block. */
 const tagRanges = (variant?: number) => ofType(recs(variant), 'UWB_RANGE').filter((r) => r.node === 'uwb-1')
+const anchorsOf = (variant?: number): AnchorPos[] =>
+  CORNERS.filter(([id]) => variant !== 1 || id !== 'anchor-4').map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
 
-/** The lesson's nth table of `numbers`, rows kept in place so a cell can be checked by position. */
-const table = (n: number): Extract<Block, { kind: 'table' }> =>
-  uwbPosition.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]
-const cell = (n: number, row: number, col: number): string => table(n).rows[row][col]
-
-const formulas = (): Extract<Block, { kind: 'formula' }>[] =>
-  uwbPosition.numbers!.filter((b): b is Extract<Block, { kind: 'formula' }> => b.kind === 'formula')
-
-/** Everything a learner reads of one lesson, joined — for "is this number actually printed?" checks. */
-const lessonProse = (l: Lesson): string => lessonStrings(l).map((s) => s).join('\n')
-/** …and this lesson's own, which is what nearly every check here reads. */
-const prose = (): string => lessonProse(uwbPosition)
-
-/** The solver run on exact geometry: what the fit is before any noise. */
-function exactFix(px: number, py: number, drop?: string): Fix {
-  const anchors: AnchorPos[] = CORNERS.filter(([id]) => id !== drop)
-    .map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
-  const ranges = anchors.map((a) => ({ id: a.id, distM: Math.hypot(px - a.x, py - a.y, TAG.z - a.z) }))
-  const fix = solvePosition(anchors, ranges, TAG.z, SIGMA_R)
-  expect(fix, `exact fix at ${px},${py}`).not.toBeNull()
-  return fix!
-}
-
-/**
- * The residual of each round AS THE RUN LEAVES IT, in centimetres to two places.
- *
- * `UWB_POSITION` carries no residual (step 8), so the only way to see the number the
- * lesson quotes is to re-solve the block from the tag's own measured ranges — same
- * anchors, same held height, same σ_r, so `solvePosition` lands on the point the engine
- * emitted and hands back its own `residualM`. This is the lesson's ruler: a round of this
- * scene at the session's 100 ps timestamp noise, NOT `exactFix`'s noise-free geometry.
- */
-function roundResidualsCm(variant?: number): string[] {
-  // variant 1 is "three anchors": the far corner is not in the scene, so not in the solve
-  const anchors: AnchorPos[] = CORNERS.filter(([id]) => variant !== 1 || id !== 'anchor-4')
-    .map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+/** Each block re-solved from the tag's own ranges — `UWB_POSITION` carries no residual. */
+function roundResidualsCm(variant?: number): number[] {
   const rs = tagRanges(variant)
   const blocks = [...new Set(rs.map((r) => r.block))].sort((a, b) => a - b)
-  expect(blocks, `variant ${variant ?? 'base'}`).toHaveLength(BLOCKS)
+  expect(blocks).toHaveLength(BLOCKS)
   return blocks.map((b) => {
-    const fix = solvePosition(
-      anchors,
-      rs.filter((r) => r.block === b).map((r) => ({ id: r.peer, distM: r.distM })),
-      TAG.z, SIGMA_R,
-    )
-    expect(fix, `block ${b} of variant ${variant ?? 'base'}`).not.toBeNull()
-    return (fix!.residualM * 100).toFixed(2)
+    const fix = solvePosition(anchorsOf(variant), rs.filter((r) => r.block === b).map((r) => ({ id: r.peer, distM: r.distM })), TAG.z, SIGMA_R)
+    expect(fix).not.toBeNull()
+    return fix!.residualM * 100
   })
 }
 
-/**
- * The tag's inspector state after `blocks` ranging blocks, replayed through the
- * player's own reducer — `initViewState` then `applyRecord` per record — so the
- * pinned rows are the panel's by construction and not a hand-built lookalike.
- */
 function inspectorAfter(variant: number | undefined, blocks: number): UwbNodeView {
   const vs = initViewState(scenarioOf(variant))
-  const untilNs = blocks * 200 * MS + 10 * MS
   for (const r of recs(variant)) {
-    if (r.t >= untilNs) break
+    if (r.t >= blocks * 200 * MS + 10 * MS) break
     applyRecord(vs, r)
   }
-  const u = vs.nodes['uwb-1'].uwb
-  expect(u, 'the tag has a UWB lane').toBeDefined()
-  expect(u!.position, 'the tag has a fix').not.toBeNull()
-  return u!
+  return vs.nodes['uwb-1'].uwb!
 }
 
-describe('uwb-position · the lesson’s own place in the track', () => {
-  it('sits in the sessions module and asks for the schedule and the double-sided round', () => {
+const lab = (heading: string): Lab => {
+  const l = uwbPosition.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const blockOf = <K extends Block['kind']>(l: Lab, kind: K, heading: string): Extract<Block, { kind: K }> => {
+  const b = (l.blocks ?? []).find((x) => x.kind === kind && x.heading === heading)
+  expect(b, `${kind} 「${heading}」`).toBeDefined()
+  return b as Extract<Block, { kind: K }>
+}
+const implRow = (topic: string) => {
+  const row = uwbPosition.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+
+describe('uwb-position · the lesson and its scene', () => {
+  it('sits in the sessions module, in the standard-first shape', () => {
+    expect(isStandardFirst(uwbPosition)).toBe(true)
     expect(MODULES[uwbPosition.module].title).toBe('定位')
-    expect(uwbPosition.id).toBe('uwb-position')
     expect(uwbPosition.needs).toEqual(['uwb-blocks', 'uwb-dstwr'])
-    // the two words the lesson adds; GDOP, NLOS and the FoM byte belong to uwb-geometry
     expect(uwbPosition.terms!.map((t) => t.term)).toEqual(['trilateration', 'residual'])
+    expect(uwbPosition.limits).toEqual([])
+    expect(uwbPosition.observe).toEqual([])
+    expect(uwbPosition.tryThis).toEqual([])
   })
 
-  it('it offers five jumps, three things to observe, one experiment and three questions', () => {
-    expect(uwbPosition.jumps).toHaveLength(5)
-    expect(uwbPosition.observe).toHaveLength(3)
-    expect(uwbPosition.tryThis).toHaveLength(1)
-    expect(uwbPosition.quiz).toHaveLength(3)
-    for (const q of uwbPosition.quiz) expect(q.options[q.answer]).toBeDefined()
+  it('cites each clause it teaches in ①, and ① says nothing of the solver', () => {
+    const std = JSON.stringify(uwbPosition.standard)
+    for (const c of ['§10.29.1.1', '§10.29.1.2.1', '§10.29.1.2.3', '§10.29.1.2.4', '§10.32.5', '§10.29.6.1', '§10.29.1.2.5']) expect(std, c).toContain(c)
+    for (const sim of ['高斯', '形心', '1 mm', '残差', '本仿真器', 'uwb-1']) expect(std, sim).not.toContain(sim)
   })
 
-  it('the jump targets occur in the order the list gives them', () => {
-    const rs = recs()
-    const at = uwbPosition.jumps.map((j) => {
-      const i = rs.findIndex(j.find)
-      expect(i, j.label).toBeGreaterThanOrEqual(0)
-      return i
-    })
-    expect(at).toEqual([...at].sort((a, b) => a - b))
-    // the Poll opens the block, the fix and the round end share the round's last instant,
-    // and the next block's fix is one 200 ms block later
-    expect(rs[at[0]].t).toBe(0)
-    expect(rs[at[2]].t).toBe(rs[at[3]].t)
-    expect(rs[at[4]].t - rs[at[2]].t).toBe(200 * MS)
-  })
-
-  it('owns the arithmetic as the model’s, and cites only in `sources`', () => {
-    // "The standard says nothing at all about how a phone turns ranges into a point" — the
-    // provenance paragraph that used to open the lesson is now the collapsed section.
-    const src = uwbPosition.sources!.map((s) => s).join('\n')
-    expect(src).toContain('IEEE Std 802.15.4-2024')
-  })
-})
-
-describe('uwb-position · the scene', () => {
-  it('is four corner anchors at 2.20 m and one phone off centre at (4, 3.5, 1.0)', () => {
+  it('is four corner anchors at 2.20 m and one phone at (4, 3.5, 1.0); DS-TWR with NLOS on', () => {
+    for (const v of [undefined, 0, 1]) expect(() => ScenarioSchema.parse(scenarioOf(v))).not.toThrow()
     const s = uwbPosition.scenario()
-    expect(() => ScenarioSchema.parse(s)).not.toThrow()
-    expect(s.rooms).toEqual([{ x: 0, y: 0, w: 10, h: 8, name: 'Lab' }])
-    expect(s.nodes.map((n) => n.id)).toEqual([...CORNERS.map(([id]) => id), 'uwb-1'])
-    expect(s.nodes.map((n) => n.uwb!.role)).toEqual(['anchor', 'anchor', 'anchor', 'anchor', 'tag'])
-    expect(s.nodes.slice(0, 4).map((n) => [n.pos.x, n.pos.y, n.pos.z]))
-      .toEqual(CORNERS.map(([, x, y]) => [x, y, ANCHOR_Z]))
-    expect(s.nodes[4].pos).toEqual(TAG)
-    // "every crystal is drawn rather than set"; the session is the default one, NLOS on
-    expect(s.nodes.every((n) => n.uwb!.ppm === undefined)).toBe(true)
-    expect(s.uwb).toEqual({ ...DEFAULT_UWB_SESSION, method: 'ds', nlos: true })
-    expect(s.uwb!.nlos).toBe(true)
-    expect(s.uwb!.tsNoisePs).toBe(100)
-    // no Wi-Fi traffic at all, and the base scene is the plain four-wall shell
-    expect(s.nodes.every((n) => n.profiles.every((p) => p === 'idle'))).toBe(true)
-    expect(s.servers).toEqual([])
-    expect(s.walls).toHaveLength(4)
-    expect(s).toEqual(uwbPositionScenario('base'))
+    expect(s.nodes.map((n) => [n.id, n.pos.x, n.pos.y, n.pos.z])).toEqual([
+      ...CORNERS.map(([id, x, y]) => [id, x, y, ANCHOR_Z]), ['uwb-1', TAG.x, TAG.y, TAG.z],
+    ])
+    expect(s.uwb).toMatchObject({ method: 'ds', nlos: true })
+    expect(uwbPositionScenario('base')).toEqual(s)
   })
 
-  it('the wall variant adds one brick stub, and only the tag → anchor-1 ray crosses it', () => {
-    // The builder's own claim: "'wall' adds brick(2, 1.5, 2, 3), a 1.5 m stub that the
-    // tag → anchor-1 ray crosses and no other tag → anchor ray does". The lesson that
-    // spends its prose on this variant is uwb-geometry; the scene is built here.
-    expect(uwbPosition.variants).toHaveLength(2)
+  it('the wall variant adds one brick stub, crossed by the tag → anchor-1 ray only', () => {
     const v = scenarioOf(0)
-    expect(() => ScenarioSchema.parse(v)).not.toThrow()
-    expect(v.walls).toHaveLength(5)
-    const stub = v.walls[4]
+    expect(v.walls.length).toBe(uwbPosition.scenario().walls.length + 1)
+    const stub = v.walls[v.walls.length - 1]
     expect(stub).toEqual({ x1: 2, y1: 1.5, x2: 2, y2: 3, material: 'brick', openings: [] })
-    expect(Math.hypot(stub.x2 - stub.x1, stub.y2 - stub.y1)).toBe(1.5)
-    const crossings = CORNERS.map(([id, x, y]) =>
-      [id, wallsCrossed(TAG, { x, y, z: ANCHOR_Z }, [stub])] as const)
-    expect(crossings.map(([id, c]) => `${id}:${c.length}`)).toEqual(['anchor-1:1', 'anchor-2:0', 'anchor-3:0', 'anchor-4:0'])
-    expect(crossings[0][1]).toEqual(['brick'])
-    // nothing but the wall list changes
-    expect(JSON.stringify({ ...v, walls: v.walls.slice(0, 4) })).toBe(JSON.stringify(uwbPosition.scenario()))
+    const crossings = CORNERS.map(([id, x, y]) => `${id}:${wallsCrossed(TAG, { x, y, z: ANCHOR_Z }, [stub]).length}`)
+    expect(crossings).toEqual(['anchor-1:1', 'anchor-2:0', 'anchor-3:0', 'anchor-4:0'])
     expect(v).toEqual(uwbPositionScenario('wall'))
   })
 
   it('the three-anchor variant deletes the corner at (9.5, 7.5) and nothing else', () => {
-    const v = scenarioOf(1)
-    expect(() => ScenarioSchema.parse(v)).not.toThrow()
-    expect(v.nodes.map((n) => n.id)).toEqual(['anchor-1', 'anchor-2', 'anchor-3', 'uwb-1'])
-    expect(v.walls).toEqual(uwbPosition.scenario().walls)
-    expect(JSON.stringify({ ...v, nodes: [...v.nodes.slice(0, 3), uwbPosition.scenario().nodes[3], v.nodes[3]] }))
-      .toBe(JSON.stringify(uwbPosition.scenario()))
-    expect(v).toEqual(uwbPositionScenario('three'))
+    expect(scenarioOf(1).nodes.map((n) => n.id)).toEqual(['anchor-1', 'anchor-2', 'anchor-3', 'uwb-1'])
+    expect(scenarioOf(1).walls).toEqual(uwbPosition.scenario().walls)
   })
 })
 
-describe('uwb-position · the solver', () => {
-  it('the printed formula is the solver’s own terms, and it converges to a micrometre', () => {
-    // "r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r"
-    expect(formulas()).toHaveLength(2)
-    expect(formulas()[0].text).toBe('r_i = ‖p − a_i‖ − d_i      J_i = (p − a_i) / ‖p − a_i‖      (JᵀJ) δ = −Jᵀ r')
-    for (const f of formulas()) expect(f.text).toBe(f.text)
-    // "Fed exact distances the solver converges to within a micrometre"
-    const exact = exactFix(TAG.x, TAG.y)
+describe('uwb-position · ② says what the engine does, and the engine does it', () => {
+  it('one-to-many DS-TWR: Final with RMI and RRTI, anchors compute, then report back', () => {
+    const tx = ofType(recs(), 'TX_START').filter((r) => r.frame.uwb?.block === 0)
+    const final = tx.find((r) => r.frame.kind === 'uwbFinal')!
+    expect(final.frame.uwb!.ies).toEqual(['RMI', 'RRTI'])
+    // each anchor computes its own range on the Final, before any report comes back
+    const anchorRanges = ofType(recs(), 'UWB_RANGE').filter((r) => r.node !== 'uwb-1' && r.block === 0)
+    expect(anchorRanges.map((r) => r.node).sort()).toEqual(CORNERS.map(([id]) => id))
+    const reports = tx.filter((r) => r.frame.kind === 'uwbReport')
+    expect(reports).toHaveLength(4)
+    for (const r of anchorRanges) expect(r.t).toBeLessThan(Math.min(...reports.map((x) => x.t)))
+  })
+
+  it('the solver: centroid start, 1 mm and 20 iterations, and it converges to a micrometre', () => {
+    const anchors = anchorsOf()
+    const exact = solvePosition(anchors, anchors.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) })), TAG.z, SIGMA_R)!
     expect(Math.hypot(exact.x - TAG.x, exact.y - TAG.y)).toBeLessThan(1e-6)
-    expect(exact.residualM).toBeLessThan(1e-6)
-    // "The engine starts at the anchors’ centroid and stops when a step falls under 1 mm, or
-    //  after 20 iterations"
+    expect(implRow('由距离到位置').sim).toContain('1 mm')
+    expect(implRow('由距离到位置').sim).toContain('20 次')
   })
 
-  it('refuses to answer under three ranges, or with the anchors in a line', () => {
-    // "fed fewer than three, or anchors standing in a line, it refuses to answer at all"
-    const three: AnchorPos[] = CORNERS.slice(0, 3).map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
-    expect(solvePosition(three.slice(0, 2), three.slice(0, 2).map((a) => ({ id: a.id, distM: 5 })), TAG.z, SIGMA_R)).toBeNull()
-    const line: AnchorPos[] = [1, 2, 3].map((i) => ({ id: `a${i}`, x: i, y: 4, z: ANCHOR_Z }))
-    expect(solvePosition(line, line.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) })), TAG.z, SIGMA_R))
-      .toBeNull()
-    // "Two unknowns, not three": three ranges is one above the floor, and a fix is still had
-    const exactRanges = three.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
-    expect(solvePosition(three, exactRanges, TAG.z, SIGMA_R)).not.toBeNull()
-    expect(three.length - 2).toBe(1)
-  })
-
-  it('σ_r is c·σ_ts/√2 = 2.12 cm, the same figure the opening lesson prints', () => {
-    // "σ_r = c · σ_ts / √2 = 2.12 cm" and its note: "The opening lesson’s 2.1 cm of range-noise
-    //  sigma is this same σ_r, at 100 ps of timestamp noise … It is the single-sided figure,
-    //  kept as a conservative stand-in — a double-sided round scatters a little less,
-    //  1.8–1.9 cm."
-    expect(formulas()[1].text).toBe('σ_r = c · σ_ts / √2 = 2.12 cm')
-    expect(SIGMA_R).toBeCloseTo(C_M_PER_NS * 0.1 / Math.SQRT2, 12)
-    expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
-    // the phrase is one sentence written in two lessons: uwb-intro's observe prints the same
-    // figure, and this lesson names it there. A reseed of either has to move both.
-    const sigmaCm = `${(SIGMA_R * 100).toFixed(1)} cm`
-    expect(prose()).toContain(sigmaCm)
-    expect(lessonProse(uwbIntro)).toContain(sigmaCm)
-    // rangeSigmaM documents c·σ_ts/√2 as exact for SS-TWR and 0.62–0.65·c·σ_ts for DS-TWR, so
-    // the printed σ_r is the larger, conservative one — 1/√2 = 0.707 against 0.65
-    expect(SIGMA_R / (C_M_PER_NS * 0.1)).toBeCloseTo(1 / Math.SQRT2, 12)
-    expect(SIGMA_R / (C_M_PER_NS * 0.1)).toBeGreaterThan(0.65)
-    expect(SIGMA_R * 100).toBeGreaterThan(1.9)
-    // and the provenance of that choice is in `sources`, where citations live
-    expect(uwbPosition.sources!.map((s) => s).join('\n')).toContain('0.62–0.65 · c · σ_ts')
-  })
-})
-
-describe('uwb-position · the base run', () => {
-  it('one fix per block, seven of them, each at the end of the tag’s round', () => {
-    // "One fix per block, at the end of the tag’s round" / "One fix per block, seven of them in
-    //  this run, each a whole block after the last."
-    expect(fixes()).toHaveLength(BLOCKS)
-    expect(fixes().map((f) => f.block)).toEqual([0, 1, 2, 3, 4, 5, 6])
-    expect(fixes().map((f) => f.t)).toEqual([0, 1, 2, 3, 4, 5, 6].map((b) => 20 * MS + b * 200 * MS))
-    const ends = ofType(recs(), 'UWB_ROUND_END')
-    expect(ends).toHaveLength(BLOCKS)
-    expect(ends.map((e) => e.t)).toEqual(fixes().map((f) => f.t))
-    expect(ofType(recs(), 'UWB_TIMEOUT')).toHaveLength(0)
-    for (const f of fixes()) expect(f.anchors).toHaveLength(4)
-    // "four amber rings at the ranges just measured": one range per anchor per block
-    expect(tagRanges().filter((r) => r.block === 0)).toHaveLength(4)
-    // "the point is only computed once the last of them is in"
-    const lastRange = Math.max(...tagRanges().filter((r) => r.block === 0).map((r) => r.t))
-    expect(fixes()[0].t).toBeGreaterThanOrEqual(lastRange)
-  })
-
-  it('block 0’s log line is the one the table quotes, word for word', () => {
-    // the "What the log prints at the end of a round" table: "The fix of block 0" reads
-    // "uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors"
-    const line = 'uwb-1 position (3.99, 3.50) m, true (4.00, 3.50), error 0.01 m, GDOP 1.05, 4 anchors'
-    expect(cell(0, 0, 1)).toBe(line)
-    expect(fmtRecord(fixes()[0])).toBe(line)
-    /*
-     * **And the row's own label, which names the block.** The 「第」 rule change of 2026-10-14
-     * uncovered it: 「第 0 块的定位」 is a claim about which record the cell beside it quotes,
-     * and the block is a field of that record.
-     */
-    const [label] = [/第 (\d+) 块的定位/.exec(cell(0, 0, 0))]
-    expect(label, 'the row no longer says which block’s fix it quotes').not.toBeNull()
-    expect(fixes()[0].block, 'the block of the fix that row quotes').toBe(Number(label![1]))
-  })
-
-  it('the seven errors are the seven the table lists, and the inspector prints the first', () => {
-    // the table rows "Its error, as the inspector prints it" (0.7 cm) and "The seven fixes of
-    // the run" (0.7, 3.3, 0.5, 2.3, 2.8, 0.5, 1.8 cm), and the paragraph "The error runs from
-    // half a centimetre to a little over three"
-    const cm = fixes().map((f) => fixErr(f) * 100)
-    expect(cm.map((c) => c.toFixed(1))).toEqual(['0.7', '3.3', '0.5', '2.3', '2.8', '0.5', '1.8'])
-    expect(cell(0, 2, 1)).toBe(`${cm.map((c) => c.toFixed(1)).join(', ')} cm`)
-    expect(Math.min(...cm).toFixed(1)).toBe('0.5')
-    expect(Math.max(...cm).toFixed(1)).toBe('3.3')
-    // "a few times σ_r": every fix inside four sigma of one range, before geometry is charged
-    for (const c of cm) expect(c / 100).toBeLessThan(4 * SIGMA_R)
-    const row = uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.uwb)
-    expect(cell(0, 1, 1)).toBe('0.7 cm')
-    expect(row.error).toBe('0.7 cm')
-    expect(row.estimate).toBe('(3.99, 3.50) m')
-    expect(row.truth).toBe('(4.00, 3.50) m')
-  })
-
-  it('a clean round leaves the noise, and that is the criterion the lesson states', () => {
-    // 「干净的一轮，这个数就落在噪声本身的量级上：本次运行的七个块是 0.78 到 1.98 cm，
-    //  比单条距离那 2.12 cm 的噪声还小一点」 — the run's own seven blocks, with the gauge
-    //  named: base scene, blocks 0–6, the session's default 100 ps timestamp noise.
-    expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
-    expect((SIGMA_R * 100).toFixed(2)).toBe('2.12')
-    const clean = roundResidualsCm()
-    expect(clean).toEqual(['1.44', '1.15', '1.61', '0.83', '0.78', '1.98', '1.06'])
-    const cm = clean.map(Number)
-    expect(Math.min(...cm).toFixed(2)).toBe('0.78')
-    expect(Math.max(...cm).toFixed(2)).toBe('1.98')
-    expect(prose()).toContain('0.78 到 1.98 cm')
-    // the half of the criterion that makes it a criterion: every clean round is inside σ_r
-    for (const c of cm) expect(c / 100, `${c} cm`).toBeLessThan(SIGMA_R)
-
-    // 「而只要有一条距离真的偏了，它会跳到二十厘米上下——下一课那堵砖墙的七个块是
-    //  19.85 到 22.25 cm」 — variant 0 of this lesson's own scene, same seven blocks,
-    //  same noise, so the two sides of the sentence are one ruler.
-    const wall = roundResidualsCm(0).map(Number)
-    expect(Math.min(...wall).toFixed(2)).toBe('19.85')
-    expect(Math.max(...wall).toFixed(2)).toBe('22.25')
-    expect(prose()).toContain('19.85 到 22.25 cm')
-    for (const c of wall) expect(c / 100, `${c} cm`).toBeGreaterThan(4 * SIGMA_R)
-
-    // What used to stand here was `exactFix`'s residual — noise-free geometry, ~1e-14 m —
-    // under the name "a clean round". The arithmetic is still true and still worth pinning;
-    // it is simply not a round of this scene, and the lesson no longer says it is. (Review
-    // I5 moved that claim's disclaimer and left its number, which is how 「不到一微米」
-    // survived every green run until the read-through solved the blocks by hand.)
-    expect(exactFix(TAG.x, TAG.y).residualM).toBeLessThan(1e-6)
-    expect(prose()).not.toContain('不到一微米')
-    expect(prose()).not.toContain('残差就是几厘米')
-    // `Fix.residualM` exists; UWB_POSITION has no such field, which is why the reader
-    // never sees any of these numbers on screen.
-    expect(Object.keys(fixes()[0])).not.toContain('residualM')
-  })
-
-  it('the fourth ring makes the clean residual bigger, not smaller', () => {
-    // 「四个锚点比两个未知数多出两个测量，三个锚点只多出一个，所以同样干净的一轮，
-    //  四锚点的残差反而更大——第 0 块是 1.44 cm，而「三个锚点」那个变体的同一个块只有
-    //  0.24 cm」 — block 0 of the base run against block 0 of variant 1, same noise.
-    const four = roundResidualsCm()[0]
-    const three = roundResidualsCm(1)[0]
-    expect([four, three]).toEqual(['1.44', '0.24'])
-    expect(Number(three)).toBeLessThan(Number(four))
-    expect(prose()).toContain('第 0 块是 1.44 cm')
-    expect(prose()).toContain('只有 0.24 cm')
-    // and it is the count of measurements that differs, not the geometry's own quality:
-    // the three-anchor round fits one spare measurement, the four-anchor round two
-    expect(tagRanges().filter((r) => r.block === 0)).toHaveLength(4)
-    expect(tagRanges(1).filter((r) => r.block === 0)).toHaveLength(3)
-  })
-})
-
-/**
- * The 2026-09-23 amendment ("mechanism before metaphor"): the lesson now writes the
- * solver out as a procedure, and the procedure is graded against `solvePosition`
- * itself rather than against the old prose. Every step names a quantity the engine
- * really uses, and the worked-example table is block 0 of the base run put through
- * those steps value by value.
- */
-describe('uwb-position · the procedure, against the solver', () => {
-  const steps = (): Extract<Block, { kind: 'steps' }> =>
-    uwbPosition.numbers!.find((b): b is Extract<Block, { kind: 'steps' }> => b.kind === 'steps')!
-  const stepsText = (): string => steps().items.map((i) => i).join('\n')
-  /** Block 0 of the base run, as the tag measured it: the input to the worked example. */
-  const block0 = () => tagRanges().filter((r) => r.block === 0)
-
-  it('is a steps block on the main path, one step per thing the engine does', () => {
-    expect(uwbPosition.numbers!.some((b) => b.kind === 'steps')).toBe(true)
-    expect((uwbPosition.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
-    expect(steps().items.length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('step 1: under three matched ranges the round emits nothing', () => {
-    // "Fewer than three matched, and the round emits nothing."
-    const three: AnchorPos[] = CORNERS.slice(0, 3).map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
-    const ranges = three.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
-    expect(solvePosition(three, ranges, TAG.z, SIGMA_R)).not.toBeNull()
-    expect(solvePosition(three, ranges.slice(0, 2), TAG.z, SIGMA_R)).toBeNull()
-    // a range naming an anchor the tag has no coordinates for does not count as matched
-    expect(solvePosition(three, [...ranges.slice(0, 2), { id: 'anchor-9', distM: 5 }], TAG.z, SIGMA_R)).toBeNull()
-  })
-
-  it('step 2: the trial point starts at the mean of the anchors’ x and y', () => {
-    // "the centre of the four corners, (5.00, 4.00) m" — the arithmetic, not a remembered value
-    const cx = CORNERS.reduce((s, [, x]) => s + x, 0) / CORNERS.length
-    const cy = CORNERS.reduce((s, [, , y]) => s + y, 0) / CORNERS.length
-    expect([cx.toFixed(2), cy.toFixed(2)]).toEqual(['5.00', '4.00'])
-    expect(stepsText()).toContain('(5.00, 4.00) m')
-    expect(cell(1, 1, 1)).toBe('(5.00, 4.00) m')
-    // the seed is inside the convex hull, so no iteration starts on the wrong side of the room
-    expect(cx).toBeGreaterThan(0.5); expect(cx).toBeLessThan(9.5)
-    expect(cy).toBeGreaterThan(0.5); expect(cy).toBeLessThan(7.5)
-  })
-
-  it('steps 3 and 4: the height is held, and an anchor overhead gives a zero row', () => {
-    // "the tag’s height held at its configured 1.00 m" — only (x, y) is solved for, so a
-    // solver handed the WRONG height moves the answer, which is what "held" means.
-    expect(stepsText()).toContain('1.00 m')
-    expect(uwbPosition.scenario().nodes[4].pos.z).toBe(TAG.z)
-    const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
+  it('the height is held: the true 1.00 m, and a wrong height moves the answer', () => {
+    expect(implRow('未知数').sim).toContain(`${TAG.z.toFixed(2)} m`)
+    const anchors = anchorsOf()
     const ranges = anchors.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
-    const offBy = (dz: number): number => {
-      const p = solvePosition(anchors, ranges, TAG.z + dz, SIGMA_R)!
-      return Math.hypot(p.x - TAG.x, p.y - TAG.y)
-    }
-    expect(offBy(0)).toBeLessThan(1e-6)
-    expect(offBy(0.5)).toBeGreaterThan(1e-3)
-    expect(offBy(1.0)).toBeGreaterThan(offBy(0.5))
-    // "that pair is the anchor’s row of J" — the horizontal part of a unit vector, so an
-    // anchor directly above the tag contributes nothing, and three such leave no fix
-    const overhead: AnchorPos[] = [1, 2, 3].map((i) => ({ id: `a${i}`, x: TAG.x, y: TAG.y, z: ANCHOR_Z + i }))
-    expect(solvePosition(overhead, overhead.map((a) => ({ id: a.id, distM: a.z - TAG.z })), TAG.z, SIGMA_R)).toBeNull()
+    const off = solvePosition(anchors, ranges, TAG.z + 0.5, SIGMA_R)!
+    expect(Math.hypot(off.x - TAG.x, off.y - TAG.y)).toBeGreaterThan(1e-3)
   })
 
-  it('steps 5 and 6: a singular layout refuses, and the iteration is a millimetre and twenty', () => {
-    expect(stepsText()).toContain('1e-9')
-    // collinear anchors: JᵀJ is singular and the round ends with nothing
+  it('no fix under three ranges, or with the anchors in a line (det < 1e-9)', () => {
+    expect(MIN_DET).toBe(1e-9)
+    expect(implRow('何时不输出').sim).toContain('1e-9')
+    const three = anchorsOf().slice(0, 3)
+    const ranges = three.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) }))
+    expect(solvePosition(three, ranges.slice(0, 2), TAG.z, SIGMA_R)).toBeNull()
     const line: AnchorPos[] = [1, 2, 3].map((i) => ({ id: `a${i}`, x: i, y: 4, z: ANCHOR_Z }))
     expect(solvePosition(line, line.map((a) => ({ id: a.id, distM: Math.hypot(TAG.x - a.x, TAG.y - a.y, TAG.z - a.z) })), TAG.z, SIGMA_R)).toBeNull()
-    // twenty iterations is never the binding stop here: a fit that had to be truncated would
-    // not sit a micrometre from the truth on exact input
-    expect(Math.hypot(exactFix(TAG.x, TAG.y).x - TAG.x, exactFix(TAG.x, TAG.y).y - TAG.y)).toBeLessThan(1e-6)
   })
 
-  it('step 7: the residual the worked example prints is √(Σ r_i²/n) at the converged point', () => {
-    const rs = block0()
-    /*
-     * 「本次运行的第 0 块，照着这些步骤走一遍」 — the heading says which block the worked example
-     * walks, and every cell below is that block's. Uncovered by the 「第」 rule change of
-     * 2026-10-14; read here against the records the cells are built from.
-     */
-    const head = /本次运行的第 (\d+) 块/.exec(table(1).heading!)
-    expect(head, 'the worked example no longer says which block it walks').not.toBeNull()
-    expect(new Set(rs.map((r) => r.block)), 'the block every range in it belongs to')
-      .toEqual(new Set([Number(head![1])]))
-    const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
-    const fix = solvePosition(anchors, rs.map((r) => ({ id: r.peer, distM: r.distM })), TAG.z, SIGMA_R)!
-    // the table's own rows, value by value
-    expect(cell(1, 0, 1)).toBe(`${rs.map((r) => r.distM.toFixed(4)).join(', ')} m`)
-    expect(cell(1, 2, 1)).toBe(`(${fix.x.toFixed(4)}, ${fix.y.toFixed(4)}) m`)
-    expect(cell(1, 3, 1)).toBe(`${(fix.residualM * 100).toFixed(2)} cm`)
-    expect(cell(1, 4, 1)).toBe(`(${TAG.x.toFixed(2)}, ${TAG.y.toFixed(2)}) m`)
-    // and it is the fix the engine itself emitted for that block, not a re-solve that drifted
-    expect(fix.x).toBeCloseTo(fixes()[0].x, 12)
-    expect(fix.y).toBeCloseTo(fixes()[0].y, 12)
-    // √(Σ r_i²/n) written out, against the solver's own figure
-    const sumSq = rs.reduce((s, r) => {
-      const a = anchors.find((x) => x.id === r.peer)!
-      return s + (Math.hypot(fix.x - a.x, fix.y - a.y, TAG.z - a.z) - r.distM) ** 2
-    }, 0)
-    expect(Math.sqrt(sumSq / rs.length)).toBeCloseTo(fix.residualM, 12)
+  it('the residual is computed but never written into the record', () => {
+    expect(Object.keys(fixes()[0])).not.toContain('residualM')
+    expect(implRow('残差').sim).toContain('不写入记录')
   })
 
-  it('step 8: the printed error is the formatter’s, and the record carries no residual', () => {
-    // "The error in the log is the formatter’s, not the solver’s" — the record holds the
-    // estimate and the truth, and `fmtRecord` takes the distance between them.
-    const f = fixes()[0]
-    expect(Object.keys(f)).not.toContain('residualM')
-    expect(Object.keys(f)).not.toContain('errorM')
-    expect(fmtRecord(f)).toContain(`error ${Math.hypot(f.x - f.trueX, f.y - f.trueY).toFixed(2)} m`)
-    expect(cell(1, 5, 1)).toBe(`error ${fixErr(f).toFixed(2)} m — ${(fixErr(f) * 100).toFixed(2)} cm`)
-    // a tag with no truth column: the fields the formatter needs are the record's, and one
-    // of them is the simulator's own knowledge of where the tag stands
-    expect(f.trueX).toBe(TAG.x)
-    expect(f.trueY).toBe(TAG.y)
+  it('σ_r = c·σ_ts/√2 = 2.12 cm at 100 ps', () => {
+    expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
+    const sim = implRow('单条距离的噪声').sim
+    expect(sim).toContain(`σ_ts 取 ${DEFAULT_UWB_SESSION.tsNoisePs} ps，得 ${(SIGMA_R * 100).toFixed(2)} cm`)
+    expect(SIGMA_R).toBeCloseTo(C_M_PER_NS * 0.1 / Math.SQRT2, 12)
+  })
+
+  it('one fix per block, at the end of the tag’s round, after the last range', () => {
+    expect(fixes().map((f) => f.t)).toEqual([0, 1, 2, 3, 4, 5, 6].map((b) => 20 * MS + b * 200 * MS))
+    expect(ofType(recs(), 'UWB_ROUND_END').map((e) => e.t)).toEqual(fixes().map((f) => f.t))
+    const last0 = Math.max(...tagRanges().filter((r) => r.block === 0).map((r) => r.t))
+    expect(fixes()[0].t).toBeGreaterThanOrEqual(last0)
   })
 })
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * This file measures everything and then compares it with a figure typed on **this** side —
- * `expect(clean).toEqual(['1.44', '1.15', …])` — with the lesson's sentence quoted in a comment,
- * and in a few places with `expect(prose()).toContain('0.78 到 1.98 cm')`, which is a literal on
- * both sides. The sampling sweep of 2026-10-12 planted six of this lesson's figures and **all six
- * went unnoticed**. Here every figure is parsed out of the shipped string.
- *
- * **The reads worth naming:**
- *
- *  - **σ_r is read through the formula it is printed with.** 「σ_r = c · σ_ts / √2 = 2.12 cm」 is
- *    parsed into its root and its answer, and the answer has to be `rangeSigmaM` of the session's
- *    own timestamp noise — which the same paragraph prints as 100 ps, and `limits` again.
- *  - **the double-sided spread is read through the factors `sources` gives it.** 「1.8 到 1.9
- *    cm」 is 「0.62–0.65 · c · σ_ts」, so the four figures are one claim: each end of the range is
- *    its own factor times the same `c · σ_ts`, rounded down to a tenth.
- *  - **the worked table is read as the solve it describes.** The four ranges are the tag's own
- *    for block 0, the trial point is the anchors' centroid, the stopping point and the residual
- *    are what `solvePosition` returns for those ranges, and the printed error is `fmtRecord`'s.
- *  - **the two residual ranges are read as one ruler.** 「七个块是 0.78 到 1.98 cm」 and 「那堵
- *    砖墙的七个块是 19.85 到 22.25 cm」 are the same computation over two scenes, and the
- *    sentence's point — that one is inside σ_r and the other far outside it — is read too.
- */
-describe('uwb-position · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
-  }
-  const PIC = blockText(uwbPosition.picture)
-  const NUMS = blockText(uwbPosition.numbers)
-  const LIM = blockText(uwbPosition.limits)
-  const SRC = blockText(uwbPosition.sources)
 
-  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-
-  it('reads σ_r through its own formula, and every place the lesson prints it', () => {
-    // 「σ_r = c · σ_ts / √2 = 2.12 cm」
-    const [root, cm] = figs(formulas().map((f) => f.text).join('\n'),
-      /σ_r = c · σ_ts \/ √(\d) = ([\d.]+) cm/, 'the formula for one range’s noise')
-    expect(root, 'the root the two noisy counts are divided by').toBe(2)
-    same(String(cm), SIGMA_R * 100, 'the noise one range really carries')
-    const [psNote] = figs(NUMS, /对应 (\d+) ps 的时间戳噪声/, '`numbers` on the timestamp noise')
-    expect(psNote, 'the session’s own timestamp noise').toBe(DEFAULT_UWB_SESSION.tsNoisePs)
-    same(String(cm), (299_792_458 * psNote! * 1e-12 * 100) / Math.sqrt(root!),
-      'which is what that formula gives for it')
-    // 「开篇那一课引用的 2.1 cm 测距噪声，正是这里的 σ_r」 — read against that lesson's own prose
-    const [opening] = figs(NUMS, /开篇那一课引用的 ([\d.]+) cm 测距噪声/, '`numbers` on the opening lesson')
-    expect(lessonProse(uwbIntro), 'the opening lesson really prints that figure')
-      .toContain(`${opening} cm`)
-    same(String(opening), SIGMA_R * 100, 'and it is this same sigma, to its own decimal')
-    // 「双边测距实际的离散程度略小一些，1.8 到 1.9 cm」, which `sources` gives the factors for
-    const [dsLo, dsHi] = figs(NUMS, /双边测距实际的离散程度略小一些，([\d.]+) 到 ([\d.]+) cm/,
-      '`numbers` on the double-sided spread')
-    const [fLo, fHi] = figs(SRC, /双边测距的取值是 ([\d.]+)–([\d.]+) · c · σ_ts/,
-      '`sources` on the two factors')
-    // `sources` prints the root and the timestamp noise over again (sweep of 2026-10-14)
-    const [srcRoot] = figs(SRC, /σ_r = c · σ_ts \/ √(\d) 对单边测距是精确的/,
-      '`sources` on the same root')
-    expect(srcRoot, 'the same root the formula prints').toBe(root)
-    const [srcPs] = figs(SRC, /它所代入的 (\d+) ps 时间戳噪声/, '`sources` on the same noise')
-    expect(srcPs, 'and the same timestamp noise').toBe(psNote)
-    const cSigmaCm = 299_792_458 * psNote! * 1e-12 * 100
-    expect(dsLo, 'the low end, as its own factor gives it')
-      .toBe(Math.floor(fLo! * cSigmaCm * 10) / 10)
-    expect(dsHi, 'and the high end').toBe(Math.floor(fHi! * cSigmaCm * 10) / 10)
-    expect(dsHi, 'both of them under the single-sided figure the model keeps')
-      .toBeLessThan(cm!)
-    // `limits` prints the pair a third time
-    const [limPs, limCm] = figs(LIM, /会话配置里那 (\d+) ps 换算来的 ([\d.]+) cm/,
-      '`limits` on the same two')
-    expect([limPs, limCm], 'the same noise and the same sigma').toEqual([psNote, cm])
-  })
-
-  it('reads the two residual ranges as the one ruler they are', () => {
-    // 「本次运行的七个块是 0.78 到 1.98 cm，比单条距离那 2.12 cm 的噪声还小一点」
-    const [lo, hi, sigma] = figs(PIC,
-      /本次运行的七个块是 ([\d.]+) 到 ([\d.]+) cm，比单条距离那 ([\d.]+) cm 的噪声还小一点/,
-      '`picture` on the clean residuals')
-    const clean = roundResidualsCm().map(Number)
-    expect(clean, 'one residual per block of the run').toHaveLength(BLOCKS)
-    same(String(lo), Math.min(...clean), 'the smallest residual of the clean run')
-    same(String(hi), Math.max(...clean), 'and the largest')
-    same(String(sigma), SIGMA_R * 100, 'against one range’s own noise')
-    expect(hi, 'which the largest of them really is under').toBeLessThan(sigma!)
-    // 「下一课那堵砖墙的七个块是 19.85 到 22.25 cm」
-    const [wLo, wHi] = figs(PIC, /那堵砖墙的七个块是 ([\d.]+) 到 ([\d.]+) cm/,
-      '`picture` on the wall variant’s residuals')
-    const wall = roundResidualsCm(0).map(Number)
-    same(String(wLo), Math.min(...wall), 'the smallest residual with the wall in the way')
-    same(String(wHi), Math.max(...wall), 'and the largest')
-    expect(wLo, 'every one of which is far outside the noise').toBeGreaterThan(4 * sigma!)
-    // 「第 0 块是 1.44 cm，而「三个锚点」那个变体的同一个块只有 0.24 cm」
-    const [four, three] = figs(NUMS, /第 0 块是 ([\d.]+) cm，而「三个锚点」那个变体的同一个块只有 ([\d.]+) cm/,
-      '`numbers` on the fourth ring’s cost')
-    /*
-     * **The paragraph under the worked table prints both of them again** (sweep of 2026-10-14):
-     * 「照这些步骤走出来的 1.44 cm…它比单条距离的噪声 2.12 cm 还小」 — the block-0 residual and the
-     * single-range noise, so both are read there too.
-     */
-    const [walked, againstSigma] = figs(NUMS,
-      /照这些步骤走出来的 ([\d.]+) cm[^]*?它比单条距离的噪声 ([\d.]+) cm 还小/,
-      '`numbers` on the worked residual')
-    expect(String(walked), 'the residual those steps walk out to').toBe(roundResidualsCm()[0])
-    same(String(againstSigma), SIGMA_R * 100, 'against one range’s own noise')
-    expect(walked, 'which it really is under').toBeLessThan(againstSigma!)
-    expect(String(four), 'block 0 of the four-anchor run').toBe(roundResidualsCm()[0])
-    expect(String(three), 'and of the three-anchor one').toBe(roundResidualsCm(1)[0])
-    expect(three, 'the smaller residual being the one with less to satisfy').toBeLessThan(four!)
-  })
-
-  it('reads the worked table as the solve it describes, row by row', () => {
-    const t = table(1)
-    const row = (needle: string): string => t.rows.find((r) => r[0]!.includes(needle))![1]!
-    // 「匹配上的四条距离 | 4.7368, 6.3831, 5.4439, 6.8922 m」
-    const printed = raw(row('匹配上的四条距离'), /^([\d., ]+) m$/, 'the four ranges')[0]!
-      .split(', ').map(val)
-    const block0 = tagRanges().filter((r) => r.block === 0)
-    expect(printed, 'the four ranges the tag measured in that block')
-      .toEqual(block0.map((r) => Number(r.distM.toFixed(4))))
-    // 「试探点起于 | (5.00, 4.00) m」 — the anchors' own centroid
-    const [tx, ty] = figs(row('试探点起于'), /^\(([\d.]+), ([\d.]+)\) m$/, 'the trial point')
-    same(String(tx), CORNERS.reduce((a, [, x]) => a + x, 0) / CORNERS.length, 'the anchors’ mean x')
-    same(String(ty), CORNERS.reduce((a, [, , y]) => a + y, 0) / CORNERS.length, 'and their mean y')
-    // 「迭代终止于 | (3.9933, 3.4981) m」 and 「该处残差的均方根 | 1.44 cm」
-    const anchors: AnchorPos[] = CORNERS.map(([id, x, y]) => ({ id, x, y, z: ANCHOR_Z }))
-    const solved = solvePosition(anchors, block0.map((r) => ({ id: r.peer, distM: r.distM })),
-      TAG.z, SIGMA_R)!
-    const [sx, sy] = figs(row('迭代终止于'), /^\(([\d.]+), ([\d.]+)\) m$/, 'where the iteration stops')
-    expect([sx, sy], 'where the solver really stops')
-      .toEqual([Number(solved.x.toFixed(4)), Number(solved.y.toFixed(4))])
-    same(raw(row('该处残差的均方根'), /^([\d.]+) cm$/, 'the residual there')[0]!,
-      solved.residualM * 100, 'the root mean square of the residuals it leaves')
-    // 「标签的真实位置 | (4.00, 3.50) m」
-    const [trueX, trueY] = figs(row('标签的真实位置'), /^\(([\d.]+), ([\d.]+)\) m$/, 'the truth')
-    expect([trueX, trueY], 'where the tag really stands').toEqual([TAG.x, TAG.y])
-    // 「格式化后输出 | error 0.01 m — 0.69 cm」
-    const [errM, errCm] = figs(row('格式化后输出'), /error ([\d.]+) m — ([\d.]+) cm/,
-      'the error as it is printed')
-    const fix = fixes()[0]!
-    same(String(errM), fixErr(fix), 'the error the log line prints')
-    same(String(errCm), Math.hypot(solved.x - TAG.x, solved.y - TAG.y) * 100,
-      'and the same error at the solver’s own precision')
-  })
-
-  it('reads the log line, the inspector’s figure and the seven errors', () => {
-    // the log table's own three rows
-    const line = cell(0, 0, 1)
-    const [ex, ey, tx2, ty2, err, gdop, anchorsN] = figs(line,
-      /position \(([\d.]+), ([\d.]+)\) m, true \(([\d.]+), ([\d.]+)\), error ([\d.]+) m, GDOP ([\d.]+), (\d+) anchors/,
-      'the log line’s own figures')
-    const fix = fixes()[0]!
-    expect([ex, ey], 'the estimate the log prints')
-      .toEqual([Number(fix.x.toFixed(2)), Number(fix.y.toFixed(2))])
-    expect([tx2, ty2], 'the truth beside it').toEqual([TAG.x, TAG.y])
-    same(String(err), fixErr(fix), 'the distance between them')
-    same(String(gdop), fix.gdop, 'the dilution the line quotes')
-    expect(anchorsN, 'and the anchors behind it').toBe(fix.anchors.length)
-    expect(fmtRecord(fix), 'which is the line the log really prints').toBe(line)
-    // 「检视面板显示的误差 | 0.7 cm」 and 「整段运行的七次定位 | 0.7, 3.3, … cm」
-    const [panelCm] = figs(cell(0, 1, 1), /^([\d.]+) cm$/, 'the inspector’s own figure')
+describe('uwb-position · ③ every figure the labs print is the run', () => {
+  it('lab 1: the log line, the inspector’s figure and the seven errors', () => {
+    const rows = blockOf(lab('一轮之后的一个点'), 'table', '一轮末尾日志输出什么').rows
+    const b = Number(/第 (\d+) 块的定位/.exec(rows[0][0])![1])
+    expect(fixes()[0].block).toBe(b)
+    expect(rows[0][1]).toBe(fmtRecord(fixes()[0]))
     const row = uwbFixRow(inspectorAfter(undefined, 1).position!, STRINGS.uwb)
-    expect(`${panelCm} cm`, 'what the panel shows after one block').toBe(row.error)
-    const seven = raw(cell(0, 2, 1), /^([\d., ]+) cm$/, 'the seven errors')[0]!.split(', ').map(val)
-    expect(seven, 'one error per fix of the run')
-      .toEqual(fixes().map((f) => Number((fixErr(f) * 100).toFixed(1))))
-    expect(seven, 'seven of them').toHaveLength(BLOCKS)
-    for (const c of seven) {
-      expect(c / 100, `${c} cm is a few sigma of one range`).toBeLessThan(4 * SIGMA_R)
-    }
+    expect(rows[1][1]).toBe(row.error)
+    const cm = fixes().map((f) => (fixErr(f) * 100).toFixed(1))
+    expect(cm).toHaveLength(BLOCKS)
+    expect(rows[2][1]).toBe(`${cm.join(', ')} cm`)
+    const e = lab('一轮之后的一个点').expect
+    const nums = fixes().map((f) => fixErr(f) * 100)
+    expect(e).toContain(`误差在 ${Math.min(...nums).toFixed(1)} 到 ${Math.max(...nums).toFixed(1)} cm 之间`)
+    expect(e).toContain(`${['零', '一', '二', '三', '四', '五', '六', '七'][BLOCKS]}次定位`)
   })
 
-  it('reads the steps and `sources` on the solver’s own four settings', () => {
-    // 「直到某一步小于 1 mm、或迭代满 20 次为止」 — in the formula's note and in the steps
-    const [mm, iters] = figs(NUMS, /直到某一步小于 (\d+) mm、或迭代满 (\d+) 次为止/,
-      'the note on the stopping rule')
-    const [srcMm, srcIters] = figs(SRC, /步长阈值 (\d+) mm、最多 (\d+) 次迭代/,
-      '`sources` on the same rule')
-    expect([srcMm, srcIters], 'the same two, where `sources` lists the model values')
-      .toEqual([mm, iters])
-    const [stepMm, stepIters] = raw(NUMS, /直到 δ 短于 (\d+) mm，或者迭代满(..)次/,
-      'the steps on the same rule')
-    expect(val(stepMm!), 'the step threshold, a third time').toBe(mm)
-    expect('零一二三四五六七八九十'.indexOf(stepIters![0]!) * 10, 'and the iteration cap in words')
-      .toBe(iters)
-    // the solver really does stop inside that many iterations, and under that step
-    const exact = exactFix(TAG.x, TAG.y)
-    expect(exact.residualM, 'and on exact geometry it converges to nothing at all')
-      .toBeLessThan(mm! / 1000)
-    // 「试探点放在这些锚点 x 的平均值与 y 的平均值上——在本场景里就是四个角的中心，(5.00, 4.00) m」
-    const [cx, cy] = figs(NUMS, /就是四个角的中心，\(([\d.]+), ([\d.]+)\) m/, 'the steps on the centroid')
-    same(String(cx), CORNERS.reduce((a, [, x]) => a + x, 0) / CORNERS.length, 'the anchors’ mean x')
-    same(String(cy), CORNERS.reduce((a, [, , y]) => a + y, 0) / CORNERS.length, 'and their mean y')
-    // 「标签高度固定为配置值 1.00 m」
-    const [heightM] = figs(NUMS, /标签高度固定为配置值 ([\d.]+) m/, 'the steps on the height')
-    expect(heightM, 'the height the scene gives the tag').toBe(TAG.z)
-    // 「行列式小于 1e-9，说明这套布局无法确定位置」
-    const [det] = raw(NUMS, /行列式小于 (1e-\d+)/, 'the steps on the singular layout')
-    expect(Number(det), 'a determinant floor the solver really refuses under').toBeGreaterThan(0)
-    const inLine = solvePosition(
-      CORNERS.slice(0, 3).map(([id, x]) => ({ id, x, y: 4, z: ANCHOR_Z })),
-      CORNERS.slice(0, 3).map(([id]) => ({ id, distM: 5 })), TAG.z, SIGMA_R)
-    expect(inLine, 'as a row of anchors in a line shows').toBeNull()
+  it('lab 2: the worked table is block 0 put through the solver, row by row', () => {
+    const t = blockOf(lab('照解算步骤复算第 0 块'), 'table', '本次运行的第 0 块，按上述步骤计算一遍')
+    const b = Number(/第 (\d+) 块/.exec(t.heading!)![1])
+    const rs = tagRanges().filter((r) => r.block === b)
+    const anchors = anchorsOf()
+    const fix = solvePosition(anchors, rs.map((r) => ({ id: r.peer, distM: r.distM })), TAG.z, SIGMA_R)!
+    const cx = CORNERS.reduce((s, [, x]) => s + x, 0) / CORNERS.length
+    const cy = CORNERS.reduce((s, [, , y]) => s + y, 0) / CORNERS.length
+    const f = fixes()[b]
+    expect(t.rows.map((r) => r[1])).toEqual([
+      `${rs.map((r) => r.distM.toFixed(4)).join(', ')} m`,
+      `(${cx.toFixed(2)}, ${cy.toFixed(2)}) m`,
+      `(${fix.x.toFixed(4)}, ${fix.y.toFixed(4)}) m`,
+      `${(fix.residualM * 100).toFixed(2)} cm`,
+      `(${TAG.x.toFixed(2)}, ${TAG.y.toFixed(2)}) m`,
+      `error ${fixErr(f).toFixed(2)} m — ${(fixErr(f) * 100).toFixed(2)} cm`,
+    ])
+    expect(fix.x).toBeCloseTo(f.x, 12)
+    expect(fix.y).toBeCloseTo(f.y, 12)
+    // the steps print the start point and the held height
+    const steps = blockOf(lab('照解算步骤复算第 0 块'), 'steps', '本仿真器的解算器：逐步说明（标准没有规定这一过程）').items.join('\n')
+    expect(steps).toContain(`(${cx.toFixed(2)}, ${cy.toFixed(2)}) m`)
+    expect(steps).toContain(`${TAG.z.toFixed(2)} m`)
+    // the expectation
+    const e = lab('照解算步骤复算第 0 块').expect
+    expect(e).toContain(`迭代终止于 (${fix.x.toFixed(4)}, ${fix.y.toFixed(4)}) m，残差的均方根 ${(fix.residualM * 100).toFixed(2)} cm`)
+    expect(e).toContain(`单条距离的噪声 ${(SIGMA_R * 100).toFixed(2)} cm`)
+    expect(fix.residualM).toBeLessThan(SIGMA_R)
+  })
+
+  it('lab 2: σ_r through its own formula', () => {
+    const f = blockOf(lab('照解算步骤复算第 0 块'), 'formula', '单次测距的噪声有多大')
+    expect(f.text).toBe(`σ_r = c · σ_ts / √2 = ${(SIGMA_R * 100).toFixed(2)} cm`)
+  })
+
+  it('lab 3: the residuals of the three scenes, one ruler', () => {
+    const rows = blockOf(lab('残差是一道检查'), 'table', '七个块的残差，三个场景').rows
+    const range = (xs: number[]) => `${Math.min(...xs).toFixed(2)} 到 ${Math.max(...xs).toFixed(2)} cm`
+    const clean = roundResidualsCm()
+    const wall = roundResidualsCm(0)
+    expect(rows[0][1]).toBe(range(clean))
+    expect(rows[1][1]).toBe(range(wall))
+    expect(rows[2][1]).toBe(`${clean[0].toFixed(2)} cm 对 ${roundResidualsCm(1)[0].toFixed(2)} cm`)
+    // 「干净的七个块都在 2.12 cm 以内；有墙的七个块升至二十厘米左右；三个锚点的残差反而比四个锚点小」
+    const e = lab('残差是一道检查').expect
+    expect(e).toContain(`都在 ${(SIGMA_R * 100).toFixed(2)} cm 以内`)
+    for (const c of clean) expect(c / 100).toBeLessThan(SIGMA_R)
+    for (const c of wall) expect(Math.abs(c - 20)).toBeLessThan(3)
+    expect(roundResidualsCm(1)[0]).toBeLessThan(clean[0])
   })
 })

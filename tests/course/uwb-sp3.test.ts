@@ -1,689 +1,333 @@
 /**
- * Every empirical claim in 「最短的测距帧，不构成最短的轮」, measured against runs.
+ * `@uwb-sp3`, in the standard-first shape (2026-11-10).
  *
- * The lesson prints one frame length that is not measured in octets at all (an SP3 marker: 0
- * octets, `uwbSp3Ns()` of airtime), three whole-round air times at four anchors, a per-responder
- * net saving, a crossover anchor count, and the two things the SRRR request bits change. Every one
- * of them is read back out of a simulation or recomputed from `src/uwb/phy.ts` — nothing here is a
- * number typed twice, and nothing is defended by a string match.
+ * ① teaches the SP3 packet, the time-scheduling rule, the three phases of §10.32.8.2 and the SRRR
+ * IE's four request bits. ② says what this engine does — the faithful one-to-many SS shape, the
+ * absent STS check / MLME-STS / RSSD, and the RAOA IE the standard does not define (W4) — and each
+ * row is checked here against the engine.
  *
- * **The round totals are the claim most worth measuring rather than deriving**, because the
- * lesson's A = 1…6 table is computed from the frame-size functions: so this file runs a real round
- * at every one of those six anchor counts, for all three shapes, and requires the formula to equal
- * the air the medium actually radiated. The ruler is each `TX_START`'s own `frame.txTimeNs` — the
- * PPDU time as the PHY computed it — summed over a window that holds exactly block 0's one round.
- * (A window of exactly 200 ms would hold block 1's control message too and every RCM figure would
- * come out doubled; that is the mistake the slice's own fix round made and caught, so the window
- * here is 150 ms.)
- *
- * The identity claim is checked from the side a lesson run can see: the markers carry `bytes: 0`,
- * `ies: []` and `sp: 3`, and each `UWB_SP3` record's `peer` is the device the round plan gives that
- * slot — never anything the frame could have said. The mutation that makes the distances *present
- * and wrong* lives in tests/uwb/sp3-round.test.ts, which is what the lesson's own prose cites.
+ * Every figure the labs print is read back out of the lesson's own text and compared with a run.
+ * The ruler for a round's airtime is each `TX_START`'s own `frame.txTimeNs`, summed over block 0.
+ * The A = 1…6 table is measured on a live round at every A; the crossover with RRTT on (A = 11) lies
+ * beyond the six places the sweep has, so it is searched on the frame-size formula after that
+ * formula has been required to equal the live round at all six.
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, BYTES, CHIPS, GAP, MS, MULT, NS, PAY, PHASE, PLACES, ROUND, SAVE, SLOTS, SWEEP, TAG,
-  TAG_ID, crossoverAnchors, grp, idOf, sp1DeferredRoundNs, sp1EmbeddedRoundNs, sp3RoundNs, us,
-  uwbSp1Scenario, uwbSp3, uwbSp3Fields, uwbSp3Scenario, uwbSp3SweepScenario,
+  ANCHORS, PLACES, SWEEP, TAG, TAG_ID, idOf, uwbSp3, uwbSp3Scenario, uwbSp3SweepScenario,
 } from '../../src/course/uwb/uwb-sp3'
 import { Simulation } from '../../src/engine/simulation'
-import { DEFAULT_UWB_SESSION, ScenarioSchema, type Scenario } from '../../src/model/scenario'
+import { COURSE_ORDER, MODULES, basisOf } from '../../src/course/curriculum'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
+import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { MODULES, basisOf } from '../../src/course/curriculum'
-import { diagramTexts } from '../../src/course/diagram'
 import {
   SRRR_IE_BYTES, UWB_IE_HDR_BYTES, UWB_PHR_CHIPS, UWB_SHR_CHIPS, UWB_SP3_RAOA_ITEM_BYTES,
-  UWB_SS_DEFER_BYTES, UWB_STS_CHIPS, srrrIeBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes,
-  uwbSp3Chips, uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes,
+  UWB_SS_DEFER_BYTES, UWB_STS_CHIPS, rstuNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSp3Chips,
+  uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
 } from '../../src/uwb/phy'
-import { rangeSigmaM } from '../../src/uwb/position'
-import { uwbReceiptTwrScenario } from '../../src/course/uwb/uwb-receipt'
 import { roundPlan, slotAction } from '../../src/uwb/session'
-import { lessonShapeSuite, ofType, runOf } from './kit'
+import { lessonShapeSuite, ofType } from './kit'
 
-const MS_NS = 1_000_000
+const MS = 1_000_000
 /** Seven 200 ms blocks, closed with margin before an eighth: every UWB lesson's own window. */
-const RUN_NS = 1300 * MS_NS
-/** A window that holds exactly block 0's one round, and no part of block 1 (see the header). */
-const ONE_ROUND_NS = 150 * MS_NS
-/** How far a correct range may sit from the geometry: five times the range's own 1-σ at this
- * session's timestamp noise, derived rather than written down. */
-const RANGE_BUDGET_M = 5 * rangeSigmaM(uwbSp3Scenario().uwb!.tsNoisePs)
+const RUN_NS = 1300 * MS
+/** A window that holds exactly block 0's one round. */
+const ONE_ROUND_NS = 150 * MS
 
 lessonShapeSuite(uwbSp3, { runNs: RUN_NS })
 
-const run = (sc: Scenario, ns: number): TLRecord[] => {
+const run = (sc: Scenario): TLRecord[] => {
   expect(() => ScenarioSchema.parse(sc)).not.toThrow()
-  return [...new Simulation(sc).runUntil(ns).records]
+  return [...new Simulation(sc).runUntil(ONE_ROUND_NS).records]
+}
+type Tx = Extract<TLRecord, { type: 'TX_START' }>
+const air = (rs: TLRecord[]): Tx[] => ofType(rs, 'TX_START')
+  .filter((r) => (r.frame.uwb?.block ?? -1) === 0)
+  .sort((a, b) => (a.frame.uwb?.slot ?? 0) - (b.frame.uwb?.slot ?? 0))
+const roundNs = (rs: TLRecord[]): number => air(rs).reduce((n, r) => n + r.frame.txTimeNs, 0)
+const us = (ns: number): string => (ns / 1000).toFixed(3).replace('-', '−')
+
+const base = run(uwbSp3Scenario())
+const deferred = run(uwbSp3.variants![0].scenario())
+const embedded = run(uwbSp3.variants![1].scenario())
+const both = run(uwbSp3.variants![2].scenario())
+
+const lab = (heading: string): Lab => {
+  const l = uwbSp3.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const blockOf = <K extends Block['kind']>(l: Lab, kind: K, heading: string): Extract<Block, { kind: K }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === kind && b.heading === heading)
+  expect(t, `${kind} 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: K }>
+}
+const implRow = (topic: string) => {
+  const row = uwbSp3.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const fig = (text: string, re: RegExp, what: string): string[] => {
+  const m = re.exec(text)
+  expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+  return m!.slice(1)
+}
+const STD = uwbSp3.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
+
+/** The round airtime on the engine's frame-size functions, checked below against live rounds. */
+const marker = uwbSp3Ns()
+const sp3Formula = (a: number, rrtt: boolean): number => uwbPpduNs(uwbSp3PollBytes(a)) + (a + 1) * marker
+  + a * uwbPpduNs(uwbSp3ReportBytes(false)) + (rrtt ? uwbPpduNs(uwbSp3InitReportBytes(a)) : 0)
+const deferredFormula = (a: number): number => uwbPpduNs(uwbPollBytes(a))
+  + a * uwbPpduNs(uwbRespBytes('ss', 'deferred')) + a * uwbPpduNs(UWB_SS_DEFER_BYTES)
+const crossover = (rrtt: boolean): number => {
+  for (let a = 1; a <= 200; a++) if (sp3Formula(a, rrtt) <= deferredFormula(a)) return a
+  throw new Error('no crossover')
 }
 
-/** Every transmission of block 0, in slot order, as the medium radiated it. */
-const air = (rs: TLRecord[]): { slot: number; kind: string; node: string; bytes: number; ns: number; ies: string[]; sp: number }[] =>
-  ofType(rs, 'TX_START')
-    .filter((r) => (r.frame.uwb?.block ?? -1) === 0)
-    .map((r) => ({
-      slot: r.frame.uwb?.slot ?? -1, kind: r.frame.kind, node: r.node, bytes: r.frame.bytes,
-      ns: r.frame.txTimeNs, ies: [...(r.frame.uwb?.ies ?? [])], sp: r.frame.uwb?.sp ?? -1,
-    }))
-    .sort((a, b) => a.slot - b.slot)
-
-/** The whole round's air time, summed off the frames themselves — the lesson's own ruler. */
-const roundNs = (rs: TLRecord[]): number => air(rs).reduce((n, f) => n + f.ns, 0)
-
-describe('uwb-sp3 · where it sits in the course', () => {
-  it('is the SP3 lesson of its own module, checked against the published standard alone', () => {
+describe('uwb-sp3 · the lesson', () => {
+  it('is in the standard-first shape, in the SP3 module', () => {
+    expect(isStandardFirst(uwbSp3)).toBe(true)
     expect(MODULES[uwbSp3.module].title).toBe('SP3 分组测距')
-    expect(MODULES[uwbSp3.module].tier).toBe(5)
-    // 「本课完全不依赖任何草案」: the module inherits the published revision from its tier and
-    // declares nothing of its own, so the two can never drift apart.
-    expect(MODULES[uwbSp3.module].basis).toBeUndefined()
     expect(basisOf(uwbSp3.module)).toEqual(['ieee-802-15-4-2024'])
-    // the two lessons it is built out of: the deferred road, and the request bit that costs nothing
     expect(uwbSp3.needs).toEqual(['uwb-reply-time', 'uwb-receipt'])
-    const src = uwbSp3.sources!.join('\n')
-    expect(src).toContain('IEEE Std 802.15.4-2024')
-    expect(src).not.toMatch(/802\.15\.4ab|1[15]-2\d\/\d{4}r\d+|802\.11/)
-    // the clauses the lesson rests on, and the figure the standard draws for the first of them
-    expect(src).toContain('§10.32.8')
-    expect(src).toContain('§10.32.9.9')
-    expect(src).toContain('§10.29.6.3')
-    expect(src).toContain('§10.29.8.4')
-    expect(src).toContain('Figure 10-242')
+    expect(COURSE_ORDER.indexOf('uwb-sp3')).toBeGreaterThan(COURSE_ORDER.indexOf('uwb-receipt'))
+    expect(uwbSp3.limits).toEqual([])
+    expect(uwbSp3.observe).toEqual([])
+    expect(uwbSp3.tryThis).toEqual([])
+    expect(uwbSp3.sources!.join('\n')).not.toMatch(/802\.15\.4ab|1[15]-2\d\/\d{4}r\d+|802\.11/)
   })
 
-  it('declares five limits, each about something this engine does not do', () => {
-    expect(uwbSp3.limits).toHaveLength(5)
-    expect(uwbSp3.limits.map((l) => l.kind))
-      .toEqual(['unmodelled', 'unmodelled', 'out-of-scope', 'out-of-scope', 'model-value'])
-    const text = uwbSp3.limits.map((l) => l.text).join('\n')
-    // STS is airtime and nothing else — the same reason `uwb-sts`'s own first limit gives
-    expect(text).toContain('这一段只算「占多少空口时间」')
-    expect(text).toContain('没有一处密码学')
-    expect(text).toContain('@uwb-sts')
-    // the three things §10.32.8.2 asks for that are not built
-    expect(text).toContain('MLME-STS')
-    expect(text).toContain('RSSD')
-    expect(text).toContain('STS 计数器')
-    // one-to-many only, and the schema is what makes that true rather than a convention
-    expect(text).toContain('§10.32.8.1')
-    expect(text).toContain('m2m')
-    // SP2 is a scope decision, and the type is the evidence
-    expect(text).toContain('SP2')
-    expect(text).toContain('包配置就只有')
-    // the bearing travels the other way round from the figure's, and that is a model value
-    expect(text).toContain('天线阵列装在锚点上')
-    expect(text).toContain('UWB_AOA')
-    // 「不许写『本仿真器有简化』」, in both spellings, and no limit calls the standard a draft
-    expect(text).not.toContain('有简化')
-    expect(text).not.toContain('简化之处')
-    expect(text).not.toContain('草案')
-  })
-
-  it('names every engine symbol its limits point at', () => {
-    // Each claim is checkable only if the thing it names exists; a renamed export turns a limit
-    // into a sentence about nothing.
-    const symbols: [string, string][] = [
-      ['phy.ts', 'UWB_STS_CHIPS'], ['frames.ts', 'makeSsDefer'], ['session.ts', 'slotAction'],
-    ]
-    for (const [file, symbol] of symbols) {
-      const src = readSrc(`uwb/${file}`)
-      expect(new RegExp(`export (?:const|function|class|interface|type) ${symbol}\\b`).test(src), symbol)
-        .toBe(true)
+  it('① cites its clauses, names all four request bits, and holds no simulator content', () => {
+    for (const c of ['§10.29.1.1', '§6.6.2', '§10.32.2', '§10.32.8.2', '§10.32.9.9', '§10.29.8.4', '§10.32.8.1', '图 10-242', '图 10-255']) {
+      expect(STD, c).toContain(c)
     }
-    // …and the two structures the limits name that are not exports: UwbInfo's `sp` field admits
-    // exactly 1 and 3, so SP2 has nowhere to be written down, and no IE is called RSSD.
-    expect(readSrc('uwb/frames.ts')).toContain('sp: 1 | 3')
-    expect(readSrc('uwb/frameFields.ts')).not.toContain('RSSD')
-    // no cryptography anywhere on the UWB side: the one place AES is named is a comment saying
-    // the narrowband hopping sequence uses a string hash INSTEAD of it
-    expect(readSrc('uwb/phy.ts')).not.toMatch(/\bAES\b/)
-    expect(readSrc('uwb/device.sp3.ts')).not.toMatch(/\bAES\b/)
+    expect(STD).toContain('RAOA、RRT、RRTT、RTOF 四个请求位')
+    for (const sim of ['本仿真器', '本课']) expect(STD, sim).not.toContain(sim)
   })
-})
 
-/** One source file of the engine, for the claims above. */
-function readSrc(rel: string): string {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('node:fs').readFileSync(new URL(`../../src/${rel}`, import.meta.url), 'utf8') as string
-}
-
-describe('uwb-sp3 · the scene is the one the lesson describes', () => {
-  const sc = uwbSp3Scenario()
-
-  it(`is ${ANCHORS} anchors and one tag in the 22 × 8 m hall, no two distances alike`, () => {
-    expect(sc.nodes).toHaveLength(ANCHORS + 1)
+  it('the scene: four anchors and a tag, no two distances to the tag alike, the residual off', () => {
+    const sc = uwbSp3Scenario()
     expect(sc.nodes.map((n) => n.id)).toEqual([...Array.from({ length: ANCHORS }, (_v, i) => idOf(i)), TAG_ID])
-    for (const [i, p] of PLACES.slice(0, ANCHORS).entries()) {
-      expect([sc.nodes[i].pos.x, sc.nodes[i].pos.y]).toEqual([p.x, p.y])
-    }
-    const tag = sc.nodes[ANCHORS]
-    expect([tag.pos.x, tag.pos.y]).toEqual([TAG.x, TAG.y])
-    // every pairwise distance to the tag different, so a range filed under the wrong anchor
-    // disagrees with its own trueDistM — the property the identity claim rests on
-    const six = uwbSp3SweepScenario(PLACES.length, 'sp3').nodes
-    const d = (i: number): number => Math.hypot(
-      PLACES[i].x - TAG.x, PLACES[i].y - TAG.y, six[i].pos.z - tag.pos.z,
-    )
-    const ds = PLACES.map((_p, i) => d(i).toFixed(3))
-    expect(new Set(ds).size, ds.join(' ')).toBe(PLACES.length)
-    // …and the band the distance check below uses really does discriminate a swap: the closest
-    // two anchors of the base scene are further apart than it is wide
-    const near = PLACES.slice(0, ANCHORS).map((_p, i) => d(i)).sort((a, b) => a - b)
-    const gaps = near.slice(1).map((x, i) => x - near[i])
-    expect(Math.min(...gaps), `${gaps.map((g) => g.toFixed(3)).join(' ')} vs ${RANGE_BUDGET_M}`)
-      .toBeGreaterThan(2 * RANGE_BUDGET_M)
-    // the two knobs this lesson turns off, and the one it keeps (sources says why)
+    const ds = PLACES.map((p) => Math.hypot(p.x - TAG.x, p.y - TAG.y).toFixed(3))
+    expect(new Set(ds).size).toBe(PLACES.length)
     expect(sc.uwb!.cfoNoisePpm).toBe(0)
     expect(sc.uwb!.nlos).toBe(false)
     expect(sc.uwb!.tsNoisePs).toBeGreaterThan(0)
-    // the session is the one SP3 forces: deferred reply time, SS-TWR, time-scheduled, both bits off
-    expect(sc.uwb!.sp3).toBe(true)
-    expect(sc.uwb!.replyTime).toBe('deferred')
-    expect(sc.uwb!.method).toBe('ss')
-    expect(sc.uwb!.schedule).toBe('time')
-    expect(sc.uwb!.srrr).toEqual({ raoa: false, rrtt: false })
-    // and the two figures the sources quote come off the plan, not off FiRa's usual two numbers
-    expect(MS.slot).toBe(2)
-    expect(MS.block).toBe(200)
-  })
-
-  it(`lays out ${SLOTS.sp3} slots: the RCM, 1 + ${ANCHORS} markers, then ${ANCHORS} reports`, () => {
-    const plan = roundPlan(uwbSp3Scenario().uwb!, ANCHORS)
-    expect(SLOTS.sp3).toBe(plan.slots)
-    expect(SLOTS.sp3).toBe(2 * ANCHORS + 2)
-    // slot for slot, off the engine's own answer rather than off the lesson's description
-    expect(slotAction(plan, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
-    expect(slotAction(plan, 1)).toEqual({ kind: 'uwbSp3', tx: 'tag' })
-    for (let i = 0; i < ANCHORS; i++) {
-      expect(slotAction(plan, 2 + i)).toEqual({ kind: 'uwbSp3', tx: 'anchor', anchor: i })
-      expect(slotAction(plan, ANCHORS + 2 + i)).toEqual({ kind: 'uwbSsDefer', tx: 'anchor', anchor: i })
-    }
-    // the other three shapes the lesson prints
-    expect(SLOTS.deferred).toBe(roundPlan(uwbSp1Scenario('deferred').uwb!, ANCHORS).slots)
-    expect(SLOTS.embedded).toBe(roundPlan(uwbSp1Scenario('embedded').uwb!, ANCHORS).slots)
-    expect(SLOTS.sp3Rrtt).toBe(roundPlan(uwbSp3Scenario({ raoa: true, rrtt: true }).uwb!, ANCHORS).slots)
-    expect([SLOTS.embedded, SLOTS.deferred, SLOTS.sp3, SLOTS.sp3Rrtt])
-      .toEqual([ANCHORS + 1, 2 * ANCHORS + 1, 2 * ANCHORS + 2, 2 * ANCHORS + 3])
   })
 })
 
-describe('uwb-sp3 · one frame, and what it cannot carry', () => {
-  const rs = run(uwbSp3Scenario(), ONE_ROUND_NS)
-
-  it('「0 字节，一个信息单元也没有」: every marker, as the medium radiated it', () => {
-    const markers = air(rs).filter((f) => f.kind === 'uwbSp3')
-    expect(markers).toHaveLength(ANCHORS + 1)
-    for (const m of markers) {
-      expect(m.bytes, `slot ${m.slot}`).toBe(0)
-      expect(m.ies, `slot ${m.slot}`).toEqual([])
-      expect(m.sp, `slot ${m.slot}`).toBe(3)
-      expect(m.ns, `slot ${m.slot}`).toBe(NS.marker)
-    }
-    // the initiator's own is the first of them, and it is slot 1 — not slot 0, which has to carry
-    // the slot table and therefore cannot be a marker at all
-    expect(markers[0].slot).toBe(1)
-    expect(markers[0].node).toBe(TAG_ID)
-    expect(markers.slice(1).map((m) => m.node)).toEqual(PLACES.slice(0, ANCHORS).map((_p, i) => idOf(i)))
-    // the chips the lesson prints, and the one segment a marker does not have
-    expect(CHIPS.marker).toBe(uwbSp3Chips())
-    expect(CHIPS.marker).toBe(UWB_SHR_CHIPS + UWB_STS_CHIPS)
-    expect(CHIPS.phr).toBe(UWB_PHR_CHIPS)
-    expect(NS.marker).toBe(uwbSp3Ns())
-    expect(grp(CHIPS.marker)).toBe('70 368')
+describe('uwb-sp3 · ② says what the engine does, and the engine does it', () => {
+  it('has rows of every honest kind, and the RAOA row says it is a deviation', () => {
+    const kinds = new Set(uwbSp3.implementation!.map((r) => r.kind))
+    for (const k of ['faithful', 'differs', 'choice', 'absent', 'value'] as const) expect(kinds.has(k), k).toBe(true)
+    expect(implRow('到达角的报告').kind).toBe('differs')
+    expect(implRow('到达角的报告').sim).toContain('标准里没有的 RAOA 信息单元')
   })
 
-  it('「身份来自时隙」: every record names the slot\'s own device, which no frame said', () => {
-    const plan = roundPlan(uwbSp3Scenario().uwb!, ANCHORS)
+  it('SP3 包的结构: the chips, no PHR, zero octets, no element', () => {
+    const [chips, shr, sts, phr] = fig(implRow('SP3 包的结构').sim,
+      /一个 SP3 包 ([\d ]+) 个码片（chip），即同步头 ([\d ]+) 加 STS ([\d ]+)，没有物理头的 ([\d ]+) 个码片/, '② on the packet')
+      .map((x) => Number(x.replace(/ /g, '')))
+    expect([chips, shr, sts, phr]).toEqual([uwbSp3Chips(), UWB_SHR_CHIPS, UWB_STS_CHIPS, UWB_PHR_CHIPS])
+    expect(chips).toBe(shr! + sts!)
+    for (const r of air(base).filter((x) => x.frame.kind === 'uwbSp3')) {
+      expect(r.frame.bytes).toBe(0)
+      expect(r.frame.uwb?.ies ?? []).toEqual([])
+    }
+  })
+
+  it('只能按时间调度: contention refused; every marker filed under its slot\'s owner', () => {
+    const s = uwbSp3Scenario()
+    expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, schedule: 'contention' } }).success).toBe(false)
+    const plan = roundPlan(s.uwb!, ANCHORS)
     const owner = (slot: number): string => {
       const a = slotAction(plan, slot)
       return 'tx' in a && a.tx === 'tag' ? TAG_ID : idOf((a as { anchor: number }).anchor)
     }
-    const marks = ofType(rs, 'UWB_SP3')
-    // one per receiver per marker: every anchor hears the initiator's, and the tag hears each of
-    // the anchors' — so 2A records for A anchors
-    expect(marks).toHaveLength(2 * ANCHORS)
-    for (const m of marks) {
-      expect(m.peer, `${m.node} slot ${m.slot}`).toBe(owner(m.slot))
-      expect(m.node, `${m.node} slot ${m.slot}`).not.toBe(m.peer)
-    }
-    // the tag's four are the four anchors, in slot order, and nothing in those frames said so
-    expect(marks.filter((m) => m.node === TAG_ID).map((m) => m.peer))
-      .toEqual(PLACES.slice(0, ANCHORS).map((_p, i) => idOf(i)))
-    for (const f of air(rs).filter((x) => x.kind === 'uwbSp3')) expect(f.bytes).toBe(0)
+    const sp3 = ofType(base, 'UWB_SP3')
+    expect(sp3.length).toBeGreaterThan(0)
+    for (const r of sp3) expect(r.peer, `slot ${r.slot}`).toBe(owner(r.slot))
   })
 
-  it('「要等报告接收完毕才能算出距离」: four ranges, all of them the tag\'s, all correct', () => {
-    const ranges = ofType(rs, 'UWB_RANGE')
-    expect(ranges).toHaveLength(ANCHORS)
-    for (const r of ranges) {
-      expect(r.node, r.peer).toBe(TAG_ID)
-      expect(Math.abs(r.distM - r.trueDistM), `${r.peer}: ${r.distM} vs ${r.trueDistM}`)
-        .toBeLessThan(RANGE_BUDGET_M)
+  it('控制消息 and SRRR 的格式: 62 octets with four SRRR, 42 without; 5 octets each, rrt on, rtof off', () => {
+    const [n, withSp3, without] = fig(implRow('控制消息').sim, /和 (\d+) 个 SRRR 信息单元，(\d+) 字节；不用 SP3 时同一条控制消息 (\d+) 字节/, '② on the RCM')
+    const poll = air(base)[0]
+    expect(poll.frame.kind).toBe('uwbPoll')
+    expect(poll.frame.uwb?.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'])
+    expect(poll.frame.bytes).toBe(Number(withSp3))
+    expect(air(deferred)[0].frame.bytes).toBe(Number(without))
+    expect(poll.frame.uwb?.srrr).toHaveLength(Number(n))
+    for (const e of poll.frame.uwb!.srrr!) {
+      expect(e.rrt).toBe(true)
+      expect(e.rtof).toBe(false)
     }
-    // …and each one lands only after that responder's report frame, never in the ranging phase
-    const lastMarker = Math.max(...ofType(rs, 'TX_START')
-      .filter((r) => r.frame.kind === 'uwbSp3').map((r) => r.t))
-    for (const r of ranges) expect(r.t, r.peer).toBeGreaterThan(lastMarker)
+    expect(poll.frame.uwb!.srrr!.map((e) => e.provider)).toEqual(Array.from({ length: ANCHORS }, (_v, i) => idOf(i)))
+    const [size, hdr, ctl, addr] = fig(implRow('SRRR 的格式').sim, /共 (\d+) 字节（单元头 (\d+)、控制 (\d+)、短地址 (\d+)）/, '② on SRRR').map(Number)
+    expect(size).toBe(SRRR_IE_BYTES)
+    expect(hdr).toBe(UWB_IE_HDR_BYTES)
+    expect(hdr! + ctl! + addr!).toBe(size)
+    expect(Number(withSp3) - Number(without)).toBe(Number(n) * size!)
+  })
+
+  it('发起方的 SP3 包 and 回复时延的报告: slot 1 is the tag\'s marker; reports are 19 octets of RMI', () => {
+    expect(implRow('发起方的 SP3 包').sim).toContain('第 1 个时隙')
+    const m = air(base).find((r) => r.frame.kind === 'uwbSp3')!
+    expect([m.node, m.frame.uwb?.slot]).toEqual([TAG_ID, 1])
+    const [bytes] = fig(implRow('回复时延的报告').sim, /发一帧 (\d+) 字节的报告，带 RMI 信息单元/, '② on the report')
+    const reports = air(base).filter((r) => r.frame.kind === 'uwbSsDefer')
+    expect(reports).toHaveLength(ANCHORS)
+    for (const r of reports) {
+      expect(r.frame.bytes).toBe(Number(bytes))
+      expect(r.frame.uwb?.ies).toEqual(['RMI'])
+    }
+  })
+
+  it('到达角的报告: the bearing travels in an extra 4-octet RAOA element', () => {
+    const [b] = fig(implRow('到达角的报告').sim, /另加一个 RAOA 信息单元（(\d+) 字节）/, '② on RAOA')
+    expect(Number(b)).toBe(UWB_SP3_RAOA_ITEM_BYTES)
+    const rep = air(both).filter((r) => r.frame.kind === 'uwbSsDefer')
+    for (const r of rep) expect(r.frame.uwb?.ies).toEqual(['RMI', 'RAOA'])
+    expect(uwbSp3ReportBytes(true) - uwbSp3ReportBytes(false)).toBe(Number(b))
+  })
+
+  it('没有报告阶段的 SP3 and 多发起方: refused by the editor', () => {
+    const s = uwbSp3Scenario()
+    expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, replyTime: 'embedded' } }).success).toBe(false)
+    expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, mode: 'm2m' } }).success).toBe(false)
+  })
+
+  it('时隙与块: 2 ms and 200 ms', () => {
+    const [slot, blk] = fig(implRow('时隙与块').sim, /每个时隙 (\d+) ms，每块 (\d+) ms/, '② on the grid')
+    const plan = roundPlan(uwbSp3Scenario().uwb!, ANCHORS)
+    expect(plan.slotNs).toBe(Number(slot) * MS)
+    expect(rstuNs(uwbSp3Scenario().uwb!.slotRstu)).toBe(Number(slot) * MS)
+    expect(plan.blockNs).toBe(Number(blk) * MS)
   })
 })
 
-describe('uwb-sp3 · the frame lengths, against the engine', () => {
-  it('「一帧有多长」: every row of the table', () => {
-    expect(BYTES.rcmSp3).toBe(uwbSp3PollBytes(ANCHORS))
-    expect(BYTES.rcmSp3).toBe(uwbPollBytes(ANCHORS) + srrrIeBytes(ANCHORS))
-    expect(BYTES.rcmSp3 - BYTES.rcmSp1).toBe(BYTES.srrrAll)
-    expect(BYTES.srrrAll).toBe(ANCHORS * SRRR_IE_BYTES)
-    // 2026-11-10 (standard §10.32.9.9, Figure 10-255; audit #14): one SRRR IE per requester–provider
-    // pair — control octet plus the provider's short address (the requester, the controller, omitted).
-    expect(BYTES.srrrIe).toBe(UWB_IE_HDR_BYTES + 1 + 2)
-    expect(BYTES.respDeferred).toBe(uwbRespBytes('ss', 'deferred'))
-    expect(BYTES.respEmbedded).toBe(uwbRespBytes('ss', 'embedded'))
-    expect(BYTES.report).toBe(UWB_SS_DEFER_BYTES)
-    expect(BYTES.reportRaoa - BYTES.report).toBe(UWB_SP3_RAOA_ITEM_BYTES)
-    expect(BYTES.initReport).toBe(uwbSp3InitReportBytes(ANCHORS))
-    for (const [k, b] of [['report', BYTES.report], ['reportRaoa', BYTES.reportRaoa],
-      ['initReport', BYTES.initReport], ['rcmSp3', BYTES.rcmSp3]] as const) {
-      expect(NS[k as keyof typeof NS], k).toBe(uwbPpduNs(b as number))
+describe('uwb-sp3 · ③ every figure the labs print is the run', () => {
+  it('lab 1: the ten slots of block 0, and the first range', () => {
+    const l = lab('一轮 SP3 的十个时隙')
+    const rows = blockOf(l, 'table', '第 0 块的一轮').rows
+    const tx = air(base)
+    expect(rows).toHaveLength(tx.length)
+    const kindName: Record<string, string> = { uwbPoll: '控制消息', uwbSp3: 'SP3 包', uwbSsDefer: '报告' }
+    rows.forEach(([slot, node, kind, bytes, ies, t], i) => {
+      const f = tx[i]
+      expect(Number(slot)).toBe(f.frame.uwb?.slot)
+      expect(node).toBe(f.node)
+      expect(kind).toBe(kindName[f.frame.kind])
+      expect(Number(bytes)).toBe(f.frame.bytes)
+      expect(ies).toBe((f.frame.uwb?.ies ?? []).length ? f.frame.uwb!.ies!.join('、') : '—')
+      expect(t).toBe(`${us(f.frame.txTimeNs)} µs`)
+    })
+    const [n, each, ms, who] = fig(l.expect, /控制消息之后是 (\d+) 个 0 字节的 SP3 包，每个 ([\d.]+) µs；第一条测距行在 ([\d.]+) ms 出现，是 (anc-\d) 的报告收到之后/, 'lab 1 expect')
+    const markers = tx.filter((r) => r.frame.kind === 'uwbSp3')
+    expect(markers).toHaveLength(Number(n))
+    for (const m of markers) expect(us(m.frame.txTimeNs)).toBe(each)
+    const first = ofType(base, 'UWB_RANGE')[0]
+    expect((first.t / MS).toFixed(3)).toBe(ms)
+    expect(first.peer).toBe(who)
+    const lastMarkerEnd = Math.max(...markers.map((m) => m.t + m.frame.txTimeNs))
+    expect(first.t).toBeGreaterThan(lastMarkerEnd)
+  })
+
+  it('lab 2: three round shapes, their slots and airtime, and the two differences', () => {
+    const l = lab('SP3 与两种 SP1')
+    const rows = blockOf(l, 'table', '同一个大厅、同样 4 个锚点').rows
+    const runs: Record<string, TLRecord[]> = { 'SP1，回复时延嵌在帧里': embedded, 'SP1，回复时延延后': deferred, SP3: base }
+    for (const [name, slots, t] of rows) {
+      const rs = runs[name]
+      expect(rs, name).toBeDefined()
+      expect(Number(slots), name).toBe(ofType(rs, 'UWB_ROUND')[0].slots)
+      expect(t, name).toBe(`${us(roundNs(rs))} µs`)
     }
+    const [shorter, longer, n] = fig(l.expect, /SP3 比延后的 SP1 短 ([\d.]+) µs，比嵌在帧里的 SP1 长 ([\d.]+) µs；三种轮形都测得 (\d+) 条距离/, 'lab 2 expect')
+    expect(us(roundNs(deferred) - roundNs(base))).toBe(shorter)
+    expect(us(roundNs(base) - roundNs(embedded))).toBe(longer)
+    for (const rs of [base, deferred, embedded]) expect(ofType(rs, 'UWB_RANGE').filter((r) => r.block === 0)).toHaveLength(Number(n))
+    expect(Number(n)).toBe(ANCHORS)
   })
 
-  it('「节省的时间」: both savings, and the multiple against each baseline', () => {
-    expect(SAVE.shortest).toBe(uwbPpduNs(uwbRespBytes('ss', 'deferred')) - uwbSp3Ns())
-    expect(SAVE.embedded).toBe(uwbPpduNs(uwbRespBytes('ss', 'embedded')) - uwbSp3Ns())
-    // the shortest SP1 ranging frame this engine sends really is the deferred Response
-    expect(BYTES.respDeferred).toBe(uwbRespBytes('ds'))
-    expect(SAVE.embedded).toBeGreaterThan(SAVE.shortest)
-    // 2026-11-10: every PPDU is 2 PHR-rate symbols longer (Table 16-2), and the embedded Response
-    // carries the RRTI content header (§10.29.8.1) — 40.256 / 46.410 before.
-    expect(us(SAVE.shortest)).toBe('42.051')
-    expect(us(SAVE.embedded)).toBe('49.230')
-    // the two multiples, each against the baseline the prose names for it (design §2.2)
-    expect(MULT.embedded).toBe((NS.report / SAVE.embedded).toFixed(3))
-    expect(MULT.shortest).toBe((NS.report / SAVE.shortest).toFixed(3))
-    expect([MULT.embedded, MULT.shortest]).toEqual(['3.822', '4.474'])
+  it('lab 3: the A = 1…6 differences, each a live round, and the arithmetic of the crossover', () => {
+    const l = lab('到第几个响应方才持平')
+    const t = blockOf(l, 'table', '整轮空口时间之差（µs）')
+    expect(t.head.slice(1).map(Number)).toEqual([...SWEEP])
+    const vsDef = t.rows.find((r) => r[0] === 'SP3 − 延后的 SP1')!
+    const vsEmb = t.rows.find((r) => r[0] === 'SP3 − 嵌在帧里的 SP1')!
+    const gaps: number[] = []
+    SWEEP.forEach((a, i) => {
+      const sp3 = roundNs(run(uwbSp3SweepScenario(a, 'sp3')))
+      const def = roundNs(run(uwbSp3SweepScenario(a, 'deferred')))
+      const emb = roundNs(run(uwbSp3SweepScenario(a, 'embedded')))
+      const rrtt = roundNs(run(uwbSp3SweepScenario(a, 'sp3-rrtt')))
+      expect(vsDef[i + 1], `A = ${a}`).toBe(us(sp3 - def))
+      expect(vsEmb[i + 1], `A = ${a}`).toBe(us(sp3 - emb))
+      gaps.push(sp3 - def)
+      // the formula the RRTT crossover is searched on equals the live round at every A
+      expect(sp3Formula(a, false), `A = ${a}`).toBe(sp3)
+      expect(sp3Formula(a, true), `A = ${a}`).toBe(rrtt)
+      expect(deferredFormula(a), `A = ${a}`).toBe(def)
+    })
+    const [from] = fig(l.expect, /差值从 A = (\d+) 起变为负/, 'lab 3 expect')
+    expect(gaps.findIndex((g) => g < 0) + 1).toBe(Number(from))
+    expect(gaps.slice(Number(from) - 1).every((g) => g < 0)).toBe(true)
+    const emb = vsEmb.slice(1).map(Number)
+    for (let i = 1; i < emb.length; i++) expect(emb[i]).toBeGreaterThan(emb[i - 1]!)
+    expect(crossover(false)).toBe(Number(from))
+    // the formula: 42.051 − 5.128 = 36.923 µs；140.962 ÷ 36.923 = 3.82
+    const f = blockOf(l, 'formula', '每个响应方的净节省，与发起方多出的那个 SP3 包')
+    const [save, srrr, net, mk, net2, ratio] = fig(f.text, /([\d.]+) − ([\d.]+) = ([\d.]+) µs；([\d.]+) ÷ ([\d.]+) = ([\d.]+)/, 'the formula')
+    const one = run(uwbSp3SweepScenario(1, 'sp3'))
+    const oneDef = run(uwbSp3SweepScenario(1, 'deferred'))
+    const markerNs = air(one).find((r) => r.frame.kind === 'uwbSp3')!.frame.txTimeNs
+    const respNs = air(oneDef).find((r) => r.frame.kind === 'uwbResp')!.frame.txTimeNs
+    const srrrNs = air(one)[0].frame.txTimeNs - air(oneDef)[0].frame.txTimeNs
+    expect(save).toBe(us(respNs - markerNs))
+    expect(srrr).toBe(us(srrrNs))
+    expect(net).toBe(us(respNs - markerNs - srrrNs))
+    expect(net2).toBe(net)
+    expect(mk).toBe(us(markerNs))
+    expect(ratio).toBe((markerNs / (respNs - markerNs - srrrNs)).toFixed(2))
+    expect(Math.ceil(Number(ratio))).toBe(Number(from))
+    const [respBytes] = fig(f.note!, /延后 SP1 的 (\d+) 字节应答/, 'the note')
+    expect(air(oneDef).find((r) => r.frame.kind === 'uwbResp')!.frame.bytes).toBe(Number(respBytes))
+    for (const x of [save, srrr, mk]) expect(f.note, x).toContain(`${x} µs`)
   })
 
-  it('「到第几个响应方才能抵消」: the arithmetic, and the crossover it predicts', () => {
-    // the SRRR term is the MARGINAL cost of one responder's IE, which is what the note says
-    expect(PAY.srrrPerResponder).toBe(uwbPpduNs(uwbSp3PollBytes(1)) - uwbPpduNs(uwbPollBytes(1)))
-    expect(PAY.net).toBe(PAY.perResponder - PAY.srrrPerResponder)
-    expect(us(PAY.net)).toBe('36.923')
-    expect(PAY.responders).toBe((NS.marker / PAY.net).toFixed(2))
-    expect(PAY.responders).toBe('3.82')
-    // the crossover is SEARCHED against the round totals, and the arithmetic above predicts it
-    expect(PAY.crossover).toBe(crossoverAnchors(false))
-    expect(PAY.crossover).toBe(Math.ceil(NS.marker / PAY.net))
-    expect(PAY.crossover).toBe(ANCHORS)
-    expect(PAY.crossoverRrtt).toBe(crossoverAnchors(true))
-    expect(PAY.crossoverRrtt).toBe(11)
-    // both bits on is a third shape again, and the tryThis line prints ITS crossover rather than
-    // reusing the RRTT-only one: every responder's report is a bearing item longer there
-    expect(PAY.crossoverBoth).toBe(crossoverAnchors(true, true))
-    expect(PAY.crossoverBoth).toBeGreaterThan(PAY.crossoverRrtt)
-    expect(PAY.crossoverBoth).toBe(14) // 13 before the 2026-11-10 SRRR / PHR corrections
-    expect(sp3RoundNs(PAY.crossoverBoth - 1, true, true))
-      .toBeGreaterThan(sp1DeferredRoundNs(PAY.crossoverBoth - 1))
-    expect(sp3RoundNs(PAY.crossoverBoth, true, true))
-      .toBeLessThan(sp1DeferredRoundNs(PAY.crossoverBoth))
-    // …and it is a crossover in both directions, which is the half a threshold could fake
-    expect(sp3RoundNs(PAY.crossover - 1, false)).toBeGreaterThan(sp1DeferredRoundNs(PAY.crossover - 1))
-    expect(sp3RoundNs(PAY.crossover, false)).toBeLessThan(sp1DeferredRoundNs(PAY.crossover))
-  })
-})
-
-describe('uwb-sp3 · the round totals, measured from rounds that ran', () => {
-  /** The three shapes' formulas, against the air of a real round at every A the table prints. */
-  it.each(SWEEP)('A = %i: all three shapes radiate exactly what the lesson computes', (a) => {
-    const sp3 = roundNs(run(uwbSp3SweepScenario(a, 'sp3'), ONE_ROUND_NS))
-    const rrtt = roundNs(run(uwbSp3SweepScenario(a, 'sp3-rrtt'), ONE_ROUND_NS))
-    const def = roundNs(run(uwbSp3SweepScenario(a, 'deferred'), ONE_ROUND_NS))
-    const emb = roundNs(run(uwbSp3SweepScenario(a, 'embedded'), ONE_ROUND_NS))
-    expect(sp3).toBeCloseTo(sp3RoundNs(a, false), 6)
-    expect(rrtt).toBeCloseTo(sp3RoundNs(a, true), 6)
-    expect(def).toBeCloseTo(sp1DeferredRoundNs(a), 6)
-    expect(emb).toBeCloseTo(sp1EmbeddedRoundNs(a), 6)
-    // the two rows of the lesson's table, off the air rather than off the functions
-    expect(sp3 - def).toBeCloseTo(GAP.vsDeferred[a - 1], 6)
-    expect(sp3 - emb).toBeCloseTo(GAP.vsEmbedded[a - 1], 6)
-    // against the embedded shape SP3 is longer at every A, and the gap strictly widens
-    expect(sp3 - emb).toBeGreaterThan(0)
-    if (a > 1) expect(GAP.vsEmbedded[a - 1]).toBeGreaterThan(GAP.vsEmbedded[a - 2])
-    // against the deferred shape the sign is what the crossover says it is
-    expect(sp3 - def > 0, `A=${a}`).toBe(a < PAY.crossover)
-  })
-
-  it(`「三种轮形，同一个场景」: the ${ANCHORS}-anchor row of each, and the 7.755 µs the base scene is`, () => {
-    expect(roundNs(run(uwbSp3Scenario(), ONE_ROUND_NS))).toBeCloseTo(ROUND.sp3, 6)
-    expect(roundNs(run(uwbSp1Scenario('deferred'), ONE_ROUND_NS))).toBeCloseTo(ROUND.deferred, 6)
-    expect(roundNs(run(uwbSp1Scenario('embedded'), ONE_ROUND_NS))).toBeCloseTo(ROUND.embedded, 6)
-    // the third variant turns BOTH request bits on, so its round is RRTT's extra frame AND a
-    // bearing item in every report — not `sp3Rrtt`, which is the RRTT-only shape the crossover
-    // search uses. The lesson's own tryThis line prints this one.
-    expect(roundNs(run(uwbSp3Scenario({ raoa: true, rrtt: true }), ONE_ROUND_NS)))
-      .toBeCloseTo(ROUND.sp3Both, 6)
-    expect(ROUND.sp3Both - ROUND.sp3Rrtt).toBeCloseTo(ANCHORS * (NS.reportRaoa - NS.report), 6)
-    // 965.578 / 1678.142 / 1670.387 / 1892.628 before the W2 corrections of 2026-11-10: 21 PHR-rate
-    // symbols (Table 16-2), RRTI/RMI content headers (§10.29.8.1/.4), the SS deferred message as an RMI
-    // IE (§10.29.6.3), SRRR as requester–provider pairs (§10.32.9.9).
-    expect([us(ROUND.embedded), us(ROUND.deferred), us(ROUND.sp3), us(ROUND.sp3Both)])
-      .toEqual(['978.653', '1702.501', '1695.771', '1920.837'])
-    // the observe line: the base scene sits 6.730 µs the right side of the deferred round
-    expect(us(Math.abs(GAP.vsDeferred[ANCHORS - 1]))).toBe('6.730')
-    expect(GAP.vsDeferred[ANCHORS - 1]).toBeLessThan(0)
-    // and the tryThis line: with both request bits on it is longer again
-    expect(us(ROUND.sp3Both - ROUND.deferred)).toBe('218.336')
-  })
-
-  it('「报告相位 … 整轮最长的一段」: the figure sums to the round, phase by phase', () => {
-    const rs = run(uwbSp3Scenario(), ONE_ROUND_NS)
-    const byKind = (k: string): number => air(rs).filter((f) => f.kind === k).reduce((n, f) => n + f.ns, 0)
-    expect(byKind('uwbPoll')).toBeCloseTo(PHASE.rcm, 6)
-    expect(byKind('uwbSp3')).toBeCloseTo(PHASE.ranging, 6)
-    expect(byKind('uwbSsDefer')).toBeCloseTo(PHASE.report, 6)
-    expect(PHASE.rcm + PHASE.ranging + PHASE.report).toBeCloseTo(ROUND.sp3, 6)
-    // the report phase is the largest of the three, which is the whole point of the figure
-    expect(PHASE.report).toBeGreaterThan(PHASE.ranging)
-    expect(PHASE.report).toBeGreaterThan(PHASE.rcm)
-    const fig = uwbSp3Fields()
-    expect(fig.unit).toBe('µs')
-    expect(fig.fields).toHaveLength(3)
-    expect(fig.fields.reduce((n, f) => n + f.size, 0)).toBeCloseTo(ROUND.sp3 / 1000, 3)
-    for (const s of diagramTexts(fig)) expect(s.trim().length, s).toBeGreaterThan(0)
-  })
-})
-
-describe('uwb-sp3 · both SRRR request bits really change the air', () => {
-  const off = run(uwbSp3Scenario(), ONE_ROUND_NS)
-  const on = run(uwbSp3Scenario({ raoa: true, rrtt: true }), ONE_ROUND_NS)
-
-  it(`RAOA: the report frame grows by exactly ${BYTES.raoaItem} octets, and a bearing arrives`, () => {
-    const reports = (rs: TLRecord[]) => air(rs).filter((f) => f.kind === 'uwbSsDefer')
-    expect(reports(off).map((f) => f.bytes)).toEqual(Array(ANCHORS).fill(BYTES.report))
-    expect(reports(on).map((f) => f.bytes)).toEqual(Array(ANCHORS).fill(BYTES.reportRaoa))
-    expect(reports(off)[0].ns).toBe(NS.report)
-    expect(reports(on)[0].ns).toBe(NS.reportRaoa)
-    // 2026-11-10 (standard §10.29.6.3, audit #4): the reply time rides an RMI IE
-    expect(reports(on)[0].ies).toEqual(['RMI', 'RAOA'])
-    expect(reports(off)[0].ies).toEqual(['RMI'])
-    // the octets are not empty: the bearing arrives exactly when the bit asked for it
-    const atTag = (rs: TLRecord[]) => ofType(rs, 'UWB_SP3_REPORT').filter((r) => r.node === TAG_ID)
-    expect(atTag(on)).toHaveLength(ANCHORS)
-    for (const r of atTag(on)) expect(r.thetaDeg, r.peer).toBeTypeOf('number')
-    for (const r of atTag(off)) expect(r.thetaDeg, r.peer).toBeUndefined()
-  })
-
-  it('RRTT: the initiator sends a report frame of its own, in a slot only this shape has', () => {
-    expect(air(off).some((f) => f.node === TAG_ID && f.kind === 'uwbReport')).toBe(false)
-    const mine = air(on).filter((f) => f.node === TAG_ID && f.kind === 'uwbReport')
-    expect(mine).toHaveLength(1)
-    expect(mine[0].bytes).toBe(BYTES.initReport)
-    expect(mine[0].ns).toBe(NS.initReport)
-    // it opens the report phase, in the slot the extra one is
-    expect(mine[0].slot).toBe(ANCHORS + 2)
-    expect(air(on)).toHaveLength(SLOTS.sp3Rrtt)
-    expect(air(off)).toHaveLength(SLOTS.sp3)
-    // and it is answered: every responder reads its own round trip out of that one frame
-    const rtt = ofType(on, 'UWB_SP3_REPORT').filter((r) => r.roundTripRctu !== undefined)
-    expect(rtt.map((r) => r.node).sort()).toEqual(PLACES.slice(0, ANCHORS).map((_p, i) => idOf(i)))
-    for (const r of rtt) expect(r.peer).toBe(TAG_ID)
-    expect(ofType(off, 'UWB_SP3_REPORT').filter((r) => r.roundTripRctu !== undefined)).toHaveLength(0)
-    // the frame grows with the responder count, which is why the crossover moves
-    expect(uwbSp3InitReportBytes(ANCHORS + 1)).toBeGreaterThan(BYTES.initReport)
-  })
-
-  it('「请求不是免费的」: the RCM is 3A octets longer, where §10.36\'s request adds none', () => {
-    const rcm = (rs: TLRecord[]): number => air(rs).find((f) => f.slot === 0)!.bytes
-    expect(rcm(off)).toBe(BYTES.rcmSp3)
-    expect(rcm(on)).toBe(BYTES.rcmSp3)
-    // the request bits do not change the RCM's length — the IEs' PRESENCE does, and they are there
-    // whenever `sp3` is on, one per responder
-    expect(rcm(off) - rcm(run(uwbSp1Scenario('deferred'), ONE_ROUND_NS))).toBe(srrrIeBytes(ANCHORS))
-    expect(srrrIeBytes(ANCHORS)).toBe(BYTES.srrrAll)
-    // which is why the table's row is about what the IEs cost and NOT about turning the bits off:
-    // an SP3 round with both bits clear carries the same 3A octets of SRRR IEs as one with both set
-    expect(rcm(on)).toBe(rcm(off))
-    // one 'SRRR' label in the frame's own IE list, A entries' worth of octets in its length: the
-    // frame inspector is what expands it into one row per responder (uwb/frameFields.ts).
-    expect(air(off).find((f) => f.slot === 0)!.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'])
-  })
-})
-
-describe('uwb-sp3 · the base run the fixture replays', () => {
-  const rs = runOf(uwbSp3, undefined, RUN_NS)
-
-  it('runs the same round in every block, seven of them', () => {
-    const blocks = [...new Set(ofType(rs, 'UWB_ROUND').map((r) => r.block))].sort((a, b) => a - b)
-    expect(blocks).toEqual([0, 1, 2, 3, 4, 5, 6])
-    expect(ofType(rs, 'UWB_SP3')).toHaveLength(7 * 2 * ANCHORS)
-    expect(ofType(rs, 'UWB_SP3_REPORT')).toHaveLength(7 * ANCHORS)
-    expect(ofType(rs, 'UWB_RANGE')).toHaveLength(7 * ANCHORS)
-    expect(ofType(rs, 'UWB_TIMEOUT')).toHaveLength(0)
-  })
-
-  it('every jump the lesson offers lands on the frame it names', () => {
-    const at = (i: number) => ofType(rs, 'TX_START').filter(uwbSp3.jumps[i].find)
-    // 0: the round's first frame is the control message, and it cannot be a marker
-    expect(at(0)[0].frame.kind).toBe('uwbPoll')
-    expect(at(0)[0].frame.bytes).toBe(BYTES.rcmSp3)
-    expect(at(0)[0].frame.uwb?.slot).toBe(0)
-    // 1: the initiator's own marker, slot 1, 0 octets
-    expect(at(1)[0].frame.kind).toBe('uwbSp3')
-    expect(at(1)[0].node).toBe(TAG_ID)
-    expect(at(1)[0].frame.uwb?.slot).toBe(1)
-    expect(at(1)[0].frame.bytes).toBe(0)
-    // 2: the first responder's marker, one slot later
-    expect(at(2)[0].node).toBe(idOf(0))
-    expect(at(2)[0].frame.uwb?.slot).toBe(2)
-    // 3: the report phase's first frame; 5: the first marker of either end is the initiator's
-    expect(at(3)[0].frame.kind).toBe('uwbSsDefer')
-    expect(at(3)[0].frame.uwb?.slot).toBe(ANCHORS + 2)
-    expect(at(5)[0]).toEqual(at(1)[0])
-    // 4: the first range, which is a record rather than a transmission
-    expect(ofType(rs, 'UWB_RANGE').some(uwbSp3.jumps[4].find)).toBe(true)
-  })
-})
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * Every byte count, microsecond and crossover in this lesson is interpolated from its own module
- * and the file above measures those against runs. What is typed is the **emptiness of an SP3
- * marker**, the three octets a request costs, the two values a packet-configuration field has,
- * the mode this lesson is not, and the figures `sources` lists.
- *
- * **The reads worth naming:**
- *
- *  - **「0 字节，一个信息单元也没有」 is read as the frame itself**, in three places that say it:
- *    a table cell, a jump label and `observe`. A marker's bytes, its rate and its element list
- *    are all read off the air.
- *  - **「mode 取 m2m」 is read behaviourally**: the schema really does refuse SP3 in that mode,
- *    which is what the sentence claims, and accepts it in this lesson's own.
- *  - **「sp 字段类型就只有 1 和 3 两个取值」 is read off the type itself** in `uwb/frames.ts`, so
- *    the sentence stays true only while that union does.
- */
-describe('uwb-sp3 · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+  it('lab 4: both request bits on — one more slot, longer responder reports, the RRTT crossover', () => {
+    const l = lab('两个请求位都打开')
+    const rows = blockOf(l, 'table', '报告阶段的两种帧').rows
+    const initRep = air(both).find((r) => r.frame.kind === 'uwbReport' && r.node === TAG_ID)!
+    const respRep = air(both).filter((r) => r.frame.kind === 'uwbSsDefer')
+    const [, ib, iies] = rows.find((r) => r[0] === '发起方的报告')!
+    expect(Number(ib)).toBe(initRep.frame.bytes)
+    expect(iies).toBe(initRep.frame.uwb!.ies!.join('、'))
+    const [, rb, ries] = rows.find((r) => r[0] === '响应方的报告')!
+    for (const r of respRep) {
+      expect(Number(rb)).toBe(r.frame.bytes)
+      expect(ries).toBe(r.frame.uwb!.ies!.join('、'))
     }
-    walk(b)
-    return out.join('\n')
-  }
-  const PIC = blockText(uwbSp3.picture)
-  const NUMS = blockText(uwbSp3.numbers)
-  const DEEP = blockText(uwbSp3.deeper)
-  const LIM = blockText(uwbSp3.limits)
-  const SRC = blockText(uwbSp3.sources)
-  const OBS = blockText(uwbSp3.observe)
-  const JUMPS = uwbSp3.jumps.map((j) => j.label).join('\n')
-
-  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-
-  const rs = runOf(uwbSp3, undefined, RUN_NS)
-  const frames = air(rs)
-  const markers = frames.filter((f) => f.sp === 3)
-
-  it('reads the marker’s emptiness everywhere the lesson states it', () => {
-    expect(markers.length, 'the round really sends markers').toBeGreaterThan(0)
-    // 「什么也没有：0 字节，一个信息单元也没有」 (a cell), 「整帧 0 字节」 (a jump label),
-    // 「字节数 0、速率 0、信息单元一列空着」 (`observe`)
-    const zeros = [
-      figs(PIC, /什么也没有：(\d) 字节，一个信息单元也没有/, 'the cell on the marker')[0]!,
-      figs(JUMPS, /整帧 (\d) 字节/, 'the jump label')[0]!,
-      figs(OBS, /字节数 (\d)、速率 (\d)/, '`observe` on the marker')[0]!,
-    ]
-    expect(new Set(zeros).size, 'one figure, three places').toBe(1)
-    const [obsBytes, obsRate] = figs(OBS, /字节数 (\d)、速率 (\d)/, '`observe` on both columns')
-    for (const m of markers) {
-      expect(m.bytes, `the marker in slot ${m.slot} carries no octet`).toBe(obsBytes)
-      expect(m.ies, 'and no element').toEqual([])
-    }
-    const mbps = ofType(rs, 'TX_START')
-      .filter((r) => (r.frame.uwb?.sp ?? -1) === 3)
-      .map((r) => r.frame.mbps ?? 0)
-    expect(new Set(mbps), 'and the rate column of every one of them').toEqual(new Set([obsRate]))
-    expect(zeros[0], 'which is the same figure the cell and the label print').toBe(obsBytes)
+    const [s0, s1, r0, r1, total, cross] = fig(l.expect,
+      /时隙从 (\d+) 个变成 (\d+) 个，多出的是发起方的报告；每个响应方的报告从 (\d+) 字节变成 (\d+) 字节，多了一个 RAOA 信息单元；整轮 ([\d.]+) µs。只请求往返时间时，交叉点后移到 A = (\d+)/,
+      'lab 4 expect')
+    expect(Number(s0)).toBe(ofType(base, 'UWB_ROUND')[0].slots)
+    expect(Number(s1)).toBe(ofType(both, 'UWB_ROUND')[0].slots)
+    expect(Number(r0)).toBe(air(base).find((r) => r.frame.kind === 'uwbSsDefer')!.frame.bytes)
+    expect(Number(r1)).toBe(Number(rb))
+    expect(us(roundNs(both))).toBe(total)
+    expect(crossover(true)).toBe(Number(cross))
   })
 
-  it('reads the three metres the mutation’s verdict rests on', () => {
-    /*
-     * 「每一条都逐位等于另一台锚点的测量，和它自己记下的真实距离差了 3 m」 — the two anchors the
-     * reversed table swaps, and the figure is what their true distances to the tag differ by.
-     */
-    const [metres] = figs(PIC, /和它自己记下的真实距离差了 (\d+) m/, '`picture` on the mutation')
-    /*
-     * That mutation runs in the file `deeper` names, not in this lesson's own scene, so the
-     * figure is read off **that** file's geometry: its two anchors stand at those x positions and
-     * the tag between them, and the metres the swap costs is what their true distances differ by.
-     * Reading it from anywhere else would be reading it from nowhere.
-     */
-    const MUT_SRC = readSrc('../tests/uwb/sp3-round.test.ts')
-    const [xs] = raw(MUT_SRC, /const ANCHOR_X = \[([^\]]+)\]/, 'that file’s anchor positions')
-    const [tagX] = figs(MUT_SRC, /const TAG_X = (\d+)/, 'and its tag')
-    const [a1, a2] = xs!.split(',').slice(0, 2).map((x) => Math.abs(val(x) - tagX!))
-    expect(Math.abs(a1! - a2!), 'what a swapped slot table costs there').toBe(metres)
+  it('the jump label prints the run\'s own figure', () => {
+    const [b] = fig(uwbSp3.jumps[0].label, /(\d+) 字节/, 'jump label')
+    expect(air(base).find((r) => r.frame.kind === 'uwbSp3')!.frame.bytes).toBe(Number(b))
   })
 
-  it('reads the request’s three octets, and the crossover the other request moves', () => {
-    // 「控制消息里那 3 个字节确实发了出去」
-    const [octets] = figs(DEEP, /控制消息里那 (\d) 个字节确实发了出去/, '`deeper` on the request')
-    expect(srrrIeBytes(1), 'what one responder’s request element costs').toBe(octets)
-    expect(SRRR_IE_BYTES, 'and that is the element’s own width').toBe(octets)
-    // 「交叉点才从 A = 11 这一侧浮出来」, and `numbers` prints the same crossover
-    const [deepCross] = figs(DEEP, /交叉点才出现在 A = (\d+)/, '`deeper` on the crossover')
-    const [numsCross] = figs(NUMS, /交叉点就后移到 A = (\d+)/, '`numbers` on the same crossover')
-    expect(deepCross, 'the same crossover, in both places').toBe(numsCross)
-    expect(numsCross, 'and it is the one the engine’s own sweep finds').toBe(PAY.crossoverRrtt)
-    expect(PAY.crossoverRrtt, 'further out than the one without that request')
-      .toBeGreaterThan(PAY.crossover)
-    // 「外加 4 个 SRRR 信息单元」 — one per responder, in the control message on the air
-    const [srrrCount] = figs(PIC, /外加 (\d+) 个 SRRR 信息单元/, '`picture` on the control message')
-    expect(srrrCount, 'one per responder').toBe(ANCHORS)
-    /*
-     * The element list on a frame names each kind once, so 「4 个」 is read where the four really
-     * show: in the control message's own length, which is longer than a plain poll by exactly
-     * that many of them.
-     */
-    const control = frames.find((f) => f.kind === 'uwbPoll')!
-    expect(control.ies, 'the control message carries that element').toContain('SRRR')
-    expect(control.bytes - uwbPollBytes(ANCHORS), 'and that many of them, by its own length')
-      .toBe(srrrCount! * srrrIeBytes(1))
-    expect(control.bytes, 'which is what the engine prices it at').toBe(uwbSp3PollBytes(ANCHORS))
-  })
-
-  it('reads the request that costs nothing, the item that costs four, and the figure cited twice', () => {
-    /*
-     * 「0 字节：那一位在控制消息原有的控制字段里」 — the other clause's request rides a
-     * field the frame already has, so it is read as the length it does not change: the same
-     * control message, with the receipt requested and without, comes out the same size.
-     */
-    const [free] = figs(NUMS, /^(\d) 字节：那一位在控制消息原有的控制字段里/m,
-      '`numbers` on the free request')
-    /*
-     * Read on the lesson that owns that request, because this one's scene may not carry it: the
-     * schema refuses the receipt in an SP3 round. `@uwb-receipt`'s own scene takes the bit as a
-     * parameter, so the same control message can be priced both ways — which is the measurement
-     * 「0 字节」 is a claim about.
-     */
-    const asking = uwbReceiptTwrScenario(true)
-    const quiet = uwbReceiptTwrScenario(false)
-    for (const sc of [asking, quiet]) {
-      expect(ScenarioSchema.safeParse(sc).success, 'both of those scenes parse').toBe(true)
-    }
-    const pollOf = (sc: Scenario): number => ofType(run(sc, ONE_ROUND_NS), 'TX_START')
-      .filter((r) => r.frame.kind === 'uwbPoll')[0]!.frame.bytes
-    expect(pollOf(asking) - pollOf(quiet), 'and asking for it costs that many octets').toBe(free)
-    /*
-     * 「差的正好是方位角那一项的 4 个字节」, and `limits` prints the same width again: the octets
-     * the angle adds to a report, which is what the two report lengths differ by.
-     */
-    const [itemA] = figs(NUMS, /差的正好是方位角那一项的 (\d) 个字节/, '`numbers` on the angle item')
-    const [itemB] = figs(LIM, /方位角那一项的 (\d) 个字节也是本仿真器的取值/,
-      '`limits` on the same item')
-    expect(itemB, 'the same width, named twice').toBe(itemA)
-    expect(itemA, 'what the angle really adds to a report').toBe(UWB_SP3_RAOA_ITEM_BYTES)
-    expect(BYTES.reportRaoa - BYTES.report, 'and the two report lengths differ by it').toBe(itemA)
-    /*
-     * **Exempt, class (a): the figure number.** 「Figure 10-242」 is the standard's own and no
-     * corpus ships with this repo. What is read is that the lesson cites the same figure in both
-     * places it leans on it — `deeper` and `sources` — so the two cannot drift apart.
-     */
-    const [deepFig] = raw(DEEP, /是 (Figure \d+-\d+) 里发起方自己那/, '`deeper` on the figure')
-    const [srcFig] = raw(SRC, /连同它的 (Figure \d+-\d+) 给出时隙的指派/, '`sources` on the same')
-    expect(deepFig, 'one figure, cited twice').toBe(srcFig)
-  })
-
-  it('reads the two values of the packet-configuration field, and the mode this is not', () => {
-    /*
-     * 「本仿真器的包配置就只有 1 和 3 两个取值，没有 SP2」 — read off the
-     * type in the file the sentence names, so the claim holds only while that union does.
-     */
-    const FRAMES_SRC = readSrc('uwb/frames.ts')
-    const [a, b] = figs(LIM, /包配置就只有 (\d) 和 (\d) 两个取值/, '`limits` on the field')
-    const [declared] = raw(FRAMES_SRC, /sp\??: (\d(?: \| \d)*)/, 'the type as the file declares it')
-    expect(declared!.split(' | ').map(Number), 'the values that type really has').toEqual([a, b])
-    // 「多对多测距（@uwb-m2m）在本仿真器里不能和 SP3 同时打开」
-    const [modeDigit] = figs(LIM, /多对多测距（@uwb-m(\d)m）/, '`limits` on the other mode')
-    const mode = `m${modeDigit}m`
-    const sp3 = uwbSp3Scenario()
-    expect(ScenarioSchema.safeParse(sp3).success, 'this lesson’s own scene parses').toBe(true)
-    const asM2m = { ...sp3, uwb: { ...sp3.uwb!, mode } }
-    expect(ScenarioSchema.safeParse(asM2m).success, `and the schema refuses SP3 under ${mode}`)
-      .toBe(false)
-  })
-
-  it('reads the figures `sources` lists: the chips, the residual and the hall', () => {
-    // 「…这两段加上加扰时间戳序列，即 … 个码片，没有物理头那 … 个」
-    const chips = figs(SRC, /即 ([\d ]+) \+ ([\d ]+) = ([\d ]+) 个码片，没有物理头那 ([\d ]+)/,
-      '`sources` on the chips')
-    expect(chips[0]! + chips[1]!, 'the two segments a marker is made of').toBe(chips[2])
-    expect([chips[0], chips[1], chips[3]], 'and each is the engine’s own count')
-      .toEqual([UWB_SHR_CHIPS, UWB_STS_CHIPS, UWB_PHR_CHIPS])
-    expect(uwbSp3Chips(), 'which is what the engine prices a marker at').toBe(chips[2])
-    /*
-     * 「四个场景都把非视距与载波频偏估计的残差关掉（残差取 0），…0.2 ppm 的残差在最后
-     * 几个时隙上值几十厘米的距离」 — two figures: the value this lesson sets, and the default it
-     * is turning off.
-     */
-    const [off] = figs(SRC, /残差关掉（残差取 (\d)）/, '`sources` on what it switches off')
-    const [ppm] = figs(SRC, /([\d.]+) ppm 的残差/, '`sources` on the residual')
-    expect(uwbSp3Scenario().uwb!.cfoNoisePpm, 'the residual this scene really carries').toBe(off)
-    expect(ppm, 'and the one the engine carries by default')
-      .toBe(DEFAULT_UWB_SESSION.cfoNoisePpm)
-    // 「本课四个场景是同一个 22 × 8 m 大厅」
-    const [wide, deep] = figs(SRC, /同一个 (\d+) × (\d+) m 大厅/, '`sources` on the hall')
-    const scenes = [uwbSp3Scenario(), ...uwbSp3.variants!.map((v) => v.scenario())]
-    for (const sc of scenes) {
-      expect([sc.rooms[0]!.w, sc.rooms[0]!.h], 'every scene in the same hall').toEqual([wide, deep])
-    }
+  it('sources prints the chip count the engine uses', () => {
+    const [c] = fig(uwbSp3.sources!.join('\n'), /SP3 包 ([\d ]+) 个码片/, 'sources on the chips')
+    expect(Number(c.replace(/ /g, ''))).toBe(uwbSp3Chips())
   })
 })

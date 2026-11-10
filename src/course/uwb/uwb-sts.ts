@@ -1,53 +1,20 @@
 /**
- * UWB Tier 1 · M11 · Time of flight · A timestamp nobody can fake.
+ * UWB Tier 1 · M14 · Time of flight · A timestamp nobody can fake.
  *
- * The security lesson of the ranging tier, written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md). `uwb-frame`
- * named the STS in one line and moved on; this lesson is what that line was for.
+ * In the standard-first shape (2026-11-10, docs/superpowers/plans/2026-11-10-uwb-standard-alignment.md):
+ * ① what IEEE Std 802.15.4-2024 specifies for the scrambled timestamp sequence — where it sits,
+ * how the transmitter generates it, what the receiver is expected to do with it and who decides
+ * whether a reading is used; ② what this simulator does instead, row by row — it holds no seed,
+ * generates no pulse and correlates nothing: `onRx` in src/uwb/device.ts rejects a reception when
+ * the scenario configures an attacker and leaves the sequence on, and runs no check at all when
+ * there is no attacker; ③ three guided runs: the honest round, a relay with the check switched
+ * off, and the same relay with it on.
  *
- * The base scene is `uwb-intro`'s own — the same builder, the same five metres,
- * the same variant-free honest round — so the lesson costs the reader no new
- * room to learn and its recorded base hashes are uwb-intro's, value for value.
- * The two variants put an attacker in that room: a relay that makes every
- * reception's leading edge land 50 ns early (`uwb.attacker`, model), once with
- * the scrambled timestamp sequence switched off (`uwb.stsOff`) and once with it
- * on. Both run at 20 m, so the spoofed range is a plausible 5 m rather than a
- * negative number — a relay steals a fixed 14.99 m whatever the true distance,
- * and at five metres that reads as nonsense instead of as a lie.
+ * The base scene is `uwb-intro`'s own. The two attacked variants run at 20 m, so the spoofed
+ * range is a plausible 5 m rather than a negative number.
  *
- * Two voices, kept apart on the main path (fix round, 2026-09-23): what a real
- * radio does — generate the sequence from the key, place it in the frame,
- * compare what arrived against its own copy — and what this simulator does,
- * which is none of that. `onRxOk` in src/uwb/device.ts is a gate on the
- * scenario: reject when an attacker is configured and the sequence is on,
- * accept when it is off, and with no attacker run no check at all. The picture
- * ("What you are actually watching") and step 3 say so where the beginner is,
- * because a lesson that narrated a correlation here would teach the reader to
- * see one in a log that never holds one.
- *
- * Every number quoted below is pinned in tests/course/uwb-sts.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-sts` prints it with its length.
- *
- * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
- * §2 · M13). It **stays whole**: a relay attack without the STS leaves the reader
- * with a defect and no fix. What changed:
- *  - §4 gives it a `sequence` figure — the honest round, and the round the box in
- *    the middle forwards early — and the figure replaces the paragraph
- *    「为什么帧的开头是一份礼物」, whose metaphor §5.2 deletes. The one clause that
- *    paragraph carried and no figure can (a receiver that times the RMARKER and
- *    looks at nothing else is timing what the attacker can manufacture) now opens
- *    the paragraph about the fix, where it belongs.
- *  - §5.6 says to keep ONE of the two honest paragraphs about what this simulator
- *    does instead of holding a key, not neither. The one on the main path stays,
- *    word for word, because that is where the beginner meets the rejection; the
- *    depth paragraph that told it a second time is now only about what a real
- *    relay can reach (SYNC and SFD, and no further).
- *  - the paragraph that re-derived the halving in counter units went: the two
- *    formula notes and steps 5 and 6 already say it, and the table it introduced
- *    now carries its heading.
- * The pin that no main-path sentence claims a correlation was performed is still
- * here ("no attacker, no check"), and the STS is still about as long as the SYNC
- * (32 768 chips against 32 512), never two thirds as long again.
+ * Every figure printed below is read back out of the lesson text and compared with a run in
+ * tests/course/uwb-sts.test.ts.
  */
 import type { Scenario } from '../../model/scenario'
 import type { SequenceSpec } from '../diagram'
@@ -104,85 +71,104 @@ export const uwbSts: Lesson = {
   id: 'uwb-sts',
   module: 14,
   title: '一个无法伪造的时间戳',
-  why: '一辆“手机走近就开锁”的车，必须信任自己的测距设备给出的距离。攻击者并不需要破解任何密码，就能使它接受一个错误的距离：本课这一轮测距中不传送任何秘密，关键只在于边沿的到达时刻。位于中间的转发设备无法比光更快，却能在尚未收完时就把可预测的部分提前发出，这就是中继攻击（relay attack）。一帧开头的同步图案、以及标示同步结束的那一小段图案都是公开的，于是这一轮的两次接收各提前同样的时间：往返时间减少这一量，作答时间增加这一量，相减再除以二后，整个提前量全部从飞行时间中扣除。距离缩短量等于提前量乘以光速，与实际距离无关——远在大厅另一端的手机被报告为近在咫尺；而在很小的房间里施加同样的转发，会算出负的距离，因而无法欺骗任何设备。防御方法是在打时间戳的位置放置一段无法预测的脉冲序列：两端用共同持有的密钥（key）各自生成加扰时间戳序列（scrambled timestamp sequence, STS），接收端把收到的序列与自己的副本比对，比对结果决定这个时间戳是否被采用——标准把这一决定交给上层。中间的转发设备没有密钥，无法提前；在本课的场景里，被拒绝的一轮不产生距离，两个时隙都以超时结束，在日志中可以与单纯丢失的一轮区分开来。',
+  why: '一辆“手机走近就开锁”的车，必须信任自己的测距设备给出的距离。攻击者并不需要破解任何密码，就能使它接受一个错误的距离：本课这一轮测距中不传送任何秘密，关键只在于边沿的到达时刻。位于中间的转发设备无法比光更快，却能在尚未收完时就把可预测的部分提前发出，这就是中继攻击（relay attack）。一帧开头的同步字段（SYNC field, SYNC）与帧起始定界符（start-of-frame delimiter, SFD）都是公开的图案，于是这一轮的两次接收各提前同样的时间：往返时间减少这一量，回复时间增加这一量，相减再除以二后，整个提前量全部从飞行时间中扣除，距离缩短量等于提前量乘以光速，与实际距离无关。IEEE 802.15.4-2024 为此在打时间戳的位置附近放置加扰时间戳序列（scrambled timestamp sequence, STS）：发送端用 AES-128 从上层设定的种子生成一段伪随机脉冲序列，接收端预期用同样的种子生成副本做互相关，并为每个序列段报告一个相关强度；是否采用这次读数、是否应答，由上层决定。转发设备没有种子，无法预测这一段。本仿真器不生成序列、不做互相关，只按场景给出结果：有转发且序列开启时拒绝这次接收，这一轮不产生距离，两个时隙都以超时结束。',
   outcomes: [
-    '说明为什么基于时间测得的距离不必破解密码也能被缩短',
-    '把以纳秒计的提前量换算成距离的缩短量',
-    '从日志中分辨一轮是被拒绝，还是仅仅丢失',
+    '说明为什么基于时间测得的距离不必破解密码也能被缩短，并把提前量换算成距离',
+    '说出标准对 STS 规定了什么：位置、生成方式、接收端的相关强度与上层的决定',
+    '从日志中分辨一轮是被拒绝，还是仅仅丢失，并说出本仿真器在哪里没有照标准做',
   ],
   needs: ['uwb-frame'],
   terms: [
-    { term: 'relay attack', plain: '攻击者在两端之间提前转发信号，使测得的距离偏短' },
-    { term: 'key', plain: '本次会话的两台设备共同持有、他人无法获得的秘密' },
-    { term: 'STS', plain: '加扰时间戳序列：由该密钥生成的一段脉冲序列' },
+    { term: 'relay attack', plain: '攻击者在两端之间提前转发信号，使测得的距离偏短；标准不描述攻击，这是安全领域的叫法' },
+    { term: 'key', plain: '本次会话两端共同持有、他人无法获得的秘密；生成 STS 用的是上层设定的 128 位种子' },
+    { term: 'STS', plain: '加扰时间戳序列：由种子经 AES-128 生成的一段伪随机脉冲序列' },
   ],
-  picture: [
-    { heading: '真正值得攻击的是什么', text: '本课这一轮测距里没有任何秘密在传：两台设备只是报告自己的身份和轮次，关键信息全在四个计数读数的运算中（标准建议用安全的私有数据通信传送测距控制与结果，§10.29.6.2，本课没有启用；即使启用，也保护不了边沿的到达时刻）。既没有消息可窃取，也没有密码可破解，唯一值得篡改的是某个边沿的表观到达时刻——而一个更早到达的边沿会使结果变小。' },
-    { kind: 'watch', jump: 0, heading: '先看一轮无转发的测距', text: '载入仿真，运行完一轮。这里没有攻击：Poll 发出，锚点（anchor）作答，测距行与真值相差几厘米。记住这一行——下面的内容都以它为对照。' },
-    { heading: '中继转发：先预测，再提前发出', text: '现在在手机和锚点之间放置一台转发设备。它接收传来的信号，再向另一端重新发送同样的内容。它无法比光更快，所以不能使一次真实的到达提前。但它能做到的是：尚未收完就开始发送——前提是它已经能预测接下来的内容。预测，然后提前发出预测的内容：这就是中继攻击（relay attack）的全部原理。' },
+  standard: [
+    { heading: 'STS 的结构（§16.2.9.1，表 16-17）', text: 'STS 是一串伪随机脉冲，由基于 AES-128 计数器模式的确定性随机比特发生器生成，排成一到四个有效段，每段前后是 512 个码片（chip）的静默间隔。BPRF 模式必须支持一个段，长 64 × 512 码片，每 8 个码片一个脉冲。配置 1 把它放在 SFD 之后、物理头（PHY header, PHR）之前（表 16-1）。' },
+    { heading: '怎样生成（§16.2.9.2、§16.2.9.3）', text: '上层设定 128 位的 STS 种子与 128 位的 V 初值。发生器每运行一次产生 128 个伪随机比特，对应 128 个脉冲；每次运行后 V 中 32 位的计数器部分加一。比特 0 产生正极性脉冲，比特 1 产生负极性脉冲。种子与 V 怎样在两端之间约定与同步，由上层负责，可以用 RSSD 信息单元传送（§10.29.8.2）。' },
+    { heading: '接收端做什么（§16.2.9.2、§8.3.2.3）', text: '标准只规定发送端的操作，并说明接收端预期用同样的种子与 V 生成参考序列，与收到的序列做互相关。接收端为每个 STS 段报告一个 RangingStsFom：收到的序列段与参考序列段的相关强度，255 表示 100 %，0 表示没有给出。' },
+    { heading: '是否采用，由上层决定（§10.29.6.1、§6.6.2）', text: '增强测距设备提供附加的原语，上层可以依据它对时间戳结果的验证改变自己的动作，例如是否在测距交换中应答、是否把这次结果视为可用；对 HRP 设备，可以依据 RangingStsFom 做出这一判断。只有对只含 SYNC、SFD 与 STS 的配置 3 分组，标准才允许媒体访问控制（medium access control, MAC）层或物理层（physical layer, PHY）在序列不匹配时直接丢弃这一帧，或者照收并通过 RangingStsFom 交给上层判断。' },
+    { kind: 'steps', heading: '一次带 STS 的测距接收，按标准：逐步说明', items: [
+      '两端的上层事先约定 STS 种子与 V 的初值（§16.2.9.2）。',
+      '发送端按配置 1 组帧，在 SFD 之后发送由种子生成的 STS（表 16-1、§16.2.9.3）。',
+      '接收端用同样的种子与 V 生成参考序列，与收到的 STS 做互相关（§16.2.9.2）。',
+      '接收端随这次接收的时间报告给出每个段的 RangingStsFom（§8.3.2.3）。',
+      '上层依据 RangingStsFom 决定是否采用这次读数、是否应答（§10.29.6.1）；序列不匹配之后怎样处理、是否记录，标准没有规定。',
+    ] },
+  ],
+  implementation: [
+    { topic: 'STS 的位置与长度', standard: '配置 1：SFD 之后、PHR 之前；64 × 512 码片，前后各 512 码片间隔（表 16-1、表 16-17）', sim: '照此计入帧长：STS 与两段间隔共 33 792 码片。', kind: 'faithful' },
+    { topic: 'STS 的生成', standard: 'AES-128 计数器模式，种子与 V 由上层设定（§16.2.9.2）', sim: '不生成序列，也不持有种子：序列只是帧里的一段长度，32 768 个码片与 32 个码片给出相同的结果。', kind: 'absent' },
+    { topic: '接收端的互相关', standard: '用参考序列做互相关，报告 RangingStsFom（§16.2.9.2、§8.3.2.3）', sim: '不做互相关，也不报告 RangingStsFom。场景里有转发且序列开启，就判为不一致；没有转发时不做任何判断。', kind: 'absent' },
+    { topic: '是否采用', standard: '由上层依据 RangingStsFom 决定（§10.29.6.1）', sim: '判为不一致时一律不采用：写一条 UWB_STS_REJECT，锚点（anchor）不应答。', kind: 'choice' },
+    { topic: '拒绝之后', standard: '标准未规定', sim: '这一轮以两条 UWB_TIMEOUT 结束：锚点在时隙 0 没等到可用的 Poll，手机在时隙 1 没等到应答。会话不重试、不告警，也不把这一轮记成一次攻击。', kind: 'choice' },
+    { topic: '关闭序列', standard: '不含 STS 的帧是配置 0（表 16-1）', sim: '场景的「序列关闭」只关掉判断：帧仍按配置 1 计长度，到达时刻照样提前。这与标准里换成配置 0 不同。', kind: 'differs' },
+    { topic: '转发设备', standard: '标准不描述攻击', sim: '一个固定的提前量：会话的每一次接收都提前 50 ns，与转发设备的位置、转发路径的长度都无关；只会提前，不会延后。', kind: 'value' },
+    { topic: 'STS 内的附加时标', standard: '在各 STS 段的起止处另定义 SRMARKER0 到 SRMARKER4，报告它们的计数值是可选的（§16.2.9.4）', sim: '不报告。', kind: 'absent' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '无转发的一轮，和被转发的一轮', spec: uwbStsSequence(),
-      caption: '同一个 20 m 的房间。上面那条是无转发的一轮：Poll 直接传播到锚点，测距行报出 19.95 m。下面是转发——中间的转发设备只要预测出一帧开头那两段公开的图案——同步字段（SYNC）和标示它结束的帧起始定界符（SFD）——就能提前 50 ns 发出；于是同一个房间报出 4.96 m。',
+      heading: '没有转发的一轮',
+      jump: 3,
+      steps: [
+        '载入本课场景，运行完一轮，跳到距离计算完成的时刻。',
+        '在日志里找 UWB_STS_REJECT。',
+      ],
+      expect: '测距行报出 4.95 m，真值 5.00 m；日志里没有 UWB_STS_REJECT。',
+      meaning: '场景里没有转发时，本仿真器不做任何判断（②），这一轮与上一课完全相同。',
     },
-    { heading: '一段只有会话两端能够生成的脉冲', text: '如果接收端只对 RMARKER（ranging marker）计时而不检查其他内容，它计时的正是攻击者无需接收就能构造的信号。解决方法是：在打时间戳的位置放置一段无法预测的内容。会话的两端共同持有一个秘密——密钥（key）——并各自用它生成同一段很长的脉冲序列：加扰时间戳序列（STS）。真实的接收端持有自己的那一份副本，用它与收到的信号逐段比对，比对的结果决定这个时间戳是否被采用。而中间的转发设备没有这把密钥，收到的这一段在它看来只是噪声，也就没有任何内容可以提前发出。' },
-    { heading: '本课实际呈现的内容', text: '标准规定了发送端怎样用 AES-128 生成这段序列（§16.2.9），并说明接收端预期用同样的种子生成副本做互相关；比对之后是否采用这个时间戳、是否应答，标准交给上层依据每次接收报告的 STS 品质因数（figure of merit, FoM）决定（§10.29.6.1、§8.3.2.3），只对只含同步图案与 STS 的 SP3 分组，允许接收端直接丢弃序列不匹配的帧（§6.6.2）。所以「不匹配就拒绝」是一种实现策略，不是标准写死的规则。本课不演示比对的过程，只给出这一策略的结果：只要场景中有转发且序列开启，这次接收就被拒绝；序列关闭时则一律接受。转发的提前量在本课固定取 50 ns，标准不规定这个数。' },
-    { kind: 'watch', jump: 3, heading: '现在关闭这段序列', text: '载入第一个变体。此时中间的转发在工作，而那段序列处于关闭状态，于是转发的提前量作用在这一轮的两次接收上。读取测距行，并与旁边的真值比较。' },
-    { heading: '另一种结果：没有距离', text: '重新开启序列，同样的转发就不再产生任何距离：这次接收在打时间戳之前即被拒绝，两个时隙空闲度过。被拒绝的一轮和丢失的一轮在地图上表现相同，在日志中则不同——这正是要点。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '同一轮的三种结果', head: [
-      '场景', '真值', '测距行', '记录',
-    ], rows: [
-      ['诚实，基础场景', '5 m', '4.95 m', '1 × UWB_RANGE'],
-      ['有转发，序列关闭', '20 m', '4.96 m', '1 × UWB_RANGE'],
-      ['有转发，序列开启', '20 m', '没有', '1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT'],
-    ] },
-    { kind: 'steps', heading: '接收端如何使用这段序列', items: [
-      '在真实设备中，这一轮开始之前，两端各自用共同持有的那把密钥生成同一段脉冲序列。它在帧里的位置是 SFD 之后，位于两段 512 码片（chip）的静默间隔之间。',
-      '中间的转发设备把收到的内容重新发送，于是这一轮的每一次接收都提前 50 ns 到达。',
-      '真实的接收端在这一步会将收到的信号与自己的副本比对，转发的这一帧比对不一致，品质因数随之变差，上层据此可以不采用这次读数。本课只给出「不采用」这个结果：日志中出现一条 UWB_STS_REJECT，这次读数不予采用。',
-      '本课的场景里锚点因此不应答（是否应答由上层决定，§10.29.6.1 举的正是这个例子），应答时隙中不发送任何帧：缺失的应答由时隙超时报告，这一轮以两条 UWB_TIMEOUT 结束，不产生任何距离。',
-      '序列关闭时，接收端没有可比对的内容，一律接受：到达时刻比真实的早 50 ns，时间戳因此偏低 3195 格——一格就是一个 RCTU（ranging counter time unit），15.650 ps——这一轮的两次接收都如此。',
-      '往返时间减少 3195 格，作答时间增加 3195 格；两者之差再除以二，恰好等于整个提前量：距离凭空减少了 14.99 m，而手机并没有移动。',
-    ] },
-    { kind: 'formula', heading: '50 ns 对应多少距离', text: '50 ns × 0.299792458 m/ns = 14.99 m', note: '不是它的一半，也不是两倍：这一轮的两次接收都被提前了，于是这 50 ns 的提前量被完整地、一次性地从飞行时间中扣除。' },
-    { kind: 'table', heading: '同一次相减，换成计数单位', head: [
-      '读数', '无转发的 20 m（第三个变体）', '有转发时', '出处',
-    ], rows: [
-      ['anchor-1 RX RMARKER ← tag-1 poll', '26 381 601 449', '26 381 598 254', 'UWB_TS'],
-      ['tag-1 RX RMARKER ← anchor-1 resp', '336 335 294 125', '336 335 290 930', 'UWB_TS'],
-      ['各自偏低', '—', '3195 RCTU = 50.0 ns', '15.650 ps per RCTU, §10.29.1.4'],
-      ['提前量本身', '—', '50 ns', '本课取值，标准不规定'],
-      ['飞行时间，raw', '4267 RCTU', '1072 RCTU', '(Tround − Treply) / 2'],
-      ['报出的距离', '19.95 m', '4.96 m', 'UWB_RANGE, model'],
-    ] },
-    { kind: 'formula', heading: '距离的缩短量是一个常数', text: '4267 − 1072 = 3195 RCTU；19.95 m − 4.96 m = 14.99 m', note: '它不随距离变化，这也是两个变体都设在 20 m 的原因：在 5 m 上施加同样的转发，测得的距离会是负数，而负的距离无法欺骗任何设备。' },
-  ],
-  deeper: [
-    { heading: '真实的转发能拿到多少提前量', text: '本课里的攻击者只是一个固定的提前量：会话的每一次接收都提前同样的时间到达。真实的转发攻击由两台射频设备和一条连接线路构成，它获得的提前量依赖于预测帧头中确定的部分——所以它能拿到多少，取决于这一帧里有多少是可预测的，而不取决于攻击者的预算。对一个 SP1 分组来说，可预测的就是 SYNC 与 SFD，到 STS 的第一个码片为止。' },
-    { heading: '为什么做出拒绝的是锚点', text: '日志里那次拒绝出自锚点，针对的是 Poll 帧——因为 Poll 是这一轮的第一次接收，转发同样让它提早到达。标签没有机会判断应答帧，因为锚点根本没有发送：它的时隙已先超时。因此，有防护的会话在遭受攻击时使攻击者整轮一无所获，同时还向基础设施提供了一些信息——这比毫无防护的情形好得多。' },
-    { heading: '在这里，长度就是安全性', text: '这段序列的每个脉冲由一个伪随机比特决定极性（§16.2.9.3），逐个脉冲猜测的攻击者，每个脉冲猜对的概率是二分之一，所以真正决定成功概率的，是这段序列有多少个脉冲。本课用的分组配置，在标记与头部之间放了 32 768 个码片——BPRF 模式下每 8 个码片一个脉冲（表 16-17），即 4096 个脉冲；这一段与开头那段 SYNC 差不多长（SYNC 是 32 512 个码片），而它不携带任何信息比特。' },
-  ],
-  limits: [
-    { kind: 'unmodelled', text: '本课不持有密钥、不生成脉冲、也不做比对——如正文所述，这里只记录结果：场景中有转发且序列开启，就出现一条 UWB_STS_REJECT，序列关闭则一律接受。于是这是一个开关，而不是一次判决：没有误拒、没有攻击者猜中若干码片的可能，也没有「序列多长才算够」这条曲线。「再深一层」里那句「长度就是安全性」在这个模型里是零成本的，因为 32 768 个码片和 32 个码片在这里给出完全相同的结果。' },
-    { kind: 'model-value', text: '50 ns 的提前量是本课固定取的一个数，与转发设备的位置、它与两端的距离、转发链路本身的长度均无关：中继在本课里不是房间里的一台设备，而是加在每一次接收上的一个固定提前量。真实的提前量上限由帧头中可预测的那一段决定，而攻击者自己的处理时延还要从中扣掉一部分，所以它既不是一个自由参数，也不会在两个方向上一样大。' },
-    { kind: 'out-of-scope', text: '标准在 STS 段内部还定义了五个附加时标（SRMARKER0 到 SRMARKER4，§16.2.9.4），本课都不使用，而这是一条范围决定，不是一处缺口。BPRF 强制参数集只有一个 STS 段（Table 16-17、Table 16-31），所以五个里只有两个存在：第一个与 RMARKER 同时刻——正文自己写明，PHR 排在 STS 之后、或者整个不存在的那两种分组配置下如此，而本课只用这两种——第二个落在段尾那个 512 码片的静默间隔上，比第一个晚 66 667 ns。它们在本课里唯一可能的用途是 §10.29.1.1 那个相对时钟偏差估计：66.667 µs 的跨度配 100 ps 的时间戳只能达到 2.1 ppm，比本课取的 0.2 ppm 差十倍，所以读出这两个标记也不会让距离更准。' },
-    { kind: 'out-of-scope', text: '这个攻击者只会把边沿提前，而且对本会话的每一次接收作用相同。延迟转发把距离拉长、只攻击一个方向、放大转发、两台设备协同的距离欺骗，本课都不涉及；多毫秒片段的测距也不在这个攻击者的作用范围之内。所以本课证明的是「这一类攻击被这一道防线阻止了」，不是「测距是安全的」。' },
-    { kind: 'unmodelled', text: '一次拒绝之后不会触发任何后续处理：那个时隙按普通超时结束，会话不重试、不告警、不换密钥，也不把这一轮记成一次攻击。真实实现会把连续的拒绝上报给上层并触发对策，而本课能观察到的只有「这一轮没有距离」——与一次纯粹的丢帧在地图上完全一样，只在日志中相差一行。' },
+    {
+      heading: '序列关闭时，转发缩短了 15 m',
+      variant: 0,
+      more: [2],
+      steps: [
+        '载入「有转发，且序列关闭」，读测距行，再载入「无转发的 20 m」对照。',
+        '把两次运行里的两个接收计数值分别相减，以 RCTU（ranging counter time unit）为单位，对照下表。',
+      ],
+      blocks: [
+        { kind: 'diagram', heading: '无转发的一轮，和被转发的一轮', spec: uwbStsSequence(), caption: '同一个 20 m 的房间。转发设备只要预测出一帧开头公开的 SYNC 与 SFD，就能提前 50 ns 发出。' },
+        { kind: 'table', heading: '同一次相减，换成计数单位', head: ['读数', '无转发的 20 m', '有转发、序列关闭'], rows: [
+          ['anchor-1 RX RMARKER ← tag-1 poll', '26 381 601 449', '26 381 598 254'],
+          ['tag-1 RX RMARKER ← anchor-1 resp', '336 335 294 125', '336 335 290 930'],
+          ['飞行时间，raw', '4267 RCTU', '1072 RCTU'],
+          ['报出的距离', '19.95 m', '4.96 m'],
+        ] },
+        { kind: 'formula', heading: '50 ns 对应多少距离', text: '50 ns × 0.299792458 m/ns = 14.99 m\n4267 − 1072 = 3195 RCTU；19.95 m − 4.96 m = 14.99 m', note: '两次接收都提前了 50 ns：往返时间少 50 ns，回复时间多 50 ns，相减再除以二，恰好是整个提前量。' },
+      ],
+      expect: '两个接收计数值都比无转发时小 3195 RCTU，即 50.0 ns；测距行报出 4.96 m，而真值是 20.00 m。',
+      meaning: '帧开头的 SYNC 与 SFD 是公开的图案（①），可以被提前发出；本仿真器的「序列关闭」不做任何判断（②），于是整个提前量都进了距离。',
+    },
+    {
+      heading: '序列开启时，这一轮没有距离',
+      variant: 1,
+      more: [0],
+      steps: [
+        '载入「同样的转发，序列开启」，运行完一轮。',
+        '按时间顺序读这一轮的记录，与序列关闭的那次对照。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '同一轮的三种结果', head: ['场景', '真值', '测距行', '记录'], rows: [
+          ['无转发，基础场景', '5 m', '4.95 m', '1 × UWB_RANGE'],
+          ['有转发，序列关闭', '20 m', '4.96 m', '1 × UWB_RANGE'],
+          ['有转发，序列开启', '20 m', '没有', '1 × UWB_STS_REJECT, 2 × UWB_TIMEOUT'],
+        ] },
+      ],
+      expect: 'anchor-1 针对 Poll 写一条 UWB_STS_REJECT，随后在 2 000 000 ns 与 4 000 000 ns 各有一条 UWB_TIMEOUT，没有测距行。',
+      meaning: '转发设备没有种子，无法预测 STS（①）；本仿真器不做互相关，只给出「不采用」这个结果（②），而标准把是否采用交给上层依据 RangingStsFom 决定。被拒绝的一轮在日志里与单纯丢失的一轮不同：多一条拒绝记录。',
+    },
   ],
   sources: [
-    '加扰时间戳序列、它由 AES-128 密钥与计数器生成的方式，以及安放它的 SP0…SP3 分组配置，见 IEEE Std 802.15.4-2024 的第 16 章（生成方式 §16.2.9，分组配置 §16.2.1 的表 16-1）；RMARKER 被定义为 SFD 之后的第一个码片，见 §10.29.1.1。“再深一层”里引用的 32 768 个有效码片，是本仿真器 SP1 段的取值（64 × 512 码片），同样依据上述条款。',
-    '攻击者是模型取值，这里如实标明：对会话的每一次接收施加固定 50 ns 的提前量，并用第二个开关关闭那段序列。这两项都不是标准参数；标准描述的是防线，不是攻击。',
-    '一次拒绝对这一轮的后果——接收端丢掉读数，由时隙超时报告这次缺失的应答——同样是模型取值。标准为每次接收定义了 STS 品质因数（§8.3.2.3），由上层据此判断是否采用、是否应答（§10.29.6.1）；校验失败之后怎样处理、是否留下记录，标准没有规定。',
-    '一个 RCTU 是 499.2 MHz 码片的 2⁻⁷，即 15.650 ps（§10.29.1.4）；全文采用的光速是 0.299792458 m/ns。',
+    'IEEE Std 802.15.4-2024：§16.2.9.1 与表 16-17（STS 的段与间隔）、§16.2.9.2（AES-128 生成，接收端预期做互相关，种子与 V 由上层约定）、§16.2.9.3（每个比特决定一个脉冲的极性）、§16.2.9.4（SRMARKER）、§16.2.1 与表 16-1（分组配置）、§8.3.2.3 与表 8-28（RangingStsFom）、§10.29.6.1（上层依据验证结果决定是否应答）、§6.6.2（配置 3 分组的接收）、§10.29.8.2（RSSD 信息单元）。',
+    '本仿真器的取值与取法：转发设备是加在每一次接收上的固定 50 ns 提前量；「序列开启且有转发」即拒绝，拒绝后锚点不应答、两个时隙超时；「序列关闭」只关掉判断，不改分组配置。标准不描述攻击。',
+    '一个 RCTU 是 499.2 MHz 码片周期的 2⁻⁷，即 15.650 ps（§10.29.1.4）；全文采用的光速是 0.299792458 m/ns。',
   ],
+  limits: [],
   scenario: () => uwbIntroScenario(5),
   variants: [
     { label: '有转发，且序列关闭', scenario: () => uwbStsScenario(true) },
     { label: '同样的转发，序列开启', scenario: () => uwbStsScenario(false) },
     // The honest 20 m room, so the counters the table compares against can be loaded from this
-    // lesson. It is `uwb-intro`'s own "20 m apart" variant, scenario for scenario, so the
-    // fixture entry added for it equals `uwb-intro#0` in both files.
+    // lesson. It is `uwb-intro`'s own "20 m apart" variant, scenario for scenario.
     { label: '无转发的 20 m', scenario: () => uwbIntroScenario(20) },
   ],
   jumps: [
@@ -191,15 +177,8 @@ export const uwbSts: Lesson = {
     J('锚点作答', firstUwbResp),
     J('距离计算完成', firstUwbRange),
   ],
-  observe: [
-    '在基础场景里读 2 190 209 ns 处的 UWB_RANGE：报出 4.95 m，真值 5.00 m。这里没有攻击，唯一的误差就是前面已介绍过的时间戳噪声。',
-    '载入第一个变体，找到同一行。它现在写着 4.96 m，而真值是 20.00 m：手机在大厅另一端，锚点却被告知它近在咫尺。',
-    '载入第二个变体。这里没有任何距离：anchor-1 针对 Poll 帧给出一条 UWB_STS_REJECT，随后两个时隙依次空闲度过，留下两条 UWB_TIMEOUT。',
-  ],
-  tryThis: [
-    '把第一个变体、以及第三个变体（无转发的 20 m 房间）里的两个 RX 计数值都记下来，分别相减。两个差都是 3195 RCTU，也就是 50.0 ns——这正是那个提前量，在这一轮的两次接收中各出现一次。',
-    '计算一下：在 5 m 的距离上施加这个转发，距离会缩短多少。缩短量仍是 14.99 m，于是算出的距离小于零。如果转发的提前量相对于房间尺寸过大，攻击者就无法从中得到任何好处。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '为什么一次转发能使测得的距离变短？',
@@ -222,14 +201,14 @@ export const uwbSts: Lesson = {
       explain: '一个读数减小、另一个增大，幅度相同，于是两者之差的变化是提前量的两倍，再除以二又恰好得到 50 ns——14.99 m。',
     },
     {
-      q: '把那段序列开启之后，同样的转发会产生什么？',
+      q: '按标准，接收端发现 STS 与参考序列相关很弱时，谁决定是否采用这次读数？',
       options: [
-        '一个正确的距离：接收端修正了时间戳',
-        '没有距离：读数被拒绝，时隙空闲',
-        '一个偏长 15 m 而不是偏短 15 m 的距离',
+        '物理层：标准要求它在任何配置下都直接丢弃这一帧',
+        '上层：它依据接收端报告的 RangingStsFom 决定是否采用、是否应答',
+        '发送端：它在下一帧里重发 STS',
       ],
       answer: 1,
-      explain: '接收端没有任何依据可以修正时间戳：这次接收被直接拒绝，这一轮以一条拒绝记录和两条超时记录结束，而不是给出一个距离。',
+      explain: '§10.29.6.1 把这一决定交给上层；只有配置 3 分组，§6.6.2 才允许 MAC 或物理层直接丢弃。本仿真器则一律不采用。',
     },
   ],
 }

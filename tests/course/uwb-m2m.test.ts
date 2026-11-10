@@ -1,34 +1,30 @@
 /**
- * Every empirical claim in 「一次发送，同时是问也是答」, measured against the lesson's own
- * scenarios. Each assertion names the sentence it guards.
+ * `@uwb-m2m`, in the standard-first shape (2026-11-10).
  *
- * The rule this file exists for: the lesson prints slot counts, range counts, a
- * per-participant split, six frame lengths, a participant cap, two accuracy
- * figures and a walled round's losses. Every one of them is read back out of a
- * **whole round** run here, or recomputed from the engine's own exports
- * (src/uwb/phy.ts, src/uwb/session.ts) — nothing below is a number typed twice.
+ * ① teaches the standard's many-to-many procedure (§10.32.6/§10.32.7: separate initiator and
+ * responder roles, RRTI IEs in the responses, M + N frames for M × N pairs). ② says the engine
+ * differs — no control message, every device both roles, the invented TXT/RXT IEs — and this file
+ * checks each ② row against what the engine really does, so the day W3 brings the engine to the
+ * standard, the rows that call it a deviation turn red here and have to be rewritten.
  *
- * Whole rounds, and not a helper, for the reason the slice ledger records: this
- * slice's headline is a number about a round, and two features on this branch
- * looked finished while doing nothing at all, which only running a round exposed.
+ * Every figure the labs print is read back out of the lesson's own text and compared with a run:
+ * editing a number without the engine agreeing turns this red, and so does an engine change that
+ * moves a number the lesson still prints.
  */
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
-  BYTES, CAP, CAP_BYTES, ERR, ERR_PER_SLOT_M, FIG, PARTICIPANTS, PLACES, PPM, TABLE_NS, WALLED,
-  WALLED_PARTICIPANTS, idOf, m2mSlots, pairsOf, perParticipant, takingTurnsSlots, uwbM2m,
-  uwbM2mScenario, uwbM2mTiming,
+  PARTICIPANTS, PLACES, TABLE_NS, WALLED_PARTICIPANTS, idOf, pairsOf, uwbM2m, uwbM2mScenario,
 } from '../../src/course/uwb/uwb-m2m'
 import { Simulation } from '../../src/engine/simulation'
 import { COURSE_ORDER, MODULES, basisOf } from '../../src/course/curriculum'
-import { layoutDiagram } from '../../src/course/diagram'
-import { DEFAULT_UWB_SESSION, ScenarioSchema, type NodeCfg, type Scenario } from '../../src/model/scenario'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
+import { ScenarioSchema, type NodeCfg, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
-  C_M_PER_NS, UWB_FCS_BYTES, UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES, rstuNs, uwbM2mBytes,
-  uwbMaxParticipants,
+  C_M_PER_NS, RRMC_IE_BYTES, TX_TIME_IE_BYTES, UWB_FCS_BYTES, UWB_MAX_PSDU_BYTES, UWB_MHR_BYTES,
+  rstuNs, rxTimesIeBytes, uwbM2mBytes, uwbMaxParticipants,
 } from '../../src/uwb/phy'
-import { m2mParticipants, roundPlan } from '../../src/uwb/session'
+import { m2mParticipants } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -41,23 +37,19 @@ const run = (sc: Scenario): TLRecord[] => {
   expect(() => ScenarioSchema.parse(sc)).not.toThrow()
   return [...new Simulation(sc).runUntil(RUN_NS).records]
 }
-
-/** One unordered pair, as a key: the quantity the lesson's first table counts. */
 const pairKey = (a: string, b: string): string => [a, b].sort().join('~')
 
-/** The base scene's own run — the one every claim about "this round" is read from. */
 const base = runOf(uwbM2m, undefined, RUN_NS)
+const dsRun = runOf(uwbM2m, 0, RUN_NS)
+const walledRun = runOf(uwbM2m, 1, RUN_NS)
 const ranges = (rs: TLRecord[]) => ofType(rs, 'UWB_RANGE')
 const air = (rs: TLRecord[]) => ofType(rs, 'TX_START')
 const errsOf = (rs: TLRecord[]): number[] => ranges(rs).map((r) => Math.abs(r.distM - r.trueDistM))
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+const heldBy = (rs: TLRecord[], ids: string[]): number[] =>
+  ids.map((id) => ranges(rs).filter((r) => r.node === id).length)
 
-/**
- * The same N devices the way the engine could already range them: each takes a
- * turn as the tag while the rest answer as anchors. The arrangement the lesson's
- * first table prices, and its slots and records are summed over all N rounds
- * because all N of them have to happen.
- */
+/** Each device taking a turn as the tag while the rest answer as anchors, summed over all N rounds. */
 function takingTurns(n: number): { slots: number; records: number; pairs: Set<string> } {
   const from = uwbM2mScenario('ss', n)
   let slots = 0
@@ -67,11 +59,7 @@ function takingTurns(n: number): { slots: number; records: number; pairs: Set<st
     const nodes: NodeCfg[] = from.nodes.map((node, i) => ({
       ...node, uwb: { ...node.uwb!, role: i === k ? 'tag' : 'anchor' },
     }))
-    const sc: Scenario = {
-      ...from, nodes,
-      uwb: { ...from.uwb!, mode: 'twr', method: 'ss', replyTime: 'embedded' },
-    }
-    const rs = run(sc)
+    const rs = run({ ...from, nodes, uwb: { ...from.uwb!, mode: 'twr', method: 'ss', replyTime: 'embedded' } })
     const rounds = ofType(rs, 'UWB_ROUND')
     expect(rounds, `taking turns N=${n}, ${idOf(k)}'s turn`).toHaveLength(1)
     slots += rounds[0].slots
@@ -83,516 +71,254 @@ function takingTurns(n: number): { slots: number; records: number; pairs: Set<st
   return { slots, records, pairs }
 }
 
-describe('uwb-m2m · where it sits in the course', () => {
-  it('is the many-to-many lesson, checked against the published standard alone', () => {
+const lab = (heading: string): Lab => {
+  const l = uwbM2m.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (l: Lab, heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = uwbM2m.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const fig = (text: string, re: RegExp, what: string): string[] => {
+  const m = re.exec(text)
+  expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+  return m!.slice(1)
+}
+const STD = uwbM2m.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
+
+describe('uwb-m2m · the lesson', () => {
+  it('is in the standard-first shape, in the many-to-many module, after the contention lesson', () => {
+    expect(isStandardFirst(uwbM2m)).toBe(true)
     expect(MODULES[uwbM2m.module].title).toBe('多对多测距')
-    // 「这一课完全不依赖任何草案」: the module inherits its tier's published revision and
-    // declares nothing of its own (a module that restates its tier is data that can drift).
     expect(basisOf(uwbM2m.module)).toEqual(['ieee-802-15-4-2024'])
-    expect(MODULES[uwbM2m.module].basis).toBeUndefined()
     expect(uwbM2m.needs).toEqual(['uwb-sstwr', 'uwb-dstwr'])
-    const src = uwbM2m.sources!.join('\n')
-    expect(src).toContain('IEEE Std 802.15.4-2024')
-    expect(src).toContain('§10.32.6')
-    expect(src).toContain('§10.32.7')
-    // no draft number and no contribution number anywhere in the provenance
-    expect(src).not.toMatch(/802\.15\.4ab|1[15]-2\d\/\d{4}r\d+|802\.11/)
-  })
-
-  it('reads right after the contention lesson', () => {
     expect(COURSE_ORDER.indexOf('uwb-m2m')).toBe(COURSE_ORDER.indexOf('uwb-contention') + 1)
+    expect(uwbM2m.limits).toEqual([])
+    expect(uwbM2m.observe).toEqual([])
+    expect(uwbM2m.tryThis).toEqual([])
+    expect(uwbM2m.sources!.join('\n')).not.toMatch(/802\.15\.4ab|1[15]-2\d\/\d{4}r\d+|802\.11/)
   })
 
-  /**
-   * **The cap is named in `outcomes` the way the rest of this lesson names it.**
-   *
-   * 上限 is one of the 25 words `ZH_TERMS_EXCLUDED` switches the bracket rule off for, and the
-   * reason recorded against it there is the diagnosis for this line:
-   * `'three different simulator quantities under one word'`. Inside this repository the bare
-   * word also means the `limits` debt ratchet's ceiling and `all.length`'s string ceiling, and
-   * on the Wi-Fi track it means a rate cap. The third `outcomes` line used to read 「以及上限由
-   * 谁决定」 — and `outcomes` is where a reader meets this lesson before any of its numbers, so
-   * the bare word arrived first and the qualified one eleven blocks later.
-   *
-   * This is not a new coinage and the check does not accept one: 参与者上限 is already this
-   * lesson's own wording, in a `numbers` heading and in the question of the `quiz` item about
-   * it, and all three sites are read out and compared rather than one of them being retyped
-   * here. (The `explain` under that question then says a bare 上限, and that one is left alone:
-   * it is an anaphor one line under the qualified noun, which is the same exemption
-   * `probes.local/shapeA5.ts` applied within a lesson.) The last expectation is the
-   * load-bearing half — it allows no bare 上限 anywhere in `outcomes`, so a fourth outcome that
-   * leans on the unqualified word goes red.
-   */
-  it('names the cap in `outcomes` the way its own numbers and quiz name it: 参与者上限', () => {
-    const CAP = '参与者上限'
-    const headings = uwbM2m.numbers!.flatMap((b) => ('heading' in b && b.heading ? [b.heading] : []))
-    expect(headings.filter((h) => h.includes(CAP)), 'the `numbers` heading that defines it')
-      .toHaveLength(1)
-    expect(uwbM2m.quiz.filter((q) => q.q.includes(CAP)), 'the quiz question that asks about it')
-      .toHaveLength(1)
-    const outcomes = uwbM2m.outcomes!.join('\n')
-    expect(outcomes, `${CAP} is the lesson's own wording for it`).toContain(CAP)
-    expect(outcomes.match(/上限/g)?.length, 'every 上限 in `outcomes` says WHICH cap it is:'
-      + ' the word carries three different simulator quantities in this repository, and'
-      + ' `outcomes` is read before the heading that would have disambiguated it')
-      .toBe(outcomes.match(new RegExp(CAP, 'g'))?.length)
-  })
-
-  it('writes no cap as a literal: every count in the lesson is computed', () => {
-    // 「代码里不许出现字面量作为上限」 — the cap, the frame lengths and the slot counts all come
-    // from `phy.ts`/`session.ts`, so neither 27 nor 127 may appear as a number in the lesson's
-    // CODE. Comments are stripped first: a doc comment naming the 127-octet PSDU is prose about
-    // the rule, not a second copy of it, and a rule that forbade it would be the reason the next
-    // author stopped explaining where the cap comes from.
-    const code = readFileSync(new URL('../../src/course/uwb/uwb-m2m.ts', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '')
-    expect(code).not.toMatch(/(?<![\d.])27(?![\d.])/)
-    expect(code).not.toMatch(/(?<![\d.])127(?![\d.])/)
-  })
-
-  it('declares five limits, each of a named kind and none of them the banned sentence', () => {
-    expect(uwbM2m.limits).toHaveLength(5)
-    expect(uwbM2m.limits.map((l) => l.kind))
-      .toEqual(['model-value', 'unmodelled', 'unmodelled', 'out-of-scope', 'out-of-scope'])
-    const text = uwbM2m.limits.map((l) => l.text).join('\n')
-    // Each entry names the engine it was checked against, not a feeling about the model.
-    expect(text).toContain('按设备编号排序')
-    expect(text).toContain('只计入长度，不含内容')
-    expect(text).toContain('§10.32.8')
-    expect(text).toContain('SRRR')
-    // The SP3 entry says what SP3 cannot do and why that makes it a separate road —
-    // it used to claim the clause's mechanism could not be established from the corpus,
-    // which was false: the published standard's full text is in the corpus, and only
-    // *this repo* holds the clause list. A limits entry asserting its own evidence is
-    // missing has to be checked against where the evidence actually is.
-    expect(text).toContain('无法携带时间信息')
-    // …and it no longer says SP3 is unbuilt: the SP3 slice (2026-10-02, `@uwb-sp3`) made that
-    // false, and the true statement is narrower — SP3 exists, and the schema refuses it in THIS
-    // mode. A limits entry the engine contradicts is the defect this course has had most often.
-    expect(text).not.toContain('还没建')
-    expect(text).toContain('多对多不接受 SP3')
-    expect(text).not.toContain('举证不足')
-    expect(text).not.toContain('uwb-clause-list.txt')
-    // 「不许写『本仿真器有简化』」, in both spellings.
-    expect(text).not.toContain('有简化')
-    expect(text).not.toContain('简化之处')
-    // and no limit claims the standard is a draft (§10.32.6/§10.32.7 are published)
-    expect(text).not.toContain('草案')
-  })
-
-  it('names every engine symbol its limits point at', () => {
-    const exported = (file: string, symbol: string): boolean =>
-      new RegExp(`export (?:const|function|class|interface|type) ${symbol}\\b`)
-        .test(readFileSync(new URL(`../../src/uwb/${file}`, import.meta.url), 'utf8'))
-    expect(exported('session.ts', 'm2mParticipants')).toBe(true)
-    expect(exported('phy.ts', 'ARC_IE_BYTES')).toBe(true)
-    expect(exported('phy.ts', 'RDM_IE_FIXED_BYTES')).toBe(true)
-    expect(exported('nb.ts', 'nbChannelForBlock')).toBe(true)
-    expect(exported('position.ts', 'solvePosition')).toBe(true)
-  })
-})
-
-describe('uwb-m2m · the scene', () => {
-  const sc = uwbM2m.scenario()
-
-  it('is six UWB devices at six places, no two pairwise distances alike', () => {
-    expect(sc.nodes).toHaveLength(PARTICIPANTS)
-    expect(sc.nodes.map((n) => n.id)).toEqual(PLACES.map((_p, i) => idOf(i)))
-    for (const [i, n] of sc.nodes.entries()) {
-      expect([n.pos.x, n.pos.y]).toEqual([PLACES[i].x, PLACES[i].y])
-      expect(n.uwb!.ppm).toBe(PPM[i])
+  it('① teaches the standard procedure, cites its clauses, and holds no simulator content', () => {
+    for (const clause of ['§10.32.6', '§10.32.7', '§10.29.8.1', '§10.29.8.3', '§10.29.8.4', '§10.32.9.1', '§10.32.9.8', '§16.2.7.1']) {
+      expect(STD, clause).toContain(clause)
     }
+    expect(STD).toContain('M + N 帧')
+    expect(STD).toContain('M × N 对')
+    expect(STD).toContain('由响应方计算')
+    for (const sim of ['本仿真器', 'TXT', 'RXT', '参与者', '设备编号']) expect(STD, sim).not.toContain(sim)
+  })
+
+  it('the scene: six devices at six places, no two pairwise distances alike', () => {
+    const sc = uwbM2m.scenario()
+    expect(sc.nodes.map((n) => n.id)).toEqual(PLACES.map((_p, i) => idOf(i)))
     const d = (i: number, j: number) => Math.hypot(PLACES[i].x - PLACES[j].x, PLACES[i].y - PLACES[j].y)
     const all: number[] = []
     for (let i = 0; i < PARTICIPANTS; i++) for (let j = i + 1; j < PARTICIPANTS; j++) all.push(Math.round(d(i, j) * 1000))
-    expect(new Set(all).size, 'every pairwise distance distinct').toBe(all.length)
-    expect(all.length).toBe(pairsOf(PARTICIPANTS))
-  })
-
-  it('runs many-to-many SS with only the clock-offset residual left switched on', () => {
-    // 「把多径的附加时延与时间戳噪声都关掉，只留下载波频偏估计的 0.2 ppm 残差」
-    expect(sc.uwb!.mode).toBe('m2m')
-    expect(sc.uwb!.method).toBe('ss')
-    expect(sc.uwb!.nlos).toBe(false)
-    expect(sc.uwb!.tsNoisePs).toBe(0)
-    expect(sc.uwb!.cfoNoisePpm).toBe(DEFAULT_UWB_SESSION.cfoNoisePpm)
-    // and the round belongs to the whole group: one round per block, N slots
-    const plan = roundPlan(sc.uwb!, PARTICIPANTS)
-    expect(plan.participants).toBe(PARTICIPANTS)
-    expect(plan.roundsPerBlock).toBe(1)
-  })
-
-  it('puts the participants in the slot order the ids give, so participant i is p-i', () => {
-    // 「顺序按节点 id 排」 — the lesson's whole asymmetry is stated in terms of this order.
-    expect(m2mParticipants(sc.nodes)).toEqual(PLACES.map((_p, i) => idOf(i)))
-  })
-
-  it('offers DS and the walled round as its variants, and nothing else', () => {
-    expect(uwbM2m.variants!.map((v) => v.scenario().uwb!.method)).toEqual(['ds', 'ss'])
-    const walled = uwbM2m.variants![1].scenario()
-    expect(walled.nodes).toHaveLength(WALLED_PARTICIPANTS)
-    // three brick partitions more than the open scene's shell
-    expect(walled.walls.length).toBe(uwbM2m.scenario().walls.length + 3)
-    expect(walled.walls.slice(-3).every((w) => w.material === 'brick')).toBe(true)
+    expect(new Set(all).size).toBe(pairsOf(PARTICIPANTS))
   })
 })
 
-describe('uwb-m2m · N slots where taking turns needs N² (design §1)', () => {
-  it('measures every cell of the first table from whole rounds, for N = 3/4/6', () => {
-    for (const n of TABLE_NS) {
-      const m2m = run(uwbM2mScenario('ss', n))
-      const ds = run(uwbM2mScenario('ds', n))
-      const turns = takingTurns(n)
-      const rounds = ofType(m2m, 'UWB_ROUND')
-      expect(rounds.length, `N=${n}: a round ran at all`).toBeGreaterThan(0)
-      // the four numbers the table's row prints
-      expect(rounds[0].slots, `N=${n}: 多对多 SS 时隙`).toBe(m2mSlots(n, 'ss'))
-      expect(ofType(ds, 'UWB_ROUND')[0].slots, `N=${n}: 多对多 DS 时隙`).toBe(m2mSlots(n, 'ds'))
-      expect(turns.slots, `N=${n}: 轮流当标签的时隙`).toBe(takingTurnsSlots(n))
-      expect(turns.records, `N=${n}: 轮流当标签的距离记录`).toBe(2 * pairsOf(n))
-      // …and both arrangements really measure the same pairs
-      expect(ranges(m2m), `N=${n}: one range per pair`).toHaveLength(pairsOf(n))
-      expect(new Set(ranges(m2m).map((r) => pairKey(r.node, r.peer))).size).toBe(pairsOf(n))
-      expect(turns.pairs.size, `N=${n}: taking turns measures the same pairs`).toBe(pairsOf(n))
-      // 「轮流当标签的时隙数 ÷ 多对多的时隙数 = N」
-      expect(turns.slots / rounds[0].slots, `N=${n}: the ratio`).toBe(n)
+describe('uwb-m2m · ② says what the engine does, and the engine does it', () => {
+  it('has rows of every honest kind, and the deviations say they are deviations', () => {
+    const kinds = new Set(uwbM2m.implementation!.map((r) => r.kind))
+    for (const k of ['differs', 'value', 'choice', 'absent', 'faithful'] as const) expect(kinds.has(k), k).toBe(true)
+    expect(implRow('控制消息').sim).toContain('待改正')
+    expect(implRow('帧里的信息单元').sim).toContain('标准里没有的 TXT 与 RXT')
+  })
+
+  it('控制消息: no control message, every UWB device takes part, nobody joins or leaves', () => {
+    expect(implRow('控制消息').kind).toBe('differs')
+    expect(implRow('控制消息').sim).toContain('没有任何设备能中途加入或退出')
+    const kinds = new Set(air(base).map((r) => r.frame.kind))
+    expect([...kinds]).toEqual(['uwbM2m'])
+    const sc = uwbM2m.scenario()
+    expect(m2mParticipants(sc.nodes)).toEqual(sc.nodes.map((n) => n.id))
+  })
+
+  it('角色 and 帧里的信息单元: every device sends one frame, RRMC + TXT (+ RXT), never RRTI', () => {
+    expect(air(base).map((r) => r.node)).toEqual(PLACES.map((_p, i) => idOf(i)))
+    for (const r of air(base)) {
+      expect(r.frame.uwb?.ies?.slice(0, 2)).toEqual(['RRMC', 'TXT'])
+      expect(r.frame.uwb?.ies).not.toContain('RRTI')
+    }
+    // and every device both asks (its frame is heard by later ones) and answers (it carries arrivals)
+    expect(air(base).filter((r) => r.frame.uwb?.ies?.includes('RXT')).length).toBe(PARTICIPANTS - 1)
+  })
+
+  it('帧数与距离数 and 谁计算: N frames for N(N−1)/2 pairs (2N under DS), the earlier device computes', () => {
+    expect(air(base)).toHaveLength(PARTICIPANTS)
+    expect(air(dsRun)).toHaveLength(2 * PARTICIPANTS)
+    for (const rs of [base, dsRun]) {
+      expect(ranges(rs)).toHaveLength(pairsOf(PARTICIPANTS))
+      for (const r of ranges(rs)) expect(r.node < r.peer, `${r.node}→${r.peer}`).toBe(true)
     }
   })
 
-  it('gets every distance right, to what the reply interval allows', () => {
-    // 「折成距离约 0.06 m 一个时隙」: the error of a pair k slots apart is a gaussian draw of
-    // roughly k × ERR_PER_SLOT_M, so 2σ is the bound to hold it to — not k × ERR_PER_SLOT_M
-    // itself, which the draw legitimately exceeds (p-2→p-4 measures 1.3σ). The exact worst
-    // figure is pinned in the accuracy suite below; this is the shape of the whole set.
-    for (const r of ranges(base)) {
-      const slotsApart = Number(r.peer.slice(2)) - Number(r.node.slice(2))
-      expect(Math.abs(r.distM - r.trueDistM), `${r.node}→${r.peer}`)
-        .toBeLessThan(2 * ERR_PER_SLOT_M * slotsApart)
-    }
-  })
-})
-
-describe('uwb-m2m · only the earlier participant of a pair can compute it (design §2)', () => {
-  it('gives participant i exactly N−1−i ranges, as the table prints them', () => {
-    const got = Array.from({ length: PARTICIPANTS }, (_, i) => ranges(base).filter((r) => r.node === idOf(i)).length)
-    expect(got).toEqual(perParticipant(PARTICIPANTS))
-    expect(got[0]).toBe(PARTICIPANTS - 1)
-    expect(got[PARTICIPANTS - 1], '排在最后的参与者一条也算不出来').toBe(0)
-    expect(got.reduce((a, b) => a + b, 0)).toBe(pairsOf(PARTICIPANTS))
-    // every range names a participant later in the round than the device holding it
-    for (const r of ranges(base)) expect(r.node < r.peer, `${r.node}→${r.peer}`).toBe(true)
-    // the N = 3 row of the same table, measured in its own round
-    const three = run(uwbM2mScenario('ss', 3))
-    expect(Array.from({ length: 3 }, (_, i) => ranges(three).filter((r) => r.node === idOf(i)).length))
-      .toEqual(perParticipant(3))
-  })
-
-  it('makes the last participant send the longest frame of the round and compute nothing', () => {
-    const txs = air(base)
-    expect(txs, 'one transmission per participant').toHaveLength(PARTICIPANTS)
-    expect(txs.map((r) => r.node)).toEqual(PLACES.map((_p, i) => idOf(i)))
-    // 「20 / 26 / 30 / 34 / 38 / 42 字节」, off the air and against `uwbM2mBytes`
-    expect(txs.map((r) => r.frame.bytes)).toEqual(BYTES)
-    expect(BYTES).toEqual(PLACES.map((_p, i) => uwbM2mBytes(i)))
-    expect(Math.max(...BYTES)).toBe(BYTES[PARTICIPANTS - 1])
-    expect(ranges(base).filter((r) => r.node === idOf(PARTICIPANTS - 1))).toHaveLength(0)
-  })
-
-  it('derives the participant cap instead of quoting it, and the cap is the last frame’s', () => {
-    expect(CAP).toBe(uwbMaxParticipants('ss'))
-    expect(uwbMaxParticipants('ds'), 'SS and DS share one frame-size law').toBe(CAP)
-    expect(CAP_BYTES.fits).toBe(uwbM2mBytes(CAP - 1))
-    expect(CAP_BYTES.over).toBe(uwbM2mBytes(CAP))
-    expect(CAP_BYTES.fits).toBeLessThanOrEqual(UWB_MAX_PSDU_BYTES)
-    expect(CAP_BYTES.over).toBeGreaterThan(UWB_MAX_PSDU_BYTES)
-    // 「编辑器里加到 CAP + 1 人会被拒，理由正是这一句」 — the scene the lesson ships holds six,
-    // so the refusal is measured on a scene built here: CAP + 1 devices on a 1 m grid in the
-    // same hall, which differs from the lesson's only in how many participants it has.
+  it('一帧的长度上限: the PSDU limit, the cap it gives, and the editor refusing one more', () => {
+    const [psdu] = fig(STD, /PSDU 最多 (\d+) 字节/, '① on the PSDU')
+    expect(Number(psdu)).toBe(UWB_MAX_PSDU_BYTES)
+    const [cap, cap2, fits, over, overBytes] = fig(implRow('一帧的长度上限').sim,
+      /一轮最多 (\d+) 台：(\d+) 台时最后一帧 (\d+) 字节，(\d+) 台时 (\d+) 字节/, '② on the cap')
+    expect(Number(cap)).toBe(uwbMaxParticipants('ss'))
+    expect(uwbMaxParticipants('ds')).toBe(Number(cap))
+    expect(Number(cap2)).toBe(Number(cap))
+    expect(Number(over)).toBe(Number(cap) + 1)
+    expect(Number(fits)).toBe(uwbM2mBytes(Number(cap) - 1))
+    expect(Number(overBytes)).toBe(uwbM2mBytes(Number(cap)))
+    expect(Number(fits)).toBeLessThanOrEqual(UWB_MAX_PSDU_BYTES)
+    expect(Number(overBytes)).toBeGreaterThan(UWB_MAX_PSDU_BYTES)
     const crowd = uwbM2mScenario('ss')
-    const over = ScenarioSchema.safeParse({
+    const res = ScenarioSchema.safeParse({
       ...crowd,
-      nodes: Array.from({ length: CAP + 1 }, (_v, i) => ({
+      nodes: Array.from({ length: Number(cap) + 1 }, (_v, i) => ({
         ...crowd.nodes[0], id: `q-${String(i).padStart(2, '0')}`, name: `Q${i}`,
         pos: { x: 1 + (i % 14), y: 1 + Math.floor(i / 14), z: 1 },
       })),
     })
-    expect(over.success).toBe(false)
-    expect(over.success ? '' : over.error.issues.map((x) => x.message).join('\n')).toContain('最多容纳')
+    expect(res.success).toBe(false)
+  })
+
+  it('字段宽度: the five widths are the engine\'s', () => {
+    const [mhr, rrmc, txt, rxtHdr, perRx, fcs] = fig(implRow('字段宽度').sim,
+      /帧头（MAC header）(\d+) 字节、RRMC (\d+) 字节、TXT (\d+) 字节、RXT 的单元头 (\d+) 字节加每个到达时刻 (\d+) 字节、帧校验 (\d+) 字节/,
+      '② on the widths').map(Number)
+    expect([mhr, rrmc, txt, fcs]).toEqual([UWB_MHR_BYTES, RRMC_IE_BYTES, TX_TIME_IE_BYTES, UWB_FCS_BYTES])
+    expect(rxTimesIeBytes(1) - perRx!).toBe(rxtHdr)
+    expect(rxTimesIeBytes(2) - rxTimesIeBytes(1)).toBe(perRx)
+    expect(uwbM2mBytes(0)).toBe(mhr! + rrmc! + txt! + fcs!)
+    // sources lists the same widths
+    expect(uwbM2m.sources!.join('\n')).toContain(`帧头 ${mhr} 字节、RRMC ${rrmc} 字节、TXT ${txt} 字节、到达时刻每个 ${perRx} 字节、帧校验 ${fcs} 字节`)
+  })
+
+  it('时隙长度 and 单边测距的残余误差: 2 ms, 0.2 ppm, 0.06 m a slot, nothing else switched on', () => {
+    const s = uwbM2m.scenario().uwb!
+    const [slotMs] = fig(implRow('时隙长度').sim, /^(\d+) ms/, '② on the slot')
+    expect(rstuNs(s.slotRstu)).toBe(Number(slotMs) * MS)
+    const [ppm, perSlotMs, perSlotM] = fig(implRow('单边测距的残余误差').sim,
+      /即 ([\d.]+) ppm：回复间隔每多一个 (\d+) ms 的时隙，误差约多 ([\d.]+) m/, '② on the residual')
+    expect(Number(ppm)).toBe(s.cfoNoisePpm)
+    expect(Number(perSlotMs)).toBe(Number(slotMs))
+    expect((rstuNs(s.slotRstu) * s.cfoNoisePpm * 1e-6 * C_M_PER_NS / 2).toFixed(2)).toBe(perSlotM)
+    expect(s.tsNoisePs).toBe(0)
+    expect(s.nlos).toBe(false)
+  })
+
+  it('SP3 is refused in this mode, and no position is solved', () => {
+    const s = uwbM2m.scenario()
+    expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, sp3: true, replyTime: 'deferred' } }).success).toBe(false)
+    expect(ofType(base, 'UWB_POSITION')).toEqual([])
   })
 })
 
-describe('uwb-m2m · the figure and the timeline agree (design §4)', () => {
-  it('draws each frame where the run actually put it', () => {
-    const ends = ofType(base, 'TX_END').map((r) => r.t / 1000)
-    expect(ends).toEqual(FIG.endsUs)
-    expect(FIG.slotUs).toBe(uwbM2m.scenario().uwb!.slotRstu * 2000 / 2400)
-    const spans = uwbM2mTiming().lanes[1].spans
-    expect(spans.map((s) => s.toUs)).toEqual(FIG.endsUs)
-    expect(spans.map((s) => s.fromUs)).toEqual(BYTES.map((_b, i) => i * FIG.slotUs))
-    // and it lays out: the shared diagram suite grades every lesson figure, this pins it here too
-    expect(layoutDiagram(uwbM2mTiming()).shapes.length).toBeGreaterThan(BYTES.length)
+describe('uwb-m2m · ③ every figure the labs print is the run', () => {
+  it('lab 1: the six frames, their senders, lengths, elements and arrival counts', () => {
+    const l = lab('六台设备，六帧')
+    const rows = tableOf(l, '一轮六帧，没有控制消息').rows
+    const frames = air(base)
+    expect(rows).toHaveLength(frames.length)
+    rows.forEach(([slot, node, bytes, ies, arrivals], i) => {
+      const f = frames[i]
+      expect(Number(slot)).toBe(f.frame.uwb?.slot)
+      expect(node).toBe(f.node)
+      expect(Number(bytes)).toBe(f.frame.bytes)
+      expect(ies).toBe(f.frame.uwb!.ies!.join('、'))
+      expect(arrivals).toBe(`${Object.keys(f.frame.uwb!.m2m!.rxCounters).length} 个`)
+    })
+    const [lo, hi, step] = fig(l.expect, /字节数从 (\d+) 增加到 (\d+)，第一帧不带 RXT，从第三帧起每多一个到达时刻多 (\d+) 字节/, 'lab 1 expect')
+    expect(Number(lo)).toBe(frames[0].frame.bytes)
+    expect(Number(hi)).toBe(frames[frames.length - 1].frame.bytes)
+    expect(frames[0].frame.uwb?.ies).not.toContain('RXT')
+    for (let k = 2; k < frames.length; k++) expect(frames[k].frame.bytes - frames[k - 1].frame.bytes).toBe(Number(step))
   })
 
-  it('sees the first range only after the SECOND frame lands', () => {
-    // 「第一条测距行出现在 2.194 ms，也就是第二帧落地那一刻，而不是第一帧落地时」
+  it('lab 2: the first range lands with the second frame, and the counts per device', () => {
+    const l = lab('每一对由谁算出')
+    const ids = m2mParticipants(uwbM2m.scenario().nodes)
+    const held = heldBy(base, ids)
+    const t = tableOf(l, '每台设备算出的距离')
+    expect(t.head.slice(1)).toEqual(ids)
+    expect(t.rows[0].slice(1).map(Number)).toEqual(held)
+    const [ms, who, peer] = fig(l.expect, /第一条测距行出现在 ([\d.]+) ms，即第二帧接收完毕时，是 (p-\d) 算出的它到 (p-\d) 的距离/, 'lab 2 expect')
     const first = ranges(base)[0]
-    expect((first.t / MS).toFixed(3)).toBe((FIG.endsUs[1] / 1000).toFixed(3))
-    expect(first.t / 1000).toBeGreaterThan(FIG.endsUs[0])
-    expect([first.node, first.peer]).toEqual([idOf(0), idOf(1)])
-  })
-})
-
-describe('uwb-m2m · DS costs 2N slots and buys accuracy (design §3)', () => {
-  it('measures both columns of the accuracy table from the lesson’s own two scenes', () => {
-    const ss = errsOf(base)
-    const ds = errsOf(run(uwbM2m.variants![0].scenario()))
-    expect(ss).toHaveLength(pairsOf(PARTICIPANTS))
-    expect(ds).toHaveLength(pairsOf(PARTICIPANTS))
-    expect(Math.max(...ss).toFixed(4)).toBe(ERR.ssMax)
-    expect(mean(ss).toFixed(4)).toBe(ERR.ssMean)
-    expect(Math.max(...ds).toFixed(6)).toBe(ERR.dsMax)
-    expect(mean(ds).toFixed(6)).toBe(ERR.dsMean)
-    expect(Math.round(Math.max(...ss) / Math.max(...ds))).toBe(ERR.ratio)
-    // the DS round really is the two passes, and it measures the same pairs
-    const dsRun = run(uwbM2m.variants![0].scenario())
-    expect(ofType(dsRun, 'UWB_ROUND')[0].slots).toBe(2 * PARTICIPANTS)
-    expect(air(dsRun).map((r) => r.frame.bytes)).toEqual([...BYTES, ...BYTES])
+    expect((first.t / MS).toFixed(3)).toBe(ms)
+    expect((ofType(base, 'TX_END')[1].t / MS).toFixed(3)).toBe(ms)
+    expect([first.node, first.peer]).toEqual([who, peer])
+    const seq = fig(l.expect, /分别是 (\d)、(\d)、(\d)、(\d)、(\d)、(\d) 条/, 'lab 2 sequence').map(Number)
+    expect(seq).toEqual(held)
+    const [last] = fig(l.expect, /排在最后的 (p-\d) 一条也没有/, 'lab 2 last')
+    expect(last).toBe(ids[ids.length - 1])
+    expect(held[held.length - 1]).toBe(0)
   })
 
-  it('bounds SS’s worst pair by the reply interval it is made of, and names that pair', () => {
-    // 「2 ms 的时隙配上 0.2 ppm 的估计残差，折成距离约 0.06 m 一个时隙；误差最大的那一对恰好
-    // 是相隔 4 个时隙的 p-0 与 p-4」 — the derivation and the measurement, one against the other.
-    const worst = ranges(base).reduce((a, b) =>
-      Math.abs(b.distM - b.trueDistM) > Math.abs(a.distM - a.trueDistM) ? b : a)
-    expect([worst.node, worst.peer]).toEqual([...ERR.worstPair])
-    const slotsApart = Number(worst.peer.slice(2)) - Number(worst.node.slice(2))
-    expect(slotsApart).toBe(ERR.worstSlots)
-    expect(ERR_PER_SLOT_M).toBeCloseTo(0.06, 3)
-    expect(Math.abs(worst.distM - worst.trueDistM)).toBeLessThanOrEqual(ERR_PER_SLOT_M * slotsApart)
-  })
-})
-
-describe('uwb-m2m · an arrival nobody heard is a range that does not exist (design §6)', () => {
-  it('loses exactly the pairs the walled participant was the earlier half of', () => {
-    const open = run(uwbM2mScenario('ss', WALLED_PARTICIPANTS))
-    const walled = run(uwbM2m.variants![1].scenario())
-    expect(ranges(open), 'the open round of four').toHaveLength(pairsOf(WALLED_PARTICIPANTS))
-    expect(ranges(walled), '「剩下只有 3 对」').toHaveLength(WALLED.pairs)
-    const per = Array.from({ length: WALLED_PARTICIPANTS },
-      (_v, i) => ranges(walled).filter((r) => r.node === idOf(i)).length)
-    expect(per, '「每人 2、1、0 条」').toEqual([...WALLED.per])
-    // …what is left is the surviving three's own many-to-many round
-    expect(per.slice(1)).toEqual(perParticipant(WALLED_PARTICIPANTS - 1))
-    for (const r of ranges(walled)) expect([r.node, r.peer]).not.toContain(idOf(0))
-    // 「空口上也看得见，后面每一帧都短了一截：20 / 20 / 26 / 30 字节」
-    expect(air(walled).map((r) => r.frame.bytes)).toEqual([...WALLED.bytes])
-    expect(air(open).map((r) => r.frame.bytes)).toEqual(BYTES.slice(0, WALLED_PARTICIPANTS))
-    // and the ranges that survive are still right: the walls removed pairs, they did not corrupt one
-    for (const r of ranges(walled)) expect(Math.abs(r.distM - r.trueDistM)).toBeLessThanOrEqual(Number(ERR.ssMax))
-  })
-})
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * The slot counts, the frame lengths and the cap are interpolated from this lesson's own module
- * and the file above measures those against runs. What is typed is the **order**: who sends in
- * which slot, how many ranges each participant ends up holding, and the four error figures the
- * two methods read — plus the field widths `sources` lists.
- *
- * **The reads worth naming:**
- *
- *  - **the descending count is read as one claim.** 「参与者 0 算五条，参与者 1 算四条，……参与者
- *    5 一条也算不出来」 and 「5、4、3、2、1、0 条」 are the same sequence written twice, and both
- *    are read against the ranges the run really hands each participant.
- *  - **the four error figures are read at the precision they are printed to**, each against the
- *    method's own run — which is what makes 「单边是分米，双边是毫米」 a measurement.
- *  - **「参与者 0 在第 0 个时隙发」 is read as the slot order the session lays out**, so the
- *    sentence is about this engine's own ordering rather than about a convention.
- */
-describe('uwb-m2m · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
-  }
-  const PIC = blockText(uwbM2m.picture)
-  const NUMS = blockText(uwbM2m.numbers)
-  const LIM = blockText(uwbM2m.limits)
-  const SRC = blockText(uwbM2m.sources)
-
-  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
-    uwbM2m.numbers!.filter((b) => b.kind === 'table') as unknown as
-      { heading?: string; head: string[]; rows: string[][] }[]
-  /** How many ranges each participant really computed, in slot order. */
-  const heldBy = (rs: TLRecord[]): number[] => {
-    const ids = m2mParticipants(uwbM2m.scenario().nodes)
-    return ids.map((id) => ranges(rs).filter((r) => r.node === id).length)
-  }
-
-  it('reads the numbering, the slot order and the descending count', () => {
-    const ids = m2mParticipants(uwbM2m.scenario().nodes)
-    // 「把六台设备编号 0 到 5，各占一个测距时隙，按号依次发一次」
-    const [from, to] = figs(PIC, /把六台设备编号 (\d) 到 (\d)，各占一个测距时隙/,
-      '`picture` on the numbering')
-    expect(to! - from! + 1, 'as many numbers as there are participants').toBe(ids.length)
-    expect(from, 'counted from zero').toBe(0)
-    // 「参与者 0 在第 0 个时隙发。它还没听到任何人」
-    const [who, slot] = figs(PIC, /参与者 (\d) 在第 (\d) 个时隙发/, '`picture` on the first sender')
-    const sends = air(base).filter((r) => r.frame.kind === 'uwbM2m')
-      .map((r) => ({ node: r.node, slot: r.frame.uwb?.slot ?? -1 }))
-    expect(sends.length, 'one send per participant').toBe(ids.length)
-    expect(sends.find((s) => s.slot === slot)!.node, 'who really sends in that slot')
-      .toBe(ids[who!])
-    expect(sends.map((s) => s.node), 'and the order is the session’s own').toEqual(ids)
-    /*
-     * **And that it is the FIRST one, which is what 「它还没听到任何人」 means.** The planter's
-     * whole-set probe (2026-10-14) moved both digits of this sentence at once — 「参与者 1 在第
-     * 1 个时隙发」 — and the read above held, because participant 1 really does send in slot 1.
-     * One edit alone reddens; the pair moving together did not, and a renumbering is exactly the
-     * edit that moves them together. So the sentence is read as the claim it makes: the sender
-     * it names is the one whose frame carries no arrival stamps at all, and that is the first
-     * slot of the round.
-     */
-    const firstSend = air(base).filter((r) => r.frame.kind === 'uwbM2m')
-      .find((r) => (r.frame.uwb?.slot ?? -1) === slot)!
-    /*
-     * **`m2mStamps` is not a field, and this line used to read it.** `?? []` then made the
-     * assertion true of every frame in the course — a check that proves nothing, caught by `tsc`
-     * rather than by the suite (2026-10-14). The arrival times a frame carries live in
-     * `uwb.m2m.rxCounters`, keyed by the peer each one is for.
-     */
-    expect(Object.keys(firstSend.frame.uwb!.m2m!.rxCounters), 'it has heard nobody yet')
-      .toHaveLength(0)
-    expect(air(base).filter((r) => r.frame.kind === 'uwbM2m')
-      .filter((r) => Object.keys(r.frame.uwb!.m2m!.rxCounters).length > 0).length,
-    'while the others do carry arrival times, so an empty set says something').toBeGreaterThan(0)
-    expect(slot, 'and that is the first slot of the round')
-      .toBe(Math.min(...sends.map((x) => x.slot)))
-    expect(who, 'so the participant it names is the first one').toBe(0)
-    /*
-     * 「参与者 0 算五条，参与者 1 算四条，……参与者 5 一条也算不出来」 and 「十五条距离分落在
-     * 六个人手里：5、4、3、2、1、0 条」 — the same sequence, twice, read against the run.
-     */
-    const [firstWho, firstCn, secondWho, secondCn, lastWho] = raw(PIC,
-      /参与者 (\d) 算(.)条，参与者 (\d) 算(.)条，……参与者 (\d) 一条也算不出来/,
-      '`picture` on who computes what')
-    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
-    const held = heldBy(base)
-    expect(held[val(firstWho!)], 'the first participant’s own count').toBe(cn(firstCn!))
-    expect(held[val(secondWho!)], 'the second’s').toBe(cn(secondCn!))
-    expect(held[val(lastWho!)], 'and the last one holds none').toBe(0)
-    const sequence = figs(PIC, /分布在六个参与者处：(\d)、(\d)、(\d)、(\d)、(\d)、(\d) 条/,
-      '`picture` on the whole sequence')
-    expect(sequence, 'the sequence the run really produces').toEqual(held)
-    expect(sequence.reduce((a, b) => a + b, 0), 'and they add up to every pair')
-      .toBe(ranges(base).length)
-    // 「每一行都是 N−1−i」 — the paragraph under the table says the same thing as a formula
-    const [less] = figs(NUMS, /每一行都是 N−(\d)−i/, '`numbers` on the formula')
-    expect(held, 'and that formula gives the same row')
-      .toEqual(ids.map((_v, i) => ids.length - less! - i))
-  })
-
-  it('reads the two tables: the slot counts per N, and what each participant holds', () => {
-    const slotTable = tables().find((x) => x.head[0] === 'N')!
-    for (const row of slotTable.rows) {
-      const [nCell, turns, ss, ds, pairs] = row as [string, string, string, string, string]
-      const n = val(nCell)
-      const [turnSlots, turnRecords] = figs(turns, /(\d+) 个时隙、(\d+) 条/, `N = ${n}: taking turns`)
-      const live = takingTurns(n)
-      expect(turnSlots, `N = ${n}: the slots taking turns really needs`).toBe(live.slots)
-      expect(turnRecords, `N = ${n}: and the records it really leaves`).toBe(live.records)
-      expect(val(ss.replace(' 个时隙', '')), `N = ${n}: the single-sided round`).toBe(n)
-      expect(val(ds.replace(' 个时隙', '')), `N = ${n}: and the double-sided one`).toBe(2 * n)
-      expect(val(pairs.replace(' 条', '')), `N = ${n}: the pairs there are`)
-        .toBe((n * (n - 1)) / 2)
-      expect(live.pairs.size, `N = ${n}: which is what taking turns covers too`)
-        .toBe((n * (n - 1)) / 2)
-    }
-    // 「每个参与者手里有几条」: a row per N, and the cells are that run's own counts
-    const perTable = tables().find((x) => x.head[0] === '参与者 i')!
-    expect(perTable.head.slice(1).map(val), 'the columns are the participants, numbered from zero')
-      .toEqual(perTable.head.slice(1).map((_v, i) => i))
-    /*
-     * Every row of that table is its own N, and each is read on a run of that many participants —
-     * the second row is three of them, and its dashes are the columns that N does not have.
-     */
-    for (const row of perTable.rows) {
-      const [label, ...cells] = row as string[]
-      const [n] = figs(label!, /N = (\d+)/, `${label}: its own participant count`)
-      const rs = n === PARTICIPANTS ? base : run(uwbM2mScenario('ss', n!))
-      const counts = cells.filter((c) => c !== '—').map(val)
-      expect(counts.length, `${label}: a column per participant`).toBe(n)
-      expect(cells.length - counts.length, `${label}: and a dash for every column it lacks`)
-        .toBe(perTable.head.length - 1 - n!)
-      const ids = m2mParticipants(uwbM2mScenario('ss', n!).nodes)
-      expect(counts, `${label}: the ranges each participant really holds`)
-        .toEqual(ids.map((id) => ranges(rs).filter((r) => r.node === id).length))
+  it('lab 3: taking turns against this engine\'s many-to-many, measured for N = 3, 4, 6', () => {
+    const rows = tableOf(lab('与轮流担任标签相比'), '同一组设备，两种做法').rows
+    expect(rows.map((r) => Number(r[0]))).toEqual([...TABLE_NS])
+    for (const [nCell, turnsCell, ssCell, dsCell, pairsCell] of rows) {
+      const n = Number(nCell)
+      const turns = takingTurns(n)
+      const ss = run(uwbM2mScenario('ss', n))
+      const ds = run(uwbM2mScenario('ds', n))
+      expect(turnsCell).toBe(`${turns.slots} 个时隙、${turns.records} 条`)
+      expect(ssCell).toBe(`${ofType(ss, 'UWB_ROUND')[0].slots} 个时隙`)
+      expect(dsCell).toBe(`${ofType(ds, 'UWB_ROUND')[0].slots} 个时隙`)
+      expect(pairsCell).toBe(`${ranges(ss).length} 条`)
+      expect(new Set(ranges(ss).map((r) => pairKey(r.node, r.peer))).size).toBe(ranges(ss).length)
+      // 「恰好是 N 倍，而且每一对测了两遍」
+      expect(turns.slots / ofType(ss, 'UWB_ROUND')[0].slots).toBe(n)
+      expect(turns.records).toBe(2 * turns.pairs.size)
+      expect(turns.pairs.size).toBe(ranges(ss).length)
     }
   })
 
-  it('reads the four error figures, each against its own method’s run', () => {
-    const tb = tables().find((x) => x.head[0] === '形态')!
-    for (const row of tb.rows) {
-      const [shape, slots, max, meanCell] = row as [string, string, string, string]
-      const ds = shape.includes('DS')
-      const rs = ds ? run(uwbM2mScenario('ds')) : base
+  it('lab 4: the two methods\' errors, the ratio, the worst pair, and the second pass\'s frames', () => {
+    const l = lab('双边形态：两趟')
+    const rows = tableOf(l, '同样十五对，两种形态').rows
+    const byName: Record<string, TLRecord[]> = { 单边: base, 双边: dsRun }
+    for (const [name, slots, max, avg] of rows) {
+      const rs = byName[name]
       const errs = errsOf(rs)
-      expect(errs.length, `${shape}: that run really produces ranges`).toBeGreaterThan(0)
-      const dp = (max.replace(' m', '').split('.')[1] ?? '').length
-      expect(max.replace(' m', ''), `${shape}: its worst error`)
-        .toBe(Math.max(...errs).toFixed(dp))
-      const dpm = (meanCell.replace(' m', '').split('.')[1] ?? '').length
-      expect(meanCell.replace(' m', ''), `${shape}: and its mean`).toBe(mean(errs).toFixed(dpm))
-      expect(val(slots), `${shape}: the slots it takes`).toBe(ds ? 2 * PARTICIPANTS : PARTICIPANTS)
+      expect(Number(slots), name).toBe(ofType(rs, 'UWB_ROUND')[0].slots)
+      const dp = (s: string) => (s.replace(' m', '').split('.')[1] ?? '').length
+      expect(max, name).toBe(`${Math.max(...errs).toFixed(dp(max))} m`)
+      expect(avg, name).toBe(`${mean(errs).toFixed(dp(avg))} m`)
     }
-    // 「2 ms 的时隙配上 0.2 ppm 的估计残差，折成…」 — the two figures the error is built from
-    const [slotMs, ppm] = figs(NUMS, /(\d+) ms 的时隙配上 ([\d.]+) ppm 的估计残差/,
-      '`numbers` on where the error comes from')
-    const session = uwbM2m.scenario().uwb!
-    expect(rstuNs(session.slotRstu), 'the slot this scene runs').toBe(slotMs! * MS)
-    expect(ppm, 'and the residual it carries').toBe(session.cfoNoisePpm)
-    // `sources` names the same residual again, as the one thing this round leaves on
-    const [srcPpm] = figs(SRC, /只留下载波频偏估计的 ([\d.]+) ppm 残差/,
-      '`sources` on the same residual')
-    expect(srcPpm, 'the same figure, a second time').toBe(ppm)
-    expect(session.tsNoisePs, 'while the timestamp noise really is off').toBe(0)
-    expect((ERR_PER_SLOT_M * 2) / (rstuNs(session.slotRstu) * ppm! * 1e-6),
-      'which is what one slot of reply interval is worth, over the speed of light')
-      .toBeCloseTo(C_M_PER_NS, 9)
+    const [ssMax, dsMax, ratio] = fig(l.expect, /最大误差从 ([\d.]+) m 降到 ([\d.]+) m，约 (\d+) 倍/, 'lab 4 expect')
+    expect(ssMax).toBe(Math.max(...errsOf(base)).toFixed(4))
+    expect(dsMax).toBe(Math.max(...errsOf(dsRun)).toFixed(6))
+    expect(Math.round(Math.max(...errsOf(base)) / Math.max(...errsOf(dsRun)))).toBe(Number(ratio))
+    const [apart, a, b] = fig(l.expect, /相隔 (\d+) 个时隙的 (p-\d) 与 (p-\d)/, 'lab 4 worst pair')
+    const worst = ranges(base).reduce((x, y) => (Math.abs(y.distM - y.trueDistM) > Math.abs(x.distM - x.trueDistM) ? y : x))
+    expect([worst.node, worst.peer]).toEqual([a, b])
+    expect(Number(worst.peer.slice(2)) - Number(worst.node.slice(2))).toBe(Number(apart))
+    // 「每台设备发两次，第二趟的帧与第一趟一样长」
+    const bytes = air(dsRun).map((r) => r.frame.bytes)
+    expect(bytes.slice(PARTICIPANTS)).toEqual(bytes.slice(0, PARTICIPANTS))
   })
 
-  it('reads the field widths `sources` lists, and the frame they add up to', () => {
-    // 「帧头 9 字节、RRMC 3 字节、发送时刻 6 字节、到达时刻每个 4 字节、帧校验 2 字节」
-    const five = figs(SRC,
-      /帧头 (\d+) 字节、RRMC (\d+) 字节、发送时刻 (\d+) 字节、到达时刻每个 (\d+) 字节、帧校验 (\d+) 字节/,
-      '`sources` on the five widths')
-    const [mhr, rrmc, txTime, perRx, fcs] = five
-    expect([mhr, fcs], 'the two every frame of this engine has')
-      .toEqual([UWB_MHR_BYTES, UWB_FCS_BYTES])
-    // the first frame carries no arrival at all, so it is the four fixed widths together
-    expect(uwbM2mBytes(0), 'the first frame of a round').toBe(mhr! + rrmc! + txTime! + fcs!)
-    // and every further arrival adds the fifth, which the frame lengths themselves show
-    for (let k = 2; k < BYTES.length; k++) {
-      expect(uwbM2mBytes(k) - uwbM2mBytes(k - 1), `one more arrival at k = ${k}`).toBe(perRx)
-    }
-    // 「2 ms 的测距时隙来自 FiRa 的缺省配置」
-    const [slotMs] = figs(SRC, /(\d+) ms 的测距时隙来自 FiRa/, '`sources` on the slot')
-    expect(rstuNs(uwbM2m.scenario().uwb!.slotRstu), 'the slot this scene runs').toBe(slotMs! * MS)
-    // 「参与者 0 其实手里握着到其余五个人的距离」 — `limits` on what the first one holds
-    const [first] = figs(LIM, /参与者 (\d) 其实已有到其余/, '`limits` on the first participant')
-    expect(heldBy(base)[first!], 'and it really holds that many')
-      .toBe(m2mParticipants(uwbM2m.scenario().nodes).length - 1)
+  it('lab 5: the walled round keeps three pairs, and p-1\'s frame is shorter', () => {
+    const l = lab('一台设备未被接收')
+    const ids = m2mParticipants(uwbM2m.variants![1].scenario().nodes)
+    expect(ids).toHaveLength(WALLED_PARTICIPANTS)
+    const t = tableOf(l, '隔离 p-0 之后')
+    expect(t.head.slice(1)).toEqual(ids)
+    expect(t.rows[0].slice(1).map(Number)).toEqual(heldBy(walledRun, ids))
+    expect(t.rows[1].slice(1).map(Number)).toEqual(air(walledRun).map((r) => r.frame.bytes))
+    const open = run(uwbM2mScenario('ss', WALLED_PARTICIPANTS))
+    const [should, left, lost] = fig(l.expect, /本应测得 (\d+) 对，隔离 p-0 之后只剩 (\d+) 对，丢失的 (\d+) 对全是 p-0/, 'lab 5 expect')
+    expect(Number(should)).toBe(ranges(open).length)
+    expect(Number(left)).toBe(ranges(walledRun).length)
+    expect(Number(lost)).toBe(ranges(open).length - ranges(walledRun).length)
+    for (const r of ranges(walledRun)) expect([r.node, r.peer]).not.toContain(idOf(0))
+    const [was, now] = fig(l.expect, /p-1 的帧从 (\d+) 字节变成 (\d+) 字节/, 'lab 5 p-1')
+    expect(Number(was)).toBe(air(open).find((r) => r.node === idOf(1))!.frame.bytes)
+    expect(Number(now)).toBe(air(walledRun).find((r) => r.node === idOf(1))!.frame.bytes)
   })
 })

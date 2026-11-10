@@ -1,163 +1,139 @@
 /**
- * UWB Tier 2 · M24 测距辅助信息 · A lost frame is noticed WHEN the next frame arrives.
+ * UWB Tier 5 · M24 测距辅助信息 · A lost frame is noticed WHEN the next frame arrives.
  *
- * The second half of `uwb-ancillary`, split out 2026-10-11 under
- * `docs/superpowers/specs/2026-10-11-no-room-design.md` §2.1 and §5. The first half is about how
- * one message is CARRIED — segmented across frames, how long a frame is, and the role inversion
- * §10.35.1 defines. This half is about what happens when one of those frames does not arrive, and
- * it is a separate topic by the only test that matters: its three `numbers` contrasts (a middle
- * frame, the last frame, the first frame) are a self-contained comparison that reads without a
- * single figure from the other half, and the other half answers its own two outcomes without a
- * sentence from this one.
+ * The second half of `uwb-ancillary` (split 2026-10-11): what the Frames Remaining count in every
+ * frame buys when one frame does not arrive. The scene is the first half's, value for value
+ * (`sameSceneAs: 'uwb-ancillary'` in the shape suite).
  *
- * **The one sentence this lesson exists for is about WHEN, not about what.** A lost frame is
- * noticed *when the next frame arrives*, not inferred from a timeout, because Frames Remaining
- * counts down in **every** frame: a receiver that reads 3 and then 1 knows the frame that would
- * have said 2 never came. Measured on this lesson's own scene
- * (tests/course/uwb-ancillary-loss.test.ts, which moves the sender for the span of one slot the
- * way tests/uwb/ancillary-round.test.ts does): `missing: [2]` at `t = 14 183 291`, the same
- * nanosecond as the receiver's own `RX_OK` for the next frame, against the message's own deadline
- * at `t = 18 000 000` — **3.82 ms early**.
- *
- * **The contrast is what makes it a claim about timing**, and the lesson carries it: lose the LAST
- * frame and there is no next one, so the countdown stops and the only record comes from the
- * deadline — the same loss, 3.82 ms later. **And the limit the mechanism itself has**: lose the
- * FIRST frame and it names nothing at all, because the RAICT IE carries no total and no frame
- * index. That is a property of §10.35.2.1, not a shortcoming of this engine.
- *
- * **Three granularities of "something was lost"**, which a reader will otherwise merge into one
- * (design §4.3). RMNR (§10.34) is sent by the responder unprompted, per round. The receipt bitmap
- * (§10.36) is requested by the controller, per validity window. Frames Remaining (§10.35) is
- * **not a report at all** — the sender states the count in every frame, so the receiver waits for
- * nothing. The third row is the new one and the difference is its point.
- *
- * **The scene is the first half's, value for value** (`sameSceneAs: 'uwb-ancillary'` in the shape
- * suite), so the recorded timeline hashes of this id are a copy of that one's and the split costs
- * the reader no new fixture run. The lost-frame measurement is **not** one of those scenes and
- * `limits` says so: this engine's reception is a deterministic power comparison, so a static scene
- * loses every frame or none.
- *
- * Every number is computed, never typed: `MS`, `NS`, `SLOTS` and `ms` are the first half's own
- * exports, each of them a call to `uwb/phy.ts` or `uwb/session.ts`, and
- * tests/course/uwb-ancillary-loss.test.ts re-measures each figure against whole blocks.
- *
- * `npx tsx scripts/lesson-dump.ts uwb-ancillary-loss` prints it with its length. Measure the same
- * way before adding a sentence, by IMPORTING `CHARS_PER_MINUTE`/`OBSERVE_MINUTES`/`TRY_MINUTES`
- * from `curriculum.ts` rather than retyping them.
+ * **Standard-first shape (2026-11-10).** ① is what §10.35 specifies about the count — what Frames
+ * Remaining conveys, that the upper layer may use it for retransmissions, and that Figure 10-271 has
+ * no total and no frame index — and the two other granularities of "not received" (§10.34 RMNR,
+ * §10.36 MMRCM). ② says that how a receiver detects a gap, and what deadline it measures against,
+ * are this simulator's choices; that nothing acts on a detected gap; and that a static scene in this
+ * engine loses every frame or none, so the lost-frame figures come from a run that moves the sender
+ * for one slot (tests/course/uwb-ancillary-loss.test.ts makes that run and compares each figure).
  */
 import { J, txOf, type Lesson } from '../lessonKit'
 import {
-  FRAMES, MS, NS, SENDER_ID, SLOTS, VALIDITY, WINDOW_ROUNDS, WINDOW_ROUNDS_PER_BLOCK, ms, uwbAncillaryWindowScenario,
+  FRAMES, MS, NS, SENDER_ID, SLOTS, TAG_ID, VALIDITY, WINDOW_ROUNDS_PER_BLOCK, ms, uwbAncillaryWindowScenario,
   uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from './uwb-ancillary'
 
-/** The first frame of the message: Frames Remaining `FRAMES − 1`, in the ancillary round's slot 1. */
 const firstFragment = txOf((r) => r.frame.kind === 'uwbAncillary')
-/** The frame that says zero: the last one, after which the receiver has the whole message. */
 const lastFragment = txOf((r) =>
   r.frame.kind === 'uwbAncillary' && r.frame.uwb?.raict?.framesRemaining === 0)
-/** The record the receiver writes when the countdown reaches zero: the message, complete. */
 const messageComplete = (r: { type: string }): boolean =>
   r.type === 'UWB_ANCILLARY' && (r as { complete?: boolean }).complete === true
+
+/** The countdown of one whole message: FRAMES − 1 … 0. */
+const COUNT = Array.from({ length: FRAMES }, (_v, i) => FRAMES - 1 - i)
+/** The countdown with one reading removed, as the receiver sees it when that frame is lost. */
+const without = (k: number): string => COUNT.filter((c) => c !== k).join('、')
+
+/** Arrival of each frame of block 0 at the tag, in milliseconds as the log prints them (two decimals);
+ * tests/course/uwb-ancillary-loss.test.ts compares these with the run. */
+export const ARRIVALS_MS: readonly string[] = ['12.19', '14.19', '16.19', '18.19']
+/** The end of block 0's ancillary round, in milliseconds. */
+export const ROUND_END_MS = '20.00'
 
 export const uwbAncillaryLoss: Lesson = {
   id: 'uwb-ancillary-loss',
   module: 24,
   title: '缺失的那一帧由下一帧发现',
-  why: '上一课把一条辅助信息分装成几帧，而每一帧都写明这条消息还剩几帧。这种做法带来的是一个时刻，而不是一个数——接收端读到的数从 3 跳到 1，它立即就知道本应写入 2 的那一帧没有到达，不必等待任何超时。标准只定义了这个字段，并说明上层可以用它安排补发；接收端具体怎样用它发现缺帧，标准没有规定。本课的接收端采用最直接的做法（本课的假设）：不设定时器，也不与时隙表对照，只把这一次读数与上一次相减，差值大于一时，中间缺少的那几个数就指明了未到达的是哪几帧。丢失中间那一帧时，缺口在下一帧到达的那一次接收中就被识别出来，比这条消息的截止时刻（本课把它定为这条消息所在那一轮的末尾）提前将近两个时隙；这个提前量只由时隙长度和帧长算出，与设备的位置无关。丢失写入零的最后一帧时，倒数停在一，此后再没有读数，接收端只能等到截止时刻才知道，同样一次丢失，发现时间推迟了同样的时长。丢失第一帧时，这个办法无法指出缺的是哪一帧：这个信息单元里没有总帧数字段，也没有标明这是第几帧的字段，第一次读数之前的缺口没有可以相减的对象，而这条消息仍然被判定为收齐，因为按字段的定义，读到零就表示这条消息已经发完。测距结果在打开这个交换前后完全相同。最后，「丢失」在标准中有三种粒度：测距消息未收到是逐轮、由响应方自行发出的报告，收妥位图（bitmap）是控制器在控制消息里请求、覆盖整个有效期窗口的报告，剩余帧数则根本不是报告，而是发送端在每一帧中额外写入的一个字节，所以发现缺帧与收到下一帧是同一个时刻。',
+  why: `RAICT 信息单元的剩余帧数（Frames Remaining）字段给出完成当前这条消息还剩几帧（§10.35.2.1），每一帧都带它。标准只定义了这个字段，并说明上层可以用它管理重传（retry）；接收端怎样据此发现缺帧、以什么时刻作为这条消息的截止时刻，标准都没有规定。本仿真器的接收端只把这一次读数与上一次相减，差值大于一时，中间缺少的那几个数就指出了没有到达的帧；截止时刻取辅助信息轮的末尾。于是丢失中间那一帧时，缺口在下一帧到达的同一时刻被发现，比截止时刻早 ${ms(NS.lead)} ms——两个时隙减去一帧的空口时间（airtime），与设备位置无关；丢失最后一帧时，倒数停在一，要到截止时刻才知道；丢失第一帧时，这个办法指不出缺帧，因为图 10-271 里既没有总帧数，也没有这一帧在消息里的序号（sequence number），消息读到零仍判定为收齐。标准里「没有收到」还有另外两种粒度：测距消息未收到（RMNR）是逐轮、由响应方在自己的时隙里发出的；多消息收妥确认是控制器请求、接收方回复的。剩余帧数不是报告，发现缺帧与收到下一帧是同一时刻。`,
   outcomes: [
-    '说明缺失的那一帧在哪一时刻被发现，以及这一时刻比这条消息的截止时刻提前多少',
-    '区分三种「丢失」的粒度：逐轮、整个有效期窗口、一条消息之内',
+    '说出标准对剩余帧数规定了什么、没有规定什么',
+    '说明本仿真器的接收端在哪一时刻发现缺失的那一帧，比截止时刻早多少，以及丢失最后一帧、第一帧时为什么不同',
+    '区分三种「没有收到」的粒度：逐轮、整个有效期窗口、一条消息之内',
   ],
   needs: ['uwb-ancillary'],
   terms: [
-    { term: 'Frames Remaining', plain: 'RAICT 信息单元中的一个字节：这条消息还剩几帧未发送，最后一帧写入 0' },
+    { term: 'Frames Remaining', plain: 'RAICT 信息单元中的一个字节：完成这条消息还剩几帧，最后一帧为 0' },
     { term: 'RAICT IE (Ranging Ancillary Information Message Counter and Type IE)', plain: '每一帧都携带的信息单元，剩余帧数这个字节就包含在其中' },
   ],
-  picture: [
-    {
-      heading: '缺失的那一帧由下一帧发现',
-      text: '剩余帧数在每一帧中都写入一次，所以它既说明这一帧的位置，也说明后面还有多少帧。标准定义的只是这个字段：它告诉接收方还剩几帧才能完成这条消息，上层可以用它来安排补发。至于接收端如何据此发现缺口，标准没有规定。本课的接收端不需要定时器，也不需要与时隙表对照——它识别一个缺口，只需把这一次读到的数与上一次相减。',
-    },
-    {
-      kind: 'steps', heading: '本课的接收端识别缺口的步骤（本课的做法，标准没有规定这套步骤）',
-      items: [
-        '收到一帧，从它的信息单元里读出剩余帧数。',
-        '与上一次读到的数相减。差为 1，说明中间没有丢帧；差大于 1，中间缺少的那几个数就指明了未到达的是哪几帧。',
-        '这个判断就在这一次接收里完成，不需要定时器，也不需要和时隙表对照。',
-        '读到 0 即为收齐（按字段的定义，0 表示这条消息已经发完）。而倒数停在 1、此后又没有下一帧时，这一步永远不会发生。',
-      ],
-    },
-    {
-      kind: 'watch', jump: 0,
-      heading: '在仿真中逐帧查看这一列数',
-      text: `载入仿真并播放，跳到第一帧辅助信息，再逐帧点开信息单元那一列：剩余帧数依次为 ${FRAMES - 1}、${FRAMES - 2}、1、0。整块中没有发生一次超时，所以这一列就是接收端判断是否缺帧的全部依据。写入 0 的那一帧到达之后，这条消息才记为收齐。`,
-    },
-    {
-      kind: 'table', heading: '三种「丢失」，粒度各不相同',
-      head: ['类型', '发出方', '粒度', '回答的问题'],
-      rows: [
-        ['测距消息未收到交互（§10.34）', '由响应方自行决定发送', '逐轮', '本轮的启动消息我没收到'],
-        ['收妥位图（bitmap，§10.36）', '控制器在控制消息里请求，接收方回复', '整个有效期窗口', '你发出的那几条消息我收到了哪几条'],
-        ['剩余帧数（§10.35）', '发送端在每一帧中都携带', '一条消息之内', '这条消息还有几帧未到达'],
-      ],
-    },
-    {
-      heading: '第三行不是一种报告',
-      text: '前两行都是报告：一方汇总自己的接收情况，在专门的时隙中发回，所以另一方要等到那个时隙。第三行不是——没有哪一方为它额外发送一帧，发送端只是在本来就要发送的每一帧中多写入一个字节。于是接收端不必等待任何约定的时刻，发现缺帧与收到那一帧发生在同一时刻。三者放在一起，「丢失」在标准中就有了三个层次，而不是同一件事的三种说法。',
-    },
+  standard: [
+    { heading: '剩余帧数给出什么（§10.35.2.1）', text: 'Request 置 0 时，剩余帧数字段告诉接收辅助信息的响应方：完成当前这条消息还剩几帧。按这一定义，一条消息的最后一帧写 0。' },
+    { heading: '上层用它做什么（§10.35.1）', text: '上层可以用 RAICT 信息单元的字段把一条信息分装在多条消息里发送，并用它们管理重传；消息编号字段用来区分多条消息。接收端怎样发现缺帧、一条消息有没有截止时刻，标准没有规定。' },
+    { heading: '没有总帧数，也没有帧序号（图 10-271）', text: 'RAICT 的内容字段只有 Request 位、消息编号存在位、可选的消息编号与可选的剩余帧数，既没有这条消息的总帧数，也没有这一帧在消息里的序号。正文提到 Request 置 0 时传递「当前数据帧（data frame）的序号」，但图 10-271 里没有这个字段。' },
+    { kind: 'table', heading: '标准里三种「没有收到」', head: ['机制', '谁发出', '粒度', '回答的问题'], rows: [
+      ['测距消息未收到（RMNR 信息单元，§10.34）', '没有收到起始消息的响应方，在自己的时隙里发出', '逐轮', '本轮的起始消息我没有收到'],
+      ['多消息收妥确认（RMMRC 信息单元，§10.36）', '控制器用 ARC 信息单元的 MMRCR 字段请求，接收方回复', '整个有效期窗口', '你发出的那几条消息我收到了哪几条'],
+      ['剩余帧数（RAICT 信息单元，§10.35）', '发送辅助信息的发起方在每一帧中都带', '一条消息之内', '这条消息还剩几帧'],
+    ] },
+    { heading: '第三种不是报告', text: '前两种是报告：一方汇总自己的接收情况，在专门的时隙里发回。剩余帧数不是：没有哪一方为它额外发送一帧，发起方只是在本来就要发送的每一帧里写入这个字段。' },
   ],
-  numbers: [
+  implementation: [
+    { topic: '接收端怎样发现缺帧', standard: '标准未规定', sim: '把这一次读到的剩余帧数与上一次相减：差为 1 表示没有丢帧；差大于 1 时，中间缺少的那几个数就是没有到达的帧，在这一次接收的同一时刻写一条记录。不用定时器，也不对照时隙表。', kind: 'choice' },
+    { topic: '截止时刻', standard: '标准未规定', sim: '取辅助信息轮的末尾。到那时倒数还没有读到 0，就写一条不带时隙号的记录，列出没有收到的剩余帧数。', kind: 'choice' },
+    { topic: '收齐的判据', standard: '剩余帧数为 0 表示这条消息已经发完（§10.35.2.1）', sim: '读到 0 即记为收齐；之前的每一条记录都标为未收齐。', kind: 'faithful' },
+    { topic: '丢失第一帧', standard: '没有总帧数、没有帧序号（图 10-271）', sim: '第一次读数之前的缺口没有可以相减的对象，不写缺帧记录；读到 0 仍记为收齐。这是字段本身的性质。', kind: 'faithful' },
+    { topic: '发现缺帧之后', standard: '上层可以用这些字段管理重传（§10.35.1）', sim: '未实现：没有补发，也不向发送方请求那一帧；缺帧记录只出现在日志里。', kind: 'absent' },
+    { topic: '丢帧本身', standard: '标准不规定接收机的判决', sim: '本仿真器的接收判决只比较功率，没有逐帧的衰落起伏，所以静止的场景要么每一帧都收到，要么一帧也收不到；面板上的四个场景一帧也不丢。下面三种丢帧情形是在同一场景的一次运行中途，把发送方移开一个时隙的时间测得的。', kind: 'choice' },
+  ],
+  labs: [
     {
-      heading: '先给出用于对照的时间基准',
-      text: `一个测距时隙（ranging slot）${MS.slot} ms，一个测距块（ranging block）${MS.block} ms。块式结构中每一轮一样长（§10.32.3.3），本课是 ${SLOTS.round} 个时隙。测距轮（ranging round）之后是辅助信息轮（ARC 信息单元的测距轮用途为 3）：第 0 个时隙是控制消息，这条消息占后面 ${SLOTS.window} 个（这一轮排在测距轮之后是本课的安排），于是标签（tag）在一块里用掉 ${SLOTS.used} 个时隙、${SLOTS.used * MS.slot} ms。标准没有为这条消息规定截止时刻；本课把它定为辅助信息轮的末尾——下文中每一个「提前多少」「推迟多少」，都是相对这一时刻而言。`,
-    },
-    {
-      kind: 'table', heading: `丢失中间那一帧：三个时刻`,
-      head: ['时刻', '事件'],
-      rows: [
-        [`辅助信息轮第 ${SLOTS.firstSlot + 1} 个时隙`, `本应写入 ${FRAMES - 2} 的那一帧已发出，但接收端没有收到`],
-        [`第 ${SLOTS.firstSlot + 2} 个时隙的那一次接收`, `记录中写入「缺少 ${FRAMES - 2} 号」——恰好发生在这一次接收中`],
-        ['这一轮的末尾', `这条消息的截止时刻，比上面那一刻晚 ${ms(NS.lead)} ms`],
+      heading: '剩余帧数逐帧递减',
+      jump: 2,
+      steps: [
+        '载入本课场景并播放，跳到接收端判定收齐的那条记录。',
+        '向前逐条查看同一轮的辅助信息记录：剩余帧数、缺少的帧与是否收齐。',
       ],
+      blocks: [
+        { kind: 'table', heading: `块 0：${TAG_ID} 收到的 ${FRAMES} 帧`, head: ['到达时刻', '时隙', '剩余帧数', '缺少', '收齐'], rows: COUNT.map((c, i) => [
+          `${ARRIVALS_MS[i]} ms`, String(SLOTS.firstSlot + i), String(c), '—', c === 0 ? '是' : '否',
+        ]) },
+      ],
+      expect: `剩余帧数依次为 ${COUNT.join('、')}，每两帧相隔一个 ${MS.slot} ms 的时隙；写 0 的那一帧到达时记录标为收齐，之前三条都是未收齐。整块没有一次超时。`,
+      meaning: '收齐的判据是读到 0，照标准的定义（①）；逐次相减是本仿真器接收端的方法（②），在这次运行里差值始终为 1，所以没有缺帧记录。',
     },
     {
-      heading: `提前 ${ms(NS.lead)} ms，而且这个数可以计算出来`,
-      text: `这条消息还剩两个时隙，也就是 ${2 * MS.slot} ms，减去发现缺口的那一帧本身占用的 ${ms(NS.frame)} ms 空口时间（airtime），就是 ${ms(NS.lead)} ms。式子里没有任何一台设备的位置，所以这个提前量是时隙长度和帧长的性质，不是这个大厅的性质。而它的对照对象是接收端掌握的唯一另一个时间基准：这条消息的截止时刻——如果没有剩余帧数这个字段，接收端就只能等到那一时刻。`,
+      heading: '丢失一帧：三种结果',
+      jump: 1,
+      steps: [
+        `面板上的场景不丢帧（②）；下表是在同一场景里，把 ${SENDER_ID} 移开一个时隙的时间测得的。`,
+        `在本课场景里跳到剩余帧数为 0 的那一帧，读出它与前一帧的到达时刻，以及这一轮结束的时刻（${ROUND_END_MS} ms）。`,
+      ],
+      blocks: [
+        { kind: 'steps', heading: '本仿真器的接收端怎样发现缺帧：逐步说明', items: [
+          '收到一帧，从它的 RAICT 信息单元读出剩余帧数。',
+          '与这条消息上一次读到的数相减。差为 1，中间没有丢帧；差大于 1，中间缺少的那几个数就是没有到达的帧，在这一次接收的同一时刻写一条记录。',
+          '读到 0 即记为收齐。',
+          '到辅助信息轮结束时还没有读到 0，就写一条不带时隙号的记录，列出没有收到的剩余帧数。',
+        ] },
+        { kind: 'formula', heading: '提前量', text: `提前量 = 2 × ${MS.slot} ms − ${ms(NS.frame)} ms（一帧的空口时间）= ${ms(NS.lead)} ms`, note: '丢失中间那一帧时，发现缺口的那一帧之后这条消息还剩两个时隙；式子里没有任何设备的位置。' },
+        { kind: 'table', heading: '丢失哪一帧，何时发现', head: ['丢失的帧', '接收端读到的剩余帧数', '何时发现', '比截止时刻早'], rows: [
+          [`中间一帧（本应写 ${FRAMES - 2}）`, without(FRAMES - 2), `第 ${SLOTS.firstSlot + 2} 个时隙那一帧到达的同一时刻，记录「缺少 ${FRAMES - 2}」`, `${ms(NS.lead)} ms`],
+          ['最后一帧（本应写 0）', without(0), '辅助信息轮结束时，记录「缺少 0」', '0'],
+          [`第一帧（本应写 ${FRAMES - 1}）`, without(FRAMES - 1), '不发现；读到 0 仍判定为收齐', '—'],
+        ] },
+      ],
+      expect: `丢失中间那一帧时，缺口在第 ${SLOTS.firstSlot + 2} 个时隙那一帧到达的同一纳秒被记录，比这一轮结束早 ${ms(NS.lead)} ms，与上面的式子在两位小数上一致；丢失最后一帧时，要到这一轮结束才有记录；丢失第一帧时，没有任何记录指出缺帧。三种情形都没有超时。`,
+      meaning: '字段只给剩余帧数，没有总帧数和帧序号（①），所以第一帧的丢失指不出来；发现的方法和截止时刻是本仿真器的取法（②）。',
     },
     {
-      heading: '丢失最后一帧时，只能依靠截止时刻',
-      text: `同一条消息，这次丢失写入 0 的那一帧：倒数停在 1，而此后没有下一帧，所以没有任何一次接收能发现这次丢失。接收端要到截止时刻才知道缺了一帧，而这个结论并非来自任何一次接收。同样一次丢失，要晚 ${ms(NS.lead)} ms 才被发现。有了这个对照，上面那一条才成为一个关于时刻的结论。`,
+      heading: '这一轮没有消息，不等于消息未收齐',
+      variant: 1,
+      steps: [
+        `载入「一条控制消息管 ${VALIDITY} 轮」变体，逐轮查看辅助信息记录（每块 ${WINDOW_ROUNDS_PER_BLOCK} 轮）。`,
+      ],
+      expect: `每块的第 0 到第 ${VALIDITY - 1} 轮是测距轮（ranging round），没有一帧辅助信息，也没有一条未收齐的记录；第 ${VALIDITY} 轮是辅助信息轮，有 ${FRAMES} 条记录，剩余帧数从 ${FRAMES - 1} 递减到 0。`,
+      meaning: '接收端只在收到辅助信息帧时才读剩余帧数（②）；一轮里没有消息，与一条消息没有收齐是两回事。',
     },
     {
-      heading: '丢失第一帧时，无法指出缺的是哪一帧',
-      text: `还有一种情形，这个办法完全无法发现：丢失的是第一帧。接收端第一次读到的是 ${FRAMES - 2}，而它没有可以相减的上一次读数，也就无从知道 ${FRAMES - 1} 曾经发出过。原因在于字段本身：按 §10.35.2.1 给出的内容字段格式，RAICT 信息单元里只有请求位、一个可选的消息编号和剩余帧数，既没有总帧数，也没有这一帧在消息里的序数。所以它能指出两次读数之间的缺口，却无法指出第一次读数之前的缺口——而这条消息仍然会被判定为收齐，因为收齐的判据是读到 0。这是 §10.35.2.1 这个字段的性质，而不是本课遗漏了什么。`,
-    },
-    {
-      heading: '测距结果没有任何变化',
-      text: `打开这个交换前后，测距结果完全相同——距离、块号、时刻，没有一个数值改变。原因是辅助信息那几帧不带任何时间量：接收端不为它记时间戳，它也就不进测距的任何一个算式；它们在单独的辅助信息轮里，不插入测距轮中。`,
-    },
-  ],
-  deeper: [
-    {
-      heading: '那次丢帧是如何测量的',
-      text: '本课给出的那两个时刻并非来自本课的四个场景，原因在模型上：本课的收发判决只比较功率，没有逐帧的衰落起伏（真实信道有），所以同一个静止场景里要么每一帧都收到、要么一帧也收不到——在静止场景中无法复现「只丢中间那一帧」。那次测量的做法是：在一次运行中途把发送端移开，持续一个时隙的时间。辅助信息帧在单独的辅助信息轮里、测距轮之后，所以这次移动不会影响任何一帧测距帧——这样「只有这一帧丢失」才是确定的事实，而不是一种期望。而课文那个提前量是由时隙长度和帧长直接算出来的，与那次运行只差一次飞行时间（本课大厅里是 22 ns），两者在毫秒的两位小数上一致。',
-    },
-  ],
-  limits: [
-    {
-      kind: 'unmodelled',
-      text: '本仿真器无法构造出「只丢一帧」的场景。收发判决只比较功率，没有真实信道里逐帧的起伏，所以同一个静止的大厅里要么每一帧都收到、要么一帧也收不到；本课那三种结果是在一次运行中途把发送端移开一个时隙的时间测得的。后果是读者无法在面板上观察到丢帧，面板上运行的四个场景一帧也不丢，三种丢帧情形的对照只能依靠课文、那个算式和那次测量。',
-    },
-    {
-      kind: 'unmodelled',
-      text: '接收端记录那个缺口之后不采取任何动作。条款没有规定收到这条记录的一方该如何处置，而本仿真器也没有建任何处置：没有补发、没有向发送端请求那一帧，也没有上层接收这条记录，它只出现在日志中。后果是本课能回答「何时知道」，却回答不了「知道之后如何处理」——而在真实系统中这两件事密不可分。',
+      heading: '测距结果不受影响',
+      more: [2],
+      steps: [
+        '依次载入本课场景与「关闭辅助信息交换」，比较两次运行的测距记录。',
+      ],
+      expect: `两次运行各有 28 条测距记录，距离、块号与时刻逐条相同；关闭之后没有辅助信息轮，标签（tag）每块只用 ${SLOTS.ranging} 个时隙。`,
+      meaning: `辅助信息帧在单独的辅助信息轮里，不带任何时间量，不进入测距的算式（②）；这条消息由 ${SENDER_ID} 发出，与它在测距轮里的应答无关。`,
     },
   ],
   sources: [
-    `IEEE Std 802.15.4-2024 §10.35.2.1 连同 Figure 10-271 给出 RAICT 信息单元的内容字段，本课用到的是其中的 Frames Remaining：它只报还剩几帧，既不带总帧数，也不带这一帧的序数，所以「丢失第一帧时无法指出缺的是哪一帧」是这个字段的性质，不是本课的取舍。课文那张三行的表里，另外两行是 §10.34 的测距消息未收到交互与 §10.36 的多消息收妥确认；「整个有效期窗口」那一格的依据是 §10.32.9.1 的 ARC 信息单元里那个有效轮次字段。本课完全不依赖任何草案。`,
-    `本课的场景与上一课完全相同（同一个 22 × 8 m 大厅、同样的器材与种子、同样三个变体），所以两课在面板上运行出的是同一条时间线。${MS.slot} ms 的测距时隙与 ${MS.block} ms 的测距块来自 FiRa 的缺省配置，不是标准正文；帧长、空口时间与时隙数沿用上一课的取值。「丢失一帧」那次测量不在这四个场景中，方法见上面那一节。`,
+    'IEEE Std 802.15.4-2024：§10.35.2.1 与图 10-271（RAICT 信息单元：剩余帧数的含义；没有总帧数与帧序号字段；正文提到的帧序号与消息类型在图里没有对应字段）、§10.35.1（上层用这些字段分帧发送与管理重传）、§10.34.1（RMNR 信息单元）、§10.36.1（多消息收妥确认，ARC 信息单元的 MMRCR 字段）。本课不依赖任何草案。',
+    `本仿真器的取值与取法：接收端逐次相减发现缺帧；截止时刻取辅助信息轮的末尾；发现缺帧之后不采取任何动作；接收判决只比较功率。场景与 @uwb-ancillary 完全相同。${MS.slot} ms 的测距时隙与 ${MS.block} ms 的测距块是本仿真器的缺省值。丢帧的三种结果在同一场景的运行中途把发送方移开一个时隙测得，不在面板的四个场景里。`,
   ],
+  limits: [],
   scenario: () => uwbAncillaryScenario(),
   variants: [
     { label: `竞争式排程：窗口宽 ${SLOTS.contendWindow} 个时隙，起点抽出来`, scenario: () => uwbAncillaryScenario({ schedule: 'contention' }) },
@@ -169,42 +145,38 @@ export const uwbAncillaryLoss: Lesson = {
     J('写入 0 的那一帧：这条消息的最后一帧', lastFragment),
     J('接收端判定收齐的那条记录', messageComplete),
   ],
-  observe: [
-    `四帧的剩余帧数依次是 ${FRAMES - 1}、${FRAMES - 2}、1、0。写入 0 的那一帧到达之后，接收端将这条消息记为收齐；在此之前每一条记录都标为「未收齐」。而整块中没有发生一次超时——是否缺帧不通过超时判断。`,
-  ],
-  tryThis: [
-    `载入「一条控制消息管 ${VALIDITY} 个测距轮」变体，逐轮查看辅助信息帧（每块 ${WINDOW_ROUNDS_PER_BLOCK} 轮，轮次跨块连续数）：第 0 至 ${VALIDITY - 1} 轮是测距轮，一帧辅助信息也没有；第 ${WINDOW_ROUNDS[0]} 轮是辅助信息轮，有 ${FRAMES} 帧、剩余帧数从 ${FRAMES - 1} 递减到 0；到第 ${WINDOW_ROUNDS[1]} 轮——下一块的辅助信息轮——又有 ${FRAMES} 帧。要关注的是测距轮：那里不但没有帧，接收端连一条「未收齐」的记录也没有——「这一轮没有消息」和「这一轮的消息未收齐」是两件事，而只有后者才是本课所说的丢失。`,
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '为什么说缺失的那一帧不是靠超时推断出来的？',
+      q: '本仿真器的接收端为什么不用超时就能发现缺失的中间那一帧？',
       options: [
-        '因为接收端为每一帧都设了一个定时器，哪个定时器超时就说明哪一帧缺失',
-        '因为剩余帧数在每一帧中都写入一次，所以读到的数跳过了几个，跳过的就是未到达的那几帧——这个判断在收到下一帧的同一时刻就完成了',
-        '因为发送端在最后一帧中报告总共发送了几帧，接收端用它减去自己收到的帧数',
+        '它为每一帧都设了一个定时器',
+        '每一帧都带剩余帧数，它把这一次读数与上一次相减，跳过的数就是没有到达的帧——判断在收到下一帧的同一时刻完成',
+        '发送方在最后一帧里报告一共发了几帧',
       ],
       answer: 1,
-      explain: `接收端不需要定时器，它只是把这一次读到的数与上一次相减。在本课那次测量中，这一时刻比截止时刻提前 ${ms(NS.lead)} ms。`,
+      explain: `逐次相减是本仿真器的取法，标准没有规定发现方法。测得的发现时刻比截止时刻早 ${ms(NS.lead)} ms。`,
     },
     {
-      q: '丢失的是写入 0 的那一帧，接收端何时知道？',
+      q: '丢失的是写 0 的最后一帧，接收端何时知道？',
       options: [
-        '与丢失中间那一帧时一样快，因为倒数本来就是逐帧进行的',
-        '到这条消息的截止时刻才知道：后面没有下一帧，没有任何一次接收能发现这个缺口',
-        '永远不会知道，因为写入 0 的那一帧才是收齐的判据',
+        '与丢失中间那一帧时一样快',
+        '到截止时刻才知道：后面没有下一帧，没有哪一次接收能发现这个缺口',
+        '永远不会知道',
       ],
       answer: 1,
-      explain: `倒数停在 1 之后就没有下一次读数了，所以这次缺失只能在截止时刻才被发现，比丢失中间那一帧时晚 ${ms(NS.lead)} ms。`,
+      explain: `倒数停在 1 之后就没有下一次读数了。本仿真器的截止时刻是辅助信息轮的末尾，比丢失中间那一帧时晚 ${ms(NS.lead)} ms 发现。`,
     },
     {
-      q: '丢失的是第一帧时，这个办法为什么无法指出缺的是哪一帧？',
+      q: '丢失的是第一帧时，为什么指不出缺的是哪一帧？',
       options: [
-        '因为第一帧中不含剩余帧数字段',
-        '因为 RAICT 里只有剩余帧数可用来判断缺帧，既没有总帧数也没有这一帧的序数，所以第一次读数之前的缺口没有可以相减的对象',
-        '因为第一帧丢失之后整条消息都会被丢弃',
+        '因为第一帧里不带剩余帧数',
+        '因为图 10-271 里既没有总帧数也没有帧序号，第一次读数之前的缺口没有可以相减的对象',
+        '因为第一帧丢失后整条消息都被丢弃',
       ],
       answer: 1,
-      explain: '它能指出两次读数之间的缺口，却无法指出第一次读数之前的缺口。而这条消息仍然会被判定为收齐，因为收齐的判据是读到 0。',
+      explain: '这是字段本身的性质。消息读到 0 仍判定为收齐。',
     },
   ],
 }

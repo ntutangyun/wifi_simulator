@@ -58,12 +58,12 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
 /**
  * **The ceiling, and the one number here a human owns.**
  *
- * It is the ceiling AND (today) the current value: the debt stands at exactly 273, with no slack
+ * It is the ceiling AND (today) the current value: the debt stands at exactly 169, with no slack
  * in it, and that is deliberate rather than an accident of when it was measured — a ratchet with
  * room left in it is not a ratchet. Paying debt down is never a human's call; **raising this is**,
  * and it is not a thing to do because the build is red. See the ratchet's own docblock in
- * `readability.test.ts` for the history of the number (292 → 289 and 289 → 287 both on
- * 2026-10-11, 296 → 292 on 2026-10-05, and 302 → 292 before that).
+ * `readability.test.ts` for the history of the number (273 → 169 on 2026-11-10, 292 → 289 and
+ * 289 → 287 both on 2026-10-11, 296 → 292 on 2026-10-05, and 302 → 292 before that).
  *
  * **Why it comes down in the same slice that pays the debt, with nobody asked.** The two
  * sentences above are the rule: the ceiling is the current value, slack in it is the defect, and
@@ -80,8 +80,11 @@ export const limitsOf = (l: Lesson): string => l.limits.map((x) => x.text).join(
  * repayment cost nothing but prose. 287 → 284 on 2026-11-10: the course-wide rewrite of every
  * lesson's `why` into a conclusions-first summary glossed three terms on main paths that `limits`
  * had been naming bare, and the ceiling came down in the same commit, by the rule above.
+ * 273 → 169 on 2026-11-10: the standard-first restructure of 34 UWB lessons removed their
+ * `limits` section altogether (the standard-first shape has none), which took 104 pairs off at
+ * once; lowered in the same change, by the same rule.
  */
-export const LIMITS_DEBT_CEILING = 273
+export const LIMITS_DEBT_CEILING = 169
 
 /**
  * The per-lesson main-path band the lesson contract enforces: about a third of the mean lesson,

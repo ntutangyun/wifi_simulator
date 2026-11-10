@@ -1,41 +1,20 @@
 /**
  * UWB Tier 3 · M16 · The ranging capstone · Locate the phone in this flat.
  *
- * The closing exercise of the UWB track, written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md). It is a
- * brief, not a walkthrough: one flat, one phone, three anchors, a Wi-Fi
- * neighbour on the same megahertz, and three decisions the learner takes and
- * then defends against the numbers the simulator gives back — where the third
- * anchor goes, how often a block runs, and whether the session should ask all
- * three anchors in one round instead of one at a time.
+ * Standard-first shape (2026-11-10): ① what IEEE Std 802.15.4-2024 specifies for the parts the
+ * brief uses — the ranging block (§10.32.2), one-to-many DS-TWR (§10.32.5, §10.29.1.2.4), the Ranging
+ * FoM (§10.29.1.7), and AoA only as a request and report (RMI IE §10.29.8.4, SRRR IE §10.32.9.9; the
+ * measurement method is out of scope, and chapter 16 has none) — and that positioning is not in the
+ * standard and MMS is a P802.15.4ab draft; ② how this simulator fills each gap with its own values
+ * and methods; ③ three guided runs: the baseline and its one-sided error, the four scenes, and the
+ * brief.
  *
- * The scene is the hallway house: two rooms with a hallway between them, every
- * wall brick. The phone stands in Room B with two anchors beside it and the
- * third across the hallway wall, so exactly one of the three ranges carries the
- * excess delay of an obstructed path — the bias the learner has to find. The
- * router sits in the hallway on 6 GHz channel 71, inside UWB channel 5's band,
- * so the session also pays a coexistence price it can measure.
+ * The flat is the hallway house: two rooms with a hallway between them, every wall brick, the phone
+ * in Room B with two anchors beside it and the third across the hallway wall, and a Wi-Fi 7 router
+ * in the hallway on 6 GHz channel 71, inside UWB channel 5's band.
  *
- * The one-to-many variant runs at the default 600 RSTU slot with three
- * responders, which is the shortest legal MMS slot: fragments in that round are
- * one slot per responder plus one apart, not a millisecond apart, and the
- * engine measures the clock ratio over that real spacing.
- *
- * Mechanism before metaphor (2026-09-23): in a project lesson the `steps` block
- * is the learner's method, not the engine's loop — take the baseline out of the
- * phone's inspector, find the one-sided error in its ranges table before
- * anything is changed, load one variant at a time, compare row against row, and
- * hand the ranking in against the brief. Every figure it asks for is one the
- * screen actually shows: the position section's fix, truth and error, the ranges
- * table's measured/true/error/quality byte, and the two counters at the top of
- * the inspector. `solvePosition` computes a residual, but no record carries it
- * and the inspector never prints it, so the method never asks for one — the
- * error against the printed truth is the quality figure the reader can see.
- * The four-scene table is transposed for the same reason: a row is now a figure
- * and it names the record or counter it is read from.
- *
- * Every number quoted below is pinned in tests/course/uwb-capstone.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-capstone` prints it with its length.
+ * Every figure the lesson prints is read back out of its text and compared with a run in
+ * tests/course/uwb-capstone.test.ts.
  */
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
 import type { NodeCfg, Scenario } from '../../model/scenario'
@@ -116,92 +95,106 @@ export const uwbCapstone: Lesson = {
   id: 'uwb-capstone',
   module: 31,
   title: '在这套住宅中完成手机定位',
-  why: '此前的每一课，都是先给出一个场景，再由你去理解它。这一课给出的是一套住宅和三项决定，而场景取决于你如何决定。要求是：在一套走廊里有路由器、房间之间隔着砖墙的住宅中，把一部手机定位到半米以内，并用日志论证自己的选择。三项决定各有答案。第三个锚点（anchor）应当留在走廊里：移到另一个房间虽然增大了张角，它却位于第二道砖墙之后，应答无法送达，定位次数减半、超时大致翻倍，三距离交汇的定位一次也没有。把块的频率提高一倍，得到的是平滑而不是精度：每次定位的误差完全不变，会话的占空比（duty cycle）、超时次数和受路由器干扰而丢失的接收却一起翻倍，而为它让出的是其他设备的吞吐量。多毫秒（multi-millisecond, MMS）模式（P802.15.4ab 草案的内容，尚未成为标准）让三个锚点同时应答，一次交互代替三次，却要消耗多得多的发射次数和空口时间（airtime），受干扰丢失的接收也更多，而且本课的多毫秒场景不测向。真正妨碍达到要求的是一个单向误差：隔着砖墙的那个锚点，每个块测得的距离都偏长半米左右。这是遮挡路径带来的额外时延，不是噪声，无法通过取平均消除，而本课等权的最小二乘解算器又把它原样带入了定位结果——所以四个场景在不做修正时都达不到半米。扣除这一偏移后重新解算，误差只有几厘米；而那个距离的品质因数（figure of merit, FoM）一直比另外两条差，只是解算器从未使用它——在本课的模型里，品质因数只按直射路径是否穿墙取两个固定值之一。',
+  why: '这一课给出一套住宅和三项决定，要求把一部手机定位到半米以内，并用日志论证自己的选择。IEEE 802.15.4-2024 规定的是测距：测距块（ranging block）与测距轮（ranging round）的结构、一对多双边双向测距（double-sided two-way ranging, DS-TWR）的消息顺序、每个测距计数值附带的品质因数（figure of merit, FoM），以及到达角（angle of arrival, AoA）怎样请求与上报；它不规定定位，也不规定到达角怎样测出。多毫秒（multi-millisecond, MMS）的一对多轮次是 P802.15.4ab 草案的内容，尚未成为标准。三项决定各有答案。第三个锚点（anchor）应当留在走廊里：移到另一个房间虽然增大了张角，它却位于第二道砖墙之后，应答无法送达，定位次数减半、超时多了一倍以上，三距离交汇的定位一次也没有。把测距块的频率提高一倍，得到的是更频繁的定位而不是更高的精度：每次定位的误差不变，会话的占空比（duty cycle）、超时次数和受 Wi-Fi 干扰丢失的接收一起翻倍。多毫秒一对多轮次让三个锚点在一轮里应答，却要多得多的发射次数与空口时间（airtime），受干扰丢失的接收也更多，而且本课的多毫秒场景不测向。真正妨碍达标的是一个单向误差：隔着砖墙的那个锚点，每个块测得的距离都偏长约 0.60 m。这是本仿真器给遮挡路径加的固定时延，取平均无法消除，本仿真器等权的最小二乘解算又把它带入了定位结果，所以四个场景在不做修正时都达不到半米；扣除这一偏移后重新解算，误差只有几厘米。',
   outcomes: [
-    '选定一种锚点布置，并用它产生的定位结果——而不是用示意图——论证这一选择',
-    '用增加的空口时间（airtime）和带来的干扰，计算“提高测量频率”的代价',
-    '说明“一轮询问所有锚点”带来了什么、又失去了什么',
-    '找出这套住宅中存在系统偏差的那个距离，并说明其成因',
+    '说出标准对测距块、一对多 DS-TWR、品质因数与到达角规定了什么，以及哪些部分（定位、到达角的测量方法）它不规定',
+    '用一个场景的定位结果、超时与空口时间论证一项决定，而不是用示意图',
+    '找出存在系统偏差的那个距离，说明它来自本仿真器的哪一项取值，以及怎样修正',
   ],
   needs: ['uwb-position', 'uwb-aoa', 'uwb-mms', 'uwb-coexist'],
   terms: [
     { term: 'brief', plain: '任务书：完成之后必须满足的要求' },
     { term: 'duty cycle', plain: '测距会话真正占用空口的时间占比' },
   ],
-  picture: [
-    { heading: '这套住宅，以及对它的要求', text: '两个房间，中间夹着一条走廊，隔墙全是砖墙。手机在右侧的房间里。它对面的墙上已经装了两个锚点，两端各一个，第三个设在走廊里。而走廊里的那台路由器，正使用与测距会话相同的频段与一台笔记本通信。你要满足的要求，称为任务书（brief）：把手机定位到半米以内，并且能够说明理由。' },
-    { kind: 'watch', jump: 2, heading: '先分析现状', text: '载入仿真，跳到第一次定位。先不要改动任何设置：把一个块从头读到尾，统计它产生了什么结果、又丢失了什么。这一次运行，就是下面每项决定都要对照的基准。' },
-    { heading: '决定一：第三个锚点的位置', text: '同一面墙上的两个锚点无法确定一个点，几何构型由第三个锚点决定。把它放远，张角就增大，这正是良好定位所需要的。但把它放远，它也就位于更多砖墙之后，而这对一帧必须被收到的信号恰恰最为不利。变体把它移到了另一个房间，两个要求于是直接冲突。' },
-    { heading: '决定二：测量频率', text: '一个块就是一次测量。块的频率提高一倍，对手机轨迹的跟踪就平滑一倍——代价是会话占用空口的时间也增加一倍，于是它与路由器发生碰撞的次数翻倍，受路由器干扰而丢失的帧也翻倍。单次定位的精度完全不变。翻倍的只是会话实际发射的时间占比，也就是占空比（duty cycle）；而为它让出的吞吐量，属于其他设备。' },
-    { heading: '决定三：一轮，还是三轮', text: '到目前为止，手机都是逐个询问每一个锚点。多毫秒（multi-millisecond, MMS）模式是 P802.15.4ab 草案的内容，它的一对多轮次让手机询问一次、由三个锚点同时应答：一串片段（fragment）发出后，每个锚点收到的都是同一串，各自在自己的时隙内回复。一次交互代替三次——代价是空口时间大幅增加，因为按本课的交错排法，每隔一个间隔，轮次中的每台设备都要各发送一个片段。这个变体还去掉了测向：本课的多毫秒场景只测距离、不测到达角（angle of arrival, AoA），这是本课的限制。' },
-    { heading: '需要找出的单向误差', text: '这套住宅中的三个距离里，有一个不只是“有噪声”，它在每个块中都向同一方向偏离。找出与手机之间的直线路径被遮挡的那个锚点，把它报告的距离与旁边显示的真值进行比较。噪声是对称的，取平均之后就会消除。这个误差不是；把它一并纳入计算的定位结果，会向一个方向偏离。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '四个场景，七个块', head: [
-      '数字及其读取位置',
-      '现状', '锚点 3 移远',
-      '每 100 ms 一个块', '一轮测完三个锚点',
-    ], rows: [
-      ['定位次数——运行中的 UWB_POSITION 记录',
-        '20', '10', '36', '7'],
-      ['其中三距离交汇——记录中列出三个锚点的那些',
-        '5', '0', '9', '7'],
-      ['超时——检视器里的 timeouts 计数，即 UWB_TIMEOUT',
-        '18', '40', '36', '0'],
-      ['受 Wi-Fi 干扰丢失——其下一行的计数，即 UWB_INTERFERED',
-        '6', '4', '12', '14'],
-      ['发射次数——手机与三个锚点的 TX_START',
-        '44', '34', '81', '294'],
-      ['空口时间——上述各帧发射时长之和',
-        '8.6 ms', '6.7 ms', '15.9 ms', '62.5 ms'],
-    ] },
-    { text: '每一列都对应同一个 1300 ms 窗口；凡不是三距离交汇的定位，都是由单个锚点测得的方位。' },
-    { kind: 'table', heading: '现状下的三个距离', head: [
-      '锚点——手机测距表中的一行',
-      '真值', '平均误差', '成因',
-    ], rows: [
-      ['anchor-1', '3.99 m', '−0.02 m', '直视路径'],
-      ['anchor-2', '3.99 m', '−0.00 m', '直视路径'],
-      ['anchor-3', '3.23 m', '+0.60 m', '一道砖墙：遮挡路径的额外时延，模型取值'],
-    ] },
-    { kind: 'formula', heading: '这个偏差对定位的影响', text: '三距离交汇的定位：平均误差 0.55 m，最差 0.57 m，GDOP 1.25', note: '离散度极小；误差几乎全部来自那个固定偏移，而一个没有理由怀疑那个距离的解算器，把这一偏长量原样带入了结果。良好的几何条件也无法补偿它，因为这里的误差根本不是随机的。' },
-    { heading: '是否有场景达到要求', text: '仅那个偏移就有 0.60 m，所以没有哪个场景能使每一次定位的误差都在半米以内。第二个实验做到了：从 anchor-3 的距离中扣除这一偏移、重新解算，这个块的误差就只有 0.02 m。' },
-    { kind: 'table', heading: '合格答案的要点', head: [
-      '决定', '合格答案的要点',
-    ], rows: [
-      ['锚点 3', '把它留在走廊里：移到另一个房间会使定位次数减半、超时大致翻倍，而且三距离交汇的定位一次也没有。剩下的测向结果误差更小，并不意味着定位变好了。'],
-      ['块的频率', '它带来的是平滑而不是精度：定位误差不变，而超时次数和受 Wi-Fi 干扰丢失的接收都恰好翻倍；定位次数与空口占用则略少于翻倍——第十四个块恰好在窗口结束的时刻开始，只发出了一帧。'],
-      ['一轮还是三轮', '计算“一次交互代替三次”的代价：发射次数与空口时间都多得多，受路由器干扰丢失的接收也更多。它并不更节省，而且去掉了测向。'],
-      ['那个偏差', '指出 anchor-3，给出偏差的符号与大小，将其归因于遮挡路径而非噪声，并说明为什么取平均无法消除。'],
-      ['任务要求', '明确指出四个场景在不做修正时都达不到半米，给出能够达标的修正方法，并如实引用检视器显示的误差。'],
-    ] },
-    { kind: 'steps', heading: '操作步骤', items: [
-      '先建立基线：按现状载入这套住宅，打开手机的检视器。它的定位一栏显示最近一次定位、真值，以及两者之间的误差；它的测距表每个锚点一行——测得的距离、真实距离、误差、品质因数（figure of merit, FoM）。',
-      '在改动任何设置之前，先找出那个单向误差：逐块把每个测得的距离与旁边的真值进行比较。有两个始终只差几厘米；有一个每次都偏长半米左右，而且它的品质因数也更差（本课按直射路径是否穿墙给出品质因数）。',
-      '记下上面第一张表中的数字，然后每次只改变一项：从菜单中载入一个变体，不要同时改变两项；每载入一个，就重新读取同样的那几个数字。',
-      '比较时逐行比较，而不是逐个场景地看：评价一项决定，既要看它改变了什么，也要看它没有改变什么；空口时间翻倍而定位误差完全不变，得到的就是平滑，而不是精度。',
-      '用这个排序对照任务书：有没有哪个场景能使每一次定位的误差都在半米以内？然后提交：你选择哪项决定；你否决了哪项、依据是什么；那个有偏差的距离；以及这套住宅没有建模的内容。',
+  standard: [
+    { heading: '测距块的结构（§10.32.2）', text: '测距块是一段用于测距的时间，由整数个测距轮组成；一个测距轮足够完成参与设备之间一次完整的测距，又分为整数个测距时隙（ranging slot），一个时隙至少能发送一个测距帧。时长以 RSTU（ranging scheduling time unit）计（§10.29.1.5）。' },
+    { heading: '一对多 DS-TWR（§10.32.5，三条消息的算式见 §10.29.1.2.4）', text: '发起方广播测距启动消息，其中的 RRMC IE 选定应答方；各应答方按顺序以测距应答消息回复，它既结束第一次往返测量，又开始第二次；发起方最后广播最终帧，用测距测量信息（ranging measurement information, RMI）IE 报告各个往返时间、用 RRTI IE 报告回复时延（reply time）。收到最终帧后，每个应答方都掌握计算飞行时间所需的全部数值；发起方在 RRMC IE 里请求时，应答方再把结果报告回去。飞行时间 = (Tround1 × Tround2 − Treply1 × Treply2) / (Tround1 + Tround2 + Treply1 + Treply2)。' },
+    { heading: '测距品质因数（§10.29.1.7，图 10-200）', text: '测距设备为每一个测距计数值给出一个测距品质因数：置信水平、置信区间与置信区间的缩放系数，表示 RMARKER（ranging marker）落在这个区间内的概率。标准规定它的格式与含义，不规定怎样估计。' },
+    { heading: '到达角（§10.29.8.4，§10.32.9.9）', text: '标准只规定到达角怎样请求与上报：RMI IE 可以携带 AOA Azimuth、AOA Elevation 字段及它们的 FOM 字段；SP3 测距里，SRRR IE 的 RAOA 位为 1 表示要求报告到达角。到达角怎样测出、天线（antenna）阵列怎样配置，标准写明不在其范围之内；第 16 章的物理层（physical layer, PHY）也没有规定到达角的测量。' },
+    { heading: '标准之外的部分', text: '标准不定义定位。多毫秒测距及其一对多轮次、窄带（narrowband, NB）控制面是 P802.15.4ab 草案的内容，草案正在审议。' },
+    { kind: 'steps', heading: '一对多 DS-TWR 的一轮，按标准：逐步说明', items: [
+      '发起方广播测距启动消息，RRMC IE 选定这一轮的应答方（§10.32.5）。',
+      '各应答方按调度依次发出测距应答消息，带 RRMC IE。',
+      '发起方广播最终帧，带 RMI IE（往返时间）与 RRTI IE（回复时延）。',
+      '每个应答方用两个往返时间与两个回复时延，按 §10.29.1.2.4 的算式算出飞行时间。',
+      '发起方请求时，应答方在后面的帧里用 RMI IE 把结果报告给发起方；每个测距计数值都附带测距品质因数（§10.29.1.7）。',
     ] },
   ],
-  deeper: [
-    { heading: '丢帧的代价由谁承担', text: '一个片段的丢失只发生在某一个接收端，其他接收端不受影响：在本课的模型里，捕获（acquisition）与检出都是按接收端、按片段分别判定的，所以漏收一个片段的锚点，是唯一因此受影响的锚点。真正使三个锚点同时受影响的，是手机发出的消息——开启这一轮的那帧 Poll，或者手机自己在窄带控制信道上的那次判忙（先听后发，草案中这部分仍有争议），而后者正是窄带共存那一课的主题。一对多轮次的代价是空口时间；至于“丢失片段的风险由所有锚点共同承担”，那不是它的代价。' },
-    { heading: '为什么定位结果并不比最差的那个距离好多少', text: '在三个距离上做最小二乘，只比两个未知量——地面上的两个坐标，高度固定不变——多出一个测量，而一个自由度不足以让拟合识别出哪一条有偏差。所以单个有偏差的距离，几乎会使结果偏移与其偏差相当的量，而检视器显示的内容中没有任何一项会揭示这一点：结果与数据是自洽的，只是数据本身有误。要让解算器察觉这一点，成本最低的办法就是增加第四个锚点。' },
-    { heading: '品质因数始终可用', text: '标准要求测距设备为每一个测距计数值给出一个测距品质因数（Ranging FoM，§10.29.1.7），内容是时间戳落在某个置信区间内的置信水平；真实接收机要从接收信号自己估计它。本课把它简化为按直射路径是否穿墙取两个固定值之一，附在日志里每一个距离上，所以那个被遮挡的距离，它的品质因数比另外两条差。本课的定位解算完全没有使用它。一个利用它的部署方案，会对三个距离加权，而不是同等对待它们；这是对这套住宅改善最大的一项改动——而且它不占用任何空口时间。' },
-    { heading: '这套住宅没有建模的内容', text: '手机静止，家具静止，也没有人站在手机和锚点之间。在真实住宅中，最主要的误差来源是人体：几分贝、几纳秒，而且其出现与消失的时间尺度与一个块相当。上面所有结论针对的都是一个静态房间——写明这一点，也是这份报告的一部分。' },
+  implementation: [
+    { topic: '测距块与时隙', standard: '块由整数个轮组成，轮由整数个时隙组成；时长由会话决定（§10.32.2）', sim: '测距块 200 ms、时隙 2 ms（「每 100 ms 一个块」变体为 100 ms）；多毫秒场景的时隙取 600 RSTU。', kind: 'value' },
+    { topic: '一对多 DS-TWR', standard: '启动、应答、最终帧三条消息，应答方计算，按请求报告（§10.32.5）', sim: '照此实现：手机的轮询帧带 ARC、RR、RDM、RRMC，三个锚点依次应答，手机的最终帧带 RMI 与 RRTI，锚点算出距离后用 RMI IE 报告给手机。', kind: 'faithful' },
+    { topic: '品质因数', standard: '格式与含义由标准规定，估计方法未规定（§10.29.1.7）', sim: '按直射路径是否穿墙取两个固定字节之一：直视 0x16，穿墙 0x7b。真实接收机要从信号自己估计它。', kind: 'choice' },
+    { topic: '到达角', standard: '只规定请求与上报（§10.29.8.4、§10.32.9.9），测量方法不规定', sim: '锚点用双阵元相位差（phase difference）模型测出到达角，视场（field of view）±90°；它在本地把到达角与自己算出的距离合成一次单锚点定位，不经 RMI IE 传送到达角。多毫秒场景不测向。', kind: 'choice' },
+    { topic: '定位', standard: '标准不定义定位', sim: '手机在一个块里测到三个距离时，用等权的高斯—牛顿最小二乘解算平面坐标，高度固定；不按品质因数加权、不剔除异常值、块与块之间不做滤波。', kind: 'choice' },
+    { topic: '遮挡', standard: '标准未规定', sim: '没有回波，每个接收机只收到直射路径；路径每穿过一道砖墙，首径（first path）到达晚 2.0 ns，与墙的厚度、入射角无关。', kind: 'value' },
+    { topic: '时间戳噪声与 Wi-Fi 干扰', standard: '标准未规定', sim: '每个时间戳 100 ps 的 1σ 噪声；Wi-Fi 信干比（signal-to-interference ratio, SIR）低于 −12 dB 即判为丢失。', kind: 'value' },
+    { topic: '多毫秒一对多', standard: 'P802.15.4ab 草案的内容', sim: '「一轮测完三个锚点」变体按本仿真器对草案的实现运行：窄带控制面、单边测距、600 RSTU 的时隙。', kind: 'choice' },
   ],
-  limits: [
-    { kind: 'unmodelled', text: '这套住宅的四个场景里都没有回波：每个接收机收到的只有直射路径，到达时刻是发射起点加 d / c，于是测距读到的永远只是直射的那一次到达。遮挡只使首径到达变晚：穿过的每种材料各增加一个固定的额外时延（砖 2.0 ns），与墙的厚度、入射角都无关，而墙只按平面图上的线段计算，没有高度。于是本课要找的那 +0.60 m 是一个固定值，而真实室内测距最难的一步——在一串先后到达的回波里认出首径——本课程从头到尾没有涉及。' },
-    { kind: 'out-of-scope', text: '这条轨道中没有任何物体在移动。每台设备的位置固定在一个坐标上，模型里没有速度，UWB 链路的电平也只由距离与墙决定，不随时间衰落。所以「块的频率带来的是平滑而不是精度」只能作为推论提出：这里根本没有需要跟踪的轨迹，也没有会走到手机与锚点之间的人，而真实住宅中最大的误差来源正是人体，几分贝、几纳秒，出现与消失的时间尺度恰好与一个块相当。' },
-    { kind: 'unmodelled', text: '解算器对每条测量同等对待，而且不做事后修正。本课的定位解算是等权的高斯—牛顿最小二乘：不按品质因数加权、不剔除异常值，拟合的残差既不用来重新加权，也不显示在日志与检视器里；块与块之间没有滤波、没有平滑、没有运动模型。所以「按品质因数加权是这套住宅中成本最低的改动」是读者需要自行得出的结论，而不是本仿真器能够运行的一个变体。' },
-    { kind: 'unmodelled', text: '一个场景只有一条测距会话，而且它无需建立过程。哪台设备在哪个时隙发送，在会话开始之前就已给定，锚点坐标、标签高度与彼此的身份也都是事先已知的真值。于是整条轨道上看不到设备发现、入网、参数协商与密钥分发，也看不到两套互不相识的 UWB 系统争用同一段频谱——本课能测量的共存只有「与 Wi-Fi 共存」这一种，而它考虑的只是带内功率。' },
-    { kind: 'unmodelled', text: '代价只用空口时间与时隙来衡量。本课不计算功率、电流或能量，也不直接给出占空比——任务书中的这一指标需要根据空口时间自行换算。但这条轨道始终在论证省电的优势：块之间让前端休眠、只接收不发送的胸牌、一帧闪发即可完成、窄带射频成本低。这些主张没有一条经过数值验证，而真实产品的取舍恰恰主要体现在这方面。' },
+  labs: [
+    {
+      heading: '基线：三个距离与一次定位',
+      jump: 2,
+      steps: [
+        '按现状载入这套住宅，跳到手机的第一次定位，打开手机的检视器。',
+        '在测距表里逐块比较每个测得的距离与真值，并查看各自的品质因数。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '现状下的三个距离', head: ['锚点', '真值', '平均误差', '成因'], rows: [
+          ['anchor-1', '3.99 m', '−0.02 m', '直视路径'],
+          ['anchor-2', '3.99 m', '−0.00 m', '直视路径'],
+          ['anchor-3', '3.23 m', '+0.60 m', '一道砖墙'],
+        ] },
+        { kind: 'formula', heading: '这个偏差对定位的影响', text: '三距离交汇的定位：平均误差 0.55 m，最差 0.57 m，GDOP 1.25', note: '误差几乎全部来自那个固定偏移；几何条件再好也补偿不了不是随机的误差。' },
+      ],
+      expect: 'anchor-3 的距离每个块都偏长，平均 +0.60 m，它的品质因数是 0x7b，另外两条是 0x16；三距离交汇的定位误差平均 0.55 m。从 anchor-3 的距离中扣除 0.60 m 后重新解算，这个块的误差是 0.02 m。',
+      meaning: '偏长量就是本仿真器给一道砖墙的 2.0 ns 乘以光速（②）；双边测距不会抵消它。品质因数已经标出这条距离较差，但本仿真器的定位解算不使用品质因数（②），标准也不规定定位（①）。',
+    },
+    {
+      heading: '三项决定，四个场景',
+      more: [0, 1, 2],
+      steps: [
+        '依次载入三个变体，每次只改变一项，运行七个块（1.3 s）。',
+        '逐行比较下表：一项决定改变了什么，也看它没有改变什么。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '四个场景，七个块', head: ['数字及其读取位置', '现状', '锚点 3 移远', '每 100 ms 一个块', '一轮测完三个锚点'], rows: [
+          ['定位次数（UWB_POSITION）', '20', '10', '36', '7'],
+          ['其中三距离交汇', '5', '0', '9', '7'],
+          ['超时（UWB_TIMEOUT）', '18', '40', '36', '0'],
+          ['受 Wi-Fi 干扰丢失（UWB_INTERFERED）', '6', '4', '12', '14'],
+          ['手机与三个锚点的发射次数', '44', '34', '81', '294'],
+          ['空口时间', '8.6 ms', '6.7 ms', '15.9 ms', '62.5 ms'],
+        ] },
+      ],
+      expect: '锚点 3 移远后三距离交汇的定位为 0，超时从 18 增加到 40；块的频率加倍后超时与受干扰丢失的接收恰好翻倍；一轮测完三个锚点的发射次数是现状的六倍以上。凡不是三距离交汇的定位，都是单个锚点用距离加到达角得出的。',
+      meaning: '这些代价都在本仿真器的取值之内（②）：遮挡时延、−12 dB 的干扰门限、多毫秒场景的实现。标准只规定测距交互本身（①）。',
+    },
+    {
+      heading: '对照任务书',
+      steps: [
+        '先在载入任何场景之前写下你对三项决定的预期，再对照上面两张表评分。',
+        '回答：有没有哪个场景能让每一次定位的误差都在半米以内？',
+        '提交：你选择的决定、否决的决定及依据、那个有偏差的距离与它的成因、以及这套住宅没有建模的内容。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '合格答案的要点', head: ['决定', '合格答案的要点'], rows: [
+          ['锚点 3', '留在走廊里：移到另一个房间使定位次数减半，三距离交汇的定位一次也没有。'],
+          ['块的频率', '得到的是更频繁的定位而不是更高的精度：误差不变，超时与受干扰丢失的接收翻倍。'],
+          ['一轮还是三轮', '一轮测完三个锚点并不更省：发射次数与空口时间多得多，受干扰丢失的接收也更多，而且不测向。'],
+          ['那个偏差', '指出 anchor-3，给出正负号与大小，归因于遮挡路径的固定时延，说明取平均为什么消除不了。'],
+          ['任务要求', '四个场景在不做修正时都达不到半米；扣除偏差、或按品质因数加权，才可能达标。'],
+        ] },
+      ],
+      expect: '没有一个场景能让每一次定位都在半米以内：仅那个偏移就有 0.60 m。扣除它之后，误差降到几厘米。',
+      meaning: '「按品质因数加权」是读者需要自行得出的方案：本仿真器的解算器不提供这一选项（②）。这套住宅里没有人走动、没有回波，所有结论都针对一个静态房间。',
+    },
   ],
   sources: [
-    '测距块与时隙结构见 IEEE Std 802.15.4-2024 的 §10.32.2 与 §10.32.3，双向测距交互见 §10.29.6，测距计数器见 §10.29.1.3；多毫秒模式、它的一对多轮次以及它的窄带控制面，见 P802.15.4ab（4ab 草案 15-22/0381r5 Table 1.6.3.1 与 §1.1）。',
-    '200 ms 的测距块与 2 ms 的测距时隙来自 FiRa 的配置文件，不是标准正文；600 RSTU 是本课的场景允许 MMS 轮次使用的最短时隙，因为两个时隙必须容纳得下这一轮中最长的那条窄带消息。',
-    '这套住宅中的模型取值，列出以便你质疑：砖墙给遮挡路径增加的额外时延、用来衡量它的每个时间戳 100 ps 的 1σ 噪声、低于该值即判为受 Wi-Fi 干扰丢失的 −12 dB 信干比门限，以及那个对每个距离同等对待的最小二乘解算器。',
-    '由两根天线之间的相位差得到到达角、以及它 ±90° 的视场，都是本课的双阵元模型。标准只规定到达角作为测距结果怎样请求与上报（§10.29.8.4 的 RMI IE、§10.32.9.9 的 SRRR IE），没有规定怎样测出它。',
+    'IEEE Std 802.15.4-2024：§10.32.2（测距块与测距轮）、§10.29.1.5（RSTU）、§10.32.5（一对多 DS-TWR）、§10.29.1.2.4（三条消息的 DS-TWR 算式）、§10.29.1.7 与图 10-200（测距品质因数）、§10.29.8.4（RMI IE 的到达角字段）、§10.32.9.9（SRRR IE 的 RAOA 位）。',
+    'P802.15.4ab 草案（正在审议）：多毫秒测距及其一对多轮次与窄带控制面；轮次结构与时隙、轮、块的默认值见 TG4ab 提案 15-22/0381r5。',
+    '本仿真器的取值与取法：200 ms 的测距块与 2 ms 的时隙（据称来自 FiRa 的配置，语料中无法核实）、砖墙 2.0 ns 的遮挡时延、100 ps 的时间戳噪声、−12 dB 的信干比门限、品质因数的两个固定字节、双阵元相位差测向与 ±90° 视场、等权最小二乘定位。',
   ],
+  limits: [],
   scenario: () => uwbCapstoneScenario('base'),
   variants: [
     { label: '锚点 3 移到另一个房间', scenario: () => uwbCapstoneScenario('farAnchor') },
@@ -214,14 +207,8 @@ export const uwbCapstone: Lesson = {
     J('手机完成定位', firstUwbPosition),
     J('锚点测得一个方位', firstUwbAoa),
   ],
-  observe: [
-    '把现状下的一个块从头读到尾：三个距离、三个方位、一次三锚点定位。然后读取 anchor-3 的那条 UWB_RANGE，把它与旁边的真值进行比较，再查看它的品质因数。',
-    '在“一轮测完三个锚点”变体中找一条 UWB_MMS_TRAIN，读取它的应答者名单。一串片段，三个名字：节省的内容，全部体现在这一行中。',
-  ],
-  tryThis: [
-    '在载入任何场景之前，先把三项决定写下来，并写明你预期每项决定会使哪个数字如何变化。然后把四个场景都运行一遍，对照上表给自己评分。在这里，预测错误比预测正确更有价值。',
-    '从 anchor-3 的每一个距离中扣除它的平均误差，再手工计算一个块的定位。这次修正带来的收益比增加第四个锚点还大——而它恰恰是会话自身无法测得的那一项。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '把锚点 3 移到另一个房间会增大张角。实际发生的是什么？',
@@ -231,27 +218,27 @@ export const uwbCapstone: Lesson = {
         '解算器不接受其他房间中的锚点',
       ],
       answer: 1,
-      explain: '定位次数减少了一半，超时增加了一倍。剩下的是单锚点的测向结果，它误差更小，只是因为它是另一种测量，而不是更好的测量。',
+      explain: '定位次数减少了一半，超时多了一倍以上；剩下的都是单锚点用距离加到达角得出的定位。',
     },
     {
-      q: '把块的间隔减半，得到的是什么？',
+      q: '标准对到达角规定了什么？',
       options: [
-        '更准确的定位，因为测量次数增加，平均效果更好',
-        '每秒更多次定位，代价是空口占用翻倍；而每一次定位的精度完全不变',
-        '受 Wi-Fi 干扰丢失的接收更少，因为每个块更短',
+        '用两根天线之间的相位差测出到达角，视场 ±90°',
+        '只规定怎样请求与上报：RMI IE 的到达角字段、SRRR IE 的 RAOA 位；测量方法不规定',
+        '第 16 章规定了到达角的测量精度',
       ],
       answer: 1,
-      explain: '这里一个块不会与相邻的块做平均。频率翻倍，定位次数、空口占用和损失也一起翻倍。',
+      explain: '双阵元相位差与 ±90° 视场是本仿真器的模型；按 §10.29.8.4，天线阵列等系统参数不在标准范围之内。',
     },
     {
       q: '为什么取平均消不掉 anchor-3 的误差？',
       options: [
-        '块的数量还不够多，无法有效平均',
-        '它在每一个块的符号都相同：它是附加在路径上的一段时延，而不是围绕真实路径长度波动的噪声',
+        '块的数量还不够多',
+        '它在每一个块里正负号都相同：它是加在路径上的一段固定时延，不是围绕真值波动的噪声',
         '解算器把第三个距离丢掉了',
       ],
       answer: 1,
-      explain: '取平均能消除对称的误差。而遮挡路径只会更长、不会更短，所以平均之后它仍然完整保留。',
+      explain: '取平均能消除对称的误差。本仿真器给遮挡路径加的时延只会使距离更长，平均之后仍然完整保留。',
     },
   ],
 }

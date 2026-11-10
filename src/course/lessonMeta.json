@@ -428,7 +428,7 @@
    "file": "src/course/uwb/uwb-m2m.ts",
    "added": "2026-10-01",
    "touched": "2026-11-10",
-   "title": "一次发送，同时是问也是答"
+   "title": "多对多测距：M + N 帧测出 M × N 个距离"
   },
   "uwb-rcm-validity": {
    "file": "src/course/uwb/uwb-rcm-validity.ts",

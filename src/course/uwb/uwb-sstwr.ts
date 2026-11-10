@@ -1,39 +1,23 @@
 /**
  * UWB Tier 1 · M14 两个时钟 · The clock inside the reply time.
  *
- * Why a reply time measured on the other radio's crystal makes the range too
- * long, how the error grows with the slot the anchor answered in, and what the
- * standard's clock-offset correction does and does not remove.
+ * Standard-first shape (2026-11-10, docs/superpowers/plans/2026-11-10-uwb-standard-alignment.md):
+ * ① what IEEE Std 802.15.4-2024 says about SS-TWR — §10.29.1.2.2's two formulas, the clock
+ * frequency offsets eA and eB, the optional crystal characterization that yields Coffs
+ * (§10.29.1.6), the ±20 ppm tolerance (§16.4.6, §16.4.9) and the one-to-many procedure of
+ * §10.32.4; ② what this simulator does with each of those, faithful or not — above all that its
+ * Coffs is not measured but drawn as the true offset plus 0.2 ppm of Gaussian error; ③ four runs.
  *
- * The scene is unchanged: the phone runs 10 ppm fast, every anchor 10 ppm slow,
- * and the four anchors answer in four different slots, so one round shows the
- * same 3.50 m measured four times with four different errors.
+ * The scene is unchanged: the phone runs 10 ppm fast, every anchor 10 ppm slow, and the four
+ * anchors answer in four different slots, so one round shows the same 3.50 m measured four times
+ * with four different errors.
  *
- * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
- * §2 · M14). It **stays whole** — §2 keeps five UWB lessons whole deliberately,
- * because a ramp without its correction leaves the reader with a defect and no
- * fix — and it sheds padding instead:
- *  - §4 gives it a `timing` figure, Tround 与 Treply 画在两个时钟上，四个时隙上的
- *    斜坡. It replaces prose: 「等得越久，谎话越大」 is gone entirely (§5.2 deletes
- *    that metaphor, and the figure's four bars ARE the ramp), and the opening of
- *    「出问题的是等待，不是飞行」 — the two-clocks narration — is now the caption's.
- *  - §5.1 · 9 moves the Figure of Merit byte out: `uwb-nlos` is to be its single
- *    home, so the depth paragraph that decoded 0x16 bit by bit is deleted. Step 7
- *    still *names* the byte, because what it says there is that the record
- *    carries a FoM and never an error bar, which is this lesson's own claim; the
- *    decode's pins now guard the engine (`fomDecode`, `fomText`) alone and are
- *    waiting for `uwb-nlos` to claim the sentences.
- *  - §5.3 deletes the depth's 「手机减掉的那个数」, which re-printed the worked
- *    table directly above it, and trims 「剩余误差有多大」 to the two things the
- *    table does not say: the 0.2 ppm the correction swaps 20 ppm for, and the
- *    3.0 cm a millisecond of waiting still costs.
- *
- * Every number the lesson prints is pinned in tests/course/uwb-sstwr.test.ts.
- * `npx tsx scripts/lesson-dump.ts uwb-sstwr` prints it with its length.
+ * Every figure the lesson prints is read back out of its text and compared with a run in
+ * tests/course/uwb-sstwr.test.ts. `npx tsx scripts/lesson-dump.ts uwb-sstwr` prints it.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'
-import { J, anchor, firstUwbPoll, firstUwbRange, firstUwbResp, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'
+import { J, anchor, firstUwbPoll, firstUwbRange, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'
 import type { TLRecord } from '../../model/records'
 
 /** The fourth range of the round: the anchor that answers in slot 4. */
@@ -66,17 +50,16 @@ export const FIG = {
   /** Slot i starts at i × 2000 µs; the answer is 190.192 µs long and lands 12 ns later. */
   slotUs: 2000, respUs: 190.192, flightUs: 0.012,
   windowUs: 8400,
-  /** The raw error of each anchor's range, as the table's last column prints it. */
+  /** The raw error of each anchor's range, as the first lab's table prints it. */
   rawErrM: ['+6.01 m', '+11.97 m', '+17.99 m', '+23.92 m'],
 } as const
 
 /**
  * Tround and Treply on two clocks, and the ramp. The grey bar of each anchor
  * lane IS its reply time — from the Poll's arrival to its own answer — and the
- * four bars grow one slot at a time, which is the whole lesson in one picture:
- * the geometry is identical on all four lanes and only the waiting differs.
- * Drawn to scale, so the flight the round is after (11.675 ns) is invisible
- * beside the wait, which is exactly why the error lands on the wait.
+ * four bars grow one slot at a time: the geometry is identical on all four lanes
+ * and only the waiting differs. Drawn to scale, so the flight (11.675 ns) is
+ * invisible beside the wait, which is exactly why the error lands on the wait.
  */
 export function uwbSstwrTiming(): TimingSpec {
   return {
@@ -103,111 +86,141 @@ export const uwbSstwr: Lesson = {
   id: 'uwb-sstwr',
   module: 15,
   title: '应答时间是用对方的时钟测量的',
-  why: '前面几课假设两台设备的时钟都完全准确，现实中没有这样的设备：石英晶振（crystal）的频率总会偏高或偏低，偏差以百万分之几（ppm）计。两端各自对自己的两次读数相减，未知的起点被消去，速率误差却无法消去：手机测量的往返时间按手机的时钟缩放，锚点（anchor）测量的作答时间按锚点的时钟缩放，而交互中最长的正是锚点等待的这一段。两者相减后，剩下的除了飞行时间，还有作答时间的一半乘以两个晶振的速率之差——关键只在于两端速率不同，两端同时偏快多少则没有影响。因此，不作修正的单边双向测距（single-sided two-way ranging, SS-TWR）测得的实际上是锚点的等待时长：两个晶振反向各偏十个 ppm 时，等待一个时隙，距离就偏长将近六米；等待两个、三个、四个时隙，偏差成倍增加。四次读数全都偏长，而不是随机散布。修正依靠接收端测得的时钟偏差（clock offset），即 Coffs——标准把这项测量列为可选能力（§10.29.1.6），没有规定测量方法，典型实现是在锁定接收脉冲时一并得出：用它缩放作答时间，误差就从几米降到几厘米。但 Coffs 本身也带有一定的估计误差，剩余误差项仍是作答时间的一半乘以这一误差，所以仍随等待时长增大。',
+  why: '前面几课假设两台设备的时钟完全准确。IEEE 802.15.4-2024 的单边双向测距（single-sided two-way ranging, SS-TWR）由发起方测量往返时间 Tround，由响应方测量它的回复时延（reply time）Treply，两段各用本机的时钟计时，飞行时间取两者之差的一半（§10.29.1.2.2）。标准同时指出，两端晶振（crystal）都有频率偏差 eA、eB，单位是百万分之几（parts per million, ppm），它们使这一估计产生相当大的误差，并且误差随回复时延增大而增大。按标准的记号展开，剩下的误差项是回复时延的一半乘以两端的速率之差 eA − eB：两端同样偏快时这一项为零，两端相差 20 ppm、等待 2 ms 时，距离偏长约 6 m。标准给出的修正是：发起方的接收机如果能测得对端相对于本机的时钟偏差（clock offset）Coffs，就用它缩放 Treply；这项测量属于可选的晶振特性测量（§10.29.1.6），标准不规定测量方法。修正之后剩下的是回复时延的一半乘以 Coffs 自身的估计误差，所以误差仍随等待时长增大。本仿真器不测量 Coffs，而是取两端真实的速率之差，再加上标准差 0.2 ppm 的高斯误差。',
   outcomes: [
-    '说明为什么“用对方的时钟测得的应答时间”会使测得的距离偏长',
-    '根据锚点在第几个时隙作答，预测距离会偏长多少',
-    '在测距行上区分修正值与 raw 值',
+    '写出标准的两个单边双向测距公式，并说明未修正的那一个为什么随回复时延偏长',
+    '根据锚点（anchor）在第几个时隙应答，预测未修正的距离偏长多少',
+    '分清 Coffs 在标准里怎样得到、在本仿真器里怎样得到',
   ],
   needs: ['uwb-frame'],
   terms: [
     { term: 'crystal', plain: '无线设备用于计时的石英晶体；任何两片的频率都不完全相同' },
     { term: 'ppm', plain: '百万分之几：时钟速率误差的单位' },
     { term: 'clock offset', plain: '一台设备的时钟相对于另一台的快慢，以比值表示' },
-    { term: 'SS-TWR', plain: '单边双向测距：一次请求、一次应答' },
-    { term: 'Coffs', plain: '接收端测得的、相对于发送端的时钟偏差' },
+    { term: 'SS-TWR', plain: '单边双向测距：一次请求、一次应答（§10.29.1.2.2）' },
+    { term: 'Coffs', plain: '标准公式里的记号：发起方接收机测得的、响应方发射机相对于本机的时钟偏差' },
   ],
-  picture: [
-    { heading: '四个锚点，一个距离', text: '四个锚点布置在手机周围的圆周上，与手机的距离相同、高度也相同。手机只发起一次请求，四个锚点都收到了，随后依次作答，各占一个时隙：一次请求，得到对同一距离的四次测量。' },
-    { kind: 'watch', jump: 2, heading: '它报出的距离是多少', text: '载入仿真，跳到第一条测距行。手机与那个锚点相距三米半，它测得的是多少？再读接下来的三行。' },
-    { heading: '一个从未校准的晶振', text: '每台设备都用自己的晶振计时，没有哪个晶振恰好工作在标称频率上——这一误差用百万分之几（ppm）表示。这里手机的时钟偏快，各锚点的时钟都偏慢，而双方都不知道这一点。两端相减的仍是自己计数器上的两次读数：未知的起点被消去了，速率误差却没有。' },
+  standard: [
+    { heading: '两段时间，各用本机的时钟（§10.29.1.2.2，图 10-197）', text: '单边双向测距由设备 A 发起、设备 B 应答。A 测量从自己发出到收到应答的往返时间 Tround，B 测量从收到请求到发出应答的回复时延 Treply；两段时间都由各自对本机计数器上的两个读数相减得到，所有时刻都以 RMARKER（ranging marker）为准（§10.29.1.1）。飞行时间的估计是 T̂prop = ½·(Tround − Treply)。' },
+    { heading: '晶振的频率偏差（§10.29.1.2.2，§16.4.6，§16.4.9）', text: '标准指出，Tround 与 Treply 由 A、B 各用本地时钟独立测量，两个时钟相对于标称频率分别有频率偏差 eA 与 eB，因此上面的估计含有相当大的误差，并且误差随回复时延增大而增大。HRP 超宽带（ultra-wideband, UWB）物理层（physical layer, PHY）的码片（chip）速率与发射中心频率的精度都要求在 ±20 ppm 之内，载波与码片时钟取自同一个参考振荡器（§16.4.6、§16.4.9）；所以两台合规设备之间的速率之差最多可达 40 ppm。' },
     {
-      kind: 'diagram', heading: '两端的时钟，四段等待', spec: uwbSstwrTiming(),
-      caption: '按比例绘制的一整轮。灰条是锚点从收到 Poll 到发出应答之间的等待时间，由锚点自己的时钟测量，写入应答帧供手机减去（本课的场景采用这种嵌入方式）。手机测量的是同一段时间再加两次单程飞行，用的是手机自己的时钟；真正来自另一端时钟的，是它要减去的那个数。两个数几乎能够抵消，未能抵消的差值就是灰条上标注的数，即它在 raw 距离上造成的偏差——下面逐步说明它的来源。',
-    },
-    { heading: '不属于手机的那个时钟是锚点的时钟', text: '先说明「另一端」指什么。灰条那一段——锚点从收到 Poll 到发出应答之间的等待时间——起点和终点的时间戳都取自锚点自己的计数器，两个计数值相减后写入应答帧发给手机——标准的一对多单边测距正是让每个响应方在应答帧里携带这个值（§10.32.4）。手机无法自己测量这一段：它无从得知锚点何时收到 Poll。所以手机要减去的那个数，是用一个不属于它的时钟测得的；而手机自己的那个数，即从 Poll 发出到应答到达的整段时间，完全由手机自己的时钟测量。' },
-    { heading: '由谁测量，就按谁的时钟缩放', text: '「按各自的时钟缩放」指的是：一段时间的测量值取决于测量它的晶振的频率。手机快 10 ppm，在同一段真实时间里，它的计数器会多计百万分之十，于是它测得的往返时间是真值的 1.00001 倍，偏长。每个锚点慢 10 ppm，它测得的灰条时长是真值的 0.99999 倍，偏短。关键在于这两个倍数不同：一个乘 1.00001，一个乘 0.99999，而这两个值接下来要相减。' },
-    { heading: '相减的目的本来是消去这段等待', text: '手机计算距离只用一个公式：飞行时间 =（往返 − 应答时长）÷ 2。它成立是因为灰条本来就包含在往返时间之内——手机测得的整段时间，就是锚点的等待时间再加两次单程飞行，没有其他成分。所以减去应答时长，要消去的正是锚点的等待时间：这个场景中它是 2 ms，而单程飞行只有 11.675 ns，不把这 2 ms 从往返时间中去掉，就根本无法得到距离。被抵消的是这段等待本身，它不是误差。它无法完全消去，只是因为相减的两个值是由两个速率不同的时钟测得的。' },
-    {
-      kind: 'formula', heading: '相减之后剩下的那一项',
+      kind: 'formula', heading: '相减之后剩下的那一项（按 §10.29.1.2.2 的记号推出）',
       text: 'Tround  = Treply + 2·Tprop\nT̂round = (1 + eA)·Tround\nT̂reply = (1 + eB)·Treply\n(T̂round − T̂reply) / 2\n   = (1 + eA)·Tprop + ½·Treply·(eA − eB)',
-      note: '第一行就是上面那张图：手机测得的时间等于锚点的等待时间加两次单程飞行。eA 是手机的 +10 ppm，eB 是锚点的 −10 ppm；带记号的两个值才是两端各自实际读出的数，也就是手机实际相减的两个数。最后一行分为两项：前一项是经过缩放的飞行时间，即距离；后一项不含任何距离信息，只有锚点等待时间的一半乘以 eA − eB。四条灰条长短不同，这一差别通过这一项完整地传递到 raw 距离上。',
+      note: '带记号的两个量是两端实际读出的数。最后一行的前一项是经过缩放的飞行时间；后一项不含距离信息，只有回复时延的一半乘以 eA − eB。只有速率之差进入这一项：两端同样偏快时它为零。',
     },
-    { heading: 'eA − eB 来自晶振容差', text: 'eA − eB 不是人为设定的参数，而是两个晶振各自偏差之差。标准规定的晶振容差是 ±20 ppm（§16.4.9；严格说这一条管的是发射中心频率，§16.4.6 对码片（chip）速率给出同样的容差），本场景在这个范围内选取了反向偏离的一对：手机 +10 ppm，锚点 −10 ppm，相差 20 ppm。只有这个差值进入上面那一项：如果两端同时快 10 ppm，差值为零，后一项完全消失。绝对频率偏差没有影响，两端速率不同才有影响——这也是后面的修正只需要测出一个差值、而不必知道哪个时钟准确的原因。' },
-    { heading: '把一个时隙换算成米', text: '这几步可以自己计算一遍。第一个锚点等待 1 个时隙，灰条是 2 ms：取一半得 1 ms，乘以 20 ppm 得 20 ns。20 ns 是光传播 5.996 m 所需的时间，于是 raw 距离偏长将近六米。等待 2、3、4 个时隙的锚点，灰条成倍增长，这一项也随之成倍增长——图上四条灰条标注的 +6.01、+11.97、+17.99、+23.92 m，就是这一步分别乘以 1、2、3、4 的结果。' },
-    { text: '所以不作修正时，单边双向测距（SS-TWR）的结果反映的不是距离，而是应答方的等待时长：每个时隙对应六米。' },
-    { heading: '由接收端测量对端时钟的速率', text: '接收端必须先锁定接收到的脉冲，才能找到 RMARKER（ranging marker）；在典型实现里，完成这次锁定的环路同时也得知了这些脉冲相对于本地晶振的速率。这个比值就是时钟偏差（clock offset），它是测得的，而不是假定的；本课把接收端报告的这个比值记作 Coffs。标准把这项测量称为晶振特性测量（crystal characterization），列为可选能力，结果以测距跟踪偏差与测距跟踪区间两个值上报（§10.29.1.6），并不规定怎样测量；标准还给出另一条途径：由上层用加扰时间戳序列（scrambled timestamp sequence, STS）各段起止处的接收时间戳估计（§10.29.1.1）。用它缩放应答时长，原来的“几乎抵消”就成为真正的抵消。' },
-    { heading: '修正之后还剩下什么', text: 'Coffs 本身也是测量值，带有一定误差。修正把一个大的速率误差换成了一个很小的误差，但剩余的那一项仍是应答时长的一半乘以这个小误差，所以它仍随等待时长增大。下一课通过改变计算方式直接消去这段等待。' },
-  ],
-  numbers: [
-    { kind: 'formula', heading: 'raw 估计实际包含哪些成分', text: 'T̂prop = (Tround·(1 + eA) − Treply·(1 + eB)) / 2\n       = Tprop + Tprop·eA + ½·Treply·(eA − eB)', note: 'eA 是发起方的速率误差，eB 是应答方的。剩余两项：第一项是飞行时间的缩放误差，只有几十微米；第二项是等待时间的缩放误差，2 ms 的应答取一半再乘以 20 ppm，即 20 ns，合 6.0 m。' },
-    { kind: 'table', heading: '四个锚点，四个误差', head: [
-      '锚点', 'Treply', '预测误差',
-      'raw 距离', 'raw 误差',
-    ], rows: [
-      ['anchor-1', '2 ms − Tprop', '6.0 m', '9.51 m', '6.01 m'],
-      ['anchor-2', '4 ms − Tprop', '12.0 m', '15.47 m', '11.97 m'],
-      ['anchor-3', '6 ms − Tprop', '18.0 m', '21.49 m', '17.99 m'],
-      ['anchor-4', '8 ms − Tprop', '24.0 m', '27.42 m', '23.92 m'],
-    ] },
-    { text: '这不是随机散布：四次读数全都偏长，每一个的误差都是第一个的整数倍。手机距每个锚点都是 3.50 m。' },
-    { kind: 'table', heading: '同样的线性增长，三种晶振', head: [
-      '晶振', 'eA − eB',
-      '时隙 1 的 raw 误差', '时隙 4 的 raw 误差',
-    ], rows: [
-      ['理想晶振', '0 ppm', '+1.9 cm', '−6.1 cm'],
-      ['温补晶振，±1 ppm', '2 ppm', '0.62 m', '2.34 m'],
-      ['本场景，±10 ppm', '20 ppm', '6.01 m', '23.92 m'],
-    ] },
-    { kind: 'formula', heading: '经过修正的单边双向测距', text: 'T̂prop = (Tround − Treply·(1 − Coffs)) / 2', note: '只多了一次乘法：Treply 是按锚点的计数单位测得的，经过缩放即换算为 Tround 所用的单位。圆周上四个距离本来相同，四条测距行现在分别为 3.45、3.42、3.41 与 3.51 m。设备本身没有任何改变。' },
-    { kind: 'table', heading: '修正之后留下的', head: [
-      '锚点', '应答时长',
-      '剩余误差 1σ', '本次运行的误差',
-    ], rows: [
-      ['anchor-1', '2 ms', '6.0 cm', '−5.3 cm'],
-      ['anchor-2', '4 ms', '12.0 cm', '−7.8 cm'],
-      ['anchor-3', '6 ms', '18.0 cm', '−9.5 cm'],
-      ['anchor-4', '8 ms', '24.0 cm', '+0.5 cm'],
-    ] },
-    { text: '最后一列是从这些分布中各取一个样本，所以并不逐行增大：分布最宽的那个这次恰好最接近真值。' },
-    { kind: 'steps', heading: '一次测距的步骤', items: [
-      '时隙 0。手机用自己的计数器为 Poll 发出时的 RMARKER 打时间戳；四个锚点也各自用自己的计数器为同一个 RMARKER 的到达打时间戳。',
-      '锚点在自己的时隙里为 Response 的发出打时间戳，将自己的两个计数值相减后写入这一帧（嵌入方式，§10.32.4）：应答时长 Treply，完全由锚点自己的晶振测量。',
-      '手机为 Response 的到达打时间戳，再将自己的两个计数值相减：往返时长 Tround。四个时间戳，两端各两个，任何一端都没有拿对方的时间戳做减法。',
-      '同一次接收同时给出锚点晶振相对于手机的快慢：这就是 Coffs，这里是 −20.24 ppm——按本课的模型，它等于两个晶振相差的 20 ppm，加上估计器 0.2 ppm 的误差（真实设备通常由载波锁定得出）。',
-      '将两段时间之差除以二。不计 Coffs 得到 2028 格，即测距行上给出的 raw 值；先用 Coffs 缩放应答时长再除以二，得到 734.6 格。',
-      '乘以一格的 15.65 ps，再乘以光速：3.45 m，真值是 3.50 m。',
-      '测距行给出的就是这个数，旁边是 raw 值，后面是一个品质因数（figure of merit, FoM）字节——不带误差棒。用于绘制误差椭圆的 1σ 另行计算，只由时间戳噪声决定：100 ps ÷ √2 × 光速，合 2.1 cm。',
-    ] },
-    { kind: 'table', heading: '锚点 1 的逐步计算', head: [
-      '步骤', '数值',
-    ], rows: [
-      ['手机发出 Poll', '336 207 494 703'],
-      ['它到达锚点 1', '26 381 597 885'],
-      ['锚点 1 发出 Response', '26 509 391 059'],
-      ['= Treply，锚点的晶振', '127 793 174'],
-      ['它到达手机', '336 335 291 933'],
-      ['= Tround，手机的晶振', '127 797 230'],
-      ['Coffs，由本课的模型给出', '−20.24 ppm'],
-      ['差值除以二，不计 Coffs', '2028 · 9.51 m'],
-      ['差值除以二，计入 Coffs', '734.6 · 3.45 m'],
+    { heading: '用时钟偏差修正（§10.29.1.2.2）', text: '如果设备 A 的接收机能够测得自己与设备 B 发射机之间的相对时钟偏差 Coffs，就可以用它调整 Treply，公式变为 T̂prop = ½·(Tround − Treply·(1 − Coffs))。具备这项能力的接收机通过 MCPS-DATA.confirm 或 MCPS-DATA.indication 原语的 RangingTrackingInterval 与 RangingOffset 参数上报测得的偏差。' },
+    { heading: '晶振特性测量（§10.29.1.6，§10.29.1.1）', text: '这项能力称为晶振特性测量，是可选的：实现它的设备为每一份测距报告给出测距跟踪偏差与测距跟踪区间两个值，偏差为正表示发射端的振荡器比接收端的快；跟踪区间的长度应当使上报的偏差分辨到 100 ppb（即 0.1 ppm）或更细（§10.29.1.6.3）。标准不规定怎样测量。另一条途径是由上层根据加扰时间戳序列（scrambled timestamp sequence, STS）各段起止处的接收计数值估计时钟偏差（§10.29.1.1）。' },
+    { heading: '测距计数器（§10.29.1.3，§10.29.1.4）', text: '计数器的值是至少 32 位的整数，不带正负号；HRP UWB 中一个计数单位是 499.2 MHz 码片周期的 2⁻⁷，约 15.65 ps。' },
+    { kind: 'steps', heading: '一对多单边双向测距，按标准：逐步说明（§10.32.4，图 10-235）', items: [
+      '发起方广播测距启动消息，其中的 RRMC 信息单元把 Ranging Control Information 设为 0、Reply Time Request 设为 1，请各响应方回报回复时延（§10.29.8.3）。',
+      '按时间调度时，各响应方在分配给自己的时隙里应答（§10.32.2）；控制器与发起方是同一台设备时，测距控制消息与测距启动消息可以合为一帧。',
+      '每个响应方的应答单播给发起方，并带一个 RRTI 信息单元，里面是这一帧自己的回复时延（§10.29.8.1）。',
+      '发起方每收到一帧应答，就有了计算到这个响应方的飞行时间所需的全部数据。',
+      '响应方如果在应答里请求了结果，发起方最后广播一帧数据帧（data frame），用测距测量信息（ranging measurement information, RMI）信息单元回报这些结果。',
     ] },
   ],
-  deeper: [
-    { heading: '剩下的那两项', text: '把 Tround = Treply + 2·Tprop 代进 raw 公式，应答时长抵消后只剩上面那两项。Tprop·eA 是用 10 ppm 缩放 11.675 ns 的飞行时间：0.12 皮秒，合 35 微米，可以忽略。另一项缩放的是应答时长，而 2 ms 的应答时长约为飞行时间的十七万倍。两端各自测得的时长相差 4056 格，这本应只是两次单程飞行的时间。' },
-    { heading: '剩余误差有多大', text: '修正把 20 ppm 的原始偏差换成了估计器上 0.2 ppm 的噪声。1 ms 的 0.2 ppm 取一半是 0.1 ns，于是锚点每多等待 1 ms，剩余误差就增加 3.0 cm。锚点 3 的 −9.5 cm 完全落在它自己 18.0 cm 的 σ 之内。' },
+  implementation: [
+    { topic: '一对多的帧', standard: '启动消息带 RRMC，应答带 RRTI，按时隙应答（§10.32.4）', sim: '手机的 Poll 是测距控制消息与启动消息合成的一帧，42 字节，带 ARC、RR、RDM、RRMC 四个信息单元；每个锚点在自己的时隙里发 21 字节的 Response，带 RRMC 与 RRTI。本课的锚点不请求结果，所以没有最后那一帧。', kind: 'faithful' },
+    { topic: '计算距离', standard: '修正公式 ½·(Tround − Treply·(1 − Coffs))（§10.29.1.2.2）', sim: '照此计算；日志的测距行同时写出不用 Coffs 的 raw 值，供对照。', kind: 'faithful' },
+    { topic: 'Coffs 的来源', standard: '可选的晶振特性测量，方法不规定（§10.29.1.6）；或由上层用 STS 估计（§10.29.1.1）', sim: '不测量：取两台设备设定的 ppm 之差，再加上一个高斯误差。所以这里不存在失锁，接收信号变弱时估计也不会变差。', kind: 'choice' },
+    { topic: 'Coffs 的误差', standard: '只要求上报分辨到 0.1 ppm 或更细（§10.29.1.6.3），不规定估计误差', sim: '标准差取 0.2 ppm，不随接收信号的强弱变化；时间戳噪声随信干噪比（signal-to-interference-plus-noise ratio, SINR）放大，这一项却不变，所以远距离上本仿真器的修正结果偏乐观。', kind: 'value' },
+    { topic: '晶振', standard: '每台 ±20 ppm（§16.4.6，§16.4.9）', sim: '每台设备一个固定的 ppm，整场不变，没有温漂、老化与相位噪声。本课的场景取手机 +10 ppm、锚点 −10 ppm，两个变体分别取 0 与 ±1 ppm。', kind: 'value' },
+    { topic: '接收时间戳', standard: '不规定精度；每个计数值附一个品质因数（figure of merit, FoM，§10.29.1.7）', sim: '每个接收时间戳加标准差 100 ps 的高斯噪声。', kind: 'value' },
+    { topic: '应答的发送时刻', standard: '标准未规定收发转换时间以外的抖动', sim: '锚点恰好在时隙边界发射，没有收发转换、中断与调度的抖动，所以 Treply 恰好是整数个时隙减去一次飞行时间。而 Treply 正是误差项的乘数。', kind: 'choice' },
+    { topic: '时隙长度', standard: '由控制器配置（§10.32.2），标准未给出取值', sim: '2400 RSTU（ranging scheduling time unit），即 2 ms；锚点 k 在第 k 个时隙应答。', kind: 'value' },
+    { topic: '测距计数器', standard: '至少 32 位，单位约 15.65 ps（§10.29.1.3，§10.29.1.4）', sim: '40 位，单位相同。', kind: 'value' },
+    { topic: 'RMARKER 偏移', standard: 'phyTxRmarkerOffset 与 phyRxRmarkerOffset 两个属性用于扣除计数器与天线（antenna）之间的传播时间（§10.29.1）', sim: '未实现：时间戳直接取天线处的时刻，不存在需要逐台标定的收发电路时延。', kind: 'absent' },
   ],
-  limits: [
-    { kind: 'unmodelled', text: '本课的 Coffs 不是从载波锁定里测出来的：它直接取两台设备真实 ppm 之差，再加上少量高斯噪声。所以正文中「接收端锁定接收到的脉冲，同时得知它们相对于本地晶振的速率」是真实硬件的做法；本课中并没有锁相环，因此不存在失锁、错锁或在弱链路上估计变差的情形。' },
-    { kind: 'model-value', text: '那 0.2 ppm 的残余误差是模型取值，而且它不随链路好坏变化：时间戳噪声会随信干噪比放大到十倍，Coffs 的误差却始终是 0.2 ppm。真实的载波频偏估计和时间戳一样受信噪比影响，一条微弱的链路上两项会一起变差——所以本课那张「修正之后留下的」表在远距离上偏乐观。' },
-    { kind: 'unmodelled', text: '每台设备的晶振是一个常数：本课用一个固定 ppm 线性缩放时间，整场都不变。真实晶振会随温度漂移、会老化、还带相位噪声，所谓「两块晶振相差 20 ppm」在一小时之内并不是同一个 20 ppm。本课中那条规整到可以按时隙数预测的线性增长，因此比真实设备上测得的稳定得多。' },
-    { kind: 'unmodelled', text: '锚点的作答时刻精确到纳秒：设备恰好在时隙边界那一刻发射，所以 Treply 恰好是整数个 2 ms 减去一趟飞行，只带接收戳那一点噪声。真实设备的收发转换时间、中断延迟与调度抖动会让这段等待每一轮都不同，而它正是本课误差的乘数——等待时长抖动多少，误差就随之抖动多少。' },
+  labs: [
+    {
+      heading: '四个锚点，四个 raw 误差',
+      jump: 1,
+      steps: [
+        '载入本课场景，跳到第一条测距行。手机与每个锚点都相距 3.50 m。',
+        '依次读四条测距行：修正后的距离，以及括号里的 raw 值。',
+        '对照下图：每个锚点的灰条是它从收到 Poll 到发出 Response 的等待，即 Treply。',
+      ],
+      blocks: [
+        {
+          kind: 'diagram', heading: '两端的时钟，四段等待', spec: uwbSstwrTiming(),
+          caption: '按比例绘制的一整轮。灰条是锚点的回复时延，由锚点自己的时钟测量，写进 Response 的 RRTI 信息单元；灰条上标注的是它在 raw 距离上造成的偏差。飞行时间只有 11.675 ns，在这个比例下看不见。',
+        },
+        { kind: 'table', heading: '四个锚点，四个误差', head: ['锚点', 'Treply', '公式预测的误差', 'raw 距离', 'raw 误差'], rows: [
+          ['anchor-1', '2 ms − Tprop', '6.0 m', '9.51 m', '6.01 m'],
+          ['anchor-2', '4 ms − Tprop', '12.0 m', '15.47 m', '11.97 m'],
+          ['anchor-3', '6 ms − Tprop', '18.0 m', '21.49 m', '17.99 m'],
+          ['anchor-4', '8 ms − Tprop', '24.0 m', '27.42 m', '23.92 m'],
+        ] },
+      ],
+      expect: '四个 raw 值全都偏长，并且逐个增大：9.51、15.47、21.49、27.42 m；每多等一个时隙，raw 距离约增加 6 m。修正后的四个距离在 3.41 到 3.51 m 之间。',
+      meaning: '这正是 ① 里那一项 ½·Treply·(eA − eB)：2 ms 取一半是 1 ms，乘以 20 ppm 得 20 ns，光在 20 ns 里传播约 6 m。误差是系统性的，不是随机散布。',
+    },
+    {
+      heading: '修正之后留下的误差',
+      jump: 2,
+      steps: [
+        '仍用本课场景，跳到第四条测距行。',
+        '读出四个修正后的距离，与 3.50 m 相减。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '修正之后留下的', head: ['锚点', '回复时延', '剩余误差 1σ', '本次运行的误差'], rows: [
+          ['anchor-1', '2 ms', '6.0 cm', '−5.3 cm'],
+          ['anchor-2', '4 ms', '12.0 cm', '−7.8 cm'],
+          ['anchor-3', '6 ms', '18.0 cm', '−9.5 cm'],
+          ['anchor-4', '8 ms', '24.0 cm', '+0.5 cm'],
+        ] },
+      ],
+      expect: '四个修正后的距离是 3.45、3.42、3.41 与 3.51 m。1σ 一列逐行增大，每多等 1 ms 增加 3.0 cm；最后一列是从这些分布中各取一个样本，所以并不逐行增大。',
+      meaning: '修正把 20 ppm 的速率之差换成了本仿真器取的 0.2 ppm 估计误差（②），剩余误差仍是回复时延的一半乘以这个误差，所以仍随等待时长增大（①）。',
+    },
+    {
+      heading: '三种晶振',
+      variant: 0,
+      more: [1],
+      steps: [
+        '载入「理想晶振」：两端的偏差都设为 0，其他设置不变。读第一条与第四条测距行的 raw 值。',
+        '再载入「±1 ppm 的温补晶振」，读同样两行。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '同样的线性增长，三种晶振', head: ['晶振', 'eA − eB', '时隙 1 的 raw 误差', '时隙 4 的 raw 误差'], rows: [
+          ['理想晶振', '0 ppm', '+1.9 cm', '−6.1 cm'],
+          ['温补晶振，±1 ppm', '2 ppm', '0.62 m', '2.34 m'],
+          ['本场景，±10 ppm', '20 ppm', '6.01 m', '23.92 m'],
+        ] },
+      ],
+      expect: '理想晶振时 raw 误差只有几厘米，与时隙无关；±1 ppm 时线性增长仍在，每个时隙约 0.6 m。',
+      meaning: '误差项只与 eA − eB 成正比（①）：更好的晶振把误差降低一个数量级，但不能消除它。理想晶振时剩下的是本仿真器加在接收时间戳上的噪声（②）。',
+    },
+    {
+      heading: '锚点 1 的逐步计算',
+      jump: 0,
+      steps: [
+        '回到本课场景，跳到 Poll 帧，打开时间轴上的 UWB_TS 行：手机为 Poll 的发出打时间戳，锚点 1 为它的到达打时间戳。',
+        '再找到锚点 1 发出 Response 与手机收到它的两条 UWB_TS 行。四个时间戳，两端各两个，任何一端都不拿对方的读数做减法。',
+        '按下表依次相减、除以二，再乘以一个计数单位 15.65 ps 与光速。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '锚点 1 的逐步计算', head: ['步骤', '数值'], rows: [
+          ['手机发出 Poll', '336 207 494 703'],
+          ['它到达锚点 1', '26 381 597 885'],
+          ['锚点 1 发出 Response', '26 509 391 059'],
+          ['= Treply，锚点的晶振', '127 793 174'],
+          ['它到达手机', '336 335 291 933'],
+          ['= Tround，手机的晶振', '127 797 230'],
+          ['Coffs，由本仿真器的模型给出', '−20.24 ppm'],
+          ['差值除以二，不计 Coffs', '2028 · 9.51 m'],
+          ['差值除以二，计入 Coffs', '734.6 · 3.45 m'],
+        ] },
+      ],
+      expect: 'Tround 比 Treply 多 4056 个计数单位，本应只是两次飞行的时间；不计 Coffs 得 9.51 m，计入 −20.24 ppm 的 Coffs 得 3.45 m，真值 3.50 m。',
+      meaning: '两个数都按标准的公式（①）算出；−20.24 ppm 是两台设备设定的 20 ppm 之差加上本仿真器的估计误差（②），不是从接收信号中测得的。',
+    },
   ],
   sources: [
-    'IEEE Std 802.15.4-2024 的 §10.29.1.2.2 给出单边双向测距的计算式；§10.29.1.6 定义了测距跟踪偏差与测距跟踪区间——支持这项可选能力的接收端，就是用这两个字段上报自己测到的发送端时钟速率。±20 ppm 的晶振容差来自 §16.4.9。',
-    '测距行末尾那个品质因数字节及其三张查找表出自 §10.29.1.7。本课只指出它的存在；如何解读它，留到后面讲非视距的那一课。',
-    '有三个数字是仿真器自己的模型取值：每个接收时间戳上 100 ps 的 1σ 噪声、时钟偏差估计中残留的 0.2 ppm 误差，以及 2 ms 的测距时隙（ranging slot）——最后这个来自 FiRa，不是标准正文。',
+    'IEEE Std 802.15.4-2024：§10.29.1.2.2 与图 10-197（单边双向测距的两个公式，Coffs，RangingTrackingInterval 与 RangingOffset 参数）、§10.29.1.6（晶振特性测量，100 ppb）、§10.29.1.1（用 STS 估计时钟偏差，RMARKER）、§10.29.1.3 与 §10.29.1.4（测距计数器）、§10.29.1.7（品质因数）、§10.32.4 与图 10-235（一对多单边双向测距）、§10.29.8.1（RRTI 信息单元）、§10.29.8.3（RRMC 信息单元）、§16.4.6 与 §16.4.9（±20 ppm）。',
+    '本仿真器的取值与取法：每个接收时间戳 100 ps 的噪声、Coffs 取真实偏差加 0.2 ppm 的高斯误差、晶振整场恒定、在时隙边界准时发射、2 ms 的测距时隙、40 位的测距计数器、没有天线时延。2 ms 时隙通常认为来自 FiRa 的缺省配置，FiRa 规范不在核查用的语料里。',
   ],
+  limits: [],
   scenario: () => uwbSstwrScenario({ tag: 10, anchors: -10 }),
   variants: [
     { label: '理想晶振', scenario: () => uwbSstwrScenario({ tag: 0, anchors: 0 }) },
@@ -215,49 +228,41 @@ export const uwbSstwr: Lesson = {
   ],
   jumps: [
     J('Poll 帧从手机发出', firstUwbPoll),
-    J('第一个锚点作答', firstUwbResp),
     J('第一次测距：raw 偏长 6 m', firstUwbRange),
     J('第四次测距：raw 偏长 24 m', fourthUwbRange),
   ],
-  observe: [
-    '0 ns 处的一帧 Poll 产生四条 RX_START，全都在 12 ns：四个锚点一样远。整轮占用五个 2 ms 的时隙。',
-    '按顺序读四条 UWB_RANGE。修正后的读数落在 3.41 与 3.51 m 之间，括号里的 raw 值却逐次增大：9.51 → 15.47 → 21.49 → 27.42 m。',
-    '把相邻的 raw 值相减：5.96、6.02、5.93 m。每多等待一个时隙，raw 距离就增加六米——这是系统偏差，不是随机散布。',
-  ],
-  tryThis: [
-    '载入“理想晶振”：它把两端的偏差都设为零，其他设置不变。线性增长随即消失——raw 误差只剩正负几厘米，作答的时隙也不再有影响。剩下的只有时间戳噪声，它的 1σ 是 2.1 cm。',
-    '再载入“±1 ppm 的温补晶振”：偏差只有基准场景的十分之一，是实际产品中会选用的器件。线性增长依然存在，每个时隙约 0.60 m：更好的晶振只把误差降低一个数量级，并不能消除这项误差。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '锚点 1 与锚点 4 一样远，为什么后者的 raw 误差是前者的四倍？',
       options: [
         '又过了三个时隙，衰落让它的应答更弱',
-        '剩下的误差是应答时长的一半乘以速率之差，而它的应答时长是前者的四倍',
+        '剩下的误差项是回复时延的一半乘以两端的速率之差，而它的回复时延是前者的四倍',
         '它的计数器有四倍的时间可以漂移',
       ],
       answer: 1,
-      explain: '不是计数器在漂移，而是一段被测时间上的比例误差：同样的速率之差，乘以更长的时间。',
+      explain: '§10.29.1.2.2 说误差随回复时延增大而增大；展开后正是 ½·Treply·(eA − eB)：同样的速率之差，乘以更长的时间。',
     },
     {
-      q: 'Coffs 这个值是从哪里来的？',
+      q: '按标准，Coffs 从哪里来？',
       options: [
-        '来自锚点的数据手册，在会话建立时交换',
-        '来自接收端对接收脉冲的锁定，以本地晶振为基准比较得出',
-        '由往返时间与应答时间之差得到',
+        '标准规定由往返时间与回复时延之差算出',
+        '由接收机的可选晶振特性测量给出，或由上层用 STS 估计；标准不规定测量方法',
+        '在会话建立时由响应方的数据手册交换',
       ],
       answer: 1,
-      explain: '在典型实现中，它是接收端必须完成的那次锁定的副产品；标准把这项测量列为可选（§10.29.1.6），也允许上层用 STS 段的接收时间戳估计它（§10.29.1.1）。若试图从那个差值推出它，就会陷入循环。',
+      explain: '§10.29.1.6 把它列为可选能力并规定上报格式，§10.29.1.1 给出用 STS 估计的途径。本仿真器两者都不做，直接取真实偏差加 0.2 ppm 的误差。',
     },
     {
-      q: '修正之后锚点 4 的距离反而最准。在时隙 4 作答是不是最好？',
+      q: '修正之后锚点 4 的距离反而最准。在时隙 4 应答是不是最好？',
       options: [
-        '是——更长的应答时延让接收端有更多时间去平均',
-        '否——时隙 4 的剩余误差最宽，1σ 为 24.0 cm，而锚点 1 只有 6.0 cm',
-        '否——精度是真实的，但它来自锚点 4 所在的位置',
+        '是：更长的回复时延让接收机有更多时间平均',
+        '否：时隙 4 的剩余误差分布最宽，1σ 为 24.0 cm，锚点 1 只有 6.0 cm，这一次只是恰好落在真值附近',
+        '否：精度是真实的，但它来自锚点 4 所在的位置',
       ],
       answer: 1,
-      explain: '剩余误差像 raw 误差一样随应答时长增长；从宽分布中抽取一个样本，结果可能落在任何位置。',
+      explain: '剩余误差是回复时延的一半乘以 Coffs 的估计误差，像 raw 误差一样随等待时长增大；从宽分布中抽取一个样本，结果可能落在任何位置。',
     },
   ],
 }

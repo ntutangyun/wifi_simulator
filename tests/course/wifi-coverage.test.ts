@@ -897,20 +897,28 @@ describe(`${DOC}'s §17 three-sides table is measured, margins and all`, () => {
    * day P and Q coincide on a field is a fact about this corpus, not a definition, and a strict
    * assertion about their difference would be one more gate on writing lessons. What IS pinned is
    * that the document's three stated differences are the measured ones — so the sentence saying
-   * 「they lean opposite ways」 cannot quietly stop being true.
+   * which way each side leans cannot quietly stop being true.
+   *
+   * 2026-11-10: the sentence used to read 「`limits` 上 P 比 Q 多 N（`sources` 少 N、`deeper` 少 N）」,
+   * which could only spell one sign pattern. After the standard-first restructure of 34 UWB lessons
+   * `limits` and `sources` both flipped, so the sentence was rewritten to name each side's direction
+   * in a word (多／少) and this reads that word as the sign. Still exactly three measured
+   * differences, each compared signed.
    */
   it('states how far criterion P sits from criterion Q on each side, and those are measured', () => {
-    const m = /`limits` 上 P 比 Q 多 (\d+)[^（]*（`sources` 少 (\d+)、`deeper` 少 (\d+)）/.exec(doc)
+    const m = /`limits` 上 P 比 Q (多|少) (\d+)，`sources` 上 P 比 Q (多|少) (\d+)，`deeper` 上 P 比 Q (多|少) (\d+)/.exec(doc)
     expect(m, '§17 no longer spells out how the two criteria differ on the three sides, in the'
       + ' shape this reads. That sentence is the document telling a reader not to use one column'
       + ' as an approximation of the other, and the three numbers in it are measured')
       .not.toBeNull()
-    expect(m!.slice(1).map(Number), '§17 states P − Q on `limits` and Q − P on the two excluded'
-      + ' fields. If these have flipped sign, the sentence around them is the thing to rewrite —'
-      + ' the two criteria leaning opposite ways is a measurement, not a law')
+    const signed = (word: string, n: string): number => (word === '多' ? 1 : -1) * Number(n)
+    expect([signed(m![1], m![2]), signed(m![3], m![4]), signed(m![5], m![6])], '§17 states P − Q on'
+      + ' each of the three sides, the direction in a word (多 = P larger, 少 = P smaller). If a sign'
+      + ' flips, the sentence around it is the thing to rewrite — which way the two criteria lean'
+      + ' is a measurement, not a law')
       .toEqual([armsTotal(pSides.limits) - sides.limits.length,
-        sides.sources.length - armsTotal(pSides.sources),
-        sides.deeper.length - armsTotal(pSides.deeper)])
+        armsTotal(pSides.sources) - sides.sources.length,
+        armsTotal(pSides.deeper) - sides.deeper.length])
     // And the baseline the word 「新增」 rests on. `criterionP` SUBTRACTS it rather than assuming
     // it is zero, so this is not a gate dressed up as a figure — it is §17 stating a number, read
     // out and compared like the rest of them.

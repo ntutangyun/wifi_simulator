@@ -1,29 +1,20 @@
 /**
- * UWB Tier 2 · M14 · Other ranging modes · One anchor is enough.
+ * UWB Tier 2 · M26 · Other ranging modes · One anchor is enough.
  *
- * Every other mode in this course needs three or four anchors, because a time
- * of flight is a circle and it takes three circles to meet in a point. This
- * lesson gives the anchor a second antenna instead. The phase difference
- * between the two is a bearing, and a bearing crossed with the anchor's own
- * range meets the tag in exactly one place — one anchor, one position.
+ * **Standard-first shape (2026-11-10).** ① is what IEEE Std 802.15.4-2024 says about angle of arrival:
+ * that it is one of the ranging results (§10.29.1.1), how it is requested (RRMC IE, §10.29.8.3; the
+ * RAOA bit of the SRRR IE in SP3 rounds, §10.32.9.9) and how it is reported (the AOA Azimuth, AOA
+ * Elevation and FOM fields of the RMI IE, §10.29.8.4) — and that how it is measured, and how a
+ * position is solved from a range and an angle, are outside the standard. ② is everything this
+ * simulator does on top: the two-antenna phase model, its noise and its clamps, which frames are
+ * measured, the anchor solving the fix itself; and, plainly, where it departs from the standard —
+ * no frame here carries the bearing, the SP3 report carries it in a "RAOA" item the standard does not
+ * define (to be replaced by the RMI AOA Azimuth field, W4), and an SS-TWR responder never gets a
+ * range although the RMI IE has a TOF field (audit #16, W4).
  *
- * What the lesson is really about is the shape of the error. The range keeps
- * the 2.12 cm sigma of the positioning lessons; the bearing's 2.74° at
- * boresight is worth 9.5 cm of cross-range at 2 m, 27.0 cm at 4 m and 45°, and
- * 47.7 cm at 5 m and 60° — so the error ellipse is a sliver lying *across* the
- * line of sight, growing with distance and with angle while the range error
- * does not. The last variant shows the price of two antennas: a badge directly
- * behind the anchor arrives with the phase of its own reflection in the
- * boresight, and the fix lands about 4 m away, outside the room.
- *
- * Written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the two
- * antennas and the shape of the error in plain words first, the exact angles,
- * the log lines and the ellipses after them, the clamp and the field-of-view
- * arithmetic in `deeper`, the one clause and the model's own constants in
- * `sources`. Every number quoted below is pinned in
- * tests/course/uwb-aoa.test.ts; `npx tsx scripts/lesson-dump.ts uwb-aoa`
- * prints it with its length.
+ * The scenes: one anchor against the south wall of the 10 × 8 m room, one badge; DS-TWR with AoA on,
+ * channel 9, NLOS off. Only the badge's spot and the anchor's facing change between variants.
+ * Every figure the lesson prints is read back by tests/course/uwb-aoa.test.ts and compared with a run.
  */
 import type { NodeCfg, Scenario } from '../../model/scenario'
 import { J, anchor, firstUwbAoa, firstUwbAoaFix, firstUwbFinal, firstUwbPoll, firstUwbRange, oneRoom, uwbSc, uwbTag, type Lesson } from '../lessonKit'
@@ -42,12 +33,8 @@ export const YAW_IN = 90
 export const YAW_WALL = -90
 
 /**
- * Where the badge stands, as an angle off the anchor's boresight and a horizontal
- * distance. The boresight is +y and `yawDeg` counts counter-clockwise, so a badge to
- * the anchor's *right* — which is where all three of these stand, to keep them inside
- * the 10 m room — has a negative azimuth. x = 5 + r·sin θ, y = 0.5 + r·cos θ puts it
- * there exactly, which is why the records come back at −45.000° and −60.000° rather
- * than at whatever a rounded coordinate would have produced.
+ * Where the badge stands, as an angle off the anchor's boresight and a horizontal distance, laid out
+ * to the anchor's right (a negative azimuth) so all three stay inside the room.
  */
 export const SPOTS: Record<UwbAoaVariant, { offBoresightDeg: number; rangeM: number }> = {
   base: { offBoresightDeg: 0, rangeM: 2 },
@@ -56,26 +43,22 @@ export const SPOTS: Record<UwbAoaVariant, { offBoresightDeg: number; rangeM: num
   behind: { offBoresightDeg: 0, rangeM: 2 },
 }
 
-/** The badge's plan coordinates for a variant: the polar spot, laid out to the anchor's right. */
+/** The badge's plan coordinates for a variant. */
 export function tagXY(variant: UwbAoaVariant): { x: number; y: number } {
   const { offBoresightDeg, rangeM } = SPOTS[variant]
   const rad = offBoresightDeg * (Math.PI / 180)
   return { x: ANCHOR_X + rangeM * Math.sin(rad), y: ANCHOR_Y + rangeM * Math.cos(rad) }
 }
 
-/** An anchor that knows which way it is pointing: `anchor()` plus the AoA boresight. */
 function aoaAnchor(yawDeg: number): NodeCfg {
   const a = anchor('anc-1', 'Anchor', ANCHOR_X, ANCHOR_Y, ANCHOR_Z)
   return { ...a, uwb: { ...a.uwb!, yawDeg } }
 }
 
 /**
- * One anchor and one badge on a DS-TWR session with angle of arrival on, channel 9,
- * NLOS off and both crystals drawn rather than set. DS is not optional here: an SS
- * round ends at the badge and the anchor never computes a range at all, so it would
- * hold a bearing with nothing to cross it against.
- *
- * Only the badge's spot and the anchor's facing change between variants.
+ * One anchor and one badge on a DS-TWR session with angle of arrival on, channel 9, NLOS off. DS is
+ * not optional here: in this engine an SS round ends at the badge and the anchor never gets a range
+ * (② says this differs from the standard).
  */
 export function uwbAoaScenario(variant: UwbAoaVariant = 'base'): Scenario {
   const p = tagXY(variant)
@@ -90,11 +73,11 @@ export const uwbAoa: Lesson = {
   id: 'uwb-aoa',
   module: 26,
   title: '只需一个锚点',
-  why: '到目前为止的做法都需要三四个锚点（anchor），因为单个距离只能说明胸牌位于某个圆上。而一道门、一个店铺入口，往往只能安装一个锚点。给这个锚点增加第二根天线（antenna），它就既能测出胸牌的距离，也能测出胸牌的方向——仅凭自身就能在平面图上确定一个点。标准只规定到达角（AoA）可以作为测距结果报告（以设备正前方为零），怎样测量交给实现；本课采用最常见的两天线相位差模型。从侧面到来的波前到达较远那根天线时要多传播一段距离，在载波上表现为相位差（phase difference）；两根天线相距半个波长时，正前方半个圆周内的每个方向各对应唯一的相位，反解即得到到达角（AoA）。方位角确定从锚点出发的一条射线，这一轮测出的距离确定以锚点为圆心的一个圆，两者只交于一点。但这个点的误差具有方向性：按本课取的噪声值，距离精确到一两厘米，方位角却越偏离正前方越不准确——相位随角度的正弦变化，越靠近边缘变化越平缓，同样的噪声会造成更大的角度误差，再乘以距离，横向误差就达到几十厘米。所以误差椭圆是一个垂直于视线的细长形状，沿视线方向很短、垂直方向很长，偏离越大、距离越远就越长。还有两处需要注意：距离是到天花板上锚点的斜距，要先扣除高度差再在平面图上沿方位角延伸，否则每次定位都偏远；锚点背后的胸牌产生的相位与它在正前方的镜像位置完全相同，于是始终被定位到镜像位置，甚至楼外，而周围的误差椭圆依然规整，没有任何预警。解决办法是让锚点朝向房间内安装，或者增加第三根天线。',
+  why: 'IEEE 802.15.4-2024 把到达角（AoA）列为测距结果之一：请求方用 RRMC 信息单元的到达角请求位提出请求，测量方用测距测量信息（ranging measurement information, RMI）信息单元的方位角字段报告，以发送设备的正前方为零弧度；到达角怎样测量、怎样由距离和角度解算位置，标准都不规定。本仿真器给锚点（anchor）两根相距半个波长的天线（antenna），由两路载波的相位差（phase difference）反解出方位角，并让锚点把这一轮测出的距离与方位角相交，独自解出胸牌的位置——一个锚点就够了。这个点的误差有方向：按本仿真器取的噪声值，距离精确到两厘米左右，方位角却越偏离正前方越不准，再乘以距离，横向误差达到几十厘米，所以误差椭圆横在视线上。锚点背后的胸牌产生的相位与它在正前方的镜像位置相同，于是被定位到镜像位置，周围的椭圆依然规整。本课的场景里没有一帧携带方位角；SP3 测距的报告帧带方位角时，本仿真器用的是标准里没有的 RAOA 信息单元，这是待改正的偏差。',
   outcomes: [
-    '说清两根天线如何把波前的到达时延转换为一个方位角',
-    '从日志中读出一个方位角，以及单个锚点独立解出的定位',
-    '说明误差来自哪一项测量，以及胸牌位于锚点背后时会发生什么',
+    '说出标准对到达角规定了什么：属于测距结果、用哪个信息单元请求、用哪些字段报告、零点在哪里，以及哪些不在标准范围内',
+    '分清本仿真器的测量模型、定位算法与标准的区别，指出它与标准不同的两处',
+    '从日志里读出一个方位角与单个锚点解出的定位，并说明误差的方向与锚点背后的镜像',
   ],
   needs: ['uwb-dstwr', 'uwb-geometry'],
   terms: [
@@ -103,88 +86,115 @@ export const uwbAoa: Lesson = {
     { term: 'boresight', plain: '锚点正对的方向；它报告的角度都以此为零点（标准报告到达角时也以设备正前方为零弧度）' },
     { term: 'field of view', plain: '两根天线能够分辨的方向范围：对本课这种两天线阵列而言是正前方的半个圆周' },
   ],
-  picture: [
-    { heading: '两根天线，一次到达', text: '正对锚点到来的波前，同时到达它的两根接收天线。而从侧面到来的波前，到达较远那根天线时要多传播一段距离，因而稍晚到达。这段时延在载波上表现为相位滞后，称为相位差（phase difference）；而与之对应的角度，就是这一帧的到达角（AoA）。' },
-    { heading: '从相位差到角度', text: '这一段是物理与本课的模型，不是标准的规定：标准没有规定到达角怎样测量。常见的硬件有两路接收通道，比较两路的载波相位。两根天线相距半个波长时，这个相位差等于 π 乘以到达角的正弦；测得的值中还含有接收机的噪声，再用反正弦把它换算回角度。本课把这项噪声取为固定值，这是模型取值，标准没有规定这个数。' },
-    { kind: 'watch', jump: 1, heading: '观察第一个方位角', text: '载入仿真，跳到第一个方位角。本课在胸牌发起这一轮的第一帧上就测量角度，所以它比这一轮测出距离的时刻早得多；那一行同时给出锚点读到的角度和真值。' },
-    { heading: '一个圆，一条射线', text: '在本课的双边测距场景里，每轮末尾这个锚点自己就能算出一个距离。距离确定以它为圆心的一个圆，方位角确定从它出发的一条射线，两者恰好交于一点。于是这个锚点无需其他锚点：它自己就能解出胸牌的位置。由距离和角度解算位置属于上层的工作，标准不涉及；让锚点直接输出位置是本课的安排。' },
-    { heading: '同样的噪声，偏离越大越不准确', text: '两根天线相距半个波长，这是仍能使正前方每个方向各对应唯一相位的最大间距；这个方向范围就是视场（field of view）。靠近正前方时，方位角变化一度，相位变化明显；到了边缘，相位几乎不变，因为相位随角度的正弦变化，而正弦越靠近边缘越平缓。噪声大小相同，角度误差却大得多。' },
-    { heading: '一个垂直于视线的椭圆', text: '再看这对定位点有什么影响。距离误差仍然只有一两厘米；而方位角误差在长射线的远端，横向可达几十厘米。于是不确定区域是一个细长形状：沿视线方向很短，垂直方向很长，并随距离和角度一起增大。' },
-    { heading: '沿方位角延伸平面距离，而不是斜距', text: '这里需要一处修正。方位角是平面图上的角度，而测得的距离是到天花板附近锚点的斜距。如果直接在平面上沿方位角延伸这个斜距，每次定位都会略微偏远，而且每轮都朝同一方向——这是固定偏移，不是噪声。所以要先扣除高度差。' },
-    { heading: '它无法分辨的另一半', text: '而它产生严重错误的情形正在这里。锚点背后的胸牌，其到达相位恰好等于它在正前方的镜像位置产生的相位，反正弦没有其他依据可用，于是报告那个镜像位置——周围依然画着规整的椭圆，看不出任何异常。把锚点转向它所在的那面墙，胸牌位置没有任何变化，却被定位到楼外。解决办法是让锚点朝向房间内安装，或者增加第三根天线。' },
-  ],
-  numbers: [
-    { kind: 'formula', heading: '全部物理关系', text: 'Δφ = 2π·(d/λ)·sin θ = π·sin θ   （当 d = λ/2）\nθ̂ = asin(Δφ/π)，截断在 ±90°', note: '整个视场恰好映射到一个完整的相位周期，所以不会发生相位卷绕：在信道 9 上，就是 3.75 cm 载波下相距 1.88 cm 的两根天线。噪声可能使自变量超出 ±π，此时反正弦无解，于是模型将其截断。' },
-    { kind: 'formula', heading: '一弧度相位折合多少角度', text: 'σ_θ = σ_φ / (π·cos θ)', note: 'σ_φ 是模型里的相位噪声，0.15 rad，约合 8.6°。正前方它反解出 2.74° 的方位角噪声；向侧面偏离时它随之增大，到视场边缘处发散。' },
-    { kind: 'table', heading: '三个位置，各七轮', head: [
-      '胸牌位置', '真实方位角',
-      'σ_θ', '横向 1-σ',
-      '测距误差', '定位误差',
-      '椭圆',
-    ], rows: [
-      ['正前方 2 m', '0.0°', '2.74°', '9.5 cm', '2.0 cm',
-        '2.1–15.6 cm，平均 9.6', '9.4 × 2.1 cm'],
-      ['右偏 45°，4 m', '−45.0°', '3.87°', '27.0 cm', '2.0 cm',
-        '5.8–44.5 cm，平均 26.5', '25.7 × 2.1 cm'],
-      ['右偏 60°，5 m', '−60.0°', '5.47°', '47.7 cm', '2.0 cm',
-        '10.4–87.7 cm，平均 48.2', '43.1 × 2.1 cm'],
+  standard: [
+    { heading: '到达角是测距结果之一（§10.29.1.1）', text: '测距设备产生的测距结果供上层计算设备间的距离，其中可以包括收发测距计数值、测距品质因数（figure of merit, FoM）、到达角（AOA）信息等。' },
+    { heading: '请求到达角（§10.29.8.3，图 10-211）', text: 'RRMC 信息单元的控制位里有 AOA Azimuth Request 与 AOA Elevation Request 两位，置 1 分别表示请求方位角、俯仰角的测量。同一个信息单元还有 TOF Request 位：单边双向测距（single-sided two-way ranging, SS-TWR）中通常由发起方计算飞行时间，应答方可以在应答里带 RRMC、把 TOF Request 置 1，请求发起方把结果发回。' },
+    { kind: 'table', heading: 'RMI 信息单元里与到达角有关的字段（§10.29.8.4，图 10-212、图 10-213）', head: ['字段', '长度', '含义'], rows: [
+      ['AOA Azimuth Present', '1 位', '置 1 表示每个列表元素都带方位角字段'],
+      ['AOA Elevation Present', '1 位', '置 1 表示每个列表元素都带俯仰角字段'],
+      ['AOA FOM Present', '1 位', '置 1 表示带相应的 FOM 字段'],
+      ['AOA Azimuth', '0 或 2 字节', '取正负值的整数，单位 2π/(2^16 − 1)，0 弧度为发送设备的正前方；相对列表元素地址所指的设备测得'],
+      ['AOA Azimuth FOM', '0 或 1 字节', '方位角估计的可靠程度，越大越好，0 表示估计无效'],
+      ['AOA Elevation', '0 或 2 字节', '取正负值的整数，单位 π/(2^16 − 1)，0 弧度为发送设备的水平面'],
+      ['TOF', '0 或 4 字节', '发送设备与地址所指设备之间的飞行时间估计'],
     ] },
-    { text: '这张表应横向阅读，而不是纵向阅读。三行的测距误差完全相同，而横向误差 rh·σ_θ 增大到五倍，定位误差随之增大。椭圆的两条半轴分别对应这两项测量，与方位角相差四分之一圆周；它的短轴始终不变。' },
-    { kind: 'table', heading: '基准场景的一轮，日志输出的内容', head: [
-      '行', '内容',
-    ], rows: [
-      ['首个方位角，202.508 µs 处',
-        'anc-1 AoA ← badge-1: 2.3° (true 0.0°)'],
-      ['第二个，来自 Final，4.199 431 ms 处',
-        'anc-1 AoA ← badge-1: 1.8° (true 0.0°)'],
-      ['同一微秒内的距离',
-        'anc-1 range → badge-1 (DS): 2.30 m (true 2.33 m)'],
-      ['由两者解出的定位',
-        'anc-1 position of badge-1 (4.94, 2.47) m, true (5.00, 2.50), error 0.07 m, GDOP 1.00, 1 anchors (AoA)'],
-      ['七轮之后胸牌的那一行',
-        '(5.13, 2.47) m, true (5.00, 2.50) m, 13.3 cm, GDOP 1.00, ellipse 9.4 × 2.1 cm'],
-    ] },
-    { text: '用数字说明高度修正：在中间那个位置上，射频测得 4.176 m，平面图上是 4.000 m。如果直接在平面上延伸斜距，定位点会偏远 17.6 cm。' },
-    { kind: 'steps', heading: '一个方位角、一次定位：逐步说明（本课的模型与算法，标准没有规定这些步骤）', items: [
-      '胸牌用 Poll 开启一轮双边双向测距（DS-TWR）。锚点为 RMARKER（ranging marker）打上时间戳，并在同一帧上测量角度（本课对胸牌发出的每一帧都测量角度）。',
-      '方位角以锚点的“朝向”为零点。胸牌的真实方位角在本场景是 0.000°，因为它正站在正前方那条线上。',
-      '相距 λ/2 的两根天线在这个角度上看到的相位差是 π·sin θ，测得的值还要加上接收机的相位噪声。本课取 σ_φ = 0.15 rad，标准没有规定这个数。',
-      '再反解：θ̂ = asin(φ/π)，截断在 ±90°。于是输出一行 UWB_AOA，旁边标有真值——胸牌每发送一帧就有一行，所以一轮有两行。',
-      '在这一轮末尾，锚点算出距离，并把它与较晚的那个方位角配对（本课的配对规则）。距离是斜距，方位角是平面上的角度，所以实际沿方位角延伸的长度是 √(r² − Δz²)。',
-      '从锚点沿“朝向 + θ̂”方向延伸这一长度，就得到那一行定位：只用一个锚点，GDOP 按构造恒为 1.00。它的误差椭圆由两项组成：沿射线方向是距离的 2.1 cm，垂直于射线方向是这一长度乘以 σ_φ/(π·cos θ̂)。',
-    ] },
-    { kind: 'table', heading: 'badge-1，基准场景，第 0 轮', head: [
-      '步骤', '数值',
-    ], rows: [
-      ['胸牌的真实方位角', '0.000°'],
-      ['对应的相位', 'π·sin 0° = 0.000 rad'],
-      ['加上一次 σ_φ 随机取值', '0.0984 rad'],
-      ['θ̂ = asin(φ/π)', '1.796°'],
-      ['这一轮算出的距离', '2.3048 m, true 2.3324'],
-      ['扣除 Δz = 1.20 m', '√(2.3048² − 1.20²) = 1.9678 m'],
-      ['沿 90° + θ̂ 方向延伸', '(4.938, 2.467) m, true (5.000, 2.500)'],
-      ['对应的误差椭圆', 'across 9.4 cm, along 2.1 cm'],
+    { heading: 'SP3 测距里的请求（§10.32.9.9，§10.32.8.2，§10.32.8.3）', text: 'SRRR 信息单元的 RAOA 位置 1 表示要求提供方报告到达角。RAOA 是请求位，不是信息单元；SP3 测距之后，到达角在测量报告阶段由 RMI 信息单元发回。' },
+    { heading: '不在标准范围内的部分（§10.29.8.4）', text: '标准不规定到达角怎样测量。要让 FOM 有意义，需要知道测量设备的到达角能力，包括天线阵列的设置；这些系统参数怎样约定与交换，不在标准范围内。由距离和角度解算位置，标准也不涉及。' },
+    { kind: 'steps', heading: '请求并报告一个方位角，按标准：逐步说明', items: [
+      '请求方在测距帧里带 RRMC 信息单元，AOA Azimuth Request 置 1（SP3 测距时改用 SRRR 信息单元的 RAOA 位）。',
+      '被请求的设备测量到达角；方法不在标准范围内。',
+      '它发出 RMI 信息单元，AOA Azimuth Present 置 1，在列表元素里填写方位角（以自己的正前方为零弧度，相对地址所指的设备），可以附带 FOM。',
+      '收到的一方从这个字段读出方位角；怎样把它与距离合成位置，由上层决定。',
     ] },
   ],
-  deeper: [
-    { heading: '两处截断在哪里，何时起作用', text: '这个模型中有两处截断，而本课放置胸牌的任何位置都不会触及它们。反正弦的自变量截断在 ±π，所以读数被限定在 ±90.0° 时，说明噪声使相位超出了一个完整周期的范围。σ_θ 本身也截断在 45°，公式大约在偏离正前方 ±86.5° 处达到这个值，再往外这种线性化就失去意义。把胸牌拖到 (8.94, 1.19)——4 m 处偏 80°——两处截断就都开始起作用：σ_θ 是 15.75°，十四个方位角中有六个被限定在 −90.0°，最差的那个椭圆半长轴达 3.16 m。' },
-    { heading: '锚点背后', text: '锚点面朝墙时，胸牌偏离正前方 180.0°，而十四个方位角与基准场景逐位相同。' },
-    { text: '于是七次定位落在 (5.06, −1.47) m 一带，离胸牌 3.97 到 4.03 m——正是平面距离的两倍，已在房间之外。' },
-    { heading: '起作用的只是间距与波长之比', text: '上面的一切都与信道无关。信道 9 的载波是 3.75 cm，天线间距 1.88 cm；信道 5 则是 4.62 cm 与 2.31 cm。由于间距始终是波长的一半，同一个真实角度在两者上产生相同的相位：偏离正前方 45° 时 2.221 rad，60° 时 2.721 rad，视场边缘处恰好是 π——这正是它从不发生相位卷绕的原因。而在锚点背后，正弦值会重复，sin(180° − θ) = sin θ，这就是镜像的来源。' },
-    { heading: '检视面板显示的 ± 不是模型的 σ_θ', text: '方位角那一行显示的，是把该行最后一次测得的角度代入 σ_θ 公式算出的值，而不是代入真值，所以每次随机取值后都会变化：三个位置上分别读作 ± 2.7°、± 4.3° 与 ± 7.5°，而模型在真实方位角处的 σ_θ 是 2.74°、3.87° 与 5.47°。它准确描述的是最后那次测量，而不是这个位置的属性。旁边那一行距离读作 2.31 m，真值 2.33，差 −2.4 cm，七轮 DS-TWR。' },
-    { heading: '为什么定位误差中看不出测距误差', text: '把每次定位误差分解为沿“锚点→胸牌”射线的分量与垂直于射线的分量。横向分量与表中那一列横向误差相差不到一毫米。纵向分量中，二十一次定位无一超过 9 cm，不到测距 σ 的四倍——测距本身没有问题，只是它的误差与方位角误差相比小到可以忽略。这也是为什么这里的 GDOP 恒为 1.00、不提供任何信息：只有一个锚点，就谈不上布局造成的精度稀释。' },
+  implementation: [
+    { topic: '测量方法', standard: '标准未规定', sim: '锚点有两根相距半个波长的接收天线：真实方位角为 θ 时相位差 Δφ = π·sin θ，加上噪声后用 θ̂ = asin(Δφ/π) 反解。信道 9 的载波波长 3.75 cm，天线间距 1.88 cm。正前方半个圆周即视场（field of view），恰好对应一个完整的相位周期，所以不会发生相位卷绕。', kind: 'choice' },
+    { topic: '相位噪声', standard: '标准未规定', sim: '固定取 σ_φ = 0.15 rad（约 8.6°），不随信噪比（signal-to-noise ratio, SNR）变化。换算到方位角是 σ_θ = σ_φ/(π·cos θ)：正前方 2.74°，偏 45° 时 3.87°，偏 60° 时 5.47°。', kind: 'value' },
+    { topic: '两处截断', standard: '标准未规定', sim: '反正弦的自变量截断在 ±1，读数最大 ±90.0°；σ_θ 截断在 45°。本课三个位置都不会触及；胸牌在 4 m 处偏 80° 时，σ_θ 为 15.75°，十四个方位角中有六个被限定在 −90.0°。', kind: 'value' },
+    { topic: '天线方向图与多径', standard: '标准未规定', sim: '本仿真器不模拟天线方向图，链路（link）电平与朝向无关；方位角只由几何决定，墙面反射不参与角度测量。所以锚点背后的胸牌仍然收得到，镜像总能读出。', kind: 'choice' },
+    { topic: '在哪些帧上测角', standard: '标准未规定', sim: '锚点对胸牌发来的每一帧都测一次方位角，一轮双边测距有两帧（起始帧与结束帧），所以每轮两个方位角。', kind: 'choice' },
+    { topic: '方位角的零点', standard: '0 弧度为发送设备的正前方（§10.29.8.4）', sim: '以锚点的朝向为零点，与 RMI 的定义一致；胸牌在锚点右侧时方位角为负。', kind: 'faithful' },
+    { topic: '本课场景里的报告', standard: 'RRMC 请求，RMI 的 AOA Azimuth 字段报告（§10.29.8.3、§10.29.8.4）', sim: '未实现：本课的场景里没有一帧携带方位角。方位角留在测得它的锚点上，由锚点自己解算位置。俯仰角与 FOM 也未实现。', kind: 'absent' },
+    { topic: 'SP3 测距里的报告', standard: 'SRRR 的 RAOA 位请求，方位角放在 RMI 信息单元的到达角字段里（§10.32.9.9、§10.29.8.4）', sim: '本仿真器目前在报告帧里用了标准里没有的 RAOA 信息单元（一个信息单元头加 2 字节方位角），这是待改正的偏差，计划改为 RMI 的 AOA Azimuth 字段。', kind: 'differs' },
+    { topic: '单边测距下的距离', standard: '应答方可以用 RRMC 的 TOF Request 请求飞行时间，RMI 有 TOF 字段（§10.29.8.3、§10.29.8.4）', sim: '本仿真器的单边测距里锚点得不到距离，只有方位角，无法定位；所以本课用双边测距，由锚点在每轮末尾算出距离。这是与标准不同、待改正的地方。', kind: 'differs' },
+    { topic: '定位', standard: '标准不涉及', sim: '锚点把这一轮的距离与较晚的那个方位角配对；距离是斜距，先扣除高度差得到平面距离 √(r² − Δz²)，再从锚点沿「朝向 + θ̂」方向延伸。只用一个锚点，GDOP 恒为 1.00；误差椭圆沿射线方向是距离的 σ，垂直方向是平面距离乘以 σ_θ。', kind: 'choice' },
+    { topic: '测距噪声', standard: '标准未规定', sim: '时间戳噪声 100 ps，距离的 σ = c·σ_ts/√2 = 2.12 cm，与定位各课相同。', kind: 'value' },
   ],
-  limits: [
-    { kind: 'unmodelled', text: '本课的锚点并没有两路接收通道。它的方位角是这样得到的：由真实方位角算出一对半波长间距天线会测得的相位，加上噪声，再反解——没有两条接收链、没有天线相位中心标定、没有阵元互耦。本课也没有天线方向图：链路电平只由几何与墙体决定，与朝向无关。所以在「锚点背后」那个场景中，把锚点转向墙面，链路电平完全不变；而真实的双阵元阵列在背面的增益要低十几个分贝，那个镜像很可能根本无法读出。' },
-    { kind: 'model-value', text: 'σ_φ = 0.15 rad 是本课固定取的一个数，在会话中无法调整，而且它不随链路质量变化。同一次接收中，时间戳的 1σ 会按信干噪比放大最多十倍，相位噪声却保持不变。于是把胸牌拖到覆盖边缘时，距离测量变差，而方位角的精度保持不变。真实的相位差估计会随信噪比一起变差，而且它取决于接收机——换一款前端，本课那三个 σ_θ 就都需要重新测量。' },
-    { kind: 'unmodelled', text: '多径在这里对方位角毫无影响。本课的方位角只由真实方位角决定，不考虑链路是否被遮挡；房间里的物体即使产生回波，回波也不参与角度测量，而本课这四个场景本来就没有放置任何反射物体。于是无论是否开启遮挡、房间里有什么物体，方位角都完全相同——本课的场景直接关闭了遮挡。而室内到达角最大的误差来源正是从墙上反射过来的那一路：它带有一个与直射方向毫无关系的相位，会使读数偏离几十度，这是本课无法演示的一类失败。' },
-    { kind: 'threshold', text: '两处硬截断取代了两条发散的曲线。本课把反正弦的自变量限定在 ±1，于是噪声使相位超出一个完整周期时，读数被限定为 ±90.0°；又把 σ_θ 限定在 45°。真实接收机在视场边缘并不是「读数停在边缘」，而是给出一个发散且有偏的估计，甚至根本无法判定方向。本课放置胸牌的三个位置都不会触及这两处截断，所以它们在这一课中不可见。' },
+  labs: [
+    {
+      heading: '一轮里的方位角、距离与定位',
+      jump: 1,
+      steps: [
+        '载入本课场景，跳到锚点测出的第一个方位角。',
+        '向后找到这一轮结束时同一时刻出现的三行：第二个方位角、距离与定位。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '基准场景第 0 轮的日志', head: ['时刻', '内容'], rows: [
+          ['202.508 µs', 'anc-1 AoA ← badge-1: 2.3° (true 0.0°)'],
+          ['4.199431 ms', 'anc-1 AoA ← badge-1: 1.8° (true 0.0°)'],
+          ['4.199431 ms', 'anc-1 range → badge-1 (DS): 2.30 m (true 2.33 m)'],
+          ['4.199431 ms', 'anc-1 position of badge-1 (4.94, 2.47) m, true (5.00, 2.50), error 0.07 m, GDOP 1.00, 1 anchors (AoA)'],
+        ] },
+      ],
+      expect: '胸牌发起这一轮后约 0.2 ms，锚点为第一帧测出方位角 2.3°（真值 0.0°）；这一轮结束时，第二个方位角 1.8°、距离 2.30 m 与定位 (4.94, 2.47) m 在同一时刻出现，定位误差 0.07 m，只用 1 个锚点。',
+      meaning: '方位角以锚点正前方为零，与 RMI 的定义一致（①）；每帧测角、锚点自己解算位置是本仿真器的取法，这里没有一帧携带方位角（②）。',
+    },
+    {
+      heading: '一个锚点，一次定位：逐步计算',
+      jump: 4,
+      steps: [
+        '跳到一个锚点解出的定位，对照下表从方位角一路算到定位点。',
+      ],
+      blocks: [
+        { kind: 'formula', heading: '两天线模型（本仿真器）', text: 'Δφ = 2π·(d/λ)·sin θ = π·sin θ   （d = λ/2）\nθ̂ = asin(Δφ/π)', note: 'd 是天线间距，λ 是载波波长。' },
+        { kind: 'table', heading: 'badge-1，基准场景，第 0 轮', head: ['步骤', '数值'], rows: [
+          ['胸牌的真实方位角', '0.000°'],
+          ['对应的相位', 'π·sin 0° = 0.000 rad'],
+          ['加上一次 σ_φ 随机取值', '0.0984 rad'],
+          ['θ̂ = asin(φ/π)', '1.796°'],
+          ['这一轮算出的距离', '2.3048 m, true 2.3324'],
+          ['扣除 Δz = 1.20 m', '√(2.3048² − 1.20²) = 1.9678 m'],
+          ['沿 90° + θ̂ 方向延伸', '(4.938, 2.467) m, true (5.000, 2.500)'],
+          ['对应的误差椭圆', 'across 9.4 cm, along 2.1 cm'],
+        ] },
+      ],
+      expect: '较晚的方位角 1.796° 与距离 2.3048 m 配对；扣除 1.20 m 的高度差后平面距离 1.9678 m，沿 90° + 1.796° 延伸得到 (4.938, 2.467) m。误差椭圆垂直于射线 9.4 cm，沿射线 2.1 cm。',
+      meaning: '测量模型、配对规则、高度修正与椭圆都是本仿真器的取法（②）；标准只规定方位角怎样请求与报告（①）。',
+    },
+    {
+      heading: '误差横在视线上',
+      more: [0, 1],
+      steps: [
+        '依次载入本课场景、「4 m 处 45°」与「5 m 处 60°」，各运行七轮。',
+        '对照下表读出方位角的 σ、横向误差、测距误差与定位误差。',
+      ],
+      blocks: [
+        { kind: 'formula', heading: '方位角的 σ（本仿真器）', text: 'σ_θ = σ_φ / (π·cos θ)      横向 1-σ = 平面距离 × σ_θ', note: 'σ_φ = 0.15 rad。' },
+        { kind: 'table', heading: '三个位置，各七轮', head: ['胸牌位置', '真实方位角', 'σ_θ', '横向 1-σ', '测距误差', '定位误差', '椭圆'], rows: [
+          ['正前方 2 m', '0.0°', '2.74°', '9.5 cm', '2.0 cm', '2.1–15.6 cm，平均 9.6', '9.4 × 2.1 cm'],
+          ['右偏 45°，4 m', '−45.0°', '3.87°', '27.0 cm', '2.0 cm', '5.8–44.5 cm，平均 26.5', '25.7 × 2.1 cm'],
+          ['右偏 60°，5 m', '−60.0°', '5.47°', '47.7 cm', '2.0 cm', '10.4–87.7 cm，平均 48.2', '43.1 × 2.1 cm'],
+        ] },
+      ],
+      expect: '三行的测距误差都是 2.0 cm，横向 1-σ 从 9.5 cm 增大到 47.7 cm，平均定位误差随之从 9.6 cm 增大到 48.2 cm；椭圆的短轴始终是 2.1 cm。在中间那个位置上，射频测得的斜距是 4.176 m，平面距离是 4.000 m，不扣除高度差，定位点会偏远 17.6 cm。',
+      meaning: '误差的方向来自本仿真器的相位噪声模型与定位方法（②）：距离只决定沿视线的误差，方位角决定横向误差。',
+    },
+    {
+      heading: '锚点背后的胸牌',
+      variant: 2,
+      steps: [
+        '载入「锚点背后」：胸牌没有移动，只是锚点的朝向从 90° 改为 −90°，朝向它所在的那面墙。',
+        '读出方位角的真值与读数，再看定位点落在哪里。',
+      ],
+      expect: '方位角的真值变为 180.0°，而十四个读数与基准场景完全相同，第一个仍是 2.3°；七次定位落在 (5.06, −1.47) m 一带，离胸牌 3.97 到 4.03 m，约为平面距离的两倍，已在房间之外。测距误差仍是 2.0 cm，周围的椭圆与基准场景相同。',
+      meaning: 'sin(180° − θ) = sin θ，两根天线分不出正前方与背后（②的测量模型）；本仿真器不模拟天线方向图，所以背后的胸牌仍收得到（②）。标准没有规定测量方法，这不是标准的性质（①）。',
+    },
   ],
   sources: [
-    '本课只有一处以标准为依据：IEEE Std 802.15.4-2024 的 §10.29.1.1 把到达角列在一轮测距可以报出的结果之中，所以锚点既可以报告距离，也可以报告方向。标准在测距信息单元里给出了请求和携带这些结果的字段（§10.29.8.3 的 RRMC IE 可以请求方位角与俯仰角测量，§10.29.8.4 的 RMI IE 携带它们，方位角以发送设备正前方为零弧度），但没有规定到达角如何测量，也不涉及由距离和角度解算位置。本课只测方位角，不测俯仰角。',
-    '此外的一切都是本仿真器的模型取值，风格上接近 FiRa 的各类 profile，而不是标准正文的规定：两根相距半波长的接收天线、σ_φ = 0.15 rad 的相位测量、把它反解回来的反正弦及其 ±90° 截断、σ_θ 的 45° 截断，以及锚点背后的那个镜像。',
-    '2.12 cm 的测距 σ 与定位那几课用的是同一个模型取值：σ_r = c · σ_ts / √2，代入 100 ps 的时间戳噪声。场景自己的取值是信道 9、双边测距会话与没有遮挡；若在本课的场景里改用单边测距，锚点只有一个方位角，永远算不出可与之相交的距离——标准的测量报告可以把飞行时间发回应答方（§10.29.8.4 的 TOF 字段），本课没有使用这一做法。',
+    'IEEE Std 802.15.4-2024：§10.29.1.1（到达角属于测距结果）、§10.29.8.3 与图 10-211（RRMC 信息单元：到达角请求位、TOF 请求位；单边测距中应答方可以请求飞行时间）、§10.29.8.4 与图 10-212、图 10-213（RMI 信息单元：AOA Azimuth、AOA Elevation、FOM 与 TOF 字段，方位角以发送设备正前方为零弧度；天线阵列参数的约定不在标准范围内）、§10.32.9.9（SRRR 信息单元的 RAOA 位）、§10.32.8.2 与 §10.32.8.3（SP3 测距的测量报告阶段用 RMI 发回到达角）。标准不规定到达角的测量方法，也不涉及由距离和角度解算位置。',
+    '本仿真器的取值与取法：两根相距半波长的接收天线、σ_φ = 0.15 rad、反正弦的 ±90° 截断与 σ_θ 的 45° 截断、每帧测角、较晚的方位角与距离配对、扣除高度差后定位、100 ps 的时间戳噪声（距离 σ 2.12 cm）。场景：信道 9、双边测距、关闭非视距。与标准不同、待改正的两处：SP3 报告里的 RAOA 信息单元，以及单边测距下锚点得不到距离。',
   ],
+  limits: [],
   scenario: () => uwbAoaScenario('base'),
   variants: [
     { label: '4 m 处 45°', scenario: () => uwbAoaScenario('off45') },
@@ -198,44 +208,38 @@ export const uwbAoa: Lesson = {
     J('它算出的距离', firstUwbRange),
     J('一个锚点解出的定位', firstUwbAoaFix),
   ],
-  observe: [
-    '胸牌开启这一轮；五分之一毫秒后，锚点为那一帧打上时间戳、读出相位，并输出一个方位角，旁边标有真值。它对来自胸牌的每一帧都这样处理，所以一轮产生两个方位角。',
-    '在这一轮末尾同时出现三行：第二个方位角、那个距离，以及由这一对数据解出的位置——使用的总是较晚的那个方位角，它与参与相交的距离的测量时刻最接近。打开胸牌，定位就在它的泳道中，一条琥珀色方位线指向那个十字。',
-  ],
-  tryThis: [
-    '载入“4 m 处 45°”，再载入“5 m 处 60°”。可以看到椭圆不断拉长而短轴保持不变，平均定位误差从几厘米增大到接近半米，而测距误差没有变化。',
-    '载入“锚点背后”。改变的只有锚点的“朝向”，于是它现在朝向自己所在的那面墙。方位角仍是刚才读到的那些，定位却偏移到楼外。把“朝向”调回原值，误差就恢复到几厘米。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '为什么偏向侧面时，方位角的不确定性比正前方更大？',
+      q: '按标准，一个测得的方位角用什么报告？',
+      options: [
+        '用 RAOA 信息单元',
+        '用 RMI 信息单元的 AOA Azimuth 字段，以发送设备的正前方为零弧度；RAOA 只是 SRRR 信息单元里的请求位',
+        '标准没有规定到达角怎样报告',
+      ],
+      answer: 1,
+      explain: '§10.29.8.4 定义了 AOA Azimuth 字段。本仿真器在 SP3 报告里用的 RAOA 信息单元是标准里没有的，是待改正的偏差。',
+    },
+    {
+      q: '在本仿真器里，为什么偏向侧面时方位角的不确定性比正前方更大？',
       options: [
         '偏向侧面时信号更弱',
         '相位正比于 sin θ，而正弦越靠近边缘越平缓：σ_φ/(π·cos θ) 正前方 2.74°，60° 处 5.47°',
         '那里的天线间距折算成波长后变大了',
       ],
       answer: 1,
-      explain: '在视场边缘，方位角变化一度也几乎不改变相位，于是反解放大了噪声。',
-    },
-    {
-      q: '最远那个位置上定位平均偏离 48 cm，而距离误差只有 2 cm。误差在哪个方向上？',
-      options: [
-        '在垂直视线的方向上：rh·σ_θ 是 47.7 cm，正是椭圆的长轴',
-        '在沿视线的方向上，因为斜距更长',
-        '均匀分布，没有特定方向',
-      ],
-      answer: 0,
-      explain: '两项测量彼此独立、误差大小悬殊，所以误差具有方向性。',
+      explain: '这是本仿真器的两天线模型的性质；标准不规定测量方法。',
     },
     {
       q: '锚点朝向自己所在的那面墙时，把身后的胸牌报告为位于正前方。为什么？',
       options: [
         '是 ±90° 的截断使读数折返',
-        '正前方的镜像位置会产生相同的相位，而两根天线无法区分两者',
+        '正前方的镜像位置产生相同的相位，两根天线无法区分两者',
         '锚点背后的距离测错了',
       ],
       answer: 1,
-      explain: '那里的距离与其他位置一样准确，截断也根本没有触发。解决办法是让锚点朝向房间内安装，或者增加第三根天线。',
+      explain: '那里的距离与其他位置一样准确，截断也没有触发。真实设备可以让锚点朝向房间内安装，或者增加第三根天线。',
     },
   ],
 }

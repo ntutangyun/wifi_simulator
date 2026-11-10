@@ -362,8 +362,11 @@ describe('lessonTexts · the census over the whole course', () => {
       }, 0)))
     // prose is the rest, and it is the one role no structural count reproduces, so it
     // gets a range. 5 101 on 2026-10-05.
+    // 6 443 on 2026-11-10, after the standard-first restructure of 34 UWB lessons: each
+    // ① standard item and each lab step is its own prose string, so the count rose by design.
+    // Bound raised 6 000 → 7 000, headroom kept modest.
     expect(role('prose')).toBeGreaterThan(4500)
-    expect(role('prose')).toBeLessThan(6000)
+    expect(role('prose')).toBeLessThan(7000)
     expect(role('prose') + role('label') + role('figure') + role('value') + role('cell')).toBe(all.length)
   })
 
@@ -530,9 +533,18 @@ describe('lessonTexts · the census over the whole course', () => {
     // `picture` 640 → 720 and `sources` 204 → 232, same audit: the main path now states each standard
     // procedure before the lesson's own arrangement (uwb-m2m, uwb-deferred-ds), and sources cite the
     // clause or TG4ab document behind every mechanism. Re-measured, not widened.
+    // 2026-11-10, the standard-first restructure of 34 UWB lessons (new fields `standard` /
+    // `implementation` / `labs`; `picture`, `numbers`, `deeper`, `limits`, `observe`, `tryThis`
+    // emptied in those lessons). Five means left the band and were re-measured, not widened:
+    // `why` 430 → 383 (the UWB openings now state conclusions about the standard, and the
+    // std/draft/lesson labelling moved into ① standard); `outcomes` 79 → 87 (UWB outcomes name
+    // the standard's procedure as well as the simulated figure); `picture` 720 → 583 and
+    // `deeper` 366 → 300 (now means over the Wi-Fi/AMP lessons only, 57 and 44 of them — the
+    // UWB lessons that carried long ones no longer have these sections); `sources` 232 → 186
+    // (UWB citations moved into ① standard). The three new sections are not in this table.
     const MEANS: readonly (readonly [Section, number])[] = [
-      ['title', 12], ['why', 430], ['outcomes', 79], ['terms', 102],
-      ['picture', 720], ['numbers', 726], ['deeper', 366], ['sources', 232],
+      ['title', 12], ['why', 383], ['outcomes', 87], ['terms', 102],
+      ['picture', 583], ['numbers', 726], ['deeper', 300], ['sources', 186],
       ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
       ['variantLabel', 16], ['jumpLabel', 26],
     ]
@@ -561,7 +573,9 @@ describe('lessonTexts · the census over the whole course', () => {
     // The whole page, kept as the order-of-magnitude guard it always was. It carries no
     // per-section figure now, so ordinary growth never reaches it.
     expect(all.length).toBeGreaterThan(9000)
-    expect(all.length).toBeLessThan(11500)
+    // 11 778 on 2026-11-10: the standard-first restructure of 34 UWB lessons split their
+    // content into many shorter strings (① standard items, lab steps); 11 500 → 12 500.
+    expect(all.length).toBeLessThan(12500)
   })
 
   it('leaves no string a reader reads empty, across every section', () => {
@@ -715,46 +729,55 @@ describe('lessonTexts · how many items each lesson holds', () => {
     'link-2g':                 [3, 2, 2, 3, 3, 4, 4, 4],
     'uhr-rate-ladder':         [3, 2, 2, 3, 3, 4, 5, 4],
     'claim-to-contribution':   [3, 2, 2, 3, 3, 4, 4, 4],
-    'uwb-intro':               [3, 1, 2, 3, 4, 4, 4, 4],
-    'uwb-frame':               [2, 1, 3, 3, 6, 3, 4, 2],
-    'uwb-sts':                 [3, 2, 3, 3, 3, 4, 5, 4],
-    'uwb-sstwr':               [3, 2, 3, 3, 5, 3, 4, 4],
-    'uwb-dstwr':               [3, 2, 3, 3, 4, 2, 4, 5],
-    'uwb-reply-time':          [3, 2, 4, 3, 6, 3, 4, 4],
-    'uwb-deferred-ds':         [3, 2, 3, 3, 4, 3, 4, 4],
-    'uwb-blocks':              [2, 1, 2, 3, 4, 3, 5, 5],
-    'uwb-slot-budget':         [1, 2, 2, 3, 2, 3, 4, 3],
-    'uwb-position':            [3, 1, 3, 3, 2, 3, 5, 5],
-    'uwb-geometry':            [3, 2, 3, 3, 3, 3, 4, 4],
-    'uwb-coexist':             [2, 2, 2, 3, 5, 5, 5, 5],
+    'uwb-intro':               [0, 0, 3, 3, 4, 3, 0, 4],
+    'uwb-frame':               [0, 0, 3, 3, 6, 2, 0, 2],
+    'uwb-sts':                 [0, 0, 3, 3, 3, 3, 0, 4],
+    'uwb-sstwr':               [0, 0, 3, 3, 5, 2, 0, 3],
+    'uwb-dstwr':               [0, 0, 3, 3, 4, 2, 0, 4],
+    'uwb-reply-time':          [0, 0, 4, 3, 6, 3, 0, 4],
+    'uwb-deferred-ds':         [0, 0, 3, 3, 4, 3, 0, 2],
+    // standard-first since 2026-11-10 (uwb-blocks, uwb-slot-budget, uwb-coexist, uwb-rcm-validity):
+    // observe, tryThis and limits are 0 by design; jumps the labs do not use went with them.
+    'uwb-blocks':              [0, 0, 3, 3, 4, 2, 0, 3],
+    'uwb-slot-budget':         [0, 0, 3, 3, 2, 2, 0, 2],
+    'uwb-position':            [0, 0, 3, 3, 2, 3, 0, 5],
+    'uwb-geometry':            [0, 0, 3, 3, 3, 2, 0, 4],
+    'uwb-coexist':             [0, 0, 3, 3, 5, 3, 0, 3],
     // standard-first since 2026-11-10: observe, tryThis and limits are 0 by design (labs and
     // implementation carry them); the sit-out jump went with the sit-out.
     'uwb-contention':          [0, 0, 4, 3, 3, 2, 0, 4],
-    'uwb-m2m':                 [3, 2, 4, 4, 4, 3, 5, 4],
-    'uwb-rcm-validity':        [3, 2, 4, 4, 4, 3, 5, 4],
-    'uwb-receipt':             [3, 2, 4, 4, 4, 3, 5, 5],
-    'uwb-sp3':                 [3, 2, 4, 4, 5, 3, 5, 6],
+    // standard-first since 2026-11-10 (same reason as uwb-contention); terms +1 (RRMC/RRTI IEs of
+    // §10.32.6 joined, DL-TDoA's forward reference went with `deeper`), jumps kept are the labs' own.
+    'uwb-m2m':                 [0, 0, 4, 4, 5, 2, 0, 2],
+    'uwb-rcm-validity':        [0, 0, 4, 4, 4, 3, 0, 4],
+    // standard-first since 2026-11-10: the labs' two jumps kept; sp3's RAOA/RRTT row became the
+    // four-bit RAOA/RRT/RRTT/RTOF row and the ranging-initiation row folded into ①.
+    'uwb-receipt':             [0, 0, 4, 4, 4, 2, 0, 2],
+    'uwb-sp3':                 [0, 0, 4, 4, 4, 2, 0, 2],
     // SPLIT 2026-10-11: was [3, 2, 4, 4, 5, 3, 4, 4] as one 31.12-raw-minute lesson. The halves
     // keep all three `observe` and both `tryThis` entries between them (2+1 and 1+1), which is
     // why the minute sum did not move; the fifth glossary row and three of the four quiz
     // questions went with the half below.
-    'uwb-ancillary':           [2, 1, 2, 2, 4, 3, 4, 3],
-    'uwb-ancillary-loss':      [1, 1, 3, 2, 2, 2, 2, 3],
-    'uwb-ancillary-request':   [2, 2, 3, 4, 4, 3, 3, 4],
-    'uwb-dl-tdoa':             [3, 2, 3, 3, 4, 3, 4, 6],
-    'uwb-ul-tdoa':             [3, 2, 3, 3, 4, 3, 4, 5],
-    'uwb-aoa':                 [2, 2, 3, 3, 4, 3, 4, 5],
-    'uwb-sensing':             [2, 2, 3, 3, 4, 4, 7, 4],
-    'uwb-sensing-resolution':  [2, 2, 3, 3, 3, 4, 8, 4],
-    'uwb-mms':                 [3, 2, 2, 3, 6, 3, 4, 5],
-    'uwb-mms-numbers':         [2, 2, 3, 3, 3, 3, 3, 4],
-    'uwb-nba':                 [3, 2, 2, 3, 5, 3, 3, 4],
-    'uwb-nba-coexist':         [3, 1, 2, 3, 4, 4, 4, 3],
-    'uwb-ssbd':                [3, 1, 2, 3, 5, 5, 4, 4],
-    'uwb-uwbd':                [3, 1, 2, 3, 4, 3, 4, 5],
-    'uwb-acquisition':         [3, 1, 2, 3, 4, 3, 7, 4],
-    'uwb-subrounds':           [3, 1, 2, 3, 4, 3, 8, 4],
-    'uwb-capstone':            [2, 2, 3, 4, 2, 4, 5, 4],
+    // standard-first since 2026-11-10 (all three ancillary lessons): observe, tryThis and limits
+    // are 0 by design; every jump kept.
+    'uwb-ancillary':           [0, 0, 3, 3, 4, 2, 0, 3],
+    'uwb-ancillary-loss':      [0, 0, 3, 3, 2, 2, 0, 3],
+    'uwb-ancillary-request':   [0, 0, 3, 3, 4, 2, 0, 4],
+    'uwb-dl-tdoa':             [0, 0, 3, 3, 4, 2, 0, 4],
+    'uwb-ul-tdoa':             [0, 0, 3, 3, 4, 2, 0, 3],
+    // standard-first since 2026-11-10: observe, tryThis and limits are 0 by design.
+    'uwb-aoa':                 [0, 0, 3, 3, 4, 2, 0, 5],
+    'uwb-sensing':             [0, 0, 3, 3, 4, 3, 0, 3],
+    'uwb-sensing-resolution':  [0, 0, 3, 3, 3, 2, 0, 4],
+    'uwb-mms':                 [0, 0, 3, 3, 6, 3, 0, 5],
+    'uwb-mms-numbers':         [0, 0, 3, 3, 3, 4, 0, 4],
+    'uwb-nba':                 [0, 0, 3, 3, 5, 3, 0, 4],
+    'uwb-nba-coexist':         [0, 0, 3, 3, 4, 4, 0, 3],
+    'uwb-ssbd':                [0, 0, 3, 3, 5, 3, 0, 4],
+    'uwb-uwbd':                [0, 0, 2, 3, 4, 4, 0, 5],
+    'uwb-acquisition':         [0, 0, 2, 3, 4, 4, 0, 4],
+    'uwb-subrounds':           [0, 0, 2, 3, 4, 4, 0, 4],
+    'uwb-capstone':            [0, 0, 3, 3, 2, 3, 0, 4],
   }
 
   it('has one pinned row per lesson, and one lesson per pinned row', () => {

@@ -1,22 +1,17 @@
 /**
  * UWB Tier 3 · M15 · Narrowband-assisted multi-millisecond UWB · A second radio does the talking.
  *
- * The first half of the old `uwb-nba`: what the narrowband control radio is for,
- * what it says in one round, and what that costs in airtime. The coexistence
- * half — the listen-before-talk rule, the channel plan, the hop and the price
- * the Wi-Fi link pays — is next door in `uwb-nba-coexist`, which loads exactly
- * this scene and these four variants, so the split adds no new scenario and the
- * recorded hashes of the two ids are equal, value for value. Since the lesson task
- * the base is a one-to-many round over three of the four corner anchors, and the
- * pair round it used to run is the last variant, "One anchor at a time".
+ * In the standard-first shape (2026-11-10): ① the narrowband radio's PHY as IEEE Std 802.15.4-2024
+ * Clause 13 defines it (O-QPSK, 250 kb/s, an 8-symbol preamble and one-octet SFD and PHR), and the
+ * control cycle and compressed messages of the TG4ab proposal 15-22/0381r5 (POLL 0x04, RESP 0x05,
+ * REPORT 0x06/0x07, the one-to-many POLL 0x10); ② what the engine does with each — including two
+ * places it differs: the one-to-many POLL is two octets longer than the proposal's field table gives
+ * (14 + 3N instead of 12 + 3N), which is what keeps a fourth anchor out of the base; and the
+ * listen-before-talk consequence (a whole block skipped, audit #19, W5) that `uwb-nba-coexist` and
+ * `uwb-ssbd` take up; ③ five guided runs.
  *
- * Written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): the two
- * radios and the poll/response/report cycle in plain words first, the message
- * sizes and the block-0 timeline after them, the compressed formats in `deeper`,
- * the clause, the contributions and the model's own constants in `sources`.
- * Every number quoted below is pinned in tests/course/uwb-nba.test.ts;
- * `npx tsx scripts/lesson-dump.ts uwb-nba` prints it with its length.
+ * `uwb-nba-coexist` loads exactly this scene and these four variants. Every figure the labs print
+ * is read back out of the lesson and compared with a run in tests/course/uwb-nba.test.ts.
  */
 import type { Scenario } from '../../model/scenario'
 import { DEFAULT_UWB_SESSION } from '../../model/scenario'
@@ -102,82 +97,117 @@ export const uwbNba: Lesson = {
   id: 'uwb-nba',
   module: 29,
   title: '控制消息走另一部射频',
-  why: '测距设备的任务是测量时间，而不是交换控制信息。但总要有消息说明：由谁向谁发起测距，对方是否已经收到。若由宽带测距射频传送这些消息，它的空口时间（airtime）就会消耗在传送数据上，而不是用于测量：在一帧测距帧里每多加一个字节，只会使帧更长，并不能使它用于计时的那道边沿更陡峭。因此 P802.15.4ab 草案的窄带辅助方式给设备另配一部窄带（narrowband, NB）射频，专门传送控制消息。一轮里它先发 Poll，指定要与哪些设备测距；被指定的一方回复一条 Response，两端由此确认这一轮成立；接着宽带射频只传一串片段（fragment），没有地址也没有内容，只有一道用于取时间戳的边沿；最后窄带射频再传一条 Report，带回应答方的回复时延（reply time）——在收到这条消息之前，手机只掌握一半的信息，无法算出任何距离。窄带射频的数据速率很低，最短的一条消息也要占用空口半毫秒以上，比任何一个片段都长，所以控制消息的开销不可忽略；但它成本低、覆盖距离远，而且它传送的字节不占用测量所需的空口时间。两部射频使用同一套时隙网格，按 TG4ab 提案每条窄带消息分配两个时隙，消息必须容纳在其中；本课的场景不接受容纳不下的配置——因此在本课的时隙长度下，一条 Poll 无法同时指定房间里的全部四个锚点（anchor），总有一个角落的锚点不参加这一轮。',
+  why: 'TG4ab 提案 15-22/0381r5 的窄带辅助方式让一部窄带（narrowband, NB）射频承担测距周期里的全部控制消息：发起方用 Poll 开启一轮，应答方用 Response 确认，测距阶段结束后应答方用 Report 送回回复时延（reply time）；在 Report 到达之前，发起方无法算出距离。宽带射频在这期间只发送不含任何数据的片段（fragment）。窄带射频用的是 IEEE Std 802.15.4-2024 第 13 章的 O-QPSK（offset quadrature phase-shift keying）物理层（physical layer, PHY），250 kb/s：每个符号（symbol）16 µs、承载 4 个比特，消息前还有 12 个符号的同步头与物理头（PHY header, PHR），所以一条 12 字节的消息也要 576 µs，比任何一个片段都长。提案把消息压缩成一个字节的消息号加必需的字段：成对的 Poll 与 Response 各 12 字节，Report 13 字节。一对多的 Poll 要列出每个应答方的 3 字节地址，按提案的字段表是 12 + 3N 字节；本仿真器算成 14 + 3N 字节，多出两个字节，于是在本课 500 µs 的时隙下，两个时隙只容得下三个应答方，房间第四个角落的锚点（anchor）不参加这一轮——按提案的长度，四个应答方的 Poll 是 960 µs，本来放得下。本课的场景里窄带信道与一台 Wi-Fi 路由器共用频谱，七个块里只有两个完成了消息交换，原因在下一课。',
   outcomes: [
-    '按顺序说出窄带射频在一轮里发送的三条消息',
-    '说明为什么计时和控制消息要分别由两部射频承担',
-    '在时间线上找到其中一条消息，并说出它占用多少微秒',
+    '说出窄带射频的物理层出自标准哪一章，以及控制消息的格式出自哪一份提案',
+    '按顺序说出一轮里窄带射频发送的三种消息，并算出一条消息占用多少微秒',
+    '指出本仿真器在一对多 Poll 的长度上与提案不同之处，以及它造成的后果',
   ],
   needs: ['uwb-mms'],
   terms: [
     { term: 'narrowband', plain: '只占用很窄一段频谱的射频：速率很低，但覆盖距离远，成本也低' },
     { term: 'NB', plain: '日志中凡属于窄带射频的记录，都以这两个字母开头' },
-    { term: 'NB Poll', plain: '开启一轮的消息：手机在其中指定要与哪些设备测距' },
-    { term: 'NB Response', plain: '确认已收到 Poll 的消息，两端由此确认这一轮已经开始' },
+    { term: 'NB Poll', plain: '开启一轮的消息：发起方在其中指定要与哪些设备测距' },
+    { term: 'NB Response', plain: '确认已收到 Poll 的消息，收发两端由此确认这一轮已经开始' },
     { term: 'NB Report', plain: '结束一轮的消息：它带回用于计算距离的回复时延——与 DS-TWR 里那帧宽带 Report 不是一回事' },
   ],
-  picture: [
-    { heading: '两部射频，各司其职', text: '测距帧的作用是标定一个时间位置，而不是传送信息。若还要它附带传送消息，每一条消息都会占用本应留给测量的空口时间。因此草案的窄带辅助方式在宽带射频之外又配置了一部：只占用很窄一段频谱，速率低，但成本低、覆盖距离远——这就是窄带射频。宽带射频负责计时，窄带射频负责控制消息；日志中凡属于它的记录，都以这两个字母（NB）开头。' },
-    { kind: 'steps', heading: '草案的窄带辅助方式里，一轮中依次传送的消息', items: [
-      'Poll——手机开启这一轮，并指定由哪些设备应答',
-      'Response——被指定的一方确认已收到 Poll，两端由此确认这一轮成立',
-      '接着是那串片段（fragment），由宽带射频发送：整轮中唯一被实际测量的部分',
-      'Report——应答方发回自己的回复时延（reply time），手机据此由两个时间戳算出一个距离',
-    ] },
-    { kind: 'watch', jump: 0, heading: '观察一轮如何开始', text: '载入仿真、按下播放，然后跳到第一条窄带消息。它出现在任何一帧测距帧之前：一轮测距总是先在窄带射频上完成协商，然后才在宽带射频上进行测量。' },
-    { heading: '为什么不直接用宽带射频传送控制消息', text: '这在技术上可行。但测距帧的价值在于两端都能把它的某一道边沿定位到码片（chip）以下的精度；在帧中每加入一个字节，只会使帧更长，丝毫不会使那道边沿更陡峭。窄带射频传送每个字节更慢，代价反而更小——因为它传送的字节不占用测量所需的空口时间。' },
-    { heading: '从整体看一个块', text: '观察一个测距块（ranging block），结构就很清楚了。Poll 在块的开头发出，其中列出它要询问的每一个锚点（anchor）；一个时隙之后，它们各自应答；片段在此期间在房间内传播；大约在第二十毫秒，第一条收尾消息到达，手机这时才得到一个距离。一个块里只容纳这一轮，其余大部分时间空闲。' },
-    { heading: '其余的块里没有测距', text: '在本课的场景里，七个块中只有两个完成了整轮测距。窄带射频与上方的 Wi-Fi 路由器共用同一段窄频谱，而本课场景对这个频段采用的规则（一次检测到信道忙就放弃整个块，这是本课的规则，不是草案的）使它在其余五个块里无法发送。两侧的测量本身都没有问题，只是控制消息发不出去。这正是下一课《窄带射频也共享 6 GHz》要讲的事。本课与那一课共用同一份变体菜单，所以菜单里有三项是那一课的题目，而不是本课的：避开路由器用着的那个信道、在四个信道间跳变（channel hopping）、以及关掉先听后发（listen before talk, LBT）。选择这些变体后场景确实会改变，但改变的原因以及结果数值的解读，都在下一课讲解；本课自己只用第四项「每次只与一个锚点测距」。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '一轮里的三条消息', head: [
-      '消息', '大小', '占用空口',
-      '携带的内容',
-    ], rows: [
-      ['Poll，三个应答者', '23 B', '928.0 µs', '发起方，以及被询问的应答者'],
-      ['Poll，一个应答者', '12 B', '576.0 µs', '成对轮次自己的 Poll'],
-      ['Response', '12 B', '576.0 µs', '确认已收到 Poll；每个应答者一条'],
-      ['Report', '13 B', '608.0 µs', '回复时延，占其中五个字节'],
-      ['这一轮容得下的应答者', '3 of 4', '—', 'Poll 每多一个应答者就增加 3 字节，而两个 600 RSTU（ranging scheduling time unit）时隙（TG4ab 提案给每条窄带消息的窗口）必须容纳得下它，因此第四个角落的锚点不参加这一轮'],
-    ] },
-    { kind: 'formula', heading: '576 µs 是怎么来的', text: '(10 + 2 + 2 × 字节数) 个符号 × 16 µs\n12 字节 → 36 × 16 = 576 µs\n13 字节 → 38 × 16 = 608 µs      23 字节 → 58 × 16 = 928 µs', note: '每个符号（symbol）载四个比特，一个符号持续 16 µs，也就是 250 kb/s。一个字节要两个符号，而消息前面还有十二个符号的头部：按标准第 13 章的帧格式，是 8 个前导符号（preamble symbol）、1 个八位组的帧起始定界符（start-of-frame delimiter, SFD，2 个符号）和 1 个八位组的物理头（PHY header, PHR，2 个符号）。因此这部射频即使发送最短的消息，也要占用空口半毫秒以上。' },
-    { text: '逐条查看第一个块中的消息：Poll 在零时刻发出，第一条 Response 在 1.000 ms 处应答，第一条 Report 在 20.000 ms 处发出，距离在其后 608 µs 得出，即 20.608 ms。' },
-    { heading: '底层的时隙网格', text: '底层的时隙网格跨度很大：一轮是 52 个时隙、每个 500 µs，合计 26 ms；一个块只容纳一轮，场景中的每个锚点都在这一轮里。这段 1.3 秒的运行里，恰好容纳七个块。' },
-    { text: '在这里，问题从来不在宽带一侧。两个应答的锚点都是 8 个片段收到 8 个，两串片段分别比接收端所需的电平高出 34.5 dB 与 33.4 dB。' },
-    { heading: '控制消息的开销不可忽略', text: '控制消息的开销不可忽略。一条 Poll 加一条 Response 合计占用空口 1.504 ms，而它们所安排的那串片段中，任何一个片段都比其中任何一条消息更短。' },
-    { kind: 'steps', heading: '两部射频如何分担一轮中的工作', items: [
-      '首先发送的是窄带射频。在一轮开头的窗口里，手机发出一帧 Poll，指定要与哪一个或哪几个设备测距。此时还没有发出任何测距帧。',
-      '被指定的设备各自在分配给自己的 Response 窗口中应答。这条应答一方面使两端确认这一轮确实已经开始，另一方面也使接收端进入就绪状态，可以开始累加。',
-      '此时才轮到宽带射频。在这一阶段它只承载片段，不承载其他任何内容——没有地址、没有数据、没有消息内容，只有一道用来取时间戳的边沿；而且整串只取一个发送时间戳。',
-      '两部射频使用同一套时隙网格。按 TG4ab 提案，一个窄带窗口是两个片段时隙，所以控制消息和计时采用同一时间基准——而一条无法容纳在自己那两个时隙内的消息，本课的场景在开始之前就拒绝这个配置。',
-      '收尾的窗口又交回窄带射频：应答方报告自己从接收到发送所用的回复时延，手机则报告它测得的往返时间。',
-      '手机从往返时间中减去回复时延，再将差值折半，由此得到距离——这就是标准 §10.29.1.2.2 的单边双向测距（single-sided two-way ranging, SS-TWR），本课还用测得的时钟比值（clock ratio）修正回复时延。而在收到那条收尾消息之前，手机只掌握一半的信息，无法算出任何距离。',
-    ] },
-    { kind: 'table', heading: '同一轮，换成微秒', head: [
-      '步骤', '这一轮',
-    ], rows: [
-      ['Poll，指定三个应答者', 'slot 0 · 23 B · 928.0 µs'],
-      ['Response，每应答者一条', 'slots 2, 4, 6 · 12 B · 576.0 µs'],
-      ['片段，由宽带射频发送', 'slots 8–39 · 0 B · 0 Mbps'],
-      ['两部射频共用的时隙网格', '52 × 500.0 µs = 26 ms'],
-      ['Report，每应答者一条', 'slots 40, 44, 48 · 13 B · 608.0 µs'],
-      ['第一个距离', '20.608 ms'],
+  standard: [
+    { heading: '出处', text: '窄带射频的物理层出自 IEEE Std 802.15.4-2024 第 13 章；把它用作超宽带（ultra-wideband, UWB）测距的控制射频，属于 P802.15.4ab 草案。草案只对会员开放，本课依据 TG4ab 的两份文稿：15-22/0381r5（测距周期与压缩消息的字段表）与 15-23/0100r2（窄带物理层配置）。现行草案可能有改动。' },
+    { heading: '窄带物理层（标准第 13 章）', text: 'O-QPSK 物理层在 2450 MHz 等频段的数据速率为 250 kb/s（§13.2.2），符号速率 62.5 ksymbol/s（§13.3.3），即每个符号 16 µs；每个符号由 4 个信息比特选择 16 个准正交伪随机序列之一（§13.2.1）。同步头里前导码（preamble）为 8 个符号（§13.1.2.2），帧起始定界符（start-of-frame delimiter, SFD）为 8 个比特（§13.1.2.3），物理头（PHY header, PHR）为 7 比特的帧长加 1 个保留比特（§13.1.3）。接收灵敏度（sensitivity）应达到 −85 dBm 或更好（§13.3.4）。提案 15-22/0381r5 把配置 #1 定为 250 kb/s、不编码。' },
+    { heading: '压缩消息（15-22/0381r5 表 1.6.3.1）', text: '压缩格式的载荷（payload）只有一个字节的头部，即消息号；其余内容由消息号决定，末尾是 2 字节的循环冗余校验（cyclic redundancy check, CRC）。成对测距的 Poll（0x04）：3 字节的地址散列、3 字节的随机数、1 字节的消息控制、2 字节的内容。Response（0x05）：3 字节的地址散列、1 字节的消息控制、5 字节的内容。Report：发起方的（0x06）携带 5 字节的转向时间，应答方的（0x07）携带 5 字节的回复时延，其后可以有可选的载荷长度字节与载荷。' },
+    { heading: '一对多的 Poll（15-22/0381r5 表 1.6.3.1）', text: '一对多 Poll 的消息号是 0x10。消息控制为 0x10 时，它的内容是：应答方数目 1 字节、每个应答方的时隙数 1 字节、每个应答方 3 字节的地址。其余字段与成对的 Poll 相同。' },
+    { kind: 'steps', heading: '一个测距周期里的窄带消息，按提案 15-22/0381r5 §1.1：逐步说明', items: [
+      '控制阶段开始于测距轮（ranging round）第一个时隙的开头：发起方用窄带射频发出 Poll，它可以占满 Poll 窗口（缺省 2 个时隙，可取 1 到 16 个）。',
+      '收到 Poll 的应答方在 Poll 窗口之后的时隙里发回 Response，它同样不得超出自己的窗口。',
+      '发出 Response 的应答方进入测距阶段；发起方在预期的时隙收不到 Response，就终止这个测距周期，提案没有重传（retry）。',
+      '测距阶段只在宽带射频上进行，窄带射频不发送。',
+      '报告阶段：应答方用 Report 送回回复时延；发起方据此计算飞行时间——单边双向测距（single-sided two-way ranging, SS-TWR）的公式见标准 §10.29.1.2.2。',
     ] },
   ],
-  deeper: [
-    { heading: '那十二个字节的内容', text: '这三条消息都不带完整的 802.15.4 帧头。按 TG4ab 提案 15-22/0381r5 的消息表，每一条都是一份压缩过的载荷：一个字节的消息 ID（Poll 是 0x04，Response 是 0x05，Report 的两个方向分别是 0x06 与 0x07），加上这条消息真正需要的那几个字段，末尾再跟两个字节的 CRC。一条 Report 把十三个字节里的五个用于时间值本身——应答方的回复时延，或发起方的转向时间——而应答方那一份还多带一个“载荷长度”字节，其后却没有载荷，这就是它比 Poll 多出一个字节的原因。' },
-    { heading: '为什么低速射频才是合适的选择', text: '与一条 499.2 MHz 宽的测距信道相比，250 kb/s 似乎低得不合理。但控制面需要的是覆盖距离和可靠性，而不是速率：模型中的接收端可以接收 −100 dBm 的信号，发射端以 10 dBm 发射，因此一条控制消息能覆盖整栋楼，而一个测距片段做不到。此外，设备在两个块之间还可以让宽带前端保持休眠——一般认为，测距设备能靠一颗纽扣电池工作一年，主要原因就在于此；这是工程上的推论，本课没有计算功耗。' },
+  implementation: [
+    { topic: '符号与速率', standard: '每个符号 16 µs、4 个比特，250 kb/s（§13.2、§13.3.3）', sim: '照此：每个字节 2 个符号，每个符号 16 µs。', kind: 'faithful' },
+    { topic: '同步头与物理头', standard: '8 个前导符号（preamble symbol）、1 字节 SFD、1 字节 PHR（§13.1）', sim: '照此计为 12 个符号：消息长度 = (12 + 2 × 字节数) × 16 µs。', kind: 'faithful' },
+    { topic: '成对的 Poll 与 Response', standard: '按字段表：12 字节与 12 字节（15-22/0381r5）', sim: '照此：Poll 12 字节、Response 12 字节，各 576 µs。', kind: 'faithful' },
+    { topic: 'Report', standard: '5 字节的时间值；载荷长度与载荷可选（15-22/0381r5）', sim: '13 字节：带上可选的载荷长度字节，其后不带载荷。', kind: 'choice' },
+    { topic: '一对多 Poll 的长度', standard: '按字段表为 12 + 3N 字节：3 个应答方 21 字节，4 个 24 字节（15-22/0381r5）', sim: '算成 14 + 3N 字节：在成对 Poll 的 12 字节（其中含 2 字节内容）之上再加应答方数目、时隙数与地址，多出两个字节；3 个应答方 23 字节，4 个 26 字节。这是本仿真器与提案的偏差。', kind: 'differs' },
+    { topic: '窄带窗口', standard: '缺省 2 个时隙，可取 1 到 16 个；消息不得超出窗口（15-22/0381r5）', sim: '每条消息固定占 2 个时隙；场景里最长的窄带消息超出两个时隙时，编辑器拒绝这个配置。所以本课 500 µs 的时隙下，一对多轮次最多 3 个应答方。', kind: 'value' },
+    { topic: 'CRC', standard: '每条消息末尾 2 字节（15-22/0381r5）', sim: '只把 2 个字节计入长度，不计算也不校验。', kind: 'absent' },
+    { topic: '收不到 Response', standard: '发起方终止这个周期，没有重传（15-22/0381r5 §1.1）', sim: '照此：对端这一轮里始终不进入测距阶段，到时隙记一次超时。', kind: 'faithful' },
+    { topic: '窄带的收发电平', standard: '灵敏度应达到 −85 dBm 或更好（§13.3.4）；发射功率（transmit power）不规定', sim: '发射 10 dBm，灵敏度 −100 dBm；路径损耗（path loss）只把 1 m 处的自由空间项换成窄带信道的，指数与墙体损耗沿用超宽带一侧的取值。', kind: 'value' },
+    { topic: '信道忙时', standard: '草案：法规要求时，收发两端在每个发射时隙上各自做一次信道接入（下一课）', sim: '一次判忙就在这个测距块（ranging block）余下的时间里不再发送窄带消息。这是待改正的偏差。', kind: 'differs' },
+    { topic: '一轮与一块', standard: '时隙、轮、块的长度取 300 RSTU（ranging scheduling time unit）的整数倍（15-22/0381r5）', sim: '时隙 600 RSTU（500 µs），一对多的一轮 52 个时隙（26 ms），测距块长 200 ms。', kind: 'value' },
   ],
-  limits: [
-    { kind: 'unmodelled', text: '本课的那部窄带射频只有一个物理层，没有任何链路层。它只有符号长度与几个消息大小，消息不带真正的 CRC（那两个字节只计入长度），接收端也从不校验；没有确认、没有重传、没有退避。因此一条 Response 丢失就会直接使这一轮作废——对端在这一轮里始终没有就绪——而真实的控制面会重试，也会因重试而占用更多空口时间。' },
-    { kind: 'model-value', text: '「一条控制消息能覆盖整栋楼，而一个测距片段做不到」整句话依赖两个模型取值：窄带发射功率 10 dBm 与接收灵敏度 −100 dBm，而标准 §13.3.4 给这部 PHY 的底线是 −85。它的路径损耗沿用 UWB 的模型：本课对窄带只替换了 1 m 处的自由空间项，指数与每道墙的损耗仍沿用宽带一侧的取值。所以这部射频的覆盖距离优势是本课选定的一个比值，而不是测得的。' },
-    { kind: 'unmodelled', text: '「宽带前端在块之间保持休眠」这件事本课从未测量过。本课不算功率、不算电流、不算能量，一切代价都以空口时间与时隙来衡量，没有任何一个数字涉及电池或功耗。所以「靠一颗纽扣电池工作一年」是课文代读者做出的推论；而两部射频真正的取舍——多一部射频的物料、静态功耗与体积——在本课的数字中都没有体现。' },
+  labs: [
+    {
+      heading: '一轮先在窄带射频上开始',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到开启这一轮的窄带 Poll。',
+        '向后读到第一个片段为止。',
+      ],
+      expect: '这一轮的第一帧是 0 ms 的「uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)」；第一条 Response 在 1.000 ms；第一个片段在 4.000 ms，此前没有任何超宽带帧。',
+      meaning: '控制阶段在测距阶段之前，全部由窄带射频完成（①）。',
+    },
+    {
+      heading: '三种消息的长度',
+      jump: 0,
+      steps: [
+        '在时间线上找到 Poll、Response 与 Report 各一条，读出字节数与占用的空口时间（airtime）。',
+        '用下面的公式核对。',
+      ],
+      blocks: [
+        { kind: 'formula', heading: '一条窄带消息占用多久', text: '(8 + 2 + 2 + 2 × 字节数) 个符号 × 16 µs\n12 字节 → 36 × 16 = 576 µs      13 字节 → 38 × 16 = 608 µs      23 字节 → 58 × 16 = 928 µs', note: '8 个前导符号，SFD 与 PHR 各 1 字节即各 2 个符号（标准第 13 章）。' },
+        { kind: 'table', heading: '一轮里的三种消息', head: ['消息', '大小', '占用空口'], rows: [
+          ['Poll，三个应答方', '23 B', '928.0 µs'],
+          ['Response', '12 B', '576.0 µs'],
+          ['Report', '13 B', '608.0 µs'],
+        ] },
+      ],
+      expect: '一条 Poll 加一条 Response 合计 1.504 ms；最短的窄带消息 576 µs，而一个片段只有 82.1 µs。',
+      meaning: '消息长度来自标准第 13 章的物理层与提案的字段表（①、②）；控制消息的开销以毫秒计，不可忽略。',
+    },
+    {
+      heading: '距离要等窄带 Report',
+      jump: 2,
+      steps: [
+        '跳到收尾的那帧窄带 Report，再看它之后的第一条测距记录。',
+        '对照前面两串片段的判定，读出余量。',
+      ],
+      expect: '第一条 Report 在 20.000 ms 发出，608 µs 后的 20.608 ms 得出第一个距离「uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)」。两串片段都是 8/8 收到，余量 34.5 dB 与 33.4 dB。',
+      meaning: '宽带一侧没有问题；距离要等 Report 送来回复时延才能算出（① 报告阶段），这是单边双向测距本身的要求。',
+    },
+    {
+      heading: '一对多 Poll 能列出几个应答方',
+      steps: [
+        '在本课场景里数一数参加这一轮的锚点：只有三个。',
+        '对照下表，比较本仿真器与提案字段表给出的 Poll 长度。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '一对多 Poll 与两个时隙（1 000 µs）', head: ['应答方', '本仿真器', '按提案的字段表'], rows: [
+          ['3', '23 B · 928.0 µs', '21 B · 864.0 µs'],
+          ['4', '26 B · 1024.0 µs，超出', '24 B · 960.0 µs，容得下'],
+        ] },
+      ],
+      expect: '本仿真器里 4 个应答方的 Poll 要 1024.0 µs，超出两个时隙，编辑器拒绝这个配置，所以本课场景只有三个锚点；按提案的长度，4 个应答方是 960.0 µs，本来容得下。',
+      meaning: '这是②里标为「与提案不同」的那一行造成的后果：多算的两个字节决定了本课场景的锚点数。',
+    },
+    {
+      heading: '每次只与一个锚点测距',
+      variant: 3,
+      steps: [
+        '载入「每次只与一个锚点测距」，看第 0 块的第一轮。',
+        '这一课与下一课《窄带射频也共享 6 GHz》共用同一份变体菜单：菜单里有三项是那一课的题目——避开路由器用着的那个信道、在四个信道间跳变（channel hopping）、关掉先听后发（listen before talk, LBT）；本课自己只用第四项「每次只与一个锚点测距」。',
+      ],
+      expect: '成对的 Poll 只指定 anchor-1，12 B、576.0 µs；一轮 28 个时隙、14 ms，一块容纳 4 轮。第一个距离在 12.608 ms 得出；13.000 ms 处手机判定信道忙，这个块余下的三轮里它不再发出任何窄带消息。',
+      meaning: '成对与一对多用的是同一套周期（①）；判忙之后跳过整个块是本仿真器的规则，与草案不同（②），下一课讲。',
+    },
   ],
   sources: [
-    '射频的调制出自标准：IEEE Std 802.15.4-2024 第 13 章那部 250 kb/s 的 O-QPSK PHY，一个符号 32 个码片、每个码片 0.5 µs，每个符号载四个比特。一条 12 字节消息的 576 µs，正是从这几个数里直接算出来的。每条消息前面那十个前导与标记符号、两个头部符号也是这一章的帧格式（§13.1：8 个前导符号、1 个八位组的帧起始定界符、1 个八位组的物理头），TG4ab 提案 15-23/0100r2 的窄带配置 #1 沿用它。',
-    '而把它变成一部测距控制射频的那些东西——轮询/响应/报告的周期，以及压缩后的消息格式——都来自 P802.15.4ab：截至 2026 年 9 月，它的投票稿是 D05，仍处于 Sponsor 投票复审阶段。该草案仅对会员开放，所以这里是改写自 TG4ab 的两篇提案文稿：15-22/0381r5（周期与消息字段表）与 15-23/0100r2（PHY 配置）。已投票的 D05 可能与之不同。',
-    '以下是模型取值：接收端 −100 dBm 的灵敏度（标准 §13.3.4 对这部 PHY 给出的底线是 −85 dBm）；以及一次控制发射所用的 10 dBm。52 个时隙一轮、200 ms 一个块，则是本会话的参数设置，并非标准规定。',
+    'IEEE Std 802.15.4-2024 第 13 章：§13.1.2.2（8 个前导符号）、§13.1.2.3（SFD）、§13.1.3（PHR）、§13.2.1 与 §13.2.2（4 比特一个符号，250 kb/s）、§13.3.3（62.5 ksymbol/s）、§13.3.4（−85 dBm 的灵敏度）；§10.29.1.2.2（单边双向测距）。',
+    'P802.15.4ab 草案（截至 2026 年 9 月，投票稿为 D05，仍在 Sponsor 投票复审中），本课依据 TG4ab 文稿：15-22/0381r5（§1.1 测距周期、表 1.2.3.2 的 Poll 与 Response 窗口、表 1.6.3.1 的压缩消息）、15-23/0100r2（窄带物理层配置）。已投票的 D05 可能与此不同。',
+    '本仿真器的取值与取法：窄带发射 10 dBm、灵敏度 −100 dBm、窄带路径损耗沿用超宽带的指数与墙体损耗；每条窄带消息固定两个时隙；Report 带上可选的载荷长度字节；不计算 CRC。与提案不同之处：一对多 Poll 多算两个字节；判忙之后跳过整个块。',
   ],
+  limits: [],
   scenario: () => uwbNbaScenario('base'),
   variants: [
     { label: '避开路由器的信道', scenario: () => uwbNbaScenario('outside') },
@@ -191,15 +221,8 @@ export const uwbNba: Lesson = {
     J('收尾的那帧窄带 Report', firstNbReport),
     J('整段运行中得出的第一个距离', firstUwbRange),
   ],
-  observe: [
-    '这一轮由另一部射频开启：“uwb-1 → * NBPOLL 23 B @0.25 Mbps (928.0 µs)”。它是整段运行里的第一件事——那时还没有任何一帧测距帧发出去。',
-    '第一个应答的锚点发出它这一部分的收尾消息：20.000 ms 处的 “anchor-1 → uwb-1 NBREPORT 13 B @0.25 Mbps (608.0 µs)”。直到收到这条消息，手机才具备计算距离所需的数据。',
-    '距离紧随其后：“uwb-1 range → anchor-1 (SS): 4.74 m (true 4.76 m, raw 7.51 m)”。再打开手机的检视面板：片段记录显示，每一个片段都已收到，也都已检出。',
-  ],
-  tryThis: [
-    '载入“每次只与一个锚点测距”，逐步查看一个块。同样的周期执行了四遍，每个锚点一遍：一条 Poll、一条 Response、一串片段、一条 Report、一个距离，各自占一整轮。',
-    '跳到“对端如何判定这一串片段”，阅读那条判定记录，再跳到紧随其后的那条 Report。判定由宽带射频做出，而把结果传回的是窄带射频。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '用来计算距离的那段回复时延，由哪部射频传回？',
@@ -209,17 +232,27 @@ export const uwbNba: Lesson = {
         '两部都不是——两端各自保存自己的时间戳，从不发送',
       ],
       answer: 1,
-      explain: '片段是被测量的，而不是被读取内容的：它们携带的是一道边沿，而不是一个数值。回复时延由 Report 传送，在它到达之前，手机只掌握一半的信息。',
+      explain: '片段不承载任何数据。按 15-22/0381r5，应答方的 Report（0x07）携带 5 字节的回复时延；在它到达之前，发起方无法算出距离。',
     },
     {
-      q: '一条十二字节的消息，在这部射频上要 576 µs。只有这几个字节，为什么需要这么长时间？',
+      q: '一条十二字节的消息，在这部射频上要 576 µs。为什么？',
       options: [
         '它被重发了三遍，每个锚点一遍',
-        '一个 16 µs 的符号只载四个比特——250 kb/s——前面还要加十二个头部符号',
+        '一个 16 µs 的符号只承载四个比特——250 kb/s——前面还有 12 个符号的同步头与物理头',
         '它必须等到下一个时隙边界才能开始发送',
       ],
       answer: 1,
-      explain: '总共三十六个符号：每个字节两个，再加十二个头部符号。传送字节慢，正是换取“以很低的功率覆盖整栋楼”的代价。',
+      explain: '总共 36 个符号：每个字节两个，再加 8 个前导符号与 SFD、PHR 各两个符号（标准第 13 章）。',
+    },
+    {
+      q: '本课场景的一对多轮次只有三个锚点。原因是什么？',
+      options: [
+        '提案规定一对多轮次最多三个应答方',
+        '本仿真器把一对多 Poll 算成 14 + 3N 字节，4 个应答方时超出两个时隙；按提案的 12 + 3N 字节本来容得下',
+        '第四个锚点离手机太远',
+      ],
+      answer: 1,
+      explain: '提案的字段表给出 12 + 3N 字节，4 个应答方是 24 字节、960 µs，小于两个 500 µs 的时隙；本仿真器多算两个字节，得到 1024 µs。',
     },
   ],
 }

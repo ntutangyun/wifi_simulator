@@ -731,7 +731,6 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '下行形态', en: 'downlink TDoA', abbr: 'DL-TDoA' },
   { zh: '双曲线', en: 'hyperbola' },
   { zh: '时钟修正', en: 'clock correction' },
-  { zh: '锚点基线', en: 'anchor baseline' },
   { zh: '参考锚点', en: 'reference anchor' },
   { zh: '闪发', en: 'blink' },
   { zh: '上行形态', en: 'uplink TDoA', abbr: 'UL-TDoA' },

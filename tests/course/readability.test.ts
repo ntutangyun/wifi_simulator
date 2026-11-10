@@ -528,11 +528,14 @@ describe('readability · no lesson dates itself', () => {
     // and it did not — `lessonStrings` still leaves `limits` out on purpose, because
     // around thirty per-lesson tests pin their claims through it. What moved is the
     // second half: `readerText` is `readerTexts` now, the walk rather than a list.
-    const dstwr = LESSONS.find((l) => l.id === 'uwb-dstwr')!
-    expect(lessonStrings(dstwr), '`lessonStrings` still leaves `limits` out')
-      .not.toContain(dstwr.limits[dstwr.limits.length - 1].text)
-    expect(readerText(dstwr), 'but `readerTexts` reaches it')
-      .toContain(dstwr.limits[dstwr.limits.length - 1].text)
+    // 2026-11-10: `uwb-dstwr`, where the three real sites were, is standard-first now and has no
+    // `limits`; `cca` still carries them, so the gap is pinned on it.
+    const withLimits = LESSONS.find((l) => l.id === 'cca')!
+    expect(withLimits.limits.length, '`cca` still has limits').toBeGreaterThan(0)
+    expect(lessonStrings(withLimits), '`lessonStrings` still leaves `limits` out')
+      .not.toContain(withLimits.limits[withLimits.limits.length - 1].text)
+    expect(readerText(withLimits), 'but `readerTexts` reaches it')
+      .toContain(withLimits.limits[withLimits.limits.length - 1].text)
     for (const { re } of ROTS) expect(re.test('Wi-Fi 侧本周刚加上的两层衰落，2026-10-03 新增的')).toBe(true)
   })
 })
@@ -580,17 +583,6 @@ describe('readability · a name that arrives early says where it is taught', () 
     expect(text).toContain('后面有专门一课讲它')
     // the lesson that owns it still owns it
     expect(lesson('uwb-geometry').terms!.map((t) => t.term)).toContain('GDOP')
-  })
-
-  it('uwb-m2m names DL-TDoA in full and points at uwb-dl-tdoa', () => {
-    earlier('uwb-m2m', 'uwb-dl-tdoa')
-    const text = everything(lesson('uwb-m2m'))
-    expect(text).toContain('到达时间差（time difference of arrival, TDoA）')
-    expect(text).toContain('下行形态（downlink TDoA, DL-TDoA）')
-    expect(text).toContain('后面有专门一课讲它')
-    // and the `sources` line that used to carry it bare now leans on the main one
-    expect(lesson('uwb-m2m').sources!.join(' / ')).toContain('下行形态（DL-TDoA）')
-    expect(lesson('uwb-dl-tdoa').terms!.map((t) => t.term)).toContain('DL-TDoA')
   })
 
   it('uwb-nba says the three variants it does not explain belong to the next lesson', () => {
@@ -979,7 +971,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *  - **criterion Q** — how many (lesson, term) PAIRS exist where the term is
  *    named in the field and never named on that lesson's graded main path.
  *
- * **This ratchet is criterion Q, and the number is 273.** It is NOT the same
+ * **This ratchet is criterion Q, and the number is 169.** It is NOT the same
  * criterion as P, even though the two coincided at 296 before slice 3d — and the
  * fact that they coincide here is precisely why the distinction is spelled out
  * rather than assumed. They are measurably different criteria: on `sources` Q is
@@ -990,8 +982,8 @@ describe('readability · a term in the chrome has somewhere to have been learned
  *
  * ### What this assertion does and does not ask for
  *
- * It does not ask anyone to fix 287 sites. It makes the debt visible and forbids
- * the 288th: a new `limits` entry that names an official term the lesson's own
+ * It does not ask anyone to fix 169 sites. It makes the debt visible and forbids
+ * the 170th: a new `limits` entry that names an official term the lesson's own
  * main path never names turns this red, and the fix is one sentence on the main
  * path. Paying the debt itself means splitting six lessons — adding `limits` to
  * `mainPathChars` moves 50 lessons' stated minutes and puts six of them over the
@@ -1004,7 +996,7 @@ describe('readability · a term in the chrome has somewhere to have been learned
  * side used a bare `includes`, which excused ten pairs. `bracketedAtFirstZhUse`
  * is the ruler here, and it is the same call on both sides.
  */
-describe('readability · the limits debt is pinned, and the 288th entry is refused', () => {
+describe('readability · the limits debt is pinned, and the 170th entry is refused', () => {
   // `names` comes from `./corpus`; the ceiling, the measured ratchet and `sideDebts` (criterion Q
   // over all three fields) from `./coverageNumbers`. They moved out of
   // this file on 2026-10-09 so
@@ -1015,7 +1007,7 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    * **The number itself is `LIMITS_DEBT_CEILING` in `./coverageNumbers`**, so this `it`'s title, the
    * comparison below and §17 of docs/wifi-feature-coverage.md all read one definition.
    *
-   * **This number is the ceiling AND the current value: the debt stands at exactly 273 (287 until the 2026-11-10 `why` rewrites, the UWB simulator-internals cleanup, the standard-wording pass over both tracks, the content fixes, the UWB standard audit and the first standard-first lesson — which has no `limits` at all — took fourteen pairs off).** There
+   * **This number is the ceiling AND the current value: the debt stands at exactly 169 (273 until the 2026-11-10 standard-first restructure of 34 UWB lessons removed their `limits` sections and took 104 pairs off; 287 until the 2026-11-10 `why` rewrites, the UWB simulator-internals cleanup, the standard-wording pass over both tracks, the content fixes, the UWB standard audit and the first standard-first lesson — which has no `limits` at all — took fourteen pairs off).** There
    * is no slack in it, and that is deliberate rather than an accident of when it was measured —
    * a ratchet with room left in it is not a ratchet. What it means in practice, for whoever next
    * adds a `limits` entry:
@@ -1024,10 +1016,10 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
    *    no warning shot;
    *  - the fix is one sentence on the main path, bracketing the term at its first use — not a
    *    bigger number here;
-   *  - if that sentence will not fit, the other legal move is to pay one of the existing 287
+   *  - if that sentence will not fit, the other legal move is to pay one of the existing 169
    *    back, which is the same work on a different lesson — and since W17 it costs nothing else:
-   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 76
-   *    and 184), so a repayment that does not also pay the same (lesson, term) pair on the other
+   *    the `it` below compares this debt against each of `sources` and `deeper` ALONE (margins 24
+   *    and 116 on 2026-11-10), so a repayment that does not also pay the same (lesson, term) pair on the other
    *    side no longer spends anybody's margin;
    *  - **raising the ceiling needs a human to agree to it.** It is not a thing to do because the
    *    build is red.
@@ -1078,10 +1070,13 @@ describe('readability · the limits debt is pinned, and the 288th entry is refus
       + " never on that lesson's own main path. This is a ratchet: it does not ask for the"
       + ' existing ones to be fixed, it refuses the next one. If you added a `limits` entry,'
       + ' name the term on the main path too.').toBeLessThanOrEqual(LIMITS_DEBT_CEILING)
-    // and it is not allowed to quietly become vacuous either: the debt is real today
-    expect(debt, 'the debt this ratchet exists to make visible').toBeGreaterThanOrEqual(200)
+    // and it is not allowed to quietly become vacuous either: the debt is real today.
+    // Floors lowered 200 → 120 and 60 → 30 on 2026-11-10: the standard-first restructure removed
+    // the `limits` section from 34 UWB lessons, so the measured debt fell 273 → 169 and the
+    // lessons carrying it 44. The floors sit well under the measure; they guard vacuity only.
+    expect(debt, 'the debt this ratchet exists to make visible').toBeGreaterThanOrEqual(120)
     expect(new Set(pairs.map((p) => p.split('|')[0])).size, 'lessons carrying the debt')
-      .toBeGreaterThanOrEqual(60)
+      .toBeGreaterThanOrEqual(30)
     // and the number this ratchet asserts on is the number §17 of docs/wifi-feature-coverage.md
     // is compared against. Measured 2026-10-09 that this is not decoration: re-measuring the debt
     // privately HERE with a looser ruler (a bare `includes` on the main-path side, the historical

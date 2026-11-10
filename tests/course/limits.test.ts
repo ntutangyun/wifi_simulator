@@ -229,7 +229,7 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  *    it is about there being one station). On the two UWB sites it is blind.
  *
  * So B does not judge the truth of a promise. **It judges whether anyone judged it.** The
- * table is the whole promise ledger; a seventeenth `until` turns this red and its author has
+ * table is the whole promise ledger; a fifteenth `until` turns this red and its author has
  * to write the fourth column down and leave a ruler in their own lesson's test file
  * (precedents: `width.test.ts`, `uwb-blocks.test.ts`, and as of 2026-10-05 also
  * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`,
@@ -249,7 +249,7 @@ describe('a limit that points at a deeper treatment says so as a deeper treatmen
  * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
  * of `src/course` counts one entry that is not a limit at all.
  */
-describe('criterion B · the seventeen `until` promises are a frozen ledger', () => {
+describe('criterion B · the fourteen `until` promises are a frozen ledger', () => {
   /** `[source, target, a substring of the limit's own text, the axis that opens it]`. */
   const UNTIL_SITES: readonly [string, string, string, string][] = [
     ['mcs-ladder', 'rate-vs-model', '本课四个变体一次失败也没有',
@@ -264,10 +264,10 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
       '顶层两节：selectivityScenario 就是 widthScenario 外加 fading 与 selectivity（节点的 feats 两课完全相同，所以这个轴不在节点上）'],
     ['streams', 'mumimo', '只有一台站点',
       '站点数 1 → 4。源课那条限制的主语就是「只有一台站点」，而换掉的正是它，不是任何一个特性标志'],
-    ['uwb-intro', 'uwb-sstwr', '两端晶振的频率偏差都设为 0 ppm',
-      '逐节点的 ppm 实参 0 → ±10，于是单边测距的偏差以米计（那一课真的给出 6.01 m）'],
-    ['uwb-blocks', 'uwb-contention', '「按时间调度时，控制器知道所有受控设备」',
-      '会话旋钮：竞争窗口与名单。那一课讲的正是手里根本没有名单的标签'],
+    // `uwb-intro` → `uwb-sstwr` left 2026-11-10: `uwb-intro` is standard-first, has no `limits`,
+    // and its ② row 「时钟偏差修正」 says the scene's crystals are 0 ppm.
+    // `uwb-blocks` → `uwb-contention` left 2026-11-10: `uwb-blocks` is standard-first, has no
+    // `limits`, and states both schedule modes of §10.32.1 in its own ① instead.
     // The five `fading` sites, added 2026-10-05 with that lesson. One axis for all five, and it
     // is a top-level scenario section rather than anything on a node: `fadingScenario` is
     // `widthScenario(20, 1)` with the station in the far living room and a `fading` section, and
@@ -305,18 +305,15 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
       '顶层一节 servers：本课的业务源节奏自成一条开环时钟；那一课的场景里答复要等请求被确认才来（traffic.ts 的 onUplinkDelivered → sendPage / emitDl），这是一条真的反馈路径，只不过不是降速那一种'],
     ['edca-cost', 'wan-rtt', '它的 servers 是空的',
       '顶层一节 servers：本课语音来回两个方向都是 20 ms 的本机时钟；放一台通话服务器之后回程变成对每一个已被确认的语音帧的回声（traffic.ts 的 scheduleVoice 的 `if (!this.server)` 分支），于是排队时延第一次有了一个应用层的分母'],
-    // Slice 3d's one site, and the first `until` in this ledger whose target was written **to
-    // redeem it** rather than found to redeem it afterwards — which is what slice 4e asked for when
-    // it narrowed `until` to `out-of-scope` alone. The axis is two session fields, and what makes it
-    // an axis rather than a feature flag is that it moves a quantity the source lesson's own text
-    // calls settled: the round's length.
-    ['uwb-ancillary', 'uwb-ancillary-request', '排程能不能被请求改变',
-      '会话两个字段 ancillaryRequest / ancillaryRequestSlots：本课四个场景一个也没打开它们（请求这一半当时还不存在），那一课的基础场景把两者都开着，于是块 0 的剩余帧数从 1 倒数、块 1 起从 5 倒数——轮的长度第一次不再是会话配置单独决定的'],
+    // Slice 3d's `uwb-ancillary` → `uwb-ancillary-request` site left this ledger on 2026-11-10, when
+    // `uwb-ancillary` moved to the standard-first shape, which has no `limits`. The ruler it left
+    // (the source's scenes never set the request, the target's base scene does) stays in
+    // tests/course/uwb-ancillary.test.ts.
   ]
 
   const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.until).map((x) => `${l.id}→${x.until!}`))
 
-  it('is exactly these seventeen sites, no more and no fewer', () => {
+  it('is exactly these fourteen sites, no more and no fewer', () => {
     expect([...actual].sort()).toEqual(UNTIL_SITES.map(([s, t]) => `${s}→${t}`).sort())
   })
 
@@ -347,7 +344,7 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
    * So: a source lesson's own test file has to name its target somewhere. That is a weak
    * check on purpose — it cannot tell a real ruler from the word appearing in a comment —
    * but it is the difference between "someone was reminded" and "nothing happens". The
-   * author who adds the fourteenth promise now has to open their own test file.
+   * author who adds the fifteenth promise now has to open their own test file.
    *
    * **It was not green when it was written.** The review measured 8/8 on the eight-site
    * ledger and called the check free; by the time it landed the `fading` lesson had added
@@ -371,11 +368,10 @@ describe('criterion B · the seventeen `until` promises are a frozen ledger', ()
   /**
    * **Criterion C — the target comes after the source.**
    *
-   * **This check is vacuous today and the next reader should know it.** All sixteen targets
+   * **This check is vacuous today and the next reader should know it.** All fourteen targets
    * already sit later in `COURSE_ORDER` than their source (mcs-ladder 3 → rate-vs-model 23,
    * ifs 11 → edca 26, backoff 13 → txop 29, anomaly 18 → txop 29, width 32 → selectivity 33,
-   * streams 34 → mumimo 42, uwb-intro 51 → uwb-sstwr 54, uwb-blocks 58 → uwb-contention 63,
-   * and the five `fading` sites — radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23,
+   * streams 34 → mumimo 42, the three `wan-rtt` sites, and the five `fading` sites — radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23,
    * rate-fallback 36 → fading 38), so it discriminates nothing and will not catch a single
    * thing wrong with the course as it stands.
    *
