@@ -100,9 +100,14 @@ describe('UWB nodes and sessions in the schema', () => {
     expect(() => ScenarioSchema.parse(uwbScenario(onlyTags))).toThrow(/anchor.*tag/)
   })
 
-  it('the ranging slot must be a whole number of 3-RSTU units', () => {
-    const bad = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2401 })
-    expect(() => ScenarioSchema.parse(bad)).toThrow(/3 RSTU/)
+  // Replaces "the ranging slot must be a whole number of 3-RSTU units" (2026-11-10, audit #10): that
+  // rule is not in the standard, which only counts block and slot lengths in RSTU (§10.32.2). What is
+  // pinned now is the standard's: any whole number of RSTU, and nothing that is not one.
+  it('the ranging slot and block are whole numbers of RSTU, with no multiple-of-3 rule', () => {
+    const odd = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2401, blockRstu: 240_001 })
+    expect(() => ScenarioSchema.parse(odd)).not.toThrow()
+    const frac = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2400.5 })
+    expect(() => ScenarioSchema.parse(frac)).toThrow()
     const good = uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, slotRstu: 2400 })
     expect(() => ScenarioSchema.parse(good)).not.toThrow()
   })
@@ -290,16 +295,17 @@ describe('UWB nodes and sessions in the schema', () => {
   })
 
   it('a contention round is sized by its Poll, not by the Final it never sends', () => {
-    // Contention is SS-TWR and ends at the Response: the frames on the air are the 31-octet Poll
-    // (RCPS + RCMA in place of the anchor list, so anchor-count independent) and an SS Response.
+    // Contention is SS-TWR and ends at the Response: the frames on the air are the 35-octet Poll
+    // (31 before the 2026-11-10 ARC/RR/RCPS correction; RCPS + RCMA in place of the anchor list, so
+    // anchor-count independent) and an SS Response.
     // At one anchor the Final-sized bound was the smaller number, which is the case that would
     // have let a too-short slot through if the 300 RSTU floor were ever lowered.
-    expect(uwbPollBytes(1, 'contention')).toBe(31)
-    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBe(31)
+    expect(uwbPollBytes(1, 'contention')).toBe(35)
+    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBe(35)
     expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBeGreaterThan(uwbFinalBytes(1))
-    expect(uwbRespBytes('ss')).toBeLessThan(31)
+    expect(uwbRespBytes('ss')).toBeLessThan(35)
     // the window's size does not change the frames, and more anchors do not either
-    expect(uwbLongestFrameBytes(6, 'twr', 'contention')).toBe(31)
+    expect(uwbLongestFrameBytes(6, 'twr', 'contention')).toBe(35)
     expect(uwbSlotFitNs(6, 'twr', 'contention')).toBeLessThan(uwbSlotFitNs(6))
     expect(uwbSlotFitNs(1, 'twr', 'contention')).toBeGreaterThan(uwbSlotFitNs(1))
   })

@@ -14,7 +14,7 @@
  *  - 「醒着，和分到手，是两回事」, the radio-cost table and its paragraph;
  *  - the slot-fit formula, the two-slot-lengths table, and all three `deeper`
  *    paragraphs (the 300 RSTU floor, where the 2 ms of margin goes, and how
- *    1 934 334 ns is made up);
+ *    1 943 565 ns is made up);
  *  - the 0.5 ms experiment, the 285 → 300 snap, and both quiz questions.
  * What arrives here: §4's `timing` figure and one new quiz. The experiment that
  * stayed is the anchor deletion, because 2N + 2 slots to a round is step 1 of
@@ -68,7 +68,7 @@ export const FIG = {
   slotRstu: 2_400, slotUs: 2_000, slots: 10,
   /** Each frame of the round: the slot it sits in and how long it is on the air, in µs. */
   frames: [
-    { slot: 0, airUs: 206.859 }, { slot: 1, airUs: 181.218 }, { slot: 2, airUs: 181.218 },
+    { slot: 0, airUs: 216.09 }, { slot: 1, airUs: 181.218 }, { slot: 2, airUs: 181.218 },
     { slot: 3, airUs: 181.218 }, { slot: 4, airUs: 181.218 }, { slot: 5, airUs: 236.603 },
     { slot: 6, airUs: 191.474 }, { slot: 7, airUs: 191.474 }, { slot: 8, airUs: 191.474 },
     { slot: 9, airUs: 191.474 },
@@ -126,7 +126,7 @@ export const uwbBlocks: Lesson = {
       kind: 'diagram', heading: '三层嵌套，一条时间轴', spec: uwbBlocksTiming(),
       caption: '图上画的是一部手机的那一轮。一个块 240 000 RSTU（ranging scheduling time unit），200.0 ms，可容纳十轮；一轮 24 000 RSTU，20.0 ms；一轮划分为十个时隙，每个 2 400 RSTU，2 000.0 µs。最下面一行是这一轮实际发送的十帧：时隙 0 是手机的 Poll，时隙 5 是它的 Final，其余八个是各锚点的 Response 与 Report。每一帧都从自己时隙的左边界开始，其余时间空闲。',
     },
-    { heading: '时间表由第一帧携带', text: '锚点并非预先知道这张时间网格：这张表由手机发出的开场帧携带，形式是信息元素。按标准，ARC IE 说明测距方式、调度方式以及块、轮、时隙的长度，RR IE 说明本轮在块中的位置（块号与轮号），RDM IE 逐一列出各应答方及其作答的时隙（§10.32.9.1、§10.32.9.3、§10.32.9.8）。本课的开场帧只带两张清单：第一张是本课的 ARC IE，本课把块号、轮号和应答方个数也放在里面，没有单独的 RR IE；第二张就是 RDM IE。' },
+    { heading: '时间表由第一帧携带', text: '锚点并非预先知道这张时间网格：这张表由手机发出的开场帧携带，形式是信息元素。按标准，ARC IE 说明测距方式、调度方式等控制位，块、轮、时隙的长度可以由它给出、也可以由上层设定；RR IE 说明本轮在块中的位置（块号与轮号）；RDM IE 逐一列出各应答方及其作答的时隙（§10.32.9.1、§10.32.9.3、§10.32.9.8）。本课的开场帧三个都带：ARC IE 只带控制位（三个长度由场景设定，不在帧里），RR IE 带块号与轮号，RDM IE 带应答方名单。' },
     { kind: 'watch', jump: 1, heading: '一个块，一次定位', text: '跳到第一部手机的那次定位。它出现在自己这一轮的末尾，下一次要等整整一个块——时间网格确定的不只是谁在何时发送，还有手机多久能得到一次自己的位置。' },
   ],
   numbers: [
@@ -137,9 +137,10 @@ export const uwbBlocks: Lesson = {
       ['整轮那一行', 'uwb-1 UWB round 0 of block 0 (DS-TWR): 10 slots × 2000.0 µs'],
       ['第 0 块的各轮何时开启', '0, 20 and 40 ms; block 1 at 200, 220 and 240 ms'],
       ['第 0 块的三帧 Poll 何时发出', '0, 20 000 000 and 40 000 000 ns'],
-      ['携带这张网格的开场帧', 'Poll, 39 octets'],
-      ['第一张清单（本课的 ARC IE；块号与轮号在标准里属于 RR IE），10 字节', 'SP1 · DS-TWR · 块 0 · 轮 0 · 4 个应答方'],
-      ['第二张清单，15 字节', '4 台设备：anchor-1 时隙 1、anchor-2 时隙 2、anchor-3 时隙 3、anchor-4 时隙 4'],
+      ['携带这张网格的开场帧', 'Poll, 42 octets'],
+      ['第一个信息单元（ARC IE：控制位），5 字节', '多节点模式 1（一对多） · 测距轮用途 2（DS-TWR） · 分组配置 1（SP1） · 调度模式 1（按时间调度） · 延后模式 1 · 时间结构 1（块式） · 有效轮数 1 · MMRCR 0 · Content Control 0x00（不带块长、轮长、时隙长与会话标识）'],
+      ['第二个信息单元（RR IE：块号与轮号），8 字节', 'Ranging Block Index 0 · Hopping Mode 0 · Round Index 0 · Transmission Offset 0'],
+      ['第三个信息单元（RDM IE：应答方名单），15 字节', '4 台设备：anchor-1 时隙 1、anchor-2 时隙 2、anchor-3 时隙 3、anchor-4 时隙 4'],
     ] },
     { kind: 'table', heading: '每部手机每块定位一次', head: [
       '手机', '它在第 0 块的定位',
@@ -150,7 +151,7 @@ export const uwbBlocks: Lesson = {
     ] },
     { text: '每部手机每秒五次定位，不受另外两部手机的影响，每一次的误差都在 2 cm 以内。' },
     { kind: 'steps', heading: '本课的场景如何编排这张时间表', items: [
-      '（本课的排法）三个长度中只有块长与时隙长是在第一帧发出之前确定、之后不再更改的。轮长由它们导出：测距方法决定时隙数，即每个锚点两个时隙再加两个，轮长就是这么多个时隙。标准的 ARC IE 则直接给出块长、轮长（以时隙个数计）与时隙长。',
+      '（本课的排法）三个长度中只有块长与时隙长是在第一帧发出之前确定、之后不再更改的。轮长由它们导出：测距方法决定时隙数，即每个锚点两个时隙再加两个，轮长就是这么多个时隙。标准的 ARC IE 可以直接给出块长、轮长（以时隙个数计）与时隙长，也可以由上层设定；本课属于后一种。',
       '（本课的分配）第 k 轮属于第 k 部手机，每个块都如此：这里三部手机分到第 0、1、2 轮。',
       '一个时隙的开始时刻由乘法直接算出，无需协商：块号乘块长，加轮号乘轮长，加时隙号乘时隙长。',
       '每个时隙开始时，时间表就指定唯一有权发送的那台设备：时隙 0 是手机的 Poll，接着四个是各锚点按名单顺序的 Response，第六个是 Final，最后四个是各自的 Report。各应答方的时隙由 RDM IE 指定（标准的做法），整轮的这种先后排法是本课的。',
@@ -175,7 +176,7 @@ export const uwbBlocks: Lesson = {
     { kind: 'out-of-scope', text: '场景中的节点始终静止，没有速度，也没有轨迹。于是「每块一次定位、每秒五次」这个速率在本课没有代价：在真实系统中，定位速率决定了标签以多快的速度移动时仍能被跟踪，而静止的标签无法体现滞后、拖尾或跟踪丢失。想知道 200 ms 够不够，这个模型无法回答。' },
   ],
   sources: [
-    'IEEE Std 802.15.4-2024 的 §10.32.2 定义了测距块、测距轮与测距时隙，并规定它们的长度都以 RSTU 为单位；本课的场景另外要求块长与时隙长都是 3 RSTU 的整数倍，这一条是本课的规则，标准正文里没有。§10.29.1.5 与表 10-145 把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns。',
+    'IEEE Std 802.15.4-2024 的 §10.32.2 定义了测距块、测距轮与测距时隙，并规定它们的长度都以 RSTU 为单位，此外不对长度作别的要求。§10.29.1.5 与表 10-145 把 RSTU 定为 416 个码片，在 499.2 Mchip/s 下即 833.333 ns。',
     '开场帧携带的那两张清单是信息元素：§10.32.9.1 的 ARC IE 说明测距方式、调度方式以及块、轮、时隙的长度，§10.32.9.3 的 RR IE 说明本轮在块中的位置（块号与轮号），§10.32.9.8 的 RDM IE 则逐一安排每个应答方在哪个时隙作答。本课把块号与轮号放进了 ARC IE，没有单独的 RR IE，这一点与标准不同。§10.32.3.3 说明块模式下的轮次跳变，本课不使用。',
     '2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值，不是标准正文。',
   ],

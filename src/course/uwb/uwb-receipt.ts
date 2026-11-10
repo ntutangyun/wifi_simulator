@@ -66,11 +66,14 @@ import { mmrcmResponders, roundPlan } from '../../uwb/session'
 export const PARTICIPANTS = 3
 /** Anchors of the two-way variants: three, so their control message is `uwbPollBytes(3)` octets. */
 export const ANCHORS = 3
-/** `rcmValidityRounds` of the two-way variants: one control message for four blocks, so the
- * bitmap there is four bits wide — the dimension many-to-many cannot show (see `limits`). */
+/** `rcmValidityRounds` of the two-way variants: one control message for four rounds, so the
+ * bitmap there is four bits wide — the dimension many-to-many cannot show (see `limits`). The tag
+ * runs that many rounds a block (`initiatorRounds`), since a ranging round set never leaves its block
+ * (standard §10.32.9.1); until 2026-11-10 this was four one-round blocks (audit #23). */
 export const VALIDITY = 4
-/** The blocks of one two-way window, plus the one that opens the next: where the reader sees the
- * window turn over, and the span the ranging-unchanged claim is measured over. */
+/** The rounds of one two-way set, plus the one that opens the next (block 1's first round): where
+ * the reader sees the set turn over, and the span the ranging-unchanged claim is measured over. The
+ * name is kept from when the span was counted in blocks; it counts rounds now. */
 export const BLOCKS = VALIDITY + 1
 /** How far below the others `p-3` transmits, in dB. 14 dB is the margin tests/uwb/mmrcm-round.ts
  * measured this engine's link budget with: enough that nothing decodes it at these distances,
@@ -119,8 +122,8 @@ export function uwbReceiptScenario(mmrcr = true, quiet = true): Scenario {
 
 /**
  * The two-way variant: three anchors and one tag in the 22 × 8 m hall, DS-TWR with embedded reply
- * times so both ends of every block produce a range, and one control message for `VALIDITY`
- * blocks — which is what makes the bitmap four bits wide here.
+ * times so both ends of every round produce a range, and one control message for `VALIDITY`
+ * rounds of one block — which is what makes the bitmap four bits wide here.
  *
  * `mmrcr` is the one knob the two variants differ in, which is what lets the reader read the
  * request's cost off two runs of the same room.
@@ -134,7 +137,7 @@ export function uwbReceiptTwrScenario(mmrcr = true): Scenario {
       anchor('anchor-3', 'A3', 11, 7.5),
       uwbTag('uwb-1', 'Tag', 11, 4),
     ],
-    { method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds: VALIDITY, mmrcr },
+    { method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds: VALIDITY, initiatorRounds: VALIDITY, mmrcr },
   )
 }
 
@@ -186,7 +189,7 @@ export const CAP = uwbMaxMmrcmInitiators(VALIDITY)
 export const RCM_BYTES = uwbPollBytes(ANCHORS)
 export const INIT_BYTES = uwbInitBytes()
 
-/** Bitmap width in each scene: one bit per window block, rounded up to an octet. */
+/** Bitmap width in each scene: one bit per round of the set, rounded up to an octet. */
 export const BITS = {
   m2m: M2M_SESSION.rcmValidityRounds,
   twr: VALIDITY,
@@ -213,12 +216,13 @@ export const M2M = {
   ranges: 1,
 } as const
 
-/** What the two-way variants measure over `BLOCKS` blocks, with the request on and off. */
+/** What the two-way variants measure over `BLOCKS` rounds, with the request on and off. */
 export const TWR = {
-  /** Ranging records, field for field identical either way: both ends of every block. */
+  /** Ranging records, field for field identical either way: both ends of every round. */
   ranges: 2 * ANCHORS * BLOCKS,
-  /** Confirmations, all of them from the one window-closing block in this span. */
+  /** Confirmations, all of them from the one set-closing round in this span. */
   confirmations: ANCHORS,
+  /** The set-closing round: round `VALIDITY − 1` of block 0. */
   block: VALIDITY - 1,
 } as const
 
@@ -262,11 +266,11 @@ export const uwbReceipt: Lesson = {
   id: 'uwb-receipt',
   module: 22,
   title: '谁收到了我的帧',
-  why: '多对多测距那一课的结尾留下一个问题。一轮里每一对的距离只有排在前面的那个参与者算得出来，排在最后的那个发送全轮最长的一帧，自己一条距离也算不出。更重要的是另一半：它不知道有哪些设备收到了它的帧。在本课的多对多排法里，一次发送的收妥情况只会被排在它后面的参与者写入各自的帧，从不返回发送者，而最后那个参与者之后再没有设备发送。标准里有一节可以回答这个问题（§10.36）：控制器在控制消息的 ARC 信息单元里置一位，请求接收方确认；接收方回复一帧多消息收妥确认，帧中按发起方分条目，每个条目一张收妥位图（bitmap）。标准规定位图的一位对应一个时隙，收到那个时隙里的消息记 1；本课的场景改为一位对应一个块的开场消息，并在窗口最后一块的一轮之后为每个接收方额外安排一个时隙——这两点都是本课的安排。代价全部在回复一侧：请求位就在控制消息原有的字段里，开场消息一个字节也不增加；消耗的是那几帧回复，而它们不带任何时间量，测距结果完全相同。两个计数要分开：条目按发起方计数，时隙和帧按响应方计数——双向轮里一个响应方只收到一个发起方的帧，两种计数给出同一个数，多对多里按发起方计数则时隙不够用。基础场景里最后那个参与者的发射功率（transmit power）被调低，它从其他参与者的回复里读到的全是零：没有任何设备收到它的帧。这和测距消息未收到交互回答的是同一个问题，差别在粒度和由谁发起：那一种逐轮、由响应方自行发送，这一种在本课里每个窗口一帧、由控制器请求。',
+  why: '多对多测距那一课的结尾留下一个问题。一轮里每一对的距离只有排在前面的那个参与者算得出来，排在最后的那个发送全轮最长的一帧，自己一条距离也算不出。更重要的是另一半：它不知道有哪些设备收到了它的帧。在本课的多对多排法里，一次发送的收妥情况只会被排在它后面的参与者写入各自的帧，从不返回发送者，而最后那个参与者之后再没有设备发送。标准里有一节可以回答这个问题（§10.36）：控制器在控制消息的 ARC 信息单元里置一位，请求接收方确认；接收方回复一帧多消息收妥确认，帧中按发起方分条目，每个条目一张收妥位图（bitmap）。标准规定位图的一位对应一个时隙，收到那个时隙里的消息记 1；本课的场景改为一位对应一轮的开场消息，并在窗口最后一轮之后为每个接收方额外安排一个时隙——这两点都是本课的安排。代价全部在回复一侧：请求位就在控制消息原有的字段里，开场消息一个字节也不增加；消耗的是那几帧回复，而它们不带任何时间量，测距结果完全相同。两个计数要分开：条目按发起方计数，时隙和帧按响应方计数——双向轮里一个响应方只收到一个发起方的帧，两种计数给出同一个数，多对多里按发起方计数则时隙不够用。基础场景里最后那个参与者的发射功率（transmit power）被调低，它从其他参与者的回复里读到的全是零：没有任何设备收到它的帧。这和测距消息未收到交互回答的是同一个问题，差别在粒度和由谁发起：那一种逐轮、由响应方自行发送，这一种在本课里每个窗口一帧、由控制器请求。',
   outcomes: [
     '说清请求为什么一个字节也不额外占用，而回复为什么需要一整帧',
     '分清两个计数：信息单元的列表条目按发起方数，时隙与帧按响应方数',
-    '读出一张收妥位图，并分清标准的「一位对应一个时隙」与本课的「一位对应一个块的开场消息」',
+    '读出一张收妥位图，并分清标准的「一位对应一个时隙」与本课的「一位对应一轮的开场消息」',
     '说出它和测距消息未收到交互的差别：逐轮还是整个窗口，由谁主动发送',
   ],
   needs: ['uwb-m2m', 'uwb-rcm-validity'],
@@ -288,7 +292,7 @@ export const uwbReceipt: Lesson = {
     },
     {
       heading: '一帧回答由什么组成',
-      text: `这一帧没有一个时间量，所以它也不进测距的算式。帧头（MAC header）${UWB_MHR_BYTES} 字节之后是唯一的信息单元：两字节的单元头、一个标志字节（说明条目里带不带地址、地址多长）、一个字节写明列表里有几个条目，然后一个条目一个发起方——短地址 ${RMMRC_ADDR_BYTES} 字节，加上那张位图。标准规定位图一位对应一个时隙，长度是被确认的时隙数除以 8 向上取整的字节数；本课改为按窗口的块数计算，一块一位，不足一字节时补足一字节，所以多对多里它 ${BITS.octets} 字节、${BITS.m2m} 位。最后是 ${UWB_FCS_BYTES} 字节帧校验。`,
+      text: `这一帧没有一个时间量，所以它也不进测距的算式。帧头（MAC header）${UWB_MHR_BYTES} 字节之后是唯一的信息单元：两字节的单元头、一个标志字节（说明条目里带不带地址、地址多长）、一个字节写明列表里有几个条目，然后一个条目一个发起方——短地址 ${RMMRC_ADDR_BYTES} 字节，加上那张位图。标准规定位图一位对应一个时隙，长度是被确认的时隙数除以 8 向上取整的字节数；本课改为按窗口的轮数计算，一轮一位，不足一字节时补足一字节，所以多对多里它 ${BITS.octets} 字节、${BITS.m2m} 位。最后是 ${UWB_FCS_BYTES} 字节帧校验。`,
     },
     {
       kind: 'diagram', heading: `一帧 ${BYTES.m2m} 字节，两个条目`, spec: uwbReceiptFields(),
@@ -310,8 +314,8 @@ export const uwbReceipt: Lesson = {
       kind: 'steps', heading: '一次收妥确认的完整过程',
       items: [
         '控制器在控制消息的 ARC 信息单元里把第 15 位置 1。这一位和有效轮次那六位在同一个控制字段里，所以这一帧的字节数没有任何变化。本课的双向轮里控制器就是发起方；本课的多对多场景里没有控制消息，这一位是场景事先给定的设置。',
-        '每个响应方仍然接收开场消息、仍然进行测距应答。它额外做一件事：记录「这个发起方第几块的开场消息我已解出」，一个发起方一张位图（本课的记录方式；标准按时隙记录）。',
-        '（本课的安排，标准没有规定回复在哪里发送）在窗口的最后一块，一轮结束之后额外安排几个时隙，一个响应方一个。',
+        '每个响应方仍然接收开场消息、仍然进行测距应答。它额外做一件事：记录「这个发起方第几轮的开场消息我已解出」，一个发起方一张位图（本课的记录方式；标准按时隙记录）。',
+        '（本课的安排，标准没有规定回复在哪里发送）在这组轮的最后一轮结束之后额外安排几个时隙，一个响应方一个。',
         '每个响应方在自己的时隙发送一帧：它有权作答的每个发起方各占一个条目，条目里是那个发起方的地址和它那张位图。本课双向轮里有权作答的条件和测距消息未收到交互一样——必须持有一条仍然有效的控制消息，否则这个时隙本来就不属于它。',
         '发起方接收这一帧，从自己那个条目里读出哪几位是 0。本课的位图不跨窗口保留：进入新窗口而只有上个窗口的记录时，全部按未收到处理，因为上个窗口的位图不是一个不够准确的答案，而是一个错误的答案。',
       ],
@@ -323,7 +327,7 @@ export const uwbReceipt: Lesson = {
         ['粒度', '逐轮', '本课取整个有效期窗口（标准逐时隙确认）'],
         ['谁发起', '响应方自行决定发送', '控制器在控制消息里请求'],
         ['表达的内容', '本轮的启动消息我没收到', '你那几条开场消息我收到了哪几条'],
-        ['何时发送', '缺少开场消息的那一轮，在自己的时隙里', '本课在窗口的最后一块、额外安排的时隙里'],
+        ['何时发送', '缺少开场消息的那一轮，在自己的时隙里', '本课在这组最后一轮之后、额外安排的时隙里'],
       ],
     },
     {
@@ -336,27 +340,27 @@ export const uwbReceipt: Lesson = {
       kind: 'table', heading: '请求与回复，代价在哪一侧',
       head: ['量什么', '请求位关闭', '请求位开启'],
       rows: [
-        ['窗口第一块的开场消息', `${RCM_BYTES} 字节`, `${RCM_BYTES} 字节`],
-        ['窗口其余各块的开场消息', `${INIT_BYTES} 字节`, `${INIT_BYTES} 字节`],
-        ['窗口最后一块额外的时隙', `${SLOTS.off} 个`, `${SLOTS.twrExtra} 个`],
+        ['这组第一轮的开场消息', `${RCM_BYTES} 字节`, `${RCM_BYTES} 字节`],
+        ['这组其余各轮的开场消息', `${INIT_BYTES} 字节`, `${INIT_BYTES} 字节`],
+        ['这组最后一轮额外的时隙', `${SLOTS.off} 个`, `${SLOTS.twrExtra} 个`],
         ['回复的 MMRCM', '0 帧', `${TWR.confirmations} 帧，各 ${BYTES.twr} 字节`],
       ],
     },
     {
       heading: '请求不花空口时间（airtime）',
-      text: `上面那张表是在三个锚点（anchor）、一条控制消息对 ${VALIDITY} 个块有效的双向轮变体中测得的。两次运行里开场消息逐帧相同：第一块 ${RCM_BYTES} 字节、其余各块 ${INIT_BYTES} 字节，信息单元那一列也一样。原因是请求位本来就在既有的字段里——有效轮次占控制字段的第 9 到 14 位，这个请求位是紧接着的第 15 位，那两个字节本来就在每一条控制消息里。所以请求一次收妥确认，请求这一侧一个字节也不额外占用；占用空口的是那几帧回复。`,
+      text: `上面那张表是在三个锚点（anchor）、一条控制消息对同一块里 ${VALIDITY} 轮有效的双向轮变体中测得的。两次运行里开场消息逐帧相同：第一轮 ${RCM_BYTES} 字节、其余各轮 ${INIT_BYTES} 字节，信息单元那一列也一样。原因是请求位本来就在既有的字段里——有效轮次占控制字段的第 9 到 14 位，这个请求位是紧接着的第 15 位，那两个字节本来就在每一条控制消息里。所以请求一次收妥确认，请求这一侧一个字节也不额外占用；占用空口的是那几帧回复。`,
     },
     {
       kind: 'formula',
       text: `MMRCM = 帧头 ${UWB_MHR_BYTES} + 单元固定部分 ${RMMRC_FIXED_BYTES} + N × (地址 ${RMMRC_ADDR_BYTES} + 位图 ⌈R/8⌉) + 帧校验 ${UWB_FCS_BYTES}`,
-      note: `N 是这一帧里的条目数，也就是它回复几个发起方；R 是窗口有几块（本课按块数计位图；标准按被确认的时隙数计）。R 不超过 8 时位图一个字节，于是一个发起方 ${ENTRY_BYTES.twr} 字节，整帧 ${uwbMmrcmBytes(0, VALIDITY)} + ${ENTRY_BYTES.twr}N：${LIST.map((n) => `${n} 个发起方 ${uwbMmrcmBytes(n, VALIDITY)} 字节`).join('、')}。一帧装不下无限多个条目，上限和别处一样是算出来的：R = ${VALIDITY} 时最多 ${CAP} 个发起方，再多就超过一帧的载荷（payload）上限。`,
+      note: `N 是这一帧里的条目数，也就是它回复几个发起方；R 是这组有几轮（本课按轮数计位图；标准按被确认的时隙数计）。R 不超过 8 时位图一个字节，于是一个发起方 ${ENTRY_BYTES.twr} 字节，整帧 ${uwbMmrcmBytes(0, VALIDITY)} + ${ENTRY_BYTES.twr}N：${LIST.map((n) => `${n} 个发起方 ${uwbMmrcmBytes(n, VALIDITY)} 字节`).join('、')}。一帧装不下无限多个条目，上限和别处一样是算出来的：R = ${VALIDITY} 时最多 ${CAP} 个发起方，再多就超过一帧的载荷（payload）上限。`,
     },
     {
       kind: 'table', heading: '两个维度，没有哪个场景同时取到较大值',
       head: ['场景', '条目数', '位图宽度'],
       rows: [
         [`多对多，${PARTICIPANTS} 个参与者`, `${M2M_ENTRIES} 个`, `${BITS.m2m} 位`],
-        [`双向轮，${ANCHORS} 个锚点，一条控制消息对 ${VALIDITY} 块有效`, `${TWR_ENTRIES} 个`, `${BITS.twr} 位`],
+        [`双向轮，${ANCHORS} 个锚点，一条控制消息对 ${VALIDITY} 轮有效`, `${TWR_ENTRIES} 个`, `${BITS.twr} 位`],
       ],
     },
     {
@@ -365,23 +369,23 @@ export const uwbReceipt: Lesson = {
     },
     {
       heading: '回复是一条额外的消息，不是测量的一部分',
-      text: `双向轮变体在 ${BLOCKS} 个块里测得 ${TWR.ranges} 条测距结果，而开启和关闭这个请求，这 ${TWR.ranges} 条完全相同——距离、品质因数（figure of merit, FoM）、块号、时刻，没有任何一个数发生变化。额外的时隙安排在一轮之后，不插入轮中；额外的帧不带任何时间量，也不参与任何计算。所以这一节带来的是「谁收到了我的帧」这条信息，不是更准确的距离。`,
+      text: `双向轮变体在 ${BLOCKS} 轮里测得 ${TWR.ranges} 条测距结果，而开启和关闭这个请求，这 ${TWR.ranges} 条完全相同——距离、品质因数（figure of merit, FoM）、块号、时刻，没有任何一个数发生变化。额外的时隙安排在一轮之后，不插入轮中；额外的帧不带任何时间量，也不参与任何计算。所以这一节带来的是「谁收到了我的帧」这条信息，不是更准确的距离。`,
     },
   ],
   deeper: [
     {
-      heading: '双向轮里只有一个块的窗口不值得占用一帧',
-      text: '本仿真器不接受「双向轮 + 一条控制消息只对一块有效 + 请求收妥确认」这个组合。这是模型的取舍，理由是那一帧不能提供新信息：窗口只有一块，位图就只有一位，而那一位的内容发起方早已知道——响应方在自己的时隙里作答，这件事本身就说明它收到了这一块的开场消息；它沉默，发起方得到一次超时。一位的位图在那里只是一帧无谓占用的空口时间。多对多里同一个判断的结论相反：那里窗口也只有一块、位图也只有一位，但一个参与者的发送只会向后转达，所以这一位是整个模式里唯一会反过来告诉它「你的帧已被接收」的信息。同一个字段在两个模式里一个应拒绝、一个应保留，分界线不在位数上，而在「是否已有其他帧表达过这件事」。',
+      heading: '双向轮里只有一轮的轮次组不值得占用一帧',
+      text: '本仿真器不接受「双向轮 + 一条控制消息只对一轮有效 + 请求收妥确认」这个组合。这是模型的取舍，理由是那一帧不能提供新信息：这组只有一轮，位图就只有一位，而那一位的内容发起方早已知道——响应方在自己的时隙里作答，这件事本身就说明它收到了这一轮的开场消息；它沉默，发起方得到一次超时。一位的位图在那里只是一帧无谓占用的空口时间。多对多里同一个判断的结论相反：那里一组也只有一轮、位图也只有一位，但一个参与者的发送只会向后转达，所以这一位是整个模式里唯一会反过来告诉它「你的帧已被接收」的信息。同一个字段在两个模式里一个应拒绝、一个应保留，分界线不在位数上，而在「是否已有其他帧表达过这件事」。',
     },
     {
       heading: '位图过期比位图不完整更重要',
-      text: '响应方对每个发起方只保存一张位图，同时记录它属于哪个窗口。进入新窗口而保存的那张属于上个窗口时，本课的做法不是继续使用它，而是整张按未收到处理：窗口的起点由块号算出，窗口一变就整张更换。这一步看似清理，实际上关系到答案是否正确：一张来自上个窗口的位图，位数相同、读起来同样合理，而它表达的是另外几条消息是否收到。凡是跨轮保留的状态都有同样的要求——它可以存在，但必须会过期，而且过期要表现为「我什么也不知道」，而不是表现为「仍和上次相同」。',
+      text: '响应方对每个发起方只保存一张位图，同时记录它属于哪个窗口。进入新窗口而保存的那张属于上个窗口时，本课的做法不是继续使用它，而是整张按未收到处理：窗口（轮次组）的起点由块号与轮号算出，窗口一变就整张更换。这一步看似清理，实际上关系到答案是否正确：一张来自上个窗口的位图，位数相同、读起来同样合理，而它表达的是另外几条消息是否收到。凡是跨轮保留的状态都有同样的要求——它可以存在，但必须会过期，而且过期要表现为「我什么也不知道」，而不是表现为「仍和上次相同」。',
     },
   ],
   limits: [
     {
       kind: 'model-value',
-      text: '位图的一位对应什么，本课与标准不同。标准规定位图的每一位对应所确认的那几轮里的一个时隙，按时间先后排列：收到那个时隙里的消息记 1，没收到或那条消息不是发给它的记 0，位图长度是时隙数除以 8 向上取整（§10.36.2.1）。本课改为一位对应当前控制消息有效期窗口里该发起方发出的一条开场消息，一块一位，位图宽度按窗口的块数算，窗口起点按块号算。这样取的理由是两端本来就对这个边界有共识，不必再协商一个新的；代价是本课的位图不逐时隙确认，也确认不了开场消息之外的帧，位图宽度永远等于窗口的块数。',
+      text: '位图的一位对应什么，本课与标准不同。标准规定位图的每一位对应所确认的那几轮里的一个时隙，按时间先后排列：收到那个时隙里的消息记 1，没收到或那条消息不是发给它的记 0，位图长度是时隙数除以 8 向上取整（§10.36.2.1）。本课改为一位对应当前轮次组（这条控制消息管辖的那几轮）里该发起方发出的一条开场消息，一轮一位，位图宽度按窗口的轮数算，窗口起点按块号与轮号算。这样取的理由是两端本来就对这个边界有共识，不必再协商一个新的；代价是本课的位图不逐时隙确认，也确认不了开场消息之外的帧，位图宽度永远等于窗口的轮数。',
     },
     {
       kind: 'unmodelled',
@@ -397,13 +401,13 @@ export const uwbReceipt: Lesson = {
     },
     {
       kind: 'model-value',
-      text: '没有哪一种配置能使这个信息单元的两个维度同时取到较大值。多对多里本课把有效期窗口固定为一块（本课的这个模式没有独立的控制消息，有效轮次只能是 1），所以那里位图永远只有一位——取到较大值的是列表那一维，一帧里 N−1 个条目。双向轮则相反：窗口可以有四块，位图四位，而一个响应方只收得到一个发起方的帧，列表永远只有一个条目。所以本课那张「两个维度」的表是两个场景各出一半，而不是一个场景的两列；一帧既包含多个条目、每个条目又有多位的情形，本仿真器目前无法产生。',
+      text: '没有哪一种配置能使这个信息单元的两个维度同时取到较大值。多对多里本课把有效期窗口固定为一轮（本课的这个模式没有独立的控制消息，有效轮次只能是 1，每块也只有一轮），所以那里位图永远只有一位——取到较大值的是列表那一维，一帧里 N−1 个条目。双向轮则相反：窗口可以有四轮，位图四位，而一个响应方只收得到一个发起方的帧，列表永远只有一个条目。所以本课那张「两个维度」的表是两个场景各出一半，而不是一个场景的两列；一帧既包含多个条目、每个条目又有多位的情形，本仿真器目前无法产生。',
     },
   ],
   sources: [
     `IEEE Std 802.15.4-2024 §10.36 是多消息收妥确认，§10.36.2.1 是 RMMRC 信息单元的内容字段（Address Present、Address Size、MMRC List Length、MMRC List）；请求位（MMRCR）是 §10.32.9.1 的 ARC 信息单元内容字段开头控制位里的第 15 位，紧挨着同一节定义的有效轮次字段。位图逐时隙确认的规则在 §10.36.2.1。标准为这一节画的示例图（Figure 10-272）里，多台设备先各自发出多条消息（图中标作 Many-to-Many Messages），再由接收方回复 MMRCM，这也是本课接在多对多之后的原因。本课完全不依赖任何草案。`,
     `字节宽度是本仿真器的取值：帧头 ${UWB_MHR_BYTES}、信息单元头 ${UWB_IE_HDR_BYTES}、RMMRC 固定部分 ${RMMRC_FIXED_BYTES}（单元头加标志与列表长各一字节）、条目里的地址 ${RMMRC_ADDR_BYTES}、位图 ⌈R/8⌉、帧校验 ${UWB_FCS_BYTES}。帧长与条目上限都由这几个宽度算出。2 ms 的测距时隙与 200 ms 的块来自 FiRa 的缺省配置，不是标准正文。`,
-    `本课三个场景：基础场景是 20 × 16 m 大厅里 ${PARTICIPANTS} 个多对多参与者，最后那个发射功率低 ${QUIET_DB} dB；两个变体是 22 × 8 m 大厅里 ${ANCHORS} 个锚点一个标签的双边双向测距（double-sided two-way ranging, DS-TWR），回复时延嵌在帧里，一条控制消息对 ${VALIDITY} 块有效，请求位一开一关。位图里出现 0 的那一位必须来自真实的未收到，而本课的收发判决只比较功率、没有逐帧的衰落起伏（真实信道有），同一个静止场景里要么每条开场消息都收到、要么一条也收不到——所以把设备放到墙后在这里无法得到一张部分为 0 的位图。本课改用发射功率的差别，让一帧里两个条目给出两个不同的答案。`,
+    `本课三个场景：基础场景是 20 × 16 m 大厅里 ${PARTICIPANTS} 个多对多参与者，最后那个发射功率低 ${QUIET_DB} dB；两个变体是 22 × 8 m 大厅里 ${ANCHORS} 个锚点一个标签的双边双向测距（double-sided two-way ranging, DS-TWR），回复时延嵌在帧里，一条控制消息对同一块里的 ${VALIDITY} 轮有效，请求位一开一关。位图里出现 0 的那一位必须来自真实的未收到，而本课的收发判决只比较功率、没有逐帧的衰落起伏（真实信道有），同一个静止场景里要么每条开场消息都收到、要么一条也收不到——所以把设备放到墙后在这里无法得到一张部分为 0 的位图。本课改用发射功率的差别，让一帧里两个条目给出两个不同的答案。`,
   ],
   scenario: () => uwbReceiptScenario(),
   variants: [
@@ -423,7 +427,7 @@ export const uwbReceipt: Lesson = {
     `${M2M.unheard} 这一侧收到两帧回复，位图都是 0；而它自己的那一帧发送了出去，没有任何一台设备收到。整块只有 ${M2M.ranges} 条测距行，不是 ${M2M.pairs} 条。`,
   ],
   tryThis: [
-    `载入「双向轮」变体，跳到第 ${TWR.block} 块的末尾：一轮结束之后多出 ${SLOTS.twrExtra} 个时隙，一个锚点一帧 ${BYTES.twr} 字节，每帧只有一个条目，而那一个条目的位图有 ${BITS.twr} 位。再看前面三块：没有多出任何时隙，也没有多出任何帧。`,
+    `载入「双向轮」变体，跳到第 0 块第 ${TWR.block} 轮的末尾：这一轮结束之后多出 ${SLOTS.twrExtra} 个时隙，一个锚点一帧 ${BYTES.twr} 字节，每帧只有一个条目，而那一个条目的位图有 ${BITS.twr} 位。再看前面三轮：没有多出任何时隙，也没有多出任何帧。`,
     `载入「把请求位关闭」变体，和上一个变体逐项对照：开场消息仍是 ${RCM_BYTES} 和 ${INIT_BYTES} 字节，测距结果仍是 ${TWR.ranges} 条且逐字段相同，减少的只有那 ${SLOTS.twrExtra} 个时隙和那 ${TWR.confirmations} 帧。请求不占用空口，占用空口的是回复。`,
   ],
   quiz: [
@@ -465,7 +469,7 @@ export const uwbReceipt: Lesson = {
         '不作答，这个时隙留空',
       ],
       answer: 1,
-      explain: '窗口起点由块号算出，窗口一变就整张更换。跨轮保留的状态可以存在，但过期要表现为「我什么也不知道」。',
+      explain: '窗口起点由块号与轮号算出，窗口一变就整张更换。跨轮保留的状态可以存在，但过期要表现为「我什么也不知道」。',
     },
   ],
 }

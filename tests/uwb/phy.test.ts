@@ -39,8 +39,14 @@ describe('uwb phy · SP1 BPRF PPDU', () => {
 })
 
 describe('uwb phy · frames and links', () => {
-  it('poll 27 + 3N, response 20 (SS) / 14 (DS), final 14 + 12N, report 24', () => {
-    expect(P.uwbPollBytes(1)).toBe(30); expect(P.uwbPollBytes(4)).toBe(39)
+  // Poll was 27 + 3N until 2026-11-10: its ARC IE carried a block, round and slot index the
+  // standard's ARC IE does not have (audit #9). It is now ARC (control 2 + Content Control 1) plus the
+  // RR IE that carries the block and round indices (§10.32.9.1, §10.32.9.3): 30 + 3N.
+  it('poll 30 + 3N, response 20 (SS) / 14 (DS), final 14 + 12N, report 24', () => {
+    expect(P.uwbPollBytes(1)).toBe(33); expect(P.uwbPollBytes(4)).toBe(42)
+    expect(P.ARC_IE_BYTES).toBe(2 + 3); expect(P.RR_IE_BYTES).toBe(2 + 6)
+    // RCPS: CP Table Length 1 + one 2-octet CP Table Element (§10.32.9.5), so a contention Poll is 35.
+    expect(P.RCPS_IE_BYTES).toBe(2 + 1 + 2); expect(P.uwbPollBytes(4, 'contention')).toBe(35)
     expect(P.uwbRespBytes('ss')).toBe(20); expect(P.uwbRespBytes('ds')).toBe(14)
     expect(P.uwbFinalBytes(4)).toBe(62); expect(P.UWB_REPORT_BYTES).toBe(24)
   })

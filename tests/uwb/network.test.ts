@@ -384,7 +384,7 @@ describe('UwbNetwork — DL-TDoA rounds', () => {
     // the three responders (anchor 1 keeps slot 0 and the Final for itself).
     expect(poll.uwb?.schedule).toEqual(['anc-2', 'anc-3', 'anc-4'])
     expect(poll.uwb?.dl?.rxCounters).toEqual({})
-    expect(poll.uwb?.ies).toEqual(['ARC', 'RDM', 'RRMC', 'TXT'])
+    expect(poll.uwb?.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC', 'TXT'])
     expect(poll.dst).toBe('*')
     const resp = frameOf('uwbResp', 'anc-3')
     expect(Object.keys(resp.uwb?.dl?.rxCounters ?? {})).toEqual(['anc-1'])
@@ -705,7 +705,7 @@ describe('UwbNetwork — contention rounds, two anchors of equal strength', () =
     expect(round.slots).toBe(3) // poll + two response slots
     expect(of(rs, 'UWB_SLOT').filter((r) => r.t < TIGHT_ROUND_NS).map((r) => r.slot)).toEqual([0, 1, 2])
     const poll = of(rs, 'TX_START', 'tag-1')[0].frame
-    expect(poll.uwb?.ies).toEqual(['ARC', 'RCPS', 'RCMA', 'RRMC'])
+    expect(poll.uwb?.ies).toEqual(['ARC', 'RR', 'RCPS', 'RCMA', 'RRMC'])
     expect(poll.uwb?.contention).toEqual({ firstSlot: 1, lastSlot: 2, maxAttempts: 1 })
     expect(poll.uwb?.schedule).toBeUndefined() // nobody is assigned a slot
   })
@@ -734,10 +734,14 @@ describe('UwbNetwork — contention rounds, two anchors of equal strength', () =
   })
 
   it('caps the answers per control message, success or not, and starts again at the next one', () => {
-    // Validity 3, cap 2: in each three-round window an anchor answers twice and then stays silent
-    // (slot null, attempt 0), whether its answers were heard or not; the next control message
-    // starts the count again.
-    const capped = run(uwbScenario(circle(2), [TAG_AT_ORIGIN], { ...TIGHT, rcmValidityRounds: 3, maxAttempts: 2 }), 6 * TIGHT_ROUND_NS - 1)
+    // Validity 3, cap 2: in each three-round ranging round set an anchor answers twice and then stays
+    // silent (slot null, attempt 0), whether its answers were heard or not; the next control message
+    // starts the count again. Since 2026-11-10 the set is three rounds of ONE block (the tag runs
+    // three rounds a block, `initiatorRounds`): a control message never governs a round of the next
+    // block (standard §10.32.9.1), where this used to be three one-round blocks (audit #23).
+    const capped = run(uwbScenario(circle(2), [TAG_AT_ORIGIN], {
+      ...TIGHT, blockRstu: 3 * 900, initiatorRounds: 3, rcmValidityRounds: 3, maxAttempts: 2,
+    }), 6 * TIGHT_ROUND_NS - 1)
     expect(of(capped, 'UWB_CONTEND', 'anc-1').map((r) => [r.slot, r.attempt]))
       .toEqual([[2, 1], [1, 2], [null, 0], [1, 1], [1, 2], [null, 0]])
     expect(of(capped, 'UWB_CONTEND', 'anc-2').map((r) => [r.slot, r.attempt]))
@@ -748,6 +752,38 @@ describe('UwbNetwork — contention rounds, two anchors of equal strength', () =
     // A response slot nobody answered in, or two answers that collided, is not a peer that
     // failed to answer, so no UWB_TIMEOUT is emitted anywhere in the run.
     expect(of(rs, 'UWB_TIMEOUT')).toEqual([])
+  })
+})
+
+describe('UwbNetwork — ranging round sets live inside one block (standard §10.32.3.2, §10.32.9.1)', () => {
+  // Four rounds a tag in a block of four, sets of three: {0,1,2} and the cut-short {3}. The RCM's
+  // validity field is the set's own length, never more than the rounds left in the block, and the
+  // RCMA value it carries is cut to it (§10.32.9.6: it may not exceed that RCM's validity).
+  const sc = uwbScenario(circle(2), [TAG_AT_ORIGIN], {
+    ...TIGHT, blockRstu: 4 * 900, initiatorRounds: 4, rcmValidityRounds: 3, maxAttempts: 3,
+  })
+  const rs = run(sc, 8 * TIGHT_ROUND_NS - 1)
+  const openers = of(rs, 'TX_START', 'tag-1').filter((r) => r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit')
+
+  it('opens a set with an RCM, carries the rest with the initiation message, and starts again in each block', () => {
+    expect(openers.map((r) => [r.frame.uwb?.block, r.frame.uwb?.round, r.frame.kind])).toEqual([
+      [0, 0, 'uwbPoll'], [0, 1, 'uwbInit'], [0, 2, 'uwbInit'], [0, 3, 'uwbPoll'],
+      [1, 0, 'uwbPoll'], [1, 1, 'uwbInit'], [1, 2, 'uwbInit'], [1, 3, 'uwbPoll'],
+    ])
+  })
+
+  it('writes each set\'s own length into the ARC IE, and cuts the RCMA value to it', () => {
+    const rcms = openers.filter((r) => r.frame.kind === 'uwbPoll')
+    expect(rcms.map((r) => r.frame.uwb?.arc?.validityRounds)).toEqual([3, 1, 3, 1])
+    expect(rcms.map((r) => r.frame.uwb?.contention?.maxAttempts)).toEqual([3, 1, 3, 1])
+    // …and the RR IE carries the block and the round the RCM configures.
+    expect(rcms.every((r) => r.frame.uwb?.ies.includes('RR'))).toBe(true)
+  })
+
+  it('counts each responder\'s attempts against the set it is in, never across the block boundary', () => {
+    // Three rounds under the first RCM (cap 3), one under the second (cap 1): every anchor answers in
+    // all four rounds of a block, and its attempt count restarts at each set.
+    expect(of(rs, 'UWB_CONTEND', 'anc-1').map((r) => r.attempt)).toEqual([1, 2, 3, 1, 1, 2, 3, 1])
   })
 })
 

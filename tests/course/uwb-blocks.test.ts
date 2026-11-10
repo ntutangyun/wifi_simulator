@@ -23,7 +23,7 @@ import { STRINGS } from '../../src/ui/i18n'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { roundPlan } from '../../src/uwb/session'
 import {
-  ARC_IE_BYTES, RSTU_CHIPS, rdmIeBytes, rstuNs, uwbFinalBytes, uwbPollBytes, uwbSlotsPerTag,
+  ARC_IE_BYTES, RR_IE_BYTES, RSTU_CHIPS, rdmIeBytes, rstuNs, uwbFinalBytes, uwbPollBytes, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { MODULES } from '../../src/course/curriculum'
@@ -395,26 +395,28 @@ describe('uwb-blocks · the grid', () => {
     expect(ofType(recs(), 'NAV_SET')).toHaveLength(0)
   })
 
-  it('the opening frame carries the whole schedule: a 10-octet list and a 15-octet one', () => {
-    // the picture: "It rides in the phone’s opening frame, as two short lists: one says where in
-    //  the session this round sits, the other names each anchor and the slot it is to answer in."
-    // and the table rows that print both: "Poll, 39 octets" / "Its first list, 10 octets" /
-    // "Its second list, 15 octets".
+  // Rewritten 2026-11-10 (audit #9): the opener used to carry 「two lists」, an ARC IE of 10 octets
+  // holding block, round and slot indices the standard's ARC IE does not have. It now carries the
+  // standard's three: ARC (control bits, 5), RR (block and round indices, 8), RDM (15).
+  it('the opening frame carries the whole schedule: ARC 5, RR 8 and RDM 15 octets', () => {
     const poll = ofType(recs(), 'TX_START').find((r) => r.frame.kind === 'uwbPoll')!.frame
-    expect(cell(0, 3, 1)).toBe('Poll, 39 octets')
-    expect(poll.bytes).toBe(39)
+    expect(cell(0, 3, 1)).toBe('Poll, 42 octets')
+    expect(poll.bytes).toBe(42)
     expect(poll.bytes).toBe(uwbPollBytes(ANCHORS))
     const fields = uwbFrameFields(poll).users[0].subframes[0].mpdu.fields
     const arc = fields.find((f) => f.key === 'ieArc')!
+    const rr = fields.find((f) => f.key === 'ieRr')!
     const rdm = fields.find((f) => f.key === 'ieRdm')!
     expect(arc.bytes).toBe(ARC_IE_BYTES)
-    expect(arc.bytes).toBe(10)
-    // The two cells print what the inspector prints, so they are pinned to the decoder itself
+    expect(arc.bytes).toBe(5)
+    expect(rr.bytes).toBe(8)
+    // The three cells print what the inspector prints, so they are pinned to the decoder itself
     // and not to a re-typed copy of it.
     expect(cell(0, 4, 1)).toBe(arc.value)
+    expect(cell(0, 5, 1)).toBe(rr.value)
     expect(rdm.bytes).toBe(rdmIeBytes(ANCHORS))
     expect(rdm.bytes).toBe(15)
-    expect(cell(0, 5, 1)).toBe(rdm.value)
+    expect(cell(0, 6, 1)).toBe(rdm.value)
     for (const a of ['anchor-1 时隙 1', 'anchor-2 时隙 2', 'anchor-3 时隙 3', 'anchor-4 时隙 4']) {
       expect(rdm.value!, a).toContain(a)
     }
@@ -752,22 +754,24 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
       'the row on the opener')
     expect(sent[0]!.frame.bytes, 'the Poll this round really sends').toBe(pollBytes)
     expect(uwbPollBytes(ANCHORS), 'which is what the engine prices it at').toBe(pollBytes)
-    // 「第一张清单，10 字节」 → ARC, and 「第二张清单，15 字节」 → RDM
-    const [arcBytes] = figs(tb.rows.find((r) => r[0]!.includes('第一张清单'))![0]!, /(\d+) 字节/,
-      'the first list’s own size')
+    // 「第一个信息单元（ARC IE），5 字节」, 「第二个（RR IE），8 字节」 and 「第三个（RDM IE），15 字节」
+    const [arcBytes] = figs(tb.rows.find((r) => r[0]!.includes('ARC IE'))![0]!, /(\d+) 字节/,
+      'the ARC element’s own size')
     expect(arcBytes, 'the ARC element’s own width').toBe(ARC_IE_BYTES)
-    const [rdmBytes] = figs(tb.rows.find((r) => r[0]!.includes('第二张清单'))![0]!, /(\d+) 字节/,
-      'the second list’s own size')
+    const [rrBytes] = figs(tb.rows.find((r) => r[0]!.includes('RR IE'))![0]!, /(\d+) 字节/,
+      'the RR element’s own size')
+    expect(rrBytes, 'the RR element’s own width').toBe(RR_IE_BYTES)
+    const [rdmBytes] = figs(tb.rows.find((r) => r[0]!.includes('RDM IE'))![0]!, /(\d+) 字节/,
+      'the RDM element’s own size')
     expect(rdmBytes, 'the RDM element’s own width at this anchor count').toBe(rdmIeBytes(ANCHORS))
-    // 「SP1 · DS-TWR · 块 0 · 轮 0 · 4 个应答方」 and the RDM's own slot list
+    // 「Ranging Block Index 0 · … · Round Index 0」 and the RDM's own slot list
     const fields = uwbFrameFields(sent[0]!.frame)
     const text = JSON.stringify(fields)
-    const [arcBlock, arcRound, arcResponders] = figs(cellOf('第一张清单'),
-      /块 (\d) · 轮 (\d) · (\d) 个应答方/, 'the ARC cell’s own figures')
-    expect([arcBlock, arcRound], 'the block and round that Poll really opens')
+    const [rrBlock, rrRound] = figs(cellOf('RR IE'),
+      /Ranging Block Index (\d) · Hopping Mode 0 · Round Index (\d)/, 'the RR cell’s own figures')
+    expect([rrBlock, rrRound], 'the block and round that Poll really opens')
       .toEqual([sent[0]!.frame.uwb!.block, sent[0]!.frame.uwb!.round])
-    expect(arcResponders, 'and the responders it names').toBe(ANCHORS)
-    const slots = figs(cellOf('第二张清单'),
+    const slots = figs(cellOf('RDM IE'),
       /(\d) 台设备：anchor-1 时隙 (\d)、anchor-2 时隙 (\d)、anchor-3 时隙 (\d)、anchor-4 时隙 (\d)/,
       'the RDM cell’s own list')
     expect(slots[0], 'the devices that list names').toBe(ANCHORS)
@@ -929,20 +933,19 @@ describe('uwb-blocks · every figure the prose prints, read back out of it', () 
     // the engine counts in whole nanoseconds, so its own RSTU is that figure rounded
     expect(rstuNs(1), 'which is the engine’s own conversion, to the nanosecond').toBe(Math.round(ns!))
     /*
-     * 「本课的场景另外要求块长与时隙长都是 3 RSTU 的整数倍，这一条是本课的规则，标准正文里没有」
-     * — corrected on 2026-11-10: the lesson used to attribute this multiple to §10.32.2, which
-     * only says the lengths are counted in RSTU (no 「3 RSTU」 rule exists anywhere in
-     * 802.15.4-2024). It is the scenario schema's rule, so it is read against the schema: this
-     * session's two lengths satisfy it, and a length one RSTU off is refused for exactly it.
+     * 「并规定它们的长度都以 RSTU 为单位，此外不对长度作别的要求」 — the lesson used to add a
+     * 「3 RSTU 的整数倍」 rule of its own here, and this test read it against the schema. The rule is not
+     * in 802.15.4-2024 (§10.32.2 only counts the lengths in RSTU) and was removed on 2026-11-10 (audit
+     * #10), so what is pinned now is the standard's: a slot one RSTU off the old grid is accepted, and
+     * only a length that is not a whole number of RSTU is refused.
      */
-    const [granule] = figs(SRC, /块长与时隙长都是 (\d) RSTU 的整数倍，这一条是本课的规则/,
-      '`sources` on the granularity')
-    for (const n of [SESSION.blockRstu, SESSION.slotRstu]) {
-      expect(n % granule!, `${n} RSTU is a whole number of them`).toBe(0)
-    }
+    expect(SRC, '`sources` no longer names a rule the standard does not have').not.toContain('3 RSTU')
     expect(() => ScenarioSchema.parse(
       { ...uwbBlocksScenario(2400), uwb: { ...uwbBlocksScenario(2400).uwb!, slotRstu: 2401 } }),
-    'and the schema refuses a slot that is not').toThrow(new RegExp(`${granule} RSTU 的整数倍`))
+    'and the schema accepts any whole number of RSTU').not.toThrow()
+    expect(() => ScenarioSchema.parse(
+      { ...uwbBlocksScenario(2400), uwb: { ...uwbBlocksScenario(2400).uwb!, slotRstu: 2400.5 } }),
+    'and refuses a length that is not one').toThrow()
     // 「2 ms 的测距时隙与 200 ms 的测距块是 FiRa 规范档案里的取值」
     const [slotMs, blkMs] = figs(SRC, /(\d+) ms 的测距时隙与 (\d+) ms 的测距块是 FiRa/,
       '`sources` on the two FiRa values')

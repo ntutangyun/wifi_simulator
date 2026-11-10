@@ -36,7 +36,7 @@
  * the same request and therefore refuses it, and one with the request off.
  *
  * Every number is computed, never typed: `raictIeBytes`, `uwbAncillaryBytes`, `uwbPpduNs`,
- * `roundPlan`, `ancillarySlots`, `blockSlots` and `ancillaryGrantFits` are called, and
+ * `roundPlan`, `ancillarySlots`, `roundSlots` and `ancillaryGrantFits` are called, and
  * tests/course/uwb-ancillary-request.test.ts re-measures each figure against whole blocks.
  */
 import type { Scenario, UwbSessionCfg } from '../../model/scenario'
@@ -45,7 +45,7 @@ import {
 } from '../lessonKit'
 import type { TLRecord } from '../../model/records'
 import { raictIeBytes, uwbAncillaryBytes, uwbPpduNs } from '../../uwb/phy'
-import { ancillaryGrantFits, ancillarySlots, blockSlots, roundPlan } from '../../uwb/session'
+import { ancillaryGrantFits, ancillarySlots, roundPlan, roundSlots } from '../../uwb/session'
 
 /** Anchors of every scene here, and the tag — the same hall `uwb-ancillary` uses, so a reader
  * arriving from it is looking at the same floor plan with one switch added. */
@@ -131,8 +131,8 @@ export const SLOTS = {
   ranging: PLANS.base.slots,
   window: ancillarySlots(PLANS.base),
   windowGranted: ancillarySlots(PLANS.base, REQUEST),
-  block: blockSlots(PLANS.base, 0),
-  blockGranted: blockSlots(PLANS.base, 1, REQUEST),
+  block: roundSlots(PLANS.base, 0),
+  blockGranted: roundSlots(PLANS.base, 0, REQUEST),
   /** The window with no request at all: the message's own frames and nothing else. */
   off: ancillarySlots(PLANS.off),
   contendRanging: PLANS.contend.slots,
@@ -288,7 +288,7 @@ export const uwbAncillaryRequest: Lesson = {
   deeper: [
     {
       heading: '轮的长度本来就随块变化',
-      text: '让一个请求改变后续排程，听上去需要把整张时隙表重新排列，其实不必。前面的课中已经有两处使某些块比其他块长——按本课的排法，收妥确认在窗口的最后一块为每一轮增加几个时隙，辅助信息消息在窗口的第一块为每一轮增加几个时隙，所以「这一块的轮有几个时隙」本来就是一个随块号变化的量。实测结果：一条控制消息覆盖四块时，同一个会话的块 0 与块 4 是九个时隙，块 1、2、3 是五个时隙。所以这个请求改变的不是轮中测距那一段的排布，而是追加部分的宽度——而上一块最后一帧与下一块开头之间有一百八十多毫秒的余量。',
+      text: '让一个请求改变后续排程，听上去需要把整张时隙表重新排列，其实不必。前面的课中已经有两处使某些轮比其他轮长——按本课的排法，收妥确认在一组轮的最后一轮之后增加几个时隙，辅助信息消息在一组轮的第一轮之后增加几个时隙，所以「这一轮有几个时隙」本来就是一个随轮在组里的位置变化的量。实测结果：一条控制消息覆盖四轮、标签每块跑四轮时，同一个会话按标签自己的轮次数，轮 0 与轮 4 是九个时隙，轮 1、2、3 是五个时隙。所以这个请求改变的不是轮中测距那一段的排布，而是追加部分的宽度——而上一块最后一帧与下一块开头之间有一百八十多毫秒的余量。',
     },
     {
       heading: '为什么不把请求附带在最后一帧上',

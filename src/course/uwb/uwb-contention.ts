@@ -101,8 +101,8 @@ export const uwbContention: Lesson = {
     { heading: '没有反馈（§10.32.1 NOTE）', text: '基于竞争的测距里，应答方之间可能发生碰撞，由上层负责筛除不准确或错误的测距结果。标准没有规定应答方怎样在竞争阶段里选时隙，也没有任何消息告诉应答方它的应答有没有被收到。' },
   ],
   implementation: [
-    { topic: '调度模式 0', standard: 'ARC 信息单元的 Schedule Mode 为 0（§10.32.9.1）', sim: '轮询帧带 ARC、RCPS、RCMA、RRMC 四个信息单元，不带 RDM，不为任何锚点指定时隙。', kind: 'faithful' },
-    { topic: 'RCPS 的内容', standard: '阶段表：表长一个字节，每个阶段两个字节，含阶段指示（§10.32.9.5）', sim: '只写竞争阶段的首末时隙号，共两个字节，不分阶段。', kind: 'differs' },
+    { topic: '调度模式 0', standard: 'ARC 信息单元的 Schedule Mode 为 0（§10.32.9.1）', sim: '轮询帧带 ARC、RR、RCPS、RCMA、RRMC 五个信息单元，不带 RDM，不为任何锚点指定时隙；ARC 的 Schedule Mode 为 0，RR 带块号与轮号。', kind: 'faithful' },
+    { topic: 'RCPS 的内容', standard: '阶段表：表长一个字节，每个阶段两个字节，含阶段指示（§10.32.9.5）', sim: '照此写：表长 1，一个阶段——阶段指示 1（应答方竞争），起止时隙 1 到 S；共三个字节。', kind: 'faithful' },
     { topic: '应答方怎样选时隙', standard: '标准未规定', sim: '每个锚点在竞争阶段里均匀随机地选一个时隙；轮询帧所在的第 0 号时隙不在其中。', kind: 'choice' },
     { topic: '竞争阶段的时隙数', standard: '由控制器决定，标准未给出取值', sim: '基准场景 8 个，两个变体分别为 4 个与 16 个；每个时隙 2 ms。', kind: 'value' },
     { topic: '尝试次数上限', standard: '一条控制消息管辖的轮次里最多尝试几次，不超过有效轮数；没有反馈（§10.32.9.6，§10.32.1）', sim: '照此计数：每来一条新的控制消息就重新计数，成功与否都不影响。本课的场景每轮都发一条新的控制消息（有效轮数为 1），所以上限只能是 1：每个锚点每轮应答一次。编辑器拒绝上限大于有效轮数的设置。', kind: 'faithful' },

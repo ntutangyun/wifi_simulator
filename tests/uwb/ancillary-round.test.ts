@@ -31,7 +31,7 @@ import {
 } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM, uwbAncillaryBytes, uwbAncillarySlots, raictIeBytes } from '../../src/uwb/phy'
 import { ANCILLARY_MESSAGE_KIND } from '../../src/uwb/device.ancillary'
-import { ancillarySlots, blockCarriesAncillary, blockSlots, roundPlan } from '../../src/uwb/session'
+import { ancillarySlots, roundCarriesAncillary, roundPlan, roundSlots } from '../../src/uwb/session'
 
 const MS = 1_000_000
 
@@ -402,9 +402,9 @@ describe('what switching the exchange on must not change', () => {
     expect(anc(rs)).toEqual([])
     const p = planOf({ ancillary: false, ancillaryFrames: FRAMES })
     expect(ancillarySlots(p)).toBe(0)
-    for (let block = 0; block < 4; block++) {
-      expect(blockSlots(p, block), `block ${block}`).toBe(p.slots)
-      expect(blockCarriesAncillary(p, block)).toBe(false)
+    for (let round = 0; round < 4; round++) {
+      expect(roundSlots(p, round), `round ${round}`).toBe(p.slots)
+      expect(roundCarriesAncillary(p, round)).toBe(false)
     }
     // …and `uwbAncillarySlots`, the one definition the scenario schema and the scheduler both
     // budget from, answers zero for the feature-off case whatever else is set.
@@ -429,10 +429,12 @@ describe('what switching the exchange on must not change', () => {
      * two-way session, so every record of theirs must be exactly what it was. Expected to pass
      * before the implementation as well as after — it is the guard, not the goal.
      */
+    // twr-ss, twr-ds and dl-tdoa re-captured 2026-11-10: every RCM is three octets longer (ARC IE
+    // to the standard's content, plus the RR IE — audit #9), which moves every later instant.
     const BEFORE: Record<string, string> = {
-      'twr-ss': 'ee01e2cc',
-      'twr-ds': '9014ffdb',
-      'dl-tdoa': '66c943a3',
+      'twr-ss': '70844ca6',
+      'twr-ds': '635ca2e1',
+      'dl-tdoa': '852bd1f3',
       'ul-tdoa': 'a54ed982',
       m2m: '7e4b7a63',
     }
@@ -451,29 +453,34 @@ describe('what switching the exchange on must not change', () => {
 
 // --- The window, reused a third time -------------------------------------------
 
-describe('the window is the RCM validity window, reused — not a second boundary (design §3)', () => {
-  it('sends one message per validity window, at the window\'s opening block', () => {
+describe('the window is the ranging round set, reused — not a second boundary (design §3)', () => {
+  // Rewritten 2026-11-10 (audit #23): this used to pin R = 4 as four one-round BLOCKS, the exchange
+  // in blocks 0 and 4. A control message never governs a round of the next block (§10.32.9.1), so
+  // the set is now R rounds of one block: two sets of four rounds in a block of eight.
+  it('sends one message per ranging round set, at the set\'s first round', () => {
     // §10.35.1 bounds the exchange to the current round plus the rounds the RCM still governs, and
-    // `blockCarriesRcm` is already the one expression for where such a window opens — this is its
-    // third reuse, after §10.34's RMNR and §10.36's receipt bitmap. With R = 4 the exchange runs in
-    // blocks 0 and 4 and in none of the three between, which is what makes the window visible
-    // rather than merely cited.
-    const over = { ancillary: true, ancillaryFrames: FRAMES, rcmValidityRounds: 4 }
+    // `roundCarriesRcm` is already the one expression for where such a set opens — this is its third
+    // reuse, after §10.34's RMNR and §10.36's receipt bitmap. With R = 4 and eight rounds a block
+    // the exchange runs in rounds 0 and 4 and in none of the three after each.
+    const over = { ancillary: true, ancillaryFrames: FRAMES, rcmValidityRounds: 4, initiatorRounds: 8 }
     const p = planOf(over)
-    expect([0, 1, 2, 3, 4, 5].map((b) => blockCarriesAncillary(p, b)))
-      .toEqual([true, false, false, false, true, false])
-    expect([0, 1, 2, 3, 4].map((b) => blockSlots(p, b)))
+    expect([0, 1, 2, 3, 4, 5, 6, 7].map((r) => roundCarriesAncillary(p, r)))
+      .toEqual([true, false, false, false, true, false, false, false])
+    expect([0, 1, 2, 3, 4].map((r) => roundSlots(p, r)))
       .toEqual([p.slots + FRAMES, p.slots, p.slots, p.slots, p.slots + FRAMES])
 
-    const rs = run(scenario(SCENE, over), 6 * BLOCK_NS - MS)
-    const blocks = of(rs, 'TX_START')
+    const rs = run(scenario(SCENE, over), 2 * BLOCK_NS - MS)
+    const at = of(rs, 'TX_START')
       .filter((r) => r.frame.kind === 'uwbAncillary')
-      .map((r) => r.frame.uwb?.block)
-    expect(blocks).toEqual([0, 0, 0, 0, 4, 4, 4, 4])
-    // …and the run really did reach block 5, so the two above are not simply all the blocks there
-    // were.
-    expect(of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map((r) => r.block))
-      .toEqual([0, 1, 2, 3, 4, 5])
+      .map((r) => [r.frame.uwb?.block, r.frame.uwb?.round])
+    expect(at).toEqual([
+      ...Array(FRAMES).fill([0, 0]), ...Array(FRAMES).fill([0, 4]),
+      ...Array(FRAMES).fill([1, 0]), ...Array(FRAMES).fill([1, 4]),
+    ])
+    // …and the run really did range in every one of the sixteen rounds, so the four messages above
+    // are not simply all the rounds there were.
+    expect(of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map((r) => [r.block, r.round]))
+      .toEqual([0, 1].flatMap((b) => [0, 1, 2, 3, 4, 5, 6, 7].map((r) => [b, r])))
   })
 
   it('does not send from a responder that never decoded the control message', () => {

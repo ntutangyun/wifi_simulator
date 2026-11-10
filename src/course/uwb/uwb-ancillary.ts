@@ -38,10 +38,10 @@
  * The scenes, which `uwb-ancillary-loss` loads unchanged (`sameSceneAs`). One 22 × 8 m hall, four
  * anchors and one tag, SS-TWR with the reply time on the Response, four runs differing only in
  * session switches: the base (the exchange on, four frames), a contention-scheduled run, a run
- * whose control message governs `VALIDITY` blocks, and one with the exchange off.
+ * whose control message governs `VALIDITY` rounds of one block, and one with the exchange off.
  *
  * Every number is computed, never typed: `raictIeBytes`, `uwbAncillaryBytes`, `uwbPpduNs`,
- * `roundPlan`, `ancillarySlots`, `blockSlots` and `blockCarriesAncillary` are called, and
+ * `roundPlan`, `ancillarySlots`, `roundSlots` and `roundCarriesAncillary` are called, and
  * tests/course/uwb-ancillary.test.ts re-measures each figure against whole blocks. `MS` and `NS`
  * are exported for the other half, which prints them rather than recomputing them.
  *
@@ -59,7 +59,7 @@ import {
   RAICT_IE_MIN_BYTES, UWB_FCS_BYTES, UWB_IE_HDR_BYTES, UWB_MHR_BYTES,
   raictIeBytes, uwbAncillaryBytes, uwbPpduNs,
 } from '../../uwb/phy'
-import { ancillarySlots, blockCarriesAncillary, blockSlots, roundPlan } from '../../uwb/session'
+import { ancillarySlots, roundCarriesAncillary, roundPlan, roundSlots } from '../../uwb/session'
 
 /** Anchors of every scene here. Four: three time differences for the position fix, and the one
  * headcount every other UWB lesson of this hall uses. (The ancillary window is appended after the
@@ -68,8 +68,10 @@ export const ANCHORS = 4
 /** Frames one ancillary message is segmented across. Four, so Frames Remaining runs 3, 2, 1, 0 —
  * the shortest countdown in which a MIDDLE frame can go missing, which is the lesson's own case. */
 export const FRAMES = 4
-/** `rcmValidityRounds` of the third variant: one control message for four blocks, so the exchange
- * runs in the block that opens the window and in none of the three after it. */
+/** `rcmValidityRounds` of the third variant: one control message for four rounds, so the exchange
+ * runs in the round that opens the ranging round set and in none of the three after it. The tag runs
+ * that many rounds a block (`initiatorRounds`), because a control message governs rounds of its own
+ * block only (standard §10.32.9.1) — so the set is one block's four rounds. */
 export const VALIDITY = 4
 
 /** Where the anchors stand, in metres: no two distances to the tag alike, so a measurement filed
@@ -114,6 +116,12 @@ export function uwbAncillaryScenario(
   return scene({ ancillary: true, ancillaryFrames: FRAMES, ...over })
 }
 
+/** The third variant: one control message governs `VALIDITY` rounds, and the tag runs that many
+ * rounds a block so that the whole ranging round set fits in one block (standard §10.32.9.1). */
+export function uwbAncillaryWindowScenario(): Scenario {
+  return uwbAncillaryScenario({ rcmValidityRounds: VALIDITY, initiatorRounds: VALIDITY })
+}
+
 /** The same hall with the exchange off: the run every «nothing moved» claim is measured against. */
 export function uwbAncillaryOffScenario(): Scenario {
   return scene({ ancillary: false, ancillaryFrames: FRAMES })
@@ -123,7 +131,7 @@ export function uwbAncillaryOffScenario(): Scenario {
 const SESSIONS = {
   base: uwbAncillaryScenario().uwb!,
   contend: uwbAncillaryScenario({ schedule: 'contention' }).uwb!,
-  window: uwbAncillaryScenario({ rcmValidityRounds: VALIDITY }).uwb!,
+  window: uwbAncillaryWindowScenario().uwb!,
   off: uwbAncillaryOffScenario().uwb!,
 } as const
 
@@ -147,18 +155,23 @@ const PLANS = {
 export const SLOTS = {
   ranging: PLANS.base.slots,
   window: ancillarySlots(PLANS.base),
-  block: blockSlots(PLANS.base, 0),
+  block: roundSlots(PLANS.base, 0),
   contendRanging: PLANS.contend.slots,
   contendWindow: ancillarySlots(PLANS.contend),
-  contendBlock: blockSlots(PLANS.contend, 0),
+  contendBlock: roundSlots(PLANS.contend, 0),
   /** What the same message appends with the exchange off: nothing, at any frame count. */
   off: ancillarySlots(PLANS.off),
 } as const
 
-/** Which of the first `VALIDITY + 2` blocks run the exchange when one control message governs
- * `VALIDITY` of them — the window the slice before built, reused rather than reinvented. */
-export const WINDOW_BLOCKS: readonly number[] = [0, 1, 2, 3, 4, 5]
-  .filter((b) => blockCarriesAncillary(PLANS.window, b))
+/** Which of the tag's first `VALIDITY + 2` rounds run the exchange when one control message governs
+ * `VALIDITY` of them — counted across blocks, the tag's g-th round being round `g mod VALIDITY` of
+ * block `⌊g / VALIDITY⌋` (it runs `VALIDITY` rounds a block). The ranging round set, reused rather
+ * than reinvented. */
+export const WINDOW_ROUNDS: readonly number[] = [0, 1, 2, 3, 4, 5]
+  .filter((g) => roundCarriesAncillary(PLANS.window, g % VALIDITY))
+
+/** The tag's running round number of a record of the window variant: block × rounds a block + round. */
+export const tagRoundOf = (rec: { block: number; round: number }): number => rec.block * VALIDITY + rec.round
 
 /** The RAICT IE at each of the four combinations of its two presence bits, and the frame each one
  * builds. Both bits are set in every scene here, which is the longest of the four. */
@@ -297,7 +310,7 @@ export const uwbAncillary: Lesson = {
   deeper: [
     {
       heading: '同一个窗口的第三种用途',
-      text: '§10.35.1 规定这个交换发生在当前这一轮以及控制消息仍然有效的那几轮里，而「有效几轮」正是 ARC 信息单元中的有效轮次字段（§10.32.9.1）。那就是 @uwb-rcm-validity 讲过的那个有效期窗口，所以这里没有新的边界：一条控制消息覆盖四个块时，本课让这条辅助消息只在窗口的第一个块中发送，后面三个块中一帧也没有。这是同一个窗口的第三种用途——前两种是逐轮的未收到交互和本课里覆盖整个窗口的收妥确认——而第三种用法与前两种都不同：前两种用它判定谁有资格作答，这里用它决定这条消息在哪一块发出。',
+      text: '§10.35.1 规定这个交换发生在当前这一轮以及控制消息仍然有效的那几轮里，而「有效几轮」正是 ARC 信息单元中的有效轮次字段（§10.32.9.1）。那就是 @uwb-rcm-validity 讲过的那个有效期窗口，所以这里没有新的边界：一条控制消息覆盖同一块里的四轮时，本课让这条辅助消息只在这组轮的第一轮中发送，后面三轮中一帧也没有。这是同一个窗口的第三种用途——前两种是逐轮的未收到交互和本课里覆盖整个窗口的收妥确认——而第三种用法与前两种都不同：前两种用它判定谁有资格作答，这里用它决定这条消息在哪一轮发出。',
     },
     {
       heading: '竞争式排程下，窗口宽度不同',
@@ -326,12 +339,12 @@ export const uwbAncillary: Lesson = {
   sources: [
     `IEEE Std 802.15.4-2024 §10.35 是测距辅助信息，§10.35.1 给出这个交换的两个角色名与它的时间范围，§10.35.2.1 连同 Figure 10-271 给出 RAICT 信息单元的内容字段（Request、Ranging Or Ancillary Message Number Present、Ranging Or Ancillary Message Number、Frames Remaining）。本课建的是 Request 置 0 的那一半。窗口读的是 §10.32.9.1 的 ARC 信息单元里那个有效轮次字段；同一个信息单元里的 Ranging Round Usage 字段取值 3 表示所管的测距轮用于辅助信息交换。课文里同一个窗口的另外两种用途是 §10.34 的测距消息未收到交互与 §10.36 的多消息收妥确认。竞争式与排程式两种排法出自 §10.32.2，§10.35.1 说这个交换两种都可以。本课完全不依赖任何草案。`,
     `字节宽度是本仿真器的取值：帧头 ${BYTES.mhr}、信息单元头 ${BYTES.ieHdr}、RAICT 最短 ${BYTES.ieMin}（单元头加一个控制字节）、帧校验 ${BYTES.fcs}。信息单元与整帧的长度、空口时间和时隙数都由这几个宽度与场景的设置算出。本课不给出时隙与块的毫秒数，它们和那条消息的截止时刻一起在下一课里（FiRa 的缺省配置，不是标准正文）。`,
-    `本课四个场景是同一个 22 × 8 m 大厅、同样 ${ANCHORS} 个锚点与一个标签、同样的种子，只有会话上的开关不同：基础场景、竞争式排程、一条控制消息管 ${VALIDITY} 个块，以及把这个交换关掉。四个场景都关掉非视距，这是本课的取值，时间戳噪声仍然保留——辅助信息帧根本不计时，所以本课的算式完全不涉及它。丢帧与它的三个结局是下一课的题目，那次测量也在那一课。`,
+    `本课四个场景是同一个 22 × 8 m 大厅、同样 ${ANCHORS} 个锚点与一个标签、同样的种子，只有会话上的开关不同：基础场景、竞争式排程、一条控制消息管同一块里的 ${VALIDITY} 轮，以及把这个交换关掉。四个场景都关掉非视距，这是本课的取值，时间戳噪声仍然保留——辅助信息帧根本不计时，所以本课的算式完全不涉及它。丢帧与它的三个结局是下一课的题目，那次测量也在那一课。`,
   ],
   scenario: () => uwbAncillaryScenario(),
   variants: [
     { label: `竞争式排程：窗口宽 ${SLOTS.contendWindow} 个时隙，起点抽出来`, scenario: () => uwbAncillaryScenario({ schedule: 'contention' }) },
-    { label: `一条控制消息管 ${VALIDITY} 个块：只有窗口的头一块发`, scenario: () => uwbAncillaryScenario({ rcmValidityRounds: VALIDITY }) },
+    { label: `一条控制消息管 ${VALIDITY} 轮：只在第一轮发`, scenario: () => uwbAncillaryWindowScenario() },
     { label: '关闭辅助信息交换', scenario: () => uwbAncillaryOffScenario() },
   ],
   jumps: [

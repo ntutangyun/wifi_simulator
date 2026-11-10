@@ -161,17 +161,20 @@ describe('Guide section 15: reply time / round-trip time', () => {
     expect(guide).toContain('14 + 2A（9 锚点 = 32）')
   })
 
-  it('derives the anchor cap rather than quoting a literal 33 anywhere in the engine', () => {
+  // 33 until 2026-11-10: the Poll (the frame that binds every shape but DS embedded) grew from
+  // 27 + 3A to 30 + 3A when its ARC IE took the standard's content and the RR IE joined it (audit #9),
+  // so the 127-octet PSDU now holds 32 anchors' worth of RDM entries.
+  it('derives the anchor cap rather than quoting a literal 32 anywhere in the engine', () => {
     expect(uwbMaxAnchors('twr', 'ds', 'embedded', 'time')).toBe(9)
-    expect(uwbMaxAnchors('twr', 'ds', 'deferred', 'time')).toBe(33)
-    expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'time')).toBe(33)
-    expect(uwbMaxAnchors('twr', 'ss', 'deferred', 'time')).toBe(33)
-    expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'time')).toBe(33)
+    expect(uwbMaxAnchors('twr', 'ds', 'deferred', 'time')).toBe(32)
+    expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'time')).toBe(32)
+    expect(uwbMaxAnchors('twr', 'ss', 'deferred', 'time')).toBe(32)
+    expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'time')).toBe(32)
     expect(guide).toContain('9')
-    expect(guide).toContain('33')
+    expect(guide).toContain('32')
     // `src/uwb/ranging.ts` never hard-codes the cap the design doc forbids as a literal.
     const ranging = readFileSync(new URL('../../src/uwb/ranging.ts', import.meta.url), 'utf8')
-    expect(ranging).not.toMatch(/\b33\b/)
+    expect(ranging).not.toMatch(/\b32\b/)
   })
 
   it('states which end holds the range in every one of the five shapes (design §7)', () => {
@@ -915,50 +918,54 @@ describe('Guide section 17: RCM validity rounds / RMNR (design §1/§2/§2.2/§3
   const room = { x: 0, y: 0, w: 40, h: 30, name: 'hall' }
   const rcmScenario = (nodes: NodeCfg[], session: Partial<UwbSessionCfg>): Scenario => ({
     rooms: [room], walls: [], nodes, servers: [], seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
-    uwb: { ...DEFAULT_UWB_SESSION, ...session },
+    uwb: { ...DEFAULT_UWB_SESSION, initiatorRounds: 4, ...session },
   })
   const runRcm = (sc: Scenario, untilNs: number): TLRecord[] => new Simulation(sc).runUntil(untilNs).records
   const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLRecord, { type: T }>[] =>
     rs.filter((r) => r.type === type) as never
 
-  // Design §2.2's own worked example: four anchors, four blocks — a tag's successive ranging
-  // rounds are successive blocks here, so the saving has to be read off four of them, not one.
+  // The worked example: four anchors, one ranging round set of four rounds inside one block — the
+  // tag runs four rounds a block (`initiatorRounds`), because a control message never governs a
+  // round of the next block (standard §10.32.9.1). Until 2026-11-10 this was four one-round blocks
+  // (audit #23). `rn` numbers a round across blocks, the way the block index used to.
   const A = 4
+  const ROUNDS = 4
+  const rn = (u: { block: number; round: number }): number => u.block * ROUNDS + u.round
   const SCENE_A: NodeCfg[] = [
     rcmNode('anc-1', 0, 0, 'anchor'), rcmNode('anc-2', 8, 0, 'anchor'),
     rcmNode('anc-3', 0, 6, 'anchor'), rcmNode('anc-4', 8, 6, 'anchor'),
     rcmNode('tag-1', 4, 3, 'tag'),
   ]
   const BLOCK_NS = roundPlan(DEFAULT_UWB_SESSION, A).blockNs
-  const RUN_NS = 4 * BLOCK_NS - 1_000_000
+  const RUN_NS = BLOCK_NS - 1_000_000
   const sceneA = (rcmValidityRounds: number): TLRecord[] =>
     runRcm(rcmScenario(SCENE_A, { method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds }), RUN_NS)
   const openers = (rs: TLRecord[]): { block: number; kind: string; bytes: number }[] =>
     of(rs, 'TX_START')
       .filter((r) => r.node === 'tag-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
-      .map((r) => ({ block: r.frame.uwb?.block ?? -1, kind: r.frame.kind, bytes: r.frame.bytes }))
+      .map((r) => ({ block: r.frame.uwb ? rn(r.frame.uwb) : -1, kind: r.frame.kind, bytes: r.frame.bytes }))
 
-  it('states the two opener sizes and the per-tag, per-four-block saving off whole runs (design §2)', () => {
+  it('states the two opener sizes and the per-set saving off whole runs (design §2)', () => {
     const one = sceneA(1)
     const four = sceneA(4)
     const o1 = openers(one)
     const o4 = openers(four)
-    expect(o1.map((o) => o.block), 'R=1: a block, an opener').toEqual([0, 1, 2, 3])
-    expect(o4.map((o) => o.block), 'R=4: a block, an opener').toEqual([0, 1, 2, 3])
-    expect(o1.map((o) => o.bytes)).toEqual([39, 39, 39, 39])
-    expect(o4.map((o) => o.bytes)).toEqual([39, 14, 14, 14])
+    expect(o1.map((o) => o.block), 'R=1: a round, an opener').toEqual([0, 1, 2, 3])
+    expect(o4.map((o) => o.block), 'R=4: a round, an opener').toEqual([0, 1, 2, 3])
+    expect(o1.map((o) => o.bytes)).toEqual([42, 42, 42, 42])
+    expect(o4.map((o) => o.bytes)).toEqual([42, 14, 14, 14])
     // The two rulers the Guide's own constants use.
-    expect(uwbPollBytes(A)).toBe(39)
+    expect(uwbPollBytes(A)).toBe(42)
     expect(uwbInitBytes()).toBe(14)
 
     const total = (os: { bytes: number }[]): number => os.reduce((s, o) => s + o.bytes, 0)
     const r1Total = total(o1)
     const r4Total = total(o4)
-    expect(r1Total).toBe(156)
-    expect(r4Total).toBe(81)
-    expect(r1Total - r4Total).toBe(75)
+    expect(r1Total).toBe(168)
+    expect(r4Total).toBe(84)
+    expect(r1Total - r4Total).toBe(84)
     const perBlock = ((r1Total - r4Total) / 4).toFixed(2)
-    expect(perBlock).toBe('18.75')
+    expect(perBlock).toBe('21.00')
 
     // Every figure the Guide's prose states, quoted back from this same run.
     expect(zh).toContain(`${uwbPollBytes(A)} / ${uwbInitBytes()} / ${uwbInitBytes()} / ${uwbInitBytes()}`)
@@ -967,19 +974,19 @@ describe('Guide section 17: RCM validity rounds / RMNR (design §1/§2/§2.2/§3
     expect(zh).toContain(`>${r1Total - r4Total}<`)
     expect(zh).toContain(`>${perBlock}<`)
     // The table cell for the first-round frame length, and the flat 14 of the rest.
-    expect(zh).toContain(`27 + 3A（${A} 个锚点 = ${uwbPollBytes(A)}）`)
+    expect(zh).toContain(`30 + 3A（${A} 个锚点 = ${uwbPollBytes(A)}）`)
 
     // The measurement itself is untouched: every UWB_RANGE record agrees field for field.
     const ranges = (rs: TLRecord[]): unknown[] => of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
-    expect(ranges(one).length, 'DS embedded: a range at each end of each block').toBe(2 * A * 4)
+    expect(ranges(one).length, 'DS embedded: a range at each end of each round').toBe(2 * A * 4)
     expect(ranges(four)).toEqual(ranges(one))
   })
 
-  it('sends no ARC and no RDM after the first block of a validity window (design §2.1)', () => {
+  it('sends no ARC, RR or RDM after the first round of a ranging round set (design §2.1)', () => {
     const o4 = of(sceneA(4), 'TX_START')
       .filter((r) => r.node === 'tag-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
       .map((r) => [...(r.frame.uwb?.ies ?? [])])
-    expect(o4[0]).toEqual(['ARC', 'RDM', 'RRMC'])
+    expect(o4[0]).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
     for (const ies of o4.slice(1)) {
       expect(ies).toEqual(['RRMC'])
       expect(ies).not.toContain('RDM')
@@ -1001,7 +1008,8 @@ describe('Guide section 17: RCM validity rounds / RMNR (design §1/§2/§2.2/§3
       rcmValidityRounds: 4, rmnr,
     })
     const sim = new Simulation(sc)
-    const before = sim.runUntil(BLOCK_NS / 2).records
+    // Rounds run back to back now: the move lands a microsecond before round 0 ends.
+    const before = sim.runUntil(roundPlan(sc.uwb!, A).roundNs - 1000).records
     const walker = nodes.find((n) => n.id === 'anc-walk')!
     walker.pos.y = 16
     walker.pos.x = 0
@@ -1179,7 +1187,8 @@ describe('Guide section 18: receipt confirmation (standard §10.36; design §1-�
     seed: 7, rtsThresholdBytes: 3000, snapshotIntervalMs: 10,
     uwb: {
       ...DEFAULT_UWB_SESSION, method: 'ds', replyTime: 'embedded', nlos: false,
-      rcmValidityRounds: 4, mmrcr,
+      // A four-round set lives in one block (standard §10.32.9.1): four rounds a block.
+      rcmValidityRounds: 4, initiatorRounds: 4, mmrcr,
     },
   })
 
@@ -1309,7 +1318,10 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
   it('against SP1 deferred, there is a crossover at A = 4, and the pre-crossover gaps match the ones the report measured (sp3-design §2.3)', () => {
     const gap = (a: number): number => sp3RoundNs(a, false) - sp1DeferredRoundNs(a)
     expect(Math.round(gap(1) / 100) / 10).toBeCloseTo(103.8, 1)
-    expect(Math.round(gap(2) / 100) / 10).toBeCloseTo(66.6, 1)
+    // 66.6 until 2026-11-10: both rounds' RCM grew three octets (ARC IE to the standard's content plus
+    // the RR IE, audit #9) and the two PPDUs cross a symbol-block boundary differently at A = 2. The
+    // crossover itself does not move.
+    expect(Math.round(gap(2) / 100) / 10).toBeCloseTo(72.8, 1)
     expect(Math.round(gap(3) / 100) / 10).toBeCloseTo(35.6, 1)
     expect(gap(1)).toBeGreaterThan(0)
     expect(gap(2)).toBeGreaterThan(0)

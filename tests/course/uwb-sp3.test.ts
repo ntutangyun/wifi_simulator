@@ -349,7 +349,7 @@ describe('uwb-sp3 · the round totals, measured from rounds that ran', () => {
     expect(sp3 - def > 0, `A=${a}`).toBe(a < PAY.crossover)
   })
 
-  it(`「三种轮形，同一个场景」: the ${ANCHORS}-anchor row of each, and the 1.600 µs the base scene is`, () => {
+  it(`「三种轮形，同一个场景」: the ${ANCHORS}-anchor row of each, and the 7.755 µs the base scene is`, () => {
     expect(roundNs(run(uwbSp3Scenario(), ONE_ROUND_NS))).toBeCloseTo(ROUND.sp3, 6)
     expect(roundNs(run(uwbSp1Scenario('deferred'), ONE_ROUND_NS))).toBeCloseTo(ROUND.deferred, 6)
     expect(roundNs(run(uwbSp1Scenario('embedded'), ONE_ROUND_NS))).toBeCloseTo(ROUND.embedded, 6)
@@ -359,13 +359,16 @@ describe('uwb-sp3 · the round totals, measured from rounds that ran', () => {
     expect(roundNs(run(uwbSp3Scenario({ raoa: true, rrtt: true }), ONE_ROUND_NS)))
       .toBeCloseTo(ROUND.sp3Both, 6)
     expect(ROUND.sp3Both - ROUND.sp3Rrtt).toBeCloseTo(ANCHORS * (NS.reportRaoa - NS.report), 6)
+    // 956.347 / 1668.911 / 1667.311 / 1889.552 until 2026-11-10: every RCM grew three octets (ARC IE to
+    // the standard's content, plus the RR IE — audit #9), and at four anchors the SP1 Poll crosses into
+    // a second Reed–Solomon block while the longer SP3 RCM was already in its second.
     expect([us(ROUND.embedded), us(ROUND.deferred), us(ROUND.sp3), us(ROUND.sp3Both)])
-      .toEqual(['956.347', '1668.911', '1667.311', '1889.552'])
-    // the observe line: the base scene sits 1.600 µs the right side of the deferred round
-    expect(us(Math.abs(GAP.vsDeferred[ANCHORS - 1]))).toBe('1.600')
+      .toEqual(['965.578', '1678.142', '1670.387', '1892.628'])
+    // the observe line: the base scene sits 7.755 µs (1.600 before the 2026-11-10 RCM correction) the right side of the deferred round
+    expect(us(Math.abs(GAP.vsDeferred[ANCHORS - 1]))).toBe('7.755')
     expect(GAP.vsDeferred[ANCHORS - 1]).toBeLessThan(0)
     // and the tryThis line: with both request bits on it is longer again
-    expect(us(ROUND.sp3Both - ROUND.deferred)).toBe('220.641')
+    expect(us(ROUND.sp3Both - ROUND.deferred)).toBe('214.486') // 220.641 before the 2026-11-10 RCM correction
   })
 
   it('「报告相位 … 整轮最长的一段」: the figure sums to the round, phase by phase', () => {
@@ -437,7 +440,7 @@ describe('uwb-sp3 · both SRRR request bits really change the air', () => {
     expect(rcm(on)).toBe(rcm(off))
     // one 'SRRR' label in the frame's own IE list, A entries' worth of octets in its length: the
     // frame inspector is what expands it into one row per responder (uwb/frameFields.ts).
-    expect(air(off).find((f) => f.slot === 0)!.ies).toEqual(['ARC', 'RDM', 'RRMC', 'SRRR'])
+    expect(air(off).find((f) => f.slot === 0)!.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'])
   })
 })
 

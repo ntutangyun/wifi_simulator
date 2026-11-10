@@ -577,10 +577,10 @@ describe('uwb-ul-tdoa · what one nanosecond buys', () => {
 })
 
 describe('uwb-ul-tdoa · blink, or listen', () => {
-  it('"a listening round costs the anchors 0.505 % of the block", on the listen-only scene', () => {
+  it('"a listening round costs the anchors 0.507 % of the block", on the listen-only scene', () => {
     const dl = runExtra('dl-ten', () => uwbDlTdoaScenario('ten'))
     const air = ofType(dl, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
-    expect((air / BLOCKS / (200 * MS) * 100).toFixed(3)).toBe('0.505')
+    expect((air / BLOCKS / (200 * MS) * 100).toFixed(3)).toBe('0.507')
     // "whether three badges hear it or three thousand": the same air for three listeners
     const three = runExtra('dl-three', () => uwbDlTdoaScenario('base'))
     expect(ofType(three, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)).toBe(air)
@@ -897,7 +897,7 @@ describe('uwb-ul-tdoa · every figure the prose prints, read back out of it', ()
   })
 
   it('reads what a listening round costs the anchors against what ten blinks cost', () => {
-    // 「锚点都只占用块的 0.505 %；而十个发送闪发的胸牌，七个块中要占用 12.685 260 ms 的空口时间」
+    // 「锚点都只占用块的 0.507 %；而十个发送闪发的胸牌，七个块中要占用 12.685 260 ms 的空口时间」
     const air = (rs: TLRecord[]): number =>
       ofType(rs, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
     const [listening] = figs(DEEP, /锚点都只占用块的 ([\d.]+) %/, '`deeper` on the listening round')

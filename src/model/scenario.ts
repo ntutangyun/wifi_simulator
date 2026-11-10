@@ -26,7 +26,7 @@ import { NB_CHANNELS } from '../uwb/nb'
 import {
   C_M_PER_NS, mmsResponders, rstuNs, srrrIeBytes, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX,
   UWB_MAX_PSDU_BYTES, UWB_SLOT_GUARD_NS,
-  uwbAncillarySlots, uwbM2mSlotFitNs,
+  uwbAncillarySlots, uwbInitiatorBlockSlots, uwbM2mSlotFitNs,
   uwbMaxAnchors, uwbMaxParticipants, uwbMmrcmSlots, uwbNbSlotFitNs, uwbPollBytes, uwbPpduNs, uwbRespBytes,
   uwbSlotFitNs, uwbSlotsPerTag, type UwbReplyTime,
 } from '../uwb/phy'
@@ -386,7 +386,7 @@ export interface UwbSessionCfg {
   fixedReplyRstu: number
   /** Ranging block duration in RSTU (standard §10.32.2). */
   blockRstu: number
-  /** Ranging slot duration in RSTU; a whole number of 3-RSTU units (standard §10.32.2). */
+  /** Ranging slot duration in RSTU (standard §10.32.2). */
   slotRstu: number
   channel: 5 | 9
   /** 1-σ receive-timestamp noise in picoseconds. */
@@ -401,19 +401,32 @@ export interface UwbSessionCfg {
   schedule: 'time' | 'contention'
   /** Contention round only: the response-phase window, RCPS IE (§10.32.9.5); 8 is a model default. */
   contentionSlots: number
-  /** Contention round only: retries before an anchor sits out a round, RCMA IE (§10.32.9.6); 3 is a model default. */
+  /** Contention round only: the RCMA IE's maximum number of response attempts within one ranging
+   * round set (§10.32.9.6), no larger than `rcmValidityRounds`; nothing refills it. 1 is a model default. */
   maxAttempts: number
   /**
-   * How many rounds one control message governs (standard §10.32.9.1's ARC IE, "RCM Validity
-   * Rounds", Content Control bits 9–14, six bits — 0–63 in the standard; this simulator counts
-   * "how many rounds", so 1…64 here). 1 is today's behaviour: a fresh control message (ARC + RDM
-   * + RRMC, today's Poll) every round — see `makePoll` vs. `makeInit` in `src/uwb/frames.ts`
-   * and design §2. Only `mode: 'twr'` and `'dl-tdoa'` ever send that control message at all;
-   * the schema refuses a non-default value for the other three modes (design §4; see `rmnr`'s
-   * own doc comment for why `'dl-tdoa'` also caps it at 1 in practice). model (the "rounds
-   * governed" framing; the standard's own field is the raw six bits)
+   * How many consecutive rounds one control message governs, its own round included — the length of
+   * a ranging round set (standard §10.32.3.2) and the ARC IE's "RCM Validity Rounds" (§10.32.9.1,
+   * control bits 9–14, a six-bit unsigned integer, so at most 63). 1 is a fresh control message
+   * (ARC + RR + RDM + RRMC, today's Poll) every round — see `makePoll` vs. `makeInit` in
+   * `src/uwb/frames.ts`. The standard caps the value at the rounds remaining in the current block,
+   * so a control message never governs a round of the next block; here a set can only cover the
+   * initiator's own rounds, and the schema refuses a value above `initiatorRounds`. Only
+   * `mode: 'twr'` and `'dl-tdoa'` ever send that control message at all; the schema refuses a
+   * non-default value for the other three modes (see `rmnr`'s own doc comment for why `'dl-tdoa'`
+   * also caps it at 1 in practice).
    */
   rcmValidityRounds: number
+  /**
+   * How many consecutive ranging rounds each initiator (tag) runs in every block — tag k owns rounds
+   * `k·n … k·n + n − 1` (standard §10.32.2: a block is a whole number of rounds; which of them a
+   * session uses is the controller's next higher layer's choice, §10.32.3.3, so this is a value the
+   * standard leaves to the implementation, not a protocol field). Default 1, the one round a block
+   * every scene ran before ranging round sets existed. Two-way ranging only: the schema refuses a
+   * value above 1 in every other mode, none of which this simulator runs more than one round of per
+   * initiator per block.
+   */
+  initiatorRounds: number
   /**
    * Whether a responder holding a still-valid control message, but that missed this round's own
    * initiation message, sends the RMNR IE instead of sitting silent (standard §10.34; `makeRmnr`
@@ -432,7 +445,7 @@ export interface UwbSessionCfg {
    * current-window openers it actually received (standard §10.36's RMMRC IE; the request itself
    * is the ARC IE's MMRCR bit, bit 15 of the same Content Control word `rcmValidityRounds`
    * already occupies — standard §10.32.9.1). Default false, so an existing scenario reads back
-   * unchanged. `src/uwb/session.ts`'s `blockCarriesMmrcm`/`mmrcmInitiators`/`blockSlots` are the
+   * unchanged. `src/uwb/session.ts`'s `roundCarriesMmrcm`/`mmrcmResponders`/`roundSlots` are the
    * one place both ends of a round read it; see the schema's own `superRefine` for which modes
    * and schedules it is refused under, and why `'m2m'` is supported rather than refused (design
    * doc `2026-10-02-receipt-confirmation-design.md` §2–§4).
@@ -492,7 +505,7 @@ export interface UwbSessionCfg {
    * frame, not segmented — so an existing scenario reads back unchanged.
    *
    * **What bounds it is the block, not the round.** The window these frames ride in is *appended*
-   * after the ranging phase (`uwb/session.ts#blockSlots`), so it takes nothing from the round's own
+   * after the ranging phase (`uwb/session.ts#roundSlots`), so it takes nothing from the round's own
    * `slots`; what it can overrun is the block, and the schema's `superRefine` checks exactly that —
    * `slots + mmrcrSlots + uwbAncillarySlots(...)` per round, times the tag count, against
    * `blockRstu / slotRstu`. A tighter `ancillaryFrames ≤ slots` ceiling used to sit beside it and
@@ -586,7 +599,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   method: 'ds', replyTime: 'embedded', fixedReplyRstu: UWB_DEFAULT_SLOT_RSTU,
   blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 1,
-  rcmValidityRounds: 1, rmnr: false, mmrcr: false,
+  rcmValidityRounds: 1, initiatorRounds: 1, rmnr: false, mmrcr: false,
   mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
   sp3: false, srrr: { ...DEFAULT_UWB_SRRR },
   ancillary: false, ancillaryFrames: 1,
@@ -1291,7 +1304,7 @@ function hasBinnableLink(nodes: Scenario['nodes']): boolean {
  * Two rules, and only two. Everything else the request can be configured into is **pinned** rather
  * than refused (`tests/engine/ancillary-request-inert.test.ts`, the census in design §6):
  *
- *  - **No ancillary exchange.** `uwb/session.ts#blockCarriesAncillary`'s very first condition is
+ *  - **No ancillary exchange.** `uwb/session.ts#roundCarriesAncillary`'s very first condition is
  *    `plan.ancillary`, so with the exchange off not one frame of the session carries a RAICT IE and
  *    the request has nothing to ride on. Not one read, anywhere — the definition of a wiring fault.
  *  - **More than one tag.** The granted width is one number per block, because
@@ -1316,7 +1329,7 @@ export function ancillaryRequestRefusals(
   const out: string[] = []
   if (!uwb.ancillaryRequest) return out
   if (!uwb.ancillary) {
-    out.push('排程请求（ancillaryRequest）需要先打开测距辅助信息交换（ancillary）：请求位坐在RAICT信息单元里，而这个信息单元只出现在辅助信息那几帧上（uwb/session.ts 的 blockCarriesAncillary 第一个条件就是 plan.ancillary），交换关着时整场会话一帧也不带它，这个字段一次都读不到。请把 ancillary 打开，或者把 ancillaryRequest 关掉')
+    out.push('排程请求（ancillaryRequest）需要先打开测距辅助信息交换（ancillary）：请求位坐在RAICT信息单元里，而这个信息单元只出现在辅助信息那几帧上（uwb/session.ts 的 roundCarriesAncillary 第一个条件就是 plan.ancillary），交换关着时整场会话一帧也不带它，这个字段一次都读不到。请把 ancillary 打开，或者把 ancillaryRequest 关掉')
   }
   if (tags > 1) {
     out.push(`排程请求（ancillaryRequest）只支持一个标签，现在有 ${tags} 个：批到的宽度是每块一个数，因为一块里每一轮的步幅都是同一个轮长（uwb/session.ts 的 blockSlotStartNs），所以两个标签就是两个控制器，而只有第一个的批复排得出来——第二个标签那边的响应方会请求一批永远不会被排进去的时隙。请把标签减到一个，或者把 ancillaryRequest 关掉`)
@@ -1651,8 +1664,10 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       // `UwbSessionCfg` for the arithmetic.
       replyTime: z.enum(['embedded', 'deferred', 'fixed']).default('embedded'),
       fixedReplyRstu: z.number().int().min(0).default(UWB_DEFAULT_SLOT_RSTU),
-      blockRstu: z.number().int().positive().refine((v) => v % 3 === 0, 'UWB 块长要是 3 RSTU 的整数倍（本仿真器的规则，不是标准的要求）'),
-      slotRstu: z.number().int().min(300).refine((v) => v % 3 === 0, '测距时隙要是 3 RSTU 的整数倍（本仿真器的规则，不是标准的要求）'),
+      // Lengths in whole RSTU (standard §10.32.2) and nothing more: the "multiple of 3 RSTU" rule this
+      // schema used to apply is not in the standard (audit #10) and is gone.
+      blockRstu: z.number().int().positive(),
+      slotRstu: z.number().int().min(300),
       channel: z.union([z.literal(5), z.literal(9)]),
       tsNoisePs: z.number().min(0),
       cfoNoisePpm: z.number().min(0),
@@ -1661,10 +1676,14 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       contentionSlots: z.number().int().min(2).max(32).default(8),
       maxAttempts: z.number().int().min(1).max(10).default(1),
       // Both default: an existing scenario carries neither key and must read back byte for byte,
-      // same discipline as `replyTime`/`fixedReplyRstu` above. 1…64 is this simulator's "how many
-      // rounds" count of the ARC IE's six-bit RCM Validity Rounds field (standard §10.32.9.1); see
-      // `UwbSessionCfg`'s own doc comment for the derivation. standard §10.32.9.1 / model
-      rcmValidityRounds: z.number().int().min(1).max(64).default(1),
+      // same discipline as `replyTime`/`fixedReplyRstu` above. 1…63: the ARC IE's RCM Validity Rounds
+      // is a six-bit unsigned integer counting the rounds the RCM governs, its own included
+      // (standard §10.32.9.1) — 0 would govern no round at all, 64 does not fit the field.
+      rcmValidityRounds: z.number().int().min(1).max(63).default(1),
+      // Default 1: an existing scenario carries no such key and reads back round for round. The
+      // ceiling is the validity field's own (a set of 63 rounds is the longest any RCM can govern),
+      // reused rather than a second invented bound; the block-fit rule below is what really caps it.
+      initiatorRounds: z.number().int().min(1).max(63).default(1),
       rmnr: z.boolean().default(false),
       // Default false for the same reason as rmnr above: an existing scenario carries neither key
       // and must read back byte for byte. standard §10.32.9.1 (the request bit) / §10.36 (the
@@ -1875,7 +1894,31 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // RCM Validity Rounds / RMNR (design §4 of 2026-10-01-rcm-validity-design.md). Both fields
         // default to today's behaviour (rcmValidityRounds 1, rmnr false), so an existing scenario
         // reads back unchanged.
-        const { rcmValidityRounds, rmnr } = sc.uwb
+        const { rcmValidityRounds, rmnr, initiatorRounds } = sc.uwb
+        // Standard §10.32.9.1: the RCM Validity Rounds "cannot be larger than the number of remaining
+        // ranging rounds in the current block" — a control message never governs a round of the next
+        // block. In this simulator a round set can only hold the initiator's own rounds, which are
+        // `initiatorRounds` consecutive rounds a block, so that is the ceiling. Until 2026-11-10 each
+        // tag had one round a block and a validity of R governed R blocks (audit #23).
+        if (mode === 'twr' && rcmValidityRounds > initiatorRounds) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: `控制消息的有效轮数（${rcmValidityRounds}）不能大于本块里剩下的测距轮数（IEEE 802.15.4-2024 §10.32.9.1）：`
+              + `一条控制消息管的是同一块里连续的几轮，不跨块。本场景每个标签每块只跑 ${initiatorRounds} 轮（initiatorRounds），`
+              + '请把 initiatorRounds 调到不小于 rcmValidityRounds，或者把 rcmValidityRounds 调小',
+          })
+        }
+        // One initiator, several rounds a block, is implemented for two-way ranging only. DL-TDoA and
+        // many-to-many run one round a block that the whole group shares, an MMS round index already
+        // means "which tag–anchor pair", and UL-TDoA has no control message whose rounds it would group.
+        if (mode !== 'twr' && initiatorRounds !== 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: '每个发起方每块跑几轮（initiatorRounds）只在双向测距（twr）里实现；本仿真器的其余模式每个发起方每块一轮，请把 initiatorRounds 改回 1',
+          })
+        }
         // Standard §10.32.9.6: the RCMA IE's maximum number of contention attempts shall be no
         // larger than the RCM Validity Rounds. Checked only where the RCMA IE is sent at all.
         if (sc.uwb.schedule === 'contention' && sc.uwb.maxAttempts > rcmValidityRounds) {
@@ -2114,7 +2157,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
         // and any participant whose broadcast a later one simply lost, have no other frame that
         // ever tells them they were heard — mmrcr's one bit is the only thing in this mode that
         // ever answers that question, which is exactly the gap design §2 of this slice opens with.
-        // `mmrcmInitiators` in `uwb/session.ts` is accordingly every one of the round's own
+        // `mmrcmResponders` in `uwb/session.ts` is accordingly every one of the round's own
         // participants here, not the single tag a two-way round has (design §3.3 below).
         // The capacity check further down (`mmrcrSlots`/`m2mRoundSlots`) prices that directly.
         //
@@ -2344,10 +2387,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               message: '窄带信道允许列表要填 1…250 个互不相同的信道，编号 0…249',
             })
           }
-          // The draft's ranging slot is a multiple of 300 RSTU (0.25 ms), not of the 3 RSTU this
-          // simulator's own schema asks for (the 2026-11-10 standard audit found no 3 RSTU rule in
-          // IEEE Std 802.15.4-2024 — it is this simulator's convention, not the core standard's): the cycle is laid out in milliseconds and the slot has to
-          // divide them. 4ab draft 15-22/0381r5 §1.1.1
+          // The draft's ranging slot is a multiple of 300 RSTU (0.25 ms): the cycle is laid out in
+          // milliseconds and the slot has to divide them. 4ab draft 15-22/0381r5 §1.1.1
           if (sc.uwb.slotRstu % 300 !== 0) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
@@ -2460,7 +2501,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // how long a round is, the very drift class slice 1 was bitten by once already. Reading
           // it from `uwbSlotsPerTag` instead — the same call `roundPlan` makes — is what
           // `tests/model/m2m-scenario.test.ts`'s "Ruling 7" describe block pins in place.
-          // mmrcr's own slots (design §3.3, `uwb/session.ts#mmrcmInitiators`): m2m pins
+          // mmrcr's own slots (design §3.3, `uwb/session.ts#mmrcmResponders`): m2m pins
           // rcmValidityRounds at 1 (the rule above), so *every* block is the one block that closes
           // its own one-block window — unlike 'twr' below, there is no "blocks 0…R−2 pay nothing"
           // case to spare here. One extra slot per participant, every block, whenever mmrcr is on.
@@ -2518,7 +2559,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // that its own message stated the wrong mechanism** (slice 3d, design §7.4 precondition
           // one). It read 「它要连续占住本轮的 N 个时隙」 — that the message takes N of the ranging
           // phase's own slots. It does not: the ancillary window is **appended** after the ranging
-          // phase, which `uwb/session.ts#blockSlots` says in so many words (`plan.slots`, *plus*
+          // phase, which `uwb/session.ts#roundSlots` says in so many words (`plan.slots`, *plus*
           // the window-closing MMRCM slots, *plus* the ancillary message's own slots). Nothing is
           // taken from `slots` at all.
           //
@@ -2531,7 +2572,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // Removing it is a **relaxation**: every scenario that parsed before still parses, and
           // the editor's own cap (`uwb/ui/UwbSessionFields.tsx#uwbAncillaryFramesCapFor`) reads
           // the block budget alone for the same reason.
-          // mmrcr's own slot (design §3.3, `uwb/session.ts#blockCarriesMmrcm`/`mmrcmInitiators`):
+          // mmrcr's own slot (design §3.3, `uwb/session.ts#roundCarriesMmrcm`/`mmrcmResponders`):
           // one, the tag this round belongs to, on the block that closes its validity window. Every
           // block shares one fixed length (`blockRstu`), so the capacity check below has to budget
           // for that window-closing block even though the other `rcmValidityRounds − 1` blocks never
@@ -2549,7 +2590,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // window-closing one spends mmrcr's, and every block shares one fixed `blockRstu`, so the
           // budget has to carry both. With `rcmValidityRounds: 1` — the default — a block both opens
           // and closes its own one-block window and really does spend both at once. Read from
-          // `uwb/phy.ts#uwbAncillarySlots`, the one definition `session.ts#blockSlots` lays the slots
+          // `uwb/phy.ts#uwbAncillarySlots`, the one definition `session.ts#roundSlots` lays the slots
           // out from and `UwbNetwork` guards in nanoseconds — this file cannot import `session.ts`
           // (import cycle), which is exactly why the count lives in `phy.ts`.
           // …and `requestSlot`, the one slot Request = 1 appends on top of the message (standard
@@ -2571,7 +2612,16 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // divisor below and every message that quotes it cannot drift apart. A message that
           // printed `slots + mmrcrSlots` while the division used a third term would be a number
           // defended by nothing.
-          const roundSlots = slots + mmrcrSlots + ancillarySlotCount
+          //
+          // …and a tag runs `initiatorRounds` rounds a block (two-way ranging only), the extras once
+          // per ranging round set rather than once per round — `uwbInitiatorBlockSlots`, the one
+          // definition `UwbNetwork` and `session.ts#roundSlots` lay the same slots out from. With one
+          // round a block this is `slots + mmrcrSlots + ancillarySlotCount`, the figure every message
+          // below quoted before round sets existed.
+          const runRounds = mode === 'twr' ? sc.uwb.initiatorRounds : 1
+          const roundSlots = uwbInitiatorBlockSlots(
+            slots, runRounds, mode === 'twr' ? sc.uwb.rcmValidityRounds : 1, mmrcrSlots + ancillarySlotCount,
+          )
           const fits = Math.floor(sc.uwb.blockRstu / (roundSlots * sc.uwb.slotRstu))
           // Which extras this block spends, and which switch turns each of them off, named only when
           // it is actually spending them.
@@ -2593,7 +2643,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               // was corrected to one per *responder* (uwb/phy.ts#uwbMmrcmSlots), so a four-anchor
               // round was told four slots did not fit and that one of them was the confirmation's.
               // `roundSlots` for the same reason, now that a second batch of extras exists.
-              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下一轮测距的 ${roundSlots} `
+              message: `${sc.uwb.blockRstu} RSTU 的 UWB 块装不下${runRounds > 1 ? `一个标签每块 ${runRounds} 轮测距` : '一轮测距'}的 ${roundSlots} `
                 + `个时隙 × ${sc.uwb.slotRstu} RSTU`
                 + extraFix,
             })

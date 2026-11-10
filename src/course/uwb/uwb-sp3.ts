@@ -29,7 +29,7 @@
  * decision rather than of two scenes: SP3 (base), the SP1 deferred round it is built out of, the
  * SP1 embedded round that needs no report phase at all, and SP3 with both SRRR request bits on.
  * **Four anchors is the crossover itself**, which is why the base scene has that many: the SP3
- * round is 1.600 µs shorter than the deferred round it replaces — the whole of what the initiator's
+ * round is 7.755 µs shorter than the deferred round it replaces — the whole of what the initiator's
  * marker has just finished paying off.
  *
  * Every number is computed, never typed: `uwbSp3Ns`, `uwbSp3PollBytes`, `uwbSp3ReportBytes`,

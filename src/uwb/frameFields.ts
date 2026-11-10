@@ -8,7 +8,7 @@
  *
  * References: IEEE Std 802.15.4-2024 §7.2 (MAC frame format), §7.4.4 (the generic
  * Nested IE format) and the ranging IEs themselves: §10.29.8.1 RRTI, §10.29.8.3 RRMC,
- * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.8 RDM, §10.32.9.5 RCPS, §10.32.9.6 RCMA;
+ * §10.29.8.4 RMI, §10.32.9.1 ARC, §10.32.9.3 RR, §10.32.9.8 RDM, §10.32.9.5 RCPS, §10.32.9.6 RCMA;
  * §16.2 is the HRP UWB PPDU and its SP1 STS configuration. The one-way ranging rows — the
  * DL-TDoA TX time, RX times and clock offset, and the UL-TDoA blink — are model IEs in the
  * shape of §10.29.8.4's measurement content, sized in uwb/phy.ts.
@@ -25,7 +25,7 @@ import {
   NB_SYMBOL_US,
 } from './nb'
 import {
-  ARC_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
+  ARC_IE_BYTES, RR_IE_BYTES, BLINK_IE_BYTES, chipsToNs, DL_COFFS_IE_BYTES, PHR_SYMBOLS, PHR_SYMBOL_CHIPS, PSYM_CHIPS,
   raictIeBytes, rdmIeBytes, RCMA_IE_BYTES, RCPS_IE_BYTES, RCTU_NS, rmiFinalDeferredIeBytes, rmiFinalIeBytes,
   RMI_REPORT_IE_BYTES, rmmrcIeBytes, RMNR_IE_BYTES, RRMC_IE_BYTES, RRTI_IE_BYTES, rxTimesIeBytes, SFD_SYMBOLS,
   SRRR_IE_BYTES, STS_ACTIVE_CHIPS, STS_GAP_CHIPS, SYNC_SYMBOLS, TX_TIME_IE_BYTES, UWB_FCS_BYTES,
@@ -91,11 +91,17 @@ function ies(u: UwbInfo): Ie[] {
   const out: Ie[] = []
   for (const ie of u.ies) {
     switch (ie) {
-      case 'ARC':
-        out.push({
-          key: 'ieArc', bytes: ARC_IE_BYTES,
-          value: V.arc(u.sp, method, u.block, u.round, u.schedule?.length),
-        })
+      case 'ARC': {
+        // Every Poll is built by `makePoll`, which always fills the control bits in; a frame that
+        // lists the IE without them is one this decoder should never have been handed.
+        if (!u.arc) throw new Error('uwbFrameFields: ARC IE on a frame that carries no ARC control bits')
+        out.push({ key: 'ieArc', bytes: ARC_IE_BYTES, value: V.arc(u.arc) })
+        break
+      }
+      case 'RR':
+        // §10.32.9.3: the block and round indices of the round this RCM configures. This engine
+        // never hops and never offsets a round, so those two fields are 0.
+        out.push({ key: 'ieRr', bytes: RR_IE_BYTES, value: V.rr(u.block, u.round) })
         break
       case 'RDM': {
         const sched = u.schedule ?? []

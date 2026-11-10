@@ -65,8 +65,8 @@ const RT_DS_ANCHORS = 9
 const RT_DS_FINAL_EMBEDDED = uwbFinalBytes(RT_DS_ANCHORS, 'embedded') // 122
 const RT_DS_FINAL_DEFERRED = uwbFinalBytes(RT_DS_ANCHORS, 'deferred') // 32
 const RT_CAP_DS_EMBEDDED = uwbMaxAnchors('twr', 'ds', 'embedded', 'time') // 9
-const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 33
-const RT_CAP_SS = uwbMaxAnchors('twr', 'ss', 'embedded', 'time') // 33 — same for all three SS shapes
+const RT_CAP_DS_DEFERRED = uwbMaxAnchors('twr', 'ds', 'deferred', 'time') // 32
+const RT_CAP_SS = uwbMaxAnchors('twr', 'ss', 'embedded', 'time') // 32 — same for all three SS shapes (33 before the 2026-11-10 ARC/RR IE correction)
 /**
  * The same ceiling for an SP3 session, which is a different number because the RCM is a different
  * frame: it carries one SRRR IE per responder on top of everything a Poll already carries, and
@@ -98,17 +98,16 @@ const M2M_CAP = uwbMaxParticipants('ss') // 27 — uwbMaxParticipants('ds') sear
 const M2M_BYTES_N6 = Array.from({ length: 6 }, (_, i) => uwbM2mBytes(i)) // 20/26/30/34/38/42
 
 // --- Section 17: RCM validity rounds, §10.32.9.1 / RMNR, §10.34 -------------------------------
-// The worked example is design §2.2's own: four anchors, four blocks — a tag's successive ranging
-// rounds are successive blocks in this engine (`network.ts`'s two-way dispatch keys the within-block
-// round index to the tag, not the pass), so the saving has to be read off four blocks, not one.
-// `tests/ui/uwb-guide.test.ts` runs that exact scenario and pins every figure below against it.
+// The worked example: four anchors, one ranging round set of four rounds inside one block (the tag
+// runs four rounds a block — a control message never governs a round of the next block, standard
+// §10.32.9.1). `tests/ui/uwb-guide.test.ts` runs that exact scenario and pins every figure below.
 const RCM_ANCHORS = 4
-const RCM_POLL_BYTES = uwbPollBytes(RCM_ANCHORS) // 39 = 27 + 3×4
+const RCM_POLL_BYTES = uwbPollBytes(RCM_ANCHORS) // 42 = 30 + 3×4
 const RCM_INIT_BYTES = uwbInitBytes() // 14
-const RCM_R1_4BLOCKS = RCM_POLL_BYTES * 4 // 156
-const RCM_R4_4BLOCKS = RCM_POLL_BYTES + RCM_INIT_BYTES * 3 // 81
-const RCM_SAVING_4BLOCKS = RCM_R1_4BLOCKS - RCM_R4_4BLOCKS // 75
-const RCM_SAVING_PER_BLOCK = (RCM_SAVING_4BLOCKS / 4).toFixed(2) // 18.75
+const RCM_R1_4BLOCKS = RCM_POLL_BYTES * 4 // 168
+const RCM_R4_4BLOCKS = RCM_POLL_BYTES + RCM_INIT_BYTES * 3 // 84
+const RCM_SAVING_4BLOCKS = RCM_R1_4BLOCKS - RCM_R4_4BLOCKS // 84
+const RCM_SAVING_PER_BLOCK = (RCM_SAVING_4BLOCKS / 4).toFixed(2) // 21.00
 const RMNR_BYTES = uwbRmnrBytes() // 13
 
 // --- Section 18: receipt confirmation, standard §10.36 ------------------------------------------
@@ -441,10 +440,10 @@ export function Guide() {
         §10.32.1 的注只说明碰撞可能发生、错误的结果由上层筛除。以下是本仿真器的做法：Poll 划出一个{' '}
         {DEFAULT_UWB_SESSION.contentionSlots} 个时隙的响应阶段，每个锚点在其中均匀随机选取一个时隙；
         同一时隙内的两路应答，除非一路领先 {UWB_CAPTURE_DB} dB（本仿真器的捕获门限），否则都无法解出，
-        记为 <b>UWB_CONTEND_COLLISION</b>；尝试次数缺省为 {DEFAULT_UWB_SESSION.maxAttempts} 次。由于单边测距的
-        响应方无从得知自己是否被测到，本仿真器在每轮结束时直接告知它结果——测到就把尝试次数恢复满额，
-        没测到就减一，用完则空过一轮。这套告知、恢复与空过的规则标准里都没有；而且缺省的{' '}
-        {DEFAULT_UWB_SESSION.maxAttempts} 次尝试配每轮一条控制消息（有效轮数为 {DEFAULT_UWB_SESSION.rcmValidityRounds}），按 §10.32.9.6 本不合法。
+        记为 <b>UWB_CONTEND_COLLISION</b>。尝试次数照 §10.32.9.6 计：一个锚点在一条控制消息管辖的那组测距轮
+        （测距轮次组）里最多应答 RCMA 给出的次数（缺省 {DEFAULT_UWB_SESSION.maxAttempts} 次，不超过有效轮数
+        {DEFAULT_UWB_SESSION.rcmValidityRounds}），下一条控制消息开始新的一组才重新计数；成功与否都不影响，
+        也没有任何消息告诉锚点它是否被测到。
       </p>
       <p style={p}>
         场景里：{chip('#fbbf24')}每个圆环是一次测得的距离——到测出它的那个锚点距离相同的所有点；
@@ -954,7 +953,7 @@ export function Guide() {
         而是轮里最长的那一帧还能塞进 127 字节的最大锚点数：嵌入式 DS Final 曾经是拖住每一种形态的
         那根绳，所以它换来的上限最紧，只有 <b>{RT_CAP_DS_EMBEDDED}</b> 个锚点；一旦 Final 不再随锚点数
         暴涨（延后），或者轮里根本没有 Final（SS-TWR 的三种形态都是），上限跳到 Poll 帧自己的长度
-        （27 + 3A）能撑住的 <b>{RT_CAP_DS_DEFERRED}</b> 个——DS 延后与 SS 嵌入、SS 延后、SS 固定
+        （30 + 3A）能撑住的 <b>{RT_CAP_DS_DEFERRED}</b> 个——DS 延后与 SS 嵌入、SS 延后、SS 固定
         这四种形态，锚点上限都是同一个 <b>{RT_CAP_SS}</b>。
       </p>
       <p style={p}>
@@ -997,7 +996,7 @@ export function Guide() {
         <b>五种走法量出同一个距离。</b>同一个场景——5 m、单锚点、两端晶振相差 35 ppm
         （锚点 +20 ppm、标签 −15 ppm）——五种 replyTime/method 组合各跑一轮，量出的距离是：
         SS 嵌入与 SS 延后 <b>4.998803 m</b>（一模一样，因为走的是同一套算术，只是换了一条载波）；
-        SS 固定 <b>4.998630 m</b>（不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
+        SS 固定 <b>4.998352 m</b>（不一样，是因为它的时延是按<i>应答方自己的晶振</i>数的——
         <code>ssTwrCorrected</code> 的 (1 − coffs) 修正项照样乘它——ppm 误差从另一扇门进来）；
         DS 嵌入与 DS 延后 <b>4.999075 m</b>（五者中最接近真实值——这正是 DS-TWR 存在的全部理由）。
         两端晶振对准时，五者在时间戳噪声之内<b>逐位相同</b>，都是 <b>5.001420 m</b>——
@@ -1107,8 +1106,9 @@ export function Guide() {
         给出这条控制消息管辖的连续轮数——<b>含本轮在内</b>，且不能超过本块剩余的轮数（§10.32.9.1）；
         后面那几轮只需重新发一次测距发起消息，不必重发时隙表——响应方的时隙表仍然来自那条还在有效期内的
         控制消息。本仿真把这个字段建模成会话里的
-        <code>rcmValidityRounds</code>（1…64，缺省 1：1 就是今天的行为，每轮都带一条控制消息；
-        这个取值范围与字段的对应是本仿真器的取法）。
+        <code>rcmValidityRounds</code>（1…63，缺省 1：每轮都带一条控制消息）。一条控制消息管的这组轮叫测距轮次组
+        （ranging round set，§10.32.3.2），它只能在一个块之内；所以要让一条控制消息管 R 轮，标签每块就要跑至少 R 轮——
+        会话里的 <code>initiatorRounds</code>（每个发起方每块连续跑几轮，缺省 1；这是标准留给上层的取值）。
       </p>
       <table style={table}>
         <thead>
@@ -1121,26 +1121,25 @@ export function Guide() {
         <tbody>
           <tr>
             <td style={cell}>每 R 轮的第一轮</td>
-            <td style={cell}>控制消息 + 启动：ARC、RDM、RRMC 三个信元，就是今天的 Poll</td>
-            <td style={cell}>27 + 3A（{RCM_ANCHORS} 个锚点 = {RCM_POLL_BYTES}）</td>
+            <td style={cell}>控制消息 + 启动：ARC、RR、RDM、RRMC 四个信元，就是今天的 Poll</td>
+            <td style={cell}>30 + 3A（{RCM_ANCHORS} 个锚点 = {RCM_POLL_BYTES}）</td>
           </tr>
           <tr>
             <td style={cell}>其余 R−1 轮</td>
-            <td style={cell}>只有测距启动消息：没有 ARC，没有 RDM</td>
+            <td style={cell}>只有测距启动消息：没有 ARC、RR，没有 RDM</td>
             <td style={cell}>14（与锚点数无关）</td>
           </tr>
         </tbody>
       </table>
       <p style={p}>
-        <b>省下的空口时间要按块算，不是按块内的轮号算。</b>本仿真把双向测距安排成「标签 k 占块内
-        第 k 个轮次」，于是对某一个标签来说，它相继的测距轮，在这个引擎里就是<b>相继的块</b>，
-        而不是同一块里相邻的轮次——块内的轮号从来不为同一个标签前进。四个锚点、
-        <code>rcmValidityRounds</code> 取 4 时，连续四个块里，某个标签开场帧的字节数依次是
+        <b>省下的空口时间要按轮次组算，不是按轮算。</b>本仿真把双向测距安排成「标签 k 占块内第
+        k·n 到 k·n + n − 1 轮」（n 即 <code>initiatorRounds</code>），一组轮就在这 n 轮里。四个锚点、
+        <code>rcmValidityRounds</code> 与 <code>initiatorRounds</code> 都取 4 时，一块里这个标签四轮的开场帧字节数依次是
         <b> {RCM_POLL_BYTES} / {RCM_INIT_BYTES} / {RCM_INIT_BYTES} / {RCM_INIT_BYTES}</b>，
-        合计 <b>{RCM_R4_4BLOCKS}</b> 字节；<code>rcmValidityRounds</code> 为 1 时四块都是完整的
-        控制消息，合计 <b>{RCM_R1_4BLOCKS}</b> 字节。每个标签每四块省下 <b>{RCM_SAVING_4BLOCKS}</b>
-        字节，换算成每块是 <b>{RCM_SAVING_PER_BLOCK}</b> 字节——不是把四块的总节省数当成一块的节省数。
-        省下的这 <code>13 + 3A</code> 字节，正是上表里 ARC IE 与 RDM IE 的宽度。<b>测距结果不受
+        合计 <b>{RCM_R4_4BLOCKS}</b> 字节；<code>rcmValidityRounds</code> 为 1 时四轮都是完整的
+        控制消息，合计 <b>{RCM_R1_4BLOCKS}</b> 字节。每组四轮省下 <b>{RCM_SAVING_4BLOCKS}</b>
+        字节，换算成每轮是 <b>{RCM_SAVING_PER_BLOCK}</b> 字节——不是把一组的总节省数当成一轮的节省数。
+        省下的这 <code>16 + 3A</code> 字节，正是上表里 ARC IE、RR IE 与 RDM IE 的宽度。<b>测距结果不受
         影响：</b>同一个场景量出的每一条 UWB_RANGE 记录，在两种设置下逐字段相同——省掉的是控制开销，
         不是测量本身。
       </p>
@@ -1231,8 +1230,8 @@ export function Guide() {
       </table>
       <p style={p}>
         <b>位图说的是「你发来的那几条，我收到了哪几条」。</b>标准的位图<b>每个时隙一位</b>：按时间顺序对应
-        被确认的各个时隙，长度是时隙数除以 8 向上取整（§10.36.2.1）。<b>本仿真器按块一位</b>，与标准不同；
-        每一位都来自响应方自己的接收经历——这一轮有没有 RX_OK——不是对已有记录的复述：哪一块的开场丢了，
+        被确认的各个时隙，长度是时隙数除以 8 向上取整（§10.36.2.1）。<b>本仿真器按轮一位</b>（轮次组里每轮的开场消息一位），
+        与标准不同；每一位都来自响应方自己的接收经历——这一轮有没有 RX_OK——不是对已有记录的复述：哪一轮的开场丢了，
         位图里那一位就是 0。下面的帧长都按本仿真器的位图计算：
         窗口不超过 8 轮时位图都是 <b>{MMRCM_BITMAP_BYTES}</b> 字节（含第 17 节的 R = {MMRCM_WINDOW}
         和多对多测距固定的 R = 1），一个条目（地址 {RMMRC_ADDR_BYTES} 字节 + 位图）是

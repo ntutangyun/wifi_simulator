@@ -14,14 +14,16 @@
  * settled by the session's configuration either.** It never quite was: `startBlock` queues its own
  * successor from its own tail, so block b + 1's slot table is built at `(b+1)·blockNs`, after every
  * event of block b has run — and §10.36's receipt confirmation and §10.35's ancillary message each
- * append slots to the rounds of particular blocks, so `blockSlots` already moved with the block
+ * append slots to the rounds of particular blocks, so `roundSlots` already moved with the block
  * index. What slice 3d adds is a *device* moving it: with §10.35.2.1's Request field the sender of
  * an ancillary message asks the controller for the next exchange's slots, `startBlock` pulls the
  * controller's answer as it lays the block out, and that one width sizes every ancillary window of
  * the block. The plan itself stays immutable; the width travels as `runRound`'s last parameter.
  * Null — no request, or none granted — restores the session's own figure everywhere.
  *
- * Tag k owns round k of every block. Anchors serve every round. An MMS round is pairwise by
+ * Tag k owns rounds k·n … k·n + n − 1 of every block, n = `initiatorRounds` (one unless the session
+ * asks for more; a ranging round set — the rounds one RCM governs — lives inside those, standard
+ * §10.32.3.2/§10.32.9.1). Anchors serve every round. An MMS round is pairwise by
  * default — tag t and anchor k own round t·A + k, and no other device is in it — so a block
  * holds one round per pair; with `mms.oneToMany` the tag's round holds every anchor at once and
  * a block is back to one round per tag. DL-TDoA turns that around: the
@@ -50,8 +52,8 @@ import {
 } from './phy'
 import { UwbSensor } from './sensing'
 import {
-  ancillarySlots, blockSlotAction, blockSlots, blockSlotStartNs, m2mParticipants, mmrcmResponders,
-  roundPlan, type RoundPlan,
+  ancillarySlots, blockSlotStartNs, m2mParticipants, mmrcmResponders, roundPlan, roundSlotAction,
+  roundSlots, type RoundPlan,
 } from './session'
 
 export class UwbNetwork {
@@ -110,7 +112,8 @@ export class UwbNetwork {
     // The scenario schema checks the same things in RSTU, before rstuNs rounds; these are the
     // checks in the units the scheduler actually uses, so the two definitions of "how much fits
     // in a block" — and of which modes are exempt from which rule — cannot drift apart unnoticed.
-    const rounds = mms && !oneToMany ? tags.length * anchors.length : tags.length
+    // …and a two-way tag runs `plan.initiatorRounds` rounds a block (1 in every other mode).
+    const rounds = mms && !oneToMany ? tags.length * anchors.length : tags.length * this.plan.initiatorRounds
     // …and the tag count is not what fills a many-to-many block either: one round holds everyone,
     // so the only question is whether that round fits the block at all. Checked here in the
     // scheduler's own nanoseconds; the schema checks the identical thing in RSTU, before rstuNs
@@ -150,14 +153,19 @@ export class UwbNetwork {
     // width would refuse at construction the very session whose run-time refusal is the point.
     const ancillarySlotCount = ancillarySlots(this.plan)
     const extraSlots = mmrcrSlots + ancillarySlotCount
-    const closingRoundNs = (this.plan.slots + extraSlots) * this.plan.slotNs
     if (extraSlots > 0) {
+      // Every round the block runs, each at the length its place in its ranging round set gives it
+      // (`roundSlots`: the extras land on a set's first and last rounds, not on every round). The
+      // scenario schema budgets the identical slots in RSTU (`uwbInitiatorBlockSlots`).
       const needed = m2m || listenOnly ? 1 : rounds
-      if (needed * closingRoundNs > this.plan.blockNs) {
+      let blockSlotCount = 0
+      for (let r = 0; r < needed; r++) blockSlotCount += roundSlots(this.plan, r)
+      if (blockSlotCount * this.plan.slotNs > this.plan.blockNs) {
         throw new Error(
-          `UwbNetwork: a block that carries the extra slots runs ${needed} round(s) of `
-          + `${this.plan.slots} + ${mmrcrSlots} (mmrcr) + ${ancillarySlotCount} (ancillary) slots `
-          + `(${closingRoundNs} ns each), which does not fit a ${this.plan.blockNs} ns block`,
+          `UwbNetwork: a block runs ${needed} round(s) of ${this.plan.slots} slots plus `
+          + `${mmrcrSlots} (mmrcr) + ${ancillarySlotCount} (ancillary) slots per ranging round set — `
+          + `${blockSlotCount} slots (${blockSlotCount * this.plan.slotNs} ns), which does not fit a `
+          + `${this.plan.blockNs} ns block`,
         )
       }
     }
@@ -285,7 +293,7 @@ export class UwbNetwork {
           // above does — every device of a session is configured from this one `cfg`, so the two
           // ends cannot disagree about it, and what it decides is one device's behaviour in its own
           // slot rather than the shape of the round. `rcmValidityRounds`, which decides the shape of
-          // slot 0's *frame* at both ends, is on the plan instead (`blockCarriesRcm`).
+          // slot 0's *frame* at both ends, is on the plan instead (`roundCarriesRcm`).
           rmnr: cfg.rmnr,
           tdoaClockCorrection: cfg.tdoaClockCorrection, syncOffsetNs, syncErrorNs: cfg.syncErrorNs,
           // Angle of arrival is a property of the anchor hardware, so a tag carries the flag
@@ -342,15 +350,14 @@ export class UwbNetwork {
     ): void => {
       const crowd = crowdIds.map((id) => this.devices.get(id)!)
       const peers = { tag: tagId, anchors: roundAnchors }
-      // How many slots *this block's* round runs, which is the only quantity in this scheduler that
-      // moves with the block index: `plan.slots` everywhere, plus one slot per responder on the
-      // block that closes an `mmrcr` validity window (standard §10.36, design §3.3). Identical to
-      // `plan.slots` whenever `mmrcr` is off, so an existing session is laid out instant for instant
-      // as before.
-      const slots = blockSlots(this.plan, block, granted)
-      // …and the round's own stride has to be that same length, not `plan.roundNs`:
-      // `blockSlotStartNs` is the one definition of it, and its own comment says what a
-      // `plan.roundNs` stride would collide with on a window-closing block.
+      // How many slots *this* round runs: `plan.slots` everywhere, plus one slot per responder on the
+      // round that closes an `mmrcr` ranging round set (standard §10.36, design §3.3) and the
+      // ancillary window on the round that opens one. Identical to `plan.slots` whenever both are
+      // off, so an existing session is laid out instant for instant as before.
+      const slots = roundSlots(this.plan, round, granted)
+      // …and the round's start is the sum of the rounds before it, not `round × plan.roundNs`:
+      // `blockSlotStartNs` is the one definition of it, and its own comment says what a fixed
+      // stride would collide with.
       for (let s = 0; s < slots; s++) {
         const at = blockSlotStartNs(this.plan, block, round, s, granted)
         q.schedule(at, () => {
@@ -369,11 +376,9 @@ export class UwbNetwork {
               })
             }
           }
-          // `blockSlotAction`, not `slotAction`: it answers the identical thing for every slot below
-          // `plan.slots` — in every block, `mmrcr` on or off — and names a responder for the extra
-          // ones the window-closing block adds. It is the one function in the schedule that varies
-          // with the block index at all.
-          const action = blockSlotAction(this.plan, block, s, granted)
+          // `roundSlotAction`, not `slotAction`: it answers the identical thing for every slot below
+          // `plan.slots` and names the appended slots a set-closing or set-opening round adds.
+          const action = roundSlotAction(this.plan, round, s, granted)
           for (const d of crowd) d.onSlot(s, action, at + this.plan.slotNs, peers)
         }, 0)
       }
@@ -488,7 +493,14 @@ export class UwbNetwork {
         const granted = this.plan.ancillaryRequest && tags[0] !== undefined
           ? this.devices.get(tags[0])!.ancillaryGrant()
           : null
-        tags.forEach((tagId, k) => runRound(block, k, tagId, [tagId, ...anchors], anchors, null, granted))
+        // Tag k runs rounds k·n … k·n + n − 1, back to back (n = `plan.initiatorRounds`): its ranging
+        // round sets live inside that run and never leave the block (standard §10.32.9.1).
+        const n = this.plan.initiatorRounds
+        tags.forEach((tagId, k) => {
+          for (let j = 0; j < n; j++) {
+            runRound(block, k * n + j, tagId, [tagId, ...anchors], anchors, null, granted)
+          }
+        })
       }
       q.schedule((block + 1) * this.plan.blockNs, () => startBlock(block + 1), 0)
     }

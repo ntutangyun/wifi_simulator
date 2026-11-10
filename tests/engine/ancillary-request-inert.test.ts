@@ -34,7 +34,7 @@ import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, ancillaryRequestRefusals, type Scenario, type UwbSessionCfg } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { uwbAncillaryScenario, FRAMES } from '../../src/course/uwb/uwb-ancillary'
-import { ancillaryGrantFits, ancillarySlots, blockSlots, roundPlan } from '../../src/uwb/session'
+import { ancillaryGrantFits, ancillarySlots, roundPlan, roundSlots } from '../../src/uwb/session'
 import { uwbAncillaryBytes, uwbPpduNs, raictIeBytes } from '../../src/uwb/phy'
 
 const MS = 1_000_000
@@ -122,12 +122,12 @@ describe('ancillary request · off by default, and off means the stream is uncha
   it('the four schedule functions answer the same without the new argument as with the session figure', () => {
     const plan = roundPlan(scene({}).uwb!, 4)
     expect(ancillarySlots(plan)).toBe(ancillarySlots(plan, plan.ancillaryFrames))
-    for (const block of [0, 1, 4, 7]) {
-      expect(blockSlots(plan, block)).toBe(blockSlots(plan, block, plan.ancillaryFrames))
+    for (const round of [0, 1, 4, 7]) {
+      expect(roundSlots(plan, round)).toBe(roundSlots(plan, round, plan.ancillaryFrames))
     }
     // and the appended window of a request-less session is the message, exactly
     expect(ancillarySlots(plan)).toBe(FRAMES)
-    expect(blockSlots(plan, 0)).toBe(plan.slots + FRAMES)
+    expect(roundSlots(plan, 0)).toBe(plan.slots + FRAMES)
   })
 
   /**
@@ -184,7 +184,7 @@ describe('ancillary request · the two refusals, and the control that says each 
       // the three things `docs/inert-config-contract.md`'s fifth step asks of a refusal: the field,
       // why it is dead here, and what to change
       expect(msg).toContain('ancillaryRequest')
-      expect(msg).toContain('blockCarriesAncillary')
+      expect(msg).toContain('roundCarriesAncillary')
       expect(msg).toContain('ancillary 打开')
     }
     // the control: the identical request on the identical hall, with the exchange on, runs
@@ -262,8 +262,8 @@ describe('ancillary request · what the request buys is the next exchange’s me
     }
     // …and the window the schedule laid out grew with it, by the message plus the request's slot
     const plan = roundPlan(scene({ ancillaryRequest: true, ancillaryRequestSlots: granted }).uwb!, 4)
-    expect(blockSlots(plan, 1, granted)).toBe(plan.slots + granted + 1)
-    expect(blockSlots(plan, 0, null)).toBe(plan.slots + FRAMES + 1)
+    expect(roundSlots(plan, 0, granted)).toBe(plan.slots + granted + 1)
+    expect(roundSlots(plan, 0, null)).toBe(plan.slots + FRAMES + 1)
   })
 
   it('leaves every UWB_RANGE field for field what it was with the request off, seq aside', () => {
@@ -381,21 +381,25 @@ describe('ancillary request · pinned, not refused — four configurations state
   })
 
   /**
-   * Pin 4 · **the request on a block the exchange does not run in.** With `rcmValidityRounds` 4 the
-   * exchange runs in the window's opening block and in none of the three after it
-   * (`blockCarriesAncillary`), so neither the message nor the request is on the air there — and the
-   * grant made in block 0 is still in force when block 4 comes round. Pinned because 「three blocks
-   * with no request in them」 reads like a lost request if nobody says otherwise.
+   * Pin 4 · **the request on a round the exchange does not run in.** With `rcmValidityRounds` 4 (and
+   * four rounds a block, so the set fits one block — standard §10.32.9.1) the exchange runs in the
+   * set's first round and in none of the three after it (`roundCarriesAncillary`), so neither the
+   * message nor the request is on the air there — and the grant made in block 0 is in force from the
+   * next block's set on. Rewritten 2026-11-10 (audit #23): this used to be four one-round blocks, the
+   * request in blocks 0 and 4.
    */
-  it('with a four-block validity window, the request rides the opening block only and the grant survives the gap', () => {
+  it('with a four-round set, the request rides the set\'s first round only and the grant holds from the next block', () => {
     const granted = 7
-    const rs = run(scene({ rcmValidityRounds: 4, ancillaryRequest: true, ancillaryRequestSlots: granted }))
+    const rs = run(scene({
+      rcmValidityRounds: 4, initiatorRounds: 4, ancillaryRequest: true, ancillaryRequestSlots: granted,
+    }))
     const blocks = [...firstCountdownByBlock(rs).keys()].sort((a, b) => a - b)
-    expect(blocks).toEqual([0, 4])
+    expect(blocks).toEqual([0, 1, 2, 3, 4, 5, 6])
     expect(firstCountdownByBlock(rs).get(0)).toBe(FRAMES - 1)
-    expect(firstCountdownByBlock(rs).get(4)).toBe(granted - 1)
-    const reqBlocks = ancRecords(rs).filter((r) => r.requestedSlots !== undefined).map((r) => r.block)
-    expect(reqBlocks).toEqual([0, 4])
+    for (const block of [1, 2, 3, 4, 5, 6]) expect(firstCountdownByBlock(rs).get(block), `block ${block}`).toBe(granted - 1)
+    const req = ancRecords(rs).filter((r) => r.requestedSlots !== undefined)
+    expect(req.map((r) => r.block)).toEqual([0, 1, 2, 3, 4, 5, 6])
+    expect(req.every((r) => r.round === 0), 'only the first round of each set').toBe(true)
   })
 
   /**

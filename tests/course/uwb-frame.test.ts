@@ -64,9 +64,9 @@ describe('uwb-frame · the lesson’s own scene', () => {
 
   it('the poll really is far longer than a Wi-Fi acknowledgement', () => {
     // why: "A ranging frame carries almost no data, yet it is long — far longer than a Wi-Fi
-    //  acknowledgement." A 14-octet ACK at 6 Mb/s is 44 µs; the poll is 197.628 µs.
+    //  acknowledgement." A 14-octet ACK at 6 Mb/s is 44 µs; the poll is 200.705 µs.
     expect(ACK_TX_TIME_6M_NS).toBe(44_000)
-    expect(uwbPpduNs(30)).toBeGreaterThan(4 * ACK_TX_TIME_6M_NS)
+    expect(uwbPpduNs(33)).toBeGreaterThan(4 * ACK_TX_TIME_6M_NS)
   })
 
   it('the scenario and the variant are uwb-intro’s own, and pass the schema', () => {
@@ -80,23 +80,26 @@ describe('uwb-frame · the lesson’s own scene', () => {
 
 })
 
-describe('uwb-frame · what 197.628 µs is made of', () => {
+// 2026-11-10: the one-anchor Poll grew from 30 to 33 octets (its ARC IE took the standard's three
+// content octets and the RR IE joined it — audit #9), so every figure of the PSDU moved with it:
+// 290 → 314 symbols, 40.256 → 40.256 µs, 200.705 → 200.705 µs, 385 → 388 µs.
+describe('uwb-frame · what 200.705 µs is made of', () => {
   const poll = txs(recs(), 'uwbPoll')[0]
   const layout = uwbPpduLayout(poll.frame)
   const durOf = (key: string, nth = 0): number => layout.filter((s) => s.key === key)[nth].durNs
 
-  it('the poll is 30 octets and 197.628 µs, exactly the PPDU the engine builds', () => {
-    // the table's "PSDU, 30 octets" row and its "The whole poll … 197.628 µs" row, and the
+  it('the poll is 33 octets and 200.705 µs, exactly the PPDU the engine builds', () => {
+    // the table's "PSDU, 33 octets" row and its "The whole poll … 200.705 µs" row, and the
     // picture's "thirty bytes in the poll and twenty in the answer"
-    expect(uwbPollBytes(1)).toBe(30)
-    expect(poll.frame.bytes).toBe(30)
-    expect(uwbPpduNs(30)).toBe(197_628)
-    expect(poll.frame.txTimeNs).toBe(197_628)
-    expect((197_628 / US).toFixed(3)).toBe('197.628')
+    expect(uwbPollBytes(1)).toBe(33)
+    expect(poll.frame.bytes).toBe(33)
+    expect(uwbPpduNs(33)).toBe(200_705)
+    expect(poll.frame.txTimeNs).toBe(200_705)
+    expect((200_705 / US).toFixed(3)).toBe('200.705')
   })
 
   it('every field duration in the table is chipsToNs of its chip count', () => {
-    // the "Duration" column: SYNC 65.128, SFD 8.141, STS gap 1.026, STS 65.641, PHR 19.487, PSDU 37.179
+    // the "Duration" column: SYNC 65.128, SFD 8.141, STS gap 1.026, STS 65.641, PHR 19.487, PSDU 40.256
     expect(durOf('sync')).toBe(chipsToNs(SYNC_SYMBOLS * PSYM_CHIPS))
     expect(durOf('sync')).toBe(65_128)
     expect(durOf('sfd')).toBe(chipsToNs(SFD_SYMBOLS * PSYM_CHIPS))
@@ -108,16 +111,16 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(durOf('sts')).toBe(65_641)
     expect(durOf('phr')).toBe(chipsToNs(PHR_SYMBOLS * PHR_SYMBOL_CHIPS))
     expect(durOf('phr')).toBe(19_487)
-    expect(durOf('psdu')).toBe(chipsToNs(psduSymbols(30) * DATA_SYMBOL_CHIPS))
-    expect(durOf('psdu')).toBe(37_179)
-    expect(layout.reduce((s, x) => s + x.durNs, 0)).toBe(197_628)
+    expect(durOf('psdu')).toBe(chipsToNs(psduSymbols(33) * DATA_SYMBOL_CHIPS))
+    expect(durOf('psdu')).toBe(40_256)
+    expect(layout.reduce((s, x) => s + x.durNs, 0)).toBe(200_705)
   })
 
   it('the symbol and chip counts the "Field" column names are the engine’s own', () => {
     // Every "Field" cell now states its chips as well as its symbols: "SYNC, 64 preamble symbols
     // × 508 chips = 32 512 chips" / "SFD, 8 preamble symbols × 508 chips = 4064 chips" /
     // "STS gap, 512 chips" / "STS, 64 × 512 = 32 768 chips" / "PHR, 19 symbols × 512 chips =
-    // 9728 chips" / "PSDU, 30 octets: 290 symbols × 64 chips = 18 560 chips". A compensating
+    // 9728 chips" / "PSDU, 33 octets: 314 symbols × 64 chips = 20 096 chips". A compensating
     // change (fewer symbols, longer symbol) would keep every duration above and quietly falsify
     // all six cells, so both factors and the product are pinned.
     expect(SYNC_SYMBOLS).toBe(64)
@@ -130,7 +133,7 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(SFD_SYMBOLS * PSYM_CHIPS).toBe(4064)
     expect(STS_ACTIVE_CHIPS).toBe(32_768)
     expect(PHR_SYMBOLS * PHR_SYMBOL_CHIPS).toBe(9728)
-    expect(psduSymbols(30) * DATA_SYMBOL_CHIPS).toBe(18_560)
+    expect(psduSymbols(33) * DATA_SYMBOL_CHIPS).toBe(20_096)
     expect(chipsToNs(SFD_SYMBOLS * PSYM_CHIPS)).toBe(8141)
   })
 
@@ -145,9 +148,9 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     // the paragraph's claim about SYNC (64 symbols) and STS (32 768 chips) landing nearly together
     expect(durOf('sts') / durOf('sync')).toBeGreaterThan(0.99)
     expect(durOf('sts') / durOf('sync')).toBeLessThan(1.02)
-    // "290 symbols of 64 chips" for the 30-octet PSDU
-    expect(psduSymbols(30)).toBe(290)
-    expect(chipsToNs(290 * DATA_SYMBOL_CHIPS)).toBe(37_179)
+    // "314 symbols of 64 chips" for the 33-octet PSDU
+    expect(psduSymbols(33)).toBe(314)
+    expect(chipsToNs(314 * DATA_SYMBOL_CHIPS)).toBe(40_256)
   })
 
   it('the frame runs SYNC, SFD, the stamp, STS between its gaps, PHR, PSDU', () => {
@@ -166,37 +169,39 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(layout.slice(stamped).map((s) => s.key)).toEqual(['stsGap', 'sts', 'stsGap', 'phr', 'psdu'])
     expect(layout[stamped].rmarkerNs).toBe(durOf('sync') + durOf('sfd'))
     // and so most of what follows the stamp is not the message
-    const afterStamp = 197_628 - 73_269
+    const afterStamp = 200_705 - 73_269
     expect(afterStamp - durOf('psdu')).toBeGreaterThan(durOf('psdu'))
   })
 
-  it('the PSDU is 240 data bits, 48 parity bits and a 2-symbol tail, carried at 6.81 Mb/s', () => {
-    // the formula "Why 30 octets cost 37.179 µs": "240 data bits + 48 parity bits + a 2-symbol
-    //  tail = 290 symbols × 64 chips", and its note: "At 6.81 Mb/s the message alone would be
-    //  35.2 µs of air. Coding, not the message, is most of what a payload costs."
+  it('the PSDU is 264 data bits, 48 parity bits and a 2-symbol tail, carried at 6.81 Mb/s', () => {
+    // the formula "Why 33 octets cost 40.256 µs": "264 data bits + 48 parity bits + a 2-symbol
+    //  tail = 314 symbols × 64 chips", and its note: "At 6.81 Mb/s the message alone would be
+    //  38.8 µs of air. Coding, not the message, is most of what a payload costs."
     expect(UWB_MBPS).toBe(6.81)
     expect(poll.frame.mbps).toBe(UWB_MBPS)
-    expect(30 * 8).toBe(240)
+    expect(33 * 8).toBe(264)
     expect(RS_PARITY_BITS).toBe(48)
     expect(TAIL_SYMBOLS).toBe(2)
-    expect(psduSymbols(30)).toBe(240 + RS_PARITY_BITS + TAIL_SYMBOLS)
-    // the clause exists because the uncoded figure is 35.2 µs, not the 37.179 µs beside it
-    // (6.81 Mb/s is 6.81 bits per µs, so 240 bits are 35.2 µs of air before coding)
-    expect((240 / UWB_MBPS).toFixed(1)).toBe('35.2')
+    expect(psduSymbols(33)).toBe(264 + RS_PARITY_BITS + TAIL_SYMBOLS)
+    // the clause exists because the uncoded figure is 38.8 µs, not the 40.256 µs beside it
+    // (6.81 Mb/s is 6.81 bits per µs, so 264 bits are 38.8 µs of air before coding)
+    expect((264 / UWB_MBPS).toFixed(1)).toBe('38.8')
   })
 
-  it('160.449 µs of the poll is structure and only 37.179 µs is the message', () => {
-    // "160.449 µs structure, 37.179 µs message" — and the observation "the PSDU comes last, and it
+  it('160.449 µs of the poll is structure and only 40.256 µs is the message', () => {
+    // "160.449 µs structure, 40.256 µs message" — and the observation "the PSDU comes last, and it
     //  is shorter than the run of SYNC that opens the frame", and the outcome "the message takes
     //  less air than the pattern that introduces it"
     const structure = layout.filter((s) => s.key !== 'psdu').reduce((s, x) => s + x.durNs, 0)
     expect(structure).toBe(160_449)
-    expect(structure + 37_179).toBe(197_628)
+    expect(structure + 40_256).toBe(200_705)
     expect(layout[layout.length - 1].key).toBe('psdu')
     expect(durOf('psdu')).toBeLessThan(durOf('sync'))
     expect(durOf('psdu')).toBeLessThan(durOf('sts'))
-    // "the message is a small part of the frame": under a fifth of the airtime
-    expect(durOf('psdu') / 197_628).toBeLessThan(0.2)
+    // "the message is a small part of the frame": the table's own split, structure 160.449 µs against
+    // message 40.256 µs — the structure is more than three times the message. (This pinned 「under a
+    // fifth」 until 2026-11-10, a ratio the lesson never prints; 40.256 / 200.705 is 0.2006 now.)
+    expect(structure).toBeGreaterThan(3 * durOf('psdu'))
   })
 
   it('the RMARKER is the first chip after the SFD, 73.269 µs in', () => {
@@ -210,7 +215,7 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
   })
 
   it('the response is 20 octets and 187.372 µs, differing from the poll only in its PSDU', () => {
-    // the "The poll and the response" table: "Poll | 30 octets | 37.179 µs | 197.628 µs" and
+    // the "The poll and the response" table: "Poll | 33 octets | 40.256 µs | 200.705 µs" and
     //  "Response | 20 octets | 26.923 µs | 187.372 µs", and the formula note's "the response is
     //  built the same way, so its RMARKER falls at the very same offset"
     const resp = txs(recs(), 'uwbResp')[0]
@@ -222,14 +227,14 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(rl.filter((s) => s.key !== 'psdu').map((s) => s.durNs))
       .toEqual(layout.filter((s) => s.key !== 'psdu').map((s) => s.durNs))
     expect(rl.find((s) => s.rmarkerNs !== undefined)!.rmarkerNs).toBe(73_269)
-    // "Of the two 2 ms slots the round occupies, only 385 µs carries a frame at all."
-    expect(Math.round((197_628 + 187_372) / US)).toBe(385)
+    // "Of the two 2 ms slots the round occupies, only 388 µs carries a frame at all."
+    expect(Math.round((200_705 + 187_372) / US)).toBe(388)
   })
 
   it('the round is two 2 ms slots and the response leaves at exactly 2 000 000 ns', () => {
     // observe: "the poll in the first slot, the response in the second, which starts at exactly
     //  2 000 000 ns. Almost all of the round is silence." / numbers: "Of the two 2 ms slots the
-    //  round occupies, only 385 µs carries a frame at all." / picture: "the answer leaves at the
+    //  round occupies, only 388 µs carries a frame at all." / picture: "the answer leaves at the
     //  top of its slot whether it was ready early or not"
     const rs = recs()
     const round = ofType(rs, 'UWB_ROUND')
@@ -241,7 +246,7 @@ describe('uwb-frame · what 197.628 µs is made of', () => {
     expect(round[0].slotNs).toBe(2 * MS)
     expect(ofType(rs, 'UWB_SLOT').map((r) => r.t)).toEqual([0, 2 * MS])
     expect(txs(rs, 'uwbResp')[0].t).toBe(2 * MS)
-    // the poll is ready long before its slot ends: 197.628 µs of 2 ms
+    // the poll is ready long before its slot ends: 200.705 µs of 2 ms
     expect(txs(rs, 'uwbPoll')[0].t).toBe(0)
     /*
      * **And `observe`'s own sentence, read.** 「Poll 在第一个时隙，Response 在第二个，而第二个
@@ -336,8 +341,8 @@ describe('uwb-frame · the figure of the frame', () => {
   })
 
   it('the total under the row is the frame, split into structure and message', () => {
-    expect(spec.total).toBe('整帧 197.628 µs：结构 160.449，消息 37.179')
-    expect(spec.fields.reduce((n, f) => n + f.size, 0) * US).toBe(uwbPpduNs(30))
+    expect(spec.total).toBe('整帧 200.705 µs：结构 160.449，消息 40.256')
+    expect(spec.fields.reduce((n, f) => n + f.size, 0) * US).toBe(uwbPpduNs(33))
     expect(spec.fields[6].size * US).toBe(layout.find((s) => s.key === 'psdu')!.durNs)
   })
 })
@@ -369,7 +374,7 @@ describe('uwb-frame · how a stamp is taken off this frame', () => {
       if (seg.key === 'psdu') expect(seg.durNs).not.toBe(rl[i].durNs)
       else expect(seg.durNs, seg.key).toBe(rl[i].durNs)
     }
-    expect(poll.frame.bytes).toBe(30)
+    expect(poll.frame.bytes).toBe(33)
     expect(resp.frame.bytes).toBe(20)
   })
 
@@ -430,8 +435,8 @@ describe('uwb-frame · how a stamp is taken off this frame', () => {
  *    508 码片 = 32 512 码片」 has all three figures parsed out, the product has to be the third,
  *    and the third has to be the chips the engine's layout gives that field — so a compensating
  *    edit (fewer symbols, longer symbol) that keeps the duration right still fails.
- *  - **the PSDU's bit budget is read as a sum.** 「240 个数据比特 + 48 个校验比特 + 2 个符号的尾
- *    = 290 个符号」 is checked against `psduSymbols` and against the parity the engine adds.
+ *  - **the PSDU's bit budget is read as a sum.** 「264 个数据比特 + 48 个校验比特 + 2 个符号的尾
+ *    = 314 个符号」 is checked against `psduSymbols` and against the parity the engine adds.
  *  - **the RMARKER is read as the sum of the two fields in front of it**, both of which are read
  *    off the layout, and the quiz's three printings of the same three figures are read too.
  *  - **the 0.299792458 m/ns of `tryThis` is read as the speed of light** — the one figure in this
@@ -549,7 +554,7 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
     same(String(message), seg('psdu').durNs / US, 'and its message')
     expect(structure! + message!, 'which together are the frame')
       .toBeCloseTo(poll.frame.txTimeNs / US, 3)
-    // 「这一轮占用的两个 2 ms 时隙里，真正有帧在传输的只有 385 µs」
+    // 「这一轮占用的两个 2 ms 时隙里，真正有帧在传输的只有 388 µs」
     const [slots, slotMs, onAir] = figs(NUMS,
       /这一轮占用的两个 (\d+) ms 时隙里，真正有帧在传输的只有 (\d+) µs/, 'the round’s own silence')
       .slice(0, 3)
@@ -593,11 +598,11 @@ describe('uwb-frame · every figure the prose prints, read back out of it', () =
     expect(symbols, 'the symbols they come to').toBe(psduSymbols(poll.frame.bytes))
     expect(chips, 'and a data symbol’s chips').toBe(DATA_SYMBOL_CHIPS)
     expect(chipsToNs(symbols! * chips!), 'which buy the PSDU its duration').toBe(seg('psdu').durNs)
-    // 「为什么 30 个字节需要 37.179 µs」 — the heading of that formula.
+    // 「为什么 33 个字节需要 40.256 µs」 — the heading of that formula.
     const [octets, us] = figs(NUMS, /为什么 (\d+) 个字节需要 ([\d.]+) µs/, 'the heading of the formula')
     expect(octets, 'the octets').toBe(poll.frame.bytes)
     same(String(us), seg('psdu').durNs / US, 'and the duration they take')
-    // 「按 6.81 Mb/s 计算，消息本身只需要 35.2 µs」
+    // 「按 6.81 Mb/s 计算，消息本身只需要 38.8 µs」
     const [mbps, bare] = figs(NUMS, /按 ([\d.]+) Mb\/s 计算，消息本身只需要 ([\d.]+) µs/,
       'the rate and the bare message')
     expect(mbps, 'the rate the PSDU goes out at').toBe(UWB_MBPS)

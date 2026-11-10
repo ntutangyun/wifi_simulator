@@ -464,16 +464,16 @@ describe('uwb-coexist · what each side hears', () => {
 })
 
 describe('uwb-coexist · the base run', () => {
-  it('twenty-five blocks in five seconds, Wi-Fi on the air 3.07 % of it and UWB 48.6 ms', () => {
+  it('twenty-five blocks in five seconds, Wi-Fi on the air 3.07 % of it and UWB 48.8 ms', () => {
     // "Five seconds, twenty-five blocks" / the table's "3.07 %"
     expect(fixes()).toHaveLength(BLOCKS)
     expect(ofType(recs(), 'UWB_ROUND_END')).toHaveLength(BLOCKS)
     expect(wifiAirPct().toFixed(2)).toBe('3.07')
     expect(cell(2, 0, 1)).toBe('3.07 %')
-    // deeper: "The whole session is on the air for 48.6 ms of the five seconds", and its own
+    // deeper: "The whole session is on the air for 48.8 ms of the five seconds", and its own
     // share is 0.97 % — a number the lesson prints exactly once, for the saturated run's cost
-    expect(uwbAirPct().toFixed(2)).toBe('0.97')
-    expect((airNs(recs(), (id) => UWB_IDS.has(id)) / 1e6).toFixed(1)).toBe('48.6')
+    expect(uwbAirPct().toFixed(2)).toBe('0.98') // 0.97 before the 2026-11-10 RCM correction (the lesson does not print this share)
+    expect((airNs(recs(), (id) => UWB_IDS.has(id)) / 1e6).toFixed(1)).toBe('48.8')
     expect(prose().match(/0\.97 %/g)).toHaveLength(1)
   })
 
@@ -1027,7 +1027,7 @@ describe('uwb-coexist · every figure the prose prints, read back out of it', ()
     expect(val(needs!), 'which is what that MCS needs of this generation')
       .toBe(Number(reqSinrDb(gen, val(mcs!)).toFixed(2)))
     expect(val(upAt!), 'while the laptop’s own uplink arrives well above it').toBeLessThan(0)
-    // 「整个会话在这五秒里占用空口 48.6 ms」
+    // 「整个会话在这五秒里占用空口 48.8 ms」
     const [airMs] = raw(deep, /占用空口 ([\d.]+) ms/, '`deeper` on the air the session takes')
     const air = ofType(recs(), 'TX_START')
       .filter((r) => UWB_IDS.has(r.node))
@@ -1172,7 +1172,7 @@ describe('uwb-coexist · every figure the prose prints, read back out of it', ()
       - (noiseDbm(WIDTH_MHZ) + noiseRiseDb(uwbAt(TAG, AP)))
     expect(Math.floor(tagUl), 'the SINR it keeps under the tag’s own noise rise')
       .toBe(routerSinr)
-    // 「整个会话在这五秒里占用空口 48.6 ms」
+    // 「整个会话在这五秒里占用空口 48.8 ms」
     const [airMs] = raw(deep, /占用空口 ([\d.]+) ms/, '`deeper` on the air the session takes')
     const air = ofType(recs(), 'TX_START').filter((r) => UWB_IDS.has(r.node))
       .reduce((a, r) => a + r.frame.txTimeNs, 0)

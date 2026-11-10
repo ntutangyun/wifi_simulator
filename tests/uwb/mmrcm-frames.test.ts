@@ -128,7 +128,8 @@ describe('leaves every existing frame byte-identical', () => {
   it('Poll', () => {
     const f = makePoll('tag', ['a1', 'a2'], 'ds', 0, 0)
     expect(f.bytes).toBe(uwbPollBytes(2))
-    expect(f.bytes).toBe(33)
+    // 33 → 36 on 2026-11-10: ARC IE to the standard's 3 content octets plus the RR IE (audit #9).
+    expect(f.bytes).toBe(36)
     expect(fieldSum(f)).toBe(f.bytes)
   })
 

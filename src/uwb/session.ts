@@ -4,13 +4,13 @@
  *
  * The block and slot lengths are fixed before the session starts, in every mode. **The round's
  * length is not, and since slice 3d it is not even fixed by the session's own configuration.** Two
- * features append slots to the round of particular blocks — §10.36's receipt confirmation on the
- * block that closes a validity window, §10.35's ancillary message on the block that opens one — so
- * `blockSlots` is the length that is actually run, and it moves with the block index. And with
+ * features append slots to particular rounds — §10.36's receipt confirmation on the
+ * round that closes a ranging round set, §10.35's ancillary message on the round that opens one — so
+ * `roundSlots` is the length that is actually run, and it moves with the round's place in its round set. And with
  * §10.35.2.1's Request field a *device* can ask for more of them: the sender of an ancillary
  * message asks the controller to schedule a number of slots for the next exchange, the controller
  * answers by what a block holds (`ancillaryGrantFits`), and the width that comes back is handed to
- * `ancillarySlots`/`blockSlots`/`blockSlotStartNs`/`blockSlotAction` as their optional last
+ * `ancillarySlots`/`roundSlots`/`blockSlotStartNs`/`roundSlotAction` as their optional last
  * argument. That argument defaults to the session's own figure, so every session without a request
  * is laid out exactly as it was; where one exists, the round's length is settled a block at a time.
  *
@@ -19,7 +19,8 @@
  * has no backoff, no NAV and no retry, and its reply times are known to the nanosecond in
  * advance. In a **contention** round (§10.32.2 schedule mode 0) the response phase belongs to
  * nobody in particular - each anchor draws a slot in it - so two anchors can and do land in one
- * slot. One tag owns one round per block either way, so N tags need N rounds inside the block.
+ * slot. One tag owns `initiatorRounds` consecutive rounds per block either way (one, unless the
+ * session asks for more), so N tags need N × `initiatorRounds` rounds inside the block.
  *
  * A round is laid out as
  *   SS-TWR:            slot 0 Poll (tag) | slots 1..A Response (anchor 0..A-1)
@@ -102,17 +103,28 @@ export interface RoundPlan {
   /**
    * How many rounds this round's own control message (today's Poll) governs before a fresh one
    * is needed — standard §10.32.9.1's ARC IE, "RCM Validity Rounds". Read off the session's own
-   * `cfg` here, for the same reason `replyTime` and `mms` are: `blockCarriesRcm` below is the one
+   * `cfg` here, for the same reason `replyTime` and `mms` are: `roundCarriesRcm` below is the one
    * place both ends of a round decide whether *this* round carries the control content, and a
    * device re-deriving that from a copy of this number would be a second chance to disagree.
    */
   rcmValidityRounds: number
   /**
+   * How many consecutive ranging rounds each initiator (tag) runs per block — `UwbSessionCfg.
+   * initiatorRounds`, 1 unless the session asks for more, and always 1 outside `mode: 'twr'` (the
+   * schema refuses anything else there). Tag k owns rounds `k·n … k·n + n − 1` of every block.
+   *
+   * It is what makes a ranging round set (standard §10.32.3.2) something a block can hold at all:
+   * an RCM's validity counts **rounds** and can never exceed the rounds remaining in the current
+   * block (§10.32.9.1), so a set of `rcmValidityRounds` rounds needs that many rounds of one
+   * initiator inside one block. `roundSetOf` below is where both numbers are read together.
+   */
+  initiatorRounds: number
+  /**
    * Whether this session confirms, with a dedicated frame of its own, which of an initiator's
    * current-window openers a responder actually received (standard §10.36; design doc
    * 2026-10-02-receipt-confirmation-design.md). Read off the session's own `cfg` here, for the
-   * same reason `replyTime`/`rcmValidityRounds`/`mms` are: `blockCarriesMmrcm`/`mmrcmInitiators`/
-   * `blockSlots` below are the one place both ends of a round decide whether a block carries the
+   * same reason `replyTime`/`rcmValidityRounds`/`mms` are: `roundCarriesMmrcm`/`mmrcmResponders`/
+   * `roundSlots` below are the one place both ends of a round decide whether a round carries the
    * extra slot(s), and a device re-deriving that from its own copy of `cfg.mmrcr` would be another
    * chance for the two ends to disagree.
    */
@@ -164,7 +176,7 @@ export interface RoundPlan {
    * **This is the one field of this plan that something downstream is allowed to override.** The
    * plan itself is still settled once, in `UwbNetwork`'s constructor, for the whole session — what
    * varies by block is the *granted* width, which `UwbNetwork` holds beside the plan and passes
-   * into `ancillarySlots`/`blockSlots`/`blockSlotStartNs`/`blockSlotAction` as their optional last
+   * into `ancillarySlots`/`roundSlots`/`blockSlotStartNs`/`roundSlotAction` as their optional last
    * argument. So the plan stays immutable and the block-varying quantity has one owner, rather than
    * the plan becoming mutable and every reader having to know when it last changed.
    */
@@ -272,6 +284,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     schedule: cfg.schedule, contentionSlots: cfg.contentionSlots, mode: cfg.mode,
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
     rcmValidityRounds: cfg.rcmValidityRounds, mmrcr: cfg.mmrcr,
+    initiatorRounds: cfg.mode === 'twr' ? cfg.initiatorRounds : 1,
     sp3: cfg.sp3, srrr: { ...cfg.srrr },
     ancillary: cfg.ancillary, ancillaryFrames: cfg.ancillaryFrames,
     ancillaryRequest: cfg.ancillaryRequest, ancillaryRequestSlots: cfg.ancillaryRequestSlots,
@@ -296,7 +309,9 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
   }
 }
 
-/** Absolute start of one slot of one round of one block. */
+/** Absolute start of one slot of one round of one block, for a round plan whose rounds all have
+ * the same length (`plan.slots`) — every round of every session with neither `mmrcr` nor
+ * `ancillary` on. `blockSlotStartNs` is the general form. */
 export function slotStartNs(p: RoundPlan, block: number, round: number, slot: number): Ns {
   return block * p.blockNs + round * p.roundNs + slot * p.slotNs
 }
@@ -375,60 +390,91 @@ export type SlotAction =
    * train does not reach, and a report slot the session's report mode does not use. */
   | { kind: 'idle' }
 
+// --- Ranging round sets (standard §10.32.3.2, §10.32.9.1) ---------------------------------------
+
 /**
- * Whether round `round` carries the control content (ARC + RDM + RRMC, today's Poll) rather than
- * the initiation message alone (standard §10.32.9.1's ARC IE, "RCM Validity Rounds"; design §2 of
- * docs/superpowers/specs/2026-10-01-rcm-validity-design.md). True exactly on the first round of
- * every `plan.rcmValidityRounds`-round validity window — round 0, `rcmValidityRounds`,
- * `2 * rcmValidityRounds`, … — false on the `rcmValidityRounds − 1` rounds between them.
+ * Where within-block round `round` sits in its **ranging round set**: the set's first round (a
+ * within-block round index), how many rounds the set holds, and this round's place in it.
  *
- * The one place this is decided, for the same reason `replyTime` and `mms` live on the plan
- * rather than being re-derived at a device: both ends of a round have to read the same judgement,
- * and a device working it out again from its own copy of `rcmValidityRounds` is another chance
- * for the two ends to disagree about which message this round carries.
+ * A ranging round set is the run of consecutive rounds one RCM governs (standard §10.32.3.2); the
+ * number is the ARC IE's RCM Validity Rounds, which counts this round too and **cannot exceed the
+ * rounds remaining in the current block** (§10.32.9.1). So a set never leaves its block, and what a
+ * validity window counts is rounds, never blocks.
+ *
+ * In two-way ranging, tag k owns rounds `k·n … k·n + n − 1` of the block (`plan.initiatorRounds`
+ * = n), and its sets tile that run every `plan.rcmValidityRounds` (R) rounds. Where the run is not
+ * a whole number of sets, the last one is cut to the rounds that remain — that RCM's validity field
+ * says so — rather than reaching into another tag's round or the next block. The schema refuses
+ * R > n outright, so with the defaults (n = R = 1) every round is a one-round set of its own: the
+ * behaviour every scene had before round sets existed, round for round.
+ *
+ * Every other mode pins R at 1 in the schema (none of them sends an RCM with a validity of its
+ * own to extend), so each of their rounds is its own one-round set too.
+ *
+ * **The one place this is decided.** Both ends of a round read it — the initiator to choose between
+ * the RCM and the bare initiation message, the responders to know which message to expect and how
+ * long a control message they decoded stays valid — and a device working it out again from its own
+ * copy of the two numbers is a second chance to disagree.
+ */
+export interface RoundSetPos {
+  /** The set's first round, as a within-block round index. */
+  first: number
+  /** How many rounds the set holds: the RCM Validity Rounds its RCM carries. */
+  length: number
+  /** This round's place in the set, 0 for the round that carries the RCM. */
+  index: number
+}
+
+export function roundSetOf(plan: RoundPlan, round: number): RoundSetPos {
+  if (plan.mode !== 'twr') return { first: round, length: 1, index: 0 }
+  const n = Math.max(1, plan.initiatorRounds)
+  const r = Math.max(1, Math.min(plan.rcmValidityRounds, n))
+  const runStart = round - (round % n)
+  const j = round - runStart
+  const first = runStart + j - (j % r)
+  const length = Math.min(r, runStart + n - first)
+  return { first, length, index: round - first }
+}
+
+/**
+ * Whether round `round` carries the control content (ARC + RR + RDM + RRMC, today's Poll) rather
+ * than the initiation message alone: true exactly on the first round of every ranging round set
+ * (standard §10.32.3.2: each set is defined by its RCM at the beginning of the set's first round).
  *
  * It does not change the slot table: slot 0 is always the round's control-or-initiation message,
  * whichever this round turns out to carry, and every other slot's owner is unaffected — only what
  * goes into slot 0 depends on this (`tests/uwb/rcm-validity-schedule.test.ts` pins `slotAction`
  * identical across every `rcmValidityRounds` setting).
  *
- * `rcmValidityRounds: 1` — the default — makes every round its own one-round window, so this is
- * always true: today's behaviour, byte for byte.
- *
- * **It takes a block index, and the name says so on purpose.** The standard counts validity in
- * ranging *rounds* (§10.32.9.1), and in this engine a given tag's successive ranging rounds are
- * successive **blocks**: `network.ts`'s two-way dispatch is
- * `tags.forEach((tagId, k) => runRound(block, k, …))`, so the within-block `round` index names
- * *which tag* the round belongs to and stays constant for that tag forever. Feeding it here
- * would return the same answer for a tag every block and never cycle — the feature would look
- * finished and save nothing, which is the failure this branch has shipped twice. The parameter
- * is named `block` so the mistake cannot be made silently.
+ * **It takes a within-block round index**, and that is the correction this function exists for.
+ * Until 2026-11-10 it was `blockCarriesRcm(plan, block)` — `block % R === 0` — because each tag had
+ * one round per block and the window had to be counted in blocks; one RCM then governed R whole
+ * blocks, which §10.32.9.1 forbids (audit #23).
  */
-export function blockCarriesRcm(plan: RoundPlan, block: number): boolean {
-  return block % plan.rcmValidityRounds === 0
+export function roundCarriesRcm(plan: RoundPlan, round: number): boolean {
+  return roundSetOf(plan, round).index === 0
 }
 
 // --- Multiple-message receipt confirmation (standard §10.36; design doc
 // 2026-10-02-receipt-confirmation-design.md, task 2) -----------------------------------------
 
 /**
- * True on the one block that *closes* each RCM validity window (design §3.3): the bitmap that
- * block's extra slot(s) carry covers the whole window, so it cannot go out before the window's
- * last round has run. False everywhere else, including every block when `plan.mmrcr` is off —
- * there is nothing to place, so this never changes what `blockSlots` answers for an existing
- * scenario (`mmrcr` defaults to false).
+ * True on the round that *closes* its ranging round set (design §3.3): the bitmap that round's
+ * extra slot(s) carry covers the whole set, so it cannot go out before the set's last round has
+ * run. False everywhere else, including every round when `plan.mmrcr` is off — there is nothing to
+ * place, so this never changes what `roundSlots` answers for an existing scenario.
  *
- * `blockCarriesRcm` is true on a window's *opening* block (`block % R === 0`); this is true one
- * block *before* that — `R − 1`, `2R − 1`, … — one less, because the window that opens at block
- * `R` is the window that closed at block `R − 1`. Both read the same `rcmValidityRounds`, so the
- * two can never disagree about where a window's edges are.
+ * `roundCarriesRcm` is true on a set's *first* round; this on its last. Both read `roundSetOf`, so
+ * the two can never disagree about where a set's edges are.
  */
-export function blockCarriesMmrcm(plan: RoundPlan, block: number): boolean {
-  return plan.mmrcr && (block + 1) % plan.rcmValidityRounds === 0
+export function roundCarriesMmrcm(plan: RoundPlan, round: number): boolean {
+  if (!plan.mmrcr) return false
+  const set = roundSetOf(plan, round)
+  return set.index === set.length - 1
 }
 
 /**
- * How many MMRCM slots the window-closing block adds: **one per responder**, because a responder is
+ * How many MMRCM slots the set-closing round adds: **one per responder**, because a responder is
  * what sends one.
  *
  * **Corrected (2026-10-02).** Design §3.3 and this plan both said "one slot per initiator", and
@@ -445,9 +491,7 @@ export function blockCarriesMmrcm(plan: RoundPlan, block: number): boolean {
  * `'m2m'` every participant is both, so the two counts coincide — which is exactly why the error
  * was invisible there and why `'m2m'` was the mode this clause was reasoned about.
  *
- * `0` when `plan.mmrcr` is off, a documented, inert answer rather than a thrown error — `plan.mode`
- * is meaningful on its own in every mode, so a caller that has not yet checked `plan.mmrcr` cannot
- * be surprised by this one refusing to answer at all.
+ * `0` when `plan.mmrcr` is off, a documented, inert answer rather than a thrown error.
  */
 export function mmrcmResponders(plan: RoundPlan): number {
   // One definition, in `phy.ts`, because the scenario schema's block-fit rule needs the same number
@@ -459,32 +503,24 @@ export function mmrcmResponders(plan: RoundPlan): number {
 // 2026-10-02-ancillary-design.md, task 3) ----------------------------------------------------
 
 /**
- * True on the blocks the ancillary exchange runs in: **the block that opens each RCM validity
- * window** (standard §10.35.1, design §3).
+ * True on the rounds the ancillary exchange runs in: **the first round of each ranging round set**
+ * (standard §10.35.1, design §3).
  *
  * §10.35.1 bounds the exchange to the current ranging round plus the rounds this RCM still governs,
- * and the field that says how many those are is the ARC IE's own Ranging Validity Rounds
- * (§10.32.9.1) — `plan.rcmValidityRounds`. So the boundary is read off `blockCarriesRcm` above
- * rather than given a second expression of its own: this is that window's **third** reuse, after
- * §10.34's RMNR (`holdsValidRcm`) and §10.36's receipt bitmap (`blockCarriesMmrcm`), and a second
- * name for one boundary is the mistake this branch's `rmnr` rules were once written around.
+ * and the field that says how many those are is the ARC IE's RCM Validity Rounds (§10.32.9.1) — the
+ * round set. So the boundary is read off `roundCarriesRcm` rather than given a second expression of
+ * its own: this is that set's third reuse, after §10.34's RMNR (`holdsValidRcm`) and §10.36's
+ * receipt bitmap (`roundCarriesMmrcm`).
  *
- * One message per window, at the window's opening block, rather than one per block: that is what
- * makes the window do something a reader can see. With `rcmValidityRounds: 1` — the default — every
- * block opens its own window and the exchange runs in every one of them, so the shipped sessions
- * see no difference from the two readings; with R = 4 the message goes out in blocks 0 and 4 and in
- * none of the three between.
- *
- * It takes a **block** index, like `blockCarriesRcm` it delegates to, and for the identical reason
- * (design §2.2): within a block the `round` index names which tag the round belongs to and never
- * cycles, so feeding it here would answer the same thing for a tag forever.
+ * One message per set, at the set's first round. With `rcmValidityRounds: 1` — the default — every
+ * round opens its own set and the exchange runs in every one of them; with R = 4 and four rounds a
+ * block the message goes out in the block's first round and in none of the three after it.
  *
  * False whenever `plan.ancillary` is off (the default), and false in every mode but `'twr'` — the
- * schema refuses the exchange in each of the others because none of them sends an ARC IE at all,
- * and this is what makes that refusal a fact this file relies on rather than assumes.
+ * schema refuses the exchange in each of the others because none of them sends an ARC IE at all.
  */
-export function blockCarriesAncillary(plan: RoundPlan, block: number): boolean {
-  return plan.ancillary && plan.mode === 'twr' && blockCarriesRcm(plan, block)
+export function roundCarriesAncillary(plan: RoundPlan, round: number): boolean {
+  return plan.ancillary && plan.mode === 'twr' && roundCarriesRcm(plan, round)
 }
 
 /**
@@ -493,9 +529,8 @@ export function blockCarriesAncillary(plan: RoundPlan, block: number): boolean {
  * window under a contention one, and 0 whenever the exchange is off. See that function for why the
  * two schedules differ and why the count cannot live in this file.
  *
- * It does **not** ask which block: the count is a property of the session's shape, and whether a
- * given block spends it is `blockCarriesAncillary`'s question. `0` with the feature off is a
- * documented, inert answer rather than a thrown error, exactly as `mmrcmResponders` above.
+ * It does **not** ask which round: the count is a property of the session's shape, and whether a
+ * given round spends it is `roundCarriesAncillary`'s question.
  */
 export function ancillarySlots(plan: RoundPlan, frames: number | null = null): number {
   return uwbAncillarySlots(
@@ -519,68 +554,70 @@ function slotsPerBlock(plan: RoundPlan): number {
  *
  * §10.35 defines the request and nothing else: no grant, no refusal, no response. So *whether* to
  * grant is this engine's decision (model), and the only honest place to anchor it is the arithmetic
- * the engine and the schema already each do once — does the block hold a round of `plan.slots`, plus
- * the receipt confirmation's own appended batch, plus the window the granted message needs. Every
- * term is already on the plan; nothing here is a threshold somebody chose.
+ * the engine and the schema already each do once — does the block hold the initiator's rounds,
+ * each with whatever receipt-confirmation and ancillary slots its place in its round set appends, at
+ * the granted width. Every term is already on the plan; nothing here is a threshold somebody chose.
  *
- * One round per block, because `ancillaryRequestRefusals` refuses the request outright for a session
- * with more than one tag — one tag, one controller, one grant.
+ * One initiator per block, because `ancillaryRequestRefusals` refuses the request outright for a
+ * session with more than one tag — one tag, one controller, one grant.
  *
- * So in the shipped lesson hall (a 200 ms block of 2 ms slots, a 5-slot SS round, no `mmrcr`) a
- * request is granted up to 94 and refused at 95 and above: 100 − 5 − 1 for the next request's own
- * slot. That number is `blockNs`, `slotNs` and `plan.slots` talking, not a figure in a lesson.
+ * So in the shipped lesson hall (a 200 ms block of 2 ms slots, a 5-slot SS round, one round a block,
+ * no `mmrcr`) a request is granted up to 94 and refused at 95 and above: 100 − 5 − 1 for the next
+ * request's own slot. That number is `blockNs`, `slotNs` and `plan.slots` talking, not a figure in a
+ * lesson.
  */
 export function ancillaryGrantFits(plan: RoundPlan, frames: number): boolean {
-  const round = plan.slots + mmrcmResponders(plan) + ancillarySlots(plan, frames)
-  return round <= slotsPerBlock(plan)
+  let total = 0
+  for (let r = 0; r < plan.initiatorRounds; r++) total += roundSlots(plan, r, frames)
+  return total <= slotsPerBlock(plan)
 }
 
 /**
- * How many slots block `block`'s own round actually runs: `plan.slots`, plus the window-closing
- * MMRCM slots `mmrcr` adds (design §3.3 of the receipt-confirmation doc), plus the ancillary
- * message's own slots on a window-opening block (standard §10.35.1, ancillary design §4.2).
+ * How many slots round `round` actually runs: `plan.slots`, plus the set-closing MMRCM slots `mmrcr`
+ * adds (design §3.3 of the receipt-confirmation doc), plus the ancillary message's own slots on a
+ * set-opening round (standard §10.35.1, ancillary design §4.2).
  *
- * Blocks that carry neither are `plan.slots` exactly, which is every block of every session with
- * both features off (both default off) — so an existing session is laid out instant for instant as
- * before. Blocks 0…R−2 of an `mmrcr` window stay identical to the `mmrcr: false` case, the rule the
- * receipt slice asked to be pinned on its own.
+ * Rounds that carry neither are `plan.slots` exactly, which is every round of every session with
+ * both features off (both default off).
  *
  * **The two batches are ordered, here, once.** `mmrcr`'s slots come first and the ancillary
  * message's after them. The two are independently sized and appended for unrelated reasons, so
  * *something* has to decide; what must not happen is each caller deciding. (The schema refuses
  * `sp3` + `ancillary` for exactly this reason — SP3's report phase is a third such batch, and that
- * slice did not define where it sits relative to this one.) With `rcmValidityRounds > 1` the two
- * never even meet: `mmrcr` spends its slots on the window's **closing** block and `ancillary` on its
- * **opening** one.
+ * slice did not define where it sits relative to this one.) With a set of more than one round the
+ * two never even meet: `mmrcr` spends its slots on the set's **last** round and `ancillary` on its
+ * **first** one.
+ *
+ * Until 2026-11-10 this was `blockSlots(plan, block, …)`, keyed by the block index, for the reason
+ * `roundCarriesRcm`'s own note gives.
  */
-export function blockSlots(plan: RoundPlan, block: number, frames: number | null = null): number {
+export function roundSlots(plan: RoundPlan, round: number, frames: number | null = null): number {
   return plan.slots
-    + (blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0)
-    + (blockCarriesAncillary(plan, block) ? ancillarySlots(plan, frames) : 0)
+    + (roundCarriesMmrcm(plan, round) ? mmrcmResponders(plan) : 0)
+    + (roundCarriesAncillary(plan, round) ? ancillarySlots(plan, frames) : 0)
 }
 
 /**
- * Absolute start of one slot of one round of one block, `mmrcr` included — the form the scheduler
- * lays a block out with, and the only one that is right on a window-closing block.
+ * Absolute start of one slot of one round of one block, `mmrcr` and `ancillary` included — the form
+ * the scheduler lays a block out with.
  *
- * `slotStartNs` above strides by `plan.roundNs`, which is `plan.slots` slots and has no block index
- * in it. On a block that carries MMRCM slots the round is `blockSlots(plan, block)` slots long, so
- * with two tags in the block tag 0's extra slots would land exactly on tag 1's slots 0…A−1 — two
- * transmitters in one slot, and nothing downstream able to notice. This is also the very length the
- * scenario schema budgets a block against (`tags × (slots + mmrcrSlots)`), so the two agree about
- * how much of a block a round takes.
+ * A round starts where the rounds before it in the block end, so the start is the block's own start
+ * plus the **actual** lengths of every earlier round (`roundSlots`), not `round × plan.roundNs`: on a
+ * session whose rounds carry appended slots the rounds are not all one length any more, and a fixed
+ * stride would put one round's extra slots on top of the next round's slots 0…A−1 — two transmitters
+ * in one slot, and nothing downstream able to notice.
  *
- * **Identical to `slotStartNs` wherever `blockSlots(plan, block) === plan.slots`**, which is every
- * block of every session with `mmrcr` off (the default) and every block of the modes the schema
- * refuses `mmrcr` for outright — `'mms'` among them, which is why `device.mms.ts` reading its round's
- * start through `slotStartNs` stays exact. `slotStartNs` is kept rather than replaced for that
- * reason: it is the right question wherever a round's length cannot vary, and the lesson text quotes
- * it by name.
+ * **Identical to `slotStartNs` wherever every round is `plan.slots` long**, which is every round of
+ * every session with `mmrcr` and `ancillary` off (the defaults) and every round of the modes the
+ * schema refuses both for — `'mms'` among them, which is why `device.mms.ts` reading its round's
+ * start through `slotStartNs` stays exact.
  */
 export function blockSlotStartNs(
   p: RoundPlan, block: number, round: number, slot: number, frames: number | null = null,
 ): Ns {
-  return block * p.blockNs + round * blockSlots(p, block, frames) * p.slotNs + slot * p.slotNs
+  let before = 0
+  for (let r = 0; r < round; r++) before += roundSlots(p, r, frames)
+  return block * p.blockNs + (before + slot) * p.slotNs
 }
 
 /** One MMRCM slot (design §3.2/§3.3): `index` is **which responder** this slot belongs to, in
@@ -629,26 +666,24 @@ export interface AncillarySlotAction {
 }
 
 /**
- * One slot of block `block`'s own round, `slotAction`'s own answer unchanged for every slot below
- * `plan.slots`, and one `MmrcmSlotAction` per window-closing slot above it (design §3.3). This is
- * the function that actually moves with `block`, unlike `slotAction` itself (pinned unmoved by
- * `rcmValidityRounds`/`rmnr` already, and unmoved here too, for slots `slotAction` already knows
- * about) — so it is this function, not `slotAction`, that the "blocks 0…R−2 are identical to
- * `mmrcr: false`" test actually exercises.
+ * One slot of round `round`, `slotAction`'s own answer unchanged for every slot below `plan.slots`,
+ * then one `MmrcmSlotAction` per set-closing slot and one `AncillarySlotAction` per set-opening slot
+ * above it (design §3.3). This is the function that actually moves with the round's place in its
+ * round set, unlike `slotAction` itself (pinned unmoved by `rcmValidityRounds`/`rmnr`).
  */
-export function blockSlotAction(
-  plan: RoundPlan, block: number, slot: number, frames: number | null = null,
+export function roundSlotAction(
+  plan: RoundPlan, round: number, slot: number, frames: number | null = null,
 ): SlotAction | MmrcmSlotAction | AncillarySlotAction {
   if (slot < plan.slots) return slotAction(plan, slot)
-  // The appended slots, in the one order `blockSlots` above budgets them in: the receipt
+  // The appended slots, in the one order `roundSlots` above budgets them in: the receipt
   // confirmation's first, the ancillary message's after. Walked by subtracting each batch's width
   // rather than compared against a running sum, so the two cannot disagree about where the second
   // batch begins.
   let index = slot - plan.slots
-  const mmrcm = blockCarriesMmrcm(plan, block) ? mmrcmResponders(plan) : 0
+  const mmrcm = roundCarriesMmrcm(plan, round) ? mmrcmResponders(plan) : 0
   if (index < mmrcm) return { kind: 'uwbMmrcm', index }
   index -= mmrcm
-  const ancillary = blockCarriesAncillary(plan, block) ? ancillarySlots(plan, frames) : 0
+  const ancillary = roundCarriesAncillary(plan, round) ? ancillarySlots(plan, frames) : 0
   if (index < ancillary) {
     // The request's own slot, named only where a time-scheduled table is entitled to name it —
     // see `AncillarySlotAction.request`. `frames ?? plan.ancillaryFrames` is the message's length
@@ -657,7 +692,7 @@ export function blockSlotAction(
       && index === (frames ?? plan.ancillaryFrames)
     return { kind: 'uwbAncillary', index, request }
   }
-  throw new Error(`blockSlotAction: block ${block} has ${blockSlots(plan, block, frames)} slots, asked for ${slot}`)
+  throw new Error(`roundSlotAction: round ${round} has ${roundSlots(plan, round, frames)} slots, asked for ${slot}`)
 }
 
 /**

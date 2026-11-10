@@ -143,16 +143,16 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
     uwbNode('anc-far', 'anchor', 250, 0, 0),
     uwbNode('tag-1', 'tag', 0, 0, 0),
   ]
-  // Method 'ss', schedule 'time' (2 anchors ⇒ a 33-octet time-scheduled Poll, not the fixed
-  // 31-octet contention one) — computed once via `uwbPpduNs`/`uwbPollBytes`/`uwbRespBytes` in
+  // Method 'ss', schedule 'time' (2 anchors ⇒ a 36-octet time-scheduled Poll — 33 before the 2026-11-10 ARC/RR IE correction — not the fixed
+  // 35-octet contention one) — computed once via `uwbPpduNs`/`uwbPollBytes`/`uwbRespBytes` in
   // isolation (not re-derived from the design doc's own worked example, which used one anchor):
-  // pollNs ≈ 200.7 µs, respNs ≈ 181.2 µs, slotNs = 2000.0 µs, ToF_min ≈ 16.7 ns, ToF_max ≈ 833.9 ns,
-  // giving lowerNeededNs ≈ 1799.3 µs and upperAllowedNs ≈ 3617.0 µs.
+  // pollNs ≈ 203.8 µs, respNs ≈ 181.2 µs, slotNs = 2000.0 µs, ToF_min ≈ 16.7 ns, ToF_max ≈ 833.9 ns,
+  // giving lowerNeededNs ≈ 1796.2 µs and upperAllowedNs ≈ 3614.0 µs.
   const nearFarCfg = (fixedReplyRstu: number): UwbSessionCfg =>
     ({ ...DEFAULT_UWB_SESSION, method: 'ss', schedule: 'time', replyTime: 'fixed', fixedReplyRstu })
 
   it('too early: below the lower bound, the Response lands in a slot that has not opened yet', () => {
-    // 1200 RSTU = 1 000 000 ns, well under the ≈1 799 278 ns lower bound.
+    // 1200 RSTU = 1 000 000 ns, well under the ≈1 796 200 ns lower bound.
     const result = ScenarioSchema.safeParse(uwbScenario(nearFarNodes(), nearFarCfg(1200)))
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -161,9 +161,9 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
       // Names its own terms: the fixed delay, the lower bound, the slot, the Poll airtime, and
       // the *nearest* anchor's flight time — not the furthest, which is the other side's term.
       expect(msg).toMatch(/固定时延 1000\.0 µs/)
-      expect(msg).toMatch(/低于下限 1799\.3 µs/)
+      expect(msg).toMatch(/低于下限 1796\.2 µs/)
       expect(msg).toMatch(/一个时隙 2000\.0 µs/)
-      expect(msg).toMatch(/Poll 空口时间 200\.7 µs/)
+      expect(msg).toMatch(/Poll 空口时间 203\.8 µs/)
       expect(msg).toMatch(/最近飞行时间 0\.0 µs/)
       expect(msg).toMatch(/还没轮到它/)
       // Not the "too late" message: a reader must be able to tell which mistake they made.
@@ -180,9 +180,9 @@ describe('UwbSessionCfg.replyTime: fixed — the §6.1 two-sided slot budget', (
       const msg = result.error.issues.map((i) => i.message).join('\n')
       expect(msg).not.toMatch(/暂不支持/)
       expect(msg).toMatch(/固定时延 3833\.3 µs/)
-      expect(msg).toMatch(/超过了上限 3617\.0 µs/)
+      expect(msg).toMatch(/超过了上限 3614\.0 µs/)
       expect(msg).toMatch(/两个时隙 4000\.0 µs/)
-      expect(msg).toMatch(/Poll 空口时间 200\.7 µs/)
+      expect(msg).toMatch(/Poll 空口时间 203\.8 µs/)
       expect(msg).toMatch(/响应帧空口时间 181\.2 µs/)
       expect(msg).toMatch(/时隙守卫 0\.2 µs/)
       // The *furthest* anchor's flight time, not the nearest.

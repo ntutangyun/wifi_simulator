@@ -266,7 +266,7 @@ describe('ancillary / ancillaryFrames — the scenario schema (design §4)', () 
     // does *not* conflict with, to confirm they stay independent.
     it('coexists with rmnr, mmrcr and aoa when the mode allows all of them', () => {
       const cfg: UwbSessionCfg = {
-        ...DEFAULT_UWB_SESSION, mode: 'twr', rcmValidityRounds: 4, rmnr: true, mmrcr: true, aoa: true,
+        ...DEFAULT_UWB_SESSION, mode: 'twr', rcmValidityRounds: 4, initiatorRounds: 4, rmnr: true, mmrcr: true, aoa: true,
         ancillary: true, ancillaryFrames: 1,
       }
       expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg)).success).toBe(true)

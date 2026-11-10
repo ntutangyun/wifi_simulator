@@ -27,20 +27,25 @@ import {
   DEFAULT_UWB_SESSION, type NodeCfg, type Scenario, type UwbSessionCfg,
 } from '../../src/model/scenario'
 import { UWB_TX_POWER_DBM, uwbMmrcmBytes } from '../../src/uwb/phy'
-import { mmrcmResponders, roundPlan } from '../../src/uwb/session'
+import { blockSlotStartNs, mmrcmResponders, roundPlan, roundSlots } from '../../src/uwb/session'
 
 const MS = 1_000_000
 
 /** The block length of every session below, read off the plan rather than retyped: 240 000 RSTU
  * is 200 ms. */
 const BLOCK_NS = roundPlan(DEFAULT_UWB_SESSION, 3).blockNs
-/** The validity window every two-way session here runs: four blocks, so the bitmap is four bits
- * wide and has room to be partly zero. `mmrcr` with `rcmValidityRounds: 1` is refused outright by
- * the schema for `'twr'` (a one-bit bitmap says what a Response's own presence already says). */
+/** The ranging round set every two-way session here runs: four rounds of one block (the tag runs
+ * four rounds a block, `initiatorRounds`), so the bitmap is four bits wide and has room to be partly
+ * zero. `mmrcr` with `rcmValidityRounds: 1` is refused outright by the schema for `'twr'` (a one-bit
+ * bitmap says what a Response's own presence already says).
+ *
+ * Rewritten 2026-11-10 (audit #23): this file used to run four one-round BLOCKS as the window. A
+ * control message never governs a round of the next block (standard §10.32.9.1), so the set is now
+ * rounds 0–3 of block 0 and every per-block reading below is a per-round one. */
 const R = 4
-/** Four blocks: 0, 1, 2 and 3 — exactly one window, closing on block 3, which is the block that
- * carries the MMRCM. One millisecond short of block 4, which must not open. */
-const RUN_NS = R * BLOCK_NS - MS
+/** One block: rounds 0, 1, 2 and 3 — exactly one set, closing on round 3, which is the round that
+ * carries the MMRCM. One millisecond short of block 1, which must not open. */
+const RUN_NS = BLOCK_NS - MS
 
 function uwbNode(
   id: string, x: number, y: number, role: 'anchor' | 'tag', txPowerDbm = UWB_TX_POWER_DBM,
@@ -84,7 +89,7 @@ const QUIET: Partial<UwbSessionCfg> = { nlos: false, tsNoisePs: 0, cfoNoisePpm: 
 //   tag −24 dBm → 16 m   = −98.6 dBm   lost      ← the opener never arrives
 //   anchor −14 dBm → 16 m = −88.6 dBm  heard     ← but its own frames still do
 //
-// `anc-walk` is moved between the two distances block by block; `anc-1` and `anc-2` never move, so
+// `anc-walk` is moved between the two distances round by round; `anc-1` and `anc-2` never move, so
 // a loss at `anc-walk` is that one anchor's and not the scene falling over for everybody.
 
 const TAG_DBM = UWB_TX_POWER_DBM - 10
@@ -100,44 +105,51 @@ const SCENE: NodeCfg[] = [
 const ANCHORS = 3
 
 /**
- * Run four blocks with `anc-walk` standing wherever `at[block]` says during block `block`.
+ * Run tag-1's four rounds with `anc-walk` standing wherever `at[round]` says during round `round`.
  *
  * This engine has no mobility of its own and does not need any: `UwbChannel` resolves every
  * position through the very node objects the scenario handed it, at the instant it needs them, and
  * `Simulation.runUntil` is resumable. So moving the node between two `runUntil` calls *is* the
- * scene change, and each move lands in the 185 ms gap between one block's round and the next.
+ * scene change. Rounds run back to back, so each move lands a microsecond before the round it
+ * follows ends — after that round's last transmission, before the next round's opener — at the
+ * instant the round plan itself gives (`blockSlotStartNs`).
  *
- * A **moving** anchor rather than a wall: a wall is static, so it would take every block's opener
+ * A **moving** anchor rather than a wall: a wall is static, so it would take every round's opener
  * or none of them, and a bitmap that is all ones or all zeros cannot be compared bit for bit
  * against anything. The loss has to be selective, and the position is this engine's only selective
  * instrument.
  */
 function runWalk(
-  at: { x: number; y: number }[], session: Partial<UwbSessionCfg>, blocks = R,
+  at: { x: number; y: number }[], session: Partial<UwbSessionCfg>, scene: NodeCfg[] = SCENE,
 ): TLRecord[] {
-  const nodes = SCENE.map((n) => ({ ...n, pos: { ...n.pos } }))
-  const sim = new Simulation(scenario(nodes, session))
+  const nodes = scene.map((n) => ({ ...n, pos: { ...n.pos } }))
+  const sc = scenario(nodes, session)
+  const sim = new Simulation(sc)
+  const plan = roundPlan(sc.uwb!, ANCHORS)
   const walker = nodes.find((n) => n.id === 'anc-walk')
   if (!walker) throw new Error('runWalk: anc-walk is not in the scene')
   const out: TLRecord[] = []
-  for (let block = 0; block < blocks; block++) {
-    const p = at[block % at.length]
+  for (let round = 0; round < R; round++) {
+    const p = at[round % at.length]
     // In place, because the device holds the very Vec3 its scenario node does — which is what a
     // device that moved means.
     walker.pos.x = p.x
     walker.pos.y = p.y
-    out.push(...sim.runUntil((block + 1) * BLOCK_NS - MS).records)
+    const end = blockSlotStartNs(plan, 0, round, roundSlots(plan, round))
+    out.push(...sim.runUntil(end - 1000).records)
   }
+  // …and the rest of the block, which holds every other tag's rounds.
+  out.push(...sim.runUntil(RUN_NS).records)
   return out
 }
 
 /** The session every two-way run below uses, bar the one switch under test. */
 const twrSession = (mmrcr: boolean): Partial<UwbSessionCfg> => ({
-  ...QUIET, method: 'ss', replyTime: 'embedded', rcmValidityRounds: R, mmrcr,
+  ...QUIET, method: 'ss', replyTime: 'embedded', rcmValidityRounds: R, initiatorRounds: R, mmrcr,
 })
 
 /**
- * **The referee**: which of blocks 0…R−1 this responder actually decoded an opener of, read off
+ * **The referee**: which of rounds 0…R−1 this responder actually decoded an opener of, read off
  * the `RX_OK` records of the run itself. Not off the positions the test set, not off the
  * implementation's own state — off the receptions the medium delivered.
  */
@@ -145,25 +157,25 @@ const openersDecoded = (rs: TLRecord[], node: string): boolean[] => {
   const got = new Set(
     of(rs, 'RX_OK')
       .filter((r) => r.node === node && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
-      .map((r) => r.frame.uwb?.block),
+      .map((r) => r.frame.uwb?.round),
   )
   return Array.from({ length: R }, (_, i) => got.has(i))
 }
 
 describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit (design §5.1)', () => {
-  // Heard, missed, heard, missed — and the MMRCM goes out from the far position in block 3, which
+  // Heard, missed, heard, missed — and the MMRCM goes out from the far position in round 3, which
   // is the whole reason the link has to be asymmetric.
   const WALK = [NEAR, FAR, NEAR, FAR]
   const rs = runWalk(WALK, twrSession(true))
 
   it('reports exactly the openers that arrived, bit for bit', () => {
     const confirmations = of(rs, 'UWB_MMRCM')
-    // No record at all means the window never reached the block that produces one.
-    expect(confirmations.length, 'the window-closing block produced no confirmation at all')
+    // No record at all means the set never reached the round that produces one.
+    expect(confirmations.length, 'the set-closing round produced no confirmation at all')
       .toBeGreaterThan(0)
 
     const walked = confirmations.filter((r) => r.peer === 'anc-walk')
-    expect(walked.map((r) => [r.node, r.block]), 'one confirmation, from the window-closing block')
+    expect(walked.map((r) => [r.node, r.round]), 'one confirmation, from the set-closing round')
       .toEqual([['tag-1', R - 1]])
 
     // The comparison, built from the run and not typed in.
@@ -182,13 +194,13 @@ describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit 
   it('reports all four bits set for the two responders that never moved', () => {
     for (const id of ['anc-1', 'anc-2']) {
       const seen = of(rs, 'UWB_MMRCM').filter((r) => r.peer === id)
-      expect(seen.map((r) => r.block), id).toEqual([R - 1])
+      expect(seen.map((r) => r.round), id).toEqual([R - 1])
       expect(seen[0].received, id).toEqual(openersDecoded(rs, id))
       expect(seen[0].received, `${id} heard every opener`).toEqual([true, true, true, true])
     }
   })
 
-  it('puts one 15 + 3N octet frame per responder on the air, in the window-closing block', () => {
+  it('puts one 15 + 3N octet frame per responder on the air, in the set-closing round', () => {
     const sent = of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')
     expect(sent.map((r) => r.node).sort()).toEqual(['anc-1', 'anc-2', 'anc-walk'])
     for (const r of sent) {
@@ -197,7 +209,7 @@ describe('acceptance: the bitmap is the receiver\'s own experience, bit for bit 
       expect(r.frame.bytes, r.node).toBe(uwbMmrcmBytes(1, R))
       expect(r.frame.bytes, r.node).toBe(18)
       expect(r.frame.uwb?.ies, r.node).toEqual(['RMMRC'])
-      expect(r.frame.uwb?.block, r.node).toBe(R - 1)
+      expect(r.frame.uwb?.round, r.node).toBe(R - 1)
       expect(r.frame.uwb?.mmrc?.map((e) => e.initiator), r.node).toEqual(['tag-1'])
       // Unicast to the one initiator the round has (design §6: no multicast is modelled).
       expect(r.frame.dst, r.node).toBe('tag-1')
@@ -213,19 +225,19 @@ describe('the request costs nothing on the air; the answer is what costs a frame
         .map((r) => ({ kind: r.frame.kind, bytes: r.frame.bytes, ies: [...(r.frame.uwb?.ies ?? [])] }))
     const off = openers(false)
     const on = openers(true)
-    expect(off.length, 'one opener per block, four blocks').toBe(R)
+    expect(off.length, 'one opener per round, four rounds').toBe(R)
     // MMRCR is bit 15 of the Content Control word the ARC IE already carries, so it is not a
     // field the frame grows for — the control message is the same octets either way, IE for IE.
     expect(on).toEqual(off)
-    expect(on[0].ies).toEqual(['ARC', 'RDM', 'RRMC'])
+    expect(on[0].ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
   })
 
   it('sends no MMRCM when MMRCR is clear', () => {
     const rs = runWalk([NEAR, FAR, NEAR, FAR], twrSession(false))
     expect(of(rs, 'UWB_MMRCM')).toHaveLength(0)
     expect(of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm')).toHaveLength(0)
-    // …and the run really did reach the block that would have carried one.
-    expect(of(rs, 'UWB_RANGE').filter((r) => r.peer === 'anc-1').map((r) => r.block)).toEqual([0, 1, 2, 3])
+    // …and the run really did reach the round that would have carried one.
+    expect(of(rs, 'UWB_RANGE').filter((r) => r.peer === 'anc-1').map((r) => r.round)).toEqual([0, 1, 2, 3])
   })
 })
 
@@ -238,20 +250,20 @@ describe('a receipt confirmation is an extra message, not part of the measuremen
     const ranges = (mmrcr: boolean): unknown[] =>
       of(runWalk(WALK, twrSession(mmrcr)), 'UWB_RANGE').map(({ seq, ...rest }) => rest)
     const off = ranges(false)
-    expect(off.length, 'SS embedded: a range per heard anchor per block, at the tag').toBeGreaterThan(0)
+    expect(off.length, 'SS embedded: a range per heard anchor per round, at the tag').toBeGreaterThan(0)
     expect(ranges(true)).toEqual(off)
   })
 
-  it('adds slots only on the window last block', () => {
+  it('adds slots only on the set\'s last round', () => {
     const slotsPerBlock = (mmrcr: boolean): number[] => {
       const rs = runWalk([NEAR], twrSession(mmrcr))
-      // The slot records of the one node that emits them, grouped by the block its round was in.
+      // The slot records of the one node that emits them, grouped by the round they were in.
       const high = new Map<number, number>()
-      let block = 0
+      let round = 0
       for (const r of rs) {
-        if (r.type === 'UWB_ROUND' && r.node === 'tag-1') block = r.block
+        if (r.type === 'UWB_ROUND' && r.node === 'tag-1') round = r.round
         if (r.type === 'UWB_SLOT' && r.node === 'tag-1') {
-          high.set(block, Math.max(high.get(block) ?? 0, r.slot))
+          high.set(round, Math.max(high.get(round) ?? 0, r.slot))
         }
       }
       return Array.from({ length: R }, (_, b) => (high.get(b) ?? -1) + 1)
@@ -259,7 +271,7 @@ describe('a receipt confirmation is an extra message, not part of the measuremen
     const plan = roundPlan({ ...DEFAULT_UWB_SESSION, ...twrSession(true) }, ANCHORS)
     const extra = mmrcmResponders(plan)
     expect(extra, 'one slot per responder — an anchor is what sends an MMRCM').toBe(ANCHORS)
-    // Blocks 0…R−2 are the `mmrcr: false` round slot for slot; only block R−1 grows.
+    // Rounds 0…R−2 are the `mmrcr: false` round slot for slot; only round R−1 grows.
     expect(slotsPerBlock(false)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots])
     expect(slotsPerBlock(true)).toEqual([plan.slots, plan.slots, plan.slots, plan.slots + extra])
   })
@@ -314,21 +326,21 @@ describe('never answers an initiator it has not heard from', () => {
   })
 
   it('does not run tag-far\'s round on top of tag-1\'s extra slots', () => {
-    // Two tags is what makes the round *stride* matter (`session.ts#blockSlotStartNs`): the extra
-    // slots are appended to each round, so a stride left at `plan.roundNs` would put tag-1's three
-    // confirmation slots exactly on tag-far's slots 0…2 of the same block. Measured off the records,
-    // so it is the schedule that actually ran rather than the arithmetic that describes it.
+    // Two tags is what makes the round *start* matter (`session.ts#blockSlotStartNs`): the extra
+    // slots are appended to tag-1's set-closing round 3, so a stride left at `plan.roundNs` would put
+    // tag-1's three confirmation slots exactly on slots 0…2 of tag-far's first round, round 4.
+    // Measured off the records, so it is the schedule that actually ran rather than the arithmetic.
     const lastConfirmation = Math.max(
       ...of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbMmrcm').map((r) => r.t),
     )
-    const farRound = of(rs, 'UWB_ROUND').filter((r) => r.node === 'tag-far' && r.block === R - 1)
-    expect(farRound, 'tag-far opened its own round in the window-closing block').toHaveLength(1)
+    const farRound = of(rs, 'UWB_ROUND').filter((r) => r.node === 'tag-far' && r.round === R)
+    expect(farRound, 'tag-far opened its own first round right after tag-1\'s set closed').toHaveLength(1)
     expect(farRound[0].t, 'tag-far\'s round starts after the last confirmation of tag-1\'s')
       .toBeGreaterThan(lastConfirmation)
-    // …and tag-1 kept ranging with every anchor in every block, which a collision would have cost.
+    // …and tag-1 kept ranging with every anchor in every round, which a collision would have cost.
     for (const id of ['anc-1', 'anc-2', 'anc-3']) {
       expect(
-        of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === id).map((r) => r.block), id,
+        of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === id).map((r) => r.round), id,
       ).toEqual([0, 1, 2, 3])
     }
   })
@@ -338,7 +350,7 @@ describe('never answers an initiator it has not heard from', () => {
 //
 // The scene above proves the floor: an initiator never heard is never answered. It does **not**
 // prove the keying, because with only one audible tag an un-keyed bitmap would still be that tag's.
-// So here both tags are audible and `anc-walk` loses **tag-1's** openers in blocks 1 and 3 while
+// So here both tags are audible and `anc-walk` loses **tag-1's** openers in rounds 1 and 3 while
 // keeping every one of **tag-2's**: `tag-2` stands midway, at full power, within reach of both of
 // `anc-walk`'s positions. One device, one window, two initiators, two different bitmaps — which a
 // single un-keyed array cannot produce, and which is the shape slice 3 shipped fifteen frames of.
@@ -352,29 +364,23 @@ const BOTH_HEARD: NodeCfg[] = [
 ]
 
 describe('two initiators, one responder, two different bitmaps', () => {
-  const nodes = BOTH_HEARD.map((n) => ({ ...n, pos: { ...n.pos } }))
-  const sim = new Simulation(scenario(nodes, twrSession(true)))
-  const walker = nodes.find((n) => n.id === 'anc-walk')
-  if (!walker) throw new Error('anc-walk is not in the scene')
-  const rs: TLRecord[] = []
-  for (const [block, p] of [NEAR, FAR, NEAR, FAR].entries()) {
-    walker.pos.x = p.x
-    walker.pos.y = p.y
-    rs.push(...sim.runUntil((block + 1) * BLOCK_NS - MS).records)
-  }
+  // tag-1's rounds 0–3 are walked NEAR, FAR, NEAR, FAR; tag-2's rounds 4–7 follow with anc-walk at
+  // FAR, which tag-2 reaches from both positions.
+  const rs = runWalk([NEAR, FAR, NEAR, FAR], twrSession(true), BOTH_HEARD)
 
-  /** `node`'s own receipts of `from`'s openers, off the run's RX_OK records. */
+  /** `node`'s own receipts of `from`'s openers, off the run's RX_OK records, by the opener's place in
+   * its tag's own set (tag-2's rounds are 4–7 of the block). */
   const decoded = (node: string, from: string): boolean[] => {
     const got = new Set(
       of(rs, 'RX_OK')
         .filter((r) => r.node === node && r.from === from
           && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
-        .map((r) => r.frame.uwb?.block),
+        .map((r) => (r.frame.uwb?.round ?? -1) % R),
     )
     return Array.from({ length: R }, (_, i) => got.has(i))
   }
 
-  it('builds the scene it claims to: anc-walk loses tag-1 in two blocks and tag-2 in none', () => {
+  it('builds the scene it claims to: anc-walk loses tag-1 in two rounds and tag-2 in none', () => {
     expect(decoded('anc-walk', 'tag-1')).toEqual([true, false, true, false])
     expect(decoded('anc-walk', 'tag-2')).toEqual([true, true, true, true])
   })

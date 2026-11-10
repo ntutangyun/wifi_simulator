@@ -155,13 +155,13 @@ const SESSION = uwbReplyTimeScenario('deferred').uwb!
  */
 export const FIG = {
   slotUs: 2000,
-  pollEndUs: 197.628,
+  pollEndUs: 200.705,
   /** Embedded: the Response carries the reply time, and is six octets longer for it. */
   respEmbeddedUs: 2187.372,
   /** Deferred and fixed: the same 14-octet Response, in two different places. */
   respDeferredUs: 2181.218,
-  fixedStartUs: 2197.601,
-  fixedEndUs: 2378.819,
+  fixedStartUs: 2200.678,
+  fixedEndUs: 2381.896,
   /** The follow-up message, a whole slot after the Response it completes. */
   deferEndUs: 4184.295,
   axisUs: 6000,
@@ -171,7 +171,7 @@ export const FIG = {
 export const RANGE_M = {
   embedded: '4.998803',
   deferred: '4.998803',
-  fixed: '4.998630',
+  fixed: '4.998352',
   ds: '4.999075',
   matched: '5.001420',
 } as const
@@ -327,7 +327,7 @@ export const uwbReplyTime: Lesson = {
     '测距行出现在 4.184 ms，也就是延后报文到达的时刻，不是 2.181 ms 的 Response 到达时。Response 到达时，标签只有往返时间，无法完成减法运算。',
   ],
   tryThis: [
-    `载入「固定：该数值不在空口传送」。Response 缩短为 ${BYTES.respFixed} 字节、一轮恢复为两个时隙，而它的发送时刻从 2.000 ms 推迟到了 2.198 ms——恰好晚了一个 Poll 的空口时间。这是本课程所有场景中唯一一次不由时隙边界决定的发送。`,
+    `载入「固定：该数值不在空口传送」。Response 缩短为 ${BYTES.respFixed} 字节、一轮恢复为两个时隙，而它的发送时刻从 2.000 ms 推迟到了 2.201 ms——恰好晚了一个 Poll 的空口时间。这是本课程所有场景中唯一一次不由时隙边界决定的发送。`,
     `在编辑器里把固定回复时间从缺省的 ${SESSION.fixedReplyRstu} RSTU 向两个方向调整：越过 ${WINDOW.hi} 会被拒，理由是响应会被自己时隙的边界截断；退到半个时隙、也就是 ${SESSION.slotRstu / 2} 也会被拒，理由完全不同——响应会落入尚未轮到它的时隙。同一个字段，两种越界，两条不同的错误消息。`,
   ],
   quiz: [

@@ -79,7 +79,7 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
   it('round-trips: the schema can parse its own output', () => {
     // A valid, non-default combination (rmnr needs rcmValidityRounds above 1) — the previous
     // slice's Ruling 4 was exactly a schema whose output was not valid input of itself.
-    const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 4, rmnr: true }
+    const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 4, initiatorRounds: 4, rmnr: true }
     const once = ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), cfg))
     // Pinned so this assertion cannot pass vacuously by both sides simply lacking the fields
     // (the previous slice's Ruling 4 bug: a schema whose output is not valid input of itself).
@@ -90,13 +90,17 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
     expect(twice.uwb).toEqual(once.uwb)
   })
 
-  it('rcmValidityRounds accepts 1…64 and refuses outside it', () => {
+  // 1…64 until 2026-11-10; the field is six bits (standard §10.32.9.1), so 64 cannot be carried.
+  // The sessions here run as many rounds a block as the set needs — and a block long enough to hold
+  // them — so only the field's own range is under test.
+  it('rcmValidityRounds accepts 1…63 and refuses outside it', () => {
+    const roomy = { blockRstu: 64 * 6 * 2400 }
     const at1: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 1 }
-    const at64: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 64 }
+    const at63: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, ...roomy, rcmValidityRounds: 63, initiatorRounds: 63 }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), at1)).success).toBe(true)
-    expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), at64)).success).toBe(true)
+    expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), at63)).success).toBe(true)
     const zero: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 0 }
-    const over: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 65 }
+    const over: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, ...roomy, rcmValidityRounds: 64, initiatorRounds: 63 }
     const frac: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, rcmValidityRounds: 2.5 }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), zero)).success).toBe(false)
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), over)).success).toBe(false)
@@ -117,7 +121,7 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
       expect(msg).toMatch(/控制消息/)
     }
     // rcmValidityRounds above 1 makes the same combination legal.
-    const ok: UwbSessionCfg = { ...cfg, rcmValidityRounds: 2 }
+    const ok: UwbSessionCfg = { ...cfg, rcmValidityRounds: 2, initiatorRounds: 2 }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), ok)).success).toBe(true)
   })
 
@@ -220,8 +224,11 @@ describe('rcmValidityRounds / rmnr — the scenario schema (design §4)', () => 
     if (mode === 'dl-tdoa' || mode === 'ul-tdoa') return fourAnchorsOneTag()
     return twoAnchorsOneTag()
   }
+  // A two-way tag runs as many rounds a block as its set needs, so the set fits one block
+  // (standard §10.32.9.1); the rule that refuses otherwise has a describe of its own below.
   const cfgFor = (mode: UwbMode, rcmValidityRounds: number, rmnr: boolean): UwbSessionCfg => ({
     ...DEFAULT_UWB_SESSION, mode, rcmValidityRounds, rmnr,
+    ...(mode === 'twr' ? { initiatorRounds: rcmValidityRounds } : {}),
     ...(mode === 'm2m' ? { method: 'ss' as const } : {}),
   })
 
@@ -293,7 +300,7 @@ describe('contention + rmnr is refused, and for its own reason', () => {
    */
   const contention = (over: Partial<UwbSessionCfg>): Scenario => uwbScenario(
     twoAnchorsOneTag(),
-    { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ss', ...over },
+    { ...DEFAULT_UWB_SESSION, schedule: 'contention', method: 'ss', initiatorRounds: 4, ...over },
   )
 
   it('refuses it, naming the draw as the reason', () => {
@@ -312,8 +319,54 @@ describe('contention + rmnr is refused, and for its own reason', () => {
 
   it('still allows rmnr on a time-scheduled round', () => {
     const r = ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), {
-      ...DEFAULT_UWB_SESSION, rmnr: true, rcmValidityRounds: 4,
+      ...DEFAULT_UWB_SESSION, rmnr: true, rcmValidityRounds: 4, initiatorRounds: 4,
     }))
     expect(r.success).toBe(true)
+  })
+})
+
+describe('a control message never governs a round of the next block (standard §10.32.9.1, audit #23)', () => {
+  // The RCM Validity Rounds "cannot be larger than the number of remaining ranging rounds in the
+  // current block". A two-way tag runs `initiatorRounds` rounds a block and a set holds only those,
+  // so a validity above `initiatorRounds` is refused — where until 2026-11-10 a validity of R simply
+  // governed R one-round blocks.
+  const twr = (over: Partial<UwbSessionCfg>): Scenario =>
+    uwbScenario(twoAnchorsOneTag(), { ...DEFAULT_UWB_SESSION, ...over })
+
+  it('refuses a validity larger than the rounds the tag runs in a block, citing the clause', () => {
+    const r = ScenarioSchema.safeParse(twr({ rcmValidityRounds: 4 }))
+    expect(r.success).toBe(false)
+    if (r.success) return
+    const m = r.error.issues.map((i) => i.message).join(' | ')
+    expect(m).toContain('§10.32.9.1')
+    expect(m).toContain('不跨块')
+    expect(m).toContain('initiatorRounds')
+    // Three rounds a block is still one short of a four-round set.
+    expect(ScenarioSchema.safeParse(twr({ rcmValidityRounds: 4, initiatorRounds: 3 })).success).toBe(false)
+  })
+
+  it('accepts a validity up to the rounds the tag runs, including a run that ends in a shorter set', () => {
+    expect(ScenarioSchema.safeParse(twr({ rcmValidityRounds: 4, initiatorRounds: 4 })).success).toBe(true)
+    // Five rounds a block, sets of two: {0,1}, {2,3}, {4} — the last RCM governs the one round left.
+    expect(ScenarioSchema.safeParse(twr({ rcmValidityRounds: 2, initiatorRounds: 5 })).success).toBe(true)
+  })
+
+  it('implements several rounds per initiator per block in two-way ranging only', () => {
+    const r = ScenarioSchema.safeParse(uwbScenario(fourAnchorsOneTag(), {
+      ...DEFAULT_UWB_SESSION, mode: 'ul-tdoa', initiatorRounds: 2,
+    }))
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.issues.map((i) => i.message).join(' | ')).toContain('initiatorRounds')
+  })
+
+  it('budgets every round of the run against the block, extras once per set', () => {
+    // Twelve rounds of a ten-slot DS round with four anchors is 240 slots: more than a 100-slot block.
+    const big = uwbScenario([
+      uwbNode('anc-1', 'anchor', 0, 0), uwbNode('anc-2', 'anchor', 8, 0),
+      uwbNode('anc-3', 'anchor', 0, 8), uwbNode('anc-4', 'anchor', 8, 8), uwbNode('tag-1', 'tag', 4, 4),
+    ], { ...DEFAULT_UWB_SESSION, method: 'ds', rcmValidityRounds: 4, initiatorRounds: 12 })
+    const r = ScenarioSchema.safeParse(big)
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.issues.map((i) => i.message).join(' | ')).toContain('12 轮')
   })
 })

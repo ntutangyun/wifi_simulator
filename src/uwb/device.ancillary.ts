@@ -58,7 +58,7 @@ export const ANCILLARY_SENDER_INDEX = 0
 
 /**
  * Everything one device holds for the ancillary exchange of the round in progress. Non-null exactly
- * when `blockCarriesAncillary` says this block runs the exchange — the same convention
+ * when `roundCarriesAncillary` says this round runs the exchange — the same convention
  * `RoundState.mms` and `RoundState.m2m` follow.
  *
  * **All of it is per round, with no exception.** The two pieces of cross-round state on this branch
@@ -87,17 +87,22 @@ export function freshAncillary(): AncillaryRoundState {
 
 /**
  * The message number this round's message carries (§10.35.2.1's Ranging Or Ancillary Message
- * Number): the block the message goes out in, in one octet.
+ * Number): a running count of the initiator's ranging round sets, in one octet.
  *
- * The exchange runs once per RCM validity window, at the window's opening block
- * (`blockCarriesAncillary`), so the block index *is* a per-message number — successive messages get
- * successive numbers, and the receiver uses the change to tell a new message's first fragment from a
- * stale reading of the last one (`onAncillaryRx`). Wrapped at 256 because the field is one octet
- * wide, which `raictIeBytes` is what prices. model (the width is the standard's; which number goes
- * in it is this engine's, for want of an upper layer to number anything)
+ * The exchange runs once per ranging round set, at the set's first round (`roundCarriesAncillary`),
+ * so counting sets *is* counting messages — successive messages get successive numbers, and the
+ * receiver uses the change to tell a new message's first fragment from a stale reading of the last
+ * one (`onAncillaryRx`). With one set a block (every shipped scene) the count is the block index, as
+ * it was before round sets existed. Wrapped at 256 because the field is one octet wide, which
+ * `raictIeBytes` is what prices. model (the width is the standard's; which number goes in it is
+ * this engine's, for want of an upper layer to number anything)
  */
 export function ancillaryMessageNumber(r: RoundState): number {
-  return r.block % 256
+  const n = Math.max(1, r.plan.initiatorRounds)
+  const setRounds = Math.max(1, Math.min(r.plan.rcmValidityRounds, n))
+  const setsPerBlock = Math.ceil(n / setRounds)
+  const setInBlock = Math.floor((r.round % n) / setRounds)
+  return (r.block * setsPerBlock + setInBlock) % 256
 }
 
 /**
@@ -118,9 +123,9 @@ export function onAncillarySlot(
   peers: { tag: string; anchors: string[] },
 ): void {
   const a = r.ancillary
-  // The schedule laid out a slot for an exchange this round is not running. `blockSlots` and
-  // `blockSlotAction` read the identical `blockCarriesAncillary`, so reaching this would mean the
-  // schedule and the round state disagree about which block this is — not a state the model can be
+  // The schedule laid out a slot for an exchange this round is not running. `roundSlots` and
+  // `roundSlotAction` read the identical `roundCarriesAncillary`, so reaching this would mean the
+  // schedule and the round state disagree about which round this is — not a state the model can be
   // in on purpose (slice ledger, Ruling 9).
   if (!a) {
     throw new Error(
@@ -191,7 +196,7 @@ function transmitAncillary(
     if (dev.holdsValidRcmFor(r)) {
       // How many starts hold the whole run: the window's width less the run, plus one. Both read
       // off the plan and this round's own width — `ancillarySlots` is the one definition of the
-      // width, and it is what `blockSlots` laid the slots out from — so the draw cannot reach past
+      // width, and it is what `roundSlots` laid the slots out from — so the draw cannot reach past
       // the window it was told about. One, exactly, under a time schedule and in the degenerate
       // contention case the window's own doc comment describes.
       const starts = ancillarySlots(r.plan, frames) - (frames + requestFrames) + 1

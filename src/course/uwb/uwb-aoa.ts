@@ -133,7 +133,7 @@ export const uwbAoa: Lesson = {
     { kind: 'table', heading: '基准场景的一轮，日志输出的内容', head: [
       '行', '内容',
     ], rows: [
-      ['首个方位角，197.636 µs 处',
+      ['首个方位角，200.713 µs 处',
         'anc-1 AoA ← badge-1: 2.3° (true 0.0°)'],
       ['第二个，来自 Final，4.193 534 ms 处',
         'anc-1 AoA ← badge-1: 1.8° (true 0.0°)'],

@@ -13,12 +13,13 @@
  * choice: this branch has twice shipped a feature that looked finished and did nothing, and a
  * whole run is the only instrument that caught it.
  *
- * **The arithmetic is per block, not per within-block round** (design §2.2). `network.ts`'s
- * two-way dispatch is `tags.forEach((tagId, k) => runRound(block, k, …))`, so the within-block
- * `round` index names *which tag* a round belongs to and never moves for that tag; a given tag's
- * successive ranging rounds are successive **blocks**. The saving is therefore
- * `(R − 1)(13 + 3A)` octets per tag per **R blocks** — 75 octets per four blocks at four anchors
- * and R = 4 — which is why the runs here are four blocks long.
+ * **The arithmetic is per ranging round set** (standard §10.32.3.2). Until 2026-11-10 this file said
+ * "per block": each tag had one round a block and the window ran R blocks, which the standard does
+ * not allow — an RCM's validity never exceeds the rounds remaining in its block (§10.32.9.1, audit
+ * #23). Every scene here now runs `ROUNDS` rounds a tag in each block (`initiatorRounds`), so a set
+ * of R = 4 is four rounds of one block. The saving is `(R − 1)(16 + 3A)` octets per tag per set —
+ * 84 octets per four rounds at four anchors — which is why the runs here are one block (four rounds)
+ * long. `rn` numbers a record's round across blocks, so "rounds 0–3" reads the way "blocks 0–3" did.
  */
 import { describe, expect, it } from 'vitest'
 import { hashStr } from '../../src/engine/hash'
@@ -32,11 +33,15 @@ import { roundPlan } from '../../src/uwb/session'
 
 const MS = 1_000_000
 
+/** Rounds each tag runs in a block: one ranging round set of R = 4 fits in one block. */
+const ROUNDS = 4
 /** The block length of every session below, read off the plan rather than retyped: 240 000 RSTU
- * is 200 ms, and a four-block run is what the per-R-blocks arithmetic needs (design §2.2). */
+ * is 200 ms, and one block holds the four rounds of a set. */
 const BLOCK_NS = roundPlan(DEFAULT_UWB_SESSION, 4).blockNs
-/** Four blocks: 0, 1, 2 and 3. One millisecond short of block 4, which must not open. */
-const RUN_NS = 4 * BLOCK_NS - MS
+/** One block: rounds 0, 1, 2 and 3. One millisecond short of block 1, which must not open. */
+const RUN_NS = BLOCK_NS - MS
+/** A record's round, counted across blocks: block × ROUNDS + round (one tag per scene unless said). */
+const rn = (r: { block: number; round: number }): number => r.block * ROUNDS + r.round
 
 function uwbNode(
   id: string, x: number, y: number, role: 'anchor' | 'tag', txPowerDbm = UWB_TX_POWER_DBM,
@@ -58,7 +63,11 @@ function scenario(nodes: NodeCfg[], session: Partial<UwbSessionCfg>): Scenario {
     seed: 7,
     rtsThresholdBytes: 3000,
     snapshotIntervalMs: 10,
-    uwb: { ...DEFAULT_UWB_SESSION, ...session },
+    // `ROUNDS` rounds a tag in two-way ranging, the only mode with ranging round sets of more than
+    // one round; every other mode runs one round a block and refuses anything else.
+    uwb: {
+      ...DEFAULT_UWB_SESSION, initiatorRounds: (session.mode ?? 'twr') === 'twr' ? ROUNDS : 1, ...session,
+    },
   }
 }
 
@@ -68,8 +77,8 @@ const of = <T extends TLRecord['type']>(rs: TLRecord[], type: T): Extract<TLReco
 
 // --- Scene A: four anchors, one tag, every link line of sight ---------------------
 //
-// The anchor count matters: `13 + 3A` is what the ARC and RDM IEs cost, so A = 4 is the design's
-// own worked example (27 + 3A = 39 octets of control message against a flat 14 of initiation).
+// The anchor count matters: `16 + 3A` is what the ARC, RR and RDM IEs cost, so A = 4 is the design's
+// own worked example (30 + 3A = 42 octets of control message against a flat 14 of initiation).
 
 const A = 4
 const SCENE_A: NodeCfg[] = [
@@ -86,43 +95,43 @@ const sceneA = (rcmValidityRounds: number): TLRecord[] => run(scenario(SCENE_A, 
   method: 'ds', replyTime: 'embedded', nlos: false, rcmValidityRounds,
 }))
 
-/** The frame the tag opened each block with: the control message (Poll) or the initiation-only
- * message, whichever that block carried. Read off `TX_START` — the octets the air actually
+/** The frame the tag opened each round with: the control message (Poll) or the initiation-only
+ * message, whichever that round carried. `block` is the round's running number (`rn`). Read off `TX_START` — the octets the air actually
  * carried — never off the constants in phy.ts, which is a different claim. */
 const openers = (rs: TLRecord[]): { block: number; kind: string; bytes: number; ies: string[] }[] =>
   of(rs, 'TX_START')
     .filter((r) => r.node === 'tag-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
     .map((r) => ({
-      block: r.frame.uwb?.block ?? -1,
+      block: r.frame.uwb ? rn(r.frame.uwb) : -1,
       kind: r.frame.kind,
       bytes: r.frame.bytes,
       ies: [...(r.frame.uwb?.ies ?? [])],
     }))
 
-describe('acceptance: one control message for four blocks buys 3 × (13 + 3A) octets (design §2/§2.2/§6)', () => {
-  it('saves 75 octets over four blocks at four anchors, and measures the same distances', () => {
+describe('acceptance: one control message for a set of four rounds buys 3 × (16 + 3A) octets (design §2/§6)', () => {
+  it('saves 84 octets over four rounds at four anchors, and measures the same distances', () => {
     const one = sceneA(1)
     const four = sceneA(4)
     const o1 = openers(one)
     const o4 = openers(four)
     // If either of these is empty the round never reached the point that produces an opener:
     // fix the round before looking anywhere else.
-    expect(o1.map((o) => o.block), 'R = 1: one opener per block, four blocks').toEqual([0, 1, 2, 3])
-    expect(o4.map((o) => o.block), 'R = 4: one opener per block, four blocks').toEqual([0, 1, 2, 3])
+    expect(o1.map((o) => o.block), 'R = 1: one opener per round, four rounds').toEqual([0, 1, 2, 3])
+    expect(o4.map((o) => o.block), 'R = 4: one opener per round, four rounds').toEqual([0, 1, 2, 3])
 
-    // R = 1 is today's behaviour: every block carries the whole control message.
+    // R = 1: every round carries the whole control message.
     expect(o1.map((o) => o.kind)).toEqual(['uwbPoll', 'uwbPoll', 'uwbPoll', 'uwbPoll'])
-    expect(o1.map((o) => o.bytes)).toEqual([39, 39, 39, 39])
-    // R = 4: the control message in block 0, the initiation message alone in blocks 1, 2 and 3.
+    expect(o1.map((o) => o.bytes)).toEqual([42, 42, 42, 42])
+    // R = 4: the control message in round 0, the initiation message alone in rounds 1, 2 and 3.
     expect(o4.map((o) => o.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])
-    expect(o4.map((o) => o.bytes)).toEqual([39, 14, 14, 14])
+    expect(o4.map((o) => o.bytes)).toEqual([42, 14, 14, 14])
 
     const total = (os: { bytes: number }[]): number => os.reduce((s, o) => s + o.bytes, 0)
     // The measurement, and the two rulers it is taken with: `uwbPollBytes(A) - uwbInitBytes()` is
-    // the 13 + 3A the ARC and RDM IEs cost, and three is R − 1.
-    expect(uwbPollBytes(A) - uwbInitBytes()).toBe(13 + 3 * A)
-    expect(total(o1) - total(o4)).toBe(3 * (13 + 3 * A))
-    expect(total(o1) - total(o4)).toBe(75)
+    // the 16 + 3A the ARC, RR and RDM IEs cost, and three is R − 1.
+    expect(uwbPollBytes(A) - uwbInitBytes()).toBe(16 + 3 * A)
+    expect(total(o1) - total(o4)).toBe(3 * (16 + 3 * A))
+    expect(total(o1) - total(o4)).toBe(84)
 
     // …and the distances are the same ones, field for field. What was bought is control overhead,
     // not measurement (`src/uwb/ranging.ts` is untouched by this slice). `seq` is a position in
@@ -130,15 +139,15 @@ describe('acceptance: one control message for four blocks buys 3 × (13 + 3A) oc
     // does move the tag's own tx→idle instant, so it is dropped — `t` is not.
     const ranges = (rs: TLRecord[]): unknown[] =>
       of(rs, 'UWB_RANGE').map(({ seq, ...rest }) => rest)
-    expect(ranges(one).length, 'DS embedded: a range at each end of each block').toBe(2 * A * 4)
+    expect(ranges(one).length, 'DS embedded: a range at each end of each round').toBe(2 * A * 4)
     expect(ranges(four)).toEqual(ranges(one))
   })
 
-  it('sends no RDM — and no ARC — after the first block of each validity window', () => {
+  it('sends no RDM — and no ARC or RR — after the first round of each ranging round set', () => {
     const o4 = openers(sceneA(4))
     // The control message carries the ARC IE (which is where the validity field itself lives),
-    // the RDM IE (the responders' slot table) and the RRMC IE.
-    expect(o4[0].ies).toEqual(['ARC', 'RDM', 'RRMC'])
+    // the RR IE (the block and round indices), the RDM IE (the responders' slot table) and the RRMC IE.
+    expect(o4[0].ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
     for (const o of o4.slice(1)) {
       expect(o.ies, `block ${o.block}`).toEqual(['RRMC'])
       expect(o.ies, `block ${o.block}: no slot table is restated`).not.toContain('RDM')
@@ -146,13 +155,13 @@ describe('acceptance: one control message for four blocks buys 3 × (13 + 3A) oc
     }
     // Every block of an R = 1 session still carries both, which is what "byte-identical by
     // default" means at the IE level.
-    for (const o of openers(sceneA(1))) expect(o.ies, `R=1 block ${o.block}`).toEqual(['ARC', 'RDM', 'RRMC'])
+    for (const o of openers(sceneA(1))) expect(o.ies, `R=1 round ${o.block}`).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
   })
 
   it('still reconstructs a fixed reply time from the initiation message it actually handled', () => {
     // `replyTime: 'fixed'` is the one shape whose arithmetic reads the opener's **airtime**
     // (design §6.1: the delay is counted from the end of its reception), and the initiation
-    // message is 25 octets shorter than the control message. Both ends read it off the frame they
+    // message is 28 octets shorter than the control message. Both ends read it off the frame they
     // handled, so the range survives a block whose opener changed length — if either end assumed
     // a Poll, the reading would be out by that airtime: tens of metres, not centimetres.
     const rs = run(scenario(SCENE_A, {
@@ -160,12 +169,12 @@ describe('acceptance: one control message for four blocks buys 3 × (13 + 3A) oc
       rcmValidityRounds: 4,
     }))
     const ranges = of(rs, 'UWB_RANGE')
-    expect(ranges.length, 'four blocks × four anchors, at the tag').toBe(4 * A)
+    expect(ranges.length, 'four rounds × four anchors, at the tag').toBe(4 * A)
     for (const r of ranges) {
-      expect(Math.abs(r.distM - r.trueDistM), `${r.peer} in block ${r.block}`).toBeLessThan(0.01)
+      expect(Math.abs(r.distM - r.trueDistM), `${r.peer} in round ${rn(r)}`).toBeLessThan(0.01)
     }
-    // …and blocks 1–3 really did open with the shorter frame, so the assertion above was not
-    // measured against four identical blocks.
+    // …and rounds 1–3 really did open with the shorter frame, so the assertion above was not
+    // measured against four identical rounds.
     expect(openers(rs).map((o) => o.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])
   })
 })
@@ -184,8 +193,8 @@ describe('acceptance: one control message for four blocks buys 3 × (13 + 3A) oc
 //   anchor −14 dBm → 16 m = −88.6 dBm heard       ← but the RMNR frame does
 //
 // `anc-far` sits at 16 m from the start and therefore **never** receives a control message;
-// `anc-walk` starts at 5 m, receives block 0's control message, and is moved to 16 m before
-// block 1. Everything the two do differently afterwards is down to that one difference.
+// `anc-walk` starts at 5 m, receives round 0's control message, and is moved to 16 m before
+// round 1. Everything the two do differently afterwards is down to that one difference.
 
 const TAG_DBM = -24
 const SCENE_B: NodeCfg[] = [
@@ -202,19 +211,21 @@ const sceneBcfg = (rmnr: boolean): Partial<UwbSessionCfg> => ({
 })
 
 /**
- * Scene B, four blocks, with `anc-walk` moved out of reach after block 0.
+ * Scene B, four rounds, with `anc-walk` moved out of reach after round 0.
  *
  * This engine has no mobility of its own, and it does not need any: `UwbChannel` resolves every
  * position through `posOf → nodeOf(id).pos` at the instant it needs it, off the very node objects
  * the scenario handed it, and `Simulation.runUntil` is resumable. So moving the node between two
- * `runUntil` calls *is* the scene change, and it lands in the gap between block 0's round (ten
- * milliseconds long) and block 1's, two hundred milliseconds later.
+ * `runUntil` calls *is* the scene change. Round 1 follows round 0 back to back, so the move lands a
+ * microsecond before round 0 ends — after its last transmission, before round 1's opener — at a
+ * length read off the session's own round plan, since an SS, DS and contention round differ.
  */
 function runSceneB(rmnr: boolean, session: Partial<UwbSessionCfg> = {}, untilNs = RUN_NS): TLRecord[] {
   const nodes = SCENE_B.map((n) => ({ ...n, pos: { ...n.pos } }))
   const sc = scenario(nodes, { ...sceneBcfg(rmnr), ...session })
   const sim = new Simulation(sc)
-  const before = sim.runUntil(BLOCK_NS / 2).records
+  const roundNs = roundPlan(sc.uwb!, 4).roundNs
+  const before = sim.runUntil(roundNs - 1000).records
   const walker = nodes.find((n) => n.id === 'anc-walk')
   if (!walker) throw new Error('runSceneB: anc-walk is not in the scene')
   // In place, because the device holds the same Vec3 its scenario node does — which is what a
@@ -233,8 +244,8 @@ describe('acceptance: RMNR turns one anchor\'s silence into something the initia
 
   it('builds the scene it claims to: one responder loses the initiation message, one never held the control message', () => {
     for (const rs of [off, on]) {
-      // `anc-walk` heard block 0's control message…
-      expect(rxOf(rs, 'anc-walk', 'uwbPoll'), 'anc-walk: one control message, in block 0').toHaveLength(1)
+      // `anc-walk` heard round 0's control message…
+      expect(rxOf(rs, 'anc-walk', 'uwbPoll'), 'anc-walk: one control message, in round 0').toHaveLength(1)
       // …and nothing afterwards: the three initiation messages never reached it.
       expect(rxOf(rs, 'anc-walk', 'uwbInit'), 'anc-walk: no initiation message').toHaveLength(0)
       // `anc-far` heard neither, ever.
@@ -251,7 +262,7 @@ describe('acceptance: RMNR turns one anchor\'s silence into something the initia
   it('leaves the initiator nothing but a timeout when rmnr is off', () => {
     expect(of(off, 'UWB_RMNR')).toHaveLength(0)
     const peers = of(off, 'UWB_TIMEOUT').filter((r) => r.node === 'tag-1').map((r) => r.peer)
-    // Three silent slots from anc-walk (blocks 1–3) and four from anc-far, and the initiator
+    // Three silent slots from anc-walk (rounds 1–3) and four from anc-far, and the initiator
     // cannot tell any of the seven apart: "did not hear me", "answered and the answer was lost",
     // "gone" all look like this.
     expect(peers.filter((p) => p === 'anc-walk')).toHaveLength(3)
@@ -260,7 +271,7 @@ describe('acceptance: RMNR turns one anchor\'s silence into something the initia
 
   it('names it when rmnr is on: the responder still holds the control message, and missed this round', () => {
     const named = of(on, 'UWB_RMNR')
-    expect(named.map((r) => [r.node, r.peer, r.block])).toEqual([
+    expect(named.map((r) => [r.node, r.peer, rn(r)])).toEqual([
       ['tag-1', 'anc-walk', 1],
       ['tag-1', 'anc-walk', 2],
       ['tag-1', 'anc-walk', 3],
@@ -287,10 +298,10 @@ describe('acceptance: RMNR turns one anchor\'s silence into something the initia
   })
 
   it('still ranges with every anchor that did hear the initiation message', () => {
-    // Losing one responder loses nobody else: the two near anchors range in all four blocks, and
-    // anc-walk ranges in the one block it was still in reach for.
+    // Losing one responder loses nobody else: the two near anchors range in all four rounds, and
+    // anc-walk ranges in the one round it was still in reach for.
     const byPeer = (rs: TLRecord[], peer: string): number[] =>
-      of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === peer).map((r) => r.block)
+      of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === peer).map(rn)
     for (const rs of [off, on]) {
       expect(byPeer(rs, 'anc-1')).toEqual([0, 1, 2, 3])
       expect(byPeer(rs, 'anc-2')).toEqual([0, 1, 2, 3])
@@ -316,21 +327,21 @@ describe('acceptance: RMNR turns one anchor\'s silence into something the initia
 })
 
 describe('the control message this responder holds expires, which is what makes the state bounded', () => {
-  it('stops answering once the validity window its control message bought runs out', () => {
+  it('stops answering once the ranging round set its control message opened is over', () => {
     // Ruling 1: "holds a valid control message" is the one piece of device state in this engine that
-    // outlives a round, and **its expiry is what makes it an exception rather than a leak**. Block
-    // 0's control message buys blocks 0–3; block 4 opens a new window with a control message
-    // `anc-walk` is far too distant to decode, so from block 4 on it holds nothing valid and must go
-    // back to the silence of a device that never held one at all. Eight blocks, so the window turns
-    // over once inside the run.
-    const rs = runSceneB(true, {}, 8 * BLOCK_NS - MS)
+    // outlives a round, and **its expiry is what makes it an exception rather than a leak**. Round
+    // 0's control message governs rounds 0–3 of block 0 and no round of block 1 (§10.32.9.1); block
+    // 1 opens a new set with a control message `anc-walk` is far too distant to decode, so from
+    // there on it holds nothing valid and must go back to the silence of a device that never held
+    // one at all. Two blocks, eight rounds, so the set turns over once inside the run.
+    const rs = runSceneB(true, {}, 2 * BLOCK_NS - MS)
     const named = of(rs, 'UWB_RMNR')
-    expect(named.map((r) => r.block)).toEqual([1, 2, 3])
-    // …and the run really did reach block 7, so the three above are not simply all the blocks there
+    expect(named.map(rn)).toEqual([1, 2, 3])
+    // …and the run really did reach round 7, so the three above are not simply all the rounds there
     // were: the near anchors answered in every one of the eight.
     const heard = of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1')
-    expect(heard.map((r) => r.block)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-    // Blocks 4–7 are silent again for anc-walk, and the initiator is back to not knowing why —
+    expect(heard.map(rn)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    // Rounds 4–7 are silent again for anc-walk, and the initiator is back to not knowing why —
     // which is the honest answer: nothing it holds about that responder is current any more.
     const peers = of(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'tag-1').map((r) => r.peer)
     expect(peers.filter((p) => p === 'anc-walk')).toHaveLength(4)
@@ -347,17 +358,17 @@ describe('the same exchange in the shapes scene B does not use', () => {
     // does not list it (it never answered), so it reports nothing either.
     const rs = sceneB({ method: 'ds' })
     const named = of(rs, 'UWB_RMNR')
-    expect(named.map((r) => [r.peer, r.block, r.slot])).toEqual([
+    expect(named.map((r) => [r.peer, rn(r), r.slot])).toEqual([
       ['anc-walk', 1, 3], ['anc-walk', 2, 3], ['anc-walk', 3, 3],
     ])
     // One frame per round and no more: not a second one in the Report slot.
     expect(of(rs, 'TX_START').filter((r) => r.node === 'anc-walk' && r.frame.kind === 'uwbRmnr')).toHaveLength(3)
     expect(of(rs, 'TX_START').filter((r) => r.node === 'anc-walk' && r.frame.kind === 'uwbReport')).toHaveLength(1)
     // …and the anchors that did hear the initiation message still range at both ends of every
-    // block, which is what says the Final and the Report phase came through untouched.
+    // round, which is what says the Final and the Report phase came through untouched.
     for (const id of ['anc-1', 'anc-2']) {
-      expect(of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === id).map((r) => r.block)).toEqual([0, 1, 2, 3])
-      expect(of(rs, 'UWB_RANGE').filter((r) => r.node === id).map((r) => r.block)).toEqual([0, 1, 2, 3])
+      expect(of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === id).map(rn)).toEqual([0, 1, 2, 3])
+      expect(of(rs, 'UWB_RANGE').filter((r) => r.node === id).map(rn)).toEqual([0, 1, 2, 3])
     }
   })
 
@@ -374,13 +385,13 @@ describe('the same exchange in the shapes scene B does not use', () => {
     // `tests/model/rcm-validity-scenario.test.ts` pins it.
     //
     // What survives here is the half that is still reachable, and it is the more interesting one:
-    // **one control message governing several contention blocks.** The anchors draw their slot off
-    // each block's opener, whichever of the two messages that opener was.
-    // maxAttempts 4 = the validity window, the most §10.32.9.6 allows: with the default cap of 1
-    // an anchor would answer only the window's first block and stay silent for the rest.
+    // **one control message governing several contention rounds.** The anchors draw their slot off
+    // each round's opener, whichever of the two messages that opener was.
+    // maxAttempts 4 = the set's length, the most §10.32.9.6 allows: with the default cap of 1
+    // an anchor would answer only the set's first round and stay silent for the rest.
     const rs = sceneB({ schedule: 'contention', contentionSlots: 8, rmnr: false, maxAttempts: 4 })
-    const blocks = of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map((r) => r.block)
-    expect(blocks).toEqual([0, 1, 2, 3])
+    const rounds = of(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1' && r.peer === 'anc-1').map(rn)
+    expect(rounds).toEqual([0, 1, 2, 3])
     expect(openers(rs).map((o) => o.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])
   })
 })
@@ -393,12 +404,16 @@ describe('determinism, and every other mode byte-identical', () => {
    * to pass before the implementation as well as after — it is the guard, not the goal. The
    * shipped scenes are pinned by `tests/fixtures/`; this pins the modes this file can reach.
    */
+  // twr-ss, twr-ds and dl-tdoa re-captured 2026-11-10: the RCM is three octets longer (ARC IE to the
+  // standard's content plus the RR IE, audit #9), and the two-way sessions here now run `ROUNDS`
+  // rounds in their one block (audit #23). The run is one block rather than four now, which is why
+  // ul-tdoa and m2m — untouched by either change — were re-captured with them.
   const BEFORE: Record<string, string> = {
-    'twr-ss': 'c7c2b5bb',
-    'twr-ds': '49da96b5',
-    'dl-tdoa': '7d5c17b1',
-    'ul-tdoa': '21308ce6',
-    m2m: '5b5bc56f',
+    'twr-ss': '5c0c99af',
+    'twr-ds': 'e9b77bb7',
+    'dl-tdoa': 'd0686895',
+    'ul-tdoa': 'b381d1e0',
+    m2m: 'e19f0cd3',
   }
 
   const streamOf = (session: Partial<UwbSessionCfg>): string => {
@@ -426,22 +441,19 @@ describe('determinism, and every other mode byte-identical', () => {
     const once = JSON.stringify(sceneA(4).filter((r) => r.type.startsWith('UWB_')))
     const twice = JSON.stringify(sceneA(4).filter((r) => r.type.startsWith('UWB_')))
     expect(twice).toBe(once)
-    // …and a four-block validity window is not the same stream as a one-block one, so the
+    // …and a four-round ranging round set is not the same stream as a one-round one, so the
     // comparison above is not trivially true of everything.
     expect(JSON.stringify(sceneA(1).filter((r) => r.type.startsWith('UWB_')))).not.toBe(once)
   })
 })
 
-describe('two tags under one validity window', () => {
+describe('two tags, each with its own ranging round sets', () => {
   /**
-   * Task 4 flagged this as its own untested assumption: every tag switches opener on the same
-   * blocks, which is right — `blockCarriesRcm` reads the block and nothing tag-specific — but no
-   * scene had confirmed the tags do not interfere while doing it.
-   *
-   * It is worth a test because the block is where the two tags meet: they take different rounds
-   * inside it (the round index *is* the tag index), and they switch opener together on the block
-   * boundary. If the validity state were per-block-per-device rather than per-device, or if one
-   * tag's opener leaked into the other's round, this is the scene that shows it.
+   * Every tag runs its own `ROUNDS` rounds of the block back to back (tag 1 rounds 0–3, tag 2 rounds
+   * 4–7), and each opens its own set with its own control message — `roundCarriesRcm` reads the
+   * round's place in its tag's run, nothing that belongs to the other tag. If the validity state
+   * were per-device rather than per-initiator, or if one tag's opener leaked into the other's
+   * rounds, this is the scene that shows it.
    */
   const TWO_TAGS: NodeCfg[] = [
     uwbNode('anc-1', 0, 0, 'anchor'),
@@ -460,7 +472,7 @@ describe('two tags under one validity window', () => {
         && (r.frame?.kind === 'uwbPoll' || r.frame?.kind === 'uwbInit'))
       .map((r) => ({ block: r.frame!.uwb!.block, kind: r.frame!.kind }))
 
-  it('switches both tags on the same blocks', () => {
+  it('switches both tags at the same place in their own sets', () => {
     const rs = twoTags(4)
     const one = perTag(rs, 'tag-1')
     const two = perTag(rs, 'tag-2')

@@ -20,7 +20,7 @@ import type {
 import { ancillarySlots, mmrcmResponders, roundPlan } from '../session'
 import {
   mmsResponders, rstuNs, SSBD_BF_UNIT_MAX, SSBD_MAX_BACKOFFS_MAX, uwbFixedReplyWindowRstu,
-  uwbMmrcmSlots, uwbSlotsPerTag,
+  uwbInitiatorBlockSlots, uwbMmrcmSlots, uwbSlotsPerTag,
 } from '../phy'
 import {
   MMS_FIXED_REPLY_RSTU_DEFAULT, MMS_FIXED_REPLY_RSTU_MAX, MMS_FIXED_REPLY_RSTU_MIN,
@@ -126,11 +126,20 @@ export function uwbAncillaryFramesCapFor(
     session.sp3 ? { rrtt: session.srrr.rrtt } : undefined,
   )
   const mmrcrSlots = uwbMmrcmSlots(session.mode, anchors, session.mmrcr)
-  // One round per tag, the same way the schema's `tags > fits` rule reads it. `Math.max(1, tags)`
-  // because a scene can hold anchors and no tag at all while the panel is being filled in, and a
-  // division by zero there would print `Infinity` as a cap.
+  // One tag's share of the block, the same way the schema's `tags > fits` rule reads it.
+  // `Math.max(1, tags)` because a scene can hold anchors and no tag at all while the panel is being
+  // filled in, and a division by zero there would print `Infinity` as a cap.
   const rounds = Math.max(1, tags)
-  const blockBudget = Math.floor(session.blockRstu / (rounds * session.slotRstu)) - slots - mmrcrSlots
+  // Each tag runs `initiatorRounds` rounds and the appended windows come once per ranging round set
+  // (`uwbInitiatorBlockSlots`, the schema's own budget): what one set's appended slots may grow to is
+  // the tag's share of the block, less every round's own slots, shared out over the sets. With one
+  // round a block this is the share less one round, as before round sets existed.
+  const sets = Math.ceil(
+    session.initiatorRounds / Math.max(1, Math.min(session.rcmValidityRounds, session.initiatorRounds)),
+  )
+  const tagShare = Math.floor(session.blockRstu / (rounds * session.slotRstu))
+  const ownSlots = uwbInitiatorBlockSlots(slots, session.initiatorRounds, session.rcmValidityRounds, 0)
+  const blockBudget = Math.floor((tagShare - ownSlots) / sets) - mmrcrSlots
   const floor = session.schedule === 'contention' ? session.contentionSlots : 0
   // The floor is checked against the whole appended budget, not against the message's share of it:
   // a draw window that fits the block is legal at every frame count below its own width, because
@@ -287,10 +296,15 @@ const ms = (rstu: number): string => (rstuNs(rstu) / 1e6).toFixed(rstu < 3000 ? 
 export function uwbModePatch(
   mode: UwbMode, rcmValidityRounds = 1, mmrcr = false, srrr: UwbSrrrCfg = { raoa: false, rrtt: false },
   mms: UwbMmsCfg = DEFAULT_UWB_MMS,
+  /** The session's `initiatorRounds`: several rounds per initiator per block exist only in two-way
+   * ranging, so every other mode takes it back to 1 — written only when there is something to
+   * reset, the same empty-patch discipline as `ssbd` below. */
+  initiatorRounds = 1,
 ): Partial<UwbSessionCfg> {
-  const ssbdReset: Partial<UwbSessionCfg> = mode !== 'mms' && mms.ssbd !== null
-    ? { mms: { ...mms, ssbd: null } }
-    : {}
+  const ssbdReset: Partial<UwbSessionCfg> = {
+    ...(mode !== 'mms' && mms.ssbd !== null ? { mms: { ...mms, ssbd: null } } : {}),
+    ...(mode !== 'twr' && initiatorRounds !== 1 ? { initiatorRounds: 1 } : {}),
+  }
   if (mode === 'twr') {
     return rcmValidityRounds === 1 && mmrcr
       ? { mode, mmrcr: false, ...ssbdReset }
@@ -300,6 +314,7 @@ export function uwbModePatch(
     return {
       mode, schedule: 'time', aoa: false, method: 'ss', slotRstu: 600,
       rcmValidityRounds: 1, rmnr: false, mmrcr: false, sp3: false, ...srrrDownWithSp3(srrr),
+      ...(initiatorRounds !== 1 ? { initiatorRounds: 1 } : {}),
     }
   }
   if (mode === 'm2m') {
@@ -407,10 +422,17 @@ export function uwbSchedulePatch(
  */
 export function uwbRcmValidityRoundsPatch(
   rcmValidityRounds: number, rmnr: boolean, mmrcr = false,
+  /** The session's `initiatorRounds`. A control message governs rounds of its own block only
+   * (standard §10.32.9.1: never more than the rounds remaining in the block), and here a set can only
+   * hold the tag's own rounds — so raising the validity past the tag's rounds per block raises those
+   * with it, the field being edited carrying its dependent across the schema's line the same way the
+   * two resets above do in the other direction. */
+  initiatorRounds = 1,
 ): Partial<UwbSessionCfg> {
   const patch: Partial<UwbSessionCfg> = { rcmValidityRounds }
   if (rcmValidityRounds === 1 && rmnr) patch.rmnr = false
   if (rcmValidityRounds === 1 && mmrcr) patch.mmrcr = false
+  if (rcmValidityRounds > initiatorRounds) patch.initiatorRounds = rcmValidityRounds
   return patch
 }
 
@@ -984,7 +1006,10 @@ export function UwbSessionFields(
       <label style={label} title={E.uwbModeHint}>
         {E.uwbMode}{' '}
         <select value={session.mode} onChange={(e) => onChange(
-          uwbModePatch(e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr, session.srrr, session.mms),
+          uwbModePatch(
+            e.target.value as UwbMode, session.rcmValidityRounds, session.mmrcr, session.srrr, session.mms,
+            session.initiatorRounds,
+          ),
         )}>
           <option value="twr">{E.uwbModes.twr}</option>
           <option value="dl-tdoa">{E.uwbModes['dl-tdoa']}</option>
@@ -1038,10 +1063,12 @@ export function UwbSessionFields(
       </label>
       <label style={label} title={E[uwbRcmValidityHintKey(session.mode)]}>
         {E.uwbRcmValidityRounds}{' '}
-        <input type="number" min={1} max={64} step={1} value={session.rcmValidityRounds} style={{ width: 62 }}
+        <input type="number" min={1} max={63} step={1} value={session.rcmValidityRounds} style={{ width: 62 }}
           disabled={session.mode !== 'twr'}
           onChange={(e) => onChange(
-            uwbRcmValidityRoundsPatch(clampField(e.target.value, 1, 64, true), session.rmnr, session.mmrcr),
+            uwbRcmValidityRoundsPatch(
+              clampField(e.target.value, 1, 63, true), session.rmnr, session.mmrcr, session.initiatorRounds,
+            ),
           )} />
       </label>
       {/* Greying this out is one of the few places in this panel where the disabled state itself
@@ -1523,24 +1550,20 @@ function SsbdFields(
 /**
  * A ranging-time field in RSTU. It holds the typed text while the field has
  * focus and only clamps on blur or Enter: clamping per keystroke turns clearing
- * a six-digit block into an immediate commit of the lower bound, and every
- * further digit is then re-rounded to a multiple of 3 under the cursor.
+ * a six-digit block into an immediate commit of the lower bound. A block and a
+ * slot are whole numbers of RSTU (standard §10.32.2) and nothing more — the
+ * multiple-of-3 rounding this field used to apply is not in the standard.
  */
 function RstuInput({ value, lo, hi, onCommit }: { value: number; lo: number; hi: number; onCommit: (v: number) => void }) {
   const [draft, setDraft] = useState<string | null>(null)
   return (
-    <input type="number" min={lo} max={hi} step={3} style={{ width: 74 }}
+    <input type="number" min={lo} max={hi} step={1} style={{ width: 74 }}
       value={draft ?? value}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
-        if (draft !== null) onCommit(to3(clampField(draft, lo, hi, true)))
+        if (draft !== null) onCommit(clampField(draft, lo, hi, true))
         setDraft(null)
       }}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
   )
-}
-
-/** A block and a slot are both counted in whole 3-RSTU units (standard §10.32.2). */
-function to3(rstu: number): number {
-  return Math.max(3, Math.round(rstu / 3) * 3)
 }

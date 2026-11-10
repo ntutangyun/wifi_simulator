@@ -35,7 +35,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, BYTES, FRAMES, MS, NS, SENDER_ID, SLOTS, TAG_ID, VALIDITY, WINDOW_BLOCKS,
+  ANCHORS, BYTES, FRAMES, MS, NS, SENDER_ID, SLOTS, TAG_ID, VALIDITY, WINDOW_ROUNDS, tagRoundOf,
   idOf, ms, uwbAncillary, uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from '../../src/course/uwb/uwb-ancillary'
 import { uwbAncillaryLoss } from '../../src/course/uwb/uwb-ancillary-loss'
@@ -45,7 +45,7 @@ import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { ANCILLARY_MESSAGE_KIND, ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
 import { C_M_PER_NS, uwbPpduNs } from '../../src/uwb/phy'
-import { blockCarriesAncillary, blockSlots, roundPlan } from '../../src/uwb/session'
+import { roundCarriesAncillary, roundPlan, roundSlots } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS_NS = 1_000_000
@@ -67,12 +67,14 @@ const run = (sc: Scenario, ns: number): TLRecord[] => {
 const PLAN = roundPlan(uwbAncillaryScenario().uwb!, ANCHORS)
 
 /** Every ancillary frame that went on the air, in order, as `TX_START` saw it. */
-const sent = (rs: TLRecord[]): { node: string; block: number; slot: number; remaining: number | undefined }[] =>
+const sent = (rs: TLRecord[]): { node: string; block: number; round: number; slot: number; remaining: number | undefined }[] =>
   ofType(rs, 'TX_START')
     .filter((r) => r.frame.kind === 'uwbAncillary')
     .map((r) => ({
       node: r.node,
       block: r.frame.uwb?.block ?? -1,
+      // the window variant's running round number (four rounds a block); its own block elsewhere
+      round: r.frame.uwb ? tagRoundOf(r.frame.uwb) : -1,
       slot: r.frame.uwb?.slot ?? -1,
       remaining: r.frame.uwb?.raict?.framesRemaining,
     }))
@@ -148,7 +150,7 @@ describe('uwb-ancillary-loss · the ruler the lesson measures against', () => {
     expect(MS.block).toBe(PLAN.blockNs / 1e6)
     expect(SLOTS.ranging).toBe(PLAN.slots)
     expect(SLOTS.window).toBe(FRAMES)
-    expect(SLOTS.block).toBe(blockSlots(PLAN, 0))
+    expect(SLOTS.block).toBe(roundSlots(PLAN, 0))
     expect(SLOTS.block).toBe(SLOTS.ranging + SLOTS.window)
     // the closed form the lesson prints, and the two decimals it rounds to
     expect(NS.frame).toBe(uwbPpduNs(BYTES.frame))
@@ -344,31 +346,36 @@ describe('uwb-ancillary-loss · what the exchange does not change, and what it d
     expect(anc(offVariant)).toEqual([])
   })
 
-  it(`「这一块没有消息」 is not 「这一块的消息未收齐」: blocks ${WINDOW_BLOCKS.join(' and ')} only`, () => {
-    // The lesson's one experiment. A block outside the control message's validity window carries
-    // no ancillary frame at all, and the point a reader is sent to check is that it also carries
-    // no record — an absent message is not an incomplete one, and only the latter is this
-    // lesson's subject.
+  // Rewritten 2026-11-10 (audit #23): this read blocks 0 and 4 of a four-block window. A control
+  // message never governs a round of the next block (standard §10.32.9.1), so the variant's tag runs
+  // four rounds a block and the set is those four rounds; `tagRoundOf` numbers them across blocks.
+  it(`「这一轮没有消息」 is not 「这一轮的消息未收齐」: rounds ${WINDOW_ROUNDS.join(' and ')} only`, () => {
+    // The lesson's one experiment. A round outside the control message's ranging round set's first
+    // round carries no ancillary frame at all, and the point a reader is sent to check is that it
+    // also carries no record — an absent message is not an incomplete one, and only the latter is
+    // this lesson's subject.
     const plan = roundPlan(uwbAncillaryLoss.variants![1].scenario().uwb!, ANCHORS)
     expect(plan.rcmValidityRounds).toBe(VALIDITY)
-    expect(WINDOW_BLOCKS).toEqual([0, 1, 2, 3, 4, 5].filter((b) => blockCarriesAncillary(plan, b)))
-    expect(WINDOW_BLOCKS).toEqual([0, VALIDITY])
+    expect(plan.initiatorRounds).toBe(VALIDITY)
+    expect(WINDOW_ROUNDS).toEqual([0, 1, 2, 3, 4, 5].filter((g) => roundCarriesAncillary(plan, g % VALIDITY)))
+    expect(WINDOW_ROUNDS).toEqual([0, VALIDITY])
 
-    const rs = run(uwbAncillaryLoss.variants![1].scenario(), 6 * 200 * MS_NS - MS_NS)
-    expect(sent(rs).map((f) => f.block))
-      .toEqual(WINDOW_BLOCKS.flatMap((b) => Array(FRAMES).fill(b)))
-    // the frames the window does carry count all the way down in each of those blocks
-    for (const b of WINDOW_BLOCKS) {
-      expect(sent(rs).filter((f) => f.block === b).map((f) => f.remaining), `block ${b}`)
+    const rs = run(uwbAncillaryLoss.variants![1].scenario(), 2 * 200 * MS_NS - MS_NS)
+    const firstSix = (g: number): boolean => g < 6
+    expect(sent(rs).map((f) => f.round).filter(firstSix))
+      .toEqual(WINDOW_ROUNDS.flatMap((g) => Array(FRAMES).fill(g)))
+    // the frames the set does carry count all the way down in each of those rounds
+    for (const g of WINDOW_ROUNDS) {
+      expect(sent(rs).filter((f) => f.round === g).map((f) => f.remaining), `round ${g}`)
         .toEqual(Array.from({ length: FRAMES }, (_v, i) => FRAMES - 1 - i))
     }
-    // and the blocks in between hold no record at all — not an incomplete one, none
-    const quiet = anc(rs).filter((r) => !WINDOW_BLOCKS.includes(r.block))
-    expect(quiet, 'a block with no message has no ancillary record either').toEqual([])
-    // …and the run really did reach block 5, so the two above are not simply all the blocks there
+    // and the rounds in between hold no record at all — not an incomplete one, none
+    const quiet = anc(rs).filter((r) => r.round !== 0)
+    expect(quiet, 'a round with no message has no ancillary record either').toEqual([])
+    // …and the run really did reach round 5, so the two above are not simply all the rounds there
     // were
     expect(ofType(rs, 'UWB_RANGE').filter((r) => r.node === TAG_ID && r.peer === SENDER_ID)
-      .map((r) => r.block)).toEqual([0, 1, 2, 3, 4, 5])
+      .map(tagRoundOf).filter(firstSix)).toEqual([0, 1, 2, 3, 4, 5])
   })
 
   it('names all three granularities with the clause each one comes from', () => {
@@ -416,7 +423,7 @@ describe('uwb-ancillary-loss · what the exchange does not change, and what it d
     }
     expect(code, `${ms(NS.lead)} is typed where the engine can compute it`)
       .not.toMatch(new RegExp(String.raw`(?<![\d.])${ms(NS.lead)}(?![\d.])`))
-    for (const sym of ['MS', 'NS', 'SLOTS', 'FRAMES', 'WINDOW_BLOCKS', 'ms']) {
+    for (const sym of ['MS', 'NS', 'SLOTS', 'FRAMES', 'WINDOW_ROUNDS', 'ms']) {
       expect(code, sym).toMatch(new RegExp(String.raw`\b${sym}\b`))
     }
     expect(code, 'the figures come from the other half').toContain("from './uwb-ancillary'")

@@ -62,7 +62,7 @@ export function uwbSstwrScenario(ppm: { tag: number; anchors: number }): Scenari
  * tests/course/uwb-sstwr.test.ts, so the figure cannot drift from it.
  */
 export const FIG = {
-  pollTx: 0, pollTxEnd: 206.859,
+  pollTx: 0, pollTxEnd: 216.09,
   /** Slot i starts at i × 2000 µs; the answer is 187.372 µs long and lands 12 ns later. */
   slotUs: 2000, respUs: 187.372, flightUs: 0.012,
   windowUs: 8400,

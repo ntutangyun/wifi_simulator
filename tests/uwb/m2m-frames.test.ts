@@ -111,7 +111,10 @@ describe('many-to-many frame content and size (design §4)', () => {
     })
     // Same three numbers as before the rename (tests/model/uwb-frameFields.test.ts).
     expect(dlPoll.bytes).toBe(uwbDlPollBytes(3))
-    expect(dlPoll.bytes).toBe(42)
+    // 42 → 45 on 2026-11-10: the DL-TDoA Poll is an RCM too, and its ARC IE lost the three index
+    // fields the standard's ARC IE does not have while the RR IE that does carry the indices joined it
+    // (audit #9, §10.32.9.1/§10.32.9.3). Every other DL-TDoA frame is untouched.
+    expect(dlPoll.bytes).toBe(45)
     expect(dlResp.bytes).toBe(uwbDlRespBytes())
     expect(dlResp.bytes).toBe(30)
     expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3))
@@ -122,7 +125,7 @@ describe('many-to-many frame content and size (design §4)', () => {
     }
     // Same IE order as before: DL-TDoA still omits RXT when it carries no times (the Poll here
     // has none) and still carries COFF only on the Response.
-    expect(dlPoll.uwb?.ies).toEqual(['ARC', 'RDM', 'RRMC', 'TXT'])
+    expect(dlPoll.uwb?.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC', 'TXT'])
     expect(dlResp.uwb?.ies).toEqual(['RRMC', 'TXT', 'RXT', 'COFF'])
     expect(dlFinal.uwb?.ies).toEqual(['RRMC', 'TXT', 'RXT'])
     expect(keyed(dlPoll, 'ieTxTime')!.bytes).toBe(TX_TIME_IE_BYTES)

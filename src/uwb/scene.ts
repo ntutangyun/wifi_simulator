@@ -37,7 +37,7 @@ import { physicalId } from '../model/caps'
 import type { Scenario } from '../model/scenario'
 import type { Ns } from '../model/types'
 import type { ViewState } from '../model/view'
-import { blockSlots, roundPlan, type RoundPlan } from './session'
+import { blockSlotStartNs, roundPlan, roundSlots, type RoundPlan } from './session'
 
 export const UWB_RING_COLOR = 0xfbbf24
 export const UWB_FIX_COLOR = 0xf59e0b
@@ -94,8 +94,9 @@ export class UwbOverlay {
    * `plan.roundNs`, and that is a fix rather than a refactor** (slice 3d, design §4.2 site 10).
    *
    * `roundNs` is `plan.slots` slots long and has no block index in it, while the round a block
-   * actually runs is `blockSlots(plan, block)` slots — §10.36's receipt confirmation and §10.35's
-   * ancillary message each append slots to particular blocks. Measured on the shipped
+   * actually runs is `roundSlots(plan, round)` slots — §10.36's receipt confirmation and §10.35's
+   * ancillary message each append slots to particular rounds (the last and first of a ranging round
+   * set). Measured on the shipped
    * `uwb-ancillary` hall: `roundNs` is 10 ms and the round that runs is 18 ms, so every ring faded
    * from 8 ms too early — 4 % of a block, on every block, since the ancillary slice landed. Slice
    * 3d did not cause that and would have made it worse: with a granted request the round's length
@@ -139,7 +140,7 @@ export class UwbOverlay {
    *
    * `granted` is the ancillary width the controller has handed out (standard §10.35.2.1; slice 3d),
    * read off the tag's own view state — `null` in every session that never asks, which restores
-   * `blockSlots`' own default. It is 「the width in force now」 rather than 「the width in force in
+   * `roundSlots`' own default. It is 「the width in force now」 rather than 「the width in force in
    * block `block`」, and the difference is at most one block, the block a grant first changes the
    * round's length in; a drawing never outlives one block, so the residual is one ring's opacity on
    * one block per change of grant. The alternative — a per-block history in the view state — would
@@ -147,8 +148,8 @@ export class UwbOverlay {
    * mistake the residual for exactness.
    */
   private roundEndNs(block: number, round: number, granted: number | null): Ns {
-    return block * this.blockNs
-      + (round + 1) * blockSlots(this.plan, block, granted) * this.plan.slotNs
+    // The round's own start (the sum of the rounds before it in the block) plus its own length.
+    return blockSlotStartNs(this.plan, block, round, roundSlots(this.plan, round, granted), granted)
   }
 
   /**

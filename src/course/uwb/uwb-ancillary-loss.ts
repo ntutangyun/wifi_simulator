@@ -47,7 +47,7 @@
  */
 import { J, txOf, type Lesson } from '../lessonKit'
 import {
-  FRAMES, MS, NS, SENDER_ID, SLOTS, VALIDITY, WINDOW_BLOCKS, ms,
+  FRAMES, MS, NS, SENDER_ID, SLOTS, VALIDITY, WINDOW_ROUNDS, ms, uwbAncillaryWindowScenario,
   uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from './uwb-ancillary'
 
@@ -161,7 +161,7 @@ export const uwbAncillaryLoss: Lesson = {
   scenario: () => uwbAncillaryScenario(),
   variants: [
     { label: `竞争式排程：窗口宽 ${SLOTS.contendWindow} 个时隙，起点抽出来`, scenario: () => uwbAncillaryScenario({ schedule: 'contention' }) },
-    { label: `一条控制消息管 ${VALIDITY} 个块：只有窗口的头一块发`, scenario: () => uwbAncillaryScenario({ rcmValidityRounds: VALIDITY }) },
+    { label: `一条控制消息管 ${VALIDITY} 轮：只在第一轮发`, scenario: () => uwbAncillaryWindowScenario() },
     { label: '关闭辅助信息交换', scenario: () => uwbAncillaryOffScenario() },
   ],
   jumps: [
@@ -173,7 +173,7 @@ export const uwbAncillaryLoss: Lesson = {
     `四帧的剩余帧数依次是 ${FRAMES - 1}、${FRAMES - 2}、1、0。写入 0 的那一帧到达之后，接收端将这条消息记为收齐；在此之前每一条记录都标为「未收齐」。而整块中没有发生一次超时——是否缺帧不通过超时判断。`,
   ],
   tryThis: [
-    `载入「一条控制消息管 ${VALIDITY} 个块」变体，逐块查看辅助信息帧：第 ${WINDOW_BLOCKS[0]} 块有 ${FRAMES} 帧、剩余帧数从 ${FRAMES - 1} 递减到 0，第 1、2、3 块一帧也没有，到第 ${WINDOW_BLOCKS[1]} 块又有 ${FRAMES} 帧。要关注的是第 1 块：那里不但没有帧，接收端连一条「未收齐」的记录也没有——「这一块没有消息」和「这一块的消息未收齐」是两件事，而只有后者才是本课所说的丢失。`,
+    `载入「一条控制消息管 ${VALIDITY} 轮」变体，逐轮查看辅助信息帧（每块 ${VALIDITY} 轮，轮次跨块连续数）：第 ${WINDOW_ROUNDS[0]} 轮有 ${FRAMES} 帧、剩余帧数从 ${FRAMES - 1} 递减到 0，第 1、2、3 轮一帧也没有，到第 ${WINDOW_ROUNDS[1]} 轮——下一块的第一轮——又有 ${FRAMES} 帧。要关注的是第 1 轮：那里不但没有帧，接收端连一条「未收齐」的记录也没有——「这一轮没有消息」和「这一轮的消息未收齐」是两件事，而只有后者才是本课所说的丢失。`,
   ],
   quiz: [
     {

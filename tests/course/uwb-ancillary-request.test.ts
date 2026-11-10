@@ -37,7 +37,9 @@ import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { ANCILLARY_SENDER_INDEX } from '../../src/uwb/device.ancillary'
 import { uwbAncillaryScenario } from '../../src/course/uwb/uwb-ancillary'
 import { raictIeBytes, uwbAncillaryBytes, uwbPpduNs } from '../../src/uwb/phy'
-import { ancillaryGrantFits, ancillarySlots, blockSlots, roundPlan } from '../../src/uwb/session'
+// `blockSlots(plan, block, …)` became `roundSlots(plan, round, …)` on 2026-11-10 (audit #23); every
+// session here runs one round a block, so round 0 of a block is the block's whole round.
+import { ancillaryGrantFits, ancillarySlots, roundPlan, roundSlots } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS_NS = 1_000_000
@@ -191,8 +193,8 @@ describe('uwb-ancillary-request · the scenes are the ones the lesson describes'
     expect(SLOTS.window).toBe(FIRST_FRAMES + 1)
     expect(SLOTS.off).toBe(FIRST_FRAMES)
     expect(SLOTS.windowGranted).toBe(REQUEST + 1)
-    expect(SLOTS.block).toBe(blockSlots(PLAN, 0))
-    expect(SLOTS.blockGranted).toBe(blockSlots(PLAN, 1, REQUEST))
+    expect(SLOTS.block).toBe(roundSlots(PLAN, 0))
+    expect(SLOTS.blockGranted).toBe(roundSlots(PLAN, 0, REQUEST))
     expect(SLOTS.block).toBe(SLOTS.ranging + SLOTS.window)
     expect(SLOTS.blockGranted).toBe(SLOTS.ranging + SLOTS.windowGranted)
   })
@@ -323,7 +325,7 @@ describe('uwb-ancillary-request · contention: the window does not move and the 
     expect(byBlock.get(0)).toBe(FIRST_FRAMES - 1)
     expect(byBlock.get(3)).toBe(REQUEST - 1)
     // and the block really is laid out at one width throughout
-    expect(blockSlots(CONTEND_PLAN, 0)).toBe(blockSlots(CONTEND_PLAN, 1, REQUEST))
+    expect(roundSlots(CONTEND_PLAN, 0)).toBe(roundSlots(CONTEND_PLAN, 0, REQUEST))
   })
 })
 
@@ -461,7 +463,7 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     expect([wFrom, wTo], 'the window before and after the grant')
       .toEqual([ancillarySlots(PLAN), ancillarySlots(PLAN, REQUEST)])
     expect([bFrom, bTo], 'and the block before and after')
-      .toEqual([blockSlots(PLAN, 0), blockSlots(PLAN, 1, REQUEST)])
+      .toEqual([roundSlots(PLAN, 0), roundSlots(PLAN, 0, REQUEST)])
     // the per-block table: frames, countdown, window and block width, block by block
     const tb = tables().find((x) => x.head[0] === '块')!
     const counts = firstCountdown(rs)
@@ -488,7 +490,7 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
       expect(val(win.replace(' 个时隙', '')), `${label}: its window`)
         .toBe(granted ? ancillarySlots(PLAN, REQUEST) : ancillarySlots(PLAN))
       expect(val(block.replace(' 个时隙', '')), `${label}: and its block`)
-        .toBe(granted ? blockSlots(PLAN, blockNo!, REQUEST) : blockSlots(PLAN, blockNo!))
+        .toBe(granted ? roundSlots(PLAN, 0, REQUEST) : roundSlots(PLAN, 0))
     }
     // the two-frame table: the request is one octet shorter, because it reports no number
     const bt = tables().find((x) => x.head[0] === '帧类型')!
@@ -538,22 +540,24 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     expect(ancillaryGrantFits(PLAN, same), 'and this one grants it').toBe(true)
   })
 
-  it('reads `deeper`’s per-block widths, the hall and the sender', () => {
+  it('reads `deeper`’s per-round widths, the hall and the sender', () => {
     /*
-     * 「一条控制消息覆盖四块时，同一个会话的块 0 与块 4 是九个时隙，块 1、2、3 是五个时隙」 — the widths of
-     * the blocks it names, on a session whose control message governs that many.
+     * 「一条控制消息覆盖四轮、标签每块跑四轮时，同一个会话按标签自己的轮次数，轮 0 与轮 4 是九个时隙，轮
+     * 1、2、3 是五个时隙」 — the widths of the rounds it names, on a session whose control message
+     * governs that many. (Until 2026-11-10 this read blocks 0 and 4 of a four-block window: a control
+     * message never governs a round of the next block, standard §10.32.9.1, audit #23.)
      */
     const [blocksCn, wideA, wideB, wideCn, narrowA, narrowB, narrowC, narrowCn] = raw(DEEP,
-      /一条控制消息覆盖(.)块时，同一个会话的块 (\d) 与块 (\d) 是(.)个时隙，块 (\d)、(\d)、(\d) 是(.)个时隙/,
-      '`deeper` on the per-block widths')
+      /一条控制消息覆盖(.)轮、标签每块跑.轮时，同一个会话按标签自己的轮次数，轮 (\d) 与轮 (\d) 是(.)个时隙，轮 (\d)、(\d)、(\d) 是(.)个时隙/,
+      '`deeper` on the per-round widths')
     /*
      * 「同一个会话」 is the lesson before this one: `deeper` measured it there, on the four-frame
      * message, which is why the wide blocks are nine slots and not this lesson's eight.
      */
     const validity = cn(blocksCn!)
-    const plan = roundPlan(uwbAncillaryScenario({ rcmValidityRounds: validity }).uwb!, ANCHORS)
+    const plan = roundPlan(uwbAncillaryScenario({ rcmValidityRounds: validity, initiatorRounds: validity }).uwb!, ANCHORS)
     for (const b of [wideA, wideB]) {
-      expect(blockSlots(plan, val(b!)), `block ${b} is the wider one`).toBe(cn(wideCn!))
+      expect(roundSlots(plan, val(b!) % validity), `round ${b} is the wider one`).toBe(cn(wideCn!))
     }
     /*
      * The three narrow blocks are the ones BETWEEN the two wide ones, consecutively — which is
@@ -566,7 +570,7 @@ describe('uwb-ancillary-request · every figure the prose prints, read back out 
     expect(val(wideB!), 'and the second wide block closes that window')
       .toBe(val(narrowC!) + 1)
     for (const b of [narrowA, narrowB, narrowC]) {
-      expect(blockSlots(plan, val(b!)), `block ${b} is the narrower one`).toBe(cn(narrowCn!))
+      expect(roundSlots(plan, val(b!) % validity), `round ${b} is the narrower one`).toBe(cn(narrowCn!))
     }
     expect(cn(wideCn!), 'and the wide blocks really are the wider').toBeGreaterThan(cn(narrowCn!))
     // 「本课四个场景是同一个 22 × 8 m 大厅」

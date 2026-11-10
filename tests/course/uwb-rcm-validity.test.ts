@@ -10,16 +10,17 @@
  * Two runs that the lesson's own scenarios cannot provide are built here, and both are named in
  * the lesson's `sources`:
  *
- *  - the four-block comparison, because `uwb-record-hashes` runs seven blocks and the arithmetic
- *    of design §2.2 is per validity window;
+ *  - the one-block comparison of a four-round set, because `uwb-record-hashes` runs seven blocks
+ *    and the arithmetic is per ranging round set (2026-11-10: a set lives inside one block,
+ *    standard §10.32.9.1 — this used to be four one-round blocks, audit #23);
  *  - the moved-anchor run of §10.34, because nothing in a scenario moves by itself and UWB
  *    reception here is deterministic, so no static scene can produce a responder that holds a
- *    valid control message and missed *this* block's initiation message. It is the same scene
+ *    valid control message and missed *this* round's initiation message. It is the same scene
  *    tests/uwb/rmnr-round.test.ts measures the feature with.
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, FIG, INIT_BYTES, MOVED, PLACES, RANGE_ROWS, RCM_BYTES, RMNR_BYTES, SAVED_PER_BLOCK,
+  ANCHORS, FIG, INIT_BYTES, MOVED, PLACES, RANGE_ROWS, RCM_BYTES, RMNR_BYTES, ROUNDS, SAVED_PER_BLOCK,
   SAVED_PER_WINDOW, SAVED_SPREAD, VALIDITY, WALLED, WALLED_ANCHOR, WINDOW, WINDOW_BYTES,
   openerBytes, uwbRcmValidity, uwbRcmValidityScenario, uwbRcmValidityTiming,
 } from '../../src/course/uwb/uwb-rcm-validity'
@@ -29,7 +30,7 @@ import type { TLRecord } from '../../src/model/records'
 import { MODULES, basisOf } from '../../src/course/curriculum'
 import { diagramTexts } from '../../src/course/diagram'
 import {
-  ARC_IE_BYTES, UWB_FCS_BYTES, UWB_IE_HDR_BYTES, UWB_MHR_BYTES, UWB_TX_POWER_DBM, rdmIeBytes,
+  ARC_IE_BYTES, RR_IE_BYTES, UWB_FCS_BYTES, UWB_IE_HDR_BYTES, UWB_MHR_BYTES, UWB_TX_POWER_DBM, rdmIeBytes,
   rstuNs, uwbInitBytes, uwbPollBytes, uwbRmnrBytes,
 } from '../../src/uwb/phy'
 import { roundPlan } from '../../src/uwb/session'
@@ -42,8 +43,10 @@ const MS = 1_000_000
 const RUN_NS = 1300 * MS
 /** One block, read off the plan rather than retyped. */
 const BLOCK_NS = roundPlan(uwbRcmValidityScenario().uwb!, ANCHORS).blockNs
-/** Four blocks: the period the saving is per (design §2.2). */
-const WINDOW_NS = VALIDITY * BLOCK_NS - MS
+/** One block: the four rounds of one ranging round set, the period the saving is per. */
+const WINDOW_NS = BLOCK_NS - MS
+/** A round's running number across blocks: the tag runs `ROUNDS` rounds a block. */
+const rn = (u: { block: number; round: number }): number => u.block * ROUNDS + u.round
 
 lessonShapeSuite(uwbRcmValidity, { runNs: RUN_NS })
 
@@ -52,12 +55,12 @@ const run = (sc: Scenario, ns: number = RUN_NS): TLRecord[] => {
   return [...new Simulation(sc).runUntil(ns).records]
 }
 
-/** The frame the tag opened each block with, as the air carried it. */
+/** The frame the tag opened each round with, as the air carried it; `block` is the round's `rn`. */
 const openers = (rs: TLRecord[]): { block: number; kind: string; bytes: number; ies: string[] }[] =>
   ofType(rs, 'TX_START')
     .filter((r) => r.node === 'uwb-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
     .map((r) => ({
-      block: r.frame.uwb?.block ?? -1, kind: r.frame.kind, bytes: r.frame.bytes,
+      block: r.frame.uwb ? rn(r.frame.uwb) : -1, kind: r.frame.kind, bytes: r.frame.bytes,
       ies: [...(r.frame.uwb?.ies ?? [])],
     }))
 
@@ -115,62 +118,66 @@ describe('uwb-rcm-validity · where it sits in the course', () => {
     // the limit's real point survives: it is a session switch, not a parsed control bit.
     expect(text).not.toContain('第 15 位是 §10.36 的那个请求位，本课也没有建它')
     expect(text).toContain('不是从控制字里解出来的一位')
-    // the validity window counts blocks in this engine, and the limit says whose dimension that is
-    expect(text).toContain('有效期在本课是按块数的')
+    // 2026-11-10: this pinned 「有效期在本课是按块数的」, a non-standard window (audit #23). The
+    // limit now names the scene's own value — four rounds a block — and that a set never leaves it.
+    expect(text).toContain('本课里一组轮恰好是一个块的四轮')
+    expect(text).toContain('一条控制消息不跨块')
     // the banned sentence, in both spellings
     expect(text).not.toContain('有简化')
     expect(text).not.toContain('简化之处')
   })
 })
 
-describe('uwb-rcm-validity · one control message for four blocks', () => {
+describe('uwb-rcm-validity · one control message for a set of four rounds', () => {
   const shared = run(uwbRcmValidityScenario(VALIDITY), WINDOW_NS)
   const every = run(uwbRcmValidityScenario(1), WINDOW_NS)
 
-  it('opens block 0 with the control message and the rest of the window with the initiation message', () => {
+  it('opens round 0 with the control message and the rest of the set with the initiation message', () => {
     const o = openers(shared)
     // Empty here would mean the round never reached the point that produces an opener.
     expect(o.map((x) => x.block)).toEqual(WINDOW)
     expect(o.map((x) => x.kind)).toEqual(['uwbPoll', 'uwbInit', 'uwbInit', 'uwbInit'])
-    // 「第 0 块 39 字节，第 1 块 14 字节」 — the two numbers the lesson prints, off the air.
+    // 「第 0 轮 42 字节，第 1 轮 14 字节」 — the two numbers the lesson prints, off the air.
     expect(o.map((x) => x.bytes)).toEqual(WINDOW.map((b) => openerBytes(b, VALIDITY)))
-    expect(o.map((x) => x.bytes)).toEqual([39, 14, 14, 14])
+    expect(o.map((x) => x.bytes)).toEqual([42, 14, 14, 14])
     expect(RCM_BYTES).toBe(uwbPollBytes(ANCHORS))
     expect(INIT_BYTES).toBe(uwbInitBytes())
   })
 
-  it('every block of an R = 1 session still carries the whole control message', () => {
+  it('every round of an R = 1 session still carries the whole control message', () => {
     const o = openers(every)
     expect(o.map((x) => x.kind)).toEqual(WINDOW.map(() => 'uwbPoll'))
     expect(o.map((x) => x.bytes)).toEqual(WINDOW.map((b) => openerBytes(b, 1)))
-    expect(o.map((x) => x.bytes)).toEqual([39, 39, 39, 39])
+    expect(o.map((x) => x.bytes)).toEqual([42, 42, 42, 42])
   })
 
-  it('「ARC 与 RDM 都不在了」: the later blocks carry the RRMC IE and nothing else', () => {
+  it('「ARC、RR 与 RDM 都不在了」: the later rounds carry the RRMC IE and nothing else', () => {
     const o = openers(shared)
-    expect(o[0].ies).toEqual(['ARC', 'RDM', 'RRMC'])
+    expect(o[0].ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
     for (const x of o.slice(1)) {
-      expect(x.ies, `block ${x.block}`).toEqual(['RRMC'])
+      expect(x.ies, `round ${x.block}`).toEqual(['RRMC'])
     }
-    for (const x of openers(every)) expect(x.ies, `R=1 block ${x.block}`).toEqual(['ARC', 'RDM', 'RRMC'])
+    for (const x of openers(every)) expect(x.ies, `R=1 round ${x.block}`).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
   })
 
-  it('「合计 156 字节对 81 字节」, and the saving is (R − 1)(13 + 3A) per window', () => {
+  it('「合计 168 字节对 84 字节」, and the saving is (R − 1)(16 + 3A) per set', () => {
     const total = (rs: TLRecord[]): number => openers(rs).reduce((s, o) => s + o.bytes, 0)
     expect(total(every)).toBe(WINDOW_BYTES.every)
     expect(total(shared)).toBe(WINDOW_BYTES.shared)
-    expect(WINDOW_BYTES.every).toBe(156)
-    expect(WINDOW_BYTES.shared).toBe(81)
+    // 156/81/75 and 18.75 until 2026-11-10, when the RCM's ARC IE took the standard's content and the
+    // RR IE joined it (audit #9): the control message is three octets longer.
+    expect(WINDOW_BYTES.every).toBe(168)
+    expect(WINDOW_BYTES.shared).toBe(84)
     expect(total(every) - total(shared)).toBe(SAVED_PER_WINDOW)
-    expect(SAVED_PER_WINDOW).toBe((VALIDITY - 1) * (13 + 3 * ANCHORS))
-    expect(SAVED_PER_WINDOW).toBe(75)
-    // 「ARC 10 字节，RDM 15 字节，合起来 25 字节」 — the two IEs that bought the window.
-    expect(SAVED_PER_BLOCK).toBe(ARC_IE_BYTES + rdmIeBytes(ANCHORS))
-    expect(SAVED_PER_BLOCK).toBe(13 + 3 * ANCHORS)
-    // 「摊到每个块是 18.75 字节，不是 75 字节」 — the per-block figure, which is the one the
+    expect(SAVED_PER_WINDOW).toBe((VALIDITY - 1) * (16 + 3 * ANCHORS))
+    expect(SAVED_PER_WINDOW).toBe(84)
+    // 「ARC 5 字节，RR 8 字节，RDM 15 字节，合起来 28 字节」 — the three IEs of the control message.
+    expect(SAVED_PER_BLOCK).toBe(ARC_IE_BYTES + RR_IE_BYTES + rdmIeBytes(ANCHORS))
+    expect(SAVED_PER_BLOCK).toBe(16 + 3 * ANCHORS)
+    // 「平均到每一轮是 21 字节，不是 84 字节」 — the per-round figure, which is the one the
     // design's first draft got wrong by a factor of four.
     expect(SAVED_SPREAD).toBe(SAVED_PER_WINDOW / VALIDITY)
-    expect(SAVED_SPREAD).toBe(18.75)
+    expect(SAVED_SPREAD).toBe(21)
   })
 
   it('「32 条测距结果逐字段相同」, with the default timestamp noise left on', () => {
@@ -188,29 +195,32 @@ describe('uwb-rcm-validity · one control message for four blocks', () => {
   })
 })
 
-describe('uwb-rcm-validity · the window turns over', () => {
+/** Seven blocks of four rounds each: the rounds a whole lesson run holds. */
+const RUN_ROUNDS = 7 * ROUNDS
+
+describe('uwb-rcm-validity · the set turns over', () => {
   const rs = runOf(uwbRcmValidity, undefined, RUN_NS)
 
-  it('「第 4 块又回到 39 字节」: seven blocks, and a control message on block 0 and block 4', () => {
+  it('「第 1 块的第一轮又回到 42 字节」: seven blocks of four rounds, a control message opening each', () => {
     const o = openers(rs)
-    expect(o.map((x) => x.block)).toEqual([0, 1, 2, 3, 4, 5, 6])
-    expect(o.map((x) => x.bytes)).toEqual([39, 14, 14, 14, 39, 14, 14])
-    expect(o.map((x) => x.bytes)).toEqual(o.map((x) => openerBytes(x.block, VALIDITY)))
+    expect(o.map((x) => x.block)).toEqual(Array.from({ length: RUN_ROUNDS }, (_v, i) => i))
+    expect(o.map((x) => x.bytes)).toEqual(Array.from({ length: RUN_ROUNDS }, (_v, i) => (i % ROUNDS === 0 ? 42 : 14)))
+    expect(o.map((x) => x.bytes)).toEqual(o.map((x) => openerBytes(x.block % ROUNDS, VALIDITY)))
     // the jump the second `watch` block sends the reader to resolves to that very frame
     const turn = ofType(rs, 'TX_START').filter(uwbRcmValidity.jumps[2].find)
     expect(turn).toHaveLength(1)
     expect(turn[0].frame.kind).toBe('uwbPoll')
-    expect(turn[0].frame.uwb?.block).toBe(VALIDITY)
+    expect([turn[0].frame.uwb?.block, turn[0].frame.uwb?.round]).toEqual([1, 0])
   })
 
-  it('「测距行仍然每个块四条，位置也仍然每个块都能解出」', () => {
-    const byBlock = new Map<number, number>()
+  it('「测距行仍然每轮四条，位置也仍然每轮都能解出」', () => {
+    const byRound = new Map<number, number>()
     for (const r of ofType(rs, 'UWB_RANGE').filter((x) => x.node === 'uwb-1')) {
-      byBlock.set(r.block, (byBlock.get(r.block) ?? 0) + 1)
+      byRound.set(rn(r), (byRound.get(rn(r)) ?? 0) + 1)
     }
-    expect([...byBlock.keys()].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6])
-    for (const [b, n] of byBlock) expect(n, `block ${b}`).toBe(ANCHORS)
-    expect(ofType(rs, 'UWB_POSITION').map((r) => r.anchors.length)).toEqual(Array(7).fill(ANCHORS))
+    expect([...byRound.keys()].sort((a, b) => a - b)).toEqual(Array.from({ length: RUN_ROUNDS }, (_v, i) => i))
+    for (const [b, n] of byRound) expect(n, `round ${b}`).toBe(ANCHORS)
+    expect(ofType(rs, 'UWB_POSITION').map((r) => r.anchors.length)).toEqual(Array(RUN_ROUNDS).fill(ANCHORS))
     // and no slot went silent in the base scene, so the walled variant's timeouts are its own
     expect(ofType(rs, 'UWB_TIMEOUT')).toHaveLength(0)
   })
@@ -219,12 +229,12 @@ describe('uwb-rcm-validity · the window turns over', () => {
 describe('uwb-rcm-validity · the responder that never held a control message', () => {
   const rs = runOf(uwbRcmValidity, 1, RUN_NS)
 
-  it('builds the scene it claims to: the walled anchor hears no opener, the other three hear all seven', () => {
+  it('builds the scene it claims to: the walled anchor hears no opener, the other three hear all of them', () => {
     const heard = (node: string): number =>
       ofType(rs, 'UWB_TS').filter((r) => r.node === node && r.dir === 'rx'
         && (r.frameKind === 'uwbPoll' || r.frameKind === 'uwbInit')).length
     expect(heard(WALLED_ANCHOR)).toBe(0)
-    for (const p of PLACES.filter((x) => x.id !== WALLED_ANCHOR)) expect(heard(p.id), p.id).toBe(7)
+    for (const p of PLACES.filter((x) => x.id !== WALLED_ANCHOR)) expect(heard(p.id), p.id).toBe(RUN_ROUNDS)
   })
 
   it('「即使这个交互已经打开，它也一帧 RMNR 都不发」', () => {
@@ -236,12 +246,12 @@ describe('uwb-rcm-validity · the responder that never held a control message', 
     expect(ofType(rs, 'TX_START').filter((r) => r.node === WALLED_ANCHOR)).toHaveLength(0)
   })
 
-  it('「每个块留下 2 次超时，而发起方依靠其余 3 台锚点仍然解出位置」', () => {
+  it('「每轮留下 2 次超时，而发起方依靠其余 3 台锚点仍然解出位置」', () => {
     const atTag = ofType(rs, 'UWB_TIMEOUT').filter((r) => r.node === 'uwb-1')
-    expect(atTag.map((r) => r.peer)).toEqual(Array(7 * WALLED.timeoutsPerBlock).fill(WALLED_ANCHOR))
+    expect(atTag.map((r) => r.peer)).toEqual(Array(RUN_ROUNDS * WALLED.timeoutsPerBlock).fill(WALLED_ANCHOR))
     expect(WALLED.timeoutsPerBlock).toBe(2)
     const fixes = ofType(rs, 'UWB_POSITION')
-    expect(fixes).toHaveLength(7)
+    expect(fixes).toHaveLength(RUN_ROUNDS)
     for (const f of fixes) {
       expect(f.anchors).toHaveLength(WALLED.anchorsInFix)
       expect(f.anchors).not.toContain(WALLED_ANCHOR)
@@ -252,13 +262,13 @@ describe('uwb-rcm-validity · the responder that never held a control message', 
 
 /**
  * §10.34's own responder: one that received a control message and then lost the initiation
- * message of the blocks that control message still covers.
+ * message of the rounds that control message still covers.
  *
  * It cannot be a lesson scenario. Nothing in a scenario moves by itself, and this engine's UWB
  * reception is a deterministic power comparison (`UwbChannel`'s sensitivity gate), so in a static
  * scene a responder either hears every opener or none. The scene below is therefore the
  * acceptance scene of tests/uwb/rmnr-round.test.ts, in the lesson's own words: the tag transmits
- * 10 dB below the anchors, `anc-walk` starts 5 m away and is moved to 16 m before block 1, and
+ * 10 dB below the anchors, `anc-walk` starts 5 m away and is moved to 16 m before round 1, and
  * `anc-far` sits at 16 m from the start and so never holds a control message at all.
  */
 describe('uwb-rcm-validity · the measurement the lesson quotes for the non-receipt exchange', () => {
@@ -287,10 +297,11 @@ describe('uwb-rcm-validity · the measurement the lesson quotes for the non-rece
     }
     expect(() => ScenarioSchema.parse(sc)).not.toThrow()
     const sim = new Simulation(sc)
-    const before = sim.runUntil(BLOCK_NS / 2).records
+    const before = sim.runUntil(roundPlan(sc.uwb!, ANCHORS).roundNs - 1000).records
     const walker = nodes.find((n) => n.id === 'anc-walk')!
     // In place, because the device holds the same position object its scenario node does — which
-    // is what a device that moved means. It lands in the gap between block 0's round and block 1's.
+    // is what a device that moved means. Rounds run back to back, so it lands a microsecond before
+    // round 0 ends: after its last frame, before round 1's opener.
     walker.pos.x = 0
     walker.pos.y = 16
     return [...before, ...sim.runUntil(WINDOW_NS).records]
@@ -318,7 +329,7 @@ describe('uwb-rcm-validity · the measurement the lesson quotes for the non-rece
     expect(MOVED.named).toBe(3)
     expect(MOVED.timeouts).toBe(4)
     expect(MOVED.silent).toBe(MOVED.timeouts + MOVED.named)
-    expect(named.map((r) => [r.peer, r.block])).toEqual([['anc-walk', 1], ['anc-walk', 2], ['anc-walk', 3]])
+    expect(named.map((r) => [r.peer, rn(r)])).toEqual([['anc-walk', 1], ['anc-walk', 2], ['anc-walk', 3]])
     // 「从未收到过控制消息的那台始终不发」 — all four of the remaining timeouts are its.
     expect(timeouts(on)).toEqual(Array(4).fill('anc-far'))
     // 「每一条测距结果都一模一样」
@@ -385,12 +396,12 @@ describe('uwb-rcm-validity · no frame length is written as a literal', () => {
     expect(from, 'sources').toBeGreaterThan(0)
     expect(to, 'scenario after sources').toBeGreaterThan(from)
     const code = whole.slice(0, from) + whole.slice(to)
-    for (const n of [39, 14, 25, 75, 13]) {
+    for (const n of [42, 14, 28, 84, 13]) {
       expect(code, `${n} is typed where the engine can compute it`)
         .not.toMatch(new RegExp(String.raw`(?<![\d.])${n}(?![\d.])`))
     }
     // and the four engine functions it asks instead, by name
-    for (const fn of ['uwbPollBytes', 'uwbInitBytes', 'uwbRmnrBytes', 'blockCarriesRcm']) {
+    for (const fn of ['uwbPollBytes', 'uwbInitBytes', 'uwbRmnrBytes', 'roundCarriesRcm']) {
       expect(code, fn).toContain(fn)
     }
   })
@@ -460,12 +471,14 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
     const [termBits] = figs(TERMS, /ARC 信息单元里的一个 (\d+) 位字段/, 'the term on the same width')
     expect(termBits, 'and a third time, in the term').toBe(bits)
     /*
-     * 「ARC_IE_BYTES 一个字节数（头部加 8 字节的控制、块号、轮号、时隙号）」 — the octets that
-     * element carries beyond the header every element has, read off the engine's own price.
+     * 「头部之外是控制位 2 字节加 Content Control 1 字节」 — the octets the element carries beyond the
+     * header every element has, read off the engine's own price. (Until 2026-11-10 this read 「头部加
+     * 8 字节的控制、块号、轮号、时隙号」, an ARC IE the standard does not define — audit #9.)
      */
-    const [content] = figs(LIM, /头部加 (\d+) 字节的控制、块号、轮号、时隙号/,
+    const [ctrl, cc] = figs(LIM, /头部之外是控制位 (\d+) 字节加 Content Control (\d+) 字节/,
       '`limits` on what the ARC element carries')
-    expect(ARC_IE_BYTES - UWB_IE_HDR_BYTES, 'what it carries past the header').toBe(content)
+    expect(ARC_IE_BYTES - UWB_IE_HDR_BYTES, 'what it carries past the header').toBe(ctrl! + cc!)
+    expect(ctrl! * 8, 'and the control octets hold every bit through the request bit').toBe(to! + 2)
     expect(uwbRcmValidityScenario().uwb!.rcmValidityRounds, 'and this lesson’s own setting')
       .toBeLessThanOrEqual(hi!)
     expect(uwbRcmValidityScenario().uwb!.rcmValidityRounds, 'inside the range the field allows')
@@ -477,10 +490,10 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
     expect(requestBits[0], 'immediately above the validity field').toBe(to! + 1)
   })
 
-  it('reads the two openers by the block each figure names', () => {
-    // 「第 0 块 39 字节，第 1 块 14 字节」
+  it('reads the two openers by the round each figure names', () => {
+    // 「第 0 轮 42 字节，第 1 轮 14 字节」
     const [longBlock, longBytes, shortBlock, shortBytes] = figs(PIC,
-      /第 (\d) 块 (\d+) 字节，第 (\d) 块 (\d+) 字节/, '`picture` on the two openers')
+      /第 (\d) 轮 (\d+) 字节，第 (\d) 轮 (\d+) 字节/, '`picture` on the two openers')
     const op = openers(rs)
     const of_ = (b: number) => op.find((x) => x.block === b)!
     expect(of_(longBlock!).bytes, `block ${longBlock} really opens with that many octets`)
@@ -489,14 +502,14 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
     expect(of_(longBlock!).kind, 'the long one is the poll').toBe('uwbPoll')
     expect(of_(shortBlock!).kind, 'and the short one is the initiation message').toBe('uwbInit')
     expect(longBytes, 'which is the saving this lesson is about').toBeGreaterThan(shortBytes!)
-    // 「点开它看信息单元那一列，只剩 RRMC 一个；第 0 块那一帧里的 ARC 与 RDM 都不在了」
+    // 「点开它看信息单元那一列，只剩 RRMC 一个；第 0 轮那一帧里的 ARC、RR 与 RDM 都不在了」
     expect(of_(shortBlock!).ies, 'the short opener carries one element').toEqual(['RRMC'])
-    for (const ie of ['ARC', 'RDM']) {
+    for (const ie of ['ARC', 'RR', 'RDM']) {
       expect(of_(longBlock!).ies, `and the long one carries ${ie}`).toContain(ie)
     }
-    // 「点开第 1 块那帧开场的信息单元列」 — `observe` names the same block
-    const [obsBlock] = figs(OBS, /打开第 (\d) 块开场帧的信息单元列/, '`observe` on the block')
-    expect(obsBlock, 'the same block the picture names').toBe(shortBlock)
+    // 「打开第 1 轮开场帧的信息单元列」 — `observe` names the same round
+    const [obsBlock] = figs(OBS, /打开第 (\d) 轮开场帧的信息单元列/, '`observe` on the round')
+    expect(obsBlock, 'the same round the picture names').toBe(shortBlock)
     // 「RMNR 帧 = 帧头 9 + 信息单元头 2 + 帧校验 2 = 13 字节」
     const [mhr, ieHdr, fcs, total] = figs(NUMS,
       /RMNR 帧 = 帧头 (\d+) \+ 信息单元头 (\d+) \+ 帧校验 (\d+) = (\d+) 字节/,
@@ -527,32 +540,35 @@ describe('uwb-rcm-validity · every figure the prose prints, read back out of it
       'which really is in the walled scene').toBe(true)
   })
 
-  it('reads the block the window turns over on', () => {
+  it('reads the round the set turns over on', () => {
     /*
-     * 「一直播到第 4 块：开场帧又回到 39 字节。4 个块一个窗口，第 0 个和第 4 个块各有一条控制
-     * 消息，中间三个块只有启动消息」 — the whole claim is about which blocks carry which opener,
-     * so it is read as that: the two blocks the sentence names open long, the ones between open
-     * short, and the window is as wide as the session says.
+     * 「一直播放到第 1 块的第一轮：开场帧又回到 42 字节。4 轮一组，第 0 块与第 1 块的第一轮各有一条
+     * 控制消息，中间三轮只有启动消息」 — the whole claim is about which rounds carry which opener,
+     * so it is read as that: the two first rounds the sentence names open long, the ones between
+     * open short, and the set is as long as the session says. (Until 2026-11-10 this read four
+     * one-round blocks as the window — audit #23.)
      */
-    const [turnBlock, turnBytes] = figs(PIC, /一直播放到第 (\d+) 块：开场帧又回到 (\d+) 字节/,
-      '`picture` on the turn of the window')
+    const [turnBlock, turnBytes] = figs(PIC, /一直播放到第 (\d+) 块的第一轮：开场帧又回到 (\d+) 字节/,
+      '`picture` on the turn of the set')
     const [perWindow, firstBlock, lastBlock] = figs(PIC,
-      /(\d+) 个块一个窗口，第 (\d) 个和第 (\d+) 个块各有一条控制消息/, '`picture` on the window')
+      /(\d+) 轮一组，第 (\d) 块与第 (\d+) 块的第一轮各有一条控制消息/, '`picture` on the set')
     const op = openers(rs)
     const of_ = (b: number) => op.find((x) => x.block === b)!
-    expect(perWindow, 'the window this session really runs')
+    expect(perWindow, 'the set this session really runs')
       .toBe(uwbRcmValidityScenario().uwb!.rcmValidityRounds)
     expect(lastBlock, 'the block the sentence plays on to').toBe(turnBlock)
-    expect(lastBlock! - firstBlock!, 'one window apart').toBe(perWindow)
-    for (const b of [firstBlock!, lastBlock!]) {
-      expect(of_(b).kind, `block ${b} opens with a control message`).toBe('uwbPoll')
+    const first = firstBlock! * ROUNDS
+    const last = lastBlock! * ROUNDS
+    expect(last - first, 'one set apart').toBe(perWindow)
+    for (const b of [first, last]) {
+      expect(of_(b).kind, `round ${b} opens with a control message`).toBe('uwbPoll')
       expect(of_(b).bytes, `and it is that long`).toBe(turnBytes)
     }
-    const [betweenCn] = raw(PIC, /中间(.)个块只有启动消息/, '`picture` on the blocks between')
+    const [betweenCn] = raw(PIC, /中间(.)轮只有启动消息/, '`picture` on the rounds between')
     const between = '零一二三四五六七八九'.indexOf(betweenCn!)
-    expect(between, 'the blocks between the two').toBe(perWindow! - 1)
-    for (let b = firstBlock! + 1; b < lastBlock!; b++) {
-      expect(of_(b).kind, `block ${b} opens with an initiation message`).toBe('uwbInit')
+    expect(between, 'the rounds between the two').toBe(perWindow! - 1)
+    for (let b = first + 1; b < last; b++) {
+      expect(of_(b).kind, `round ${b} opens with an initiation message`).toBe('uwbInit')
     }
   })
 

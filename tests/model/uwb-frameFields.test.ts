@@ -63,7 +63,7 @@ describe('uwbFrameFields', () => {
   })
 
   it('carries one field per payload IE, in the order the frame lists them', () => {
-    expect(fields(POLL).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieArc', 'ieRdm', 'ieRrmc'])
+    expect(fields(POLL).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieArc', 'ieRr', 'ieRdm', 'ieRrmc'])
     expect(fields(RESP).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc', 'ieRrti'])
     expect(fields(RESP_DS).filter((x) => x.key.startsWith('ie')).map((x) => x.key)).toEqual(['ieRrmc'])
     // one RRTI IE per anchor, each holding that anchor's reply time (standard §10.29.8.1)
@@ -138,7 +138,7 @@ describe('uwbFrameFields', () => {
     })
     // Poll: the time-scheduled Poll over 3 responders (36) + the TX-time IE (2 + 4).
     expect(dlPoll.bytes).toBe(uwbDlPollBytes(3))
-    expect(dlPoll.bytes).toBe(42)
+    expect(dlPoll.bytes).toBe(45) // 42 before the 2026-11-10 ARC/RR IE correction (audit #9)
     // Response: the DS Response (14) + TX time (6) + one RX time (2 + 4) + clock offset (2 + 2).
     expect(dlResp.bytes).toBe(uwbDlRespBytes())
     expect(dlResp.bytes).toBe(30)
@@ -154,7 +154,7 @@ describe('uwbFrameFields', () => {
       expect(ppduLayout(f).reduce((s, p) => s + p.durNs, 0), f.kind).toBe(f.txTimeNs)
     }
     expect(fields(dlPoll).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
-      .toEqual(['ieArc', 'ieRdm', 'ieRrmc', 'ieTxTime'])
+      .toEqual(['ieArc', 'ieRr', 'ieRdm', 'ieRrmc', 'ieTxTime'])
     expect(fields(dlResp).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
       .toEqual(['ieRrmc', 'ieTxTime', 'ieRxTimes', 'ieCoffs'])
     expect(fields(dlFinal).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
@@ -189,13 +189,23 @@ describe('uwbFrameFields', () => {
     expect(fieldSum(uwbFrameFields(respNoCoffs))).toBe(respNoCoffs.bytes)
   })
 
-  it('decodes a contention Poll: ARC + RCPS + RCMA + RRMC summing to 31 octets', () => {
+  // 31 octets until 2026-11-10: the ARC IE carried three index fields the standard's does not have
+  // and the RCPS IE was a bare first/last slot. Now ARC (5) + RR (8) + RCPS as the standard's phase
+  // table — CP Table Length 1 + one 2-octet element (5) — + RCMA + RRMC: 35 (audit #9, #13).
+  it('decodes a contention Poll: ARC + RR + RCPS + RCMA + RRMC summing to 35 octets', () => {
     const cPoll = makePoll('tag', ['a1', 'a2'], 'ss', 0, 0, { schedule: 'contention' })
-    expect(cPoll.bytes).toBe(31)
+    expect(cPoll.bytes).toBe(35)
     const d = uwbFrameFields(cPoll)
-    expect(fieldSum(d)).toBe(31)
+    expect(fieldSum(d)).toBe(35)
     expect(fields(cPoll).filter((x) => x.key.startsWith('ie')).map((x) => x.key))
-      .toEqual(['ieArc', 'ieRcps', 'ieRcma', 'ieRrmc'])
+      .toEqual(['ieArc', 'ieRr', 'ieRcps', 'ieRcma', 'ieRrmc'])
+    expect(RCPS_IE_BYTES).toBe(2 + 1 + 2)
+    // The ARC IE's control bits, field by field: a contention round's Schedule Mode is 0.
+    expect(cPoll.uwb?.arc?.scheduleMode).toBe(0)
+    expect(keyed(cPoll, 'ieArc')!.value).toContain('调度模式 0')
+    expect(keyed(cPoll, 'ieArc')!.value).toContain('Content Control 0x00')
+    // The block and round indices ride the RR IE, not the ARC IE (§10.32.9.3).
+    expect(keyed(cPoll, 'ieRr')!.value).toBe(V.rr(0, 0))
     expect(keyed(cPoll, 'ieRcps')!.bytes).toBe(RCPS_IE_BYTES)
     expect(keyed(cPoll, 'ieRcma')!.bytes).toBe(RCMA_IE_BYTES)
     expect(keyed(cPoll, 'ieRcps')!.value).toBe(V.rcps(1, 8))

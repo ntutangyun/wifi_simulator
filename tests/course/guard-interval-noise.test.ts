@@ -187,8 +187,10 @@ describe('guard-interval noise gate · (iv) no pooled figure reaches these two l
    *  2. **`4.70` already lives in `src/course/tier2/ru-diversity.ts`** — the selectivity slice's
    *     p90 of **4.70 dB**, a level, beside the double tier's median cost of **4.70 %**, a
    *     duration ratio. Coincidence.
-   *  3. **`1.22` already lives in `src/course/uwb/uwb-slot-budget.ts`, three times**, and has
-   *     nothing to do with Wi-Fi at all.
+   *  3. **`1.22` lived in `src/course/uwb/uwb-slot-budget.ts`, three times**, and had nothing to
+   *     do with Wi-Fi at all. Since 2026-11-10 that lesson prints 1.24 instead — the UWB control
+   *     message grew three octets (ARC IE to the standard's content, plus the RR IE) — so this one
+   *     is no longer a live site; the other three still are.
    *  4. **`17.07` already lives in `src/course/tier2/fading.ts`, twice — as `17.07 Mb/s`**, a
    *     throughput in that lesson's Rician table, beside the quadruple tier's per-PPDU minimum
    *     of **+17.07 %**. This one is not in the design's list of reasons; it was found by
@@ -230,7 +232,8 @@ describe('guard-interval noise gate · (iv) no pooled figure reaches these two l
     // the comment needs editing — not the scope.
     const at = (rel: string): string => fs.readFileSync(path.join(SRC, rel), 'utf8')
     expect(anchored('4.70').test(at('course/tier2/ru-diversity.ts'))).toBe(true)
-    expect(anchored('1.22').test(at('course/uwb/uwb-slot-budget.ts'))).toBe(true)
+    // `1.22` is no longer in uwb-slot-budget.ts (see reason 3); pinned absent so the list stays honest.
+    expect(anchored('1.22').test(at('course/uwb/uwb-slot-budget.ts'))).toBe(false)
     expect(anchored('17.07').test(at('course/tier2/fading.ts'))).toBe(true)
     // `5.14` is reason 1: `width.ts` is entitled to it once Task 8 lands, and it must never be
     // judged by the number. The assertion is about the SCOPE, not about whether it is there yet.

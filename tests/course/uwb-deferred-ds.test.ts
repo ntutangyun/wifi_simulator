@@ -149,7 +149,7 @@ describe('uwb-deferred-ds · the cap and the slot move with the Final', () => {
     expect(CAP.dsEmbedded).toBe(uwbMaxAnchors('twr', 'ds', 'embedded'))
     expect(CAP.dsDeferred).toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
     expect(CAP.dsEmbedded).toBe(9)
-    expect(CAP.dsDeferred).toBe(33)
+    expect(CAP.dsDeferred).toBe(32) // 33 before the 2026-11-10 ARC/RR IE correction: the Poll is 30 + 3A
     expect(BYTES.psdu).toBe(UWB_MAX_PSDU_BYTES)
     for (const [rt, cap] of [['embedded', CAP.dsEmbedded], ['deferred', CAP.dsDeferred]] as const) {
       expect(uwbLongestFrameBytes(cap, 'twr', 'time', 'ds', rt), rt).toBeLessThanOrEqual(BYTES.psdu)
@@ -165,7 +165,7 @@ describe('uwb-deferred-ds · the cap and the slot move with the Final', () => {
     expect(DEMAND.dsEmbedded).toBe(uwbSlotFitNs(FIG_ANCHORS, 'twr', 'time', undefined, 'ds', 'embedded'))
     expect(DEMAND.dsDeferred).toBe(uwbSlotFitNs(FIG_ANCHORS, 'twr', 'time', undefined, 'ds', 'deferred'))
     expect(DEMAND.dsEmbedded).toBe(304_495)
-    expect(DEMAND.dsDeferred).toBe(228_597)
+    expect(DEMAND.dsDeferred).toBe(231_674)
     // 「时隙数一个都没省：两种形态都是 2A + 2 个」
     expect(uwbSlotsPerTag('ds', FIG_ANCHORS)).toBe(2 * FIG_ANCHORS + 2)
     expect(uwbSlotsPerTag('ds', FIG_ANCHORS)).toBe(20)

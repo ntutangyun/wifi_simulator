@@ -27,7 +27,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  ANCHORS, BYTES, FRAMES, IE, MS, NS, PLACES, SENDER_ID, SLOTS, TAG, TAG_ID, VALIDITY,
+  ANCHORS, BYTES, FRAMES, IE, MS, NS, PLACES, SENDER_ID, SLOTS, TAG, TAG_ID, uwbAncillaryWindowScenario,
   idOf, uwbAncillary, uwbAncillaryFields, uwbAncillaryOffScenario, uwbAncillaryScenario,
 } from '../../src/course/uwb/uwb-ancillary'
 import { MODULES, basisOf } from '../../src/course/curriculum'
@@ -41,7 +41,7 @@ import {
   raictIeBytes, uwbAncillaryBytes, uwbAncillarySlots, uwbPpduNs, uwbSlotsPerTag,
 } from '../../src/uwb/phy'
 import {
-  ancillarySlots, blockSlotAction, blockSlots, roundPlan,
+  ancillarySlots, roundPlan, roundSlotAction, roundSlots,
 } from '../../src/uwb/session'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import { uwbAncillaryRequest } from '../../src/course/uwb/uwb-ancillary-request'
@@ -188,25 +188,25 @@ describe('uwb-ancillary · the scene is the one the lesson describes', () => {
     expect(SLOTS.ranging).toBe(uwbSlotsPerTag('ss', ANCHORS))
     expect(SLOTS.window).toBe(ancillarySlots(PLAN))
     expect(SLOTS.window).toBe(FRAMES)
-    expect(SLOTS.block).toBe(blockSlots(PLAN, 0))
+    expect(SLOTS.block).toBe(roundSlots(PLAN, 0))
     expect(SLOTS.block).toBe(SLOTS.ranging + SLOTS.window)
     // slot for slot, off the engine's own answer rather than off the lesson's description: the
     // control message, one Response per anchor, then one appended slot per frame
-    expect(blockSlotAction(PLAN, 0, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
+    expect(roundSlotAction(PLAN, 0, 0)).toEqual({ kind: 'uwbPoll', tx: 'tag' })
     for (let i = 0; i < ANCHORS; i++) {
-      expect(blockSlotAction(PLAN, 0, 1 + i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
+      expect(roundSlotAction(PLAN, 0, 1 + i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
     }
     for (let i = 0; i < FRAMES; i++) {
       // `request: false` on every one of them: this lesson's four scenes never ask the controller
       // for slots (that is `uwb-ancillary-request`'s subject), so the Request = 1 slot slice 3d
       // added to this action is absent from every window of this lesson.
-      expect(blockSlotAction(PLAN, 0, SLOTS.ranging + i))
+      expect(roundSlotAction(PLAN, 0, SLOTS.ranging + i))
         .toEqual({ kind: 'uwbAncillary', index: i, request: false })
     }
     // and the exchange off appends nothing at all, at any frame count
     expect(SLOTS.off).toBe(0)
     expect(uwbAncillarySlots('twr', 'time', 8, false, FRAMES)).toBe(0)
-    expect(blockSlots(roundPlan(uwbAncillaryOffScenario().uwb!, ANCHORS), 0)).toBe(SLOTS.ranging)
+    expect(roundSlots(roundPlan(uwbAncillaryOffScenario().uwb!, ANCHORS), 0)).toBe(SLOTS.ranging)
   })
 })
 
@@ -301,7 +301,7 @@ describe('uwb-ancillary · what its own experiment changes, and what it must not
     // The window is a genuinely different width, read off `uwbAncillarySlots` and never a literal
     expect(SLOTS.contendRanging).toBe(plan.slots)
     expect(SLOTS.contendWindow).toBe(ancillarySlots(plan))
-    expect(SLOTS.contendBlock).toBe(blockSlots(plan, 0))
+    expect(SLOTS.contendBlock).toBe(roundSlots(plan, 0))
     expect(SLOTS.contendWindow).not.toBe(SLOTS.window)
     expect(SLOTS.contendWindow).toBeGreaterThan(FRAMES)
 
@@ -354,7 +354,7 @@ describe('uwb-ancillary · no number typed twice', () => {
     }
     // and the engine functions it asks instead, by name
     for (const fn of ['raictIeBytes', 'uwbAncillaryBytes', 'uwbPpduNs', 'roundPlan',
-      'ancillarySlots', 'blockSlots', 'blockCarriesAncillary']) {
+      'ancillarySlots', 'roundSlots', 'roundCarriesAncillary']) {
       expect(code, fn).toContain(fn)
     }
   })
@@ -407,7 +407,8 @@ describe('uwb-ancillary · the `until` it carries is measured, not merely writte
   it('has one round length per block where the target has two, which is the axis', () => {
     // Here: every block's appended window is the session's own frame count, block after block.
     for (const block of [0, 1, 2, 3]) {
-      expect(blockSlots(PLAN, block), `block ${block}`).toBe(PLAN.slots + FRAMES)
+      // one round a block here, so round 0 is each block's whole round
+      expect(roundSlots(PLAN, 0), `block ${block}`).toBe(PLAN.slots + FRAMES)
     }
     // There: block 0 runs at the session's figure and every block after it at the granted width,
     // read off the countdown's first number rather than off the plan.
@@ -422,7 +423,7 @@ describe('uwb-ancillary · the `until` it carries is measured, not merely writte
   })
 
   it('no longer claims the round layout would have to become a per-block computation', () => {
-    // The false sentence, gone. `blockSlots` takes a block index and has since §10.36's slice, so
+    // The false sentence, gone. `roundSlots` (once `blockSlots`) sizes each round on its own, so
     // 「就得把轮的排布变成每块重算一次」 described work that was already done.
     const text = uwbAncillary.limits.map((l) => l.text).join('\n')
     expect(text).not.toContain('就得把轮的排布变成每块重算一次')
@@ -570,7 +571,7 @@ describe('uwb-ancillary · every figure the prose prints, read back out of it', 
     expect([room.w, room.h], 'the hall this lesson really runs in').toEqual([wide, deep])
     const others = [
       uwbAncillaryScenario({ schedule: 'contention' }),
-      uwbAncillaryScenario({ rcmValidityRounds: VALIDITY }),
+      uwbAncillaryWindowScenario(),
       uwbAncillaryOffScenario(),
     ]
     expect(others.length + 1, 'the four scenes `sources` counts')

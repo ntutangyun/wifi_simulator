@@ -127,7 +127,8 @@ describe('uwb-reply-time · the frames the three shapes put on the air (§5 of t
     // 「Response 相差的六个字节就是那段等待自己那一小节」
     expect(BYTES.respEmbedded - BYTES.respFixed).toBe(6)
     expect(BYTES.poll).toBe(uwbPollBytes(1))
-    expect(BYTES.poll).toBe(30)
+    // 30 until 2026-11-10: ARC IE to the standard's content, plus the RR IE (audit #9).
+    expect(BYTES.poll).toBe(33)
   })
 
   it('sends the deferred message only in the deferred shape, and it is 17 octets', () => {
@@ -181,7 +182,7 @@ describe('uwb-reply-time · the timing figure is the run', () => {
   })
 
   it('the fixed Response leaves one Poll airtime into its own slot', () => {
-    // tryThis: 「从 2.000 ms 挪到了 2.198 ms——正好晚了一个 Poll 的空口时间」
+    // tryThis: 「从 2.000 ms 挪到了 2.201 ms——正好晚了一个 Poll 的空口时间」
     const slotNs = rstuNs(uwbReplyTime.scenario().uwb!.slotRstu)
     const intoSlot = FIG.fixedStartUs * 1000 - slotNs
     expect(intoSlot / uwbPpduNs(BYTES.poll)).toBeCloseTo(1, 3)
@@ -241,7 +242,7 @@ describe('uwb-reply-time · the cap each shape earns', () => {
     expect(CAP.dsDeferred).toBe(uwbMaxAnchors('twr', 'ds', 'deferred'))
     // The two numbers the prose and the quiz name.
     expect(CAP.dsEmbedded).toBe(9)
-    expect([CAP.ssEmbedded, CAP.ssDeferred, CAP.ssFixed, CAP.dsDeferred]).toEqual([33, 33, 33, 33])
+    expect([CAP.ssEmbedded, CAP.ssDeferred, CAP.ssFixed, CAP.dsDeferred]).toEqual([32, 32, 32, 32]) // 33 before the 2026-11-10 ARC/RR IE correction: the Poll is 30 + 3A now
   })
 
   it('each cap really is the largest count whose longest frame fits the PSDU', () => {
@@ -274,9 +275,10 @@ describe('uwb-reply-time · the slot the shape asks for', () => {
     expect(DEMAND_ANCHORS).toBe(CAP.dsEmbedded)
     expect(DEMAND.ss).toBe(uwbSlotFitNs(DEMAND_ANCHORS, 'twr', 'time', undefined, 'ss', 'embedded'))
     expect(DEMAND.dsEmbedded).toBe(uwbSlotFitNs(DEMAND_ANCHORS, 'twr', 'time', undefined, 'ds', 'embedded'))
-    expect(DEMAND.ss).toBe(228_597)
+    // the SS demand is the Poll's, three octets longer since 2026-11-10 (228 597 ns before)
+    expect(DEMAND.ss).toBe(231_674)
     expect(DEMAND.dsEmbedded).toBe(304_495)
-    expect(DEMAND.dsEmbedded - DEMAND.ss).toBe(75_898)
+    expect(DEMAND.dsEmbedded - DEMAND.ss).toBe(72_821)
   })
 
   it('a 300 RSTU slot holds nine anchors of SS-TWR and refuses six of embedded DS-TWR', () => {
@@ -292,8 +294,9 @@ describe('uwb-reply-time · the two-sided bound on the fixed reply time (design 
   const w = fixedWindowRstu(BENCH_M, session.slotRstu)
 
   it('prints the whole RSTU the schema accepts at this geometry', () => {
-    expect(w.lo).toBe(2163)
-    expect(w.hi).toBe(4345)
+    // 2163…4345 before 2026-11-10: both bounds subtract the Poll's airtime, three octets longer now
+    expect(w.lo).toBe(2160)
+    expect(w.hi).toBe(4341)
     // 「会话的缺省值恰好是一整个时隙」, and it is comfortably inside.
     expect(session.fixedReplyRstu).toBe(session.slotRstu)
     expect(session.fixedReplyRstu).toBeGreaterThan(w.lo)
@@ -303,9 +306,13 @@ describe('uwb-reply-time · the two-sided bound on the fixed reply time (design 
   it('moves by exactly one RSTU between this bench and 200 m', () => {
     // 「把两台设备从 5 m 拉到 200 m，上界也只从 4345 降到 4344 RSTU，整整一个 RSTU」
     const far = fixedWindowRstu(200, session.slotRstu)
-    expect(far.hi).toBe(4344)
+    expect(far.hi).toBe(4340)
     expect(w.hi - far.hi).toBe(1)
-    expect(far.lo).toBe(w.lo) // and the lower bound does not move at all
+    // Both bounds subtract the same flight time (667 ns at 200 m, under one RSTU), so each moves by at
+    // most one RSTU; which of them crosses an RSTU edge is rounding. Until 2026-11-10 the lower bound
+    // happened not to (the Poll was three octets shorter); the lesson only ever claims the upper one.
+    expect(w.lo - far.lo).toBeGreaterThanOrEqual(0)
+    expect(w.lo - far.lo).toBeLessThanOrEqual(1)
   })
 
   it('is the bound the schema actually enforces, in both directions', () => {

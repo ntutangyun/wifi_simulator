@@ -177,7 +177,7 @@ describe('uwb-capstone · the four scenes over seven blocks', () => {
   it('the last two columns are what the session puts on the air, scene by scene', () => {
     // Review I1: one round for all three is NOT fewer transmissions. 44 → 294, 8.5 → 62.5 ms.
     const rows: [number | undefined, string, string][] = [
-      [undefined, '44', '8.5 ms'], [V_FAR, '34', '6.5 ms'],
+      [undefined, '44', '8.5 ms'], [V_FAR, '34', '6.6 ms'],
       [V_FAST, '81', '15.7 ms'], [V_OTM, '294', '62.5 ms'],
     ]
     for (const [i, [variant, n, ms]] of rows.entries()) {

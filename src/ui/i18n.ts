@@ -9,6 +9,7 @@ import type { AddrRole, FcBitKey, FieldKey, PpduSegmentKey } from '../model/fram
 import type { NB_MSG_ID } from '../uwb/nb'
 import type { MmsPhy } from '../uwb/mms'
 import type { UwbFixMethod } from '../uwb/records'
+import type { UwbArcFields } from '../uwb/frames'
 import type { UwbReplyTime } from '../uwb/phy'
 
 /** How a multi-user PPDU is split — absent for frames that are always OFDMA-flavored (triggers, UL TB, M-BA). */
@@ -716,7 +717,10 @@ export interface Strings {
       uwbValue: {
         fc: (sp: number) => string
         seq: (round: number, slot: number) => string
-        arc: (sp: number, method: string, block: number, round: number, responders?: number) => string
+        /** §10.32.9.1's ARC IE: its control bits, field by field, and its (always empty) Content Control. */
+        arc: (f: UwbArcFields) => string
+        /** §10.32.9.3's RR IE: the block and round indices, and the hopping mode and offset (always 0 here). */
+        rr: (block: number, round: number) => string
         rdm: (n: number, list: string) => string
         rdmSlot: (id: string, slot: number) => string
         rrmc: (slot: number, method: string) => string
@@ -1252,7 +1256,7 @@ export const STRINGS: Strings = {
     uwbContentionSlots: '响应时隙数', uwbContentionSlotsHint: '响应窗口的长度，写进 RCPS IE（§10.32.9.5，给出竞争阶段的起止时隙）。本仿真器让每个锚点在这些时隙中均匀随机选取一个（标准没有规定怎样选）。若有 N 个锚点、S 个时隙，则某个锚点独占其时隙的概率为 (1 − 1/S)^(N−1)。',
     uwbMaxAttempts: '尝试次数', uwbMaxAttemptsHint: '写进 RCMA IE（§10.32.9.6）的最大尝试次数：标准只规定一台设备最多尝试应答几次，且不得超过 RCM 有效轮次。本仿真器另加了自己的规则（标准里没有）：每轮结束时直接告知锚点是否被测到，测到就恢复满额，没测到就减一，用完则空过一轮再重新选取时隙。默认 3 次配 RCM 有效轮次 1，按标准本不合法',
     uwbRcmValidityRounds: 'RCM 有效轮次',
-    uwbRcmValidityHint: '一条控制消息（RCM，Ranging Control Message）能管几轮测距（标准 §10.32.9.1，ARC IE 的 RCM Validity Rounds 字段，6 位，取值 0–63，含本轮在内的连续轮数）。1 表示每轮都带一条控制消息，也就是今天的行为；调大之后，其余轮次只发测距启动消息，不再重发时隙表。',
+    uwbRcmValidityHint: '一条控制消息（RCM，Ranging Control Message）能管几轮测距（标准 §10.32.9.1，ARC IE 的 RCM Validity Rounds 字段，6 位，取值 0–63，含本轮在内的连续轮数，且不能超过本块剩下的轮数——一条控制消息不跨块）。1 表示每轮都带一条控制消息；调大之后，同一块里其余轮次只发测距启动消息，不再重发时隙表。调大到超过标签每块的轮数时，每块的轮数（initiatorRounds）随之调大。',
     uwbRcmValidityTwrOnly: '本仿真器里只有双向测距才发 ARC IE 携带的控制消息：两种单向模式、MMS 和本仿真器的多对多安排都不发这一帧，这个字段只能是 1',
     uwbRmnr: 'RMNR',
     uwbRmnrHint: '响应方手里还握着一条仍然有效的控制消息，却没收到本轮的测距启动消息时，发一帧测距消息未收到帧（RMNR，Ranging Message Non-Receipt，标准 §10.34）代替沉默——发出这一帧本身就确认了它仍持有控制消息',
@@ -1264,7 +1268,7 @@ export const STRINGS: Strings = {
     uwbMmrcrDlTdoa: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 有没有收到它的 Poll，已经由它自己发没发 Response 说明；真正不知道自己有没有被听见的是标签，而标签在 DL-TDoA 里从不发送，不是双方都认识的一个地址，没法替它确认',
     uwbMmrcrUlTdoa: 'UL-TDoA 里标签只发一次闪烁帧，没有 ARC IE，也没有谁来应答，收妥确认没有地方可以请求',
     uwbMmrcrMms: 'MMS 的控制面走的是窄带的 nbPoll/nbResp/nbReport，不是这里的 ARC IE，收妥确认请求的这一位没有地方可以搭',
-    uwbMmrcrNeedsValidity: '每轮一条控制消息（RCM 有效轮次为 1）时，窗口只有一块，位图也只有一位，而这一位说的正是这一帧收到了没有——响应方发没发 Response，已经当场说明了同一件事，不必再发一帧去确认它：请先把 RCM 有效轮次调到 2 以上',
+    uwbMmrcrNeedsValidity: '每轮一条控制消息（RCM 有效轮次为 1）时，这组只有一轮，位图也只有一位，而这一位说的正是这一帧收到了没有——响应方发没发 Response，已经当场说明了同一件事，不必再发一帧去确认它：请先把 RCM 有效轮次调到 2 以上',
     uwbMmrcrContention: '收妥确认要落在一个确定属于某个应答方的时隙里，竞争式调度下响应方的时隙是抽来的，没有谁能保证占到那个时隙：请先把调度方式改回时间调度',
     uwbSp3: 'SP3 分组测距',
     uwbSp3Hint: 'SP3 测距帧只有 SYNC、SFD 与 STS（标准 §10.32.8），没有 PHR，也没有载荷：往返测距阶段改发这种标记帧，随后另起一个测量报告阶段，把方位角与往返时间发回来',
@@ -1644,11 +1648,11 @@ export const STRINGS: Strings = {
         ampId: 'ID（16 位 AMP 标识符）', ampTdc: '类型相关控制（TDC）', ampStaList: '终端 ID 列表',
         seqNo: '序列号', dstPan: '目的 PAN ID',
         dstAddr16: '目的地址（16 位）', srcAddr16: '源地址（16 位）',
-        ieArc: 'ARC 信息元·高级测距控制', ieRdm: 'RDM 信息元·测距设备管理',
+        ieArc: 'ARC 信息元·高级测距控制', ieRr: 'RR 信息元·测距轮（块号与轮号）', ieRdm: 'RDM 信息元·测距设备管理',
         ieRrmc: 'RRMC 信息元·测距请求、测量与控制',
         ieRrti: 'RRTI 信息元·测距回复时间',
         ieRmi: 'RMI 信息元·测距测量信息',
-        ieRcps: 'RCPS 信息元·竞争阶段时隙',
+        ieRcps: 'RCPS 信息元·竞争阶段结构（阶段表）',
         ieRcma: 'RCMA 信息元·竞争最大尝试次数',
         ieTxTime: '发送时刻信息元·发送方自己的发送时刻（本仿真器自己的信息元，标准里没有）',
         ieRxTimes: '接收时刻信息元·发送方掌握的各到达时刻（本仿真器自己的信息元，标准里没有）',
@@ -1716,12 +1720,19 @@ export const STRINGS: Strings = {
       uwbValue: {
         fc: (sp) => `数据帧 · SP${sp} 测距 · PAN ID 压缩 · 16 位短地址`,
         seq: (round, slot) => `轮 ${round}，时隙 ${slot}`,
-        arc: (sp, method, block, round, responders) =>
-          `SP${sp} · ${method} · 块 ${block} · 轮 ${round}${responders === undefined ? '' : ` · ${responders} 个应答方`}`,
+        arc: (f) =>
+          `多节点模式 ${f.multiNode}（${['单对单', '一对多', '多对多'][f.multiNode]}）`
+          + ` · 测距轮用途 ${f.roundUsage}（${['单向测距', 'SS-TWR', 'DS-TWR', '辅助信息交换'][f.roundUsage]}）`
+          + ` · 分组配置 ${f.stsConfig}${f.stsConfig === 0 ? '（无加扰序列）' : `（SP${f.stsConfig}）`}`
+          + ` · 调度模式 ${f.scheduleMode}（${f.scheduleMode === 1 ? '按时间调度' : '竞争'}）`
+          + ` · 延后模式 ${f.deferred} · 时间结构 ${f.timeStructure}（${f.timeStructure === 1 ? '块式' : '间隔式'}）`
+          + ` · 有效轮数 ${f.validityRounds} · MMRCR ${f.mmrcr}`
+          + ' · Content Control 0x00（不带块长、轮长、时隙长与会话标识）',
+        rr: (block, round) => `Ranging Block Index ${block} · Hopping Mode 0 · Round Index ${round} · Transmission Offset 0`,
         rdm: (n, list) => `${n} 台设备：${list}`,
         rdmSlot: (id, slot) => `${id} 时隙 ${slot}`,
         rrmc: (slot, method) => `时隙 ${slot} · ${method}`,
-        rcps: (first, last) => `应答阶段时隙 ${first}…${last}`,
+        rcps: (first, last) => `CP Table Length 1 · 阶段指示 1（应答方竞争）· 时隙 ${first}…${last}`,
         rcma: (n) => `最多尝试 ${n} 次`,
         replyTime: (time) => `回复时间 ${time}`,
         finalReply: (id, time) => `${id}：treply2 ${time}`,

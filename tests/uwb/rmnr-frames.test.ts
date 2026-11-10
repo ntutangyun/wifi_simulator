@@ -20,7 +20,7 @@ const fieldSum = (f: ReturnType<typeof makeResp>) => fieldsOf(f).reduce((s, x) =
 describe('the initiation-only message cannot grow with the anchor count: it takes no such argument (design §2)', () => {
   it('is a flat 14 octets', () => {
     expect(uwbInitBytes()).toBe(14)
-    expect(uwbPollBytes(4)).toBe(39) // today's value, unchanged
+    expect(uwbPollBytes(4)).toBe(42) // 39 before 2026-11-10: ARC to the standard's content, plus the RR IE (audit #9)
   })
 
   it('makeInit builds the 14-octet frame, carrying only RRMC, under its own kind', () => {
@@ -64,9 +64,11 @@ describe('an RMNR frame is a header-only IE and nothing else (standard §10.34.2
 })
 
 describe('says what the first round saves against the ones after it (design §2)', () => {
-  it('is 13 + 3A octets, for A = 1, 4, 9', () => {
+  // 13 + 3A until 2026-11-10; the RCM now carries the standard's ARC IE (5) and the RR IE (8) that
+  // a later round's initiation message leaves out, so a later round saves 16 + 3A (audit #9).
+  it('is 16 + 3A octets, for A = 1, 4, 9', () => {
     for (const a of [1, 4, 9]) {
-      expect(uwbPollBytes(a) - uwbInitBytes()).toBe(13 + 3 * a)
+      expect(uwbPollBytes(a) - uwbInitBytes()).toBe(16 + 3 * a)
     }
   })
 })
@@ -76,8 +78,8 @@ describe('leaves every existing frame byte-identical', () => {
     const f = makePoll('tag', ['a1', 'a2'], 'ds', 0, 0)
     expect(f.kind).toBe('uwbPoll')
     expect(f.bytes).toBe(uwbPollBytes(2))
-    expect(f.bytes).toBe(33)
-    expect(f.uwb!.ies).toEqual(['ARC', 'RDM', 'RRMC'])
+    expect(f.bytes).toBe(36) // 33 before 2026-11-10 (ARC IE to the standard's content, plus the RR IE: audit #9)
+    expect(f.uwb!.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
     expect(f.uwb!.schedule).toEqual(['a1', 'a2'])
     expect(fieldSum(f)).toBe(f.bytes)
   })

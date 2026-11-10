@@ -183,7 +183,7 @@ describe('uwb-dl-tdoa · the lesson’s own place in the track', () => {
     // goes out in slot 4 and the difference and the fix close the round at 10 ms
     expect(rs[idx[0]].t).toBe(0)
     expect(rs[idx[1]].t).toBe(0)
-    expect(rs[idx[2]].t).toBe(216_106)
+    expect(rs[idx[2]].t).toBe(219_183)
     expect(rs[idx[3]].t).toBe(8 * MS)
     expect(rs[idx[4]].t).toBe(10 * MS)
     expect(rs[idx[5]].t).toBe(10 * MS)
@@ -313,12 +313,12 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
     const want: [number, number][] = [
       [uwbDlPollBytes(RESPONDERS.length), 0], [uwbDlRespBytes(), 1], [uwbDlFinalBytes(RESPONDERS.length), 4],
     ]
-    expect(want.map(([b]) => b)).toEqual([42, 30, 34])
-    expect(want.map(([b]) => (uwbPpduNs(b) / 1000).toFixed(1))).toEqual(['216.1', '197.6', '201.7'])
+    expect(want.map(([b]) => b)).toEqual([45, 30, 34])
+    expect(want.map(([b]) => (uwbPpduNs(b) / 1000).toFixed(1))).toEqual(['219.2', '197.6', '201.7'])
     expect([cell(1, 0, 2), cell(1, 1, 2), cell(1, 2, 2)])
-      .toEqual(['Poll, 42 B, 216.1 µs', 'Response, 30 B, 197.6 µs', 'Final, 34 B, 201.7 µs'])
+      .toEqual(['Poll, 45 B, 219.2 µs', 'Response, 30 B, 197.6 µs', 'Final, 34 B, 201.7 µs'])
     const tx = ofType(rs, 'TX_START').filter((r) => r.t < 200 * MS)
-    expect(tx.map((r) => r.frame.bytes)).toEqual([42, 30, 30, 30, 34])
+    expect(tx.map((r) => r.frame.bytes)).toEqual([45, 30, 30, 30, 34])
   })
 
   it('each frame carries what the table says it carries, and only that', () => {
@@ -340,10 +340,10 @@ describe('uwb-dl-tdoa · the round the anchors run', () => {
   it('"five arrival stamps" at the instants the second observation quotes', () => {
     const stamps = ofType(at(rs, 'badge-1'), 'UWB_TS').filter((r) => r.t < 200 * MS)
     expect(stamps.map((r) => r.dir)).toEqual(['rx', 'rx', 'rx', 'rx', 'rx'])
-    expect(stamps.map((r) => r.t)).toEqual([216_106, 2_197_650, 4_197_647, 6_197_652, 8_201_747])
+    expect(stamps.map((r) => r.t)).toEqual([219_183, 2_197_650, 4_197_647, 6_197_652, 8_201_747])
     expect(stamps.map((r) => r.peer)).toEqual([REF, ...RESPONDERS, REF])
     const o2 = uwbDlTdoa.observe[1]
-    for (const s of ['216.106 µs', '2.197 650 ms', '4.197 647 ms', '6.197 652 ms', '8.201 747 ms']) {
+    for (const s of ['219.183 µs', '2.197 650 ms', '4.197 647 ms', '6.197 652 ms', '8.201 747 ms']) {
       expect(o2).toContain(s)
     }
     // "The first and the last are the span it times its own clock over."
@@ -679,17 +679,17 @@ describe('uwb-dl-tdoa · the fix, the geometry and the ellipse', () => {
 })
 
 describe('uwb-dl-tdoa · what ten listeners cost', () => {
-  it('"the anchors send 35 frames, 7.074 935 ms of air, 0.505 % of the time"', () => {
+  it('"the anchors send 35 frames, 7.096 474 ms of air, 0.507 % of the time"', () => {
     const airNs = (rs: TLRecord[]): number => ofType(rs, 'TX_START').reduce((a, r) => a + r.frame.txTimeNs, 0)
     const base = recs('base')
     const ten = recs('ten')
     expect(ofType(ten, 'TX_START')).toHaveLength(ofType(base, 'TX_START').length)
     expect(ofType(ten, 'TX_START')).toHaveLength(35)
     expect(airNs(ten)).toBe(airNs(base))
-    expect(airNs(ten)).toBe(7_074_935)
-    // "0.505 % of the time": one round's air in one 200 ms block
+    expect(airNs(ten)).toBe(7_096_474)
+    // "0.507 % of the time": one round's air in one 200 ms block
     const perRound = airNs(base) / BLOCKS
-    expect((perRound / rstuNs(DEFAULT_UWB_SESSION.blockRstu) * 100).toFixed(3)).toBe('0.505')
+    expect((perRound / rstuNs(DEFAULT_UWB_SESSION.blockRstu) * 100).toFixed(3)).toBe('0.507')
     // "the frames are identical sender for sender"
     expect(ofType(ten, 'TX_START').map((r) => [r.t, r.node, r.frame.kind, r.frame.bytes]))
       .toEqual(ofType(base, 'TX_START').map((r) => [r.t, r.node, r.frame.kind, r.frame.bytes]))
@@ -1123,7 +1123,7 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
           .toBeLessThan(floor + 0.001)
       }
     })
-    // 「三个场景中锚点都发出 35 帧、7.074 935 ms 的空口时间，占比 0.505 %」
+    // 「三个场景中锚点都发出 35 帧、7.096 474 ms 的空口时间，占比 0.507 %」
     const [frames, msA, msB, pct] = rd(EVERYWHERE,
       /锚点都发出 (\d+) 帧、([\d.]+) (\d+) ms 的空口时间，占比 ([\d.]+) %/,
       '`deeper` on what the anchors spend')
@@ -1131,7 +1131,7 @@ describe('uwb-dl-tdoa · every figure the prose prints, read back out of it', ()
     expect(val(frames), 'the frames the anchors send').toBe(air.length)
     const airNs = air.reduce((n, r) => n + r.frame.txTimeNs, 0)
     same(`${msA}${msB}`, airNs / MS, 'the air they occupy')
-    // 「占比 0.505 %」 is ONE round's air inside ONE block, not the whole window's share — the
+    // 「占比 0.507 %」 is ONE round's air inside ONE block, not the whole window's share — the
     // sentence is about what a round costs a block, which is what a listener would budget.
     same(pct, (100 * (airNs / BLOCKS)) / rstuNs(DEFAULT_UWB_SESSION.blockRstu),
       'and the share of a block one round of it is')

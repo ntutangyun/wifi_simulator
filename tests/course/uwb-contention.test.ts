@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
+import { RCPS_IE_BYTES, UWB_IE_HDR_BYTES } from '../../src/uwb/phy'
 import {
   CONTENTION_ANCHORS, CONTENTION_SLOTS, uwbContention, uwbContentionScenario, type UwbContentionVariant,
 } from '../../src/course/uwb/uwb-contention'
@@ -85,11 +86,24 @@ describe('uwb-contention · the lesson', () => {
 })
 
 describe('uwb-contention · ② says what the engine does, and the engine does it', () => {
-  it('poll: schedule mode 0 with ARC, RCPS, RCMA and RRMC, and no RDM', () => {
-    expect(implRow('调度模式 0').sim).toContain('ARC、RCPS、RCMA、RRMC')
+  // The RR IE (block and round indices) joined the RCM on 2026-11-10, and the ARC IE carries the
+  // standard's control bits rather than three index fields (audit #9).
+  it('poll: schedule mode 0 with ARC, RR, RCPS, RCMA and RRMC, and no RDM', () => {
+    expect(implRow('调度模式 0').sim).toContain('ARC、RR、RCPS、RCMA、RRMC')
     const poll = ofType(recs('base'), 'TX_START').find((r) => r.node === TAG)!.frame
-    expect(poll.uwb?.ies).toEqual(['ARC', 'RCPS', 'RCMA', 'RRMC'])
+    expect(poll.uwb?.ies).toEqual(['ARC', 'RR', 'RCPS', 'RCMA', 'RRMC'])
+    expect(poll.uwb?.arc?.scheduleMode).toBe(0)
     expect(poll.uwb?.schedule).toBeUndefined()
+  })
+
+  // Replaces the pin on the old 「only first/last slot, two octets」 row (audit #13): the RCPS IE is now
+  // the standard's phase table — a length octet and one two-octet element for the responders' phase.
+  it('RCPS: the standard\'s phase table, one responders\' phase (§10.32.9.5)', () => {
+    expect(implRow('RCPS 的内容').kind).toBe('faithful')
+    expect(RCPS_IE_BYTES - UWB_IE_HDR_BYTES).toBe(1 + 2)
+    const poll = ofType(recs('base'), 'TX_START').find((r) => r.node === TAG)!.frame
+    expect(poll.uwb?.contention?.firstSlot).toBe(1)
+    expect(poll.uwb?.contention?.lastSlot).toBe(uwbContentionScenario('base').uwb!.contentionSlots)
   })
 
   it('the cap is 1 here because the validity is 1, so every anchor answers once per round', () => {
@@ -107,7 +121,9 @@ describe('uwb-contention · ② says what the engine does, and the engine does i
   it('the editor refuses more attempts than the validity allows (§10.32.9.6)', () => {
     const s: Scenario = uwbContentionScenario('base')
     expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, maxAttempts: 3 } }).success).toBe(false)
-    expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, maxAttempts: 3, rcmValidityRounds: 3 } }).success).toBe(true)
+    // …and three attempts need a set of three rounds, which lives in one block (§10.32.9.1): the tag
+    // runs three rounds a block.
+    expect(ScenarioSchema.safeParse({ ...s, uwb: { ...s.uwb!, maxAttempts: 3, rcmValidityRounds: 3, initiatorRounds: 3 } }).success).toBe(true)
   })
 
   it('no timeout is written for an empty or collided slot', () => {

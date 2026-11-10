@@ -113,11 +113,18 @@ describe('uwbSessionIssue', () => {
     // The three fields the editor adds, at the bounds its inputs clamp to.
     // maxAttempts may not exceed rcmValidityRounds (standard §10.32.9.6), so each is paired with
     // a validity window at least that long.
-    const sc = withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 16, maxAttempts: 5, rcmValidityRounds: 5 })
+    // …and since 2026-11-10 a set of that many rounds lives in one block (standard §10.32.9.1), so the
+    // tag runs that many rounds a block — which `uwbRcmValidityRoundsPatch` writes alongside it.
+    const sc = withUwb(6, {
+      method: 'ss', schedule: 'contention', contentionSlots: 16, maxAttempts: 5, ...uwbRcmValidityRoundsPatch(5, false),
+    })
     expect(uwbSessionIssue(sc)).toBeNull()
     expect(ScenarioSchema.safeParse(sc).success).toBe(true)
     expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 2, maxAttempts: 1 }))).toBeNull()
-    expect(uwbSessionIssue(withUwb(6, { method: 'ss', schedule: 'contention', contentionSlots: 32, maxAttempts: 10, rcmValidityRounds: 10 }))).toBeNull()
+    expect(uwbSessionIssue(withUwb(6, {
+      method: 'ss', schedule: 'contention', contentionSlots: 32, maxAttempts: 10, blockRstu: 10 * 33 * 2400,
+      ...uwbRcmValidityRoundsPatch(10, false),
+    }))).toBeNull()
   })
 
   it('refuses more contention attempts than the control message is valid for (§10.32.9.6)', () => {
@@ -318,7 +325,7 @@ describe('uwbSessionIssue', () => {
     // direction this function already takes a stranded deferred reply time.
     expect(uwbSchedulePatch('contention', 'embedded', true)).toEqual({ schedule: 'contention', rmnr: false })
     expect(uwbSessionIssue(withUwb(4, {
-      method: 'ss', rcmValidityRounds: 4, rmnr: true, ...uwbSchedulePatch('contention', 'embedded', true),
+      method: 'ss', rcmValidityRounds: 4, initiatorRounds: 4, rmnr: true, ...uwbSchedulePatch('contention', 'embedded', true),
     }))).toBeNull()
     // rmnr off is left alone, and so is time scheduling.
     expect(uwbSchedulePatch('contention', 'embedded', false)).toEqual({ schedule: 'contention' })
@@ -1085,7 +1092,11 @@ describe('RCM validity rounds / RMNR in the editor (design §2/§4)', () => {
   it('uwbRcmValidityRoundsPatch takes a stranded rmnr back to false, the direction uwbModePatch and uwbSchedulePatch already take', () => {
     expect(uwbRcmValidityRoundsPatch(1, true)).toEqual({ rcmValidityRounds: 1, rmnr: false })
     expect(uwbRcmValidityRoundsPatch(1, false)).toEqual({ rcmValidityRounds: 1 })
-    expect(uwbRcmValidityRoundsPatch(4, true)).toEqual({ rcmValidityRounds: 4 })
+    // Raising the validity past the tag's rounds a block raises those with it (2026-11-10): a control
+    // message governs rounds of its own block only (standard §10.32.9.1).
+    expect(uwbRcmValidityRoundsPatch(4, true)).toEqual({ rcmValidityRounds: 4, initiatorRounds: 4 })
+    expect(uwbRcmValidityRoundsPatch(4, true, false, 4)).toEqual({ rcmValidityRounds: 4 })
+    expect(uwbRcmValidityRoundsPatch(4, true, false, 8)).toEqual({ rcmValidityRounds: 4 })
     // …and the field the user actually touches never produces the pair the schema refuses.
     expect(uwbSessionIssue(withUwb(4, {
       rcmValidityRounds: 4, rmnr: true, ...uwbRcmValidityRoundsPatch(1, true),
@@ -1171,7 +1182,7 @@ describe('receipt confirmation (MMRCR) in the editor (receipt-confirmation-desig
   it('uwbRcmValidityRoundsPatch takes a stranded mmrcr back to false at validity 1, the same direction it already takes rmnr', () => {
     expect(uwbRcmValidityRoundsPatch(1, false, true)).toEqual({ rcmValidityRounds: 1, mmrcr: false })
     expect(uwbRcmValidityRoundsPatch(1, false, false)).toEqual({ rcmValidityRounds: 1 })
-    expect(uwbRcmValidityRoundsPatch(4, false, true)).toEqual({ rcmValidityRounds: 4 })
+    expect(uwbRcmValidityRoundsPatch(4, false, true, 4)).toEqual({ rcmValidityRounds: 4 })
     // Both fields at once: both come back.
     expect(uwbRcmValidityRoundsPatch(1, true, true)).toEqual({ rcmValidityRounds: 1, rmnr: false, mmrcr: false })
     // …and the field the user actually touches never produces the pair the schema refuses.
@@ -1570,7 +1581,7 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     ...WALK_MODES.map((mode): Op => ({
       label: `mode=${mode}`,
       live: () => true,
-      patch: (s) => uwbModePatch(mode, s.rcmValidityRounds, s.mmrcr, s.srrr, s.mms),
+      patch: (s) => uwbModePatch(mode, s.rcmValidityRounds, s.mmrcr, s.srrr, s.mms, s.initiatorRounds),
     })),
     ...(['ss', 'ds'] as const).map((method): Op => ({
       label: `method=${method}`,
@@ -1606,7 +1617,7 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
     ...[1, 4].map((rcmValidityRounds): Op => ({
       label: `rcmValidityRounds=${rcmValidityRounds}`,
       live: (s) => s.mode === 'twr', // `disabled={session.mode !== 'twr'}`
-      patch: (s) => uwbRcmValidityRoundsPatch(rcmValidityRounds, s.rmnr, s.mmrcr),
+      patch: (s) => uwbRcmValidityRoundsPatch(rcmValidityRounds, s.rmnr, s.mmrcr, s.initiatorRounds),
     })),
     ...[true, false].map((aoa): Op => ({
       label: `aoa=${aoa}`,
@@ -1694,6 +1705,8 @@ describe('UwbSessionFields as a closed system: no reachable sequence of its own 
   const WALK_KEYS = [
     'mode', 'method', 'schedule', 'replyTime', 'rcmValidityRounds', 'aoa', 'sp3', 'srrr',
     'rmnr', 'mmrcr', 'slotRstu', 'fixedReplyRstu', 'ancillary', 'ancillaryFrames', 'mms',
+    // 2026-11-10: `uwbRcmValidityRoundsPatch` raises it with the validity, `uwbModePatch` resets it.
+    'initiatorRounds',
   ] as const satisfies readonly (keyof UwbSessionCfg)[]
   const walkKey = (s: UwbSessionCfg): string => JSON.stringify(WALK_KEYS.map((k) => s[k]))
 

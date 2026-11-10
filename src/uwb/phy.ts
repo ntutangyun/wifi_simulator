@@ -219,14 +219,47 @@ export const UWB_FCS_BYTES = 2
 /** Element ID and length, in front of each payload IE. */
 export const UWB_IE_HDR_BYTES = 2
 
-/** ARC IE (§10.32.9.1): header + control 2 + block index 2 + round index 2 + slot index 2. */
-export const ARC_IE_BYTES = UWB_IE_HDR_BYTES + 8
+/**
+ * ARC IE (standard §10.32.9.1, Figure 10-244): header + the 2-octet control bits (Multi-node Mode,
+ * Ranging Round Usage, STS Packet Config, Schedule Mode, Deferred Mode, Time Structure Indicator,
+ * RCM Validity Rounds, MMRCR) + the 1-octet Content Control. The four optional fields that Content
+ * Control can switch on — Ranging Block Duration 3, Ranging Round Duration 1, Ranging Slot Duration
+ * 2, Session ID 4 — are never carried: the block structure is set by the next higher layer (the
+ * scenario's own session config), which §10.32.3.3 allows instead of signalling it, and the session
+ * is set up out of band. So RBDP/RRDP/RSDP/SIP are all zero and the content is 3 octets.
+ *
+ * Block and round **indices** are not ARC IE fields at all: they ride the RR IE below (§10.32.9.3).
+ * Until 2026-11-10 this constant was header + 8 — control 2 plus a block, round and slot index of 2
+ * octets each — three fields the standard's ARC IE does not have (audit #9).
+ */
+export const ARC_IE_BYTES = UWB_IE_HDR_BYTES + 2 + 1
+/**
+ * RR IE (standard §10.32.9.3, Figure 10-248): header + Ranging Block Index 2 + Hopping Mode (1 bit)
+ * and Round Index (15 bits) 2 + Transmission Offset 2. Carried in every RCM of a block-based session
+ * (§10.32.3.3: the controller configures the allocated round with the ARC IE and the RR IE). This
+ * engine never hops and never offsets, so Hopping Mode and Transmission Offset are both 0 — but the
+ * octets are on the air whatever their value.
+ */
+export const RR_IE_BYTES = UWB_IE_HDR_BYTES + 2 + 2 + 2
 /** RRMC IE (§10.29.8.3): header + one control octet (what the round asks the responder for). */
 export const RRMC_IE_BYTES = UWB_IE_HDR_BYTES + 1
 /** RRTI IE (§10.29.8.1): header + one reply time of 4 octets. One IE holds one reply time. */
 export const RRTI_IE_BYTES = UWB_IE_HDR_BYTES + 4
-/** RCPS IE (§10.32.9.5): header + first slot 1 + last slot 1. standard §10.32.9.5; content sizing model */
-export const RCPS_IE_BYTES = UWB_IE_HDR_BYTES + 2
+/** One CP Table Element of the RCPS IE (standard §10.32.9.5, Figure 10-251): Phase Indicator 2 bits
+ * + Ranging Slot Index to Start 7 bits + Ranging Slot Index to End 7 bits = 2 octets. */
+export const RCPS_CP_ELEMENT_BYTES = 2
+/** The largest slot index a CP Table Element can name: its start and end fields are 7 bits wide. */
+export const RCPS_MAX_SLOT_INDEX = 127
+/** RCPS IE (standard §10.32.9.5, Figure 10-250): header + CP Table Length 1 + one CP Table Element per
+ * contention phase. A contention round in this engine has exactly one contention phase — the
+ * responders' (Phase Indicator 1), slots 1…S after the Poll in slot 0 — so the IE is 2 + 1 + 2.
+ * (Until 2026-11-10 this was header + a 1-octet first and a 1-octet last slot, no table length and no
+ * phase indicator: audit #13.) */
+export function rcpsIeBytes(phases: number): number {
+  return UWB_IE_HDR_BYTES + 1 + RCPS_CP_ELEMENT_BYTES * phases
+}
+/** The RCPS IE of this engine's contention round: one phase. */
+export const RCPS_IE_BYTES = rcpsIeBytes(1)
 /** RCMA IE (§10.32.9.6): header + max attempts 1. standard §10.32.9.6; content sizing model */
 export const RCMA_IE_BYTES = UWB_IE_HDR_BYTES + 1
 /** SRRR IE (§10.32.9.9): header + one control octet — the responder's own request for what the
@@ -280,14 +313,17 @@ export function rmiFinalDeferredIeBytes(anchors: number): number {
   return RMI_FINAL_FIXED_BYTES + RMI_FINAL_DEFERRED_ENTRY_BYTES * anchors
 }
 
-/** MHR + ARC IE + RDM IE (3 + 3N) + RRMC IE + FCS = 27 + 3N (time-scheduled); a contention round's
- * Poll lists no per-anchor schedule (any anchor may answer), so RDM is replaced by the fixed-size
- * RCPS + RCMA IEs: MHR + ARC + RCPS (4) + RCMA (3) + RRMC + FCS = 31, independent of anchor count. */
+/** MHR + ARC IE (5) + RR IE (8) + RDM IE (3 + 3N) + RRMC IE + FCS = 30 + 3N (time-scheduled); a
+ * contention round's Poll lists no per-anchor schedule (any anchor may answer), so RDM is replaced by
+ * the fixed-size RCPS + RCMA IEs: MHR + ARC + RR + RCPS (5) + RCMA (3) + RRMC + FCS = 35, independent
+ * of anchor count. The Poll is the RCM fused with the ranging initiation message (§10.32.2 allows the
+ * merge when the controller is the initiator), so it carries both the RCM's ARC + RR IEs
+ * (§10.32.3.3) and the initiation's RRMC IE. */
 export function uwbPollBytes(anchors: number, schedule: 'time' | 'contention' = 'time'): number {
   if (schedule === 'contention') {
-    return UWB_MHR_BYTES + ARC_IE_BYTES + RCPS_IE_BYTES + RCMA_IE_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
+    return UWB_MHR_BYTES + ARC_IE_BYTES + RR_IE_BYTES + RCPS_IE_BYTES + RCMA_IE_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
   }
-  return UWB_MHR_BYTES + ARC_IE_BYTES + rdmIeBytes(anchors) + RRMC_IE_BYTES + UWB_FCS_BYTES
+  return UWB_MHR_BYTES + ARC_IE_BYTES + RR_IE_BYTES + rdmIeBytes(anchors) + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
 
 /** MHR + RRMC IE + FCS, plus the RRTI IE that carries the reply time — only when SS-TWR embeds
@@ -369,16 +405,16 @@ export function uwbSp3ReportBytes(raoa: boolean): number {
 // standard §10.32.9.1 (ARC IE, "RCM Validity Rounds") and §10.34 (ranging message non-receipt).
 // design docs/superpowers/specs/2026-10-01-rcm-validity-design.md
 
-/** The initiation-only message a later round of a valid RCM carries (design §2): no ARC, no RDM —
+/** The initiation-only message a later round of a ranging round set carries (design §2): no ARC, no RR, no RDM —
  * the responder's slot table is still the one the still-valid RCM gave it (design §2.1), so this
  * message does not restate it (Ruling 3 of task 1: inventing a schedule field here would delete
  * the feature's entire saving). MHR + RRMC IE + FCS = 14 octets, independent of the anchor count.
  *
  * No anchor-count parameter at all (fix round 1): a function that does not take the argument
  * cannot depend on it, so independence from the anchor count is enforced by the type checker
- * rather than pinned by a test that has to go looking for it. Against the Poll's 27 + 3A
- * (`uwbPollBytes`), each round after the first saves 13 + 3A octets: exactly the ARC and RDM IEs
- * that bought the validity window. model */
+ * rather than pinned by a test that has to go looking for it. Against the Poll's 30 + 3A
+ * (`uwbPollBytes`), each round after the first saves 16 + 3A octets: exactly the ARC, RR and RDM IEs
+ * of the RCM that opened the round set. */
 export function uwbInitBytes(): number {
   return UWB_MHR_BYTES + RRMC_IE_BYTES + UWB_FCS_BYTES
 }
@@ -449,7 +485,7 @@ export function dlExtraBytes(rxTimes: number, coffs: boolean): number {
 // and the builders pass what their own `dl` payload actually holds.
 
 /** DL-TDoA Poll (anchor 0): the time-scheduled Poll over the `responders` (anchors 1…N−1)
- * plus anchor 0's own TX time. 27 + 3R + 6 octets. */
+ * plus anchor 0's own TX time. 30 + 3R + 6 octets. */
 export function uwbDlPollBytes(responders: number, rxTimes = 0, coffs = false): number {
   return uwbPollBytes(responders) + dlExtraBytes(rxTimes, coffs)
 }
@@ -529,7 +565,7 @@ export const RMMRC_ADDR_BYTES = 2
 /**
  * Width, in octets, of one initiator's receipt bitmap: one bit per opener the current RCM
  * validity window carries (design §3.3), rounded up to a whole octet. The window is the one
- * `uwb/session.ts#blockCarriesRcm` already has both ends agreeing on, so covering exactly it
+ * `uwb/session.ts#roundCarriesRcm` already has both ends agreeing on, so covering exactly it
  * needs no new negotiation — a model choice, not a standard-mandated width. model
  */
 export function rmmrcBitmapBytes(windowRounds: number): number {
@@ -610,7 +646,7 @@ export function uwbAncillaryBytes(numberPresent: boolean, framesRemainingPresent
 /**
  * How many slots a round appends for the ancillary exchange when it runs in it (standard §10.35.1,
  * design §4.2) — **the one definition**, read by the scenario schema's block-fit rule, by
- * `UwbNetwork`'s own guard in nanoseconds, and by `session.ts#blockSlots`, which is what lays the
+ * `UwbNetwork`'s own guard in nanoseconds, and by `session.ts#roundSlots`, which is what lays the
  * slots out. It lives here rather than in `session.ts` for the reason `uwbMmrcmSlots` above does:
  * the schema cannot import `session.ts` without an import cycle, and three copies of a slot count
  * is three chances to drift.
@@ -664,6 +700,26 @@ export function uwbAncillarySlots(
   // nowhere to sit. Below `contentionSlots` the window does not move at all, which is the interval
   // the inert census pins rather than refuses (design §6.3.1).
   return Math.max(frames, contentionSlots)
+}
+
+/**
+ * How many slots one initiator's rounds take out of a block (standard §10.32.2, §10.32.3.2,
+ * §10.32.9.1): `initiatorRounds` rounds of `slots` each, plus — once per **ranging round set** —
+ * the receipt confirmation's appended slots on the set's last round (§10.36) and the ancillary
+ * message's on its first (§10.35.1). A set is `rcmValidityRounds` consecutive rounds, the last one
+ * cut short where the initiator's rounds in this block run out (an RCM's validity never exceeds the
+ * rounds remaining in the block), so there are `ceil(initiatorRounds / rcmValidityRounds)` sets.
+ *
+ * **The one definition** the scenario schema's block-fit rule, the editor's ancillary cap and
+ * `UwbNetwork`'s nanosecond guard all budget with; `session.ts#roundSlots` lays the very same slots
+ * out round by round. With one round per block (the default) it is `slots + extras`, exactly the
+ * per-round budget every scene was checked against before round sets existed.
+ */
+export function uwbInitiatorBlockSlots(
+  slots: number, initiatorRounds: number, rcmValidityRounds: number, perSetExtraSlots: number,
+): number {
+  const sets = Math.ceil(initiatorRounds / Math.max(1, Math.min(rcmValidityRounds, initiatorRounds)))
+  return initiatorRounds * slots + sets * perSetExtraSlots
 }
 
 // --- Ranging schedule units ----------------------------------------------------
@@ -815,7 +871,7 @@ export function uwbSlotsPerTag(
 export const UWB_SLOT_GUARD_NS = 200
 
 /** The round's longest frame, in octets: in a time-scheduled two-way round, the larger of the
- * Poll (which lists every anchor, 27 + 3N) and whichever frame the method and reply-time carry
+ * Poll (which lists every anchor, 30 + 3N) and whichever frame the method and reply-time carry
  * their times in; the Poll or the SS Response in a contention round (which has no Final at all);
  * the longer of the Poll and the Final in DL-TDoA (the Poll's RDM IE grows by 3 per responder,
  * the Final's RX times by 4); and the blink — the only frame there is — in UL-TDoA.
@@ -848,7 +904,7 @@ export function uwbLongestFrameBytes(
     return Math.max(uwbDlPollBytes(anchors - 1), uwbDlRespBytes(), uwbDlFinalBytes(anchors - 1))
   }
   // A contention round is SS-TWR and ends at the Response: there is no Final to size it by, and
-  // the Poll carries RCPS + RCMA instead of the anchor list, so it is 31 octets whatever the
+  // the Poll carries RCPS + RCMA instead of the anchor list, so it is 35 octets whatever the
   // anchor count. At one anchor that Poll is longer than the Final the round never sends.
   // Unlike the time-scheduled SS branch below, this one takes no `UWB_SS_DEFER_BYTES` term: it is
   // numerically inert (the 31-octet Poll always beats the 17-octet deferred message) and the
@@ -857,7 +913,7 @@ export function uwbLongestFrameBytes(
   // refused by the schema (design §3.1).
   if (schedule === 'contention') return Math.max(uwbPollBytes(anchors, 'contention'), uwbRespBytes('ss', replyTime))
   // SP3's RCM carries the responders' SRRR IEs, so it grows twice as fast with the anchor count as
-  // an ordinary Poll (27 + 6A rather than 27 + 3A). The schema refuses `sp3` outside a
+  // an ordinary Poll (30 + 6A rather than 30 + 3A). The schema refuses `sp3` outside a
   // time-scheduled two-way round, which is why the contention branch above needs no term for it.
   const pollBytes = sp3 ? uwbSp3PollBytes(anchors) : uwbPollBytes(anchors)
   if (method === 'ss') {

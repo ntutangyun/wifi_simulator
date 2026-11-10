@@ -40,7 +40,7 @@ export type FieldKey =
   | 'ampId' | 'ampTdc' | 'ampStaList'
   // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
   | 'seqNo' | 'dstPan' | 'dstAddr16' | 'srcAddr16'
-  | 'ieArc' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
+  | 'ieArc' | 'ieRr' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
   // §10.34's ranging message non-receipt exchange: a header-only IE, no Content field at all.
   | 'ieRmnr'
   // §10.36's receipt-confirmation answer: one entry per initiator, each an address plus a bitmap.

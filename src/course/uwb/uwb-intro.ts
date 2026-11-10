@@ -63,8 +63,8 @@ export function uwbIntroScenario(dM: 5 | 20): Scenario {
  * run in tests/course/uwb-intro.test.ts, so the figure cannot drift from it.
  */
 export const FIG = {
-  pollTx: 0, pollTxEnd: 197.628,
-  pollRx: 0.017, pollRxEnd: 197.645,
+  pollTx: 0, pollTxEnd: 200.705,
+  pollRx: 0.017, pollRxEnd: 200.722,
   respTx: 2000, respTxEnd: 2187.372,
   respRx: 2000.017, respRxEnd: 2187.389,
   windowUs: 2200,

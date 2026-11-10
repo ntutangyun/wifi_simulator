@@ -289,7 +289,10 @@ describe('determinism, and every other mode byte-identical (design §8.7)', () =
    * `uwb-record-hashes.json`; this pins the bare N-node round these tests vary, which no fixture
    * covers.) */
   const BEFORE: Record<string, string> = {
-    'twr/ss': '52772af9', 'twr/ds': '9318f0fe', 'dl-tdoa': 'ed319bdd', 'ul-tdoa': 'f1136783',
+    // Re-captured 2026-11-10 for the three modes that send an RCM: its ARC IE shrank to the
+    // standard's three content octets and the RR IE (block and round indices) joined it, so every
+    // Poll is three octets longer (audit #9). UL-TDoA sends no RCM and did not move.
+    'twr/ss': 'c6b5007f', 'twr/ds': 'f3a0bb8c', 'dl-tdoa': 'cf2c6c65', 'ul-tdoa': 'f1136783',
   }
 
   const streamOf = (sc: Scenario): string => hashStr(JSON.stringify(
@@ -309,10 +312,12 @@ describe('determinism, and every other mode byte-identical (design §8.7)', () =
     const four = (role: (i: number) => 'anchor' | 'tag'): NodeCfg[] =>
       Array.from({ length: 5 }, (_, i) => uwbNode(i, role(i), PPM[i]))
     const twoWay = four((i) => (i === 4 ? 'tag' : 'anchor'))
-    expect(streamOf(scenario(twoWay, { mode: 'twr', method: 'ss' })), 'twr/ss').toBe(BEFORE['twr/ss'])
-    expect(streamOf(scenario(twoWay, { mode: 'twr', method: 'ds' })), 'twr/ds').toBe(BEFORE['twr/ds'])
-    expect(streamOf(scenario(twoWay, { mode: 'dl-tdoa', method: 'ds' })), 'dl-tdoa').toBe(BEFORE['dl-tdoa'])
-    expect(streamOf(scenario(twoWay, { mode: 'ul-tdoa', method: 'ss' })), 'ul-tdoa').toBe(BEFORE['ul-tdoa'])
+    expect({
+      'twr/ss': streamOf(scenario(twoWay, { mode: 'twr', method: 'ss' })),
+      'twr/ds': streamOf(scenario(twoWay, { mode: 'twr', method: 'ds' })),
+      'dl-tdoa': streamOf(scenario(twoWay, { mode: 'dl-tdoa', method: 'ds' })),
+      'ul-tdoa': streamOf(scenario(twoWay, { mode: 'ul-tdoa', method: 'ss' })),
+    }).toEqual(BEFORE)
   })
 })
 

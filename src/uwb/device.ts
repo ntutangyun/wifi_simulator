@@ -37,7 +37,7 @@ import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import {
   makeBlink, makeFinal, makeInit, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr, makeSsDefer,
-  UWB_BROADCAST, type UwbFrameKind, type UwbMmrcEntry,
+  UWB_BROADCAST, type UwbArcFields, type UwbFrameKind, type UwbMmrcEntry,
 } from './frames'
 import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
@@ -54,7 +54,7 @@ import { RCTU_NS, tsSigmaNs, UWB_RMARKER_NS, uwbMaxMmrcmInitiators, uwbSinrDb, t
 import { rangeSigmaM, solvePosition, type AnchorPos } from './position'
 import { dsTwr, fomFor, ssTwrCorrected, ssTwrRaw } from './ranging'
 import {
-  blockCarriesAncillary, blockCarriesRcm,
+  roundCarriesAncillary, roundCarriesRcm, roundSetOf,
   type AncillarySlotAction, type MmrcmSlotAction, type RoundPlan, type SlotAction,
 } from './session'
 
@@ -66,10 +66,11 @@ export interface UwbDeviceCfg {
   tsNoisePs: number
   cfoNoisePpm: number
   /** Contention rounds only: the RCMA IE's maximum number of response attempts (standard
-   * §10.32.9.6), counted per control-message validity window and never refilled by success or
-   * failure. The Poll's RCMA IE advertises the same number; the anchor reads it from here because
-   * every device in a session is configured from the one session config. The schema refuses a
-   * value above `rcmValidityRounds`, as the standard requires. Ignored by a time-scheduled round.
+   * §10.32.9.6), counted per ranging round set and never refilled by success or failure. The
+   * Poll's RCMA IE advertises the same number (cut to the set's own length where the set is shorter
+   * — see `drawContentionSlot`); the anchor reads it from here because every device in a session is
+   * configured from the one session config. The schema refuses a value above `rcmValidityRounds`,
+   * as the standard requires. Ignored by a time-scheduled round.
    *
    * Model: the count is one per anchor across every tag's rounds, not one per (anchor, tag); the
    * contention lesson has one tag, so nothing shipped depends on the difference. */
@@ -259,7 +260,7 @@ export interface RoundState {
   m2m: M2mRoundState | null
   /**
    * Ranging ancillary information state (standard §10.35.1); non-null exactly on a block that runs
-   * the exchange (`blockCarriesAncillary`). See `AncillaryRoundState` for why every field of it is
+   * the exchange (`roundCarriesAncillary`). See `AncillaryRoundState` for why every field of it is
    * per round with no exception, unlike `rcmBlock` and `openerReceipt` below.
    */
   ancillary: AncillaryRoundState | null
@@ -308,11 +309,11 @@ function freshRound(
       : null,
     mms,
     m2m,
-    // Standard §10.35.1: present exactly on the blocks the exchange runs in, which is the one
-    // expression for that question (`blockCarriesAncillary`, reading the RCM validity window). Null
+    // Standard §10.35.1: present exactly on the rounds the exchange runs in, which is the one
+    // expression for that question (`roundCarriesAncillary`, reading the ranging round set). Null
     // everywhere else, including every round of every session with the feature off — so nothing of
     // this clause is allocated, read or drawn in a session that never asked for it.
-    ancillary: blockCarriesAncillary(plan, block) ? freshAncillary() : null,
+    ancillary: roundCarriesAncillary(plan, round) ? freshAncillary() : null,
     ancillaryFrames,
     ulArrivalNs: null,
     aoaThetaDeg: null,
@@ -351,6 +352,50 @@ function fixedReplyRctu(plan: RoundPlan, slot: number, pollNs: Ns): number {
   return Math.round((pollNs + plan.fixedReplyNs + (slot - 1) * plan.slotNs) / RCTU_NS)
 }
 
+/**
+ * A ranging round set's identity, for the per-set device state below (the contention attempt count,
+ * the receipt bitmap): its block and its first round. A set never leaves its block (standard
+ * §10.32.9.1), so the pair names it uniquely across the run.
+ */
+function setKey(plan: RoundPlan, block: number, round: number): string {
+  return `${block}:${roundSetOf(plan, round).first}`
+}
+
+/**
+ * The RCMA value a round set's RCM carries, and the cap a responder counts its attempts against
+ * (standard §10.32.9.6): the session's `maxAttempts`, which the schema already keeps at or below
+ * `rcmValidityRounds`, cut to the set's own length where the block's last set is shorter — the value
+ * "shall be less than or equal to the RCM Validity Rounds" of *that* RCM. The value itself is the
+ * controller's next higher layer's choice; this is the simulator's choice of it.
+ */
+function contentionAttemptCap(plan: RoundPlan, round: number, maxAttempts: number): number {
+  return Math.min(maxAttempts, roundSetOf(plan, round).length)
+}
+
+/**
+ * The ARC IE control bits this round's RCM carries (standard §10.32.9.1, Figure 10-244; Tables
+ * 10-163 to 10-167), read off the round plan both ends share. See `UwbArcFields` in `frames.ts`.
+ */
+function arcFieldsFor(plan: RoundPlan, round: number): UwbArcFields {
+  return {
+    // One initiator (the tag) and every anchor: one-to-many (Table 10-163, value 1).
+    multiNode: 1,
+    // Table 10-164: 1 SS-TWR, 2 DS-TWR.
+    roundUsage: plan.method === 'ss' ? 1 : 2,
+    // Table 10-165: STS packet structure #1 (SP1) or #3 (SP3).
+    stsConfig: plan.sp3 ? 3 : 1,
+    // Table 10-166: 0 contention-based, 1 scheduling-based.
+    scheduleMode: plan.schedule === 'contention' ? 0 : 1,
+    // §10.32.9.1: one when ranging slots are scheduled for deferred data frames after the ranging
+    // exchange — SS-TWR's deferred reply-time messages, DS-TWR's reports, SP3's report phase.
+    deferred: plan.method === 'ds' || plan.replyTime === 'deferred' || plan.sp3 ? 1 : 0,
+    // Table 10-167: block-based (the RR IE travels with this RCM).
+    timeStructure: 1,
+    validityRounds: roundSetOf(plan, round).length,
+    mmrcr: plan.mmrcr ? 1 : 0,
+  }
+}
+
 /** The stream id §10.45's backoff draws from, kept apart from every other draw of the device
  * (the ranging timestamp noise, the clock-offset noise, a contention slot). model */
 const SSBD_STREAM = 0x1045
@@ -365,16 +410,17 @@ export class UwbDevice implements UwbRadio {
   private seqNo = 0
   /**
    * Contention rounds, anchor: how many responses this device has sent under the control message
-   * it currently holds, and which validity window that count belongs to. Standard §10.32.9.6: the
+   * it currently holds, and which ranging round set that count belongs to. Standard §10.32.9.6: the
    * RCMA IE gives only the MAXIMUM number of attempts at responding, supplied by the upper layer
    * and no larger than the RCM Validity Rounds; §10.32.1's NOTE adds that collisions are possible
    * and the upper layer filters wrong results. Nothing tells a responder whether it was received,
    * so nothing here refills or spends on success or failure: the count only resets when a new
-   * control message opens a new window. (Until 2026-11-10 the engine closed a feedback loop at
+   * control message opens a new round set. (Until 2026-11-10 the engine closed a feedback loop at
    * each round's end and made an exhausted anchor sit a round out; neither is in the standard.)
    */
   private attemptsUsed = 0
-  private attemptsWindow = -1
+  /** The round set `attemptsUsed` belongs to, as `setKey` writes it; '' before the first draw. */
+  private attemptsSet = ''
   /**
    * P802.15.4ab: the ranging block this device found the narrowband channel busy in, or null.
    * The draft's listen-before-talk rule is not per frame but per block — a busy check stops
@@ -407,16 +453,16 @@ export class UwbDevice implements UwbRadio {
    * not: it belongs to the device, like the contention retry budget and the narrowband skip block
    * above, both of which also outlive a round.
    *
-   * **What bounds it is what makes it an exception rather than a leak**: it expires after
-   * `rcmValidityRounds` blocks (`holdsValidRcm`), which is the very window the control message
-   * itself bought. So it can never fill a gap in a round — it answers one question, "is a control
-   * message I decoded still valid for this block", and nothing of the round it was decoded in
-   * survives with it: no counter, no slot, no reply time. A stale block index past the window is
-   * indistinguishable from never having decoded one.
+   * **What bounds it is what makes it an exception rather than a leak**: it expires with the ranging
+   * round set the control message opened (`holdsValidRcm`) — the rounds that RCM governs, all inside
+   * one block (standard §10.32.9.1). So it can never fill a gap in a round — it answers one
+   * question, "is a control message I decoded still valid for this round", and nothing of the round
+   * it was decoded in survives with it: no counter, no slot, no reply time. A record from another
+   * set is indistinguishable from never having decoded one.
    *
-   * It is **a block index, not a round index** (design §2.2): within a block the `round` parameter
-   * names which tag the round belongs to and never moves for that tag, so a given tag's successive
-   * ranging rounds are successive blocks.
+   * It records **the block and the set** — the set's first round and its length, from `roundSetOf`
+   * at the moment of decoding. Until 2026-11-10 it was a bare block index and the window ran for
+   * `rcmValidityRounds` *blocks*, which the standard does not allow (audit #23).
    *
    * And it is **one block index per initiator**, not one for the device. A single number was the
    * first shape, and it made the feature lie: an anchor that had decoded tag 1's control message
@@ -426,7 +472,7 @@ export class UwbDevice implements UwbRadio {
    * from three anchors that never decoded anything from tag 2, ever. The slot table is the RDM
    * IE's and the RDM IE belongs to one tag's Poll, so the validity it buys belongs to that tag too.
    */
-  private rcmBlock = new Map<string, number>()
+  private rcmBlock = new Map<string, { block: number; first: number; length: number }>()
 
   /**
    * **Controller: the ancillary width it has decided to schedule from now on** (standard §10.35.2.1's
@@ -467,9 +513,9 @@ export class UwbDevice implements UwbRadio {
   /**
    * **The second piece of cross-round device state on this branch, and it copies the first one's
    * lesson verbatim: it is keyed by initiator.** Standard §10.36: for each initiator, which of that
-   * initiator's openers inside *one* RCM validity window this device actually received — the
-   * receipt bitmap an MMRCM carries (design §3.3). `window` is the block that window opened at, and
-   * `received[i]` is window-round `i`, i.e. block `window + i`.
+   * initiator's openers inside *one* ranging round set this device actually received — the
+   * receipt bitmap an MMRCM carries (design §3.3). `set` names the set (`setKey`: its block and its
+   * first round), and `received[i]` is the set's round `i`.
    *
    * **Why keyed, and what a single un-keyed value cost.** `rcmBlock` above was a single number
    * first, and that made RMNR lie: an anchor that had decoded tag 1's control message answered
@@ -480,9 +526,9 @@ export class UwbDevice implements UwbRadio {
    * from somebody else's. The giveaway in that case was in the comment all along — the slot table is
    * the RDM IE's, and the RDM IE belongs to one tag's Poll — and it applies here unchanged.
    *
-   * **What bounds it.** `window` does. A reading for a block outside the stored window is not a
+   * **What bounds it.** `set` does. A reading for a round outside the stored set is not a
    * stale bitmap read anyway, it is `false` everywhere (`receiptIn`), and a reception in a new
-   * window discards the old array rather than extending it (`noteOpener`). So the state cannot
+   * set discards the old array rather than extending it (`noteOpener`). So the state cannot
    * survive the window it describes, exactly as `rcmBlock`'s own expiry does not let a control
    * message outlive the rounds it bought — which is what makes both of these exceptions to
    * `freshRound`'s per-round rule rather than leaks.
@@ -490,7 +536,7 @@ export class UwbDevice implements UwbRadio {
    * One entry per initiator this device has ever heard, so the map is bounded by the scenario's own
    * initiator count and never by the run length.
    */
-  private openerReceipt = new Map<string, { window: number; received: boolean[] }>()
+  private openerReceipt = new Map<string, { set: string; received: boolean[] }>()
   /**
    * P802.15.4ab, tag: the ranges of the block in progress, one per anchor. An MMS round holds
    * one anchor, so a fix needs the ranges of several rounds; they are kept here, across those
@@ -585,7 +631,7 @@ export class UwbDevice implements UwbRadio {
   /**
    * Called at every slot start of a round this device takes part in.
    *
-   * The action is `blockSlotAction`'s, not `slotAction`'s, so it may be the window-closing block's
+   * The action is `roundSlotAction`'s, not `slotAction`'s, so it may be the window-closing block's
    * `MmrcmSlotAction` (standard §10.36) as well as any of the ranging actions — those are the only
    * two shapes the schedule ever produces, and the union is kept explicit here rather than folded
    * into `SlotAction` so that the receipt confirmation cannot be reached by a mode that never asked
@@ -615,7 +661,7 @@ export class UwbDevice implements UwbRadio {
     // The ancillary message's own appended slots (standard §10.35.1, ancillary design §4.2), handled
     // here for the reason the receipt confirmation's are: the exchange is not a ranging exchange, so
     // none of the mode branches below is about it, and the schedule only ever produces this action
-    // in the one mode that can run it (`blockCarriesAncillary` is false in every other).
+    // in the one mode that can run it (`roundCarriesAncillary` is false in every other).
     //
     // **The roles are inverted inside it** — §10.35.1's initiator is the device that *sends*, which
     // is one of this round's ranging responders — so unlike every branch below, the transmitter here
@@ -918,7 +964,7 @@ export class UwbDevice implements UwbRadio {
         this.emit({
           t: this.now(), type: 'UWB_MMRCM', node: this.id, peer: from,
           slot: r.slot, block: r.block, round: r.round,
-          windowRounds: r.plan.rcmValidityRounds, received: [...mine.received], initiators: entries.length,
+          windowRounds: mine.received.length, received: [...mine.received], initiators: entries.length,
         })
       }
       return
@@ -1036,12 +1082,15 @@ export class UwbDevice implements UwbRadio {
         // session with the feature off therefore behaves and draws exactly as it did before.
         // Keyed by the initiator whose control message this is: validity is a fact about a
         // tag-and-responder pair, never about the responder alone.
-        this.rcmBlock.set(r.tagId, r.block)
+        {
+          const set = roundSetOf(r.plan, r.round)
+          this.rcmBlock.set(r.tagId, { block: r.block, first: set.first, length: set.length })
+        }
         this.onInitiation(r, frame, counter, trueRmarkerNs, extraNs)
         break
       case 'uwbInit':
-        // The initiation message alone (standard §10.32.9.1): a block the control message decoded
-        // earlier already paid for. It means exactly the initiation half of a Poll and not one bit
+        // The initiation message alone (standard §10.32.9.1): a later round of the ranging round
+        // set the control message decoded earlier opened. It means exactly the initiation half of a Poll and not one bit
         // more — in particular it refreshes no validity window, which is what keeps the window the
         // length the control message bought rather than a thing that renews itself.
         this.onInitiation(r, frame, counter, trueRmarkerNs, extraNs)
@@ -1126,14 +1175,17 @@ export class UwbDevice implements UwbRadio {
    * both come from the one session config (standard §10.32.2 schedule mode 0). Uniform choice is
    * this simulator's; the standard does not say how a responder picks its slot.
    *
-   * Standard §10.32.9.6: at most `maxAttempts` responses under one control message. The count
-   * resets when the round opens a new validity window (`blockCarriesRcm`); a responder that has
-   * used them all stays silent until then, and records that as a contend record with no slot.
+   * Standard §10.32.9.6: at most `maxAttempts` responses under one control message, i.e. within one
+   * ranging round set (§10.32.1: "the maximum number of attempts in a set of ranging round(s)
+   * specified by the same RCM"). The count resets when a new set begins (`roundSetOf`); a responder
+   * that has used them all stays silent until then, and records that as a contend record with no
+   * slot. The cap is `contentionAttemptCap`'s: the session's figure, cut to the set's own length
+   * where the block's last set is shorter (the RCMA value may not exceed that RCM's validity).
    */
   private drawContentionSlot(r: RoundState): void {
-    const window = r.block - (r.block % r.plan.rcmValidityRounds)
-    if (window !== this.attemptsWindow) { this.attemptsWindow = window; this.attemptsUsed = 0 }
-    if (this.attemptsUsed >= this.cfg.maxAttempts) {
+    const key = setKey(r.plan, r.block, r.round)
+    if (key !== this.attemptsSet) { this.attemptsSet = key; this.attemptsUsed = 0 }
+    if (this.attemptsUsed >= contentionAttemptCap(r.plan, r.round, this.cfg.maxAttempts)) {
       this.emit({ t: this.now(), type: 'UWB_CONTEND', node: this.id, slot: null, attempt: 0 })
       return
     }
@@ -1158,21 +1210,19 @@ export class UwbDevice implements UwbRadio {
   }
 
   /**
-   * Whether a control message this device decoded is still valid for block `block` (standard
-   * §10.32.9.1). The window a control message buys is the `rcmValidityRounds` blocks starting with
-   * its own, and `blockCarriesRcm` is what puts one at the head of each of them — so a device that
-   * decoded block `b`'s control message holds it for blocks `b … b + R − 1` and no further.
+   * Whether a control message this device decoded is still valid for round `round` of block `block`
+   * (standard §10.32.9.1): the control message governs the rounds of the ranging round set it opened
+   * — its own round and the `length − 1` after it, all in the same block — and no further.
    *
    * Never true with no control message decoded at all: `null` is not block 0. That is the physical
    * floor of §10.34 and not a defensive nicety — a responder that never decoded a control message
    * does not know which slot is its own (the slot table is the RDM IE's), so it has no slot to
    * speak in, and speaking anyway would be speaking in somebody else's.
    */
-  private holdsValidRcm(block: number, plan: RoundPlan, tagId: string): boolean {
-    const since = this.rcmBlock.get(tagId)
-    if (since === undefined) return false
-    const age = block - since
-    return age >= 0 && age < plan.rcmValidityRounds
+  private holdsValidRcm(block: number, round: number, tagId: string): boolean {
+    const held = this.rcmBlock.get(tagId)
+    if (held === undefined) return false
+    return held.block === block && round >= held.first && round < held.first + held.length
   }
 
   /**
@@ -1185,11 +1235,11 @@ export class UwbDevice implements UwbRadio {
    * round that is was settled by that initiator's RDM IE.
    */
   holdsValidRcmFor(r: RoundState): boolean {
-    return this.holdsValidRcm(r.block, r.plan, r.tagId)
+    return this.holdsValidRcm(r.block, r.round, r.tagId)
   }
 
   /**
-   * One of `initiator`'s openers arrived, in block `block`: write that bit down (standard §10.36,
+   * One of `initiator`'s openers arrived, in round `round` of block `block`: write that bit down (standard §10.36,
    * design §3.3). Called from the two places a device decodes an opener — `onInitiation`, which is
    * where both of a two-way round's openers land (the control message and the initiation message
    * alike), and `onM2mRx` for a many-to-many round's pass-0 transmission, which *is* that mode's
@@ -1206,56 +1256,56 @@ export class UwbDevice implements UwbRadio {
    * is: it is a fact about the device, it costs no random draw and emits nothing, and only
    * `receiptIn` reads it — so a session with the feature off behaves and draws exactly as before.
    */
-  noteOpener(initiator: string, block: number, plan: RoundPlan): void {
-    const window = block - (block % plan.rcmValidityRounds)
+  noteOpener(initiator: string, block: number, round: number, plan: RoundPlan): void {
+    const set = roundSetOf(plan, round)
+    const key = setKey(plan, block, round)
     const held = this.openerReceipt.get(initiator)
-    // A reception in a window this device holds nothing for yet replaces the old array outright
-    // rather than growing it: the previous window's bits describe rounds this bitmap no longer
+    // A reception in a set this device holds nothing for yet replaces the old array outright
+    // rather than growing it: the previous set's bits describe rounds this bitmap no longer
     // covers, and carrying them forward is what would let the state outlive its own expiry.
-    const entry = held !== undefined && held.window === window
+    const entry = held !== undefined && held.set === key
       ? held
-      : { window, received: Array.from({ length: plan.rcmValidityRounds }, () => false) }
-    entry.received[block - window] = true
+      : { set: key, received: Array.from({ length: set.length }, () => false) }
+    entry.received[set.index] = true
     this.openerReceipt.set(initiator, entry)
   }
 
   /**
-   * `initiator`'s receipt bitmap for the window block `block` belongs to: one bit per window round,
-   * `false` wherever this device decoded nothing. Always exactly `plan.rcmValidityRounds` long,
-   * which is what `makeMmrcm` refuses to let drift from the width the frame is priced for.
+   * `initiator`'s receipt bitmap for the ranging round set round `round` of block `block` belongs
+   * to: one bit per round of the set, `false` wherever this device decoded nothing. Always exactly
+   * the set's length long, which is what `makeMmrcm` refuses to let drift from the width the frame
+   * is priced for.
    *
-   * All `false` when this device holds nothing for this window at all — including when what it
-   * holds belongs to an *earlier* window, which is the expiry `openerReceipt`'s own comment turns
-   * on: a bitmap from the window before is not a weaker answer, it is a false one.
+   * All `false` when this device holds nothing for this set at all — including when what it holds
+   * belongs to an *earlier* set, which is the expiry `openerReceipt`'s own comment turns on: a
+   * bitmap from the set before is not a weaker answer, it is a false one.
    */
-  private receiptIn(initiator: string, block: number, plan: RoundPlan): boolean[] {
-    const window = block - (block % plan.rcmValidityRounds)
+  private receiptIn(initiator: string, block: number, round: number, plan: RoundPlan): boolean[] {
+    const set = roundSetOf(plan, round)
     const held = this.openerReceipt.get(initiator)
-    if (held === undefined || held.window !== window) {
-      return Array.from({ length: plan.rcmValidityRounds }, () => false)
+    if (held === undefined || held.set !== setKey(plan, block, round)) {
+      return Array.from({ length: set.length }, () => false)
     }
     return [...held.received]
   }
 
   /**
    * The frame slot 0 of this round carries, given the slot action it was laid out with: the control
-   * message (`uwbPoll`) on the first block of each validity window, the initiation message alone
-   * (`uwbInit`) on the blocks that window covers (standard §10.32.9.1, design §2). Any other action
+   * message (`uwbPoll`) on the first round of each ranging round set, the initiation message alone
+   * (`uwbInit`) on the set's later rounds (standard §10.32.3.2, §10.32.9.1). Any other action
    * is returned untouched.
    *
    * One expression, read by both ends of the round — the initiator builds the frame off it
    * (`transmitFor`) and the responders arm their wait off it (`onSlot`) — because the two deciding
-   * separately is the only way they could disagree about which message this block's slot 0 holds.
-   * `blockCarriesRcm` takes the **block** index (design §2.2): within a block the round index names
-   * which tag the round belongs to and never cycles.
+   * separately is the only way they could disagree about which message this round's slot 0 holds.
    *
    * Only `mode: 'twr'` is asked: DL-TDoA's Poll is an anchor's and no other mode has an ARC IE at
    * all, which is why the schema refuses a non-default `rcmValidityRounds` in each of them. With
-   * `rcmValidityRounds: 1` — the default — every block is its own window and this is the identity.
+   * `rcmValidityRounds: 1` — the default — every round is its own set and this is the identity.
    */
   private openerKind(r: RoundState, kind: UwbFrameKind): UwbFrameKind {
     if (kind !== 'uwbPoll' || r.plan.mode !== 'twr') return kind
-    return blockCarriesRcm(r.plan, r.block) ? 'uwbPoll' : 'uwbInit'
+    return roundCarriesRcm(r.plan, r.round) ? 'uwbPoll' : 'uwbInit'
   }
 
   /**
@@ -1278,7 +1328,7 @@ export class UwbDevice implements UwbRadio {
   private owesRmnr(r: RoundState, kind: UwbFrameKind): boolean {
     return kind === 'uwbResp' && this.cfg.rmnr && this.cfg.role === 'anchor'
       && r.plan.mode === 'twr' && r.plan.schedule === 'time'
-      && r.rxPollCounter === null && this.holdsValidRcm(r.block, r.plan, r.tagId)
+      && r.rxPollCounter === null && this.holdsValidRcm(r.block, r.round, r.tagId)
   }
 
   /**
@@ -1324,7 +1374,7 @@ export class UwbDevice implements UwbRadio {
    */
   private mayConfirmTo(initiator: string, r: RoundState): boolean {
     if (r.plan.mode === 'm2m') return true
-    return this.holdsValidRcm(r.block, r.plan, initiator)
+    return this.holdsValidRcm(r.block, r.round, initiator)
   }
 
   /**
@@ -1364,7 +1414,7 @@ export class UwbDevice implements UwbRadio {
     }
     const entries: UwbMmrcEntry[] = this.mmrcmAnswers(r, this.id)
       .filter((id) => this.mayConfirmTo(id, r))
-      .map((id) => ({ initiator: id, received: this.receiptIn(id, r.block, r.plan) }))
+      .map((id) => ({ initiator: id, received: this.receiptIn(id, r.block, r.round, r.plan) }))
     // Nothing this responder is entitled to confirm: the slot stays empty, exactly as a Response
     // slot does for an anchor that never heard the Poll.
     if (entries.length === 0) return
@@ -1372,7 +1422,7 @@ export class UwbDevice implements UwbRadio {
     // 127-octet PSDU. Both of this engine's modes clear it by a wide margin today — a two-way round
     // lists one initiator (18 octets at R ≤ 8), and a many-to-many round lists N−1 of them while
     // `uwbMaxParticipants` already caps N at 27 by a *different* frame's arithmetic — but those two
-    // caps are not tied to each other anywhere, and `rcmValidityRounds` may be set as high as 64,
+    // caps are not tied to each other anywhere, and `rcmValidityRounds` may be set as high as 63,
     // which widens every entry. So it is checked rather than argued: a sentence in a comment is what
     // this slice has already had to replace once with a throw (`makeMmrcm`'s own width guard).
     const cap = uwbMaxMmrcmInitiators(r.plan.rcmValidityRounds)
@@ -1388,7 +1438,7 @@ export class UwbDevice implements UwbRadio {
         // A two-way round's one initiator is an address; a many-to-many round has no tag to address
         // anything to and every frame of it is already a broadcast (design §6).
         r.plan.mode === 'm2m' ? UWB_BROADCAST : r.tagId,
-        r.block, r.round, slot, r.plan.rcmValidityRounds, entries,
+        r.block, r.round, slot, roundSetOf(r.plan, r.round).length, entries,
       ),
       null,
     )
@@ -1532,9 +1582,9 @@ export class UwbDevice implements UwbRadio {
         // schedule and the SRRR requests alone. Writing the counter here as well would leave the
         // round's two ends measuring from two different frames for one slot.
         if (!sp3Round(r.plan)) r.txPollCounter = txCounter
-        // Which of the two messages this block's slot 0 carries (standard §10.32.9.1, design §2):
-        // the control message at the head of each validity window, the initiation message alone in
-        // the blocks that window already paid for — no ARC, no RDM, `13 + 3A` octets lighter.
+        // Which of the two messages this round's slot 0 carries (standard §10.32.3.2, §10.32.9.1):
+        // the control message on the first round of each ranging round set, the initiation message
+        // alone on the set's later rounds — no ARC, no RR, no RDM, `16 + 3A` octets lighter.
         //
         // It carries **no schedule** (Ruling 3): the responders' slot table came from the still-
         // valid control message and restating it here would delete the saving, which is precisely
@@ -1544,7 +1594,8 @@ export class UwbDevice implements UwbRadio {
           ? makeInit(this.id, r.plan.method, r.block, r.round)
           : makePoll(this.id, peers.anchors, r.plan.method, r.block, r.round, {
             schedule: r.plan.schedule, contentionSlots: r.plan.contentionSlots,
-            maxAttempts: this.cfg.maxAttempts,
+            maxAttempts: contentionAttemptCap(r.plan, r.round, this.cfg.maxAttempts),
+            arc: arcFieldsFor(r.plan, r.round),
             // SP3's RCM also carries the responders' SRRR IEs — one per responder, standard
             // §10.32.9.9 — so a request is three octets a responder, where §10.36's MMRCR bit rides
             // a control octet this frame carries anyway. The initiation-only message of a later
@@ -1726,7 +1777,7 @@ export class UwbDevice implements UwbRadio {
     // message and the initiation message are the same opener as far as "did your message reach me"
     // is concerned, and splitting that between two call sites is how one of them later gets missed.
     // Keyed by the initiator this round belongs to, never by this device alone (`openerReceipt`).
-    this.noteOpener(r.tagId, r.block, r.plan)
+    this.noteOpener(r.tagId, r.block, r.round, r.plan)
     // The PPDU it just decoded, whose last symbol is where a fixed reply time is counted from. Read
     // off the frame that actually arrived, so the two messages' different airtimes need no second
     // definition at either end.

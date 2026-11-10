@@ -27,7 +27,7 @@ export type UwbFrameKind =
   // IE, "RCM Validity Rounds"; design §2 of docs/superpowers/specs/2026-10-01-rcm-validity-
   // design.md). Its own kind rather than a reuse of 'uwbPoll' (fix round 1 of task 1): in the
   // standard the control message and the ranging initiation message are two separate frames —
-  // §10.34's own figure draws both — and this engine fuses them only in a validity window's first
+  // §10.34's own figure draws both — and this engine fuses them only in a ranging round set's first
   // round. A later round's message is not a lighter Poll; it is the one of those two standard
   // messages that remains, and a distinct kind says so where reusing 'uwbPoll' would hide it. See
   // `makeInit` below.
@@ -126,10 +126,10 @@ export interface UwbM2mTimes {
 
 /**
  * One MMRC list entry of an RMMRC IE (standard §10.36.2.1): the initiator this entry answers and
- * which of that initiator's openers inside the current RCM validity window this responder
+ * which of that initiator's openers inside the current ranging round set this responder
  * actually received. `received[i]` is round i of the window in round order — index 0 the
  * control message that opened it, indices 1.. the initiation-only messages after it
- * (`uwb/session.ts#blockCarriesRcm`) — not a packed bitmap: `uwbMmrcmBytes`/`rmmrcEntryBytes`
+ * (`uwb/session.ts#roundCarriesRcm`) — not a packed bitmap: `uwbMmrcmBytes`/`rmmrcEntryBytes`
  * price the packed form separately, so this type carries the bits a device would read off the
  * air rather than the octets that got them there.
  */
@@ -200,6 +200,32 @@ export interface UwbSp0Msg {
   roundTripRctu?: number
 }
 
+/**
+ * The ARC IE's control bits (standard §10.32.9.1, Figure 10-244): the two octets every ARC IE
+ * carries, field by field. Its Content Control octet is not here because in this engine it is
+ * always zero — none of the optional duration or Session ID fields is carried (the block structure
+ * is the next higher layer's, §10.32.3.3) — and `ARC_IE_BYTES` prices it all the same.
+ */
+export interface UwbArcFields {
+  /** Table 10-163: 0 unicast, 1 one-to-many, 2 many-to-many. */
+  multiNode: 0 | 1 | 2
+  /** Table 10-164: 0 OWR, 1 SS-TWR, 2 DS-TWR, 3 ranging ancillary information exchange. */
+  roundUsage: 0 | 1 | 2 | 3
+  /** Table 10-165: 0 no STS, 1/2/3 STS packet structure #1/#2/#3. */
+  stsConfig: 0 | 1 | 2 | 3
+  /** Table 10-166: 0 contention-based, 1 scheduling-based. */
+  scheduleMode: 0 | 1
+  /** One when ranging slots are scheduled for deferred data frames after the ranging exchange. */
+  deferred: 0 | 1
+  /** Table 10-167: 0 interval-based, 1 block-based. */
+  timeStructure: 0 | 1
+  /** RCM Validity Rounds (6 bits): the rounds this RCM governs, its own included — the length of
+   * the ranging round set it opens. */
+  validityRounds: number
+  /** MMRCR: receipt confirmation requested (§10.36). */
+  mmrcr: 0 | 1
+}
+
 /** The ranging fields of a UWB frame; present on the UWB kinds only. */
 export interface UwbInfo {
   /** Which STS packet configuration this frame uses: 1 for every SP1 frame this engine builds
@@ -210,8 +236,11 @@ export interface UwbInfo {
   block: number
   round: number
   slot: number
-  /** Payload IEs carried, in order (e.g. ['ARC', 'RDM', 'RRMC']). */
+  /** Payload IEs carried, in order (e.g. ['ARC', 'RR', 'RDM', 'RRMC']). */
   ies: string[]
+  /** RCM only (the Poll): the ARC IE's control bits. The RR IE beside it carries `block` and `round`
+   * above as its Ranging Block Index and Round Index (§10.32.9.3). */
+  arc?: UwbArcFields
   /** Poll (time schedule): the anchors' ids in slot order (RDM IE). */
   schedule?: string[]
   /** Poll (contention schedule): the response phase any anchor may answer in (RCPS IE) and its
@@ -294,6 +323,10 @@ export interface PollOpts {
    * default to the session's own model defaults. */
   contentionSlots?: number
   maxAttempts?: number
+  /** The ARC IE's control bits; defaults to what the Poll's own other options imply, with a
+   * one-round set and no MMRCR. A two-way round's initiator passes the round's own
+   * (`device.ts#arcFieldsFor`). */
+  arc?: UwbArcFields
   /** DL-TDoA: anchor 0's own ranging times. A Poll that carries them is a DL-TDoA Poll, and the
    * three fields above mean nothing to it - a one-way round is time-scheduled by construction. */
   dl?: UwbDlTimes
@@ -312,43 +345,57 @@ export interface PollOpts {
 }
 
 /**
- * The tag's Poll: broadcast, either announcing the round's anchor order (time schedule: ARC + RDM
- * + RRMC) or opening a shared response phase (contention schedule, standard §10.32.2 mode 0: ARC +
- * RCPS + RCMA + RRMC) that any anchor may answer in.
+ * The tag's Poll — the RCM fused with the ranging initiation message (§10.32.2) — broadcast, either
+ * announcing the round's anchor order (time schedule: ARC + RR + RDM + RRMC) or opening a shared
+ * response phase (contention schedule, standard §10.32.2 mode 0: ARC + RR + RCPS + RCMA + RRMC) that
+ * any anchor may answer in. The RR IE carries the block and round indices (§10.32.3.3, §10.32.9.3).
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr }: PollOpts = {},
+  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr, arc }: PollOpts = {},
 ): FrameDesc {
+  const arcBits: UwbArcFields = arc ?? {
+    multiNode: 1,
+    roundUsage: dl ? 0 : method === 'ss' ? 1 : 2,
+    stsConfig: srrr ? 3 : 1,
+    scheduleMode: schedule === 'contention' && !dl ? 0 : 1,
+    deferred: 0,
+    timeStructure: 1,
+    validityRounds: 1,
+    mmrcr: 0,
+  }
   // DL-TDoA: anchor 0 polls, `anchors` are the responders it gives slots to, and the frame adds
   // anchor 0's own TX time so a listening tag can time the round on the anchors' clock.
   if (dl) {
     return uwbFrame('uwbPoll', tag, '*', uwbDlPollBytes(anchors.length, rxCount(dl), dl.coffs !== undefined), {
-      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RDM', 'RRMC', ...dlIes(dl)],
-      schedule: [...anchors], dl: copyDl(dl),
+      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RR', 'RDM', 'RRMC', ...dlIes(dl)],
+      arc: { ...arcBits }, schedule: [...anchors], dl: copyDl(dl),
     })
   }
   if (schedule === 'contention') {
     return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length, 'contention'), {
-      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RCPS', 'RCMA', 'RRMC'],
+      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RR', 'RCPS', 'RCMA', 'RRMC'],
+      arc: { ...arcBits },
+      // One CP Table Element (§10.32.9.5): the responders' contention phase, Phase Indicator 1.
       contention: { firstSlot: 1, lastSlot: contentionSlots, maxAttempts },
     })
   }
   return uwbFrame('uwbPoll', tag, '*', srrr ? uwbSp3PollBytes(anchors.length) : uwbPollBytes(anchors.length), {
     sp: 1, method, block, round, slot: 0,
-    ies: srrr ? ['ARC', 'RDM', 'RRMC', 'SRRR'] : ['ARC', 'RDM', 'RRMC'],
+    ies: srrr ? ['ARC', 'RR', 'RDM', 'RRMC', 'SRRR'] : ['ARC', 'RR', 'RDM', 'RRMC'],
+    arc: { ...arcBits },
     schedule: [...anchors],
     ...(srrr ? { srrr: { ...srrr } } : {}),
   })
 }
 
-/** The tag's initiation-only message (standard §10.32.9.1's ARC IE, "RCM Validity Rounds";
- * design §2): once a round's Poll has bought `rcmValidityRounds` rounds of airtime, every round
- * after the first carries this instead — no ARC, no RDM.
+/** The tag's initiation-only message (standard §10.32.3.2, §10.32.9.1's ARC IE, "RCM Validity
+ * Rounds"): once a round set's first round has carried the RCM, every later round of the set carries
+ * this instead — no ARC, no RR, no RDM.
  *
  * Its own `FrameKind` (`'uwbInit'`), not a reuse of `'uwbPoll'` (fix round 1 of task 1): in the
  * standard the control message and the ranging initiation message are two separate frames —
- * §10.34's own figure draws both — and this engine fuses them only in a validity window's first
+ * §10.34's own figure draws both — and this engine fuses them only in a ranging round set's first
  * round. A later round's message is therefore not a lighter Poll; it is the one of those two
  * standard messages that remains, once the control message's own validity has made it unnecessary
  * to send again. Reusing `'uwbPoll'` would say the opposite — that this is still the control
@@ -481,8 +528,8 @@ export function makeRmnr(anchor: string, tag: string, block: number, round: numb
 
 /** A responder's answer to a receipt-confirmation request (standard §10.36; design §3.2): one
  * RMMRC IE listing, per initiator, which of that initiator's window-openers this responder
- * actually received. `windowRounds` is the current RCM validity window's own length (R) — the
- * same number `blockCarriesRcm` uses — and sizes every entry's bitmap alike
+ * actually received. `windowRounds` is the current ranging round set's own length — the
+ * same number `roundSetOf` gives — and sizes every entry's bitmap alike
  * (`uwbMmrcmBytes`/`rmmrcEntryBytes`), so **every entry's `received` array has to be exactly that
  * long** — a bitmap narrower or wider than the window it describes is a different window the two
  * ends never agreed to.

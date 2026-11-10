@@ -278,14 +278,18 @@ describe('the embedded shapes are byte-identical to what they were before this s
    * the shipped scenes; this pins the bare two-node round the tests above vary, which no fixture
    * covers. It is expected to pass before the implementation as well as after — it is the guard,
    * not the goal. */
-  const BEFORE: Record<'ss' | 'ds', string> = { ss: '17ed177b', ds: '9eb598de' }
+  // Re-captured 2026-11-10: the Poll is three octets longer (ARC IE to the standard's content plus
+  // the RR IE, audit #9), which moves every instant after it.
+  const BEFORE: Record<'ss' | 'ds', string> = { ss: '28b51058', ds: 'ee0f2511' }
 
   it('is deterministic and byte-identical in the embedded shapes', () => {
+    const got: Record<string, string> = {}
     for (const method of ['ss', 'ds'] as const) {
       const rs = run(scenario({ method, nlos: false }))
         .filter((r) => r.type.startsWith('UWB_') || r.type === 'MAC_STATE')
-      expect(hashStr(JSON.stringify(rs)).toString(16), method).toBe(BEFORE[method])
+      got[method] = hashStr(JSON.stringify(rs)).toString(16)
     }
+    expect(got).toEqual(BEFORE)
   })
 })
 

@@ -350,48 +350,49 @@ describe('uwb-dstwr · ten slots and the frames that fill them', () => {
       ['Final', uwbFinalBytes(ANCHORS), 1],
       ['Report', UWB_REPORT_BYTES, ANCHORS],
     ]
-    expect(rows.map((r) => r[1])).toEqual([39, 14, 62, 24])
-    expect(rows.map((r) => uwbPpduNs(r[1]))).toEqual([206_859, 181_218, 236_603, 191_474])
+    // Poll 39 → 42 on 2026-11-10: ARC IE to the standard's content plus the RR IE (audit #9).
+    expect(rows.map((r) => r[1])).toEqual([42, 14, 62, 24])
+    expect(rows.map((r) => uwbPpduNs(r[1]))).toEqual([216_090, 181_218, 236_603, 191_474])
     rows.forEach(([label, octets, count], i) => {
       expect(cell(1, i, 0), `${label} name`).toBe(label)
       expect(cell(1, i, 1), `${label} count`).toBe(String(count))
       expect(cell(1, i, 2), `${label} octets`).toBe(String(octets))
       expect(cell(1, i, 3), `${label} airtime`).toBe(`${(uwbPpduNs(octets) / 1000).toFixed(2)} µs`)
     })
-    // its last row: Round total, 10 slots, 253 octets, 1 934.23 µs
+    // its last row: Round total, 10 slots, 253 octets, 1 943.46 µs
     const octets = rows.reduce((sum, [, b, n]) => sum + b * n, 0)
-    expect(octets).toBe(253)
+    expect(octets).toBe(256)
     const airtime = ofType(recs(), 'TX_START').reduce((sum, r) => sum + r.frame.txTimeNs, 0)
-    expect(airtime).toBe(206_859 + 4 * 181_218 + 236_603 + 4 * 191_474)
-    expect(airtime).toBe(1_934_230)
+    expect(airtime).toBe(216_090 + 4 * 181_218 + 236_603 + 4 * 191_474)
+    expect(airtime).toBe(1_943_461)
     expect(cell(1, 4, 1)).toBe(String(PLAN.slots))
     expect(cell(1, 4, 2)).toBe(String(octets))
-    expect(cell(1, 4, 3)).toBe('1 934.23 µs')
-    expect((airtime / 1000).toFixed(2)).toBe('1934.23')
+    expect(cell(1, 4, 3)).toBe('1 943.46 µs')
+    expect((airtime / 1000).toFixed(2)).toBe('1943.46')
   })
 
-  it('the round radiates 9.67 % of its 20 ms, against 9.56 % for the single-sided round', () => {
-    // "1 934.23 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for the
+  it('the round radiates 9.72 % of its 20 ms, against 9.66 % for the single-sided round', () => {
+    // "1 943.46 µs of radiation inside a 20 000 µs round is 9.67 %, against 9.56 % for the
     //  single-sided round of the lesson before."
     const airtime = ofType(recs(), 'TX_START').reduce((sum, r) => sum + r.frame.txTimeNs, 0)
-    expect((airtime / PLAN.roundNs * 100).toFixed(2)).toBe('9.67')
+    expect((airtime / PLAN.roundNs * 100).toFixed(2)).toBe('9.72')
     const ssPlan = roundPlan({ ...SESSION, method: 'ss' }, ANCHORS)
     const ssAir = uwbPpduNs(uwbPollBytes(ANCHORS)) + ANCHORS * uwbPpduNs(uwbRespBytes('ss'))
-    expect((ssAir / ssPlan.roundNs * 100).toFixed(2)).toBe('9.56')
+    expect((ssAir / ssPlan.roundNs * 100).toFixed(2)).toBe('9.66')
     expect(ssPlan.roundNs).toBe(10 * MS)
     // the picture's claim that the share "barely moves": under a tenth of a point apart
     expect(Math.abs(airtime / PLAN.roundNs - ssAir / ssPlan.roundNs) * 100).toBeLessThan(0.2)
   })
 
-  it('the Final is the largest frame and the one that grows fastest: 14 + 12N against the Poll’s 27 + 3N', () => {
-    // deeper: "14 + 12N octets against the Poll’s 27 + 3N — 62 here, 496 bits, two Reed–Solomon
+  it('the Final is the largest frame and the one that grows fastest: 14 + 12N against the Poll’s 30 + 3N', () => {
+    // deeper: "14 + 12N octets against the Poll’s 30 + 3N — 62 here, 496 bits, two Reed–Solomon
     //  blocks … A fifth anchor would add 12 octets to the Final and two slots, 4 ms, to the round."
     const sizes = [uwbPollBytes(ANCHORS), uwbRespBytes('ds'), uwbFinalBytes(ANCHORS), UWB_REPORT_BYTES]
     expect(Math.max(...sizes)).toBe(uwbFinalBytes(ANCHORS))
     expect(uwbFinalBytes(ANCHORS)).toBe(62)
     for (const n of [3, 4, 5]) {
       expect(uwbFinalBytes(n), `final ${n}`).toBe(14 + 12 * n)
-      expect(uwbPollBytes(n), `poll ${n}`).toBe(27 + 3 * n)
+      expect(uwbPollBytes(n), `poll ${n}`).toBe(30 + 3 * n)
     }
     // the Poll grows too — 3 octets an anchor — but the Final grows four times faster
     expect(uwbPollBytes(5) - uwbPollBytes(4)).toBe(3)
@@ -905,7 +906,7 @@ describe('uwb-dstwr · the quiz', () => {
   it('the quiz keys its answers to the numbers the lesson prints', () => {
     // every distractor that quotes a figure quotes one the main path also carries
     const text = prose()
-    for (const s of ['9.67 %', '9.56 %', '−5.49 m', '9.51', '−20.49', '3.51 m']) {
+    for (const s of ['9.72 %', '9.66 %', '−5.49 m', '9.51', '−20.49', '3.51 m']) {
       expect(text, s).toContain(s)
     }
     expect(uwbDstwr.quiz.map((q) => q.answer)).toEqual([1, 1, 1])
@@ -918,7 +919,7 @@ describe('uwb-dstwr · the quiz', () => {
  * **Twelve describes above, and the sweep still edits half the lesson.** `scripts/figure-planting`
  * plants one edit per printed figure and runs this file: of the 146 figures this lesson prints,
  * **75** could be edited with the suite green on 2026-10-13, four of them without an equal literal
- * anywhere under `tests/` — the round's own 20 000 µs and the 1 934.23 µs it radiates, the instant
+ * anywhere under `tests/` — the round's own 20 000 µs and the 1 943.46 µs it radiates, the instant
  * the anchor finishes its arithmetic, and the nanosecond the round ends at.
  *
  * Nothing new is measured below. Every assertion calls the same `recs`, `ranges`, `fourTimes`,
@@ -1000,7 +1001,7 @@ describe('uwb-dstwr · every figure the prose prints, read back out of it', () =
     expect(before, 'and the octets it carried in the single-sided lesson')
       .toBe(ssResp.frame.bytes)
     /*
-     * 「在 20 000 µs 的轮里辐射 1 934.23 µs，占 9.67 %，上一课那个单边轮是 9.56 %」 — the round
+     * 「在 20 000 µs 的轮里辐射 1 943.46 µs，占 9.67 %，上一课那个单边轮是 9.56 %」 — the round
      * and the microseconds it radiates were two of the four figures with no equal literal
      * anywhere under `tests/`.
      */
@@ -1082,7 +1083,7 @@ describe('uwb-dstwr · every figure the prose prints, read back out of it', () =
     expect(Math.round(Math.hypot(fix.x - fix.trueX, fix.y - fix.trueY) * 100),
       'the error between them, to the centimetre').toBe(val(errCm!))
     same(gdop!, fix.gdop, 'and the GDOP this symmetric ring gives')
-    // 「14 + 12N 字节，而 Poll 是 27 + 3N——此处 62 字节、496 位、两个 Reed–Solomon 码块」
+    // 「14 + 12N 字节，而 Poll 是 30 + 3N——此处 62 字节、496 位、两个 Reed–Solomon 码块」
     const [fBase, fPer, pBase, pPer, bytes, bits] = figs(deep,
       /：(\d+) \+ (\d+)N 字节，而 Poll 是 (\d+) \+ (\d+)N——此处 (\d+) 字节、(\d+) 位/,
       '`deeper` on how the two frames grow')

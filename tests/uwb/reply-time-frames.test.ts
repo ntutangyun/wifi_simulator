@@ -55,11 +55,12 @@ describe('the anchor cap is derived, not written down (design §5, Ruling 3)', (
     // Fix-round-1 finding: the old code took uwbFinalBytes(anchors) unconditionally for a
     // time-scheduled two-way round, even though the contention branch two lines below it already
     // knew a one-anchor Poll can outgrow the frame that ends the round. At one anchor the embedded
-    // Final is 26 octets and the Poll is 30 — the old code under-sized that slot's PPDU budget by
-    // four octets of airtime, silently, for every DS-TWR-embedded round of exactly one anchor.
-    expect(uwbPollBytes(1)).toBe(30)
+    // Final is 26 octets and the Poll is 33 (30 before 2026-11-10, when the RCM's ARC IE took the
+    // standard's content and the RR IE joined it — audit #9) — the old code under-sized that slot's
+    // PPDU budget, silently, for every DS-TWR-embedded round of exactly one anchor.
+    expect(uwbPollBytes(1)).toBe(33)
     expect(uwbFinalBytes(1, 'embedded')).toBe(26)
-    expect(uwbLongestFrameBytes(1, 'twr', 'time', 'ds', 'embedded')).toBe(30)
+    expect(uwbLongestFrameBytes(1, 'twr', 'time', 'ds', 'embedded')).toBe(33)
   })
 
   it('DS-TWR deferred and all three SS-TWR shapes clear the old cap: none has a Final that binds it', () => {
@@ -91,14 +92,14 @@ describe('the anchor cap is derived, not written down (design §5, Ruling 3)', (
   })
 
   it('gives a contention round the same ceiling, not the PSDU limit as an anchor count (fix round 1)', () => {
-    // Neither the contention Poll (a flat 31 octets — RCPS + RCMA stand in for the RDM anchor
+    // Neither the contention Poll (a flat 35 octets since 2026-11-10 — RCPS + RCMA stand in for the RDM anchor
     // list) nor the SS Response grows with the anchor count, so nothing about the PSDU bounds a
     // contention round either — exactly the UL-TDoA situation, and it needs the same answer for
     // the same reason. What actually bounds a contention round is collision probability and
     // `contentionSlots`, neither of which is a frame length, so returning the search ceiling
     // (rather than the byte limit standing in for an anchor count) is the honest answer.
-    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBe(31)
-    expect(uwbLongestFrameBytes(UWB_ANCHOR_SEARCH_CEILING, 'twr', 'contention')).toBe(31)
+    expect(uwbLongestFrameBytes(1, 'twr', 'contention')).toBe(35)
+    expect(uwbLongestFrameBytes(UWB_ANCHOR_SEARCH_CEILING, 'twr', 'contention')).toBe(35)
     expect(uwbMaxAnchors('twr', 'ss', 'embedded', 'contention')).toBe(UWB_ANCHOR_SEARCH_CEILING)
     expect(uwbMaxAnchors('twr', 'ss', 'fixed', 'contention')).toBe(UWB_ANCHOR_SEARCH_CEILING)
   })

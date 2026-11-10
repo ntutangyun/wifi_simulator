@@ -68,7 +68,7 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
   it('round-trips: the schema can parse its own output (twr)', () => {
     // A valid, non-default combination (mmrcr needs rcmValidityRounds above 1 in twr) — the slice
     // 1 Ruling 4 bug this brief names was exactly a schema whose own output was not valid input.
-    const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'twr', rcmValidityRounds: 4, mmrcr: true }
+    const cfg: UwbSessionCfg = { ...DEFAULT_UWB_SESSION, mode: 'twr', rcmValidityRounds: 4, initiatorRounds: 4, mmrcr: true }
     const once = ScenarioSchema.parse(uwbScenario(twoAnchorsOneTag(), cfg))
     // Pinned so this cannot pass vacuously by both sides simply lacking the field.
     expect(once.uwb?.mmrcr).toBe(true)
@@ -100,7 +100,7 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
       expect(msg).toMatch(/Response/)
     }
     // rcmValidityRounds above 1 makes the same combination legal.
-    const ok: UwbSessionCfg = { ...cfg, rcmValidityRounds: 2 }
+    const ok: UwbSessionCfg = { ...cfg, rcmValidityRounds: 2, initiatorRounds: 2 }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), ok)).success).toBe(true)
   })
 
@@ -134,7 +134,7 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
 
   it("contention: refused regardless of mode — a drawn slot cannot back a confirmation", () => {
     const cfg: UwbSessionCfg = {
-      ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'contention', mmrcr: true, rcmValidityRounds: 4,
+      ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', schedule: 'contention', mmrcr: true, rcmValidityRounds: 4, initiatorRounds: 4,
     }
     const r = ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg))
     expect(r.success).toBe(false)
@@ -156,7 +156,7 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     if (r.success) expect(r.data.uwb?.mmrcr).toBe(true)
     // Still pinned at rcmValidityRounds 1 for m2m (its own pre-existing rule); mmrcr does not
     // relax that, and the window it covers is exactly the round that just ran.
-    const raised: UwbSessionCfg = { ...cfg, rcmValidityRounds: 4 }
+    const raised: UwbSessionCfg = { ...cfg, rcmValidityRounds: 4, initiatorRounds: 4 }
     expect(ScenarioSchema.safeParse(uwbScenario(m2mNodes(3), raised)).success).toBe(false)
   })
 
@@ -182,9 +182,12 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     // Measured via uwbSlotsPerTag('ss', 2, 'time', 8, 'twr'), not assumed: an SS-TWR round at 2
     // anchors is 3 slots (1 Poll + 2 Response).
     const slots = 3
+    // A set of two rounds lives in one block (standard §10.32.9.1), so the tag runs two rounds a
+    // block and the block is sized at exactly those two rounds — no room for the set-closing round's
+    // extra slots. (Until 2026-11-10 this was one round a block and a two-block window.)
     const cfg: UwbSessionCfg = {
-      ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', mmrcr: true, rcmValidityRounds: 2,
-      blockRstu: slots * DEFAULT_UWB_SESSION.slotRstu, // exactly one round, no room for +1
+      ...DEFAULT_UWB_SESSION, mode: 'twr', method: 'ss', mmrcr: true, rcmValidityRounds: 2, initiatorRounds: 2,
+      blockRstu: 2 * slots * DEFAULT_UWB_SESSION.slotRstu, // exactly two rounds, no room for the extras
     }
     const r = ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), cfg))
     expect(r.success).toBe(false)
@@ -202,7 +205,7 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
     // if the scene gains an anchor.
     const anchorsHere = twoAnchorsOneTag().filter((n) => n.uwb?.role === 'anchor').length
     const roomy: UwbSessionCfg = {
-      ...cfg, blockRstu: (slots + anchorsHere) * DEFAULT_UWB_SESSION.slotRstu,
+      ...cfg, blockRstu: (2 * slots + anchorsHere) * DEFAULT_UWB_SESSION.slotRstu,
     }
     expect(ScenarioSchema.safeParse(uwbScenario(twoAnchorsOneTag(), roomy)).success).toBe(true)
   })
@@ -236,8 +239,10 @@ describe('mmrcr — the scenario schema (design §3.1/§4)', () => {
    * pins that rather than leaving it to a sentence in a report.
    */
   const nodesFor = (mode: UwbMode): NodeCfg[] => (mode === 'm2m' ? m2mNodes(3) : mode === 'dl-tdoa' || mode === 'ul-tdoa' ? fourAnchorsOneTag() : twoAnchorsOneTag())
+  // A two-way tag runs as many rounds a block as its set needs (standard §10.32.9.1).
   const cfgFor = (mode: UwbMode, mmrcr: boolean, schedule: 'time' | 'contention', rcmValidityRounds: number): UwbSessionCfg => ({
     ...DEFAULT_UWB_SESSION, mode, mmrcr, schedule, rcmValidityRounds,
+    ...(mode === 'twr' ? { initiatorRounds: rcmValidityRounds } : {}),
     ...(mode === 'm2m' || schedule === 'contention' ? { method: 'ss' as const } : {}),
   })
 

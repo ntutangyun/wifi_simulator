@@ -45,8 +45,12 @@ const RUN_NS = 1300 * MS
 const BLOCK_NS = roundPlan(uwbReceiptScenario().uwb!, PARTICIPANTS).blockNs
 /** One many-to-many block: in that mode every block is its own validity window. */
 const ONE_BLOCK = BLOCK_NS - MS
-/** Four blocks of a two-way window plus the one that opens the next (design §3.3). */
-const TWR_NS = BLOCKS * BLOCK_NS - MS
+/** The four rounds of a two-way set (block 0) plus the round that opens the next (block 1's
+ * first), ending a microsecond before block 1's second round would start. Until 2026-11-10 this
+ * was five one-round blocks: a set now lives inside one block (standard §10.32.9.1, audit #23). */
+const TWR_NS = BLOCK_NS + roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS).roundNs - 1000
+/** A two-way round's running number across blocks: the tag runs `VALIDITY` rounds a block. */
+const rn = (u: { block: number; round: number }): number => u.block * VALIDITY + u.round
 
 lessonShapeSuite(uwbReceipt, { runNs: RUN_NS })
 
@@ -57,14 +61,14 @@ const run = (sc: Scenario, ns: number): TLRecord[] => {
 
 /** Every confirmation frame the air carried, with its list as the frame built it. */
 const sent = (rs: TLRecord[]): {
-  node: string; dst: string; bytes: number; block: number; slot: number; ies: string[]
+  node: string; dst: string; bytes: number; block: number; round: number; slot: number; ies: string[]
   list: { initiator: string; bits: string }[]
 }[] =>
   ofType(rs, 'TX_START')
     .filter((r) => r.frame.kind === 'uwbMmrcm')
     .map((r) => ({
       node: r.node, dst: r.frame.dst, bytes: r.frame.bytes,
-      block: r.frame.uwb?.block ?? -1, slot: r.frame.uwb?.slot ?? -1,
+      block: r.frame.uwb?.block ?? -1, round: r.frame.uwb ? rn(r.frame.uwb) : -1, slot: r.frame.uwb?.slot ?? -1,
       ies: [...(r.frame.uwb?.ies ?? [])],
       list: (r.frame.uwb?.mmrc ?? []).map((e) => ({
         initiator: e.initiator, bits: e.received.map((b) => (b ? '1' : '0')).join(''),
@@ -101,8 +105,10 @@ describe('uwb-receipt · where it sits in the course', () => {
       .toEqual(['model-value', 'unmodelled', 'out-of-scope', 'out-of-scope', 'model-value'])
     const text = uwbReceipt.limits.map((l) => l.text).join('\n')
     // the window is this simulator's choice, and the limit says the two things that make it so
-    expect(text).toContain('位图宽度按窗口的块数算')
-    expect(text).toContain('窗口起点按块号算')
+    // 「…按窗口的块数算」「…按块号算」 until 2026-11-10: the window is a ranging round set, counted in
+    // rounds inside one block (standard §10.32.9.1, audit #23).
+    expect(text).toContain('位图宽度按窗口的轮数算')
+    expect(text).toContain('窗口起点按块号与轮号算')
     // the short address is the only one built, though the standard allows two sizes
     expect(text).toContain('短地址')
     expect(text).toContain('Address Size')
@@ -228,27 +234,28 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
   const on = run(uwbReceiptTwrScenario(true), TWR_NS)
   const off = run(uwbReceiptTwrScenario(false), TWR_NS)
 
-  /** The frame the tag opened each block with, as the air carried it. */
+  /** The frame the tag opened each round with, as the air carried it; `block` is the round's `rn`. */
   const openers = (rs: TLRecord[]): { block: number; kind: string; bytes: number; ies: string[] }[] =>
     ofType(rs, 'TX_START')
       .filter((r) => r.node === 'uwb-1' && (r.frame.kind === 'uwbPoll' || r.frame.kind === 'uwbInit'))
       .map((r) => ({
-        block: r.frame.uwb?.block ?? -1, kind: r.frame.kind, bytes: r.frame.bytes,
+        block: r.frame.uwb ? rn(r.frame.uwb) : -1, kind: r.frame.kind, bytes: r.frame.bytes,
         ies: [...(r.frame.uwb?.ies ?? [])],
       }))
 
-  it(`「第一块 ${RCM_BYTES} 字节、其余各块 ${INIT_BYTES} 字节」, the same either way, IE for IE`, () => {
+  it(`「第一轮 ${RCM_BYTES} 字节、其余各轮 ${INIT_BYTES} 字节」, the same either way, IE for IE`, () => {
     expect(openers(off).map((o) => o.block)).toEqual([0, 1, 2, 3, 4])
     expect(openers(off).map((o) => o.bytes)).toEqual([RCM_BYTES, INIT_BYTES, INIT_BYTES, INIT_BYTES, RCM_BYTES])
-    expect(openers(off).map((o) => o.bytes)).toEqual([36, 14, 14, 14, 36])
+    // 36 until 2026-11-10: the ARC IE took the standard's content and the RR IE joined it (audit #9).
+    expect(openers(off).map((o) => o.bytes)).toEqual([39, 14, 14, 14, 39])
     expect(RCM_BYTES).toBe(uwbPollBytes(ANCHORS))
     expect(INIT_BYTES).toBe(uwbInitBytes())
     // the request is a bit of a word the ARC IE already carries, so the frame does not grow
     expect(openers(on)).toEqual(openers(off))
-    expect(openers(on)[0].ies).toEqual(['ARC', 'RDM', 'RRMC'])
+    expect(openers(on)[0].ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC'])
   })
 
-  it(`「${TWR.confirmations} 帧，各 ${BYTES.twr} 字节」, from the window-closing block only`, () => {
+  it(`「${TWR.confirmations} 帧，各 ${BYTES.twr} 字节」, from the set-closing round only`, () => {
     const frames = sent(on)
     expect(frames.map((f) => f.node)).toEqual(['anchor-1', 'anchor-2', 'anchor-3'])
     expect(frames).toHaveLength(TWR.confirmations)
@@ -257,8 +264,8 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
       expect(f.bytes, f.node).toBe(BYTES.twr)
       expect(f.bytes, f.node).toBe(uwbMmrcmBytes(TWR_ENTRIES, VALIDITY))
       expect(f.bytes, f.node).toBe(18)
-      expect(f.block, f.node).toBe(TWR.block)
-      expect(f.block, f.node).toBe(VALIDITY - 1)
+      expect(f.round, f.node).toBe(TWR.block)
+      expect(f.round, f.node).toBe(VALIDITY - 1)
       // one entry — the round's single initiator — and it is addressed to it, not multicast
       expect(f.list.map((e) => e.initiator), f.node).toEqual(['uwb-1'])
       expect(f.list[0].bits, f.node).toBe('1'.repeat(BITS.twr))
@@ -270,7 +277,7 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
     expect(ofType(off, 'UWB_MMRCM')).toHaveLength(0)
   })
 
-  it(`「轮走完之后多出 ${SLOTS.twrExtra} 个时隙」, and only on the window-closing block`, () => {
+  it(`「轮走完之后多出 ${SLOTS.twrExtra} 个时隙」, and only on the set-closing round`, () => {
     const plan = roundPlan(uwbReceiptTwrScenario(true).uwb!, ANCHORS)
     expect(SLOTS.twrRound).toBe(plan.slots)
     expect(SLOTS.twrExtra).toBe(mmrcmResponders(plan))
@@ -279,7 +286,7 @@ describe('uwb-receipt · asking is free, answering costs a frame', () => {
       const high = new Map<number, number>()
       let block = 0
       for (const r of rs) {
-        if (r.type === 'UWB_ROUND' && r.node === 'uwb-1') block = r.block
+        if (r.type === 'UWB_ROUND' && r.node === 'uwb-1') block = rn(r)
         if (r.type === 'UWB_SLOT' && r.node === 'uwb-1') {
           high.set(block, Math.max(high.get(block) ?? 0, r.slot))
         }
@@ -489,12 +496,12 @@ describe('uwb-receipt · every figure the prose prints, read back out of it', ()
     const off = run(uwbReceiptTwrScenario(false), TWR_NS)
     const openerOf = (rs: TLRecord[], kind: string): number => ofType(rs, 'TX_START')
       .filter((r) => r.frame.kind === kind)[0]!.frame.bytes
-    // 「窗口第一块的开场消息」 and 「窗口其余各块的开场消息」 — the same price either way
-    const [offFirst, onFirst] = row('窗口第一块的开场消息').map((c) => val(c.replace(' 字节', '')))
+    // 「这组第一轮的开场消息」 and 「这组其余各轮的开场消息」 — the same price either way
+    const [offFirst, onFirst] = row('这组第一轮的开场消息').map((c) => val(c.replace(' 字节', '')))
     expect(onFirst, 'the control message costs the same with the request on').toBe(offFirst)
     expect(openerOf(off, 'uwbPoll'), 'and that is what it really costs').toBe(offFirst)
     expect(openerOf(on, 'uwbPoll'), 'both ways').toBe(onFirst)
-    const [offRest, onRest] = row('窗口其余各块的开场消息').map((c) => val(c.replace(' 字节', '')))
+    const [offRest, onRest] = row('这组其余各轮的开场消息').map((c) => val(c.replace(' 字节', '')))
     expect([openerOf(off, 'uwbInit'), openerOf(on, 'uwbInit')], 'and so does the initiation message')
       .toEqual([offRest, onRest])
     // 「回来的 MMRCM」: none when the request is off, and this many when it is on
