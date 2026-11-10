@@ -440,7 +440,8 @@ describe('uhr exists in the engine, and reaches a reader only through M13', () =
     expect(PHY_MODE_ORDER.filter((m) => !MODE_OPTIONS.includes(m))).toEqual(['uhr'])
     // and the lesson really does ask the widget for the OLD ladder, which is what makes the
     // paragraph above a description of this course rather than an intention about it
-    const w = LESSONS.find((l) => l.id === 'uhr-rate-ladder')!.numbers!
+    // standard-first since 2026-11-11: the widget lives in a lab's blocks
+    const w = LESSONS.find((l) => l.id === 'uhr-rate-ladder')!.labs!.flatMap((x) => x.blocks ?? [])
       .filter((b) => b.kind === 'widget')
     expect(w.length).toBe(1)
     expect(w[0]!.kind === 'widget' && w[0].params?.mode).toBe('eht')

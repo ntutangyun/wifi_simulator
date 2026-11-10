@@ -20,8 +20,9 @@
  *    side on which direction the debt moves: more debt and less debt are both legal, as long as
  *    the ledger follows.
  *  - the shape already exists in this repository, added after that ruling: `tests/smoke.test.ts`
- *    › `the cost ceiling's written measurement`, and `tests/course/limits.test.ts` reading
- *    `docs/uwb-modellable-backlog.md`. It is the `statedFigures` / `statedCounts` ruler.
+ *    › `the cost ceiling's written measurement` (and, until `limits` was retired on 2026-11-11,
+ *    `tests/course/limits.test.ts` reading `docs/uwb-modellable-backlog.md`). It is the
+ *    `statedFigures` / `statedCounts` ruler.
  *  - a stated figure with no check is the very accident §10 is about. A section whose whole
  *    subject is "a rule was deleted and nobody took the requirement over" cannot be allowed to
  *    carry a 53 that nobody reads back.
@@ -39,8 +40,8 @@
  *  - WITHIN a lesson a bare use after the lesson's own longer compound is anaphora, and exempt;
  *  - `terms` is a lookup table, so a gloss there counts wherever the bare use is.
  *
- * It walks the main path only (`deeper`, `sources` and `limits` are not the reader's way through
- * a lesson), and it is the ledger's whole scope: a word in NEITHER table — bare 门限 — is
+ * It walks the main path only (`sources` is not the reader's way through a lesson; `deeper` and
+ * `limits`, which it also skipped, were retired with the standard-first restructure on 2026-11-11), and it is the ledger's whole scope: a word in NEITHER table — bare 门限 — is
  * invisible to it, which is why §10.5 ends by measuring that case too.
  *
  * **§10.6's third reopen condition — widen the scope to words in neither table — was judged on
@@ -72,6 +73,8 @@ const words = ZH_TERMS_EXCLUDED.map((x) => x.zh)
 
 /** The sections a reader walks on the way through a lesson. */
 // The standard-first shape (2026-11-10) adds ① standard, ② implementation and ③ labs, all on the main path.
+// `body`, `picture`, `numbers`, `observe` and `tryThis` stay in the set but are empty in every lesson
+// since 2026-11-11 (RETIRED_SECTIONS in readability.ts; readability-rules.test.ts pins them at zero).
 const MAIN = new Set(['why', 'outcomes', 'terms', 'standard', 'implementation', 'labs', 'body', 'picture', 'numbers', 'observe', 'tryThis', 'quiz'])
 const main = (l: Lesson): readonly LessonText[] => lessonTexts(l).filter((t) => MAIN.has(t.section))
 

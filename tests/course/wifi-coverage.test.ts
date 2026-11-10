@@ -58,10 +58,7 @@ import {
   type SymbolCitation,
 } from './coverage'
 import { orderedLessons } from './corpus'
-import {
-  LIMITS_DEBT_CEILING, MAIN_PATH_BAND, armsTotal, criterionP, gradedWalkFailures, leadOf,
-  lessonsOwing, limitsRatchet, sideDebts, sumRelation, type Arms, type Lead,
-} from './coverageNumbers'
+import { MAIN_PATH_BAND } from './coverageNumbers'
 
 const DOC = 'docs/wifi-feature-coverage.md'
 const doc = readDoc(DOC)
@@ -379,45 +376,19 @@ const FIG_HEAD = ['量', '实测', '断言在哪', '余量']
 /** The header of §14's 「引擎建了，无课」 summary table. */
 const BUILT_HEAD = ['#', '它是什么', '引擎', '这张表的哪一节']
 
-/**
- * The header of §17's three-sides table — the criterion Q debt of `limits`, `sources` and
- * `deeper`, their lesson counts, the margins between them, and (since 2026-10-11) the same three
- * sides under criterion P with its own margin column.
- *
- * **Both column pairs name their criterion, and the header is what the table is SELECTED on.**
- * P and Q are two different rules over the same text, their figures are close enough to be taken
- * for each other, and the filing design document was written wrong once by taking one for the
- * other. So a header that stops saying 「判据 Q：」 or 「判据 P：」 does not quietly re-label a
- * column: the table stops being found at all, and the failure prints this array.
- */
-const SIDE_HEAD = ['字段', '判据 Q：实测（课，术语）对', '涉及课数', '判据 Q：与 `limits` 比的余量',
-  '判据 P：括号臂 ＋ aka 臂 ＝ 合计', '判据 P：与 `limits` 比']
-
 const ordered = orderedLessons()
 
 /**
- * **The `limits` ratchet row, which until 2026-10-09 was the one row of §17 that was not measured
- * at all.** It used to be read like this:
- *
- * ```
- * const src = readFileSync(resolve(ROOT, 'tests/course/readability.test.ts'), 'utf8')
- * const m = /owes no more than (\d+) \(lesson, term\) pairs/.exec(src)
- * ```
- *
- * — the ceiling, lifted out of the ratchet's own `it` TITLE with a regex. That compared two pieces
- * of text, and the row states two numbers: the debt (实测) and the slack under the ceiling (余量,
- * printed as **0**, i.e. 「the debt has filled the ratchet exactly」). Neither was measured. Pay
- * four pairs back without lowering the ceiling — which slice 3d did, 296 → 292 — and that 0 is
- * silently false while both pieces of text still match each other.
- *
- * So the debt is measured now, by {@link limitsRatchet} in `tests/course/coverageNumbers.ts`, which is
- * the same call the ratchet assertion itself makes; the ceiling is `LIMITS_DEBT_CEILING` in that
- * module, cited by both the assertion's title and this document's 断言在哪 cell; and the 余量 is
- * `ceiling − debt`. The regex over a test file's source is gone.
+ * **The `limits` ratchet row, retired 2026-11-11.** From 2026-10-09 it was measured by
+ * `limitsRatchet()` in `./coverageNumbers` (before that, by a regex over the ratchet's own `it`
+ * title, which could not tell a paid-down debt from a stale ceiling). The standard-first
+ * restructure removed `limits` from every lesson, so the debt was 0 against a ceiling of 169 and
+ * the row, its ceiling check and its 余量 check measured an empty field. The row is gone from
+ * §17, the instrument from `./coverageNumbers`, and the `it`s that read it from here.
  */
 
 /**
- * Every figure of §17's summary table, next to the thing that measures it. A `Map` rather than six
+ * Every figure of §17's summary table, next to the thing that measures it. A `Map` rather than five
  * assertions so that the set of labels can be compared against the table as a whole: a seventh row
  * added to that table has to be answered here, and a row that stops opening with its figure makes
  * the two sizes disagree. **There is no literal figure in this file** — the same rule as the rest
@@ -426,7 +397,6 @@ const ordered = orderedLessons()
 const FIGURES: ReadonlyMap<string, () => number> = new Map([
   ['全课程主路径汉字', () => ordered.reduce((n, l) => n + mainPathChars(l), 0)],
   ['分钟数合计', () => ordered.reduce((n, l) => n + lessonMinutes(l), 0)],
-  ['`limits` 债务棘轮', () => limitsRatchet().debt],
   ['课数', () => ordered.length],
   ['模块数', () => MODULES.length],
   ['场景数（含 variants）',
@@ -463,7 +433,7 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       .toBe(rowCount)
   })
 
-  it('states exactly the six figures this file measures, and no seventh', () => {
+  it('states exactly the five figures this file measures, and no sixth', () => {
     expect([...figures.keys()], 'a row added to or removed from §17 owes a line in FIGURES saying'
       + ' what measures it; an unanswered row is an unchecked number')
       .toEqual([...FIGURES.keys()])
@@ -505,77 +475,40 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
     }
   })
 
-  it('states the ratchet ceiling and the slack left under it, and both are measured', () => {
-    // The 实测 column of this row is covered by the `it.each` above (it is now the measured debt,
-    // not a regex over a test file's title). The other two numbers in the row are this one's: the
-    // ceiling the 断言在哪 cell cites, and the 余量 the row promises a reader.
-    const row = dataRows(doc, FIG_HEAD)
-      .find((r) => r[0].replaceAll('*', '').trim() === '`limits` 债务棘轮')
-    expect(row, 'the `limits` ratchet row is gone from §17').toBeDefined()
-
-    const cited = /≤ (\d+)/.exec(row![2])
-    expect(cited, 'the 断言在哪 cell no longer cites the ceiling as 「≤ N」').not.toBeNull()
-    expect(Number(cited![1]), 'the ceiling §17 cites, against LIMITS_DEBT_CEILING in'
-      + ' tests/course/coverageNumbers.ts. Raising the ceiling needs a human to agree to it, and'
-      + ' nothing may raise it to make a build green — so the two statements of it are compared')
-      .toBe(LIMITS_DEBT_CEILING)
-
-    const stated = /^-?\d+$/.exec(row![3].replaceAll('*', '').trim())
-    expect(stated, 'the 余量 cell of the ratchet row is no longer a bare integer; it is the one'
-      + ' cell of this column that carries a figure rather than prose').not.toBeNull()
-    const { debt } = limitsRatchet()
-    expect(Number(stated![0]), `§17 says the ratchet has ${stated![0]} left. The measured debt is`
-      + ` ${debt} against a ceiling of ${LIMITS_DEBT_CEILING}, so the slack is`
-      + ` ${LIMITS_DEBT_CEILING - debt}. Pay debt down without lowering the ceiling and this`
-      + ' figure goes quietly false, which is exactly what it was free to do while the row was'
-      + " checked by reading the ratchet's own `it` title.")
-      .toBe(LIMITS_DEBT_CEILING - debt)
-  })
-
-  it('holds two zeros in 余量 that are not the same kind of zero, and neither is decoration', () => {
-    // **The last block of this family, and the one that looked finished.** Two rows of §17 print a
-    // bare `0` in 余量 and they mean different things:
-    //
-    //  - the ratchet's 0 is `上限 − 实测债务`. It CAN be non-zero, and the `it` above measures it.
-    //  - the minute sum's 0 is structural: the figure is held by an EQUALITY (`.toBe(1 875)` in
-    //    readability.test.ts, and the `it.each` above compares §17's copy with `.toBe` as well),
-    //    so the set of passing values is a single point and the slack is identically zero. There
-    //    is nothing to measure; what there is to assert is that it is 0 and that the cell beside
-    //    it still says 等式, because the day that assertion is relaxed to a band this 0 becomes a
-    //    figure nobody computes — the ratchet's old shape exactly.
-    //
-    // So the two are answered by kind, and the KIND SET is pinned: a third row printing a bare
-    // integer in 余量 owes a line here, which is how 「a 0 that looks checked」 stops being free.
-    const KINDS: ReadonlyMap<string, 'equality' | 'ceiling'> = new Map([
-      ['`limits` 债务棘轮', 'ceiling'],
-    ])
+  it('prints no bare number in 余量, because the one row that measured a slack is retired', () => {
+    // **Rewritten 2026-11-11.** Until then two rows of §17 printed a bare `0` in 余量 and this `it`
+    // answered each by kind: the `limits` ratchet's 0 was `上限 − 实测债务` (measurable, and measured),
+    // the minute sum's was structural (an equality has one passing value). The minute equality
+    // went on 2026-11-10 and the ratchet row on 2026-11-11, with `limits` itself. So the kind set
+    // is empty now, and that is what is pinned: a row that prints a bare integer in 余量 again owes
+    // this file a line saying which kind of slack it is and what measures it — otherwise it is a 0
+    // that looks checked, which is how this family of defects starts.
     const bare = dataRows(doc, FIG_HEAD)
       .filter((r) => /^-?\d+$/.test(r[3].replaceAll('*', '').trim()))
-    expect(bare.map((r) => r[0].replaceAll('*', '').trim()),
-      'a row of §17 prints a bare number in 余量 and nothing here says which kind of 余量 it is;'
-      + ' an unanswered one is the defect this layer exists for')
-      .toEqual([...KINDS.keys()])
+      .map((r) => r[0].replaceAll('*', '').trim())
+    expect(bare, 'a row of §17 prints a bare number in 余量 and nothing here says what kind of'
+      + ' 余量 it is or what measures it').toEqual([])
+    // Non-vacuity: the column is still there and still read — the floor row's 无上沿 is in it.
+    expect(dataRows(doc, FIG_HEAD).map((r) => r[3]).join(' ')).toContain('无上沿')
+  })
 
-    const { debt } = limitsRatchet()
-    for (const row of bare) {
-      const label = row[0].replaceAll('*', '').trim()
-      const stated = Number(row[3].replaceAll('*', '').trim())
-      if (KINDS.get(label) === 'equality') {
-        expect(row[2], `§17 says ${label} has 余量 ${stated}, which is only true because the`
-          + ' assertion behind it is an equality — and its 断言在哪 cell no longer says 等式')
-          .toContain('等式')
-        expect(stated, `§17 says ${label} has 余量 ${stated}. An equality has a single passing`
-          + ' value, so its slack is identically 0 — not 0 as a coincidence of today, and not a'
-          + ' number anybody computes. If this is ever non-zero the assertion stopped being an'
-          + ' equality, and then the figure needs a measured 余量 like the ratchet row has.')
-          .toBe(0)
-      } else {
-        expect(row[2], `§17 says ${label} has 余量 ${stated}; a measured slack needs a ceiling`
-          + ' and its 断言在哪 cell no longer cites one as 「≤ N」').toMatch(/≤ \d/)
-        expect(stated, 'the measured slack, which is the one of these two zeros that can move')
-          .toBe(LIMITS_DEBT_CEILING - debt)
-      }
-    }
+  it('says the ratchet and the three-sides table were retired, and points at what guards now', () => {
+    // A retirement stated to a reader is a claim like any other: it names the tests that took
+    // over, so those tests have to exist and say what §17 says they say.
+    expect(doc, '§17 no longer records the 2026-11-11 retirement').toContain('2026-11-11：`limits` 债务棘轮与「三侧表」退役')
+    const readability = readFileSync(resolve(ROOT, 'tests/course/readability.test.ts'), 'utf8')
+    expect(readability, 'the readability describe §17 points at is gone')
+      .toContain('what `limits` held is graded and timed now')
+    const limits = readFileSync(resolve(ROOT, 'tests/course/limits.test.ts'), 'utf8')
+    expect(limits, 'the limits.test describe §17 points at is gone')
+      .toContain('the sections the standard-first restructure retired cannot come back')
+    const rules = readFileSync(resolve(ROOT, 'tests/course/readability-rules.test.ts'), 'utf8')
+    expect(rules, 'the census §17 points at no longer pins the retired sections').toContain('RETIRED_SECTIONS')
+    // and §10 of the wording contract, which used to be this table's other ledger, says the same
+    const contract = 'docs/course-wording-contract.md'
+    expect(doc, `§17 must name ${contract} §10`).toContain(`${contract}\` §10`)
+    expect(readDoc(contract), '§10 must name §17, where the retirement is recorded')
+      .toContain(`${DOC}\` §17`)
   })
 
   it('states the per-lesson floor, and says there is no ceiling any more', () => {
@@ -626,8 +559,8 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
   })
 
   it('states how many figures that table holds, in the prose above it', () => {
-    // 「下面那张汇总表」 since 2026-10-11: §17 holds a second measured table now (the three
-    // sides of the limits comparison), so 「下面那张表」 stopped naming one table.
+    // 「下面那张汇总表」 since 2026-10-11, when §17 held a second measured table (the three
+    // sides of the limits comparison, retired 2026-11-11); the wording stayed.
     const m = /是下面那张汇总表里的\*\*(.+?)\*\*个数/.exec(doc)
     expect(m, '§17 no longer says how many figures its table holds').not.toBeNull()
     expect(zhNumeral(m![1]), `§17 says 「${m![1]}个数」`).toBe(figures.size)
@@ -668,266 +601,6 @@ describe(`${DOC}'s §17 summary table states figures, and every one is measured`
       expect(stated, `§17 states \`${id}\` = ${stated} main-path characters`)
         .toBe(mainPathChars(l!))
     }
-  })
-})
-
-/**
- * **§17's three-sides table: the figure that used to be an assertion.**
- *
- * Until 2026-10-11 `readability.test.ts` asserted that the `limits` debt exceeded `sources` and
- * `deeper` PUT TOGETHER. That comparison ran out of road: its margin was 28 at its filing commit
- * (`2514723`, measured again at that commit by the slice that re-aimed it) and 3 by the time
- * anybody re-read it, and nobody chose 3 — the sum side grew by 18 while the left side was paid
- * down, and 20 of what it gained is carried by the eight lessons added since the filing. One more
- * median lesson of this course would have reddened it, on a file that lesson did not open. Slice
- * W17 re-aimed the assertion onto each field ALONE — which is the claim the ratchet is actually
- * pinned on, `limits` being the biggest of the three — and the sum comparison became this table.
- *
- * **A figure stated to a reader and nothing comparing it is this document's standing defect**, so
- * it arrives with its check rather than four slices later, which is what §17's summary table above
- * got only on 2026-10-09. Every figure here comes from `sideDebts` in
- * `tests/course/coverageNumbers.ts` — the same definition the re-aimed assertion reads, so the
- * table and the assertion cannot fork by one being re-measured and the other re-typed.
- *
- * The sum row is deliberately NOT an assertion anywhere: if the sum side passes `limits`, a reader
- * sees a negative number in the 余量 column of a table, and nothing is red on a file nobody
- * touched. That is the whole point of moving it here.
- */
-describe(`${DOC}'s §17 three-sides table is measured, margins and all`, () => {
-  const sides = sideDebts()
-  const SUM_LABEL = '`sources` ＋ `deeper`'
-  const MEASURED: ReadonlyMap<string, readonly string[]> = new Map([
-    ['`limits[].text`', sides.limits],
-    ['`sources`', sides.sources],
-    ['`deeper`', sides.deeper],
-  ])
-  const rows = dataRows(doc, SIDE_HEAD)
-  const bare = (cell: string): number | null =>
-    /^-?\d+$/.test(cell.replaceAll('*', '').trim()) ? Number(cell.replaceAll('*', '').trim()) : null
-  const plain = (c: string): string => c.replaceAll('*', '').trim()
-  const rowOf = (label: string): string[] => rows.find((r) => plain(r[0]) === label)!
-
-  /**
-   * Criterion P, the other rule over the same three fields — 2026-10-11, and the whole point of
-   * this slice. The figure existed in three places in this repository and nothing recomputed it;
-   * two attempts read it as unrecomputable because they ran the rule over each field's text ALONE
-   * instead of appending the field to the lesson's own graded walk, which is the whole content of
-   * 「would NEWLY emit」. `criterionP` in `./coverageNumbers` is that walk, defined once, reading
-   * the same `SIDE_TEXT` criterion Q reads.
-   */
-  const pSides = criterionP()
-  const P_ARMS: ReadonlyMap<string, Arms> = new Map([
-    ['`limits[].text`', pSides.limits],
-    ['`sources`', pSides.sources],
-    ['`deeper`', pSides.deeper],
-    [SUM_LABEL, {
-      bracket: pSides.sources.bracket + pSides.deeper.bracket,
-      aka: pSides.sources.aka + pSides.deeper.aka,
-    }],
-  ])
-
-  /** The two rows a 「which side leads」 cell may name, in both of the columns that hold one. */
-  const LEADS: ReadonlyMap<string, Lead['leader']> = new Map([
-    ['`limits[].text`', 'limits'], [SUM_LABEL, 'sum'],
-  ])
-
-  /**
-   * **The direction cell, parsed and compared — one function, because one vocabulary.**
-   *
-   * Both the Q column and the P column end in this cell, and two columns stating a direction in
-   * two slightly different phrasings would be the P/Q confusion with a second way in. Three legal
-   * forms, the same three in both columns, and `by` is always a magnitude: `leader` carries the
-   * sign, because a sign convention in a 余量 column is one more thing a reader can get backwards.
-   */
-  const checkLead = (raw: string, rel: Lead, which: string, measured: string): void => {
-    const c = plain(raw)
-    const m = /^(.+?) 多 (\d+)$/.exec(c)
-    expect(c === '持平' || (m !== null && LEADS.has(m[1])), `§17's sum row states its ${which}`
-      + ` relation as 「${c}」, which is none of the three legal forms: 「<哪一行> 多 **<数>**」`
-      + " naming this table's `limits[].text` row or its `sources` ＋ `deeper` row, or 「持平」 when"
-      + ' the two are equal').toBe(true)
-    const spelt = rel.leader === 'tie' ? '持平'
-      : [...LEADS].find(([, k]) => k === rel.leader)![0]
-    expect(c === '持平' ? '持平' : m![1], `§17 says which of the two sides carries more of this`
-      + ` debt under ${which}, and the measurement says the other one. Stated: 「${c}」.`
-      + ` Measured: ${measured}, so 「${spelt}${rel.leader === 'tie' ? '' : ` 多 ${rel.by}`}」.`
-      + ' Neither direction is forbidden and this is not a gate — the comparison exists so that the'
-      + ' flip cannot happen unread. Write the true sentence into that cell, and then read the prose'
-      + ' under the table: it is the thing that has to be re-argued, not this number').toBe(spelt)
-    if (rel.leader !== 'tie') expect(Number(m![2]), `the sum row states by how much the side it`
-      + ` names leads under ${which}. That is a magnitude — \`leader\` in \`leadOf\` carries the`
-      + ' sign, because a sign convention in a 余量 column is one more thing a reader can get'
-      + ' backwards').toBe(rel.by)
-  }
-
-  it('states exactly the three sides and their sum, in that order', () => {
-    expect(rows.length, 'the §17 three-sides table is gone, or its header changed — dataRows'
-      + ` selects on the exact header ${SIDE_HEAD.join(' | ')}`).toBeGreaterThan(0)
-    expect(rows.map((r) => r[0].replaceAll('*', '').trim()), 'a row added to or removed from the'
-      + ' three-sides table owes a line here saying what measures it')
-      .toEqual([...MEASURED.keys(), SUM_LABEL])
-    expect(statedFigures(doc, SIDE_HEAD).size, 'every row of this table has to OPEN its 实测 cell'
-      + ' with its figure; a cell that does not yields nothing, and a figure that yields nothing is'
-      + ' a figure nobody checks').toBe(rows.length)
-  })
-
-  it.each([...MEASURED.keys()])('%s states its measured pair count and lesson count', (label) => {
-    const row = rows.find((r) => r[0].replaceAll('*', '').trim() === label)!
-    const pairs = MEASURED.get(label)!
-    expect(statedFigures(doc, SIDE_HEAD).get(label), `§17 states ${label} owes this many (lesson,`
-      + ' term) pairs by criterion Q').toBe(pairs.length)
-    expect(bare(row[2]), `§17 states ${label}'s debt is spread over this many lessons`)
-      .toBe(lessonsOwing(pairs))
-  })
-
-  it('states the margin against `limits` for each of the two excluded fields', () => {
-    // These two margins are the ones the assertion in readability.test.ts holds, as two strict
-    // orderings. A negative one here means that assertion is red too — and it means the claim the
-    // ratchet rests on (`limits` is the biggest of the three) has stopped being true, which is a
-    // thing to re-argue rather than to widen.
-    for (const label of ['`sources`', '`deeper`']) {
-      const row = rows.find((r) => r[0].replaceAll('*', '').trim() === label)!
-      expect(bare(row[3]), `§17 states the margin between \`limits\` and ${label}`)
-        .toBe(sides.limits.length - MEASURED.get(label)!.length)
-    }
-    const limitsRow = rows.find((r) => r[0].replaceAll('*', '').trim() === '`limits[].text`')!
-    expect(bare(limitsRow[3]), 'the `limits` row has no margin against itself, and a number there'
-      + ' would be a figure nobody can measure').toBeNull()
-  })
-
-  it('and §10 of the wording contract point at each other, because it is one debt', () => {
-    // A pair on the sum side is a reader meeting an official term in a field this lesson's main
-    // path never names — the same species as the 25 exempted words §10 of the wording contract
-    // keeps a ledger for, and §10's own criterion scopes these two fields OUT (「`deeper` 与
-    // `sources` 里的裸用。那两处是深度与出处，读者不走」). Two ledgers for one species have to
-    // name each other, or the next reader audits one and believes the other does not exist. The
-    // same shape §10 already has with `tests/course/glossing-debt.test.ts`.
-    const contract = 'docs/course-wording-contract.md'
-    expect(doc, `§17 must name ${contract} §10, the other ledger of this species`)
-      .toContain(`${contract}\` §10`)
-    expect(readDoc(contract), '§10 must name the table that measures the two fields its own'
-      + ' criterion excludes').toContain(`${DOC}\` §17`)
-  })
-
-  it('states WHICH side leads, and that sentence is compared with the measurement', () => {
-    const row = rows.find((r) => r[0].replaceAll('*', '').trim() === SUM_LABEL)!
-    expect(statedFigures(doc, SIDE_HEAD).get(SUM_LABEL), 'the sum of the two fields the bracket'
-      + ' rule excludes on purpose — stated, and compared, but asserted nowhere')
-      .toBe(sides.sources.length + sides.deeper.length)
-    // **The cell that replaced the bare margin.** It read 「**1**」 until 2026-10-11, and a bare
-    // margin is the one figure in this table that can turn into its own opposite while staying
-    // true: a cell reading `-3` is a stated number equal to the measured number, and nothing about
-    // it makes anybody look. The DIRECTION is a sentence instead, so the day it flips the document
-    // is wrong rather than merely surprising, and the only fix is a person writing the new true
-    // one. It gates nothing — all three forms below are legal, and so is any margin.
-    checkLead(row[3], sumRelation(sides), '判据 Q', `\`limits\` ${sides.limits.length} against`
-      + ` \`sources\` ＋ \`deeper\` ${sides.sources.length + sides.deeper.length}`)
-    // and the one cell that must NOT be a figure: `sources` and `deeper` owe their pairs over
-    // OVERLAPPING lesson sets, so 75 + 40 is the lesson count of nothing. A reader who fills this
-    // cell by adding the column above it writes a number that is false by construction.
-    expect(bare(row[2]), 'the sum row states a lesson count. The two fields overlap — their pair'
-      + ' counts add, their lesson sets do not — so this cell is deliberately blank')
-      .toBeNull()
-  })
-
-  /**
-   * **Criterion P's column, both arms, every row — 2026-10-11.**
-   *
-   * Three places in this repository stated P and nothing recomputed it, which is this document's
-   * standing defect in its purest form: the ratchet's docblock had it as 296 / 176 / 76, the
-   * bracket rule's own docblock cites 292 / 180 / 81, and the filing design document's §3.4 holds
-   * that same table. Two slices read the figure as unrecomputable — 「quotable history」 — and a
-   * verdict was then filed on top of that. It was wrong, and the error was in the ruler.
-   *
-   * **The arms are printed and compared, not just the total.** The three records were confirmed
-   * ARM BY ARM (296 = 291 + 5, 292 = 287 + 5, 176 = 172 + 4 …), and that is the only thing that
-   * separates a real reproduction from a total that lands nearby by luck: the attempt that came
-   * back 289 / 187 / 81 had one cell equal to a recorded figure while measuring something else
-   * entirely. A total alone would have thrown that away.
-   */
-  it.each([...P_ARMS.keys()])('%s states its criterion-P total and both arms', (label) => {
-    const arms = P_ARMS.get(label)!
-    const c = plain(rowOf(label)[4])
-    const m = /^(\d+) ＝ (\d+) ＋ (\d+)$/.exec(c)
-    expect(m, `§17 states ${label}'s criterion P as 「${c}」. The form is 「<合计> ＝ <括号臂> ＋`
-      + ' <aka 臂>」 — the arms are two different rules and the decomposition is what made the'
-      + ' three historical records verifiable, so the cell prints all three and all three are'
-      + ` compared. Measured: ${armsTotal(arms)} ＝ ${arms.bracket} ＋ ${arms.aka}`).not.toBeNull()
-    expect([Number(m![1]), Number(m![2]), Number(m![3])], `§17 states ${label}'s criterion P`
-      + ' (total, bracket arm, aka arm). A total that does not equal its own two arms is caught'
-      + ' here too, which is why all three are compared rather than just the one the row opens'
-      + ' with').toEqual([armsTotal(arms), arms.bracket, arms.aka])
-  })
-
-  it('states the criterion-P margin against `limits` for each of the two excluded fields', () => {
-    // Recorded, asserted nowhere — unlike the two criterion-Q margins beside them, which ARE the
-    // two strict orderings in readability.test.ts. P grades nothing in this repository; a slice
-    // that wants it graded has to argue for it, and the argument has to survive the objection W17
-    // raised against the Q-side sum comparison: the right side grows whenever a lesson is added.
-    for (const label of ['`sources`', '`deeper`']) {
-      expect(bare(rowOf(label)[5]), `§17 states the criterion-P margin between \`limits\` and`
-        + ` ${label}`).toBe(armsTotal(pSides.limits) - armsTotal(P_ARMS.get(label)!))
-    }
-    expect(bare(rowOf('`limits[].text`')[5]), 'the `limits` row has no criterion-P margin against'
-      + ' itself either, and a number there would be a figure nobody can measure').toBeNull()
-  })
-
-  /**
-   * **The one sentence about P's three sides that carries weight, and it is now compared.**
-   *
-   * 「`limits` alone is bigger than `sources` and `deeper` put together」 is what the bracket
-   * rule's own docblock argues from (`readability.test.ts`, 「317 sites, of which 292 are in
-   * `limits[].text` alone」) to conclude that running the rule over the four chrome places is the
-   * wrong fix: the mass is a course-content debt, not a hole in the net. So it earns a cell —
-   * and NOT an assertion. W17 took exactly this comparison off the rulers on the Q side because a
-   * strict ordering there reddens on the sum side growing, which is a gate on writing lessons. The
-   * same objection applies here, so this cell is the same bargain as the Q one: both directions
-   * legal, a tie legal, and a flip impossible to pass unread.
-   */
-  it('states WHICH side leads under criterion P too, in the same vocabulary', () => {
-    const row = rowOf(SUM_LABEL)
-    const [lim, sum] = [armsTotal(pSides.limits), armsTotal(P_ARMS.get(SUM_LABEL)!)]
-    checkLead(row[5], leadOf(lim, sum), '判据 P',
-      `criterion P: \`limits\` ${lim} against \`sources\` ＋ \`deeper\` ${sum}`)
-  })
-
-  /**
-   * **And the two criteria are not interchangeable, which is the whole reason both columns name
-   * theirs.** Stated in §17's prose as a measured fact rather than asserted as an ordering: the
-   * day P and Q coincide on a field is a fact about this corpus, not a definition, and a strict
-   * assertion about their difference would be one more gate on writing lessons. What IS pinned is
-   * that the document's three stated differences are the measured ones — so the sentence saying
-   * which way each side leans cannot quietly stop being true.
-   *
-   * 2026-11-10: the sentence used to read 「`limits` 上 P 比 Q 多 N（`sources` 少 N、`deeper` 少 N）」,
-   * which could only spell one sign pattern. After the standard-first restructure of 34 UWB lessons
-   * `limits` and `sources` both flipped, so the sentence was rewritten to name each side's direction
-   * in a word (多／少) and this reads that word as the sign. Still exactly three measured
-   * differences, each compared signed.
-   */
-  it('states how far criterion P sits from criterion Q on each side, and those are measured', () => {
-    const m = /`limits` 上 P 比 Q (多|少) (\d+)，`sources` 上 P 比 Q (多|少) (\d+)，`deeper` 上 P 比 Q (多|少) (\d+)/.exec(doc)
-    expect(m, '§17 no longer spells out how the two criteria differ on the three sides, in the'
-      + ' shape this reads. That sentence is the document telling a reader not to use one column'
-      + ' as an approximation of the other, and the three numbers in it are measured')
-      .not.toBeNull()
-    const signed = (word: string, n: string): number => (word === '多' ? 1 : -1) * Number(n)
-    expect([signed(m![1], m![2]), signed(m![3], m![4]), signed(m![5], m![6])], '§17 states P − Q on'
-      + ' each of the three sides, the direction in a word (多 = P larger, 少 = P smaller). If a sign'
-      + ' flips, the sentence around it is the thing to rewrite — which way the two criteria lean'
-      + ' is a measurement, not a law')
-      .toEqual([armsTotal(pSides.limits) - sides.limits.length,
-        armsTotal(pSides.sources) - sides.sources.length,
-        armsTotal(pSides.deeper) - sides.deeper.length])
-    // And the baseline the word 「新增」 rests on. `criterionP` SUBTRACTS it rather than assuming
-    // it is zero, so this is not a gate dressed up as a figure — it is §17 stating a number, read
-    // out and compared like the rest of them.
-    const b = /基线（主路径自己报几条）今天是 \*\*(\d+) ＋ (\d+)\*\*/.exec(doc)
-    expect(b, '§17 no longer states the baseline criterion P is 「newly emitted」 against, in the'
-      + ' shape this reads').not.toBeNull()
-    expect({ bracket: Number(b![1]), aka: Number(b![2]) }, 'the baseline §17 states: the bracket'
-      + " rule's two arms over the graded main path alone, with no field appended")
-      .toEqual(gradedWalkFailures())
   })
 })
 
@@ -975,13 +648,10 @@ const CENSUS: readonly (readonly [readonly string[], string])[] = [
   [['Tier 4 原定的条目', '状态'], '§15 — prose cells, no figures'],
   [['子项目', '规格', '实际状态'], '§16 — prose cells, no figures'],
   [['A–G', '零到一百的阶段/刀', '谁实际交的'], '§16 — prose cells, no figures'],
-  [FIG_HEAD, '§17 — statedFigures, all six against the course; plus the 余量 column: the two'
-    + ' bare zeros by kind (structural vs measured) and the tightest-lesson distance'],
-  [SIDE_HEAD, '§17 three sides, both criteria — criterion Q from `sideDebts` (each pair count,'
-    + ' each lesson count, both margins) and criterion P from `criterionP` (total AND both arms,'
-    + ' both margins, the baseline from `gradedWalkFailures`, and the three P−Q differences §17'
-    + ' states in prose); plus the sum row — whose 涉及课数 must stay blank because the lesson sets'
-    + ' overlap, and whose two 余量 cells each name WHICH side leads, compared against `leadOf`'],
+  [FIG_HEAD, '§17 — statedFigures, all five against the course; plus the 余量 column: no bare'
+    + ' number (the measured-slack row retired 2026-11-11) and the floor row’s 无上沿'],
+  // The §17 three-sides table (criterion Q and P over `limits`, `sources`, `deeper`) left this
+  // census on 2026-11-11 with the sections it compared; see the ratchet note above FIGURES.
 ]
 
 describe(`${DOC}'s table census is pinned, so a new summary table cannot go unchecked`, () => {

@@ -1,18 +1,22 @@
 /**
  * Wi-Fi Tier 2 · M10 · Scheduled Wi-Fi 6/7 · which of the two ways this turn takes.
  *
- * The second half of `mumimo`
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M10): the
- * first half is what dividing space means and how big a group the router's
- * antennas allow; this one is the other rule the engine follows — the load
- * threshold it picks by — and what each way actually buys, side by side.
+ * Standard-first shape (2026-11-11). ① what the standard specifies for a downlink multi-user
+ * send: OFDMA, MU-MIMO or both in one PPDU (IEEE Std 802.11-2024 §26.5.1.1, applied to EHT by
+ * IEEE Std 802.11be-2024 §35.5.1.1), the RU floor and user cap for MU-MIMO (§36.3.3.1.1,
+ * §36.3.3.3), the sounding MU-MIMO depends on (§26.7.1), the fixed RU grid (§36.3.2.1), the EHT
+ * symbol and coding (Table 36-18, §36.3.13.3) and the TXTIME computation (§36.4.3) — and that it
+ * says nothing about how an AP chooses between the two; ② the engine's choice rule and its PHY
+ * shortcuts, row by row; ③ three runs of `mumimo`'s scene and its two variants.
  *
- * §4 gives this lesson NO diagram: the comparison table IS the lesson.
+ * The audit found the old lesson's central claim — 「a head frame under 1,000 bytes means
+ * frequency」 — true of the engine and inert in this scene: every member of every send here
+ * carries at least 1,434 bytes, so the two variants differ only in whether MU-MIMO was
+ * negotiated. Lab 3 says so.
  *
- * It loads `mumimo`'s own scene and its two variants unchanged (`sameSceneAs`),
- * so the recorded timeline hashes are the same run twice and the fixture lines
- * the controller adds are copies. Every number is pinned in
- * tests/course/mumimo-choose.test.ts.
+ * It loads `mumimo`'s own scene and its two variants unchanged (`sameSceneAs`), so the recorded
+ * timeline hashes are the same run twice. Every figure is read back out of this file by
+ * tests/course/mumimo-choose.test.ts and compared with a run.
  */
 import { type Lesson, firstData, firstBa, firstMuDl, J } from '../lessonKit'
 import { mumimoScenario } from '../wifiScenes'
@@ -21,11 +25,11 @@ export const mumimoChoose: Lesson = {
   id: 'mumimo-choose',
   module: 9,
   title: '按频率还是按空间：这一轮怎么选',
-  why: '同一栋房子里，路由器有两种把多部手机编入一次发送的办法：按频率划分信道，或者按空间定向发送。两种办法带来的收益正好相反——一种使一次发送交付的数据更多，一种使每个成员更快收到自己的数据——而这一轮到底采用哪一种，引擎有一条固定的判据。按空间划分是提高速率：成员独占整条信道，同一份负载（payload）所需的数据符号（symbol）只剩三分之一；按频率划分是分摊开头那段前导码（preamble）的开销，几个成员共用一段。所以许多小帧适合按频率划分，少数几个大帧适合按空间划分，而那段无法缩短的前导码同时削弱两边的收益：数据符号数恰好相差三倍，整帧却只短了三成左右。在这栋房子里，按频率划分一次容纳三部手机、合计交付的数据更多，按空间划分只容纳两部、每部更快收到自己的那一份。判据不比较哪个更快，只看每个候选队首那一帧有多大：有一部手机队首那一帧不到一千字节，就按频率划分；每一部都足够大，才按空间划分，再按天线（antenna）数把组裁减到能够容纳。一千字节这个数是引擎自己设定的，不是标准里的规定。',
+  why: 'IEEE 802.11-2024 与 802.11be-2024 规定，接入点（access point, AP）可以在一次下行（downlink, DL）多用户（multi-user, MU）发送里按频率划分，即正交频分多址（orthogonal frequency-division multiple access, OFDMA），或按空间划分，即多用户 MIMO（multi-user MIMO, MU-MIMO），也可以两者并用；标准规定了两种发送各自的格式、能力条件和上限，没有规定接入点在两者之间怎样选择，选择属于实现。两种办法的收益方向相反：按空间划分的成员独占整条信道，同一份载荷（payload）所需的数据符号（symbol）更少，每个成员更快收到自己的数据；按频率划分让更多成员共用一段前导码（preamble），一次交付的数据更多。在这栋房子里，同样的 4,306 字节，按频率划分需要三个数据符号，按空间划分只需要一个，但整帧只相差 1.41 倍，因为前导码不会缩短；按频率划分一次容纳三部手机、交付 12,918 字节，按空间划分只容纳两部、交付 8,612 字节。本仿真器的选法是：每个候选都协商过 MU-MIMO、队首那一帧都不小于 1,000 字节，才按空间划分，再按天线（antenna）数裁减组；两种划分从不在同一次发送里并用。这栋房子里每个成员都至少有 1,434 字节，1,000 字节的门限从未起作用，两个变体的差别只来自是否协商过 MU-MIMO。',
   outcomes: [
-    '说出按空间划分何时划算、按频率划分何时划算，并各给出一个理由',
-    '读出引擎选择划分方式时依据的那个量，以及它为什么取这个值',
-    '在两个变体中对照同一份负载的数据段时长，并说明整帧为什么只相差 1.41 倍',
+    '说出标准对下行多用户发送规定了什么、没有规定什么',
+    '分清本仿真器的选法、组的上限和时长计算中哪些照标准、哪些是它自己的取法',
+    '在两个变体中对照同一份载荷的数据段时长，并说明整帧为什么只相差 1.41 倍',
   ],
   needs: ['mumimo'],
   terms: [
@@ -33,55 +37,95 @@ export const mumimoChoose: Lesson = {
     { term: 'MU', plain: '多用户：指一次发送中的各部分分别属于不同的设备' },
     { term: 'OFDMA', plain: '正交频分多址：按频率划分的那种办法，把一条信道划分为几部分分配给几个成员' },
   ],
-  picture: [
-    { heading: '两种办法，两项方向相反的开销', text: '按空间划分——也就是多用户 MIMO（multi-user MIMO, MU-MIMO）——是提高速率：成员独占整条信道，同一份负载（payload）所需的符号（symbol）就少。只有在数据符号本来就足够多时，提高速率才划算。按频率划分——正交频分多址（orthogonal frequency-division multiple access, OFDMA）——是分摊开头那段前导码（preamble）的开销：几个成员共用一段前导码，而在数据符号本来就很少时，这种分摊最划算。所以许多小帧适合按频率划分，少数几个大帧适合按空间划分——而那段无法缩短的前导码，会同时削弱两边各自取得的收益。' },
-    { kind: 'watch', jump: 0, heading: '在时间轴上观察', text: '载入仿真，跳到第一个同时包含多部手机的发送，然后在时间轴上方的两个变体之间来回切换：同一栋房子、同样的流量、同样的手机——只是那个宽块在一边包含三份，在另一边只包含两份。把鼠标悬停在上面，读出每一份的字节数和速率。' },
-    { heading: '引擎依据什么选择', text: '判据不是“哪个更快”，而是一个能够即时算出的量：每个候选队首那一帧有多大。低于 1,000 字节，它就按频率划分；每个候选都足够大，才按空间划分。理由就在上面那两项开销中：帧太小时，数据符号本来就只有一两个，提高速率节省不了多少时间，而前导码的开销不变；帧足够大时，符号数才多到值得提高速率。这个门限是引擎自己设定的一个数，不是标准里的规定。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '两种发送各取一次，都来自这栋房子的两个变体——160 MHz，每部手机两条流', head: [
-      '变体', '成员数', '每成员负载',
-      '数据符号', '整帧长度', '单成员速率',
-    ], rows: [
-      ['按频率划分', '3', '4,306 B', '3', '92.8 µs', '371.2 Mb/s'],
-      ['按空间划分', '2', '4,306 B', '1', '65.6 µs', '525.1 Mb/s'],
+  standard: [
+    { heading: '下行多用户发送（IEEE 802.11-2024 §26.5.1.1，IEEE 802.11be-2024 §35.5.1.1）', text: '下行多用户操作让接入点在一个 PPDU（PHY protocol data unit）里同时向一个或多个站点（station, STA）发送，方式可以是 OFDMA、MU-MIMO，或者两者并用。每个资源单元（resource unit, RU）上的 PSDU（PHY service data unit）都要填充（padding）到同一时刻结束。接入点按增强型分布式信道接入（enhanced distributed channel access, EDCA）取得发送权。HE 多用户 PPDU（multi-user PPDU, MU PPDU）的这些规则同样适用于 EHT MU PPDU，涉及 RU 的地方也适用于多个 RU 的组合（MRU）。' },
+    { heading: 'RU 的位置是固定的（§36.3.2.1）', text: 'EHT 的音调规划与 RU 位置在 20 MHz 与 40 MHz 上与 HE 相同；160 MHz 及更宽的 PPDU 由若干 80 MHz 子块组成，每个子块的 RU 划分与 80 MHz 相同。各种 RU 的位置由表 36-5 到表 36-7 固定。' },
+    { heading: '在一个 RU 内再按空间划分（§35.5.1.1，§36.3.3.1.1，§36.3.3.3）', text: '一个窄于 PPDU 带宽的 RU 分给多个站点，称为 DL MU-MIMO within OFDMA；只有每个站点都在 EHT 能力元素里把 Partial Bandwidth DL MU-MIMO 子字段置 1，接入点才可以这样发送，这样的 RU 不小于 242 音调。在 HE 中，对应的下限是 106 音调（IEEE 802.11-2024 §27.3.3.1.1）。一个 RU 上最多可以用 MU-MIMO 复用 8 个 EHT 站点，上行（uplink, UL）与下行相同。' },
+    { heading: 'MU-MIMO 需要信道状态（IEEE 802.11-2024 §26.7.1）', text: '发射波束成形（beamforming）与 DL MU-MIMO 都要知道信道状态，才能算出加在发射信号上的导向矩阵。HE 站点用探测（channel sounding）协议取得信道状态：波束成形接收方测量发送方发来的探测 NDP，再把信道状态的估计反馈回去。' },
+    { heading: '数据段的时长（表 36-18，§36.3.13.3，§36.4.3）', text: '使用基本保护间隔时，EHT 数据段一个正交频分复用（orthogonal frequency-division multiplexing, OFDM）符号长 13.6 µs。数据段用 BCC 或 LDPC 编码；RU 大于 242 音调、或者使用调制与编码方式（modulation and coding scheme, MCS）的第 10 到 14 级时，只能用 LDPC。一次发送的时长按 §36.4.3 的 TXTIME 计算，由前导码各字段与数据段的符号数相加得出。' },
+    { kind: 'steps', heading: '一次 EHT 下行多用户发送，按标准：逐步说明', items: [
+      '接入点按 EDCA 取得发送权（§26.5.1.1）。',
+      '接入点为每个用户分配 RU 或 MRU，位置取自表 36-5 到表 36-7（§36.3.2.1）。',
+      '同一个 RU 分给几个站点时就是 MU-MIMO：RU 窄于 PPDU 带宽时，每个站点都要声明支持 Partial Bandwidth DL MU-MIMO，RU 不小于 242 音调；一个 RU 上最多 8 个站点（§35.5.1.1，§36.3.3.1.1，§36.3.3.3）。',
+      'MU-MIMO 的导向矩阵依据事先由探测取得的信道状态（§26.7.1）。',
+      '每个 RU 上的 PSDU 填充到同一时刻结束，整次发送的时长按 TXTIME 计算（§26.5.1.1，§36.4.3）。',
     ] },
-    { kind: 'formula', heading: '一次发送的时长如何计算', text: '整帧长度 = 52 µs + 13.6 µs × 数据符号数', note: '这里的 52 µs，是 Wi-Fi 7 帧的 48 µs 前导码加上 4 µs 的分配表（说明“这次发送包含哪些成员”）。按频率划分的成员只占三分之一子载波（sub-carrier），同样的负载需要三个数据符号；按空间划分的成员独占整条信道，只需要一个——恰好三倍的增益，正好等于它所放弃的那个组的大小。但整帧算下来只相差 1.41 倍，因为前导码那一段从不缩短。' },
-    { heading: '合计交付的数据量，方向正好相反', text: '两种发送中，每个成员的负载相同——都是路由器为那部手机积累的三个视频帧。三个成员一次交付 12,918 字节，两个成员是 8,612 字节：成员多的那次一次交付的数据更多，成员少的那次则使每个成员更快收到自己的数据。选择哪一种，取决于是否有设备在等待。' },
-    { kind: 'steps', heading: '这一轮采用哪种方式：逐步说明', items: [
-      '路由器赢下一轮竞争后，先按上一课的办法列出名单：队列（queue）中有数据、协商过多用户（multi-user, MU）发送，最多四部。这一份名单两种方式共用。',
-      '逐个检查候选：每一部都协商过 MU-MIMO 吗？每一部队首那一帧都有 1,000 字节吗？有任何一项不成立，这一轮就按频率划分。',
-      '都成立，就按空间划分——再按上一课讲的天线（antenna）上限把组裁减到能够容纳；裁减后不足两部时，仍然退回按频率划分。',
-      '然后为每个成员计算符号数：⌈(16 + 8 × 字节数 + 6) ÷ 每符号比特数⌉。按频率划分时，每符号比特数要乘以它分到的子载波占比；按空间划分时不乘，但每部仍按自己协商的流数计算。',
-      '整次发送的时长取所需时长最长的那个成员：48 µs 前导码，加 4 µs 分配表，然后每个符号 13.6 µs。两种方式下，4,306 字节分别需要三个符号和一个符号。',
-    ] },
-    { kind: 'table', heading: '同一份 4,306 字节，两种方式各计算一遍', head: [
-      '步骤', '按频率划分', '按空间划分',
-    ], rows: [
-      ['队列中有数据的手机', '3', '3'],
-      ['都协商过 MU-MIMO，且队首都有 1,000 字节',
-        '否', '是'],
-      ['裁减后的成员数', '3', '2'],
-      ['每个成员得到的子载波', '三分之一', '全部'],
-      ['每个成员每符号能承载的比特', '三分之一份', '一整份'],
-      ['每个成员的符号数', '3', '1'],
-      ['因此这次发送的时长是', '52 + 13.6 × 3 = 92.8 µs', '52 + 13.6 × 1 = 65.6 µs'],
-      ['这一次合计交付', '12,918 B', '8,612 B'],
-    ] },
+    { heading: '标准没有规定的', text: '标准规定了两种划分各自的格式、能力条件与上限，没有规定接入点在一轮发送里该按频率还是按空间划分、编入哪几个站点。' },
   ],
-  deeper: [
-    { heading: '为什么门限针对的是队首那一帧，而不是整条队列', text: '引擎判断的是每个候选队首那一帧有多大，而不是它一共积压了多少。这与时长的确定方式相吻合：一次发送的时长由最长的成员决定，而每个成员能在自己那一份里容纳多少，是逐帧填入、直到无法再容纳为止。队首那一帧如果很小，这个成员的符号数就少，提高速率也节省不了多少时间——即使它后面还排着一百帧。' },
+  implementation: [
+    { topic: '选择哪一种划分', standard: '标准未规定', sim: '每个候选都协商过 MU-MIMO、队首那一帧都不小于 1,000 字节，才按空间划分；有一项不成立就按频率划分。门限看的是队首那一帧，而不是整条队列（queue）。', kind: 'choice' },
+    { topic: '按空间划分时的组', standard: '一个 RU 上最多 8 个站点（§36.3.3.3）', sim: '各成员协商的流数之和不得超过接入点的天线数，超出就从组尾逐个去掉；剩下不足两部时退回按频率划分。', kind: 'choice' },
+    { topic: '一组最多几个成员', standard: '标准未规定一次发送编入几个站点', sim: '最多四个。', kind: 'value' },
+    { topic: '两种划分并用', standard: 'DL MU-MIMO within OFDMA，RU 不小于 242 音调（§35.5.1.1，§36.3.3.1.1）', sim: '没有实现：一次发送要么全部按空间划分、每个成员占整条信道，要么全部按频率划分。', kind: 'absent' },
+    { topic: '按频率划分的份额', standard: 'RU 的尺寸与位置由表 36-5 到表 36-7 固定（§36.3.2.1）', sim: '每个成员分到信道音调数的 1/n（n 为成员数），不是标准里的某种 RU。', kind: 'differs' },
+    { topic: '探测', standard: 'MU-MIMO 依靠探测取得的信道状态（§26.7.1）', sim: '没有实现：按空间划分不付出探测的时间，成员之间也没有相互泄漏，发射功率（transmit power）不分摊。', kind: 'absent' },
+    { topic: '前导码的时长', standard: '由前导码各字段相加（§36.4.3）', sim: '取一个代表值：48 µs 前导码，多用户发送再加 4 µs，不逐字段相加。', kind: 'differs' },
+    { topic: '数据符号的时长', standard: '基本保护间隔下 13.6 µs（表 36-18）', sim: '每个数据符号 13.6 µs。', kind: 'faithful' },
+    { topic: '数据符号数', standard: '按 BCC 或 LDPC 的编码与填充过程计算；本课的多用户发送使用 MCS 12 与 13，都只能用 LDPC（§36.3.13.3）', sim: '一律按 ⌈(16 + 8 × 字节数 + 6) ÷ 每符号比特数⌉ 计算，即 16 位 SERVICE 加 6 位尾比特（tail bits）的 BCC 写法；按频率划分时每符号比特数乘以分到的份额。', kind: 'differs' },
+    { topic: '整次发送的时长', standard: '各 RU 上的 PSDU 填充到同一时刻结束（§26.5.1.1）', sim: '取所需时长最长的那个成员。', kind: 'faithful' },
   ],
-  limits: [
-    { kind: 'model-value', text: '那条判据是引擎里的一行代码：MUMIMO_MIN_BYTES = 1000，依据的是每个候选队首那一帧有多大（mac.ts）。标准对「该按频率还是按空间划分」没有任何规定，那是厂商的调度策略。真实调度器会计算两种方式各自的期望完成时间，还会考虑成员的时延预算和公平性，而不是用一个字节门限简单地判定——换掉这个数，本课整张对照表的数字都会改变。' },
-    { kind: 'unmodelled', text: '这项核算中只有空口时间，两种方式在射频上的差别完全不计：按空间划分在这里不承担探测开销、不分摊发射功率、成员之间也不相互泄漏（都是上一课那几条）。所以「1.41 倍」是一个纯时间的比值。真实设备在这两种方式之间权衡时，考虑的正是这些在这里为零的代价，这也是为什么真实产品选择按空间划分时远比这个门限保守。' },
-    { kind: 'out-of-scope', text: '判据只看赢下这一轮竞争的那一时刻，队首是什么就按什么判断：引擎不做预测，也不会为了组成一个更好的组而等待。真实调度器可以推迟几百微秒以等待一个成员加入，也可以为一个有时限的流做例外处理。而「在同一个 PPDU 里混合使用两种划分」不只是「真实调度器可以更灵活」：标准把它规定为一项具名特性——DL MU-MIMO within OFDMA 与 UL MU-MIMO within OFDMA——两代各有自己的能力位（HE 的 Partial Bandwidth DL／UL MU-MIMO 子字段）与 MIB 变量，而且各规定了一个资源单元尺寸下限：HE 不小于 106 音调，EHT 不小于 242 音调，换算为 26 音调的格就是最少四格与九格。本引擎把两种划分设计为互斥的（mac.ts 的 useMumimo 一旦成立，整次发送就全部按空间划分，每个成员的份额是整条信道），所以「在一个资源单元内再按空间分配给几台设备」这一类配置在这里不会出现——不是建模不完整，而是设计为互斥。所以本课测得的「两种发送各占多少」，是「分组取决于时机」这一种策略的结果，换一种策略，连哪一种更常见都会改变。' },
+  labs: [
+    {
+      heading: '同一份载荷，两种发送',
+      jump: 0,
+      more: [1],
+      steps: [
+        '载入本课场景（按频率划分），跳到第一次多用户发送，再往后找到第一个三个成员都是 4,306 字节的发送。',
+        '载入「MU-MIMO（按空间划分）」，找到第一个两个成员都是 4,306 字节的发送。悬停在两个宽块上，读出成员数、字节数与时长。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '两种发送各取一次——160 MHz，每部手机两条流', head: ['变体', '成员数', '每成员载荷', '数据符号', '整帧长度', '单成员速率'], rows: [
+          ['按频率划分', '3', '4,306 B', '3', '92.8 µs', '371.2 Mb/s'],
+          ['按空间划分', '2', '4,306 B', '1', '65.6 µs', '525.1 Mb/s'],
+        ] },
+        { kind: 'formula', heading: '本仿真器怎样算一次发送的时长', text: '整帧长度 = 52 µs + 13.6 µs × 数据符号数', note: '52 µs 是本仿真器取的 48 µs 前导码加上多用户发送的 4 µs（②）。数据符号恰好相差三倍，等于按空间划分少编入的那个组的大小；整帧只相差 1.41 倍，因为前导码那一段两边一样长。' },
+      ],
+      expect: '按频率划分的成员各占三分之一条信道，4,306 字节需要三个数据符号，整帧 92.8 µs；按空间划分的成员独占整条信道，只需要一个，整帧 65.6 µs。三个成员一次交付 12,918 字节，两个成员是 8,612 字节。',
+      meaning: '两种划分都在标准允许之内（①）；数据符号数与前导码时长是本仿真器的算法（②），所以 1.41 这个比值属于本仿真器。',
+    },
+    {
+      heading: '同一份 4,306 字节，两种方式各计算一遍',
+      more: [1],
+      steps: [
+        '对照下表，按本仿真器的选法与时长算法，把上一个实验里的两次发送各推算一遍。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '同一份 4,306 字节，两种方式各计算一遍', head: ['步骤', '按频率划分', '按空间划分'], rows: [
+          ['队列中有数据的手机', '3', '3'],
+          ['都协商过 MU-MIMO，且队首都有 1,000 字节', '否', '是'],
+          ['裁减后的成员数', '3', '2'],
+          ['每个成员得到的子载波（sub-carrier）', '三分之一', '全部'],
+          ['每个成员的符号数', '3', '1'],
+          ['因此这次发送的时长是', '52 + 13.6 × 3 = 92.8 µs', '52 + 13.6 × 1 = 65.6 µs'],
+          ['这一次合计交付', '12,918 B', '8,612 B'],
+        ] },
+      ],
+      expect: '按空间划分的组从三部裁减到两部：接入点有 4 根天线，每部手机协商了 2 条流。两列的符号数分别是 3 与 1。',
+      meaning: '裁减依据的是本仿真器的天线数规则（②），标准的上限是一个 RU 上 8 个站点（①）；符号数来自 ⌈(16 + 8 × 字节数 + 6) ÷ 每符号比特数⌉，这是 BCC 的写法，而本课使用的 MCS 12 与 13 在标准里只能用 LDPC（②）。',
+    },
+    {
+      heading: '这栋房子里起作用的是哪一个条件',
+      more: [1],
+      steps: [
+        '在两个变体里各运行 500 ms，数一数多用户发送的次数和种类。',
+        '找出按空间划分的发送中最小的一个成员有多少字节。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '500 ms 内的多用户发送', head: ['变体', '多用户发送', '按空间划分', '最小的成员'], rows: [
+          ['按频率划分', '169', '0', '1,434 B'],
+          ['按空间划分', '196', '196', '1,434 B'],
+        ] },
+      ],
+      expect: '第一个变体从不按空间划分，第二个变体每一次都按空间划分；两个变体里最小的成员都是 1,434 字节，从未低于 1,000 字节。',
+      meaning: '在这栋房子里，1,000 字节的门限从未起作用，两个变体的差别只来自是否协商过 MU-MIMO（②）。门限本身是本仿真器的取法，标准没有任何对应的规定（①）。',
+    },
   ],
   sources: [
-    '两种多用户发送的 PPDU 格式与每用户字段，Wi-Fi 6 见 IEEE Std 802.11-2024 第 27 章，Wi-Fi 7 见第 36 章。标准并不规定发射机应如何在两者之间选择：那是厂商的调度策略。而「在一个资源单元内再按空间分配给几台设备」是标准规定了的，包括名称和下限：HE 见 IEEE Std 802.11-2024 §27.1 的概述句与 §27.3.3.1.1、§27.3.3.2.2（资源单元不小于 106 音调，由 Partial Bandwidth DL／UL MU-MIMO 子字段与对应的 dot11HEPartialBW…MUMIMOImplemented 指示），EHT 见 IEEE Std 802.11be-2024 §36.1.1 与三条 Partial BW DL／UL MU-MIMO 能力条款（不小于 242 音调）。',
-    '1,000 字节的门限、一组最多四个成员，都是本引擎自己的规定（mac.ts 里的 `MUMIMO_MIN_BYTES` 与 `muDsts.slice(0, 4)`），是模型取值。',
-    '48 µs 前导码、多用户信令多出的 4 µs 以及 13.6 µs 的符号，是本仿真器为 802.11be PPDU 取的代表值，并非逐字段相加；它们代入的空口时间公式是 §17.4.3 的 TXTIME。',
+    'IEEE Std 802.11-2024：§26.5.1.1（HE 下行多用户操作）、§26.7.1（HE 探测）、§27.3.3.1.1（HE 的 DL MU-MIMO within OFDMA 不小于 106 音调）。',
+    'IEEE Std 802.11be-2024：§35.5.1.1（EHT 下行多用户操作与 Partial Bandwidth DL MU-MIMO）、§36.3.2.1（RU 的位置）、§36.3.3.1.1（不小于 242 音调）、§36.3.3.3（一个 RU 上最多 8 个站点）、表 36-18（符号时长）、§36.3.13.3（BCC 与 LDPC）、§36.4.3（TXTIME）。',
+    '本仿真器的取法与取值：1,000 字节的门限（mac.ts 的 MUMIMO_MIN_BYTES）、一组最多四个成员（muDsts.slice(0, 4)）、按天线数裁减组、1/n 的频率份额、48 µs 前导码与多用户发送多出的 4 µs、BCC 写法的符号数公式。',
   ],
+  limits: [],
   scenario: () => mumimoScenario(false),
   variants: [
     { label: 'OFDMA（按频率划分）', scenario: () => mumimoScenario(false) },
@@ -92,14 +136,19 @@ export const mumimoChoose: Lesson = {
     J('第一个数据帧', firstData),
     J('第一个 BlockAck', firstBa),
   ],
-  observe: [
-    '第一个变体中，宽蓝块包含三份，每份各占三分之一条信道，单成员速率 371.2 Mb/s；第二个变体中，同样的块只包含两份，各自独占整条信道，525.1 Mb/s。同一份 4,306 字节，一边需要三个数据符号，一边只需要一个。',
-    '两个变体中，那个宽块的时长差别远小于数据符号数的差别：数据符号是三个对一个，块长却是 92.8 µs 对 65.6 µs，只有 1.41 倍。三倍的差别全部在数据段上，而前导码和分配表两边一样长，把它冲淡了。',
-  ],
-  tryThis: [
-    '关闭笔记本的备份流量后重新载入。路由器现在能在下一个视频包到达之前就把当前这部手机的包发送完毕，于是两种多用户发送都变得很少——已经没有可以组成一组的数据了。这也说明了判据中那个量的来源：能够组成分组，前提是有设备在等待。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
+    {
+      q: '按标准，接入点应该在什么情况下按空间划分、什么情况下按频率划分？',
+      options: [
+        '队首那一帧不小于 1,000 字节时按空间划分',
+        '标准没有规定，这是实现的选择；标准只规定两种发送各自的格式、能力条件与上限',
+        '成员数超过四个时必须按频率划分',
+      ],
+      answer: 1,
+      explain: '§26.5.1.1 允许 OFDMA、MU-MIMO 或两者并用，没有给出选择的规则；1,000 字节是本仿真器的门限。',
+    },
     {
       q: '三部手机，一次发送。在按频率划分的办法下，再加入第四部之后，每部手机的速率会怎样？',
       options: [
@@ -108,17 +157,17 @@ export const mumimoChoose: Lesson = {
         '上升——成员越多，每个成员分摊的开销越少',
       ],
       answer: 0,
-      explain: '按频率划分的成员共享的是子载波，而不是时间：多一个成员，每个成员分到的部分就更少。这正是按空间划分所避免的代价，它改由天线来承担。',
+      explain: '按频率划分的成员共享的是子载波，而不是时间：多一个成员，每个成员分到的部分就更少。',
     },
     {
-      q: '路由器这一轮为什么按频率划分，而不是按空间划分？',
+      q: '在这栋房子里，第一个变体为什么从不按空间划分？',
       options: [
-        '因为按空间划分总是更慢',
-        '因为至少有一部候选手机的队首那一帧不到 1,000 字节，或者有一部没协商过 MU-MIMO',
-        '因为房间里手机太多了',
+        '有成员的队首那一帧不到 1,000 字节',
+        '这个变体里各设备没有协商 MU-MIMO',
+        '接入点的天线不够',
       ],
       answer: 1,
-      explain: '判据是能够即时判断的两件事：是否都协商过，队首是否都足够大。帧太小时，符号数本来就少，提高速率节省不了多少时间，而前导码的开销不变。',
+      explain: '两个变体里最小的成员都是 1,434 字节，门限从未起作用；差别只在于是否协商过 MU-MIMO。',
     },
   ],
 }

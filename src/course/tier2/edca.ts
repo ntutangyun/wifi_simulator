@@ -1,32 +1,26 @@
 /**
- * Wi-Fi Tier 2 · M8 · QoS 与效率 · EDCA: four queues, and the two numbers that
+ * Wi-Fi Tier 2 · M8 · QoS 与效率 · EDCA: four access categories, and the parameters that
  * decide between them.
  *
- * Re-paced on 2026-09-25
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M8): the
- * first half of the old lesson. What this half owns is how a win is decided —
- * the four access categories, the AIFS each one must hear and the width of its
- * first draw, with the procedure the MAC actually runs. What the head start
- * COSTS, who pays it, and the one station in this room that ever owes an EIFS
- * are `edca-cost`, which loads this same scene (`sameSceneAs: 'edca'`).
+ * **Standard-first shape (2026-11-11).** ① states what IEEE Std 802.11-2024 specifies — the four
+ * EDCAFs and the UP-to-AC table (§10.23.2.1, §10.2.3.2, Table 10-1), AIFS[AC] and the slot
+ * boundaries (§10.23.2.4), the default parameters (Table 9-194 for a non-AP STA, the MIB's
+ * dot11QAPEDCATable for an AP) and internal collisions (§10.23.2.2 item d). ② says, row by row,
+ * what this engine does with each; ③ is three guided runs of the lesson's own scene. What the
+ * audit for this lesson found, and the lesson now says in ②:
+ *  - the engine gives the AP the non-AP STA table, where the standard gives an AP AIFSN 1 for
+ *    VO and VI and CWmax 63 for BE — the AP's BE window of 255 in lab 3 cannot occur under the
+ *    AP defaults;
+ *  - the access category comes from the traffic profile, not from each MSDU's priority;
+ *  - the parameters are an engine constant table, never advertised (no Beacon in this engine);
+ *  - the engine draws the backoff value at the end of AIFS, not when the backoff procedure is
+ *    invoked, which moves no transmission;
+ *  - on an internal collision the engine also counts a retry on the losing AC's head MSDU, which
+ *    §10.23.2.2 item d does not ask for.
  *
- * Cut here, as §5 names them:
- *  - 「窗口为什么是翻倍而不是加一」and 「等待的整把梯子」(§5.1.5): `collisions-cw`
- *    owns the doubling and `ifs` owns the ladder, and this lesson points at them
- *    rather than teaching them again.
- *  - 「把抢跑量出来」(§5.3): it re-derived the 45 µs the table above it prints;
- *    the figure now shows it and the caption states it once.
- *  - the waiting-room metaphor 「一台电台，四间候车室」and 「两个旋钮，没有裁判」
- *    (§5.2); 抢跑 was down from eight uses to one, and the 2026-10-01 wording
- *    contract (docs/course-wording-contract.md) replaced that last one with
- *    提前量 — the 45 µs the voice queue may count in and the background queue
- *    may not.
- *  - the `deeper` note 「当自己的两条队列打平」, which restated step 6 of the
- *    procedure in the same words.
- *
- * The scenario builder and the jump-zero predicate are unchanged, so the
- * recorded timeline hash stays identical. Every number quoted below is pinned
- * in tests/course/edca.test.ts.
+ * The scenario builder and the jump predicates are unchanged, so the recorded timeline hash stays
+ * identical (`edca-cost` loads the same scene). Every figure below is pinned in
+ * tests/course/edca.test.ts against a 400 ms run.
  */
 import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstVo, firstInternal, J } from '../lessonKit'
@@ -34,17 +28,11 @@ import { type Lesson, oneRoom, node, sc, firstVo, firstInternal, J } from '../le
 /**
  * The four categories' AIFS, drawn from one frame end to scale.
  *
- * The zero point is a real instant of this run — 23.0816 ms, the moment the air
- * goes idle before the caller's first voice frame, which is the first row of the
- * worked table below the figure — and the first lane is the frame that ended
- * there: the access point's 32 µs answer, from 23.0496.
- *
- * Two of the four AIFS lanes are records at that instant, 34 µs on the caller
- * and 43 µs on the uploader; 79 µs is the same sum, `aifsNs(AIFSN)`, for the
- * category that had nothing to send just then, and the caption says which is
- * which. The five slots between the top lane and the bottom one are the whole
- * mechanism of this lesson: 79 − 34 = 45 µs in which voice counts and background
- * may not.
+ * The zero point is a real instant of this run — 23.0816 ms, the moment the air goes idle before
+ * the caller's first voice frame — and the first lane is the frame that ended there: the access
+ * point's 32 µs BlockAck, from 23.0496. 34 µs and 43 µs are records at that instant (the caller's
+ * VO and the uploader's BE); 79 µs is the same sum, `aifsNs(AIFSN)`, for the category that had
+ * nothing to send just then, and the caption says which is which.
  */
 export function edcaAifsTiming(): TimingSpec {
   return {
@@ -64,128 +52,144 @@ export const edca: Lesson = {
   id: 'edca',
   module: 7,
   title: 'EDCA——四条队列，两个数',
-  why: '一通电话和一个文件上传竞争同一个空口，但它们的需求不同。几毫秒的等待就足以严重影响通话质量；同样的等待发生在上传上，几乎无法察觉。可到目前为止的规则对每一帧都一视同仁，于是通话只能和上传在同一套随机规则下竞争，而且通常结果更差。增强型分布式信道接入（enhanced distributed channel access, EDCA）把一台电台分成四个竞争者：每一帧按承载的内容归入语音、视频、尽力而为、后台四个接入类别（access category, AC）之一，每一类有自己的队列（queue），各自独立倒数，哪条先数到零就发送哪条的帧。没有调度器，也无需申请，四条队列之间只有两个参数不同：倒数开始之前必须持续侦听到信道空闲的那段时间，即仲裁帧间间隔（arbitration interframe space, AIFS），以及随机选取倒数值的范围，即竞争窗口（contention window, CW）。语音的这两个值都最小。两者带来的优势并不相同：抽取范围窄只改变概率，后台仍然可能抽到较小的数而先发送；静默短则是确定的优势，后台还在等待它的静默期时，语音已经开始倒数，最短与最长的静默相差五个时隙（slot time），每一轮都起作用。同一台电台的两条队列同时数到零时，优先级高的一类发送，低的一类按发生了碰撞来处理、窗口翻倍，这叫内部碰撞（internal collision），它不占用任何空口时间（airtime）。',
+  why: 'IEEE 802.11-2024 的增强型分布式信道接入（enhanced distributed channel access, EDCA）把一台支持服务质量（quality of service, QoS）的站点（station, STA）的发送分成四个接入类别（access category, AC）：语音 VO、视频 VI、尽力而为 BE、后台 BK。每一类有自己的队列（queue）和自己的退避（backoff）计数器，各自独立倒数，先数到零的那一类取得传输机会（transmit opportunity, TXOP）。四类之间只有几个参数不同：倒数开始之前必须侦听到介质（medium）空闲的时间，即仲裁帧间间隔（arbitration interframe space, AIFS），由仲裁帧间间隔数（arbitration interframe space number, AIFSN）决定；以及抽取退避值的范围，即竞争窗口（contention window, CW），它从最小竞争窗口（minimum contention window, CWmin）开始，最大不超过最大竞争窗口（maximum contention window, CWmax）。按接入点（access point, AP）以外的站点的默认参数，语音的 AIFS 为 34 µs、首次抽取范围为 0 到 3，后台为 79 µs、0 到 15。两种差别的作用不同：抽取范围窄只提高先数到零的概率；AIFS 短则使语音每一轮都比后台早五个时隙（slot time）开始倒数。同一台站点的两类在同一个时隙边界同时数到零时，优先级高的一类发送，低的一类按一次失败处理、窗口加倍，这叫内部碰撞（internal collision），不占用空口时间（airtime）。本仿真器的站点照默认参数取值，但接入点也用非 AP 站点的那张表，参数也不随信标（Beacon）下发。',
   outcomes: [
-    '说明一台站点（STA）把自己的流量分成四类之后，内部发生了什么变化',
-    '从仿真中读出某一类必须等待的静默时长和抽取范围，并说明优势主要来自哪一个',
+    '说出 AIFS 的计算式与四个接入类别的默认参数，以及它们出自标准的哪一处',
+    '按标准的时隙边界规则，从日志里推算出一帧语音的发送时刻',
+    '说明内部碰撞的处理规则，并指出本仿真器的参数在哪几处与标准不同',
   ],
   needs: ['ifs', 'backoff', 'collisions-cw'],
   terms: [
-    { term: 'EDCA', plain: '增强型分布式信道接入：这条规则使一台站点拥有四条等待队列而不是一条，每一条各自参与竞争' },
-    { term: 'access category', plain: '一帧进入电台时被归入的那一类：语音、视频、尽力而为、后台' },
-    { term: 'AIFS', plain: '仲裁帧间间隔：一条队列开始倒数之前必须侦听到信道空闲的那段时间——即原来那段固定的较长等待，改为按类别可调' },
+    { term: 'EDCA', plain: '增强型分布式信道接入：一台站点有四个接入类别，每一类各有一条队列、一个退避计数器，各自参与竞争' },
+    { term: 'access category', plain: '一帧被归入的那一类：语音、视频、尽力而为、后台' },
+    { term: 'AIFS', plain: '仲裁帧间间隔：一类开始倒数之前必须侦听到介质空闲的时间，按类别取不同的值' },
   ],
-  picture: [
-    { heading: '一台电台，四个竞争者', text: '每一帧进入电台的时候，都会按它承载的内容被归入四类之一：一通电话、一部影片、普通流量，或者没有人在等待的数据。每一类有自己的队列（queue），每条队列独立倒数，如同房间里另一台独立的站点。哪条先数到零，电台就发送哪条的帧。这就是增强型分布式信道接入（enhanced distributed channel access, EDCA）；而这四条队列里的每一条，标准里称为一个接入类别（access category, AC）。' },
-    { heading: '决定谁先发送的两个数', text: '为了区分它们的先后，并没有新增任何机制：没有调度器，也无需申请。四条队列用的还是退避（backoff）那一课里的同一套等待规则，只有两个数按类别分别设定。第一个是：这条队列必须先侦听到多长时间的信道空闲，才允许开始倒数，这就是它的仲裁帧间间隔（arbitration interframe space, AIFS）。第二个是：它随机选取倒数值的范围有多宽，也就是它那两个竞争窗口（contention window, CW）。语音的等待更短，抽取的范围更小。' },
-    { kind: 'watch', jump: 0, heading: '看通话是怎么取得发送机会的', text: '载入仿真，跳到通话站点的第一帧。旁边的上传站点从未停止发送，但通话仍然取得了发送机会。把鼠标悬停在通话站点的倒数色块上，再悬停在备份站点的色块上，比较这两个色块上的数值。' },
-    { heading: '更短的静默，每一轮都在起作用', text: '这两个数给的优势并不是同一种。抽取范围更窄，只是改变了概率——后台队列仍然可能抽到很小的数并先数到零。更短的静默则是确定的：当后台队列还在等待它那段必须等待的静默时，语音队列已经开始倒数，而在这些时隙（slot time）里，后台队列还不允许开始倒数。这段提前量每一轮都存在。' },
+  standard: [
+    { heading: '四个接入类别（§10.23.2.1，§10.2.3.2，表 10-1）', text: 'EDCA 在分布式协调功能（distributed coordination function, DCF）的基础上增加四个相互独立的信道接入功能（EDCAF），每个接入类别一个，各有自己的发送队列，以此区分发送的优先级。每个上层数据单元带一个 0 到 7 的优先级，按表 10-1 映射到接入类别：1、2 映射到 AC_BK，0、3 映射到 AC_BE，4、5 映射到 AC_VI，6、7 映射到 AC_VO。' },
+    { kind: 'formula', heading: '仲裁帧间间隔（§10.23.2.4）', text: 'AIFS[AC] = AIFSN[AC] × aSlotTime + aSIFSTime', note: '非 AP 站点的 AIFSN 不得小于 2，接入点的不得小于 1。在 20 MHz 的正交频分复用（orthogonal frequency-division multiplexing, OFDM）信道上 aSIFSTime 为 16 µs、aSlotTime 为 9 µs（表 17-24），AIFSN 取 2、3、7 时 AIFS 分别为 34、43、79 µs。AIFSN 为 2 时 AIFS 与分布式帧间间隔（DCF interframe space, DIFS）相等。' },
+    { kind: 'table', heading: '非 AP 站点的默认参数（表 9-194，OFDM 物理层（physical layer, PHY）aCWmin = 15、aCWmax = 1023）', head: ['接入类别', 'CWmin', 'CWmax', 'AIFSN', 'AIFS'], rows: [
+      ['AC_VO', '(aCWmin+1)/4 − 1 = 3', '(aCWmin+1)/2 − 1 = 7', '2', '34 µs'],
+      ['AC_VI', '(aCWmin+1)/2 − 1 = 7', 'aCWmin = 15', '2', '34 µs'],
+      ['AC_BE', 'aCWmin = 15', 'aCWmax = 1023', '3', '43 µs'],
+      ['AC_BK', 'aCWmin = 15', 'aCWmax = 1023', '7', '79 µs'],
+    ] },
+    { heading: '参数从哪里来（§10.23.2.4，§9.4.2.27，附录 C）', text: '在基础设施网络里，接入点在信标与 Probe Response 帧的 EDCA 参数集（parameter set）元素中通告各类的 AIFSN、CWmin、CWmax 与 TXOP 上限（TXOP limit），站点按最近收到的值更新；元素中每一类还有一个 ACM 子字段，置 1 时这一类必须先经准入控制才能使用。表 9-194 是非 AP 站点的默认值。接入点自己的默认值在 MIB 的 dot11QAPEDCATable 里，与站点不同：VO、VI 的 AIFSN 为 1，BE 的 AIFSN 为 3、CWmax 为 63，BK 的 AIFSN 为 7。' },
+    { kind: 'steps', heading: '一个 EDCAF 怎样取得 TXOP，按标准：逐步说明', items: [
+      '退避过程被触发时（例如帧到达时介质忙），EDCAF 在 0 到 CW[AC] 之间均匀地抽取一个整数作为退避计数；CW[AC] 的初值为 CWmin[AC]（§10.23.2.2、§10.23.2.4）。',
+      '介质空闲满 AIFS[AC] 之后是这一类的第一个时隙边界，此后每过一个 aSlotTime 的空闲时间是下一个边界（§10.23.2.4）。',
+      '在每个时隙边界上，EDCAF 只做一件事：计数非零就减一；计数为零且有帧待发，就发起一个 TXOP；计数为零而没有帧，就什么也不做。',
+      '介质变忙时计数停在当前值，下一次介质空闲满 AIFS[AC] 后继续。',
+      '同一台站点的两个 EDCAF 在同一个时隙边界都可以发起 TXOP 时，优先级高的一类发起；低的一类报告一次内部碰撞，调用退避过程（§10.23.2.2 第 d) 项）：QSRC[AC] 加一，CW[AC] 取 CWmax[AC] 与 2^QSRC[AC] × (CWmin[AC] + 1) − 1 中较小的值，再抽取一个新的计数。',
+    ] },
   ],
-  numbers: [
+  implementation: [
+    { topic: '四个 EDCAF', standard: '每个接入类别一个 EDCAF，各有一条发送队列（§10.23.2.1）', sim: '开启 EDCA 的设备有四个独立的 EDCAF，各有自己的队列、计数器与竞争窗口。', kind: 'faithful' },
+    { topic: '帧归入哪一类', standard: '按每个数据单元的优先级查表 10-1（§10.2.3.2）', sim: '数据单元不带优先级：一台站点的类别由它的业务档位一次确定，语音档为 VO、上传为 BE、备份为 BK。本场景里三台站点各只有一类流量，只有接入点同时持有 VO 与 BE 两类。', kind: 'differs' },
+    { topic: 'AIFS 的计算', standard: 'AIFSN × aSlotTime + aSIFSTime（§10.23.2.4）', sim: '16 + AIFSN × 9 µs：VO、VI 为 34 µs，BE 为 43 µs，BK 为 79 µs。', kind: 'faithful' },
+    { topic: '站点的参数', standard: '非 AP 站点的默认值（表 9-194）', sim: '四类的 CWmin、CWmax、AIFSN 与表 9-194 相同，见上表。', kind: 'faithful' },
+    { topic: '接入点的参数', standard: '接入点用 dot11QAPEDCATable：VO、VI 的 AIFSN 为 1，BE 的 CWmax 为 63（附录 C）', sim: '接入点也用表 9-194 这张非 AP 站点的表：VO 的 AIFSN 为 2，BE 的 CWmax 为 1023。', kind: 'differs' },
+    { topic: '参数的通告与准入控制', standard: '接入点在信标与 Probe Response 帧的 EDCA 参数集元素中通告；ACM 子字段可要求准入控制（§9.4.2.27）', sim: '没有信标，也没有任何管理帧（management frame）；参数是引擎里的一张常量表，场景不能改动，只有篡改配置能改变它。准入控制没有实现，语音总是可以直接使用 AC_VO。', kind: 'absent' },
+    { topic: '何时抽取退避计数', standard: '退避过程被触发时抽取（§10.23.2.2）', sim: '介质空闲满 AIFS、到达第一个时隙边界时才抽取。计数在此之前不会递减，所以发送时刻与标准相同。', kind: 'differs' },
+    { topic: '时隙边界上的操作', standard: 'AIFS 结束是第一个边界，此后每个 aSlotTime 一个；每个边界上只做一件事（§10.23.2.4）', sim: '照此处理：AIFS 结束的那一刻计数先减一；计数已经是零的 EDCAF 在下一个边界发送。没有收发转换时间，帧在边界那一纳秒开始。', kind: 'faithful' },
+    { topic: '内部碰撞的仲裁', standard: '优先级高的一类发起 TXOP；低的一类 QSRC 加一、CW 按式加倍、重新抽取（§10.23.2.2 第 d) 项，§10.23.2.4）', sim: '照此处理，CW 的取值与标准的计算式一致。', kind: 'faithful' },
+    { topic: '内部碰撞与帧的重传（retry）计数', standard: '第 d) 项只更新 QSRC 与 CW；§10.23.2.12.1 的帧重传计数在传输失败时递增', sim: '低的一类还给队头那一帧记一次重传，这一帧回到队头。', kind: 'differs' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '从同一个帧尾开始，四类各等多久',
-      spec: edcaAifsTiming(),
-      caption: '零点取本轮的 23.0816 ms：接入点（access point, AP）那个 32 µs 的应答刚刚结束，空口重新空闲。此刻实际在运行的是 34 µs 和 43 µs 两条（通话站点一条，上传站点一条）；79 µs 那条是按同一个公式、以后台的时隙数算出来的。最上和最下相差 45 µs，正好五个时隙——这五个时隙里语音在倒数，后台不允许倒数。',
+      heading: '通话站点的第一帧语音',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一次 VO 接入：接入点 32 µs 的块确认（block acknowledgement, BlockAck）刚刚结束，介质重新空闲。',
+        '依次查看通话站点的 AIFS、退避抽取与每一次递减，对照下表推算发送时刻。',
+        '同时查看接入点：它的语音队列也在这一刻开始等待。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '通话站点的第一帧语音，按步骤计算', head: ['步骤', '数值'], rows: [
+          ['介质重新空闲', '23.0816 ms'],
+          ['VO 的 AIFS = 16 + 2 × 9', '34 µs'],
+          ['第一个时隙边界，在 0 与 CWmin 3 之间抽取', '23.1156 ms · 抽到 2'],
+          ['同一个边界上计数减一', '23.1156 ms · 2 → 1'],
+          ['再过一个 9 µs 的空闲时隙', '23.1246 ms · 1 → 0'],
+          ['计数为零，在下一个边界发起 TXOP', '23.1336 ms'],
+        ] },
+      ],
+      expect: '你应该看到：通话站点在 23.1156 ms 抽到 2，23.1336 ms 发送；接入点的语音队列在同一时刻同样抽到 2，也在 23.1336 ms 发送。两帧语音同时开始，都没有收到确认，两边各记一次重传。',
+      meaning: '这说明：时隙边界上的操作照标准进行（①、②）。两个 VO 队列都从 0 到 3 里抽取，抽到同一个数的机会很大；EDCA 只区分不同类别，同一类别之间仍然靠随机抽取，抽到相同的数就在空中碰撞。',
     },
-    { kind: 'table', heading: '每一类的三个常数', head: [
-      '类别', 'AIFSN（静默的时隙数）',
-      '先要等待的静默，即它的 AIFS',
-      '第一次抽取：0 到最小竞争窗口 CWmin',
-      '翻倍后最大可达最大竞争窗口 CWmax', '出处',
-    ], rows: [
-      ['VO（语音）', '2', '34 µs', '3', '7', 'Table 9-194'],
-      ['VI（视频）', '2', '34 µs', '7', '15', 'Table 9-194'],
-      ['BE（尽力而为）', '3', '43 µs', '15', '1023', 'Table 9-194'],
-      ['BK（后台）', '7', '79 µs', '15', '1023', 'Table 9-194'],
-    ] },
-    { kind: 'formula', heading: '这些等待是怎么来的', text: 'AIFS = SIFS + AIFSN × 时隙 = 16 + AIFSN × 9 µs，AIFSN 取 2、3 或 7', note: '过去那段对所有帧统一的等待，就是这同一个公式把仲裁帧间间隔数（arbitration interframe space number, AIFSN）固定为 2：一个常数被改成了参数。至于窗口为什么每失败一次就翻倍、整个帧间间隔家族还有哪几级，分别在“无应答、超时与竞争窗口翻倍”与“两种等待”那两课讲解。' },
-    { kind: 'steps', heading: '一帧的等待如何确定，逐步说明', items: [
-      '这一帧进入时被归入某一个接入类别，进入那一类自己的队列。每条队列都有自己的计数器和自己的窗口；上面那张表里的三个常数，就是这四条队列全部的区别所在。',
-      '这条队列必等的静默，由它的 AIFSN 按上面那个和式算出：两个时隙是 34 µs，七个时隙是 79 µs。',
-      '队列中有待发的帧、信道又空闲时，这条队列必须先侦听到一段完整、不间断的 AIFS，计数器才允许开始递减。',
-      '这段 AIFS 结束时，这条队列在零和它当前窗口之间随机选取一个整数；窗口从最小竞争窗口（minimum contention window, CWmin）开始。对这四条队列来说，AIFS 结束的那一刻本身就是一个时隙边界，所以计数器在那里就先减一——比退避那一课里的基本倒数早一个边界，而计数的时隙数相同。',
-      '此后每过一个 9 µs 的空闲时隙，计数器再减一；信道一旦变忙，它就冻结在当前值，等下一段 AIFS 结束后再继续倒数。已经停在零的计数器，在下一个时隙边界上发送，也就是再过 9 µs。',
-      '如果同一台电台的两条队列在同一个时隙同时停在零，高的那一类发送，低的那一类则完全按“自己的帧在空中发生了碰撞”来处理：记一次重传（retry），窗口向最大竞争窗口（maximum contention window, CWmax）翻倍，重新抽取。这就是内部碰撞（internal collision），而它不占用任何空口时间（airtime）。本场景里三台站点各只运行一类流量，所以这一步在它们身上不会发生；会发生的只有接入点——它要为通话与上传分别发送回程方向的帧，于是同时持有语音和尽力而为两条队列，而两条就足够了。整轮里它发生过一次，在 362.6426 ms：语音发送，尽力而为那条记一次重传、窗口从 127 翻倍到 255。「接入点上的内部碰撞」那个跳转就停在那一刻。',
-    ] },
-    { kind: 'table', heading: '通话站点的第一帧语音，按步骤计算一遍', head: [
-      '步骤', '数值',
-    ], rows: [
-      ['信道重新空闲', '23.0816 ms'],
-      ['这一类的 AIFS = 16 + 2 × 9', '34 µs'],
-      ['于是计数器从这一刻起可以递减', '23.1156 ms'],
-      ['在 0 与最小竞争窗口 3 之间抽取', '2'],
-      ['AIFS 的结束本身就是一个时隙边界', '23.1156 ms · 2 → 1'],
-      ['再过一个 9 µs 的空闲时隙', '23.1246 ms · 1 → 0'],
-      ['已经停在零的计数器，再等一个时隙边界', '9 µs'],
-      ['这一帧语音发送的时刻', '23.1336 ms'],
-      ['同一时刻开始等待的后台队列，此时还差', '27 µs'],
-    ] },
-  ],
-  limits: [
-    { kind: 'unmodelled', seeAlso: 'wan-rtt', text: '一帧属于哪一类，在这里由站点的业务档位一次固定下来（traffic.ts 的 acForProfile），而每台站点只跑一类流量——所以本课那四条队列实际分散在三台设备上。九个业务档位里有一个例外，而它值得单独记住：游戏档不走 acForProfile，它的类别由接入点上的一个布尔（gameAccel）决定——关闭时是尽力而为，开启时是视频，见「云端往返」那一课。真实设备里四条队列同时在同一块芯片里竞争，分类来自每个包自己的用户优先级，一台手机可以同时使用语音与后台两条队列。也正因为这样，本场景里那一次内部碰撞只可能发生在接入点上——它是这个房间里唯一同时持有两类流量的设备。' },
-    { kind: 'unmodelled', seeAlso: 'edca-tamper', text: '那四组参数是引擎里的一张常量表（phy.ts 的 EDCA_PARAMS），直接取 Table 9-194 的默认值。真实网络里它们由接入点在信标的 EDCA 参数集元素里广播，而本引擎不发送信标——帧类型里没有任何管理帧。于是「接入点把某一类的窗口调宽来保护语音」这种现实中最常见的调参手段，这里只能靠篡改驱动那一项配置来模拟。' },
-    { kind: 'unmodelled', text: '接入类别在这里只是四组等待参数，没有任何准入控制：标准的 ACM 位可以要求站点先为语音申请一份 TSPEC 才允许使用 AC_VO，引擎不建模这一整套。于是这里的语音是无条件优先的，而真实企业网里一个未获准入的语音流会被降为 AC_BE，本课那 45 µs 的提前量也就无从谈起。' },
-    { kind: 'unmodelled', text: '全场共用一个时钟：那段 AIFS 与每个 9 µs 时隙边界对每台设备是同一瞬间，发射的信号到达各处也不需要时间。所以「语音已经开始倒数、后台还不允许倒数」恰好是精确的五个时隙。真实设备各有几十 ppm 的晶振误差与收发转换时间，边界互相错开，这个提前量每一轮都略有不同。' },
+    {
+      heading: '四类各等多久',
+      jump: 0,
+      steps: [
+        '在同一时刻查看各站点的 AIFS 记录，对照下图。',
+        '运行 400 ms，统计每台站点 AIFS 的长度与抽取时所用的窗口。',
+      ],
+      blocks: [
+        { kind: 'diagram', heading: '从同一个帧尾开始，四类各等多久', spec: edcaAifsTiming(), caption: '零点是本轮的 23.0816 ms：接入点（access point, AP）那个 32 µs 的块确认刚刚结束。此刻实际在等待的是 34 µs（通话站点）与 43 µs（上传站点）两条；79 µs 那条是按同一个计算式、以后台的 AIFSN 算出的。最上与最下相差 45 µs，正好五个时隙。' },
+        { kind: 'table', heading: '400 ms 里三台站点的 AIFS 与窗口', head: ['站点', '类别', '非零 AIFS 的长度', '抽取时的窗口'], rows: [
+          ['通话站点', 'VO', '34 µs', '3、7'],
+          ['上传站点', 'BE', '43 µs', '15、31'],
+          ['备份站点', 'BK', '79 µs', '15、31'],
+        ] },
+      ],
+      expect: '你应该看到：三台站点的非零 AIFS 各只有一个长度，分别是 34、43、79 µs；通话站点的窗口只出现过 3 和 7，上传与备份站点只出现过 15 和 31。上传站点另有几段 103 µs 的等待，那是接收出错之后的等待，下一课讲。',
+      meaning: '这说明：三台站点照表 9-194 取参数（②）。窗口从 CWmin 开始、失败一次加倍一次，VO 的 CWmax 是 7，所以通话站点的窗口不会超过 7。',
+    },
+    {
+      heading: '接入点上的内部碰撞',
+      jump: 1,
+      steps: [
+        '跳到接入点上的内部碰撞。',
+        '查看同一时刻接入点的记录：哪一类发送了，哪一类的窗口变了。',
+      ],
+      expect: '你应该看到：362.6426 ms 处接入点的 VO 与 BE 两个计数同时为零。VO 发送一帧语音给通话站点；BE 记一次内部碰撞，QSRC 从 3 变为 4，窗口从 127 加倍到 255，重新抽到 23。整轮 400 ms 只有这一次内部碰撞。',
+      meaning: '这说明：仲裁规则与窗口计算式照标准（①、②）：2^4 × (15 + 1) − 1 = 255。但按接入点自己的默认参数，BE 的 CWmax 是 63，127 与 255 都不会出现；这是本仿真器给接入点用了站点参数的结果（②）。内部碰撞只能发生在接入点上，因为本场景里只有它同时持有两类流量。',
+    },
   ],
   sources: [
-    '四个接入类别及其默认参数见 IEEE Std 802.11-2024 的 Table 9-194（EDCA 参数集元素，§9.4.2.27；§9.4.2.28 是 TSPEC 元素，与这张表无关）；AIFS[AC] = aSIFSTime + AIFSN × aSlotTime 见 §10.23.2.4，其中 16 µs 与 9 µs 取自 §17.4.4。',
-    '内部碰撞的规则——高优先级类别发送，低优先级类别按外部碰撞进入退避——见 §10.23.2.2。',
-    '随机种子、三台站点及它们的业务模型，都是本仿真器的模型取值，而非标准中的数值。',
+    'IEEE Std 802.11-2024：§10.23.2.1（四个 EDCAF）、§10.2.3.2 与表 10-1（优先级到接入类别的映射）、§10.23.2.4（AIFS[AC] 的计算式、AIFSN 的下限、时隙边界上的操作、内部碰撞的判定）、§10.23.2.2（退避过程、第 d) 项内部碰撞、CW 的更新式）、§9.4.2.27（EDCA 参数集元素与 ACM 子字段）、表 9-194（非 AP 站点的默认参数）、附录 C 的 dot11QAPEDCATable（接入点的默认参数）、表 17-24（aSIFSTime、aSlotTime、aCWmin、aCWmax）、§10.23.2.12.1（帧重传计数）。',
+    '本仿真器的取值与取法：按业务档位确定类别、接入点沿用站点参数、参数为常量表、在 AIFS 结束时抽取。三台站点、它们的业务模型、随机种子以及每一个时刻都是本仿真器的场景，可以复现。',
   ],
+  limits: [],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
     node('sta-1', 'Caller (VO)', 'sta', 3.5, 5, 'he', 'voice'),
     node('sta-2', 'Uploader (BE)', 'sta', 6.5, 5, 'he', 'saturated'),
     node('sta-3', 'Backup (BK)', 'sta', 5, 6.5, 'he', 'backup'),
   ]),
-  // The other two jumps of the old list — the background station's first frame and the
-  // uploader's first EIFS — went to `edca-cost` with the material they anchor.
-  //
-  // Jump 1 is the one record step 6 is about, and the reason it can be clicked at all is
-  // that the browser's recording is NOT the test's window: `Player.load` asks the worker
-  // for `LOOKAHEAD_NS` = 2 s of sim time up front, so 362.6426 ms is buffered long before
-  // a reader reaches this lesson's sixth step. The 300 ms in `tests/course/edca.test.ts`
-  // only ever hid the record from the TEST — which is how the old closing half-sentence
-  // ("every station runs one class, so this step never fired") stayed green while being
-  // false on the reader's own screen. The run is 400 ms now so the test sees it too.
-  //
-  // `firstInternal` is not new, and neither is this jump: THIS lesson carried
-  // `J('first internal collision', '第一次内部碰撞', firstInternal)` until 4e405ad
-  // (2026-09-21, "edca, ampdu, txop on the readability contract"). That one commit deleted
-  // the jump and wrote the false claim in the same breath — 「本场景里不会出现这种情况，
-  // 因为这里每台终端都只跑一类流量」 — so the evidence left exactly when the sentence that
-  // needed checking arrived. `firstInternal` has had zero importers for the fortnight since.
+  // Jump 1 is the one INTERNAL_COLLISION of the run, at 362.6426 ms; the browser buffers 2 s of
+  // sim time up front, so it is reachable, and the test runs 400 ms so it sees it too.
   jumps: [
     J('第一次 VO 接入', firstVo),
     J('接入点上的内部碰撞', firstInternal),
   ],
-  observe: [
-    '把鼠标悬停在通话站点的倒数色块上：它们标着 AC_VO，块上的窗口从不超过 7。备份站点的块标着 AC_BK，窗口从不小于 15，而且上面那段静默是 79 µs。',
-    '再悬停在色块之前那段等待上：通话站点的每一段都是 34 µs，标着 AIFS；上传站点的每一段是 43 µs。整轮运行中，这两个数从未变化。',
-  ],
-  tryThis: [
-    '把上传站点的业务也改成语音再载入：两条语音队列现在从同一个极小的范围里抽取倒数值，它们互相碰撞的频率比之前高得多。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '语音队列究竟靠什么比后台队列更早发送？',
-      options: [
-        '接入点（access point, AP）优先服务语音站点',
-        '它开始倒数前要等待的静默更短，而且倒数值是从更窄的范围里抽取的',
-        '语音帧可以中断正在进行的发送',
-      ],
-      answer: 1,
-      explain: '两个参数，没有调度器：一个能更早开始倒数、又从更小的数开始倒数的类别，多数时候会更早数到零。',
+      q: '后台这一类的 AIFSN 是 7。它每一轮必须先侦听到多长时间的介质空闲？',
+      options: ['7 µs', '63 µs', '79 µs'],
+      answer: 2,
+      explain: '§10.23.2.4：AIFS = AIFSN × aSlotTime + aSIFSTime = 7 × 9 + 16 = 79 µs。语音的 AIFSN 为 2，得到 34 µs。',
     },
     {
-      q: '后台这一类的 AIFSN 是 7。它每一轮必须先侦听到多长时间的信道空闲？',
+      q: '同一台站点的 VO 与 BE 在同一个时隙边界都可以发起 TXOP。按标准会怎样？',
       options: [
-        '7 µs',
-        '63 µs',
-        '79 µs',
+        '两类同时发送，在空中碰撞',
+        'VO 发起 TXOP；BE 报告一次内部碰撞，QSRC 加一、窗口加倍、重新抽取',
+        '两类都放弃这一次，重新抽取',
       ],
-      answer: 2,
-      explain: '16 + 7 × 9 = 79 µs。同一个式子换一个 AIFSN，就得到四类各自的静默；语音的 2 个时隙给出 34 µs。',
+      answer: 1,
+      explain: '§10.23.2.4 与 §10.23.2.2 第 d) 项：优先级高的一类发起，低的一类调用退避过程；内部碰撞不占用空口时间。',
+    },
+    {
+      q: '哪一项是本仿真器与标准不同的地方？',
+      options: [
+        'AIFS 按 AIFSN × aSlotTime + aSIFSTime 计算',
+        '接入点使用与非 AP 站点相同的默认参数',
+        '计数为零的 EDCAF 在时隙边界上发起 TXOP',
+      ],
+      answer: 1,
+      explain: '标准给接入点另一套默认值（dot11QAPEDCATable：VO、VI 的 AIFSN 为 1，BE 的 CWmax 为 63）；本仿真器的接入点沿用表 9-194。',
     },
   ],
 }

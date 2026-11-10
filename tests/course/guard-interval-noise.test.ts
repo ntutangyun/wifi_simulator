@@ -151,14 +151,16 @@ describe('guard-interval noise gate · (iii) no frame-loss figure reaches src/',
 
   it('the anchoring is what makes that zero true, and it is not a stricter test than needed', () => {
     // Both halves, so a future reader cannot mistake the anchoring for pedantry. The naive
-    // version is red today; the anchored version lets exactly those two through.
+    // version is red today; the anchored version lets exactly those three through. The third
+    // (2026-11-11) is `mlo`'s standard-first lab table, whose 「194.5768 ms」 contains 4.57.
     const naive = sourceFiles(SRC).filter((f) => {
       const t = fs.readFileSync(f, 'utf8')
       return t.includes('5.44') || t.includes('4.57')
     })
-    expect(naive.length, 'the two known coincidences are gone; this test needs rewriting').toBe(2)
+    expect(naive.length, 'the three known coincidences are gone; this test needs rewriting').toBe(3)
     expect(anchored('5.44').test('4.7368, 6.3831, 5.4439, 6.8922 m')).toBe(false)
     expect(anchored('4.57').test('(SP3_REPORT_NS / SP3_SAVING_SHORTEST_NS).toFixed(3) // 4.578')).toBe(false)
+    expect(anchored('4.57').test("['194.5768 ms，第 4105 帧', '5 GHz', '5 GHz，194.8518 ms'],")).toBe(false)
     // And it still catches the thing it is for, in every shape a lesson would write it.
     expect(anchored('5.44').test('掉帧率从 5.44 % 降到 4.57 %')).toBe(true)
     expect(anchored('4.57').test('掉帧率从 5.44 % 降到 4.57 %')).toBe(true)

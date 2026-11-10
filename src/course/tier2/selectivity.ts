@@ -1,184 +1,194 @@
 /**
  * Wi-Fi Tier 2 · M9 · 容量参数与速率控制 · Frequency selectivity.
  *
- * The lesson of the 2026-10-03 selectivity slice (design doc §10), and it sits
- * immediately after `width` because `width`'s own `limits` entry is its subject:
- * a lesson belongs next to the sentence it unfolds.
+ * Standard-first shape (2026-11-11). ① is what the standard says that bears on a channel that
+ * fades differently across frequency: the 26-tone RU and where it sits (IEEE Std 802.11be-2024
+ * §36.3.2.1, Table 36-5, Table 36-18), the CQI report that averages SNR over each 26-tone RU
+ * (802.11be §9.4.1.75, IEEE Std 802.11-2024 §9.4.1.65, Table 9-129), the per-subcarrier Delta SNR
+ * (§9.4.1.49), the LDPC tone mapper that spreads coded bits over the subcarriers (§36.3.13.8),
+ * and the sensitivity requirement (§36.3.21.2) — and that it specifies no propagation channel and
+ * no decoding rule. ② is this simulator's bins (`engine/selectivity.ts`), its per-bin draws and
+ * capacity combining, each marked against ①; the CQI report and the Delta SNR are absent. ③ is
+ * four runs of the five-width scene.
  *
- * **It is not a refutation.** Task 6 of this slice already turned that `limits`
- * entry around — it used to predict that a wider channel meets a dead patch more
- * often, and it now states the measured direction instead. So this lesson's job
- * is the mechanism, the three figures, and WHICH INSTRUMENT each figure came off;
- * the one-sentence conclusion is already in `width` and is deliberately not
- * restated here in the same words.
- *
- * Every number quoted is pinned: the 12.05 / 24.09 dB deepest-bin means and the
- * 2.30 / 2.36 dB median losses in tests/engine/selectivity.test.ts, the five pooled drop
- * rates and the 3.62 dB margin they share in tests/engine/selectivity-inert.test.ts, and
- * everything this lesson's own five variants show in tests/course/selectivity.test.ts.
- *
- * **The deepest bin a single round shows is this lesson's own 150 ms figure, 10.29 dB, not
- * the engine sweep's 10.21 dB** (tests/engine/selectivity-round.test.ts runs 200 ms). Same
- * scene and same instrument, different run length: a longer round holds more draws, so its
- * deepest bin is deeper. A lesson prints what its own reader will see.
- *
- * Both the pooled rates and the deepest-bin figures moved once already, and not because a
- * tolerance was loosened: `9604fbc` stopped handing bins to non-HT PPDUs (the 26-tone RU is
- * defined at the HE/EHT subcarrier spacing, and clause 17's is four times wider), which took
- * the ACKs out of the measurement. The end-to-end multiple went from 27.7 to 19.5 with it.
- * That is what paying for a fixed defect looks like; the lesson follows the engine.
- *
- * Three sentences this text may not write, each one a review finding of this slice:
- *  - a drop COUNT. A wider channel puts far more PPDUs on the air in the same
- *    time, so a count conflates airtime with decoding. The five counts belong to
- *    another data set as well (the four-width round sweep), and
- *  - **no sentence mixes two data sets.** The pooled five-width group at 3.62 dB
- *    is where 20 MHz is the worst of the five; this lesson's own scene is the
- *    round sweep, where 20 MHz settles a whole rate step higher (6.62 dB) and is
- *    therefore NOT the worst. Both are true of their own instrument and each
- *    sentence below names which one it is talking about;
- *  - §4.1's two open-loop percentages, which are draws at a fixed 20 dB SINR that no
- *    lesson run produces. They are not repeated here either, comment included: the hard
- *    constraint is zero hits in `src/`, and tests/course/selectivity.test.ts now reads this
- *    file as text, so a comment can no longer slip under the guard.
- *
- * The bin width and the bin counts are computed from `engine/selectivity.ts`
- * rather than typed, for the reason that module gives: they are the standard's
- * own arithmetic, and a literal here could drift out of agreement with the engine
- * the lesson is describing.
+ * The scenario builder and the five variants are unchanged, so the recorded timeline hashes in
+ * tests/fixtures/lesson-hashes.json stay byte-identical. Every figure printed below is read back
+ * out of the lesson text in tests/course/selectivity.test.ts and compared with the engine or a
+ * run; the bin table is computed from `engine/selectivity.ts` rather than typed.
  */
-import { selBinWidthMhz, selBins, selMemberBins } from '../../engine/selectivity'
+import { selBinWidthMhz, selBins } from '../../engine/selectivity'
 import { type Lesson, firstData, J } from '../lessonKit'
 import { selectivityScenario } from '../wifiScenes'
 
-/** The five widths this lesson runs, narrowest first — its variants and its two tables. */
+/** The five widths this lesson runs, narrowest first — its variants and its tables. */
 const WIDTHS = [20, 40, 80, 160, 320] as const
-
-/**
- * The pooled drop rate per width, at the 3.62 dB margin group — 45 runs of 100 ms at nine
- * power offsets, pooled by the margin the rate loop settled each run at
- * (tests/engine/selectivity-inert.test.ts, which asserts all five).
- *
- * Re-measured after `9604fbc` took the non-HT ACKs out of the per-bin path: the column was
- * 14.39 / 12.71 / 9.48 / 5.09 / 0.52 % while those 167–638 ACKs a round were being split into
- * nine bins at the wrong subcarrier spacing.
- */
-const POOLED_RATES: readonly (readonly [number, string])[] = [
-  [20, '14.66 %'], [40, '13.10 %'], [80, '9.81 %'], [160, '5.61 %'], [320, '0.75 %'],
-]
-
-/** 「20」「40」…, so the tables and the variant labels cannot disagree about the five widths. */
-const binRows = (): string[][] => WIDTHS.map((w) => [
-  String(w), String(selBins(w)), selBinWidthMhz().toString(),
-])
 
 export const selectivity: Lesson = {
   id: 'selectivity',
   module: 8,
   title: '频率选择性——一部分深衰，和整帧解不出来，是两回事',
-  why: '到这一课之前，一条链路（link）在某一刻只有一个电平：信噪比（signal-to-noise ratio, SNR）是一个数，这一帧解得出还是解不出，由那一个数判定。真实的宽带室内信道不是这样——同一时刻，信道的一部分深度衰落，另一部分完好，而一个数无法表示「一部分」。本仿真器沿用标准回报信道质量时所用的分格单位，把信道划分成等宽的若干格，带宽翻倍格数就翻倍，每一格各抽取一次衰落。格越多，最深那一格确实越深，带宽每翻一倍约加深三分贝；但最深那一格不是这条链路的损失。一帧的比特经过信道编码，分布在整条信道上，一格深度衰落只损失其中一小部分，所以判决依据的是各格按容量折算成的那一个有效信噪比：从最窄一档到最宽一档，最深那一格从比均值低十几分贝变成低二十几分贝，有效信噪比的损失却一直在两分贝上下。于是**在余量可比的前提下**，信道越宽，掉帧率反而越低，最宽一档比最窄一档低一个数量级以上——方向与「越宽、处于深衰的格越多、性能越差」的直觉相反。余量不可比时则不然：这一课自己的五轮余量并不一致，最窄那一档的余量较高，它的掉帧率就不是最高的。宽信道真正的代价仍是噪声地板（noise floor）随带宽升高，频率选择性只弥补了其中一部分；而分格只改变解调这一步，载波侦听（carrier sense）、前导检测（preamble detection）和发送端的速率选择，依据的仍是整条信道的一个数。',
+  why: '宽带的室内信道在同一时刻，一部分频率深衰、另一部分完好；上一课的信道是平的，整条信道只有一个电平。IEEE 802.11 不规定传播信道，也不规定接收机怎样把高低不一的子载波（sub-carrier）折算成一次判决；与此相关的是它的信道质量指示（channel quality indicator, CQI）报告：以 26 根相邻子载波组成的 26 音调资源单元（resource unit, RU）为单位，报告每一块内各子载波信噪比（signal-to-noise ratio, SNR）的分贝算术平均，每 20 MHz 9 块。LDPC 编码后的比特经音调映射分布到资源单元内相隔一定距离的子载波上，所以一处深衰只损失一帧比特中零散的一小部分。本仿真器沿用这个分块：每格 2.03125 MHz，20 MHz 9 格，320 MHz 144 格，每一格各抽取一次衰落，再按容量把各格合成为一个有效信噪比，判决依据这个合成值。格越多，最深那一格越深，本课的五轮从 20 MHz 的 10.29 dB 加深到 320 MHz 的 23.34 dB，有效信噪比的损失却一直在 2.03 dB 到 2.36 dB 之间。同一个第一帧，20、40、80 MHz 解不出，160、320 MHz 能解出。余量相同的四档里，信道越宽，掉帧率越低，从 40 MHz 的 9.17 % 降到 320 MHz 的 0.92 %；宽信道真正的代价仍是噪声地板（noise floor）随带宽升高，本课的场景已经用发射功率（transmit power）抵消了它。分格只进入解调这一步：载波侦听（carrier sense）、前导检测（preamble detection）与速率选择仍按整条信道的一个值。',
   outcomes: [
-    '说明为什么一个电平无法表示「一部分深衰」，以及标准本身以多宽的频段为一格',
-    '读出最深那一格随信道带宽（channel width）如何变化，并说明它为什么不是这条链路的损失',
-    '在余量可比的前提下比较五个带宽的掉帧率，并说明为什么不能改用掉帧数比较',
-    '判断什么时候打开这一节会改变结果，什么时候打开与关闭的结果完全相同',
+    '说出标准里与频率选择性有关的规定：26 音调资源单元、CQI 报告的算法，以及它不规定的信道与判决',
+    '分清本仿真器的分格哪些照标准、哪些是它自己的取法、哪些没有实现',
+    '从日志的合成记录读出最深一格与有效信噪比，并在余量相同的前提下比较各带宽的掉帧率',
   ],
   needs: ['width', 'noise-floor', 'decode-thresholds'],
   terms: [
-    { term: 'frequency selectivity', plain: '同一条信道上，衰落的深浅随频率而不同；只随时间变化的那种信道称为平坦信道' },
-    { term: '26-tone RU', plain: '由 26 根相邻音调组成的一块；标准回报信道质量所用的就是这个单位' },
-    { term: 'effective SNR', plain: '由高低不一的各格折算成的那一个数；判决依据它，而不依据最深那一格' },
-    { term: 'capacity', plain: '一格在其自身信噪比下每赫兹能承载的比特数；按它合成，就无需再选取一个经验系数' },
-    { term: 'margin', plain: '余量：实测有效信噪比高出这一级门限多少分贝，由接收端逐次测得；不是速率余量固定保留的 3 dB，而下表五档各 3.62 dB（本课那五轮并不齐，最窄一档 6.62 dB）' },
+    { term: 'frequency selectivity', plain: '频率选择性：同一时刻，信道的衰落深浅随频率不同；只随时间变化、各频率一样的信道称为平坦信道' },
+    { term: '26-tone RU', plain: '26 音调资源单元：26 根相邻子载波组成的一块；CQI 报告按它取平均' },
+    { term: 'CQI', plain: '信道质量指示：接收端回报的、每个 26 音调资源单元内的平均信噪比' },
+    { term: 'effective SNR', plain: '有效信噪比：本仿真器把各格的信噪比按容量折算成的一个数，判决依据它' },
+    { term: 'margin', plain: '余量：合成之前的平均信干噪比高出这一级门限多少分贝；不是选级时固定加的 3 dB 速率余量' },
   ],
-  picture: [
-    { heading: '一个数无法表示「一部分」', text: '一条信道由许多很窄的音调组成，每一根就是一个子载波（sub-carrier）。电波到达接收端的各条路径长短不一，它们在每一根音调上各自叠加——有的音调上恰好相互抵消，有的恰好相互加强。所以一条宽信道在同一时刻的频率响应，是一条高低起伏的曲线，而不是一条水平线。本仿真器此前只为整条信道抽取一次衰落：曲线被简化为一条水平线，位置随时间上下变化，形状始终是平的。这样的信道里，「一部分深衰」根本不存在。' },
-    { heading: '标准自己就是按格回报的', text: '要分格，先要确定每格多宽，而这一点无需自行决定：标准中已有一个用于信道质量的分格单位，称为资源单元（resource unit, RU），最小的那一种由 26 根相邻音调组成——音调就是上一段所说的子载波，所以一个 26 音调资源单元就是 26 个连号的子载波，而不是另一种东西；接收端回报信道质量时，回报的正是每一个这样的块内的平均信噪比，而不是整条信道一个数。标准愿意为此付出开销，本身就说明那条曲线值得按块描述。本仿真器沿用这个单位：格宽由它与子载波间隔算出，格数由带宽算出，两者都不可配置——若可配置，就意味着那是本仿真器自行设定的数。' },
-    { kind: 'watch', jump: 0, heading: '观察合成记录', text: `载入仿真，跳到笔记本发给路由器的第一个数据帧（data frame）。这一课的场景已经同时打开了衰落和分格——两者必须同时打开，原因后面会说明。打开「事件日志」，找到以 selectivity 开头的那一行：这一帧的均值、最深那一格、合成之后的值和格数，它一次全部输出。这一课载入的是最窄的一档，${selBins(20)} 格；回程那些确认帧（acknowledgement, ACK）不分格，所以这一行只出现在笔记本发送的那一侧。` },
-    { heading: '编码跨的是整条信道', text: '一格深衰，这一帧就无法解出吗？不会。一帧的数据以正交频分复用（orthogonal frequency-division multiplexing, OFDM）方式发送：一个符号（symbol）的比特先经过信道编码，再分布到整条信道的音调上。所以一格深度衰落，损失的是整帧比特中的一小部分，而编码的冗余本来就是为弥补这种零散的损失而设计的——格数越多，同一份冗余要弥补的损失越分散。这就是「部分频段失效」和「整帧失效」的区别。本仿真器把各格的信噪比按容量折算成一个有效信噪比，判决依据这个合成值：不取最差那一格，那等于认为一格深衰整帧就无法解出；也不取算术平均，那会掩盖深衰格对容量的影响。' },
-    { heading: '只有解调这一步读合成值', text: '分格只改变了一件事：解调的判决。载波侦听（carrier sense）是否检测到信号、前导检测（preamble detection）是否完成同步、捕获效应（capture effect）是否要为更强的一帧放弃正在接收的这一帧，依据的仍然是整条信道那一次平坦抽样。而发送端选择哪一级速率，依据的甚至不是这一帧的抽样——而是链路表里那一个静态的均值电平（simulation.ts 的 mcsForPeer），连慢的那层阴影都不含：发送端确定等级时那一帧还不存在，它不可能知道这一帧会如何衰落。于是在同一帧的处理过程中，「均值」指两个不同的数：前三步读平坦抽样之后的电平；合成这一步先减去那次平坦抽样，以剩下的几何、墙壁与阴影作为均值，再逐格抽取一次偏差加上去。逐格抽样是替换那一次平坦抽样，而不是叠加在它上面——否则同一帧会被衰落两次。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '格宽与格数，两者都是计算得出的', head: [
-      '带宽（MHz）', '格数（个）', '每格宽度（MHz）',
-    ], rows: binRows() },
-    { heading: '这张表的来源', text: '每格宽度 = 26 根音调 × 78.125 kHz，也就是 2.03125 MHz，而 78.125 kHz 是 Wi-Fi 7 的子载波间隔，与保护间隔出自同一张参数表。格数那一列更直接：标准回报信道质量时，每 20 MHz 就是九块，所以九乘以带宽再除以 20 就是格数。一格的宽度与带宽无关，所以带宽翻倍，格数就翻倍。把这两列相乘还能与第三个数对应：九块各 26 根，一共 234 根子载波，而 234 正是本仿真器算 20 MHz 的 Wi-Fi 6／7 每符号比特数时用的那个音调数（phy.ts 的 TONES_HE）——在这一档上，九块恰好涵盖计算速率所用的全部音调。更宽的档没有这么整齐：80 MHz 的音调数是 980，而三十六块只合 936，多出的那些落在「每 20 MHz 九块」这一网格之外，本课不对它们进行测量。' },
-    { kind: 'steps', heading: '引擎如何为一帧计算这个合成值', items: [
-      '先确定这一帧属于哪一代：只有 Wi-Fi 6 与 Wi-Fi 7 的 PPDU（PHY protocol data unit）分格，因为 26 音调资源单元是按它们那一档子载波间隔定义的。回程的确认帧是传统帧，它整帧只有一个电平，一格也不分。再按这一帧自己的带宽，根据上表算出格数。',
-      '从锁定电平中减去这一帧那次平坦的快衰落，剩下的就是均值——阴影对整条信道同时变化，所以它保留在均值里。',
-      '每一格各抽取一次快衰落偏差：分布和 K 因子取自场景里 fading 那一节，这一节自己没有新的取值。',
-      '每一格的信干噪比（signal-to-interference-plus-noise ratio, SINR）= 均值 + 这一格的偏差 − 干扰与噪声。干扰与噪声在每一格里是同一个数，所以逐格起伏的只有信号这一侧。',
-      '按容量合成：每一格算一个 log2(1 + 信噪比)，取各格的平均，再换算回分贝——这就是有效信噪比。',
-      '把有效信噪比与这一级速率的门限比较：达到门限即可解出，未达到就是一次解调失败的接收，随后重传（retry）。',
+  standard: [
+    { heading: '26 音调资源单元（IEEE Std 802.11be-2024 §36.3.2.1，表 36-5，表 36-18）', text: 'EHT 数据字段的子载波间隔是 78.125 kHz（表 36-18）。最小的资源单元由 26 根相邻子载波组成。20 MHz 与 40 MHz 的子载波分配与 HE 相同（§27.3.2）；80 MHz 的位置由图 36-4 与表 36-5 给出，37 个位置里正中的第 19 个在 EHT 中没有定义；160 MHz 与 320 MHz 由若干个 80 MHz 子块组成，每个子块的分配与 80 MHz 相同。' },
+    { heading: '信道质量指示报告（802.11be §9.4.1.75，IEEE Std 802.11-2024 §9.4.1.65）', text: 'EHT CQI 报告携带每个 26 音调资源单元、每条空间流（spatial stream）的平均信噪比：对这块里各子载波的信噪比取分贝值的算术平均。报告的块数是 9 乘以所请求的 20 MHz 子信道数；没有定义的第 19、56、93、130 号 26 音调资源单元不在报告中。每个平均值用 6 位二进制补码表示，以 1 dB 为一级，从 −10 dB 以下到 53 dB 以上（表 9-129）。HE CQI 报告取平均的方法相同，块的范围由起止资源单元号给出（§9.4.1.65）。' },
+    { heading: '每个子载波的偏差（IEEE Std 802.11-2024 §9.4.1.49）', text: '多用户（multi-user, MU）专用波束成形（beamforming）报告里的 Delta SNR 字段，给出每个反馈子载波的信噪比相对这条空间流平均信噪比的偏差，限幅在 −8 dB 到 7 dB 之间（式 9-4）。' },
+    { heading: '编码比特分布到各个子载波（802.11be §36.3.13.8）', text: 'LDPC 编码的空间流在资源单元内都要经过 LDPC 音调映射：相邻的编码比特被映射到相隔一个固定距离的子载波上，这个距离按资源单元的大小取值（表 36-52）。一处只占少数子载波的深衰因此影响的是分散在整个码字里的少数比特。' },
+    { heading: '标准不规定的部分（§36.3.21.2）', text: '标准规定发射机与接收机的性能要求，例如在最小输入电平上 4096 字节 PSDU（PHY service data unit）的误包率低于 10 %；它不规定传播信道的模型，也不规定接收机怎样根据各子载波的质量判断一帧能否解出。' },
+    { kind: 'steps', heading: '一个 CQI 值怎样算出，按标准：逐步说明', items: [
+      '接收端对所请求带宽里的每个反馈子载波估计信噪比（§9.4.1.73）。',
+      '对每个 26 音调资源单元，取它所含子载波信噪比的分贝值的算术平均（§9.4.1.75）。',
+      '把这个平均值量化为 6 位：−10 dB 及以下为最低一级，53 dB 及以上为最高一级，中间每 1 dB 一级（表 9-129）。',
+      '每 20 MHz 九个值，跳过没有定义的资源单元，依次放进 CQI 报告发回请求方。',
     ] },
-    { kind: 'formula', heading: '合成那一步写全', text: '有效信噪比 = 10·log10( 2^( 各格 log2(1 + 10^((均值 + 该格偏差)/10)) 的平均 ) − 1 )', note: '容量是一个上界：真实接收机达不到它，所以这条式子给出的频率选择性损失是下界，真实的损失更大。业界弥补这一差值的方法需要一个按速率阶梯每一级分别调校的系数，而标准从未给出它，本仿真器因此没有自行设定。' },
-    { kind: 'table', heading: '两端的两个量（都出自那四万次抽样）：最深那一格，和整帧实际承受的损失', head: [
-      '量', `20 MHz（${selBins(20)} 格）`, `320 MHz（${selBins(320)} 格）`,
-    ], rows: [
-      ['最深那一格比均值低', '12.05 dB', '24.09 dB'],
-      ['整帧有效信噪比的损失中位数', '2.3 dB', '2.36 dB'],
-    ] },
-    { heading: '这两行数据的变化趋势相反', text: '上面一行每翻一倍加深约 3 dB：格数越多，抽到很深一格的机会越大，这一半直觉是对的。下面一行却几乎不随带宽变化——从九格到一百四十四格，只多了 0.06 dB。两行是同一批抽样中的两个量：最深那一格是这条曲线的最低点，而损失是整条曲线折成一个数之后与均值的距离，在 320 MHz 上前者是后者的十倍。把前者当成链路的损失，就会得出「宽信道差十几个分贝」这样的结论。还要注意这两行采用的是哪种测量：它们都出自那四万次抽样，而本课自己运行一轮测得的是另一对数——最窄一档 2.03 dB，最宽一档 2.36 dB。宽的那一端两种测量恰好给出同一个数，窄的那一端相差 0.27 dB，所以在 320 MHz 上看到两个 2.36，并不说明两种测量是一回事。' },
-    { heading: '一轮仿真的结果会比这张表浅约两个分贝', text: '12.05 dB 与 24.09 dB 是四万次抽样下的均值，而一轮仿真只有几百帧——几百次中最深的那一次，远达不到四万次中最深的那一次。这一课的 20 MHz 变体运行下来，最深那一格的中位数比均值低 10.29 dB，比表中那一格浅约 1.8 dB。两个数都正确：一个是分布的均值，一个是一轮的中位数。事先了解这一点，好过在日志里看到它时再怀疑表格有误。' },
-    { kind: 'table', heading: '掉帧率：五个带宽，余量都是 3.62 dB', head: [
-      '带宽（MHz）', '格数（个）', '掉帧率',
-    ], rows: POOLED_RATES.map(([w, rate]) => [String(w), String(selBins(w)), rate]) },
-    { heading: '读这张表时要注意三点', text: '第一，它是掉帧率而不是掉帧数：一次接收未能解出计为一次，再除以这一档发出的数据帧数。按个数比会把空口时间（airtime）混进来——同样一段时间里，宽信道发出的帧多得多。第二，这五个数能放进同一张表，前提是五档余量都是 3.62 dB：余量不一致时，速率控制会使某一档以降一级速率代替掉帧来承担代价。第三，在这一组里，最窄那一档正是掉帧最多的那一个：14.66 % 到 0.75 %，两端相差十九倍。这组数是四十五次运行按余量汇总得出的，不是某一轮的结果：这一课的场景只有五轮，余量并不这样齐。' },
-    { heading: '宽信道真正的代价，以及得到弥补的部分', text: '这张表并不是说信道越宽越好。带宽每翻一倍，接收到的噪声功率也翻一倍：噪声地板（noise floor）从 20 到 320 MHz 抬高了 12.04 dB，那才是宽信道真正的代价，前一课计算的就是它。频率选择性的作用在另一方面——格数增加带来的频率分集，弥补了这一代价中的一部分。那张表之所以能这样比较，是因为它先抵消了这 12.04 dB：五档各自把两端的功率按噪声地板的升高量提高，余量才可以比较。' },
-    { heading: '为什么那个偏差字段只用四个比特就足够', text: '标准里还有一个逐子载波的偏差字段：四个比特，−8 到 +7 dB。看起来很窄，实际上足够：按本仿真器的莱斯分布（K = 6 dB）抽取逐格偏差，96.7 % 落在这个窗口里；只有最悲观的瑞利分布才有 15.33 % 落在窗口外而被限幅。那四个比特是按有直射径的信道确定的量程，而不是按最差的信道确定的——而本仿真器抽取的起伏幅度正好与这个量程相符。' },
-    { heading: '一台多用户成员读的是哪几格', text: `多用户（multi-user, MU）的场景里，一台设备占的是整条信道里属于自己的那几格，而本仿真器给它的格数就是这一份：格数乘以份额、截到整数格，起始格紧接在前面各成员之后。20 MHz 上两个成员各读 ${selBins(20)} 格里的 ${selMemberBins(20, 1 / 2)} 格，与标准那张音调表吻合——两个 106 音调资源单元正好各覆盖 ${selMemberBins(20, 1 / 2)} 格。位置不起作用：各格彼此独立。` },
   ],
-  deeper: [
-    { heading: '取最差那一格会得出什么', text: '把最深那一格当成这条链路的信噪比，是一种很容易做出的设计：引擎本来就在一帧之内取最差的那一个时刻，再在频率上取最差的那一格看起来顺理成章。它会得出这样的结论：320 MHz 的链路比 20 MHz 的链路差十几个分贝（24.09 − 12.05 = 12.04 dB——与噪声地板那一节的 12.04 dB 数值相同、物理上毫无关系，一个是两端最深格之差，一个是热噪声随带宽的抬高量）。这不是偏保守，而是完全忽略了 OFDM 编码跨整条信道这一事实。两个数一起看才构成反驳：同一批抽样下，最深那一格平均低 24.09 dB，而容量合成的损失中位数是 2.36 dB——相差一个数量级。' },
-    { heading: '为什么不按业界那套映射', text: '把一条高低不一的信道折成一个等效信噪比，业界常用的办法是指数有效信噪比映射（exponential effective SINR mapping, EESM），它要为每一级调制和码率各配一个 β 系数，而 β 要拿目标误块率曲线调出来。本设计通读了标准也没有找到它——那会是本仿真器唯一一个自行设定的物理量。容量不需要任何系数：它是对 log2(1+x) 这个凹函数用一次延森不等式（Jensen\'s inequality），所以它的结果不会比按均值估更乐观，而且里面没有一个数是作者选的。代价是它仍然偏乐观——那条不等式能保证「不比按均值估计更乐观」，不能保证「不比真实接收机乐观」，下面以「合成用的是容量」开头的那一条说的就是这件事。' },
+  implementation: [
+    { topic: '格宽', standard: '26 根子载波 × 78.125 kHz（表 36-18）', sim: `每格 26 × 78.125 kHz = ${selBinWidthMhz()} MHz，由这两个数算出，不可配置。`, kind: 'faithful' },
+    { topic: '格数', standard: '每 20 MHz 九块，第 19 号等没有定义的不计（§9.4.1.75）', sim: `每 20 MHz 九格：${WIDTHS.map((w) => `${w} MHz ${selBins(w)} 格`).join('，')}，与 EHT CQI 报告的块数相同。`, kind: 'faithful' },
+    { topic: '哪些帧分格', standard: '26 音调资源单元按 HE 与 EHT 的子载波间隔定义（§36.3.2.1）', sim: '只有 Wi-Fi 6 与 Wi-Fi 7 的 PPDU（PHY protocol data unit）分格；回程的确认帧（acknowledgement, ACK）是非 HT 帧，整帧只有一个电平。', kind: 'choice' },
+    { topic: '每一格的衰落', standard: '标准不规定传播信道', sim: '每一格各抽取一次快衰落偏差，分布取场景 fading 一节的设置：本课是瑞利分布、阴影 0 dB。偏差只由这一帧与格的编号决定，所以同一帧的同一格在任何带宽下都相同；格内各子载波看成同一个值。', kind: 'choice' },
+    { topic: '格与格之间', standard: '标准不规定', sim: '各格的抽样相互独立。真实信道的相邻频率往往同时变深或变浅，所以本仿真器得到的频率分集偏多，宽信道的收益偏大。', kind: 'choice' },
+    { topic: '合成与判决', standard: '标准不规定接收机怎样判决（§36.3.21.2）', sim: '各格算 log2(1 + 信噪比)，取平均，再换算回分贝，得到有效信噪比；它达到这一级的门限就整帧解出，否则整帧丢失。容量是上界，所以这里的损失是下界。', kind: 'choice' },
+    { topic: '分格进入哪一步', standard: '标准不规定', sim: '只进入解调：载波侦听、前导检测、捕获效应（capture effect）和发送端的速率选择仍按整条信道的一个值；速率选择用的甚至是不含衰落的平均电平。', kind: 'choice' },
+    { topic: 'CQI 报告', standard: '每个 26 音调资源单元的平均信噪比，按请求发回（§9.4.1.75）', sim: '未实现：接收端不发回 CQI，发送端也不按各格的质量调整什么。', kind: 'absent' },
+    { topic: '每个子载波的偏差', standard: 'Delta SNR，−8 dB 到 7 dB（§9.4.1.49）', sim: '未实现：没有波束成形反馈。', kind: 'absent' },
+  ],
+  labs: [
+    {
+      heading: '同一个第一帧，五种带宽',
+      jump: 1,
+      more: [0, 1, 2, 3, 4],
+      steps: [
+        '依次载入五个变体，每次跳到第一条合成记录，打开「事件日志」，读出以 selectivity 开头的那一行；它记录的是笔记本的第一个数据帧（data frame），以调制与编码方式（modulation and coding scheme, MCS）3 发送。',
+        '对照下表：mean 是合成之前的平均信干噪比（signal-to-interference-plus-noise ratio, SINR），worst bin 是最深一格比它低多少，effective 是有效信噪比，loss 是两者之差。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '笔记本的第一个数据帧（MCS 3，门限 16.99 dB）', head: ['带宽', '格数', '平均', '最深一格', '有效', '损失', '结果'], rows: [
+          ['20 MHz', '9', '20.6 dB', '−18.8 dB', '14.8 dB', '5.8 dB', '没有解出'],
+          ['40 MHz', '18', '20.6 dB', '−18.8 dB', '15.3 dB', '5.3 dB', '没有解出'],
+          ['80 MHz', '36', '20.6 dB', '−18.8 dB', '16.8 dB', '3.8 dB', '没有解出'],
+          ['160 MHz', '72', '20.6 dB', '−18.8 dB', '17.9 dB', '2.7 dB', '解出'],
+          ['320 MHz', '144', '20.6 dB', '−19.9 dB', '18.4 dB', '2.3 dB', '解出'],
+        ] },
+      ],
+      expect: '你应该看到：五档的平均都是 20.6 dB；前四档的最深一格都是 −18.8 dB，320 MHz 多出的格里有一格更深，是 −19.9 dB；损失却从 5.8 dB 降到 2.3 dB，前三档的有效信噪比低于 MCS 3 的门限 16.99 dB，没有解出，后两档解出。',
+      meaning: '这说明：同一帧的同一格在各个带宽下偏差相同（②），带宽越宽，最深那一格在合成中的分量越小。深衰的那一部分频率不等于整帧解不出，这是本仿真器按容量合成的结果（②）；标准只规定按 26 音调资源单元报告平均值，不规定判决（①）。',
+    },
+    {
+      heading: '五轮：最深一格与损失',
+      more: [0, 1, 2, 3, 4],
+      steps: [
+        '五个变体各运行 150 ms，收集笔记本发出的每一帧的合成记录。',
+        '对照下表读出最深一格与损失的中位数。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '每帧合成记录的中位数，各运行 150 ms', head: ['带宽', '格数', '最深一格', '损失'], rows: [
+          ['20 MHz', '9', '−10.29 dB', '2.03 dB'],
+          ['40 MHz', '18', '−13.75 dB', '2.27 dB'],
+          ['80 MHz', '36', '−16.96 dB', '2.35 dB'],
+          ['160 MHz', '72', '−19.91 dB', '2.35 dB'],
+          ['320 MHz', '144', '−23.34 dB', '2.36 dB'],
+        ] },
+      ],
+      expect: '你应该看到：带宽每加倍，最深一格加深约 3 dB，从 −10.29 dB 到 −23.34 dB；损失只从 2.03 dB 增加到 2.36 dB。',
+      meaning: '这说明：格越多，抽到一个很深的格的机会越大，但它是曲线的最低点，不是这条链路（link）的损失。把最深一格当成损失，等于假定一格深衰整帧就解不出，与 ① 里编码比特分布到各子载波的设计不符。',
+    },
+    {
+      heading: '余量相同的四档，越宽掉帧越少',
+      more: [0, 1, 2, 3, 4],
+      steps: [
+        '仍用这五轮 150 ms 的运行，数一数笔记本发出的数据帧和其中没有解出的接收。',
+        '对照下表，先看各档最常用的级别与余量，再比较掉帧率。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '五轮的掉帧率，各运行 150 ms', head: ['带宽', '最常用的级别', '余量（中位数）', '没有解出 / 数据帧', '掉帧率'], rows: [
+          ['20 MHz', 'MCS 2', '6.62 dB', '12 / 214', '5.61 %'],
+          ['40 MHz', 'MCS 3', '3.62 dB', '31 / 338', '9.17 %'],
+          ['80 MHz', 'MCS 3', '3.62 dB', '37 / 476', '7.77 %'],
+          ['160 MHz', 'MCS 3', '3.62 dB', '24 / 578', '4.15 %'],
+          ['320 MHz', 'MCS 3', '3.62 dB', '6 / 651', '0.92 %'],
+        ] },
+      ],
+      expect: '你应该看到：40 到 320 MHz 四档最常用 MCS 3，余量都是 3.62 dB，掉帧率从 9.17 % 依次降到 0.92 %；20 MHz 多数帧停在 MCS 2，余量 6.62 dB，掉帧率 5.61 %，不是最高的。',
+      meaning: '这说明：只有余量相同时掉帧率才可比；余量大的一档用降一级速率代替掉帧。按比例而不按个数比较，是因为宽信道在同样的时间里发出的帧多得多。各格独立抽样使分集偏多（②），真实信道里的差距会小一些。',
+    },
+    {
+      heading: '关掉分格',
+      more: [0, 1, 2, 3, 4],
+      steps: [
+        '点“在编辑器中打开”，在「频率选择性（frequency selectivity）」一节取消「按 26 音调资源单元分格」，五个变体各运行 150 ms。',
+        '与打开分格时比较笔记本用到的最低级别。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '笔记本用到的最低级别，各运行 150 ms', head: ['带宽', '按格合成', '整条信道一个值'], rows: [
+          ['20 MHz', 'MCS 1', 'MCS 0'],
+          ['40 MHz', 'MCS 1', 'MCS 0'],
+          ['80 MHz', 'MCS 2', 'MCS 0'],
+          ['160 MHz', 'MCS 2', 'MCS 0'],
+          ['320 MHz', 'MCS 3', 'MCS 0'],
+        ] },
+      ],
+      expect: '你应该看到：关掉分格后，五档都降到过 MCS 0；打开分格时，没有一档降到 MCS 0。',
+      meaning: '这说明：整条信道一个值时，一次深衰使整帧同时变深，连续失败触发降级；按格合成时深衰只占一部分。两次运行的级别不同，所以不能直接比较掉帧数。分格是本仿真器的取法（②），标准不规定信道模型（①）。',
+    },
   ],
   sources: [
-    '按 26 根音调一块回报平均信噪比，出自标准的信道质量指示字段——而两代各有一条，两条分住两份文档：HE 那一条是 IEEE Std 802.11-2024 的 §9.4.1.65（HE CQI Report 字段），EHT 那一条是 IEEE Std 802.11be-2024 的 §9.4.1.75（EHT CQI Report 字段）。基础标准里没有 §9.4.1.75，它的 9.4.1 到 §9.4.1.71 就结束了，所以把两个条号并列挂在同一份文档上是错的。每 20 MHz 九块是后面那一条给的。78.125 kHz 的子载波间隔出自 802.11be 第 36 章的参数表（Table 36-18），每格 2.03125 MHz 由这两个数算出，源码里没有这个字面值。',
-    '−8 到 +7 dB、四个比特的逐子载波偏差字段是 802.11 的 §9.4.1.49。落在窗口内外的比例（莱斯 K = 6 dB 下 96.7 %，瑞利下 15.33 % 在外）是用本仿真器自己的抽样测得的，并与瑞利分布的闭式解核对过，不是标准给的数。',
-    '逐格偏差的分布与 K 因子沿用场景里 fading 那一节的取值（engine/fading.ts 的 rayleigh/rician，K 默认 6 dB），是本仿真器的选择：标准没有规定任何信道模型、时延扩展或相干带宽。按容量合成同样是本仿真器的选择，标准不规定接收机怎么把各格折成一个数。',
-    '掉帧率那张表是四十五次运行按余量汇总得出的（tests/engine/selectivity-inert.test.ts）；最深那一格的两个均值与 2.3／2.36 dB 两个损失中位数出自同一批四万次抽样（tests/engine/selectivity.test.ts）；10.29 dB 是这一课 20 MHz 变体自己运行 150 ms 得到的（tests/course/selectivity.test.ts）——引擎测试中同一个场景运行 200 ms 得到的是另一个数，抽样越多，最深的那一格就越深。',
+    'IEEE Std 802.11be-2024：§36.3.2.1、图 36-4 与表 36-5（26 音调资源单元的位置，80 MHz 的第 19 号没有定义）、表 36-18（78.125 kHz 的子载波间隔）、§9.4.1.75（EHT CQI 报告：每个 26 音调资源单元的分贝算术平均，9 乘以 20 MHz 子信道数）、§36.3.13.8 与表 36-52（LDPC 音调映射）、§36.3.21.2（最小输入灵敏度）。',
+    'IEEE Std 802.11-2024：§9.4.1.65（HE CQI 报告）、表 9-129（6 位平均信噪比的编码）、§9.4.1.49 与式 9-4（Delta SNR，−8 dB 到 7 dB）、§9.4.1.73 所引的每子载波信噪比计算、§27.3.2（HE 的子载波分配）。',
+    '本仿真器的取法：每格一次独立的快衰落抽样（瑞利或莱斯，取自场景 fading 一节）、按容量合成有效信噪比、非此即彼的判决、只在解调这一步分格；没有 CQI 报告与 Delta SNR。',
+    '场景把笔记本放在客厅远端，并把两端的发射功率按噪声地板的升高量提高，使五种带宽的平均信干噪比相同；这些都是本仿真器的场景取值。',
   ],
-  limits: [
-    { kind: 'model-value', text: '逐格偏差的分布与 K 因子不是标准取值，是场景里 fading 那一节的两个配置值（engine/fading.ts：瑞利，或莱斯加一个默认 6 dB 的 K）。这一节自己没有引入任何新的物理量——它只是把那一次平坦抽样改成按格各抽一次。标准里没有信道模型表、没有时延扩展、也没有相干带宽（设计文档对此做过穷举检索），所以「一格该有多深」这个问题的答案全部来自那一节，换一个分布，本课除了格数以外的每一个数都会变。' },
-    { kind: 'unmodelled', text: '格间相关长度没有取值：本仿真器把各格当成彼此独立的抽样。真实信道不是这样——相邻的两格大部分时间同时变深、同时变浅，相干带宽是有限的，而格间相关会抵消一部分频率分集。所以独立是分集偏多的那一边：本课那张掉帧率表里，宽信道得到的收益比真实信道中的更大。时延扩展本身也没有建模——一格的深浅是随机抽取的，而不是由各条路径的到达时间计算得出的；节点也不移动，所以没有多普勒，相干时间是一个配置值，而不是由移动速度推导出来的。' },
-    { kind: 'threshold', text: '合成用的是容量，而真实接收机达不到容量：实际的损失取决于调制、码率与交织器，本模型都没有考虑。所以这一课给出的每一个损失都是下界——2.36 dB 是最小的那个数，真实的损失更大，掉帧率也会比表中的高。这个差值正是指数有效信噪比映射（exponential effective SINR mapping, EESM）里那个 β 系数要弥补的部分，而标准从未给出 β，本仿真器因此不自行设定它：宁可给出一个来源明确的下界，也不给出一个来源不明的准确值。' },
-    { kind: 'out-of-scope', text: '分格只进入解调这一步（合成在 channel.ts 的 resolveLock 里、锁定之后）。载波侦听、前导检测与捕获效应依据的还是整条信道那一次平坦抽样；发送端选择哪一级速率依据的甚至不是这一帧的抽样，而是链路表里那一个静态的均值电平（simulation.ts 的 mcsForPeer），连慢的那层阴影都不含——所以不要用本课的场景去分析「频率选择性让这台设备检测到了什么」或者「它为什么选了这一级速率」，这四件事（载波侦听、前导检测、捕获效应与速率选择）的结果里都没有分格。这种测量也只适用于 Wi-Fi 6 与 Wi-Fi 7 的链路：同一个场景里的 vht 站与传统站整帧仍然只有一个电平，因为 312.5 kHz 的子载波间隔上不存在 26 音调资源单元。schema 的规则是「至少有一条」这样的链路，所以一个混合了三代设备的场景是合法的，而你在那台 vht 站的记录里一条合成记录也看不到——不是遗漏，而是它本来就不分格。还有一处仍然超出范围：多用户成员读的是它自己那一份截到整数格之后的格数，而本仿真器只会把一帧按成员数平分，所以不要用它去分析一个不等分的分配会得到什么——被截掉的那一格在这里不属于任何成员。' },
-  ],
+  limits: [],
   scenario: () => selectivityScenario(20),
   variants: WIDTHS.map((w) => ({ label: `${w} MHz`, scenario: () => selectivityScenario(w) })),
   jumps: [
     J('第一个数据帧', firstData),
     J('第一条合成记录', (r) => r.type === 'WIFI_SEL'),
-    J('第一次没解出来的接收', (r) => r.type === 'RX_FAIL' && r.reason === 'lowSinr'),
   ],
-  observe: [
-    `在事件日志里找到 selectivity 那一行：mean 是这一帧的均值，worst bin 是最深那一格比均值低多少，effective 是合成之后的值，loss 是两者之差，over 后面就是格数。逐档切换五个带宽，格数从 ${selBins(20)} 增加到 ${selBins(320)}，worst bin 从约 10 dB 加深到约 23 dB——每翻一倍约 3 dB。`,
-    '观察同一行的 loss：最深那一格加深了十几个分贝，loss 却几乎没有变化，一直在 2 dB 上下（这一课最窄一档的中位数 2.03 dB，最宽一档 2.36 dB）。判决依据的是 effective，所以曲线的最低点有多低，与这一帧能否解出，不是同一个问题。',
-  ],
-  tryThis: [
-    '点“在编辑器中打开”，在「频率选择性（frequency selectivity）」一节把「按 26 音调资源单元分格」的勾选取消后再运行：selectivity 那一行不再出现，整条信道回到一个值。不要把两次运行的掉帧数直接相减：平坦信道中一次深衰是整帧同时变深，更容易触发降档——关闭分格的那一轮，五个带宽都曾降到速率阶梯的最低一级，而打开分格的那一轮一次也没有。两轮的速率都不同，掉帧数不可比。',
-    '仍在编辑器里，把「时变链路（衰落）」一节的「小尺度分布」改为「无」：分格那个复选框立即变为不可用，原因就显示在旁边——没有小尺度衰落，每一格都抽到同一个数，打开与关闭逐字节相同。另外两种被拒绝的配置也各试一次：删除整个衰落小节，以及把两端都改为传统电台（纯 nonht 链路上不存在这样的分格）。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '320 MHz 的信道有一百四十四格，最深那一格平均比均值低 24.09 dB。这条链路的信噪比要因此减掉 24.09 dB 吗？',
+      q: '320 MHz 的信道有 144 格，本课那一轮最深一格的中位数比平均低 23.34 dB。这条链路的信噪比要因此减掉 23.34 dB 吗？',
       options: [
         '要：一格解不出来，整帧就解不出来',
-        '不要：编码跨整条信道，判决依据的是各格折算成的有效信噪比，实际损失的中位数是 2.36 dB',
-        '不要：最深那一格会被均衡器完全补偿，损失是零',
+        '不要：判决依据各格合成的有效信噪比，那一轮损失的中位数是 2.36 dB',
+        '不要：最深一格会被均衡器完全补偿，损失是零',
       ],
       answer: 1,
-      explain: '最深那一格是曲线的最低点，不是链路的损失：把它当成损失，就等于忽略了编码跨整条信道这一事实。',
+      explain: '最深一格是曲线的最低点，不是链路的损失。本仿真器按容量合成（②）；标准的 LDPC 音调映射把编码比特分布到各子载波上（①）。',
     },
     {
-      q: '那张掉帧率表里，五个带宽的余量都是 3.62 dB。去掉这个前提会怎样？',
+      q: '标准的 CQI 报告怎样得到一个 26 音调资源单元的信噪比？',
       options: [
-        '没有影响：余量只影响速率，不影响掉帧率',
-        '五个数就不可比了：余量较大的那一档会以降一级速率代替掉帧来承担代价，于是它掉帧反而更少',
-        '没有影响：掉帧率已经除以帧数了',
+        '取这块里最差的子载波',
+        '取这块里各子载波信噪比的分贝值的算术平均，量化为 6 位',
+        '按容量合成为一个有效信噪比',
       ],
       answer: 1,
-      explain: '除以帧数消除的是「宽信道发送得多」的影响，消除不了「某一档自己降了一级」的影响。这一课的场景正是例子：它五轮的余量并不一致，最窄那一档的余量较高，于是那一轮里它的掉帧率不是最高的。',
+      explain: '这是 §9.4.1.75 与表 9-129 的规定。按容量合成是本仿真器解调判决的取法，与 CQI 报告是两回事。',
+    },
+    {
+      q: '本课五轮里，20 MHz 的掉帧率 5.61 %，低于 40 MHz 的 9.17 %。这说明窄信道更不容易掉帧吗？',
+      options: [
+        '是：格少，深衰也少',
+        '不能这样比：20 MHz 多数帧停在 MCS 2，余量 6.62 dB，比其余四档的 3.62 dB 大，它用降一级速率代替了掉帧',
+        '是：20 MHz 发的帧少',
+      ],
+      answer: 1,
+      explain: '只有余量相同的四档可以直接比较，它们的掉帧率随带宽增加从 9.17 % 降到 0.92 %。',
     },
   ],
 }

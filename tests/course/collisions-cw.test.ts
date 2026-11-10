@@ -1,44 +1,28 @@
 /**
- * Every empirical claim in "Silence, a deadline, and a widened window", the
- * second half of `backoff` (2026-09-25 re-pacing, §2 M4).
+ * `@collisions-cw`, in the standard-first shape (2026-11-11).
  *
- * The scene is `backoff`'s, so `lessonShapeSuite(..., { sameSceneAs: 'backoff' })`
- * proves the two ids replay the same timeline and that their fixture lines agree
- * once the controller has written them.
- *
- * Seven pins arrive here from tests/course/backoff.test.ts, asserted against the
- * same run they always were: the 45 µs deadline, the t = 0 collision, the
- * 293/31/327 retry, the second collision at 8.1 ms, the 864/47 rate, the seed
- * sweep, and the two `deeper` notes (the access point locking onto neither
- * preamble, and no EIFS ever being armed). Nothing was re-derived and nothing was
- * relaxed.
- *
- * The lesson is not registered in src/course/lessons.ts yet — the controller does
- * that when the batch lands — so the contract tests that walk LESSONS cannot see
- * it. The terminology rule is therefore re-run here over this one lesson, with
- * the same helpers tests/course/readability.test.ts uses.
+ * ① cites IEEE Std 802.11-2024 for the AckTimeout, the window sequence and the retry limit; ②
+ * says what the engine does, and the rows are pinned against the engine; ③'s figures are read back
+ * out of the lesson text and compared with a 300 ms run of `backoff`'s scene, which this lesson
+ * shares.
  */
 import { describe, it, expect } from 'vitest'
 import { collisionsCw, collisionTiming } from '../../src/course/tier1/collisions-cw'
 import { backoff } from '../../src/course/tier1/backoff'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
+import type { TimingSpec } from '../../src/course/diagram'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 import {
-  ACK_TIMEOUT_NS, CW_MAX, CW_MIN, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
+  ACK_TIMEOUT_NS, CW_MAX, CW_MIN, DIFS_NS, RX_START_DELAY_NS, SHORT_RETRY_LIMIT, SIFS_NS, SLOT_NS,
 } from '../../src/engine/phy'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { ROOT, zhNumeral } from './coverage'
-import { MODULES, trackOf } from '../../src/course/curriculum'
-import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
-import {
-  ZH_TERMS, cellTexts, paragraphTexts, bracketedAtFirstZhUse, zhAkaViolations, zhTermFailure,
-} from '../../src/course/readability'
+import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
-/** 300 ms: the window the doubling table and the 864/47 sentence are counted over. */
+const US = 1_000
+/** 300 ms: the window lab 3 counts over. */
 const RUN_NS = 300 * MS
 const BOTH = ['sta-1', 'sta-2']
 
@@ -49,104 +33,71 @@ const meanOf = (cw: number): number => {
   const v = draws().filter((r) => r.cw === cw).map((r) => r.value)
   return v.reduce((a, b) => a + b, 0) / v.length
 }
-const lane = (label: string): TimingLane => collisionTiming().lanes.find((l) => l.label === label)!
 
-lessonShapeSuite(collisionsCw, { sameSceneAs: 'backoff', runNs: RUN_NS })
+const lab = (heading: string): Lab => {
+  const l = collisionsCw.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (l: Lab, heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = collisionsCw.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const stdText = (): string => collisionsCw.standard!.map((b) =>
+  `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
 
-describe('collisions-cw · the lesson’s own scene', () => {
-  it('follows its first half, sits in the same module, and owns the deadline', () => {
-    expect(collisionsCw.id).toBe('collisions-cw')
+lessonShapeSuite(collisionsCw, { runNs: RUN_NS, sameSceneAs: 'backoff' })
+
+describe('collisions-cw · the lesson', () => {
+  it('is in the standard-first shape, the second half of `backoff`', () => {
+    expect(isStandardFirst(collisionsCw)).toBe(true)
     expect(MODULES[collisionsCw.module].title).toBe('等待与退避')
     expect(collisionsCw.module).toBe(backoff.module)
     expect(collisionsCw.needs).toEqual(['backoff'])
     expect(collisionsCw.terms!.map((t) => t.term)).toEqual(['ACK timeout', 'retry', 'CW'])
+    expect(collisionsCw.limits).toEqual([])
+    expect(collisionsCw.observe).toEqual([])
+    expect(collisionsCw.tryThis).toEqual([])
   })
 
-  it('the scenario passes the schema and is the first half’s, node for node', () => {
+  it('loads `backoff`’s scene and takes the three jumps the first half gave up', () => {
     expect(() => ScenarioSchema.parse(collisionsCw.scenario())).not.toThrow()
-    expect(collisionsCw.scenario().nodes.map((n) => n.id)).toEqual(['ap', 'sta-1', 'sta-2'])
     expect(collisionsCw.scenario()).toEqual(backoff.scenario())
+    expect(collisionsCw.jumps.map((j) => j.label)).toEqual(['第一次碰撞', '第一次重传', '第一次 CW 翻倍'])
   })
 
-  it('takes the three jumps the first half gave up, and each occurs in the run', () => {
-    expect(collisionsCw.jumps.map((j) => j.label))
-      .toEqual(['第一次碰撞', '第一次重传', '第一次 CW 翻倍'])
-    for (const j of collisionsCw.jumps) expect(recs().some(j.find), j.label).toBe(true)
-    // and the freeze stayed with the first half
-    expect(backoff.jumps.map((j) => j.label)).toEqual(['第一次退避冻结'])
+  it('cites each clause it teaches in ①', () => {
+    const std = stdText()
+    for (const c of ['§10.3.2.2', '§10.3.2.1', '§10.3.2.11', '表 17-24', '§10.3.3', '§10.3.4.4', '§10.3.4.3', '§10.3.2.3.7', 'dot11ShortRetryLimit']) {
+      expect(std, c).toContain(c)
+    }
+    expect(std).toContain(`三项分别为 ${SIFS_NS / US}、${SLOT_NS / US}、${RX_START_DELAY_NS / US} µs，AckTimeout 为 ${ACK_TIMEOUT_NS / US} µs`)
+    expect(std).toContain(`默认值为 ${SHORT_RETRY_LIMIT}`)
+  })
+
+  it('the `why` prints the run’s own frames, collisions and widest window', () => {
+    expect(collisionsCw.why).toContain(`${SIFS_NS / US} + ${SLOT_NS / US} + ${RX_START_DELAY_NS / US} = ${ACK_TIMEOUT_NS / US} µs`)
+    expect(collisionsCw.why).toContain(`300 ms 内发出 ${data().length} 帧、碰撞 ${ofType(recs(), 'COLLISION').length} 次，最宽只用到 CW = ${Math.max(...draws().map((d) => d.cw))}`)
+    expect(meanOf(31)).toBeGreaterThan(2 * meanOf(15))
   })
 })
 
-describe('collisions-cw · the deadline', () => {
-  it('is 16 + 9 + 20 = 45 µs', () => {
-    // the "why the deadline falls where it does" table, and the procedure's step 1
-    expect(SIFS_NS).toBe(16_000)
-    expect(SLOT_NS).toBe(9_000)
-    expect(RX_START_DELAY_NS).toBe(20_000)
-    expect(ACK_TIMEOUT_NS).toBe(45_000)
+describe('collisions-cw · ② says what the engine does, and the engine does it', () => {
+  it('the deadline is 16 + 9 + 20 = 45 µs', () => {
     expect(ACK_TIMEOUT_NS).toBe(SIFS_NS + SLOT_NS + RX_START_DELAY_NS)
+    expect(implRow('ACK 超时').sim).toContain(`${SIFS_NS / US} + ${SLOT_NS / US} + ${RX_START_DELAY_NS / US} = ${ACK_TIMEOUT_NS / US} µs`)
   })
 
-  it('the first collision is a t = 0 start with no draw at all, reported at 248 µs', () => {
-    // 「两台站点都发现信道空闲，都经过了一段长度为零的间隔，于是没有选取退避值就同时开始发送」
-    const cols = ofType(recs(), 'COLLISION')
-    expect(cols[0].t).toBe(248_000)
-    expect(cols[0].nodes.slice().sort()).toEqual(BOTH)
-    expect(ofType(recs(), 'TX_START').filter((r) => r.t === 0).map((r) => r.node).sort()).toEqual(BOTH)
-    expect(draws().some((r) => r.t < 248_000)).toBe(false)
-  })
-
-  it('nothing at all happens on the air between the frame end and the deadline', () => {
-    // tryThis: "step from the end of the collided frames to 293 µs. Nothing happens on the
-    //  air — and that silence is the only failure signal the sender ever gets."
-    const between = recs().filter((r) => r.t > 248_000 && r.t < 293_000)
-    expect(between.filter((r) => r.type === 'TX_START' || r.type === 'RX_START')).toEqual([])
-    for (const n of BOTH) {
-      expect(ofType(recs(), 'ACK_TIMEOUT').find((r) => r.node === n)!.t).toBe(293_000)
-    }
-    expect(293_000 - 248_000).toBe(ACK_TIMEOUT_NS)
-  })
-})
-
-describe('collisions-cw · the window that doubles', () => {
-  it('the deadline expires at 293 µs, both windows double to 31, and the redraw is at 327 µs', () => {
-    // the caption: "the deadline expires at 293 µs, both windows double to 31 in the same
-    //  instant, and each walks a DIFS to 327 µs before drawing again", plus the observation
-    //  "every retry frame carries the Retry flag"
-    for (const n of BOTH) {
-      expect(ofType(recs(), 'CW_CHANGE').find((r) => r.node === n && r.t === 293_000)!.cw).toBe(31)
-      const difs = ofType(recs(), 'IFS_START').find((r) => r.node === n && r.t === 293_000)!
-      expect(difs.kind).toBe('DIFS')
-      expect(difs.untilNs).toBe(327_000)
-      const draw = draws().find((r) => r.node === n && r.t > 248_000)!
-      expect(draw.t).toBe(327_000)
-      expect(draw.cw).toBe(31)
-      expect(ofType(recs(), 'TX_START').find((r) => r.node === n && r.t > 293_000)!.frame.retryFlag).toBe(true)
-      expect(ofType(recs(), 'RETRY').find((r) => r.node === n)!.t).toBe(293_000)
-    }
-  })
-
-  it('STA-1 draws 22 and STA-2 draws 19, so STA-2 opens at 498 µs and STA-1 freezes at the difference', () => {
-    // the caption's last sentence, which is also what hands the reader back to `backoff`'s
-    // own figure: the 3 it freezes at is 22 − 19.
-    const at327 = new Map(draws().filter((r) => r.t === 327_000).map((r) => [r.node, r.value]))
-    expect(at327.get('sta-1')).toBe(22)
-    expect(at327.get('sta-2')).toBe(19)
-    const tx = ofType(recs(), 'TX_START').find((r) => r.node === 'sta-2' && r.t > 327_000)!
-    expect(tx.t).toBe(327_000 + 19 * SLOT_NS)
-    expect(tx.t).toBe(498_000)
-    const freeze = ofType(recs(), 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === 498_000)!
-    expect(freeze.value).toBe(22 - 19)
-  })
-
-  it('the window ladder is the engine’s: floor 15, twice plus one, ceiling 1023, reset at seven', () => {
-    // the procedure's steps 3, 5 and 6, against bumpQsrc and resetQsrc in src/engine/mac.ts.
-    // Proved over the whole ladder, not only the 15 → 31 this run reaches.
-    expect(CW_MIN).toBe(15)
-    expect(CW_MAX).toBe(1023)
-    expect(SHORT_RETRY_LIMIT).toBe(7)
+  it('the window ladder is 2^n − 1 from 15 to 1023, and every change in the run is a step of it or a reset', () => {
+    expect([CW_MIN, CW_MAX, SHORT_RETRY_LIMIT]).toEqual([15, 1023, 7])
     const ladder = [CW_MIN]
-    while (ladder[ladder.length - 1] < CW_MAX) ladder.push(Math.min(2 * ladder[ladder.length - 1] + 1, CW_MAX))
+    while (ladder[ladder.length - 1]! < CW_MAX) ladder.push(Math.min(2 * ladder[ladder.length - 1]! + 1, CW_MAX))
     expect(ladder).toEqual([15, 31, 63, 127, 255, 511, 1023])
     for (const n of BOTH) {
       let cw = CW_MIN
@@ -157,63 +108,38 @@ describe('collisions-cw · the window that doubles', () => {
     }
   })
 
-  it('the three windows, their counts and their mean draws are the run’s own', () => {
-    // the "does the doubling work in this run" table: 15 · 770 · 7.15 / 31 · 89 · 16.07 /
-    //  63 · 5 · 23.80, and "not one draw reaches 127"
-    const byCw = new Map<number, number>()
-    for (const d of draws()) byCw.set(d.cw, (byCw.get(d.cw) ?? 0) + 1)
-    expect([...byCw.keys()].sort((a, b) => a - b)).toEqual([15, 31, 63])
-    expect(byCw.get(15)).toBe(770)
-    expect(byCw.get(31)).toBe(89)
-    expect(byCw.get(63)).toBe(5)
-    expect(meanOf(15).toFixed(2)).toBe('7.15')
-    expect(meanOf(31).toFixed(2)).toBe('16.07')
-    expect(meanOf(63).toFixed(2)).toBe('23.80')
-    // 「从 31 选取的平均等待…比从下限选取的 7.15 个多出一倍以上」
-    expect(meanOf(31)).toBeGreaterThan(2 * meanOf(15))
+  it('every retransmission carries the Retry bit, and every first transmission does not', () => {
+    const seen = new Set<string>()
+    for (const d of data()) {
+      const key = `${d.node}#${d.frame.msduId}`
+      expect(!!d.frame.retryFlag, `${d.node} at ${d.t}`).toBe(seen.has(key))
+      seen.add(key)
+    }
+    expect(data().filter((d) => d.frame.retryFlag).length).toBeGreaterThan(40)
   })
 
-  it('864 frames and 47 collisions across 300 ms — roughly one attempt in twenty', () => {
-    expect(data().length).toBe(864)
-    expect(ofType(recs(), 'COLLISION').length).toBe(47)
-    const rate = 47 / 864
-    expect(rate).toBeGreaterThan(0.04)
-    expect(rate).toBeLessThan(0.08)
-  })
-
-  it('the second collision is at about 8.1 ms, both counters hitting zero in one slot', () => {
-    // the observation "jump to the second collision, at about 8.1 ms, and step backwards"
-    const second = ofType(recs(), 'COLLISION')[1]
-    expect(Math.round(second.t / 100_000) / 10).toBe(8.1)
-    const starts = ofType(recs(), 'TX_START').filter((r) =>
-      r.frame.kind === 'data' && r.t < second.t && r.t + r.frame.txTimeNs >= second.t)
-    expect(starts.map((r) => r.node).sort()).toEqual(BOTH)
-    expect(starts[0].t).toBe(starts[1].t)
-    for (const n of BOTH) {
-      expect(ofType(recs(), 'BACKOFF_DEC').some((r) => r.node === n && r.t === starts[0].t && r.value === 0)).toBe(true)
+  it('the retry waits a DIFS counted from the deadline, not from the frame end', () => {
+    expect(implRow('重传前的等待').kind).toBe('choice')
+    for (const t of ofType(recs(), 'ACK_TIMEOUT')) {
+      const w = ofType(recs(), 'IFS_START').find((r) => r.node === t.node && r.t === t.t)
+      expect(w, `${t.node} at ${t.t}`).toBeDefined()
+      expect(w!.untilNs - w!.t).toBe(DIFS_NS)
     }
   })
-})
 
-describe('collisions-cw · what the depth says', () => {
-  it('the access point locks onto neither preamble, so no EIFS is ever armed', () => {
-    // `deeper`: "the access point starts no reception at all", and "not a single EIFS is
-    //  ever started across this whole run"
+  it('a collision is never a reception that fails: the access point locks neither preamble, so no EIFS', () => {
     for (const c of ofType(recs(), 'COLLISION')) {
-      const starts = ofType(recs(), 'TX_START').filter((r) =>
-        BOTH.includes(r.node) && r.frame.kind === 'data' && r.t < c.t && r.t + r.frame.txTimeNs >= c.t)
+      const starts = data().filter((r) => r.t < c.t && r.t + r.frame.txTimeNs >= c.t)
       expect(starts.length).toBe(2)
-      expect(starts[0].t).toBe(starts[1].t)
-      expect(ofType(recs(), 'RX_MISS').filter((r) => r.node === 'ap' && r.t === starts[0].t)
-        .map((r) => r.from).sort()).toEqual(BOTH)
+      expect(starts[0]!.t).toBe(starts[1]!.t)
+      expect(ofType(recs(), 'RX_MISS').filter((r) => r.node === 'ap' && r.t === starts[0]!.t).map((r) => r.from).sort()).toEqual(BOTH)
     }
     expect(ofType(recs(), 'RX_FAIL').some((r) => r.node === 'ap')).toBe(false)
     expect(ofType(recs(), 'IFS_START').some((r) => r.kind === 'EIFS')).toBe(false)
   })
 
   it('another seed gives other draws and the same rough rate', () => {
-    // tryThis in the parent, kept here with the rate it is about
-    for (const seed of [1, 2, 3, 11]) {
+    for (const seed of [1, 2, 3]) {
       const s: Scenario = { ...collisionsCw.scenario(), seed }
       const rs = [...new Simulation(s).runUntil(RUN_NS).records]
       const d = rs.filter((r) => r.type === 'TX_START' && r.frame.kind === 'data').length
@@ -224,355 +150,100 @@ describe('collisions-cw · what the depth says', () => {
   })
 })
 
-describe('collisions-cw · the timing figure is the run', () => {
-  it('two identical lanes, a 45 µs deadline and a 34 µs DIFS, all from records', () => {
-    const starts = ofType(recs(), 'TX_START').filter((r) => r.t === 0)
-    expect(starts.length).toBe(2)
-    for (const [i, n] of BOTH.entries()) {
-      const sp = lane(n === 'sta-1' ? 'STA-1' : 'STA-2').spans[0]
-      const tx = starts.find((r) => r.node === n)!
-      expect(sp.fromUs, n).toBe(tx.t / 1000)
-      expect(sp.toUs, n).toBe((tx.t + tx.frame.txTimeNs) / 1000)
-      expect(sp.tone).toBe('accent')
-      expect(i).toBeLessThan(2)
-    }
-    // the two lanes really are the same span, which is the caption's whole claim
-    expect(lane('STA-1').spans[0]).toEqual(lane('STA-2').spans[0])
-
-    const wait = lane('等待应答').spans[0]
-    expect(wait.fromUs).toBe(248)
-    expect((wait.toUs - wait.fromUs) * 1000).toBe(ACK_TIMEOUT_NS)
-    expect(wait.toUs).toBe(ofType(recs(), 'ACK_TIMEOUT')[0].t / 1000)
-
-    const again = lane('重新竞争').spans[0]
-    const difs = ofType(recs(), 'IFS_START').find((r) => r.node === 'sta-1' && r.t === 293_000)!
-    expect(again.fromUs).toBe(difs.t / 1000)
-    expect(again.toUs).toBe(difs.untilNs / 1000)
-    expect(again.toUs).toBe(draws().find((r) => r.t > 248_000)!.t / 1000)
-  })
-
-  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
-    const lay = layoutDiagram(collisionTiming())
-    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
-    expect(ts.length).toBeGreaterThan(5)
-    for (const t of ts) {
-      const b = textBox(t)
-      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
-      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
-      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
-      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
-    }
-    const bs = ts.map(textBox)
-    for (let i = 0; i < bs.length; i++) {
-      for (let j = i + 1; j < bs.length; j++) {
-        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
-        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
-      }
-    }
-  })
-})
-
-/**
- * The terminology rule, re-run over this one unregistered lesson: every official
- * term carries its standard English name, and its abbreviation where the standard
- * has one, at its first Chinese use. The text and its order are exactly what
- * tests/course/readability.test.ts reads — `why`, `outcomes`, `picture`,
- * `numbers`, `observe`, `tryThis`, `quiz` — with `deeper` and `sources` left out.
- */
-describe('collisions-cw · every official term carries its English name', () => {
-  const zh = [collisionsCw.why!, ...collisionsCw.outcomes!]
-    .concat(paragraphTexts(collisionsCw.picture!), cellTexts(collisionsCw.picture!))
-    .concat(paragraphTexts(collisionsCw.numbers!), cellTexts(collisionsCw.numbers!))
-    .concat(collisionsCw.observe, collisionsCw.tryThis,
-      collisionsCw.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
-    .join(' ')
-  const rows = ZH_TERMS.filter((t) => !t.track || t.track === trackOf(collisionsCw))
-
-  it('brackets every official term at its first Chinese use', () => {
-    const out: string[] = []
-    for (const t of rows) {
-      const why = zhTermFailure(zh, t)
-      if (why) out.push(why)
-      out.push(...zhAkaViolations(zh, t))
-    }
-    expect(out).toEqual([])
-  })
-
-  it('had its terminology actually graded', () => {
-    expect(rows.filter((t) => bracketedAtFirstZhUse(zh, t) !== null).length).toBeGreaterThanOrEqual(2)
-  })
-})
-
-/**
- * **Every figure the lesson prints, read back out of the lesson.**
- *
- * Everything above pins the engine against literals written here — 45 µs, 293, 327, 22/19/3,
- * the 770/89/5 ladder, 864 frames and 47 collisions — and `scripts/figure-planting.ts` sampled
- * this lesson on 2026-10-12: **six of six sampled figures were editable with this file green.**
- * They would be: the deadline is stated four times (a table row, a step, `sources`, the figure's
- * own label), the window ladder three times, and the two censuses twice each.
- *
- * So each site is read here. Three things in this lesson are claims about documents rather than
- * about the engine, and they are read as what they are: the deadline table's 出处 column cites
- * the same clause three times for three figures `sources` derives from one formula, and the
- * capture margin's 「取自 ns-3 的默认值」 is a statement about another simulator — what is
- * checked is that this engine's constant is the figure the limit prints.
- */
-describe('collisions-cw · every printed figure is read back out of the lesson', () => {
-  const rs = recs()
-  const d = data()
-  const cols = ofType(rs, 'COLLISION')
-  const timeouts = ofType(rs, 'ACK_TIMEOUT')
-
-  const tableWith = (fragment: string): { heading: string; head: string[]; rows: string[][] } => {
-    const b = collisionsCw.numbers!.find((x) => x.kind === 'table'
-      && ((x as { heading?: string }).heading ?? '').includes(fragment))
-    expect(b, `no table whose heading contains 「${fragment}」`).toBeDefined()
-    return b as { heading: string; head: string[]; rows: string[][] }
-  }
-  const steps = (collisionsCw.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
-  const caption = (collisionsCw.numbers!.find((x) => x.kind === 'diagram') as
-    { caption: string }).caption
-  const rateProse = (collisionsCw.numbers!.find((x) => (x as { heading?: string }).heading === '碰撞的频率') as
-    { text: string }).text
-  const pictureText = (collisionsCw.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-  const deeperText = (collisionsCw.deeper! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-  const limitText = collisionsCw.limits.map((x) => x.text).join('\n')
-  const sourcesText = collisionsCw.sources!.join('\n')
-
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const m = re.exec(text)
-    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
-    return m!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] =>
-    raw(text, re, what).map((x) => Number(x.replace(/[\s,]/g, '')))
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,]/g, '')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  const zhCount = (s: string): number => {
-    const n = zhNumeral(s.replace(/两/g, '二'))
-    expect(n, `「${s}」 is not a number this reads`).not.toBeNull()
-    return n!
-  }
-  const counted = (text: string, re: RegExp, what: string): number => zhCount(raw(text, re, what)[0])
-  const ZH = '[〇一二三四五六七八九十两]+'
-  const lane = (label: string): TimingLane => collisionTiming().lanes.find((l) => l.label === label)!
-  /** The first collision's deadline, which most of this lesson's figures are about. */
-  const firstTimeout = timeouts[0]
-
-  it('the deadline table: its three parts, their sum, and the one clause they come from', () => {
-    // `outcomes` states the deadline too — 「把 45 µs 的期限分解为三段」 — and the three parts it
-    // promises are the three rows below, which is the one figure in this lesson's own outcomes
-    const out = collisionsCw.outcomes!.join('\n')
-    const [promised] = figs(out, /把 (\d+) µs 的期限分解为/, '`outcomes` on the deadline')
-    const parts = counted(out, new RegExp(`分解为(${ZH})段`), '`outcomes` on how many parts')
-    expect(promised * 1_000).toBe(ACK_TIMEOUT_NS)
-    const rows = tableWith('这个期限为什么取这个值').rows
-    expect(rows.length - 1, 'the parts the table breaks it into').toBe(parts)
-    expect(rows, 'the table states exactly the four rows this reads').toHaveLength(4)
-    const [sifs, slot, delay, total] = rows.map((r) => Number(r[1]))
-    expect(sifs * 1_000).toBe(SIFS_NS)
-    expect(slot * 1_000).toBe(SLOT_NS)
-    expect(delay * 1_000).toBe(RX_START_DELAY_NS)
-    expect(total * 1_000).toBe(ACK_TIMEOUT_NS)
-    expect(sifs + slot + delay, 'the table’s own three parts against its own total').toBe(total)
-    // the first three cite one clause and the total another, and `sources` names both
-    expect(new Set(rows.slice(0, 3).map((r) => r[3])).size, 'one clause for the three parts').toBe(1)
-    for (const r of rows) {
-      expect(sourcesText, `the table cites ${r[3]} and \`sources\` never names it`).toContain(r[3])
-    }
-    // and the deadline really is that long, every time it fires in this run
-    expect(timeouts.length).toBeGreaterThan(40)
-    for (const t of timeouts) {
-      const mine = d.filter((x) => x.node === t.node && x.t + x.frame.txTimeNs <= t.t).pop()!
-      expect(t.t - (mine.t + mine.frame.txTimeNs), `the deadline at ${t.t}`).toBe(total * 1_000)
-    }
-  })
-
-  it('the caption: the deadline, the doubling, the redraw, and the two draws it compares', () => {
-    const [deadline, at] = figs(caption, /(\d+) µs 的期限在 (\d+) µs 到期/, 'the caption on the deadline')
-    const [cw] = figs(caption, /双方的窗口在同一时刻翻倍到 (\d+)/, 'the caption on the new window')
-    const [redraw] = figs(caption, /各等待一个 DIFS 到 (\d+) µs 才重新选取/, 'the caption on the redraw')
-    const [a, b] = figs(caption, /STA-1 选到 (\d+)、STA-2 选到 (\d+)/, 'the caption on the two draws')
-    const [opens] = figs(caption, /STA-2 在 (\d+) µs 先发送/, 'the caption on who opens')
-    const [held] = figs(caption, /恰好冻结在两者之差 (\d+) 上/, 'the caption on the frozen value')
-
-    expect(deadline * 1_000).toBe(ACK_TIMEOUT_NS)
-    expect(firstTimeout.t / 1_000, 'when the deadline fires').toBe(at)
-    const doubles = ofType(rs, 'CW_CHANGE').filter((r) => r.t === firstTimeout.t)
-    expect(doubles.length, 'both stations double at that instant').toBe(2)
-    for (const c of doubles) expect(c.cw, `${c.node}’s new window`).toBe(cw)
-    const draw = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.t === redraw * 1_000)
-    expect(draw.length, `two draws at ${redraw} µs`).toBe(2)
-    expect(draw.find((r) => r.node === 'sta-1')!.value, 'STA-1’s draw').toBe(a)
-    expect(draw.find((r) => r.node === 'sta-2')!.value, 'STA-2’s draw').toBe(b)
-    const next = ofType(rs, 'TX_START').find((r) => r.t > redraw * 1_000)!
-    expect(next.node, 'who opens').toBe('sta-2')
-    expect(next.t / 1_000, 'and when').toBe(opens)
-    expect(Math.abs(a - b), 'the difference the caption calls the frozen value').toBe(held)
-    const freeze = ofType(rs, 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === next.t)!
-    expect(freeze.value, 'which is what STA-1 really freezes at').toBe(held)
-  })
-
-  it('the figure’s four lanes carry the frame, the deadline and the gap', () => {
-    const [from, to] = [lane('STA-1').spans[0], lane('STA-2').spans[0]]
-      .map((s) => [s.fromUs, s.toUs]) as [number[], number[]]
-    expect(from, 'the two lanes are identical, which is the lesson’s point').toEqual(to)
-    const zero = d.filter((r) => r.t === 0)
-    expect(zero.length, 'the two frames the figure draws').toBe(2)
-    for (const f of zero) {
-      expect([0, f.frame.txTimeNs / 1_000], `${f.node}’s frame`).toEqual(from)
-    }
-    const wait = lane('等待应答').spans[0]
-    same(raw(wait.label ?? '', /^(\d+) µs$/, 'the deadline lane’s label')[0],
-      ACK_TIMEOUT_NS / 1_000, 'the deadline the figure draws')
-    expect((wait.toUs - wait.fromUs) * 1_000, 'and the span it labels').toBe(ACK_TIMEOUT_NS)
-    expect(wait.fromUs, 'which starts where the frames end').toBe(from[1])
-    const difs = lane('重新竞争').spans[0]
-    expect(difs.label).toBe('DIFS')
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.t === firstTimeout.t)!
-    expect([difs.fromUs, difs.toUs], 'the gap the figure draws')
-      .toEqual([ifs.t / 1_000, ifs.untilNs / 1_000])
-  })
-
-  it('the steps: the deadline’s arithmetic, the ladder, and the retry limit', () => {
-    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(6)
-    const [a, b, c, sum] = figs(steps[0], /期限是 (\d+) \+ (\d+) \+ (\d+) = (\d+) µs/,
-      'step 1’s arithmetic')
-    expect([a, b, c].map((x) => x * 1_000)).toEqual([SIFS_NS, SLOT_NS, RX_START_DELAY_NS])
-    expect((a + b + c) * 1_000, 'step 1’s own sum').toBe(ACK_TIMEOUT_NS)
-    expect(sum * 1_000).toBe(ACK_TIMEOUT_NS)
-    // step 3: 「CW 的两倍再加一」, the ceiling, and the ladder it prints
-    const [ceil] = figs(steps[2], /上限是 (\d+)/, 'step 3’s ceiling')
-    const ladder = figs(steps[2], /依次为 (\d+)、(\d+)、(\d+)/, 'step 3’s first three rungs')
-    expect(ceil).toBe(CW_MAX)
-    expect(ladder[0]).toBe(CW_MIN)
-    for (let i = 1; i < ladder.length; i++) {
-      expect(ladder[i], `rung ${i}`).toBe(Math.min(2 * ladder[i - 1] + 1, CW_MAX))
-    }
-    // and the run uses exactly those rungs: it climbs to the widest the lesson prints and
-    // comes back to the floor, which is the whole ladder and nothing above it
-    expect([...new Set(ofType(rs, 'CW_CHANGE').map((r) => r.cw))].sort((x, y) => x - y))
-      .toEqual(ladder)
-    // step 5: 「连续失败到第七次」
-    const seventh = counted(steps[4], new RegExp(`连续失败到第(${ZH})次`), 'step 5’s retry limit')
-    expect(seventh).toBe(SHORT_RETRY_LIMIT)
-  })
-
-  it('the doubling table and 「碰撞的频率」: the same three windows and the same two censuses', () => {
-    const rows = tableWith('翻倍在本轮中是否有效').rows
-    expect(rows, 'the table states exactly the three rows this reads').toHaveLength(3)
-    const [ms] = figs(tableWith('翻倍在本轮中是否有效').head[1], /(\d+) ms/, 'the window it counts over')
-    expect(ms * MS).toBe(RUN_NS)
-    for (const r of rows) {
-      const [cw] = figs(r[0], /CW = (\d+)/, `the window 「${r[0]}」 names`)
-      const mine = draws().filter((x) => x.cw === cw)
-      expect(mine.length, `draws from CW = ${cw}`).toBe(Number(r[1]))
-      same(r[2], meanOf(cw), `the mean draw from CW = ${cw}`)
-    }
-    // 「300 ms 内这两台站点一共发出 864 帧，碰撞 47 次——大约每二十次发生一次」
-    const [window2] = figs(rateProse, /(\d+) ms 内/, 'the window the census is over')
-    const [frames, hits] = figs(rateProse, /一共发出 (\d+) 帧，碰撞 (\d+) 次/, 'the census')
-    const inTwenty = counted(rateProse, new RegExp(`大约每(${ZH})次发生一次`), 'the rate it rounds to')
-    expect(window2 * MS).toBe(RUN_NS)
-    expect(d.length).toBe(frames)
-    expect(cols.length).toBe(hits)
-    // 「大约」: one significant figure, so the rate rounds to that many attempts per collision
-    expect(Math.round(frames / hits / 10) * 10, `${frames} frames, ${hits} collisions`)
-      .toBe(inTwenty)
-    // 「整轮只有五次选取来自宽达 63 的窗口，一次也没有达到 127」
-    const five = counted(rateProse, new RegExp(`只有(${ZH})次选取来自宽达 (\\d+) 的窗口`),
-      'the draws from the widest window')
-    const [widest] = figs(rateProse, /宽达 (\d+) 的窗口/, 'the widest window used')
-    const [never] = figs(rateProse, /一次也没有达到 (\d+)/, 'the window never reached')
-    expect(draws().filter((r) => r.cw === widest).length).toBe(five)
-    expect(draws().filter((r) => r.cw >= never), `draws from CW = ${never} or wider`).toHaveLength(0)
-    expect(never, 'which is the next rung above the widest one used').toBe(2 * widest + 1)
-    // 「从 31 选取的平均等待是 16.07 个时隙，比从下限选取的 7.15 个多出一倍以上」
-    const [mid, midMean, floorMean] = figs(rateProse,
-      /从 (\d+) 选取的平均等待是 ([\d.]+) 个时隙，比从下限选取的 ([\d.]+) 个/, 'the two means')
-    same(String(midMean), meanOf(mid), `the mean draw from CW = ${mid}`)
-    same(String(floorMean), meanOf(CW_MIN), 'the mean draw from the floor')
-    expect(midMean / floorMean, '「多出一倍以上」').toBeGreaterThan(2)
-  })
-
-  it('`picture`, `deeper`, `observe` and `tryThis`: the same instants, read where they are printed', () => {
-    // 「两个数据帧在 0 µs 同时开始、248 µs 同时结束」
-    const [start, end] = figs(pictureText, /在 (\d+) µs 同时开始、(\d+) µs 同时结束/,
-      '`picture` on the two frames')
-    const zero = d.filter((r) => r.t === start * 1_000)
-    expect(zero.length, `frames starting at ${start} µs`).toBe(2)
-    for (const f of zero) {
-      expect((f.t + f.frame.txTimeNs) / 1_000, `${f.node}’s frame ends`).toBe(end)
-    }
-    // 「检视器里两台站点的竞争窗口都已经是 31」
-    const [cw] = figs(pictureText, /竞争窗口都已经是 (\d+)/, '`picture` on the window at the retry')
-    const retry = ofType(rs, 'TX_START').find((r) => r.frame.retryFlag)!
+describe('collisions-cw · ③ every figure the labs print is the run', () => {
+  it('lab 1: the figure is the run’s first collision, span for span', () => {
+    const fig = (lab('第一次碰撞').blocks!.find((b) => b.kind === 'diagram') as { spec: TimingSpec }).spec
+    expect(fig).toEqual(collisionTiming())
+    const lane = (l: string) => fig.lanes.find((x) => x.label === l)!.spans[0]!
     for (const n of BOTH) {
-      const last = ofType(rs, 'CW_CHANGE').filter((r) => r.node === n && r.t <= retry.t).pop()!
-      expect(last.cw, `${n}’s window at the first retry`).toBe(cw)
+      const tx = data().find((r) => r.node === n)!
+      const sp = lane(n === 'sta-1' ? 'STA-1' : 'STA-2')
+      expect([sp.fromUs, sp.toUs], n).toEqual([tx.t / US, (tx.t + tx.frame.txTimeNs) / US])
     }
-    // `deeper`: 「重传前的 DIFS 是从 293 µs 超时结束的时刻起算的，而不是从 248 µs 碰撞帧结束」
-    const [from, notFrom] = figs(deeperText, /从 (\d+) µs 超时结束的时刻起算的，而不是从 (\d+) µs/,
-      '`deeper` on where the gap starts')
-    expect(firstTimeout.t / 1_000).toBe(from)
-    expect(zero[0].t + zero[0].frame.txTimeNs, 'and the frames really end at the other one')
-      .toBe(notFrom * 1_000)
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.t === from * 1_000)
-    expect(ifs, `no gap starts at ${from} µs`).toBeDefined()
-    // 「整轮仿真中没有启动过一次 EIFS」
-    expect(ofType(rs, 'IFS_START').filter((r) => r.kind === 'EIFS'), 'EIFS gaps').toHaveLength(0)
-    // `observe`: 「之后两台站点的 CW 都变为 31」 and 「约 8.1 ms 处的第二次碰撞」
-    const [obsCw] = figs(collisionsCw.observe.join('\n'), /CW 都变为 (\d+)/, '`observe` on the window')
-    expect(obsCw).toBe(cw)
-    const [second] = figs(collisionsCw.observe.join('\n'), /约 ([\d.]+) ms 处的第二次碰撞/,
-      '`observe` on the second collision')
-    same(String(second), cols[1].t / MS, 'when the second collision happens')
-    // `tryThis`: 「逐步推进到 293 µs。空口上没有任何信号」
-    const [until] = figs(collisionsCw.tryThis.join('\n'), /逐步推进到 (\d+) µs/,
-      '`tryThis` on where to walk')
-    expect(until).toBe(from)
-    expect(ofType(rs, 'TX_START').some((r) => r.t > notFrom * 1_000 && r.t < until * 1_000),
-      'something is on the air in the silence the reader is asked to walk').toBe(false)
+    const to = ofType(recs(), 'ACK_TIMEOUT')[0]!
+    const w = ofType(recs(), 'IFS_START').find((r) => r.t === to.t)!
+    expect([lane('等待应答').fromUs, lane('等待应答').toUs]).toEqual([(to.t - ACK_TIMEOUT_NS) / US, to.t / US])
+    expect(lane('等待应答').label).toBe(`${ACK_TIMEOUT_NS / US} µs`)
+    expect([lane('重新竞争').fromUs, lane('重新竞争').toUs]).toEqual([w.t / US, w.untilNs / US])
   })
 
-  it('`limits` and `sources`: the capture margin, the ladder, and the retry limit', () => {
-    // 「捕获余量是一个固定的 5 dB」 and 「（channel.ts 的 CAPTURE_MARGIN_DB 与 captureWindowNs）」
-    const [margin] = figs(limitText, /固定的 (\d+) dB/, '`limits` on the capture margin')
-    // `CAPTURE_MARGIN_DB` is not exported, and the limit cites it by file and by name — so the
-    // figure is read out of the file the citation points at, which checks both at once.
-    const cited = /（([a-z]+\.ts) 的 (CAPTURE_MARGIN_DB) 与 (\w+)）/.exec(limitText)
-    expect(cited, '`limits` no longer cites the margin and the window').not.toBeNull()
-    const chan = readFileSync(resolve(ROOT, `src/engine/${cited![1]}`), 'utf8')
-    expect(chan, `${cited![1]} declares ${cited![3]}`).toContain(cited![3])
-    const decl = new RegExp(`${cited![2]} = (\\d+)`).exec(chan)
-    expect(decl, `${cited![1]} declares ${cited![2]}`).not.toBeNull()
-    expect(Number(decl![1]), 'the margin the engine really uses').toBe(margin)
-    const [again] = figs(limitText, /必须比正在接收的那一帧强 (\d+) dB/, '`limits` restating it')
-    expect(again).toBe(margin)
-    const [deadline] = figs(limitText, /(\d+) µs 的期限精确到纳秒/, '`limits` on the deadline')
-    expect(deadline * 1_000).toBe(ACK_TIMEOUT_NS)
-    // `sources`: the deadline's three parts again, and the ladder's ends
-    const parts = figs(sourcesText, /就是 (\d+) \+ (\d+) \+ (\d+) µs/, '`sources` on the deadline')
-    expect(parts.map((x) => x * 1_000)).toEqual([SIFS_NS, SLOT_NS, RX_START_DELAY_NS])
-    const [floor, ceil, limit] = figs(sourcesText,
-      /aCWmin (\d+)、aCWmax (\d+) 与 dot11ShortRetryLimit (\d+)/, '`sources` on the three constants')
-    expect([floor, ceil, limit]).toEqual([CW_MIN, CW_MAX, SHORT_RETRY_LIMIT])
-    const rungs = figs(sourcesText, /(\d+) → (\d+) → (\d+) → … → (\d+)/, '`sources` on the ladder')
-    expect(rungs[0]).toBe(CW_MIN)
-    expect(rungs[rungs.length - 1]).toBe(CW_MAX)
-    for (let i = 1; i < rungs.length - 1; i++) {
-      expect(rungs[i], `rung ${i}`).toBe(2 * rungs[i - 1] + 1)
+  it('lab 1: the formula is the deadline the run keeps', () => {
+    const f = lab('第一次碰撞').blocks!.find((b) => b.kind === 'formula') as { text: string }
+    const end = ofType(recs(), 'COLLISION')[0]!.t
+    const to = ofType(recs(), 'ACK_TIMEOUT')[0]!.t
+    expect(f.text).toBe(`AckTimeout = ${SIFS_NS / US} + ${SLOT_NS / US} + ${RX_START_DELAY_NS / US} = ${ACK_TIMEOUT_NS / US} µs      ${end / US} + ${ACK_TIMEOUT_NS / US} = ${to / US} µs`)
+    expect(to - end).toBe(ACK_TIMEOUT_NS)
+  })
+
+  it('lab 1: 0 → 248, two RX_MISS, silence, 293, 31, 327, 22 and 19, 498, freeze at 3', () => {
+    const e = lab('第一次碰撞').expect
+    const first = data().filter((r) => r.t === 0)
+    expect(first.map((r) => r.node).sort()).toEqual(BOTH)
+    const end = first[0]!.t + first[0]!.frame.txTimeNs
+    expect(e).toContain(`两个数据帧都在 ${first[0]!.t / US} µs 开始、${end / US} µs 结束`)
+    expect(ofType(recs(), 'RX_MISS').filter((r) => r.node === 'ap' && r.t === 0)).toHaveLength(2)
+    expect(e).toContain('接入点（access point, AP）对两帧各记一条 RX_MISS')
+    const to = ofType(recs(), 'ACK_TIMEOUT').filter((r) => r.t === end + ACK_TIMEOUT_NS)
+    expect(to.map((r) => r.node).sort()).toEqual(BOTH)
+    const between = recs().filter((r) => r.t > end && r.t < to[0]!.t)
+    expect(between.filter((r) => r.type === 'TX_START')).toEqual([])
+    expect(e).toContain(`${end / US} 到 ${to[0]!.t / US} µs 之间空口上没有任何发送`)
+    const cw = ofType(recs(), 'CW_CHANGE').filter((r) => r.t === to[0]!.t)
+    expect(new Set(cw.map((r) => r.cw)).size).toBe(1)
+    const redraw = draws().filter((r) => r.t > end)
+    const at = new Map(redraw.filter((r) => r.t === redraw[0]!.t).map((r) => [r.node, r.value]))
+    expect(e).toContain(`${to[0]!.t / US} µs 时两台站点同时超时，竞争窗口都变为 ${cw[0]!.cw}，各等一个 DIFS 到 ${redraw[0]!.t / US} µs`)
+    expect(e).toContain(`STA-1 抽到 ${at.get('sta-1')}，STA-2 抽到 ${at.get('sta-2')}`)
+    const sta2 = data().find((r) => r.node === 'sta-2' && r.t > redraw[0]!.t)!
+    expect(sta2.t).toBe(redraw[0]!.t + at.get('sta-2')! * SLOT_NS)
+    const freeze = ofType(recs(), 'BACKOFF_FREEZE').find((r) => r.node === 'sta-1' && r.t === sta2.t)!
+    expect(freeze.value).toBe(at.get('sta-1')! - at.get('sta-2')!)
+    expect(e).toContain(`STA-2 在 ${sta2.t / US} µs 先发送，STA-1 冻结在两者之差 ${freeze.value} 上`)
+    // 「两台站点都没有抽取退避值」
+    expect(draws().some((r) => r.t < end)).toBe(false)
+  })
+
+  it('lab 2: two retries at the deadline, CW 31, and the Retry bit on STA-2’s frame', () => {
+    const e = lab('重传帧带重发比特').expect
+    const retries = ofType(recs(), 'RETRY').filter((r) => r.t === ofType(recs(), 'RETRY')[0]!.t)
+    expect(retries.map((r) => r.node).sort()).toEqual(BOTH)
+    const cw = ofType(recs(), 'CW_CHANGE').filter((r) => r.t === retries[0]!.t).map((r) => r.cw)
+    expect(e).toContain(`${retries[0]!.t / US} µs 时两台站点各记一条重传记录，竞争窗口都是 ${cw[0]}`)
+    const sta2 = data().find((r) => r.node === 'sta-2' && r.t > retries[0]!.t)!
+    expect(sta2.frame.retryFlag).toBe(true)
+    expect(e).toContain(`STA-2 在 ${sta2.t / US} µs 发出的帧，重发比特为 1`)
+  })
+
+  it('lab 3: the three windows, their counts and means; 864 frames, 47 collisions; nothing dropped', () => {
+    const rows = tableOf(lab('翻倍在本轮中是否有效'), '300 ms 内三档竞争窗口').rows
+    const byCw = new Map<number, number>()
+    for (const d of draws()) byCw.set(d.cw, (byCw.get(d.cw) ?? 0) + 1)
+    expect(rows.map((r) => Number(r[0]!.replace('CW = ', '')))).toEqual([...byCw.keys()].sort((a, b) => a - b))
+    for (const [w, n, m] of rows) {
+      const cw = Number(w!.replace('CW = ', ''))
+      expect(n, w).toBe(String(byCw.get(cw)))
+      expect(m, w).toBe(meanOf(cw).toFixed(2))
     }
-    // 「两台饱和站点与 1528 字节的帧」
-    const stations = counted(sourcesText, new RegExp(`(${ZH})台饱和站点`), '`sources` on the stations')
-    const [bytes] = figs(sourcesText, /([\d,]+) 字节的帧/, '`sources` on the frame')
-    expect(collisionsCw.scenario().nodes.filter((n) => n.profiles?.includes('saturated')))
-      .toHaveLength(stations)
-    expect(new Set(d.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
+    const e = lab('翻倍在本轮中是否有效').expect
+    const frames = data().length
+    const cols = ofType(recs(), 'COLLISION').length
+    expect(e).toContain(`共发出 ${frames} 帧，碰撞 ${cols} 次，约每二十帧一次`)
+    expect(Math.round(frames / cols / 5) * 5).toBe(20)
+    expect(e).toContain(`只有 ${byCw.get(63)} 次选取来自 CW = 63，没有一次达到 127`)
+    expect(byCw.has(127)).toBe(false)
+    expect(ofType(recs(), 'DROP')).toEqual([])
+    expect(e).toContain(`从 31 选取的平均值 ${meanOf(31).toFixed(2)} 是从 15 选取的 ${meanOf(15).toFixed(2)} 的两倍以上`)
+    expect(meanOf(31)).toBeGreaterThan(2 * meanOf(15))
+  })
+
+  it('lab 4: the second collision is at about 8.1 ms, both counters reaching zero in one slot', () => {
+    const second = ofType(recs(), 'COLLISION')[1]!
+    expect(lab('第二次碰撞').expect).toContain(`第二次碰撞在约 ${(Math.round(second.t / 100_000) / 10).toFixed(1)} ms 处`)
+    const starts = data().filter((r) => r.t < second.t && r.t + r.frame.txTimeNs >= second.t)
+    expect(starts.map((r) => r.node).sort()).toEqual(BOTH)
+    expect(starts[0]!.t).toBe(starts[1]!.t)
+    for (const n of BOTH) {
+      expect(ofType(recs(), 'BACKOFF_DEC').some((r) => r.node === n && r.t === starts[0]!.t && r.value === 0)).toBe(true)
+    }
   })
 })

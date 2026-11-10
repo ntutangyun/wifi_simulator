@@ -221,6 +221,19 @@ const SECTION_KEY: readonly (readonly [Section, keyof Lesson])[] = [
 export const SECTIONS: readonly Section[] = SECTION_KEY.map(([s]) => s)
 
 /**
+ * The sections no lesson has any more (2026-11-11). `body` finished migrating on 2026-10-02;
+ * the other six went with the standard-first restructure, which moved `picture`/`numbers` into
+ * ① `standard` and the ③ labs, `deeper` into ① and ②, `limits` into ② `implementation`, and
+ * `observe`/`tryThis` into the labs. They stay in the walk (the `Lesson` type still has the
+ * fields, always empty or absent), so the selectors below keep listing them; that membership is
+ * inert, and the census in tests/course/readability-rules.test.ts pins each at zero strings so
+ * that it stays inert rather than merely harmless.
+ */
+export const RETIRED_SECTIONS: readonly Section[] = [
+  'body', 'picture', 'numbers', 'deeper', 'limits', 'observe', 'tryThis',
+]
+
+/**
  * Every string a lesson shows a reader, tagged with where it came from.
  *
  * The one walk. It does NOT decide which strings are "Chinese lesson prose" —
@@ -388,12 +401,11 @@ const MAIN_PATH_SECTIONS: readonly Section[] = [
  * depth, and the stated minutes are the minutes of the main path.
  *
  * Why not {@link readerTexts}: `title` is read once and a label is clicked
- * rather than read, so counting them makes the estimate less accurate, not more
- * — and `limits[].text` is a quarter of the main path's length, rendered open
- * by default and timed at zero. That last one is a real debt, and it is now
- * pinned rather than left implicit (the ratchet in
- * `tests/course/readability.test.ts`); paying it means splitting six lessons,
- * which is another slice.
+ * rather than read, so counting them makes the estimate less accurate, not more.
+ * `limits[].text` used to be the exception worth naming — a quarter of the main
+ * path's length, rendered open and timed at zero, pinned by a ratchet — until
+ * 2026-11-11, when the standard-first restructure retired the section and moved
+ * what it held into `implementation`, which IS on the main path and timed.
  *
  * Why not {@link gradedProseTexts}: this one DOES count `terms`, which is
  * rendered before `picture` and read at reading speed, while the bracket rule
@@ -458,9 +470,9 @@ const GRADED_SECTIONS: readonly Section[] = [
  *  - `deeper` and `sources`: collapsed professional depth, where the clause
  *    numbers and the English names already live. Grading them would add 81 and
  *    180 failures.
- *  - `limits[].text`: by the same measure it belongs with those two rather than
- *    with the main path — its term density is HIGHER than `sources`' — and
- *    grading it would add 298 failures. The ratchet pins that debt instead.
+ *  - `limits[].text`: by the same measure it belonged with those two rather than
+ *    with the main path, and a ratchet pinned its debt. Retired 2026-11-11 with
+ *    the section itself; its content now sits in `implementation`, which IS graded.
  *  - `terms[].plain`: structurally not gradable by this rule. 101 of the 272
  *    glossary rows explain their word using another glossary word, which is
  *    what an explanation is for; demanding a bracket for every borrowed word
@@ -658,7 +670,10 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '重传上限', en: 'retry limit' },
   { zh: '生存期', en: 'MSDU lifetime' },
   { zh: '队列', en: 'queue' },
-  { zh: '碰撞避免', en: 'collision avoidance' },
+  // `碰撞避免（collision avoidance）` was a row here until 2026-11-11. No lesson of the
+  // standard-first course writes it: the Wi-Fi lessons teach DCF and EDCA by their own names, and
+  // the one CSMA-CA the course mentions is 802.15.4's (§6.3.2), in a UWB lesson that spells it in
+  // Latin letters. A row no lesson uses is a row that can be wrong for ever, so it went.
 
   // --- 2.4 efficiency, aggregation, multi-user, multi-link ---
   { zh: '聚合 MPDU', en: 'aggregate MPDU', abbr: 'A-MPDU' },
@@ -670,11 +685,17 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: 'TXOP 上限', en: 'TXOP limit' },
   // 保护 (protection) is NOT a row: the course writes it as the ordinary verb
   // ("它保护的是什么", "光听信道保护不了一次交互"), so a substring rule reports four
-  // sentences that are not naming a term at all. The three protection modes
-  // below carry the §9.2.5.2 names, which is where the term is actually taught.
+  // sentences that are not naming a term at all. §9.2.5.2 names exactly two protection
+  // modes, single and multiple, and those two are the rows below.
+  //
+  // `边界保护（boundary protection）` was a third row until 2026-11-11, under a comment calling it
+  // a §9.2.5.2 name. It is not one: the standard has single and multiple protection only, and the
+  // "boundary" policy is this simulator's own (the first frame protects to the end of the TXOP,
+  // the rest only to their own ACK). `@txop-protect`'s ② row 「「边界」策略」 now says exactly
+  // that — 「没有「边界保护（boundary protection）」这一类」 — and tests/course/txop-protect.test.ts
+  // pins the sentence; a glossary row would have kept teaching it as a standard term.
 
   { zh: '单次保护', en: 'single protection' },
-  { zh: '边界保护', en: 'boundary protection' },
   { zh: '多重保护', en: 'multiple protection' },
   { en: 'contention-free end', abbr: 'CF-End' },
   { en: 'CTS to self', abbr: 'CTS-to-self' },
@@ -682,7 +703,9 @@ export const ZH_TERMS: readonly ZhTerm[] = [
   { zh: '资源单元', en: 'resource unit', abbr: 'RU' },
   { zh: '多用户', en: 'multi-user', abbr: 'MU' },
   { zh: '多用户 PPDU', en: 'multi-user PPDU', abbr: 'MU PPDU' },
-  { zh: '每用户分配表', en: 'per-user info field' },
+  // `每用户分配表（per-user info field）` was a row here until 2026-11-11: a course-made name no
+  // lesson writes. `@ofdma-ul` teaches the standard's own field, 用户信息字段（User Info,
+  // §9.3.1.22), in its ①.
   { zh: '上行', en: 'uplink', abbr: 'UL' },
   { zh: '下行', en: 'downlink', abbr: 'DL' },
   { zh: '触发帧', en: 'Trigger frame' },

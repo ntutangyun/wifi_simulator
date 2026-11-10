@@ -56,8 +56,23 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 
-/** A lesson with a `watch` call-out that carries a jump — `src/course/tier1/airtime.ts`. */
+/**
+ * A lesson whose first lab card carries a jump — `src/course/tier1/airtime.ts`, 实验 1 (base scene,
+ * jump 0 「第一个数据帧」).
+ *
+ * **2026-11-11: every lesson is standard-first, so there are no `watch` call-outs any more.** This
+ * file used to press 「▶ 载入并观察」 and 「⚡ 跳到那里」, the two buttons of a `watch` block. A
+ * standard-first lesson renders neither: each ③ lab is a card (`labCard` in
+ * `src/course/CoursePanel.tsx`) whose load button reads `stdFirst.loadBase` (or
+ * `stdFirst.loadVariant(label)` for a lab on a variant) and whose jump button reads
+ * `stdFirst.jumpTo(label)`, disabled until that card's own scene is the one loaded
+ * (`src/ui/i18n.ts`). The selectors below are those strings.
+ */
 const LESSON_WITH_JUMP = 'airtime'
+/** `STRINGS.course.stdFirst.loadBase` — a lab card's button for the lesson's base scene. */
+const LOAD_BASE = '▶ 载入本课场景'
+/** `STRINGS.course.stdFirst.jumpTo(label)` is this prefix followed by the jump's label. */
+const JUMP_TO = '⚡ 跳到：'
 
 /**
  * The longest lesson id in the course, which is the worst case for the stable handle the
@@ -337,10 +352,10 @@ test.describe('nothing falls off the side of the screen', () => {
     expectNothingOffScreen(await survey(page), 'course · catalogue')
 
     await open(page, 'course', LESSON_WITH_JUMP)
-    await expect(page.locator('main button', { hasText: '▶ 载入并观察' }).first()).toBeVisible()
+    await expect(page.locator('main button', { hasText: LOAD_BASE }).first()).toBeVisible()
     expectNothingOffScreen(await survey(page), 'course · lesson, prose')
 
-    await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+    await page.locator('main button', { hasText: LOAD_BASE }).first().click()
     await page.locator(SCENE_CANVAS).waitFor()
     expectNothingOffScreen(await survey(page), 'course · lesson, loaded')
   })
@@ -437,7 +452,8 @@ test.describe('nothing falls off the side of the screen', () => {
 })
 
 /**
- * "⚡ 跳到那里" at one column, and the camera it must not touch.
+ * A lab card's jump button (「⚡ 跳到：…」; 「⚡ 跳到那里」 before 2026-11-11) at one column, and the
+ * camera it must not touch.
  *
  * This is the behaviour half of the slice, and it belongs in a browser because
  * the thing that was wrong is which pane is on screen — `pane` is local state in
@@ -450,7 +466,7 @@ const CLOCK = 'span:text-matches("^t = ")'
 const JUMP_FAILED = '往后 3 秒的仿真里没有出现这一刻'
 
 /**
- * Press "⚡ 跳到那里" **once**, and insist the jump landed.
+ * Press the first lab card's jump button **once**, and insist the jump landed.
  *
  * One click is the claim. It used to be a loop of up to forty, 250 ms apart,
  * and the reason was a lesson about this very test: a jump into a moment the
@@ -471,7 +487,9 @@ const JUMP_FAILED = '往后 3 秒的仿真里没有出现这一刻'
  * nothing in this test plays it.
  */
 async function jumpUntilFound(page: Page): Promise<void> {
-  await page.locator('main button', { hasText: '⚡ 跳到那里' }).first().click()
+  // The first lab card with a jump: in `airtime` that is 实验 1 on the base scene, which the
+  // `LOAD_BASE` click before this loaded, so the button is enabled.
+  await page.locator('main button', { hasText: JUMP_TO }).first().click()
   await expect(page.getByText(JUMP_FAILED), 'the jump reported the moment never happens').toHaveCount(0)
   await expect(page.locator(CLOCK).first()).not.toHaveText(/t = 0\.000 000 000 s/)
 }
@@ -479,7 +497,7 @@ async function jumpUntilFound(page: Page): Promise<void> {
 test.describe('a jump brings the view on screen without rebuilding it', () => {
   test('the jump puts the viewport up, and leaves the scene standing', async ({ page }, info) => {
     await open(page, 'course', LESSON_WITH_JUMP)
-    await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+    await page.locator('main button', { hasText: LOAD_BASE }).first().click()
     const canvas = page.locator(SCENE_CANVAS)
     await canvas.waitFor()
 
@@ -542,7 +560,7 @@ const DENSE_JUMP_ROW = 'ap internal collision: AC_VO beats AC_BE'
 test.describe('a jump puts its own row in front of the reader', () => {
   test(`${LESSON_DENSE_JUMP} · ${DENSE_JUMP_LABEL}`, async ({ page }, info) => {
     await open(page, 'course', LESSON_DENSE_JUMP)
-    await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+    await page.locator('main button', { hasText: LOAD_BASE }).first().click()
     await page.locator(SCENE_CANVAS).waitFor()
 
     // At one column, loading puts the 3-D view up and the prose — with the jump
@@ -710,7 +728,7 @@ async function expectMarkerInView(page: Page, what: string): Promise<void> {
 test.describe('the reader can see where the playhead is after moving it', () => {
   test(`${LESSON_DENSE_LOG} · load, step, seek`, async ({ page }) => {
     await open(page, 'course', LESSON_DENSE_LOG)
-    await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+    await page.locator('main button', { hasText: LOAD_BASE }).first().click()
     await page.locator(SCENE_CANVAS).waitFor()
     // The window has to be filled before the first measurement means anything:
     // this lesson records ~322 000 records per second of sim time, and the log
@@ -787,8 +805,16 @@ const BEYOND_LOOKAHEAD: { lesson: string; label: string; clock: string }[] = [
 test.describe('a jump reaches past the recording, without the reader playing it', () => {
   for (const c of BEYOND_LOOKAHEAD) {
     test(`${c.lesson} · ${c.label}`, async ({ page }, info) => {
+      // **Skipped since 2026-11-11, and the skip is the finding.** Both jumps are still in their
+      // lessons' `jumps` (tests/ui/eventLogWindow.test.ts still measures them past LOOKAHEAD_NS),
+      // but since the standard-first restructure a jump has a button only when a ③ lab names it,
+      // and no lab of `queues` or `capstone` names these two — so a reader cannot press them, and
+      // neither can this test. No other jump in the course lies past the lookahead. The player's
+      // hold-and-extend path is unchanged and still covered by the unit test; this browser case
+      // comes back the day a lab points at a jump past 2 s.
+      test.skip(true, `no lab of ${c.lesson} renders a button for 「${c.label}」 (standard-first, 2026-11-11)`)
       await open(page, 'course', c.lesson)
-      await page.locator('main button', { hasText: '▶ 载入并观察' }).first().click()
+      await page.locator('main button', { hasText: LOAD_BASE }).first().click()
       await page.locator(SCENE_CANVAS).waitFor()
       // Nothing has moved the playhead: this is the state a reader is in when
       // they read the call-out and press the button. Checked here, before the

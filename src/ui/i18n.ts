@@ -145,22 +145,14 @@ export interface Strings {
     outcomes: string
     needs: string
     terms: string
-    numbers: string
-    deeper: string
     sources: string
     /** Buttons inside a `watch` call-out. */
     watchLoad: string
     watchJump: string
-    load: string
-    reload: string
-    variants: string
-    jumps: string
     /** A jump whose moment is not recorded yet: the worker is being asked for it. */
     searching: string
     /** …and the only way a jump can still fail: that moment never happens. */
     notFound: string
-    observe: string
-    tryThis: string
     quiz: string
     check: string
     correct: string
@@ -171,7 +163,6 @@ export interface Strings {
     prev: string
     back: string
     openInEditor: string
-    loadHint: string
     /** The standard-first shape (2026-11-10): ① standard, ② implementation, ③ labs. */
     stdFirst: {
       standard: string
@@ -190,13 +181,6 @@ export interface Strings {
       expect: string
       meaning: string
     }
-    /** The section naming where a lesson's model is not the radio. */
-    limits: string
-    limitKind: Record<'threshold' | 'unmodelled' | 'model-value' | 'out-of-scope', string>
-    /** 「this one IS LIFTED in that lesson」. Only ever on an `out-of-scope` limit. */
-    limitUntil: (lessonTitle: string) => string
-    /** 「that lesson goes deeper into this one, but does NOT lift it」. Any kind. */
-    limitSeeAlso: (lessonTitle: string) => string
     /** The documents a section's lessons are checked against, and how firm they are. */
     basis: (docs: string) => string
     /** Appended to a draft document's name wherever it is printed. */
@@ -979,15 +963,9 @@ export const STRINGS: Strings = {
     outcomes: '学完这一课你能',
     needs: '需要先学',
     terms: '新词',
-    numbers: '现在看数字',
-    deeper: '再深一层',
     sources: '这些数字从哪里来',
     watchLoad: '▶ 载入并观察',
     watchJump: '⚡ 跳到那里',
-    load: '▶ 载入本课仿真',
-    reload: '↻ 重新开始仿真',
-    variants: '场景变体',
-    jumps: '跳转到',
     searching: '正在把仿真跑到那一刻……',
     // It used to read 「当前仿真窗口内尚未出现——让仿真再运行一会儿」, and that was
     // advice the reader could not act on: at the default 1 000 倍 slowdown
@@ -995,8 +973,6 @@ export const STRINGS: Strings = {
     // 现在仿真会自己往后跑，所以这句话只剩下一种意思：往后 3 秒的仿真里真的没有这一刻
     // （`amp-slots` 有两跳只在它的场景变体里出现，就是这种情形）。
     notFound: '往后 3 秒的仿真里没有出现这一刻——换一个场景变体试试',
-    observe: '👀 观察要点',
-    tryThis: '🧪 动手实验',
     quiz: '✅ 自测',
     check: '提交',
     correct: '回答正确！',
@@ -1007,7 +983,6 @@ export const STRINGS: Strings = {
     prev: '← 上一课',
     back: '☰ 课程目录',
     openInEditor: '✎ 在编辑器中打开本课场景',
-    loadHint: '载入预设场景（会替换当前场景；离开课程模式时会恢复你自己的场景）。',
     stdFirst: {
       standard: '① 标准怎么规定',
       implementation: '② 本仿真器怎么实现',
@@ -1031,20 +1006,6 @@ export const STRINGS: Strings = {
       expect: '你应该看到：',
       meaning: '这说明：',
     },
-    limits: '这一课的模型在哪里不是真实的无线电',
-    limitKind: {
-      threshold: '硬门限代替曲线：',
-      unmodelled: '没有建模：',
-      'model-value': '本仿真器自选的取值：',
-      'out-of-scope': '这个模型答不了：',
-    },
-    limitUntil: (t) => `（这一条在《${t}》里会被解除）`,
-    // Both halves are words this course already uses, compared by hand because UI strings do
-    // not go through the banned-word lists: 「再深一层」 is `deeper` above, the panel's own label
-    // for the section that treats something further, and 「解除」 is the course's word for the
-    // other promise (`uwb-blocks` writes 「一课也不解除」 in a limit of its own). The written
-    // register of 「相关阅读」/「延伸阅读」 appears nowhere in 82 lessons, so it is not used.
-    limitSeeAlso: (t) => `（《${t}》在这一条上再深一层，但不解除它）`,
     basis: (docs) => `依据：${docs}`,
     draftMark: '草案，内容可能变动',
     contributions: '本课依据的提案文稿：',

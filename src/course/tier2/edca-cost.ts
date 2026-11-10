@@ -1,31 +1,18 @@
 /**
  * Wi-Fi Tier 2 · M8 · QoS 与效率 · what the head start costs, and who pays it.
  *
- * The second half of `edca`, split on 2026-09-25
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M8). The
- * parent owns how a win is decided; this lesson owns the bill: what priority
- * cannot do (it never interrupts anything), what the lowest category pays for
- * everyone else's shorter silence, and the one station in this room that ever
- * owes an EIFS.
+ * The second half of `edca`, on the parent's own scene (`sameSceneAs: 'edca'`), in the
+ * standard-first shape (2026-11-11). ① states what IEEE Std 802.11-2024 specifies: an EDCAF acts
+ * only at slot boundaries that follow idle medium (§10.23.2.4), so priority never interrupts a
+ * transmission; the defaults give AC_BK the longest AIFS (Table 9-194); and after an erroneous
+ * reception an EDCAF waits EIFS − DIFS + AIFS[AC], ended early by an error-free reception
+ * (§10.3.2.3.7, Equation 10-7). ② says what the engine does with each — `beginIfsAc` in
+ * src/engine/mac.ts, `corruptLast ? eifsNs - difsNs + aifs : aifs` — and ③ is four guided runs.
  *
- * The EIFS material arrives from `ifs` (§2 M4 and §7.3): no station in that
- * lesson's scene ever waits one, so the paragraph, the table row, the term and
- * the quiz question moved to the scene that has the record — this one, where the
- * uploader collects seven of them. Its pin is held in tests/course/ifs.test.ts
- * ("MOVED CLAIM, PIN HELD") until the controller registers this lesson; the same
- * constants are re-pinned in tests/course/edca-cost.test.ts, now beside the run.
- *
- * The scene is the parent's, unchanged and undivided (`sameSceneAs: 'edca'`), so
- * the recorded timeline hash of this id is a copy of `edca`'s rather than a new
- * run. It takes jumps 1 and 2 of the old list (the background station's first
- * frame, the uploader's first EIFS); `edca` keeps the first voice access.
- *
- * The procedure is `beginIfsAc` in src/engine/mac.ts — `corruptLast ? eifsNs -
- * difsNs + aifs : aifs`, §10.23.2.2 — with `EIFS_NS` from src/engine/phy.ts, and
- * the two places the engine clears `corruptLast`: the station's own transmission
- * (line 1037) and the start of a new reception (line 1266).
- *
- * Every number quoted below is pinned in tests/course/edca-cost.test.ts.
+ * The audit found the EIFS arithmetic faithful (fixed EIFS, Equation 10-7; the optional dynamic
+ * EIFS of Equation 10-8 is not modelled) and the decode decision a binary threshold the standard
+ * does not specify. Every figure below is pinned in tests/course/edca-cost.test.ts against a 300 ms
+ * run.
  */
 import { type Lesson, oneRoom, node, sc, J } from '../lessonKit'
 
@@ -33,51 +20,92 @@ export const edcaCost: Lesson = {
   id: 'edca-cost',
   module: 7,
   title: '优先接入的代价，以及由谁承担',
-  why: '上一课的两个数决定了谁先发送，但它们并没有增加任何空口时间（airtime）。信道仍然只有一条，分配给语音的那五个时隙（slot time），必然取自其他类别。优先级只在帧与帧之间的空闲间隔里起作用，无法中断已经在传送的帧：语音如果遇到别人正在发送一长串帧，也必须等它全部结束，所以语音的平均时延很短，但仍有几次明显偏长的时延。代价由后台这一类承担。房间里运行后台流量的是一台备份站点（station, STA），它的静默最长、抽取范围最宽，于是最晚、也最少地取得发送机会：整轮只抽取了十几次倒数值，第一帧等待了五十余毫秒，帧的平均排队时间约为通话的七倍。这不是缺陷，正是这一类存在的理由。规则里还剩最后一个分支：一台站点开始接收一帧却没能把它解出来，下一次必须等待的静默就换成更长的扩展帧间间隔（extended interframe space, EIFS），多出的那段恰好容纳这样一段时间：若那一帧是发给别人的，对方的确认帧（acknowledgement, ACK）本应在这段时间出现；它替换原来那段静默，而不是叠加在其后。这个房间里只有上传站点遇到过，通话站点和备份站点一次也没有。',
+  why: '增强型分布式信道接入（enhanced distributed channel access, EDCA）的参数只决定介质（medium）空闲之后谁先开始发送，不增加任何空口时间（airtime），也不能中断已经开始的发送：标准规定每个接入类别（access category, AC）只在介质空闲之后的时隙（slot time）边界上操作。所以本课房间里通话的平均排队时延很短，但最长的一次仍是平均值的两倍多。语音少等的时间由其他类别承担，代价最大的是后台：运行后台流量的备份站点（station, STA）仲裁帧间间隔（arbitration interframe space, AIFS）最长、窗口最宽，整轮只抽取了 14 次退避（backoff）值，第一帧等了 55 ms，帧的平均排队时间约为通话的七倍。规则里还有一个分支：接收的帧出错之后，下一次竞争前等待扩展帧间间隔（extended interframe space, EIFS）减分布式帧间间隔（DCF interframe space, DIFS）再加本类的 AIFS，多出的部分留给其他站点为那一帧回确认帧（acknowledgement, ACK）；在此期间正确收到一帧，这段等待就结束。这个房间里只有上传站点等过这段时间，每次 103 µs。',
   outcomes: [
-    '解释优先级做不到什么：已经在传送的帧不会被任何机制中断',
-    '读出三台站点各自的抽取次数与排队时延，并说明优先级最低的那一类付出了什么代价',
-    '说明那段更长的等待从何而来、那 103 µs 如何计算，以及哪台站点遇到过它',
+    '说明 EDCA 不能做什么：已经开始的发送不会被中断',
+    '读出三台站点的抽取次数与排队时延，说明优先级最低的一类承担了什么',
+    '写出接收出错之后那段等待的计算式，算出 103 µs，并说出哪台站点遇到过它',
   ],
   needs: ['edca'],
   terms: [
-    { term: 'EIFS', plain: '扩展帧间间隔：开始接收却没能把那一帧解出来的站点，下一次竞争前要多等的那一段——它的长度恰好容纳对方的确认帧本应出现的那段时间' },
+    { term: 'EIFS', plain: '扩展帧间间隔：接收的帧出错之后使用的较长等待，留出其他站点为那一帧回确认帧的时间' },
   ],
-  picture: [
-    { heading: '优先级不能打断任何东西', text: '先说它做不到的事。已经开始传送的帧不会被中断；一帧语音如果遇到别人正在发送一长串突发，它就必须等那串突发全部结束，和其他任何帧一样。优先级带来的是在“下一轮由谁发送”的竞争中更靠前的位置，而不是跳过这一轮的手段。所以这里的语音平均时延很短，但仍会出现几次明显偏长的时延。' },
-    { kind: 'watch', jump: 0, heading: '去看排在最后的那一类', text: '载入仿真，跳到备份站点的第一帧：它出现在整轮的第 55 ms。上传站点从 0.088 ms 起就一直在发送，通话站点第一次发送是在 23 ms，而这台备份站点等了五十余毫秒才第一次取得发送机会。' },
-    { heading: '总有一类排在最后', text: '提前接入的额度只能从其他类别那里取得。后台这一类——备份、更新，以及任何没有人等待的数据——分配到的是最长的静默和最宽的抽取范围，于是它最晚、也最少地取得发送机会。在一个繁忙的房间里，它的帧在队列（queue）中停留的时间是通话的好几倍。这不是设计上的缺陷，这正是设计本身，也正是这一类存在的理由。' },
-    { kind: 'watch', jump: 1, heading: '再去看一段更长的等待', text: '跳到上传站点的第一次扩展帧间间隔（extended interframe space, EIFS）：23.1912 ms 处它开始了一段 103 µs 的等待，比它那一类平时的 43 µs 长得多。向前步进一格查看原因——它刚刚开始接收一帧，却因为一次碰撞没能把它解出来。通话站点和备份站点的泳道上，整轮都找不到这样一段。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '三台站点实际的表现', head: [
-      '站点', '类别', '静默',
-      '抽取次数', '平均抽到', '平均排队时延',
-    ], rows: [
-      ['通话站点', 'VO', '34 µs', '33', '2.2', '1.49 ms'],
-      ['上传站点', 'BE', '43 µs', '107', '7.9', '2.23 ms'],
-      ['备份站点', 'BK', '79 µs', '14', '8.2', '10.23 ms'],
+  standard: [
+    { heading: '只在介质空闲之后竞争（§10.23.2.4）', text: '每个 EDCAF 的时隙边界都定义在介质空闲之后：空闲满 AIFS[AC] 是第一个边界，之后每空闲一个 aSlotTime 是下一个。介质忙时没有时隙边界，计数不递减，任何一类都不能发起传输机会（transmit opportunity, TXOP）。所以优先级只决定介质空闲之后谁先发送，不能中断正在进行的发送；另一台站点的 TXOP 有多长，由 TXOP 上限（TXOP limit）约束（§10.23.2.9）。' },
+    { heading: '后台的参数（表 9-194）', text: '表 9-194 给出接入点（access point, AP）以外的站点的默认参数：AC_BK 的仲裁帧间间隔数（arbitration interframe space number, AIFSN）为 7（79 µs），比 AC_BE 的 3（43 µs）多四个时隙，比 AC_VO 的 2（34 µs）多五个时隙；它的竞争窗口（contention window, CW）与 AC_BE 相同，最小竞争窗口（minimum contention window, CWmin）为 15、最大竞争窗口（maximum contention window, CWmax）为 1023，而 AC_VO 为 3 与 7。' },
+    { heading: '接收出错之后的等待（§10.3.2.3.7）', text: '站点收到一个物理层（physical layer, PHY）报告出错的 PPDU（PHY protocol data unit）或帧校验序列（frame check sequence, FCS）不正确的帧之后，介质变为空闲时，分布式协调功能（distributed coordination function, DCF）使用 EIFS，EDCA 使用 EIFS − DIFS + AIFS[AC]。这段时间从物理层报告介质空闲开始计算，不考虑虚拟载波侦听（virtual carrier sense）；它的作用是留出时间，让另一台站点为本站没有收对的那一帧发送确认帧。在此期间正确收到一帧，站点就重新与介质的实际忙闲同步，这段等待随即结束。' },
+    { kind: 'formula', heading: 'EIFS 的长度（§10.3.7，式 10-7）', text: 'EIFS = aSIFSTime + AckTxTime + DIFS', note: 'AckTxTime 是以最低的强制速率（mandatory rate）发送一个确认帧所需的时间，含前导码（preamble）与物理层头。dot11DynamicEIFSActivated 为真时，可以改用按出错 PPDU 的调制（modulation）估计的应答时间（式 10-8、表 10-8）。' },
+    { kind: 'steps', heading: '一个 EDCAF 在接收出错之后，按标准：逐步说明', items: [
+      '站点开始接收一个 PPDU，物理层报告接收出错，或者帧校验序列不正确。',
+      '物理层报告介质空闲时，这一类开始等待 EIFS − DIFS + AIFS[AC]，不考虑网络分配向量（network allocation vector, NAV）（§10.3.2.3.7）。',
+      '这段时间结束时是这一类的第一个时隙边界，之后照常每个时隙递减计数（§10.23.2.4 第 b) 项）。',
+      '在等待期间正确收到一帧，这段等待结束，按正常的 AIFS[AC] 继续（§10.3.2.3.7）。',
     ] },
-    { heading: '这张表的最后一列就是代价', text: '更短的那段静默（45 µs，五个时隙）加上更窄的抽取范围（平均抽到 2.2 个时隙，而不是 8.2 个），带来的结果就是最后那一列：通话的帧平均等待 1.49 ms，备份的帧平均等待 10.23 ms，约为七倍。而备份站点在 300 ms 里只抽取了 14 次倒数值——它参与竞争的次数本身就更少。' },
-    { kind: 'steps', heading: '未能解出一帧之后，这段等待如何计算', items: [
-      '本机开始了一次接收，却没能把那一帧解出来——时间轴上那一格标着“接收失败”，原因可能是碰撞、信号相对噪声与干扰太弱、本机同时在发送，或者接收机改为同步到另一个明显更强的前导码（preamble）。最后这一种叫作捕获（capture effect）：接收机保持对先锁定的那个前导码的同步，只有遇到明显更强的前导码时才改为同步到新的前导码。引擎因此记下“上一次接收出错”。',
-      '下一次要开始竞争时，这条队列必须等待的静默不再是它自己的仲裁帧间间隔（arbitration interframe space, AIFS），而是 EIFS 减去分布式帧间间隔（DCF interframe space, DIFS）再加上这条队列的 AIFS。上传站点属于 BE 类，于是 94 − 34 + 43 = 103 µs。',
-      'EIFS 本身 = 短帧间间隔（short interframe space, SIFS）+ DIFS + 用最低强制速率（mandatory rate）——这里是 6 Mb/s——发完一个确认帧（acknowledgement, ACK）的时间 = 16 + 34 + 44 = 94 µs。它覆盖的正是这样一段时间：如果那一帧本来是发给别人的，对方的确认帧就应出现在这段时间里。',
-      '这段更长的等待一直有效，直到本机自己发送了一帧，或者又开始一次新的接收、由这次接收的结果重新决定。它替换的是那段必须等待的静默本身，而不是叠加在其后。',
-    ] },
-    { heading: '哪台站点遇到过那段更长的等待', text: '300 ms 里只有上传站点遇到过解不出来的帧，一共七次，每次都要等一段 103 µs 的更长静默；通话站点和备份站点各为零次。这就是上一课那套规则里最后一个分支：同一个公式，同一条队列，只是那段必须等待的静默换了一个值。' },
   ],
-  limits: [
-    { kind: 'model-value', text: '那 103 µs 由引擎的三个常数组合而成，而其中最可疑的一个是「最低强制速率」：EIFS 里那个 44 µs 的确认帧一律按 6 Mb/s 算（phy.ts 的 ACK_TX_TIME_6M_NS），连 2.4 GHz 的那套帧间间隔也用同一个数。真实的 2.4 GHz 网络最低强制速率可能是 1 Mb/s，同一条规则会算出一段长得多的等待。' },
-    { kind: 'threshold', text: '触发这段等待的「没能把一帧解出来」在引擎里是一个二值判决：比值达到门限就一定能解出，达不到就一定失败。真实接收机在门限附近是一条概率曲线，所以那七次 EIFS 在真实设备上会是一个随机的次数，而不是一个固定的数。整轮里只有上传站点遇到过，这一结果同样依赖于这种确定性。' },
-    { kind: 'out-of-scope', until: 'wan-rtt', text: '「三台站点实际的表现」那张表只统计到排队时延与抽取次数，因为本课这个场景之上没有任何上层设施：它的 servers 是空的，于是语音上下两个方向都按本机时钟每 20 ms 发送一帧 200 字节。场景里加入一台通话服务器后，回程就不再按本机时钟产生，而是作为每一个已被确认的语音帧的回声（traffic.ts 的 scheduleVoice），往返时延才有了计算依据——「云端往返」那一课就是这样测量的。仍然没有建模的是抖动缓冲与丢帧之后的编解码补偿，所以 1.49 ms 与 10.23 ms 只是 MAC 层的排队时间，不是通话质量。' },
-    { kind: 'unmodelled', text: '这个代价是在一个只有三台设备、没有外来干扰、电平不随时间变化的房间里算出来的。真实家庭中同一时段还有邻居的网络在竞争同一个空口，优先级最低的那一类付出的代价常常远多于七倍，甚至长时间无法发出任何一帧。「后台流量会不会长期得不到发送机会」这个问题，这个场景无法回答。' },
+  implementation: [
+    { topic: '不能中断正在进行的发送', standard: '时隙边界只在介质空闲之后出现（§10.23.2.4）', sim: '照此处理：介质忙时 AIFS 作废、计数冻结，介质空闲后重新开始等待。', kind: 'faithful' },
+    { topic: '三台站点的参数', standard: '表 9-194 的默认值', sim: 'VO 34 µs、窗口 3 到 7；BE 43 µs、15 到 1023；BK 79 µs、15 到 1023。', kind: 'faithful' },
+    { topic: '每台站点运行哪一类', standard: '按每个数据单元的优先级映射（表 10-1）', sim: '每台站点只有一类流量，由业务档位确定：通话站点 VO、上传站点 BE、备份站点 BK。', kind: 'differs' },
+    { topic: 'EIFS 的长度', standard: 'aSIFSTime + AckTxTime + DIFS，AckTxTime 以最低强制速率计算（式 10-7）', sim: '16 + 44 + 34 = 94 µs，44 µs 是 6 Mb/s 下一个确认帧的时间。', kind: 'faithful' },
+    { topic: '动态 EIFS', standard: '可选：按出错 PPDU 的调制估计应答时间（式 10-8，表 10-8）', sim: '不使用，EIFS 固定为 94 µs。', kind: 'choice' },
+    { topic: '出错之后的等待', standard: 'EIFS − DIFS + AIFS[AC]（§10.3.2.3.7）', sim: '照此计算：上传站点属于 BE，94 − 34 + 43 = 103 µs。', kind: 'faithful' },
+    { topic: '这段等待何时结束', standard: '正确收到一帧即结束（§10.3.2.3.7）', sim: '开始一次新的接收时清除，由这次接收的结果重新决定；本站自己发送一帧时也清除。', kind: 'faithful' },
+    { topic: '什么算接收出错', standard: '标准不规定接收机的判决方法', sim: '按信干噪比（signal-to-interference-plus-noise ratio, SINR）与门限的二值判决：达到门限一定解出，达不到一定失败；另有碰撞、本站正在发送、改为同步到更强的前导码几种原因。', kind: 'choice' },
+    { topic: '公共时钟', standard: '时隙中包含空中传播时间与空闲信道评估（clear channel assessment, CCA）时间（§10.3.7 式 10-3）', sim: '全场共用一个时钟，没有传播时延与侦听时延，所以各站点的时隙边界是同一时刻，AIFS 之差恰好是整数个时隙。', kind: 'differs' },
+  ],
+  labs: [
+    {
+      heading: '后台排在最后',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到备份站点的第一帧。',
+        '对照三台站点各自第一帧数据的发送时刻。',
+      ],
+      expect: '你应该看到：上传站点从 0.088 ms 起就在发送，通话站点的第一帧在 23.1336 ms，备份站点的第一帧到 55.0218 ms 才发出。',
+      meaning: '这说明：AIFS 最长、窗口最宽的一类最晚取得发送机会（①）。三台站点使用同一套规则，只有参数不同（②）。',
+    },
+    {
+      heading: '三台站点的表现',
+      steps: [
+        '运行 300 ms。',
+        '统计每台站点的退避抽取次数与平均抽到的值，再统计每一帧从入队到离开队列（queue）的时间。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '300 ms 里三台站点的表现', head: ['站点', '类别', 'AIFS', '抽取次数', '平均抽到', '平均排队时延', '最长排队时延'], rows: [
+          ['通话站点', 'VO', '34 µs', '33', '2.2', '1.49 ms', '4.08 ms'],
+          ['上传站点', 'BE', '43 µs', '107', '7.9', '2.23 ms', '7.93 ms'],
+          ['备份站点', 'BK', '79 µs', '14', '8.2', '10.23 ms', '25.75 ms'],
+        ] },
+      ],
+      expect: '你应该看到：备份站点 300 ms 里只抽取了 14 次退避值，平均排队时延 10.23 ms，约为通话站点 1.49 ms 的七倍。通话站点最长的一次排队是 4.08 ms，是它平均值的两倍多。',
+      meaning: '这说明：语音少等的时间取自其他类别，代价最大的是后台（①）。通话的最长时延来自介质忙时无法发送：EDCA 不能中断别人已经开始的发送（①、②）。',
+    },
+    {
+      heading: '上传站点的 EIFS',
+      jump: 1,
+      steps: [
+        '跳到上传站点的第一次 EIFS。',
+        '向前查看：这段等待之前，上传站点的哪一次接收失败了。',
+        '运行 300 ms，统计三台站点各等过几次 EIFS。',
+      ],
+      expect: '你应该看到：23.1336 ms 接入点与通话站点同时发送语音帧，上传站点收到的是两帧相叠，在 23.1912 ms 接收失败，随即开始一段 103 µs 的等待，而不是平时的 43 µs。300 ms 里上传站点共有 7 次 EIFS，每次都是 103 µs；通话站点有 3 次接收失败，但每次之后都在下一次竞争之前开始了新的接收，所以没有一次 EIFS；备份站点为零。',
+      meaning: '这说明：出错之后的等待是 EIFS − DIFS + AIFS[AC]，正确接收会结束它（①）；本仿真器照此计算，EIFS 固定为 94 µs（②）。',
+    },
+    {
+      heading: '关掉通话站点的 EDCA',
+      steps: [
+        '在功能面板里关掉通话站点的增强型分布式信道接入，再载入并运行 300 ms。',
+        '查看它的等待记录与抽取时的窗口，统计平均排队时延。',
+      ],
+      expect: '你应该看到：通话站点改用 DIFS，长度为 34 µs，与 VO 的 AIFS 相同；窗口从 15 开始，不再是 3。它的平均排队时延变为 3.58 ms，约为开启时 1.49 ms 的 2.4 倍。',
+      meaning: '这说明：VO 的 AIFSN 为 2，AIFS 与 DIFS 相等（①），所以在这个房间里语音的收益全部来自较窄的竞争窗口。',
+    },
   ],
   sources: [
-    '收到错误帧之后的等待写作 EIFS − DIFS + AIFS[AC]，见 IEEE Std 802.11-2024 的 §10.23.2.2；EIFS = aSIFSTime + DIFS + 以最低强制速率发完一个 ACK 的时间，见 §10.3.2.3.7。',
-    '四个接入类别的默认参数见 Table 9-194。',
-    '三台站点、它们的业务模型、随机种子，以及“哪一次接收解不出来”所依赖的捕获余量，都是本仿真器的模型取值，而非标准中的数值。',
+    'IEEE Std 802.11-2024：§10.23.2.4（时隙边界在介质空闲之后、第 b) 项出错之后的边界）、§10.23.2.9（TXOP 上限）、表 9-194（非 AP 站点的默认参数）、§10.3.2.3.7（EIFS 与 EIFS − DIFS + AIFS[AC]，正确接收结束等待）、§10.3.7 式 10-7 与式 10-8、表 10-8（EIFS 的长度与动态 EIFS）。',
+    '本仿真器的取值与取法：固定 EIFS、二值的接收判决与捕获（capture effect）余量、全场共用的时钟。三台站点、它们的业务模型、随机种子以及每一个时刻都是本仿真器的场景，可以复现。',
   ],
+  limits: [],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
     node('sta-1', 'Caller (VO)', 'sta', 3.5, 5, 'he', 'voice'),
@@ -88,43 +116,38 @@ export const edcaCost: Lesson = {
     J('后台站点的第一帧', (r) => r.type === 'TX_START' && r.node === 'sta-3' && r.frame.kind === 'data'),
     J('上传站点的第一次 EIFS', (r) => r.type === 'IFS_START' && r.node === 'sta-2' && r.kind === 'EIFS'),
   ],
-  observe: [
-    '备份站点的每个倒数色块都标着 AC_BK，块上那段静默是 79 µs。300 ms 里它只抽取了 14 次倒数值，通话站点抽取了 33 次，上传站点抽取了 107 次。',
-    '把三台站点的排队时延并排比较：1.49 ms、2.23 ms、10.23 ms。它们运行的是同一套规则，只有那两个参数不同。',
-  ],
-  tryThis: [
-    '在功能面板里关掉通话站点的增强型分布式信道接入（enhanced distributed channel access, EDCA）再载入。它退回到单队列，重新使用原来那段固定等待和原来较宽的窗口，它的帧要多等大约两倍半的时间——这就是优先接入在这个房间里带来的收益。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '一帧语音入队时，邻居的一串长突发正好发送到一半。它会如何？',
+      q: '一帧语音入队时，另一台站点的一串长突发正好发送到一半。按标准，它会怎样？',
       options: [
-        '它打断那串突发，因为语音有优先级',
-        '它等那串突发结束，然后以更短的静默参与下一轮竞争',
-        '它被丢弃，因为信道忙',
+        '中断那串突发，因为语音的优先级高',
+        '等介质空闲之后，以较短的 AIFS 参与下一轮竞争',
+        '被丢弃，因为介质忙',
       ],
       answer: 1,
-      explain: '优先级完全是在帧与帧之间的静默里决定的。这套机制中没有任何部分能影响已经开始的传输。',
+      explain: '§10.23.2.4：时隙边界只在介质空闲之后出现，介质忙时任何一类都不能发起 TXOP。',
     },
     {
-      q: '为了别人更短的那段静默，后台这一类付出了什么？',
+      q: '为了其他类别较短的等待，后台这一类付出了什么？',
       options: [
         '更低的数据速率',
-        '最长的静默和最宽的抽取范围，于是它的帧在队列中停留的时间长得多',
-        '没有付出任何代价：四个类别互不影响',
+        '最长的 AIFS 和较宽的窗口，它的帧在队列中停留的时间长得多',
+        '没有代价：四个类别互不影响',
       ],
       answer: 1,
-      explain: '信道只有一条。分配给某一类的，必然取自另一类——而备份流量本来就应当让出这些。',
+      explain: '本课的房间里备份站点的平均排队时延约为通话站点的七倍；空口时间只有这么多，给了一类就要从别的类别取。',
     },
     {
-      q: '一台站点开始接收一帧，却没能把它解出来。它下一次竞争前要等多久？',
+      q: '一台 BE 站点接收的帧出错了。按标准，它下一次竞争前要等多久？',
       options: [
-        '和平常一样，它那一类的 AIFS',
-        '一段更长的 EIFS 换掉那段静默：这里是 103 µs，而不是 43 µs',
-        '无需等待，因为它根本没有收到任何帧',
+        '和平常一样，43 µs',
+        'EIFS − DIFS + AIFS[BE]，这里是 103 µs；期间正确收到一帧就提前结束',
+        '不必等待，因为它没有收到任何帧',
       ],
       answer: 1,
-      explain: '解不出来的那一帧可能是发给别人的，它的确认帧本该紧跟着出现。多等的这一段就是留给那个确认帧的，以免本机的发送与它发生碰撞。',
+      explain: '§10.3.2.3.7：多出的部分留给另一台站点为那一帧回确认帧，以免本站的发送与之碰撞。',
     },
   ],
 }

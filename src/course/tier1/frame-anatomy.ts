@@ -3,33 +3,20 @@
  * bytes say, whom the addresses name, how long the room is spoken for, and
  * where the frame sits in a numbered run.
  *
- * Written to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md). The
- * bit-by-bit breakdown of Frame Control, the mesh four-address case and the
- * management frames are in `deeper`; the clause numbers are in `sources`.
+ * The FIRST half of what was one lesson (re-paced 2026-09-25): the traffic mark
+ * and the check at the end are `frame-qos-fcs`, which loads this lesson's own
+ * scene.
  *
- * Re-paced on 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
- * §2 · M3, §4, §5.3 and §5.4). This is the FIRST half of what was one lesson:
- * the traffic mark and the check at the end are `frame-qos-fcs`, which loads
- * this lesson's own scene. Two figures replace prose rather than decorate it:
- *  - the `fields` figure walks the 24 octets, so the three paragraphs that used
- *    to walk them one at a time (头两个字节… / 谁必须接住它 / 还要多久…) are gone,
- *    and the table under it keeps the exact widths;
- *  - the `stack` figure — MSDU inside MPDU inside PPDU — arrives from
- *    `roles-stack`, where it pre-taught this lesson's own opening (§5.1 item 2),
- *    rebuilt on THIS lesson's frame so its octets are this run's octets.
- * Also gone: the sentence under the direction table that walked its cells
- * (§5.3). The management-frame disclaimer stays here — it is the copy §5.1
- * item 6 keeps.
+ * Standard-first shape (2026-11-10): ① IEEE Std 802.11-2024 §9.2 — the general
+ * frame format (figure 9-2, drawn by the `fields` figure), Frame Control bit by
+ * bit, Duration/ID, the address table 9-60 and the sequence number spaces of
+ * table 10-5; ② where this simulator follows it and where not — no real octets,
+ * six Frame Control bits always 0, a Duration kept in nanoseconds, one counter
+ * per peer and access category, no duplicate filtering by sequence number, no
+ * management frames; ③ three runs on the old laptop's frames.
  *
- * Amendment of 2026-09-23: `numbers` closes with the order the MAC actually
- * builds a frame in — kind, direction bits, Duration, addresses, sequence
- * number, then the QoS bytes, the body and the FCS — which is
- * `buildDataFrame` (src/engine/mac.ts) followed by `dataMpdu`
- * (src/model/frameFields.ts), and a table running it on the old laptop's
- * first frame.
- *
- * Every number quoted below is pinned in tests/course/frame-anatomy.test.ts.
+ * Every figure the lesson prints is read back out of its text and compared
+ * with a run in tests/course/frame-anatomy.test.ts.
  */
 import { FCS_BYTES, MAC_HDR_BYTES, QOS_HDR_BYTES } from '../../engine/phy'
 import type { TLRecord } from '../../model/records'
@@ -127,144 +114,170 @@ export function frameAnatomyStack(): StackSpec {
   }
 }
 
+
 export const frameAnatomy: Lesson = {
   id: 'frame-anatomy',
   module: 2,
   title: '一帧在数据之前包含哪些内容',
-  why: '一帧并不只是在数据外面加一个标签。媒体访问控制（medium access control, MAC）在上层交下来的载荷（payload）前面加上帧头（MAC header），后面加上四个字节的校验，构成一帧；物理层（physical layer, PHY）再在最前面加上一段前导码（preamble），然后才送到空口上发送。对于旧笔记本一个满载的数据帧（data frame），帧头和校验合起来还不到载荷的百分之二。帧头的字段按接收端读取的顺序排列，这也是接收端做出判断的顺序：帧控制（Frame Control）首先指明这是哪一类帧、传送方向如何；持续时间（Duration/ID）指明这一帧结束后信道还要被占用多久——对单独一个数据帧，就是一段短暂的静默加上随后的应答，因为邻居本来就能收到这一帧，需要为它预留的是紧随其后的应答；接着是三个地址：地址 1（Address 1）是必须接收并应答的那台射频，地址 2 是发出它的那台，地址 3 是这份载荷所经路径的远端。地址表示的是角色，而不是位置，所以发给隔壁手机的消息，地址 1 填的也是接入点（access point, AP）。最后是序列控制（Sequence Control）：每个对端、每个业务类别各有一个计数器，只在首次发送时取下一个值；重发时沿用同一个计数值，并把重发比特（Retry bit）置位，接收端依据这两项识别重复帧。',
+  why: '一帧并不只是在数据外面加一个标签。媒体访问控制（medium access control, MAC）在上层交下来的载荷（payload）前面加上帧头（MAC header），后面加上四个字节的帧校验序列（frame check sequence, FCS），构成一帧；物理层（physical layer, PHY）再在最前面加上一段前导码（preamble），然后才送到空口上发送。对于旧笔记本一个满载的数据帧（data frame），帧头和校验合起来还不到载荷的百分之二。IEEE 802.11-2024 §9.2.3 规定了这些字段的固定顺序，也就是接收端做出判断的顺序：帧控制（Frame Control）首先指明这是哪一类帧，以及这一帧是发往还是来自分发系统（distribution system, DS）；持续时间（Duration/ID）指明这一帧结束后信道还要被占用多久——对单独一个数据帧，就是一个短帧间间隔（short interframe space, SIFS）加上随后的确认帧（acknowledgement, ACK）；接着是三个地址：地址 1（Address 1）是必须接收这一帧的那台射频，地址 2 是发出它的那台，地址 3 按传送方向是这份载荷的源或目的；最后是序列控制（Sequence Control）：重发时序号（sequence number）不变，并把重发比特（Retry bit）置 1，接收端依据这两项识别重复帧。本仿真器按标准的字段与长度生成每一帧，但只记录字节数，不生成真实的比特；序号与重发比特写入了帧中，接收端却不读取它们。',
   outcomes: [
-    '读懂仿真中任意一帧的帧头（MAC header），说出它属于哪一类',
-    '判断哪个地址对应必须应答的射频，哪个对应远端',
-    '说出持续时间（Duration/ID）字段为哪一部分交互预留了多少时间，以及如何依据序列号识别重发',
-    '按发送端构造一帧的顺序，完整写出旧笔记本的第一帧',
+    '按标准说出帧头的字段顺序、各字段的长度与作用',
+    '判断哪个地址对应必须接收的射频，哪个对应载荷的源或目的',
+    '读出持续时间字段为哪一部分交互预留了时间，以及重发时序号与重发比特怎样变化',
+    '分清本仿真器的字段视图哪些照标准、哪些与标准不同',
   ],
   needs: ['roles-stack'],
   terms: [
-    { term: 'MSDU', plain: '上层交下来的载荷，即用户的数据分组' },
-    { term: 'MPDU', plain: '一个构造完成的帧：帧头、载荷、校验' },
-    { term: 'PPDU', plain: '从天线发出的完整信号：先是一段供接收端同步的前导码，然后是帧本身' },
+    { term: 'MSDU', plain: '上层交给媒体访问控制的数据单元，即用户的数据分组' },
+    { term: 'MPDU', plain: '两个媒体访问控制实体之间交换的单元，即一个构造完成的帧：帧头、载荷、校验' },
+    { term: 'PPDU', plain: '物理层发出的完整信号：先是一段供接收端同步的前导码，然后是帧本身' },
     { term: 'FCS', plain: '帧校验序列：帧尾的四个字节，用于检验这一帧是否完好到达' },
     { term: 'CRC', plain: '计算这四个字节所用的算法' },
   ],
-  picture: [
-    { heading: '三层封装，三个名字', text: '上一层把一份载荷（payload）交给媒体访问控制（medium access control, MAC），这份载荷称为 MSDU（MAC service data unit）；MAC 在它前面加上帧头、后面加上校验，构成的这个单元称为 MPDU（MAC protocol data unit）——也就是一帧；物理层（PHY）再在最前面加上一段供接收端同步的前导码，从天线（antenna）发出的整体才称为 PPDU（PHY protocol data unit）。这一课的全部内容都在中间那一层——那一帧是旧笔记本的一个数据帧（data frame）。' },
+  standard: [
+    { heading: '三层数据单元（第 3 章的定义）', text: '上层交给 MAC 的数据单元称为 MSDU（MAC service data unit）；两个 MAC 实体之间交换的单元称为 MPDU（MAC protocol data unit），也就是 MAC 帧；物理层发出的完整信号称为 PPDU（PHY protocol data unit），它在帧的前面加上前导码。' },
+    { heading: '通用帧格式（§9.2.3，图 9-2）', text: 'MAC 帧的字段按固定顺序排列：帧控制、持续时间、地址 1、地址 2、地址 3、序列控制、地址 4、服务质量（quality of service, QoS）控制、HT 控制，这些构成帧头；其后是长度可变的帧体（Frame Body），最后是 4 个八位组的 FCS。帧控制、持续时间、地址 1 与 FCS 出现在每一帧中，其余字段只在某些类型的帧中出现。帧分为管理帧（management frame）、控制帧（control frame）、数据帧与扩展帧四类（表 9-1）。' },
     {
-      kind: 'diagram', spec: frameAnatomyStack(),
-      caption: '旧笔记本的一帧：1500 B 的载荷，外面 24 B 的头和 4 B 的校验，一共 1528 B。最外面那一层增加的是时间，而不是字节——这一段相当于多少微秒，在本模块讲空口时间（airtime）的那一课再计算。',
+      kind: 'diagram', heading: '数据帧的帧头（图 9-2 中地址 4 与 HT 控制不出现的情形）', spec: frameAnatomyHeaderFields(),
+      caption: '每个字段的八位组数照图 9-2。带 QoS 控制字段的数据帧在序列控制之后多 2 个八位组。',
     },
-    { kind: 'watch', jump: 0, heading: '展开一帧的字段', text: '载入仿真，跳到旧笔记本的第一帧，展开“空中字段”：帧控制（Frame Control）、持续时间（Duration/ID）、地址 1（Address 1）到地址 3、序列控制（Sequence Control）。下面那张图里的每一个字段都在那张列表里，顺序完全相同。' },
-    {
-      kind: 'diagram', heading: '帧头字段：按接收端读取的顺序', spec: frameAnatomyHeaderFields(),
-      caption: '接收端最先读取的是帧头前端，所以这个顺序就是它做出判断的顺序：先确定这是什么帧、传送方向如何，再确定这次交互还要多久，然后才是三个地址和这份载荷的编号。下面那张表给出每个字段的确切含义。',
-    },
-    { heading: '三个地址，为什么不是两个', text: '一个站点（station, STA）发出的一帧，这一跳的两端只需要两个地址：必须接收并应答的那台射频，以及发出它的那台。第三个地址是这份载荷自身路径的终点。正是因为分开填写，“发给隔壁那部手机”的消息，第一个地址才可以是所有设备都经过的那台路由器——接入点（AP）。' },
-    { heading: '另外两个字节，以及最后四个字节', text: '带业务标记的帧在序列控制之后再插入两个字节：服务质量（quality of service, QoS）控制。而每一帧的末尾都是四个字节的帧校验序列（frame check sequence, FCS），也就是对前面所有内容计算出的循环冗余校验（cyclic redundancy check, CRC）。这两部分的作用在下一课讲。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '帧头，逐个字段', head: [
-      '字段', '字节', '含义',
-    ], rows: [
-      ['帧控制（Frame Control）', '2', '大类、具体类型、方向、重发比特，另有九个比特'],
-      ['持续时间（Duration/ID）', '2', '本帧之后，这次交互还需要多少 µs'],
-      ['地址 1', '6', '必须接收它并应答的那台射频'],
-      ['地址 2', '6', '发出它的那台射频'],
-      ['地址 3', '6', '这份载荷所经路径的远端'],
-      ['序列控制（Sequence Control）', '2', '12 位计数器（0–4095），加分片号（Fragment Number）'],
-      ['QoS 控制', '2', '只有带标记的帧才有：业务标识（TID）与确认策略'],
-      ['帧体（Frame Body）', '就是载荷', '上层交下来的 MSDU'],
-      ['FCS', '4', '对帧头与帧体算出的 CRC'],
-    ] },
-    { kind: 'formula', heading: '单独一个数据帧的持续时间字段保护了什么', text: '16 µs 的静默 + 28 µs 的应答 = 44 µs', note: '它从携带它的这一帧结束时开始计算。邻居本来就能收到这一帧；需要保护的是紧随其后的那个短应答帧。' },
-    { kind: 'table', heading: '按方向区分的地址角色', head: [
-      '方向', '地址 1', '地址 2', '地址 3',
-    ], rows: [
-      ['站点 → 接入点', 'RA = BSSID', 'TA = SA', 'DA'],
-      ['接入点 → 站点', 'RA = DA', 'TA = BSSID', 'SA'],
-      ['两者皆非，或管理帧（management frame）', 'RA = DA', 'TA = SA', 'BSSID'],
-    ] },
-    { text: '接收端地址（receiver address, RA）是必须应答的那台射频，发送端地址（transmitter address, TA）是发出它的那台，两者是这一跳的两端；SA（源）与 DA（目的）则是这份载荷自身路径的两端。' },
-    { kind: 'steps', heading: '构造一帧的步骤', items: [
-      '先确定帧的种类：普通 Data 帧；如果两端都为业务加上标记，则是 QoS Data 帧。这一选择写在前两个字节里——大类，以及该类中的具体子类型。',
-      '在同样这两个字节中，按发送方向设置两个方向比特：上行（uplink, UL）发往接入点为 1 和 0，下行（downlink, DL）为 0 和 1。',
-      '写入持续时间：这一帧之后的交互还需要的时间。对单独一个数据帧来说，就是那段静默加上应答，16 + 28 = 44 µs。',
-      '按这两个比特填写三个地址。上行时，地址 1（Address 1）是接入点（RA），地址 2 是发出这一帧的射频（TA），地址 3 是这段路径的远端（DA）。',
-      '给载荷编号：每个对端、每个业务类别各有一个计数器，只在首次发送时取下一个值；重发时沿用同一个计数值，并把重发比特（Retry bit）置 1。',
-      '带标记的帧在这里再加两个字节：业务标识（traffic identifier, TID）和确认策略（Ack Policy）。然后是载荷，最后是对它前面所有内容算出的 FCS：24 + 1500 + 4 = 1528 B。',
-    ] },
-    { kind: 'table', heading: '旧笔记本第一帧的构造结果', head: [
-      '步骤', '写入的内容',
-    ], rows: [
-      ['种类', 'Data，没有 QoS 控制字段'],
-      ['方向比特', '1 / 0'],
-      ['持续时间', '44 µs'],
-      ['地址 1、2、3', '路由器、旧笔记本、路由器'],
-      ['序列控制', '计数 0，分片 0'],
-      ['空口上的字节', '24 + 1500 + 4 = 1528 B'],
-    ] },
-  ],
-  deeper: [
-    { kind: 'table', heading: '帧控制，逐位拆解', head: [
-      '比特', '子字段', '含义',
-    ], rows: [
-      ['B0–B1', '协议版本', '恒为 0。'],
+    { kind: 'table', heading: '帧控制字段，逐位（§9.2.4.1，图 9-3，表 9-1）', head: ['比特', '子字段', '含义'], rows: [
+      ['B0–B1', '协议版本', '本标准的帧为 0。'],
       ['B2–B3', '类型', '00 管理帧，01 控制帧，10 数据帧，11 扩展帧。'],
       ['B4–B7', '子类型', 'Data 0000，QoS Data 1000；RTS 1011，CTS 1100，Ack 1101，Block Ack 1001。'],
-      ['B8', 'To DS', '1：帧正进入分发系统（发往 AP）。'],
-      ['B9', 'From DS', '1：帧来自分发系统（由 AP 发出）。'],
-      ['B10', '更多分片', '后面还有本 MSDU 的分片。'],
-      ['B11', '重传', '重传时置 1，接收方据此丢弃重复帧。'],
-      ['B12', '电源管理', '发送方在本次交换后将进入休眠。'],
-      ['B13', '更多数据', 'AP 还为休眠站点缓存了更多帧。'],
+      ['B8', 'To DS', '数据帧发往分发系统，即发往接入点（access point, AP）时为 1。'],
+      ['B9', 'From DS', '数据帧来自分发系统，即由接入点发出时为 1。'],
+      ['B10', '更多分片', '后面还有同一 MSDU 的分片时为 1。'],
+      ['B11', '重发', '这一帧是先前某一帧的重发时为 1；接收端据此识别重复帧。'],
+      ['B12', '电源管理', '发送站点的省电状态。'],
+      ['B13', '更多数据', '接入点还为省电站点缓存了更多帧。'],
       ['B14', '受保护帧', '帧体已加密。'],
-      ['B15', '+HTC / Order', '帧头后跟随 4 B 的 HT 控制字段。'],
+      ['B15', '+HTC', '帧头中带有 HT 控制字段。'],
     ] },
-    { heading: '第四个地址', text: '只有 To DS 与 From DS 同时为 1 时才会出现地址 4，那是 Mesh 与无线分发系统的情形：帧在两台 AP 之间传送，帧头必须同时携带 RA、TA、DA、SA 四个地址，MAC 头也从 24 B 增加到 30 B。普通站点不会遇到它。' },
-    { heading: '这个房间里从不出现的帧', text: '管理帧——信标、探测、认证、关联，类型 00——携带完整的 24 B 帧头，后面跟随的是信息元素而不是 MSDU；BSS 正是依靠它们才得以建立。仿真器目前还不发送管理帧：这里每个站点从一开始就已关联，讲链路生命周期的模块会补充这些帧。' },
+    { heading: '持续时间（§9.2.4.2 表 9-9，§9.2.5.1，§9.2.5.2）', text: '这个字段以微秒为单位给出本帧结束之后交互还需要的时间，取值 0 到 32 767；算出的值不是整数时向上取整。QoS 站点（station, STA）在增强型分布式信道接入（enhanced distributed channel access, EDCA）下发送一个需要立即确认的单独数据帧、且它是这次发送机会的最后一帧时，持续时间等于发送一个确认帧所需的时间加上短帧间间隔（short interframe space, SIFS）。非 QoS 站点的取值规则见 §9.3 中各类帧的规定。' },
+    { kind: 'table', heading: '数据帧的地址字段（§9.2.4.3.1，§9.3.2.1 表 9-60）', head: ['To DS / From DS', '地址 1', '地址 2', '地址 3', '地址 4'], rows: [
+      ['0 / 0', 'RA = DA', 'TA = SA', 'BSSID', '无'],
+      ['0 / 1', 'RA = DA', 'TA = BSSID', 'SA', '无'],
+      ['1 / 0', 'RA = BSSID', 'TA = SA', 'DA', '无'],
+      ['1 / 1', 'RA', 'TA', 'DA', 'SA'],
+    ] },
+    { heading: '地址的含义（§9.2.4.3）', text: '无论帧的类型如何，地址 1 总是这一帧的接收方，地址 2（存在时）总是发送方：接收端地址（receiver address, RA）与发送端地址（transmitter address, TA）是这一跳的两端，源地址 SA 与目的地址 DA 是这份载荷本身的两端。To DS 与 From DS 都为 1 时才出现地址 4，用于 Mesh 等四地址的情形（表 9-3）。管理帧的地址 3 一般是基本服务集标识（basic service set identifier, BSSID）（§9.3.3.1）。' },
+    { heading: '序列控制（§9.2.4.4，§10.3.2.14.2 表 10-5）', text: '序列控制由 4 位分片号（Fragment Number）与 12 位序号（sequence number）组成。序号由模 4096 的计数器给出：单独寻址的 QoS 数据帧按〈地址 1, 业务标识（traffic identifier, TID）〉各用一个计数器，不属于其他序号空间的帧共用一个基线计数器。一份 MSDU 的所有重发都沿用同一个序号（§9.2.4.4.3），重发时把重发比特置 1（§9.2.4.1.6）。' },
+    { kind: 'steps', heading: '接收端怎样识别重复帧（§10.3.2.14.3）：逐步说明', items: [
+      '收到一个数据帧，把它的序号等信息记入重复帧检测缓存。',
+      '如果这一帧的重发比特为 1，就在缓存中查找相同的记录。',
+      '找到相同的记录，这一帧就是重复帧，丢弃它；但仍按规定回复确认帧，因为发送端重发正是因为没有收到上一次的确认。',
+    ] },
   ],
-  limits: [
-    { kind: 'unmodelled', text: '这一帧中没有任何实际的八位组：引擎记录的是字节数（FrameDesc.bytes），字段视图是事后按帧的属性重新生成的一张表（src/model/frameFields.ts），地址那三格放的是节点 id 字符串而不是 48 位地址，帧体只标明「多少字节」。所以「展开一帧的字段」看到的是这张表，而不是真实的比特序列——真实抓包工具读取的是空口上的字节本身。' },
-    { kind: 'unmodelled', text: '序列号与重发比特已经写入，但没有任何接收端读取它们：去重使用的是引擎内部的载荷编号加一张 512 条的缓存（mac.ts 的 noteDelivered）。真实接收端正是依据「同一个序列号加上置位的重发比特」丢弃重复帧，所以本课讲的这一机制，在本引擎中可以看到，却没有被执行。' },
-    { kind: 'unmodelled', text: '帧控制里有六个比特恒为 0：协议版本、更多分片、电源管理、更多数据、受保护帧与 +HTC（frameFields.ts）。因此分片、省电与休眠缓存、加密、HT 控制字段这四项在整个课程中都不可能出现，而它们在真实网络中经常发生——尤其是加密，真实住宅网络中几乎每一帧都是受保护的。' },
-    { kind: 'out-of-scope', text: '第四个地址字段永远不会出现：一个场景只有一个接入点，地址 3 恒为它自己，To DS 与 From DS 不会同时为 1。Mesh 与无线分发系统使用的那种 30 字节的帧头，只能出现在「深入一层」的文字中，没有任何场景能在空口上发送它。' },
-    { kind: 'model-value', text: '单独一帧写下的 44 µs，是本仿真器按自己的 ACK 速率规则与前导码取值算出来的（16 µs 加上 24 Mb/s 下 28 µs 的应答）。真实的 Duration 字段是 15 位、以微秒为单位、要向上取整，最大只能表示 32 767 µs；这里它是一个纳秒整数，既不取整也没有上限。' },
+  implementation: [
+    { topic: '字段顺序与长度', standard: '图 9-2', sim: '普通数据帧的帧头 24 B、QoS 数据帧的帧头 26 B、FCS 4 B，字段顺序与图 9-2 相同。', kind: 'faithful' },
+    { topic: '真实的比特', standard: '帧由八位组构成，地址是 48 位的 MAC 地址（§9.2.4.3.2）', sim: '引擎只记录每一帧的字节数；“空中字段”是按帧的属性事后生成的一张表：地址一栏显示节点名，帧体只标明字节数。', kind: 'differs' },
+    { topic: '帧控制中的五个子字段', standard: '更多分片、电源管理、更多数据、受保护帧、+HTC 按需置位（§9.2.4.1）', sim: '恒为 0：不分片、不省电、不加密，也没有 HT 控制字段。', kind: 'absent' },
+    { topic: '持续时间的取值', standard: '单独的数据帧：一个确认帧加 SIFS（§9.2.5.2）', sim: '照此计算：16 µs 的 SIFS 加上 24 Mb/s 下 28 µs 的确认帧，写入 44 µs。', kind: 'faithful' },
+    { topic: '持续时间的编码', standard: '以微秒为单位、向上取整、最大 32 767（表 9-9，§9.2.5.1）', sim: '以纳秒整数保存，不取整，也不限制最大值；本课这一帧的值恰好是整数微秒。', kind: 'differs' },
+    { topic: '地址 1 与地址 2', standard: '地址 1 是接收方，地址 2 是发送方（§9.2.4.3.1）', sim: '照此填写。', kind: 'faithful' },
+    { topic: '地址 3', standard: '按表 9-60：发往接入点的帧为 DA，由接入点发出的帧为 SA', sim: '字段视图里的地址 3 一律显示接入点。旧笔记本的业务以接入点为终点，所以这一帧上两者一致；发往其他站点的载荷则与标准不同。', kind: 'differs' },
+    { topic: '地址 4', standard: 'To DS 与 From DS 都为 1 时出现（表 9-3）', sim: '不会出现：一个场景只有一个接入点，没有 Mesh 或四地址的帧。', kind: 'absent' },
+    { topic: '序号计数器', standard: 'QoS 数据帧按〈地址 1, TID〉，其他帧共用一个基线计数器（表 10-5）', sim: '每个对端、每个接入类别（access category, AC）各一个模 4096 计数器，不区分是否带 QoS 控制字段。每个接入类别只写一个 TID，所以 QoS 数据帧与标准一致；非 QoS 数据帧发往不同对端时各用一个计数器，与标准的单一基线计数器不同。', kind: 'differs' },
+    { topic: '重发时的序号', standard: '序号不变，重发比特置 1（§9.2.4.4.3，§9.2.4.1.6）', sim: '照此写入。', kind: 'faithful' },
+    { topic: '重复帧的识别', standard: '依据序号与重发比特查缓存（§10.3.2.14.3）', sim: '接收端不读序号与重发比特，而用引擎内部的载荷编号判断是否已经交付过。', kind: 'differs' },
+    { topic: '管理帧', standard: '信标（Beacon）、Probe Request、认证、关联等（表 9-1）', sim: '未实现：每个站点从一开始就已关联。', kind: 'absent' },
+  ],
+  labs: [
+    {
+      heading: '旧笔记本的第一帧',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到旧笔记本的第一帧（0 µs）。',
+        '展开“空中字段”，对照下表逐个读出字段的长度与内容。',
+      ],
+      blocks: [
+        {
+          kind: 'diagram', heading: '同一份载荷，三层封装', spec: frameAnatomyStack(),
+          caption: '1500 B 的载荷，外面 24 B 的帧头与 4 B 的 FCS，共 1528 B。最外层的前导码增加的是时间，而不是字节，在《一帧在空口上占用多长时间》里计算。',
+        },
+        { kind: 'table', heading: '旧笔记本第一帧的字段', head: ['字段', '字节', '这一帧的内容'], rows: [
+          ['帧控制', '2', '类型 10（数据帧），子类型 0000（Data），To DS 1，From DS 0，重发比特 0'],
+          ['持续时间', '2', '44 µs'],
+          ['地址 1', '6', '路由器'],
+          ['地址 2', '6', '旧笔记本'],
+          ['地址 3', '6', '路由器'],
+          ['序列控制', '2', '序号 0，分片号 0'],
+          ['帧体', '1500', '上层交下来的载荷'],
+          ['FCS', '4', '只计入长度'],
+        ] },
+      ],
+      expect: '帧头 24 B，加上 1500 B 的载荷与 4 B 的 FCS，共 1528 B；以 54 Mb/s 发送，空口时间（airtime）248 µs。持续时间 44 µs，正是 16 µs 的 SIFS 加上 24 Mb/s 下 28 µs 的确认帧。',
+      meaning: '字段的顺序与长度照图 9-2，持续时间照 §9.2.5.2 只覆盖随后的确认帧（①）。这张字段表是按帧的属性生成的，不是真实的比特序列（②）。',
+    },
+    {
+      heading: '一次重发',
+      jump: 1,
+      steps: [
+        '跳到旧笔记本的第一次重发（12.013 ms），展开“空中字段”，读出序列控制与重发比特。',
+        '回到 11.650 ms 处同一序号的原帧再读一次，并查看它之后的碰撞记录与旧笔记本的确认超时。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '同一份载荷的两次发送', head: ['发送时刻', '序号', '重发比特', '结果'], rows: [
+          ['11.650 ms', '11', '0', '与笔记本的请求发送（request to send, RTS）帧同时开始发送，发生碰撞；没有确认帧'],
+          ['12.013 ms', '11', '1', '收到确认帧'],
+        ] },
+      ],
+      expect: '原帧与笔记本的请求发送（request to send, RTS）帧同时开始发送，路由器两路都没能接收，没有回复确认帧；重发的那一帧沿用序号 11，重发比特置 1。',
+      meaning: '序号不变、重发比特置 1 照 §9.2.4.4.3 与 §9.2.4.1.6（①）。标准中接收端依据这两项丢弃重复帧；本仿真器的接收端不读它们，用内部的载荷编号去重（②）。',
+    },
+    {
+      heading: '地址表示角色，而不是位置',
+      steps: [
+        '在编辑器里把路由器移到 (3, 3)、旧笔记本移到 (5, 4)，即对调两者的位置，再载入。',
+        '跳到旧笔记本的第一帧，读出地址 1、地址 2、持续时间与整帧的字节数。',
+      ],
+      expect: '地址 1 仍是路由器，地址 2 仍是旧笔记本，持续时间仍是 44 µs，整帧仍是 1528 B。',
+      meaning: '地址 1 是接收方、地址 2 是发送方（§9.2.4.3.1），与设备在哪里无关（①）。',
+    },
   ],
   sources: [
-    'MAC 头及其字段见 IEEE Std 802.11-2024 §9.2.4：帧控制 §9.2.4.1、持续时间/ID §9.2.4.2、地址 §9.2.4.3、序列控制 §9.2.4.4、QoS 控制 §9.2.4.5、FCS §9.2.4.7。按 To DS / From DS 划分的地址角色见表 9-30。',
-    'FCS 是对帧头与帧体计算的 CRC-32。用户优先级到接入类别的映射、以及各自写入的 TID，见表 10-1；本仿真器写入的取值是：背景 1、尽力而为 0、视频 5、语音 6。',
-    '单独一个数据帧预留的 44 µs，是 16 µs 加上本场景中应答在 24 Mb/s 下所占的 28 µs——这是本仿真的实测值，不是标准里的常数。',
+    'IEEE Std 802.11-2024：第 3 章（MSDU、MPDU、PPDU 的定义）、§9.2.3 与图 9-2（通用帧格式）、§9.2.4.1 与图 9-3、表 9-1（帧控制、类型与子类型）、§9.2.4.1.6（重发子字段）、§9.2.4.2 与表 9-9（持续时间的编码）、§9.2.5.1 与 §9.2.5.2（QoS 站点的持续时间取值）、§9.2.4.3 与 §9.3.2.1、表 9-60（地址字段）、表 9-3（To DS / From DS）、§9.3.3.1（管理帧的地址）、§9.2.4.4（序列控制）、§10.3.2.14 与表 10-5（序号空间与重复帧的识别）。',
+    '本仿真器的取值与取法：只记录字节数、按帧的属性生成字段视图（src/model/frameFields.ts）；帧控制中的五个子字段恒为 0；持续时间以纳秒保存；每个对端、每个接入类别一个序号计数器（src/engine/queues.ts）；去重用内部载荷编号（src/engine/mac.ts）。44 µs、248 µs 与各个时刻都是本课场景的实测值。',
   ],
+  limits: [],
   scenario: frameAnatomyScenario,
   jumps: [
     J('第一个传统数据帧', firstLegacyData),
-    J('第一次重传（Retry = 1）', firstLegacyRetry),
+    J('第一次重发（重发比特 = 1）', firstLegacyRetry),
   ],
-  observe: [
-    '跳到旧笔记本的第一帧（0 µs），展开“空中字段”：帧控制里方向比特是 1 和 0、重发比特是 0，持续时间 44 µs，三个地址分别是路由器、旧笔记本、路由器，序列控制是 SN 0 · FN 0，末尾四个字节的校验——整帧 1528 B。',
-    '跳到第一次重传（retry，12.013 ms）。旧笔记本的那一帧发生了碰撞，于是以置位的重发比特和同一个计数值 11 再发送一次。回到 11.650 ms 处的原帧：计数值相同，重发比特为 0。',
-  ],
-  tryThis: [
-    '在编辑器里把路由器和旧笔记本的位置对调再载入，跳到旧笔记本的第一帧。地址 1 仍是路由器、地址 2 仍是旧笔记本，整帧仍是 1528 B：地址表示的是角色，而不是位置。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '一个站点向它的接入点发送一个数据帧。哪个地址指的是必须作答的那台射频？',
+      q: '一个站点向它的接入点发送一个数据帧。哪个地址指的是必须接收这一帧的那台射频？',
       options: [
         '地址 1，也就是接入点',
         '地址 2，也就是站点自己',
-        '地址 3，也就是这段路程的远端',
+        '地址 3，也就是这份载荷的目的',
       ],
       answer: 0,
-      explain: '地址 1 永远是必须接收这一帧的那台射频；上行时就是接入点，它同时也是基本服务集标识（BSSID）。地址 3 才是这份载荷真正要去的地方。',
+      explain: '§9.2.4.3.1：地址 1 总是这一帧的接收方；站点发往接入点时就是接入点，它同时也是基本服务集标识（BSSID）。按表 9-60，地址 3 是这份载荷的目的 DA。',
     },
     {
       q: '一个单独的数据帧在持续时间字段里写了 44 µs。它保护的是什么？',
       options: [
         '这一帧自己占用的空口时间（airtime）',
-        '发送端开始发送之前倒数完的那段等待',
-        '帧之后的部分：先是短暂的间隔，然后是应答',
+        '发送端开始发送之前的那段等待',
+        '帧之后的部分：先是一个短帧间间隔，然后是确认帧',
       ],
       answer: 2,
-      explain: '持续时间从携带它的那一帧结束时算起。邻居本来就能收到这一帧；它们无法预知的是随后的应答，所以需要预留的正是它。',
+      explain: '§9.2.5.2：单独的数据帧，持续时间是一个确认帧加上 SIFS，从这一帧结束时算起。',
+    },
+    {
+      q: '哪一项是本仿真器与标准不同之处？',
+      options: [
+        '地址 1 填写这一帧的接收方',
+        '“空中字段”是按帧的属性生成的表，地址一栏显示节点名，而不是 48 位的 MAC 地址',
+        '重发时序号不变，重发比特置 1',
+      ],
+      answer: 1,
+      explain: '另外两项照标准（①）；引擎只记录字节数，不生成真实的比特（②）。',
     },
   ],
 }

@@ -1,36 +1,28 @@
 /**
  * Tier 1 · project · "The brief and the plan".
  *
- * The first half of the closing exercise of Tier 1, rewritten to the
- * zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md): one small
- * deterministic flat, the four quantities the learner works out with a pencil,
- * and the three variants they predict before running any of them. Every number
- * here is a PREDICTION — recomputed in tests/course/tier1-project.test.ts from
- * the engine's own functions and the Bianchi solver, never from a run.
+ * The first half of the closing exercise of Tier 1: one small deterministic flat, the four
+ * quantities the learner works out with a pencil, and the three variants they predict before
+ * running any of them. Every number in the brief is a PREDICTION — recomputed in
+ * tests/course/tier1-project.test.ts from the engine's own functions and the Bianchi solver.
+ * What the run actually does, and why it differs, is the second half: `tier1-project-review`,
+ * which loads this same scene and these same variants, so the recorded timeline hashes of the two
+ * ids are the same run twice.
  *
- * What the run actually does, and why it differs, is the second half:
- * `tier1-project-review`, which loads this same scene and these same variants,
- * so the recorded timeline hashes of the two ids are the same run twice.
+ * Standard-first shape (2026-11-11), after the lesson audit against IEEE Std 802.11-2024 and
+ * IEEE Std 802.11be-2024. ① covers the standard mechanisms the project exercises — DCF basic
+ * access and backoff (§10.3.3, §10.3.4), the acknowledgment procedure and its timeout
+ * (§10.3.2.11), the EHT rates of Table 36-76 and the coding rule of §36.3.13.3.3, the minimum
+ * sensitivities of Table 36-67, the rate-switching algorithm being outside the standard
+ * (§10.6.1), and the control response rate (§10.6.6.5.2). ② is honest about the scene and the
+ * engine: EDCA is switched off so the flat runs DCF (differs), the symbol count uses the BCC
+ * formula although MCS 13 must use LDPC (differs), the ACK timeout uses clause 17's 20 µs
+ * aRxPHYStartDelay for every generation (differs), and the link budget, the 3 dB margin and the
+ * rung choice are the engine's own. ③ keeps the project's task: read the brief, predict (a)–(d),
+ * predict the three variants, and only then run.
  *
- * The scenario builder and its three variants are unchanged from the flat
- * shape, so tests/fixtures/lesson-hashes.json keeps its recorded values.
- *
- * Re-paced 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
- * §2 M7, §5.5, §7). It stays ONE lesson — a brief whose four questions are one
- * exercise — and it lost the wider-channel aside, which taught a scenario no
- * variant can load and which §7 rules out by name. The four questions are now a
- * `list` rather than a second `steps` block: they are four deliverables, not an
- * ordered procedure, and the lesson's one procedure is the plan the learner
- * carries out.
- *
- * NO DIAGRAM, against §4, and the reason is arithmetic rather than taste. A
- * topology figure maps the scene's x range onto about 184 viewBox units, so this
- * flat's 11 m of span gives 16.7 units per metre, while a node box is at least 40
- * units wide. The router (3, 4) and the study laptop (5, 4) are 2.0 m apart on the
- * same row, so their boxes overlap by about 6.5 units and the arrow between them
- * is drawn backwards. A faithful plan of THIS flat cannot be drawn by this
- * renderer; see the batch E report.
+ * NO DIAGRAM, for the reason the earlier shape gave: at this flat's 11 m span the router and the
+ * study laptop's boxes overlap and the arrow between them is drawn backwards.
  */
 import type { Scenario } from '../../model/scenario'
 import { J, firstBackoffDraw, firstCollision, firstData, firstRetry, longApartment, node, sc, type Lesson } from '../lessonKit'
@@ -93,10 +85,10 @@ export const tier1Project: Lesson = {
   id: 'tier1-project',
   module: 6,
   title: '项目——题面与计划',
-  why: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里这些机制同时起作用：一户事先没有讲解过的房子，架子上一台路由器、两台持续饱和上传的笔记本、一部正在通话的手机，而你要在看到任何结果之前，只凭平面图把四件事算出来。离路由器近、中间没有墙的书房笔记本信号很强，可以使用最高的编码等级；远处隔着一堵砖墙的客厅笔记本只能用很低的一级——到达的信号必须在某一级的要求之上再多出几个分贝，才可以用这一级，所以信号刚好达到要求的上一级也不能用。因此同样一帧，客厅那台在空口上要占用约四倍的时间。两台发送方发生碰撞的概率只取决于竞争者个数和窗口，与速率、帧长无关；两台取得发送机会的次数相同，帧数也就相同，但空口有八成被慢的那台占用，两台合计交付的只有快的那台独占信道时的六成左右。三个变体各只改变一项条件：书房笔记本搬到墙后，它的等级和帧长都变了，发生碰撞的概率却不变；加一台平板，书房笔记本的帧长不变，发生碰撞的概率却升高；客厅笔记本离线，就不再有碰撞对象，快的那台独占信道。',
+  why: '在此之前的每一课，都是讲透一个机制，再让你看着它工作。这一课里这些机制同时起作用：一户事先没有讲解过的房子，架子上一台路由器、两台持续饱和上传的笔记本、一部正在通话的手机，而你要在看到任何结果之前，只凭平面图把四件事算出来。离路由器近、中间没有墙的书房笔记本信号很强，可以使用最高的编码等级；远处隔着一堵砖墙的客厅笔记本只能用很低的一级。标准只规定每一级的最低接收灵敏度（sensitivity），选哪一级留给实现；本仿真器要求到达的信号在某一级的要求之上再多出几个分贝，才用这一级，所以信号刚好达到要求的上一级也不能用。因此同样一帧，客厅那台在空口上要占用约四倍的时间。两台发送方发生碰撞的概率只取决于竞争者个数和窗口，与速率、帧长无关；两台取得发送机会的次数相同，帧数也就相同，但空口有八成被慢的那台占用，两台合计交付的只有快的那台独占信道时的六成左右。三个变体各只改变一项条件：书房笔记本搬到墙后，它的等级和帧长都变了，发生碰撞的概率却不变；加一台平板，书房笔记本的帧长不变，发生碰撞的概率却升高；客厅笔记本离线，就不再有碰撞对象，快的那台独占信道。',
   outcomes: [
-    '根据一张平面图，算出每台站点（STA）到达的信号，以及它能用的编码等级',
-    '算出一个数据帧（data frame）、以及围绕它的那次交换，各占多少微秒',
+    '说出这户人家用到了标准的哪些规定，以及哪些是本仿真器自己的取值',
+    '根据一张平面图，算出每台站点（STA）到达的信号、它能用的编码等级，以及一个数据帧（data frame）和围绕它的那次交换各占多少微秒',
     '预测两台始终有帧待发的发送方多久发生一次碰撞，以及这一对能交付多少',
     '把四个预测写成别人可以据以批改的形式',
   ],
@@ -104,129 +96,166 @@ export const tier1Project: Lesson = {
   terms: [
     { term: 'brief', plain: '这里要回答哪些问题，以及什么才算一个回答' },
     { term: 'link budget', plain: '发送端的功率，减去距离造成的损耗，再减去每堵墙造成的损耗' },
-    { term: 'margin', plain: '余量：取用某一级之前，到达的信号必须高出这一级要求的那几个分贝——这里是 3 dB，使链路不在门限边缘工作' },
+    { term: 'margin', plain: '余量：本仿真器取用某一级之前，到达的信号必须高出这一级要求的那几个分贝——这里是 3 dB，使链路不在门限边缘工作' },
     { term: 'DCF', plain: '本阶段讲的基本轮流接入方式：先等待，再倒数，发送一帧，等待一个应答' },
   ],
-  picture: [
-    { heading: '一户你没见过的房子', text: '一台路由器、两台持续饱和上传的笔记本、一部正在通话的手机，位置见下面那张题面表。本课余下的部分就是一份题面：在任何人打开仿真之前，关于这个房间要先算清哪些事。' },
-    { heading: '关掉了什么，为什么要紧', text: '这里每台设备都共用一条窄信道、一条空间流（spatial stream），启用各自最高的编码能力，此外没有任何其他功能：没有优先级分类，不把多个帧聚合在一起，也没有预留的轮次。于是每次交换就是一个数据帧加一个作为应答的确认帧（ACK），前面还有一段等待和一次倒数——这就是本阶段讲过的那套分布式协调功能（distributed coordination function, DCF）。两台笔记本都是饱和的，这样的情形仍然可以用纸笔分析。四台设备都是 Wi-Fi 7，所以每帧的前导码（preamble）就是“数字节”那一课测得的 48 µs。' },
-    { kind: 'watch', jump: 0, heading: '看房间，先别看仿真', text: '载入仿真，只读平面图：墙在哪里、四台设备各自位于什么位置。然后先不要继续操作——一旦看到了结果，就无法再做独立的预测。' },
-    { kind: 'table', heading: '题面', head: [
-      '设备', '位置', '业务',
-    ], rows: [
-      ['路由器', '(3, 4), 20 dBm', '只在有数据待发时发送'],
-      ['书房笔记本', '(5, 4), 15 dBm', '饱和上传，1500 字节载荷（payload）'],
-      ['客厅笔记本', '(14, 6), 15 dBm', '饱和上传，1500 字节载荷'],
-      ['手机', '(4, 6), 15 dBm', '通话：每 20 ms 上行（uplink, UL）与下行（downlink, DL）各 200 字节'],
+  standard: [
+    { heading: '发送的条件（§10.3.4.2，§10.3.3）', text: '在分布式协调功能（distributed coordination function, DCF）的基本接入（basic access）方式下，站点确定介质（medium）空闲达到分布式帧间间隔（DCF interframe space, DIFS）、且退避（backoff）计数为 0 时，可以发送一个 MPDU（MAC protocol data unit）。退避计数在 0 到竞争窗口（contention window, CW）之间均匀抽取，即 [0, CW]；CW 从 aCWmin 开始，每次发送失败取下一个值（2 的整数次幂减 1），到 aCWmax 为止，发送成功后回到 aCWmin。第 17 章正交频分复用（orthogonal frequency-division multiplexing, OFDM）物理层（physical layer, PHY）的 aCWmin 为 15、aCWmax 为 1023（表 17-24）；同一帧的尝试次数达到 dot11ShortRetryLimit（默认 7）——即重传上限（retry limit）——时丢弃（§10.3.4.4）。' },
+    { heading: '一次交换与超时（§10.3.2.11，§10.3.7）', text: '接收方在短帧间间隔（short interframe space, SIFS）之后回一个确认帧（acknowledgement, ACK）。发送方从发送结束起等待 ACK 超时（ACK timeout），长度为 aSIFSTime + aSlotTime + aRxPHYStartDelay；超时内没有开始接收到帧，就判定失败并重新退避。DIFS = aSIFSTime + 2 × aSlotTime（式 10-6）；20 MHz 的 OFDM PHY 上 aSIFSTime 为 16 µs、时隙（slot time）aSlotTime 为 9 µs，DIFS 为 34 µs（表 17-24）。aRxPHYStartDelay 按 PHY 规定：第 17 章为 20 µs（表 17-24），HE 为 24 µs（表 27-61）。' },
+    { heading: 'EHT 的速率表（802.11be 表 36-76）', text: '调制与编码方式（modulation and coding scheme, MCS）的编号与速率见表 36-76。20 MHz 信道上，资源单元（resource unit, RU）为 242 个子载波（sub-carrier）、单空间流（spatial stream）、0.8 µs 保护间隔时：EHT-MCS 13 是 4096-QAM（quadrature amplitude modulation）、码率 5/6，每个符号（symbol）2340 个数据比特，172.1 Mb/s；EHT-MCS 2 是 QPSK（quadrature phase-shift keying）、码率 3/4，每个符号 351 个数据比特，25.8 Mb/s。一个数据符号 12.8 µs，加上保护间隔共 13.6 µs。' },
+    { heading: '编码方式（802.11be §36.3.13.3.3）', text: 'BCC 只用于不超过四条空间流、EHT-MCS 0 到 9 与 15、资源单元不大于 242 个子载波的情形；EHT-MCS 10 到 14 只能用 LDPC。两种编码的数据字段长度算法不同（§36.3.13）。' },
+    { heading: '最低灵敏度与速率选择（802.11be 表 36-67，§10.6.1）', text: '标准为每一级规定最低接收灵敏度（sensitivity）：在这个输入电平上，4096 字节帧的误包率要低于 10%。20 MHz 时，QPSK 3/4 为 −77 dBm，16-QAM 1/2 为 −74 dBm，4096-QAM 5/6 为 −46 dBm。发送方用哪一级，标准不规定：§10.6.1 写明速率切换的算法不在标准范围之内。' },
+    { heading: '确认帧的速率（§10.6.6.5.2，§17.1.1）', text: '用非 HT PPDU（PHY protocol data unit）发送的确认帧，速率取 BSSBasicRateSet 中不超过前一帧速率（对 EHT 帧是它的非 HT 参考速率，§10.6.11）的最高者；没有满足条件的速率时，取强制速率（mandatory rate）中不超过它的最高者。第 17 章 OFDM PHY 的强制速率是 6、12、24 Mb/s。' },
+    { kind: 'steps', heading: '一次上传，按标准：逐步说明', items: [
+      '介质空闲达到 DIFS 之后，笔记本从 [0, CW] 中抽取退避计数，每个空闲时隙减 1（§10.3.3，§10.3.4.3）。',
+      '计数为 0 时，用它选定的等级发出数据帧；等级由实现选择（§10.6.1）。',
+      '路由器在 SIFS 之后，按控制回应帧的速率规则回一个确认帧（§10.3.2.11，§10.6.6.5.2）。',
+      'ACK 超时内没有收到确认帧：判定失败，CW 取下一个值，重新退避；尝试次数达到上限时丢弃这一帧（§10.3.4.4）。',
     ] },
-    { heading: '发出的信号与到达的信号', text: '每条链路（link）都有一份预算：功率从天线（antenna）发出，传播距离造成一部分损耗，直线路径上的每堵墙再造成一部分损耗，剩余的才是到达的功率。而只有当到达的信号比某一级的要求还高出几个分贝时，才可以使用这一级——高出的那几个分贝就是余量。' },
-    { kind: 'list', heading: '要预测的四件事', items: [
-      '（a）每台笔记本到达路由器时有多强，以及经过这条路径之后仍可使用的最高等级。',
-      '（b）一个数据帧在空口上多久，以及围绕它的整次交换持续多久。',
-      '（c）两台饱和的发送方多久会在同一个时刻开始发送，以及它们合起来交付多少。',
-      '（d）空口在两者之间如何分配，以及快的那台为慢的那台让出了多少。',
-    ] },
-    { heading: '可以改变的三项条件', text: '题面附了三个变体，每个只改变一项条件：书房笔记本移到墙的另一侧；加入一台平板，就放在路由器旁；客厅笔记本离线。三个都要先预测，再运行。四个答案里有两个几乎不变——判断出是哪两个，就掌握了这一课的大半。' },
+    { heading: '标准不给出吞吐量公式', text: '标准不规定饱和吞吐量的计算方法。题面（c）用的不动点出自 Bianchi 的论文，是一个模型，不是标准内容。' },
   ],
-  numbers: [
-    { kind: 'table', heading: '（a）预测：到达了多少，能用哪一级', head: [
-      '上传设备', '距离与隔墙', '路径损耗（path loss）',
-      '到达电平', 'SNR', '等级',
-      '再上一级',
-    ], rows: [
-      ['书房笔记本', '2.000 m，无墙', '55.73 dB',
-        '−40.73 dBm', '53.26 dB', 'MCS 13, 172.1 Mb/s', '已是顶端'],
-      ['客厅笔记本', '11.180 m，一堵砖墙', '78.15 dB',
-        '−75.15 dBm', '18.84 dB', 'MCS 2, 25.8 Mb/s', '13.99 + 3 = 16.99 dB ✓ · 16.99 + 3 = 19.99 dB ✗'],
-    ] },
-    { heading: '一切计算的基准', text: '一条 20 MHz 信道上的噪声地板（noise floor）是 −93.99 dBm，信噪比（SNR）就是到达电平减去这个噪声地板。只有当某一级所需的信干噪比（SINR）再加 3 dB 余量仍不超过信噪比时，这一级才可以用。' },
-    { kind: 'formula', heading: '（b）预测：先数符号（symbol），再算微秒', text: '符号数 = ⌈(16 + 8·L + 6) / 每符号比特数⌉        空口时间 = 前导码 + 符号数 × 13.6 µs', note: 'L 是实际在空口上传送的内容：1500 字节载荷、24 字节媒体访问控制（MAC）头、4 字节帧校验序列（FCS）——合计 1528 字节。' },
-    { kind: 'table', head: [
-      '上传设备', '每符号比特', '符号数',
-      '数据帧', '它的应答',
-      '交换，以及其后的分布式帧间间隔（DIFS）', '若发生碰撞',
-    ], rows: [
-      ['书房笔记本', '2340', '⌈12246 / 2340⌉ = 6', '48 + 81.6 = 129.6 µs',
-        '24 Mb/s, 28 µs', '129.6 + 16 + 28 + 34 = 207.6 µs', '208.6 µs'],
-      ['客厅笔记本', '351', '⌈12246 / 351⌉ = 35', '48 + 476 = 524.0 µs',
-        '12 Mb/s, 32 µs', '524.0 + 16 + 32 + 34 = 606.0 µs', '603.0 µs'],
-    ] },
-    { heading: '应答有自己的速率', text: '还是“空口时间（airtime）”那一课第 2 步的规则：确认帧用的是不超过数据帧自身参考速率的那个最高强制速率（mandatory rate）——快帧之后是 24 Mb/s，慢帧之后是 12 Mb/s。而一次碰撞占用的是 ACK 超时（ACK timeout）。' },
-    { kind: 'table', heading: '（c）预测：两台饱和站点', head: [
-      '量', '预测',
-    ], rows: [
-      ['窗口、倍增、尝试', '16, 6, 7'],
-      ['某个时隙（slot time）里发送的概率', 'τ = 0.1046'],
-      ['与对方发生碰撞的概率', 'p = 10.46 %'],
-      ['一次通用的交换', '(207.6 + 606.0) / 2 = 406.8 µs'],
-      ['两台合计', '25.585 Mb/s'],
-      ['……各自', '12.793 Mb/s'],
-    ] },
-    { heading: '为什么碰撞概率与速率无关', text: '前两个数字与编码、帧长毫无关系：决定它们的只有竞争者个数、窗口和尝试次数。吞吐则不然；而两台取得发送机会的次数相同，所以“一次通用的交换”按两者的平均来算。' },
-    { kind: 'table', heading: '（d）预测：份额与代价', head: [
-      '量', '预测',
-    ], rows: [
-      ['各自帧数', '相同'],
-      ['空口占比，书房 / 客厅', '19.8 % / 80.2 %'],
-      ['书房笔记本独占（交换 + 7.5 个时隙）', '12,000 比特 / 275.1 µs = 43.621 Mb/s'],
-    ] },
-    { kind: 'steps', heading: '你要执行的计划', items: [
-      '无需搭建任何东西。场景默认就是题面描述的配置——20 MHz、单流，没有优先级分类，不聚合帧，也没有预留的轮次——你只需先在编辑器里核实这一点，再采信任何读数。',
-      '只看平面图，把（a）对两台上传设备各做一遍：距离、隔墙、到达电平、SNR，以及“要求加余量”仍不超过 SNR 的那一级。两个电平都精确到 1 dB。',
-      '从各自的等级做（b）：每符号几个比特、1528 字节要几个符号、空口时间、应答自己的速率，以及一次交换加上它后面那段等待。',
-      '从两个交换时长做（c）和（d）：两个竞争者下的不动点、按两者平均算出的“通用交换”，以及每台上传设备最终占用的空口时间。',
-      '到这一步才运行十秒。每台笔记本的等级与帧长，从它的第一个数据帧读；丢帧从重传（retry）记录读；成功次数和空口时间，从它自己的计数器读。',
-      '写下四行——量、单位、数值，以及你要拿屏幕上哪个读数去核它——然后用同样的办法预测三个变体，且都要在运行之前写完。',
-    ] },
-    { kind: 'table', heading: '三个变体的预测', head: [
-      '变体', '书房笔记本那条链路', '帧 / 交换',
-      '碰撞概率', '交付',
-    ], rows: [
-      ['书房笔记本搬到客厅', '9.000 m → −72.33 dBm, 21.66 dB, MCS 3',
-        '415.2 / 493.2 µs', '10.46 %', '19.350 → 9.675 + 9.675 Mb/s'],
-      ['多一台平板，就在路由器旁', 'MCS 13',
-        '129.6 / 207.6 µs', '17.81 %', '29.574 Mb/s'],
-      ['客厅笔记本离线', 'MCS 13',
-        '129.6 / 207.6 µs', '没有碰撞对象', '43.621 Mb/s'],
-    ] },
+  implementation: [
+    { topic: '接入方式', standard: '支持服务质量（quality of service, QoS）的站点实现 HCF，其基于竞争的接入是增强型分布式信道接入（enhanced distributed channel access, EDCA）（§10.2.3.1，§10.2.3.2）；DCF 是基本接入方式（§10.3.4）', sim: '本课场景关掉了 EDCA、聚合与传输机会（transmit opportunity, TXOP），四台 Wi-Fi 7 设备都按 DCF 接入，数据帧是 24 字节帧头（MAC header）、不带 QoS 字段的普通数据帧，以便与 Bianchi 模型对照。实际的 Wi-Fi 7 设备用 EDCA 接入。', kind: 'differs' },
+    { topic: '退避与重传上限', standard: 'CW 从 15 起每次失败取下一个值，到 1023 为止；最多 7 次尝试（§10.3.3，§10.3.4.4）', sim: '照此实现。', kind: 'faithful' },
+    { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.11）；aRxPHYStartDelay 按 PHY 规定，HE 为 24 µs（表 27-61）', sim: '对所有世代都取第 17 章的 20 µs，ACK 超时为 45 µs；本课四台都是 Wi-Fi 7 设备，按 HE 的取值应为 49 µs。', kind: 'differs' },
+    { topic: '数据帧的时长', standard: 'EHT-MCS 13 只能用 LDPC（§36.3.13.3.3）；前导码（preamble）长度随 EHT-SIG 与 EHT-LTF 的个数变化', sim: '一帧的空口时间（airtime）等于前导码加上全部数据符号；所有等级都按 BCC 的式子计算符号数：⌈(16 + 8·L + 6) / 每符号比特数⌉；前导码取 48 µs 的代表值（各字段相加为 47.2 µs），不计数据之后的分组扩展字段。', kind: 'differs' },
+    { topic: '能用哪一级', standard: '标准只规定最低灵敏度，选级由实现决定（表 36-67，§10.6.1）', sim: '把表 36-67 的最低灵敏度换算成每一级所需的信干噪比（SINR），再要求信噪比（SNR）比它高 3 dB 余量，选满足条件的最高一级；第一帧就选定，之后由速率控制按成败升降。', kind: 'choice' },
+    { topic: '路径损耗与墙', standard: '标准不涉及传播', sim: '路径损耗（path loss）取 46.7 + 30·log10(d) dB，一堵砖墙 12 dB。', kind: 'value' },
+    { topic: '噪声地板', standard: '标准不规定', sim: '20 MHz 信道的噪声地板（noise floor）取 −93.99 dBm。', kind: 'value' },
+    { topic: '确认帧的速率', standard: '取 BSSBasicRateSet 中、否则取强制速率中不超过前一帧参考速率的最高者（§10.6.6.5.2）', sim: '不建模 BSSBasicRateSet，直接取强制速率 6、12、24 Mb/s 中不超过数据帧非 HT 参考速率的最高者：MCS 13 之后是 24 Mb/s，MCS 2 之后是 12 Mb/s。', kind: 'value' },
+    { topic: '传播时延与时钟', standard: '时隙的组成里包括空中传播时间 aAirPropagationTime（§10.3.7，图 10-25）', sim: '信号到达各处不需要时间，所有设备共用一个时钟，交换的每一段都是精确常数，所以这里能把一次交换算到 0.1 µs，真实测量做不到。', kind: 'choice' },
   ],
-  deeper: [
-    { heading: '一个可批改的预测是什么样的', text: '四件事各写成一行：量、单位、数值，以及你打算拿屏幕上的哪一样东西去对照它——一个计数、一段时长，还是一个占比。“差不多”不是预测；一个没有说明怎样才算错的数字，也不是预测。这四行只要五分钟，而后半程批改的就是它们。' },
-    { heading: '为什么取两次交换的平均是对的', text: '不动点给出的是“每个时隙里发送的概率”，两台站点共用这一个值，所以一个成功的时隙属于谁的机会均等。于是它的期望长度就是两次交换时长的平均，碰撞的时长也按同样的道理算。如果两者取得发送机会的比例不同，这个平均就要加权——而一旦加入第三个使用不同等级的竞争者，正是这种情况。' },
-  ],
-  limits: [
-    { kind: 'model-value', text: '题面里每一个预测都建立在四个引擎取值上：路径损耗公式 46.7 + 30·log10(d)、砖墙 12 dB、每一级所需信干噪比之上再留 3 dB 余量，以及 20 MHz 下 −93.99 dBm 的噪声地板。四项都不是标准正文，换一套取值，这四个答案全都要重算。它们值得信任的理由是引擎公开了这些函数供你验算，而不是它们与真实世界一致。' },
-    { kind: 'threshold', text: '按平面图算出的到达电平是一个定数：同一个位置永远给出同一个电平，于是「能用哪一级」也永远是同一个答案。真实的 2.0 m 与 11.2 m 链路在几秒内电平就会上下波动几个分贝，等级会在边界附近来回切换。默认场景没有开衰落，编辑器的「时变链路（衰落）」一节可以打开它——打开之后（a）与（b）的答案就不再是一个数，而是一个分布。' },
-    { kind: 'unmodelled', text: '预测（b）把一次交互算成「帧 + SIFS + 确认 + DIFS」，而引擎里这四段都是精确常数，发射的信号到达各处不需要时间，所有设备共用一个时钟。真实设备之间有传播时延，收发转换需要时间，晶振彼此相差几十 ppm，交互的每一段都会抖动。所以这里能把一次交互算到 0.1 µs，真实测量做不到。' },
-    { kind: 'out-of-scope', text: '这户房子里除了这四台设备没有任何其他设备：没有邻居的网络，没有微波炉，也没有蓝牙（引擎只为共享频段的 UWB 接了一条跨技术的线）。真实的长公寓里同一个频段上多半还有好几张别人的网，而它们首先使（c）与（d）失效——竞争者的个数根本不是你数得出来的那几台。' },
+  labs: [
+    {
+      heading: '读题面：先看平面图，不要运行',
+      jump: 0,
+      steps: [
+        '载入本课场景，只读平面图：墙在哪里、四台设备各自位于什么位置。',
+        '对照下面的题面与四个问题，按计划的顺序在纸上算完，再运行。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '题面', head: ['设备', '位置', '业务'], rows: [
+          ['路由器', '(3, 4), 20 dBm', '只在有数据待发时发送'],
+          ['书房笔记本', '(5, 4), 15 dBm', '饱和上传，1500 字节载荷（payload）'],
+          ['客厅笔记本', '(14, 6), 15 dBm', '饱和上传，1500 字节载荷'],
+          ['手机', '(4, 6), 15 dBm', '通话：每 20 ms 上行（uplink, UL）与下行（downlink, DL）各 200 字节'],
+        ] },
+        { kind: 'list', heading: '要预测的四件事', items: [
+          '（a）每台笔记本到达路由器时有多强，以及经过这条路径之后仍可使用的最高等级。',
+          '（b）一个数据帧在空口上多久，以及围绕它的整次交换持续多久。',
+          '（c）两台饱和的发送方多久会在同一个时刻开始发送，以及它们合起来交付多少。',
+          '（d）空口在两者之间如何分配，以及快的那台为慢的那台让出了多少。',
+        ] },
+        { kind: 'steps', heading: '你要执行的计划', items: [
+          '先在编辑器里核实场景就是题面描述的配置：20 MHz、单流，没有优先级分类，不聚合帧，也没有预留的轮次。',
+          '只看平面图，把（a）对两台上传设备各做一遍：距离、隔墙、到达电平、SNR，以及“要求加余量”仍不超过 SNR 的那一级。',
+          '从各自的等级做（b）：每符号几个比特、1528 字节要几个符号、空口时间、应答自己的速率，以及一次交换加上它后面那段等待。',
+          '从两个交换时长做（c）和（d）：两个竞争者下的不动点、按两者平均算出的“通用交换”，以及每台上传设备最终占用的空口时间。',
+          '到这一步才运行十秒，把每个预测写成一行：量、单位、数值，以及你要拿屏幕上哪个读数去核它。',
+        ] },
+      ],
+      expect: '平面图上，书房笔记本离路由器 2.000 m，中间没有墙；客厅笔记本离路由器 11.180 m，中间隔一堵砖墙。四台设备都是 20 MHz、单流。',
+      meaning: '场景关掉了 EDCA、聚合与 TXOP，四台设备都按 DCF 接入（②“接入方式”），所以四个问题都可以用纸笔回答。',
+    },
+    {
+      heading: '（a）到达了多少，能用哪一级',
+      steps: [
+        '用路径损耗公式和砖墙的损耗算出两台笔记本的到达电平，减去噪声地板得到 SNR。',
+        '逐级比较“所需 SINR + 3 dB”与 SNR，取仍不超过 SNR 的最高一级；再跳到第一个数据帧核对。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '（a）预测：到达了多少，能用哪一级', head: ['上传设备', '距离与隔墙', '路径损耗', '到达电平', 'SNR', '等级', '再上一级'], rows: [
+          ['书房笔记本', '2.000 m，无墙', '55.73 dB', '−40.73 dBm', '53.26 dB', 'MCS 13, 172.1 Mb/s', '已是顶端'],
+          ['客厅笔记本', '11.180 m，一堵砖墙', '78.15 dB', '−75.15 dBm', '18.84 dB', 'MCS 2, 25.8 Mb/s', '13.99 + 3 = 16.99 dB ✓ · 16.99 + 3 = 19.99 dB ✗'],
+        ] },
+      ],
+      expect: '一条 20 MHz 信道上的噪声地板是 −93.99 dBm。书房笔记本到达 −40.73 dBm，用 MCS 13；客厅笔记本到达 −75.15 dBm、SNR 18.84 dB，用 MCS 2——两台的第一个数据帧就是这两级。',
+      meaning: 'MCS 13 与 MCS 2 的调制与编码方式出自表 36-76（①）；“所需 SINR 加 3 dB 余量”是本仿真器的选级规则，路径损耗公式与砖墙损耗也是它的取值（②），标准把选级留给实现。',
+    },
+    {
+      heading: '（b）一帧多长，一次交换多长',
+      jump: 0,
+      steps: [
+        '按下式算出两台笔记本数据帧的符号数与空口时间，再加上 SIFS、确认帧与 DIFS。',
+        '跳到第一个数据帧，从书房笔记本的色块步进到它后面的确认帧，核对间隙与长度。',
+      ],
+      blocks: [
+        { kind: 'formula', heading: '（b）预测：先数符号，再算微秒', text: '符号数 = ⌈(16 + 8·L + 6) / 每符号比特数⌉        空口时间 = 前导码 + 符号数 × 13.6 µs', note: 'L 是实际在空口上传送的内容：1500 字节载荷（payload）、24 字节媒体访问控制（MAC）头、4 字节帧校验序列（FCS）——合计 1528 字节。这是本仿真器的算法：16 与 6 是 BCC 的服务字段（SERVICE field）与尾比特（tail bits），前导码按 48 µs 计（②）。' },
+        { kind: 'table', heading: '（b）预测：一帧与一次交换', head: ['上传设备', '每符号比特', '符号数', '数据帧', '它的应答', '交换，以及其后的 DIFS', '若发生碰撞'], rows: [
+          ['书房笔记本', '2340', '⌈12246 / 2340⌉ = 6', '48 + 81.6 = 129.6 µs', '24 Mb/s, 28 µs', '129.6 + 16 + 28 + 34 = 207.6 µs', '208.6 µs'],
+          ['客厅笔记本', '351', '⌈12246 / 351⌉ = 35', '48 + 476 = 524.0 µs', '12 Mb/s, 32 µs', '524.0 + 16 + 32 + 34 = 606.0 µs', '603.0 µs'],
+        ] },
+      ],
+      expect: '书房笔记本的色块是 MCS 13、长 129.6 µs，客厅笔记本的是 MCS 2、长 524.0 µs。书房那一帧之后的间隙是 16 µs，确认帧 28 µs，其后还有 34 µs 的等待。快帧之后的确认帧是 24 Mb/s，慢帧之后是 12 Mb/s。',
+      meaning: 'SIFS、DIFS 与确认帧的速率规则照标准（①）；符号数按 BCC 的式子算、前导码取 48 µs、ACK 超时取 45 µs，是本仿真器的简化（②“数据帧的时长”“ACK 超时”），所以发生碰撞时那一列也带着这个 45 µs。',
+    },
+    {
+      heading: '（c）（d）两台饱和站点',
+      jump: 3,
+      steps: [
+        '用窗口 16、倍增 6 次、最多 7 次尝试，解出两个竞争者的不动点，再按两次交换的平均算吞吐量。',
+        '从两个数据帧的时长算出空口占比，以及书房笔记本独占时能交付多少。',
+        '跳到第一次退避抽签，读一下它的窗口。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '（c）预测：两台饱和站点', head: ['量', '预测'], rows: [
+          ['窗口、倍增、尝试', '16, 6, 7'],
+          ['某个时隙里发送的概率', 'τ = 0.1046'],
+          ['与对方发生碰撞的概率', 'p = 10.46 %'],
+          ['一次通用的交换', '(207.6 + 606.0) / 2 = 406.8 µs'],
+          ['两台合计', '25.585 Mb/s'],
+          ['……各自', '12.793 Mb/s'],
+        ] },
+        { kind: 'table', heading: '（d）预测：份额与代价', head: ['量', '预测'], rows: [
+          ['各自帧数', '相同'],
+          ['空口占比，书房 / 客厅', '19.8 % / 80.2 %'],
+          ['书房笔记本独占（交换 + 7.5 个时隙）', '12,000 比特 / 275.1 µs = 43.621 Mb/s'],
+        ] },
+      ],
+      expect: '第一次退避抽签的窗口是 31：最初的两个数据帧在 0 时刻同时开始、发生碰撞，窗口已经加倍。这次抽签与帧的发送时长无关。',
+      meaning: '窗口规则照标准（①“基本接入与退避”），碰撞概率只取决于竞争者个数与窗口，与速率、帧长无关；τ、p 与吞吐量出自 Bianchi 的论文模型，不是标准。',
+    },
+    {
+      heading: '三个变体：先预测，再运行',
+      more: [0, 1, 2],
+      steps: [
+        '对三个变体各做一遍（a）到（d），写下预测。',
+        '四个量里，判断出哪两个几乎不变：书房笔记本搬到墙后，哪一项不变；加一台平板，哪一项不变。',
+        '写完之后，再依次载入三个变体，把结果留到下一课批改。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '三个变体的预测', head: ['变体', '书房笔记本那条链路', '帧 / 交换', '碰撞概率', '交付'], rows: [
+          ['书房笔记本搬到客厅', '9.000 m → −72.33 dBm, 21.66 dB, MCS 3', '415.2 / 493.2 µs', '10.46 %', '19.350 → 9.675 + 9.675 Mb/s'],
+          ['多一台平板，就在路由器旁', 'MCS 13', '129.6 / 207.6 µs', '17.81 %', '29.574 Mb/s'],
+          ['客厅笔记本离线', 'MCS 13', '129.6 / 207.6 µs', '没有碰撞对象', '43.621 Mb/s'],
+        ] },
+      ],
+      expect: '搬到客厅后，书房笔记本改用 MCS 3，帧长 415.2 µs，碰撞概率仍是 10.46%；加一台平板，帧长仍是 129.6 µs，碰撞概率升到 17.81%；客厅笔记本离线，书房笔记本独占信道，预测 43.621 Mb/s。',
+      meaning: '帧长只取决于一条链路（link）的等级（①的速率表与②的选级规则），碰撞概率只取决于竞争者个数（①的退避规则）——两者互不影响，这正是三个变体要你分开判断的两件事。',
+    },
   ],
   sources: [
-    '本项目运行的这套轮流接入——一个帧、一个 ACK、几段等待和一次倒数——即 IEEE Std 802.11-2024 §10.3.4 的 DCF；ACK 的速率规则（不超过数据帧参考速率的最高强制速率）见 §10.7.6。',
-    'τ 与 p 背后的不动点出自 Bianchi 的《Performance analysis of the IEEE 802.11 distributed coordination function》（IEEE JSAC 18(3)，2000），代入的是本仿真器自己的窗口、倍增上限与重传上限。',
-    '模型取值，列出来方便你质疑：路径损耗公式 46.7 + 30·log10(d)、砖墙 12 dB、每一级所需 SINR 之上再留 3 dB 余量，以及 20 MHz 信道 −93.99 dBm 的噪声地板。这四项都是仿真器的取值，而非标准正文。',
+    'IEEE Std 802.11-2024：§10.3.4.2（基本接入）、§10.3.3 与 §10.3.4.3（退避）、§10.3.4.4（重传上限）、§10.3.2.11（确认过程与 ACK 超时）、§10.3.7 与式 10-6（DIFS、aAirPropagationTime）、表 17-24 与表 27-61（PHY 特性）、§10.2.3.1 与 §10.2.3.2（HCF 与 EDCA）、§10.6.1（速率切换算法不在标准范围之内）、§10.6.6.5.2 与 §17.1.1（确认帧的速率）。',
+    'IEEE Std 802.11be-2024：表 36-76（242 个子载波资源单元上的 EHT-MCS）、§36.3.13.3.3（LDPC 是 EHT-MCS 10 到 14 唯一的编码方式）、表 36-67（最低接收灵敏度）。',
+    'τ 与 p 背后的不动点出自 Bianchi 的《Performance analysis of the IEEE 802.11 distributed coordination function》（IEEE JSAC 18(3)，2000），是论文模型，代入的是本仿真器的窗口、倍增上限与重传上限。',
+    '模型取值，列出来方便你质疑：路径损耗公式 46.7 + 30·log10(d)、砖墙 12 dB、每一级所需 SINR 之上再留 3 dB 余量，以及 20 MHz 信道 −93.99 dBm 的噪声地板。这四项都是本仿真器的取值，而非标准正文。',
   ],
+  limits: [],
   scenario: () => projectFlat(),
   variants: projectVariants,
   jumps: projectJumps,
-  observe: [
-    '跳到第一个数据帧：书房笔记本的色块是调制与编码方式（MCS）13、长 129.6 µs，客厅笔记本的是 MCS 2、长 524.0 µs。两台站点在发出的第一帧上就选定了自己的等级。',
-    '从那个色块步进到它后面的 ACK：中间的间隙是 16 µs，一个短帧间间隔（SIFS），而应答本身是 28 µs。其后还有 34 µs 的等待——你刚刚算过的那次交换就显示在屏幕上。',
-    '跳到第一次退避（backoff）抽签，读一下计数器：一个整数个时隙，而且窗口已经加倍——最初的两个帧发生了碰撞。这次抽签与那个帧的发送时长完全无关。',
-  ],
-  tryThis: [
-    '在载入任何东西之前先把四个预测写下来，一件一行，写明单位，以及你打算用屏幕上的哪个读数去核对。后半程就是拿这四行去对照仿真。',
-    '再预测三个变体。在第一个变体里，四个量中有两个保持不变；其中一个在三个变体里都不变。先说出是哪两个，再去看上面的表。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '客厅笔记本的 SNR 是 18.84 dB，而 MCS 3 需要 16.99 dB。为什么预测仍然是 MCS 2？',
       options: [
         '这一代设备上没有 MCS 3 这一级',
-        '取用某一级要在其要求之上留 3 dB 余量，而 16.99 + 3 超过了 18.84',
+        '本仿真器取用某一级要在其要求之上留 3 dB 余量，而 16.99 + 3 超过了 18.84',
         '那堵砖墙已经被算过两次了',
       ],
       answer: 1,
-      explain: '选用某一级要留余量，绝不在要求的边缘工作：13.99 + 3 不超过 18.84，16.99 + 3 超过了 18.84。',
+      explain: '本仿真器选用某一级要留余量，绝不在要求的边缘工作：13.99 + 3 不超过 18.84，16.99 + 3 超过了 18.84。标准本身不规定选级的方法。',
     },
     {
       q: '路由器旁多了一台平板。哪一个预测量变化最小？',
@@ -237,6 +266,16 @@ export const tier1Project: Lesson = {
       ],
       answer: 1,
       explain: '空口时间只取决于一条链路和一个帧长，两样都没变。碰撞概率反而升到 17.81 %，占比也要在三条泳道之间重新划分。',
+    },
+    {
+      q: '题面里发生碰撞那一列用了 45 µs 的 ACK 超时。按标准，这个数从哪里来？',
+      options: [
+        'aSIFSTime + aSlotTime + aRxPHYStartDelay；本仿真器取第 17 章的 20 µs，而 HE 的表 27-61 给的是 24 µs',
+        '标准直接规定 ACK 超时为 45 µs，各代相同',
+        '它等于 DIFS 加 11 µs',
+      ],
+      answer: 0,
+      explain: '§10.3.2.11 只给出式子；aRxPHYStartDelay 按 PHY 不同，本仿真器对各代都用了第 17 章的取值，这是它与标准不同的地方。',
     },
   ],
 }

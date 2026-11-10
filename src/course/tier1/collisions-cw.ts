@@ -1,24 +1,17 @@
 /**
  * Wi-Fi Tier 1 · M4 · 等待与退避 · the deadline, and the window that doubles.
  *
- * The second half of `backoff`, split on 2026-09-25
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M4). The
- * parent carried two rules the engine follows — how a station draws and counts,
- * and what it does when the answer never comes — and that second rule is this
- * lesson: the 45 µs deadline, the doubling window, and what the two together
- * cost across 300 ms.
+ * **Standard-first shape (2026-11-11).** ① what IEEE Std 802.11-2024 says about a failed
+ * exchange: positive acknowledgement (§10.3.2.2), the AckTimeout (§10.3.2.11, Table 17-24), the
+ * window that takes the next value of 2^n − 1 and resets (§10.3.3), the retry counter, the Retry
+ * subfield and the retry limit (§10.3.4.4, dot11ShortRetryLimit), and when the backoff after a
+ * failure begins (§10.3.4.3). ② what the engine does — including the 5 dB capture margin, the
+ * worst-instant interference rule and the receiver that never locks, none of which the standard
+ * specifies. ③ four runs.
  *
- * The scene is the parent's, unchanged and undivided
- * (`sameSceneAs: 'backoff'`), so the recorded timeline hash of this id is a
- * copy of `backoff`'s rather than a new run. It takes jumps 0, 1 and 3 of the
- * old list (the collision, the retry and the first CW doubling); `backoff`
- * keeps the freeze.
- *
- * `deeper` arrives whole from the parent: both notes — why the access point
- * locked onto neither preamble, and why that means no EIFS is ever armed here —
- * are about the collision, which lives in this half.
- *
- * Every number quoted below is pinned in tests/course/collisions-cw.test.ts.
+ * The scene is `backoff`'s, unchanged and undivided (`sameSceneAs: 'backoff'`), so the recorded
+ * timeline hash of this id is a copy of `backoff`'s. Every figure printed below is read back out
+ * of the lesson text in tests/course/collisions-cw.test.ts.
  */
 import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstCollision, firstRetry, J } from '../lessonKit'
@@ -30,9 +23,6 @@ import { type Lesson, oneRoom, node, sc, firstCollision, firstRetry, J } from '.
  * TX_STARTs at 0, COLLISION and both TX_ENDs at 248, ACK_TIMEOUT and CW_CHANGE
  * at 293, IFS_START running to 327 — and `collisions-cw.test.ts` reads each one
  * back out of this spec.
- *
- * Drawing the two senders as separate lanes is the point: they are identical,
- * to the nanosecond, which is what a collision in this model IS.
  */
 export function collisionTiming(): TimingSpec {
   return {
@@ -51,11 +41,11 @@ export const collisionsCw: Lesson = {
   id: 'collisions-cw',
   module: 3,
   title: '无应答、超时与竞争窗口翻倍',
-  why: '两台站点（station, STA）各自独立选取退避（backoff）值，没有任何机制阻止它们选到同一个值；本轮仿真开始时，它们甚至没有选取退避值就同时发送了。两帧在空中重叠，但两个发送方都没有察觉——无线电在发送时无法接收其他站点的信号。它们得知传输失败的唯一途径，是没有收到所等待的确认帧（acknowledgement, ACK）。等待多久由一个期限决定，叫 ACK 超时（ACK timeout）：从本帧结束时开始计时，依次包括接收端应答前应有的短间隔、为稍晚开始的应答多留的一个时隙（slot time），以及无线电检测到“有信号开始”所需的时间；到期时仍未检测到任何信号，这一帧就判为丢失。接收端同样什么也没有收到：两个前导码（preamble）同时以相近的强度开始、相互干扰，它一帧也没有锁定，所以也不需要那段只在校验失败后才会出现的更长等待。失败的站点把竞争窗口（contention window, CW）扩大到两倍再加一，从期限到期的时刻起重新等待一个分布式帧间间隔（DCF interframe space, DIFS），再从更宽的范围里随机选取，于是两台站点这次选到不同的值，发送时间错开；连续失败则窗口逐次翻倍，失败到第七次时这一帧被放弃，一旦成功窗口就回到最小值。这个房间里大约每二十帧发生一次碰撞，翻倍是有效的，整轮最宽只用到第三档窗口；代价是从翻倍后的窗口里选取的平均等待时间，比窗口最小时多出一倍以上。',
+  why: '两台站点（station, STA）各自独立选取退避（backoff）值，没有任何机制阻止它们选到同一个值，两帧就会在空中重叠。发送方无法察觉：站点在发送时介质（medium）被视为忙，它收不到其他站点的信号。IEEE 802.11-2024 因此采用肯定确认：发送方等待确认帧（acknowledgement, ACK），等待的期限称为 ACK 超时（ACK timeout），等于短帧间间隔（short interframe space, SIFS）、一个时隙（slot time）与信号检测时延（aRxPHYStartDelay）之和，在 20 MHz 正交频分复用（orthogonal frequency-division multiplexing, OFDM）信道上是 16 + 9 + 20 = 45 µs；期限内没有检测到任何接收开始，就判定这次发送失败。失败一次，这一帧的重传（retry）计数加一，竞争窗口（contention window, CW）取 2^n − 1 序列的下一个值，从 15 依次变为 31、63，直到 1023；退避过程从超时到期时开始，重传帧带重发比特（Retry bit）。重传计数达到上限 7 时这一帧被丢弃，竞争窗口回到 15；发送成功时竞争窗口也回到 15。在本课的房间里，两台站点 300 ms 内发出 864 帧、碰撞 47 次，最宽只用到 CW = 63；从 31 选取的平均退避值是从 15 选取的两倍以上。',
   outcomes: [
-    '解释发送方如何发现一次它无法直接检测到的碰撞',
-    '把 45 µs 的期限分解为三段，并说出每段对应什么',
-    '说明把竞争窗口（contention window, CW）翻倍带来了什么好处、代价是什么',
+    '按标准说出发送方怎样发现一次它无法直接检测到的碰撞',
+    '把 45 µs 的期限分解为三段，并说出竞争窗口（contention window, CW）怎样翻倍、何时复位',
+    '分清本仿真器的碰撞判决哪些是标准的规定、哪些是它自己的取值与取法',
   ],
   needs: ['backoff'],
   terms: [
@@ -63,59 +53,89 @@ export const collisionsCw: Lesson = {
     { term: 'retry', plain: '同一份载荷的再次发送；帧头里有专门的一位标记它' },
     { term: 'CW', plain: '竞争窗口：随机选取退避值时的取值上限，每失败一次就扩大一倍' },
   ],
-  picture: [
-    { heading: '当两个计数同时归零', text: '没有任何机制能阻止两台站点选到同一个值。一旦选到，双方的计数在同一个空闲时隙（slot time）同时归零，两帧同时发出，彼此重叠。而本轮开始时的那一次更直接：两台站点都发现信道空闲，都经过了一段长度为零的间隔，于是没有选取退避值就同时开始发送。' },
-    { kind: 'watch', jump: 0, heading: '观察一次碰撞', text: '载入仿真，跳到第一次碰撞。两个数据帧（data frame）在 0 µs 同时开始、248 µs 同时结束；在红色刻度处，接入点（access point, AP）报告这两帧它一帧也没有锁定。' },
-    { heading: '等待应答需要一个期限', text: '发送方从自己这一帧结束的时刻开始计时。如果应答确实已经发出，到期之前就应当被检测到：期限包括接收端应答前应有的短间隔、为防应答开始得稍晚而多留的一个时隙，以及无线电检测到“有信号开始”所需的时间。超过这个时刻仍未检测到任何信号，这一帧就判为丢失：站点必须重新等待一个分布式帧间间隔（DCF interframe space, DIFS），再重新竞争一次。' },
-    { kind: 'watch', jump: 1, heading: '再观察那次重传', text: '跳到第一次重传（retry）。检视器里两台站点的竞争窗口都已经是 31，而这一帧的帧头（MAC header）里多了一位重发比特（Retry bit）。' },
-    { heading: '把窗口翻倍', text: '在同样大小的范围内再选取一次是不合理的：碰撞本身就表明同时竞争的站点太多、范围太小。所以失败过的站点把自己取值范围的上限——竞争窗口——扩大一倍，再失败就再扩大一倍。等待变长，要多占用空口时间（airtime），但两台站点选到同一个值的概率会迅速下降。下一次成功之后，窗口立即回到最小值。' },
+  standard: [
+    { heading: '肯定确认（§10.3.2.2，§10.3.2.1）', text: '某些帧要求接收方在帧校验正确时回复确认。发起帧交换的站点收不到预期的确认，就认为出了错——尽管接收方可能已经正确收到，出错的可能是确认帧本身。站点正在发送时，介质被判定为忙，所以发送方无法在发送的同时检测碰撞。' },
+    { heading: 'ACK 超时（§10.3.2.11，表 17-24）', text: '发送一个要求确认的 MPDU（MAC protocol data unit）之后，站点从物理层（physical layer, PHY）报告发送结束（PHY-TXEND.confirm）时起等待 AckTimeout = aSIFSTime + aSlotTime + aRxPHYStartDelay。期间物理层没有报告接收开始（PHY-RXSTART.indication），就判定发送失败，并在 AckTimeout 到期时启动退避过程；出现了，就等这次接收结束，再看收到的是不是发给自己的确认帧。第 17 章 OFDM PHY 在 20 MHz 信道上三项分别为 16、9、20 µs，AckTimeout 为 45 µs。' },
+    { heading: '竞争窗口（§10.3.3）', text: '一次发送失败使重传计数加一时，竞争窗口取序列里的下一个值，直到 aCWmax 为止；序列是从 aCWmin 开始、依次递增的 2 的整数次幂减 1，即 15、31、63、……、1023。每次成功发送数据帧（data frame）或管理帧（management frame）之后，或者站点的短重传计数达到 dot11ShortRetryLimit 时，竞争窗口恢复为 aCWmin。' },
+    { heading: '重传与上限（§10.3.4.4）', text: '站点为每个待发的 MSDU（MAC service data unit）维护一个短重传计数，每失败一次加一，成功时清零。一次或多次失败之后的所有重传都把重发比特置 1。重传一直持续到这个计数等于 dot11ShortRetryLimit 为止，然后放弃重传、丢弃这一帧。dot11ShortRetryLimit 的默认值为 7，即一帧最多发送 7 次（附录 C 的 MIB 定义）。' },
+    { heading: '失败之后的退避（§10.3.4.3，§10.3.2.3.7）', text: '需要立即应答的发送失败时，退避过程从 AckTimeout 结束时开始。扩展帧间间隔（extended interframe space, EIFS）只在站点收到出错的 PPDU（PHY protocol data unit） 或校验失败的帧之后使用。' },
+    { kind: 'steps', heading: '一次失败之后，按标准：逐步说明', items: [
+      '发送方从数据帧发完时起计时，期限是 aSIFSTime + aSlotTime + aRxPHYStartDelay，即 45 µs（§10.3.2.11）。',
+      '期限内没有任何接收开始，这次发送判为失败：这一帧的短重传计数加一（§10.3.4.4）。',
+      '竞争窗口取下一个值：15 → 31 → 63 → … → 1023（§10.3.3）。',
+      '退避过程从期限到期时开始，在新的竞争窗口里重新选取退避值；重传帧的重发比特置 1（§10.3.4.3，§10.3.4.4）。',
+      '计数达到 dot11ShortRetryLimit（默认 7）时丢弃这一帧，竞争窗口恢复为 15；发送成功时竞争窗口同样恢复为 15（§10.3.3）。',
+    ] },
   ],
-  numbers: [
+  implementation: [
+    { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay，从发送结束起算；期间出现接收开始就等接收结束（§10.3.2.11）', sim: '16 + 9 + 20 = 45 µs；期限内任何一路接收开始都取消超时。', kind: 'faithful' },
+    { topic: '竞争窗口的序列', standard: '2 的整数次幂减 1，从 aCWmin 到 aCWmax（§10.3.3）', sim: '每失败一次取 2 × CW + 1，上限 1023。', kind: 'faithful' },
+    { topic: '重传上限（retry limit）', standard: '短重传计数等于 dot11ShortRetryLimit 时丢弃，竞争窗口复位（§10.3.4.4，§10.3.3）', sim: '一帧失败第 7 次时丢弃，竞争窗口回到 15。', kind: 'faithful' },
+    { topic: '重发比特', standard: '重传帧置 1（§10.3.4.4）', sim: '照此设置。', kind: 'faithful' },
+    { topic: '成功之后', standard: '竞争窗口恢复为 aCWmin（§10.3.3）', sim: '照此恢复为 15。', kind: 'faithful' },
+    { topic: '重传前的等待', standard: '退避过程从 AckTimeout 结束时开始（§10.3.4.3）；等待的 分布式帧间间隔（DCF interframe space, DIFS） 从哪个时刻量起没有单独写明', sim: '从超时到期的时刻起重新等一个 DIFS，再抽取退避值。', kind: 'choice' },
+    { topic: '两路信号相叠时接收哪一路', standard: '标准未规定接收机怎样处理重叠的前导码（preamble）', sim: '第二个前导码比正在接收的那一路强 5 dB 以上、而且前一路的前导码尚未结束时才转而接收它；5 dB 取自 ns-3 的默认值。', kind: 'value' },
+    { topic: '重叠造成的误码', standard: '标准未规定接收机的判决方法', sim: '用整个接收过程中最强的瞬时干扰与门限比较：只重叠几微秒与完全重叠结果相同，没有纠错编码带来的概率曲线。', kind: 'choice' },
+    { topic: '没有锁定的接收与 EIFS', standard: 'EIFS 只在收到出错的 PPDU 或校验失败的帧之后使用（§10.3.2.3.7）', sim: '两个前导码以相近的强度同时到达时，接收端根本不启动接收（记为 RX_MISS），所以没有可以校验失败的帧，也就不启用 EIFS。', kind: 'choice' },
+    { topic: '两帧的时间关系', standard: '标准未规定', sim: '全场共用一个纳秒时基，没有传播时延，两帧在接收端同一纳秒开始、同一纳秒结束。', kind: 'differs' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '本轮仿真的第一次碰撞（按比例绘制）',
-      spec: collisionTiming(),
-      caption: '两条泳道完全相同，精确到纳秒——这就是这个模型里的“碰撞”。45 µs 的期限在 293 µs 到期，双方的窗口在同一时刻翻倍到 31，各等待一个 DIFS 到 327 µs 才重新选取：STA-1 选到 22、STA-2 选到 19，于是 STA-2 在 498 µs 先发送，STA-1 恰好冻结在两者之差 3 上。',
+      heading: '第一次碰撞',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一次碰撞。',
+        '用微秒按钮从碰撞帧结束逐步推进到两台站点重新抽取退避值，对照下图读出每一个时刻。',
+      ],
+      blocks: [
+        { kind: 'diagram', heading: '本轮仿真的第一次碰撞（按比例绘制）', spec: collisionTiming(), caption: '两条泳道完全相同，精确到纳秒。' },
+        { kind: 'formula', heading: '期限', text: 'AckTimeout = 16 + 9 + 20 = 45 µs      248 + 45 = 293 µs', note: '16 µs 是 aSIFSTime，9 µs 是 aSlotTime，20 µs 是 aRxPHYStartDelay。' },
+      ],
+      expect: '你应该看到：两个数据帧都在 0 µs 开始、248 µs 结束，接入点（access point, AP）对两帧各记一条 RX_MISS。248 到 293 µs 之间空口上没有任何发送；293 µs 时两台站点同时超时，竞争窗口都变为 31，各等一个 DIFS 到 327 µs 才重新抽取：STA-1 抽到 22，STA-2 抽到 19，于是 STA-2 在 498 µs 先发送，STA-1 冻结在两者之差 3 上。',
+      meaning: '这说明：发送方只能从收不到确认帧得知失败，期限按 ① 的 AckTimeout 计算；两台站点在 0 µs 同时发送，是因为本仿真器把开机之前视为早已空闲，两台站点都没有抽取退避值（见上一课）。',
     },
-    { kind: 'table', heading: '这个期限为什么取这个值', head: [
-      '组成', 'µs', '对应的内容', '出处',
-    ], rows: [
-      ['SIFS', '16', '接收端在应答之前应有的间隔', '§17.4.4'],
-      ['一个时隙', '9', '稍晚开始的应答', '§17.4.4'],
-      ['信号检测时延（aRxPHYStartDelay）', '20', '无线电检测到“有信号开始”所需的时间', '§17.4.4'],
-      ['ACK 超时（ACK timeout）', '45', '超过这一时刻，这一帧即判为丢失', '§10.3.2.9'],
-    ] },
-    { kind: 'steps', heading: '一次失败之后站点的处理步骤', items: [
-      '发送方从自己这一帧结束的时刻开始计时，期限是 16 + 9 + 20 = 45 µs。',
-      '期限之前没有任何应答开始，这次尝试就判为失败：这一帧的重传次数加一。',
-      '站点把窗口扩大到“CW 的两倍再加一”，上限是 1023——依次为 15、31、63，逐级增大。',
-      '然后它照常等待一段帧间间隔，并在间隔结束时从新的、更宽的窗口里随机选取一个数。注意这段间隔是从期限到期的时刻起算的，不是从碰撞帧结束的时刻起算。',
-      '连续失败到第七次，这一帧就被放弃：站点不再重传它，窗口也为后续的帧回到下限。这句话之所以成立，是因为两个计数器在这里保持一致：一个是这一帧自己的尝试次数，一个是这条队列（queue）连续失败的次数；两者何时不再一致，后面的课会用一次仿真演示。',
-      '一次成功之后，失败计数归零，窗口回到下限。',
-    ] },
-    { kind: 'table', heading: '翻倍在本轮中是否有效', head: [
-      '窗口', '300 ms 内的选取次数', '平均取值（时隙数）',
-    ], rows: [
-      ['CW = 15', '770', '7.15'],
-      ['CW = 31', '89', '16.07'],
-      ['CW = 63', '5', '23.80'],
-    ] },
-    { heading: '碰撞的频率', text: '300 ms 内这两台站点一共发出 864 帧，碰撞 47 次——大约每二十次发生一次。翻倍是有效的：整轮只有五次选取来自宽达 63 的窗口，一次也没有达到 127。代价同样明显：从 31 选取的平均等待是 16.07 个时隙，比从下限选取的 7.15 个多出一倍以上。' },
-  ],
-  deeper: [
-    { heading: '为什么 AP 什么也没有收到', text: 'AP 当时并没有在发送，但它也没有收到一帧校验出错的帧。无线电只有在某个前导码（preamble）比空中其余所有信号都高出一定余量时，才会锁定那一帧。这里两个前导码在同一时刻、以相近的强度开始，相互干扰，于是 AP 根本没有启动任何接收，只记录到信道上有能量。' },
-    { heading: '所以这里不会出现 EIFS', text: '扩展帧间间隔（extended interframe space, EIFS）那段更长的等待，只有在“接收确实已经开始、随后校验失败”时才会启动。从未锁定任何前导码的站点，没有可以校验失败的接收，也就不需要等待这一段。整轮仿真中没有启动过一次 EIFS；重传前的 DIFS 是从 293 µs 超时结束的时刻起算的，而不是从 248 µs 碰撞帧结束的时刻。' },
-  ],
-  limits: [
-    { kind: 'unmodelled', text: '两帧「完全相同，精确到纳秒」，是因为全场共用一个纳秒时基，而且发射在每个接收端同时开始（channel.ts 的 applyPendingStarts 发生在发送端开始发送的同一时刻）。真实的两台设备时钟各有几十 ppm 的偏差、到接入点的距离也不同，两个前导码总会略有错开，相互干扰的时间范围不像这里这样整齐——这个模型里的「碰撞」是最极端的那一种。' },
-    { kind: 'threshold', text: '一次接收用整个接收过程中最强的瞬时干扰与门限比较（resolveLock 使用 maxInterfMw），所以只重叠几微秒的两帧与完全重叠的两帧结果相同。真实系统中纠错编码配合交织，短暂的重叠往往仍可纠正，碰撞因此是一条概率曲线；这里它是一个硬判决，也正因如此本课的计数才这样整齐。' },
-    { kind: 'model-value', text: '捕获效应（capture effect）指接收机一旦锁定某个前导码就保持锁定，只有遇到明显更强的前导码时才转而与之同步。本仿真器的捕获余量是一个固定的 5 dB：第二个前导码必须比正在接收的那一帧强 5 dB，而且只有在前一帧的前导码尚未结束时才可能切换锁定（channel.ts 的 CAPTURE_MARGIN_DB 与 captureWindowNs）。这个数取自 ns-3 的默认值——标准对「遇到第二个前导码该怎么办」没有作任何规定，真实芯片的门限与窗口各不相同。' },
-    { kind: 'unmodelled', text: '45 µs 的期限精确到纳秒，而且只要有任何一路接收开始就被取消（mac.ts 的 onRxStart 取消超时）。真实设备要在这段时间内完成收发切换与前导码搜索，判定失败的时刻包含各实现自身的余量；而「有信号开始」这个条件在真实射频上也可能被一段与本次交互无关的能量误触发。' },
+    {
+      heading: '重传帧带重发比特',
+      jump: 1,
+      steps: [
+        '跳到第一次重传，在检视器里查看两台站点的竞争窗口。',
+        '把鼠标悬停在随后发出的那一帧上，查看帧头（MAC header）里的重发比特。',
+      ],
+      expect: '你应该看到：293 µs 时两台站点各记一条重传记录，竞争窗口都是 31；STA-2 在 498 µs 发出的帧，重发比特为 1。',
+      meaning: '这说明：重传计数加一、竞争窗口取下一个值、重传帧置重发比特，都照 ① 的规则执行（②）。',
+    },
+    {
+      heading: '翻倍在本轮中是否有效',
+      jump: 2,
+      steps: [
+        '载入本课场景，运行 300 ms。',
+        '在事件日志里过滤退避抽取记录，按竞争窗口分组统计次数与平均值，再统计碰撞次数。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '300 ms 内三档竞争窗口', head: ['竞争窗口', '选取次数', '平均取值（时隙数）'], rows: [
+          ['CW = 15', '770', '7.15'],
+          ['CW = 31', '89', '16.07'],
+          ['CW = 63', '5', '23.80'],
+        ] },
+      ],
+      expect: '你应该看到：两台站点共发出 864 帧，碰撞 47 次，约每二十帧一次；只有 5 次选取来自 CW = 63，没有一次达到 127，也没有一帧因达到重传上限被丢弃。从 31 选取的平均值 16.07 是从 15 选取的 7.15 的两倍以上。',
+      meaning: '这说明：竞争窗口翻倍使两台站点的取值重新错开，代价是更长的平均等待（①）；碰撞的判决方法是本仿真器的取法（②），这些确切的计数也随种子变化。',
+    },
+    {
+      heading: '第二次碰撞',
+      steps: [
+        '在事件日志里找到第二次碰撞，向前逐步回退。',
+        '看两台站点的退避计数在哪一个时隙减到零。',
+      ],
+      expect: '你应该看到：第二次碰撞在约 8.1 ms 处；两台站点的计数在同一个时隙同时减到零，两帧同时开始。',
+      meaning: '这说明：选到同一个值就会碰撞，标准没有任何机制阻止这一点（①）；碰撞在两帧开始之前就已经确定。',
+    },
   ],
   sources: [
-    '确认帧（acknowledgement, ACK）的期限见 IEEE Std 802.11-2024 的 §10.3.2.9：aSIFSTime + aSlotTime + aRxPHYStartDelay，在这里就是 16 + 9 + 20 µs。',
-    '每失败一次窗口翻倍见 §10.3.4.3；aCWmin 15、aCWmax 1023 与 dot11ShortRetryLimit 7 见 §17.4.4 与 §10.3.4.4：15 → 31 → 63 → … → 1023。',
-    '“两个重叠的前导码中无线电锁定哪一个”所用的捕获余量，是本仿真器的模型取值；随机种子、两台饱和站点与 1528 字节的帧同样如此，上面每一个计数都可由场景的种子复现。',
+    'IEEE Std 802.11-2024：§10.3.2.1（站点发送时介质为忙）、§10.3.2.2（肯定确认）、§10.3.2.11（AckTimeout）、表 17-24（aSIFSTime 16 µs、aSlotTime 9 µs、aRxPHYStartDelay 20 µs、aCWmin 15、aCWmax 1023）、§10.3.3（竞争窗口的序列与复位）、§10.3.4.3（失败之后的退避）、§10.3.4.4（重传计数、重发比特、重传上限）、附录 C（dot11ShortRetryLimit 默认值 7）、§10.3.2.3.7（EIFS）。',
+    '本仿真器的取值与取法：5 dB 的捕获（capture effect）余量（取自 ns-3）、按最强瞬时干扰判决、前导码不足时不启动接收、重传前从超时到期起等 DIFS、没有传播时延。随机种子、两台饱和站点与 1528 字节的帧同样是本仿真器的场景，上面每一个计数都可由场景的种子复现。',
   ],
+  limits: [],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
     node('sta-1', 'STA-1', 'sta', 3.5, 5, 'nonht', 'saturated'),
@@ -126,13 +146,8 @@ export const collisionsCw: Lesson = {
     J('第一次重传', firstRetry),
     J('第一次 CW 翻倍', (r) => r.type === 'CW_CHANGE' && r.cw > 15),
   ],
-  observe: [
-    '红色刻度处，AP 泳道上的重叠部分以斜线标示并标注“未检测到”。之后两台站点的 CW 都变为 31，每个重传帧都带有 Retry 标志。',
-    '跳到约 8.1 ms 处的第二次碰撞，逐步回退：两个计数器在同一个时隙同时归零。碰撞在发生之前就已经确定。',
-  ],
-  tryThis: [
-    '在第一次碰撞的帧尾暂停，用微秒按钮逐步推进到 293 µs。空口上没有任何信号——而这段空闲，正是发送方唯一能得到的“失败”信号。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '站点如何发现自己那一帧发生了碰撞？',
@@ -142,7 +157,7 @@ export const collisionsCw: Lesson = {
         'AP 广播了一条碰撞通知',
       ],
       answer: 1,
-      explain: '无线电无法同时发送和接收。正因如此，这套机制是“碰撞避免（collision avoidance）”，而不是“碰撞检测”。',
+      explain: '站点发送时介质被视为忙，它无法同时接收。§10.3.2.11：AckTimeout 内没有接收开始，就判定发送失败。',
     },
     {
       q: '为什么每失败一次就要把窗口翻倍？',
@@ -152,7 +167,17 @@ export const collisionsCw: Lesson = {
         '为了节省站点的电量',
       ],
       answer: 1,
-      explain: '没有站点知道究竟有多少台站点在竞争，所以窗口只能逐步试探调整：每失败一次扩大，每成功一次回到下限。',
+      explain: '没有站点知道究竟有多少台站点在竞争，所以窗口只能逐步试探调整：每失败一次取下一个值，每成功一次回到 aCWmin。',
+    },
+    {
+      q: '本仿真器里，第二个前导码要比正在接收的那一路强多少才会被转而接收？这个数出自哪里？',
+      options: [
+        '5 dB，标准 §10.3.2.11 规定',
+        '5 dB，本仿真器取自 ns-3 的默认值，标准对此没有规定',
+        '20 dB，与能量检测门限（energy detection threshold）相同',
+      ],
+      answer: 1,
+      explain: '标准没有规定接收机怎样处理重叠的前导码；5 dB 的捕获余量是本仿真器的取值。',
     },
   ],
 }

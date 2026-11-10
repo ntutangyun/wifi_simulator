@@ -2,32 +2,24 @@
  * Wi-Fi Tier 1 · M5 · 隐藏节点与帧丢失 · seven attempts, and the eighth that
  * never comes.
  *
- * The first half of the old `retries-queues`, split on 2026-09-25
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M5). The
- * parent stated two rules the engine follows — what happens to one frame nobody
- * answers, and what the queue behind it does — and the queue is now `queues`,
- * which loads this lesson's scene and both its variants unchanged
- * (`sameSceneAs: 'retries-queues'`).
+ * Standard-first shape (① standard → ② this simulator → ③ hands-on), converted
+ * on 2026-11-11 after the IEEE Std 802.11-2024 check of every rule it teaches:
+ * the ACK timeout of §10.3.2.11, the SRC/SSRC pair and the CW series of §10.3.3,
+ * the retry limit, the Retry subfield and the lifetime of §10.3.4.4, duplicate
+ * detection in §10.3.2.14, and the free choice of data rate in §10.6.5.8. Every
+ * node of this scene is a non-QoS (DCF) station, so ① cites the DCF clauses and
+ * not EDCA's §10.23.2.
  *
- * This half keeps jumps 0–2 (the first retry, the first frame carrying the
- * Retry bit, the first retry-limit drop), the seven-attempt table, the UI
- * walk-through and the two-counters depth. The queue, the lifetime, the drop
- * table, the three-setting comparison, the waiting times, the head-of-line
- * depth and both experiments went next door; so did the procedure's first two
- * steps, which are the queue's own (`AcQueues.enqueue` and
- * `MacSim.purgeExpired`), leaving this half the attempt-and-failure path end to
- * end from `failMsdus` in src/engine/mac.ts.
+ * Two findings of that check are in ② as `choice`/`differs`: the engine resets
+ * its queue counter at the limit (EDCA's rule — the DCF text only resets CW),
+ * and it starts every frame's lifetime clock at enqueue, which is EDCA's rule;
+ * for a DCF station §10.4 starts it at the first transmission attempt.
  *
- * Also cut, per §5.5: the Block Ack footnote, an aside about something the
- * simulator does not model at all.
- *
- * The timing figure is the seven attempts to scale — the whole point is that
- * they fan out — so the prose no longer has to say "each one starts later than
- * the last"; that sentence is gone from 「每一次尝试的开销都比上一次大」.
- *
- * The scene and both variants are unchanged, so the recorded timeline hashes
- * stay identical. Every number quoted below is pinned in
- * tests/course/retries-queues.test.ts.
+ * The first half of the old `retries-queues`, split on 2026-09-25; `queues`
+ * loads this lesson's scene and both its variants unchanged
+ * (`sameSceneAs: 'retries-queues'`), so the recorded timeline hashes stay
+ * identical. Every figure printed below is read back out of the text and
+ * compared with a run in tests/course/retries-queues.test.ts.
  */
 import type { Scenario } from '../../model/scenario'
 import type { TimingSpec } from '../diagram'
@@ -52,9 +44,6 @@ export const dropOf = (reason: 'retryLimit' | 'queueFull' | 'lifetime', at?: str
  * 6999, 13 632 and 26 940 µs, each span as long as that attempt really was, and
  * the frame behind it leaving at 27 741 µs. Every figure is a TX_START of the
  * base run and `retries-queues.test.ts` reads each one back out of this spec.
- *
- * Drawn on one linear axis the fan-out IS the picture: the first three attempts
- * are crowded against the left edge and the seventh is most of the way across.
  */
 export function retryFanTiming(): TimingSpec {
   return {
@@ -79,65 +68,100 @@ export const retriesQueues: Lesson = {
   id: 'retries-queues',
   module: 4,
   title: '一帧的七次尝试',
-  why: '一帧没有收到应答，并不等于它已经丢失：发送方可以再发送一次。但“再发送一次”总是有代价的，也不能无限制地重复。发送方实际上无法得知自己的帧是否到达，它只知道确认帧（ACK）没有在期限之内开始。于是它把同一帧原样放回队首再次发送——这就是重传（retry）：序列号不变，只额外置位重发比特（Retry bit），以便接收端识别出这是重复帧。同时它把竞争窗口（CW）翻倍，退避（backoff）值的随机选取范围随之扩大，所以各次尝试之间的间隔总体越来越大；但选取仍是随机的，并不是每一次的间隔都比上一次更大。连续失败几次后，速率也逐档下降，同一帧在空中的时长增加，最后一次占用的空口时间（airtime）是第一次的两倍多。同一帧发送满七次仍没有应答，就达到了重传上限（retry limit）：这一帧被放弃，后面那一帧移到队首，窗口恢复为最小值。这正是规则在发挥作用——一条链路（link）七次都无法成功送达，七十次也不会成功。决定是否放弃的是这一帧自身的发送次数，决定窗口的是整条队列（queue）的连续失败次数；两者通常同步，一旦有帧因等待过久而被丢弃，两者就不再一致。',
+  why: '发送方无法得知自己发出的 MSDU（MAC service data unit）是否到达，它只知道确认帧（ACK）有没有在期限之内开始。IEEE 802.11-2024 对不支持服务质量（quality of service, QoS）、使用分布式协调功能（distributed coordination function, DCF）的站点（STA）规定的做法是：期限一到仍没有应答，就判定这次发送失败，之后把同一帧再发送一次——这就是重传（retry）——帧上的重发比特（Retry bit）置 1，序列号不变，接收端据此识别重复帧；同时这一帧的短重传计数（SRC）与站点的短重传计数（SSRC）各加一，竞争窗口（CW）取序列 2^k − 1 中的下一个值，最大为 aCWmax。重传一直进行到这一帧发送成功，或者它的 SRC 达到 dot11ShortRetryLimit（缺省为 7），或者它超过生存期（MSDU lifetime）；达到任何一个上限，这一帧就被丢弃，这个上限就是重传上限（retry limit）。SSRC 达到上限时，窗口恢复为 aCWmin。决定是否放弃一帧的是这一帧自己的计数，决定窗口的是站点的计数；两者通常同步，一旦有帧因超过生存期而被丢弃，两者就不再一致。标准没有规定速率怎样随失败调整，本仿真器连续失败两次降一档，所以同一帧最后一次占用的空口时间（airtime）是第一次的两倍多。',
   outcomes: [
-    '解释发送方依据什么判定“这一帧未送达”，以及它随后更新了哪三个数',
-    '读出同一帧七次尝试的时刻，并说出它们的间隔总体上为什么越来越大',
-    '说明第七次之后发生了什么，以及为什么继续重发是错误的',
+    '说出标准依据什么判定一次发送失败，以及失败之后哪几个量随之更新',
+    '分清哪些做法照标准、哪些是本仿真器的取值与取法',
+    '从日志里读出同一帧七次尝试的时刻，以及第七次之后发生了什么',
   ],
   needs: ['airtime', 'collisions-cw'],
   terms: [
-    { term: 'retry', plain: '未收到应答之后，把同一帧再发送一次；帧上带有标记，以便接收端识别出这是重复帧' },
-    { term: 'retry limit', plain: '同一帧最多可发送的次数；达到上限后，发送方就放弃这一帧' },
+    { term: 'retry', plain: '未收到应答之后，把同一帧再发送一次；帧上的重发比特置 1，以便接收端识别出这是重复帧' },
+    { term: 'retry limit', plain: '同一帧最多可发送的次数，即 dot11ShortRetryLimit；达到上限后，发送方就丢弃这一帧' },
   ],
-  picture: [
-    { heading: '没有收到应答', text: '站点（STA）无法得知自己那一帧是否到达。它只知道，所等待的来自接入点（AP）的确认帧（ACK）一直没有到达。于是它把同一帧原样再发送一次——这就是重传（retry）——位置仍在队列（queue）最前面，只是置位一个比特，以便接收端区分这是重复帧还是新帧。' },
-    { heading: '每一次尝试的开销都比上一次大', text: '发送方把这次没有应答视为竞争加剧的信号，于是把竞争窗口（CW）翻倍、从更大的范围中选取退避（backoff）值。帧本身往往也发送得更慢：连续失败几次之后，无线电会改用更稳健、也更慢的一档速率，帧在空中的时长增加，与其他站点的发送重叠的可能性也更大。' },
-    { kind: 'watch', jump: 0, heading: '跟踪一帧', text: '载入仿真，跳到第一次重传。跟踪左边那台上传站点的某一帧：同一帧被一次又一次地发出——直到它不再出现。' },
-    { heading: '七次之后，放弃这一帧', text: '任何一帧都不能无限次重传。每一帧都记录着自己已被发送的次数，而这个数的上限叫做重传上限（retry limit）——这里是七。一达到这个数，这一帧就被放弃，后面那一帧移到队首。这不是规则出了问题，而正是规则在发挥作用：一条七次都无法成功送达的链路，七十次也不会成功。' },
-    { heading: '还有一种被放弃的方式', text: '帧被放弃并不只有这一种途径。一帧在队列中等待的时间超过它的生存期（MSDU lifetime），也会被丢弃——而且往往一次也没有获得发送机会。那是下一课的内容。' },
+  standard: [
+    { heading: '判定一次发送失败（§10.3.2.11，§17.4.4 表 17-24）', text: '发出一个要求立即确认的 MPDU（MAC protocol data unit）之后，发送方从物理层（physical layer, PHY）报告发送结束（PHY-TXEND.confirm）起等待一个 ACK 超时（ACK timeout），其长度为 aSIFSTime + aSlotTime + aRxPHYStartDelay。在此期间物理层没有报告开始接收，发送方就断定这次发送失败，并在 ACK 超时结束时启动退避（backoff）。20 MHz 的正交频分复用（orthogonal frequency-division multiplexing, OFDM）物理层三项分别为 16 µs、9 µs、20 µs，合计 45 µs。所谓失败，就是没有收到应答（§10.3.4.3）；发送方无从区分原因是碰撞还是信号太弱。' },
+    { heading: '两个重传计数（§10.3.3，§10.3.4.4）', text: '站点为每个等待发送的 MSDU 维护一个短重传计数（short retry count, SRC），站点自身另有一个站点短重传计数（STA short retry count, SSRC），初值都是 0。长度不超过 dot11RTSThreshold 的帧发送失败一次，这个 MSDU 的 SRC 与 SSRC 各加一；发送成功，两者都清零。长度超过 dot11RTSThreshold 的帧另用一对长重传计数（LRC 与 SLRC）。' },
+    { heading: '竞争窗口怎样变化（§10.3.3，式 (10-1)）', text: '退避计数从 [0, CW] 中均匀随机地选取。CW 的初值为 aCWmin；每次发送失败使站点的重传计数加一时，CW 取序列 2^k − 1 中的下一个值，直到 aCWmax 为止，此后保持 aCWmax。每次成功发送之后，或者 SSRC 达到 dot11ShortRetryLimit 时，CW 恢复为 aCWmin。OFDM 物理层的 aCWmin 为 15，aCWmax 为 1023（§17.4.4 表 17-24）。' },
+    { heading: '重传与重复帧（§10.3.4.4，§10.3.2.14）', text: '一个 MPDU 在确认失败一次或多次之后，它的每一次重传都必须把重发比特（Retry 子字段）置 1。同一个 MSDU 的各个 MPDU 序列号相同，序列号是一个模 4096 的计数。接收端收到重发比特为 1 的帧时，在重复检测缓存里查找相同的记录，以此滤除重复帧。' },
+    { heading: '放弃一帧（§10.3.4.4，§10.4，附录 C）', text: '重传一直进行到这一帧发送成功，或者它的 SRC 等于 dot11ShortRetryLimit，或者它的发送计时器超过 dot11MaxTransmitMSDULifetime；达到任何一个上限，重传即停止，这一帧被丢弃。dot11ShortRetryLimit 是一个可读写的管理变量，表示一帧在报告失败之前最多发送的次数，缺省值为 7。' },
+    { heading: '速率由实现决定（§10.6.5.8）', text: '单播数据帧（data frame）可以使用接收端支持的任何速率，标准只规定不得超出接收端声明的能力，没有规定发送方怎样根据失败或成功调整速率。' },
+    { kind: 'steps', heading: '一次发送失败之后，按标准：逐步说明', items: [
+      '发出数据帧，从发送结束起计时一个 ACK 超时：aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.11）。',
+      'ACK 超时之内物理层没有报告开始接收：这次发送失败（§10.3.2.11）。',
+      '这一帧的 SRC 与站点的 SSRC 各加一；CW 取序列中的下一个值，最大为 aCWmax（§10.3.3）。',
+      '若 SRC 已等于 dot11ShortRetryLimit，或者生存期已到，丢弃这一帧；SSRC 达到上限时 CW 恢复为 aCWmin（§10.3.3，§10.3.4.4）。',
+      '否则在 ACK 超时结束时启动退避，从 [0, CW] 中选取退避计数；退避结束后重传，重发比特置 1，序列号不变（§10.3.4.3，§10.3.4.4）。',
+      '某一次发送收到确认：SRC 与 SSRC 清零，CW 恢复为 aCWmin（§10.3.3）。',
+    ] },
   ],
-  numbers: [
+  implementation: [
+    { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay，从发送结束起算（§10.3.2.11）', sim: '照此计算：16 + 9 + 20 = 45 µs；期限内没有开始接收，就写一条失败记录并启动退避。', kind: 'faithful' },
+    { topic: '两个计数', standard: '每个 MSDU 一个 SRC，站点一个 SSRC（§10.3.3，§10.3.4.4）', sim: '每个 MSDU 一个尝试计数（日志里的 retries），每条队列（queue）一个失败计数（日志里沿用增强型分布式信道接入（enhanced distributed channel access, EDCA）的名字 QSRC）。本课的站点都是非 QoS 站点，每台只有一条队列，所以队列计数就是站点的 SSRC；任何一次成功都使它清零。', kind: 'faithful' },
+    { topic: 'SSRC 达到上限时', standard: 'DCF 只规定 CW 恢复为 aCWmin，没有说 SSRC 是否清零（§10.3.3）', sim: '计数清零、CW 恢复为 15，即 EDCA 对 QSRC 的规则（§10.23.2.2）。', kind: 'choice' },
+    { topic: '竞争窗口的序列', standard: '2^k − 1，从 aCWmin 到 aCWmax（§10.3.3）', sim: '每次失败 CW 变为 min(2·CW + 1, 1023)：15、31、63、127、255、511、1023。', kind: 'faithful' },
+    { topic: '重发比特与序列号', standard: '重传时重发比特置 1，同一 MSDU 序列号相同（§10.3.4.4，§10.3.2.14）', sim: '照此：一个 MSDU 第一次发送时取得序列号，每次重传沿用，重发比特置 1。', kind: 'faithful' },
+    { topic: '重传上限的取值', standard: 'dot11ShortRetryLimit 是可读写的管理变量，缺省 7（附录 C）', sim: '固定为 7，所有设备、所有帧长共用，不能修改。', kind: 'value' },
+    { topic: '长帧的计数', standard: '超过 dot11RTSThreshold 的帧用 LRC 与 SLRC（§10.3.4.4）', sim: '没有长重传计数，所有帧都按短重传计数与 7 次的上限处理。本课场景的 RTS 门限（RTS threshold）是 3000 字节，没有一帧超过它，所以不涉及这一条。', kind: 'absent' },
+    { topic: '失败之后的速率', standard: '标准未规定调整方法（§10.6.5.8）', sim: '对同一个对端连续失败两次降一档，连续成功十次升一档，且不超过按信噪比（signal-to-noise ratio, SNR）查表得到的上限。它无法区分失败来自碰撞还是信号变弱。', kind: 'choice' },
+    { topic: '退避的随机数', standard: '从 [0, CW] 均匀选取，各站点的随机序列应当统计独立（§10.3.3 NOTE 1）', sim: '由场景种子生成的确定序列，同一场景每次运行结果相同；本课的链路（link）电平也不随时间变化。', kind: 'choice' },
+    { topic: '生存期从何时起算', standard: '非 QoS 站点的发送计时器从第一次尝试发送时起算，上限 dot11MaxTransmitMSDULifetime，缺省 512 TU（§10.4，附录 C）', sim: '一律从入队时起算，取 500 ms，即 EDCA 的规则（§10.23.2.12.1）；所以一帧可以在一次也没有发送的情况下超过生存期。下一课详细讨论。', kind: 'differs' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: 'Hidden B 的第一帧，七次尝试',
-      spec: retryFanTiming(),
-      caption: '同一个序列号，七个色块：前三次集中在最左边，第七次已经到了 26 940 µs。窗口逐次变宽，所以间隔总体在增大——但不是每次都增大：第三次与第四次之间相隔 2497 µs，第四次与第五次之间只隔 2091 µs。选取仍然是随机的，变宽的只是范围。排在它后面的那一帧，要到 27 741 µs 才开始发送。',
+      heading: '同一帧的七次尝试',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一次重传。Hidden A 与 Hidden B 彼此收不到对方的信号，它们发往接入点（AP）的帧经常相互重叠。',
+        '跟踪 Hidden B 的第一帧：读出它每一次发送的时刻、速率与重发比特，以及每次失败之后的 CW。',
+      ],
+      blocks: [
+        { kind: 'diagram', heading: 'Hidden B 的第一帧，七次尝试', spec: retryFanTiming(), caption: '按真实比例绘制。前三次集中在最左边，第七次在 26 940 µs；排在后面的那一帧到 27 741 µs 才开始发送。' },
+        { kind: 'table', heading: '一帧的七次尝试', head: ['第几次', '发送于', '速率', '重发比特', '记录失败', '之后的 CW'], rows: [
+          ['1', '0 µs', '48 Mb/s', '0', '321 µs', '31'],
+          ['2', '526 µs', '48 Mb/s', '1', '847 µs', '63'],
+          ['3', '1683 µs', '36 Mb/s', '1', '2092 µs', '127'],
+          ['4', '4544 µs', '36 Mb/s', '1', '4953 µs', '255'],
+          ['5', '6999 µs', '24 Mb/s', '1', '7576 µs', '511'],
+          ['6', '13 632 µs', '24 Mb/s', '1', '14 209 µs', '1023'],
+          ['7', '26 940 µs', '18 Mb/s', '1', '27 689 µs', '15'],
+        ] },
+      ],
+      expect: '七次尝试的序列号都是 0；第一次重发比特为 0，之后都是 1。CW 从 31 逐次增大到 1023。间隔总体越来越大，但不是每次都增大：第三次与第四次之间相隔 2497 µs，第四次与第五次之间只隔 2091 µs。速率每失败两次降一档，第一次占用 276 µs，第七次占用 704 µs。',
+      meaning: 'CW 的序列、重发比特与序列号都照标准（①）；退避计数是从变宽的范围里随机选取的，所以间隔不是单调增大。降档是本仿真器自己的取法（②），标准没有规定。',
     },
-    { kind: 'steps', heading: '一次失败之后发送方的处理步骤', items: [
-      '队首那一帧发出后，发送方同时启动一个超时计时器：应答必须在这一帧结束后的 45 µs 之内开始——16 µs 的间隔、一个 9 µs 的时隙（slot time），再加电台报告“开始接收”所需的 20 µs。',
-      '计时器到期仍没有应答，就有三个数随之更新：这一帧自身的尝试次数加一；这条队列的连续失败次数加一；竞争窗口扩大为原来的两倍再加一，最大为 1023。',
-      '这一帧随后被放回队首，重新等待发送：序列号不变，只是置位了重发比特（Retry bit）——所以每一次尝试都是同一帧，而不是新的一帧。',
-      '速率控制同时也在降档：失败累积到一定次数，下一次尝试就改用更慢、更稳健的一档速率，于是同一帧占用的空口时间（airtime）反而更长。',
-      '当一帧的尝试次数达到重传上限七次，它就被丢弃，后面那一帧移到队首。而窗口恢复为 15，依据的是队列自身的失败次数达到七——在同一帧被反复重传时，这两件事发生在同一时刻。',
-    ] },
-    { kind: 'table', heading: '一帧的七次尝试', head: [
-      '第几次', '发送于', '速率',
-      '重发比特', '记录失败', '之后的 CW',
-    ], rows: [
-      ['1', '0 µs', '48 Mb/s', '0', '321 µs', '31'],
-      ['2', '526 µs', '48 Mb/s', '1', '847 µs', '63'],
-      ['3', '1683 µs', '36 Mb/s', '1', '2092 µs', '127'],
-      ['4', '4544 µs', '36 Mb/s', '1', '4953 µs', '255'],
-      ['5', '6999 µs', '24 Mb/s', '1', '7576 µs', '511'],
-      ['6', '13 632 µs', '24 Mb/s', '1', '14 209 µs', '1023'],
-      ['7', '26 940 µs', '18 Mb/s', '1', '27 689 µs——放弃', '15'],
-    ] },
-    { heading: '如何解读这张表', text: '七次尝试的序列号相同。速率每失败两次降一档，于是第一次尝试占用 276 µs 空口时间，第七次需要 704 µs。三秒内 Hidden A 送达 76 帧、因达到重传上限丢弃 62 帧，Hidden B 分别是 69 与 61——这条链路的失败很有规律。' },
-  ],
-  deeper: [
-    { heading: '两个计数器，而不是一个', text: '“是否放弃这一帧”依据的是这一帧自身的尝试计数。“是否扩大窗口”依据的是另一个计数器：它属于队列而不是某一帧，任何一次成功都会使它复位。当同一帧被反复重传时，两者保持一致；而一旦有帧因超过生存期被丢弃，两者就不再一致：504 465 µs 处 Hidden B 一次丢弃三个旧帧，紧接着的那一帧第一次失败时读数是 retries = 1，而队列计数器已经是 6；第二次是 2 对 7——此时窗口恢复为 15，尽管这一帧的七次机会才用掉两次。' },
-  ],
-  limits: [
-    { kind: 'model-value', text: '七这个上限在引擎中是一个常数（phy.ts 的 SHORT_RETRY_LIMIT），全场每台设备、每个接入类别、每种帧长都使用同一个七，而且这个数同时决定队列的失败计数何时使窗口恢复为 15。标准只规定 dot11ShortRetryLimit 是一个可配置的管理变量。真实驱动会按接入类别、帧长甚至链路质量设置不同的上限，语音帧和备份帧不会使用同一个值。' },
-    { kind: 'unmodelled', text: '降档机制是引擎自身的两条计数规则：同一个对端连续两次失败降一档，连续十次成功升一档，且永远不超过按信噪比查表得到的上限（rate.ts 的 RateControl）。它无法区分这一次失败是碰撞还是信号变弱。真实的速率控制会依据一段时间窗内的丢包率判断，或者像 CARA 那样先发送一个短帧试探，以免把碰撞误判为衰落——引擎没有实现这两种方法中的任何一种，所以表中「每失败两次降一档」的规律整齐得不符合实际。' },
-    { kind: 'unmodelled', text: '这七次尝试之所以能逐一确定时刻，是因为退避值的随机选取来自由场景种子生成的确定序列，而链路电平在默认场景中根本不随时间变化。真实的七次尝试处于七种不同的信道条件下，其中有几次必然失败，也有几次本应成功。编辑器的「时变链路（衰落）」一节可以开启电平的起伏，本课的三个场景都没有开启。' },
-    { kind: 'out-of-scope', until: 'wan-rtt', text: '一次失败的代价在这里只有空口时间与窗口翻倍，因为本课这三个场景之上没有任何上层：它们的 servers 为空，于是业务源直接生成 MSDU，连一次应用层往返都无法测量。引擎本身有一层云端——「云端往返」那一课会开启它，那里 28.688 ms 的往返中只有 0.106 ms 属于空口。而即使开启这一层，仍然没有 TCP 的拥塞窗口与语音的抖动缓冲：服务器会因请求未送达而不应答，却不会因时延变长而降速。真实设备上这七次尝试往往还伴随上层的一次超时重传，一帧的丢失会经由传输层放大为数倍的代价。要回答「用户感受到了什么」，开启那一层之后只能回答一半：等待了多久可以回答，是否会降速避让则无法回答。' },
+    {
+      heading: '第七次之后',
+      jump: 2,
+      steps: [
+        '跳到第一次因重传上限丢帧。',
+        '读出同一时刻的失败记录、丢弃记录与 CW 记录，再看 Hidden B 的下一帧。',
+      ],
+      expect: '27 689 µs 处最后一次失败记作 “retry #id (retries=7 QSRC=7)”，紧接着一行 “DROP #id (retryLimit)”，同一时刻 CW 恢复为 15。下一帧在 27 741 µs 发出，序列号为 1，重发比特为 0。三秒内 Hidden A 送达 76 帧、因重传上限丢弃 62 帧，Hidden B 分别是 69 帧与 61 帧。',
+      meaning: '这一帧的 SRC 等于 7，按 §10.3.4.4 被丢弃；SSRC 达到上限，CW 按 §10.3.3 恢复为 aCWmin（①）。计数同时清零是本仿真器的取法（②）。',
+    },
+    {
+      heading: '两个计数不再一致',
+      steps: [
+        '在事件日志里找到 504 465 µs：Hidden B 在这一时刻丢弃三帧，原因是生存期超时。',
+        '读出紧接着那一帧前三次失败记录中的 retries 与 QSRC，以及每次之后的 CW。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '504 465 µs 之后那一帧的前三次失败', head: ['第几次失败', 'retries（这一帧）', 'QSRC（站点）', '之后的 CW'], rows: [
+          ['1', '1', '6', '1023'],
+          ['2', '2', '7', '15'],
+          ['3', '3', '1', '31'],
+        ] },
+      ],
+      expect: '被丢弃的三帧中排在最前面的那一帧（序列号 17）已失败 5 次，站点的计数随之停在 5；它们因生存期被丢弃时，站点计数并不清零。下一帧（序列号 18）第一次失败时读数是 1 对 6，第二次是 2 对 7——此时 CW 恢复为 15，尽管这一帧的七次机会才用掉两次。',
+      meaning: '这一帧的计数决定何时丢弃它，站点的计数决定窗口，标准只在成功时把两者一起清零（①）。生存期从入队起算是本仿真器与标准不同之处（②）。',
+    },
   ],
   sources: [
-    '两个计数器见 IEEE Std 802.11-2024 §10.23.2.2：dot11ShortRetryLimit = 7 决定每个 MSDU 何时被丢弃，而每个接入类别一个的 QSRC 驱动 CW = min(2·CW + 1, CWmax)。802.11-2016 还有一套用于长帧的 SLRC 与 dot11LongRetryLimit = 4（超过 RTS 门限时适用），802.11-2020 已删除。',
-    '重复帧检测（凭发送地址、序列号与 Retry = 1）见 §10.3.2.14；确认帧的 45 µs 期限见 §10.3.2.9。',
-    '500 个 MSDU 的队列上限、500 ms 的生存期与“丢弃新到者”的策略，都是本仿真器的模型取值，沿用 ns-3 的 WifiMacQueue；随机种子、隐藏节点户型与 13.2 Mb/s 的视频源同样如此。',
+    'IEEE Std 802.11-2024：§10.3.2.11（ACK 超时 = aSIFSTime + aSlotTime + aRxPHYStartDelay）、§10.3.3 与式 (10-1)（SRC、SSRC、CW 序列与复位）、§10.3.4.3（失败之后的退避）、§10.3.4.4（重发比特、重传上限与生存期）、§10.3.2.14（序列号与重复检测）、§10.4（DCF 的发送计时器从第一次尝试起算）、§10.6.5.8（单播数据帧的速率）、§10.23.2.2 与 §10.23.2.12.1（EDCA 的 QSRC 与生存期）、§17.4.4 表 17-24（OFDM 物理层的 aSlotTime、aSIFSTime、aRxPHYStartDelay、aCWmin、aCWmax）、附录 C（dot11ShortRetryLimit 缺省 7，dot11MaxTransmitMSDULifetime 缺省 512 TU）。',
+    '本仿真器的取值与取法：7 次的固定上限、到达上限时计数清零、连续两次失败降一档与连续十次成功升一档、由种子生成的退避序列、从入队起算的 500 ms 生存期、500 个 MSDU 的队列上限，以及隐藏节点户型与 13.2 Mb/s 的视频源。',
   ],
+  limits: [],
   scenario: () => retriesScenario({ limit: 500, lifetimeMs: 500 }),
   variants: [
     {
@@ -154,33 +178,38 @@ export const retriesQueues: Lesson = {
     J('第一次重发（Retry 位置位）', txOf((r) => r.frame.kind === 'data' && r.frame.retryFlag === true)),
     J('第一次因重传上限丢帧', dropOf('retryLimit')),
   ],
-  observe: [
-    '27 689 µs 放弃那一帧时，Hidden B 在同一时刻记录丢弃与窗口复位为 15；它的下一帧序列号是 1，重发比特清零。',
-    '事件日志中，最后一次失败记为 “retry #id (retries=7 QSRC=7)”，紧接着是一行 “DROP #id (retryLimit)”。',
-  ],
-  tryThis: [
-    '在第一次重传处暂停，打开帧详情：序列号和重发比特这两行，是区分“同一帧再次发送”与“新的一帧”的唯一依据。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '一帧已经发送了七次，仍然没有应答。它会被如何处理？',
+      q: '一帧已经发送了七次，仍然没有应答。按标准，它会被如何处理？',
       options: [
         '它留在队首，等待信道空闲一些',
-        '它被放弃，后面那一帧移到队首',
+        '它的 SRC 已等于 dot11ShortRetryLimit，重传停止，这一帧被丢弃',
         '它再以最低速率发送一次',
       ],
       answer: 1,
-      explain: '七就是重传上限，而后面整条队列已经为这七次尝试付出了等待的代价。',
+      explain: '§10.3.4.4：SRC 等于 dot11ShortRetryLimit 时重传停止，这一帧被丢弃。缺省值是 7。',
     },
     {
-      q: '第七次尝试为什么发生在 26 940 µs，而不是紧接着第六次？',
+      q: '发送方依据什么判定一次发送失败？',
       options: [
-        '接入点要求它等待',
-        '每失败一次窗口就翻倍，选取的退避值也随之变大',
-        '帧变长了，所以要等更久',
+        '接收端发回一个否定确认',
+        'ACK 超时之内物理层没有报告开始接收',
+        '发送方检测到了碰撞',
       ],
       answer: 1,
-      explain: '窗口从 15 逐步增大到 1023，选取的时隙数随之变大；帧变长只是使每次尝试本身的开销更大。',
+      explain: '§10.3.2.11：期限内没有开始接收就判定失败。802.11 没有否定确认，发送方也无法在发送的同时检测碰撞。',
+    },
+    {
+      q: '哪一项是本仿真器自己的取法，而不是标准的规定？',
+      options: [
+        '重传时重发比特置 1',
+        '连续失败两次就降一档速率',
+        '每次失败 CW 取序列中的下一个值',
+      ],
+      answer: 1,
+      explain: '§10.6.5.8 只限定速率不得超出接收端的能力，怎样随失败调整由实现决定；另外两项都是 §10.3.3 与 §10.3.4.4 的规定。',
     },
   ],
 }

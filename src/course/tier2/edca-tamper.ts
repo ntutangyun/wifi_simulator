@@ -2,32 +2,27 @@
  * Wi-Fi Tier 2 · M7 · QoS 与效率 · seven ways to deviate from the EDCA parameters,
  * and the places three of them do nothing at all.
  *
- * `edca` gives the four parameter sets, `edca-cost` gives the bill; this lesson
- * asks the question those two leave open — what if a station fills those
- * parameters in itself? The engine has had `TamperCfg`, `TAMPER_KINDS` and
- * `TAMPER_PRESETS` since the patent-draft slice, the editor has had the dropdown
- * for as long, and until 2026-10-05 no lesson in the course loaded a single one
- * of the seven (design doc
- * docs/superpowers/specs/2026-10-05-built-but-untaught-design.md §0 and §5.3).
+ * Standard-first shape (2026-11-11). This lesson is a deliberate demonstration of NON-standard
+ * behaviour, so the shape is used the way the brief asks for such scenes: ① gives the rules a
+ * compliant station follows — the parameters the access point advertises (§9.4.2.27, §10.2.3.2,
+ * Table 9-194), the AC mapping (Table 10-1), AIFS and the uniform draw (§10.23.2.4), the window
+ * update (§10.23.2.2), the TXOP limit (§10.23.2.9) and how a Duration is written and relayed
+ * (§9.2.5.2, §9.2.5.6); ② marks each of the seven tamper presets as `differs` and says it is this
+ * lesson's deliberate demonstration, next to the faithful rows the cheats are measured against;
+ * ③ four runs.
  *
- * Two things in it are measurements that contradict what the repository said
- * about itself, and both are the lesson's subject rather than footnotes:
+ * One correction from the audit: the old table said the window-collapse preset breaks
+ * 「倒数值应在 0 与当前窗口之间均匀抽取」. It does not — the engine still draws uniformly, from
+ * [0, 0]. What it breaks is the rule that a station uses the CWmin/CWmax the access point
+ * advertises (§10.2.3.2). The standard itself allows an advertised CWmin of 0 (ECWmin = 0, §9.4.2.27).
  *
- *  - **the ladder has four rungs and a ceiling group, not seven rungs.**
- *    `src/model/scenario.ts:103` calls the presets 「from the subtle to the
- *    brazen」; across seeds 7, 11, 23, 37 and 42 the first five orders hold on
- *    every seed, and the last three are all at 98.6–100 % with their order
- *    flipping between seeds. The design document's first cut of this table was
- *    seed 7 alone and it read as a strict seven-way ordering, which is a
- *    coincidence of that seed.
- *  - **three of the seven are byte-identical to not cheating, in scenes that are
- *    perfectly legal.** That is `tests/engine/tamper-inert.test.ts`, and the
- *    lesson teaches it rather than hiding it.
+ * Two measurements are the lesson's subject rather than footnotes: the ladder has four rungs and
+ * a ceiling group across seeds 7, 11, 23, 37 and 42 (not seven rungs), and three presets are
+ * byte-identical to not cheating in legal scenes (tests/engine/tamper-inert.test.ts).
  *
- * The scene is `tamperScenario()`: three saturated stations, no servers (they
- * would be inert here, and it is measured — see the builder). Every number below
- * is pinned in tests/course/edca-tamper.test.ts, at 2000 ms unless it says
- * otherwise.
+ * The scene is `tamperScenario()`: three saturated stations, no servers. Every figure the labs
+ * print is read back out of this file by tests/course/edca-tamper.test.ts, at 2000 ms unless the
+ * lab says otherwise.
  */
 import { type Lesson, J, firstCollision } from '../lessonKit'
 import { cloudGameScenario, tamperScenario } from '../wifiScenes'
@@ -36,72 +31,128 @@ export const edcaTamper: Lesson = {
   id: 'edca-tamper',
   module: 7,
   title: '篡改驱动——七种偏离，以及其中三种不起作用的场合',
-  why: '前两课里那四组参数由接入点（access point, AP）下发，每台设备照此执行。但没有任何机制去核查：一台站点（station, STA）等待多久才开始倒数、从多宽的范围里抽取倒数值、一次占用信道多久，全部由它自己的芯片决定。修改驱动的七种做法，改动的只有四处：应等待的那段静默、抽取倒数值的竞争窗口（contention window, CW）、一次取得信道后能连续占用多久，以及帧头（MAC header）里宣告的持续时间（Duration/ID）；另外三种是把所有帧都标为语音、碰撞之后不把窗口翻倍、前四种同时使用。三台站点都有持续待发的上传数据，没有站点作弊时三台各占约三分之一的发送；换上这些改法，综合几个种子来看，份额形成稳定的四级——窗口不翻倍、缩短静默、霸占信道、提升优先级，一级比一级高；最后三种（虚报时长、窗口坍缩、四种合在一起）都使守规站点几乎无法发出帧，相互次序随种子变化，只能算作一组。窗口不翻倍反而使全场碰撞增多；抑制作用最强的几种几乎没有碰撞，所以碰撞少并不意味着信道运行正常。虚报时长在隐藏节点（hidden station）的房间里无需作弊者自己抑制其他站点：接入点沿用请求中的时长作出应答，收不到作弊者的那台站点按照接入点的应答保持静默。但这七种里，有三种在其他完全合法的场景中不改变记录中的任何一个字节：只打电话的设备本来就属于语音那一类；独占空口的设备从不发生碰撞，窗口本来就不会翻倍；只打游戏的手机队列（queue）中始终只有一帧，宣告的占用时长再长也会立即收回。',
+  why: 'IEEE Std 802.11-2024 让接入点（access point, AP）在信标（Beacon）的增强型分布式信道接入（enhanced distributed channel access, EDCA）参数集（parameter set）元素里通告四个接入类别（access category, AC）的竞争参数，非接入点的站点（station, STA）必须使用最近收到的那一组：等待的仲裁帧间间隔数（arbitration interframe space number, AIFSN）不得小于 2，倒数值从竞争窗口（contention window, CW）里均匀抽取，失败后按公式放宽窗口，一个传输机会（transmit opportunity, TXOP）不得超过 TXOP 上限（TXOP limit），帧头（MAC header）里的 Duration 只写本次交互还需要的时间。这些规则都由站点自己执行，等待多久、从多宽的范围抽取，在空口上看不到。本课故意让一台站点违反它们，这是本仿真器为演示而设的作弊配置，不是标准行为：七个预设改动的是 AIFSN、竞争窗口、TXOP 上限、Duration、接入类别与窗口放宽六处中的一处或几处。三台站点都持续上传，没有站点作弊时三台各占约三分之一的发送；在五个随机种子上，作弊者的份额排成稳定的四级——窗口不翻倍、缩短静默、霸占信道、提升优先级一级比一级高，最后三种（虚报时长、窗口坍缩、四种合在一起）都使守规站点几乎发不出帧，相互次序随种子变化，只能算作一组。窗口不翻倍反而使碰撞增多，抑制作用最强的几种几乎没有碰撞，所以碰撞少不等于信道运行正常。在隐藏节点（hidden station）的房间里，虚报的时长经由接入点回复的允许发送（clear to send, CTS）抑制了收不到作弊者的那台站点。有三种改法在其他完全合法的场景里不改变记录中的任何一个字节。',
   outcomes: [
-    '说明七种偏离各自修改的是哪个参数、违反的是哪一条规定',
-    '读出四级阶梯上每一级的份额，并说明为什么最后三种只能算作一组',
-    '指出三种偏离各自在什么场合下不起作用（记录逐字节相同），以及原因在哪一层',
+    '说出一台守规站点按标准应使用哪些 EDCA 参数，以及每一种篡改违反的是哪一条',
+    '读出四级份额上每一级的数值，并说明为什么最后三种只能算作一组',
+    '指出三种篡改各在什么场合下不起作用（记录逐字节相同），以及原因',
   ],
   needs: ['edca', 'edca-cost', 'collisions-cw', 'txop'],
   terms: [
-    { term: 'tampered driver', plain: '篡改驱动：一台设备不按下发的那套参数竞争，而是自行填写一套对自己更有利的参数' },
-    { term: 'TXOP limit', plain: '传输机会上限：一次取得信道之后最多能连续占用多长时间，标准为四类各规定了一个值' },
-    { term: 'Duration', plain: '持续时间字段：每一帧帧头里宣告「这次交互还需要多长时间」的那个数值，邻居按照它保持静默' },
+    { term: 'tampered driver', plain: '篡改驱动：站点不使用接入点通告的那组参数，自行填写一组对自己更有利的参数' },
+    { term: 'TXOP limit', plain: '传输机会上限：一次取得信道之后最多能连续占用多长时间，接入点为四类各通告一个值' },
+    { term: 'Duration', plain: '每一帧帧头里宣告「这次交互还需要多长时间」的字段，收到的站点按它保持静默' },
   ],
-  picture: [
-    { heading: '这套规则没有监督机制', text: '增强型分布式信道接入（enhanced distributed channel access, EDCA）全部的约束力，在于每一台设备都按照同一张表等待和抽取。那张表在标准里是信标（Beacon）帧里的一个 EDCA 参数集（parameter set）元素，由接入点广播；而等待多久、抽取范围多宽这两件事发生在设备自己的芯片里，在空口上无法观察到。一台修改了驱动的设备不需要破解任何东西，它只需把自己那几个数填小一些。更重要的是：本仿真器根本不发送管理帧（management frame），于是这里的作弊者偏离的，是一套从未被广播过的参数。' },
-    { kind: 'watch', jump: 0, heading: '先看一个没人作弊的房间', text: '载入仿真。三台站点都在饱和上传，用的是同一套尽力而为的参数。跳到第一次碰撞，再把三台的发送计数并排比较：6 099、7 343、5 967 帧，彼此相差不到 8 个百分点。这就是这套规则下「公平」的含义——不是精确均分，而是没有哪台站点具有系统性的优势。' },
-    { heading: '七种改法，改动的只有四处', text: '编辑器里那个下拉框有七个预设，而它们改动的其实只有四处：这一类应等待的那段静默，由它的仲裁帧间间隔数（arbitration interframe space number, AIFSN）决定；抽取倒数值的范围，也就是那两个竞争窗口（contention window, CW）——最小竞争窗口（minimum contention window, CWmin）与最大竞争窗口（maximum contention window, CWmax）；一次取得信道之后能连续占用多久，即这一类的 TXOP 上限（TXOP limit），而这样的一次占用在标准里叫一个传输机会（transmit opportunity, TXOP）；以及每一帧帧头（MAC header）里宣告的持续时间（Duration/ID）。第五种是把自己所有的帧都标为语音那一个接入类别（access category, AC），第六种是碰撞之后不把窗口翻倍，第七种是前面四种同时使用。' },
+  standard: [
+    { heading: 'EDCA 参数由接入点通告（§9.4.2.27，§10.2.3.2）', text: '在基础结构基本服务集（basic service set, BSS）里，接入点用 EDCA 参数集元素确定竞争策略；站点用最近收到的这一元素更新自己的参数。在服务质量（quality of service, QoS）BSS 里，非接入点站点使用的 EDCA 参数取自这一元素，收到更新后须在一个信标间隔之内更新 dot11EDCATable。元素为每一类给出 AIFSN、最小竞争窗口（minimum contention window, CWmin）、最大竞争窗口（maximum contention window, CWmax）与 TXOP 上限；CWmin 与 CWmax 以指数形式编码，最小可以是 0。' },
+    { heading: '默认值（表 9-194，表 17-21）', text: '非接入点站点的默认 AIFSN 为 AC_BK 7、AC_BE 3、AC_VI 2、AC_VO 2；以第 17 章物理层（physical layer, PHY）的 aCWmin = 15、aCWmax = 1023 计，四类的窗口为 15/1023、15/1023、7/15、3/7；TXOP 上限为 2.528、2.528、4.096、2.080 ms。' },
+    { heading: '接入类别由优先级决定（§10.2.3.2，表 10-1）', text: '每一帧的发送队列（queue）与接入类别由它的优先级按表 10-1 映射得到；每个接入类别有自己的一套 EDCA 参数与自己的竞争。' },
+    { heading: '等待与抽取（§10.23.2.4）', text: '等待的时长是仲裁帧间间隔（arbitration interframe space, AIFS）：AIFS[AC] = AIFSN[AC] × aSlotTime + aSIFSTime。非接入点站点的 AIFSN[AC] 不得小于 2，接入点不得小于 1。调用退避（backoff）过程时，倒数值在 0 到 CW[AC] 之间均匀随机地取整数。' },
+    { heading: '失败后放宽窗口（§10.23.2.2）', text: 'TXOP 的第一个 PPDU（PHY protocol data unit）发送失败时，若 QSRC[AC] 小于 dot11ShortRetryLimit，QSRC[AC] 加 1，CW[AC] 取 CWmax[AC] 与 2^QSRC[AC] × (CWmin[AC] + 1) − 1 中较小的一个；否则 QSRC[AC] 归 0，CW[AC] 回到 CWmin[AC]。TXOP 正常结束时 CW[AC] 回到 CWmin[AC]。' },
+    { heading: 'TXOP 与 Duration（§10.23.2.9，§9.2.5.2，§9.2.5.6）', text: '持有者应保证 TXOP 不超过这一类的上限。单次保护（single protection）下，请求发送（request to send, RTS）的 Duration 是待发的帧、CTS、确认帧（acknowledgement, ACK）与其间帧间间隔的时长；回应 RTS 的 CTS，Duration 是 RTS 的 Duration 减去一个短帧间间隔（short interframe space, SIFS）与 CTS 自身。所以 RTS 里写多少，接入点的 CTS 就把它减去这一小段之后转述出去。' },
+    { kind: 'steps', heading: '一台守规站点的一次竞争，按标准：逐步说明', items: [
+      '从接入点通告的 EDCA 参数集元素取得四类的 AIFSN、CWmin、CWmax 与 TXOP 上限（§10.2.3.2）。',
+      '按帧的优先级把它放进对应接入类别的队列（表 10-1）。',
+      '介质（medium）空闲 AIFS[AC] 之后开始倒数，倒数值在 0 到 CW[AC] 之间均匀抽取（§10.23.2.4）。',
+      '倒数到 0 时取得 TXOP，整个 TXOP 不超过上限，Duration 只写本次交互还需要的时间（§10.23.2.9，§9.2.5.2）。',
+      '第一个 PPDU 失败就按公式放宽窗口并重新退避；成功结束则窗口回到 CWmin（§10.23.2.2）。',
+    ] },
   ],
-  numbers: [
-    { kind: 'table', heading: '七个预设，各自改了什么、违反了哪一条', head: [
-      '预设', '它填进去的值', '标准里的规定', '出处',
-    ], rows: [
-      ['提升优先级', '所有帧都按 AC_VO 排队', '用户优先级到接入类别的映射由 Table 10-1 规定', '§10.2.3.2'],
-      ['缩短静默', 'AIFSN = 1', '非接入点站点的 AIFSN 不得小于 2；1 是留给接入点的', '§10.23.2.4'],
-      ['窗口坍缩', 'CWmin = CWmax = 0', '倒数值应在 0 与当前窗口之间均匀抽取', '§10.23.2.4'],
-      ['窗口不翻倍', '失败后窗口保持不变', 'CW 应取 CWmax 与 2^QSRC × (CWmin+1) − 1 中较小的那个', '§10.23.2.2'],
-      ['霸占信道', 'TXOP 上限 = 8 000 µs', '一次传输机会的时长不得超过该类的上限', '§10.23.2.9'],
-      ['虚报时长', 'Duration 多加 3 000 µs', 'Duration 应覆盖本次交互实际还需要的时间', '§9.2.5.2'],
-      ['四种合在一起', '前四种同时生效', '以上全部', '以上全部'],
-    ] },
-    { heading: '那两个越界的数值由本仿真器选定', text: '8 000 µs 与 3 000 µs 不是标准里的任何一个数。标准规定了四类各自的传输机会上限（视频那一类是 4.096 毫秒，Table 9-194），也规定了持续时间应如何填写，但它不会规定「一个违规设备会越界多少」——那不属于标准的内容。8 000 µs 是视频那一类上限的约两倍，选取的就是一个明显越界的值。' },
-    { kind: 'table', heading: '同一个房间，七种改法各运行两秒（种子 7）', head: [
-      '配置', '作弊者的份额', '守规 A 发出', '守规 B 发出', '本轮碰撞',
-    ], rows: [
-      ['不作弊', '31.4 %', '7 343', '5 967', '126'],
-      ['窗口不翻倍', '41.9 %', '6 555', '3 757', '151'],
-      ['缩短静默', '51.7 %', '5 578', '3 472', '119'],
-      ['霸占信道', '63.6 %', '3 951', '3 489', '65'],
-      ['提升优先级', '95.6 %', '679', '195', '83'],
-      ['虚报时长', '99.4 %', '25', '100', '1'],
-      ['窗口坍缩', '99.9 %', '25', '0', '20'],
-      ['四种合在一起', '100.0 %', '0', '0', '1'],
-    ] },
-    { heading: '这张表只有四级，不是七级', text: '上面那八行是一个种子的运行结果，而一个种子得出的顺序未必反映规律。五个种子（7、11、23、37、42）一起看：前四级在每一个种子上都严格递增——不作弊 29.4 到 34.1 %、窗口不翻倍 35.3 到 41.9 %、缩短静默 44.5 到 56.5 %、霸占信道 57.7 到 64.5 %、提升优先级 93.1 到 96.6 %。而最后三种全部落在 98.6 到 100.0 % 之间，它们的相互次序随种子变化：种子 7 是虚报时长最轻，种子 23 则是窗口坍缩最轻，种子 37 和 42 上有两种并列在 100.0 %。它们都已经使守规站点几乎无法发出帧，「哪一种抑制作用更强」这个问题在这个场景里没有答案。' },
-    { heading: '两处需要单独说明的地方', text: '第一，窗口不翻倍是七种里效果最弱的一种，而它反而使碰撞从 126 次增加到 151 次。一台碰撞之后不放宽窗口的设备，立即又以同样小的范围重新参与竞争，于是它多获得的那 10 个百分点，是以全场多出的 25 次碰撞为代价的。第二，虚报时长与四种合在一起使碰撞降到 1 次。一台完全抑制了邻居的设备不需要碰撞——在这一课里，「几乎没有碰撞」不是信道正常的标志，而是一种异常现象。' },
-    { kind: 'steps', heading: '虚报时长如何经由接入点的应答生效', items: [
-      '换到隐藏节点（hidden station）那个变体：两台站点隔着两道砖墙，互相收不到，但都能收到中间的接入点。',
-      '帧长超过了 RTS 门限（RTS threshold），于是每一次交互都先发一个请求发送（request to send, RTS）。作弊者在这个 RTS 的持续时间字段里多写了 3 000 µs。',
-      '接入点收到之后回复一个允许发送（clear to send, CTS），并沿用了请求中的那个数值——标准要求它这样做，CTS 的 Duration 就是请求中的那个值减去已经经过的时间。',
-      '另一台站点收不到作弊者，却能收到接入点。它按照这个 CTS 设置自己的网络分配向量（network allocation vector, NAV）：本来最长 2 383.2 µs，现在是 5 383.2 µs，恰好多出 3 000。',
-      '整轮运行中，它被这样抑制的次数从 58 次增加到 116 次，而设置这些 NAV 的每一帧都来自接入点。时间轴上找不到一条以作弊者的数据帧（data frame）为来源的 NAV——作弊者借接入点的 CTS 实现了抑制。',
-    ] },
-    { heading: '三种偏离，在其他合法场景中不起作用', text: '把同样七个预设用到其他合法场景上，逐条比对记录，有三种的整条记录流与不作弊时逐字节相同。提升优先级用在一台只打电话的设备上：它的流本来就属于语音那一类，再标一次等于没有标。窗口不翻倍用在一台独占空口的设备上：那一轮里碰撞、确认超时与重传（retry）合计 0 次，窗口本来就不会翻倍，「不翻倍」于是不产生任何效果——这一条在 2 秒、10 秒、30 秒三种时长与两个种子上都成立，它是结构性的，不是短时运行的巧合。而在一个传统分布式协调功能（distributed coordination function, DCF）的房间里，提升优先级、缩短静默与霸占信道三种所改的字段都不会被读取：没有接入类别可标、使用的是原来那段固定静默、也根本不存在传输机会。这三种用在那样的房间里，本仿真器现在直接拒绝，并指出应修改哪里——一个可以写出、而可证明不产生任何效果的配置，比一个被拒绝的配置更容易让人误以为自己在作弊。而「四种合在一起」仍然被接受，因为它那五个字段里还有一对窗口会被读取：于是它在那个房间里退化为「窗口坍缩」，两边的记录流逐字节相同——这也正是「那三个字段在这里不会被读取」这句话目前唯一可以测量验证的地方。' },
-    { heading: '最典型的不起作用：一个数值被输出，其他一切都不随之改变', text: '把霸占信道用到「联机游戏的房间」那个变体上——一台手机打游戏，一台路由器，一台服务器。两边的记录条数都是 5 630，差异记录恰好 87 条，全部是传输机会的开始记录，不同的字段只有一个：宣告的截止时刻从 2 528 000 纳秒变成 8 000 000。其余 5 543 条记录逐字节相同。原因在于业务本身的特性，而不在于代码：游戏的上行（uplink, UL）包 89 到 131 字节、平均每 30 毫秒一个，队列（queue）里从来没有第二帧可发，于是一个 8 毫秒的传输机会宣告出去，立即就被收回。「霸占信道」这种改法，在一台只打游戏的手机上没有信道可以霸占。' },
+  implementation: [
+    { topic: '参数从哪里来', standard: '接入点在信标的 EDCA 参数集元素里通告，站点用最近收到的一组（§10.2.3.2）', sim: '本仿真器不发送任何管理帧（management frame），没有信标，也没有关联过程；四类参数是一张常量表。作弊者偏离的是一组从未被广播过的参数。', kind: 'absent' },
+    { topic: '默认参数', standard: '表 9-194 与表 17-21 的默认值', sim: '照此：AIFSN 7/3/2/2，窗口 15/1023、15/1023、7/15、3/7，TXOP 上限 2.528/2.528/4.096/2.080 ms；SIFS 16 µs、时隙（slot time）9 µs。', kind: 'faithful' },
+    { topic: 'AIFS 与抽取', standard: 'AIFS = AIFSN × 时隙 + SIFS；倒数值在 0 到 CW 之间均匀抽取（§10.23.2.4）', sim: '照此。守规站点每一次抽取都落在当时的窗口之内。', kind: 'faithful' },
+    { topic: '失败后放宽窗口', standard: 'CW 取 CWmax 与 2^QSRC × (CWmin + 1) − 1 中较小的一个（§10.23.2.2）', sim: '照此：AC_BE 的窗口依次为 15、31、63、127、255、511、1023。', kind: 'faithful' },
+    { topic: 'CTS 转述 RTS 的 Duration', standard: 'RTS 的 Duration 减去 SIFS 与 CTS 自身（§9.2.5.6）', sim: '照此。作弊者在 RTS 里多写的时间，接入点的 CTS 原样转述。', kind: 'faithful' },
+    { topic: '提升优先级', standard: '接入类别由帧的优先级按表 10-1 映射（§10.2.3.2）', sim: '作弊者把所有帧都放进 AC_VO 的队列，按 AC_VO 的参数竞争。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '缩短静默', standard: '非接入点站点的 AIFSN 不得小于 2；1 只允许接入点使用（§10.23.2.4）', sim: '作弊者的每一类都用 AIFSN = 1。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '窗口坍缩', standard: '使用接入点通告的 CWmin 与 CWmax（§10.2.3.2）', sim: '作弊者的 CWmin = CWmax = 0，仍按 §10.23.2.4 均匀抽取，只是范围只剩 0。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '窗口不翻倍', standard: '失败后按公式放宽窗口（§10.23.2.2）', sim: '作弊者的 CWmax 被钉在 CWmin 上，失败后窗口保持不变。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '霸占信道', standard: 'TXOP 不得超过这一类的上限（§10.23.2.9）', sim: '作弊者的 TXOP 上限一律为 8 000 µs。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '虚报时长', standard: 'Duration 写本次交互实际还需要的时间（§9.2.5.2）', sim: '作弊者发出的 RTS 与数据帧（data frame），Duration 都多加 3 000 µs。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '四种合在一起', standard: '以上各条', sim: '提升优先级、缩短静默、窗口坍缩与霸占信道同时生效。这是本课故意演示的篡改。', kind: 'differs' },
+    { topic: '越界的幅度', standard: '标准只规定合规的取值，不涉及违规时越界多少', sim: '8 000 µs 与 3 000 µs 由本仿真器选定，取的是明显越界的值：8 000 µs 约为 AC_VI 上限 4.096 ms 的两倍。换一个幅度，各级的具体份额就会改变。', kind: 'value' },
+    { topic: '篡改放在哪里', standard: '标准不涉及', sim: '只能放在非接入点站点上；放在接入点上的篡改，编辑器直接拒绝。在不使用 EDCA 的分布式协调功能（distributed coordination function, DCF）链路（link）上，提升优先级、缩短静默与霸占信道所改的字段不会被读取，编辑器同样拒绝，并指出原因。', kind: 'choice' },
   ],
-  limits: [
-    { kind: 'unmodelled', text: '这一课最根本的一条：引擎始终不发送任何管理帧（management frame）——没有信标，也没有关联过程。那四组参数在真实网络里是接入点在信标的 EDCA 参数集元素里广播的，而这里它们是 phy.ts 的一张常量表。于是作弊者偏离的，是一套从未被广播过的参数。这不影响它获得多少份额，却使「这种行为如何被发现」在本模型中无从讨论。' },
-    { kind: 'out-of-scope', text: '如何识别一台作弊的设备，这一课无法回答。接入点能看到的只有到达时刻与帧头，而本引擎不为它提供任何统计接口，也不建模任何合规终端的协助上报。docs/reports 下那份篡改报告按七种改法逐个判断过「仅凭接入点是否足以识别」，结论分为足够、需要协助、足够但需要统计样本三类——那是另一门课的内容，而它所需要的管理帧这里一帧也没有。' },
-    { kind: 'model-value', text: '8 000 µs 与 3 000 µs 这两个越界值是本仿真器选定的，选定的理由是「明显越界」，而不是某台实测到的违规设备。换一个越界幅度，霸占信道那一级的份额就不是 63.6 %；而虚报时长那一级已经接近 100 %，再增加也看不出区别。四级阶梯里只有级与级之间的顺序是稳定的，每一级的具体数值都随这两个取值变化。' },
-    { kind: 'threshold', text: '份额是按两秒内发出的帧数计算的，而这三台站点离接入点一样远、信号电平不随时间变化、房间里没有外来干扰。真实房间里一台作弊设备的收益会与信号强弱、邻居网络和它自己的位置等因素交织在一起，没有哪一次测量能像这里一样把原因单独分离出来。这也是为什么本课的结论写成跨五个种子的区间，而不是写成八个三位小数。' },
+  labs: [
+    {
+      heading: '没有站点作弊的房间',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一次碰撞，再运行满 2 秒。',
+        '在检视器里读出三台站点各自发出的帧数与全场的碰撞次数。',
+      ],
+      expect: '三台站点分别发出 6 099、7 343、5 967 帧，各自的份额彼此相差不到 8 个百分点；两秒内共碰撞 126 次。',
+      meaning: '三台站点使用同一组参数（② 默认参数），「公平」不是精确均分，而是没有哪一台有系统性的优势。这一轮是下面各轮的对照。',
+    },
+    {
+      heading: '七种篡改：四级与一组',
+      variant: 0,
+      jump: 2,
+      more: [1, 2, 3, 4, 5, 6],
+      steps: [
+        '依次载入七个「作弊」变体，各运行 2 秒，读出作弊者的份额、两台守规站点的帧数与碰撞次数。',
+        '在「作弊：窗口坍缩」里跳到作弊者的第一次退避抽取，看它抽到的值。',
+        '对照第二张表：同样的七轮换四个随机种子再运行，份额落在什么范围。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '同一个房间，七种篡改各运行两秒（种子 7）', head: ['配置', '作弊者的份额', '守规 A 发出', '守规 B 发出', '碰撞'], rows: [
+          ['不作弊', '31.4 %', '7 343', '5 967', '126'],
+          ['窗口不翻倍', '41.9 %', '6 555', '3 757', '151'],
+          ['缩短静默', '51.7 %', '5 578', '3 472', '119'],
+          ['霸占信道', '63.6 %', '3 951', '3 489', '65'],
+          ['提升优先级', '95.6 %', '679', '195', '83'],
+          ['虚报时长', '99.4 %', '25', '100', '1'],
+          ['窗口坍缩', '99.9 %', '25', '0', '20'],
+          ['四种合在一起', '100.0 %', '0', '0', '1'],
+        ] },
+        { kind: 'table', heading: '五个种子（7、11、23、37、42）上作弊者的份额', head: ['配置', '份额的范围'], rows: [
+          ['不作弊', '29.4 到 34.1 %'],
+          ['窗口不翻倍', '35.3 到 41.9 %'],
+          ['缩短静默', '44.5 到 56.5 %'],
+          ['霸占信道', '57.7 到 64.5 %'],
+          ['提升优先级', '93.1 到 96.6 %'],
+          ['虚报时长、窗口坍缩、四种合在一起', '98.6 到 100.0 %'],
+        ] },
+      ],
+      expect: '前五行在每一个种子上都严格递增，五个范围互不重叠；最后三种都在 98.5 % 以上，相互次序随种子变化：种子 7 上虚报时长最轻，种子 23 上窗口坍缩最轻。窗口不翻倍使碰撞从 126 次增加到 151 次；虚报时长与四种合在一起只剩 1 次碰撞。窗口坍缩的作弊者每一次都抽到 0，两秒里发出 19 935 帧，另外两台一共 25 帧。',
+      meaning: '每一种篡改都是本课故意演示的偏离（②）。窗口不翻倍的作弊者碰撞后立即以同样小的范围再竞争，多拿到约 10 个百分点，代价是全场多出 25 次碰撞；抑制住所有邻居的作弊者不需要碰撞，所以「几乎没有碰撞」在这里是异常，不是信道正常的标志。',
+    },
+    {
+      heading: '虚报时长经由接入点的 CTS 生效',
+      variant: 8,
+      more: [7],
+      steps: [
+        '载入「隐藏节点的房间 + 虚报时长」，运行 300 ms：两台站点隔着两道砖墙，互相收不到，都收得到中间的接入点，帧长超过 RTS 门限（RTS threshold），每次交互都先发 RTS。',
+        '点开 Station B 的网络分配向量（network allocation vector, NAV）记录，读出来源与最长的一条；再载入「隐藏节点的房间，不作弊」比较。',
+      ],
+      expect: 'B 的每一条 NAV 都来自接入点的 CTS，没有一条来自作弊者自己的帧。最长的一条从不作弊时的 2 383.2 µs 变成 5 383.2 µs，恰好多出 3 000 µs；B 被这样抑制的次数从 58 次增加到 116 次。',
+      meaning: '作弊者只改了自己 RTS 里的 Duration（② 虚报时长），接入点按 §9.2.5.6 照常转述（② CTS 转述 RTS 的 Duration），于是收不到作弊者的 B 也被抑制。',
+    },
+    {
+      heading: '允许但不起作用：霸占信道遇上只打游戏的手机',
+      variant: 9,
+      jump: 1,
+      steps: [
+        '载入「联机游戏的房间 + 霸占信道（不起作用）」，跳到作弊者的第一帧，悬停它的 TXOP 色块，读出截止时刻。',
+        '运行 2 秒，与同一个房间不作弊的运行逐条比较记录。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '三种篡改不起作用的场合', head: ['篡改', '场合', '记录'], rows: [
+          ['霸占信道', '一台只打游戏的手机独占房间', '只有 TXOP 开始记录的截止时刻不同'],
+          ['窗口不翻倍', '同一台手机', '碰撞、确认超时与重传（retry）合计 0 次，窗口从不放宽，记录逐字节相同'],
+          ['提升优先级', '一台只打电话的设备', '它的流本来就属于 AC_VO，记录逐字节相同'],
+        ] },
+      ],
+      expect: '两边的记录条数都是 5 630，差异记录恰好 87 条，全部是 TXOP 开始记录，不同的字段只有截止时刻：从 2 528 000 纳秒变成 8 000 000 纳秒。其余 5 543 条记录逐字节相同。游戏的上行（uplink, UL）包 89 到 131 字节，平均每 30 毫秒一个，队列里从来没有第二帧，8 毫秒的 TXOP 宣告出去就立即收回。窗口不翻倍在这台手机上的那一行，在 2 秒、10 秒、30 秒三种时长上都成立。',
+      meaning: '一种篡改是否起作用，取决于业务本身：队列里没有第二帧，就没有信道可以霸占；从不失败，窗口本来就不会放宽。本仿真器在 DCF 链路上拒绝那些不会被读取的字段（② 篡改放在哪里），而在这里接受它们，因为这些字段确实会被读取，只是改变不了结果。',
+    },
   ],
   sources: [
-    '非接入点站点的 AIFSN 下限 2 见 IEEE Std 802.11-2024 的 §10.23.2.4，同一条给出 AIFS[AC] = aSIFSTime + AIFSN × aSlotTime；窗口翻倍的式子 min(CWmax, 2^QSRC × (CWmin+1) − 1) 见 §10.23.2.2。',
-    '四类的默认 AIFSN（7/3/2/2）、CWmin 与 CWmax（15/1023、15/1023、7/15、3/7）与传输机会上限（2.528/2.528/4.096/2.080 毫秒）见 Table 9-194（EDCA 参数集元素，§9.4.2.27）；16 µs 与 9 µs 取自 §17.4.4。',
-    '用户优先级到接入类别的映射见 Table 10-1（§10.2.3.2）；一次传输机会不得超过该类上限见 §10.23.2.9；EDCA 下 Duration 的设定见 §9.2.5.2。',
-    '七个预设的具体取值、8 000 µs 与 3 000 µs 这两个越界幅度、三台站点的位置与随机种子，都是本仿真器的模型取值，而非标准中的数值。',
+    'IEEE Std 802.11-2024：§9.4.2.27（EDCA 参数集元素，CWmin 与 CWmax 的指数编码）、§10.2.3.2 与表 10-1（非接入点站点使用接入点通告的参数，优先级到接入类别的映射）、表 9-194（默认 EDCA 参数）、表 17-21（aCWmin、aCWmax、aSIFSTime 与 aSlotTime）、§10.23.2.4（AIFS 与 AIFSN 下限，均匀抽取）、§10.23.2.2（QSRC 与窗口的放宽）、§10.23.2.9（TXOP 上限）、§9.2.5.2 与 §9.2.5.6（Duration 的写法与 CTS 的转述）。',
+    '本仿真器为演示而设的取值：七个篡改预设、8 000 µs 与 3 000 µs 两个越界幅度、三台站点的位置与随机种子。上面每一个计数与份额都来自本课场景的运行，可由随机种子复现，并非取自标准正文。',
   ],
+  limits: [],
   scenario: () => tamperScenario(),
   variants: [
     { label: '作弊：提升优先级', scenario: () => tamperScenario('escalate') },
@@ -120,45 +171,38 @@ export const edcaTamper: Lesson = {
     J('作弊者的第一帧', (r) => r.type === 'TX_START' && r.node === 'sta-1' && r.frame.kind === 'data'),
     J('第一次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'sta-1'),
   ],
-  observe: [
-    '不作弊那一轮，三台的倒数色块宽度看不出差别，发送计数 6 099、7 343、5 967。换到「窗口坍缩」：作弊者的每一个色块都写着 0，两秒里它发了 19 935 帧，另外两台一共 25 帧。',
-    '换到「霸占信道」，把鼠标悬停在作弊者的传输机会色块上：截止时刻写的是 8 000 µs，而标准给这一类的上限是 2 528 µs。再看两台守规站点的色块，它们在这 8 毫秒里没有任何变化。',
-    '换到「隐藏节点的房间 + 虚报时长」，点开另一台站点的网络分配向量记录：来源写的是接入点的 CTS，不是作弊者的数据帧。最长的一条是 5 383.2 µs，而不作弊那一轮同一处是 2 383.2 µs。',
-  ],
-  tryThis: [
-    '把「四种合在一起」这个变体里的三台站点都改成传统的 802.11g（关闭增强型分布式信道接入），再和「窗口坍缩」运行同样长的时间进行比较：两边的记录流完全相同。五个被改的字段里有三个在这种房间里根本不会被读取，剩下的只有那一对窗口——一个在编辑器里被标成「最狠」的预设，在这里退化成了单独的「窗口坍缩」。',
-    '在「联机游戏的房间 + 霸占信道」和不作弊的同一个房间之间来回切换，比对碰撞次数、三台的发送计数与应用往返时延：没有任何一个数发生变化，只有传输机会记录里宣告的那个截止时刻不同。这是「允许但不起作用」最典型的情形——一个数值被输出，而其他一切都不随之改变。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '五个种子一起看，七种改法排出来的是几级？',
+      q: '五个种子一起看，七种篡改排出来的是几级？',
       options: [
         '七级，从效果最弱到最强严格递增',
-        '四级加一个封顶组：前五种次序稳定，最后三种都在 98.5 % 以上且相互次序随种子变化',
+        '四级加一组：前四种篡改与不作弊的次序在每个种子上都稳定，最后三种都在 98.5 % 以上且相互次序随种子变化',
         '两级：有效的和无效的',
       ],
       answer: 1,
-      explain: '一个种子上的七个数确实是递增的，但那是巧合。换四个种子再运行，最后三种的相互次序就发生了变化——它们都已经使守规站点几乎无法发出帧，份额已接近 100 %。',
+      explain: '一个种子上的七个数确实是递增的，但那是巧合。换四个种子再运行，最后三种的相互次序就变了——它们都已经使守规站点几乎发不出帧。',
     },
     {
-      q: '一台只打游戏的手机，独占一个房间，把「霸占信道」打开。会发生什么？',
+      q: '一台只打游戏的手机独占一个房间，打开「霸占信道」。会发生什么？',
       options: [
         '它的时延明显下降，因为它可以长时间连续发送',
-        '记录条数不变，只有 87 条传输机会记录里宣告的截止时刻改变，其他记录逐字节相同',
+        '记录条数不变，只有 87 条 TXOP 开始记录里的截止时刻改变，其他记录逐字节相同',
         '仿真会拒绝这个配置，因为它违反标准',
       ],
       answer: 1,
-      explain: '一次传输机会能占多久，和队列里有没有第二帧可发是两件事。游戏的上行包平均每 30 毫秒才来一个，队列里始终只有一帧，于是 8 毫秒的宣告发出后立即被收回。',
+      explain: '一次 TXOP 能占多久，和队列里有没有第二帧可发是两件事。游戏的上行包平均每 30 毫秒才来一个，队列里始终只有一帧，于是 8 毫秒的宣告发出后立即收回。',
     },
     {
-      q: '「窗口不翻倍」是七种里份额最低的一种，但它那一轮的碰撞比不作弊时还多。为什么？',
+      q: '「窗口坍缩」违反的是标准的哪一条？',
       options: [
-        '它发送得更多，所以发生碰撞的机会也多',
-        '一台碰撞之后不放宽抽取范围的设备，立即又从同样小的范围里抽取倒数值重新竞争，于是再次发生碰撞',
-        '它的帧更长，占用信道的时间更长',
+        '倒数值必须均匀抽取',
+        '非接入点站点必须使用接入点通告的 CWmin 与 CWmax',
+        'CWmin 不得为 0',
       ],
       answer: 1,
-      explain: '窗口翻倍的作用本来就是在碰撞之后使各站点的发送时刻分散开。拒绝翻倍的那台设备确实多拿到了约 10 个百分点，而代价是全场多出 25 次碰撞——这些多出来的碰撞没有为任何站点带来一帧成功的发送。',
+      explain: '作弊者仍然均匀抽取，只是范围只剩 0；标准允许接入点通告 0 作为 CWmin（指数编码的最小值），违反的是不用接入点通告的那一组（§10.2.3.2）。',
     },
   ],
 }

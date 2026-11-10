@@ -1,804 +1,218 @@
 /**
- * Every empirical claim in "TXOP — own the channel, briefly", measured against
- * the lesson's own scenario.
+ * `@txop`, in the standard-first shape (2026-11-11).
  *
- * The lesson had no test file of its own before the readability rewrite: the
- * first burst at 0.88 ms and its two receivers are pinned in
- * tests/course/lesson-claims.test.ts ("lesson 9 · TXOP"), which still holds
- * them and still passes. What this file adds is everything the grown lesson
- * now states — the per-class ceilings, the burst census, the 480 µs and 232 µs
- * arithmetic and the two experiments. There was never a `.body!` site to retire.
+ * ① cites IEEE Std 802.11-2024 for the TXOP, multiple frame exchanges, the TXOP limit, CF-End and
+ * the backoff after the final PPDU; ② is pinned against the engine; ③'s figures are read back out
+ * of the lesson text and compared with a 300 ms run of the lesson's scene (and, for lab 4, the same
+ * scene with TXOP turned off on the AP).
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { txop, txopBurstTiming } from '../../src/course/tier2/txop'
-import { ScenarioSchema } from '../../src/model/scenario'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
+import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { Simulation } from '../../src/engine/simulation'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { ROOT, zhNumeral } from './coverage'
 import { EDCA_PARAMS, OFDM_5G, aifsNs } from '../../src/engine/phy'
 import { MODULES } from '../../src/course/curriculum'
-import { W, layoutDiagram, textBox, type Shape, type TimingLane } from '../../src/course/diagram'
 
 const MS = 1_000_000
 const US = 1_000
 const RUN_NS = 300 * MS
+const AP = 'ap'
 
 const recs = (): TLRecord[] => runOf(txop, undefined, RUN_NS)
-const txs = (rs: TLRecord[], kind?: string) =>
-  ofType(rs, 'TX_START').filter((r) => kind === undefined || r.frame.kind === kind)
-const runSc = (sc: ReturnType<typeof txop.scenario>): TLRecord[] => [...new Simulation(sc).runUntil(RUN_NS).records]
+const by = (name: string) => EDCA_PARAMS.find((p) => p.name === name)!
+const thousands = (n: number): string => n.toLocaleString('en-US').replace(/,/g, ' ')
 
-/** One entry per burst: how long the access point held the floor and how many data frames it sent. */
-function bursts(rs: TLRecord[], node = 'ap'): { lenNs: number; frames: number }[] {
-  const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === node)
-  const out: { lenNs: number; frames: number }[] = []
-  for (const s of ofType(rs, 'TXOP_START').filter((r) => r.node === node)) {
-    const e = ends.find((r) => r.t > s.t)
-    if (!e) continue
-    out.push({
-      lenNs: e.t - s.t,
-      frames: txs(rs, 'data').filter((r) => r.node === node && r.t >= s.t && r.t < e.t).length,
-    })
-  }
-  return out
+const lab = (heading: string): Lab => {
+  const l = txop.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (blocks: Block[], heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = blocks.find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = txop.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const stdText = (): string => txop.standard!.map((b) =>
+  `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
+
+/** The AP's bursts: start, end (null if still open at the end of the run) and data frames sent. */
+const bursts = (rs: TLRecord[]) => {
+  const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === AP)
+  const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === AP)
+  const data = ofType(rs, 'TX_START').filter((r) => r.node === AP && r.frame.kind === 'data')
+  return starts.map((s, i) => {
+    const end = ends.find((e) => e.t >= s.t && (i + 1 >= starts.length || e.t <= starts[i + 1].t))?.t ?? null
+    return { start: s.t, until: s.untilNs, end, frames: data.filter((d) => d.t >= s.t && (end === null || d.t < end)).length }
+  })
 }
 
 lessonShapeSuite(txop, { runNs: RUN_NS })
 
-describe('txop · the lesson’s own scene', () => {
-  it('closes the pair it builds on: EDCA won the turn, aggregation filled it', () => {
+describe('txop · the lesson', () => {
+  it('is in the standard-first shape, in the QoS module', () => {
+    expect(isStandardFirst(txop)).toBe(true)
     expect(MODULES[txop.module].title).toBe('QoS 与效率')
     expect(txop.needs).toEqual(['edca', 'ampdu'])
     expect(txop.terms!.map((t) => t.term)).toEqual(['TXOP', 'TXOP limit'])
+    expect(txop.limits).toEqual([])
+    expect(txop.observe).toEqual([])
+    expect(txop.tryThis).toEqual([])
   })
 
-  it('the scene is an access point and two video receivers', () => {
-    const sc = txop.scenario()
-    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
-    expect(sc.nodes.map((n) => [n.id, n.profiles[0]])).toEqual([
-      ['ap', 'idle'], ['sta-1', 'video'], ['sta-2', 'video'],
-    ])
-  })
-})
-
-describe('txop · the ceiling, by class', () => {
-  it('2.080, 4.096 and 2.528 ms are the engine’s own per-category limits', () => {
-    const by = (name: string) => EDCA_PARAMS.find((p) => p.name === name)!
-    expect(by('VO').txopLimitNs / MS).toBe(2.080)
-    expect(by('VI').txopLimitNs / MS).toBe(4.096)
-    expect(by('BE').txopLimitNs / MS).toBe(2.528)
-    expect(by('BK').txopLimitNs / MS).toBe(2.528)
-    // "the largest: video frames are big and arrive in groups"
-    expect(Math.max(...EDCA_PARAMS.map((p) => p.txopLimitNs))).toBe(by('VI').txopLimitNs)
-    // "short: a call must not be made to wait"
-    expect(by('VO').txopLimitNs).toBeLessThan(by('BE').txopLimitNs)
+  it('keeps its scene: an AP and two video receivers', () => {
+    expect(() => ScenarioSchema.parse(txop.scenario())).not.toThrow()
+    expect(txop.scenario().nodes.map((n) => n.id)).toEqual(['ap', 'sta-1', 'sta-2'])
   })
 
-  it('the lease this run hands out is the video one, 4 096 µs', () => {
-    // the run table's "Ceiling it was given", and the observation naming AC_VI
-    const starts = ofType(recs(), 'TXOP_START')
-    expect(new Set(starts.map((r) => r.node))).toEqual(new Set(['ap']))
-    expect(new Set(starts.map((r) => r.ac))).toEqual(new Set([2]))
-    expect(EDCA_PARAMS[2].name).toBe('VI')
-    expect(new Set(starts.map((r) => r.untilNs - r.t))).toEqual(new Set([4_096 * US]))
+  it('cites each clause it teaches in ①', () => {
+    const std = stdText()
+    for (const c of ['§10.23.1', '§10.23.2.8', '§10.23.2.7', '§10.23.2.9', '表 9-194', '§10.23.2.10', '§10.23.2.2', '§10.29', '§10.23.2.4']) expect(std, c).toContain(c)
+  })
+
+  it('① prints the default limits the engine uses', () => {
+    const rows = tableOf(txop.standard!, 'TXOP 上限的默认值（表 9-194，第 17、18、19、21、27 章的物理层（physical layer, PHY））').rows
+    for (const [ac, lim] of rows) expect(lim, ac).toBe(`${(by(ac.slice(3)).txopLimitNs / MS).toFixed(3)} ms`)
+    expect(txop.why).toContain(`视频 ${(by('VI').txopLimitNs / MS).toFixed(3)} ms、语音 ${(by('VO').txopLimitNs / MS).toFixed(3)} ms、尽力而为与后台 ${(by('BE').txopLimitNs / MS).toFixed(3)} ms`)
   })
 })
 
-describe('txop · what the access point actually did', () => {
+describe('txop · ② says what the engine does, and the engine does it', () => {
   const rs = recs()
-  const bs = bursts(rs)
 
-  it('463 bursts: 219 carrying one frame and 243 carrying two', () => {
-    // the run table and the third observation
-    expect(ofType(rs, 'TXOP_START').length).toBe(463)
-    expect(bs.filter((b) => b.frames === 1).length).toBe(219)
-    expect(bs.filter((b) => b.frames === 2).length).toBe(243)
-    // "no burst here carries more than two": the queue, not the ceiling, decides
-    expect(Math.max(...bs.map((b) => b.frames))).toBe(2)
+  it('the deadline is the first frame plus the AC_VI limit, and every exchange ends before it', () => {
+    for (const b of bursts(rs)) {
+      expect(b.until - b.start).toBe(by('VI').txopLimitNs)
+      if (b.end !== null) expect(b.end).toBeLessThanOrEqual(b.until)
+    }
   })
 
-  it('the shortest burst is 232 µs, the longest 480 µs and the mean 362.4 µs', () => {
-    const us = bs.map((b) => b.lenNs / US)
-    expect(Math.min(...us)).toBe(232)
-    expect(Math.max(...us)).toBe(480)
-    expect((us.reduce((a, b) => a + b, 0) / us.length).toFixed(1)).toBe('362.4')
-    // "the longest hold is 480 µs of the 4 096 µs it was allowed"
-    expect(Math.max(...us)).toBeLessThan(4_096 / 8)
+  it('consecutive exchanges are a SIFS apart: no AIFS and no countdown inside a burst', () => {
+    for (const b of bursts(rs).filter((x) => x.frames === 2 && x.end !== null)) {
+      const inside = rs.filter((r) => 'node' in r && r.node === AP && r.t > b.start && r.t < b.end!)
+      expect(inside.some((r) => r.type === 'IFS_START' || r.type === 'BACKOFF_DRAW'), `burst at ${b.start}`).toBe(false)
+    }
   })
 
-  it('480 µs is two exchanges of 188 + 16 + 28 µs, and 232 µs is one', () => {
-    // the formula block: a frame, the short pause and an answer, twice over or once
-    const data = txs(rs, 'data')
-    expect(new Set(data.map((r) => r.frame.txTimeNs))).toEqual(new Set([188 * US]))
-    expect(new Set(txs(rs, 'ack').map((r) => r.frame.txTimeNs))).toEqual(new Set([28 * US]))
-    expect(OFDM_5G.sifsNs / US).toBe(16)
-    expect(188 + 16 + 28).toBe(232)
-    expect(188 + 16 + 28 + 16 + 188 + 16 + 28).toBe(480)
+  it('a backoff after every burst end, whether or not anything is queued', () => {
+    expect(implRow('交还之后的退避').kind).toBe('faithful')
+    const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === AP)
+    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === AP)
+    expect(draws).toHaveLength(ends.length)
+    for (const [i, d] of draws.entries()) {
+      expect(d.t - ends[i].t, `draw ${i}`).toBe(aifsNs(by('VI').aifsn, OFDM_5G))
+      expect(d.cw).toBe(by('VI').cwMin)
+    }
   })
 
-  it('the first burst, at 0.88 ms, serves one television then the other one pause later', () => {
-    // the figure and its caption, and the jump "first TXOP start". (This was the first observe
-    // line until the 2026-09-25 re-pacing; the figure says it to scale now.) The same burst is
-    // pinned in lesson-claims.test.ts; here it guards the sentence as this lesson now writes it.
-    const t0 = ofType(rs, 'TXOP_START')[0]
-    expect(Math.round(t0.t / 10_000) / 100).toBe(0.88)
-    const end = ofType(rs, 'TXOP_END').find((r) => r.t > t0.t)!
-    const inside = txs(rs).filter((r) => r.t >= t0.t && r.t < end.t)
-    expect(inside.map((r) => `${r.frame.kind}:${r.frame.dst}`))
-      .toEqual(['data:sta-2', 'ack:ap', 'data:sta-1', 'ack:ap'])
-    // "No required silence and no countdown appear inside it."
-    expect(inside[2].t).toBe(inside[1].t + inside[1].frame.txTimeNs + OFDM_5G.sifsNs)
-    expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'IFS_START')
-      && r.node === 'ap' && r.t > t0.t && r.t < end.t)).toBe(false)
-    for (const j of txop.jumps) expect(rs.some(j.find), j.label).toBe(true)
+  it('no CF-End in this scene', () => {
+    expect(ofType(rs, 'TX_START').filter((r) => r.frame.kind === 'cfend')).toEqual([])
   })
 })
 
-describe('txop · the burst against its clock, as the figure draws it', () => {
+describe('txop · ③ every figure the labs print is the run', () => {
   const rs = recs()
-  const lane = (label: string): TimingLane => txopBurstTiming().lanes.find((l) => l.label === label)!
 
-  it('every span is that burst’s own record, taken from the TXOP start', () => {
-    const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
-    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
-    const rel = (t: number) => (t - t0.t) / US
-    const data = txs(rs, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end.t)
-    const acks = txs(rs, 'ack').filter((r) => r.t > t0.t && r.t <= end.t)
-    // the access point's lane: two frames of 188 µs at 0 and 248
-    expect(lane('接入点').spans.map((s) => [s.fromUs, s.toUs]))
-      .toEqual(data.map((d) => [rel(d.t), rel(d.t + d.frame.txTimeNs)]))
-    // the televisions' lane: two answers of 28 µs at 204 and 452
-    expect(lane('两台电视').spans.map((s) => [s.fromUs, s.toUs]))
-      .toEqual(acks.map((a) => [rel(a.t), rel(a.t + a.frame.txTimeNs)]))
-    // the clock: 4 096 µs from the same zero, which is the lease the record carries
-    const clock = lane('上限').spans[0]
-    expect([clock.fromUs, clock.toUs]).toEqual([0, (t0.untilNs - t0.t) / US])
-    expect(clock.toUs).toBe(4_096)
-    expect(clock.label).toBe('4 096 µs')
-    // and the caption's "480 µs, of the 4 096 it was allowed"
-    expect(rel(end.t)).toBe(480)
-    expect(acks[1].t + acks[1].frame.txTimeNs).toBe(end.t)
-  })
-
-  it('lays out inside the viewBox, legibly, with no two labels touching', () => {
-    const lay = layoutDiagram(txopBurstTiming())
-    const ts = lay.shapes.filter((s): s is Extract<Shape, { s: 'text' }> => s.s === 'text')
-    expect(ts.length).toBeGreaterThan(6)
-    for (const t of ts) {
-      const b = textBox(t)
-      expect(b.x0, t.text).toBeGreaterThanOrEqual(-0.01)
-      expect(b.x1, t.text).toBeLessThanOrEqual(W + 0.01)
-      expect(b.y1, t.text).toBeLessThanOrEqual(lay.height + 0.01)
-      expect(t.size, t.text).toBeGreaterThanOrEqual(9.5)
-    }
-    const bs = ts.map(textBox)
-    for (let i = 0; i < bs.length; i++) {
-      for (let j = i + 1; j < bs.length; j++) {
-        const hit = bs[i].x0 < bs[j].x1 && bs[j].x0 < bs[i].x1 && bs[i].y0 < bs[j].y1 && bs[j].y0 < bs[i].y1
-        expect(hit, `${ts[i].text} / ${ts[j].text}`).toBe(false)
-      }
-    }
-  })
-})
-
-describe('txop · the first burst, run through the steps', () => {
-  const rs = recs()
-  const ms = (ns: number) => Number((ns / MS).toFixed(3))
-
-  it('every row of the worked example is that burst, record by record', () => {
-    const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
-    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
-    const data = txs(rs, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end.t)
-    const acks = ofType(rs, 'RX_OK').filter((r) => r.node === 'ap' && r.frame.kind === 'ack' && r.t > t0.t && r.t <= end.t)
-    // step 1: "the first frame goes out at" / "so the clock ends at, 4 096 µs later"
-    expect(ms(t0.t)).toBe(0.883)
-    expect(t0.t).toBe(data[0].t)
-    expect((t0.untilNs - t0.t) / US).toBe(4_096)
-    expect(ms(t0.untilNs)).toBe(4.979)
-    // step 2: "frame to TV 2, 188 µs, then 16 + 28 µs: answer in at"
-    expect(data[0].frame.dst).toBe('sta-2')
-    expect(data[0].frame.txTimeNs / US).toBe(188)
-    expect(ms(acks[0].t)).toBe(1.115)
-    expect(acks[0].t - (data[0].t + data[0].frame.txTimeNs)).toBe(OFDM_5G.sifsNs + 28 * US)
-    // steps 3 and 4: the next exchange needs 248 µs and would end well inside the clock
-    expect(16 + 188 + 16 + 28).toBe(248)
-    expect(acks[0].t + 248 * US).toBeLessThan(t0.untilNs)
-    expect(ms(acks[0].t + 248 * US)).toBe(1.363)
-    // "so, one pause later, the frame to TV 1 goes out at"
-    expect(data[1].t - acks[0].t).toBe(OFDM_5G.sifsNs)
-    expect(ms(data[1].t)).toBe(1.131)
-    expect(data[1].frame.dst).toBe('sta-1')
-    // step 5: the answer arrives, the queue is empty, and the turn ends there
-    expect(ms(end.t)).toBe(1.363)
-    expect(end.t).toBe(acks[1].t)
-    expect((end.t - t0.t) / US).toBe(480)
-    // step 4's claim about the gap: one pause is shorter than any contender's silence
-    expect(OFDM_5G.sifsNs / US).toBe(16)
-    expect(Math.min(...EDCA_PARAMS.map((p) => aifsNs(p.aifsn, OFDM_5G))) / US).toBe(34)
-  })
-
-  it('step 6: the burst ending is itself what invokes the next backoff', () => {
-    const t0 = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')[0]
-    const end = ofType(rs, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t >= end.t)!
-    expect(ifs.t).toBe(end.t)
-    expect(ifs.untilNs - ifs.t).toBe(aifsNs(2, OFDM_5G))
-    const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === 'ap' && r.t >= ifs.untilNs)!
-    expect(draw.t).toBe(ifs.untilNs)
-  })
-})
-
-describe('txop · the experiments', () => {
-  it('switching it off keeps the frames and multiplies the countdowns: 462 draws become 706', () => {
-    // "It sends the same number of frames, but now draws a countdown 706 times instead of 462"
-    const rs = recs()
-    const sc = txop.scenario()
-    const ap = sc.nodes.find((n) => n.id === 'ap')!
-    ap.caps.features = { ...ap.caps.features, txop: false }
-    const off = runSc(sc)
-    const draws = (x: TLRecord[]) => ofType(x, 'BACKOFF_DRAW').filter((r) => r.node === 'ap').length
-    expect(draws(rs)).toBe(462)
-    expect(draws(off)).toBe(706)
-    expect(ofType(off, 'TXOP_START')).toHaveLength(0)
-    expect(txs(off, 'data').length).toBe(txs(rs, 'data').length)
-    // "switched off, what it owes is one per frame": 706 against 707 frames, and the odd one
-    // out is the same window edge as the base run's — a millisecond more and the two agree.
-    expect(txs(off, 'data').length).toBe(707)
-    const longer = [...new Simulation(sc).runUntil(301 * MS).records] as TLRecord[]
-    expect(draws(longer)).toBe(txs(longer, 'data').length)
-    expect(draws(longer)).toBe(709)
-    /*
-     * 「那 462 次与 462 串已经结束的突发一一对应：第 463 串在 300 ms 的窗口里还没结束，它那一
-     * 次还没抽」 — the 「第」 rule change of 2026-10-14 uncovered the window in that sentence,
-     * and the sentence is the explanation for the whole off-by-one: the window is this lesson's
-     * own, and the last burst really is the one still open at its edge.
-     */
-    const t = txop.tryThis.join(' ')
-    const m = /第 (\d+) 串在 (\d+) ms 的窗口里还没结束/.exec(t)
-    expect(m, '`tryThis` no longer says why the counts differ by one').not.toBeNull()
-    expect(Number(m![2]) * MS, 'the window this lesson runs').toBe(RUN_NS)
-    const starts = ofType(rs, 'TXOP_START')
-    expect(Number(m![1]), 'the burst that is still open at the edge').toBe(starts.length)
-    expect(ofType(rs, 'TXOP_END').length, 'and the ones that closed inside it')
-      .toBe(starts.length - 1)
-    expect(draws(rs), 'which is what the countdowns match').toBe(starts.length - 1)
-  })
-
-  it('a saturated television grows the bursts to 1.9 ms and three frames', () => {
-    // "That station now has frames waiting whenever the access point wins, and bursts grow to
-    // 1.9 ms and three frames."
-    const sc = txop.scenario()
-    sc.nodes.find((n) => n.id === 'sta-1')!.profiles = ['saturated']
-    const bs = bursts(runSc(sc))
-    expect(Math.max(...bs.map((b) => b.frames))).toBe(3)
-    expect((Math.max(...bs.map((b) => b.lenNs)) / MS).toFixed(1)).toBe('1.9')
-  })
-})
-
-/**
- * The post-TXOP backoff: the mechanism a reader asked about after watching the
- * access point count down six slots with an empty queue.
- *
- * The lesson used to frame a backoff as the price paid in order to transmit,
- * and under that frame this countdown reads as a bug. It is item b) of
- * §10.23.2.2: the holder's EDCAF invokes a backoff when the TXOP's last PPDU
- * has been transmitted, with no condition on anything being left to send. What
- * these tests pin is both halves of what the lesson now says — that every one
- * of this run's 462 draws follows a burst rather than preceding one, and the
- * payoff, which is the next burst going out in the nanosecond the frame
- * arrived because the countdown was already spent.
- */
-describe('txop · the backoff that follows the burst', () => {
-  const rs = recs()
-  const ms = (ns: number) => Number((ns / MS).toFixed(3))
-
-  it('one draw per burst that ENDED: 462 here, 464 when the window is 1 ms longer', () => {
-    // the first experiment's arithmetic. The lesson used to explain 462 against 463 bursts
-    // with "the first burst of the run needs no countdown" — the pre-backoff reading, and
-    // wrong: the draws pair with the TXOP_ENDs, and this window holds 462 of those because
-    // the 463rd burst starts at 299.526 ms and has not finished at 300. One millisecond more
-    // and starts, ends and draws agree at 464. The first burst IS spared a draw (the
-    // assertion below), but being spared it never moved the count.
-    const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')
-    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === 'ap')
-    expect([ends.length, draws.length]).toEqual([462, 462])
-    const longer = runOf(txop, undefined, 301 * MS)
-    const n = (t: string) => ofType(longer, t as 'TXOP_START').filter((r) => r.node === 'ap').length
-    expect([n('TXOP_START'), n('TXOP_END'), n('BACKOFF_DRAW')]).toEqual([464, 464, 464])
-  })
-
-  it('every countdown the access point draws follows a burst, and none precedes one', () => {
-    // the second observation ("462 draws, every one right after a burst, never before one")
-    // and the first experiment ("those 462 are the one after each burst")
-    const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
-    const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')
-    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === 'ap')
-    expect(starts.length).toBe(463)
-    expect(draws.length).toBe(462)
-    for (const d of draws) {
-      const end = ends.filter((e) => e.t <= d.t).slice(-1)[0]
-      expect(end, `the draw at ${d.t} follows no burst`).toBeDefined()
-      // and the holder has not transmitted again in between: the draw belongs to that burst
-      expect(starts.some((s) => s.t > end.t && s.t <= d.t), `draw at ${d.t}`).toBe(false)
-    }
-    // 463 − 462 is the first burst of the run, which follows no burst and so owes no draw
-    expect(draws.some((d) => d.t <= starts[0].t)).toBe(false)
-  })
-
-  it('the first one is drawn with the queue already empty: 34 µs, then six slots', () => {
-    // the watch call-out: "the turn ends at 1.363 ms with an empty queue, and 34 µs later it
-    // still draws 6 slots and counts them down"
-    const end = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')[0]
-    expect(ms(end.t)).toBe(1.363)
-    expect(ofType(rs, 'DEQUEUE').filter((r) => r.node === 'ap' && r.t === end.t).map((r) => r.depth))
-      .toEqual([0])
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t >= end.t)!
-    expect(ifs.t).toBe(end.t)
-    expect((ifs.untilNs - ifs.t) / US).toBe(34)
-    expect(aifsNs(2, OFDM_5G) / US).toBe(34)
-    const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === 'ap')!
-    expect(draw.t).toBe(ifs.untilNs)
-    expect(draw.value).toBe(6)
-    // all six counted down, and not one frame sent while it counted
-    const decs = ofType(rs, 'BACKOFF_DEC')
-      .filter((r) => r.node === 'ap' && r.t >= draw.t && r.t <= draw.t + 6 * 9 * US)
-    expect(decs.map((r) => r.value)).toEqual([5, 4, 3, 2, 1, 0])
-    expect(txs(rs).some((r) => r.node === 'ap' && r.t > end.t && r.t <= decs[5].t)).toBe(false)
-  })
-
-  it('so the next burst goes out in the arrival’s own nanosecond, with no countdown', () => {
-    // the watch call-out's payoff: "the next frame arrives at 1.652 ms and goes out there and
-    // then — no silence, no countdown", and "412 of the 463 bursts go out in the nanosecond
-    // the frame arrived". The call-out states that 412 as a fact and not as a consequence:
-    // 411 of them are a spent post-backoff; the 412th is the run's first burst at 0.883 ms,
-    // which is just as instant for the other reason — it had never contended, so it owed
-    // no draw at all.
-    const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
-    const end = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')[0]
-    const second = starts[1]
-    expect(ms(second.t)).toBe(1.652)
-    const arrival = ofType(rs, 'ARRIVAL').find((r) => r.node === 'ap' && r.t > end.t)!
-    expect(arrival.t).toBe(second.t)
-    const first = txs(rs, 'data').find((r) => r.node === 'ap' && r.t >= second.t)!
-    expect(first.t).toBe(second.t)
-    // the AIFS it serves is zero long, and nothing was drawn or counted since the post-backoff
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t === second.t)!
-    expect(ifs.untilNs).toBe(ifs.t)
-    const lastDec = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === 'ap' && r.t < second.t).slice(-1)[0]
-    expect(lastDec.value).toBe(0)
-    expect(rs.some((r) => (r.type === 'BACKOFF_DRAW' || r.type === 'BACKOFF_DEC')
-      && r.node === 'ap' && r.t > lastDec.t && r.t <= second.t)).toBe(false)
-    const arrivals = new Set(ofType(rs, 'ARRIVAL').filter((r) => r.node === 'ap').map((r) => r.t))
-    expect(starts.filter((s) => arrivals.has(s.t)).length).toBe(412)
-  })
-
-  it('the two jumps land on that draw and on the burst that pays nothing', () => {
-    const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
-    const draw = rs.find(txop.jumps[1].find)!
-    expect(draw.type).toBe('BACKOFF_DRAW')
-    expect(ms(draw.t)).toBe(1.397)
-    const burst = rs.find(txop.jumps[2].find)!
-    expect(burst.t).toBe(starts[1].t)
-    // the 1.5 ms in the predicate sits between the two burst starts, so the jump can neither
-    // drift onto the first burst nor past the second
-    expect(starts[0].t).toBeLessThan(1_500_000)
-    expect(starts[1].t).toBeGreaterThan(1_500_000)
-  })
-})
-
-/**
- * **Every figure the lesson prints, read back out of the lesson.**
- *
- * Everything above measures the engine and compares it with a literal written in THIS file, with
- * the lesson's row quoted in a comment beside it — 「// the run table and the third observation」
- * next to `toBe(463)`. A comment is not a comparison: an engine change reddens those assertions
- * and a prose change does not. `@txop` hand-types 38 figures into its graded prose, second only to
- * `@txop-protect` among the lessons listed in `tests/course/prose-readback.test.ts`, and nothing
- * had read one of them. (The timing figure is the exception: its spans are read span by span
- * above, but out of `txopBurstTiming()` rather than out of `numbers`. The first `it` closes that.)
- *
- * The figures were all exact. What follows is the other half of each assertion above, with no
- * figure on this side — plus the places where a figure lives ONLY in prose: the watch call-out's
- * three instants and its 412, the two fractions (「大约十分之一」 and the four ceilings' own count),
- * `limits`, and the one file-and-function citation.
- *
- * Two conventions are read off the prose rather than written here, because a figure cannot be
- * re-measured without them: each cell's unit (this lesson mixes ms and µs freely, sometimes in one
- * row) and each figure's own number of decimals. 「大约」 is read as one significant figure, which
- * is the only reading of it that can be checked at all.
- */
-describe('txop · every printed figure is read back out of the lesson', () => {
-  const rs = recs()
-  const bs = bursts(rs)
-  const starts = ofType(rs, 'TXOP_START').filter((r) => r.node === 'ap')
-  const ends = ofType(rs, 'TXOP_END').filter((r) => r.node === 'ap')
-  const draws = (x: TLRecord[]) => ofType(x, 'BACKOFF_DRAW').filter((r) => r.node === 'ap').length
-  const t0 = starts[0]
-  const end0 = ends[0]
-  const data0 = txs(rs, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end0.t)
-  const acksIn = ofType(rs, 'RX_OK')
-    .filter((r) => r.node === 'ap' && r.frame.kind === 'ack' && r.t > t0.t && r.t <= end0.t)
-  const acksTx = txs(rs, 'ack').filter((r) => r.t > t0.t && r.t < end0.t)
-
-  const tableWith = (fragment: string): { head: string[]; rows: string[][] } => {
-    const blk = txop.numbers!.find((x) => x.kind === 'table' && (x.heading ?? '').includes(fragment))
-    expect(blk, `no table whose heading contains 「${fragment}」`).toBeDefined()
-    return blk as { head: string[]; rows: string[][] }
-  }
-  /** 「463」 → 463; 「4 096 µs」 → 4096; 「362.4 µs」 → 362.4. */
-  const val = (cell: string): number => Number(cell.replace(/[^\d.]/g, ''))
-  /**
-   * A figure like 「480 µs」 or 「1.363 ms」 against a measurement in nanoseconds — converted with
-   * the unit the PROSE names and rounded to the decimals the PROSE carries.
-   */
-  const figure = (printedWithUnit: string, ns: number, what: string): void => {
-    const m = /^([\d\s.]+?)\s*(ms|µs)$/.exec(printedWithUnit.trim())
-    expect(m, `${what}: 「${printedWithUnit}」 is not a figure followed by ms or µs`).not.toBeNull()
-    const printed = m![1].replace(/\s/g, '')
-    const unit = m![2] === 'ms' ? MS : US
-    const dp = (printed.split('.')[1] ?? '').length
-    expect(Number(printed), `${what} (in ${m![2]}, to ${dp} decimals, both read off the lesson)`)
-      .toBe(Number((ns / unit).toFixed(dp)))
-  }
-  /**
-   * `zhNumeral` with 「两」 read as 「二」. The two are the same number; 「两」 is the form Chinese
-   * uses before a measure word, which is exactly where this lesson counts — 「两帧视频」, 「两个
-   * 确认帧」. The glossary's own reader has no measure words in it, so it never needed this.
-   */
-  const zhCount = (s: string): number | null => zhNumeral(s.replace(/两/g, '二'))
-  /** One significant figure, which is what 「大约」 can be held to and nothing stricter. */
-  const sig1 = (x: number): number => {
-    const e = Math.floor(Math.log10(x))
-    return Number((x / 10 ** e).toFixed(0)) * 10 ** e
-  }
-  const cite = (text: string, what: string): void => {
-    const m = /（([\w.]+) 的 (\w+)）/.exec(text)
-    expect(m, `${what}: no 「file 的 symbol」 citation here any more`).not.toBeNull()
-    const src = readFileSync(resolve(ROOT, `src/engine/${m![1]}`), 'utf8')
-    expect(src.includes(m![2]), `${m![1]} declares ${m![2]}`).toBe(true)
-  }
-
-  it('the figure the reader sees is the figure those spans pin, and its caption counts the frames', () => {
-    const blk = txop.numbers!.find((x) => x.kind === 'diagram')
-    expect(blk, 'the timing figure is gone from `numbers`').toBeDefined()
-    expect((blk as { spec: unknown }).spec, 'the figure in `numbers` is `txopBurstTiming()`')
-      .toEqual(txopBurstTiming())
-    // 「两帧视频、两个确认帧（ACK），480 µs 就结束了，而它被允许占到 4 096 µs」
-    const cap = (blk as { caption?: string }).caption ?? ''
-    const m = /([两一二三四五六七八九十]+)帧视频、([两一二三四五六七八九十]+)个确认帧（ACK），([\d\s]+) µs 就结束了，而它被允许占到 ([\d\s]+) µs/
-      .exec(cap)
-    expect(m, 'the caption no longer counts the burst and names its ceiling').not.toBeNull()
-    expect(zhCount(m![1]), 'the video frames the first burst carried').toBe(data0.length)
-    expect(zhCount(m![2]), 'and the answers they drew').toBe(acksIn.length)
-    figure(`${m![3]} µs`, end0.t - t0.t, 'how long the burst ran')
-    figure(`${m![4]} µs`, t0.untilNs - t0.t, 'and how long it was allowed to')
-    // the caption's point, in the engine rather than in the sentence
-    expect(end0.t - t0.t, 'it stopped well short of the ceiling').toBeLessThan(t0.untilNs - t0.t)
-  })
-
-  it('the ceiling table: three rows for four access categories, each from `EDCA_PARAMS`', () => {
-    const t = tableWith('各类别的上限')
-    // the row labels name the categories; every one of the engine's four must appear in some row,
-    // and every row's figure must be that category's own limit. A fifth row, or a category the
-    // table quietly dropped, fails here — the figures alone would not notice either.
-    const seen = new Map<string, number>()
-    for (const row of t.rows) {
-      const names = [...row[0].matchAll(/\b(VO|VI|BE|BK)\b/g)].map((x) => x[1])
-      expect(names.length, `row 「${row[0]}」 names no access category`).toBeGreaterThan(0)
-      for (const n of names) seen.set(n, val(row[1]))
-      for (const n of names) {
-        const p = EDCA_PARAMS.find((x) => x.name === n)
-        expect(p, `the table names ${n}, which the engine does not have`).toBeDefined()
-        figure(`${row[1]}`, p!.txopLimitNs, `${n}: the ceiling the table prints`)
-      }
-    }
-    expect([...seen.keys()].sort(), 'every access category the engine has appears in some row')
-      .toEqual(EDCA_PARAMS.map((p) => p.name).sort())
-    // The 「为什么是这个取值」 and 「出处」 columns are not read: one is an argument and the other
-    // a reference to the standard, and an assertion over either would fail about how a sentence
-    // is written rather than about what the simulator does. The two figure columns are read.
-  })
-
-  it('the run table: seven rows, and nothing in it is a figure this file still types', () => {
-    const t = tableWith('接入点实际的表现')
-    const us = bs.map((b) => b.lenNs / US)
-    const CHECK: readonly (() => void)[] = [
-      () => expect(val(cell('竞争成功、发出突发的次数')), 'the bursts it won').toBe(starts.length),
-      () => expect(val(cell('其中只发一帧的')), 'those carrying one frame')
-        .toBe(bs.filter((b) => b.frames === 1).length),
-      () => expect(val(cell('其中发两帧的')), 'and those carrying two')
-        .toBe(bs.filter((b) => b.frames === 2).length),
-      () => figure(cell('最短的突发'), Math.min(...us) * US, 'the shortest burst'),
-      () => figure(cell('最长的突发'), Math.max(...us) * US, 'the longest burst'),
-      () => figure(cell('平均突发'), (us.reduce((a, b) => a + b, 0) / us.length) * US, 'the mean burst'),
-      () => figure(cell('它的上限'), t0.untilNs - t0.t, 'the ceiling it was given'),
-    ]
-    function cell(label: string): string {
-      const row = t.rows.find((r) => r[0] === label)
-      expect(row, `no row labelled 「${label}」`).toBeDefined()
-      return row![1]
-    }
-    expect(t.rows, 'the table states exactly the rows this reads').toHaveLength(CHECK.length)
-    for (const check of CHECK) check()
-    // 「其中只发一帧的」 + 「其中发两帧的」 is every burst, which is why there is no third row
-    expect(val(cell('其中只发一帧的')) + val(cell('其中发两帧的')),
-      'the two kinds of burst are all the bursts that ended').toBe(ends.length)
-  })
-
-  it('the formula: both lines add up, and every term is one of the engine’s three', () => {
-    const f = txop.numbers!.find((x) => x.kind === 'formula')
-    expect(f, 'the arithmetic block is gone from `numbers`').toBeDefined()
-    const lines = (f as { text: string }).text.split('\n')
-    expect(lines, 'the block states the long burst and the short one').toHaveLength(2)
-    const terms: number[][] = []
-    const sums: number[] = []
-    for (const line of lines) {
-      const m = /^([\d\s+]+?)\s*=\s*(\d+) µs$/.exec(line)
-      expect(m, `「${line}」 is not 「a + b + … = n µs」`).not.toBeNull()
-      const ts = m![1].split('+').map((x) => Number(x.trim()))
-      expect(ts.reduce((a, b) => a + b, 0), `${line}: the lesson’s own arithmetic`).toBe(Number(m![2]))
-      terms.push(ts)
-      sums.push(Number(m![2]))
-    }
-    // every term is a frame, a pause or an answer, measured
-    const engine = new Set([
-      ...txs(rs, 'data').map((r) => r.frame.txTimeNs / US),
-      ...txs(rs, 'ack').map((r) => r.frame.txTimeNs / US),
-      OFDM_5G.sifsNs / US,
-    ])
-    for (const ts of terms) {
-      for (const x of ts) expect(engine.has(x), `${x} µs is not a frame, a pause or an answer`).toBe(true)
-    }
-    // the two sums are this run's longest and shortest burst
-    const us = bs.map((b) => b.lenNs / US)
-    expect(sums, 'the two lines are the longest burst and the shortest')
-      .toEqual([Math.max(...us), Math.min(...us)])
-    // 「做两遍，或者只做一遍」: the long line really is the short one twice, less one pause
-    expect(terms[0].length, 'the long line has the short one’s terms twice, plus the pause between')
-      .toBe(2 * terms[1].length + 1)
-  })
-
-  it('the steps: the lease, the pause, the silence it must beat, and the clause behind step 6', () => {
-    const items = (txop.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
-    expect(items, 'the lesson walks the hold in exactly the steps this reads').toHaveLength(6)
-    // step 1: 「视频那一类是 4 096 µs」
-    const lease = /视频那一类是 ([\d\s]+) µs/.exec(items[0])
-    expect(lease, 'step 1 no longer names the video ceiling').not.toBeNull()
-    figure(`${lease![1]} µs`, EDCA_PARAMS.find((p) => p.name === 'VI')!.txopLimitNs, 'the video lease')
-    figure(`${lease![1]} µs`, t0.untilNs - t0.t, 'which is the lease this run hands out')
-    // step 2: 「一段 16 µs 的停顿」
-    const pause = /一段 (\d+) µs 的间隔/.exec(items[1])
-    expect(pause, 'step 2 no longer states the pause').not.toBeNull()
-    figure(`${pause![1]} µs`, OFDM_5G.sifsNs, 'the pause inside an exchange')
-    // step 4: 「16 µs 比任何竞争者必须听到的最短静默（34 µs）还短」
-    const gap = /(\d+) µs 比任何竞争者必须侦听到的最短静默（(\d+) µs）还短/.exec(items[3])
-    expect(gap, 'step 4 no longer compares the pause with the shortest silence').not.toBeNull()
-    figure(`${gap![1]} µs`, OFDM_5G.sifsNs, 'the pause, where step 4 states it again')
-    figure(`${gap![2]} µs`, Math.min(...EDCA_PARAMS.map((p) => aifsNs(p.aifsn, OFDM_5G))),
-      'the shortest silence any contender must hear')
-    expect(Number(gap![1]), 'and the comparison the step rests on').toBeLessThan(Number(gap![2]))
-    // Steps 5 and 6 carry no figure: one lists the four ways a hold can end, the other cites
-    // §10.23.2.2 b). Both are prose about prose, so neither is read here.
-  })
-
-  it('the worked table: eight rows of the first burst, instants and arithmetic alike', () => {
-    const t = tableWith('按步骤计算一遍')
-    const sifs = OFDM_5G.sifsNs / US
-    const ROWS: readonly (readonly [RegExp, (cell: string, l: RegExpExecArray) => void])[] = [
-      [/^第一帧发送的时刻$/, (c) => figure(c, t0.t, 'when the first frame goes out')],
-      // 「于是占用的期限在 4 096 µs 之后，即」 → 4.979 ms: the label carries a figure too
-      [/^于是占用的期限在 ([\d\s]+) µs 之后，即$/, (c, l) => {
-        figure(`${l[1]} µs`, t0.untilNs - t0.t, 'the lease the label names')
-        figure(c, t0.untilNs, 'and where it therefore ends')
-      }],
-      // 「发给电视 2，188 µs，再加 16 + 28 µs：回答到手于」 → 1.115 ms
-      [/^发给电视 (\d)，(\d+) µs，再加 (\d+) \+ (\d+) µs：收到应答于$/, (c, l) => {
-        expect(data0[0].frame.dst, 'the television the first frame goes to').toBe(`sta-${l[1]}`)
-        figure(`${l[2]} µs`, data0[0].frame.txTimeNs, 'the frame’s own airtime')
-        figure(`${l[3]} µs`, OFDM_5G.sifsNs, 'the pause after it')
-        figure(`${l[4]} µs`, acksTx[0].frame.txTimeNs, 'and the answer')
-        figure(c, acksIn[0].t, 'so the answer is in at')
-        expect(acksIn[0].t - (data0[0].t + data0[0].frame.txTimeNs),
-          'which is exactly the pause plus the answer').toBe((Number(l[3]) + Number(l[4])) * US)
-      }],
-      // 「下一次交互需要 16 + 188 + 16 + 28」 → 248 µs
-      [/^下一次交互需要 ((?:\d+ \+ )+\d+)$/, (c, l) => {
-        const ts = l[1].split('+').map((x) => Number(x.trim()))
-        expect(ts.reduce((a, b) => a + b, 0), 'the terms add up to the cell').toBe(val(c))
-        expect(ts, 'a pause, a frame, a pause and an answer')
-          .toEqual([sifs, data0[1].frame.txTimeNs / US, sifs, acksTx[1].frame.txTimeNs / US])
-        figure(c, acksIn[1].t - acksIn[0].t, 'and that is what the second exchange took')
-      }],
-      // 「它会在 1.363 ms 结束，而期限是 4.979 ms」 → 装得下 ✓
-      [/^它会在 ([\d.]+) ms 结束，而期限是 ([\d.]+) ms$/, (c, l) => {
-        figure(`${l[1]} ms`, acksIn[1].t, 'where the second exchange lands')
-        figure(`${l[2]} ms`, t0.untilNs, 'against the lease')
-        // the cell is a verdict, not a figure, and the two instants are what make it true
-        expect(c.includes('✓'), 'the cell says it fits').toBe(true)
-        expect(acksIn[1].t, 'and it does').toBeLessThan(t0.untilNs)
-      }],
-      [/^于是间隔一段时间后，发给电视 (\d) 的帧开始发送于$/, (c, l) => {
-        expect(data0[1].frame.dst, 'the other television').toBe(`sta-${l[1]}`)
-        figure(c, data0[1].t, 'when its frame goes out')
-        expect(data0[1].t - acksIn[0].t, 'one pause after the answer').toBe(OFDM_5G.sifsNs)
-      }],
-      [/^应答到达，队列已空，本轮结束于$/, (c) => {
-        figure(c, end0.t, 'when the hold ends')
-        expect(end0.t, 'which is the second answer landing').toBe(acksIn[1].t)
-      }],
-      // 「实际占用，而允许的是 4 096 µs」 → 480 µs
-      [/^实际占用，而允许的是 ([\d\s]+) µs$/, (c, l) => {
-        figure(`${l[1]} µs`, t0.untilNs - t0.t, 'the lease, once more')
-        figure(c, end0.t - t0.t, 'against what was used')
-      }],
-    ]
-    expect(t.rows, 'the table walks exactly the steps this reads').toHaveLength(ROWS.length)
-    for (const [i, [re, check]] of ROWS.entries()) {
-      const l = re.exec(t.rows[i][0])
-      expect(l, `row ${i}: 「${t.rows[i][0]}」 is not in the shape this reads`).not.toBeNull()
-      check(t.rows[i][1], l!)
-    }
-  })
-
-  it('the watch call-out: the empty queue, the six slots, and the 412 that pay nothing', () => {
-    const p = (txop.picture! as { text?: string }[]).map((x) => x.text ?? '').join('\n')
-    const m = /本轮在 ([\d.]+) ms 结束、队列已空，(\d+) µs 之后它仍然抽到 (\d+) 个时隙（slot time）并完成倒数[^]*?下一帧在 ([\d.]+) ms 才到达[^]*?整轮 (\d+) 串突发里，有 (\d+) 串都是在帧到达的同一纳秒发出的/
-      .exec(p)
-    expect(m, 'the watch call-out is gone, or its shape changed').not.toBeNull()
-    figure(`${m![1]} ms`, end0.t, 'when the first hold ends')
-    expect(ofType(rs, 'DEQUEUE').filter((r) => r.node === 'ap' && r.t === end0.t).map((r) => r.depth),
-      'and the queue really is empty there').toEqual([0])
-    const ifs = ofType(rs, 'IFS_START').find((r) => r.node === 'ap' && r.t >= end0.t)!
-    figure(`${m![2]} µs`, ifs.untilNs - ifs.t, 'the silence it serves first')
-    const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === 'ap')!
-    expect(Number(m![3]), 'the slots it draws with nothing to send').toBe(draw.value)
-    figure(`${m![4]} ms`, starts[1].t, 'when the next frame arrives')
-    expect(Number(m![5]), 'the bursts in the run').toBe(starts.length)
-    const arrivals = new Set(ofType(rs, 'ARRIVAL').filter((r) => r.node === 'ap').map((r) => r.t))
-    expect(Number(m![6]), 'and how many went out in the arrival’s own nanosecond')
-      .toBe(starts.filter((s) => arrivals.has(s.t)).length)
-  })
-
-  it('both experiments and the census line, read out of `observe` and `tryThis`', () => {
-    // observe: 「竞争成功 463 次、发出 463 串突发：其中 219 串只带一帧，243 串带两帧 … 抽取倒数 462 次」
-    const o = /竞争成功 (\d+) 次、发出 (\d+) 串突发：其中 (\d+) 串只带一帧，(\d+) 串带两帧[^]*?抽取倒数 (\d+) 次/
-      .exec(txop.observe!.join('\n'))
-    expect(o, 'the census line is gone from `observe`').not.toBeNull()
-    expect([Number(o![1]), Number(o![2])], 'the wins and the bursts, which are the same thing')
-      .toEqual([starts.length, starts.length])
-    expect(Number(o![3]), 'bursts of one frame').toBe(bs.filter((b) => b.frames === 1).length)
-    expect(Number(o![4]), 'bursts of two').toBe(bs.filter((b) => b.frames === 2).length)
-    expect(Number(o![5]), 'and the countdowns drawn').toBe(draws(rs))
-    // tryThis[0]: 「从 462 变成了 706。那 462 次与 462 串已经结束的突发一一对应：第 463 串…」
-    const e = /从 (\d+) 变成了 (\d+)。那 (\d+) 次与 (\d+) 串已经结束的突发一一对应：第 (\d+) 串/
-      .exec(txop.tryThis![0])
-    expect(e, 'the first experiment is gone, or its shape changed').not.toBeNull()
-    const sc = txop.scenario()
-    const ap = sc.nodes.find((n) => n.id === 'ap')!
-    ap.caps.features = { ...ap.caps.features, txop: false }
-    const off = runSc(sc)
-    expect(Number(e![1]), 'the draws with bursting on').toBe(draws(rs))
-    expect(Number(e![2]), 'and with it off').toBe(draws(off))
-    expect([Number(e![3]), Number(e![4])], 'the draws pair one-for-one with the bursts that ENDED')
-      .toEqual([ends.length, ends.length])
-    expect(Number(e![5]), 'and the burst still running at the window’s edge is the last one')
-      .toBe(starts.length)
-    // 「它发出的帧数一模一样」
-    expect(txs(off, 'data').length, 'the same frames go out either way').toBe(txs(rs, 'data').length)
-    // tryThis[1]: 「突发长到 1.9 ms、一次三帧」
-    const g = /突发长到 ([\d.]+) ms、一次([一二三四五六七八九十]+)帧/.exec(txop.tryThis![1])
-    expect(g, 'the second experiment is gone, or its shape changed').not.toBeNull()
-    const sat = txop.scenario()
-    sat.nodes.find((n) => n.id === 'sta-1')!.profiles = ['saturated']
-    const grown = bursts(runSc(sat))
-    figure(`${g![1]} ms`, Math.max(...grown.map((b) => b.lenNs)), 'the longest burst once one queue never empties')
-    expect(zhNumeral(g![2]), 'and the frames it carries').toBe(Math.max(...grown.map((b) => b.frames)))
-  })
-
-  it('the quiz’s 「大约十分之一」, read as one significant figure', () => {
-    // The only re-measurable reading of 「大约」: the share to one significant figure. Today the
-    // longest burst uses 480 of 4 096 µs — 11.7 %, which is 0.1 to one figure and would be 0.2 if
-    // the hold ran to a fifth. `it` above pins the same claim as 「under an eighth」, which is the
-    // engine side of it; this is the sentence's own figure.
-    const m = /只用掉了它被允许的大约([一二三四五六七八九十]+)分之一/.exec(txop.quiz![1].explain!)
-    expect(m, 'the quiz no longer states the share as a fraction').not.toBeNull()
-    const share = Math.max(...bs.map((b) => b.lenNs)) / (t0.untilNs - t0.t)
-    expect(sig1(share), `「${m![1]}分之一」 against the measured ${(100 * share).toFixed(1)} %`)
-      .toBeCloseTo(1 / zhNumeral(m![1])!, 10)
-  })
-
-  it('the prose the graded walk never reads: `limits`, its four ceilings and two citations', () => {
-    const ls = txop.limits!.map((l) => l.text)
-    // 「那四个上限（2.080 / 4.096 / 2.528 ms）」: four ceilings, three distinct values
-    const m = /那([一二三四五六七八九十]+)个上限（([\d./\s]+) ms）/.exec(ls.join('\n'))
-    expect(m, '`limits` no longer states the ceilings it calls a constant table').not.toBeNull()
-    expect(zhNumeral(m![1]), 'the access categories the engine parameterises').toBe(EDCA_PARAMS.length)
-    const printed = m![2].split('/').map((x) => Number(x.trim()))
-    expect(new Set(printed), 'and the distinct values among them')
-      .toEqual(new Set(EDCA_PARAMS.map((p) => p.txopLimitNs / MS)))
-    // 「（phy.ts 的 EDCA_PARAMS）」 and the other citation: a citation is a claim about this repo
-    cite(ls.find((x) => x.includes('phy.ts'))!, 'the constant table `limits` cites')
-    // 「那 219 次「队列空了就交还」的单帧突发」
-    const one = /那 (\d+) 次「队列空了就交还」的单帧突发/.exec(ls.join('\n'))
-    expect(one, '`limits` no longer counts the single-frame bursts').not.toBeNull()
-    expect(Number(one![1]), 'which is the run table’s own row, restated in a limit')
-      .toBe(bs.filter((b) => b.frames === 1).length)
-    // 「那 16 µs 的停顿在这里是一个精确常数」
-    const pause = /那 (\d+) µs 的间隔在这里是一个精确常数/.exec(ls.join('\n'))
-    expect(pause, '`limits` no longer names the pause it calls exact').not.toBeNull()
-    figure(`${pause![1]} µs`, OFDM_5G.sifsNs, 'the pause the fourth limit is about')
-    // 「不少型号把尽力而为那一类设成 0——那等于每次竞争成功只发一帧」: the figure is about real
-    // access points, and what IS checkable is the equivalence it claims — a zero limit is this
-    // lesson's own 「关掉这个功能」 variant, whose bursts carry one frame each.
-    const off = /设成 (\d+)——这等于每次竞争成功只发一帧/.exec(ls.join('\n'))
-    expect(off, '`limits` no longer says what a zero limit amounts to').not.toBeNull()
-    // and the figure is exactly the value that turns the feature off: the MAC gates a burst on
-    // `txopLimitNs > 0`, so 0 means one frame per win and 1 would not. (The 「不少型号」 is a
-    // claim about real access points, and this table has no zero in it — every AC of
-    // `EDCA_PARAMS` carries a limit — which is why the lesson calls it something models do.)
-    expect(Number(off![1]) > 0, 'a limit of that value would still open a burst').toBe(false)
-    expect(readFileSync(resolve(ROOT, 'src/engine/mac.ts'), 'utf8'),
-      'the MAC no longer gates a burst on a positive limit').toContain('txopLimitNs > 0')
-    expect(Math.min(...EDCA_PARAMS.map((p) => p.txopLimitNs)),
-      'and no access class in this engine’s own table carries that value').toBeGreaterThan(0)
-  })
-
-  /**
-   * **The six sites `scripts/figure-planting.ts` found this file still not reading**, on
-   * 2026-10-12: the figure's own two labels, the run table's header, `sources`' restatement of
-   * the frame's airtime, and `tryThis`'s 706. The axis unit is the odd one — 「µs（0 是本轮开
-   * 始）」 puts a figure inside a unit, and it is the only place the lesson tells the reader what
-   * the zero of its own time axis means.
-   */
-  it('the figure’s labels, the table’s window, and the two counts restated elsewhere', () => {
-    const rs2 = recs()
+  it('lab 1: the first burst, to scale and step by step', () => {
+    const l = lab('第一串突发')
+    const fig = l.blocks!.find((b) => b.kind === 'diagram')!
+    expect(fig.kind === 'diagram' && fig.spec).toEqual(txopBurstTiming())
+    const b = bursts(rs)[0]
+    const tx = ofType(rs, 'TX_START').filter((r) => r.t >= b.start && r.t < b.end!)
+    expect(tx.map((r) => r.frame.kind)).toEqual(['data', 'ack', 'data', 'ack'])
+    const rel = (ns: number) => (ns - b.start) / US
     const spec = txopBurstTiming()
-    // this figure is drawn in the burst's own time, which is what its axis unit says
-    const t0 = ofType(rs2, 'TXOP_START').filter((r) => r.node === 'ap')[0]
-    const end = ofType(rs2, 'TXOP_END').find((r) => r.node === 'ap' && r.t > t0.t)!
-    const frames = txs(rs2, 'data').filter((r) => r.node === 'ap' && r.t >= t0.t && r.t < end.t)
-    // 「两帧视频，各 188 µs」: the burst it labels holds that many frames, each that long
-    const first = spec.lanes[0].spans[0]
-    const m = /([一二三四五六七八九十两]+)帧视频，各 (\d+) µs/.exec(first.label ?? '')
-    expect(m, 'the first span no longer says how many frames it holds').not.toBeNull()
-    expect(zhCount(m![1]), 'the frames in the burst it draws').toBe(frames.length)
-    figure(`${m![2]} µs`, frames[0].frame.txTimeNs, 'each frame of it')
-    expect(new Set(frames.map((r) => r.frame.txTimeNs)).size, 'and they are all that long').toBe(1)
-    // 「µs（0 是本轮开始）」: the axis's zero is the burst's start, not the run's — which is the
-    // only place the lesson tells the reader what its own zero means
-    const zero = /（(\d+) 是本轮开始）/.exec(spec.axis.unit ?? '')
-    expect(zero, 'the axis no longer says what its zero is').not.toBeNull()
-    expect(spec.axis.fromUs, 'the axis starts there').toBe(Number(zero![1]))
-    expect(first.fromUs, 'and the first frame of the burst sits on it').toBe(Number(zero![1]))
-    expect((frames[0].t - t0.t) / US, 'which is where that frame really is, in the burst’s time')
-      .toBe(Number(zero![1]))
-    expect(t0.t, 'while the burst itself starts well after the run does').toBeGreaterThan(0)
-    // 「300 ms 之内」: the window the run table counts over
-    const head = (txop.numbers!.find((x) => x.kind === 'table'
-      && ((x as { head: string[] }).head[0] ?? '').includes('ms')) as { head: string[] }).head
-    const win = /(\d+) ms 之内/.exec(head[0])
-    expect(win, 'the run table no longer names its window').not.toBeNull()
-    expect(Number(win![1]) * MS, 'which is the window these counts are taken over').toBe(RUN_NS)
-    // `sources`: 「正是它把这里一帧视频的时长定在 188 µs」
-    const src = /一帧视频的时长定在 (\d+) µs/.exec(txop.sources!.join('\n'))
-    expect(src, '`sources` no longer states the frame’s airtime').not.toBeNull()
-    figure(`${src![1]} µs`, frames[0].frame.txTimeNs, 'the airtime `sources` quotes')
-    // `tryThis`: 「同样的帧数要付 706 次代价」
-    const t = /同样的帧数要付 (\d+) 次代价/.exec(txop.tryThis.join('\n'))
-    expect(t, '`tryThis` no longer counts the draws the feature saves').not.toBeNull()
-    // the same off-scene the experiment above builds: this lesson has no variant for it, the
-    // reader switches the feature off in the editor
-    const offScene = txop.scenario()
-    const theAp = offScene.nodes.find((n) => n.id === 'ap')!
-    theAp.caps.features = { ...theAp.caps.features, txop: false }
-    const offRuns = runSc(offScene)
-    expect(ofType(offRuns, 'BACKOFF_DRAW').filter((r) => r.node === 'ap'),
-      'the draws the access point makes with the feature off').toHaveLength(Number(t![1]))
-    // 「一帧发完一次」: that count really is one per frame, give or take the window's edge
-    expect(Math.abs(txs(offRuns, 'data').length - Number(t![1])),
-      'and it is one draw per frame').toBeLessThanOrEqual(1)
+    const ap = spec.lanes[0].spans
+    const tv = spec.lanes[1].spans
+    expect([ap[0].fromUs, ap[0].toUs, ap[1].fromUs, ap[1].toUs]).toEqual([rel(tx[0].t), rel(tx[0].t + tx[0].frame.txTimeNs), rel(tx[2].t), rel(tx[2].t + tx[2].frame.txTimeNs)])
+    expect([tv[0].fromUs, tv[0].toUs, tv[1].fromUs, tv[1].toUs]).toEqual([rel(tx[1].t), rel(tx[1].t + tx[1].frame.txTimeNs), rel(tx[3].t), rel(tx[3].t + tx[3].frame.txTimeNs)])
+    expect(spec.lanes[2].spans[0].toUs * US).toBe(by('VI').txopLimitNs)
+
+    const ms3 = (ns: number) => `${(ns / MS).toFixed(3)} ms`
+    const rows = tableOf(l.blocks!, '第一串突发，按步骤计算').rows
+    const [d1, a1, d2, a2] = tx
+    expect(rows[0][1]).toBe(ms3(b.start))
+    expect(rows[1][1]).toBe(ms3(b.until))
+    expect(rows[2][0]).toContain(`发给电视 2，${d1.frame.txTimeNs / US} µs，再加 16 + ${a1.frame.txTimeNs / US} µs`)
+    expect(d1.frame.dst).toBe('sta-2')
+    expect(rows[2][1]).toBe(ms3(a1.t + a1.frame.txTimeNs))
+    expect(rows[3][1]).toBe(`${(OFDM_5G.sifsNs + d2.frame.txTimeNs + OFDM_5G.sifsNs + a2.frame.txTimeNs) / US} µs`)
+    expect(rows[4][0]).toBe(`它在 ${ms3(a2.t + a2.frame.txTimeNs).replace(' ms', '')} ms 结束，早于期限 ${ms3(b.until)}`)
+    expect(rows[5][1]).toBe(ms3(d2.t))
+    expect(d2.frame.dst).toBe('sta-1')
+    expect(d2.t - (a1.t + a1.frame.txTimeNs)).toBe(OFDM_5G.sifsNs)
+    expect(rows[6][1]).toBe(ms3(b.end!))
+    expect(rows[7][1]).toBe(`${(b.end! - b.start) / US} µs`)
+    expect(rows[7][0]).toContain(thousands(by('VI').txopLimitNs / US))
+    expect(l.expect).toContain(`接入点在 ${ms3(b.start)} 发出第一帧`)
+    expect(l.expect).toContain(`TXOP 在 ${ms3(b.end!)} 结束，共 ${(b.end! - b.start) / US} µs`)
+  })
+
+  it('lab 2: what ended each burst', () => {
+    const l = lab('每一串突发因何结束')
+    const bs = bursts(rs)
+    const done = bs.filter((b) => b.end !== null)
+    const rows = tableOf(l.blocks!, '300 ms 里接入点的突发').rows
+    const cell = (label: string) => rows.find((r) => r[0] === label)![1]
+    const lens = done.map((b) => (b.end! - b.start) / US)
+    expect(cell('发起的 TXOP')).toBe(String(bs.length))
+    expect(cell('已经结束、只发一帧的')).toBe(String(done.filter((b) => b.frames === 1).length))
+    expect(cell('已经结束、发两帧的')).toBe(String(done.filter((b) => b.frames === 2).length))
+    expect(done.every((b) => b.frames === 1 || b.frames === 2)).toBe(true)
+    expect(cell('最短的突发')).toBe(`${Math.min(...lens)} µs`)
+    expect(cell('最长的突发')).toBe(`${Math.max(...lens)} µs`)
+    expect(cell('平均')).toBe(`${(lens.reduce((a, x) => a + x, 0) / lens.length).toFixed(1)} µs`)
+    expect(cell('VI 的 TXOP 上限')).toBe(`${thousands(by('VI').txopLimitNs / US)} µs`)
+    expect(bs.length - done.length).toBe(1)
+    expect(l.expect).toContain(`已经结束的 ${done.length} 串突发里，${done.filter((b) => b.frames === 1).length} 串只发一帧，${done.filter((b) => b.frames === 2).length} 串发两帧；最长的一串 ${Math.max(...lens)} µs`)
+    expect(Math.max(...lens) * 8).toBeLessThan(by('VI').txopLimitNs / US) // 「不到上限的八分之一」
+    expect(l.expect).toContain(`第 ${bs.length} 串在 300 ms 结束时还没有结束`)
+    // every finished burst ended with the queue empty, never at the limit
+    for (const b of done) {
+      const depth = ofType(rs, 'DEQUEUE').filter((r) => r.node === AP && r.t === b.end).at(-1)
+      expect(depth?.depth, `burst at ${b.start}`).toBe(0)
+    }
+  })
+
+  it('lab 3: the backoff after the first burst, and the burst that needs none', () => {
+    const l = lab('交还之后立即退避')
+    const bs = bursts(rs)
+    const first = bs[0]
+    const draw = ofType(rs, 'BACKOFF_DRAW').find((r) => r.node === AP)!
+    expect(draw.t - first.end!).toBe(aifsNs(by('VI').aifsn, OFDM_5G))
+    const second = bs[1]
+    const arrival = ofType(rs, 'ENQUEUE').filter((r) => r.node === AP && r.t > first.end!)[0]
+    expect(arrival.t).toBe(second.start)
+    expect(second.start).toBeGreaterThan(1_500_000)
+    expect(txop.jumps[2].find({ type: 'TXOP_START', node: AP, t: second.start, ac: 2, untilNs: second.until, seq: 0 } as TLRecord)).toBe(true)
+    // the countdown is finished before the frame arrives
+    const lastDec = ofType(rs, 'BACKOFF_DEC').filter((r) => r.node === AP && r.t < arrival.t).at(-1)!
+    expect(lastDec.value).toBe(0)
+    expect(l.expect).toContain(`第一串突发在 ${(first.end! / MS).toFixed(3)} ms 结束，队列已空；${aifsNs(2, OFDM_5G) / US} µs 之后接入点抽到 ${draw.value} 并倒数完毕`)
+    expect(l.expect).toContain(`下一帧在 ${(arrival.t / MS).toFixed(3)} ms 到达，在同一纳秒发出`)
+    const atArrival = bs.filter((b) => ofType(rs, 'ENQUEUE').some((e) => e.node === AP && e.t === b.start)).length
+    const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => r.node === AP).length
+    expect(l.expect).toContain(`${bs.length} 串突发有 ${atArrival} 串是在帧到达的同一纳秒发出的；抽取一共 ${draws} 次`)
+    expect(txop.why).toContain(`${bs.length} 串突发里有 ${atArrival} 串在帧到达的同一纳秒发出`)
+  })
+
+  it('lab 4: TXOP off on the AP — the same frames, a draw after each', () => {
+    const l = lab('关掉接入点的 TXOP')
+    const sc: Scenario = txop.scenario()
+    const ap = sc.nodes.find((n) => n.id === AP)!
+    ap.caps.features = { ...ap.caps.features, txop: false }
+    const off = [...new Simulation(sc).runUntil(RUN_NS).records]
+    const dataOf = (x: TLRecord[]) => ofType(x, 'TX_START').filter((r) => r.node === AP && r.frame.kind === 'data').length
+    const drawsOf = (x: TLRecord[]) => ofType(x, 'BACKOFF_DRAW').filter((r) => r.node === AP).length
+    expect(dataOf(off)).toBe(dataOf(rs))
+    expect(l.expect).toContain(`数据帧仍是 ${dataOf(rs)} 帧，但退避抽取从 ${drawsOf(rs)} 次增加到 ${drawsOf(off)} 次`)
+    expect(ofType(off, 'TXOP_START').filter((r) => r.node === AP)).toEqual([])
   })
 })

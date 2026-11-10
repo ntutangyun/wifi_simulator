@@ -1,36 +1,27 @@
 /**
- * Every empirical claim of "Trigger frames — the access point conducts the
- * uplink", measured against the lesson's own scenario.
+ * `@ofdma-ul`, in the standard-first shape (2026-11-11).
  *
- * What is pinned here is what this lesson's own sentences say: the six rows of
- * the triggered round (the trigger frame's size, rate and airtime, the gaps,
- * the two equal answers, the multi-station BlockAck and the total), the claim
- * that the length and the slice came from the trigger frame rather than from
- * the device, the whole-run table (16 triggers, 2 of them unanswered, 28
- * answers against 54 contended sends and the bytes each carried), and the two
- * experiments.
+ * ① cites IEEE Std 802.11-2024 §9.3.1.22, §26.5.2.3.1–3, §26.5.2.5, §10.3.2.13.3, §26.5.5 and
+ * §26.2.7; ② says what `transmitTrigger` / `respondToTrigger` (src/engine/mac.ts) do, and each row
+ * that names an engine behaviour is pinned against the run; ③'s figures are read back out of the
+ * lesson text and compared with 100 ms runs of the base scene and its variant.
  *
- * `tests/course/lesson-claims.test.ts` and `tests/course/lessons.test.ts` keep
- * their own pins on this lesson (that the stations still contend via EDCA
- * between bursts, and that every trigger names one length for all its users);
- * this file does not duplicate them. The lesson never had a `.body!` site in
- * any test.
+ * `tests/course/lessons.test.ts` keeps its own pin on this scene (every TB PPDU of a round starts
+ * SIFS after the trigger and runs the length it named); `tests/course/lesson-claims.test.ts` pins
+ * that the uploaders still contend between rounds.
  */
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
-import { ofdmaUl, triggeredRound, ROUND, ROUND_AT } from '../../src/course/tier2/ofdma-ul'
-import { lessonChars } from '../../src/course/curriculum'
+import { ofdmaUl, ofdmaUlScenario, triggeredRound, ROUND, ROUND_AT } from '../../src/course/tier2/ofdma-ul'
+import { isStandardFirst, oneRoom, node, sc, type Block, type Lab } from '../../src/course/lessonKit'
+import { MODULES } from '../../src/course/curriculum'
 import { Simulation } from '../../src/engine/simulation'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import {
-  ACK_TIMEOUT_NS, MAX_PPDU_NS, PHY_MODES, TGI_NS, multiStaBaBytes, triggerBytes,
-} from '../../src/engine/phy'
-import { readFileSync } from 'node:fs'
+import { ACK_TIMEOUT_NS, MAX_PPDU_NS, PHY_MODES, multiStaBaBytes, triggerBytes } from '../../src/engine/phy'
 import { maxPsduBytesFor } from '../../src/engine/mac'
 import { ampduPsduBytes } from '../../src/model/frames'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { MODULES } from '../../src/course/curriculum'
-import { RU26_PER_20MHZ, selBinWidthMhz, selBins, selMemberBins } from '../../src/engine/selectivity'
 
 const MS = 1_000_000
 const US = 1_000
@@ -38,6 +29,7 @@ const US = 1_000
 const RUN_NS = 100 * MS
 const SIFS_NS = 16 * US
 const UPLOADERS = ['sta-1', 'sta-2']
+const A_OFF = 0
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const txs = (rs: TLRecord[], pred: (r: Tx) => boolean = () => true): Tx[] =>
@@ -52,742 +44,263 @@ const one = <T>(xs: T[]): T => {
   expect(new Set(xs.map((x) => JSON.stringify(x))).size).toBe(1)
   return xs[0]
 }
-/** The lesson's scene with OFDMA switched off on the nodes named: the second experiment. */
-function without(...ids: string[]): TLRecord[] {
-  const sc: Scenario = ofdmaUl.scenario()
-  for (const n of sc.nodes) {
-    if (ids.includes(n.id)) n.caps.features = { ...n.caps.features, ofdma: false }
-  }
-  return [...new Simulation(sc).runUntil(RUN_NS).records]
+const usText = (ns: number): string => `${(ns / US).toFixed(1)} µs`
+const grouped = (n: number): string => n.toLocaleString('en-US')
+
+const base = (): TLRecord[] => runOf(ofdmaUl, undefined, RUN_NS)
+
+const lab = (heading: string): Lab => {
+  const l = ofdmaUl.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
 }
+const tableOf = (l: Lab, heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = ofdmaUl.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const stdText = (): string => ofdmaUl.standard!.map((b) =>
+  `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
 
 lessonShapeSuite(ofdmaUl, { runNs: RUN_NS })
 
-describe('ofdma-ul · the lesson’s own scene', () => {
-  it('is a Tier 2 lesson that needs the downlink half of the idea', () => {
+describe('ofdma-ul · the lesson', () => {
+  it('is in the standard-first shape, in the scheduled Wi-Fi module, after the downlink', () => {
+    expect(isStandardFirst(ofdmaUl)).toBe(true)
     expect(MODULES[ofdmaUl.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(ofdmaUl.needs).toEqual(['ofdma-dl'])
     expect(ofdmaUl.terms!.map((t) => t.term)).toEqual(['uplink', 'trigger frame', 'TB'])
+    expect(ofdmaUl.limits).toEqual([])
+    expect(ofdmaUl.observe).toEqual([])
+    expect(ofdmaUl.tryThis).toEqual([])
   })
 
-  it('is the same room it always was: one access point and two busy uploaders', () => {
-    const sc = ofdmaUl.scenario()
-    expect(() => ScenarioSchema.parse(sc)).not.toThrow()
-    expect(sc.nodes.map((n) => n.id)).toEqual(['ap', ...UPLOADERS])
-    for (const id of UPLOADERS) {
-      const n = sc.nodes.find((x) => x.id === id)!
-      expect(n.caps.generation).toBe('he')
-      expect(n.profiles).toEqual(['saturated'])
+  it('keeps the room it always had, and its variant only switches uploader A off OFDMA', () => {
+    const was = sc(oneRoom(), [
+      node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
+      node('sta-1', 'Uploader A', 'sta', 3.5, 5.5, 'he', 'saturated'),
+      node('sta-2', 'Uploader B', 'sta', 6.5, 5.5, 'he', 'saturated'),
+    ])
+    expect(ofdmaUl.scenario()).toEqual(was)
+    expect(ofdmaUlScenario()).toEqual(was)
+    expect(() => ScenarioSchema.parse(ofdmaUl.scenario())).not.toThrow()
+    expect(ofdmaUl.variants!.map((v) => v.label)).toEqual(['上传设备 A 关闭 OFDMA'])
+    const v = ofdmaUl.variants![A_OFF].scenario()
+    expect(() => ScenarioSchema.parse(v)).not.toThrow()
+    expect(v.nodes.map((n) => n.caps.features?.ofdma === false)).toEqual([false, true, false])
+    expect({ ...v, nodes: v.nodes.map((n, i) => ({ ...n, caps: was.nodes[i].caps })) }).toEqual(was)
+  })
+
+  it('cites each clause it teaches in ①, and nothing in ① is the simulator', () => {
+    const std = stdText()
+    for (const c of ['§9.3.1.22', '§26.5.2.3.1', '§26.5.2.3.3', '§26.5.2.3.2', '§26.6.2.3', '§26.5.2.5', '§10.3.2.13.3', '§9.3.1.8.6', '§26.5.5', '表 9-54', '§26.2.7', '§26.5.2.2.5']) {
+      expect(std, c).toContain(c)
     }
-    expect(ofdmaUl.variants).toBeUndefined()
+    for (const sim of ['本仿真器', '引擎', '1/n']) expect(std).not.toContain(sim)
+    // Table 9-54's encoding and §26.5.2.5's 418, as ① prints them
+    expect(std).toContain('取值 0 至 90 表示 −110 + 取值 dBm，127 表示')
+    expect(std).toContain('UL Length 超过 418 的 Basic 触发帧必须把 CS Required 置 1')
+  })
+
+  it('② is not all faithful, and names what differs and what is absent', () => {
+    const kinds = new Set(ofdmaUl.implementation!.map((r) => r.kind))
+    for (const k of ['faithful', 'value', 'choice', 'differs', 'absent'] as const) expect(kinds.has(k), k).toBe(true)
+    expect(implRow('应答前的侦听').kind).toBe('differs')
+    expect(implRow('邀请谁').kind).toBe('differs')
+    expect(implRow('功率').kind).toBe('absent')
+    expect(implRow('MU EDCA').kind).toBe('absent')
   })
 })
 
-describe('ofdma-ul · one triggered round, end to end', () => {
-  const rs = runOf(ofdmaUl, undefined, RUN_NS)
-  const trig = triggers(rs)
-  const tb = tbPpdus(rs)
-  const mba = txs(rs, (r) => r.frame.kind === 'mba')
-
-  it('the trigger frame: 40 bytes, 36 µs, sent slowly at 24 Mb/s from the access point', () => {
-    expect(trig.length).toBe(16)
-    expect(one(trig.map((r) => r.node))).toBe('ap')
-    expect(one(trig.map((r) => r.frame.bytes))).toBe(40)
-    expect(one(trig.map((r) => r.frame.txTimeNs))).toBe(36 * US)
-    expect(one(trig.map((r) => r.frame.mbps))).toBe(24)
-    // "the devices it names, and nobody else": two users, one length for both
-    expect(one(trig.map((r) => r.frame.muParts!.map((p) => p.dst)))).toEqual(UPLOADERS)
-    expect(one(trig.map((r) => r.frame.muParts!.map((p) => p.durNs)))).toEqual([1_988_800, 1_988_800])
+describe('ofdma-ul · ② says what the engine does, and the engine does it', () => {
+  it('the trigger is 28 + 6 per user — header, Common Info and FCS, then a Basic User Info each', () => {
+    // §9.3.1.22: FC 2 + Duration 2 + RA 6 + TA 6 = 16, Common Info B0–B63 = 8, FCS 4; a User Info
+    // field is B0–B39 = 5 octets plus the Basic trigger's one-octet Trigger Dependent User Info.
+    expect(16 + 8 + 4).toBe(28)
+    expect(5 + 1).toBe(6)
+    expect(triggerBytes(2)).toBe(28 + 6 * 2)
+    for (const t of triggers(base())) {
+      expect(t.frame.bytes).toBe(triggerBytes(t.frame.muParts!.length))
+      expect(t.frame.mbps).toBe(24)
+    }
+    const row = implRow('触发帧的长度')
+    expect(row.standard).toContain('帧头（MAC header）16 字节、公共信息 8 字节、帧校验序列（frame check sequence, FCS）4 字节')
+    expect(row.standard).toContain('每个用户信息 6 字节')
+    expect(row.sim).toContain('28 + 6 × 用户数')
+    expect(row.sim).toContain('24 Mb/s')
   })
 
-  it('the answers: both start one gap after the trigger frame and both run 1988.8 µs', () => {
-    expect(tb.length).toBe(28)
-    expect(one(tb.map((r) => r.frame.txTimeNs))).toBe(1988.8 * US)
-    expect(one(tb.map((r) => r.frame.bytes))).toBe(16_894)
-    for (const t of trig) {
-      const answers = tb.filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup)
-      if (answers.length === 0) continue
-      expect(answers.map((r) => r.node).sort()).toEqual([...UPLOADERS])
-      // "one short gap after the trigger frame ends", and the length the trigger named
-      for (const a of answers) {
+  it('the access point reads the stations’ queues directly: `ulBacklog` sums them', () => {
+    const sim = readFileSync('src/engine/simulation.ts', 'utf8')
+    expect(sim).toContain('ulBacklog')
+    expect(readFileSync('src/engine/mac.ts', 'utf8')).toContain('this.cfg.ulBacklog()')
+  })
+
+  it('two to four users on 1/n each, one length for all, capped at 2 ms', () => {
+    const mac = readFileSync('src/engine/mac.ts', 'utf8')
+    expect(mac).toContain('users.slice(0, 4)')
+    expect(mac).toContain('users.length >= 2')
+    expect(mac).toContain('Math.min(need, 2_000_000)')
+    for (const t of triggers(base())) {
+      const users = t.frame.muParts!
+      expect(users.length).toBeGreaterThanOrEqual(2)
+      expect(users.length).toBeLessThanOrEqual(4)
+      expect(new Set(users.map((p) => p.durNs)).size).toBe(1)
+      expect(users[0].durNs!).toBeLessThanOrEqual(2 * MS)
+    }
+    for (const a of tbPpdus(base())) expect(a.frame.ru!.fraction).toBe(1 / 2)
+    expect(implRow('长度上限').sim).toContain('2 ms')
+    expect(implRow('长度上限').sim).toContain(`${MAX_PPDU_NS / MS} ms`)
+    expect(implRow('一组几台').sim).toContain('不少于两台')
+    expect(implRow('一组几台').sim).toContain('前四台')
+  })
+
+  it('every answer starts one SIFS after its trigger and runs exactly the length it named', () => {
+    const rs = base()
+    for (const t of triggers(rs)) {
+      for (const a of tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup)) {
         expect(a.t).toBe(t.t + t.frame.txTimeNs + SIFS_NS)
         expect(a.frame.txTimeNs).toBe(t.frame.muParts!.find((p) => p.dst === a.node)!.durNs)
       }
     }
+    expect(implRow('应答间隔').sim).toContain(`${SIFS_NS / US} µs`)
   })
 
-  it('one multi-station BlockAck of 36 µs closes the round, a gap after both answers end', () => {
-    expect(mba.length).toBe(14)
-    expect(one(mba.map((r) => r.frame.txTimeNs))).toBe(36 * US)
-    expect(one(mba.map((r) => r.frame.muParts!.length))).toBe(2)
-    for (const m of mba) {
-      const answers = tb.filter((r) => r.t + r.frame.txTimeNs + SIFS_NS === m.t)
-      expect(answers.length).toBe(2)
-      expect(one(answers.map((r) => r.t + r.frame.txTimeNs))).toBe(m.t - SIFS_NS)
-    }
+  it('the check before answering is the NAV only, the triggering AP’s own NAV excluded', () => {
+    const mac = readFileSync('src/engine/mac.ts', 'utf8')
+    expect(mac).toContain('if (this.now() < this.navUntil && this.navSetBy !== from) break')
+    // and the trigger's own Duration covers the round, which would silence everyone otherwise
+    for (const t of triggers(base())) expect(t.frame.durationFieldNs).toBe(SIFS_NS + t.frame.muParts![0].durNs! + SIFS_NS + 36 * US)
   })
 
-  it('"The whole round": 2092.8 µs on the air, 33,788 bytes up', () => {
-    expect(36 * US + SIFS_NS + 1_988_800 + SIFS_NS + 36 * US).toBe(2_092_800)
-    expect(2 * 16_894).toBe(33_788)
-  })
-
-  it('neither the length nor the slice came from the answering device', () => {
-    // "the same length and the same 16,894 bytes, though the two uploaders are not the same
-    //  distance away and their queues are not the same"
-    const sc = ofdmaUl.scenario()
-    const pos = UPLOADERS.map((id) => sc.nodes.find((n) => n.id === id)!.pos)
-    expect(pos[0]).not.toEqual(pos[1])
-    // both answers of a round share the group, which is what makes them non-overlapping
-    for (const t of triggers(rs)) {
-      const answers = tb.filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup)
-      for (const a of answers) expect(a.frame.orthogonalGroup).toBe(t.frame.orthogonalGroup)
-    }
-    expect(one(tb.map((r) => r.frame.mcs))).toBe(11)
-    expect(one(tb.map((r) => r.frame.widthMhz))).toBe(20)
-  })
-})
-
-describe('ofdma-ul · the figure of one round', () => {
-  // The `sequence` diagram (re-pacing §4) carries the shape of the exchange, so its
-  // columns must be the scene's own devices and its instants the run's own.
-  const spec = triggeredRound()
-  const rs = runOf(ofdmaUl, undefined, RUN_NS)
-  const trig = triggers(rs)[0]
-  const answers = tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === trig.frame.orthogonalGroup)
-
-  it('draws the three devices of the scene, with the access point between the two uploaders', () => {
-    expect(spec.columns.map((c) => c.id)).toEqual(['sta-1', 'ap', 'sta-2'])
-    expect(ofdmaUl.scenario().nodes.map((n) => n.id).sort()).toEqual([...spec.columns.map((c) => c.id)].sort())
-    for (const c of spec.columns) expect(c.label.trim()).not.toBe('')
-  })
-
-  it('the access point’s two arrows each way are one frame naming both uploaders', () => {
-    const fromAp = spec.messages.filter((m) => m.from === 'ap')
-    expect(fromAp.map((m) => m.to)).toEqual(['sta-1', 'sta-2', 'sta-1', 'sta-2'])
-    expect(trig.frame.muParts!.map((p) => p.dst)).toEqual(UPLOADERS)
-    const mba = txs(rs, (r) => r.frame.kind === 'mba')[0]
-    expect(mba.frame.muParts!.map((p) => p.dst)).toEqual(UPLOADERS)
-    // and the two answers are the uploaders' own, one arrow each
-    expect(spec.messages.filter((m) => m.to === 'ap').map((m) => m.from)).toEqual(UPLOADERS)
-  })
-
-  it('its instants are the run’s: 0, one gap to the answers, and the acknowledgement at 2057 µs', () => {
-    expect(ROUND).toEqual({ trigger: 36, gap: 16, answers: 1988.8, mba: 36 })
-    expect(trig.frame.txTimeNs).toBe(ROUND.trigger * US)
-    expect(SIFS_NS).toBe(ROUND.gap * US)
-    expect(one(answers.map((r) => r.frame.txTimeNs))).toBe(ROUND.answers * US)
-    // the gutter values the figure prints, against the same instants relative to the trigger
-    expect(ROUND_AT.answers).toBe(52)
-    expect(one(answers.map((r) => r.t - trig.t))).toBe(ROUND_AT.answers * US)
-    const mba = txs(rs, (r) => r.frame.kind === 'mba').find((m) => m.t > trig.t)!
-    expect(Math.round(ROUND_AT.mba)).toBe(2057)
-    expect(mba.t - trig.t).toBe(Math.round(ROUND_AT.mba * US))
-    expect(spec.messages.filter((m) => m.at !== undefined).map((m) => m.at)).toEqual(['0', '52 µs', '2057 µs'])
-  })
-})
-
-describe('ofdma-ul · the procedure, against the engine that runs it', () => {
-  const rs = runOf(ofdmaUl, undefined, RUN_NS)
-
-  it('steps 2 and 3: between two and four users, each on 1/n of the tones, one format for the round', () => {
-    for (const t of triggers(rs)) {
-      const users = t.frame.muParts!
-      expect(users.length).toBeGreaterThanOrEqual(2)
-      expect(users.length).toBeLessThanOrEqual(4)
-      // one rung and one width for the whole round, dictated by the trigger and not by the device
-      expect(t.frame.ulMode).toBe('he')
-      expect(t.frame.ulWidthMhz).toBe(20)
-      expect(new Set(users.map((p) => p.mcs))).toEqual(new Set([11]))
-    }
-    // the answers really do sit on a half each: the length they were given is the length
-    // 1/2 of a 20 MHz channel needs for the bytes that fit a 2 ms answer
-    expect(1 / 2).toBe(1 / triggers(rs)[0].frame.muParts!.length)
-  })
-
-  it('step 4: the longest backlog that fits 2 ms is 17,425 B, 143 symbols, 1988.8 µs', () => {
-    const budget = maxPsduBytesFor('he', 11, 0.5, 2 * MS, 20, 1)
-    expect(budget).toBe(17_425)
-    expect(PHY_MODES.he.ndbps[11] * 0.5).toBe(975)
-    expect(Math.ceil((16 + 8 * budget + 6) / 975)).toBe(143)
-    expect(PHY_MODES.he.preambleNs + 143 * PHY_MODES.he.symNs).toBe(1988.8 * US)
-    // and that is the one length every user of every round is given
-    for (const t of triggers(rs)) {
-      expect(new Set(t.frame.muParts!.map((p) => p.durNs))).toEqual(new Set([1988.8 * US]))
-    }
-    // a TB PPDU carries no per-user map: 44 µs of opening, not the 48 of a DL MU PPDU
-    for (const r of tbPpdus(rs)) expect(r.frame.txTimeNs).toBe(1988.8 * US)
-  })
-
-  it('step 6: the 16,894 B answer is eleven whole frames, and the other 531 B is padding', () => {
-    for (const r of tbPpdus(rs)) {
-      expect(r.frame.ampdu!.mpduCount).toBe(11)
-      expect(new Set(r.frame.msduBytes!)).toEqual(new Set([1500]))
-      expect(r.frame.bytes).toBe(16_894)
-      // eleven of these frames is what the PSDU holds, and a twelfth would not fit the
-      // length the trigger named — so the rest of that length goes out as padding
-      expect(ampduPsduBytes(new Array<number>(11).fill(1500))).toBe(16_894)
-      expect(ampduPsduBytes(new Array<number>(12).fill(1500))).toBeGreaterThan(17_425)
-    }
-    expect(17_425 - 16_894).toBe(531)
-  })
-
-  it('steps 5 and 7: 28 + 6 per user, 32 + 8 per extra user, and a 45 µs response timeout', () => {
-    expect(triggerBytes(2)).toBe(28 + 6 * 2)
-    expect(triggerBytes(2)).toBe(40)
-    expect(multiStaBaBytes(2)).toBe(32 + 8)
+  it('the multi-STA BlockAck is 32 + 8 per extra user at 24 Mb/s; an unanswered trigger dies at 45 µs', () => {
     expect(multiStaBaBytes(2)).toBe(40)
+    for (const m of txs(base(), (r) => r.frame.kind === 'mba')) {
+      expect(m.frame.bytes).toBe(multiStaBaBytes(m.frame.muParts!.length))
+      expect(m.frame.mbps).toBe(24)
+    }
+    expect(implRow('多站点块确认').sim).toContain('32 字节加每多一台 8 字节')
     expect(ACK_TIMEOUT_NS).toBe(45 * US)
-    for (const m of txs(rs, (r) => r.frame.kind === 'mba')) expect(m.frame.bytes).toBe(40)
-    // step 5's Duration: the gap, the answers, the second gap and the acknowledgement
-    for (const t of triggers(rs)) {
-      expect(t.frame.durationFieldNs).toBe(SIFS_NS + 1988.8 * US + SIFS_NS + 36 * US)
-    }
-  })
-})
-
-describe('ofdma-ul · the two qualifications the lesson carries in the same breath as the claim', () => {
-  const rs = runOf(ofdmaUl, undefined, RUN_NS)
-
-  it('"it looks at its own NAV": the trigger’s own reservation does not silence the stations it invited', () => {
-    // mac.ts, `case 'trigger'`: answer only if the NAV is idle — and a NAV set by the
-    // triggering access point itself does not count (`this.navSetBy !== from`). The
-    // Duration of every trigger covers the answers, so a naive "any NAV" check would
-    // mean no invited station could ever answer. They all do, one SIFS later.
-    for (const t of triggers(rs)) {
-      expect(t.frame.durationFieldNs).toBe(SIFS_NS + 1988.8 * US + SIFS_NS + 36 * US)
-      const answers = tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup)
-      if (answers.length === 0) continue
-      for (const a of answers) expect(a.t).toBe(t.t + t.frame.txTimeNs + SIFS_NS)
-    }
-    expect(tbPpdus(rs).length).toBe(28)
+    expect(implRow('无人应答').sim).toContain(`${ACK_TIMEOUT_NS / US} µs`)
   })
 
-  it('"a device given a slice keeps its own stream count" — on a SYNTHETIC copy, because both uploaders here negotiate one', () => {
-    // The lesson's own scene cannot show this: its two uploaders negotiate a single
-    // stream each, so the claim of step 3 is pinned against a copy of the scene in which
-    // the access point and uploader A have two. Same slice, same length the trigger names,
-    // different bytes — which is the stream count still being the device's own.
+  it('a device given a slice keeps its own stream count — on a synthetic two-stream copy', () => {
     for (const n of ofdmaUl.scenario().nodes) expect(n.caps.nss ?? 1).toBe(1)
-    const sc: Scenario = ofdmaUl.scenario()
-    for (const id of ['ap', 'sta-1']) sc.nodes.find((n) => n.id === id)!.caps.nss = 2
-    const two = [...new Simulation(sc).runUntil(RUN_NS).records]
-    const answers = tbPpdus(two)
+    const s: Scenario = ofdmaUl.scenario()
+    for (const id of ['ap', 'sta-1']) s.nodes.find((n) => n.id === id)!.caps.nss = 2
+    const answers = tbPpdus([...new Simulation(s).runUntil(RUN_NS).records])
     expect(answers.length).toBeGreaterThan(4)
-    for (const a of answers) {
-      expect(a.frame.txTimeNs).toBe(1988.8 * US) // the one length the trigger named
-      expect(a.frame.widthMhz).toBe(20) // the one width it named
-      expect(a.frame.bytes).toBe(a.node === 'sta-1' ? 30_718 : 16_894)
-      expect(a.frame.ampdu!.mpduCount).toBe(a.node === 'sta-1' ? 20 : 11)
-    }
+    for (const a of answers) expect(a.frame.ampdu!.mpduCount).toBe(a.node === 'sta-1' ? 20 : 11)
+    expect(implRow('资源单元').sim).toContain('每台仍按自己协商的空间流')
   })
 })
 
-describe('ofdma-ul · the uplink of two uploaders over 100 ms', () => {
-  const rs = runOf(ofdmaUl, undefined, RUN_NS)
+describe('ofdma-ul · ③ every figure the labs print is the run', () => {
+  it('lab 1: the first triggered round, its figure and its worked table', () => {
+    const rs = base()
+    const t = triggers(rs)[0]
+    const answers = tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup)
+    expect(answers.map((r) => r.node).sort()).toEqual(UPLOADERS)
+    const mba = txs(rs, (r) => r.frame.kind === 'mba')[0]
+    const ans = one(answers.map((a) => a.t))
+    const dur = one(answers.map((a) => a.frame.txTimeNs))
+    const each = one(answers.map((a) => a.frame.bytes))
+    const l = lab('一次触发交换')
+    expect(l.expect).toContain(`${usText(t.t)} 接入点发出 ${t.frame.txTimeNs / US} µs 的触发帧，它的 Duration 字段是 ${usText(t.frame.durationFieldNs)}`)
+    expect(l.expect).toContain(`${usText(ans)} 两台上传设备同时开始应答，各 ${usText(dur)}、各 ${grouped(each)} 字节`)
+    expect(answers.map((a) => a.frame.ru!.partIdx).sort()).toEqual([0, 1])
+    expect(l.expect).toContain('分别在信道的前一半和后一半')
+    expect(mba.t).toBe(ans + dur + SIFS_NS)
+    expect(l.expect).toContain(`${usText(mba.t)} 接入点发出 ${mba.frame.txTimeNs / US} µs 的多站点块确认`)
 
-  it('16 triggers, 2 of which nobody answered; every other one brought back both answers', () => {
-    const answered = triggers(rs).map((t) =>
-      tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup).length)
-    expect(answered.length).toBe(16)
-    expect(answered.filter((n) => n === 0).length).toBe(2)
-    expect(answered.filter((n) => n === 2).length).toBe(14)
-    expect(new Set(answered)).toEqual(new Set([0, 2]))
+    // the figure's instants are this round's, measured from the trigger's own start
+    expect(ROUND).toEqual({ trigger: t.frame.txTimeNs / US, gap: SIFS_NS / US, answers: dur / US, mba: mba.frame.txTimeNs / US })
+    expect(ROUND_AT.answers * US).toBe(ans - t.t)
+    expect(ROUND_AT.mba * US).toBeCloseTo(mba.t - t.t, 6)
+    const spec = triggeredRound()
+    expect(spec.messages.find((m) => m.label === '应答 A')!.at).toBe(`${(ans - t.t) / US} µs`)
+    expect(spec.messages.find((m) => m.label === '一帧确认')!.at).toBe(`${Math.round((mba.t - t.t) / US)} µs`)
+
+    // the worked table
+    const cells = Object.fromEntries(tableOf(l, '第一次触发交换，按本仿真器的规则算一遍').rows.map((r) => [r[0], r[1]]))
+    const users = t.frame.muParts!.length
+    const budget = maxPsduBytesFor('he', 11, 1 / users, 2 * MS, 20, 1)
+    const perSym = PHY_MODES.he.ndbps[11] / users
+    const syms = Math.ceil((16 + 8 * budget + 6) / perSym)
+    const mpdus = one(answers.map((a) => a.frame.ampdu!.mpduCount))
+    expect(cells['有积压的上传设备']).toBe(String(users))
+    expect(cells['每台分到的信道']).toBe(`1/${users}`)
+    expect(cells['一个 2 ms 的应答最多容纳']).toBe(`${grouped(budget)} B`)
+    expect(cells['这些字节需要的符号（symbol）数']).toBe(String(syms))
+    expect(cells['因此应答长度']).toBe(`${PHY_MODES.he.preambleNs / US} + ${PHY_MODES.he.symNs / US} × ${syms} = ${usText(dur)}`)
+    expect(PHY_MODES.he.preambleNs + syms * PHY_MODES.he.symNs).toBe(dur)
+    expect(ampduPsduBytes(new Array<number>(mpdus).fill(1500))).toBe(each)
+    expect(ampduPsduBytes(new Array<number>(mpdus + 1).fill(1500))).toBeGreaterThan(budget)
+    expect(cells['每个应答实际承载']).toBe(`${mpdus} 帧，${grouped(each)} B；其余 ${budget - each} B 是填充`)
+    expect(cells['触发帧']).toBe(`28 + 6 × ${users} = ${t.frame.bytes} B，${t.frame.mbps} Mb/s，${t.frame.txTimeNs / US} µs`)
+    expect(cells['多站点块确认']).toBe(`32 + 8 = ${mba.frame.bytes} B，${mba.frame.txTimeNs / US} µs`)
+    const total = mba.t + mba.frame.txTimeNs - t.t
+    expect(cells['整次交换']).toBe(`${t.frame.txTimeNs / US} + ${SIFS_NS / US} + ${dur / US} + ${SIFS_NS / US} + ${mba.frame.txTimeNs / US} = ${usText(total)}，上行 ${grouped(2 * each)} B`)
   })
 
-  it('28 triggered answers carry 473,032 bytes against 54 contended sends carrying 996,756', () => {
-    const tb = tbPpdus(rs), su = contended(rs)
-    expect(tb.length).toBe(28)
-    expect(bytes(tb)).toBe(473_032)
-    expect(su.length).toBe(54)
-    expect(bytes(su)).toBe(996_756)
-    // "About a third of what this pair sent up went in triggered rounds"
-    expect(Math.round((bytes(tb) / (bytes(tb) + bytes(su))) * 100)).toBe(32)
-    for (const r of [...tb, ...su]) expect(UPLOADERS).toContain(r.node)
-  })
-
-  it('"it collided six times doing so": every collision is outside a triggered round', () => {
-    const collisions = ofType(rs, 'COLLISION')
-    expect(collisions.length).toBe(6)
-    for (const c of collisions) {
-      const inside = tbPpdus(rs).some((t) => t.t <= c.t && c.t <= t.t + t.frame.txTimeNs)
-      expect(inside, `collision at ${c.t}`).toBe(false)
-    }
-  })
-})
-
-describe('ofdma-ul · the experiments', () => {
-  it('the Duration of the trigger frame covers the answers and the acknowledgement too', () => {
-    const rs = runOf(ofdmaUl, undefined, RUN_NS)
+  it('lab 2: one acknowledgement for the pair, and no backoff between trigger and answer', () => {
+    const rs = base()
+    const mba = txs(rs, (r) => r.frame.kind === 'mba')[0]
+    expect(rs.find(ofdmaUl.jumps[1].find)!.t).toBe(mba.t)
+    expect(mba.frame.muParts!.map((p) => p.dst).sort()).toEqual(UPLOADERS)
+    const l = lab('一帧确认整组')
+    expect(l.expect).toContain(`这一帧 ${mba.frame.bytes} 字节、${mba.frame.txTimeNs / US} µs，同时确认两台上传设备`)
     for (const t of triggers(rs)) {
-      expect(t.frame.durationFieldNs).toBeGreaterThanOrEqual(SIFS_NS + 1988.8 * US + SIFS_NS + 36 * US)
+      const end = t.t + t.frame.txTimeNs
+      const draws = ofType(rs, 'BACKOFF_DRAW').filter((r) => UPLOADERS.includes(r.node) && r.t >= end && r.t < end + SIFS_NS)
+      expect(draws, `backoff inside the gap after ${t.t}`).toEqual([])
     }
   })
 
-  it('turning OFDMA off on one uploader stops every trigger frame, even for the other', () => {
-    const rs = without('sta-1')
-    expect(triggers(rs).length).toBe(0)
-    expect(tbPpdus(rs).length).toBe(0)
-    // the uplink still runs, the ordinary way
-    expect(contended(rs).length).toBeGreaterThan(50)
-  })
-})
-
-/**
- * The uplink half of slice 4a's known overestimate: each triggered answer is credited with the
- * whole channel's bins (`selCombine` in channel.ts keys them off the PPDU's width) while every
- * station occupies only its own resource unit, and the standard's smallest resource unit — 26
- * tones — is exactly one bin. It is a separate statement from the power correction this lesson's
- * other limits cover: that field is sized and not executed, this one is a bin count that is too
- * large. The engine side is asserted in tests/engine/selectivity-inert.test.ts (§6 item 4).
- */
-/**
- * **Slice 4b landed on the uplink too, so this entry states what the engine now does.** Each
- * answer of a triggered round reads the bins of its OWN share: the share and the index are on
- * the triggered frame itself (`FrameDesc.ru`, one object carrying `fraction` and `partIdx`
- * rather than two optional fields, written by `respondToTrigger`
- * out of the Trigger's per-user RU Allocation), and `selCombine` turns them into a bin count and
- * a start. 4a's overestimate — the whole channel's bins for every answer — is gone, and so is
- * the sentence that promised a later slice would remove it.
- *
- * Still out of scope: the uneven allocation. `transmitTrigger` computes one `frac = 1 / users`
- * for the whole round, so every answer is the same width and the bin the truncation drops
- * belongs to nobody.
- *
- * **The instruments.** 9 bins at 20 MHz and 4 per answer are `selBins`/`selMemberBins`, asserted
- * against the same functions the prose interpolates; and the engine is measured handing those 4
- * bins to both answers over one 100 ms round of this lesson's own scene with `fading` +
- * `selectivity` added — the condition the limit opens with, and not what the shipped scene has.
- */
-describe('ofdma-ul · every answer reads its own share’s bins (slice 4b landed)', () => {
-  /*
-   * Selected by what it says, not by where it sits (review of 2026-10-03, finding 5): slice 4b
-   * will add to this array, and a last-index lookup would then grade the wrong entry. The whole
-   * `kinds` column goes with it, as in tests/course/uwb-rcm-validity.test.ts.
-   */
-  const found = ofdmaUl.limits.filter((l) => l.text.includes('selCombine'))
-  const lim = found[0]
-
-  /** This lesson's own scene with the two sections the limit names, and nothing else changed. */
-  const binned = (): TLRecord[] => [...new Simulation({
-    ...ofdmaUl.scenario(),
-    fading: { shadowSigmaDb: 0, coherenceMs: 100, smallScale: 'rayleigh' },
-    selectivity: {},
-  }).runUntil(RUN_NS).records]
-
-  it('is the one limit about the bin count, and the lesson now declares six', () => {
-    expect(found).toHaveLength(1)
-    // Six since the guard-interval slice added the one about (2x, 0.8) not being a mandatory
-    // combination for a TB PPDU. The whole column is counted so an insertion is visible here
-    // rather than absorbed, which is the point of the pin — so it is re-stated, not deleted.
-    expect(ofdmaUl.limits).toHaveLength(6)
-    // The guard-interval entry goes FIRST, so the order moves by one rather than the column
-    // being rewritten: that is what makes an insertion visible here.
-    expect(ofdmaUl.limits.map((l) => l.kind))
-      .toEqual(['model-value', 'unmodelled', 'unmodelled', 'unmodelled', 'model-value', 'model-value'])
-  })
-
-  it('is a model-value limit, and no longer promises a later slice will fix the bin count', () => {
-    // `model-value` since Task 6 (design §7.4), for the same reason as `ofdma-dl`'s twin: the
-    // scenario class it used to rule out is gone, and what is left is one chosen value — one
-    // share per round, `1 / 台数`, in `transmitTrigger` — and the bin it truncates away.
-    expect(lim.kind).toBe('model-value')
-    expect(lim.text).toContain('selCombine')
-    expect(lim.text).toContain(`${selBinWidthMhz()} MHz 一格`)
-    // what the engine does now, and where the share is carried
-    expect(lim.text).toContain('各自读取的是自己那一部分的格数')
-    expect(lim.text).toContain('份额与下标写在被触发的那一帧本身')
-    expect(lim.text).toContain('截断为整数格')
-    // 4a's three retired claims
-    expect(lim.text).not.toContain('拿到的是整条信道的格数')
-    expect(lim.text).not.toContain('并不问')
-    expect(lim.text).not.toContain('高估')
-    expect(lim.text).not.toContain('切片 4b')
-    /*
-     * **No `until`, and here the design's request (§7.4) was not merely loose but backwards.**
-     * `until` means "the truth arrives LATER" and renders as 「（这一条在《…》里会被解除）」;
-     * `ru-diversity` sits at `COURSE_ORDER` index between `ofdma-dl` and THIS lesson, so a
-     * reader meets it BEFORE reading this entry. Pointing forward at a lesson already read is
-     * wrong whichever way the promise is taken — and `ru-diversity` does not lift the equal
-     * share anyway, it re-declares it. See `ofdma-dl.test.ts` for the full record.
-     */
-    expect(lim.until).toBeUndefined()
-  })
-
-  it('keeps it apart from the power correction, and prints its bins off the engine', () => {
-    expect(lim.text).toContain('与上面那条功率修正未被执行是两回事')
-    expect(selBins(20)).toBe(RU26_PER_20MHZ)
-    expect(selMemberBins(20, 1 / 2)).toBe(4)
-    expect(lim.text).toContain(`${selBins(20)} 格中的 ${selMemberBins(20, 1 / 2)} 格`)
-    expect(lim.text).toContain('26 音调资源单元恰好就是一格')
-    // what is still out of scope: one share for the whole round, named by the function that sets it
-    expect(lim.text).toContain('transmitTrigger')
-    expect(lim.text).toContain('不属于任何一台')
-  })
-
-  it('and both answers really read 4 of 9, share and index off their own frame', () => {
-    const rs = binned()
-    const answers = ofType(rs, 'TX_START')
-      .filter((r) => r.frame.kind === 'data' && r.frame.ru !== undefined)
-    expect(answers.length, 'no triggered answer to read').toBeGreaterThan(10)
-    for (const a of answers) expect(a.frame.ru!.fraction).toBe(1 / 2)
-    expect(new Set(answers.map((a) => a.frame.ru!.partIdx))).toEqual(new Set([0, 1]))
-    const sels = ofType(rs, 'WIFI_SEL').filter((s) => s.ruFraction !== undefined)
-    expect(sels.length, 'no per-share reception to read').toBeGreaterThan(10)
-    for (const s of sels) {
-      expect(s.widthMhz).toBe(20)
-      expect(s.bins).toBe(selMemberBins(20, 1 / 2))
+  it('lab 3: the uplink of 100 ms, triggered and contended', () => {
+    const rs = base()
+    const trig = triggers(rs)
+    const answered = trig.map((t) => tbPpdus(rs).filter((r) => r.frame.orthogonalGroup === t.frame.orthogonalGroup).length)
+    const unanswered = answered.filter((n) => n === 0).length
+    expect(new Set(answered)).toEqual(new Set([0, 2]))
+    const tb = tbPpdus(rs), su = contended(rs)
+    const rows = tableOf(lab('100 ms 里的上行'), '两台上传设备，100 ms').rows
+    expect(rows).toEqual([
+      ['触发帧', String(trig.length), '—'],
+      ['其中无人应答', String(unanswered), '0'],
+      ['HE TB PPDU', String(tb.length), grouped(bytes(tb))],
+      ['普通竞争发送', String(su.length), grouped(bytes(su))],
+    ])
+    for (const r of [...tb, ...su]) expect(UPLOADERS).toContain(r.node)
+    // 「约三分之一」
+    expect(Math.round(3 * bytes(tb) / (bytes(tb) + bytes(su)))).toBe(1)
+    expect(ofdmaUl.why).toContain('约三分之一')
+    expect(ofdmaUl.why).toContain(`${RUN_NS / MS} ms`)
+    const collisions = ofType(rs, 'COLLISION')
+    for (const c of collisions) {
+      expect(tbPpdus(rs).some((t) => t.t <= c.t && c.t <= t.t + t.frame.txTimeNs), `collision at ${c.t}`).toBe(false)
     }
-    // consecutive runs again, so one of the nine bins is claimed by neither uploader
-    expect(new Set(sels.map((s) => s.binStart))).toEqual(new Set([0, 4]))
-    expect(selBins(20) - Math.max(...sels.map((s) => s.binStart + s.bins))).toBe(1)
-  })
-
-  it('and this lesson’s own scene does not turn the feature on', () => {
-    expect(ofdmaUl.scenario().selectivity).toBeUndefined()
-  })
-})
-
-/**
- * The guard interval, as a fact about this lesson's own triggered round (design doc
- * docs/superpowers/specs/2026-10-05-guard-interval-design.md §7.3, §1.5).
- *
- * `limits` is outside `mainPathChars`, so the stated minutes must not move — measured, not
- * assumed, because `selectivity` nearly changed bucket on exactly this.
- */
-describe('ofdma-ul · the guard interval the TB PPDUs actually run at', () => {
-  it('names (2x, 0.8) as a combination that is not mandatory for a TB PPDU', () => {
-    const lim = ofdmaUl.limits.find((x) => x.text.includes('保护间隔'))
-    expect(lim, 'no limit mentions the guard interval').toBeDefined()
-    expect(lim!.kind).toBe('model-value')
-    expect(lim!.until).toBeUndefined()
-    // The three mandatory sets §27.1.1 / §36.1.1 give, and the capability bit that makes the
-    // engine's own choice legal rather than a violation.
-    expect(lim!.text).toContain('0.8')
-    expect(lim!.text).toContain('TB PPDU')
-    expect(lim!.text).toContain('§27.1.1')
-    expect(lim!.text).toContain('§36.1.1')
-    expect(lim!.text).toContain('能力位')
-  })
-
-  it('does not move the stated minutes: limits are outside mainPathChars', () => {
-    expect(lessonChars({ ...ofdmaUl, limits: [] })).toBe(lessonChars(ofdmaUl))
-  })
-})
-
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * This file measures the whole triggered round — and compares it with figures typed here, with
- * the lesson's own row quoted in a comment. The sampling sweep of 2026-10-12 planted six of this
- * lesson's figures and every one went unnoticed, 6 of 6.
- *
- * **The reads worth naming:**
- *
- *  - **the round's total is read as the chain that produces it.** 「36 + 16 + 1988.8 + 16 + 36 =
- *    2092.8 µs」 has all six figures parsed out, the sum has to be the total, and each term has
- *    to be the frame or the gap it names — so the row cannot be right in total and wrong in a term.
- *  - **the answer's length is read as its own two-term formula.** 「44 + 13.6 × 143 = 1988.8 µs」
- *    is the preamble, the symbol and the symbol count, and the product has to be the airtime the
- *    engine gives that PPDU.
- *  - **the two frame sizes are read as their own per-user arithmetic**: 「28 + 6 × 2 = 40 B」 and
- *    「32 + 8 = 40 B」 against `triggerBytes` and `multiStaBaBytes` at this scene's user count.
- *  - **the mandatory guard-interval sets are read against the engine's own list of them.** The
- *    entry's whole point is that the combination this engine runs is not in the standard's
- *    mandatory set, so both the set and the engine's own value are read.
- */
-describe('ofdma-ul · every figure the prose prints, read back out of it', () => {
-  const rs = runOf(ofdmaUl, undefined, RUN_NS)
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
-  }
-  const NUMS = blockText(ofdmaUl.numbers)
-  const SRC = blockText(ofdmaUl.sources)
-  const LIM = blockText(ofdmaUl.limits)
-  const OBS = blockText(ofdmaUl.observe)
-
-  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
-    const ms = [...text.matchAll(re)]
-    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
-    return ms.map((mm) => mm.slice(1))
-  }
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  const occ = (text: string, needle: string): number => text.split(needle).length - 1
-  /** The round this lesson walks through: its trigger, its two answers and its acknowledgement. */
-  const trigger = triggers(rs)[0]!
-  const answers = tbPpdus(rs).filter((r) => r.t > trigger.t && r.t < trigger.t + 3 * MS)
-  const mba = txs(rs, (r) => r.frame.kind === 'mba' && r.t > trigger.t)[0]!
-
-  it('reads the round’s six rows, and the chain that adds up to its total', () => {
-    // 「28 + 6 × 2 = 40 B，用 24 Mb/s 发，36 µs」
-    const [common, perUser, users, bytes, mbps, us] = figs(NUMS,
-      /(\d+) \+ (\d+) × (\d+) = (\d+) B，以 (\d+) Mb\/s 发出，(\d+) µs/, 'the trigger frame’s own row')
-    expect(users, 'the users this trigger names').toBe(UPLOADERS.length)
-    expect(common + perUser! * users!, 'the arithmetic the row prints').toBe(bytes)
-    expect(bytes, 'which is what the engine builds').toBe(triggerBytes(users!))
-    expect(bytes, 'and what this round’s trigger carries').toBe(trigger.frame.bytes)
-    expect(mbps, 'the rate it goes out at').toBe(trigger.frame.mbps)
-    same(String(us), trigger.frame.txTimeNs / US, 'and its airtime')
-    // 「跳到第一个触发帧：接入点发出的 36 µs 黄块」 — `observe` sends the reader to that frame,
-    // and the 「第」 rule change of 2026-10-14 uncovered its figure: the airtime again, as an
-    // instruction, against the first trigger of the run.
-    const [obsUs] = figs(OBS, /跳到第一个触发帧：接入点发出的 (\d+) µs 黄块/,
-      '`observe` on the trigger it sends the reader to')
-    same(String(obsUs), trigger.frame.txTimeNs / US, 'the airtime of that very frame')
-    expect(trigger.t, 'which is the first trigger of the run')
-      .toBe(txs(rs, (r) => r.frame.kind === 'trigger')[0]!.t)
-    // 「32 + 8 = 40 B, 36 µs」
-    const [baBase, baPer, baBytes, baUs] = figs(NUMS, /(\d+) \+ (\d+) = (\d+) B, (\d+) µs/,
-      'the BlockAck’s own row')
-    expect(baBase! + baPer!, 'the arithmetic that row prints').toBe(baBytes)
-    expect(baBytes, 'which is what the engine builds for this many users')
-      .toBe(multiStaBaBytes(UPLOADERS.length))
-    expect(baBytes, 'and what this round’s acknowledgement carries').toBe(mba.frame.bytes)
-    same(String(baUs), mba.frame.txTimeNs / US, 'and its airtime')
-    // 「36 + 16 + 1988.8 + 16 + 36 = 2092.8 µs，共上行 33,788 B」
-    const [t1, g1, ans, g2, t2, total] = figs(NUMS,
-      /(\d+) \+ (\d+) \+ ([\d.]+) \+ (\d+) \+ (\d+) = ([\d.]+) µs/, 'the round’s own total')
-    expect(t1! + g1! + ans! + g2! + t2!, 'the sum the row prints').toBeCloseTo(total!, 3)
-    same(String(t1), trigger.frame.txTimeNs / US, 'the trigger that opens it')
-    same(String(t2), mba.frame.txTimeNs / US, 'the acknowledgement that closes it')
-    for (const g of [g1, g2]) expect(g! * US, 'each gap is one short interframe space').toBe(SIFS_NS)
-    same(String(ans), answers[0]!.frame.txTimeNs / US, 'and the answers in between')
-    same(String(total), (mba.t + mba.frame.txTimeNs - trigger.t) / US, 'the round, end to end')
-    const [upBytes] = figs(NUMS, /共上行 ([\d,]+) B/, 'the bytes the round carries up')
-    expect(upBytes, 'the uplink bytes of this round')
-      .toBe(answers.reduce((a, r) => a + r.frame.bytes, 0))
-  })
-
-  it('reads the answer’s own two-term formula and what it is padded to', () => {
-    // 「44 + 13.6 × 143 = 1988.8 µs」
-    const [pre, sym, count, us] = figs(NUMS, /(\d+) \+ ([\d.]+) × (\d+) = ([\d.]+) µs/,
-      'the answer’s own airtime formula')
-    expect(pre! + sym! * count!, 'the arithmetic the cell prints').toBeCloseTo(us!, 3)
-    same(String(us), answers[0]!.frame.txTimeNs / US, 'the airtime the engine gives that PPDU')
-    expect(count, 'the symbols it takes').toBeGreaterThan(100)
-    // 「17,425 B」: the largest backlog that fits, as the engine computes it.
-    const [cap] = figs(NUMS, /([\d,]+) B$/m, 'the cap one answer can carry')
-    expect(cap, 'what 2 ms holds at this rung and this share')
-      .toBe(maxPsduBytesFor('he', answers[0]!.frame.mcs!, 1 / UPLOADERS.length, 2 * MS, 20, 1))
-    // 「十一帧，16,894 B；余下 531 B 是填充」
-    const [frames, carried, pad] = raw(NUMS, /(.+?)帧，([\d,]+) B；余下 ([\d,]+) B 是填充/,
-      'the answer’s own payload')
-    expect(val(carried!), 'the bytes the answer really carries').toBe(answers[0]!.frame.bytes)
-    expect(val(carried!) + val(pad!), 'and the padding takes it to the cap').toBe(cap)
-    expect(answers[0]!.frame.ampdu?.mpduCount, 'the frames inside it')
-      .toBe(zhOrDigits(frames!))
-    // `observe` prints the length and the bytes again.
-    same(raw(OBS, /都长 ([\d.]+) µs/, '`observe` on the two answers')[0]!,
-      answers[0]!.frame.txTimeNs / US, 'the length both answers run')
-    expect(figs(OBS, /字节数也都是 ([\d,]+)/, '`observe` on the bytes')[0], 'and the bytes both carry')
-      .toBe(answers[0]!.frame.bytes)
-    expect(new Set(answers.map((r) => r.frame.bytes)).size, 'which really is one figure for both')
-      .toBe(1)
-  })
-
-  /** 「十一」 → 11; a digit string stays itself. */
-  function zhOrDigits(x: string): number {
-    if (/^\d+$/.test(x)) return Number(x)
-    let total = 0
-    let cur = 0
-    for (const ch of x) {
-      const d = '零一二三四五六七八九'.indexOf(ch)
-      if (d >= 0) { cur = d; continue }
-      if (ch === '十') { total += (cur || 1) * 10; cur = 0 }
-    }
-    return total + cur
-  }
-
-  it('reads the procedure’s gaps, its timeout and the rate the trigger goes out at', () => {
-    // `sources` prints the trigger’s own size and airtime a second time.
-    const [srcBytes, srcUs] = figs(SRC, /仿真器给它计 (\d+) 字节、(\d+) µs/,
-      '`sources` on the trigger frame')
-    expect(srcBytes, 'the bytes the engine builds it from').toBe(trigger.frame.bytes)
-    same(String(srcUs), trigger.frame.txTimeNs / US, 'and its airtime')
-    // 「触发帧用较低的 24 Mb/s 发出去」 and `sources` on the same rate.
-    for (const [mbps] of every([NUMS, SRC].join('\n'), /(\d+) Mb\/s (?:发出去|发送)/g,
-      'the rate the trigger goes out at, named twice', 2)) {
-      expect(val(mbps!), 'the rate this round’s trigger uses').toBe(trigger.frame.mbps)
-    }
-    // 「28 字节是面向所有设备的公共信息，每指定一台设备再加 6 字节」
-    const [common, perUser] = figs(NUMS, /(\d+) 字节是面向所有设备的公共信息，每指定一台设备再加 (\d+) 字节/,
-      'the steps on the trigger’s own size')
-    expect(common! + perUser! * UPLOADERS.length, 'what the engine builds for this many users')
-      .toBe(triggerBytes(UPLOADERS.length))
-    expect(triggerBytes(UPLOADERS.length + 1) - triggerBytes(UPLOADERS.length),
-      'and one more user costs exactly that much more').toBe(perUser)
-    // 「32 字节，此后每多一台设备再加 8 字节」
-    const [baBase, baPer] = figs(NUMS, /(\d+) 字节，此后每多一台设备再加 (\d+) 字节/,
-      'the steps on the acknowledgement’s size')
-    expect(baBase! + baPer!, 'what the engine builds for two users')
-      .toBe(multiStaBaBytes(UPLOADERS.length))
-    expect(multiStaBaBytes(UPLOADERS.length + 1) - multiStaBaBytes(UPLOADERS.length),
-      'and one more user costs that much more').toBe(baPer)
-    // The two 16 µs gaps, named in prose as well as in the table.
-    for (const [us] of every(NUMS, /隔 (\d+) µs/g, 'the gap, named twice in the steps', 2)) {
-      expect(val(us!) * US, 'one short interframe space').toBe(SIFS_NS)
-    }
-    // 「触发帧结束后 45 µs 仍没有任何应答开始」, printed in the steps and again in `limits`.
-    for (const [us] of every([NUMS, LIM].join('\n'), /(\d+) µs 仍没有任何应答/g,
-      'the response timeout, named twice', 2)) {
-      expect(val(us!) * US, 'the timeout the engine waits').toBe(ACK_TIMEOUT_NS)
-    }
-    // 「上限是一个 2 ms 的应答能容纳的量」 and the same 2 ms in `limits`, twice more.
-    for (const [ms] of every([NUMS, LIM].join('\n'), /一个 (\d+) ms 的应答/g,
-      'the cap on one answer, named three times', 3)) {
-      expect(val(ms!) * MS, 'the length the engine caps an answer at').toBe(2 * MS)
+    const l = lab('100 ms 里的上行')
+    expect(l.expect).toContain(`期间碰撞 ${collisions.length} 次，全部发生在触发交换之外`)
+    expect(l.expect).toContain(`有 ${unanswered} 个触发帧无人应答，接入点等 ${ACK_TIMEOUT_NS / US} µs 后收回空口`)
+    // the unanswered ones really end at the timeout: an ACK_TIMEOUT at the AP 45 µs after each
+    for (const [i, t] of trig.entries()) {
+      if (answered[i] !== 0) continue
+      expect(ofType(rs, 'ACK_TIMEOUT').some((r) => r.node === 'ap' && r.t === t.t + t.frame.txTimeNs + ACK_TIMEOUT_NS), `timeout after ${t.t}`).toBe(true)
     }
   })
 
-  it('reads the whole-run table and the window it is measured over', () => {
-    const [windowMs] = figs(NUMS, /两台上传设备 (\d+) ms 内的上行/, '`numbers` on the window')
-    expect(windowMs! * MS, 'the window every figure of this lesson is measured over').toBe(RUN_NS)
-    const rows = (ofdmaUl.numbers!.find((b) => b.kind === 'table'
-      && (b as { heading?: string }).heading?.includes('上行')) as { rows: string[][] }).rows
-    // The two populations are the file's own: a TB PPDU carries an orthogonal group, a
-    // contended send does not. The table is read row by row and column by column.
-    const triggered = tbPpdus(rs)
-    const contendedTx = contended(rs)
-    const byLabel = (needle: string): string[] => {
-      const hit = rows.find((r) => r[0]!.includes(needle))
-      expect(hit, `no row 「${needle}」 in the whole-run table`).toBeDefined()
-      return hit!
-    }
-    const trig = byLabel('触发帧')
-    expect(val(trig[1]!), 'the triggers the access point sends').toBe(triggers(rs).length)
-    const unanswered = byLabel('无人应答')
-    expect(val(unanswered[1]!), 'the ones nobody answered')
-      .toBe(triggers(rs).filter((x) => !triggered.some((a) => a.t > x.t && a.t < x.t + 3 * MS)).length)
-    expect(val(unanswered[2]!), 'and the bytes those brought back').toBe(0)
-    const tb = byLabel('TB PPDU')
-    expect(val(tb[1]!), 'the answers that came back').toBe(triggered.length)
-    expect(val(tb[2]!), 'and the bytes they carried')
-      .toBe(triggered.reduce((a, r) => a + r.frame.bytes, 0))
-    const cont = byLabel('普通竞争发送')
-    expect(val(cont[1]!), 'the sends the uploaders won by contending').toBe(contendedTx.length)
-    expect(val(cont[2]!), 'and the bytes those carried')
-      .toBe(contendedTx.reduce((a, r) => a + r.frame.bytes, 0))
-    expect(val(cont[2]!), 'which is the larger of the two').toBeGreaterThan(val(tb[2]!))
-    // The step table beside it: the backlog, the share, the symbols and the airtime’s own terms.
-    const steps = (ofdmaUl.numbers!.find((b) => b.kind === 'table'
-      && (b as { heading?: string }).heading?.includes('按步骤计算')) as { rows: string[][] }).rows
-    const step = (needle: string): string => steps.find((r) => r[0]!.includes(needle))![1]!
-    expect(val(step('子载波占比')), 'one over the users the trigger names').toBe(1 / UPLOADERS.length)
-    expect(val(step('有积压的设备')), 'the uploaders with something to send').toBe(UPLOADERS.length)
-    const [preUs, symUs, count] = figs(step('指定为'), /(\d+) \+ ([\d.]+) × (\d+) =/,
-      'the airtime formula’s own three terms')
-    expect(val(step('多少个符号')), 'the symbols that backlog takes').toBe(count)
-    expect(preUs! * US, 'the opening of a TB PPDU').toBe(PHY_MODES.he.preambleNs)
-    expect(symUs! * US, 'and one symbol of it').toBe(PHY_MODES.he.symNs)
-  })
-
-  it('reads the guard-interval entry, which is about a combination the standard does not mandate', () => {
-    // The engine's own combination: 「基于触发的上行 PPDU 使用 0.8 µs 的保护间隔」, printed
-    // three times in this entry — the engine's value, the pair it makes, and the capability bit.
-    for (const [us] of every(LIM, /([\d.]+) µs 的保护间隔——|\(\d× LTF, ([\d.]+) µs\)/g,
-      'the short guard interval, named twice', 2).map((g) => [g.find((x) => x !== undefined)!])) {
-      expect(val(us!) * 1000, 'the guard interval the engine runs every PPDU at').toBe(TGI_NS.base)
-    }
-    const [gi] = figs(LIM, /使用 ([\d.]+) µs 的保护间隔/, '`limits` on the engine’s own GI')
-    expect(gi! * 1000, 'the guard interval the engine runs every PPDU at').toBe(TGI_NS.base)
-    // The two mandatory sets, as pairs: HE is (2×, 1.6) and (4×, 3.2); EHT adds (1×, 1.6).
-    const he = figs(LIM, /HE TB 的强制集是 \((\d+)×, ([\d.]+)\) 与 \((\d+)×, ([\d.]+)\)/,
-      '`limits` on the HE mandatory set')
-    const eht = figs(LIM, /EHT TB 是 \((\d+)×, ([\d.]+)\)、\((\d+)×, ([\d.]+)\) 与 \((\d+)×, ([\d.]+)\)/,
-      '`limits` on the EHT mandatory set')
-    /*
-     * **The mandatory sets are read as sets, in order** — a membership test on each figure lets
-     * a planted 1× become a 2×, which is how the sweep of 2026-10-13 walked through one of them.
-     * The two sets the standard gives are fixed sequences, and the guard intervals in them are
-     * the engine's own doubled and quadrupled values.
-     */
-    expect([he[0], he[2]], 'the HE mandatory set’s two LTF multipliers').toEqual([2, 4])
-    expect([eht[0], eht[2], eht[4]], 'and EHT’s three').toEqual([1, 2, 4])
-    expect([he[1]! * 1000, he[3]! * 1000], 'the HE set’s two guard intervals')
-      .toEqual([TGI_NS.double, TGI_NS.quad])
-    expect([eht[1]! * 1000, eht[3]! * 1000, eht[5]! * 1000], 'and EHT’s three')
-      .toEqual([TGI_NS.double, TGI_NS.double, TGI_NS.quad])
-    for (const us of [he[1], he[3], eht[1], eht[3], eht[5]]) {
-      expect(us, 'and no mandatory TB combination uses the short one').not.toBe(gi)
-    }
-    /*
-     * 「这也是场景那一节只开放双倍与四倍两档的第二条理由：1.6 与 3.2 恰好是 TB PPDU 那一行的
-     * 强制集」 — the same two guard intervals, stated a second time as the reason the scene
-     * offers only those two. The 「第」 rule change of 2026-10-14 uncovered both figures: the
-     * sets above are read, this restatement of them was not.
-     */
-    const [why1, why2] = figs(LIM, /第二个理由：([\d.]+) 与 ([\d.]+) 恰好是 TB PPDU 那一行的强制集/,
-      '`limits` on why the scene offers two of them')
-    expect([why1! * 1000, why2! * 1000], 'the two the engine doubles and quadruples to')
-      .toEqual([TGI_NS.double, TGI_NS.quad])
-    expect([why1, why2], 'which are the two the mandatory sets above give')
-      .toEqual([he[1], he[3]])
-    // 「(4×, 0.8) 在 EHT 侧挂在能力位 dot11EHT4xEHTLTFand0point8usecGIImplemented」
-    const [capLtf, capUs] = figs(LIM, /\((\d+)×, ([\d.]+)\) 在 EHT 侧挂在能力位/,
-      '`limits` on the capability bit')
-    expect(capUs, 'the short guard interval the capability bit covers').toBe(gi)
-    expect(occ(LIM, `dot11EHT${capLtf}xEHTLTFand0point8usecGIImplemented`),
-      'the capability’s own name, spelled once and carrying the same two figures').toBe(1)
-    // 「标准的 PPDU 上限是 5.484 ms」 against the 2 ms the engine caps an answer at.
-    const [ppduMs] = figs(LIM, /PPDU 上限是 ([\d.]+) ms/, '`limits` on the standard’s own cap')
-    expect(ppduMs! * MS, 'the cap the engine holds for it').toBe(MAX_PPDU_NS)
-    expect(ppduMs! * MS, 'which is more than twice what a triggered answer may take')
-      .toBeGreaterThan(2 * 2 * MS)
-    // 「mac.ts 的 transmitTrigger 里那个 2_000_000」
-    // Read as digits, not as numbers: 「000」 is a group of a grouped literal, not zero.
-    const groups = raw(LIM, /里那个 (\d)_(\d+)_(\d+)/, '`limits` on the constant in `mac.ts`')
-    expect(Number(groups.join('')), 'the cap, in nanoseconds, as the source writes it').toBe(2 * MS)
-    // 「本课「有积压的设备 2」这一行」 and 「一个 2 ms 的应答最多能容纳 17 425 B」
-    // 「一个应答的长度被引擎限制在 2 ms」: the same cap the steps name, worded differently.
-    const [cappedMs] = figs(LIM, /长度被引擎限制在 (\d+) ms/, '`limits` on the engine’s own cap')
-    expect(cappedMs! * MS, 'the length the engine caps an answer at').toBe(2 * MS)
-    const [backlogged] = figs(LIM, /有积压的设备 (\d+)」/, '`limits` on the backlogged devices')
-    expect(backlogged, 'the uploaders this scene has').toBe(UPLOADERS.length)
-    const [capB] = figs(LIM, /最多能容纳 ([\d ]+) B/, '`limits` on the cap')
-    expect(capB, 'the cap the engine computes')
-      .toBe(maxPsduBytesFor('he', answers[0]!.frame.mcs!, 1 / UPLOADERS.length, 2 * MS, 20, 1))
-  })
-
-  it('reads the instant the lesson’s own docblock quotes, out of its source', () => {
-    /*
-     * **The 2057 µs the sweep of 2026-10-13 found is in a comment.** The figure computes its own
-     * instant from the constants above it, so a planting cannot reach that one — but the
-     * docblock over `triggeredRound` quotes the result in prose, for a reader of the source, and
-     * that copy is a figure like any other. It is read out of the file.
-     */
-    const SRCFILE = readFileSync(new URL('../../src/course/tier2/ofdma-ul.ts', import.meta.url), 'utf8')
-    const quoted = raw(SRCFILE, /两次箭头在 0 与\s*\*?\s*(\d+) µs|at 0 and at\s*\*?\s*(\d+) µs/,
-      'the docblock’s own instant').find((x) => x !== undefined)!
-    expect(val(quoted), 'the instant the docblock quotes')
-      .toBe(Math.round((mba.t - trigger.t) / US))
-  })
-
-  it('reads the figure’s own instant, which is where the acknowledgement lands', () => {
-    // The figure carries its instants as strings; the last of them is the acknowledgement's.
-    const fig = JSON.stringify(ofdmaUl.picture!.filter((b) => b.kind === 'diagram'))
-    const instants = [...fig.matchAll(/(\d+(?:\.\d+)?) µs/g)].map((mm) => Number(mm[1]))
-    expect(instants.length, 'the figure still places its arrows by instant').toBeGreaterThan(0)
-    // The figure places its arrows on whole microseconds, so the instant is read as one.
-    expect(Math.max(...instants), 'the last of them is the acknowledgement’s')
-      .toBe(Math.round((mba.t - trigger.t) / US))
+  it('lab 4: with uploader A off OFDMA, no trigger frame at all', () => {
+    const rs = runOf(ofdmaUl, A_OFF, RUN_NS)
+    expect(lab('只剩一台协商了 OFDMA').variant).toBe(A_OFF)
+    expect(triggers(rs)).toHaveLength(0)
+    expect(tbPpdus(rs)).toHaveLength(0)
+    expect(contended(rs).filter((r) => r.node === 'sta-2').length).toBeGreaterThan(20)
+    expect(lab('只剩一台协商了 OFDMA').expect).toContain('一个触发帧也没有')
   })
 })

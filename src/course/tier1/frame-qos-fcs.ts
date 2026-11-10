@@ -8,105 +8,175 @@
  * — so the split adds no scenario and this lesson's recorded hash is
  * `frame-anatomy`'s, value for value (`sameSceneAs` in its shape suite).
  *
- * What it takes with it: the QoS Control paragraph, the four-category table,
- * the check at the end, both experiments (the phone's EDCA switch, the old
- * laptop as a Wi-Fi 5 device) and the quiz about a frame that never arrives.
- * §4 gives it no figure of its own: the fields figure of the lesson before it
- * is the picture, and what changes here is two octets inside it.
+ * Standard-first shape (2026-11-10): ① IEEE Std 802.11-2024 — the QoS Control
+ * field (table 9-10), the TID as a user priority (table 9-12) and its access
+ * category (table 10-1), the ack policy (table 9-13), the FCS (§9.2.4.9) and
+ * what reception and acknowledgement mean (§9.2.2, §10.3.2.11, §10.23.2.12);
+ * ② where this simulator follows it — the field, the ack policy, the retry —
+ * and where it does not: one fixed TID per access category, no CRC at all, a
+ * reception decided by SINR; ③ three runs.
  *
- * The honest note about what this engine does instead of a CRC is `deeper`,
- * where its evidence is: nothing in src/engine computes one.
- *
- * Every number quoted below is pinned in tests/course/frame-qos-fcs.test.ts.
+ * Every figure the lesson prints is read back out of its text and compared
+ * with a run in tests/course/frame-qos-fcs.test.ts.
  */
 import { J, type Lesson } from '../lessonKit'
-import { frameAnatomyScenario, firstLegacyData, firstQosSingle } from './frame-anatomy'
+import { frameAnatomyScenario, firstLegacyData, firstQosSingle, firstAmpduFrame, firstLegacyRetry } from './frame-anatomy'
 
 export const frameQosFcs: Lesson = {
   id: 'frame-qos-fcs',
   module: 2,
   title: '业务标记与帧校验',
-  why: '上一课讲完了每一帧都有的那 24 个字节。还有两部分没有讲：现在的设备会在帧头（MAC header）中多插入两个字节，指明这一帧属于哪一类业务；每一帧的末尾则固定有四个字节，用来检验它是否完好到达。前者是服务质量（quality of service, QoS）控制字段，标明这一帧属于四类业务中的哪一类——这个编号称为业务标识（traffic identifier, TID）——以及它希望以何种方式被确认，即确认策略（Ack Policy）。这些编号只是标识，不代表优先次序：背景的编号比尽力而为大，但优先级较低的却是背景。这两个字节就是普通数据帧（data frame）与带标记数据帧的全部区别，帧的持续时间（Duration/ID）字段写的仍是同一个值。后者是帧校验序列（frame check sequence, FCS）：在标准中，发送端对前面所有内容计算一次循环冗余校验（cyclic redundancy check, CRC），接收端按同样方法计算后再比对；本仿真器从不计算它，判定一次接收成败的依据是整帧到达时的比值是否达到所用速率等级的要求。无论采用哪种判定，未能正确接收的帧都得不到任何应答——接收端连地址都无法读出，应答只能是猜测；发送端等不到应答，就以同一个序列号、把重发比特（Retry bit）置位，再发送一次。',
+  why: '上一课讲完了每一帧都有的那 24 个字节。还有两部分没有讲。第一部分是服务质量（quality of service, QoS）控制字段：子类型为 QoS Data 的数据帧（data frame）在帧头（MAC header）中多出这 2 个字节，其中的业务标识（traffic identifier, TID）在增强型分布式信道接入（enhanced distributed channel access, EDCA）下携带这份载荷（payload）的用户优先级 0 到 7，确认策略（Ack Policy）说明接收端怎样确认它。TID 只是标识，不代表优先次序：用户优先级 1 和 2 属于背景类，优先级反而低于属于尽力而为类的 0。第二部分是帧尾 4 个字节的帧校验序列（frame check sequence, FCS），即对帧头与帧体（Frame Body）算出的 32 位循环冗余校验（cyclic redundancy check, CRC）；标准中只有通过这项校验的帧才算“接收”，接收端只为接收的帧回复确认帧（acknowledgement, ACK），发送端等不到确认帧就判定失败，重发时把重发比特（Retry bit）置 1。本仿真器写入 QoS 控制字段与确认策略，重发规则也与标准相同，但它从不计算 CRC：一帧是否被接收，取决于整帧期间最差时刻的信干噪比（signal-to-interference-plus-noise ratio, SINR）是否达到所用速率等级的要求；它也没有用户优先级，每个接入类别（access category, AC）固定写一个 TID。',
   outcomes: [
-    '识别一帧是否带有业务标记，并读出它标明的类别',
-    '说出帧尾那四个字节的作用，以及本仿真器实际依据什么判定一次接收',
-    '说明一帧未能正确接收时会发生什么——以及为什么接收端不作任何应答',
+    '按标准说出 QoS 控制字段中 TID 与确认策略的含义，以及 TID 与接入类别的对应关系',
+    '说出 FCS 怎样计算、标准怎样用它定义“接收”，以及一帧没有被接收时会发生什么',
+    '分清本仿真器在这两部分上哪些照标准、哪些与标准不同',
   ],
   needs: ['frame-anatomy'],
   terms: [
-    { term: 'QOS', plain: '服务质量：帧头中标明业务类别的两个字节' },
-    { term: 'TID', plain: '业务标识：这两个字节中写入的编号，说明这一帧属于哪一类业务' },
+    { term: 'QOS', plain: '服务质量：QoS 数据帧帧头中标明业务类别与确认方式的两个字节' },
+    { term: 'TID', plain: '业务标识：这两个字节中的 4 位编号，在 EDCA 下就是这份载荷的用户优先级' },
   ],
-  picture: [
-    { heading: '业务类别标记', text: '一次语音通话和一次文件上传对网络的要求不同，所以现在的客户端设备——站点（STA）——会在帧头中再加两个字节，写入一个业务标记——服务质量（quality of service, QoS）控制字段：标明这一帧属于四类业务中的哪一类——这个编号称为业务标识（traffic identifier, TID）——以及它希望以何种方式被确认。这两个字节，就是普通数据帧（data frame）与带标记数据帧的全部区别。' },
-    { kind: 'watch', jump: 0, heading: '对比两帧', text: '载入仿真，跳到第一个 QoS 数据帧，展开“空中字段”；再跳到旧笔记本的第一帧。方向相同、地址角色相同、持续时间（Duration/ID）都是 44 µs——区别只在那一个字段。' },
-    { heading: '帧尾的校验', text: '每一帧的末尾都是四个字节的帧校验序列（frame check sequence, FCS）。在标准中，接收端用它来检验这一帧：发送端对前面所有内容执行一次固定的运算，即循环冗余校验（cyclic redundancy check, CRC），接收端按同样方法计算后再比对。本仿真器从不计算它——这里判定一次接收成败的依据是这一帧到达时的比值：整帧都必须达到所用速率等级的要求。无论采用哪种判定，未能正确接收的帧都得不到任何应答。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '四类业务，四个标记', head: [
-      '业务类别', '对应的用户优先级', 'TID',
-    ], rows: [
-      ['背景', '1, 2', '1'],
-      ['尽力而为', '0, 3', '0'],
-      ['视频', '4, 5', '5'],
-      ['语音', '6, 7', '6'],
+  standard: [
+    { heading: 'QoS 控制字段（§9.2.4.5.1，表 9-10）', text: '子类型字段的最高位 B7 是 QoS 子字段；它为 1 的数据帧都带 QoS 控制字段，共 2 个八位组，位于序列控制（Sequence Control）之后。非接入点（access point, AP）站点（station, STA）在非 Mesh 的基本服务集（basic service set, BSS）中发送 QoS Data 帧时，这个字段的布局如下表。表中有一个子字段为一次传输机会（transmit opportunity, TXOP）申请时长，即 TXOP Duration Requested；另一个是 Queue Size，报告缓存的数据量。' },
+    { kind: 'table', heading: '非接入点站点发送的 QoS Data 帧：QoS 控制字段（表 9-10）', head: ['比特', '子字段'], rows: [
+      ['0–3', 'TID'],
+      ['4', '为 0 时比特 8–15 是 TXOP Duration Requested，为 1 时是 Queue Size'],
+      ['5–6', '确认策略指示（Ack Policy Indicator）'],
+      ['7', 'A-MSDU Present'],
+      ['8–15', 'TXOP Duration Requested 或 Queue Size'],
     ] },
-    { text: '这些数字只是标识，不代表优先次序：背景是 1、尽力而为是 0，但优先级较低的恰恰是背景。这个房间里的手机正在通话，所以它的帧标的是 6；那台用 Wi-Fi 5 做备份的笔记本标的是 1——背景。' },
-    { kind: 'steps', heading: '一帧未能正确接收时，这一轮交换如何结束', items: [
-      '发送端在 QoS 控制的另外两个比特里写上确认策略（Ack Policy）。单独一帧上写的是 Normal Ack：收到后立即确认。',
-      '接收端不计算那四个字节。本仿真器检查的是整帧到达时的比值，达到这一级的要求才算正确接收，否则记录一条 RX_FAIL——原因只可能是干扰、信号太弱、接收端自身正在发送，或者接收机已转去同步更强的帧。',
-      '未能接收就不作任何应答：地址那几个字节同样无法读出，应答只能是猜测。',
-      '发送端等不到应答，于是以同一个序列号、把重发比特（Retry bit）置 1，再发送一次——12.013 ms 处的那一帧就是这样产生的。',
+    { heading: 'TID 与用户优先级（§9.2.4.5.2，表 9-12）', text: '在 EDCA 下，TID 携带这份 MSDU（MAC service data unit）的用户优先级，取值 0 到 7；取值 8 到 15 用于 HCCA 等方式下的业务流。用户优先级由上层给出。' },
+    { kind: 'table', heading: '用户优先级到接入类别的映射（§10.2.3.2，表 10-1）', head: ['接入类别', '用户优先级', '用途'], rows: [
+      ['AC_BK', '1, 2', '背景'],
+      ['AC_BE', '0, 3', '尽力而为'],
+      ['AC_VI', '4, 5', '视频'],
+      ['AC_VO', '6, 7', '语音'],
+    ] },
+    { heading: '编号不是优先次序（表 10-1）', text: '表 10-1 按优先级从低到高排列的用户优先级是 1、2、0、3、4、5、6、7：编号 1 和 2 的背景类，优先级低于编号 0 的尽力而为类。表中的用途一栏只是一般性的指导，每个用户优先级实际怎样使用由实现决定。' },
+    { heading: '确认策略（§9.2.4.5.4，表 9-13）', text: '确认策略指示与其他条件一起决定接收端的行为。同一个指示值，用在单独发送的 MPDU（MAC protocol data unit）上与用在聚合 MPDU（aggregate MPDU, A-MPDU）中含义不同：单独发送的帧是 Normal Ack，接收端相隔短帧间间隔（short interframe space, SIFS）回复确认帧（acknowledgement, ACK）；在块确认（block acknowledgement, BlockAck）协议下装入 A-MPDU 的帧是 Implicit BAR，接收端相隔 SIFS 回复 BlockAck。另有 No Ack 等策略，接收端不作确认。' },
+    { heading: 'FCS（§9.2.4.9）', text: 'FCS 字段是 32 位 CRC，对帧头的全部字段与帧体计算，生成多项式为 G(x) = x^32 + x^26 + x^23 + x^22 + x^16 + x^12 + x^11 + x^10 + x^8 + x^7 + x^5 + x^4 + x^2 + x + 1。接收端以全 1 为初值，把收到的字段连同 FCS 一起除以 G(x)，没有传输差错时余数是一个固定值。' },
+    { kind: 'steps', heading: '一帧怎样被接收、怎样被确认，按标准：逐步说明', items: [
+      '只有物理层（physical layer, PHY）无差错交付、并通过 FCS 校验的 MPDU 才算“接收”（§9.2.2）。',
+      '接收端接收了一个需要立即确认的帧，就相隔 SIFS 回复确认帧或块确认，不论此时信道忙闲（§10.3.2.11）。',
+      '没有被接收的帧，接收端不回复任何帧：它的地址同样无法确认。',
+      '发送端等不到发给自己的确认帧，就判定这次发送失败，执行退避（backoff）（§10.3.2.11）。',
+      '重发时把重发比特置 1（§10.23.2.12.1），序号（sequence number）保持不变（§9.2.4.4.3）。',
     ] },
   ],
-  deeper: [
-    { heading: '这台引擎里没有一次 CRC', text: 'src/engine 下没有任何一个文件去算 MPDU 的校验：FCS_BYTES 只是一个字节数，参与的是长度，不是判定。一次接收的成败在 channel.ts 中由最差的比值与该级要求的比较决定，所以在整个课程中，读者能看到的失败原因只有 collision、lowSinr、txDuringRx 和 capture 四种。本课特意指出这一点，是因为“校验失败所以重发”听起来理所当然，而这个房间里从来没有发生过。' },
-    { heading: '聚合帧中，同样这两个比特含义不同', text: 'QoS 控制里的确认策略，在单独一帧上读作 Normal Ack；在聚合帧中，同样这两个比特的含义是 Implicit Block Ack Request——十四帧只需一个应答，依靠的就是它。这部分在两课之后讲。' },
+  implementation: [
+    { topic: 'QoS 控制字段的出现', standard: '子类型 B7 为 1 的数据帧（§9.2.4.5.1）', sim: '发送端与接入点都启用 EDCA 时写 QoS Data 帧，帧头 26 B；否则写 Data 帧，帧头 24 B。', kind: 'faithful' },
+    { topic: 'TID 的取值', standard: '携带上层给出的用户优先级 0–7（表 9-12）', sim: '引擎没有用户优先级，只有接入类别；每个接入类别固定写一个 TID：背景 1、尽力而为 0、视频 5、语音 6，各是表 10-1 中该类别的一个用户优先级。', kind: 'choice' },
+    { topic: '确认策略', standard: '单独的帧 Normal Ack，A-MPDU 中的帧 Implicit BAR（表 9-13）', sim: '照此写入，并照此回复确认帧或块确认；不使用 No Ack 等其他策略。', kind: 'faithful' },
+    { topic: 'QoS 控制的其他子字段', standard: 'A-MSDU Present、TXOP Duration Requested、Queue Size 等（表 9-10）', sim: '未建模：字段视图只显示 TID 与确认策略。', kind: 'absent' },
+    { topic: 'FCS 的计算', standard: '32 位 CRC（§9.2.4.9）', sim: '不计算：FCS 只计入 4 B 的长度，src/engine 中没有任何一处计算 CRC。', kind: 'differs' },
+    { topic: '接收的判定', standard: '无差错交付并通过 FCS 校验（§9.2.2）', sim: '按整帧期间最差时刻的信干噪比是否达到该速率等级的要求判定。失败原因只记录为碰撞、信号太弱、接收端正在发送、接收机已转去同步更强的帧四种，不会出现“信干噪比足够而校验失败”的帧。', kind: 'differs' },
+    { topic: '没有收到确认帧之后', standard: '判定失败，退避后重发，重发比特置 1（§10.3.2.11，§10.23.2.12.1）', sim: '照此处理：确认超时后退避，重发时序号不变、重发比特置 1。', kind: 'faithful' },
   ],
-  limits: [
-    { kind: 'unmodelled', text: 'src/engine 下没有任何一处计算 MPDU 的校验：FCS_BYTES 只是一个字节数，参与的是长度而不是判定。一次接收的成败由整帧最差的信干噪比与该级要求的比较决定，所以读者能看到的失败原因只有 collision、lowSinr、txDuringRx 与 capture 四种。真实接收端会遇到「比值足够、校验却失败」的帧——射频损伤、相位噪声、突发干扰都可能造成这种情况，而这个房间里一次也没有出现。' },
-    { kind: 'threshold', text: '整帧共用一个判决：引擎用这一帧全程最差时刻的干扰与门限比较（channel.ts 的 resolveLock 用 maxInterfMw），所以只受到几微秒干扰的一帧，与全程受到干扰的一帧结果完全相同。真实系统中的纠错编码加上交织，正是为了使短暂的干扰仍能被纠正；因此门限附近的结果是概率性的，而不是确定的。' },
-    { kind: 'unmodelled', text: '这两个字节中只有两项真正起作用：TID 与确认策略（frameFields.ts）。同一字段中的 TXOP 时长请求、队列长度、EOSP 与 A-MSDU 存在位都没有对应的模型。真实设备正是通过队列长度这一子字段让接入点知道自己还积压了多少上行数据，接入点的上行调度才有依据。' },
-    { kind: 'model-value', text: '四类业务各写哪个 TID（背景 1、尽力而为 0、视频 5、语音 6）是本仿真器在标准给出的区间中各选了一个（frameFields.ts 的 TID_FOR_AC）。标准规定的是用户优先级到接入类别的映射区间，具体写哪个值由实现决定，所以同一业务在其他厂商的设备上可能标为 2 或 4。' },
+  labs: [
+    {
+      heading: '一个带业务标记的数据帧',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一个 QoS 数据帧（手机发出），展开“空中字段”。',
+        '再跳到旧笔记本的第一帧，对照下表比较两帧。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '两帧的帧头', head: ['项目', '手机的 QoS 数据帧', '旧笔记本的数据帧'], rows: [
+          ['发送时刻', '20.452 ms', '0 µs'],
+          ['子类型', 'QoS Data（1000）', 'Data（0000）'],
+          ['帧头', '26 B', '24 B'],
+          ['QoS 控制', 'TID 6，Normal Ack', '无'],
+          ['持续时间', '44 µs', '44 µs'],
+        ] },
+      ],
+      expect: '两帧都发往路由器，地址角色相同，持续时间（Duration/ID）都是 44 µs；区别只在 QoS 控制这 2 个字节。',
+      meaning: 'QoS 控制字段只出现在 QoS Data 帧中（①）；持续时间覆盖的是随后的短帧间间隔与确认帧，与帧头多出的字节无关。',
+    },
+    {
+      heading: '这个房间里写的是哪些 TID',
+      jump: 2,
+      steps: [
+        '跳到第一个 A-MPDU（笔记本的云备份），展开其中一帧的 QoS 控制字段。',
+        '在编辑器里把旧笔记本改为 Wi-Fi 5 后载入，读出它第一帧的 QoS 控制字段。',
+        '恢复本课场景，在编辑器里关闭手机的 EDCA 开关后载入，读出手机第一帧的子类型。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '各设备写入的 QoS 控制字段', head: ['设备', '接入类别', 'TID', '确认策略'], rows: [
+          ['手机（语音通话）', '语音', '6', 'Normal Ack'],
+          ['笔记本（云备份，A-MPDU）', '背景', '1', 'Implicit BAR'],
+          ['旧笔记本（802.11a）', '无', '不带 QoS 控制字段', '无'],
+          ['旧笔记本改为 Wi-Fi 5（A-MPDU）', '尽力而为', '0', 'Implicit BAR'],
+          ['手机关闭 EDCA', '无', '不带 QoS 控制字段', '无'],
+        ] },
+      ],
+      expect: '语音写 6、背景写 1、尽力而为写 0：背景的编号比尽力而为大，优先级却更低。A-MPDU 中的帧写 Implicit BAR，单独发送的帧写 Normal Ack；关闭 EDCA 后，手机的帧变成不带 QoS 控制字段的 Data 帧。',
+      meaning: 'TID 携带的是用户优先级（①，表 9-12、表 10-1），编号不是优先次序；每个接入类别写哪一个用户优先级，是本仿真器的取法（②）。',
+    },
+    {
+      heading: '一帧没有被接收',
+      jump: 3,
+      steps: [
+        '跳到旧笔记本的第一次重发（12.013 ms），再回到 11.650 ms 处同一序号的原帧。',
+        '读出原帧之后的记录：路由器一侧没有接收记录，也没有确认帧；旧笔记本确认超时。',
+        '运行满 30 ms，统计所有接收失败记录的原因。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '30 ms 内的接收失败记录', head: ['原因', '次数'], rows: [
+          ['碰撞（collision）', '2'],
+          ['信号太弱（lowSinr）', '0'],
+          ['接收端正在发送（txDuringRx）', '0'],
+          ['接收机已转去同步更强的帧（capture）', '0'],
+        ] },
+      ],
+      expect: '原帧与笔记本的请求发送（request to send, RTS）帧同时开始发送，路由器没有接收，也没有回复；旧笔记本确认超时后退避，在 12.013 ms 以序号 11、重发比特 1 重发。30 ms 内的 2 次接收失败都是碰撞，没有一次是校验失败。',
+      meaning: '“不接收就不确认，等不到确认就重发”照标准（①）。本仿真器按信干噪比判定接收，从不计算 CRC，所以失败原因中没有校验失败这一类（②）。',
+    },
   ],
   sources: [
-    'QoS 控制字段见 IEEE Std 802.11-2024 §9.2.4.5，确认策略见其中的表 9-16；FCS 见 §9.2.4.7，它是对帧头与帧体计算的 CRC-32。',
-    '用户优先级到接入类别的映射、以及各自写入的 TID，见表 10-1；本仿真器写入的取值是：背景 1、尽力而为 0、视频 5、语音 6。',
-    '“接收端不作应答，发送端据此重发”这条规则见 §10.3.2.9。本仿真器不计算 FCS，这是模型的取舍，不是标准的规定——上面每一个时刻和取值，都是在本课场景中实测得到的。',
+    'IEEE Std 802.11-2024：§9.2.4.5.1 与表 9-10（QoS 控制字段）、§9.2.4.5.2 与表 9-12（TID）、§10.2.3.2 与表 10-1（用户优先级到接入类别的映射）、§9.2.4.5.4 与表 9-13（确认策略）、§9.2.4.9（FCS）、§9.2.2（“接收”的含义）、§10.3.2.11（确认过程）、§10.23.2.12.1（重发时的重发比特）、§9.2.4.4.3（序号）。',
+    '本仿真器的取值与取法：每个接入类别写一个 TID（背景 1、尽力而为 0、视频 5、语音 6，src/model/frameFields.ts 的 TID_FOR_AC）；不计算 CRC；按整帧最差时刻的信干噪比判定接收（src/engine/channel.ts）。各个时刻与次数都是本课场景的实测值。',
   ],
+  limits: [],
   scenario: frameAnatomyScenario,
   jumps: [
     J('第一个 QoS 数据帧', firstQosSingle),
     J('第一个传统数据帧', firstLegacyData),
+    J('第一个 A-MPDU', firstAmpduFrame),
+    J('第一次重发（重发比特 = 1）', firstLegacyRetry),
   ],
-  observe: [
-    '第一个 QoS 数据帧于 20.452 ms 由手机发出。它的 QoS 控制字段写着“TID 6 · Normal Ack”：语音，收到后立即确认。',
-    '旧笔记本的第一帧（0 µs）中没有这个字段——它的帧头是 24 B，手机那一帧是 26 B。两帧的持续时间都是 44 µs：这个字段预留的是帧后那段间隔加上确认帧（acknowledgement, ACK）的时间，与帧头多出的这两个字节无关。',
-  ],
-  tryThis: [
-    '在编辑器里打开本场景，把手机的增强型分布式信道接入（EDCA）开关关掉，也就是控制服务质量标记的那个开关。它的帧变成普通 Data 帧：QoS 控制字段消失，业务标记也随之消失。',
-    '把旧笔记本改成 Wi-Fi 5。它上传的帧现在带有标记，标记值为 0——尽力而为：它的流量是持续满负荷的普通上传，既不是通话也不是备份，归入默认的尽力而为类；标 1（背景）的是另一台专门做备份的笔记本。帧头的其他部分保持不变。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '一帧到达了，但它比周围的干扰弱得多，接收端无法解码。接收端会怎么做？',
+      q: '一帧到达了，但它比周围的干扰弱得多，接收端无法正确解码。按标准，接收端会怎么做？',
       options: [
-        '照常应答，由上层自行发现错误',
+        '照常回复确认帧，由上层自行发现错误',
         '回复一条差错报告，指明哪个字段出错',
-        '不作任何应答——发送端等不到应答，就会再发送一次',
+        '不回复任何帧——发送端等不到确认帧，就会退避后重发',
       ],
       answer: 2,
-      explain: '对于未能正确接收的帧，地址那几个字节同样无法读出，应答只能是猜测。不应答本身就是全部机制：收不到应答，就重发。',
+      explain: '§9.2.2：只有通过 FCS 校验的帧才算接收；§10.3.2.11：接收端只为接收的帧回复确认帧，发送端等不到确认帧就判定失败。',
     },
     {
-      q: '把手机的业务标记关掉之后，它的帧头少了什么？',
+      q: '背景类的 TID 写 1，尽力而为类写 0。哪一类的优先级更高？',
       options: [
-        '少了两个字节的 QoS 控制——这一帧从此不属于任何一类业务',
-        '少了四个字节的校验：不带标记的帧不需要校验',
-        '没有减少任何字段，只是 TID 变为 0',
+        '背景类：编号更大，优先级更高',
+        '尽力而为类：表 10-1 中用户优先级 1 和 2 排在 0 之前，是最低的两档',
+        '两者相同：TID 与优先级无关',
       ],
-      answer: 0,
-      explain: '那两个字节就是普通 Data 帧与 QoS Data 帧的全部区别：没有这两个字节，帧头恢复为 24 B，网络也就无法知道这一帧是通话还是备份。',
+      answer: 1,
+      explain: 'TID 携带用户优先级，表 10-1 按优先级从低到高是 1、2、0、3、4、5、6、7。',
+    },
+    {
+      q: '哪一项是本仿真器与标准不同之处？',
+      options: [
+        '单独发送的 QoS 数据帧写 Normal Ack',
+        '重发时把重发比特置 1',
+        '一帧是否被接收由信干噪比决定，从不计算 FCS',
+      ],
+      answer: 2,
+      explain: '另外两项照标准（①）；标准用 32 位 CRC 定义“接收”，本仿真器不计算它（②）。',
     },
   ],
 }

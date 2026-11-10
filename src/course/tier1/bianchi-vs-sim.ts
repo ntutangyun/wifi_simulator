@@ -1,35 +1,26 @@
 /**
  * Wi-Fi Tier 1 · M6 · The prediction against the run — first half.
  *
- * Re-paced 2026-09-25 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
- * §2, M6). This lesson keeps the arc: how the two columns are made, how closely
- * they agree, the three smaller differences that explain the sign, and the
- * residual that is reported rather than fitted. The close-in run — where the
- * prediction misses by a factor of five and the culprit is rate control, not
- * contention — is the second half, `rate-vs-model.ts`, which loads this scene and
- * these variants, so the two ids replay to the same recorded hashes.
+ * Standard-first shape (① standard → ② this simulator → ③ hands-on), converted
+ * on 2026-11-11. ① is what IEEE Std 802.11-2024 says about the three places the
+ * run and the model part company — what a sender can count (a missing response,
+ * §10.3.2.11 / §10.3.4.3), the frozen counter (§10.3.4.3) and the EIFS after a
+ * frame that was detected but not received (§10.3.3, §10.3.7 Eq. (10-7)) — and
+ * that the standard gives no performance formula. The model is the previous
+ * lesson's paper; ③ labels it so.
  *
- * ONE FINDING CORRECTED HERE, and it is why the split moved more prose than the
- * plan expected. Both halves of this scene put every station at the SAME distance
- * from the access point (the arc at 3 m, the close-in variant on a 1 m circle), so
- * both arrive at exactly equal levels and CAPTURE NEVER HAPPENS IN EITHER. The old
- * lesson said the opposite — "close in, two overlapping frames rarely arrive at the
- * same strength, and the access point sometimes locks the louder one" — and a 10 s
- * run refutes it: the access point's RX_MISS count and the RETRY count are the same
- * number, exactly, in all three scenarios (1635 close in, 1370 on the arc at n = 5,
- * 2840 at n = 20). What that buys is a better claim than the one it replaces: on
- * this scene the retry counter IS the collision counter, which is what makes the
- * comparison legitimate at all. Capture itself is taught where a run shows it —
- * `anomaly`'s near/far pair and the project's flat, both of which really do span
- * tens of decibels.
+ * The close-in run, where the prediction misses by a factor of five and the
+ * culprit is rate control, is the second half, `rate-vs-model.ts`, which loads
+ * this scene and these variants, so the two ids replay to the same recorded
+ * hashes. Both halves put every station at the SAME distance from the access
+ * point, so capture never happens and the access point's RX_MISS count equals
+ * the RETRY count exactly; that is what makes the comparison legitimate.
  *
- * The busy-slot experiment quoted under the slot clock is a one-off probe, not
- * something the engine does: it patches WifiMac.prototype.onIfsEndAc to decrement
- * the backoff across each busy period (Bianchi's convention) and re-measures
- * n = 20.
- *
- * Numbers are pinned by tests/course/bianchi-vs-sim.test.ts. The scenarios are
- * unchanged, so the recorded timeline hashes stay identical.
+ * Dropped in the conversion: the 47.9 % of the old slot-clock probe (a one-off
+ * patched MAC, never pinned, so no longer printed — the lesson now states only
+ * the direction of that difference), and the CW = 0 tamper corner, which is
+ * `edca-tamper`'s subject. Every figure printed below is read back out of the
+ * text and compared with a run in tests/course/bianchi-vs-sim.test.ts.
  */
 import { J, firstCollision, firstData, firstRetry, type Lesson, type LessonVariant } from '../lessonKit'
 import { bianchiScenario, nLabel } from './bianchi'
@@ -56,103 +47,129 @@ export const bianchiVsSim: Lesson = {
   id: 'bianchi-vs-sim',
   module: 5,
   title: '预测与实测的对照',
-  why: '一个预测，只有在知道它从何处开始失效之后才真正有用。把理论计算的结果与实测结果并列，两者永远不会完全吻合——接下来如何处理，正是工程师与“只会套用表格的人”的区别。在圆弧上，每台站点（STA）到接入点（AP）的距离相同、每一帧的长度相同，接收端无法锁定任何一个重叠的帧，于是重传（retry）数恰好等于碰撞数，可以直接用来与预测比较。结果是：在没有任何拟合参数的情况下，碰撞比例都落在预测值的一成以内，吞吐量在百分之五以内；但从五台起，实测的碰撞总比预测少，偏差每次都在同一方向，所以是可以解释的。几个原因各有其量级：标准在其他站点发送时冻结等待中的计数器，而模型让它继续递减，二十台时这一条约占差距的一半；真实站点在碰撞之后各自需要等待的时间并不相同；一次碰撞比一次成功稍早结束，这一条对吞吐量的影响很小。加总之后，站点较多时仍有两个百分点左右无法解释，这就是残差；如实报告它本身就是一个结果，而调整一个常数使曲线重合则不是。两台那一行的偏差符号相反：只有一台竞争者时，模型对其余站点取平均的方法无法成立，站点少反而是难以准确预测的情形。',
+  why: '一个预测，只有在知道它从何处开始失效之后才真正有用。把论文模型的计算结果与实测结果并列，两者永远不会完全吻合——接下来如何处理，正是工程师与“只会套用表格的人”的区别。先要确认统计的是同一个量：按 IEEE 802.11-2024，发送方只能知道 ACK 超时（ACK timeout）之内没有收到应答，无从得知是否发生了碰撞；在圆弧上，每台站点（STA）到接入点（AP）的电平相同，接收端无法检出任何一个重叠的帧，于是重传（retry）数恰好等于碰撞数，可以直接与模型的碰撞概率比较。结果是：在没有任何拟合参数的情况下，碰撞比例都落在预测值的一成以内，吞吐量在百分之五以内；但从五台起，实测的碰撞总比预测少，偏差每次都在同一方向，所以是可以解释的。几个原因都出自标准规定、而模型没有写进去的细节：其他站点发送时，标准规定等待中的计数器停止递减，论文的链却让它在每个忙周期减一；检出了重叠的帧却没能正确接收的邻居要等待扩展帧间间隔（extended interframe space, EIFS），什么也没有检出的邻居只等待分布式帧间间隔（DCF interframe space, DIFS）；一次碰撞比一次成功早结束 15 µs。加总之后，站点较多时仍有一部分无法解释，这就是残差；如实报告它本身就是一个结果，而调整一个常数使曲线重合则不是。两台那一行的偏差符号相反：只有一台竞争者时，模型对其余站点取平均的方法无法成立。',
   outcomes: [
-    '把一次比较写成方法：使用哪一次运行、统计哪些记录、模型的输入从何而来',
+    '说出标准让发送方统计的是什么，以及它在什么条件下才等于模型的碰撞概率',
     '先明确正在统计的量——这就是估计量——再核对它是否就是模型真正定义的那个量',
-    '如实报告无法解释的那一部分——残差，而不是调整一个常数直到两条曲线重合',
+    '列出标准规定而模型没有的几处细节，并如实报告无法解释的那一部分——残差',
   ],
   needs: ['bianchi', 'anomaly'],
   terms: [
     { term: 'capture', plain: '捕获效应（capture effect）：接收机一旦锁定某个前导码就保持锁定，只有遇到明显更强的前导码时才转而与之同步，于是较强的那一帧仍被正确接收' },
     { term: 'residual', plain: '计入已找到的所有原因之后，偏差中仍无法解释的那一部分' },
   ],
-  picture: [
-    { heading: '两个结果并列比较', text: '在圆弧上——每台站点（STA）到接入点（AP）的距离相同，每一帧的长度也相同——预测与实测吻合得相当好。这是刻意布置的结果：整个场景的目的就是使论文的每一条假设真正成立。只要改变其中一个条件，这种吻合就可能消失，而下一课改变的正是这个条件。' },
-    { kind: 'watch', jump: 1, heading: '先切换到圆弧，再观察一次碰撞', text: '载入仿真之后先切换到「n = 5 在圆弧上」这个变体，再跳到第一次碰撞。每个绿色色块的长度都相同，而接入点一帧也没有锁定——这就是两条假设同时成立时的表现。' },
-    { heading: '这里没有捕获效应，因此两个计数相等', text: '重传（retry）统计的是丢失的帧，重叠统计的是发生碰撞的帧。两者只在接收端无法锁定任何一帧时才相等，而圆弧上正是如此：五台站点的到达强度完全相同，一次重叠会使每一帧都接收失败，于是接入点的每一次错失都恰好对应一次重传。在各站点强弱悬殊的房子里则不然——较强的那一帧仍被正确接收，这就是捕获效应。' },
-    { heading: '同一次事件，三种不同的等待', text: '论文假设所有站点在同一时刻重新开始竞争，真实的站点并非如此：碰撞的两台各自等待期限到期；锁定了重叠帧之一却未能正确解出的邻居，需要等待一段更长的时间——扩展帧间间隔（extended interframe space, EIFS）；什么也没有锁定的邻居只需等待分布式帧间间隔（DCF interframe space, DIFS）。那条链中没有这种状态。' },
-    { heading: '如何处理剩余的偏差', text: '逐一列出每个原因，用模型自身的单位定量，核对符号——然后说明还有多少无法解释。这一部分就是残差，如实报告它本身就是一个结果；而把某个常数调整到使曲线重合则不是。' },
-  ],
-  numbers: [
-    { kind: 'steps', heading: '两列数字的得出方法', items: [
-      '载入某一站点数下的圆弧场景，使用它自带的种子，运行满十秒仿真时间。下面统计的一切都发生在这个时间窗口内，没有任何量是多次重复运行后取平均的。',
-      '每一条携带数据帧（data frame）的 TX_START 记录计为一次尝试；每一条重传记录（RETRY）计为一次失败——媒体访问控制（MAC）在一次尝试未收到应答时写入这条记录。后者除以前者即为实测碰撞率。',
-      '每回复一个确认帧（ACK）计为一次成功交付。乘以一个载荷（payload）的 12,000 比特，再除以这十秒，就是实测吞吐量。',
-      '模型的输入一律取自场景，绝不取自实测：n 是圆弧上饱和站点的数量；W = 16、m = 6、L = 7 取自引擎；一次成功与一次碰撞的代价按 6 Mb/s 计算——这条圆弧只允许这一种速率。',
-      '把两列数字并列，按站点数逐行相减。此后两边都不再调整。',
-      '写明这套方法无法处理的情况：一旦捕获效应起作用，重传数就不再等于重叠数（圆弧上不会发生，换一个户型就会）；换一个种子，实测值会变化零点几个百分点；而圆弧是通过布置使论文的假设成立，并不是在检验这些假设。',
+  standard: [
+    { heading: '发送方能统计什么（§10.3.2.11，§10.3.4.3）', text: '发送方发出数据帧（data frame）之后等待一个 ACK 超时；期限内物理层（physical layer, PHY）没有报告开始接收，就断定发送失败。标准把失败定义为没有收到被寻址站点的控制响应帧，不区分原因：碰撞、干扰或信号太弱都是同一种失败。所以发送方能统计的是失败次数，而不是碰撞次数。' },
+    { heading: '其他站点发送时（§10.3.4.3）', text: '退避（backoff）时隙（slot time）内任何时刻介质（medium）忙，这个时隙的计数不减；介质再空闲一个 DIFS（或 EIFS）再加一个 aSlotTime 之后，计数才继续递减。也就是说，整个忙周期里计数保持不变。' },
+    { heading: '没能正确接收之后的等待（§10.3.3，§10.3.7 式 (10-7)）', text: '介质最近一次由忙变闲，是因为检出的一帧没有被正确接收，站点就等待 EIFS 而不是 DIFS。EIFS = aSIFSTime + AckTxTime + DIFS，AckTxTime 是以物理层最低强制速率（mandatory rate）发送一个确认帧（acknowledgement, ACK）所需的时间；在 20 MHz 的正交频分复用（orthogonal frequency-division multiplexing, OFDM）物理层上为 16 + 44 + 34 = 94 µs，而 DIFS 是 34 µs。' },
+    { heading: '失败之后从何时开始退避（§10.3.4.3）', text: '发送成功时，退避从确认帧结束时开始；发送失败时，退避从 ACK 超时结束时开始。' },
+    { kind: 'steps', heading: '两台站点发生碰撞之后，按标准：逐步说明', items: [
+      '两台站点在同一个时隙结束退避，同时发送。',
+      '发送的两台各自等待 ACK 超时；期限内没有开始接收，各自判定失败，从 ACK 超时结束时开始退避（§10.3.2.11，§10.3.4.3）。',
+      '检出了其中一帧、却没能正确接收的邻居，等介质空闲 EIFS 之后才继续递减（§10.3.3）。',
+      '什么也没有检出的邻居只等待 DIFS（§10.3.3）。',
+      '在整个忙周期里，所有等待中的站点计数保持不变（§10.3.4.3）。',
     ] },
-    { kind: 'table', heading: '圆弧场景：预测与十秒实测的对照', head: [
-      'n', '碰撞，预测', '碰撞，实测',
-      '吞吐，预测', '吞吐，实测',
-    ], rows: [
-      ['2', '10.46 %', '11.20 %', '5.169', '5.136 Mb/s'],
-      ['5', '27.22 %', '25.84 %', '4.679', '4.717 Mb/s'],
-      ['10', '38.92 %', '35.08 %', '4.275', '4.421 Mb/s'],
-      ['20', '49.59 %', '45.83 %', '3.857', '4.027 Mb/s'],
-    ] },
-    { heading: '很接近，但偏差每次都在同一方向', text: '每个碰撞比例都落在预测值的 10% 以内，每个吞吐量都在 5% 以内，全程没有任何拟合参数。但从五台站点起，实测的碰撞总是少于预测，只有两台那一行的偏差符号相反。既然偏差是系统性的，就是可以解释的。' },
-    { kind: 'list', heading: '较小的差异及各自的量级', items: [
-      '时隙（slot time）时钟。链让等待中的计数器在忙周期内继续减一，而标准规定将其冻结。改为继续减一后，二十台站点的实测值从 45.83% 升高到 47.9% 左右——约为它与 49.59% 之间差距的一半。',
-      '重新开始竞争的时刻。五台站点的圆弧记录了 1029 次这种更长的等待，每一次都使某个邻居比其他站点多 60 µs 不能参与竞争。',
-      '碰撞的代价。这里一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，二十台时对吞吐量的影响为 0.2%。改用论文自己的取值，预测反而向另一方向偏移 0.6%。',
-    ] },
-    { heading: '残差', text: '把已列出的原因加总，站点较多时仍有大约两个百分点的碰撞率无法解释。应当如实说明这一点。这个预测依然很有价值：两个方程、零个拟合参数，站点数变化十倍，吞吐量的预测误差都在几个百分点以内。' },
   ],
-  deeper: [
-    { heading: '为什么站点少反而难以预测', text: '两台站点就是偏差符号相反的那一行：实测 11.20%，预测 10.46%。链把其余站点视为在每个时隙相互独立、发送概率相同的发送源，而只有一台竞争站点时根本无法取平均——某台站点竞争成功一轮之后，对方计数器上剩余的值无论如何都不是一次全新的均匀随机选取。精度随站点数增加而提高，这与“小网络更简单”的直觉恰好相反。' },
-    { heading: '这个模型无法回答的问题', text: '碰撞概率是整个网络共用的一个数。在二十台站点的圆弧仿真中，各站点自己的碰撞率分布在 42.9% 到 52.1% 之间，而这没有任何问题：那只是同一个共享随机过程在有限样本上的离散。但公平性、时延长尾与饿死现象，根本不在这个模型的描述范围之内；而用一个模型去回答它本不能回答的问题，是本课中代价最高的错误。' },
-    { heading: '在模型的极端情形下检验它', text: '为圆弧上的五台站点全部加载“根本没有窗口”的篡改驱动，方程的结论是：每台站点在每个时隙都发送，每次尝试都碰撞，吞吐量为零。实测结果正是如此：23,335 次尝试，其中 23,330 次碰撞，没有一个应答，3,330 帧被放弃。只为一台加载作弊驱动，它就占去 4,639 次尝试中的 4,634 次，四台遵守规则的站点十秒内一共只发出五帧，而信道吞吐量仍达到 5.557 Mb/s——正是单站点的上限：一个载荷除以一次无碰撞交互的时长。' },
+  implementation: [
+    { topic: '失败的判据', standard: 'ACK 超时之内没有开始接收（§10.3.2.11）', sim: '照此：发送方写一条重传记录。本仿真器不计算帧校验序列（frame check sequence, FCS），接收端能否正确接收只按信干噪比（signal-to-interference-plus-noise ratio, SINR）判定。', kind: 'faithful' },
+    { topic: '两帧重叠时', standard: '标准不规定接收机的判决', sim: '前导码（preamble）的信干噪比不足 4 dB 时不能检出，第二个前导码强 5 dB 以上时才转而接收它。圆弧上各站点到达接入点的电平完全相同，所以重叠的帧一个也检不出：接入点一侧记录错失，而不是接收失败，错失数与重传数完全相等。', kind: 'value' },
+    { topic: '忙时停止递减', standard: '整个忙周期计数保持不变（§10.3.4.3）', sim: '照此。论文的链却在每个忙周期让计数减一，这是模型与标准的差别，不是本仿真器与标准的差别。', kind: 'faithful' },
+    { topic: 'EIFS', standard: 'aSIFSTime + AckTxTime + DIFS（§10.3.7 式 (10-7)）', sim: '照此取 94 µs；检出了一帧却没能正确接收的站点下一次等待 EIFS。', kind: 'faithful' },
+    { topic: '失败之后的等待', standard: '从 ACK 超时结束时开始退避（§10.3.4.3）', sim: '照此：碰撞的代价是数据帧 + 45 µs 的 ACK 超时 + DIFS，比一次成功短 15 µs。论文取数据帧 + DIFS。', kind: 'faithful' },
+    { topic: '速率', standard: '标准未规定调整方法（§10.6.5.8）', sim: '没有固定速率的开关，速率控制始终在运行；圆弧把站点放在只够 6 Mb/s 的位置，速率因此不变。基准场景是一米圆上的五台站点，速率可以变化，那是下一课的内容。', kind: 'choice' },
+    { topic: '时钟与传播', standard: 'aSlotTime = aCCATime + aMACProcessingDelay + aRxTxTurnaroundTime + aAirPropagationTime，其中包含空中传播时间（§10.3.7 式 (10-3)）', sim: '全场共用一个时钟，发射到达各处不需要时间，所以各站点的时隙边界完全对齐，「同一个时隙内同时发送」是一个精确的事件。', kind: 'choice' },
   ],
-  limits: [
-    { kind: 'model-value', text: '「实测」那一列是一次十秒、单一种子的运行。引擎是确定性的，同一个场景每次给出同一个数，所以这里谈不上置信区间：换成种子 8 或 12345 会得到 25.53% 与 25.71%。可复现不等于精确——一份真实测量要多次重复才能给出一个区间，而本课给出的是一个点值。' },
-    { kind: 'unmodelled', text: '用来与预测比较的「碰撞」，统计的是引擎的 RETRY 记录，而引擎判定一次失败只有一条依据：期限内没有开始接收（mac.ts 的 onRespTimeout）。接收端实际收到了多少错误比特、帧校验序列能否通过，引擎都不考虑——校验和从不实际计算。因此两个计数相等这一点，有一半是模型的定义所致，而不是纯粹的测量结果。' },
-    { kind: 'unmodelled', text: '本课列出的三条差异都属于时间方面，而引擎在空间方面比真实空口理想得多：没有传播时延，没有本网络之外的任何干扰源（channel.ts 只为共享频段的 UWB 建立了一条通路），电平也不随时间变化。真实的十秒测量中，微波炉、蓝牙与邻居的网络都会对残差有所贡献。这里的两个百分点，是在一个没有外部干扰的房间里测得的。' },
-    { kind: 'out-of-scope', text: '引擎中没有「固定速率」这个开关：速率控制始终在运行，本课只能把站点放在速率已处于最低一级、无法再降的位置，才使速率保持不变（−20 dBm 的圆弧）。所以这种吻合只在这条圆弧上成立，移动两米就不再成立，而这正是下一课演示的内容。要在其他场景中做同样的比较，需要先设法把速率固定。' },
+  labs: [
+    {
+      heading: '圆弧上没有捕获',
+      variant: 0,
+      jump: 1,
+      more: [1],
+      steps: [
+        '载入「n = 5 在圆弧上（速率固定为 6 Mb/s）」，跳到第一次碰撞，看接入点一侧记录的是错失还是接收失败。',
+        '运行十秒，比较接入点的错失记录数与各站点的重传记录数；再对「n = 20 台站点」做一遍。',
+      ],
+      expect: '五台站点的圆弧上，十秒内接入点记录 1370 次错失，各站点共 1370 次重传；二十台站点是 2840 对 2840。接入点一次接收失败也没有，正确接收的帧数与它发出的确认帧数相同。',
+      meaning: '标准让发送方统计的是失败（①）。只有在没有捕获、也没有其他失败原因时，失败数才等于碰撞数；这是场景布置的结果（②），换一个各站点强弱悬殊的户型就不再成立。',
+    },
+    {
+      heading: '预测与十秒实测',
+      variant: 0,
+      more: [1],
+      steps: [
+        '按同一个方法统计四种站点数：数据帧的发送次数为尝试，重传记录数为失败，确认帧数乘以 12,000 比特再除以十秒为吞吐。2 台与 10 台的圆弧在上一课的变体里。',
+        '模型的输入只取自场景与标准：n、W = 16、m = 6、L = 7，一次成功与一次碰撞按 6 Mb/s 计算。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '圆弧场景：预测与十秒实测的对照', head: ['n', '碰撞，预测', '碰撞，实测', '吞吐，预测', '吞吐，实测'], rows: [
+          ['2', '10.46 %', '11.20 %', '5.169', '5.136 Mb/s'],
+          ['5', '27.22 %', '25.84 %', '4.679', '4.717 Mb/s'],
+          ['10', '38.92 %', '35.08 %', '4.275', '4.421 Mb/s'],
+          ['20', '49.59 %', '45.83 %', '3.857', '4.027 Mb/s'],
+        ] },
+      ],
+      expect: '每个碰撞比例都落在预测值的 10% 以内，每个吞吐量都在 5% 以内，全程没有任何拟合参数。从五台站点起，实测的碰撞总是少于预测；只有两台那一行相反，实测 11.20 %，预测 10.46 %。',
+      meaning: '偏差是系统性的，所以可以解释。两台的情形里只有一台竞争者，论文把其余站点当作在每个时隙独立、以同一概率发送的假设无法成立。',
+    },
+    {
+      heading: '同一次碰撞之后的三种等待',
+      variant: 0,
+      jump: 1,
+      steps: [
+        '在「n = 5 在圆弧上」里跳到第一次碰撞，逐个查看碰撞之后各站点的等待色块。',
+        '统计十秒内等待 EIFS 的次数，并比较 EIFS 与 DIFS 的长度、一次碰撞与一次成功的长度。',
+      ],
+      expect: '碰撞的站点各自等待 45 µs 的 ACK 超时，检出了重叠却没能正确接收的邻居等待 94 µs 的 EIFS，什么也没有检出的邻居只等待 34 µs 的 DIFS。十秒内共有 1029 次 EIFS，每一次都使那个邻居比其他站点多等 60 µs。一次碰撞比一次成功早结束 15 µs，约占一次交互的 0.7%，二十台时对预测吞吐量的影响为 0.2%；改用论文的取值，预测反而向另一方向偏移 0.6%。',
+      meaning: 'EIFS 与失败之后的等待都照标准（① ②），论文的链里没有这两种状态。忙周期内计数保持不变也是标准的规定，论文的链却在每个忙周期减一，于是模型里等待的站点更早到达零、碰撞更多——方向与实测偏低一致。',
+    },
+    {
+      heading: '残差，以及模型不能回答的问题',
+      variant: 1,
+      steps: [
+        '载入「n = 20 台站点」运行十秒，读出总的碰撞比例，再分别读出每台站点自己的失败比例。',
+      ],
+      expect: '二十台站点总的实测碰撞比例是 45.83 %，预测 49.59 %；各站点自己的比例分布在 42.9 % 到 52.1 % 之间。',
+      meaning: '上面几条原因都指向实测偏低，计入之后站点较多时仍有一部分无法解释，应当如实报告为残差，而不是调整一个常数使曲线重合。模型给出的是整个网络共用的一个概率；各站点之间的离散只是同一个随机过程在有限样本上的表现，公平性、时延的长尾与饿死现象都不在这个模型的描述范围之内。',
+    },
   ],
   sources: [
-    '确认期限与重传前的等待见 IEEE Std 802.11-2024 §10.3.2.9（mac.ts 的 onRespTimeout）；忙周期内计数器冻结见 §10.23.2.4；接收失败后那段更长的等待是 EIFS，见 §10.3.2.3.7，这里是 94 µs，而 DIFS 是 34 µs。',
-    '时隙时钟那个约 47.9% 的数字，来自一次一次性的探测实验：它修改 MAC，使退避在每个忙周期内也递减。这不是本仿真器的某种模式，也有意不由测试固定；引擎遵循的是标准。',
-    '−20 dBm 的圆弧、种子 7、十秒采样，以及决定捕获与否的前导检测余量，都是本仿真器的模型取值。这条圆弧上每台站点到达强度相同，所以捕获在这里从不发生——能观察到捕获的是“性能异常”一课与第一阶段项目。',
+    'IEEE Std 802.11-2024：§10.3.2.11（ACK 超时与失败的判定）、§10.3.4.3（失败的定义、忙时停止递减、退避的起点）、§10.3.3（EIFS 与 DIFS 的选用）、§10.3.7 式 (10-3)、(10-6)、(10-7)（时隙、DIFS 与 EIFS）、§10.6.5.8（数据帧的速率）。',
+    '模型出自论文，不是标准：G. Bianchi，IEEE JSAC 18(3):535–547，2000；有限重传形式出自 Wu 等人，INFOCOM 2002。',
+    '本仿真器的取值与取法：−20 dBm 的圆弧、种子 7、十秒采样、4 dB 的前导检测门限与 5 dB 的捕获余量、共用的时钟与零传播时延。这条圆弧上每台站点到达强度相同，所以捕获在这里从不发生——能观察到捕获的是“性能异常”一课与第一阶段项目。',
   ],
+  limits: [],
   scenario: () => bianchiScenario(5, { near: true }),
   variants: bianchiVsSimVariants,
   jumps: bianchiVsSimJumps,
-  observe: [
-    '在圆弧变体中，每个绿色色块都是同样的 2064 µs；碰撞之后查看接入点一侧，记录的是“错失”而不是“接收失败”——两个前导码（preamble）强度相同，都没有被锁定。十秒内 1370 次错失，恰好对应 1370 次重传。',
-    '逐个查看那些等待色块：碰撞的两台仍在各自的期限内，一个邻居已经进入 EIFS，另一个只处于 DIFS。同一次事件，三种不同的等待。',
-  ],
-  tryThis: [
-    '把 n = 20 的圆弧运行十秒，把实测的 45.83% 与预测的 49.59% 对照，再从那三条差异中找出方向：哪一条会使实测值偏低？',
-    '在预测的极端情形下检验它。为圆弧上的五台站点都加载“没有窗口”的篡改驱动：实测在 23,335 次尝试中碰撞 23,330 次，没有送达任何帧，放弃 3,330 帧——与方程的结论一致。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '在这条圆弧上，为什么可以直接用“重传比例”与预测的碰撞概率比较？',
+      q: '按标准，发送方统计的“失败”与模型的“碰撞”是什么关系？',
       options: [
-        '因为一帧只有七次机会，误差可以忽略',
-        '因为这里无法锁定任何一个重叠的帧，于是每一次重叠都恰好对应一次重传',
-        '因为十秒的样本已经足够长',
+        '永远相等，因为失败只可能由碰撞引起',
+        '发送方只知道没有收到应答；只有在没有捕获、也没有其他失败原因时两者才相等',
+        '发送方能直接检测碰撞，所以统计的就是碰撞',
       ],
       answer: 1,
-      explain: '五台站点到达强度相同，捕获不会发生：十秒内接入点的 1370 次错失对应 1370 次重传。换一个各站点强弱悬殊的户型，这两个数立即不再相等。',
+      explain: '§10.3.4.3 把失败定义为没有收到控制响应帧，不区分原因。圆弧上没有捕获，十秒内接入点的 1370 次错失对应 1370 次重传；换一个各站点强弱悬殊的户型，这两个数立即不再相等。',
     },
     {
       q: '圆弧上五台及以上时，实测的碰撞比预测少。哪一项差异指向这个方向？',
       options: [
         '一帧尝试七次之后就被放弃',
-        '标准在忙周期内冻结等待中的计数器，而链让它继续减一',
+        '标准在忙周期内保持计数不变，而论文的链让它在每个忙周期减一',
         '使同时开始的发送成为完全碰撞的那条前导码规则',
       ],
       answer: 1,
-      explain: '重传上限（retry limit）使碰撞率升高而不是降低，而前导码规则恰恰使“无捕获”假设成立。冻结则使每台等待中的站点推迟一个时隙。',
+      explain: '重传上限（retry limit）使模型的碰撞率升高而不是降低，前导码规则恰恰使“无捕获”成立。忙时计数不变使每台等待中的站点推迟到达零。',
     },
     {
-      q: '还有几个百分点无法解释。专业的做法是什么？',
+      q: '还有一部分偏差无法解释。专业的做法是什么？',
       options: [
         '调整一个常数，直到两条曲线重合',
-        '如实报告残差，并列出已经解释的原因及其量级',
+        '如实报告残差，并列出已经解释的原因及其方向',
         '宣布仿真器有错，因为模型已经发表',
       ],
       answer: 1,

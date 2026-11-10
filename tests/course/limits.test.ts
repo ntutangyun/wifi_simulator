@@ -1,475 +1,95 @@
 /**
- * Every lesson says where its model is not the radio.
+ * Every lesson says, row by row, where its model follows the standard and where it does not.
  *
- * A survey on 2026-09-26 found 5 of 68 lesson files declaring anything at all,
- * under seven different ad-hoc headings. A simulator that never says what it
- * left out teaches a reader to trust it further than it deserves — and this
- * course's whole discipline is that a stated number matches the simulated one,
- * which is worth nothing if the reader cannot tell which numbers are modelled.
+ * **What this file used to be, and why it changed (2026-11-11).** From 2026-09-26 it guarded the
+ * old end-of-lesson `limits` section: every graded lesson had to carry at least one `Limit`, in
+ * one of four kinds, and two frozen ledgers pinned the `until` promises (「这一条在《…》里会被解除」)
+ * and the `seeAlso` pointers (「《…》在这一条上再深一层」), with criteria A, B and C about where an
+ * `until` may sit, who judged it and which way it points. The reason was sound — a simulator that
+ * never says what it left out teaches a reader to trust it further than it deserves — and it still
+ * holds.
  *
- * The rollout is over: `limits` is required in the type, every graded lesson
- * carries at least one, and the `NOT_YET` ledger that tracked the work owed is
- * gone because nothing is owed. One exception remains, and it announces itself.
+ * The standard-first restructure (2026-11-10 for the 34 UWB lessons, 2026-11-11 for the 57
+ * Wi-Fi/AMP lessons) moved that duty into `implementation`: each row names one part of the
+ * standard, says what the standard specifies and what this simulator does, and classifies the
+ * relation (`faithful` / `value` / `choice` / `differs` / `absent`). On 2026-11-11 the last lesson
+ * with a non-empty `limits` went, so every check that read `limits` was reading 91 empty arrays:
+ * the per-limit rules iterated an empty list, the `until`/`seeAlso` ledgers had no rows, and the
+ * anti-vacuity guard (`done.length > 0`) was the one thing still red. Lowering that guard to zero
+ * would have left a file of green checks over nothing.
  *
- * It used to be the whole paused AMP track, all four lessons declaring
- * `limits: []`. `amp-slots` and `amp-coexist` were migrated to the new shape
- * 2026-10-02 along with the rest of the readability programme's last coverage
- * hole, and each now carries real, engine-checked limits like any other
- * lesson — AMP is still a paused feature, but a paused feature's lesson TEXT is
- * live, and leaving its limits empty was never required by the pause, only by
- * the migration not having reached it yet. `amp-intro` and `amp-ppdu` are what
- * is left, and the expectation below names exactly them, so finishing their
- * migration (or resuming AMP itself) fails this file rather than quietly
- * widening the rule.
+ * So the old checks are retired, not emptied, and what replaced them is below:
+ *  1. every lesson is standard-first (the precondition everything else here relies on);
+ *  2. every lesson's `implementation` has rows, each row says something on both sides and uses one
+ *     of the five kinds, and at least one row is not `faithful` — the claim "this simulator follows
+ *     the standard in every respect" is what the old `limits` rule refused, and it is refused here;
+ *  3. the retired sections cannot come back: `limits`, `observe` and `tryThis` are empty on every
+ *     lesson, and `picture`, `numbers`, `deeper` and the flat `body` are absent. `CoursePanel.tsx`
+ *     no longer renders any of them, so a lesson that filled one would print nothing — exactly the
+ *     "permitted but inert" shape this repository refuses.
+ *
+ * The rulers the `until` sites left in their source lessons' own test files (`width.test.ts`,
+ * `streams.test.ts`, `uwb-ancillary.test.ts`, …) are untouched; they measure the engine, not the
+ * ledger. `docs/uwb-modellable-backlog.md` still quotes the retired `limitSeeAlso` wording as a
+ * historical record of slice 4e; the UI string itself was removed with the section.
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { STRINGS } from '../../src/ui/i18n'
 import { LESSONS } from '../../src/course/lessons'
-import { COURSE_ORDER } from '../../src/course/curriculum'
-import { isStandardFirst, type Lesson, type LimitKind } from '../../src/course/lessonKit'
+import { isStandardFirst, type ImplKind } from '../../src/course/lessonKit'
 
-const KINDS: LimitKind[] = ['threshold', 'unmodelled', 'model-value', 'out-of-scope']
+const IMPL_KINDS: readonly ImplKind[] = ['faithful', 'value', 'choice', 'differs', 'absent']
 
-/** The two AMP lessons not yet migrated to the new shape are not held to this yet. */
-const PAUSED_AMP = ['amp-intro', 'amp-ppdu']
-const graded = (l: Lesson): boolean => !PAUSED_AMP.includes(l.id)
-
-const done = LESSONS.filter(graded).filter((l) => !isStandardFirst(l))
-/**
- * The standard-first shape (2026-11-10) has no `limits` section: what it held lives in
- * `implementation`, next to the standard rule it departs from. Those lessons owe the same thing
- * there instead: at least one row, and at least one row that is not simply `faithful` — a
- * simulator that claims to follow the standard in every respect is the claim this guards.
- */
-const standardFirst = LESSONS.filter(graded).filter(isStandardFirst)
-
-describe('the one exception is honest about itself', () => {
-  it('excludes exactly these two AMP lessons, and they are the only ones with no limits', () => {
-    const excluded = LESSONS.filter((l) => !graded(l)).map((l) => l.id).sort()
-    expect(excluded).toEqual([...PAUSED_AMP].sort())
-    const empty = LESSONS.filter((l) => l.limits.length === 0 && !isStandardFirst(l)).map((l) => l.id).sort()
-    expect(empty, 'a lesson declares no limits').toEqual([...PAUSED_AMP].sort())
+describe('every lesson is in the standard-first shape', () => {
+  it('has the whole course to check, so the rules below are not vacuous', () => {
+    // 91 lessons on 2026-11-11. A floor rather than the figure: readability-rules.test.ts pins
+    // the exact lesson count.
+    expect(LESSONS.length).toBeGreaterThan(80)
   })
 
-  it('has something to check, so the rules below are not vacuous', () => {
-    expect(done.length).toBeGreaterThan(0)
+  it('has no lesson left in an older shape', () => {
+    const old = LESSONS.filter((l) => !isStandardFirst(l)).map((l) => l.id)
+    expect(old, 'these lessons are not standard-first').toEqual([])
+  })
+
+  it.each(LESSONS)('$id has ① standard, ② implementation and ③ labs, none of them empty', (l) => {
+    expect(l.standard!.length, `${l.id}: ① standard`).toBeGreaterThan(0)
+    expect(l.implementation!.length, `${l.id}: ② implementation`).toBeGreaterThan(0)
+    expect(l.labs!.length, `${l.id}: ③ labs`).toBeGreaterThan(0)
   })
 })
 
-describe('a standard-first lesson says, row by row, where the simulator follows the standard', () => {
-  it.each(standardFirst)('$id has implementation rows, and not every one is faithful', (l) => {
-    expect(l.implementation!.length).toBeGreaterThan(0)
-    expect(l.implementation!.some((it) => it.kind !== 'faithful')).toBe(true)
-    expect(l.limits, 'the standard-first shape has no limits section').toEqual([])
+describe('a lesson says, row by row, where the simulator follows the standard', () => {
+  it.each(LESSONS)('$id has implementation rows, and not every one is faithful', (l) => {
+    expect(l.implementation!.some((it) => it.kind !== 'faithful'), `${l.id}: every row is faithful`)
+      .toBe(true)
+  })
+
+  it.each(LESSONS)('$id uses only the five kinds, and says something on both sides of each row', (l) => {
+    for (const row of l.implementation!) {
+      expect(IMPL_KINDS, `${l.id} / ${row.topic}: ${row.kind}`).toContain(row.kind)
+      expect(row.topic.trim(), `${l.id}: a row with no topic`).not.toBe('')
+      expect(row.standard.trim(), `${l.id} / ${row.topic}: nothing on the standard side`).not.toBe('')
+      expect(row.sim.trim(), `${l.id} / ${row.topic}: nothing on the simulator side`).not.toBe('')
+    }
+  })
+
+  it.each(LESSONS)('$id names each topic once', (l) => {
+    const topics = l.implementation!.map((x) => x.topic)
+    expect(new Set(topics).size, `${l.id}: a topic repeats`).toBe(topics.length)
   })
 })
 
-describe('every graded lesson declares its limits properly', () => {
-  it.each(done)('$id names at least one', (l) => {
-    expect(l.limits.length).toBeGreaterThan(0)
+describe('the sections the standard-first restructure retired cannot come back (2026-11-11)', () => {
+  it.each(LESSONS)('$id has empty `limits`, `observe` and `tryThis`', (l) => {
+    expect(l.limits, `${l.id}: limits — say it in an ② implementation row`).toEqual([])
+    expect(l.observe, `${l.id}: observe — say it in a ③ lab`).toEqual([])
+    expect(l.tryThis, `${l.id}: tryThis — say it in a ③ lab`).toEqual([])
   })
 
-  it.each(done)('$id uses only the four kinds', (l) => {
-    for (const lim of l.limits) {
-      expect(KINDS, `${l.id}: ${lim.kind}`).toContain(lim.kind)
+  it.each(LESSONS)('$id has no `picture`, `numbers`, `deeper` or flat `body`', (l) => {
+    for (const k of ['picture', 'numbers', 'deeper', 'body'] as const) {
+      expect(l[k], `${l.id}: \`${k}\` is no longer rendered; put it in ① standard or a ③ lab`)
+        .toBeUndefined()
     }
-  })
-
-  it.each(done)('$id says something in each one', (l) => {
-    for (const lim of l.limits) {
-      // Long enough to have named what was given up rather than that something was.
-      expect(lim.text.length, `${l.id} / ${lim.kind}: "${lim.text}"`).toBeGreaterThan(16)
-    }
-  })
-
-  it.each(done)('$id does not repeat a kind with the same words', (l) => {
-    const seen = l.limits.map((x) => `${x.kind}:${x.text}`)
-    expect(new Set(seen).size, l.id).toBe(seen.length)
-  })
-})
-
-describe('a limit that promises the truth later names a lesson that delivers it', () => {
-  const ids = new Set(LESSONS.map((l) => l.id))
-
-  it('every `until` points at a real lesson', () => {
-    const bad: string[] = []
-    for (const l of LESSONS) {
-      for (const lim of l.limits) {
-        if (lim.until && !ids.has(lim.until)) bad.push(`${l.id} → ${lim.until}`)
-      }
-    }
-    expect(bad, `dangling until: ${bad.join(', ')}`).toEqual([])
-  })
-
-  it('never points at itself', () => {
-    const bad = LESSONS.filter((l) => l.limits.some((x) => x.until === l.id)).map((l) => l.id)
-    expect(bad).toEqual([])
-  })
-
-  /**
-   * **Criterion A — `until` is only ever legal on an `out-of-scope` limit.**
-   *
-   * `until` renders as 「（这一条在《…》里会被解除）」(`ui/i18n.ts`'s `limitUntil`) and
-   * its own doc comment says *the lesson that lifts this simplification*. Both are a
-   * promise in the future tense, and until 2026-10-05 nothing checked it: the two tests
-   * above ask only that the named lesson EXISTS and is not this one.
-   *
-   * The check does not need a new field, because the discriminator was already on the
-   * limit. `LimitKind` has four values and they are not the same kind of thing:
-   * `threshold`, `unmodelled` and `model-value` describe the ENGINE (a hard line instead
-   * of a curve, an effect not modelled, a constant this simulator picked), while
-   * `out-of-scope` describes a class of SCENARIO. **Every lesson runs the same engine.**
-   * A lesson owns its `scenario()` and its `variants`; it does not own whether `rate.ts`
-   * sends probe frames or whether `fading.ts` correlates neighbouring bins. So an `until`
-   * on one of the other three kinds is not "a promise that might go unmet" — it is one
-   * that CANNOT be met. Either the promise is false or the `kind` is, and both are bugs.
-   *
-   * Measured before it was written: on the course as of 2026-10-05 this picked out 5 of
-   * the 10 sites with no false positives. Three were promises that genuinely went unmet
-   * (`anomaly`'s two pointing at `rate-vs-model`, whose own `limits[0]`/`limits[1]`
-   * restate them, and the engine-level half of `mcs-ladder`'s); two were promises that
-   * were KEPT while the `kind` was wrong (`anomaly`'s TXOP entry and `width`'s flat
-   * channel — the engine does build TXOP, aggregation and per-bin fading, all of them
-   * behind a scenario switch). The first three became `seeAlso`; the other two had their
-   * `kind` corrected.
-   *
-   * **A is necessary, not sufficient, and the next author must not read more into it.**
-   * It cannot catch an `out-of-scope` limit pointing at a lesson that does not in fact
-   * open that class of scenario. Criterion B below is for exactly that gap, and what B
-   * checks is whether a HUMAN has judged it — not whether they judged it right.
-   *
-   * **And A has one known edge, so that a future red here is read correctly.** The
-   * derivation says a `model-value` cannot be lifted because the value lives in the
-   * engine — but *some* model values are **scenario fields** (`fading`'s Rician K, a
-   * node's own ppm figure), and a limit about one of those genuinely *could* be lifted
-   * by a lesson that sets it differently. Zero such sites exist today (2026-10-05: the
-   * only `model-value` that ever carried an `until` was the two-counter rate control,
-   * which is hard-coded in `rate.ts`). **So if this test ever goes red on a
-   * `model-value` whose value is a scenario field, the criterion is what needs
-   * widening — not necessarily the limit.** Say which in the commit message either way.
-   */
-  it('`until` only ever sits on an out-of-scope limit', () => {
-    const bad: string[] = []
-    for (const l of LESSONS) {
-      for (const lim of l.limits) {
-        if (lim.until && lim.kind !== 'out-of-scope') bad.push(`${l.id} / ${lim.kind} → ${lim.until}`)
-      }
-    }
-    expect(
-      bad,
-      `an \`until\` on an engine-level kind can never be lifted, because every lesson runs the `
-      + `same engine; use \`seeAlso\`, or fix the \`kind\`: ${bad.join('; ')}`,
-    ).toEqual([])
-  })
-})
-
-/**
- * `seeAlso`: the other promise, and the weaker one — that lesson goes DEEPER into this
- * limit without lifting it. Added 2026-10-05 together with criterion A, because the
- * three sites A disqualified had real navigation value that deleting the `until` would
- * have thrown away (`rate-vs-model` is a whole lesson of the two-counter controller
- * cutting a paper prediction to a fifth), and the honest field for that is not a softer
- * wording of `until`.
- *
- * It holds an id and never a sentence. That is load-bearing: `tests/course/wording.test.ts`
- * and `tests/course/readability.test.ts` reach limit prose by NAMING the field
- * (`...l.limits.map((x) => x.text)`) rather than by walking the object, so prose in a new
- * field would pass under both banned-word lists unseen.
- */
-describe('a limit that points at a deeper treatment says so as a deeper treatment', () => {
-  const ids = new Set(LESSONS.map((l) => l.id))
-
-  it('every `seeAlso` points at a real lesson', () => {
-    const bad: string[] = []
-    for (const l of LESSONS) {
-      for (const lim of l.limits) {
-        if (lim.seeAlso && !ids.has(lim.seeAlso)) bad.push(`${l.id} → ${lim.seeAlso}`)
-      }
-    }
-    expect(bad, `dangling seeAlso: ${bad.join(', ')}`).toEqual([])
-  })
-
-  it('never points at itself', () => {
-    const bad = LESSONS.filter((l) => l.limits.some((x) => x.seeAlso === l.id)).map((l) => l.id)
-    expect(bad).toEqual([])
-  })
-
-  it('is never on the same limit as an `until`', () => {
-    // The two sentences contradict each other — 「会被解除」and 「但不解除它」— and the panel
-    // renders both branches rather than preferring one, deliberately: the rule lives here.
-    const bad: string[] = []
-    for (const l of LESSONS) {
-      for (const lim of l.limits) if (lim.until && lim.seeAlso) bad.push(`${l.id} / ${lim.kind}`)
-    }
-    expect(bad, `one limit claiming both lifted and not lifted: ${bad.join(', ')}`).toEqual([])
-  })
-})
-
-/**
- * **Criterion B — the site list is frozen, because "is it really lifted" is not
- * mechanically decidable and that is a reason to pin the human judgement, not to drop it.**
- *
- * Three mechanical criteria were measured on the 2026-10-05 course before this one was
- * written, and two of them died:
- *
- *  - "the target's own `limits` must not restate the source's in other words" — proxied by
- *    longest common substring. Both ends wrong: the WORST site (`anomaly`'s
- *    collision-vs-fade, a verbatim restatement in meaning) scored 5 characters, while the
- *    most honest lift in the course (`width` → `selectivity`) scored 24 — and those 24 are
- *    a code identifier (`channel.ts 的 resolveLock`) that both lessons are RIGHT to cite.
- *    Restatement is a semantic event, not a string event.
- *  - "the target must have a scenario that turns on what the source says is missing" —
- *    the one that sounded hardest measured softest. Seven promises, six different axes
- *    (see the fourth column below), and `Scenario` has no field saying which knob a given
- *    limit is about. The one axis expressible in a line, the difference in negotiated
- *    feature flags, is a FALSE POSITIVE on `width` → `selectivity` (identical `feats`,
- *    the difference is two top-level sections) and FALSELY GREEN on `streams` → `mumimo`
- *    (the flags that differ are `ampdu`/`txop`/`ofdma`, which that limit never mentions —
- *    it is about there being one station). On the two UWB sites it is blind.
- *
- * So B does not judge the truth of a promise. **It judges whether anyone judged it.** The
- * table is the whole promise ledger; a fifteenth `until` turns this red and its author has
- * to write the fourth column down and leave a ruler in their own lesson's test file
- * (precedents: `width.test.ts`, `uwb-blocks.test.ts`, and as of 2026-10-05 also
- * `anomaly.test.ts`, `backoff.test.ts`, `streams.test.ts`, `mcs-ladder.test.ts`,
- * `bianchi.test.ts`, `rate-vs-model.test.ts`, `rate-fallback.test.ts`, and as of
- * the `fading` lesson also `fading.test.ts`, whose own header states its gate before measuring it).
- *
- * **Where the teeth actually are, so nobody mistakes which line is holding what.** The force
- * is in the TUPLE TYPE plus the array equality just below: a new row cannot be added without
- * four elements, and a new `until` cannot be added without a row. The `not.toBe('')` on the
- * fourth column is close to vacuous on its own — the value it reads is a literal two lines
- * above it in this same file — and it is kept only as a statement of the field's contract.
- * The "leave a ruler" half used to be carried by this sentence alone, which made it no
- * stronger than the comment the design's §1.4 condemned; since 2026-10-05 it is the
- * `readFileSync` check further down, which went red on three rows the moment it was written.
- *
- * The census is taken off `LESSONS`, never off the file text. A `kind: 'formula'` block in
- * a lesson's `numbers` is character-for-character the shape of a `Limit`, so a regex sweep
- * of `src/course` counts one entry that is not a limit at all.
- */
-describe('criterion B · the fourteen `until` promises are a frozen ledger', () => {
-  /** `[source, target, a substring of the limit's own text, the axis that opens it]`. */
-  const UNTIL_SITES: readonly [string, string, string, string][] = [
-    ['mcs-ladder', 'rate-vs-model', '本课四个变体一次失败也没有',
-      '失败数 0 → 那一课的场景真的丢帧（五台站点在一米圆上，重传数等于重叠数），于是查表之下那一层损失反馈看得见了'],
-    ['ifs', 'edca', 'AIFS[AC]',
-      '业务档位：本课两台都跑 saturated 的单一 DIFS → edca 的四台各带一类业务，四条队列各等一份不同长度的 AIFS'],
-    ['backoff', 'txop', '一次竞争成功只能发送一帧',
-      '节点世代：两台站点 nonht（GEN_FEATURES.nonht 是空集）→ txop 的两台 vht，于是 edca/ampdu/txop 三个标志都协商上'],
-    ['anomaly', 'txop', '没有传输机会（transmit opportunity, TXOP），也不聚合',
-      '同一个轴：两台站点 nonht → txop 的两台 vht。引擎一直建着 TXOP 与聚合，缺的是本场景的站点用不上它们'],
-    ['width', 'selectivity', '本课这四档的信道是平的',
-      '顶层两节：selectivityScenario 就是 widthScenario 外加 fading 与 selectivity（节点的 feats 两课完全相同，所以这个轴不在节点上）'],
-    ['streams', 'mumimo', '只有一台站点',
-      '站点数 1 → 4。源课那条限制的主语就是「只有一台站点」，而换掉的正是它，不是任何一个特性标志'],
-    // `uwb-intro` → `uwb-sstwr` left 2026-11-10: `uwb-intro` is standard-first, has no `limits`,
-    // and its ② row 「时钟偏差修正」 says the scene's crystals are 0 ppm.
-    // `uwb-blocks` → `uwb-contention` left 2026-11-10: `uwb-blocks` is standard-first, has no
-    // `limits`, and states both schedule modes of §10.32.1 in its own ① instead.
-    // The five `fading` sites, added 2026-10-05 with that lesson. One axis for all five, and it
-    // is a top-level scenario section rather than anything on a node: `fadingScenario` is
-    // `widthScenario(20, 1)` with the station in the far living room and a `fading` section, and
-    // the five sources are the five lessons whose text says in so many words that their own
-    // scene did not write that section. Two of them (`radio-primer`, `bianchi`) had to have
-    // their `kind` corrected from `unmodelled` to `out-of-scope` first — the engine has built
-    // both fading layers since the selectivity slice, so what those two limits really named was
-    // their own scene, which is criterion A's second precedent (`width`'s flat channel), not its
-    // first. The five lessons are measured to sit earlier in `COURSE_ORDER` than `fading`
-    // (radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23, rate-fallback 36 → fading 38).
-    ['radio-primer', 'fading', '本课的场景没有打开',
-      '顶层一节：fadingScenario 的瑞利与莱斯两个变体写了 fading 一节，于是 RX_START 这一行真的印出 shadow 与 fast 两个数，而本课的四个变体里这两个字段根本不出现'],
-    ['mcs-ladder', 'fading', '让同一条链路在几级之间来回变化',
-      '顶层一节：同一条链路在那一课的瑞利变体里用到 MCS 0 到 3 四个级别、降档 22 次升档 19 次（种子 7），而本课四个变体里级别恒定'],
-    ['bianchi', 'fading', '此时同一条链路的速率会在几级之间变化，本课的两张表随即不再适用',
-      '顶层一节：固定速率这个前提在那一课的场景里逐帧不成立——1000 ms 里 848 帧分布在四个级别上（瑞利，种子 7），而本课的圆弧是把它布置成真的'],
-    ['rate-vs-model', 'fading', '此时这张速率直方图就不再只反映单一原因',
-      '顶层一节，而解除的方式是给出互补的那一半：本课的直方图单一成因是碰撞，那一课的单一成因是链路变差（单链路场景，COLLISION 恒为 0，失败全部 lowSinr），两课合起来才是两个成因'],
-    ['rate-fallback', 'fading', '所以这里 337 次失败没有一次来自链路变差',
-      '顶层一节，加上站点数 2 → 1：在本课自己的两站点场景上打开衰落会凭空多出 514 个碰撞，所以那一课换成单链路场景，于是它的失败 100% 来自链路变差，而本课是 0%'],
-    // The three `wan-rtt` sites, added 2026-10-05 with that lesson. One axis for all three and
-    // it is a top-level scenario section again — `servers` — but unlike the five `fading` rows
-    // the axis here is the one line that closed it course-wide: `sc()` writes `servers: []`,
-    // `cloudGameScenario` is the first scene in the course to write its own list, and with it
-    // `stats.appRtt.n` goes from 0 to 20 in 5000 ms. The three sources are the three lessons
-    // whose limits said 「引擎之上什么都没有」/「没有任何反馈回路」 — an absolute claim about the
-    // ENGINE, which was false the day the cloud-server layer landed. Each was narrowed to a
-    // claim about its own scene first, which is what makes `out-of-scope` the right kind and
-    // the promise a coherent one. The fourth site the design document asked for
-    // (`rate-cost`) is NOT here: its limit is `unmodelled`, criterion A forbids an `until`
-    // there, and the honest field for it is `seeAlso` — see the ledger below.
-    ['retries-queues', 'wan-rtt', '它们的 servers 为空',
-      '顶层一节 servers：[] → 一台游戏服务器，于是 stats.appRtt 从 0 个样本变成 5000 ms 里 20 个，28.688 ms 的往返里只有 0.106 ms 是空口的——而本课三个场景连一次应用往返都量不出来'],
-    ['queues', 'wan-rtt', '场景中加入一台服务器之后会出现另一种反馈',
-      '顶层一节 servers：本课的业务源节奏自成一条开环时钟；那一课的场景里答复要等请求被确认才来（traffic.ts 的 onUplinkDelivered → sendPage / emitDl），这是一条真的反馈路径，只不过不是降速那一种'],
-    ['edca-cost', 'wan-rtt', '它的 servers 是空的',
-      '顶层一节 servers：本课语音来回两个方向都是 20 ms 的本机时钟；放一台通话服务器之后回程变成对每一个已被确认的语音帧的回声（traffic.ts 的 scheduleVoice 的 `if (!this.server)` 分支），于是排队时延第一次有了一个应用层的分母'],
-    // Slice 3d's `uwb-ancillary` → `uwb-ancillary-request` site left this ledger on 2026-11-10, when
-    // `uwb-ancillary` moved to the standard-first shape, which has no `limits`. The ruler it left
-    // (the source's scenes never set the request, the target's base scene does) stays in
-    // tests/course/uwb-ancillary.test.ts.
-  ]
-
-  const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.until).map((x) => `${l.id}→${x.until!}`))
-
-  it('is exactly these fourteen sites, no more and no fewer', () => {
-    expect([...actual].sort()).toEqual(UNTIL_SITES.map(([s, t]) => `${s}→${t}`).sort())
-  })
-
-  it.each(UNTIL_SITES)('%s → %s names its own words and the axis that opens it', (src, dst, needle, axis) => {
-    const lesson = LESSONS.find((l) => l.id === src)
-    expect(lesson, `${src} is in the course`).toBeDefined()
-    const lim = lesson!.limits.find((x) => x.until === dst)
-    expect(lim, `${src} no longer points at ${dst}`).toBeDefined()
-    expect(lim!.text, `${src} → ${dst}: the ledger's substring moved`).toContain(needle)
-    // criterion A again, per site: a promise to lift is only coherent about a scenario class
-    expect(lim!.kind, `${src} → ${dst}`).toBe('out-of-scope')
-    // the fourth column is the part no test can compute; an empty one means nobody judged
-    expect(axis.trim(), `${src} → ${dst} has no axis written down`).not.toBe('')
-  })
-
-  /**
-   * **The ruler requirement, made mechanical (2026-10-05 fix 2).**
-   *
-   * The comment above this `describe` says the author of a new `until` must write the fourth
-   * column AND leave a ruler in their own lesson's test file. **The first half is forced by
-   * the tuple type and the set equality; the second half was forced by nothing but that
-   * sentence** — and a promise guarded only by a sentence is precisely the defect this slice
-   * was opened to fix (the design's §1.4 measured that four of the eight sites then in the
-   * course had no evidence of any kind behind them, and its own words were "a comment is not
-   * a mechanism"). Hand-filling those four and leaving the rule as prose would have rebuilt
-   * the same hole one slice later.
-   *
-   * So: a source lesson's own test file has to name its target somewhere. That is a weak
-   * check on purpose — it cannot tell a real ruler from the word appearing in a comment —
-   * but it is the difference between "someone was reminded" and "nothing happens". The
-   * author who adds the fifteenth promise now has to open their own test file.
-   *
-   * **It was not green when it was written.** The review measured 8/8 on the eight-site
-   * ledger and called the check free; by the time it landed the `fading` lesson had added
-   * five rows, and three of those — `bianchi`, `rate-vs-model`, `rate-fallback` → `fading` —
-   * mentioned `fading` nowhere in their test files, in any spelling. The rulers were added
-   * with this check rather than the check being narrowed to fit. That is the whole argument
-   * for having it: the prose requirement had already been missed three times in one day.
-   */
-  it.each(UNTIL_SITES)('%s → %s leaves a ruler in the source lesson’s own test file', (src, dst) => {
-    const file = new URL(`./${src}.test.ts`, import.meta.url)
-    const text = readFileSync(file, 'utf8')
-    // non-vacuity: we are reading that lesson's own test file, not an empty or wrong one
-    expect(text, `${src}.test.ts does not look like ${src}'s test file`).toContain(src)
-    expect(
-      text.includes(dst),
-      `${src}.test.ts never mentions \`${dst}\`, so nothing here judges whether that `
-      + `promise is kept — write the ruler, do not widen this check`,
-    ).toBe(true)
-  })
-
-  /**
-   * **Criterion C — the target comes after the source.**
-   *
-   * **This check is vacuous today and the next reader should know it.** All fourteen targets
-   * already sit later in `COURSE_ORDER` than their source (mcs-ladder 3 → rate-vs-model 23,
-   * ifs 11 → edca 26, backoff 13 → txop 29, anomaly 18 → txop 29, width 32 → selectivity 33,
-   * streams 34 → mumimo 42, the three `wan-rtt` sites, and the five `fading` sites — radio-primer 0, mcs-ladder 3, bianchi 21, rate-vs-model 23,
-   * rate-fallback 36 → fading 38), so it discriminates nothing and will not catch a single
-   * thing wrong with the course as it stands.
-   *
-   * It is here anyway, because 「这一条在《…》里**会被**解除」is future tense: an `until`
-   * aimed at an EARLIER lesson makes that sentence a lie, and nothing else would stop it.
-   * Three lines against the mistake this repository makes most often — a mistyped id.
-   */
-  it('points forward, which today it cannot help doing', () => {
-    const backward: string[] = []
-    for (const l of LESSONS) {
-      for (const lim of l.limits) {
-        if (!lim.until) continue
-        const from = COURSE_ORDER.indexOf(l.id)
-        const to = COURSE_ORDER.indexOf(lim.until)
-        if (!(to > from)) backward.push(`${l.id}(${from}) → ${lim.until}(${to})`)
-      }
-    }
-    expect(backward, `an \`until\` aimed backwards: ${backward.join(', ')}`).toEqual([])
-  })
-})
-
-/**
- * The `seeAlso` ledger, frozen for the same reason as B: adding or removing a promise to
- * the reader should be an explicit edit. Six rows as of 2026-10-05. The first three point at
- * `rate-vs-model` — the lesson whose own `limits[0]`/`limits[1]` restate what those three
- * limits say, which is what "never lifted" looks like from the other end. The last three are
- * the built-but-untaught slice's, and each of them is a limit whose `kind` refuses an `until`;
- * the row itself says why.
- *
- * `width`'s inter-bin-correlation limit deliberately carries NO pointer at all, even
- * though `selectivity` restates it; `tests/course/width.test.ts` pins that it carries
- * neither field. `ru-diversity` gets none either, and `tests/course/ofdma-dl.test.ts`
- * says why.
- */
-/**
- * **The one UI string this slice added, pinned against the document that quotes it
- * (2026-10-05 fix 3).**
- *
- * `docs/uwb-modellable-backlog.md` is where the next author reads what slice 4e decided, and
- * when it was written it quoted the `seeAlso` wording from the DESIGN rather than from the
- * code — the design's 「讲得更深」, which was deliberately not shipped (「更深」 is the word
- * the course uses for a deeper FADE; the shipped string borrows `deeper`'s own 「再深一层」).
- * Nothing tested the document, so a reader could have grepped the retired sentence and
- * "restored" it in `i18n.ts`.
- *
- * Four lines, and they would have caught it: the backlog has to quote whatever
- * `limitSeeAlso` actually produces. The same argument as fix 2 — the requirement was prose,
- * and prose had already drifted once in the commit that wrote it.
- */
-describe('the backlog quotes the UI string that actually shipped', () => {
-  it('records `limitSeeAlso`’s real wording, not the design’s retired one', () => {
-    const doc = readFileSync(new URL('../../docs/uwb-modellable-backlog.md', import.meta.url), 'utf8')
-    // non-vacuity: we are reading the file that documents this slice
-    expect(doc, 'the backlog no longer has a 4e section').toContain('切片 4e')
-    // the live string, with the lesson title taken out, is what the document must contain
-    const live = STRINGS.course.limitSeeAlso('X')
-    const after = live.split('《X》')[1]
-    expect(after, 'limitSeeAlso no longer embeds the title as 《…》').toBeDefined()
-    expect(doc, `the backlog does not quote ${live}`).toContain(after!.replace(/[）)]$/, ''))
-    // and it must NOT still carry the wording that was rejected
-    expect(doc.includes('把这一条讲得更深'), 'the backlog quotes the retired wording').toBe(false)
-  })
-})
-
-describe('the six `seeAlso` sites are a frozen ledger too', () => {
-  const SEE_ALSO_SITES: readonly [string, string, string][] = [
-    ['anomaly', 'rate-vs-model', '这里的速率控制只有两个计数'],
-    ['anomaly', 'rate-vs-model', '它无法区分碰撞与衰落'],
-    ['mcs-ladder', 'rate-vs-model', '真实速率控制的输入还要更多'],
-    // The three sites of the built-but-untaught slice (2026-10-05). Each one is a limit the
-    // design document asked to carry an `until`, and each one is `unmodelled` rather than
-    // `out-of-scope`, so criterion A refuses the promise — correctly, and the derivation is
-    // worth restating here because all three ARE about the engine:
-    //  - `rate-cost`: the engine has no flow that slows down when the round trip grows, and
-    //    `wan-rtt` does not give it one. What that lesson adds is a flow that waits for an
-    //    ANSWER, which is a different thing, so this is a deeper treatment and not a lift.
-    //  - `edca` (acForProfile): which access category a frame takes is engine code either
-    //    way; `wan-rtt` is where the reader sees the one profile that does not read it.
-    //  - `edca` (the parameter set nobody broadcasts): `edca-tamper` demonstrates the one
-    //    configuration that stands in for AP-side tuning, and the engine still sends no
-    //    management frame — that limit is not lifted anywhere in this course.
-    // The kinds were NOT changed to admit an `until`: a promise has to be false or the kind
-    // has to be, and here it is the promise.
-    ['rate-cost', 'wan-rtt', '引擎里确实有一种会等待的流'],
-    ['edca', 'wan-rtt', '游戏档不走 acForProfile'],
-    ['edca', 'edca-tamper', '这里只能靠篡改驱动那一项配置来模拟'],
-  ]
-
-  it('is exactly these six, no more and no fewer', () => {
-    const actual = LESSONS.flatMap((l) => l.limits.filter((x) => x.seeAlso).map((x) => `${l.id}→${x.seeAlso!}`))
-    expect([...actual].sort()).toEqual(SEE_ALSO_SITES.map(([s, t]) => `${s}→${t}`).sort())
-  })
-
-  // The needle is in the title because `anomaly` has TWO rows pointing at `rate-vs-model`;
-  // without it both cases print the same name and a failure does not say which one broke.
-  it.each(SEE_ALSO_SITES)('%s → %s still says %s', (src, dst, needle) => {
-    const lesson = LESSONS.find((l) => l.id === src)!
-    const lim = lesson.limits.find((x) => x.seeAlso === dst && x.text.includes(needle))
-    expect(lim, `${src}: no \`seeAlso: '${dst}'\` limit containing ${needle}`).toBeDefined()
   })
 })

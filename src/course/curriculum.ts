@@ -161,7 +161,9 @@ export const MODULES: CourseModule[] = [
   { tier: 1, title: 'QoS 与效率' },
   { tier: 1, title: '容量参数与速率控制' },
   { tier: 1, title: '被调度的 Wi-Fi 6/7' },
-  { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp', basis: ['p802-11bp'] },
+  // 802.11-2024 too since 2026-11-11: the standard-first AMP lessons cite its EDCA, NAV and TXOP
+  // clauses beside the draft, because an AMP round is an ordinary EDCA exchange of the AP.
+  { tier: 1, title: '环境能量物联网（802.11bp）', track: 'amp', basis: ['ieee-802-11', 'p802-11bp'] },
   { tier: 1, title: '真实应用' },
   // Tier 2's only module, and it is designed to be its only module rather than waiting for six
   // more. Slices W6 and W7 — the other two this tier was sketched with — were each assessed and
@@ -482,6 +484,9 @@ export const CONTRIBUTIONS: Record<string, string> = {
   '11-24/1613r20': 'TGbp 规范框架',
   '11-26/1519r5': '触发过程与 AMP PPDU 格式',
   '11-26/1889r4': '上行信道接入与时隙规则',
+  '11-26/1798r1': '单站反向散射的帧交换序列：先发带 EPC 的单播帧，接入点在同一传输机会里等待应答的处理时延（草案文本）',
+  '11-25/1692r50': 'TGbp 意向投票汇总：2026 年 9 月会议无异议同意把 11-26/1519r5（#87）、11-26/1889r4（#90）与 11-26/1798r1（#98）并入下一版草案',
+  '11-26/1582r3': 'TGbp 共存评估文件：引述 PAR 对 2.4 GHz AMP 通信使用 AC_BK 的规定',
   // P802.11bp, the backscatter tier: five contributions the group discussed without the
   // framework adopting their values, so every number off them is tagged as such in the prose
   '11-23/2038r1': '反向散射回程的 6 dB 反射损耗',
@@ -539,14 +544,13 @@ export function citedBases(l: Lesson): StandardBasis[] {
 }
 
 /**
- * Every block a learner reads on the main path, in either lesson shape — the
- * old flat `body`, or the picture and then the numbers. `deeper` is not on the
- * main path and is never included.
+ * Every block a learner reads on the main path: ① the standard's blocks, then the
+ * blocks each ③ lab carries. The old shapes' `body` / `picture` + `numbers`
+ * fallback went on 2026-11-11, when the last lesson became standard-first
+ * (tests/course/limits.test.ts pins that no lesson carries those fields).
  */
 export function lessonBlocks(l: Lesson): Block[] {
-  // The standard-first shape: ① the standard's blocks, then the blocks each lab carries.
-  if (l.standard !== undefined) return [...l.standard, ...(l.labs ?? []).flatMap((x) => x.blocks ?? [])]
-  return l.body ?? [...(l.picture ?? []), ...(l.numbers ?? [])]
+  return [...(l.standard ?? []), ...(l.labs ?? []).flatMap((x) => x.blocks ?? [])]
 }
 
 /**

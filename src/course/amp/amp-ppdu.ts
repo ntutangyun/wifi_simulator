@@ -1,20 +1,15 @@
 /**
  * Tier 2 · M8 · Ambient power IoT (802.11bp) · A frame a tag can hear.
  *
- * The second half of the old `amp-intro`: the anatomy of an AMP PPDU, why a
- * downlink frame has a legacy Wi-Fi opening in front of on-off keying, why the
- * uplink has none, and where the airtime of a four-octet acknowledgement
- * actually goes. It loads exactly the scene `amp-intro` loads — same builder,
- * same variant — so the split adds no new scenario and the recorded timeline
- * hashes of `amp-ppdu` are `amp-intro`'s.
+ * Standard-first since 2026-11-11 (the shape `@uwb-contention` set): ① what the TGbp
+ * specification framework and the triggering PDT fix about the downlink and uplink AMP PPDUs and
+ * the AMP frames they carry, motion by motion; ② what this simulator does about each — most of the
+ * PHY timing is the draft's, the field widths the draft leaves open are the simulator's, and the
+ * signal extension after a downlink AMP PPDU is its own reading; ③ three guided runs.
  *
- * Every number quoted below is pinned in tests/course/amp-ppdu.test.ts.
- *
- * The main path is held to 1300 words, with `why` + `outcomes` + `terms` +
- * `picture` ≤ 650, `numbers` ≤ 350 and `observe` + `tryThis` + `quiz` ≤ 400
- * (tests/course/readability.test.ts; `npx tsx scripts/lesson-dump.ts amp-ppdu
- * en` prints the four counts). Depth belongs in `deeper`, provenance in
- * `sources`; neither is counted.
+ * It loads exactly the scene `amp-intro` loads — same builder, same variant — so the recorded
+ * timeline hashes of `amp-ppdu` are `amp-intro`'s. Every figure quoted below is read back out of
+ * this file and compared with a run in tests/course/amp-ppdu.test.ts.
  */
 import { J, firstAmpAckToTag, firstAmpTrigger, txOf, type Lesson } from '../lessonKit'
 import { ampIntroScenario } from './amp-intro'
@@ -23,77 +18,113 @@ export const ampPpdu: Lesson = {
   id: 'amp-ppdu',
   module: 10,
   title: '标签能够解调的帧',
-  why: 'Wi-Fi 射频和无电池标签，谁也解不出对方的信号：一方用的是精心成形的波形，另一方只分得出有信号和无信号。但它们共用同一个信道，而路由器必须用同一帧同时发给两者。所以下行（downlink, DL）的 AMP 帧分成前后两半。前一半是普通 Wi-Fi 的前导码（preamble）和长度字段，房间里每一台 Wi-Fi 射频都能读出这一帧要占用多长时间，并在这段时间里避让；后一半用通断键控（on-off keying, OOK）写给标签，比特按 Manchester 方式编码，每个比特中间都有一道边沿，即使连续出现一长串零，标签也不会丢失比特定时。帧尾那段不装任何内容的填充（padding），是给标签留出的处理时间：作答要在帧结束后一个很短的间隔里发出，标签必须在填充仍在发送时就完成解调、校验并启动发射机。反方向上，标签的作答不带 Wi-Fi 前导码，附近的 Wi-Fi 终端只能检测到信道上有能量，无法识别出那是一帧。这样一帧的空口时间（airtime）大半用于固定开销：开头、同步、说明后文的 AMP-SIG、填充和信号扩展，无论携带多少数据都同样需要。所以只有四个字节的确认帧（acknowledgement, ACK）也要几百微秒，比一帧内容多得多的普通 Wi-Fi 帧还长；速率提高到四倍时，没有固定开头需要分摊的作答确实缩短到四分之一，触发帧（Trigger frame）却因为那段无法缩短的固定开销只缩短到四成多。',
+  why: 'P802.11bp 的下行（downlink, DL）AMP PPDU（PHY protocol data unit）由两部分组成：前一部分是 Wi-Fi 7 的前导码（preamble），依次为 L-STF（legacy short training field）、L-LTF（legacy long training field）、L-SIG（legacy signal field）、RL-SIG 和 U-SIG（universal signal field），U-SIG 里的物理层（physical layer, PHY）版本为 0、PPDU 类型为 3，周围的 Wi-Fi 设备据此识别出这一帧并读出它的长度；后一部分用通断键控（on-off keying, OOK）和 Manchester 编码发给标签——AMP-Sync、两个字节的 AMP-SIG、数据，以及给标签留出处理时间的填充（padding）。上行（uplink, UL）AMP PPDU 没有 Wi-Fi 前导码，只有 AMP-Sync 和数据，所以 Wi-Fi 设备只能测到能量，解不出一帧。这些格式和时长大多已由 TGbp 规范框架的动议与已获通过的草案文本固定：下行 AMP-Sync 40 个 2 µs 的码片（chip），共 80 µs；上行 AMP-Sync 48 个码片；未加密的触发帧（Trigger frame）与 Ack 填充 20 µs，加密的触发帧填充 36 µs。本仿真器按这些规定计算每一帧的空口时间（airtime），帧头（MAC header）字段宽度和触发帧帧体（Frame Body）的编码是它自己的取值，下行 AMP PPDU 末尾另加 2.4 GHz 的 6 µs 信号扩展。于是 250 kb/s 下，只有四个字节的确认帧（acknowledgement, ACK）也长 330 µs，其中 202 µs 与内容无关；速率提高到四倍时，上行作答缩短到四分之一，触发帧只缩短到四成多。',
   outcomes: [
-    '说出一帧下行（downlink, DL）AMP 帧由哪几段组成，并说明每一半由哪种接收机解读',
-    '解释为什么四个字节的确认帧（acknowledgement, ACK）要占用几百微秒',
-    '预测速率提高时，哪一种帧缩短得最多',
+    '说出下行与上行 AMP PPDU 各由哪些字段组成，以及每个字段出自哪条动议',
+    '分清哪些时长由草案固定、哪些宽度是本仿真器的取值',
+    '解释为什么四个字节的 Ack 要几百微秒，以及速率提高时哪种帧缩短得最多',
   ],
   needs: ['amp-intro'],
   terms: [
-    { term: 'OOK', plain: '通断键控：发射机只在开和关两种状态之间切换，以载波的有无表示比特' },
-    { term: 'Manchester', plain: '每个比特都编码为“先高后低”或“先低后高”，接收端因此始终能保持比特定时' },
-    { term: 'preamble', plain: '一帧 Wi-Fi 的开头部分，所有 Wi-Fi 射频都能识别——第一阶已经介绍过' },
-    { term: 'AMP-Sync', plain: '标签部分开头的一段通断序列，使包络检波器能够对准比特定时' },
-    { term: 'AMP-SIG', plain: '两个字节，向标签说明后续是什么帧、有多长' },
-    { term: 'padding', plain: '帧尾的填充，不携带任何内容，仅用于为接收端留出处理时间' },
+    { term: 'OOK', plain: '通断键控：发射机只在开和关两种状态之间切换，以载波的有无表示码片' },
+    { term: 'Manchester', plain: '曼彻斯特编码：比特 1 编为码片“01”，比特 0 编为“10”，每个比特中间都有一道边沿' },
+    { term: 'preamble', plain: '前导码：一帧 Wi-Fi 的开头部分，所有 Wi-Fi 射频都能识别' },
+    { term: 'AMP-Sync', plain: '标签部分开头的一段已知码片序列，用来检测这一帧并对准比特定时' },
+    { term: 'AMP-SIG', plain: '下行帧里 AMP-Sync 之后的信令字段，给出接收设备类型、部分标识和数据长度' },
+    { term: 'padding', plain: '填充：帧尾不携带内容的一段，为接收端留出准备作答的时间' },
   ],
-  picture: [
-    { heading: '一帧，两种接收机', text: '这一轮里路由器发出的每一帧，都必须同时送达两种差异极大的射频。Wi-Fi 终端至少要识别出它，以便让出信道；标签则要真正解读它的内容。而这两者都解不出对方那种信号。因此这一帧由前后两部分组成：先是一段 Wi-Fi 开头，然后才是专门发给标签的那一部分。' },
-    { heading: '供 Wi-Fi 射频解读的前一半', text: '这一帧的开头，就是每一帧 Wi-Fi 都有的那段前导码（preamble）——一段已知的图样，接收端依靠它锁定信号，紧接着是说明“这一帧要持续多久”的那个字段。房间里任何一台 Wi-Fi 射频都会在这段时间内避让，却始终无法解读后面那部分的内容。标签完全解不出这半段，只能等待它结束。' },
-    { kind: 'watch', jump: 0, heading: '打开一帧看看', text: '载入仿真，跳到第一帧触发帧（Trigger frame），再到帧细节视图里把它打开。那条彩色条带就是这一帧，从左向右阅读。' },
-    { kind: 'steps', heading: '一帧下行帧，从左到右', items: [
-      '传统开头，供 Wi-Fi 射频解读',
-      'AMP-Sync，使标签对准定时',
-      'AMP-SIG：说明后续内容的类型与长度',
-      '数据字节',
-      '填充（padding），在最末尾',
+  standard: [
+    { heading: '依据（11-24/1613r20；11-26/1519r5）', text: 'P802.11bp 仍是草案。下面的格式来自规范框架 11-24/1613r20 已通过的动议，填充时长来自草案文本 11-26/1519r5 的 39.3.2.2 节；TGbp 在 2026 年 9 月会议上以意向投票 #87 无异议同意把这份文本并入下一版草案（11-25/1692r50）。' },
+    { heading: '下行 PPDU 的 Wi-Fi 部分（规范框架 PM-15、PM-36、PM-54、PM-64）', text: '接入点（access point, AP）发给自行发射终端的下行 AMP PPDU 以 L-STF、L-LTF、L-SIG、RL-SIG 和 U-SIG 开头（动议 #28），在 20 MHz 信道上发送（#148）。L-SIG 的速率字段设为 6 Mb/s，长度字段取 3 的整数倍（#86）。U-SIG 的物理层版本设为 0、PPDU 类型与压缩模式设为 3，以此标明这是一帧下行 AMP PPDU（#131）。' },
+    { heading: '下行 AMP-Sync（规范框架 PM-40、PM-41、PM-53、PM-71）', text: '发给非反向散射终端的下行 AMP-Sync 码片长 2 µs（#90）。它分两段：第一段 32 个码片，250 kb/s 用序列 W，1 Mb/s 用 W 的逐位取反，标签从中得知数据速率（#91、#130）；第二段是 8 个码片的“特殊段” [11111010]，两种速率相同，用来降低误检率（#162）。' },
+    { heading: 'AMP-SIG（规范框架 PM-65、PM-95、PM-105、PM-78）', text: 'AMP-SIG 位于 AMP-Sync 之后、数据之前。发给自行发射终端时它有 2 个字节：1 位版本、1 位接收设备类型、6 位部分站点（station, STA）标识（为 0 表示广播）、6 位数据字段长度和 2 位循环冗余校验（cyclic redundancy check, CRC）（#149、#208、#251）。它与数据字段使用同一速率、同一码片长度和 Manchester 编码（#177）。' },
+    { heading: '调制（modulation）、编码与速率（规范框架 PM-6、PM-7、PM-9、PM-23、PM-31）', text: '下行 AMP-Sync 与数据都用通断键控（#9），数据用 Manchester 编码（#10）：比特 1 编为码片“01”，比特 0 编为“10”（#41、#79）。下行速率为 250 kb/s 与 1 Mb/s，后者只用于非反向散射终端（#16）；对应的码片长 2 µs 与 0.5 µs（#77）。' },
+    { heading: '填充（规范框架 PM-106、PM-107、FM-43；11-26/1519r5 §39.3.2.2）', text: '下行 AMP PPDU 可以在数据字段之后带一个填充字段，时长与下行速率无关，帧校验序列（frame check sequence, FCS）在填充之前（#252、#253、#238）。草案文本规定：载有未加密触发帧或标出时隙起点的 Ack 时，填充 20 µs；载有加密触发帧时，填充 36 µs。它的作用是让收到这一帧的终端能在一个短帧间间隔（short interframe space, SIFS）之内发出作答。规范框架的 FM-37、FM-38 原先给的是至少 40 µs 与 25 µs，并注明计算 TXTIME 时若含 aSignalExtension，填充应相应调整。' },
+    { heading: '上行 PPDU（规范框架 PM-8、PM-35、PM-50、PM-51、PM-76、PM-77、PM-93）', text: '自行发射终端的上行 AMP PPDU 只有 AMP-Sync 与数据两个字段，带宽小于 20 MHz（#11），没有 Wi-Fi 前导码。AMP-Sync 长 48 个码片（#128），同一帧里 AMP-Sync 与数据的码片等长（#85）。250 kb/s 用 1 µs 码片加码率 1/2 的卷积码，1 Mb/s 用 0.25 µs 码片加同一卷积码，4 Mb/s 用 0.125 µs 码片、不编码且为可选（#127、#206、#176）。上行数据加扰（#175）。' },
+    { heading: 'AMP 帧（规范框架 FM-13、FM-14、FM-16—FM-18、FM-20、FM-33、FM-49）', text: 'AMP 帧由媒体访问控制（medium access control, MAC）帧头、可选的帧体和帧校验序列组成（#116）。帧头含帧控制（Frame Control）、ID 和类型相关控制三个字段（#117）；帧控制 8 位（#119）；对自行发射终端，ID 为 12 或 16 位（#120），类型相关控制若存在为 8、12 或 16 位（#121）。未加密帧的 CRC 为 16 位（#123）。AMP Ack 是定长帧，含帧控制、接收方标识和帧校验序列（#188），其中 CRC 只取 8 位（#258）。' },
+    { kind: 'steps', heading: '一帧下行 AMP PPDU，从左到右', items: [
+      'L-STF、L-LTF、L-SIG、RL-SIG、U-SIG：Wi-Fi 7 的前导码，在 20 MHz 信道上发送（PM-15、PM-64）。',
+      'AMP-Sync：32 个码片的 W 或其取反，再加 8 个码片的特殊段，码片长 2 µs（PM-40、PM-53、PM-71）。',
+      'AMP-SIG：2 个字节，与数据同速率（PM-105、PM-78）。',
+      '数据：AMP 帧，Manchester 编码的通断键控（PM-7、PM-23）。',
+      '填充：未加密触发帧与 Ack 20 µs，加密触发帧 36 µs（§39.3.2.2）。',
     ] },
-    { heading: '只有有信号和无信号两种状态', text: '标签那一半用的是 OOK：发射机只在开和关之间切换，以载波的有无表示比特。包络检波器只能解调这种信号。为了让标签不丢失定时，这些比特还按 Manchester 方式编码——每个比特都是“先高后低”或“先低后高”，因此每一个比特中间都有一道边沿；即使连续出现一长串零，标签的比特定时也不会漂移。' },
-    { heading: '为什么帧尾要填充', text: '作答必须在触发帧最后一个符号（symbol）之后、经过一个间隔就发出，而那个间隔很短。在这段时间内，标签要完成解调、校验帧是否完好、判断这一轮是否与自己有关，还要启动自己的发射机。帧尾的填充把这段处理时间安排在只消耗空口时间（airtime）、没有其他代价的位置；填充仍在发送时，标签实际上已经在解码。' },
-    { heading: '上行（uplink, UL）：结构相反', text: '标签的作答帧结构正好相反。它完全不带 Wi-Fi 前导码——标签也无法生成——所以帧一开始就是它自己那段很短的 AMP-Sync，紧接着就是数据字节。正因如此，位于标签附近的 Wi-Fi 终端只能检测到“信道上有能量”，却无法识别出那是一帧——其中没有任何一段是 Wi-Fi 射频能够锁定的。' },
-    { heading: '帧很小，空口时间很长', text: '一帧很短的 AMP 帧，绝大部分并不是它要传递的内容。开头、同步、描述数据的那个字段、填充，还有末尾的信号扩展——凡是以 Wi-Fi 开头的帧，本频段都要在其后附加一小段静默——无论这一帧携带什么内容，它们占用的时间都相同。确认帧是最极端的例子：内容只有四个字节，占用的空口时间却比一帧内容多得多的普通 Wi-Fi 帧还长。' },
+    { heading: '802.11 本身的两个时长（IEEE Std 802.11-2024 表 18-5）', text: '2.4 GHz 的 aSIFSTime 为 10 µs，aSignalExtension 为 6 µs：以正交频分复用（orthogonal frequency-division multiplexing, OFDM）方式发送的帧之后有一段 6 µs 的静默，称为信号扩展。' },
   ],
-  numbers: [
-    { kind: 'formula', heading: '触发帧的 618 µs 由什么组成', text: 'AMP Trigger @ 250 kb/s = 32 + 80 + 64 + 416 + 20 + 6 = 618 µs', note: '开头的 32 µs 是普通 Wi-Fi，其后的全部内容都是发给标签的。速率提高时只有中间那两行会缩短——AMP-SIG 在 1 Mb/s 下是 16 µs。' },
-    { kind: 'table', heading: '这条条带由什么组成', head: [
-      '段', '250 kb/s', '由谁解读',
-    ], rows: [
-      ['传统前导码', '16 µs', '每一台 Wi-Fi 射频'],
-      ['L-SIG（legacy signal field），长度字段', '4 µs', '每一台 Wi-Fi 射频'],
-      ['U-SIG（universal signal field），说明这是哪一类帧', '12 µs', 'Wi-Fi 7 射频'],
-      ['AMP-Sync', '80 µs', '标签'],
-      ['AMP-SIG，2 个字节', '64 µs', '标签'],
-      ['触发帧帧体（Frame Body），13 个字节', '416 µs', '标签'],
-      ['填充', '20 µs', '无：它为标签提供处理时间'],
-      ['信号扩展', '6 µs', '无：本频段固有'],
-    ] },
-    { kind: 'table', heading: '三种 AMP 帧', head: [
-      '帧', '字节', '250 kb/s', '1 Mb/s',
-    ], rows: [
-      ['AMP Trigger（下行）', '13', '618 µs', '258 µs'],
-      ['AMP Ack（下行）', '4', '330 µs', '186 µs'],
-      ['带读数的作答（上行）', '15', '528 µs', '132 µs'],
-    ] },
-    { text: '只报告自身身份的作答是 7 个字节，后面某一课会用到；这里的作答直接携带读数，所以是 15 个字节。' },
-    { heading: '提高速率节省了什么', text: '速率提高到四倍，作答占用的空口时间确实只剩四分之一：528 µs 变为 132 µs——因为它没有需要分摊的固定开头。触发帧却有：其中 138 µs 不随速率变化，所以它只能降到 258 µs。' },
-    { kind: 'table', heading: '填充有多少', head: [
-      '下行帧的类型', '填充',
-    ], rows: [
-      ['非保护帧——本场景里的每一帧', '20 µs'],
-      ['受保护帧，即加密的帧', '36 µs'],
-    ] },
-    { kind: 'formula', heading: '一帧 Ack 的 330 µs 由什么组成', text: '250 kb/s 下的 4 个字节 = 128 µs + 202 µs 的固定开销 = 330 µs', note: '固定开销——传统开头、AMP-Sync、AMP-SIG、填充、信号扩展——即使只有四个字节也必须完整承担。作为对比：路由器用来预留这一轮的那帧允许发送（clear to send, CTS）是十四个字节的普通 Wi-Fi，6 Mb/s 下 44 µs，再加本频段的 6 µs。内容是三倍半，空口时间却不到六分之一。' },
-    { kind: 'formula', heading: '同一轮，换成 1 Mb/s', text: '50 + 10 + 258 + 4 × (10 + 132 + 10 + 186) = 1670 µs = 100 ms 的 1.67 %', note: '触发帧现在在 318 µs 结束，时隙 1 在 328 µs 开始；覆盖这一轮的 CTS Duration 是 1620 µs。' },
+  implementation: [
+    { topic: 'Wi-Fi 部分', standard: 'L-STF、L-LTF、L-SIG、RL-SIG、U-SIG（PM-15）', sim: '按 32 µs 计：L-STF 与 L-LTF 16 µs，L-SIG 4 µs，RL-SIG 与 U-SIG 12 µs。', kind: 'faithful' },
+    { topic: '只允许 Wi-Fi 7 接入点轮询', standard: '下行 AMP PPDU 以 U-SIG 的物理层版本 0 标明（PM-54）', sim: '编辑器只允许 Wi-Fi 7（EHT）接入点发起 AMP 轮询，拒绝其他代际的接入点。', kind: 'choice' },
+    { topic: '下行 AMP-Sync', standard: '32 + 8 个 2 µs 码片（PM-40、PM-53、PM-71）', sim: '两种速率都按 80 µs 计；码片序列本身不建模。', kind: 'faithful' },
+    { topic: 'AMP-SIG', standard: '2 个字节，与数据同速率（PM-105、PM-78）', sim: '照此计时：250 kb/s 下 64 µs，1 Mb/s 下 16 µs；字段内容不建模。', kind: 'faithful' },
+    { topic: '比特时长', standard: 'Manchester 编码的通断键控，码片 2 µs 或 0.5 µs（PM-23、PM-31）', sim: '下行每个比特 4 µs（250 kb/s）或 1 µs（1 Mb/s）。', kind: 'faithful' },
+    { topic: '填充', standard: '未加密触发帧与 Ack 20 µs，加密触发帧 36 µs（§39.3.2.2）', sim: '照此取值；本课场景里每一帧都未加密，都填充 20 µs。', kind: 'faithful' },
+    { topic: '信号扩展', standard: '草案文本没有说下行 AMP PPDU 之后是否有信号扩展；规范框架只在 FM-37、FM-38 的注里提到 TXTIME 可能含 aSignalExtension', sim: '每帧下行 AMP PPDU 之后都加 6 µs 的信号扩展。', kind: 'choice' },
+    { topic: '帧头宽度', standard: '帧控制 8 位；ID 12 或 16 位；类型相关控制 8、12 或 16 位（FM-16—FM-18）', sim: '帧控制 1 字节、ID 2 字节、类型相关控制 2 字节、CRC 2 字节。', kind: 'value' },
+    { topic: '触发帧帧体', standard: '§39.3.2.1 列出必须给出的参数；本课依据的文件没有给出编码', sim: '6 个字节：会话号 1、ACWE 与时隙数 1、时隙长度 2、上行速率与扰码与信道 1、作答内容 1。', kind: 'value' },
+    { topic: 'AMP Ack', standard: '帧控制、接收方标识、8 位 CRC（FM-33、FM-49）', sim: '4 个字节：帧控制 1、ID 2、CRC 1。', kind: 'faithful' },
+    { topic: '上行 PPDU', standard: 'AMP-Sync 48 个码片，与数据码片等长（PM-51、PM-35）', sim: 'AMP-Sync 250 kb/s 下 48 µs、1 Mb/s 下 12 µs；没有 Wi-Fi 前导码，也没有信号扩展。', kind: 'faithful' },
+    { topic: '上行编码', standard: '卷积码与加扰（PM-50、PM-76）', sim: '比特时长按名义速率计算，不计卷积码可能带来的尾比特（tail bits）；扰码不建模。', kind: 'choice' },
+    { topic: '读数', standard: '作答可以带帧体，内容待定（FM-29）', sim: '读数取 8 个字节：带读数的作答 15 个字节，只报身份的作答 7 个字节。', kind: 'value' },
+  ],
+  labs: [
+    {
+      heading: '打开一帧触发帧',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一帧 AMP 触发帧，在帧细节里打开它。',
+        '把那条彩色条带从左向右读一遍，对照下表。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '250 kb/s 触发帧的各段', head: ['段', '时长', '由谁解读'], rows: [
+          ['L-STF 与 L-LTF', '16 µs', 'Wi-Fi 设备'],
+          ['L-SIG（legacy signal field）', '4 µs', 'Wi-Fi 设备'],
+          ['RL-SIG 与 U-SIG（universal signal field）', '12 µs', 'Wi-Fi 7 设备'],
+          ['AMP-Sync', '80 µs', '标签'],
+          ['AMP-SIG，2 个字节', '64 µs', '标签'],
+          ['触发帧，13 个字节', '416 µs', '标签'],
+          ['填充', '20 µs', '无'],
+          ['信号扩展', '6 µs', '无'],
+        ] },
+      ],
+      expect: '各段相加 32 + 80 + 64 + 416 + 20 + 6 = 618 µs；其中只有 AMP-SIG 与触发帧两段随速率变化，其余 138 µs 与速率无关。',
+      meaning: '前四段与填充的时长照草案（①）；13 个字节里的字段宽度与末尾 6 µs 的信号扩展是本仿真器的取法（②）。',
+    },
+    {
+      heading: '三种 AMP 帧，两种速率',
+      more: [0],
+      steps: [
+        '依次载入本课场景与「上下行都用 1 Mb/s」，在帧细节里分别打开第一帧触发帧、第一帧 Ack 和第一次作答。',
+        '对照下表读出每种帧的字节数与空口时间。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '三种 AMP 帧的空口时间', head: ['帧', '字节', '250 kb/s', '1 Mb/s'], rows: [
+          ['AMP 触发帧（下行）', '13', '618 µs', '258 µs'],
+          ['AMP Ack（下行）', '4', '330 µs', '186 µs'],
+          ['带读数的作答（上行）', '15', '528 µs', '132 µs'],
+        ] },
+      ],
+      expect: '作答缩短到四分之一（528 µs 变为 132 µs），因为它没有与速率无关的部分；触发帧只从 618 µs 缩短到 258 µs。1 Mb/s 下整轮长 1670 µs。',
+      meaning: '上行 PPDU 只有 AMP-Sync 与数据，二者码片等长（①），所以作答随速率等比缩短；下行 PPDU 的 Wi-Fi 部分、AMP-Sync 和填充都不随速率变化（①）。',
+    },
+    {
+      heading: '四个字节的 Ack',
+      jump: 1,
+      steps: [
+        '跳到第一帧确认标签的 AMP Ack，在帧细节里打开它，读出 ID 字段。',
+        '再打开一帧跟在空时隙之后的 Ack，比较两帧的长度与 ID。',
+      ],
+      blocks: [
+        { kind: 'formula', heading: '一帧 Ack 的 330 µs', text: '250 kb/s 下的 4 个字节 = 128 µs + 202 µs 与内容无关的部分 = 330 µs', note: '与内容无关的部分：Wi-Fi 前导码 32 µs、AMP-Sync 80 µs、AMP-SIG 64 µs、填充 20 µs、信号扩展 6 µs。' },
+      ],
+      expect: '第一帧 Ack 在 1226 µs 发出，ID 字段 2 个字节，写的是 Door tag；空时隙之后那一帧同样 330 µs、同样 4 个字节，ID 写的是路由器自己。路由器那帧 14 个字节的 CTS-to-self（CTS to self）只用 50 µs。',
+      meaning: 'Ack 的组成照规范框架（①）；ID 取 16 位是草案允许的两种宽度之一，由本仿真器选定（②）。',
+    },
   ],
   sources: [
-    'IEEE P802.11bp 仍是草案：D0.5 于 2026 年 5 月发布，D1.0 将于 2026 年 9 月进入 letter ballot。本课里下行与上行 AMP PPDU 的格式，依据的是 TGbp 规范框架 11-24/1613r20 与提案草案文本 11-26/1519r5。',
-    '上表的填充值——非保护帧 20 µs、受保护帧 36 µs——出自 11-26/1519r5 §39.3.2.2。',
-    '两个字节的 AMP-SIG 以及若干别的 AMP 字段宽度都是模型取值，而不是标准值——草案里它们仍标着 TBD。收发两端使用的 OOK SINR 门限（下行 8 dB，250 kb/s 上行 10 dB）同样是模型取值。',
-    '32 µs 的传统开头、6 µs 的信号扩展，以及 6 Mb/s 下 44 µs 的 CTS，都是 2.4 GHz Wi-Fi 原有的部分，并非 P802.11bp 新定义的内容。而那段开头里的 U-SIG，正是这里的路由器必须是 Wi-Fi 7 设备的原因——规范框架把下行 AMP 帧定义成这个字段里物理层版本号为 0 的帧，而 0 这个值就是 Wi-Fi 7 的那一版；判据不是「是否带有 U-SIG」，更新的世代同样带有，只是版本号不是 0。',
+    'IEEE P802.11bp 草案：规范框架 11-24/1613r20 的 PM-6（动议 #9）、PM-7（#10）、PM-8（#11）、PM-9（#16）、PM-15（#28）、PM-23（#41、#79）、PM-31（#77）、PM-35（#85）、PM-36（#86）、PM-40（#90）、PM-41（#91）、PM-50（#127）、PM-51（#128）、PM-53（#130）、PM-54（#131）、PM-64（#148）、PM-65（#149）、PM-71（#162）、PM-76（#175）、PM-77（#176）、PM-78（#177）、PM-93（#206）、PM-95（#208）、PM-105（#251）、PM-106（#252）、PM-107（#253）、FM-13（#116）、FM-14（#117）、FM-16—FM-18（#119—#121）、FM-20（#123）、FM-29（#184、#231）、FM-33（#188）、FM-37、FM-38（#214、#215）、FM-43（#238）、FM-49（#258）；草案文本 11-26/1519r5 §39.3.2.2（填充 20 µs 与 36 µs）；通过记录见 11-25/1692r50（#87）。',
+    'IEEE Std 802.11-2024 表 18-5：2.4 GHz 的 aSIFSTime 10 µs、aSignalExtension 6 µs。',
+    '本仿真器的取值与取法：帧头各字段的宽度、6 个字节的触发帧帧体、8 个字节的读数、下行 AMP PPDU 之后的 6 µs 信号扩展、按名义速率计算的上行比特时长、只允许 Wi-Fi 7 接入点轮询。',
   ],
-  // AMP 轨暂停，四课都还没写 `limits`。空数组是这个事实的如实记录：
-  // tests/course/limits.test.ts 逐一点名这四课，AMP 恢复时会失败。
   limits: [],
   scenario: () => ampIntroScenario({ dlKbps: 250, ulKbps: 250 }),
   variants: [
@@ -107,43 +138,38 @@ export const ampPpdu: Lesson = {
     J('第一帧确认标签的 AMP Ack', firstAmpAckToTag),
     J('第一帧“空时隙”的 AMP Ack', txOf((r) => r.frame.kind === 'ampAck' && r.frame.dst === r.frame.src)),
   ],
-  observe: [
-    '在帧细节里打开 1226 µs 那帧 Ack：ID 字段两个字节，标明的是 Door tag。再打开 2982 µs 那一帧，它跟在一个空时隙之后——同样 330 µs、同样四个字节，但 ID 字段里填的是路由器自己的标识。',
-    '在帧细节里打开第一帧触发帧，把那条条带从左向右读一遍，逐段对照上面那张表。再打开它 6 个字节的帧体：会话号、窗口、时隙数与时隙长度。',
-  ],
-  tryThis: [
-    '载入 1 Mb/s 变体，跳到第一帧触发帧。拿上面那道算式逐项核对这一轮，再想一想：速率提高到四倍，为什么节省的时间不到四分之三。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '触发帧末尾那 20 µs 的填充字段是做什么的？',
+      q: 'Wi-Fi 设备怎样认出一帧下行 AMP PPDU？',
       options: [
-        '把帧补齐到正交频分复用（OFDM）符号边界',
-        '给标签留出时间，让它在一个 10 µs 的间隔内完成解调、校验并启动发射机',
-        '让 Wi-Fi 终端有时间设好自己的倒计时',
+        '从 AMP-Sync 的码片序列',
+        '从 U-SIG：物理层版本为 0、PPDU 类型与压缩模式为 3',
+        '从帧尾的填充',
       ],
       answer: 1,
-      explain: '作答必须在触发帧最后一个符号之后一个间隔——也就是 10 µs——发出。填充把这段处理时间加在只消耗空口时间的位置。',
+      explain: '规范框架 PM-54（动议 #131）用 U-SIG 的这两个值标明下行 AMP PPDU；AMP-Sync 是写给标签的，Wi-Fi 设备解不出。',
     },
     {
-      q: 'AMP Ack 只有四个字节，在 250 kb/s 下却要 330 µs。时间用在了哪里？',
+      q: '按 11-26/1519r5，未加密触发帧末尾的填充有多长？它的作用是什么？',
       options: [
-        '四个字节在 250 kb/s 下确实就要 330 µs',
-        '四个字节占 128 µs；其余 202 µs 是传统开头、AMP-Sync、AMP-SIG、填充和信号扩展',
-        'Ack 被补齐到了它所收尾的那个时隙的长度',
+        '20 µs，让终端能在一个 SIFS 之内发出作答',
+        '36 µs，把帧补齐到 OFDM 符号（symbol）边界',
+        '6 µs，就是 2.4 GHz 的信号扩展',
       ],
-      answer: 1,
-      explain: '对极短的帧来说，固定开销占了大部分：四个字节的内容要承担全部固定开销——而十三个字节的触发帧承担的也是同样的固定开销。',
+      answer: 0,
+      explain: '39.3.2.2 节：未加密触发帧与 Ack 填充 20 µs，加密触发帧 36 µs，用于让接收的终端有时间准备作答。',
     },
     {
-      q: '标签作答时，为什么 Wi-Fi 终端只能感知到能量，却读不出一帧？',
+      q: '标签作答时，为什么附近的 Wi-Fi 终端只能测到能量、解不出一帧？',
       options: [
-        '作答信号太弱，根本无法到达它那里',
-        '上行帧不带 Wi-Fi 前导码，Wi-Fi 接收端没有任何可以锁定的部分',
-        '路由器事先要求终端忽略这一帧',
+        '作答信号太弱',
+        '上行 AMP PPDU 只有 AMP-Sync 与数据，没有 Wi-Fi 前导码',
+        '路由器事先让终端忽略这一帧',
       ],
       answer: 1,
-      explain: '标签的作答一开始就是自己的 AMP-Sync，然后是数据字节。没有前导码，Wi-Fi 接收端根本不会启动解码——信号再强也一样。',
+      explain: '规范框架 PM-8 规定上行 AMP PPDU 由 AMP-Sync 与数据组成；没有前导码，Wi-Fi 接收机没有可以锁定的部分。',
     },
   ],
 }

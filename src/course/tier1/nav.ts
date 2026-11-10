@@ -1,25 +1,16 @@
 /**
  * Wi-Fi Tier 1 · M4 · 等待与退避 · NAV, the reservation a header carries.
  *
- * Re-paced on 2026-09-25
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M4): the
- * proposal keeps this lesson **whole** — one field, one timer, one procedure —
- * at about 1,300 characters, the longest allowance in the module. What changed
- * is what came off it:
+ * Standard-first shape (2026-11-11, after the UWB pilot docs/superpowers/plans/2026-11-10-uwb-standard-alignment.md):
+ * ① IEEE Std 802.11-2024 on carrier sense (§10.3.2.1), the Duration/ID field (§9.2.4.2,
+ * Table 9-9), the Duration a non-QoS Data frame and its Ack carry (§9.3.2.1.5, §9.3.1.4) and the
+ * NAV update rule (§10.3.2.4); ② what this simulator does with each of them — including the two
+ * places it departs (a nanosecond Duration that is never rounded, one NAV where an HE STA keeps
+ * two); ③ three runs of the unchanged scene.
  *
- *  - the promise image, which ran through the lesson four times
- *    (「耳朵告诉不了你的事」,「每一帧开头的那句承诺」,「耳朵守的是帧，承诺守的
- *    是间隙和回答」,「那句预告」): §5.2. The field has a name, and the name is
- *    Duration.
- *  - `deeper`'s 「为什么标签写的是一回事，色块代表的是另一回事」: §5.5 — that is
- *    how to read the UI, not how the network works.
- *  - the three-row 「把一段长长的冻结拆开」table, now the timing figure: the
- *    table's whole content was three lengths and their sum, which is what a
- *    figure drawn to scale says better (§5.4).
- *  - one `observe` line and one `tryThis`, each of which repeated another.
- *
- * Every number quoted below is pinned in tests/course/nav.test.ts. The scenario
- * builder is unchanged, so the recorded timeline hash stays identical.
+ * Every figure the labs print is read back out of this file by tests/course/nav.test.ts and
+ * compared with a run. The scenario builder is unchanged, so the recorded timeline hash stays
+ * identical.
  */
 import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstNav, J } from '../lessonKit'
@@ -58,70 +49,101 @@ export function navTiming(): TimingSpec {
   }
 }
 
+
 export const nav: Lesson = {
   id: 'nav',
   module: 3,
   title: 'NAV——用一个字段预约信道',
-  why: '仅凭侦听，站点（station, STA）只能知道空口此刻是否忙。但一次帧交换中存在间隙——应答返回之前的那一小段停顿；而应答本身，还可能来自一台距离太远、根本收不到的设备。只依据自身侦听结果的站点，在这两处都会把信道判为空闲而开始发送，与正在进行的交互发生碰撞。因此每一帧的帧头（MAC header）里都有一个持续时间（Duration/ID）字段，写明这一帧结束之后本次交互还需要多长时间：数据帧（data frame）填写的是停顿加确认帧（acknowledgement, ACK）的时长，不包括它自身，因为它在空中时所有站点的侦听本来就报忙；确认帧填写零，表示交互到此结束。凡是完整解出这一帧的站点，即使不是接收方，都以“帧结束时刻加这个数”启动一个本地倒计时，叫网络分配向量（network allocation vector, NAV）；新算出的时刻只能把它推迟，不能把它提前。倒计时未到期，站点就把信道视为忙，正在进行的退避（backoff）计数冻结——这叫虚拟载波侦听（virtual carrier sense）。旁听站点的倒计时恰好在应答结束的时刻到期，每次都如此。所以一段较长的冻结由三段组成：邻居那一帧在空中，侦听报忙；它之后的停顿和应答由倒计时覆盖，停顿期间空口确实空闲，使站点不能发送的只有倒计时；最后是一个真正空闲的分布式帧间间隔（DCF interframe space, DIFS）。站点并不掌握时间表：冻结的时刻它不知道要等待多久，要等整帧解出之后，才得到一个“最早何时恢复”的下界。',
+  why: '仅凭侦听，站点（station, STA）只能知道空口此刻是否忙；一次帧交换中间的停顿，以及来自本机收不到的设备的应答，侦听都无法预告。IEEE Std 802.11-2024 因此在载波侦听（carrier sense）之外又规定了虚拟载波侦听（virtual carrier sense）：除少数帧外，每一帧的帧头（MAC header）都带一个持续时间（Duration/ID）字段，写明这一帧结束之后本次交换还要占用介质（medium）多少微秒；正确收到这一帧、而接收端地址（receiver address, RA）不是自己的站点，用它更新本地的网络分配向量（network allocation vector, NAV），新值大于当前值时才采用。NAV 未到期，介质就视为忙，与物理载波侦听报忙的效果相同：退避（backoff）计数冻结。不支持服务质量（quality of service, QoS）的站点发出的单播数据帧（data frame），填写一个短帧间间隔（short interframe space, SIFS）加一个确认帧（acknowledgement, ACK）的时长，不包括它自身；确认帧填写 0，表示交换到此结束。本仿真器照此计算和更新 NAV，与标准不同的有两处：Duration 以纳秒记录、不取整到微秒；每台站点只有一个 NAV。本课场景里数据帧填写的都是 16 + 28 = 44 µs，一段较长的冻结由三段组成：邻居的帧在空中，NAV 覆盖其后的停顿与应答，最后是一个分布式帧间间隔（DCF interframe space, DIFS）。',
   outcomes: [
-    '说明站点为自己的计时器设置的是什么值、取自哪些帧',
-    '解释为什么仅靠侦听信道无法保护一次交互',
-    '从数据帧（data frame）中读出这项预约，并用它所保护的应答来核对',
+    '说出标准对 Duration 字段与 NAV 的更新规定了什么',
+    '分清本仿真器的哪些做法照标准、哪些与标准不同',
+    '从日志里读出一次 NAV 设置，并把一段冻结拆成三段',
   ],
   needs: ['backoff'],
   terms: [
-    { term: 'Duration', plain: '帧头前部的一个字段：这一帧之后本次交互还需要的时长' },
-    { term: 'NAV', plain: '网络分配向量：站点本地维护的倒计时，未到期时信道视为忙' },
-    { term: 'virtual carrier sense', plain: '判定信道忙的依据是其他站点在帧中填写的数值，而不是本机检测到的信号' },
+    { term: 'Duration', plain: '帧头前部的一个字段：这一帧结束之后本次交换还需要的时长，以微秒计' },
+    { term: 'NAV', plain: '网络分配向量：站点本地维护的倒计时，未到期时介质视为忙' },
+    { term: 'virtual carrier sense', plain: '依据其他站点在帧中通告的时长判定介质忙，而不是依据本机检测到的信号' },
   ],
-  picture: [
-    { heading: '仅靠侦听信道会遗漏什么', text: '侦听只回答一个问题：此刻空口上是否有能量？帧仍在发送时这就足够，但在帧发送完之后的停顿里就不够了——那时空口确实空闲，交互却尚未结束。而当下一帧将由房间另一端、本机根本收不到的设备发出时，侦听同样不够。' },
-    { heading: '每一帧的帧头都携带一个时长值', text: '所以每一帧的前部都携带一个字段——持续时间（Duration/ID）——说明这一帧结束之后本次交互还需要多少时间。凡是解出这一帧的站点，都会用这个数启动一个倒计时，也就是网络分配向量（network allocation vector, NAV），包括那些并非接收方的站点。只要倒计时尚未到期，站点的行为就完全等同于“信道忙”。' },
-    { kind: 'watch', jump: 0, heading: '观察一次计时器被设置', text: '载入仿真，跳到第一次设置预约的位置。设置预约的是旁听站点，它是在对一帧与自己无关的数据帧作出响应：帧一结束，它的倒计时就开始。' },
-    { heading: '依据帧中的告知判忙', text: '这就是虚拟载波侦听（virtual carrier sense），即这条规则中与射频无关的那一部分。物理载波侦听（physical carrier sense）保护的是仍在空中的那一帧；帧头里的这个数保护的，是它之后的停顿和应答——恰恰是物理载波侦听覆盖不到的部分。' },
-    { heading: '只计入剩余部分', text: '注意这个数不包括什么：它自身所在的那一帧。这也没有必要——那一帧仍在空中时，所有站点的侦听本来就报“忙”。所以数据帧填写的只是那段停顿加上确认帧（acknowledgement, ACK）的时长；同一次交互中越靠后的帧，填写的剩余时长就越短。' },
-    { heading: '已经冻结，却不知道要冻结多久', text: '一个正在进行退避计数的站点，在有帧开始时立即暂停，而此时它并不知道这次中断会持续多久。它从帧头的持续时间字段读出这一帧结束之后还需要预留多长时间（这一帧本身有多长，写在物理层（physical layer, PHY）头部里）；只有当整帧都被解出，它才能信任那个数，并设置自己的倒计时。这段等待的大部分时间里，它都不知道等待何时结束——而预约到期后，它还要再等待一个分布式帧间间隔（DCF interframe space, DIFS）才轮到自己。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '44 µs 的组成', head: [
-      '组成', '时长', '出处',
-    ], rows: [
-      ['应答之前的停顿', '16 µs', '§17.4.4'],
-      ['应答本身：14 个字节，按控制回应规则确定的 24 Mb/s', '28 µs', '§17.4.3'],
-      ['数据帧填写的值', '44 µs', '§9.2.4.2'],
-      ['应答填写的值', '0 µs', '交互到此结束'],
+  standard: [
+    { heading: '两种载波侦听（§10.3.2.1）', text: '介质的忙闲由物理载波侦听与虚拟载波侦听共同决定：任何一个报忙，介质就视为忙，否则视为空闲。物理载波侦听由物理层（physical layer, PHY）提供；虚拟载波侦听就是 NAV，每个媒体访问控制（medium access control, MAC）层都必须提供。NAV 依据帧中通告的持续时间，预测介质今后的占用情况。' },
+    { heading: 'Duration/ID 字段（§9.2.4.2，表 9-9）', text: 'Duration/ID 字段长 2 个八位组。用作持续时间时，最高位为 0，其余 15 位给出以微秒为单位的整数，取值 0 到 32 767。算出的时长含有不足 1 µs 的部分时，向上取整（§9.3.2.1.5）。' },
+    { heading: '数据帧与确认帧各填多少（§9.3.2.1.5，§9.3.1.4）', text: '不支持服务质量的站点发出的数据帧，若发给单个站点、「更多分片」位为 0，Duration 等于发送一个确认帧所需的时间加一个 SIFS，确认帧的速率按 §10.6 的规则确定；组播数据帧的 Duration 为 0。回复这样一帧的确认帧，Duration 为 0。' },
+    { heading: '确认帧的速率（§10.6.6.5.2）', text: '在非 HT 格式中发送的确认帧，主速率取基本速率集（BSSBasicRateSet）中不高于前一帧速率的最高速率；基本速率集中没有这样的速率时，取物理层强制速率（mandatory rate）中不高于前一帧速率的最高速率。20 MHz 信道的强制速率是 6、12、24 Mb/s（表 17-23）。' },
+    { heading: 'NAV 怎样更新（§10.3.2.4）', text: '站点在一次接收中收到至少一帧后，可以用其中任何有效的 Duration 更新 NAV：帧的接收端地址等于本站地址时，不更新；对其余的帧，收到的 Duration 大于当前 NAV 时才更新。更新在物理层报告接收结束（PHY-RXEND.indication）时进行。HE 站点维护两个 NAV，按 §26.2.4 分别更新。' },
+    { heading: 'NAV 与退避（§10.3.3，§10.3.4.3）', text: '介质忙既可以由物理载波侦听报出，也可以由 NAV 报出。退避中的站点只在一个时隙（slot time）内介质始终空闲时才把计数减一；介质忙过之后，站点要等介质连续空闲一个 DIFS，才继续退避。' },
+    { kind: 'steps', heading: '一次数据帧交换中的 NAV，按标准：逐步说明', items: [
+      '发送方在帧头的 Duration 字段里写入这一帧结束之后还需要的时间：单播数据帧写入一个 SIFS 加一个确认帧的时长，向上取整到微秒（§9.3.2.1.5）。',
+      '其他站点正确收到这一帧，发现接收端地址不是自己，于是在接收结束时比较：帧中的 Duration 大于当前 NAV，就把 NAV 设为它（§10.3.2.4）。',
+      'NAV 未到期期间，介质视为忙，不论物理载波侦听的结果如何（§10.3.2.1）；退避计数不再递减（§10.3.4.3）。',
+      '接收方在一个 SIFS 之后回复确认帧，Duration 为 0（§9.3.1.4）；0 不大于任何 NAV，不引起更新。',
+      'NAV 到期、物理载波侦听也报空闲之后，站点等介质连续空闲一个 DIFS，再继续退避（§10.3.3）。',
     ] },
-    { heading: '每一次都是同一个值', text: '本轮仿真中 576 个数据帧填写的都是同一个 44 µs，而旁听站点的倒计时恰好在应答结束的那一纳秒到期——513 次无一例外。' },
+  ],
+  implementation: [
+    { topic: '数据帧的 Duration', standard: '一个 SIFS 加一个确认帧的时长（§9.3.2.1.5）', sim: '照此：16 µs 的 SIFS 加 28 µs 的确认帧，本课场景里 200 ms 内的 576 个数据帧都写 44 µs。', kind: 'faithful' },
+    { topic: '确认帧的 Duration', standard: '0（§9.3.1.4）', sim: '照此写 0；NAV 只在 Duration 大于 0 时更新。', kind: 'faithful' },
+    { topic: '确认帧的速率', standard: '基本速率集中不高于前一帧速率的最高速率，没有时取强制速率（§10.6.6.5.2）', sim: '本仿真器没有基本速率集，相当于取空集：一律在强制速率 6、12、24 Mb/s 中取不高于前一帧速率的最高一档。本课 576 个数据帧中 546 个以 54 Mb/s、30 个以 48 Mb/s 发送，确认帧都是 24 Mb/s、14 个字节、28 µs。', kind: 'value' },
+    { topic: 'Duration 的单位与取整', standard: '以微秒为单位的整数，向上取整，最大 32 767（§9.2.4.2，§9.3.2.1.5）', sim: '本仿真器以纳秒整数记录 Duration，不取整到微秒，也不检查上限；NAV 在全局事件队列的那一纳秒到期，全场时钟一致。本课的时长恰好都是整微秒，所以数值与取整后相同。', kind: 'differs' },
+    { topic: '哪些帧更新 NAV', standard: '接收端地址不是本站、且 Duration 大于当前 NAV（§10.3.2.4）', sim: '照此：正确解出、发给别的站点的帧才更新 NAV，新的到期时刻晚于当前到期时刻才采用。', kind: 'faithful' },
+    { topic: '何时更新', standard: '在接收结束时，用有效的帧（§10.3.2.4）', sim: '照此：在整帧解出的时刻更新；校验失败的帧不更新 NAV。', kind: 'faithful' },
+    { topic: '介质忙的判定', standard: '物理载波侦听或 NAV 任一报忙（§10.3.2.1）', sim: '照此：空闲信道评估（clear channel assessment, CCA）报忙，或 NAV 未到期，两者满足其一即为忙。', kind: 'faithful' },
+    { topic: 'NAV 与退避', standard: '介质忙时计数不递减，忙过之后先等 DIFS（§10.3.3，§10.3.4.3）', sim: '照此：NAV 一设置，正在递减的计数立即冻结，正在等待的帧间间隔作废；NAV 到期时若侦听为空闲，就开始等 DIFS。', kind: 'faithful' },
+    { topic: 'HE 站点的两个 NAV', standard: '非接入点（access point, AP）的 HE 站点维护本基本服务集（basic service set, BSS）内的 NAV 与基本 NAV 两个计时器（§26.2.4）；HE 格式的帧在物理层头部携带的 TXOP_DURATION 也可以更新 NAV（§10.3.2.4）', sim: '未实现：每台站点只有一个 NAV，只从帧中的 Duration 更新。一个场景也只能有一个接入点，编辑器拒绝第二个，所以邻居网络的帧设置的 NAV 在这里无法复现。', kind: 'absent' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '一段长时间冻结的分解',
-      spec: navTiming(),
-      caption: 'A 在 498 µs 冻结，当时它只知道信道忙。三段合计 326 µs。第一段 248 µs 是 B 那一帧在空中，A 自己的侦听就报忙；中间 44 µs 由 B 的预约覆盖，其中前 16 µs 空口空闲、只有预约阻止 A 发送，后 28 µs 是接入点（access point, AP）的确认帧，A 的侦听再次报忙；最后 34 µs 才是真正的空闲。到 824 µs 之后，A 的退避（backoff）计数从 3 继续——那是空口变忙时它尚未完成的空闲时隙（slot time）数。',
+      heading: '第一次设置 NAV',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一次设置 NAV 的时刻。',
+        '读出是哪台站点、因为哪一帧设置了 NAV，以及 NAV 设到什么时刻。',
+      ],
+      expect: 'Talker A 在 746 µs 解出 Talker B 发给接入点的数据帧，把 NAV 设到 790 µs，即 44 µs 之后；这一帧的接收端地址不是 Talker A。',
+      meaning: 'NAV 由发给别人的帧设置（① §10.3.2.4，② 照标准）；44 µs 是 B 在 Duration 里写入的时长。',
     },
-    { kind: 'steps', heading: '从帧头中的一个字段到一台站点的冻结', items: [
-      '发送方在发送之前先计算：这一帧结束之后还剩哪些部分——一段停顿加上应答的空口时间（airtime），这里是 16 + 28 = 44 µs——再把这个数写入帧头的 Duration 字段。',
-      '结束一次交互的那一帧，填写的是“后续没有帧”。确认帧携带的就是 0 µs；而值为零的 Duration 不会为任何站点设置计时器。',
-      '一台完整解出这一帧、并发现接收方是其他站点的站点，会算出一个时刻：这一帧结束的时刻加上它所填写的 Duration。',
-      '只有当这个时刻晚于它当前倒计时的到期时刻时，它才采用。一帧可以把一项预约推迟，却永远不能把它提前。',
-      '设置这个倒计时之后的处理，与侦听到能量时完全相同：正在进行的退避计数冻结在当前值，正在等待的帧间间隔作废，这次尝试被标记为“推迟过”。',
-      '从这一刻起，直到它所设置的时刻为止，站点对介质（medium）的判定一律是“忙”，无论侦听结果如何。忙 = 侦听为忙，或者倒计时尚未到期——两者满足其一即可。',
-      '到达那个时刻，倒计时解除。如果此时侦听结果为空闲，站点就开始等待它的帧间间隔，并从冻结时的值恢复接入。预约还有两种提前解除的方式，留到后面的课讲解。',
-    ] },
-  ],
-  deeper: [
-    { heading: '站点从不掌握时间表', text: '326 µs 这个总数，最早要到 746 µs 才能算出，而那时等待本身已经过去了 248 µs，约四分之三。即使算出，这个数也是有条件的：最后那 34 µs 内若又有一帧开始，它只会继续增大。站点没有任何时间表，只有一个不断修正的下界——“最早可能在 ___ 恢复”——每发生一个事件就重新计算一次；在整段冻结期间，它唯一确定的数值是冻结时的那个计数。' },
-  ],
-  limits: [
-    { kind: 'unmodelled', text: '预约只能来自一帧被完整解出的结果：引擎没有部分解码，所以整帧一旦接收失败，它携带的 Duration 也随之丢失（mac.ts 只在 onRxOk 里调用 updateNav）。真实帧格式把 Duration 放在帧头最前面的四个八位组里，即使整帧最终校验失败，接收端往往已经读出了这个数——因此它比这里更不容易因干扰而丢失。' },
-    { kind: 'unmodelled', text: '这个倒计时是理想化的：durationFieldNs 是一个纳秒整数，倒计时由全局事件队列在那一纳秒解除。真实的 Duration/ID 是 15 位、以微秒为单位、要向上取整，最大只能表示 32 767 µs，而且依据站点自身存在偏差的时钟计时——「恰好在应答结束的那一纳秒到期，513 次无一例外」是这个模型的性质，不是空口的性质。' },
-    { kind: 'out-of-scope', text: '每台站点只有一个 NAV：引擎不区分 Wi-Fi 6 之后的 intra-BSS NAV 与 basic NAV，而且一个场景只有一个接入点——第二个接入点不是被忽略，而是被拒绝：scenario.ts 的校验会直接报错。所以「邻居网络的一帧为本机设置了一个本不应有的预约」这种情况——空间复用要解决的正是它——在这里无法复现。' },
-    { kind: 'unmodelled', text: '「忙」在这里只有两个来源：侦听为忙，或倒计时未到期（mac.ts 的 mediumBusy）。真实设备还会根据 L-SIG 中的长度在物理层推迟发送，还有 Wi-Fi 6 的空间复用——后者允许在其他站点的预约期间以更低的功率照常发送。这两条都没有建模，所以本课那句「两者满足其一即可」在这里是全部条件，在真实设备上只是其中两条。TXOP 保护则已建模，而它使用的正是这个倒计时：一次预约覆盖整个突发（节点上的 txopProtection，mac.ts 把剩余时长写入 Duration），后面的课会详细分析。' },
-    { kind: 'model-value', text: '44 µs 里的 28 µs 来自本仿真器的 ACK 速率规则与前导码取值，换一套 PHY 取值这个数就会改变。而 Duration 是发送端自行计算的一个声明值，引擎从不校验其正确性——编辑器的「NAV 灌水」一项就是让一台设备的驱动多填时长、无端占用空口；真实网络中同样没有任何设备校验它，这也正是它被滥用的原因。' },
+    {
+      heading: '44 µs 的组成',
+      steps: [
+        '载入本课场景，运行 200 ms。',
+        '把鼠标移到任一数据帧上，读出它的 Duration；再读出紧随其后的确认帧的长度、速率与 Duration。',
+        '在 Listener 的泳道里任选一条 NAV，核对它的到期时刻与确认帧的结束时刻。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '44 µs 的组成', head: ['组成', '时长', '出处'], rows: [
+          ['应答之前的停顿（SIFS）', '16 µs', '§17.4.4'],
+          ['确认帧：14 个字节，24 Mb/s', '28 µs', '§17.4.3'],
+          ['数据帧填写的值', '44 µs', '§9.3.2.1.5'],
+          ['确认帧填写的值', '0 µs', '§9.3.1.4'],
+        ] },
+      ],
+      expect: '200 ms 内 576 个数据帧填写的都是 44 µs；确认帧都是 14 个字节、24 Mb/s、28 µs，Duration 都是 0。Listener 设置了 513 次 NAV，每一次都在确认帧结束的那一纳秒到期，没有一次由确认帧设置。',
+      meaning: '数据帧的 Duration 照 §9.3.2.1.5 计算（②）。NAV 恰好在纳秒上到期，是因为本仿真器以纳秒计、不取整，全场时钟一致（② Duration 的单位与取整）；真实设备以微秒计、向上取整，各自的时钟也有偏差。',
+    },
+    {
+      heading: '一段长冻结的分解',
+      jump: 0,
+      steps: [
+        '载入本课场景，用微秒按钮把 Talker A 从 498 µs 逐步推进到 824 µs。',
+        '每推进一步，说出 A 此刻处于三段等待中的哪一段：侦听为忙、只有 NAV 为忙、DIFS。',
+      ],
+      blocks: [
+        {
+          kind: 'diagram', heading: '一段长冻结的分解',
+          spec: navTiming(),
+          caption: 'A 在 498 µs 冻结，三段合计 326 µs：第一段 248 µs 是 B 的数据帧在空中，中间 44 µs 由 NAV 覆盖，最后 34 µs 是 DIFS。',
+        },
+      ],
+      expect: 'A 在 498 µs 冻结，计数为 3。中间那 44 µs 里，前 16 µs 空口空闲、A 自己的侦听也报空闲，后 28 µs 是接入点的确认帧。到 824 µs 之后，计数从 3 继续，三个时隙之后 A 发送。',
+      meaning: '中间那 16 µs 是物理载波侦听覆盖不到、只由 NAV 覆盖的部分（① §10.3.2.1）。A 冻结时并不知道要等多久：要到 746 µs 解出 B 的帧，才得到最早何时恢复的下界。',
+    },
   ],
   sources: [
-    'IEEE Std 802.11-2024 的 §10.3.2.4 给出 NAV 的更新规则：站点正确收到一帧不是发给自己的帧时，把 NAV 设为“当前值”与“帧结束时刻加 Duration”中较晚的那个。',
-    'Duration 字段本身，以及“它是从当前帧结束起算、以微秒为单位的一段时间”这一含义，见 §9.2.4.2。',
-    '248 µs 的帧、28 µs 的确认帧，以及图中引用的每一个时刻，都是本仿真器的场景，可以通过随机种子复现，并非取自标准正文。',
+    'IEEE Std 802.11-2024：§10.3.2.1（物理与虚拟载波侦听）、§9.2.4.2 与表 9-9（Duration/ID 字段的编码）、§9.3.2.1.5（不支持服务质量的站点发出的数据帧的 Duration）、§9.3.1.4（确认帧的 Duration）、§10.3.2.4（NAV 的设置与复位）、§10.6.6.5.2 与表 17-23（控制回应帧的速率、强制速率）、§10.3.3 与 §10.3.4.3（退避）、§26.2.4（HE 站点的两个 NAV）、§17.4.4（aSIFSTime 16 µs、aSlotTime 9 µs）、§17.4.3（发送时间的计算）。',
+    '本仿真器的取值与取法：不设基本速率集、以纳秒计的 Duration 与 NAV、每台站点一个 NAV。图中 248 µs 的帧、28 µs 的确认帧以及每一个时刻都来自本课场景的运行，可由随机种子复现，并非取自标准正文。',
   ],
+  limits: [],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
     node('sta-1', 'Talker A', 'sta', 3.5, 5, 'nonht', 'saturated'),
@@ -131,33 +153,38 @@ export const nav: Lesson = {
   jumps: [
     J('第一次设置 NAV', firstNav),
   ],
-  observe: [
-    '泳道下方那些细长的紫色条就是倒计时。它们恰好在应答结束的时刻到期——在旁听站点的 513 条中任选一条核对，结果都相同。',
-    '在一帧与它的应答之间的间隙暂停：空口空闲，旁听站点自己的侦听也报空闲——但它仍然不发送。',
-  ],
-  tryThis: [
-    '用微秒按钮把 A 从 498 µs 逐步推进到 824 µs，每推进一步就说出：它此刻处于三段等待中的哪一段。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '站点为自己的倒计时设置的究竟是什么？',
+      q: '站点用来更新 NAV 的是什么？',
       options: [
         '它测得的信号强度',
-        '任何它正确解出、而且不是发给自己的帧里的 Duration',
+        '它正确收到、而且接收端地址不是自己的帧里的 Duration',
         '一个随机的等待时间',
       ],
       answer: 1,
-      explain: '这一帧必须先被完整解出——接收端没有读出的数没有任何意义。至于是否为接收方，则没有要求。',
+      explain: '§10.3.2.4：帧必须被正确收到；接收端地址等于本站地址时不更新，对其余的帧，Duration 大于当前 NAV 才更新。',
     },
     {
-      q: '数据帧填写的那个数，为什么不包括这一帧自身？',
+      q: '数据帧填写的 Duration，为什么不包括这一帧自身？',
       options: [
         '因为发送方不知道自己这一帧有多长',
-        '因为这一帧还在空中时，普通的侦听本来就报“忙”',
+        '因为这一帧还在空中时，物理载波侦听本来就报忙；Duration 覆盖的是这一帧结束之后的部分',
         '因为那个字段太短，无法容纳这个数',
       ],
       answer: 1,
-      explain: '这个字段的作用，正是覆盖侦听覆盖不到的部分：那段空闲的停顿，以及一个可能来自本机收不到的设备的应答。',
+      explain: '§9.3.2.1.5 规定 Duration 是一个确认帧加一个 SIFS 的时长：正是侦听覆盖不到的停顿，以及可能来自本机收不到的设备的应答。',
+    },
+    {
+      q: '哪一项是本仿真器与标准不同的地方？',
+      options: [
+        '数据帧的 Duration 等于一个 SIFS 加一个确认帧的时长',
+        'Duration 以纳秒记录、不向上取整到微秒',
+        '接收端地址是自己的帧不更新 NAV',
+      ],
+      answer: 1,
+      explain: '标准的 Duration 是以微秒为单位、向上取整的整数（§9.2.4.2）；本仿真器以纳秒记录。另外两项都照标准。',
     },
   ],
 }

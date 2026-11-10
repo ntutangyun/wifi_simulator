@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  SECTIONS, cellTexts, lessonStrings, lessonTexts, mainPathChars, paragraphTexts, zhChars,
+  RETIRED_SECTIONS, SECTIONS, cellTexts, lessonStrings, lessonTexts, mainPathChars, paragraphTexts, zhChars,
   type LessonText, type Role, type Section,
 } from '../../src/course/readability'
 import { type Block, type Lesson } from '../../src/course/lessonKit'
@@ -301,26 +301,28 @@ describe('lessonTexts · the census over the whole course', () => {
   })
 
   it('sees every section, which a walk that stopped seeing a block kind would not', () => {
-    // `body` is the exception and it is bookkeeping, not a hole: the old flat shape
-    // finished migrating on 2026-10-02, so no lesson has one left.
-    //
-    // **This is also the record of that migration, and the reason `'body'` is still a member of
-    // five section lists** (`LESSON_STRING_SECTIONS`, `MAIN_PATH_SECTIONS`, the graded-prose
-    // list, `SECTION_OF`, `SECTION_KEY`) while contributing nothing: those memberships are
-    // provably inert — `mainPathChars` is identical with `'body'` struck out of
-    // `MAIN_PATH_SECTIONS`, lesson for lesson, all 87 — and `docs/inert-config-contract.md`'s
-    // two outcomes for that shape are refuse or pin. Deleting the field is the other slice (it
-    // moves `lessonKit.ts`, `readability.ts` in five places, `curriculum.ts`'s `lessonBlocks`
-    // fallback and `blocksOf` below); keeping it costs the two lines here, and they are what
-    // makes the memberships safe rather than merely harmless. The second assertion is the
-    // stronger of the two and the one that is literally the sentence: `count` is zero for a
-    // lesson carrying `body: []` as well, and the field itself is what the lists react to.
+    // **Rewritten 2026-11-11.** This used to demand that every section but `body` appear in some
+    // lesson's walk, and to pin `body` at zero as the record of the 2026-10-02 migration. The
+    // standard-first restructure retired six more sections (`picture`, `numbers`, `deeper`,
+    // `limits`, `observe`, `tryThis`), so "every section is somewhere" became false by design.
+    // Exempting them one by one would have left a check that no longer says what the course is;
+    // instead the split is named once, as `RETIRED_SECTIONS` in readability.ts, and both halves
+    // are asserted: a retired section has exactly zero strings in the whole course (the fields
+    // are still in the type, so the walk would see them the moment a lesson filled one), and
+    // every live section has some.
     const withBody = ordered.filter((l) => l.body !== undefined).map((l) => l.id)
     expect(withBody, 'the flat `body` shape finished migrating; these lessons went back to it')
       .toEqual([])
     for (const s of SECTIONS) {
-      if (s === 'body') { expect(count(s), 'body').toBe(0); continue }
+      if (RETIRED_SECTIONS.includes(s)) {
+        expect(count(s), `${s} was retired on 2026-11-11 and is back in some lesson's walk`).toBe(0)
+        continue
+      }
       expect(count(s), `${s} is in no lesson's walk`).toBeGreaterThan(0)
+    }
+    // Non-vacuity of the split itself: the three standard-first sections are live, not retired.
+    for (const s of ['standard', 'implementation', 'labs'] as const) {
+      expect(RETIRED_SECTIONS, s).not.toContain(s)
     }
   })
 
@@ -330,12 +332,11 @@ describe('lessonTexts · the census over the whole course', () => {
     expect(count('outcomes')).toBe(sum((l) => l.outcomes!.length))
     expect(count('terms')).toBe(sum((l) => l.terms!.length))
     expect(count('sources')).toBe(sum((l) => l.sources!.length))
-    expect(count('observe')).toBe(sum((l) => l.observe.length))
-    expect(count('tryThis')).toBe(sum((l) => l.tryThis.length))
-    // `kind` is a discriminant and `until`/`seeAlso` are ids, so a limit is one string.
-    // This is the assertion that fires if `Limit` ever grows a second prose field —
-    // the thing `lessonKit.ts` used to ask the next author to remember.
-    expect(count('limits')).toBe(sum((l) => l.limits.length))
+    // `observe`, `tryThis` and `limits` used to be counted here; they were retired on 2026-11-11
+    // and the `it` above pins each at zero. Their successor in the standard-first shape:
+    // an `implementation` row is three strings — `topic`, `standard`, `sim`; `kind` is a
+    // discriminant. This fires if `ImplItem` grows a fourth prose field.
+    expect(count('implementation')).toBe(sum((l) => 3 * (l.implementation ?? []).length))
     expect(count('variantLabel')).toBe(sum((l) => (l.variants ?? []).length))
     expect(count('jumpLabel')).toBe(sum((l) => l.jumps.length))
     // a quiz is its question, its options and its explanation; `answer` is an index
@@ -365,8 +366,10 @@ describe('lessonTexts · the census over the whole course', () => {
     // 6 443 on 2026-11-10, after the standard-first restructure of 34 UWB lessons: each
     // ① standard item and each lab step is its own prose string, so the count rose by design.
     // Bound raised 6 000 → 7 000, headroom kept modest.
+    // 8 495 on 2026-11-11, when the 57 Wi-Fi/AMP lessons took the same shape: every lesson now
+    // has ② rows (three prose strings each) and ③ lab steps. Re-measured; bound 7 000 → 9 500.
     expect(role('prose')).toBeGreaterThan(4500)
-    expect(role('prose')).toBeLessThan(7000)
+    expect(role('prose')).toBeLessThan(9500)
     expect(role('prose') + role('label') + role('figure') + role('value') + role('cell')).toBe(all.length)
   })
 
@@ -437,14 +440,17 @@ describe('lessonTexts · the census over the whole course', () => {
    */
   it('keeps every lesson inside a band of its section’s own mean, and says which lesson', () => {
     // LAYER 1. No written number: `lo` and `hi` are the section's own mean over the lessons
-    // that HAVE the section, divided and multiplied by six. Today's widest real spreads are
-    // `@rate`'s `deeper` at 0.21× and `@ru-diversity`'s `limits` at 3.87×, so a sixth and six
-    // times clear both ends while still catching a section that collapsed to a stub.
+    // that HAVE the section, divided and multiplied by six. The widest real spreads among the
+    // graded prose sections, measured 2026-11-11 after the standard-first restructure, are
+    // `terms` at 0.25× and `labs` at 2.22× (before it they were `@rate`'s `deeper` at 0.21× and
+    // `@ru-diversity`'s `limits` at 3.87×, both sections now retired), so a sixth and six times
+    // clear both ends while still catching a section that collapsed to a stub.
     //
-    // **Optional sections are graded only where they exist.** `deeper` is in 73 of 88 lessons,
-    // `limits` in 86 (the two paused AMP lessons carry an empty array by the contract's own
-    // exemption) and `variantLabel` in 65. Grading a lesson that does not have the section
-    // would be a floor failing on a legitimate absence, which is a false red, not a rule.
+    // **Optional sections are graded only where they exist.** `variantLabel` is in 70 of 91
+    // lessons. Grading a lesson that does not have the section would be a floor failing on a
+    // legitimate absence, which is a false red, not a rule. The seven retired sections
+    // (`RETIRED_SECTIONS`) exist nowhere; the census above pins them at zero and they are
+    // skipped here rather than asserted to have a mean.
     const FACTOR = 6
     // **The three LABEL sections get the ceiling only**, and the line is the one this file
     // already draws: `title`, `variantLabel` and `jumpLabel` are exactly the sections whose
@@ -461,15 +467,16 @@ describe('lessonTexts · the census over the whole course', () => {
     //  - `title`: a title is a name too. `@uwb-coexist`'s is two Han characters. The
     //    chrome-reach rule in `readability.test.ts` is what grades titles.
     //
-    // The eleven PROSE sections keep both bounds. Their thinnest floor is `@rate`'s `deeper`
-    // at 76 against 60.9 — 15 characters, or 20 %, which is a margin rather than a coincidence,
-    // and a `deeper` that fell under it really would be a stub.
+    // The eight live PROSE sections keep both bounds (`why`, `outcomes`, `terms`, `standard`,
+    // `implementation`, `labs`, `sources`, `quiz`). Their thinnest floor, 2026-11-11, is `terms`
+    // at 26 against 17.3 — a margin of half again, and a glossary that fell under it really
+    // would be a stub.
     const CEILING_ONLY: readonly Section[] = ['title', 'variantLabel', 'jumpLabel']
 
     const offenders: string[] = []
     let graded = 0
     for (const s of SECTIONS) {
-      if (s === 'body') continue // the migrated-away shape; the `it` above pins it at zero
+      if (RETIRED_SECTIONS.includes(s)) continue // no lesson has it; the census pins it at zero
       const per = ordered
         .map((l) => ({ id: l.id, texts: lessonTexts(l).filter((t) => t.section === s) }))
         .filter((x) => x.texts.length > 0)
@@ -495,11 +502,12 @@ describe('lessonTexts · the census over the whole course', () => {
     // Anti-vacuity: this loop has graded every section of every lesson, not an empty list.
     // 1 141 pairs on 2026-10-08 — a floor rather than the figure, because the figure is a
     // product of two counts that both move, which is the shape this `describe` just retired.
+    // 980 on 2026-11-11: eleven live sections × 91 lessons, less the 21 lessons with no variants.
     expect(graded, 'the per-lesson walk graded almost nothing').toBeGreaterThan(900)
   })
 
   it('holds each section’s mean per lesson, which is the layer that sees a course-wide shrink', () => {
-    // LAYER 2. **These fourteen are the only written numbers left in this `describe`, and they
+    // LAYER 2. **These (fourteen until 2026-11-11, eleven since) are the only written numbers left in this `describe`, and they
     // are written because they are the ones that do NOT move when the course grows.** Each is
     // Han characters per lesson that HAS the section, measured 2026-10-08 at 88 lessons. A new
     // lesson moves one of them by under 2 % even when it is an outlier: `@link-2g` arrived with
@@ -542,12 +550,28 @@ describe('lessonTexts · the census over the whole course', () => {
     // `deeper` 366 → 300 (now means over the Wi-Fi/AMP lessons only, 57 and 44 of them — the
     // UWB lessons that carried long ones no longer have these sections); `sources` 232 → 186
     // (UWB citations moved into ① standard). The three new sections are not in this table.
+    // **2026-11-11, the whole course standard-first — a new baseline, recorded rather than
+    // widened.** The 57 Wi-Fi/AMP lessons took the same shape, so six rows of this table
+    // (`picture` 583, `numbers` 726, `deeper` 300, `limits` 592, `observe` 124, `tryThis` 114)
+    // were means over sections no lesson has any more: the walk emitted nothing and the check
+    // could only fail with 「no lesson has this section」. They are RETIRED, not set to zero —
+    // the census `it` above pins each at zero strings — and the three sections that replaced
+    // them join the table with their first measured means: `standard` 620, `implementation`
+    // 503, `labs` 780 (all 91 lessons). The surviving rows were re-measured over the new
+    // course the same day: `why` 383 → 347, `outcomes` 87 → 91, `terms` 102 → 104, `sources`
+    // 186 → 165 (Wi-Fi/AMP citations moved into ① standard), `quiz` 300 → 340 (questions now
+    // ask about the standard as well as the run), `variantLabel` 16 → 17, `jumpLabel` 26 → 24;
+    // `title` stays 12.
     const MEANS: readonly (readonly [Section, number])[] = [
-      ['title', 12], ['why', 383], ['outcomes', 87], ['terms', 102],
-      ['picture', 583], ['numbers', 726], ['deeper', 300], ['sources', 186],
-      ['limits', 592], ['observe', 124], ['tryThis', 114], ['quiz', 300],
-      ['variantLabel', 16], ['jumpLabel', 26],
+      ['title', 12], ['why', 347], ['outcomes', 91], ['terms', 104],
+      ['standard', 620], ['implementation', 503], ['labs', 780],
+      ['sources', 165], ['quiz', 340],
+      ['variantLabel', 17], ['jumpLabel', 24],
     ]
+    // Every live section is in the table, and no retired one: a section added to the walk
+    // without a recorded mean, or a retired one quietly given one back, both go red here.
+    expect(MEANS.map(([s]) => s).sort(), 'MEANS covers exactly the live sections')
+      .toEqual(SECTIONS.filter((s) => !RETIRED_SECTIONS.includes(s)).slice().sort())
     const TOLERANCE = 0.1
     for (const [s, recorded] of MEANS) {
       const per = ordered
@@ -575,7 +599,8 @@ describe('lessonTexts · the census over the whole course', () => {
     expect(all.length).toBeGreaterThan(9000)
     // 11 778 on 2026-11-10: the standard-first restructure of 34 UWB lessons split their
     // content into many shorter strings (① standard items, lab steps); 11 500 → 12 500.
-    expect(all.length).toBeLessThan(12500)
+    // 14 373 on 2026-11-11, the same restructure across the 57 Wi-Fi/AMP lessons; 12 500 → 15 500.
+    expect(all.length).toBeLessThan(15500)
   })
 
   it('leaves no string a reader reads empty, across every section', () => {
@@ -653,131 +678,120 @@ describe('lessonTexts · how many items each lesson holds', () => {
    * the structure and the other is a function of it, which is why layer 3 cannot stand in for this.
    */
   const COUNTED: readonly (readonly [string, (l: Lesson) => number])[] = [
-    ['observe', (l) => l.observe.length],
-    ['tryThis', (l) => l.tryThis.length],
+    ['standard', (l) => (l.standard ?? []).length],
+    ['implementation', (l) => (l.implementation ?? []).length],
+    ['labs', (l) => (l.labs ?? []).length],
     ['quiz', (l) => l.quiz.length],
     ['outcomes', (l) => l.outcomes!.length],
     ['terms', (l) => l.terms!.length],
     ['sources', (l) => l.sources!.length],
-    ['limits', (l) => l.limits.length],
     ['jumps', (l) => l.jumps.length],
   ]
 
   /**
-   * One line a lesson: [observe, tryThis, quiz, outcomes, terms, sources, limits, jumps].
+   * One line a lesson: [standard, implementation, labs, quiz, outcomes, terms, sources, jumps].
    *
-   * `limits` is 0 on `@amp-intro` and `@amp-ppdu`, and that is the contract's own exemption for
-   * the two paused AMP lessons — recorded here rather than left to be rediscovered. Layer 1 above
-   * grades `limits` only where it exists, and this is the list of where that is.
+   * **Re-pointed 2026-11-11.** Until then the first two columns were `observe` and `tryThis` and
+   * the seventh was `limits`. The standard-first restructure emptied all three in every lesson,
+   * so 273 of the table's 728 cells were zeros pinning sections that no longer exist — and
+   * tests/course/limits.test.ts now pins those empty on its own. They were replaced by the three
+   * sections that took their content: the number of ① standard blocks, ② implementation rows and
+   * ③ labs. The per-lesson history comments (re-pacing slices, the 2026-10-11 split of
+   * `uwb-ancillary`) went with the old columns; `git log -p` on this file has them. Every row was
+   * re-measured from the course the same day, not copied from a failure message.
    */
   const ITEMS: Record<string, readonly number[]> = {
-    'radio-primer':            [2, 2, 2, 3, 2, 2, 5, 2],
-    'noise-floor':             [2, 2, 2, 3, 2, 2, 4, 2],
-    'decode-thresholds':       [2, 2, 2, 3, 3, 3, 5, 2],
-    'mcs-ladder':              [2, 2, 2, 3, 2, 2, 6, 2],
-    'roles-stack':             [2, 1, 2, 3, 4, 3, 4, 2],
-    'relay-hops':              [2, 2, 2, 3, 1, 2, 4, 4],
-    'frame-anatomy':           [2, 1, 2, 4, 5, 3, 5, 2],
-    'frame-qos-fcs':           [2, 2, 2, 3, 2, 3, 4, 2],
-    'frame-anatomy-bytes':     [2, 2, 3, 4, 5, 3, 8, 2],
-    'small-frames':            [2, 2, 2, 4, 2, 3, 5, 3],
-    'airtime':                 [4, 2, 3, 3, 2, 4, 5, 2],
-    'ifs':                     [2, 1, 2, 3, 3, 3, 4, 3],
-    'cca':                     [2, 1, 2, 3, 3, 3, 5, 3],
-    'backoff':                 [2, 1, 2, 3, 2, 3, 4, 1],
-    'collisions-cw':           [2, 1, 2, 3, 3, 3, 4, 3],
-    'nav':                     [2, 1, 2, 3, 3, 3, 5, 1],
-    'hidden':                  [2, 1, 2, 3, 1, 3, 5, 1],
-    'rts-cts':                 [1, 1, 2, 3, 3, 3, 5, 1],
-    'anomaly':                 [3, 2, 2, 3, 3, 3, 5, 1],
-    'retries-queues':          [2, 1, 2, 3, 2, 3, 4, 3],
-    'queues':                  [2, 1, 2, 3, 2, 3, 4, 3],
-    'bianchi':                 [3, 2, 3, 3, 3, 3, 4, 4],
-    'bianchi-vs-sim':          [2, 2, 3, 3, 2, 3, 4, 4],
-    'rate-vs-model':           [2, 2, 2, 3, 2, 3, 4, 4],
-    'tier1-project':           [3, 2, 2, 4, 4, 3, 4, 4],
-    'tier1-project-review':    [3, 2, 2, 4, 1, 4, 4, 4],
-    'edca':                    [2, 1, 2, 2, 3, 3, 4, 2],
-    'edca-cost':               [2, 1, 3, 3, 1, 3, 4, 2],
-    'ampdu':                   [2, 2, 2, 3, 3, 2, 5, 2],
-    'txop':                    [2, 2, 3, 3, 2, 3, 4, 3],
-    'txop-protect':            [2, 1, 2, 3, 1, 3, 4, 2],
-    'protect-policies':        [2, 1, 2, 3, 2, 4, 4, 2],
-    'edca-tamper':             [3, 2, 3, 3, 3, 4, 4, 3],
-    'width':                   [2, 2, 2, 3, 4, 3, 6, 2],
-    // terms 4 → 5 on 2026-10-11: the `margin` row, for the 余量 a reader asked about.
-    'selectivity':             [2, 2, 2, 4, 5, 4, 4, 3],
-    'streams':                 [3, 2, 2, 3, 2, 4, 4, 2],
-    'rate':                    [3, 2, 2, 4, 2, 3, 4, 3],
-    'rate-fallback':           [3, 2, 2, 3, 2, 3, 4, 3],
-    'rate-cost':               [2, 2, 2, 3, 2, 3, 3, 3],
-    'fading':                  [2, 2, 2, 3, 4, 4, 4, 3],
-    'ofdma-dl':                [2, 2, 2, 3, 4, 4, 8, 2],
-    'ru-diversity':            [2, 2, 2, 3, 5, 5, 8, 3],
-    'ofdma-ul':                [2, 2, 2, 3, 3, 5, 6, 2],
-    'mumimo':                  [2, 1, 2, 3, 3, 4, 4, 3],
-    'mumimo-choose':           [2, 1, 2, 3, 3, 3, 3, 3],
-    'mlo':                     [2, 1, 2, 3, 3, 3, 4, 2],
-    'mlo-gain':                [2, 2, 2, 3, 2, 3, 4, 2],
-    'amp-intro':               [2, 1, 3, 3, 4, 4, 0, 5],
-    'amp-ppdu':                [2, 1, 3, 3, 6, 4, 0, 3],
-    'amp-slots':               [3, 2, 3, 4, 4, 4, 4, 5],
-    'amp-coexist':             [3, 2, 3, 4, 4, 2, 4, 5],
-    'amp-backscatter':         [3, 2, 3, 4, 6, 4, 4, 5],
-    'wan-rtt':                 [3, 2, 2, 3, 3, 4, 4, 3],
-    'capstone':                [2, 3, 2, 4, 2, 3, 5, 4],
-    'link-2g':                 [3, 2, 2, 3, 3, 4, 4, 4],
-    'uhr-rate-ladder':         [3, 2, 2, 3, 3, 4, 5, 4],
-    'claim-to-contribution':   [3, 2, 2, 3, 3, 4, 4, 4],
-    'uwb-intro':               [0, 0, 3, 3, 4, 3, 0, 4],
-    'uwb-frame':               [0, 0, 3, 3, 6, 2, 0, 2],
-    'uwb-sts':                 [0, 0, 3, 3, 3, 3, 0, 4],
-    'uwb-sstwr':               [0, 0, 3, 3, 5, 2, 0, 3],
-    'uwb-dstwr':               [0, 0, 3, 3, 4, 2, 0, 4],
-    'uwb-reply-time':          [0, 0, 4, 3, 6, 3, 0, 4],
-    'uwb-deferred-ds':         [0, 0, 3, 3, 4, 3, 0, 2],
-    // standard-first since 2026-11-10 (uwb-blocks, uwb-slot-budget, uwb-coexist, uwb-rcm-validity):
-    // observe, tryThis and limits are 0 by design; jumps the labs do not use went with them.
-    'uwb-blocks':              [0, 0, 3, 3, 4, 2, 0, 3],
-    'uwb-slot-budget':         [0, 0, 3, 3, 2, 2, 0, 2],
-    'uwb-position':            [0, 0, 3, 3, 2, 3, 0, 5],
-    'uwb-geometry':            [0, 0, 3, 3, 3, 2, 0, 4],
-    'uwb-coexist':             [0, 0, 3, 3, 5, 3, 0, 3],
-    // standard-first since 2026-11-10: observe, tryThis and limits are 0 by design (labs and
-    // implementation carry them); the sit-out jump went with the sit-out.
-    'uwb-contention':          [0, 0, 4, 3, 3, 2, 0, 4],
-    // standard-first since 2026-11-10 (same reason as uwb-contention); terms +1 (RRMC/RRTI IEs of
-    // §10.32.6 joined, DL-TDoA's forward reference went with `deeper`), jumps kept are the labs' own.
-    'uwb-m2m':                 [0, 0, 4, 4, 5, 2, 0, 2],
-    'uwb-rcm-validity':        [0, 0, 4, 4, 4, 3, 0, 4],
-    // standard-first since 2026-11-10: the labs' two jumps kept; sp3's RAOA/RRTT row became the
-    // four-bit RAOA/RRT/RRTT/RTOF row and the ranging-initiation row folded into ①.
-    'uwb-receipt':             [0, 0, 4, 4, 4, 2, 0, 2],
-    'uwb-sp3':                 [0, 0, 4, 4, 4, 2, 0, 2],
-    // SPLIT 2026-10-11: was [3, 2, 4, 4, 5, 3, 4, 4] as one 31.12-raw-minute lesson. The halves
-    // keep all three `observe` and both `tryThis` entries between them (2+1 and 1+1), which is
-    // why the minute sum did not move; the fifth glossary row and three of the four quiz
-    // questions went with the half below.
-    // standard-first since 2026-11-10 (all three ancillary lessons): observe, tryThis and limits
-    // are 0 by design; every jump kept.
-    'uwb-ancillary':           [0, 0, 3, 3, 4, 2, 0, 3],
-    'uwb-ancillary-loss':      [0, 0, 3, 3, 2, 2, 0, 3],
-    'uwb-ancillary-request':   [0, 0, 3, 3, 4, 2, 0, 4],
-    'uwb-dl-tdoa':             [0, 0, 3, 3, 4, 2, 0, 4],
-    'uwb-ul-tdoa':             [0, 0, 3, 3, 4, 2, 0, 3],
-    // standard-first since 2026-11-10: observe, tryThis and limits are 0 by design.
-    'uwb-aoa':                 [0, 0, 3, 3, 4, 2, 0, 5],
-    'uwb-sensing':             [0, 0, 3, 3, 4, 3, 0, 3],
-    'uwb-sensing-resolution':  [0, 0, 3, 3, 3, 2, 0, 4],
-    'uwb-mms':                 [0, 0, 3, 3, 6, 3, 0, 5],
-    'uwb-mms-numbers':         [0, 0, 3, 3, 3, 4, 0, 4],
-    'uwb-nba':                 [0, 0, 3, 3, 5, 3, 0, 4],
-    'uwb-nba-coexist':         [0, 0, 3, 3, 4, 4, 0, 3],
-    'uwb-ssbd':                [0, 0, 3, 3, 5, 3, 0, 4],
-    'uwb-uwbd':                [0, 0, 2, 3, 4, 4, 0, 5],
-    'uwb-acquisition':         [0, 0, 2, 3, 4, 4, 0, 4],
-    'uwb-subrounds':           [0, 0, 2, 3, 4, 4, 0, 4],
-    'uwb-capstone':            [0, 0, 3, 3, 2, 3, 0, 4],
+    'radio-primer':            [5, 7, 3, 3, 3, 3, 2, 2],
+    'noise-floor':             [5, 6, 3, 2, 3, 3, 2, 2],
+    'decode-thresholds':       [6, 10, 3, 3, 3, 3, 2, 2],
+    'mcs-ladder':              [7, 7, 3, 3, 3, 2, 2, 2],
+    'roles-stack':             [6, 9, 3, 3, 3, 4, 2, 3],
+    'relay-hops':              [6, 9, 3, 3, 3, 2, 2, 2],
+    'frame-anatomy':           [9, 12, 3, 3, 4, 5, 2, 2],
+    'frame-qos-fcs':           [8, 7, 3, 3, 3, 2, 2, 4],
+    'frame-anatomy-bytes':     [4, 7, 3, 3, 4, 5, 2, 2],
+    'small-frames':            [8, 10, 3, 3, 4, 2, 2, 3],
+    'airtime':                 [5, 11, 4, 4, 3, 2, 4, 2],
+    'ifs':                     [5, 10, 3, 3, 3, 3, 3, 3],
+    'cca':                     [5, 8, 4, 3, 3, 3, 2, 3],
+    'backoff':                 [5, 8, 3, 3, 3, 2, 2, 1],
+    'collisions-cw':           [6, 10, 4, 3, 3, 3, 2, 3],
+    'nav':                     [7, 9, 3, 3, 3, 3, 2, 1],
+    'hidden':                  [7, 9, 4, 3, 3, 1, 2, 1],
+    'rts-cts':                 [7, 12, 3, 3, 3, 3, 2, 1],
+    'anomaly':                 [6, 7, 4, 3, 3, 3, 3, 1],
+    'retries-queues':          [7, 10, 3, 3, 3, 2, 2, 3],
+    'queues':                  [5, 9, 3, 3, 3, 2, 2, 3],
+    'bianchi':                 [7, 9, 4, 3, 3, 3, 3, 4],
+    'bianchi-vs-sim':          [5, 7, 4, 3, 3, 2, 3, 4],
+    'rate-vs-model':           [7, 9, 4, 3, 3, 2, 3, 4],
+    'tier1-project':           [8, 9, 5, 3, 4, 4, 4, 4],
+    'tier1-project-review':    [6, 8, 5, 3, 4, 1, 3, 4],
+    'edca':                    [5, 10, 3, 3, 3, 3, 2, 2],
+    'edca-cost':               [5, 9, 4, 3, 3, 1, 2, 2],
+    'ampdu':                   [6, 9, 3, 3, 3, 3, 2, 2],
+    'txop':                    [6, 9, 4, 3, 3, 2, 2, 3],
+    'txop-protect':            [6, 13, 4, 3, 3, 3, 2, 2],
+    'protect-policies':        [6, 10, 3, 3, 3, 2, 2, 2],
+    'edca-tamper':             [7, 14, 4, 3, 3, 3, 2, 3],
+    'width':                   [8, 12, 4, 3, 3, 4, 4, 2],
+    'selectivity':             [6, 9, 4, 3, 3, 5, 4, 2],
+    'streams':                 [5, 8, 3, 3, 3, 4, 3, 2],
+    'rate':                    [6, 7, 4, 3, 3, 3, 4, 2],
+    'rate-fallback':           [6, 9, 3, 3, 3, 2, 3, 3],
+    'rate-cost':               [5, 6, 3, 3, 3, 2, 3, 3],
+    'fading':                  [6, 9, 4, 3, 3, 4, 2, 3],
+    'ofdma-dl':                [8, 9, 4, 3, 3, 4, 2, 2],
+    'ru-diversity':            [7, 9, 4, 3, 3, 5, 2, 3],
+    'ofdma-ul':                [8, 12, 4, 3, 3, 3, 2, 2],
+    'mumimo':                  [7, 10, 3, 3, 3, 3, 2, 3],
+    'mumimo-choose':           [7, 10, 3, 3, 3, 3, 3, 3],
+    'mlo':                     [7, 12, 3, 3, 3, 3, 3, 3],
+    'mlo-gain':                [4, 7, 3, 3, 3, 2, 2, 2],
+    'amp-intro':               [9, 11, 3, 3, 3, 4, 3, 5],
+    'amp-ppdu':                [10, 13, 3, 3, 3, 6, 3, 3],
+    'amp-slots':               [8, 9, 3, 3, 4, 4, 3, 5],
+    'amp-coexist':             [9, 9, 3, 3, 4, 4, 3, 5],
+    'amp-backscatter':         [7, 13, 4, 3, 4, 6, 4, 5],
+    'wan-rtt':                 [6, 7, 4, 3, 3, 3, 3, 3],
+    'capstone':                [5, 11, 5, 3, 4, 2, 3, 4],
+    'link-2g':                 [10, 14, 5, 3, 3, 3, 2, 4],
+    'uhr-rate-ladder':         [7, 10, 4, 3, 3, 3, 3, 4],
+    'claim-to-contribution':   [7, 8, 4, 3, 3, 3, 4, 4],
+    'uwb-intro':               [6, 9, 3, 3, 3, 4, 3, 4],
+    'uwb-frame':               [6, 9, 3, 3, 3, 6, 2, 2],
+    'uwb-sts':                 [5, 8, 3, 3, 3, 3, 3, 4],
+    'uwb-sstwr':               [7, 10, 4, 3, 3, 5, 2, 3],
+    'uwb-dstwr':               [7, 10, 4, 3, 3, 4, 2, 4],
+    'uwb-reply-time':          [6, 9, 4, 4, 3, 6, 3, 4],
+    'uwb-deferred-ds':         [6, 8, 3, 3, 3, 4, 3, 2],
+    'uwb-blocks':              [6, 14, 5, 3, 3, 4, 2, 3],
+    'uwb-slot-budget':         [6, 12, 4, 3, 3, 2, 2, 2],
+    'uwb-position':            [4, 8, 3, 3, 3, 2, 3, 5],
+    'uwb-geometry':            [4, 7, 3, 3, 3, 3, 2, 4],
+    'uwb-coexist':             [5, 13, 5, 3, 3, 5, 3, 3],
+    'uwb-contention':          [5, 9, 4, 4, 3, 3, 2, 4],
+    'uwb-m2m':                 [5, 12, 5, 4, 4, 5, 2, 2],
+    'uwb-rcm-validity':        [6, 8, 5, 4, 4, 4, 3, 4],
+    'uwb-receipt':             [6, 11, 4, 4, 4, 4, 2, 2],
+    'uwb-sp3':                 [6, 14, 4, 4, 4, 4, 2, 2],
+    'uwb-ancillary':           [7, 12, 5, 3, 3, 4, 2, 3],
+    'uwb-ancillary-loss':      [5, 6, 4, 3, 3, 2, 2, 3],
+    'uwb-ancillary-request':   [5, 11, 5, 3, 3, 4, 2, 4],
+    'uwb-dl-tdoa':             [5, 10, 4, 3, 3, 4, 2, 4],
+    'uwb-ul-tdoa':             [5, 8, 3, 3, 3, 4, 2, 3],
+    'uwb-aoa':                 [6, 11, 4, 3, 3, 4, 2, 5],
+    'uwb-sensing':             [4, 8, 3, 3, 3, 4, 3, 3],
+    'uwb-sensing-resolution':  [5, 6, 3, 3, 3, 3, 2, 4],
+    'uwb-mms':                 [7, 12, 5, 3, 3, 6, 3, 5],
+    'uwb-mms-numbers':         [6, 9, 4, 3, 3, 3, 4, 4],
+    'uwb-nba':                 [5, 11, 5, 3, 3, 5, 3, 4],
+    'uwb-nba-coexist':         [7, 10, 4, 3, 3, 4, 4, 3],
+    'uwb-ssbd':                [6, 8, 4, 3, 3, 5, 3, 4],
+    'uwb-uwbd':                [5, 8, 3, 2, 3, 4, 4, 5],
+    'uwb-acquisition':         [6, 8, 4, 2, 3, 4, 4, 4],
+    'uwb-subrounds':           [6, 8, 4, 2, 3, 4, 4, 4],
+    'uwb-capstone':            [6, 8, 3, 3, 3, 2, 3, 4],
   }
 
   it('has one pinned row per lesson, and one lesson per pinned row', () => {
@@ -812,7 +826,7 @@ describe('lessonTexts · how many items each lesson holds', () => {
       + ' entries, not characters — so a red here is an entry added or removed. If that was on'
       + ` purpose, edit that lesson's row and say which entry in the commit message; a reader's`
       + ` experiment is not free.\n${offenders.join('\n')}`).toEqual([])
-    // Anti-vacuity: 89 lessons × 8 sections = 712 pairs. A floor rather than the figure, because
+    // Anti-vacuity: 91 lessons × 8 sections = 728 pairs on 2026-11-11 (712 when it was written). A floor rather than the figure, because
     // the figure is a product of two counts that both move — layer 1 states one for the same
     // reason.
     expect(graded, 'the item census graded almost nothing').toBeGreaterThan(600)

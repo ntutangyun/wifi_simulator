@@ -1,29 +1,22 @@
 /**
  * Wi-Fi Tier 2 · M10 · Scheduled Wi-Fi 6/7 · one device, two radios, two bands.
  *
- * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md,
- * §2 M10): this half is the mechanism — one pile of frames above, two radios
- * that contend on their own below — and the procedure by which a frame gets a
- * link. What the second link buys its owner and its neighbour, and what is left
- * of that once the neighbour has two radios too, is `mlo-gain`, which was three
- * tables each followed by a paragraph restating it (§5.3).
+ * Standard-first shape (2026-11-11, after lesson 70's template): ① what IEEE Std 802.11be-2024
+ * specifies for multi-link operation — the MLD and its affiliated STAs (§35.3.1, §5.1.5.1),
+ * independent channel access per link (§35.3.16.1, §35.3.16.3), the default TID-to-link mapping
+ * (§35.3.7.2), MLD-level sequence numbers and the one block ack agreement per TID (§10.3.2.14.2,
+ * §35.3.8), and retransmission on any mapped link (§35.3.16.9); ② how this engine does each of
+ * those, row by row; ③ three guided runs of the lesson's own scene.
  *
- * The door metaphor is gone with §5.2 (「从一扇门变成两扇门」,「第二扇门买到了什么」,
- * 「那扇安静的门」,「当所有人都有两扇门」): the `stack` figure draws it instead.
+ * The audit of this lesson found one wrong citation in the old prose: the per-link channel access
+ * was attributed to §35.3.7, which is link management (TTLM); the clause is §35.3.16.1.
  *
- * The procedure is read out of src/engine/ — the shared AcQueues of
- * src/engine/simulation.ts, the sibling wake of WifiMac.pokeAccess, the
- * claim/restore pair and the sequence counter of src/engine/queues.ts, and the
- * MAX_AMPDU_MPDUS / SHORT_RETRY_LIMIT constants of src/engine/phy.ts. Step 6
- * keeps BOTH branches of the failure path: at seven retries the frame is dropped
- * with reason `retryLimit` and dequeued; below it the set goes back to the front
- * of the shared queue. This scene's own 300 ms never reaches the drop, so that
- * branch is pinned against a synthetic copy of the scene — and the lesson says
- * so rather than implying the reader can watch it here.
- *
- * The scenario builder is unchanged and there are no variants, so the recorded
- * timeline hash in tests/fixtures/lesson-hashes.json stays byte-identical.
- * Every number quoted below is pinned in tests/course/mlo.test.ts.
+ * The procedure is read out of src/engine/ — the shared AcQueues of src/engine/simulation.ts, the
+ * sibling wake of WifiMac.pokeAccess, the claim/restore pair and the sequence counter of
+ * src/engine/queues.ts, and the MAX_AMPDU_MPDUS / SHORT_RETRY_LIMIT constants of
+ * src/engine/phy.ts. The scenario builder is unchanged and there are no variants, so the recorded
+ * timeline hash in tests/fixtures/lesson-hashes.json stays byte-identical. Every number quoted
+ * below is read back out of this file by tests/course/mlo.test.ts and compared with a run.
  */
 import { type Lesson, oneRoom, node, sc, txOf, first6g, J } from '../lessonKit'
 import { linkOfVirtual } from '../../model/caps'
@@ -33,10 +26,8 @@ import type { StackSpec } from '../diagram'
 export const LANE_FRAMES = { g5: 67, g6: 240 }
 
 /**
- * One pile of frames, two radios. The boxes are the two lanes' share of the
- * laptop's 307 data frames, so the figure says what the first table says: the
- * work went where the band was empty, and it went there without anyone
- * scheduling it.
+ * One pile of frames, two radios. The boxes are the two lanes' share of the laptop's 307 data
+ * frames: the work went where the band was empty, without anyone scheduling it.
  */
 export function mloStack(): StackSpec {
   return {
@@ -55,11 +46,11 @@ export const mlo: Lesson = {
   id: 'mlo',
   module: 9,
   title: 'MLO——一条队列，两台电台',
-  why: '一台电台一旦工作在某个频段上，它的发送就只能受这个频段上正在发生的一切约束。这个频段上的邻居繁忙，你的每一帧就必须排在它们之后——即使相邻的另一个频段一直空闲。Wi-Fi 7 允许一台设备同时让两台电台处于工作状态，分别工作在两个频段上，两台电台从同一组待发的帧里取帧。每台电台是一条链路（link），有自己的信道，各自侦听、各自进行退避（backoff）计数、各自重传（retry），没有一条比它所取代的那一台单电台更快；让两条链路同时运行，就是多链路操作（multi-link operation, MLO）。两条链路共享的只有一样东西：那组待发的帧，归整台设备所有，这一层称为多链路设备（multi-link device, MLD）。一帧只入队一次，入在设备这一层；哪条链路先在自己的信道上将退避计数减到零，就把队首那一批帧取走，取走就是从队列（queue）中移除，另一条链路此后看不到它们。所谓选择链路，全部内容就是这一步：没有任何调度，也没有任何测量。序号（sequence number）随共享的队列分配，所以两条链路绝不会把同一个序号分配给两个不同的帧；一批帧没有收到确认，就退回共享队列的队首，重传由下一个先将计数减到零的链路完成，未必是刚刚失败的那条。在这个房间里，邻居占满了其中一个频段，笔记本每五帧中就有四帧从另一条链路发出。',
+  why: 'IEEE 802.11be-2024 定义了多链路操作（multi-link operation, MLO）：一台多链路设备（multi-link device, MLD）下挂几个站点（station, STA），每个站点工作在一条链路（link）上，即一个频段里的一条信道。标准规定了四件事。第一，每个站点在自己的链路上独立竞争信道，各用各的退避（backoff）计数，另一条链路上发生什么都不影响它（§35.3.16）。第二，没有协商过映射时，所有业务标识（traffic identifier, TID）都映射到所有已建立的链路，设备可以用其中任何一条发送；用哪一条，标准没有规定（§35.3.7.2）。第三，序号（sequence number）由整台设备分配，每个 TID 只有一个块确认（block acknowledgement, BlockAck）协议，跨所有链路共用一个发送缓存（§10.3.2.14.2，§35.3.8）。第四，一帧在某条链路上发送失败，可以在映射到的任何一条链路上重传（retry）（§35.3.16.9）。本仿真器按这四条实现：两台电台从同一组队列（queue）取帧，哪条链路先把退避计数减到零，就取走队首那一批，另一条链路从此看不到它们。标准留给实现的链路选择，在这里就是这一条规则，没有任何调度与测量。在本课的房间里，邻居占满了 5 GHz，笔记本最初 300 ms 的 307 个数据帧（data frame）中，240 个从 6 GHz 发出；一批帧在 5 GHz 上没有取得发送权，下一次可能由 6 GHz 发出。',
   outcomes: [
-    '说出一台有两台电台的设备在两者之间共享了什么、又有哪些是各自独立的',
-    '在时间轴上读出同一台设备的两条泳道，并说出某一帧是由哪条链路发出的',
-    '按引擎的顺序推演一遍：一帧从入队到被某条链路取走、确认、出队',
+    '说出标准规定一台多链路设备在各条链路之间共享什么、又有哪些是各条链路独立进行的',
+    '分清本仿真器的哪些做法照标准、哪些是标准留给实现而本仿真器自己取的',
+    '在时间轴上读出同一台设备的两条泳道，并跟踪一帧从入队到被某条链路取走、确认、出队',
   ],
   needs: ['retries-queues', 'protect-policies', 'width'],
   terms: [
@@ -67,51 +58,99 @@ export const mlo: Lesson = {
     { term: 'MLO', plain: '多链路操作：让一台设备的两条链路同时运行，两条链路从同一组待发的帧里取帧' },
     { term: 'MLD', plain: '链路之上的整台设备——那组共享的帧就位于这一层' },
   ],
-  picture: [
-    { heading: '两台电台，一组待发的帧', text: 'Wi-Fi 7 允许一台设备在同一时刻让两台电台都处于工作状态，各工作在一个频段上。每一台都有自己的信道，也各自在那条信道上参与竞争，每一台就是一条链路（link）；让两条链路同时运行，就是多链路操作（multi-link operation, MLO）。没有一条链路比它所取代的那一台电台更快。这一对链路多带来的，只是“从哪条链路发出”这个选择。' },
-    { kind: 'watch', jump: 1, heading: '在时间轴上观察', text: '载入仿真，跳到第一个 6 GHz 数据帧（data frame）。笔记本在时间轴上有两条泳道，第二条标有 ·6G，两条泳道上都不断出现方块。再看它下面那台邻居：一条泳道，一个频段，而这个频段已被占满。' },
+  standard: [
+    { heading: '多链路设备与它下挂的站点（§35.3.1，§35.3.2，§5.1.5.1）', text: 'MLD 分为接入点（access point, AP）一侧的 AP MLD 与非 AP MLD。MLD 下挂一个或多个站点，每个站点都是 EHT 站点，各自工作在一条链路上；除另有规定外，各站点独立选择自己的能力与工作参数。MLD 有一个唯一标识它的媒体访问控制（medium access control, MAC）地址，称为 MLD MAC 地址；下挂的各站点使用互不相同的 MAC 地址。发送时，一个 MSDU（MAC service data unit）先经过整台设备这一层的处理，再由 TID 到链路的映射（TID-to-link mapping, TTLM）按 MPDU（MAC protocol data unit）的 TID 交给一条或几条链路各自的 MAC 实体，最后到对应链路的物理层（physical layer, PHY）。' },
+    { heading: '每条链路各自竞争（§35.3.16.1，§35.3.16.3）', text: '下挂于 MLD 的站点在自己的链路上独立于同一 MLD 的其他站点竞争介质（medium），除非另有明文规定。一对链路是同时收发（simultaneous transmit and receive, STR）链路对时，每条链路上的站点按 §10.3 的分布式协调与 §10.23.2 的增强型分布式信道接入（enhanced distributed channel access, EDCA）接入介质，不论另一条链路上发生什么。不是移动 AP MLD 的接入点 MLD，其所有链路对都必须是 STR 链路对。' },
+    { heading: 'TID 到链路的映射（§35.3.7.2.1，§35.3.7.2.2）', text: '默认映射下，所有 TID 在上行（uplink, UL）和下行（downlink, DL）都映射到所有已建立的链路，所有已建立的链路都处于启用状态；没有通告映射、也没有协商成功的其他映射时，设备按默认映射工作。上行方向上，一个 TID 映射到一组启用的链路时，非 AP MLD 可以用这组链路中的任何一条发送这个 TID 的单播 MPDU。标准没有规定在这组链路中选哪一条。' },
+    { heading: '序号与块确认归整台设备（§10.3.2.14.2，表 10-5，§35.3.8）', text: 'MLD 向另一台 MLD 发送单播服务质量（quality of service, QoS）数据帧时，序号取自 MLD 维护的序号空间；单播 QoS 数据帧的序号空间按〈Address 1，TID〉区分（表 10-5 的 SNS2）。两台 MLD 之间每个 TID 最多只有一个块确认协议，适用于这个 TID 映射到的所有链路；发起方 MLD 为每个协议维护一个跨链路共用的发送缓存，收到表明某个 MPDU 已被接收的块确认后释放它。接收方在哪条链路上收到 MPDU，就由这条链路上的站点向同一链路上的发起方站点报告接收状态；接收方 MLD 为每个〈对端 MLD，TID〉维护一个共用的重排序缓存。' },
+    { heading: '失败的帧可以换一条链路重传（§35.3.16.9）', text: '两台 MLD 之间对某个 TID 已建立块确认协议，而这个 TID 的一个 QoS 数据帧在某条链路上发送失败时，MLD 可以在这个 TID 映射到的任何一条链路上重传它，受这一帧的生存期（MSDU lifetime）限制以及重传所在链路的其他限制约束。' },
+    { kind: 'steps', heading: '一帧在多链路操作下的经历，按标准：逐步说明', items: [
+      '非 AP MLD 通过一条链路上的站点发出带基本多链路元素的（重新）关联请求，与 AP MLD 建立一条或多条链路（§35.3.5.1）。',
+      '没有协商其他映射时，所有 TID 映射到所有已建立的链路（§35.3.7.2.2）。',
+      '一个 MSDU 在整台设备这一层取得序号（§10.3.2.14.2），进入这个 TID 的发送缓存（§35.3.8）。',
+      '每条链路上的站点各自按 EDCA 竞争；可以用映射到的任何一条链路发送，选哪一条由实现决定（§35.3.16.1，§35.3.7.2.1）。',
+      '接收方在同一条链路上回块确认；发起方收到确认后释放对应的帧（§35.3.8）。',
+      '发送失败的帧可以在映射到的任何一条链路上重传（§35.3.16.9）。',
+    ] },
+    { heading: '另外两种形态（§35.3.16.4，§35.3.17）', text: '一对链路如果不能同时收发，就是非同时收发（NSTR）链路对：一条链路上的站点取得发送权后，可以因为会干扰另一条链路上的接收而放弃这次发送。增强型多链路单射频（EMLSR）模式下，非 AP MLD 在几条链路上监听接入点发来的初始控制帧（control frame），然后只在收到这一帧的那条链路上进行帧交换。' },
+  ],
+  implementation: [
+    { topic: '共享的帧在设备这一层', standard: 'MSDU 先经整台设备处理，再按 TID 交给各条链路（§5.1.5.1）', sim: '每台物理设备只有一套四条接入类别（access category, AC）队列，两条链路的 MAC 共用；帧到达时只入队一次，到达与入队记录都写在设备的第一条泳道，即 5 GHz 那条。', kind: 'faithful' },
+    { topic: '每条链路各自竞争', standard: '独立竞争，STR 链路对互不影响（§35.3.16.1，§35.3.16.3）', sim: '每条链路各有自己的信道、载波侦听（carrier sense）、退避计数与竞争窗口（contention window, CW）；6 GHz 上发送时，5 GHz 的计数照常进行。', kind: 'faithful' },
+    { topic: '链路对的形态', standard: '非 AP MLD 的链路对可以是 STR 或 NSTR，另有 EMLSR 模式（§35.3.16.4，§35.3.17）', sim: '启用 MLO 的节点总是 5 GHz 加 6 GHz 两条 STR 链路，两台电台之间没有任何相互干扰；NSTR 与 EMLSR 都没有实现。', kind: 'absent' },
+    { topic: 'TID 到链路的映射', standard: '默认映射：所有 TID 映射到所有链路（§35.3.7.2.2）', sim: '相当于默认映射：任何帧都可以由任何一条链路发出。', kind: 'faithful' },
+    { topic: '映射的协商与通告', standard: '可以协商或由接入点通告其他映射（§35.3.7.2.3，§35.3.7.2.4）', sim: '没有实现。', kind: 'absent' },
+    { topic: '选哪一条链路', standard: '标准未规定', sim: '有帧到达时唤醒另一条链路，两条链路都开始退避计数；哪条先把计数减到零，就从共享队列取走队首那一批，取走即从队列中移除。', kind: 'choice' },
+    { topic: '一次取走多少帧', standard: '标准规定聚合 MPDU（aggregate MPDU, A-MPDU）的上限，具体取多少由发送方决定', sim: '取发往同一个接收方的连续帧，最多 64 帧、5.484 ms 的数据，并且不越过这一轮的结束时刻。', kind: 'value' },
+    { topic: '序号空间', standard: '由 MLD 维护，按〈Address 1，TID〉区分（§10.3.2.14.2，表 10-5）', sim: '计数器随共享队列，由整台设备持有，两条链路不会把同一个序号分配给两个帧；但按〈接收方，接入类别〉区分，而不是按 TID。本课的数据帧都属于尽力而为一类，看不出这一差别。', kind: 'differs' },
+    { topic: '块确认协议', standard: '每个 TID 一个协议，经 ADDBA 请求与响应建立（§35.3.8）', sim: '不发 ADDBA，协议视为一开始就存在；块确认由接入点在收到这批帧的同一条链路上发出。', kind: 'absent' },
+    { topic: '换链路重传', standard: '可以在映射到的任何一条链路上重传（§35.3.16.9）', sim: '没有收到确认的一批帧退回共享队列的队首，由下一个先把计数减到零的链路发出。', kind: 'faithful' },
+    { topic: '重传次数的上限', standard: 'dot11ShortRetryLimit 的默认值为 7（附录 C）', sim: '一帧重传计数达到 7 就被丢弃并出队；本课 300 ms 内没有发生。', kind: 'value' },
+    { topic: '多链路建立', standard: '经（重新）关联请求与响应建立（§35.3.5.1）', sim: '引擎不发任何管理帧（management frame），两条链路从仿真开始时就存在。', kind: 'absent' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '同一组待发的帧，分别从两条链路发出', spec: mloStack(),
-      caption: '方块按数据帧数等比例绘制：最初 300 ms 内，笔记本每五帧中有四帧是从 6 GHz 那条链路发出的。两条链路取的是同一组帧，没有任何调度，也没有任何测量——帧只是由先获得发送机会的那条链路发出。为什么偏向如此明显，是下一课的内容。',
+      heading: '一帧经历的各个步骤',
+      jump: 1,
+      steps: [
+        '载入本课场景，跳到第一个 6 GHz 数据帧。',
+        '在日志里往前找到第 66 帧的到达记录，再往后找到 6 GHz 上的块确认与出队记录。',
+      ],
+      blocks: [
+        { kind: 'table', heading: 'MSDU 66，6 GHz 上的第一批', head: ['什么时候', '记录', '记录内容'], rows: [
+          ['4.424 ms', 'ARRIVAL + ENQUEUE · sta-1', '第 66 帧，1500 字节，进入尽力而为队列，深度 1，记录在 5 GHz 那条泳道上。'],
+          ['4.512 ms', 'TX_START · sta-1#6g', '6 GHz 先把计数减到零，一次取走 20 帧，编号 66–85，30,718 字节，调制与编码方式（modulation and coding scheme, MCS）第 13 级。'],
+          ['4.512 ms', 'BACKOFF_DEC · sta-1', '同一时刻，5 GHz 的退避计数还剩 2，即还要再空闲两个时隙（slot time）。'],
+          ['6.0176 ms', 'TX_START · ap#6g', '接入点的块确认，32 字节，一次确认这 20 帧。'],
+          ['6.0496 ms', '20 × DEQUEUE · sta-1#6g', '这 20 帧离开共享队列。'],
+        ] },
+      ],
+      expect: '第 66 帧在 5 GHz 那条泳道上入队，却由 6 GHz 发出；6 GHz 取走它时，5 GHz 的计数还差 2。块确认也在 6 GHz 上。',
+      meaning: '帧只在设备这一层入队一次（①），由先把计数减到零的链路取走，这是本仿真器的选法（②）；块确认在收到这批帧的同一条链路上发回，与 §35.3.8 一致。',
     },
-    { heading: '两条链路共享的是什么', text: '它们不共享信道，不共享发送机会，也不共享退避计数：每条链路各自侦听、各自等待、各自重传（retry），与一台只有单电台的设备完全相同。真正位于它们之上的，是一组等待发送的帧，归整台设备所有——也就是多链路设备（multi-link device, MLD）。哪条链路先取得发送机会，就先从这组帧里取走下一批。' },
-    { heading: '本仿真器模拟的是哪一种形态', text: '在这里，两台电台可以在同一时刻各自发送——接入点（access point, AP），或者机身内能够容纳两台电台的笔记本，使用的正是这种形态。时间轴上的两条泳道、那个 ·6G 标记，以及 3D 视图里的线框球，只是把这两条链路分开绘制而已；它们本来就是相互独立的。' },
-  ],
-  numbers: [
-    { kind: 'steps', heading: '一帧如何获得发送链路：逐步说明', items: [
-      '这一帧——也就是一个 MSDU（MAC service data unit）——只入队一次，入在整台设备这一层，也就是多链路设备。每台设备只有一套四条接入类别（access category, AC）队列（queue），两条链路的电台使用的是同一套。到达记录（ARRIVAL）与入队记录（ENQUEUE）记录的都是这台设备的第一条泳道，也就是 5 GHz 那条，无论最后由哪条链路发出。',
-      '接着设备会唤醒另一条链路的电台，于是两条链路都知道有帧要发送，也都开始各自进行退避计数。到这一步为止，还没有进行任何链路选择。',
-      '每条链路都在自己的信道上竞争，使用自己的载波侦听（carrier sense）、自己的退避计数、自己的竞争窗口（contention window, CW），与一台只有单电台的设备完全相同。频段被占用的那条链路，在其他设备发送期间暂停计数（不再产生 BACKOFF_DEC），等对方发送结束后再继续计数。',
-      '先将计数减到零的那条链路，从共享队列中取走帧并发送（TX_START）：启用聚合时，就按“聚合”那一课的三项上限取走发往同一个接收方的连续帧——64 帧、5.484 ms 的数据、以及这一轮的结束时刻，以先达到者为准；这里取走的是 20 帧。未启用聚合时只取一帧。取走就是从队列中移除，另一条链路此后看不到它们。所谓“选择链路”，全部内容就是这一步——仿真器里没有负责选择的角色，也没有任何测量。',
-      '序号（sequence number）取自“每个接收方、每个接入类别”各一个的计数器，它随共享队列分配，而不随某台电台分配，所以两条链路绝不会把同一个序号分配给两个不同的帧。',
-      '最后一步是确认。确认成功，这些帧就永久离开队列，发送它们的那条泳道为每一帧记录一条出队记录（DEQUEUE）。没有收到确认时，每一帧的重传计数加一：达到 7 的那一帧被丢弃（DROP，原因 retryLimit）并出队，其余的退回同一条共享队列的队首——于是它们的重传由下一个将计数减到零的链路完成，未必是刚刚失败的那条。',
-    ] },
-    { kind: 'table', heading: '一帧经历的各个步骤：MSDU 66，6 GHz 上的第一批', head: [
-      '什么时候', '记录', '记录内容',
-    ], rows: [
-      ['4.424 ms', 'ARRIVAL + ENQUEUE · sta-1', '第 66 帧，1500 字节，进入尽力而为队列，深度 1——记录在 5 GHz 那条泳道上，而发送它的并不是这条泳道。'],
-      ['4.512 ms', 'TX_START · sta-1#6g', '6 GHz 先将计数减到零，一次取走 20 帧，编号 66–85，30,718 字节，以调制与编码方式（modulation and coding scheme, MCS）的第 13 级发出。'],
-      ['4.512 ms', 'BACKOFF_DEC · sta-1', '同一时刻，5 GHz 的退避计数停在 2：它只晚了 88 µs。'],
-      ['6.0176 ms', 'TX_START · ap#6g', '接入点的块确认（block acknowledgement, BlockAck），32 字节，一次性确认这 20 帧。'],
-      ['6.0496 ms', '20 × DEQUEUE · sta-1#6g', '这 20 帧全部离开共享队列——而编号 66–85 中没有任何一个在 5 GHz 的发送里出现过。'],
-    ] },
-    { heading: '第六步中的丢弃分支，在这个房间里不会出现', text: '这段 300 ms 内没有发生任何丢弃：链路质量好，邻居再繁忙也总有轮到的时候，没有哪一帧被发送到第七次。所以“达到 7 就丢弃”这条分支是用一个合成场景验证的——把笔记本移到接收不到信号的位置，于是同一帧被发送满七次，七次分布在两条泳道上，第七次之后它被丢弃并出队。本课引用的数字没有一个来自那个场景。' },
-  ],
-  deeper: [
-    { heading: '多数手机采用的那种成本更低的形态', text: '两台电台同时发送，只是 MLO 的一种形态，而且是成本较高的那种。手机上更常见的是 EMLSR：建立并监听多条链路，但任一时刻只有一条在发送，于是设备只需承担一套发射通道的成本，却仍然能在接入点使用的那条链路上应答。频段组合也不一定是 5 GHz 加 6 GHz——低成本硬件上 2.4 + 5 GHz 很常见。本仿真器只模拟双电台同时收发这一种形态，所以本课与下一课的每一个数字，都是第二条链路所能带来的最好情况。' },
-    { heading: '为什么一条链路上的失败可以由另一条重传', text: '一帧发出后没有收到确认，它仍然在那组共享的帧里：MLD 这一层并没有把它标记为“属于刚才尝试过的那条链路”。所以下一次重传由哪条链路空闲就由哪条完成——这也正是为什么一台 5 GHz 链路被邻居长时间占满的设备，不会在那条链路上不断积压：那些积压同样可以由另一条链路发送。' },
-  ],
-  limits: [
-    { kind: 'unmodelled', text: '「选择链路」这件事在引擎里没有任何实体负责：哪条链路先将计数减到零就取走下一批，而引擎里既没有 TID 到链路的映射，也没有每条链路各自的块确认协商，接入点也从不向站点推荐使用哪条链路。真实的多链路设备要先协商 TID 到链路的映射，再由厂商的策略在映射允许的范围内选择，而那个策略会考虑两条链路各自的负载与信号质量。所以本课那 67 比 240 的偏斜，是「先获得发送机会者发送」这一条规则的结果，而不是某个厂商的选择。' },
-    { kind: 'unmodelled', text: '两台电台之间没有任何相互影响：引擎为每条链路各建一个完全独立的信道（simulation.ts 里那个按链路的循环），一台设备在 6 GHz 上发射时，它自己 5 GHz 接收机的噪声地板完全不会抬高。真实设备内这两副天线距离很近，隔离度不够就无法真正同时收发——这正是多数手机改用增强型单射频形态的原因。所以本仿真器把成本最高的那种形态当成了没有代价的形态。' },
-    { kind: 'out-of-scope', text: '形态和频段组合都是固定的：启用 MLO 的节点总是 5 GHz 加 6 GHz 两条链路，不多不少（caps.ts 的 nodeLinks 直接返回这两条），无法配置 2.4 + 5 GHz 这种低成本组合，也无法配置三条链路。课文「深入一步」提到的增强型单射频形态同样无法配置，因为引擎没有「同一时刻只允许一条链路发送」这个状态。所以关于「手机上的 MLO」的任何问题，都不应该用这个场景来回答。' },
-    { kind: 'unmodelled', text: '这两条链路从仿真开始时就存在：引擎不发送任何管理帧——帧类型表里没有信标、没有探测、没有关联与认证，也没有多链路建立（model/frames.ts 的 FRAME_KINDS）。于是多链路设备的建立、各链路的能力交换，以及运行中增删一条链路，全都不耗费时间，也不会失败。真实设备要先在一条链路上完成整套建立流程，而这套流程未能成功建立第二条链路的情形并不罕见。' },
+    {
+      heading: '两条链路取的是同一组帧',
+      jump: 0,
+      steps: [
+        '运行完 300 ms，数一数笔记本两条泳道上的数据帧。',
+        '在帧解码器里打开 6 GHz 上的第一批，记下编号 66–85，再到 5 GHz 的发送里查找这 20 个编号。',
+      ],
+      blocks: [
+        {
+          kind: 'diagram', heading: '同一组待发的帧，分别从两条链路发出', spec: mloStack(),
+          caption: '方块按数据帧数等比例绘制：最初 300 ms 内，笔记本每五帧中有四帧从 6 GHz 那条链路发出。',
+        },
+      ],
+      expect: '5 GHz 上 67 个数据帧，6 GHz 上 240 个；编号 66–85 在 5 GHz 的发送里一个也找不到，两条泳道的序号也没有重复。',
+      meaning: '取走即从共享队列中移除，序号由整台设备分配（①）；偏向 6 GHz 不是调度的结果，而是 6 GHz 上没有竞争者，下一课专门测量这一点。',
+    },
+    {
+      heading: '失败的一批由另一条链路发出',
+      jump: 2,
+      steps: [
+        '跳到第 397 帧的重传记录：笔记本在 5 GHz 上发出的请求发送（request to send, RTS）帧与邻居的同时开始，没有等到允许发送（clear to send, CTS）帧。',
+        '往后看这一批帧下一次是由哪条泳道发出的；再把 300 ms 内笔记本的几次失败都找出来。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '300 ms 内笔记本的六次失败', head: ['重传记录', '失败的链路', '这一批下一次由谁发出'], rows: [
+          ['0.073 ms，第 1 帧', '5 GHz', '5 GHz，2.8864 ms'],
+          ['21.736 ms，第 397 帧', '5 GHz', '6 GHz，21.881 ms'],
+          ['169.8596 ms，第 3586 帧', '5 GHz', '5 GHz，170.0356 ms'],
+          ['177.6128 ms，第 3754 帧', '5 GHz', '5 GHz，177.9508 ms'],
+          ['194.5768 ms，第 4105 帧', '5 GHz', '5 GHz，194.8518 ms'],
+          ['219.9098 ms，第 4638 帧', '5 GHz', '6 GHz，220.4418 ms'],
+        ] },
+      ],
+      expect: '六次失败都发生在 5 GHz，都是笔记本与邻居同时发出 RTS；其中两次，这一批帧下一次由 6 GHz 发出。',
+      meaning: '没有收到确认的帧退回共享队列的队首，不带「属于哪条链路」的标记，下一次由先把计数减到零的链路发出（②），这在标准允许的范围之内（①，§35.3.16.9）。',
+    },
   ],
   sources: [
-    '多链路操作、MLD 及其共享发送队列见 IEEE Std 802.11be-2024 第 35 章；这里建模的同时收发形态，以及“深入一步”里提到的增强型单射频形态，见 §35.3。',
-    '每条链路各自保留自己的信道接入状态——自己的载波侦听、自己的退避、自己的重传计数——见 §35.3.7；标准中没有任何机制把竞争状态在链路之间合并。',
-    '笔记本的帧最终从哪个频段发出，标准完全没有规定：本仿真器的做法是，哪条链路获得发送机会，就把共享队列里的下一批帧交给它——这是模型取值，替代真实厂商各自的链路选择策略。',
+    'IEEE Std 802.11be-2024：§35.3.1 与 §35.3.2（MLD 与下挂站点）、§5.1.5.1（MLO 的 MAC 数据面）、§35.3.16.1 与 §35.3.16.3（各链路独立竞争，STR 链路对）、§35.3.7.2.1 与 §35.3.7.2.2（TID 到链路的映射与默认映射）、§10.3.2.14.2（MLD 的序号空间）、§35.3.8（MLO 中的块确认）、§35.3.16.9（换链路重传）、§35.3.5.1（多链路建立）、§35.3.16.4 与 §35.3.17（NSTR 与 EMLSR）。',
+    'IEEE Std 802.11-2024：表 10-5（发送方的序号空间）、附录 C 的 dot11ShortRetryLimit。',
+    '本仿真器的取法与取值：先把计数减到零的链路取走下一批、一次最多 64 帧、固定的 5 GHz 加 6 GHz 两条 STR 链路、按接收方与接入类别区分的序号计数器、不建立块确认协议。',
   ],
+  limits: [],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP (MLO)', 'ap', 5, 4, 'eht', 'idle'),
     node('sta-1', 'Laptop (MLO)', 'sta', 6.5, 5, 'eht', 'saturated'),
@@ -120,34 +159,40 @@ export const mlo: Lesson = {
   jumps: [
     J('第一个 5 GHz 数据帧', txOf((r) => linkOfVirtual(r.node) === '5g' && r.frame.kind === 'data' && r.frame.src === 'sta-1')),
     J('第一个 6 GHz 数据帧', first6g),
+    J('第 397 帧的重传记录', (r) => r.type === 'RETRY' && r.msduId === 397),
   ],
-  observe: [
-    '笔记本有两条泳道，第二条标有 ·6G，两条泳道上的方块都取自同一组待发的帧。到达记录和入队记录却全都记录在 5 GHz 那条泳道上，即使发送它的是 6 GHz 那条：帧只入队一次，入在整台设备这一层。',
-    '在 3D 视图中，6 GHz 的传输显示为线框球，所以观察房间即可知道某一帧是由哪条链路发出的。',
-  ],
-  tryThis: [
-    '在帧解码器中打开 6 GHz 上的第一批（20 帧，编号 66–85），再到 5 GHz 的发送中查找这 20 个编号中的任何一个——找不到。取走就是从共享队列中移除，另一条链路此后不会再看到它们。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '笔记本的两条链路只共享一样东西。是哪一样？',
+      q: '按标准，笔记本的两条链路之间共享的是什么？',
       options: [
         '发送前的同一个退避计数',
-        '那组等待发送的帧——侦听、等待、重传仍由各条链路各自进行',
+        '序号空间与每个 TID 的块确认发送缓存；信道接入由各条链路独立进行',
         '同一个频段上的同一个信道',
       ],
       answer: 1,
-      explain: '每条链路都是一台完整的电台，有自己的信道接入状态。只有缓存的帧被汇总到上一层，也就是 MLD。',
+      explain: '§35.3.16.1 要求各站点独立竞争；§10.3.2.14.2 与 §35.3.8 把序号空间和块确认的发送缓存放在整台设备这一层。',
     },
     {
-      q: '一批帧发出后没有收到确认，而重传次数还未达到上限。下一次重传由哪条链路完成？',
+      q: '一批帧没有发送成功，重传次数还未达到上限。下一次由哪条链路发出？',
       options: [
-        '仍是刚刚失败的那一条——帧被记录在它名下',
-        '哪条先将计数减到零就由哪条完成，因为这批帧退回的是同一条共享队列的队首',
+        '标准要求仍由刚刚失败的那一条发出',
+        '标准允许映射到的任何一条；本仿真器里由先把计数减到零的那条发出',
         '由接入点指定',
       ],
       answer: 1,
-      explain: 'MLD 这一层不给帧加“属于哪条链路”的标记。失败的一批回到共享队列的队首，于是它们的重传由下一个将计数减到零的链路完成。',
+      explain: '§35.3.16.9 允许在映射到的任何链路上重传；本仿真器把失败的一批退回共享队列的队首，由下一个先把计数减到零的链路取走。',
+    },
+    {
+      q: '哪一项是本仿真器自己的取法，而不是标准的规定？',
+      options: [
+        '默认映射下所有 TID 映射到所有链路',
+        '哪条链路先把退避计数减到零，就由哪条发出下一批',
+        '每个 TID 只有一个跨链路的块确认协议',
+      ],
+      answer: 1,
+      explain: '标准只说可以用映射到的任何一条链路发送，没有规定选哪一条；「先减到零者发送」是本仿真器的选法。',
     },
   ],
 }

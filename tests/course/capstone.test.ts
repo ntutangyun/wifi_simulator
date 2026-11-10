@@ -1,29 +1,24 @@
 /**
- * Every empirical claim in "Capstone — the busy household", measured against
- * the lesson's own scene.
+ * `@capstone`, in the standard-first shape (2026-11-11).
  *
- * The lesson was a list of things to notice and is now a brief: one flat, one
- * question, three candidate changes, a rubric and a write-up template. The
- * three candidates are edits the learner makes in the editor rather than
- * lesson `variants` — the scene is one inline builder that takes no
- * parameters — so the scenario, and the recorded timeline hash with it, is
- * byte-identical to what it was.
+ * ① cites IEEE Std 802.11-2024 and 802.11be-2024 for what a shared medium gives a household; ②
+ * says what the engine does instead, row by row, and is checked here against the engine and the
+ * run; ③'s five labs print figures from the base five seconds and from the three candidate edits,
+ * and every one of them is read back out of the lesson and compared with the run it describes.
  *
- * The old lesson had no test file of its own. Its pins lived in
- * tests/course/lesson-claims.test.ts ("lesson 14 · capstone": the sensor's
- * handful of frames, the airtime the backup holds, the three latency
- * collapses, and the two MLO figures) and in tests/course/lessons.test.ts (the
- * two jump targets). Both files are untouched and stay green — they read
- * `l.scenario()` only, never prose. What is pinned here is what this lesson's
- * own sentences and tables say, measured over the same five seconds the same
- * way. There was never a `.body!` site to retire.
+ * The three candidates are editor edits, not `variants`, and are measured here exactly as the labs'
+ * steps describe them: the laptop's traffic set to idle, its MLO feature off, and the tablet
+ * replaced with an OFDMA-capable Wi-Fi 6 radio.
+ *
+ * The coherence-time comparison that used to sit in `limits` now sits in the ② row 「移动与多普勒」;
+ * tests/course/fading.test.ts pins its three figures there, and this file reads them as arithmetic.
  */
 import { describe, it, expect } from 'vitest'
 import { Simulation } from '../../src/engine/simulation'
 import { TGI_NS, symNsFor } from '../../src/engine/phy'
 import { FADING_DEFAULTS } from '../../src/engine/fading'
 import { capstone, capstoneScenario, capstoneTopology } from '../../src/course/tier2/capstone'
-import type { Block } from '../../src/course/lessonKit'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import { lessonShapeSuite } from './kit'
@@ -36,19 +31,18 @@ const RUN_NS = 5_000 * MS
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const data = (rs: TLRecord[], node: string): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && r.node === node && r.frame.kind === 'data')
-const r2 = (x: number): number => Math.round(x * 100) / 100
 
 interface Scene {
   rs: TLRecord[]
-  /** Share of the clock this lane held, in per cent to one decimal — the inspector's own figure. */
+  /** Share of the clock this lane held, in per cent — the inspector's own figure. */
   air: (id: string) => number
-  /** Mean wait before a frame of this lane left, in milliseconds. */
+  /** Mean wait before a frame of this lane left, ms. */
   txWait: (id: string) => number
-  /** Mean wait a frame this lane received had endured, in milliseconds. */
+  /** Mean wait a frame this lane received had endured, ms. */
   rxWait: (id: string) => number
   /** Bytes this lane was handed. */
   got: (id: string) => number
-  /** Megabytes the access point received across both of its links: the backup, all but entirely. */
+  /** Megabytes the access point received across both of its links. */
   upMb: number
 }
 
@@ -58,14 +52,14 @@ function scene(mod: (sc: Scenario) => void = () => {}): Scene {
   const sim = new Simulation(sc)
   const rs = [...sim.runUntil(RUN_NS).records]
   const st = (id: string) => sim.view.nodes[id]?.stats
-  const mean = (x: { n: number; sumNs: number } | undefined) => (x && x.n ? r2(x.sumNs / x.n / MS) : NaN)
+  const mean = (x: { n: number; sumNs: number } | undefined) => (x && x.n ? x.sumNs / x.n / MS : NaN)
   return {
     rs,
-    air: (id) => Math.round((st(id)?.airtimeNs ?? 0) / RUN_NS * 1000) / 10,
+    air: (id) => ((st(id)?.airtimeNs ?? 0) / RUN_NS) * 100,
     txWait: (id) => mean(st(id)?.txLatency),
     rxWait: (id) => mean(st(id)?.rxLatency),
     got: (id) => st(id)?.bytesDelivered ?? 0,
-    upMb: Math.round((st('ap')!.bytesDelivered + (st('ap#6g')?.bytesDelivered ?? 0)) / 1e5) / 10,
+    upMb: (st('ap')!.bytesDelivered + (st('ap#6g')?.bytesDelivered ?? 0)) / 1e6,
   }
 }
 
@@ -77,448 +71,207 @@ const tabletNew = scene((sc) => {
   n.caps.generation = 'he'
   n.caps.features.ofdma = true
 })
+const COLUMNS = [base, backupStopped, radioOff, tabletNew]
+
+const lab = (heading: string): Lab => {
+  const l = capstone.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (l: Lab, heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = capstone.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const same = (printed: string, measured: number, what: string): void => {
+  const fig = printed.replace(/[\s,%]/g, '')
+  const dp = (fig.split('.')[1] ?? '').length
+  expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`).toBe(Number(measured.toFixed(dp)))
+}
+const zh = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
+const members = (s: Scene): string[] => [...new Set(s.rs.flatMap((r) => (r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts
+  ? r.frame.muParts.map((p) => p.dst) : [])))].sort()
 
 lessonShapeSuite(capstone, { runNs: RUN_NS })
 
-describe('capstone · the flat as the brief describes it', () => {
-  it('is the last Wi-Fi lesson, in the real-applications module, and names what it leans on', () => {
+describe('capstone · the lesson', () => {
+  it('is the last Wi-Fi lesson, standard-first, and names what it leans on', () => {
+    expect(isStandardFirst(capstone)).toBe(true)
     expect(MODULES[capstone.module].title).toBe('真实应用')
     expect(capstone.needs).toEqual([
-      // M10's halves replaced their parents here: the project leans on choosing a group
-      // and on what a second radio buys, which is what those two lessons teach.
-      'edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul',
-      'mumimo-choose', 'mlo-gain',
+      'edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo-choose', 'mlo-gain',
     ])
     expect(capstone.terms!.map((t) => t.term)).toEqual(['bottleneck', 'offered load'])
+    expect(capstone.limits).toEqual([])
+    expect(capstone.observe).toEqual([])
+    expect(capstone.tryThis).toEqual([])
+    expect(capstone.variants).toBeUndefined()
   })
 
-  it('"three rooms with brick between them and a door in each inner wall", seven devices', () => {
+  it('three rooms, brick between them, a door in each inner wall, seven devices', () => {
     const sc = capstone.scenario()
     expect(() => ScenarioSchema.parse(sc)).not.toThrow()
     expect(sc.rooms).toHaveLength(3)
     expect(sc.walls.filter((w) => w.material === 'brick')).toHaveLength(4)
     expect(sc.walls.filter((w) => w.openings.length > 0)).toHaveLength(2)
-    // the cast of the picture's first paragraph, in the order it names them
-    expect(sc.nodes.filter((n) => n.kind === 'sta')).toHaveLength(6)
-    expect(sc.nodes.map((n) => n.caps.generation))
-      .toEqual(['eht', 'eht', 'he', 'he', 'vht', 'nonht', 'he'])
-    expect(sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo).toBe(true)
+    expect(sc.nodes.map((n) => n.caps.generation)).toEqual(['eht', 'eht', 'he', 'he', 'vht', 'nonht', 'he'])
     expect(sc.nodes.find((n) => n.id === 'sta-1')!.profiles).toEqual(['saturated'])
-  })
-
-  it('the topology figure is the scene’s own metres, and the accent path is the backup', () => {
-    // The figure replaces the geography the picture's first paragraph used to narrate
-    // (§4 · capstone: 三个房间、七台设备). Its positions are read out of the scenario, so a
-    // node that moves in the room moves in the figure; what is pinned here is that the
-    // walk really does read the scene, and that the one emphasised link is the one lane
-    // above two per cent — the claim the caption makes.
-    const spec = capstoneTopology()
-    const sc = capstone.scenario()
-    expect(spec.nodes.map((n) => n.id)).toEqual(sc.nodes.map((n) => n.id))
-    expect(spec.nodes.map((n) => [n.x, n.y])).toEqual(sc.nodes.map((n) => [n.pos.x, n.pos.y]))
-    expect(spec.nodes.filter((n) => n.role === 'ap').map((n) => n.id)).toEqual(['ap'])
-    for (const n of spec.nodes) expect(n.label.trim(), n.id).not.toBe('')
-    // every station reaches the air through the access point, and only through it
-    expect(spec.links.every((l) => l.to === 'ap')).toBe(true)
-    expect(spec.links).toHaveLength(6)
-    const accent = spec.links.filter((l) => l.tone === 'accent')
-    expect(accent.map((l) => l.from)).toEqual(['sta-1'])
-    expect(base.air('sta-1')).toBeGreaterThan(2)
-    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) expect(base.air(id), id).toBeLessThan(2)
-    // the figure and the lesson load one and the same room
     expect(capstone.scenario()).toEqual(capstoneScenario())
   })
 
-  it('has no variants: the three candidate changes are the learner’s own edits', () => {
-    expect(capstone.variants).toBeUndefined()
-    // the four jumps tests/course/lessons.test.ts also reaches for, pinned by what each
-    // predicate finds in this lesson's own run rather than by how its button reads
-    expect(capstone.jumps.length).toBe(4)
-    for (const j of capstone.jumps) expect(base.rs.some(j.find), String(capstone.jumps.indexOf(j))).toBe(true)
-    /*
-     * **And the band a jump label names**, uncovered by the 「第」 rule change of 2026-10-14:
-     * 「第一个 6 GHz 数据帧」 is an instruction, and a planted digit leaves it grammatical while
-     * sending the reader to a lane this flat does not run. The record the jump lands on has to
-     * be on the lane it names.
-     */
-    let banded = 0
-    for (const j of capstone.jumps) {
-      const m = /第一个 (\d) GHz 数据帧/.exec(j.label)
-      if (m === null) continue
-      banded++
-      const hit = base.rs.find(j.find) as { node?: string }
-      expect(hit, `「${j.label}」 finds no record`).toBeDefined()
-      const onSix = (hit.node ?? '').endsWith('#6g')
-      expect(onSix, `「${j.label}」 lands on the lane it names`).toBe(m[1] === '6')
+  it('cites each clause it teaches in ①', () => {
+    const std = capstone.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
+    for (const c of ['§10.23.2.1', '§10.23.2.4', '§10.2.3.2', '表 10-1', '§9.4.2.27', '§26.5.1.1', '§35.3.16.1', '§10.23.2.8', '§10.23.2.9', '§35.3.7.2.1']) {
+      expect(std, c).toContain(c)
     }
-    expect(banded, 'the jump labels that name a band').toBe(1)
+    expect(std).toContain('不规定一个网络该优先照顾哪台设备')
+    // Table 10-1 as ① prints it
+    expect(std).toContain('1、2 映射到 AC_BK，0、3 映射到 AC_BE，4、5 映射到 AC_VI，6、7 映射到 AC_VO')
+  })
+
+  it('the jumps land in the base run, and the band a jump names is its lane', () => {
+    for (const j of capstone.jumps) expect(base.rs.some(j.find), j.label).toBe(true)
+    const j6 = capstone.jumps.find((j) => j.label.includes('6 GHz'))!
+    expect((base.rs.find(j6.find) as { node: string }).node.endsWith('#6g')).toBe(true)
   })
 })
 
-describe('capstone · who is holding the air', () => {
-  it('"the laptop holds 58.7% of 5 GHz and 90.6% of 6 GHz"', () => {
-    expect([base.air('sta-1'), base.air('sta-1#6g')]).toEqual([58.7, 90.6])
-  })
-
-  it('"nothing else in the flat reaches two per cent"', () => {
-    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) {
-      expect(base.air(id), id).toBeLessThan(2)
+describe('capstone · ② says what the engine does, and the engine does it', () => {
+  it('the access category comes from the traffic profile; the saturated upload is AC_BE', () => {
+    const r = implRow('帧归入哪一类')
+    expect(r.kind).toBe('differs')
+    const acOf = (id: string): (number | null | undefined)[] => [...new Set(base.rs.filter((x): x is Extract<TLRecord, { type: 'ENQUEUE' }> =>
+      x.type === 'ENQUEUE' && (x.node === id || x.dst === id)).map((x) => x.ac))]
+    const AC = ['AC_BK', 'AC_BE', 'AC_VI', 'AC_VO']
+    for (const [label, id] of [['饱和上传', 'sta-1'], ['视频', 'sta-2'], ['语音', 'sta-3'], ['浏览', 'sta-4']] as const) {
+      const acs = acOf(id)
+      expect(acs.length, label).toBe(1)
+      expect(r.sim, label).toContain(`${label}为 ${AC[acs[0]!]}`)
     }
+    // 「传感器是不支持 EDCA 的旧电台，不分类别」
+    expect(r.sim).toContain('传感器是不支持 EDCA 的旧电台，不分类别')
+    expect(capstone.scenario().nodes.find((n) => n.id === 'sta-5')!.caps.features.edca).toBeFalsy()
+    expect(acOf('sta-5').every((x) => x === undefined || x === null)).toBe(true)
   })
 
-  it('the sensor sends "three frames — 384 bytes in all" in the five seconds', () => {
+  it('the saturated profile keeps 20 frames waiting, never more', () => {
+    const w = Number(/饱和档位始终保持 (\d+) 帧待发/.exec(implRow('流量').sim)![1])
+    const depth = base.rs.filter((r): r is Extract<TLRecord, { type: 'ENQUEUE' }> => r.type === 'ENQUEUE' && r.node === 'sta-1').map((r) => r.depth)
+    expect(Math.max(...depth)).toBe(w)
+  })
+
+  it('grouping stays inside the winning access category: the tablet is never grouped, before or after', () => {
+    expect(implRow('编组的策略').sim).toContain('不同接入类别的下行帧从不编入同一次发送')
+    expect(members(base)).toEqual(['sta-2', 'sta-6'])
+    expect(members(tabletNew)).toEqual(['sta-2', 'sta-6'])
+    // every downlink multi-user send carries one access category, the video's
+    const dl = base.rs.filter((r): r is Tx => r.type === 'TX_START' && r.frame.dst === '*mu' && r.frame.kind === 'data')
+    expect(dl.length).toBeGreaterThan(0)
+    expect(new Set(dl.map((r) => r.frame.ac))).toEqual(new Set([2]))
+  })
+
+  it('the coherence-time row: 10 and 20 symbols fold to 136 and 272 µs, and 100 ms is 735 times the first', () => {
+    const r = implRow('移动与多普勒')
+    const [s1, s2] = /每 (\d+) 或 (\d+) 个符号（symbol）插入一次/.exec(r.standard)!.slice(1).map(Number)
+    const [u1, u2, hold, times] = /折成 (\d+) µs 与 (\d+) µs，而本仿真器较慢的那一层取 (\d+) ms，是前者的 (\d+) 倍/.exec(r.sim)!.slice(1).map(Number)
+    const symNs = symNsFor('he', TGI_NS.base)
+    expect([u1 * 1000, u2 * 1000]).toEqual([s1 * symNs, s2 * symNs])
+    expect(hold).toBe(FADING_DEFAULTS.coherenceMs)
+    expect(times).toBe(Math.round((hold * 1000) / u1))
+  })
+})
+
+describe('capstone · ③ every figure the labs print is the run', () => {
+  it('lab 1: the air-share table, the sensor, and the figure', () => {
+    const l = lab('先看是谁占用了空口')
+    const fig = l.blocks!.find((b) => b.kind === 'diagram') as { spec: unknown }
+    expect(fig.spec).toEqual(capstoneTopology())
+    const rows = tableOf(l, '五秒内的空口占比').rows
+    for (const [label, share] of rows) {
+      const lane = /（(sta-1(?:#6g)?)）/.exec(label)?.[1]
+      if (lane) same(share.replace('%', ''), base.air(lane), label)
+      else {
+        const cap = Number(/都不到 (\d+)%/.exec(share)![1])
+        for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) expect(base.air(id), id).toBeLessThan(cap)
+      }
+    }
+    const e = /5 GHz 的 ([\d.]+)%、6 GHz 的 ([\d.]+)%.*传感器五秒只发了(.)帧，共 (\d+) 字节/.exec(l.expect)!
+    same(e[1], base.air('sta-1'), '5 GHz share')
+    same(e[2], base.air('sta-1#6g'), '6 GHz share')
     const sent = data(base.rs, 'sta-5')
-    expect(sent).toHaveLength(3)
-    expect(sent.reduce((a, r) => a + r.frame.bytes, 0)).toBe(384)
-  })
-})
-
-describe('capstone · the same five seconds, four ways', () => {
-  it('the backup column: 78.0 megabytes, nothing, 37.7, and 78.1', () => {
-    expect([base.upMb, radioOff.upMb, tabletNew.upMb]).toEqual([78.0, 37.7, 78.1])
-    // "the backup itself then delivers nothing at all"
-    expect(data(backupStopped.rs, 'sta-1')).toHaveLength(0)
-    expect(data(backupStopped.rs, 'sta-1#6g')).toHaveLength(0)
-    expect(backupStopped.upMb).toBe(0)
+    expect(zh(e[3])).toBe(sent.length)
+    expect(Number(e[4])).toBe(sent.reduce((a, r) => a + r.frame.bytes, 0))
+    // the why prints the two shares too
+    const w = /5 GHz ([\d.]+)%、6 GHz ([\d.]+)% 的时间/.exec(capstone.why!)!
+    same(w[1], base.air('sta-1'), 'why: 5 GHz share')
+    same(w[2], base.air('sta-1#6g'), 'why: 6 GHz share')
   })
 
-  it('the video column: 2.26, 0.21, 2.22 and 2.18 ms', () => {
-    expect([base.rxWait('sta-2'), backupStopped.rxWait('sta-2'), radioOff.rxWait('sta-2'), tabletNew.rxWait('sta-2')])
-      .toEqual([2.26, 0.21, 2.22, 2.18])
-  })
-
-  it('the tablet column: 39.06, 0.50, 25.93 and 34.31 ms', () => {
-    expect([base.rxWait('sta-4'), backupStopped.rxWait('sta-4'), radioOff.rxWait('sta-4'), tabletNew.rxWait('sta-4')])
-      .toEqual([39.06, 0.5, 25.93, 34.31])
-  })
-
-  it('the voice column: 1.90, 0.83, 1.95 and 1.82 ms', () => {
-    expect([base.txWait('sta-3'), backupStopped.txWait('sta-3'), radioOff.txWait('sta-3'), tabletNew.txWait('sta-3')])
-      .toEqual([1.9, 0.83, 1.95, 1.82])
-  })
-
-  it('"no change alters what any of them receives": about 8.3 megabytes and 88,200 bytes throughout', () => {
-    for (const s of [base, backupStopped, radioOff, tabletNew]) {
-      expect(Math.round(s.got('sta-2') / 1e5) / 10).toBe(8.3)
-      expect(s.got('sta-4')).toBe(88_200)
+  it('lab 2: the four-way table, cell by cell, against the four runs', () => {
+    const l = lab('停止备份')
+    const t = tableOf(l, '同样的五秒钟，四种方案')
+    expect(t.head.slice(1)).toEqual(['原样', '停止备份', '关闭第二台电台', '平板换 Wi-Fi 6'])
+    for (const row of t.rows) {
+      const label = row[0]
+      for (const [c, s] of COLUMNS.entries()) {
+        const cell = row[c + 1]
+        if (label.startsWith('备份送达量')) same(cell, s.upMb, `${label} / ${t.head[c + 1]}`)
+        else {
+          const lane = /泳道 (sta-\d)/.exec(label)![1]
+          same(cell.replace(' ms', ''), label.includes('发送等待') ? s.txWait(lane) : s.rxWait(lane), `${label} / ${t.head[c + 1]}`)
+        }
+      }
     }
-  })
-
-  it('"every other wait falls under a millisecond" once the backup stops', () => {
+    expect(data(backupStopped.rs, 'sta-1').length + data(backupStopped.rs, 'sta-1#6g').length).toBe(0)
+    // expect: the three collapses, and the two columns that never move
+    const e = /视频从 ([\d.]+) ms 降到 ([\d.]+)，语音从 ([\d.]+) 降到 ([\d.]+)，平板从 ([\d.]+) 降到 ([\d.]+)；/.exec(l.expect)!
+    same(e[1], base.rxWait('sta-2'), 'video before'); same(e[2], backupStopped.rxWait('sta-2'), 'video after')
+    same(e[3], base.txWait('sta-3'), 'voice before'); same(e[4], backupStopped.txWait('sta-3'), 'voice after')
+    same(e[5], base.rxWait('sta-4'), 'tablet before'); same(e[6], backupStopped.rxWait('sta-4'), 'tablet after')
     for (const id of ['sta-2', 'sta-4', 'sta-6']) expect(backupStopped.rxWait(id), id).toBeLessThan(1)
     for (const id of ['sta-3', 'sta-5']) expect(backupStopped.txWait(id), id).toBeLessThan(1)
-  })
-})
-
-describe('capstone · the method the brief asks the learner to follow', () => {
-  const steps = capstone.numbers!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>
-
-  it('is a procedure of at least three steps, on the main path, not in "Going deeper"', () => {
-    expect(steps.items.length).toBeGreaterThanOrEqual(3)
-    expect((capstone.deeper ?? []).some((b) => b.kind === 'steps')).toBe(false)
-  })
-
-  it('step 1 — the baseline it quotes is the run’s own: 58.7%, 90.6%, and nothing else at two per cent', () => {
-    expect([base.air('sta-1'), base.air('sta-1#6g')]).toEqual([58.7, 90.6])
-    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) expect(base.air(id), id).toBeLessThan(2)
-  })
-
-  it('step 3 — the three options are editor edits, and each is one the simulator can actually take', () => {
-    // there is nothing to load: the three options are edits the learner makes, and each
-    // one is an edit the simulator really takes — measured here exactly as the table does
-    expect(capstone.variants).toBeUndefined()
-    expect(capstone.scenario().nodes.find((n) => n.id === 'sta-1')!.profiles).toEqual(['saturated'])
-    expect(backupStopped.upMb).toBe(0)
-    expect(radioOff.upMb).toBe(37.7)
-    expect(tabletNew.rxWait('sta-4')).toBe(34.31)
-    // and each of the three has an experiment of its own: the tablet column had a column in
-    // the table and a quiz question but nothing to run until this re-pacing (§2 · M12)
-    expect(capstone.tryThis).toHaveLength(3)
-    expect(tabletNew.upMb).toBe(78.1)
-  })
-
-  it('step 5 — the sensor really is the oldest radio in the flat, and the tablet is not', () => {
-    const gen = (id: string) => capstone.scenario().nodes.find((n) => n.id === id)!.caps.generation
-    expect(gen('sta-5')).toBe('nonht')
-    expect(gen('sta-4')).toBe('vht')
-    expect(capstone.scenario().nodes.filter((n) => n.caps.generation === 'nonht').map((n) => n.id)).toEqual(['sta-5'])
-    expect(data(base.rs, 'sta-5')).toHaveLength(3)
-  })
-
-  it('the comparison table names, row by row, the lane each figure is read from', () => {
-    // the four-way table is the only five-column table in `numbers`: the figure, the
-    // baseline and the three options. It is found by that shape rather than by its heading.
-    const table = capstone.numbers!.find(
-      (b) => b.kind === 'table' && b.head.length === 5,
-    ) as Extract<Block, { kind: 'table' }>
-    expect(table).toBeDefined()
-    expect(table.rows).toHaveLength(4)
-    // every row names the lane its figure is read off — a lane id, not prose
-    expect(table.rows[0][0]).toContain('ap#6g')
-    expect(table.rows[1][0]).toContain('sta-2')
-    expect(table.rows[2][0]).toContain('sta-4')
-    expect(table.rows[3][0]).toContain('sta-3')
-    // and every cell is the counter this file reads off that lane
-    expect(table.rows[0].slice(1).map((c) => c)).toEqual(['78.0', '0', '37.7', '78.1'])
-    expect([base.upMb, backupStopped.upMb, radioOff.upMb, tabletNew.upMb]).toEqual([78.0, 0, 37.7, 78.1])
-    expect(table.rows[1].slice(1).map((c) => c))
-      .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-2').toFixed(2)} ms`))
-    expect(table.rows[2].slice(1).map((c) => c))
-      .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.rxWait('sta-4').toFixed(2)} ms`))
-    /*
-     * **`tryThis` quotes that table by column number**, and the 「第」 rule change of 2026-10-14
-     * uncovered the figure beside it: 「对照表第四列：备份仍然送达 78.1 兆字节，平板的等待只从
-     * 39.06 ms 降到 34.31」. The ordinal is a claim about WHICH column — and the column it names
-     * has to be the one whose cells carry those three figures, all of which are read above
-     * against their own runs.
-     */
-    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
-    const ref = /对照表第(.)列：备份仍然送达 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)/
-      .exec(capstone.tryThis.join(' '))
-    expect(ref, '`tryThis` no longer points at a column of the comparison table').not.toBeNull()
-    const col = cn(ref![1]!)
-    expect(col, 'a column this table has').toBeLessThanOrEqual(table.head.length - 1)
-    expect(table.rows[0]![col], 'the backup’s cell in the column it names').toBe(ref![2])
-    expect(tabletNew.upMb, 'which is what that option really delivers').toBe(Number(ref![2]))
-    expect(table.rows[2]![1], 'and the tablet’s wait it starts from').toBe(`${ref![3]} ms`)
-    expect(table.rows[2]![col], 'and ends at').toBe(`${ref![4]} ms`)
-    expect(table.rows[3].slice(1).map((c) => c))
-      .toEqual([base, backupStopped, radioOff, tabletNew].map((s) => `${s.txWait('sta-3').toFixed(2)} ms`))
-  })
-})
-
-describe('capstone · why the tablet upgrade is nearly free of effect', () => {
-  const members = (s: Scene): Set<string> => new Set(
-    s.rs.flatMap((r) => (r.type === 'TX_START' && r.frame.kind === 'data' && r.frame.muParts
-      ? r.frame.muParts.map((p) => p.dst) : [])),
-  )
-
-  it('"the access point never groups the tablet with the others", before or after', () => {
-    expect([...members(base)].sort()).toEqual(['sta-2', 'sta-6'])
-    expect([...members(tabletNew)].sort()).toEqual(['sta-2', 'sta-6'])
-  })
-
-  it('"its wait falls by about one part in eight": 39.06 ms to 34.31', () => {
-    const drop = (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')) / base.rxWait('sta-4')
-    expect(Math.round(1 / drop)).toBe(8)
-  })
-})
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * Everything above measures the right thing and compares it with a figure typed on **this** side
- * — `expect([base.air('sta-1'), base.air('sta-1#6g')]).toEqual([58.7, 90.6])` — with the lesson's
- * sentence as the `it` name. So the engine is pinned and the prose is not: the sampling sweep of
- * 2026-10-12 planted six of this lesson's figures and **all six went unnoticed**. Here every
- * figure is parsed out of the shipped string and compared with the same measurement.
- *
- * **The reads worth naming:**
- *
- *  - **the four-way table is read as the four runs it is.** Every row names a device and every
- *    column a change, so each cell is read against the run that column describes and the lane
- *    that row names — the base five seconds, the backup stopped, its second radio off, and the
- *    tablet replaced.
- *  - **the two columns that do not move are read as the invariant they state.** 「电视收到的都是
- *    大约 8.3 兆字节，平板收到的都恰好是 88,200 字节」 is read over all four runs, which is
- *    what makes the sentence a claim about the changes rather than about one of them.
- *  - **the experiment's figures are read against the table's own**: every figure in `tryThis`
- *    and in the quiz is one the table already prints, so the two places cannot drift apart.
- *  - **the sensor's three frames are read with their bytes**, because 「三帧——总共 384 字节」 is
- *    one claim about one lane, and the count and the sum have to come from the same frames.
- */
-describe('capstone · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
-  }
-  const NUMS = blockText(capstone.numbers)
-  const DEEP = blockText(capstone.deeper)
-  const LIM = blockText(capstone.limits)
-  const OBS = blockText(capstone.observe)
-  const TRY = blockText(capstone.tryThis)
-  const QUIZ = blockText(capstone.quiz)
-
-  const val = (x: string): number => Number(x.replace(/[\s,%]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,%]/g, '').replace(/[−–]/g, '-')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
-    capstone.numbers!.filter((b) => b.kind === 'table') as unknown as
-      { heading?: string; head: string[]; rows: string[][] }[]
-  /** The run a column of the four-way table is about, by the words of its own heading. */
-  const sceneOf = (head: string): Scene => {
-    if (head.includes('原样') || head.includes('现在')) return base
-    if (head.includes('停止备份') || head.includes('关闭备份')) return backupStopped
-    if (head.includes('第二台电台') || head.includes('单链路')) return radioOff
-    if (head.includes('平板')) return tabletNew
-    throw new Error(`no run for the column 「${head}」`)
-  }
-
-  it('reads the air-share row, and the sensor beside it', () => {
-    // 「笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%」 — in a cell of `numbers` and in `observe`
-    for (const text of [NUMS, OBS]) {
-      const [lo, loPct, hi, hiPct] = figs(text,
-        /笔记本占了 (\d) GHz 的 ([\d.]+)%、(\d) GHz 的 ([\d.]+)%/, 'the laptop’s two shares')
-      expect(loPct, `its share of ${lo} GHz`).toBe(base.air('sta-1'))
-      expect(hiPct, `and of ${hi} GHz`).toBe(base.air('sta-1#6g'))
-      expect([lo, hi], 'the two bands it holds, in that order').toEqual([5, 6])
-    }
-    // 「其余没有一台达到百分之二」
-    const [twoCn] = raw(NUMS, /其余没有一台达到百分之(.)/, '`numbers` on everybody else')
-    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
-    for (const id of ['sta-2', 'sta-3', 'sta-4', 'sta-5', 'sta-6']) {
-      expect(base.air(id), `${id} is under that`).toBeLessThan(cn(twoCn!))
-    }
-    // 「而它五秒里一共发了三帧——总共 384 字节」
-    const [framesCn, bytes] = raw(OBS, /它五秒里一共发了(.)帧——总共 ([\d,]+) 字节/,
-      '`observe` on the sensor')
-    const sent = data(base.rs, 'sta-5')
-    expect(cn(framesCn!), 'the frames the sensor sends').toBe(sent.length)
-    expect(val(bytes!), 'and the bytes they come to')
-      .toBe(sent.reduce((a, r) => a + r.frame.bytes, 0))
-    // 「笔记本的两条泳道是 58.7% 和 90.6%」 — the same pair, a third time
-    const [p1, p2] = figs(NUMS, /笔记本的两条泳道是 ([\d.]+)% 和 ([\d.]+)%/, '`numbers` on the same pair')
-    expect([p1, p2], 'the same two shares').toEqual([base.air('sta-1'), base.air('sta-1#6g')])
-  })
-
-  it('reads the four-way table as the four runs it is, cell by cell', () => {
-    const t = tables().find((x) => x.rows.length >= 4 && x.head.length >= 4)!
-    expect(t.head.length, 'a column per change, plus the row labels').toBeGreaterThanOrEqual(5)
-    const runs = t.head.slice(1).map(sceneOf)
-    for (const row of t.rows) {
-      const label = row[0]!
-      row.slice(1).forEach((cell, i) => {
-        const s = runs[i]!
-        if (label.includes('备份')) {
-          // the megabytes the access point took delivery of across both its links
-          const printed = raw(cell, /^([\d.]+)$/, `${label} in column ${i}`)[0]
-          if (printed !== undefined) same(printed, s.upMb, `${label} in column ${i}`)
-          return
-        }
-        const ms = /^([\d.]+) ms$/.exec(cell)
-        if (!ms) return
-        /*
-         * **The row label names its own lane and its own measurement**: 「泳道 sta-2 的平均接收
-         * 等待」. So the read takes both out of the label rather than guessing from the device's
-         * name — which is also what makes the label itself part of what is pinned.
-         */
-        const [node] = raw(label, /泳道 (sta-\d+) 的/, `the lane the row 「${label}」 names`)
-        const measured = label.includes('发送等待') ? s.txWait(node!) : s.rxWait(node!)
-        expect(label.includes('发送等待') || label.includes('接收等待'),
-          `the row 「${label}」 says which wait it means`).toBe(true)
-        same(ms[1]!, measured, `${label} in column ${i}`)
-      })
+    const g = /电视收到的都是大约 ([\d.]+) 兆字节，平板收到的都恰好是 ([\d,]+) 字节/.exec(l.expect)!
+    for (const s of COLUMNS) {
+      same(g[1], s.got('sta-2') / 1e6, 'the television’s bytes')
+      expect(Number(g[2].replace(/,/g, ''))).toBe(s.got('sta-4'))
     }
   })
 
-  it('reads the two columns that do not move, over all four runs', () => {
-    // 「四个场景里，电视收到的都是大约 8.3 兆字节，平板收到的都恰好是 88,200 字节」
-    const [mb, bytes] = figs(NUMS,
-      /电视收到的都是大约 ([\d.]+) 兆字节，平板收到的都恰好是 ([\d,]+) 字节/,
-      '`numbers` on what nothing changes')
-    for (const s of [base, backupStopped, radioOff, tabletNew]) {
-      expect(Math.round(s.got('sta-2') / 1e5) / 10, 'the television’s megabytes').toBe(mb)
-      expect(s.got('sta-4'), 'and the tablet’s bytes').toBe(bytes)
-    }
+  it('lab 3: the second radio off', () => {
+    const e = /从 ([\d.]+) 兆字节降到 ([\d.]+)，视频的等待从 ([\d.]+) ms 变成 ([\d.]+) ms/.exec(lab('关闭笔记本的第二台电台').expect)!
+    same(e[1], base.upMb, 'backup before'); same(e[2], radioOff.upMb, 'backup after')
+    same(e[3], base.rxWait('sta-2'), 'video before'); same(e[4], radioOff.rxWait('sta-2'), 'video after')
   })
 
-  it('reads both experiments and the question against the table’s own figures', () => {
-    // 「视频从 2.26 ms 降到 0.21，语音通话从 1.90 降到 0.83，平板的网页从 39.06 降到 0.50」
-    const [video, videoTo, voice, voiceTo, tablet, tabletTo] = figs(TRY,
-      /视频从 ([\d.]+) ms 降到 ([\d.]+)，语音通话从 ([\d.]+) 降到 ([\d.]+)，平板的网页从 ([\d.]+) 降到 ([\d.]+)/,
-      '`tryThis` on the first change')
-    same(String(video), base.rxWait('sta-2'), 'the television’s wait as it stands')
-    same(String(videoTo), backupStopped.rxWait('sta-2'), 'and with the backup stopped')
-    same(String(voice), base.txWait('sta-3'), 'the call’s wait as it stands')
-    same(String(voiceTo), backupStopped.txWait('sta-3'), 'and with the backup stopped')
-    same(String(tablet), base.rxWait('sta-4'), 'the tablet’s wait as it stands')
-    same(String(tabletTo), backupStopped.rxWait('sta-4'), 'and with the backup stopped')
-    // 「平板的等待只从 39.06 ms 降到 34.31」 — the third change, in `tryThis` and in the quiz
-    for (const text of [TRY, QUIZ]) {
-      const [was, now] = figs(text, /等待只从 ([\d.]+) ms 降到 ([\d.]+)/,
-        'the third change’s own pair')
-      same(String(was), base.rxWait('sta-4'), 'the tablet’s wait as it stands')
-      same(String(now), tabletNew.rxWait('sta-4'), 'and with a newer tablet')
-      expect(now, 'which is a smaller improvement than stopping the backup')
-        .toBeGreaterThan(backupStopped.rxWait('sta-4'))
-    }
-    // 「它那 39.06 ms 不是因为链路慢」 — `deeper` prints it again
-    const [deepMs] = figs(DEEP, /它那 ([\d.]+) ms 不是因为链路慢/, '`deeper` on the same wait')
-    same(String(deepMs), base.rxWait('sta-4'), 'the same wait, in `deeper`')
-    // 「所以平板那 39.06 ms 是一个静止房间里的数」 — and in `limits`
-    const [limMs] = figs(LIM, /所以平板那 ([\d.]+) ms 是一个静止房间里的数/, '`limits` on the same wait')
-    same(String(limMs), base.rxWait('sta-4'), 'and again in `limits`')
+  it('lab 4: the tablet upgrade, about one part in eight, and the two it groups', () => {
+    const e = /备份仍然送达 ([\d.]+) 兆字节，平板的等待只从 ([\d.]+) ms 降到 ([\d.]+)，约(.)分之一；.*都只编入电视与投影仪/.exec(lab('给平板换一台 Wi-Fi 6 电台').expect)!
+    same(e[1], tabletNew.upMb, 'backup with the new tablet')
+    same(e[2], base.rxWait('sta-4'), 'tablet before'); same(e[3], tabletNew.rxWait('sta-4'), 'tablet after')
+    expect(Math.round(base.rxWait('sta-4') / (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')))).toBe(zh(e[4]))
+    const names = Object.fromEntries(capstoneTopology().nodes.map((n) => [n.id, n.label]))
+    expect(members(base).map((id) => names[id])).toEqual(['电视', '投影仪'])
+    // the AC split the meaning rests on
+    const acs = new Set(base.rs.flatMap((x) => (x.type === 'ENQUEUE' && x.dst === 'sta-4' ? [x.ac] : [])))
+    expect([...acs]).toEqual([1])
+    expect(base.rs.filter((x): x is Tx => x.type === 'TX_START' && x.frame.dst === '*mu' && x.frame.kind === 'data').every((x) => x.frame.ac === 2)).toBe(true)
   })
 
-  it('reads the coherence-time comparison: the two reaches, the window it holds, and the ratio', () => {
-    /*
-     * **Six of this lesson's figures sat in one sentence** (sweep of 2026-10-14) — the one that
-     * measures this engine's coherence time against the scale the standard quantifies. Three of
-     * them are this engine's own and are read here; three are the standard's and are exempt
-     * below.
-     */
-    const [dopp, shortSym, longSym, shortUs, longUs, holdMs, times] = figs(LIM,
-      /Doppler 子字段为 (\d+) 时，HE TB PPDU 里那个中段训练字段的周期只有两档，(\d+) 个符号或 (\d+) 个符号（Table 9-\d+ 与 §26\.\d+），折成 (\d+) µs 与 (\d+) µs；而本仿真器较慢的那一层取 (\d+) ms，相差 (\d+) 倍/,
-      '`limits` on the scale the standard quantifies')
-    /*
-     * **The two reaches are the symbol counts in this engine's own symbol time.** `symNsFor('he')`
-     * is the data-field symbol with T_GI1,Data, which is what a midamble period is counted in, so
-     * folding either count into µs is this engine's arithmetic and not a figure from elsewhere.
-     * It pins the counts too: the planter moves one digit, and either digit breaks the product.
-     */
-    const symNs = symNsFor('he', TGI_NS.base)
-    expect(shortUs! * 1_000, 'what the shorter periodicity folds into').toBe(shortSym! * symNs)
-    expect(longUs! * 1_000, 'and what the longer one folds into').toBe(longSym! * symNs)
-    // 「而本仿真器较慢的那一层取 100 ms」 — the configured value `fading.ts` really defaults to
-    expect(holdMs, 'the coherence time this engine holds').toBe(FADING_DEFAULTS.coherenceMs)
-    // 「差 735 倍」 — against the shorter reach, which is the comparison the sentence makes
-    expect(times, 'how many of the shorter reach fit inside that window')
-      .toBe(Math.round((holdMs! * 1_000) / shortUs!))
-    /*
-     * **Exempt, class (a): the Doppler subfield's value and the two symbol counts.** 「Doppler
-     * 子字段为 1」 is Table 9-47's encoding and 「10 个符号或 20 个符号」 is §26.16's pair of
-     * periodicities; no corpus ships with this repo, and this engine has no Doppler at all —
-     * which is the sentence's whole point. What is still read of them: the subfield is the set
-     * bit the sentence needs (a zero would mean no midamble, and then there would be no two
-     * periodicities to fold), and the pair is ordered shorter-then-longer, which is the order
-     * the two µs figures above are read in.
-     */
-    expect(dopp, 'the subfield value the sentence is conditioned on').toBe(1)
-    expect(longSym, 'and the pair, printed shorter first').toBeGreaterThan(shortSym!)
-  })
-
-  it('reads `limits` on the two shares it quotes and the window it keeps', () => {
-    // 「58.7% 与 90.6% 是这一次退避抽取的结果」
-    const [lo, hi] = figs(LIM, /：([\d.]+)% 与 ([\d.]+)% 是这一次退避抽取的结果/,
-      '`limits` on the two shares')
-    expect([lo, hi], 'the laptop’s two lanes, a fourth time')
-      .toEqual([base.air('sta-1'), base.air('sta-1#6g')])
-    // 「饱和档位始终保持 20 帧待发」
-    /*
-     * **「始终保持 20 帧待发」 is the window the refill keeps, not the depth an enqueue finds.**
-     * Two lanes draw from this one queue, so the depth at an enqueue runs from 1 to the window;
-     * what the figure names is the ceiling, and the run really reaches it.
-     */
-    const [window] = figs(LIM, /饱和档位始终保持 (\d+) 帧待发/, '`limits` on the saturated window')
-    const depth = base.rs.filter((r): r is Extract<TLRecord, { type: 'ENQUEUE' }> =>
-      r.type === 'ENQUEUE' && r.node === 'sta-1').map((r) => r.depth)
-    expect(Math.max(...depth), 'the deepest the backup’s queue ever gets').toBe(window)
-    expect(depth.filter((d) => d === window).length, 'which it really reaches').toBeGreaterThan(0)
-    expect(Math.max(...depth), 'and never passes').toBeLessThanOrEqual(window!)
+  it('lab 5: the rubric repeats the figures it grades against', () => {
+    const t = tableOf(lab('排序并提交'), '好的答案包含什么')
+    const row = (k: string) => t.rows.find((r) => r[0] === k)![1]
+    const b = /5 GHz 的 ([\d.]+)%、6 GHz 的 ([\d.]+)%，而传感器五秒里只发(.)帧/.exec(row('瓶颈是谁'))!
+    same(b[1], base.air('sta-1'), 'rubric 5 GHz'); same(b[2], base.air('sta-1#6g'), 'rubric 6 GHz')
+    expect(zh(b[3])).toBe(data(base.rs, 'sta-5').length)
+    expect(base.upMb / radioOff.upMb).toBeGreaterThan(1.9)
+    expect(Math.round(base.rxWait('sta-4') / (base.rxWait('sta-4') - tabletNew.rxWait('sta-4')))).toBe(zh(/大约(.)分之一/.exec(row('那台平板'))![1]))
+    // the order the lab expects: stopping frees most waiting, then the radio, then the tablet
+    const freed = (s: Scene) => ['sta-2', 'sta-4'].reduce((a, id) => a + base.rxWait(id) - s.rxWait(id), 0) + base.txWait('sta-3') - s.txWait('sta-3')
+    expect(freed(backupStopped)).toBeGreaterThan(freed(radioOff))
+    expect(freed(radioOff)).toBeGreaterThan(freed(tabletNew))
   })
 })

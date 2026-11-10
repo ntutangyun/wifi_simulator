@@ -1,51 +1,25 @@
 /**
  * Wi-Fi Tier 2 · M8 · Real applications · The closing brief of the Wi-Fi track.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md). It is a
- * brief, not a walkthrough: one flat, seven devices, one question — what single
- * change most improves this household — and three candidate changes the learner
- * runs, prices and defends, with a rubric and a write-up template to hand the
- * answer in against.
+ * Standard-first shape (2026-11-11). ① what IEEE Std 802.11-2024 and 802.11be-2024 give a
+ * household that shares one medium: EDCA contention per access category (§10.23.2.1,
+ * §10.23.2.4), the priority tools — the user-priority-to-AC mapping (§10.2.3.2, Table 10-1), the
+ * advertised parameters and admission control (§9.4.2.27) — downlink multi-user sends
+ * (§26.5.1.1) and per-link contention for an MLD (§35.3.16.1), and what the standard leaves to
+ * the network: which device to favour and how to group. ② the engine's shortcuts, row by row —
+ * including the coherence-time comparison tests/course/fading.test.ts pins. ③ five runs: the
+ * baseline, the three candidate edits and the hand-in with its rubric.
  *
- * Mechanism before metaphor (2026-09-23): the `steps` block is the method the
- * learner carries out — baseline, the four figures and the lane each is read
- * from, one editor edit at a time, the comparison, the ranking and the hand-in
- * — and the four-way table is its worked example, every row naming the lane and
- * the counter its figures come from.
+ * The audit corrected two things in the old prose: the midamble citation pointed at Table 9-47,
+ * which is the Trigger Type encoding — the Doppler and midamble subfields are in §9.3.1.22.1 — and
+ * 「the AP has nothing for the tablet at the moment it groups」 was not the engine's reason: the
+ * engine groups only within the access category that won, and the tablet's pages are AC_BE while
+ * the video is AC_VI.
  *
- * The three candidates are edits the learner makes in the editor, not lesson
- * `variants`: the scene is one inline builder that takes no parameters, and the
- * recorded timeline hash in tests/fixtures/lesson-hashes.json is the
- * controller's. The scenario is therefore byte-identical to what it was.
- *
- * Every number quoted below is pinned in tests/course/capstone.test.ts; the
- * five-second figures it shares with tests/course/lesson-claims.test.ts
- * ("lesson 14 · capstone") are the same run measured the same way.
- *
- * Re-paced 2026-09-26 (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md
- * §2 · M12). It **stays whole**: the question cannot be answered from any single
- * mechanism and the seven-device scene is the point. Four changes only:
- *  - §4 gives it a `topology` figure, and the figure replaces prose: the flat's
- *    geography — three rooms, the brick between them, the door in each inner
- *    wall, who sits in which corner — was narrated in the picture's first
- *    paragraph and again in `deeper`. The paragraph now names only the cast and
- *    what each device is doing, which no figure can say; the walls, the
- *    positions and the one lane that holds the air are in the figure.
- *  - the tablet/OFDMA change had a column in the table and a quiz question but
- *    no experiment, so it is now the third `tryThis` (§2).
- *  - the second experiment re-printed four cells of the comparison table; it
- *    now points at the column instead (§2).
- *  - 「光线昏暗」 is gone (§5.2).
- * The scenario moved into the named `capstoneScenario` so the figure can read
- * the same metres the learner loads; it is the same builder with the same
- * nodes, so the recorded timeline hash does not move.
- *
- * §6 asks for one more change this batch cannot make: `needs` should end
- * …ofdma-dl, ofdma-ul, mumimo-choose, mlo-gain (`tb-round` was rejected by §8,
- * so `ofdma-ul` stays). `mumimo-choose` and `mlo-gain` are batch 10's, and
- * tests/course/readability.test.ts requires every `needs` id to be a
- * registered lesson earlier in COURSE_ORDER, so the row waits for them.
+ * The three candidates are editor edits, not lesson `variants`: the scene is one builder that
+ * takes no parameters and the recorded timeline hash in tests/fixtures/lesson-hashes.json is the
+ * controller's, so the scenario is byte-identical. Every figure is read back out of this file by
+ * tests/course/capstone.test.ts and compared with a run.
  */
 import type { TopologySpec } from '../diagram'
 import { type Lesson, brick, drywallDoor, node, sc, firstMuDl, firstTrigger, first6g, firstCollision, J } from '../lessonKit'
@@ -111,83 +85,126 @@ export const capstone: Lesson = {
   id: 'capstone',
   module: 11,
   title: '结业课——找出这个家庭网络的瓶颈',
-  why: '在此之前的每一课，都是在一个专门为它搭建的场景里展示一个机制。而在真实的家庭中，所有机制同时起作用，并且会提出一个任何单独一课都无法回答的问题：这个网络用起来慢——你会改什么？答案取决于全家共享的那一项资源：空口时间（airtime）。一台设备占用多少，等于它想发送的量乘以每一帧的占用时长，与电台是哪一代无关；这个家里占用空口时间最多的是笔记本的备份，两个频段的大部分空口时间都被它占用，而屋里最旧的传感器几秒才发一帧，根本不在候选之列。三个候选改动都没有改变电视和平板收到的数据量，改变的是一帧要等待多久才轮到发送。停止备份，其他设备的等待时间全部降到一毫秒以下，代价是备份从此一个字节也无法送达；关闭笔记本的第二台电台，备份自身的送达量减少一半，视频的等待时间基本不变；给平板换一台更新的电台几乎没有效果，因为接入点（access point, AP）从不把它与其他设备编入同一组，它慢的原因是每一帧都必须单独与一个满负荷的上传者竞争，而不是链路（link）慢。所以方案要按“腾出了多少等待时间”排序，而不是按“哪台设备的数字最差”。真实部署中更好的做法是给备份限速，或把它放进更低的接入类别（access category, AC），只是本仿真器没有为这两种做法提供控件。',
+  why: '一个家庭网络里所有机制同时起作用，而它们共享同一份资源：空口时间（airtime）。IEEE 802.11-2024 规定了每一帧怎样竞争这份时间——按接入类别（access category, AC）退避（backoff）、在传输机会（transmit opportunity, TXOP）的时长上限内连续发送，接入点（access point, AP）可以把几台设备编入一次多用户（multi-user, MU）发送，支持多链路操作（multi-link operation, MLO）的多链路设备（multi-link device, MLD）可以在几条链路（link）上各自竞争——也规定了区分优先级的手段：每一帧按它的优先级映射到四个接入类别之一，接入点在信标（Beacon）里通告各类的参数，并可以要求某一类先经准入控制；标准不规定一个家庭网络该优先照顾哪台设备。所以一台设备是不是瓶颈（bottleneck），要看它占用了多少空口时间，等于它想发送的量乘以每一帧的占用时长，与电台是哪一代无关。在这个家里，笔记本的备份占用了 5 GHz 58.7%、6 GHz 90.6% 的时间，其余设备都不到 2%，屋里最旧的传感器五秒只发三帧。三个候选改动都没有改变电视和平板收到的数据量，改变的是一帧要等多久：停止备份，其他设备的等待全部降到一毫秒以下，代价是备份一个字节也送不出去；关闭笔记本的第二台电台，备份自身的送达量减少一半，视频的等待基本不变；给平板换一台 Wi-Fi 6 电台几乎没有效果，因为接入点从不把它编入多用户发送，它慢的原因是每一帧都要单独与一个满负荷的上传者竞争。真实部署中更好的做法是给备份限速，或把它放进更低的接入类别；本仿真器没有限速手段，笔记本始终有帧待发的上传也固定在尽力而为一类。',
   outcomes: [
-    '按照它们共享的那一项资源，给一个设备混杂的家庭里的设备排序',
-    '用仿真结果、而不是用直觉，算出三个候选改动各自的代价与收益',
-    '说出你会否决哪个改动，以及是哪一个测量让你否决它的',
-    '提交一份写明“它没有测量什么”的报告',
+    '说出标准为共享空口时间规定了哪些规则与哪些优先级手段，以及它没有规定什么',
+    '按照共享的那一项资源，给一个设备混杂的家庭里的设备排序',
+    '用仿真结果算出三个候选改动各自的代价与收益，说出你会否决哪个改动、依据的是哪个测量',
+    '提交一份写明「它没有测量什么」的报告',
   ],
   needs: ['edca', 'txop', 'width', 'rate', 'anomaly', 'tier1-project', 'ofdma-dl', 'ofdma-ul', 'mumimo-choose', 'mlo-gain'],
   terms: [
     { term: 'bottleneck', plain: '无论其他部分优化得多好，都由它决定其他设备能获得多少资源的那一台设备或那一项选择' },
     { term: 'offered load', plain: '一台设备“想发送多少”，区别于它最终“实际发送了多少”' },
   ],
-  picture: [
-    { heading: '房间里有哪些设备', text: '客厅里有一个接入点（AP），全家的流量都经过它。一台 Wi-Fi 7 笔记本正用两台电台进行备份，一台 Wi-Fi 6 电视和一台投影仪都在接收视频流，一部手机在通话，一台较旧的 Wi-Fi 5 平板在上网，还有一个每隔一段时间唤醒一次的 IoT 传感器。这些活动同时进行——晚间本来就是这样。' },
-    { kind: 'watch', jump: 2, heading: '先看，再想', text: '载入仿真，跳到第一次碰撞。先不要做其他操作：打开检视器，把七台设备按空口占比排序，并记下这个排名。下面每一条论证都要与这份排名对照，而多数读者第一次都会猜错。' },
+  standard: [
+    { heading: '所有设备竞争同一份时间（§10.23.2.1，§10.23.2.4）', text: '支持服务质量（quality of service, QoS）的站点（station, STA）有四个相互独立的增强型分布式信道接入（enhanced distributed channel access, EDCA）功能，每个接入类别一个，各有自己的发送队列（queue）。每个功能在介质（medium）空闲满仲裁帧间间隔（arbitration interframe space, AIFS）之后逐个时隙（slot time）递减退避计数，介质变忙时计数停在当前值，计数为零且有帧待发时发起一个 TXOP。一台设备占用介质的时间越长，其他设备的计数停住的时间就越长。' },
+    { heading: '区分优先级的手段（§10.2.3.2，表 10-1，§9.4.2.27）', text: '每个上层数据单元带一个 0 到 7 的优先级，按表 10-1 映射到接入类别：1、2 映射到 AC_BK，0、3 映射到 AC_BE，4、5 映射到 AC_VI，6、7 映射到 AC_VO。接入点在信标与 Probe Response 帧的 EDCA 参数集（parameter set）元素中通告各类的仲裁帧间间隔数（arbitration interframe space number, AIFSN）、最小竞争窗口（minimum contention window, CWmin）、最大竞争窗口（maximum contention window, CWmax）与 TXOP 上限（TXOP limit）；每一类还有一个 ACM 子字段，置 1 时这一类必须先经准入控制才能使用。' },
+    { heading: '多用户发送与多链路（IEEE 802.11-2024 §26.5.1.1，IEEE 802.11be-2024 §35.3.16.1）', text: '下行（downlink, DL）多用户操作让接入点在一次发送里同时向几个站点发送，方式可以是正交频分多址（orthogonal frequency-division multiple access, OFDMA）、多用户 MIMO（multi-user MIMO, MU-MIMO）或两者并用；编入哪几个站点由接入点决定。MLD 的每条链路在自己的信道上独立竞争。' },
+    { kind: 'steps', heading: '一帧怎样取得空口时间，按标准：逐步说明', items: [
+      '上层交下来的数据单元带一个优先级，按表 10-1 归入一个接入类别（§10.2.3.2）。',
+      '这一类的 EDCA 功能用接入点通告的参数退避；类别的 ACM 置 1 时，先要经过准入控制（§9.4.2.27，§10.23.2.4）。',
+      '计数为零时发起 TXOP，在这一类的 TXOP 上限内可以连续发送（§10.23.2.8，§10.23.2.9）。',
+      '接入点的帧可以与发往其他站点的帧编入同一次多用户发送（§26.5.1.1）。',
+      '多链路设备的帧可以由映射到的任何一条链路发出（IEEE 802.11be-2024 §35.3.7.2.1）。',
+    ] },
+    { heading: '标准没有规定的', text: '标准规定了每一帧怎样竞争、各类参数怎样通告，以及接入点可以怎样把几台设备编入一次发送；它不规定一个网络该优先照顾哪台设备，也不规定接入点按什么策略编组。' },
+  ],
+  implementation: [
+    { topic: '帧归入哪一类', standard: '按每个数据单元的优先级查表 10-1（§10.2.3.2）', sim: '数据单元不带优先级，类别由设备的流量档位一次确定。笔记本的档位叫作饱和档位，始终有帧待发；饱和上传为 AC_BE，视频为 AC_VI，语音为 AC_VO，浏览为 AC_BE；传感器是不支持 EDCA 的旧电台，不分类别。所以笔记本的饱和上传无法改放到更低的一类。', kind: 'differs' },
+    { topic: '参数的通告与准入控制', standard: '接入点通告参数；ACM 可要求准入控制（§9.4.2.27）', sim: '没有信标，参数是引擎里的常量表；准入控制没有实现。', kind: 'absent' },
+    { topic: '给一条流限速', standard: '标准未规定限速的具体办法', sim: '没有任何限速手段；本课排出的三个候选都是编辑器里可以直接做的改动。', kind: 'absent' },
+    { topic: '流量', standard: '标准不定义流量模型', sim: '备份、视频、语音、浏览与传感器都是本仿真器内置的流量发生器，包长与间隔都是本仿真器的取值。饱和档位始终保持 20 帧待发，每出队一帧就补充一帧，网络再慢也不降低速率；真实的备份运行在 TCP 上，往返时间变长就会降速。', kind: 'choice' },
+    { topic: '编组的策略', standard: '标准未规定（§26.5.1.1）', sim: '接入点赢得竞争的那一类队列里，有数据、协商过 OFDMA 的站点有两个以上，才组成一次多用户发送，最多四个；不同接入类别的下行帧从不编入同一次发送。平板的网页在 AC_BE，电视与投影仪的视频在 AC_VI，所以平板从未被编入，换了电台也一样。', kind: 'choice' },
+    { topic: '判忙的能量门限', standard: '能量检测（energy detection, ED）：HE 站点对主 20 MHz 信道内不低于 −62 dBm 的信号报忙（§27.3.22.6.3）', sim: '按整条信道带宽（channel width）内的总能量与门限比较，而不是只看主 20 MHz 信道。', kind: 'differs' },
+    { topic: '其他网络', standard: '同一信道上可以有别的基本服务集（basic service set, BSS），称为重叠 BSS（OBSS，§3.1）', sim: '场景校验要求恰好一个接入点，所有 Wi-Fi 节点都在同一个 BSS 里；同信道的邻近网络无法表达。', kind: 'differs' },
+    { topic: '入网与省电', standard: '关联、认证与省电都有专门的规定', sim: '引擎不发任何管理帧（management frame），所有设备从第一纳秒起就已入网并始终处于唤醒状态。', kind: 'absent' },
+    { topic: '移动与多普勒', standard: '触发帧（Trigger frame）Common Info 字段的 Doppler 子字段为 1 时，HE 的基于触发的 PPDU（trigger-based PPDU, TB PPDU）每 10 或 20 个符号（symbol）插入一次中间训练符号（§9.3.1.22.1，§26.16）', sim: '节点位置在整段仿真里不变，衰落即使打开也只在固定的均值上下起伏，没有多普勒；相干时间是一个配置值，不由任何物体的移动速度推导。10 个与 20 个符号折成 136 µs 与 272 µs，而本仿真器较慢的那一层取 100 ms，是前者的 735 倍。', kind: 'absent' },
+    { topic: '墙体衰减', standard: '标准不规定传播模型', sim: '砖墙与石膏板的衰减是按常见实测数据标定的取值。', kind: 'value' },
+    { topic: '运行的随机性', standard: '标准不涉及', sim: '每个数都来自同一个随机种子的一次五秒运行，同一个场景每次给出同一组数，表中不带误差范围；真实的评测要换种子、跑很多次，并报出离散程度。', kind: 'choice' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '三个房间，七台设备', spec: capstoneTopology(),
-      caption: '位置即场景中的坐标（单位为米）：三个房间之间隔着砖墙，每道内墙上开一扇门，平板和传感器都位于两堵墙之后的远角。加粗的那条是笔记本的备份，也是屋里唯一占比超过百分之二的一条。',
+      heading: '先看是谁占用了空口',
+      jump: 2,
+      steps: [
+        '载入本课场景，跳到第一次碰撞，然后运行完五秒。',
+        '打开检视器，把七台设备按空口占比排序，记下这个排名；再数一数传感器发出了几帧。',
+      ],
+      blocks: [
+        {
+          kind: 'diagram', heading: '三个房间，七台设备', spec: capstoneTopology(),
+          caption: '位置即场景中的坐标（单位为米）：三个房间之间隔着砖墙，每道内墙上开一扇门，平板和传感器都位于两堵墙之后的远角。加粗的那条是笔记本的备份，也是屋里唯一占比超过百分之二的一条。',
+        },
+        { kind: 'table', heading: '五秒内的空口占比', head: ['泳道', '空口占比'], rows: [
+          ['笔记本 5 GHz（sta-1）', '58.7%'],
+          ['笔记本 6 GHz（sta-1#6g）', '90.6%'],
+          ['其余五台站点', '都不到 2%'],
+        ] },
+      ],
+      expect: '笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%，其余没有一台达到百分之二；传感器五秒只发了三帧，共 384 字节。',
+      meaning: '每一帧都按 EDCA 竞争同一份时间（①），占用多少取决于想发送的量乘以每帧的时长；屋里最旧的电台不是瓶颈。',
     },
-    { heading: '你要回答的那个问题', text: '只有一个问题，而且必须用数字来回答：哪一个单项改动，对这个家庭的改善最大？空口是全家共享的同一份资源，一个改动的价值，取决于它腾出了多少空口时间。' },
-    { kind: 'list', heading: '你可以做的三个改动', items: [
-      '停止笔记本的备份，或者推迟到半夜再进行——最直接的做法。',
-      '关闭笔记本的多链路操作（multi-link operation, MLO），让它的备份只使用一个频段。',
-      '给平板换一台启用正交频分多址（orthogonal frequency-division multiple access, OFDMA）的 Wi-Fi 6 电台——平板是屋里用于上网的最旧设备，但不是屋里最旧的设备。',
-    ] },
-    { heading: '最显眼的那台设备不一定是瓶颈', text: '最慢的那台电台最显眼，而在这里它并不是原因。一台设备要成为瓶颈（bottleneck），前提是它消耗了那份共享资源；而消耗这份资源，就是占用空口——等于“想发送多少”乘以“每帧占用多久”，与电台是哪一代无关。' },
-  ],
-  numbers: [
-    { kind: 'table', heading: '同样的五秒钟，四种方案', head: [
-      '指标及读取位置',
-      '原样', '停止备份',
-      '关闭第二台电台', '平板换 Wi-Fi 6',
-    ], rows: [
-      ['备份送达量（兆字节）——泳道 ap 与 ap#6g 的已送达字节',
-        '78.0', '0', '37.7', '78.1'],
-      ['视频等待——泳道 sta-2 的平均接收等待',
-        '2.26 ms', '0.21 ms', '2.22 ms', '2.18 ms'],
-      ['平板等待——泳道 sta-4 的平均接收等待',
-        '39.06 ms', '0.50 ms', '25.93 ms', '34.31 ms'],
-      ['语音等待——泳道 sta-3 的平均发送等待',
-        '1.90 ms', '0.83 ms', '1.95 ms', '1.82 ms'],
-    ] },
-    { heading: '这里没有一项是关于吞吐量的', text: '四个场景里，电视收到的都是大约 8.3 兆字节，平板收到的都恰好是 88,200 字节：没有哪个改动改变了它们收到的数据。改变的是——其中一行变化了两个数量级——一帧要等待多久才轮到发送。共享的资源是时间，而其中绝大部分被一台设备占用了。' },
-    { kind: 'table', heading: '好的答案包含什么', head: [
-      '判断', '好的答案是什么样的',
-    ], rows: [
-      ['瓶颈是谁', '指出那个备份，而不是传感器：笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%，而传感器五秒里只发三帧。'],
-      ['停止备份', '指出其他所有等待都降到一毫秒以下——同时也指出备份自身从此一个字节也无法送达。说清楚用什么交换了什么。'],
-      ['第二台电台', '如实说明它的代价与收益：它让备份自身的送达量翻倍，而视频的等待时间基本不变。它改善的是本机自身的送达量，而不是它所让出的那个频段上的其他设备。'],
-      ['那台平板', '认识到这次升级几乎没有效果：接入点从未把平板与其他设备编入同一组，它的等待只降了大约八分之一。'],
-      ['没有测到的东西', '明确说明：没有人走动，没有门被打开，整段仿真只有五秒。而一个晚上不是五秒。'],
-    ] },
-    { kind: 'steps', heading: '这套方法的步骤', items: [
-      '先测量基线，不做任何改动。按原样载入场景，运行完五秒，打开检视器，把七台设备按空口占比排序。笔记本的两条泳道是 58.7% 和 90.6%，其余没有一台达到百分之二。记下这个排名。',
-      '确定四个在每个方案中都要读取的数字：备份的送达量、视频与平板的等待、语音的等待。上面那张表写明了每个数字从哪条泳道读取。',
-      '一次只改一项，在编辑器里修改，然后重新加载。这三个方案都不是可以从菜单载入的变体——每一个都需要你自己修改、事后再改回：把笔记本的流量设为空闲；或者取消笔记本的 MLO；或者给平板换一台启用 OFDMA 的 Wi-Fi 6 电台。',
-      '每次重新加载后，再把这四个数字读一遍，写在基线旁边。三个方案逐列比较：一个改动的价值，既要看它改变了什么，也同样要看它没有改变什么。',
-      '按“腾出了多少等待”给方案排序，而不是按“哪台设备的数字看起来最差”。传感器是屋里最旧的那台电台，而它根本不在候选名单上：五秒里它只发三帧。',
-      '提交四句话：瓶颈是谁、由哪个数字说明；你会选哪个方案、它改变了什么；你否决了哪个方案、依据的是哪个测量；以及这个场景没有建模什么——没有人走动，没有门被打开，整段仿真只有五秒。',
-    ] },
-  ],
-  deeper: [
-    { heading: '为什么平板的等待比电视长得多', text: '电视和投影仪持续接收视频流，所以接入点几乎每一次发送都有发给它们的数据，它们也就随之被编入接入点组成的多用户组。平板则是每隔一段时间请求一个网页，使用的是这个家里承载网页浏览的最旧那台电台：它从未被编入组，它的帧又长，每一帧都必须单独与一个满负荷的上传者竞争一次发送机会。它那 39.06 ms 不是因为链路慢，而是因为一条足够快的链路前面有一个等待时间很长的队列。' },
-    { heading: '真正的解决方案下一步会怎样做', text: '这套房子里没有任何机制调度那个备份。真实的部署不会停止它，而是分配给它更小的份额：给上传限速，或者把它的流量放进优先级更低的接入类别，让其他每一条队列都排在它前面。这两种做法都只需要一行配置，不需要更换任何电台。这一课没有为它们提供控件，原因是本仿真器没有策略引擎，而不是因为它们不正确；事实上，它们才是正确的答案。' },
-  ],
-  limits: [
-    { kind: 'out-of-scope', text: '整个 Wi-Fi 课程里只有一张网：场景校验要求正好一个接入点，所有 Wi-Fi 节点都归在同一个 BSS 下（model/scenario.ts）。于是「谁占用空口」这道算术，从第一课到这一课计算的都是自己家里的设备。在真实的公寓楼里，同信道的邻居网络往往是最大的开销，而本仿真器甚至无法表达它——所以「把接入点的功率调高」在这里永远无害，在楼里却是把成本转嫁给他人。' },
-    { kind: 'unmodelled', text: '引擎不发任何管理帧：帧类型表里没有信标、没有探测、没有关联与认证，也没有省电机制（model/frames.ts 的 FRAME_KINDS）。所有设备从第一纳秒起就已入网，并且始终处于唤醒状态。所以这门课从未展示一张网是如何建立的，也无法测量任何与电池有关的量——而在这个晚间场景的家里，手机大半时间处于休眠，目标唤醒时间与省电模式决定了它什么时候才可能发送。' },
-    { kind: 'unmodelled', text: '没有人走动，也没有门被开合——课文的交付清单已经要求读者写明这一点，这里补充它在引擎中的依据：节点位置在整段仿真里是常数，衰落即使打开也只是在一个固定的均值上下起伏，而且没有多普勒，相干时间是一个配置值，而不是由某个物体的移动速度推导出来的（engine/fading.ts）。这个配置值的大小，可以与标准本身量化过的那个尺度比较：触发帧 Common Info 字段的 Doppler 子字段为 1 时，HE TB PPDU 里那个中段训练字段的周期只有两档，10 个符号或 20 个符号（Table 9-47 与 §26.16），折成 136 µs 与 272 µs；而本仿真器较慢的那一层取 100 ms，相差 735 倍。可见标准量化的是一帧之内的尺度，跨帧之间的尺度只有名称而没有数值。所以平板那 39.06 ms 是一个静止房间里的数值，而在真实的傍晚，有人会拿着它从客厅走到卧室。' },
-    { kind: 'out-of-scope', text: '流量是开环的：饱和档位始终保持 20 帧待发，每出队一帧就补充一帧（engine/traffic.ts 的 refill），网络再慢它也不降低速率。真实的备份运行在 TCP 上，往返时间一变长它就会自动降低速率，所以「停止备份」和「给备份限速」在真实房子里的差别远比这里小。课文「深入一步」说限速与降优先级才是对的答案——它们在这里无法测量，既因为没有策略引擎，也因为没有拥塞控制。' },
-    { kind: 'model-value', text: '读者要排序的一切，来自同一个种子的一次五秒运行。引擎是确定性的，同一个场景每次给出同一串数，所以表里没有任何误差范围：58.7% 与 90.6% 是这一次退避抽取的结果，不是一个期望值。本课教的方法是「一次只改一样，再对照着读同样四个数」，它不是「跑够次数再下结论」——真实的评测要换种子、跑很多次，并且报出离散程度。' },
+    {
+      heading: '停止备份',
+      steps: [
+        '在编辑器里把笔记本的流量设为空闲，重新载入，运行完五秒。',
+        '按下表每一行写明的泳道读出四个数，写在基线旁边；再读电视与平板各收到多少字节。做完把笔记本改回原样。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '同样的五秒钟，四种方案', head: ['指标及读取位置', '原样', '停止备份', '关闭第二台电台', '平板换 Wi-Fi 6'], rows: [
+          ['备份送达量（兆字节）——泳道 ap 与 ap#6g 的已送达字节', '78.0', '0', '37.7', '78.1'],
+          ['视频等待——泳道 sta-2 的平均接收等待', '2.26 ms', '0.21 ms', '2.22 ms', '2.18 ms'],
+          ['平板等待——泳道 sta-4 的平均接收等待', '39.06 ms', '0.50 ms', '25.93 ms', '34.31 ms'],
+          ['语音等待——泳道 sta-3 的平均发送等待', '1.90 ms', '0.83 ms', '1.95 ms', '1.82 ms'],
+        ] },
+      ],
+      expect: '其他所有等待都降到一毫秒以下：视频从 2.26 ms 降到 0.21，语音从 1.90 降到 0.83，平板从 39.06 降到 0.50；备份一个字节也送不出去。四个方案里，电视收到的都是大约 8.3 兆字节，平板收到的都恰好是 88,200 字节。',
+      meaning: '没有哪个改动改变了它们收到的数据，改变的是一帧要等多久才轮到发送。标准的优先级手段是把备份放进 AC_BK 或给它的类别加准入控制（①），本仿真器两者都不支持（②），所以这里只能整个停掉。',
+    },
+    {
+      heading: '关闭笔记本的第二台电台',
+      steps: [
+        '在编辑器里取消笔记本的 MLO，重新载入，运行完五秒，对照上表第三列。做完改回原样。',
+      ],
+      expect: '备份自身的送达量从 78.0 兆字节降到 37.7，视频的等待从 2.26 ms 变成 2.22 ms，基本不变。',
+      meaning: '第二条链路在 6 GHz 上独立竞争（①），带来的是本机自身的送达量；它所在的频段上没有其他设备，所以关掉它也不会让别人少等。',
+    },
+    {
+      heading: '给平板换一台 Wi-Fi 6 电台',
+      jump: 0,
+      steps: [
+        '在编辑器里把平板换成启用 OFDMA 的 Wi-Fi 6 电台，重新载入，运行完五秒，对照上表第四列。',
+        '在多用户发送里看接入点编入了哪几台设备。',
+      ],
+      expect: '备份仍然送达 78.1 兆字节，平板的等待只从 39.06 ms 降到 34.31，约八分之一；换电台前后，接入点的多用户发送都只编入电视与投影仪。',
+      meaning: '编组策略由实现决定（①）：本仿真器只在同一个接入类别里编组（②），平板的网页与视频不在同一类，所以从未被编入；它的每一帧仍要单独与满负荷的上传者竞争。',
+    },
+    {
+      heading: '排序并提交',
+      steps: [
+        '按「腾出了多少等待」给三个方案排序，而不是按「哪台设备的数字看起来最差」。',
+        '提交四句话：瓶颈是谁、由哪个数字说明；你会选哪个方案、它改变了什么；你否决了哪个方案、依据的是哪个测量；这个场景没有建模什么。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '好的答案包含什么', head: ['判断', '好的答案是什么样的'], rows: [
+          ['瓶颈是谁', '指出那个备份，而不是传感器：笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%，而传感器五秒里只发三帧。'],
+          ['停止备份', '指出其他所有等待都降到一毫秒以下，同时指出备份自身从此一个字节也送不出去。说清楚用什么交换了什么。'],
+          ['第二台电台', '说明它让备份自身的送达量翻倍，而视频的等待时间基本不变。'],
+          ['那台平板', '认识到这次升级几乎没有效果：接入点从未把平板与其他设备编入同一组，它的等待只降了大约八分之一。'],
+          ['没有测到的东西', '明确说明：没有人走动，没有门被打开，没有邻近的网络，整段仿真只有五秒。'],
+        ] },
+      ],
+      expect: '停止备份腾出的等待最多，其次是关闭第二台电台（只对平板明显），换平板的电台最少。',
+      meaning: '标准不规定该优先照顾哪台设备（①），答案要由测量给出；本仿真器缺少的限速与改放接入类别（②），正是真实部署里更好的做法。',
+    },
   ],
   sources: [
-    '墙体、材质以及穿墙损耗来自本仿真器自己的传播模型；砖墙与石膏板的衰减是按常见实测数据标定的模型取值，并非 IEEE Std 802.11-2024 规定的数值。',
-    '场景里用到的每一个机制都有各自的条款：接入类别及其参数 §10.23.2，发送机会 §10.23.2.8，聚合 §10.12，下行多用户见第 27 章，多链路操作见 IEEE Std 802.11be-2024 第 35 章。',
-    '流量模型——一个备份、两路视频、一通语音、一次浏览会话和一个传感器——是本仿真器内置的流量发生器，不是标准的流量模型；它们的包长与间隔都是模型取值，所以这些五秒钟的数字属于这个场景，而不属于某个真实家庭。',
+    'IEEE Std 802.11-2024：§10.23.2.1 与 §10.23.2.4（EDCA 的四个信道接入功能与退避）、§10.2.3.2 与表 10-1（优先级到接入类别的映射）、§9.4.2.27（EDCA 参数集元素与 ACM 子字段）、§10.23.2.8 与 §10.23.2.9（TXOP）、§26.5.1.1（下行多用户操作）、§27.3.22.6.3（HE 的空闲信道评估）、§3.1（OBSS 的定义）、§9.3.1.22.1 与 §26.16（Doppler 子字段与中间训练符号）。',
+    'IEEE Std 802.11be-2024：§35.3.16.1（各链路独立竞争）、§35.3.7.2.1（可以用映射到的任何一条链路）。',
+    '本仿真器的取值与取法：内置的流量发生器及其包长与间隔、按流量档位确定的接入类别、饱和档位保持 20 帧待发、墙体衰减、只在同一个接入类别里编组的策略、确定性的随机种子；所以这些五秒钟的数字属于这个场景，而不属于某个真实家庭。',
   ],
+  limits: [],
   scenario: capstoneScenario,
   jumps: [
     J('第一个 MU PPDU', firstMuDl),
@@ -195,15 +212,8 @@ export const capstone: Lesson = {
     J('第一次碰撞', firstCollision),
     J('第一个 6 GHz 数据帧', first6g),
   ],
-  observe: [
-    '在检视器里把七台设备按空口占比排序。笔记本占了 5 GHz 的 58.7%、6 GHz 的 90.6%，屋里其他任何一台都达不到百分之二。这个排名和你猜的一样吗？',
-    '传感器是屋里最慢的那台电台，而它五秒里一共发了三帧——总共 384 字节。在认定最慢的那台设备就是原因之前，先查看究竟是谁占用了空口。',
-  ],
-  tryThis: [
-    '在编辑器里把笔记本的备份改成空闲，然后重新加载。其他所有等待都降到一毫秒以下：视频从 2.26 ms 降到 0.21，语音通话从 1.90 降到 0.83，平板的网页从 39.06 降到 0.50。而备份自身从此一个字节也无法送达。',
-    '把它改回原值，再关闭笔记本的 MLO——也就是去掉它的第二台电台。对照表第三列：备份自身的送达量减半，而视频的等待时间基本不变。那台电台带来的是本机自身的吞吐量，邻居的等待并没有因此改善。',
-    '再改回原值，把平板换成一台启用 OFDMA 的 Wi-Fi 6 电台。对照表第四列：备份仍然送达 78.1 兆字节，平板的等待只从 39.06 ms 降到 34.31。三个改动里，这一个成本最高、效果最小。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '对这个家庭而言，收益最大的单项改动是……',
@@ -213,7 +223,17 @@ export const capstone: Lesson = {
         '控制笔记本的备份——错峰、限速，或者降低它的优先级',
       ],
       answer: 2,
-      explain: '大家共享的是空口时间（airtime），不是字节，也不是电台的新旧，所以问题在于谁占用了它。传感器是屋里最慢的电台，五秒里只发三个短帧，改动它测不出任何变化。备份占用了大部分空口，停止它，其他所有等待都降到一毫秒以下。',
+      explain: '大家共享的是空口时间，不是字节，也不是电台的新旧。传感器五秒只发三个短帧，改动它测不出任何变化；备份占用了大部分空口，停止它，其他所有等待都降到一毫秒以下。',
+    },
+    {
+      q: '按标准，要降低备份的优先级，应当怎样做？',
+      options: [
+        '让上层给备份的数据单元标上 1 或 2 的优先级，它们就按表 10-1 归入 AC_BK',
+        '关闭笔记本的第二条链路',
+        '标准没有任何区分优先级的手段',
+      ],
+      answer: 0,
+      explain: '§10.2.3.2 与表 10-1 把优先级 1、2 映射到 AC_BK；本仿真器的类别由流量档位决定，饱和上传固定为 AC_BE，所以这一步在这里做不到。',
     },
     {
       q: '你给平板换了一台更新的电台。会发生什么？',
@@ -223,7 +243,7 @@ export const capstone: Lesson = {
         '笔记本的备份会降低速率，为它让出信道',
       ],
       answer: 1,
-      explain: '更新的电台只是让平板自己的帧变短；它并不会让平板更早获得发送机会，而接入点在编组的那一刻也没有要发给它的数据。更换数字看起来最差的那台设备，是“成本最高、改变最少”的典型做法。',
+      explain: '更新的电台只是让平板自己的帧变短；它并不会让平板更早获得发送机会。本仿真器只在同一个接入类别里编组，平板的网页属于 AC_BE，没有可以同组的对象。',
     },
   ],
 }

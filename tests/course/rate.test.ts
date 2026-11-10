@@ -1,610 +1,200 @@
 /**
- * Every empirical claim in "Rate control — picking how fast to talk", measured
- * against the lesson's own scene.
+ * `@rate`, in the standard-first shape (2026-11-11).
  *
- * The lesson was 2 009 words and became two (plan ruling 2): this half owns the
- * ceiling, the three rungs the far station uses and the near station that never
- * has to choose; `rate-fallback` owns the loop itself and what it costs the
- * room. Neither half changes `rateScenario`, so the recorded hash is untouched.
- *
- * Re-paced on 2026-09-25 (§2 M9: the lesson stays whole and gives up its `steps`
- * block). §5.1.3 deletes the ARF rule from this lesson, so the pins that guarded
- * it — a lone failure moving nothing, the two failures in a row at attempts 192
- * and 193, and the ten answered frames that climb back — moved with the prose to
- * tests/course/rate-fallback.test.ts. What is pinned here instead is the
- * procedure this lesson does own: the five steps of the ceiling itself, from
- * `mcsForPeer` in src/engine/simulation.ts and `mcsForRssi` in
- * src/engine/phy.ts, including the capability cap that is step 3.
- *
- * The old lesson had no test file of its own: its pins lived in
- * tests/course/quoted-timestamps.test.ts (the airtimes, the excursions, the
- * loss rates, the freezes, the two experiments) and one shape check in
- * tests/course/lessons.test.ts. Those files are untouched and stay green — they
- * read `l.scenario()` only, never prose. What is pinned here is what this
- * half's own sentences say. There was never a `.body!` site to retire.
+ * ① is what the standard says about choosing a rate — constraints only (§10.6.5.8, §35.14.4.1),
+ * MCS 10–13 optional (§36.1.1), success known from the Ack within AckTimeout (§10.3.2.11), the
+ * MRQ/MFB feedback a receiver may send (§26.13, §35.19), and the sensitivity table as a test
+ * requirement (§36.3.21.2). ② is this simulator's ceiling and loop. ③ four runs of the 3 s scene
+ * `rate-fallback` also loads. Every figure the labs, `why` and the quiz print is read back out of
+ * the lesson text here and compared with the engine or with that run.
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync, existsSync } from 'node:fs'
-import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
-import { Simulation } from '../../src/engine/simulation'
 import { rate } from '../../src/course/tier2/rate'
 import { rateScenario } from '../../src/course/wifiScenes'
-import { ScenarioSchema } from '../../src/model/scenario'
+import { MODULES } from '../../src/course/curriculum'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
+import { ZH_TERMS, gradedProseTexts, zhAkaViolations, zhTermFailure } from '../../src/course/readability'
 import type { TLRecord } from '../../src/model/records'
 import { buildLinkTable } from '../../src/engine/propagation'
-import { negotiated, negotiatedNss, negotiatedWidth } from '../../src/model/caps'
+import { FAILURES_TO_STEP_DOWN } from '../../src/engine/rate'
 import {
-  ACK_TIMEOUT_NS, NOISE_FIGURE_DB, PHY_MODES, RATE_MARGIN_DB, mcsForRssi, noiseDbm, reqSinrDb,
+  ACK_TIMEOUT_NS, PHY_MODES, RATE_MARGIN_DB, RX_START_DELAY_NS, SIFS_NS, SLOT_NS, mcsForRssi, noiseDbm, reqSinrDb,
 } from '../../src/engine/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
-import { ROOT, zhNumeral } from './coverage'
-import { MODULES } from '../../src/course/curriculum'
 
 const MS = 1_000_000
 const US = 1_000
-/** The three seconds every number in this lesson is measured over. */
-const RUN_NS = 3_000 * MS
-/** Long enough for all three jump targets; the shape suite asks for no more. */
-const JUMP_NS = 200 * MS
+const RUN_NS = 3000 * MS
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
-const data = (rs: TLRecord[], node: string): Tx[] =>
-  rs.filter((r): r is Tx => r.type === 'TX_START' && r.node === node && r.frame.kind === 'data')
-const pct = (a: number, b: number): number => Math.round((a / b) * 1000) / 10
-
-/**
- * The far station's run after moving it `d` metres straight towards the router — the two
- * experiments of `tryThis`, memoised because both the experiments below and the read-back at the
- * bottom of this file ask for the same four distances, and each one is a three-second run.
- */
-const movedRuns = new Map<number, { frames: number; ceiling: number; zero: number; trace: string }>()
-/**
- * A digest rather than the trace itself: four of these are now kept for the whole file, and a
- * three-second trace is megabytes of string. 「一帧不差地重来一遍」 is an equality either way.
- */
-const digest = (s: string): string => createHash('sha1').update(s).digest('hex')
-const moved = (d: number) => {
-  const hit = movedRuns.get(d)
-  if (hit) return hit
-  const sc = rate.scenario()
-  const ap = sc.nodes.find((x) => x.id === 'ap')!.pos
-  const n = sc.nodes.find((x) => x.id === 'sta-2')!
-  const len = Math.hypot(ap.x - n.pos.x, ap.y - n.pos.y)
-  n.pos = {
-    x: n.pos.x + ((ap.x - n.pos.x) / len) * d,
-    y: n.pos.y + ((ap.y - n.pos.y) / len) * d,
-    z: n.pos.z,
-  }
-  const recs = [...new Simulation(sc).runUntil(RUN_NS).records]
-  const far = data(recs, 'sta-2')
-  const out = {
-    frames: far.length,
-    ceiling: Math.max(...far.map((r) => r.frame.mcs!)),
-    zero: far.filter((r) => r.frame.mcs === 0).length,
-    trace: digest(JSON.stringify(recs.map((r) => (r.type === 'TX_START'
-      ? [r.t, r.node, r.frame.mcs, r.frame.txTimeNs] : null)).filter(Boolean))),
-  }
-  movedRuns.set(d, out)
-  return out
+const recs = (): TLRecord[] => runOf(rate, undefined, RUN_NS)
+const dataOf = (node: string): Tx[] => ofType(recs(), 'TX_START').filter((r) => r.node === node && r.frame.kind === 'data')
+const neg = (v: number, d: number): string => v.toFixed(d).replace('-', '−')
+const us1 = (ns: number): string => (ns / US).toFixed(1)
+const pct1 = (a: number, b: number): string => (a / b * 100).toFixed(1)
+const rssi = (node: string): number => {
+  const sc = rateScenario()
+  return buildLinkTable(sc.nodes, sc.walls).get(node)!.get('ap')!
 }
 
-lessonShapeSuite(rate, { runNs: JUMP_NS })
+const lab = (heading: string): Lab => {
+  const l = rate.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (l: Lab, heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = rate.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const stdText = (): string => rate.standard!
+  .map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
 
-describe('rate · the lesson’s own scene', () => {
-  it('is the Tier 2 rate lesson, and names the lessons its words come from', () => {
+/** The far station's frames that an ACK timeout followed: the frame ends, the timeout lands within 50 µs. */
+const lostFar = (): Tx[] => {
+  const timeouts = ofType(recs(), 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2').map((r) => r.t)
+  return dataOf('sta-2').filter((f) => {
+    const end = f.t + f.frame.txTimeNs
+    return timeouts.some((x) => x > end && x <= end + 50 * US)
+  })
+}
+
+lessonShapeSuite(rate, { runNs: 30 * MS })
+
+describe('rate · the lesson', () => {
+  it('is in the standard-first shape, in M9, and keeps the scene `rate-fallback` loads', () => {
+    expect(isStandardFirst(rate)).toBe(true)
     expect(MODULES[rate.module].title).toBe('容量参数与速率控制')
-    // §6 of the re-pacing plan: the rung ladder and the alibi for the rate anomaly are
-    // their own lessons now, so those are the ids this lesson's words come from.
     expect(rate.needs).toEqual(['mcs-ladder', 'retries-queues', 'rate-vs-model', 'width'])
-    // MCS is mcs-ladder's word, ACK and ACK timeout come through retries-queues;
-    // these two are this lesson's own.
-    expect(rate.terms!.map((t) => t.term)).toEqual(['ceiling', 'attempt'])
-  })
-
-  it('keeps the scenario builder untouched, and has no variants', () => {
     expect(rate.scenario()).toEqual(rateScenario())
-    expect(rate.variants).toBeUndefined()
-    expect(() => ScenarioSchema.parse(rate.scenario())).not.toThrow()
+    expect(rate.limits).toEqual([])
+    expect(rate.observe).toEqual([])
+    expect(rate.tryThis).toEqual([])
   })
 
-  it('"two stations upload flat out": one beside the router, one behind a brick wall', () => {
-    const sc = rate.scenario()
-    const near = sc.nodes.find((n) => n.id === 'sta-1')!
-    const far = sc.nodes.find((n) => n.id === 'sta-2')!
-    const ap = sc.nodes.find((n) => n.id === 'ap')!
-    expect([near.profiles, far.profiles]).toEqual([['saturated'], ['saturated']])
-    // "a metre from the router" / "in the far corner"
-    expect(Math.round(Math.hypot(near.pos.x - ap.pos.x, near.pos.y - ap.pos.y))).toBe(1)
-    expect(Math.hypot(far.pos.x - ap.pos.x, far.pos.y - ap.pos.y)).toBeGreaterThan(10)
-    expect(sc.walls.length).toBeGreaterThan(0)
-  })
-})
-
-describe('rate · the far station’s three rungs', () => {
-  const far = data(runOf(rate, undefined, RUN_NS), 'sta-2')
-  const atRung = (mcs: number): Tx => far.find((r) => r.frame.mcs === mcs)!
-  const share = (mcs: number): number => pct(far.filter((r) => r.frame.mcs === mcs).length, far.length)
-
-  it('the table is that run: 524.0, 768.8 and 1,476.0 µs at 25.8, 17.2 and 8.6 Mb/s', () => {
-    expect(far.length).toBe(3_003)
-    for (const r of far) expect(r.frame.bytes).toBe(1_530)
-    expect([atRung(2).frame.txTimeNs, atRung(1).frame.txTimeNs, atRung(0).frame.txTimeNs])
-      .toEqual([524_000, 768_800, 1_476_000])
-    expect([atRung(2).frame.mbps, atRung(1).frame.mbps, atRung(0).frame.mbps])
-      .toEqual([25.8, 17.2, 8.6])
-    // the "Share of its frames" column
-    expect([share(2), share(1), share(0)]).toEqual([79.8, 17.2, 3.0])
-    expect(new Set(far.map((r) => r.frame.mcs))).toEqual(new Set([0, 1, 2]))
+  it('cites each clause it teaches in ①, and keeps the simulator out of it', () => {
+    const std = stdText()
+    for (const c of ['§10.6.5.8', '§36.1.1', '§35.14.4.1', '§10.3.2.11', '§26.13', '§35.19', '§36.3.21.2', '表 36-67']) expect(std, c).toContain(c)
+    for (const sim of ['3 dB', '上限', '本仿真器']) expect(std, sim).not.toContain(sim)
   })
 
-  it('"almost three times the air at the bottom rung", and each step down halves the bits', () => {
-    expect(Math.round((1_476_000 / 524_000) * 10) / 10).toBe(2.8)
-    // "each step down halves, or nearly halves, the bits every chunk of signal carries":
-    // the airtime of a fixed payload is inversely proportional to that, less the preamble.
-    const payload = (ns: number): number => ns - 48_000
-    expect(payload(768_800) / payload(524_000)).toBeGreaterThan(1.4)
-    expect(payload(1_476_000) / payload(768_800)).toBeGreaterThan(1.9)
+  it('marks what the engine does not do, and does not call it faithful', () => {
+    expect(implRow('链路自适应反馈').kind).toBe('absent')
+    expect(implRow('速率选择算法').kind).toBe('choice')
+    expect(implRow('上限的计算').kind).toBe('value')
+    expect(rate.implementation!.filter((r) => r.kind !== 'faithful').length).toBeGreaterThan(3)
   })
 
-  it('"the ceiling itself never moves: it does not send above MCS 2 once"', () => {
-    expect(Math.max(...far.map((r) => r.frame.mcs!))).toBe(2)
+  it('brackets every official term at its first Chinese use', () => {
+    const zh = gradedProseTexts(rate).join(' ')
+    const failures: string[] = []
+    for (const t of ZH_TERMS.filter((x) => !x.track || x.track === 'wifi')) {
+      const why = zhTermFailure(zh, t)
+      if (why) failures.push(why)
+      failures.push(...zhAkaViolations(zh, t))
+    }
+    expect(failures).toEqual([])
   })
 })
 
-describe('rate · the station that never has to choose', () => {
-  const rs = runOf(rate, undefined, RUN_NS)
-  const near = data(rs, 'sta-1')
-
-  it('4,010 frames in three seconds, every one at MCS 11, and not one goes unanswered', () => {
-    expect(near.length).toBe(4_010)
-    expect(new Set(near.map((r) => r.frame.mcs))).toEqual(new Set([11]))
-    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1')).toHaveLength(0)
+describe('rate · ② says what the engine does, and the engine does it', () => {
+  it('two failures down, ten successes up, as `why` and the row print them', () => {
+    expect(FAILURES_TO_STEP_DOWN).toBe(2)
+    expect(implRow('速率选择算法').sim).toContain(`连续 ${FAILURES_TO_STEP_DOWN} 次失败降一级，连续 10 次成功升一级`)
+    expect(rate.why).toContain(`连续 ${FAILURES_TO_STEP_DOWN} 次失败降一级，连续 10 次成功升一级`)
   })
 
-  it('MCS 11 is where the agreed capabilities stop, not where the signal does', () => {
-    // "That rung is not where its signal runs out — 58.7 dB would carry the top rung — but
-    //  where the two ends' agreed capabilities stop: neither of them offered the two densest
-    //  rungs on this scene, so the ceiling is capped below them."
-    const sc = rate.scenario()
-    for (const n of sc.nodes) expect(n.caps.features?.qam4k ?? false, n.id).toBeFalsy()
-    expect(negotiated(sc.nodes.find((n) => n.id === 'sta-1')!, sc.nodes.find((n) => n.id === 'ap')!, 'qam4k')).toBe(false)
-    const rssi = buildLinkTable(sc.nodes, sc.walls).get('sta-1')!.get('ap')!
-    expect(Math.round((rssi - noiseDbm(20)) * 10) / 10).toBe(58.7)
-    // the engine's own cap: `mcsForPeer` passes 11 when the pair has not negotiated 4096-QAM
-    expect(mcsForRssi('eht', rssi, 11, 20)).toBe(11)
-    expect(mcsForRssi('eht', rssi, 13, 20)).toBe(13)
-  })
-})
-
-describe('rate · the ceiling, as the engine computes it', () => {
-  const rs = runOf(rate, undefined, RUN_NS)
-  const far = data(rs, 'sta-2')
-
-  it('steps 1, 2 and 4: the ceiling of the far link is MCS 2, and the table’s arithmetic says why', () => {
-    // "RSSI −75.46 dBm · less the noise floor, 20 MHz −93.99 · = SNR 18.53 dB · MCS 2 asks
-    //  13.99 + 3 = 16.99 ✓ · MCS 3 asks 16.99 + 3 = 19.99 ✗ · so the ceiling is MCS 2"
-    const sc = rate.scenario()
-    const rssi = buildLinkTable(sc.nodes, sc.walls).get('sta-2')!.get('ap')!
-    const r2 = (x: number) => Math.round(x * 100) / 100
-    expect(r2(rssi)).toBe(-75.46)
-    expect(r2(noiseDbm(20))).toBe(-93.99)
-    expect(r2(rssi - noiseDbm(20))).toBe(18.53)
+  it('the 3 dB margin and the 10 dB noise figure behind every requirement', () => {
     expect(RATE_MARGIN_DB).toBe(3)
-    expect([r2(reqSinrDb('eht', 2)), r2(reqSinrDb('eht', 3))]).toEqual([13.99, 16.99])
-    expect(r2(reqSinrDb('eht', 2) + RATE_MARGIN_DB)).toBe(16.99)
-    expect(r2(reqSinrDb('eht', 3) + RATE_MARGIN_DB)).toBe(19.99)
-    expect(rssi - noiseDbm(20)).toBeGreaterThan(reqSinrDb('eht', 2) + RATE_MARGIN_DB)
-    expect(rssi - noiseDbm(20)).toBeLessThan(reqSinrDb('eht', 3) + RATE_MARGIN_DB)
-    expect(mcsForRssi('eht', rssi, 11, 20)).toBe(2)
+    // reqSinr = sensitivity at 20 MHz − (kTB at 20 MHz + 10 dB)
+    expect(reqSinrDb('eht', 0)).toBeCloseTo(PHY_MODES.eht.sensDbm[0] - (-174 + 10 * Math.log10(20e6) + 10), 9)
+    expect(implRow('上限的计算').sim).toContain(`「所需信噪比 + ${RATE_MARGIN_DB} dB ≤ SNR」`)
   })
 
-  it('step 3: the cap is a capability, not a signal — 4096-QAM is not negotiated here', () => {
-    // "if the two ends have not both offered 4096-QAM the ceiling is capped at MCS 11 first,
-    //  and this step looks at capabilities alone": the cap `mcsForPeer` passes to mcsForRssi.
-    const sc = rate.scenario()
-    const ap = sc.nodes.find((n) => n.id === 'ap')!
-    for (const id of ['sta-1', 'sta-2']) {
-      expect(negotiated(sc.nodes.find((n) => n.id === id)!, ap, 'qam4k'), id).toBe(false)
-    }
-    // the cap binds the near link (which has signal to spare) and not the far one, which the
-    // signal stops two rungs lower — the table's own two rows
-    const table = buildLinkTable(sc.nodes, sc.walls)
-    expect(mcsForRssi('eht', table.get('sta-1')!.get('ap')!, 11, 20)).toBe(11)
-    expect(mcsForRssi('eht', table.get('sta-2')!.get('ap')!, 11, 20)).toBe(2)
+  it('AckTimeout is 16 + 9 + 20 = 45 µs', () => {
+    expect([SIFS_NS, SLOT_NS, RX_START_DELAY_NS].map((x) => x / US)).toEqual([16, 9, 20])
+    expect(ACK_TIMEOUT_NS).toBe(45 * US)
+    expect(implRow('成败的判定').sim).toContain('16 + 9 + 20 = 45 µs')
   })
 
-  it('step 5: the working rung is pulled down to the ceiling, so the first frame goes out there', () => {
-    // "the working rung is pulled down to the ceiling the moment it sits above it — the first
-    //  frame ever": RateControl.mcsFor clamps on every read, and the run's first frame shows it.
-    expect(far[0].frame.mcs).toBe(2)
+  it('without 4096-QAM negotiated the ceiling is capped at MCS 11', () => {
+    expect(PHY_MODES.eht.qam4kFromMcs).toBe(12)
+    expect(rateScenario().nodes.every((n) => !n.caps.features?.qam4k)).toBe(true)
+  })
+})
+
+describe('rate · ③ every figure the labs print is the run', () => {
+  it('lab 1: the far station’s three rungs, and never above its ceiling', () => {
+    const l = lab('远端站点的三个级别')
+    const far = dataOf('sta-2')
+    const rows = tableOf(l, '远端站点 3 s 内的帧：1530 字节，20 MHz，单流').rows
+    const atMcs = (m: number) => far.filter((r) => r.frame.mcs === m)
+    ;[2, 1, 0].forEach((m, i) => {
+      const xs = atMcs(m)
+      expect(new Set(xs.map((r) => r.frame.txTimeNs)).size).toBe(1)
+      expect(rows[i][0].startsWith(`MCS ${m}`)).toBe(true)
+      expect(rows[i].slice(1)).toEqual([`${xs[0].frame.mbps.toFixed(1)} Mb/s`, `${us1(xs[0].frame.txTimeNs)} µs`, `${pct1(xs.length, far.length)} %`])
+    })
     expect(Math.max(...far.map((r) => r.frame.mcs!))).toBe(2)
-  })
-})
-
-describe('rate · the two experiments', () => {
-  it('half a metre changes nothing; two metres raises the ceiling to MCS 3', () => {
-    const d0 = moved(0), dHalf = moved(0.5), d2 = moved(2)
-    // "it crosses no threshold, and the run comes back frame for frame identical"
-    expect(dHalf.trace).toBe(d0.trace)
-    // "the ceiling rises from MCS 2 to MCS 3 — 3,712 frames instead of 3,003"
-    expect([d0.ceiling, d2.ceiling]).toEqual([2, 3])
-    expect([d0.frames, d2.frames]).toEqual([3_003, 3_712])
+    const ratio = (atMcs(0)[0].frame.txTimeNs / atMcs(2)[0].frame.txTimeNs).toFixed(1)
+    expect(l.expect).toContain(`远端站点 3 s 内发出 ${far.length} 个数据帧，没有一帧高于 MCS 2`)
+    expect(l.expect).toContain(`一帧从 ${us1(atMcs(2)[0].frame.txTimeNs)} µs 变成 ${us1(atMcs(1)[0].frame.txTimeNs)} µs，降到 MCS 0 是 ${us1(atMcs(0)[0].frame.txTimeNs)} µs，为上限时的 ${ratio} 倍`)
+    expect(rate.why).toContain(`3 s 里 ${pct1(atMcs(2).length, far.length)} % 的帧以上限发送`)
+    expect(rate.why).toContain(`上限时的 ${ratio} 倍`)
   })
 
-  it('five metres closer and the bottom rung never occurs at all', () => {
-    expect(moved(5).zero).toBe(0)
-    expect(moved(0).zero).toBeGreaterThan(0)
-  })
-})
-
-/**
- * **Every figure the lesson prints, read back out of the lesson.**
- *
- * Everything above measures the engine against a literal written in THIS file —
- * `expect(far.length).toBe(3_003)`, `expect(r2(rssi)).toBe(-75.46)`,
- * `expect([share(2), share(1), share(0)]).toEqual([79.8, 17.2, 3.0])`. That is what keeps the
- * engine honest, and it is also why every figure in the lesson could be edited to a neighbouring
- * number with this file still green: the number being compared sits on the test's own side.
- *
- * What follows is the other half of each, with no figure on this side. Both tables are read cell
- * by cell — the rung ladder's three rates, three airtimes and three shares, each to the decimals
- * its own cell carries, and the worked ceiling's seven rows **including the ✓ and the ✗**, which
- * are claims about an inequality and are checked as such. The near station's 一米, its 4,010
- * frames and its 58.7 dB come off their sentence; the 「三秒」 that every census in this lesson is
- * counted over is read as the run length, twice; 「将近上限三倍」 is read the way this programme
- * reads 「接近」 — it rounds to three and is not yet three; and both experiments' distances and
- * frame counts come off `tryThis`.
- *
- * `limits` is read too, and its sharpest figure turns into a measurement of its own: 「差 0.01 dB
- * 就整帧丢弃」 is asserted as one hundredth of a decibel flipping `mcsForRssi` from one rung to
- * the next, which is what a cliff with no transition band means. Beside it: the two decimal
- * places the ceiling is printed to, the 3 dB margin that is this simulator's own pick, and the
- * two noise figures the requirement is derived with and the floor is computed with — the sentence
- * is only worth anything if those two differ, so that is asserted rather than assumed.
- *
- * **Two claims are left unasserted, with their reasons.** 「一次触发回合里回来的 TB PPDU 既不报
- * 成功也不报失败」 is about a scene this lesson does not own (`@ofdma-ul`'s), and measuring it
- * here would mean building that scene in this file; what is checked is that the three names the
- * sentence cites — `onTxOutcome`, `sendMba`, `resolveDlMu` — are code in the file it cites them
- * in. And 「接近减半」 is bounded on one side only, because the sentence bounds it on one side
- * only: no step down ever carries more than half the bits of the rung above it.
- */
-describe('rate · every printed figure is read back out of the lesson', () => {
-  const rs = runOf(rate, undefined, RUN_NS)
-  const far = data(rs, 'sta-2')
-  const near = data(rs, 'sta-1')
-  const sc = rate.scenario()
-  const ap = sc.nodes.find((n) => n.id === 'ap')!
-  const links = buildLinkTable(sc.nodes, sc.walls)
-  const snrOf = (id: string): number => links.get(id)!.get('ap')! - noiseDbm(20)
-  const rungsUsed = [...new Set(far.map((r) => r.frame.mcs!))].sort((a, b) => b - a)
-
-  const tables = rate.numbers!.filter((x) => x.kind === 'table') as
-    { heading: string; head: string[]; rows: string[][] }[]
-  const prose = (fragment: string): string => {
-    const b = rate.numbers!.find((x) => (x as { heading?: string }).heading?.includes(fragment)) as
-      { text?: string } | undefined
-    expect(b?.text, `no block of \`numbers\` headed 「${fragment}」 with prose in it`).toBeDefined()
-    return b!.text!
-  }
-  const steps = (rate.numbers!.find((x) => x.kind === 'steps') as { items: string[] }).items
-  const limitText = rate.limits.map((x) => x.text).join('\n')
-  const quizText = rate.quiz!.flatMap((q) => [q.q, ...q.options, q.explain ?? '']).join('\n')
-
-  /** The captures of `re`, as numbers: a full-width minus is a minus, a comma is a group. */
-  const figs = (text: string, re: RegExp, what: string): number[] => {
-    const m = re.exec(text)
-    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
-    return m!.slice(1).map((x) => Number(x.replace(/[\s,]/g, '').replace(/−/g, '-')))
-  }
-  /** The captures of `re`, as printed: for a figure whose own decimals are part of the claim. */
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const m = re.exec(text)
-    expect(m, `${what}: 「${re.source}」 no longer matches what the lesson says`).not.toBeNull()
-    return m!.slice(1)
-  }
-  /** A printed figure against a measurement, rounded to the decimals the figure itself carries. */
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,]/g, '').replace(/−/g, '-')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  /** 「524.0 µs」 → 「524.0」: a cell that is one figure and its unit, and nothing else. */
-  const cell = (text: string, unit: string, what: string): string => {
-    const m = new RegExp(`^([−\\d,.]+)\\s*${unit}$`).exec(text.trim())
-    expect(m, `${what}: the cell 「${text}」 is not a figure followed by ${unit}`).not.toBeNull()
-    return m![1]
-  }
-  /** `zhNumeral` reads 〇–九十九 and not 「两」, which is the form a quantified noun takes. */
-  const zhCount = (s: string): number => {
-    const n = zhNumeral(s.replace(/两/g, '二'))
-    expect(n, `「${s}」 is not a number this reads`).not.toBeNull()
-    return n!
-  }
-  const counted = (text: string, re: RegExp, what: string): number =>
-    zhCount(raw(text, re, what)[0])
-
-  it('the rung table’s heading: three rungs, one payload, one width, one stream', () => {
-    const rungs = counted(tables[0].heading, /([〇一二三四五六七八九十两]+)个级别/, 'the rungs')
-    const [bytes, width] = figs(tables[0].heading, /同样的 ([\d,]+) 字节，(\d+) MHz/,
-      'the payload and the width every row shares')
-    expect(rungsUsed.length).toBe(rungs)
-    expect(new Set(far.map((r) => r.frame.bytes))).toEqual(new Set([bytes]))
-    expect(new Set(far.map((r) => r.frame.widthMhz))).toEqual(new Set([width]))
-    expect(negotiatedWidth(sc.nodes.find((n) => n.id === 'sta-2')!, ap)).toBe(width)
-    // 「单流」: 单 is the word for one, and the pair never agreed on more than one stream
-    expect(tables[0].heading).toContain('单流')
-    expect(negotiatedNss(sc.nodes.find((n) => n.id === 'sta-2')!, ap)).toBe(1)
+  it('lab 2: the ceiling worked step by step from the link table', () => {
+    const l = lab('按步骤算出远端的上限')
+    const rows = tableOf(l, '远端链路的上限').rows
+    const rx = rssi('sta-2')
+    const snr = rx - noiseDbm(20)
+    const cap = PHY_MODES.eht.qam4kFromMcs! - 1
+    const ceiling = mcsForRssi('eht', rx, cap, 20)
+    const req = (m: number) => `${reqSinrDb('eht', m).toFixed(2)} + ${RATE_MARGIN_DB} = ${(reqSinrDb('eht', m) + RATE_MARGIN_DB).toFixed(2)} dB`
+    expect(rows).toEqual([
+      ['平均接收电平', `${neg(rx, 2)} dBm`],
+      ['20 MHz 的噪声地板', `${neg(noiseDbm(20), 2)} dBm`],
+      ['SNR', `${snr.toFixed(2)} dB`],
+      ['能力上限：两端都未启用 4096-QAM', `MCS ${cap}`],
+      [`MCS ${ceiling} 的要求（含余量）`, `${req(ceiling)}，满足`],
+      [`MCS ${ceiling + 1} 的要求（含余量）`, `${req(ceiling + 1)}，不满足`],
+      ['上限', `MCS ${ceiling}`],
+    ])
+    expect(Math.max(...dataOf('sta-2').map((r) => r.frame.mcs!))).toBe(ceiling)
+    expect(l.expect).toContain(`SNR 是 ${snr.toFixed(2)} dB，满足 MCS ${ceiling} 的 ${(reqSinrDb('eht', ceiling) + RATE_MARGIN_DB).toFixed(2)} dB，不满足 MCS ${ceiling + 1} 的 ${(reqSinrDb('eht', ceiling + 1) + RATE_MARGIN_DB).toFixed(2)} dB`)
+    expect(rate.quiz[2].explain).toContain(`SNR ${snr.toFixed(2)} dB 不满足 MCS ${ceiling + 1} 的 ${(reqSinrDb('eht', ceiling + 1) + RATE_MARGIN_DB).toFixed(2)} dB`)
   })
 
-  it('the rung table’s three rows are the rungs, the rates, the airtimes and the shares', () => {
-    expect(tables[0].rows, 'the table states exactly the three rows this reads').toHaveLength(3)
-    for (const row of tables[0].rows) {
-      const [mcs] = figs(row[0], /^MCS (\d+)/, `the rung 「${row[0]}」 names`)
-      const mine = far.filter((r) => r.frame.mcs === mcs)
-      expect(mine.length, `MCS ${mcs} is a rung this run never uses`).toBeGreaterThan(0)
-      expect(new Set(mine.map((r) => r.frame.mbps)).size, `MCS ${mcs} at one rate`).toBe(1)
-      expect(new Set(mine.map((r) => r.frame.txTimeNs)).size, `MCS ${mcs} at one airtime`).toBe(1)
-      same(cell(row[1], 'Mb/s', `MCS ${mcs}’s rate`), mine[0].frame.mbps, `MCS ${mcs}’s rate`)
-      same(cell(row[2], 'µs', `MCS ${mcs}’s airtime`), mine[0].frame.txTimeNs / US,
-        `MCS ${mcs}’s airtime in µs`)
-      same(cell(row[3], '%', `MCS ${mcs}’s share`), (mine.length / far.length) * 100,
-        `MCS ${mcs}’s share of the ${far.length} frames this station sent`)
-      // 「它的上限」 and 「最低一级」: the two rows that claim something about the ladder's ends
-      if (row[0].includes('上限')) expect(Math.max(...rungsUsed)).toBe(mcs)
-      if (row[0].includes('最低')) expect(Math.min(...rungsUsed)).toBe(mcs)
-    }
+  it('lab 3: the near station — 4010 frames, all MCS 11, no timeout', () => {
+    const l = lab('近端站点不需要选择')
+    const near = dataOf('sta-1')
+    expect(new Set(near.map((r) => r.frame.mcs))).toEqual(new Set([11]))
+    expect(ofType(recs(), 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1')).toEqual([])
+    const snr = rssi('sta-1') - noiseDbm(20)
+    expect(mcsForRssi('eht', rssi('sta-1'))).toBe(13)
+    expect(l.expect).toContain(`近端站点 3 s 内发出 ${near.length} 个数据帧，全部是 MCS 11，没有一次 ACK 超时`)
+    expect(l.expect).toContain(`SNR 是 ${snr.toFixed(2)} dB，高于 MCS 13 要求的 ${(reqSinrDb('eht', 13) + RATE_MARGIN_DB).toFixed(2)} dB`)
   })
 
-  it('「降一级的代价」: nearly three times the air at the bottom, never more than a halving', () => {
-    const text = prose('降一级的代价')
-    const times = counted(text, /将近上限([〇一二三四五六七八九十两]+)倍/, 'the cost at the bottom rung')
-    const airOf = (mcs: number): number => far.find((r) => r.frame.mcs === mcs)!.frame.txTimeNs
-    const ratio = airOf(Math.min(...rungsUsed)) / airOf(Math.max(...rungsUsed))
-    // 「将近」 is a claim of its own: it rounds to that many times, and it is not yet that many
-    expect(Math.round(ratio), `${airOf(Math.min(...rungsUsed)) / US} µs over `
-      + `${airOf(Math.max(...rungsUsed)) / US} µs`).toBe(times)
-    expect(ratio, '「将近」 says the bottom rung has not reached that multiple').toBeLessThan(times)
-    // 「同样长的一段信号所承载的比特数就减半或接近减半」: 减半 is to halve, and the sentence bounds the
-    // step on one side only — so this does too. No rung carries more than half the one above.
-    expect(text).toContain('减半或接近减半')
-    const rates = rungsUsed.map((m) => far.find((r) => r.frame.mcs === m)!.frame.mbps)
-    for (let i = 1; i < rates.length; i++) {
-      expect(rates[i - 1] / rates[i], `${rates[i - 1]} Mb/s over ${rates[i]} Mb/s`)
-        .toBeLessThanOrEqual(2)
-    }
-  })
-
-  it('「无需做选择的那台站点」: one metre, three seconds, 4,010 frames, 58.7 dB to spare', () => {
-    const text = prose('无需做选择的那台站点')
-    const metres = counted(text, /距接入点([〇一二三四五六七八九十两]+)米的近端站点/, 'how far the near station is')
-    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒内发送了/, 'the window it is counted over')
-    const [frames] = figs(text, /发送了 ([\d,]+) 帧/, 'how many frames it sent')
-    const [rung] = figs(text, /每一帧都使用 MCS (\d+)，/, 'the rung it never leaves')
-    const rungsLost = counted(text, /两端都没有启用最高的([〇一二三四五六七八九十两]+)级/,
-      'how many rungs the agreed capabilities cost it')
-
-    const nearNode = sc.nodes.find((n) => n.id === 'sta-1')!
-    expect(Math.round(Math.hypot(nearNode.pos.x - ap.pos.x, nearNode.pos.y - ap.pos.y))).toBe(metres)
-    // the census window: every count in this lesson is three seconds of this scene
-    expect(RUN_NS).toBe(seconds * 1_000 * MS)
-    expect(near.length).toBe(frames)
-    expect(new Set(near.map((r) => r.frame.mcs))).toEqual(new Set([rung]))
-    expect(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-1'),
-      '「每一帧都收到了答复」').toHaveLength(0)
-    // 「58.7 dB 足以支持最高一级」, and the rung it sits on is the capability cap instead —
-    // that many rungs below the top, with 4096-QAM never negotiated
-    same(raw(text, /([\d.]+) dB 足以支持最高一级/, 'the signal it has to spare')[0],
-      snrOf('sta-1'), 'the near link’s signal-to-noise ratio')
-    // 「最高一级」 is this mode's last rung, read off the mode rather than written here
-    const topRung = PHY_MODES.eht.mbps.length - 1
-    const top = mcsForRssi('eht', links.get('sta-1')!.get('ap')!, topRung, 20)
-    expect(top, 'that much signal does not carry the top rung after all').toBe(topRung)
-    expect(top - rung, 'the rungs the capabilities cost it').toBe(rungsLost)
-    expect(negotiated(nearNode, ap, 'qam4k')).toBe(false)
-  })
-
-  it('the five steps name the width, the noise floor, the capability cap and the margin', () => {
-    expect(steps, 'the lesson states exactly the steps this reads').toHaveLength(5)
-    const [width] = figs(steps[1], /两端都是 (\d+) MHz/, 'step 2’s width')
-    expect(negotiatedWidth(sc.nodes.find((n) => n.id === 'sta-2')!, ap)).toBe(width)
-    same(raw(steps[1], /噪声地板 ([−\d.]+) dBm/, 'step 2’s noise floor')[0], noiseDbm(width),
-      `the noise floor of ${width} MHz`)
-    const [cap] = figs(steps[2], /上限先被限制为 MCS (\d+)/, 'step 3’s capability cap')
-    // the cap is "everything below this mode's lowest 4096-QAM rung", which the mode itself
-    // carries — a run that measures it needs a link with signal to spare, which is the near
-    // one: it sits on the cap and not where its signal would let it go
-    expect(PHY_MODES.eht.qam4kFromMcs! - 1, 'the rung below this mode’s first 4096-QAM one').toBe(cap)
-    expect(new Set(near.map((r) => r.frame.mcs)), 'the near station sits on that cap')
-      .toEqual(new Set([cap]))
-    expect(mcsForRssi('eht', links.get('sta-1')!.get('ap')!, cap, 20),
-      'the near link, where that cap is the only thing in the way').toBe(cap)
-    const [margin] = figs(steps[3], /\+ (\d+) dB 速率余量/, 'step 4’s margin')
-    expect(margin).toBe(RATE_MARGIN_DB)
-    // step 4 walks the ladder from the bottom and keeps the LAST rung that fits
-    const snr = snrOf('sta-2')
-    const fits = [...Array(cap + 1).keys()].filter((m) => reqSinrDb('eht', m) + margin <= snr)
-    expect(mcsForRssi('eht', links.get('sta-2')!.get('ap')!, cap, 20)).toBe(Math.max(...fits))
-  })
-
-  it('the worked table: seven rows, and its ✓ and ✗ are inequalities that hold', () => {
-    const rows = tables[1].rows
-    expect(rows, 'the table states exactly the seven rows this reads').toHaveLength(7)
-    const snr = snrOf('sta-2')
-    same(cell(rows[0][1], 'dBm', 'the far link’s RSSI'), links.get('sta-2')!.get('ap')!,
-      'the far link’s RSSI')
-    const [width] = figs(rows[1][0], /(\d+) MHz 的噪声地板/, 'the width the floor is for')
-    same(cell(rows[1][1], 'dBm', 'the noise floor'), noiseDbm(width), 'the noise floor')
-    same(cell(rows[2][1], 'dB', 'the SNR'), snr, 'the SNR that is their difference')
-    const [cap] = figs(rows[3][1], /^MCS (\d+)$/, 'the capability cap')
-    expect(negotiated(sc.nodes.find((n) => n.id === 'sta-2')!, ap, 'qam4k'),
-      `the row says neither end offered 4096-QAM, which is why the cap is MCS ${cap}`).toBe(false)
-    // and that is the rung below this mode's first 4096-QAM one — the figure is the mode's,
-    // not this scene's, which is why the far link's own ceiling lands two rungs lower
-    expect(PHY_MODES.eht.qam4kFromMcs! - 1).toBe(cap)
-    expect(new Set(near.map((r) => r.frame.mcs)), 'the near station, where the cap is what binds')
-      .toEqual(new Set([cap]))
-
-    // 「13.99 + 3 = 16.99 ✓」 and 「16.99 + 3 = 19.99 ✗」: a requirement, the margin, their sum,
-    // and a mark that claims whether that sum is under the SNR three rows above
-    for (const row of rows.slice(4, 6)) {
-      const [mcs] = figs(row[0], /^MCS (\d+) 的要求/, `the rung 「${row[0]}」 is about`)
-      const m = /^([\d.]+) \+ (\d+) = ([\d.]+) ([✓✗])$/.exec(row[1])
-      expect(m, `「${row[1]}」 is not 「requirement + margin = sum ✓/✗」`).not.toBeNull()
-      same(m![1], reqSinrDb('eht', mcs), `MCS ${mcs}’s own requirement`)
-      expect(Number(m![2]), 'the margin this row adds').toBe(RATE_MARGIN_DB)
-      same(m![3], reqSinrDb('eht', mcs) + RATE_MARGIN_DB, `MCS ${mcs}’s requirement with margin`)
-      expect(reqSinrDb('eht', mcs) + RATE_MARGIN_DB <= snr,
-        `${row[0]}: the table marks it 「${m![4]}」 against an SNR of ${snr.toFixed(2)} dB`)
-        .toBe(m![4] === '✓')
-    }
-    const [ceiling] = figs(rows[6][1], /^MCS (\d+)$/, 'the ceiling the table arrives at')
-    expect(mcsForRssi('eht', links.get('sta-2')!.get('ap')!, cap, 20)).toBe(ceiling)
-    expect(Math.max(...rungsUsed), 'and the run never goes above it').toBe(ceiling)
-  })
-
-  it('`observe` quotes the three airtimes, the ceiling, and the near station’s census', () => {
-    const text = rate.observe!.join('\n')
-    const printed = raw(text, /是 ([\d,.]+) µs，降一级是 ([\d,.]+) µs，到最低一级是 ([\d,.]+) µs/,
-      '`observe` on the three airtimes')
-    for (let i = 0; i < 3; i++) {
-      const air = far.find((r) => r.frame.mcs === rungsUsed[i])!.frame.txTimeNs
-      same(printed[i], air / US, `the airtime of MCS ${rungsUsed[i]} in µs`)
-    }
-    const [ceiling] = figs(text, /在上限 MCS (\d+) 上/, '`observe` on the ceiling')
-    expect(Math.max(...rungsUsed)).toBe(ceiling)
-    // 「一次也没有以高于 MCS 2 的级别发送」: the rung it names must BE the ceiling, not merely
-    // above it — 「高于 MCS 3」 would also be true of this run, and `scripts/figure-planting.ts` found
-    // all four sites that say it editable for exactly that reason.
-    const [never] = figs(text, /一次也没有以高于 MCS (\d+) 的级别发送/, '`observe` on what it never exceeds')
-    expect(far.filter((r) => r.frame.mcs! > never)).toHaveLength(0)
-    expect(Math.max(...rungsUsed), 'and that rung is the ceiling itself').toBe(never)
-    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒 [\d,]+ 帧/, '`observe`’s own window')
-    const [frames, rung] = figs(text, /秒 ([\d,]+) 帧，全部使用 MCS (\d+)，/,
-      '`observe` on the near station')
-    expect(RUN_NS).toBe(seconds * 1_000 * MS)
-    expect(near.length).toBe(frames)
-    expect(new Set(near.map((r) => r.frame.mcs))).toEqual(new Set([rung]))
-  })
-
-  it('`tryThis`: half a metre changes nothing, two raise the ceiling, five remove the bottom rung', () => {
-    const text = rate.tryThis!.join('\n')
-    // 「移近半米」: 半 is the word for a half, and zhNumeral does not read it — the two moves that
-    // follow are whole metres and are read as numbers.
-    expect(text, 'the first move is no longer half a metre').toContain('向接入点移近半米')
-    const two = counted(text, /移近([〇一二三四五六七八九十两]+)米才有效果/, 'the move that does something')
-    const five = counted(text, /改为向接入点移近([〇一二三四五六七八九十两]+)米/, 'the third move')
-    const [from, to] = figs(text, /上限从 MCS (\d+) 提高到 MCS (\d+)/, 'the ceiling the second move raises')
-    const seconds = counted(text, /([〇一二三四五六七八九十两]+)秒内交付的帧数/, '`tryThis`’s window')
-    const [before, after] = figs(text, /帧数从 ([\d,]+) 增加到 ([\d,]+)/, 'the frames that move buys')
-
-    expect(RUN_NS).toBe(seconds * 1_000 * MS)
-    // 「结果没有任何变化：它没有越过任何门限，整段仿真逐帧完全相同地重现」
-    expect(moved(0.5).trace, 'half a metre changed the run after all').toBe(moved(0).trace)
-    expect(moved(0).ceiling, 'where the ceiling starts').toBe(from)
-    expect(moved(0).frames, 'the frames it delivers there').toBe(before)
-    expect(moved(two).ceiling, `${two} metres closer`).toBe(to)
-    expect(moved(two).frames, `${two} metres closer`).toBe(after)
-    // 「这一次最低一级一次也不出现」
-    expect(moved(five).zero, `${five} metres closer`).toBe(0)
-    expect(moved(0).zero, 'and the bottom rung does occur where it starts').toBeGreaterThan(0)
-  })
-
-  it('the quiz: twenty answered frames in a row, and the ceiling still does not move', () => {
-    const twenty = counted(quizText, /连续成功了([〇一二三四五六七八九十两]+)次/,
-      'the streak the quiz asks about')
-    const [ceiling] = figs(quizText, /MCS (\d+) 是那个角落的信号决定的上限/, 'the quiz on the ceiling')
-    expect(Math.max(...rungsUsed), 'the quiz names the ceiling itself').toBe(ceiling)
-    // the question and the explanation say it twice more, and each has to be that same rung
-    for (const m of quizText.matchAll(/MCS (\d+) 以上|高于 MCS (\d+)/g)) {
-      expect(Number(m[1] ?? m[2]), `「${m[0]}」 in the quiz`).toBe(ceiling)
-    }
-    // an attempt failed iff its own deadline fired: one ACK timeout, one frame end plus the
-    // timeout, which is how `@hidden` pins the same rule
-    const timeouts = new Set(ofType(rs, 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2').map((r) => r.t))
-    let streak = 0
-    let best = 0
-    for (const f of far) {
-      streak = timeouts.has(f.t + f.frame.txTimeNs + ACK_TIMEOUT_NS) ? 0 : streak + 1
-      best = Math.max(best, streak)
-    }
-    expect(best, 'this run never has a streak that long, so the question is hypothetical')
-      .toBeGreaterThanOrEqual(twenty)
-    expect(far.filter((r) => r.frame.mcs! > ceiling), 'and no streak ever lifts it').toHaveLength(0)
-  })
-
-  it('`limits`: one hundredth of a decibel really does decide a whole rung', () => {
-    const [cliff] = figs(limitText, /差 ([\d.]+) dB 就整帧丢弃/, '`limits` on how sharp the cliff is')
-    // There is no transition band anywhere in this engine: the requirement is a single number,
-    // so the rung the signal supports flips across that hundredth of a decibel.
-    const next = Math.max(...rungsUsed) + 1
-    const justFits = reqSinrDb('eht', next) + RATE_MARGIN_DB + noiseDbm(20)
-    expect(mcsForRssi('eht', justFits + cliff, 11, 20), `${cliff} dB above the line`).toBe(next)
-    expect(mcsForRssi('eht', justFits - cliff, 11, 20), `${cliff} dB below it`).toBe(next - 1)
-    // 「所以上限是一个精确到小数点后两位的数」: the three figures the worked table prints
-    const places = counted(limitText, /精确到小数点后([〇一二三四五六七八九十两]+)位/,
-      '`limits` on how precisely the ceiling is printed')
-    for (const row of tables[1].rows.slice(0, 3)) {
-      const printed = row[1].replace(/[^\d.]/g, '')
-      expect((printed.split('.')[1] ?? '').length, `the table prints 「${row[1]}」`).toBe(places)
-    }
-  })
-
-  it('`limits`: the margin is this simulator’s pick, and the two noise figures are not the same', () => {
-    const [margin] = figs(limitText, /中的 (\d+) dB 速率余量是本仿真器选定的/, '`limits` on the margin')
-    expect(margin).toBe(RATE_MARGIN_DB)
-    const [clause] = figs(limitText, /用第 (\d+) 章的最小灵敏度/,
-      '`limits` on where the requirements come from')
-    expect(rate.sources!.join('\n'), `\`sources\` does not name clause ${clause} too`)
-      .toContain(`第 ${clause} 章`)
-    const [reversed] = figs(limitText, /按 (\d+) dB 噪声系数计算的噪声地板/,
-      '`limits` on the noise figure the requirement is derived with')
-    const [own] = figs(limitText, /噪声地板本身按 (\d+) dB 计算/,
-      '`limits` on the noise figure this engine computes with')
-    expect(own).toBe(NOISE_FIGURE_DB)
-    expect(noiseDbm(20)).toBe(noiseDbm(20, own))
-    // the whole point of the sentence is that those two are different numbers
-    expect(reversed, 'the two noise figures are the same, so the warning warns about nothing')
-      .not.toBe(own)
-    /*
-     * **And the standard's own noise figure is read as the one that reproduces the engine's
-     * requirements**, not merely as 「something other than 7」. The 「第」 rule change of
-     * 2026-10-14 uncovered it: 「用第 36 章的最小灵敏度减去按 10 dB 噪声系数计算的噪声地板反推
-     * 得到的」 was checked only as `reversed !== own`, which an 11 satisfies as happily as a 10.
-     * The identity it describes is exact — every rung's required SINR is its sensitivity minus
-     * the floor computed at THAT noise figure — so every rung is walked.
-     */
-    for (let mcs = 0; mcs < PHY_MODES.eht.sensDbm.length; mcs++) {
-      expect(reqSinrDb('eht', mcs), `rung ${mcs} is its sensitivity over that floor`)
-        .toBeCloseTo(PHY_MODES.eht.sensDbm[mcs]! - noiseDbm(20, reversed), 9)
-    }
-    // 「改变这个余量，远端那条链路的上限就随之改变」
-    const rssi = links.get('sta-2')!.get('ap')!
-    expect(mcsForRssi('eht', rssi, 11, 20), 'with the margin this simulator picked')
-      .toBe(Math.max(...rungsUsed))
-    expect(mcsForRssi('eht', rssi + margin, 11, 20), 'and one margin further up the ladder')
-      .toBeGreaterThan(Math.max(...rungsUsed))
-  })
-
-  it('`limits` name only code this repository has, in the files they name it in', () => {
-    const named = [...limitText.matchAll(/\b([a-z][a-z0-9]*\.ts)\b/g)].map((x) => x[1])
-    const src = [...new Set(named)].map((f) => {
-      const p = ['src/engine', 'src/model', 'src/course'].map((d) => resolve(ROOT, `${d}/${f}`)).find(existsSync)
-      expect(p, `${f} is not a file of this repository`).toBeDefined()
-      return readFileSync(p!, 'utf8')
-    }).join('\n')
-    // `dB` is camelCase by this pattern and is a unit, not a name — the only unit in these
-    // five entries that is, and naming it here is cheaper than a pattern that would also have
-    // to let `onTxOutcome` through (two letters before its first capital, same as `dB`).
-    const UNITS = new Set(['dB', 'dBm', 'dBi'])
-    const syms = [...limitText.matchAll(/\b([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)\b/g)]
-      .map((x) => x[1]).filter((s) => !UNITS.has(s))
-    for (const sym of syms) {
-      expect(src.includes(sym), `\`${sym}\` is named here, and by none of the files named with it`).toBe(true)
-    }
-    expect(named.length, 'the files `limits` cite').toBe(4)
-    expect(syms.length, 'the identifiers `limits` name').toBe(5)
+  it('lab 4: the first ACK timeout, and how many timeouts share a start with the near station', () => {
+    const l = lab('一次 ACK 超时')
+    const first = ofType(recs(), 'ACK_TIMEOUT')[0]
+    expect(first.node).toBe('sta-2')
+    const frame = dataOf('sta-2').filter((r) => r.t < first.t).at(-1)!
+    expect(frame.t + frame.frame.txTimeNs + ACK_TIMEOUT_NS).toBe(first.t)
+    expect(dataOf('sta-1').some((n) => n.t === frame.t)).toBe(true)
+    expect(l.expect).toContain(`两台站点都在 ${us1(frame.t).replace('.0', '')} µs 开始发送；远端那一帧以 MCS ${frame.frame.mcs} 发送，${us1(frame.t + frame.frame.txTimeNs)} µs 结束，${ACK_TIMEOUT_NS / US} µs 后即 ${us1(first.t)} µs 记下 ACK 超时`)
+    const timeouts = ofType(recs(), 'ACK_TIMEOUT').filter((r) => r.node === 'sta-2')
+    const lost = lostFar()
+    expect(lost).toHaveLength(timeouts.length)
+    const same = lost.filter((f) => dataOf('sta-1').some((n) => n.t === f.t)).length
+    expect(l.expect).toContain(`3 s 内远端共有 ${timeouts.length} 次 ACK 超时，其中 ${same} 次发生在与近端站点同时开始的帧上`)
+    expect(rate.why).toContain(`远端的 ${timeouts.length} 次 ACK 超时（ACK timeout）中，有 ${same} 次发生在它与近端站点同时开始发送的帧上`)
+    expect(rate.quiz[0].explain).toContain(`${timeouts.length} 次超时中有 ${same} 次`)
   })
 })

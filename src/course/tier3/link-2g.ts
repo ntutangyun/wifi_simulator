@@ -1,39 +1,23 @@
 /**
- * Wi-Fi Tier 3 · M12 · 2.4 GHz 链路 · the band change, and the one thing it
- * actually changes.
+ * Wi-Fi Tier 3 · M12 · 2.4 GHz 链路 · what the standard changes on this band, and what the
+ * simulator adds.
  *
- * The first lesson of the course's third tier, and the first to put a Wi-Fi
- * station on the 2.4 GHz link. The engine has had that link since the per-link
- * PHY slice — `ERP_2G` (clause 18 Table 18-5), `LINK_EXTRA_LOSS_DB['2g']`
- * = −6.5, `widthOf`'s 40 MHz cap and `nodeLinks`' `'2g'` branch, all pinned by
- * `tests/engine/link-2g.test.ts` — and until this lesson the only scenes that
- * reached it were the five AMP lessons' tag scenes, where the thing on the air
- * is a tag and not a station. This slice adds no engine code.
+ * Standard-first shape (2026-11-11): ① what IEEE Std 802.11-2024 specifies for a 2.4 GHz
+ * station (Table 18-5 and Table 27-61 timing, Equations 10-6 and 10-7, §10.3.8 signal
+ * extension, §10.3.2.3.7 EIFS, §10.3.2.11 AckTimeout, §18.4.6 and §27.3.22.6.3 CCA, §4.3.15 and
+ * §4.3.16 channel widths, 802.11be-2024 §4.3.16a); ② how this engine implements each, including
+ * the two places it departs from the standard (EIFS computed with a 6 Mb/s Ack, aRxPHYStartDelay
+ * 20 µs for an HE station) and the one value the standard does not cover at all (the −6.5 dB band
+ * offset, a propagation model); ③ five guided runs.
  *
- * **The lesson's spine is not the three interframe figures the backlog named.**
- * DIFS 28 against 34, SIFS 10 against 16, and the 6 µs signal extension charged
- * to every PPDU sum to exactly zero over one exchange, and the zero is
- * structural rather than lucky: a complete exchange holds one IFS per PPDU, each
- * IFS is 6 µs shorter on this band and each PPDU 6 µs longer. Measured on two
- * shapes — one frame with one acknowledgement (217.2 µs either way) and a
- * twenty-MSDU A-MPDU with one BlockAck (1 853.2 µs either way) — in
- * `tests/course/link-2g.test.ts`. A lesson built on those three numbers would be
- * a lesson whose subject provably does nothing.
+ * The audit behind ② found that the old lesson called the 40 MHz cap a model value. It is the
+ * standard: an HE or EHT station in the 2.4 GHz band supports 20 MHz (mandatory) and 40 MHz
+ * (optional) and nothing wider.
  *
- * So the spine is: the band does not change the exchange; it changes the link
- * budget (two or three MCS rungs at range, none on the desk); and what it really
- * changes is who can hear whom — the 6.5 dB carries the station-to-station ray
- * across `CCA_PD_DBM`, and two hidden stations become two stations that defer to
- * each other through EIFS. The 40 MHz cap is carried with it as the
- * counterweight, because without it the lesson reads as an advertisement.
- *
- * Every figure below is pinned in tests/course/link-2g.test.ts: the deterministic
- * ones (durations, intervals, MCS rungs, negotiated widths, record kinds) exactly,
- * and the throughput means across ten to thirty seeds. Single-seed throughput is
- * NOT a legal measurement on this lesson's subject, and the test says why: a
- * station's MAC random stream is forked on `hashStr(virtualId(id, link))`, and
- * `virtualId` suffixes every link but 5 GHz, so flipping the band also flips the
- * backoff sequence.
+ * Every figure the lesson prints is read back out of its own text in
+ * tests/course/link-2g.test.ts and compared with an engine run. Throughput figures are means
+ * over ten or twenty seeds: flipping the band flips the station's virtual id and with it the
+ * backoff stream, so a single-seed comparison measures the draw, not the band.
  */
 import { type Lesson, J } from '../lessonKit'
 import { link2gScenario } from '../wifiScenes'
@@ -42,89 +26,171 @@ export const link2g: Lesson = {
   id: 'link-2g',
   module: 12,
   title: '2.4 GHz 链路——换频段不改变交换时长，改变的是站点能否相互收到',
-  why: '这门课到目前为止测得的每一个数，都是在 5 GHz 上测得的。把同一套设备移到 2.4 GHz，四项参数会同时改变，而方向并不一致：帧间间隔变短、每一个 PPDU（PHY protocol data unit）末尾多出 6 微秒、路径损耗（path loss）减小 6.5 分贝、信道带宽（channel width）却被限制在 40 兆赫。前两项相互抵消：一次交换里帧间间隔的个数恒等于 PPDU 的个数，每个间隔缩短的时间正好等于每个 PPDU 增加的时间，所以同一次交换在两条链路（link）上的时长完全相同。减少的路损在远处相当于两到三级调制与编码方式（modulation and coding scheme, MCS），在路由器旁边的桌上则一级也换不来，两条链路测不出任何差别。真正改变的是站点（station, STA）之间能否相互收到：楼梯间两侧的两台笔记本在 5 GHz 上收不到对方的前导码（preamble），都认为信道空闲，于是在路由器处一次次发生碰撞；到了 2.4 GHz，对方的前导码恰好能够锁定，帧虽然解不出，之后却要改为等待更长的扩展帧间间隔（extended interframe space, EIFS），两台笔记本于是开始相互避让，路由器收到的帧增加到十倍——这十倍来自碰撞的减少，而不是更快的空口。这个房间是有意布置在前导检测（preamble detection）门限附近的，并不代表普遍规律。方向相反的是带宽：两端都请求更宽信道的 Wi-Fi 7 笔记本在 2.4 GHz 上得不到这样的信道，噪声地板（noise floor）更低、选中的调制与编码方式高出四级，吞吐仍然低一成多。',
+  why: '把同一套 Wi-Fi 设备从 5 GHz 移到 2.4 GHz，IEEE Std 802.11-2024 规定的几个时间常数随之改变：短帧间间隔（short interframe space, SIFS）从 16 微秒变为 10 微秒，分布式帧间间隔（DCF interframe space, DIFS）随之从 34 微秒变为 28 微秒，每个 PPDU（PHY protocol data unit）之后还要多出 6 微秒的信号扩展。一次完整的交换里帧间间隔与 PPDU 的个数相同，每个间隔缩短的时间正好等于每个 PPDU 增加的时间，所以同一次交换在两条链路（link）上的时长完全相同。标准还规定，HE 与 EHT 站点（station, STA）在 2.4 GHz 上最宽只能使用 40 MHz 的信道带宽（channel width）。电波怎样传播不属于标准的内容：本仿真器给 2.4 GHz 的每条路径统一减少 6.5 dB 的路径损耗（path loss），这在远处相当于两到三级调制与编码方式（modulation and coding scheme, MCS），在路由器旁边一级也换不来。真正改变结果的是站点之间能否相互收到：本课的楼梯间里，两台笔记本之间的电平在 5 GHz 上低于 −82 dBm 的前导检测（preamble detection）门限，两台互为隐藏节点（hidden station）；在 2.4 GHz 上高出门限，收到对方的帧却解不出，于是按标准改为等待扩展帧间间隔（extended interframe space, EIFS），两台开始相互避让，路由器收到的帧增加到十倍。这个场景是有意布置在门限附近的。方向相反的是带宽：请求 160 MHz 的 Wi-Fi 7 笔记本在 2.4 GHz 上只得到 40 MHz，选中的 MCS 高出四级，吞吐仍低一成多。',
   outcomes: [
-    '算出同一次交换在两条链路上的时长，并说明四个时间差为什么净和为零',
-    '说出 6.5 分贝的频段路损偏移相当于几级调制与编码方式（modulation and coding scheme, MCS），以及在什么位置它一级也换不来',
-    '指出换频段真正改变的那一件事，并在时间轴上找到证明它的那一类记录',
+    '说出标准为 2.4 GHz 规定的 SIFS、时隙（slot time）、信号扩展取值，并算出同一次交换在两条链路上的时长',
+    '分清哪些是标准的规定（40 MHz 上限、EIFS 的条件），哪些是本仿真器的取值（6.5 dB 的频段路损偏移、−82 dBm 的硬门限）',
+    '在时间轴上找到 EIFS 记录，并说明它为什么只在 2.4 GHz 那一边出现',
   ],
   needs: ['ifs', 'cca', 'hidden', 'width'],
   terms: [
-    { term: 'signal extension', plain: '信号扩展：2.4 GHz 上每个 PPDU 的空口时间末尾多算的 6 微秒静默期，目的是让只能按旧格式计算时长的设备正确设置网络分配向量。5 GHz 与 6 GHz 上它是 0' },
-    { term: 'ERP', plain: '扩展速率物理层：IEEE Std 802.11-2024 第 18 章为 2.4 GHz 定义的那一套物理层。本仿真器 2.4 GHz 的六个时间常数全部取自它的 Table 18-5' },
-    { term: 'band path-loss offset', plain: '频段路损偏移：本仿真器给整张链路表统一加的一个常数，2.4 GHz 是 −6.5 分贝、6 GHz 是 +1.2 分贝、5 GHz 是 0。它不随距离或墙体变化' },
+    { term: 'signal extension', plain: '信号扩展：2.4 GHz 上某些格式的 PPDU 之后紧跟的一段 6 微秒的静默期，计入这个 PPDU 的空口时间，目的是让只能按旧格式计算时长的设备正确设置网络分配向量。5 GHz 与 6 GHz 上它是 0' },
+    { term: 'ERP', plain: '扩展速率物理层（extended rate PHY）：IEEE Std 802.11-2024 第 18 章为 2.4 GHz 定义的物理层，在 DSSS/CCK 速率之上加入 OFDM 速率' },
+    { term: 'band path-loss offset', plain: '频段路损偏移：本仿真器给整张链路表统一加的一个常数，2.4 GHz 是 −6.5 dB、6 GHz 是 +1.2 dB、5 GHz 是 0；不随距离或墙体变化，标准中没有这个量' },
   ],
-  picture: [
-    { heading: '这个房间是为越过一条门限而设计的', text: '两间卧室，中间一道 2.5 米宽的砖砌楼梯间，路由器放在楼梯间正中。两台笔记本各在一间卧室里，相距 8.5 米，中间隔着两道砖墙。本仿真器为这条站点（station, STA）到站点的路径算出 −83.58 dBm，而前导检测（preamble detection）门限是 −82 dBm——相差 1.58 分贝，恰好低于门限。两台笔记本到路由器的那两条路径都是 −64.14 dBm，完全相同，所以这个房间里唯一会因频段改变而越过门限的，就是它们之间那一条。这是有意设置在临界点上的场景，并不代表普遍规律。' },
-    { heading: '先看换频段没有改变什么', text: '把一台笔记本放在路由器旁边的桌上，让它持续向外发送。一次零退避（backoff）的交换由四段组成：一个分布式帧间间隔（DCF interframe space, DIFS）、一个数据帧（data frame）的 PPDU、一个短帧间间隔（short interframe space, SIFS）、一个确认帧（acknowledgement, ACK）的 PPDU。换到 2.4 GHz 之后，这四段里有两段变短、两段变长，而总和完全相同。变短的两段缩短的量相同，而且原因相同：DIFS 就是一个 SIFS 加两个时隙（slot time），而两条链路的时隙都是 9 微秒，所以 DIFS 的差额恰好等于 SIFS 的差额。' },
-    { kind: 'watch', jump: 3, heading: '查看那一类在 5 GHz 上永远不会出现的记录', text: '载入这一课的场景——楼梯间那间房，两台笔记本都在 2.4 GHz 上——然后跳到第一条扩展帧间间隔（extended interframe space, EIFS）记录。它的长度是 88 微秒，整轮下来一个例外也没有。再把变体切换到「换回 5 GHz」：同一个房间、同样两台笔记本，这一类记录一条也没有。这一课要解释的就是这一条记录为什么只在一条链路上存在。' },
-    { kind: 'steps', heading: '那 6.5 分贝起了什么作用——逐步说明', items: [
-      '5 GHz 上，两台笔记本之间是 −83.58 dBm，低于 −82 dBm 的前导检测门限。它们的空闲信道评估（clear channel assessment, CCA）对彼此的发送始终报告空闲，于是互为隐藏节点（hidden station）：都不知道对方正在发送。空闲信道评估的另一半是 −62 dBm 的能量检测（energy detection, ED），而这个电平离它更远，所以这一课里它从未被触发。',
-      '两台都认为信道空闲，于是都发送。结果是在路由器处发生碰撞——时间轴上路由器的接收失败记录，原因全部是碰撞。',
-      '换到 2.4 GHz，同一条路径加 6.5 分贝变为 −77.08 dBm，高出门限 4.92 分贝。现在它们能锁定对方的前导码（preamble），却解不出那一帧：这个距离上的信干噪比（signal-to-interference-plus-noise ratio, SINR）远低于这一级调制与编码方式的要求，于是接收失败的原因从碰撞变成了信噪比（signal-to-noise ratio, SNR）不足。',
-      '而按 §10.3.7，一次「锁定了却没有解出」之后要等待的不是 DIFS 而是 EIFS。于是两台笔记本开始相互避让：碰撞减少，路由器收到的帧增加到十倍。',
+  standard: [
+    { heading: '2.4 GHz 上的时间常数（§18.5.4 表 18-5；§27.4.4 表 27-61）', text: 'ERP 的特性表规定：aSIFSTime 为 10 µs；aSlotTime 即时隙，有长短两种，长时隙 20 µs、短时隙 9 µs；aSignalExtension 为 6 µs；ERP 中正交频分复用（orthogonal frequency-division multiplexing, OFDM）格式即 ERP-OFDM 的 aRxPHYStartDelay 为 20 µs；aCWmin(0) 为 31、aCWmin(1) 为 15，aCWmax 为 1023。HE 物理层（physical layer, PHY）的特性表按频段给值：在 2.4 GHz 上 aSIFSTime 为 10 µs、aSignalExtension 为 6 µs、时隙有长 20 µs 与短 9 µs 两种；在 5 GHz 与 6 GHz 上 aSIFSTime 为 16 µs、aSignalExtension 为 0、时隙为 9 µs；aRxPHYStartDelay 不分频段，为 24 µs。' },
+    { kind: 'table', heading: '同一台 HE 站点在两个频段上的取值（表 27-61）', head: ['特性', '2.4 GHz', '5 GHz'], rows: [
+      ['aSIFSTime', '10 µs', '16 µs'],
+      ['aSlotTime', '长 20 µs，短 9 µs', '9 µs'],
+      ['aSignalExtension', '6 µs', '0'],
+      ['aRxPHYStartDelay', '24 µs', '24 µs'],
     ] },
-    { heading: '这一课的结论可以归纳为三句话', text: '换频段不改变一次交换的时长；改变的是链路预算，在远处相当于两到三级调制与编码方式，在桌上则一级也换不来；真正改变的是站点之间能否相互收到。最后还要补充一个反方向的因素：这条链路的信道带宽上限是 40 兆赫，一台 Wi-Fi 7 笔记本在这里得不到它在 5 GHz 上能得到的 160 兆赫，这是整节课里 2.4 GHz 唯一明显落后的一项。' },
+    { heading: '用长时隙还是短时隙（§9.4.1.4）', text: '接入点（access point, AP）在信标（Beacon）等帧的能力信息字段里把 Short Slot Time 子字段置 1，表示这个基本服务集（basic service set, BSS）当前使用短时隙；置 0 则使用长时隙。' },
+    { heading: '由时间常数导出的三个间隔（§10.3.7，§10.3.2.11）', text: 'DIFS = aSIFSTime + 2 × aSlotTime（式 10-6）。EIFS = aSIFSTime + AckTxTime + DIFS（式 10-7），其中 AckTxTime 是以物理层最低的强制速率（mandatory rate）或 MCS 发送一个确认帧（acknowledgement, ACK）所需的时间，含前导码（preamble）、物理层头与物理层附加的部分。发出一个需要确认的 MPDU（MAC protocol data unit）之后，发送端等待 ACK 超时（ACK timeout）间隔 aSIFSTime + aSlotTime + aRxPHYStartDelay；期间没有检测到任何帧的开始，就判定这次发送失败。' },
+    { heading: '信号扩展（§10.3.8，§18.5.3.2）', text: 'NON_HT 格式中的 ERP-OFDM 与 NON_HT_DUP_OFDM，以及 HT_MF、HT_GF、HE_SU、HE_MU、HE_ER_SU、HE_TB 格式的发送之后，紧跟一段时长为 aSignalExtension 的静默期，RIFS 发送除外；目的是让第 16 章的站点正确设置网络分配向量（network allocation vector, NAV）。ERP-OFDM 的 TXTIME 公式（式 18-1）把这段时间计入 PPDU 的时长。§10.3.7 规定，所有以发送结束为起点的介质（medium）时间都从 PPDU[+SigExt] 的结束算起。' },
+    { heading: '什么时候等 EIFS（§10.3.2.3.7）', text: '分布式协调功能（distributed coordination function, DCF）接收一个 PPDU[+SigExt] 之后，如果物理层报告接收出错，或者帧校验序列（frame check sequence, FCS）不正确，就在介质变为空闲后等待 EIFS 再发送；增强型分布式信道接入（enhanced distributed channel access, EDCA）对应地以按接入类别（access category, AC）取值的仲裁帧间间隔（arbitration interframe space, AIFS）代替 DIFS，即等待 EIFS − DIFS + AIFS[AC]。在此期间正确收到一帧，EIFS 立即结束。EIFS 的用意是给另一个站点留出足够的时间，确认这个站点没有正确收到的那一帧。' },
+    { heading: '空闲信道评估（clear channel assessment, CCA）（§18.4.6，§27.3.22.6.3）', text: 'ERP 站点在接收端电平不低于 −82 dBm 时检测到 ERP-OFDM 信号的开头，要在 aCCATime 内报告忙，短时隙时检测概率至少 90%；任何高于 −62 dBm 的能量也要报告忙，即能量检测（energy detection, ED）。HE 站点在 2.4 GHz 上对非 HT PPDU 按 §18.4.6 判断，对主 20 MHz 信道内功率不低于 −82 dBm 的 HE PPDU 开头同样报告忙。' },
+    { heading: 'ERP 的强制速率（§18.1.2）', text: 'ERP 在第 15、16 章的 DSSS 与 CCK 速率之上，加入第 17 章的 OFDM 速率。1、2、5.5、6、11、12、24 Mb/s 的收发能力是强制的。' },
+    { heading: '哪些站点能在 2.4 GHz 上工作，用多宽（§4.3.15，§4.3.16；IEEE Std 802.11be-2024 §4.3.16a）', text: 'VHT 站点只工作在 5 GHz。HE 站点在 2.4 GHz 上同时是 HT 站点，20 MHz 的工作带宽是强制的，40 MHz 是可选的；EHT 站点在 2.4 GHz 上同样只有 20 MHz（强制）与 40 MHz（可选）两种。更宽的 80、160、320 MHz 只定义在 5 GHz 与 6 GHz 上。' },
+    { kind: 'steps', heading: '2.4 GHz 上的一次交换，按标准：逐步说明', items: [
+      '介质空闲满 DIFS（10 + 2 × 9 = 28 µs，短时隙），退避（backoff）计数到零，站点发出数据帧（data frame）的 PPDU，PPDU 之后紧跟 6 µs 的信号扩展（§10.3.7，§10.3.8）。',
+      '接收端从 PPDU[+SigExt] 的结束算起，等待 aSIFSTime = 10 µs，发出确认帧；确认帧的 PPDU 之后同样有 6 µs 的信号扩展。',
+      '发送端在 ACK 超时间隔内检测到确认帧的开头，就等它接收完；收到正确的确认帧，这次交换成功（§10.3.2.11）。',
+      '旁边的第三个站点如果检测到了这个 PPDU 的开头、却没能正确解出，就在介质变为空闲后改为等待 EIFS 再竞争（§10.3.2.3.7）。',
+    ] },
   ],
-  numbers: [
-    { kind: 'table', heading: '一次零退避的交换，逐段实测（桌上那台笔记本，两边都达到 MCS 11）', head: [
-      '这一段', '5 GHz', '2.4 GHz', '差',
-    ], rows: [
-      ['DIFS', '34.0 µs', '28.0 µs', '−6.0'],
-      ['数据 PPDU（1 528 字节）', '139.2 µs', '145.2 µs', '+6.0'],
-      ['SIFS', '16.0 µs', '10.0 µs', '−6.0'],
-      ['确认帧 PPDU（14 字节）', '28.0 µs', '34.0 µs', '+6.0'],
-      ['合计', '217.2 µs', '217.2 µs', '0'],
-    ] },
-    { kind: 'table', heading: '同样的对照，换成启用聚合的情形：一个包含 20 个 MSDU（MAC service data unit）的聚合，一个块确认（block acknowledgement, BlockAck）', head: [
-      '这一段', '5 GHz', '2.4 GHz', '差',
-    ], rows: [
-      ['DIFS', '34.0 µs', '28.0 µs', '−6.0'],
-      ['聚合 PPDU（30 718 字节）', '1 771.2 µs', '1 777.2 µs', '+6.0'],
-      ['SIFS', '16.0 µs', '10.0 µs', '−6.0'],
-      ['块确认 PPDU', '32.0 µs', '38.0 µs', '+6.0'],
-      ['合计', '1 853.2 µs', '1 853.2 µs', '0'],
-    ] },
-    { kind: 'formula', heading: '两行都是零，而第二行说明了第一行不是巧合', text: '一次完整的交换里，IFS 的个数恒等于 PPDU 的个数：一个 DIFS 带头，之后每多一个 PPDU 就多一个 SIFS。每个 IFS 短 6 µs，每个 PPDU 长 6 µs。', note: '所以信号扩展按 PPDU 计，而不是按 MSDU 计：20 个 MSDU 装入一个聚合 MPDU（aggregate MPDU, A-MPDU），只计一次 6 微秒。差值真正不为零的是失败的交换——数据帧发出后没有收到确认时，5 GHz 等待 45 微秒而 2.4 GHz 等待 39 微秒，整段从 1 551.0 µs 降到 1 545.0 µs，2.4 GHz 反而快 6 微秒。' },
-    { kind: 'widget', widget: 'mcsLadder', params: { mode: 'he', snrDb: 18.8 },
-      caption: '标记位于远处那台笔记本的信噪比处。把它向右移动 6.5 分贝，就是同一台笔记本在 2.4 GHz 上的位置——点亮的等级会上升两到三级。' },
-    { kind: 'table', heading: '6.5 分贝相当于几级（Wi-Fi 6、20 兆赫，同一个 5 GHz 到达电平下两条链路的对照）', head: [
-      '5 GHz 到达电平', '5 GHz', '2.4 GHz（+6.5 分贝）', '差几级',
-    ], rows: [
-      ['−46.7 dBm（桌上）', 'MCS 11 · 143.4 Mb/s', 'MCS 11 · 143.4 Mb/s', '0'],
-      ['−60 dBm', 'MCS 7 · 86 Mb/s', 'MCS 10 · 129 Mb/s', '3'],
-      ['−70 dBm', 'MCS 4 · 51.6 Mb/s', 'MCS 7 · 86 Mb/s', '3'],
-      ['−75 dBm', 'MCS 2 · 25.8 Mb/s', 'MCS 4 · 51.6 Mb/s', '2'],
-      ['−80 dBm', 'MCS 0 · 8.6 Mb/s', 'MCS 3 · 34.4 Mb/s', '3'],
-    ] },
-    { heading: '楼梯间那间房，十个种子', text: '5 GHz 上两台笔记本互为隐藏节点，吞吐均值 3.732 Mb/s，路由器收到 622 帧，碰撞 948 次，EIFS 记录 0 条。换到 2.4 GHz：均值 39.096 Mb/s，收到 6 516 帧，碰撞降到 397 次，EIFS 记录 6 516 条、长度全是 88 微秒。收到的帧数是 5 GHz 的 10.5 倍。要注意这十倍从何而来——不是更快的空口，而是碰撞的减少；上面第一张表已经证明空口时长没有缩短。' },
-    { kind: 'table', heading: '反方向的因素：40 兆赫上限（两端都是 Wi-Fi 7、都请求 160 兆赫，二十个种子）', head: [
-      '指标', '5 GHz', '2.4 GHz',
-    ], rows: [
-      ['协商到的信道带宽', '160 兆赫', '40 兆赫（受限）'],
-      ['选中的 MCS', '9', '13'],
-      ['同一帧的数据 PPDU', '61.6 µs', '94.8 µs'],
-      ['一次交换', '139.6 µs', '166.8 µs'],
-      ['吞吐均值', '57.909 Mb/s', '51.258 Mb/s'],
-    ] },
-    { heading: '这一项中两种相反的效应同时存在', text: '5 GHz 使用 160 兆赫，噪声地板（noise floor）随之升高 9.03 分贝，使它只能使用 MCS 9；2.4 GHz 停留在 40 兆赫，噪声地板只升高 3.01 分贝，于是它一直升到最高的 MCS 13。但它的吞吐仍然低 11.5 %——因为 160 兆赫的带宽带来的增益，超过了高出的那四级调制与编码方式。四个时间差的净和为零，剩下的差距就全部来自带宽。' },
+  implementation: [
+    { topic: 'SIFS、时隙与信号扩展', standard: '2.4 GHz：10 µs、9 µs（短时隙）、6 µs；5 GHz：16 µs、9 µs、0（表 18-5，表 27-61）', sim: '照此取值；每个 PPDU 的空口时间（airtime）都包含信号扩展，同一个 1 528 字节的数据帧在 2.4 GHz 上比 5 GHz 长 6.0 µs。', kind: 'faithful' },
+    { topic: '长时隙', standard: '接入点通过 Short Slot Time 子字段决定使用长时隙 20 µs 还是短时隙 9 µs（§9.4.1.4）', sim: '2.4 GHz 上固定使用 9 µs 的短时隙，不建模长时隙，也没有通告它的信标。', kind: 'value' },
+    { topic: 'DIFS', standard: 'aSIFSTime + 2 × aSlotTime（式 10-6）', sim: '2.4 GHz 上 28 µs，5 GHz 上 34 µs。', kind: 'faithful' },
+    { topic: 'EIFS 的启用条件', standard: '接收出错或帧校验序列不正确之后（§10.3.2.3.7）', sim: '照此处理：检测到前导码却没能解出一帧，介质空闲后就等待 EIFS。', kind: 'faithful' },
+    { topic: 'EIFS 的长度', standard: 'aSIFSTime + AckTxTime + DIFS，AckTxTime 以物理层最低的强制速率计算（式 10-7）；ERP 的强制速率最低为 1 Mb/s（§18.1.2）', sim: '2.4 GHz 上按 6 Mb/s 的 OFDM 确认帧计算：10 + 28 + 50 = 88 µs，其中确认帧 44 µs，加 6 µs 信号扩展。没有 DSSS 速率，所以没有按 1 Mb/s 计算。', kind: 'differs' },
+    { topic: 'ACK 超时', standard: 'aSIFSTime + aSlotTime + aRxPHYStartDelay（§10.3.2.11）；HE 站点的 aRxPHYStartDelay 为 24 µs（表 27-61）', sim: '所有世代都取第 17、18 章的 20 µs：本课的 HE 站点在 2.4 GHz 上等 10 + 9 + 20 = 39 µs，在 5 GHz 上等 16 + 9 + 20 = 45 µs；按表 27-61 应为 43 µs 与 49 µs。', kind: 'differs' },
+    { topic: '前导检测', standard: '电平不低于 −82 dBm 时，在 aCCATime 内以一定概率报告忙（§18.4.6，§27.3.22.6.3）', sim: '−82 dBm 是一条硬门限：高于它一定检测到，低于它一定检测不到，没有检测概率，也没有检测时延。', kind: 'choice' },
+    { topic: '能量检测的范围', standard: 'HE 站点在主 20 MHz 信道内按 −62 dBm 判断（§27.3.22.6.3）', sim: '把整条工作信道宽度内的总功率与 −62 dBm 比较，不区分主信道与副信道；本课里能量检测从未被触发。', kind: 'differs' },
+    { topic: '频段路损偏移', standard: '标准不定义电波传播', sim: '整张链路表统一加一个常数：2.4 GHz −6.5 dB，5 GHz 0，6 GHz +1.2 dB，不随距离与墙体材质变化（simulation.ts 的 LINK_EXTRA_LOSS_DB）。', kind: 'value' },
+    { topic: '选级', standard: '速率切换算法不在标准范围之内（§10.6.1）', sim: '取平均信噪比（signal-to-noise ratio, SNR）减去 3 dB 后仍满足的最高一级；频段路损偏移改变的就是这个平均信噪比。', kind: 'choice' },
+    { topic: '2.4 GHz 的带宽上限', standard: 'HE、EHT 站点在 2.4 GHz 上只有 20 MHz 与 40 MHz（§4.3.16；802.11be-2024 §4.3.16a）', sim: '2.4 GHz 链路的带宽取两端请求值中较窄的那个，并且不超过 40 MHz。', kind: 'faithful' },
+    { topic: 'Wi-Fi 5 站点', standard: 'VHT 站点只工作在 5 GHz（§4.3.15）', sim: '场景里写着 2.4 GHz 的 VHT 站点仍放在 5 GHz 链路上；编辑器对 Wi-Fi 5 站点不提供频段选项。', kind: 'faithful' },
+    { topic: 'DCF 还是 EDCA', standard: '支持服务质量（quality of service, QoS）的站点按接入类别等待 AIFS[AC]（§10.3.2.3.6）', sim: '本课所有场景关闭 EDCA，HE 站点也按 DCF 等待 DIFS，这样两个频段的 DIFS 差额直接出现在记录里。', kind: 'differs' },
+    { topic: 'DSSS、CCK 与保护机制', standard: '1、2、5.5、11 Mb/s 是 ERP 的强制速率（§18.1.2）；有旧设备在场时需要保护机制', sim: '未实现：2.4 GHz 上只有 OFDM 一类格式，没有 DSSS/CCK 速率、长前导码，也没有为旧设备设置的保护。', kind: 'absent' },
   ],
-  deeper: [
-    { heading: '一台 Wi-Fi 5 笔记本无法使用这条链路', text: '编辑器里那个频段下拉框只在站点不是 Wi-Fi 5、也没有启用多链路操作时才出现。这不是界面遗漏了一步：`caps.ts` 的 `nodeLinks` 要求节点写着 2.4 GHz 且世代不是 vht 才把它放到这条链路上，因为 802.11ac 只定义在 5 GHz 上。于是一台 Wi-Fi 5 站点即使在场景文件里写着 2.4 GHz，仍然工作在 5 GHz 上——这是一个合法、可以保存、却不改变任何结果的配置，因此界面直接不提供这个选项。' },
-    { heading: '为什么这一课的场景都关闭了 EDCA', text: '启用增强型分布式信道接入之后，时间轴上的帧间间隔记录就不再是 DIFS 而是 AIFS，并与 AIFSN 一起按接入类别取值，这一课要对照的那个 28 对 34 就从记录里消失了。2.4 GHz 的 AIFS 数值不必在这里重新计算：《AMP 与 Wi-Fi 共享 2.4 GHz》已经在它自己的主路径上给出了 AC_BE 的 37 微秒与 AC_BK 的 73 微秒。' },
-  ],
-  limits: [
-    { kind: 'model-value', text: '−6.5 分贝是本仿真器选定的一个常数，整张链路表统一加减，不随距离与墙体材质变化（`simulation.ts` 的 LINK_EXTRA_LOSS_DB）。真实世界里 2.4 GHz 与 5 GHz 在自由空间中的路径损耗差约为 6.6 分贝，而一旦有砖墙、金属或家具参与，两个频段的衰减比例并不一样——所以这一课里「远处值两到三级调制与编码方式」是这个模型的结论，而不是一条可以直接用于现场的换算关系。' },
-    { kind: 'threshold', text: '这一课在一台 Wi-Fi 6 站点上显示 2.4 GHz 的确认帧超时为 39 微秒，而按标准它应当是 43 微秒。本仿真器对所有世代都取 aRxPHYStartDelay = 20 微秒，那是第 17/18 章的值；Table 19-25 与 Table 27-61 给 HT 与 HE 的是 24 微秒，于是 10 + 9 + 24 = 43。差额来自引擎统一取值，而不是计算错误：换成一台只支持旧格式的站点，39 微秒就是标准值。这个差异没有被隐藏，也没有为了回避它而更换场景里那台读者熟悉的设备。短帧间间隔与时隙（slot time）两项在两个算法里都是 10 与 9 微秒，差的只有第三项。' },
-    { kind: 'threshold', text: '前导检测在本仿真器里是 −82 dBm 的硬门限：高于它一定能锁定，低于它则完全检测不到。真实接收机是一条概率曲线，门限附近是一段能否锁定各有一定概率的过渡区，而不是阶跃。所以这一课的十倍是一个处于临界点的演示——这个房间的几何布置有意把站点之间那条路径放在门限之下 1.58 分贝处。换一种几何布置，比如让它低于门限 10 分贝，6.5 分贝就无法越过门限，这一效应也就不会出现。而这一效应之所以成立，依靠的正是这条硬门限两侧的那 6.5 分贝。' },
-    { kind: 'out-of-scope', text: '这条链路上真正的老设备不在建模范围内：ERP-DSSS/CCK 的 1、2、5.5、11 Mb/s 四档速率，以及老设备在场时整个网络要开的那套保护机制（CTS-to-self、长前导码、长时隙），引擎均未实现。本仿真器的 2.4 GHz 只建模了第 18 章中较新的那一部分，并且固定使用 9 微秒的短时隙——而这恰好是 2.4 GHz 在现实中最著名的问题，这一课无法涉及。' },
+  labs: [
+    {
+      heading: '同一次交换的四段',
+      variant: 2,
+      jump: 0,
+      more: [1],
+      steps: [
+        '载入「一台站点 · 2.4 GHz」，跳到第一个 DIFS，读出 DIFS、数据 PPDU、SIFS 与确认帧 PPDU 四段的长度。',
+        '切换到「一台站点 · 5 GHz」，读出同样的四段，对照下表。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '一次零退避的交换，逐段实测（桌上那台笔记本，两边都是 MCS 11）', head: ['这一段', '5 GHz', '2.4 GHz', '差'], rows: [
+          ['DIFS', '34.0 µs', '28.0 µs', '−6.0'],
+          ['数据 PPDU（1 528 字节）', '139.2 µs', '145.2 µs', '+6.0'],
+          ['SIFS', '16.0 µs', '10.0 µs', '−6.0'],
+          ['确认帧 PPDU（14 字节）', '28.0 µs', '34.0 µs', '+6.0'],
+          ['合计', '217.2 µs', '217.2 µs', '0'],
+        ] },
+      ],
+      expect: '两个间隔各短 6.0 µs，两个 PPDU 各长 6.0 µs，合计都是 217.2 µs；两边选中的都是 MCS 11。',
+      meaning: 'DIFS 与 SIFS 来自表 27-61 与式 10-6，6 µs 来自信号扩展（①）；一次交换里间隔与 PPDU 个数相同，所以差额的净和为零（②中的前三行都照标准）。',
+    },
+    {
+      heading: '启用聚合之后仍然相同',
+      variant: 4,
+      jump: 1,
+      more: [3],
+      steps: [
+        '载入「启用聚合 · 2.4 GHz」，跳到第一帧数据，读出这个聚合 MPDU（aggregate MPDU, A-MPDU）的长度和其后块确认（block acknowledgement, BlockAck）的长度。',
+        '切换到「启用聚合 · 5 GHz」，对照下表。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '一个包含 20 个 MSDU（MAC service data unit）的 A-MPDU，一个块确认', head: ['这一段', '5 GHz', '2.4 GHz', '差'], rows: [
+          ['DIFS', '34.0 µs', '28.0 µs', '−6.0'],
+          ['聚合 PPDU（30 718 字节）', '1 771.2 µs', '1 777.2 µs', '+6.0'],
+          ['SIFS', '16.0 µs', '10.0 µs', '−6.0'],
+          ['块确认 PPDU', '32.0 µs', '38.0 µs', '+6.0'],
+          ['合计', '1 853.2 µs', '1 853.2 µs', '0'],
+        ] },
+      ],
+      expect: '二十个 MSDU 装在一个 PPDU 里，信号扩展只计一次，合计仍然都是 1 853.2 µs。',
+      meaning: '§10.3.8 把信号扩展加在 PPDU 之后，而不是每个 MSDU 之后（①），所以净和为零不是帧数凑巧。',
+    },
+    {
+      heading: '楼梯间：EIFS 只在 2.4 GHz 上出现',
+      jump: 3,
+      more: [0],
+      steps: [
+        '载入本课场景（楼梯间，两台笔记本都在 2.4 GHz 上），跳到第一条 EIFS 记录，读出它的长度；再跳到第一次未能解出，看接收失败的原因。',
+        '切换到「换回 5 GHz」，找 EIFS 记录和接收失败的原因。',
+        '对照下表的电平与十个种子的统计。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '两台笔记本之间的电平（前导检测门限 −82 dBm）', head: ['路径', '5 GHz', '2.4 GHz'], rows: [
+          ['笔记本 A 到笔记本 B', '−83.58 dBm（低 1.58 dB）', '−77.08 dBm（高 4.92 dB）'],
+          ['笔记本到路由器', '−64.14 dBm', '−57.64 dBm'],
+        ] },
+        { kind: 'table', heading: '同一个房间，十个种子的合计', head: ['指标', '5 GHz', '2.4 GHz'], rows: [
+          ['吞吐均值', '3.732 Mb/s', '39.096 Mb/s'],
+          ['路由器收到的帧', '622', '6 516'],
+          ['碰撞', '948', '397'],
+          ['EIFS 记录', '0', '6 516'],
+        ] },
+      ],
+      expect: '2.4 GHz 上每一条 EIFS 都是 88 µs，接收失败的原因全部是信噪比不足；5 GHz 上没有 EIFS，失败的原因全部是碰撞。路由器收到的帧是 5 GHz 的 10.5 倍，碰撞从 948 次降到 397 次。',
+      meaning: '6.5 dB 是本仿真器的频段路损偏移（②），它把两台笔记本之间的路径推过了 −82 dBm 的硬门限；越过门限之后，等待 EIFS 是 §10.3.2.3.7 的规定（①）。十倍来自碰撞减少，而不是空口变快；88 µs 是按 6 Mb/s 确认帧算出的，与式 10-7 不同（②）。',
+    },
+    {
+      heading: '6.5 dB 值几级调制与编码方式',
+      variant: 2,
+      more: [1],
+      steps: [
+        '载入「一台站点 · 2.4 GHz」与「一台站点 · 5 GHz」，读出两边数据帧的 MCS。',
+        '对照下表：同一个 5 GHz 到达电平，加上 6.5 dB 之后选中的等级。',
+      ],
+      blocks: [
+        { kind: 'table', heading: 'Wi-Fi 6、20 MHz，同一个 5 GHz 到达电平下两条链路选中的等级', head: ['5 GHz 到达电平', '5 GHz', '2.4 GHz（+6.5 dB）', '差几级'], rows: [
+          ['−46.7 dBm（桌上）', 'MCS 11 · 143.4 Mb/s', 'MCS 11 · 143.4 Mb/s', '0'],
+          ['−60 dBm', 'MCS 7 · 86 Mb/s', 'MCS 10 · 129 Mb/s', '3'],
+          ['−70 dBm', 'MCS 4 · 51.6 Mb/s', 'MCS 7 · 86 Mb/s', '3'],
+          ['−75 dBm', 'MCS 2 · 25.8 Mb/s', 'MCS 4 · 51.6 Mb/s', '2'],
+          ['−80 dBm', 'MCS 0 · 8.6 Mb/s', 'MCS 3 · 34.4 Mb/s', '3'],
+        ] },
+        { kind: 'widget', widget: 'mcsLadder', params: { mode: 'he', snrDb: 19 },
+          caption: '标记位于 5 GHz 到达电平 −75 dBm 处，信噪比 19.0 dB。把它向右移动 6.5 dB，就是同一台设备在 2.4 GHz 上的位置。' },
+      ],
+      expect: '桌上两边都是 MCS 11，一级也没有升；电平在 −60 dBm 到 −80 dBm 之间时，2.4 GHz 高出两到三级。',
+      meaning: '选级算法与 6.5 dB 都是本仿真器的取法与取值（②），标准两者都不规定；所以「远处值两到三级」是这个模型的结论，不是可以直接用于现场的换算。',
+    },
+    {
+      heading: '40 MHz 上限',
+      variant: 6,
+      more: [5],
+      steps: [
+        '载入「Wi-Fi 7 请求 160 MHz · 2.4 GHz」，读出协商到的信道带宽、MCS 与数据 PPDU 的长度。',
+        '切换到「Wi-Fi 7 请求 160 MHz · 5 GHz」，对照下表。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '两端都是 Wi-Fi 7、都请求 160 MHz（吞吐为二十个种子的均值）', head: ['指标', '5 GHz', '2.4 GHz'], rows: [
+          ['协商到的信道带宽', '160 MHz', '40 MHz'],
+          ['选中的 MCS', '9', '13'],
+          ['同一帧的数据 PPDU', '61.6 µs', '94.8 µs'],
+          ['一次交换', '139.6 µs', '166.8 µs'],
+          ['吞吐均值', '57.909 Mb/s', '51.258 Mb/s'],
+        ] },
+      ],
+      expect: '2.4 GHz 只得到 40 MHz，噪声地板（noise floor）只比 20 MHz 高 3.01 dB，于是用到最高的 MCS 13；5 GHz 的 160 MHz 噪声地板高 9.03 dB，只能用 MCS 9，吞吐却仍高出 11.5 %。',
+      meaning: '40 MHz 上限是标准的规定（①），不是本仿真器的取值；噪声地板随带宽升高是本仿真器的噪声模型。四个间隔差额的净和为零，剩下的差距全部来自带宽。',
+    },
   ],
   sources: [
-    '2.4 GHz 的六个时间常数出自 IEEE Std 802.11-2024 的 Table 18-5「ERP characteristics」（§18.5.4）：aSIFSTime 10 µs、短时隙 9 µs、aSignalExtension 6 µs、aRxPHYStartDelay（ERP-OFDM）20 µs、aCWmin 15（短时隙那一支）。三个导出量的条号在 §10.3.7（DIFS 与 EIFS）与 §10.3.2.11（确认帧超时）。',
-    '信号扩展在标准里挂在 PPDU 格式上而不是频段上：§10.3.8 列出适用的格式（ERP-OFDM、NON_HT_DUP_OFDM、HT_MF、HT_GF、HE_SU、HE_MU、HE_ER_SU、HE_TB）。它看起来像频段的性质，是因为 Table 19-25 与 Table 27-61 把 aSignalExtension 本身定义成按频段取值：5/6 GHz 为 0，2.4 GHz 为 6 µs。',
-    '前导检测 −82 dBm 与能量检测 −62 dBm 出自 §17.3.10.6，引擎 `phy.ts` 在 CCA_PD_DBM 旁边注的是同一条。aRxPHYStartDelay 对 HT 与 HE 的 24 µs 分别在 Table 19-25（§19.4.4）与 Table 27-61。',
-    '−6.5 分贝的频段路损偏移与 40 兆赫的带宽上限都不在 IEEE 语料里，它们是本仿真器的模型取值：前者在 `engine/simulation.ts` 的 LINK_EXTRA_LOSS_DB，后者在 `model/caps.ts` 的 widthOf。两者都由 `tests/engine/link-2g.test.ts` 校验。',
+    'IEEE Std 802.11-2024：§18.5.4 表 18-5（ERP 特性：aSIFSTime 10 µs、长短时隙、aSignalExtension 6 µs、aRxPHYStartDelay、aCWmin）、§27.4.4 表 27-61（HE 物理层特性，按频段取值）、§9.4.1.4（Short Slot Time 子字段）、§10.3.7 式 10-6 与式 10-7（DIFS、EIFS）、§10.3.2.11（ACK 超时）、§10.3.8 与 §18.5.3.2 式 18-1（信号扩展）、§10.3.2.3.7（EIFS 的启用条件）、§18.4.6 与 §27.3.22.6.3（空闲信道评估）、§18.1.2（ERP 的强制速率）、§4.3.15 与 §4.3.16（VHT、HE 站点的频段与带宽）、§10.6.1（速率切换算法不在标准范围之内）。IEEE Std 802.11be-2024 §4.3.16a（EHT 站点在 2.4 GHz 上的带宽）。',
+    '本仿真器的取值与取法：−6.5 dB 的频段路损偏移（engine/simulation.ts 的 LINK_EXTRA_LOSS_DB）、固定的短时隙、按 6 Mb/s 确认帧计算的 EIFS、所有世代 20 µs 的 aRxPHYStartDelay、−82 dBm 的前导检测硬门限、选级时 3 dB 的余量；由 tests/engine/link-2g.test.ts 校验。',
   ],
+  limits: [],
   scenario: () => link2gScenario('pair', '2g'),
   variants: [
     { label: '换回 5 GHz', scenario: () => link2gScenario('pair', '5g') },
@@ -141,15 +207,8 @@ export const link2g: Lesson = {
     J('第一次未能解出', (r) => r.type === 'RX_FAIL' && r.reason === 'lowSinr'),
     J('第一条 EIFS', (r) => r.type === 'IFS_START' && r.kind === 'EIFS'),
   ],
-  observe: [
-    '在这一课自己的场景里，每一条 EIFS 记录的长度都是 88 微秒，一个例外也没有；接收失败的原因全部是信噪比不足，没有一条是碰撞。切换到「换回 5 GHz」，这两点同时反转：EIFS 一条也没有，失败的原因全部是碰撞。',
-    '在「一台站点」那两个变体之间来回切换，只读取四个确定的数：DIFS 从 34.0 变成 28.0 微秒，数据 PPDU 从 139.2 变成 145.2，SIFS 从 16.0 变成 10.0，确认帧从 28.0 变成 34.0。而两边的一次交换都是 217.2 微秒。',
-    '在「Wi-Fi 7 请求 160 MHz」那两个变体里读取协商到的信道带宽：160 兆赫对 40 兆赫。同一个 1 528 字节的帧，空口时间（airtime）从 61.6 微秒增加到 94.8 微秒——仅这一项就多出 33.2 微秒，是上一条里每一项 6 微秒差额的五倍多，而那四项差额相加正好为零。',
-  ],
-  tryThis: [
-    '把楼梯间的宽度从 2.5 米增加到 4 米，再载入 2.4 GHz 那一边：站点之间降到 −85.70 dBm，加上 6.5 分贝是 −79.20，仍然高于门限，所以这一效应仍然存在。继续加宽，直到它低于 −88.5 dBm，EIFS 记录就会全部消失，两台笔记本会回到 5 GHz 上那种相互碰撞的状态。这一课的十倍取决于一条门限，而不是频段。',
-    '在「一台站点」那两个变体上分别更换几个随机种子，记录吞吐：两条链路的均值都在 42.1 Mb/s 附近，相差不到一个标准差。注意不要只运行一个种子就下结论——切换频段会同时改变退避的随机序列（站点在 2.4 GHz 上的内部编号带了后缀，而随机流是按这个编号分叉的），所以单次结果的高低是随机抽取的结果，而不是频段的结果。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
       q: '同一台笔记本、同一个房间，从 5 GHz 换到 2.4 GHz，一次「数据帧加确认帧」的交换所需的时间会如何变化？',
@@ -159,17 +218,27 @@ export const link2g: Lesson = {
         '变长，因为每个 PPDU 都多了 6 微秒的信号扩展',
       ],
       answer: 1,
-      explain: '34 + 139.2 + 16 + 28 = 217.2，28 + 145.2 + 10 + 34 = 217.2。一次完整交换里 IFS 的个数恒等于 PPDU 的个数，每个 IFS 短 6 微秒、每个 PPDU 长 6 微秒，所以净和为零——启用聚合也一样，因为信号扩展是按 PPDU 计的。',
+      explain: '34 + 139.2 + 16 + 28 = 217.2，28 + 145.2 + 10 + 34 = 217.2。一次完整交换里间隔的个数等于 PPDU 的个数，每个间隔短 6 微秒、每个 PPDU 长 6 微秒；启用聚合也一样，因为信号扩展加在 PPDU 之后。',
     },
     {
-      q: '楼梯间那间房里，2.4 GHz 的吞吐是 5 GHz 的十倍。原因是什么？',
+      q: '楼梯间那间房里，2.4 GHz 路由器收到的帧是 5 GHz 的十倍。原因是什么？',
       options: [
         '2.4 GHz 的空口更快，因为帧间间隔更短',
-        '两台笔记本在 5 GHz 上收不到对方而在 2.4 GHz 上能收到，于是碰撞变成了相互避让',
-        '2.4 GHz 的调制与编码方式更高，因为路径损耗小了 6.5 分贝',
+        '两台笔记本在 5 GHz 上收不到对方，在 2.4 GHz 上能检测到对方的前导码却解不出，于是按标准等待 EIFS，碰撞变成了相互避让',
+        '2.4 GHz 的调制与编码方式更高，因为路径损耗小了 6.5 dB',
       ],
       answer: 1,
-      explain: '空口时长没有缩短（第一张表）。调制与编码方式确实升高了两级，但两台笔记本到路由器的那条路径本来就足够。真正改变的是站点之间那条 −83.58 dBm 的路径加 6.5 分贝之后高于 −82 dBm 的前导检测门限：它们开始能锁定对方的前导码却解不出帧，解不出就要等待 EIFS，于是碰撞从 948 降到 397。',
+      explain: '空口时长没有缩短。站点之间那条 −83.58 dBm 的路径加 6.5 dB 之后高于 −82 dBm 的前导检测门限；检测到却解不出，按 §10.3.2.3.7 就要等待 EIFS，于是碰撞从 948 次降到 397 次。',
+    },
+    {
+      q: '下面哪一项是标准的规定，而不是本仿真器的取值？',
+      options: [
+        '2.4 GHz 的路径损耗比 5 GHz 小 6.5 dB',
+        'HE 与 EHT 站点在 2.4 GHz 上最宽只能用 40 MHz',
+        '前导检测是 −82 dBm 处的一条硬门限',
+      ],
+      answer: 1,
+      explain: '§4.3.16 与 802.11be-2024 §4.3.16a 规定 2.4 GHz 上只有 20 MHz 与 40 MHz。标准不定义电波传播，6.5 dB 是本仿真器的常数；标准对前导检测规定的是检测概率，硬门限是本仿真器的取法。',
     },
   ],
 }

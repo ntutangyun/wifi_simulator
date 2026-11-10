@@ -1,21 +1,16 @@
 /**
- * Every measurement quoted in "Project — reading the results"
- * (src/course/tier1/tier1-project-review.ts), taken from a 10 s run of
- * `tier1-project`'s own scene and its three variants — the same builder and
- * the same variant array, so the split costs the reader nothing and the
- * recorded timeline hashes are the same run twice.
+ * `@tier1-project-review`, in the standard-first shape (2026-11-11).
  *
- * The prediction side of every "predicted against measured" row is recomputed
- * here from the engine's own functions and the Bianchi solver, exactly as the
- * first half's test does, so neither column can drift.
- *
- * These pins moved here from tests/course/tier1-project.test.ts with the
- * sentences that carry them: the measured throughput and frame counts, the two
- * collision estimators, the airtime split, the late start into a frame in the air, the EIFS
- * deferrals and the three waits, and all three variants' results. The `.body!`
- * walk of the old flat shape is retired.
+ * The second half of the Tier 1 project, taken from a 10 s run of `tier1-project`'s own scene and
+ * its three variants — the same builder and the same variant array, so the recorded timeline
+ * hashes are the same run twice. ① is IEEE Std 802.11-2024 / 802.11be-2024 only (CCA, EIFS, the
+ * ACK timeout, the Retry subfield, and the two things the standard leaves open). ② says what the
+ * engine does, and this file checks it. ③'s every figure is read back out of the lesson and
+ * compared with the run, or, for the prediction column, recomputed from the engine's own functions
+ * and the Bianchi solver exactly as the first half's test does.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { tier1ProjectReview } from '../../src/course/tier1/tier1-project-review'
 import { projectFlat, projectJumps, projectVariants } from '../../src/course/tier1/tier1-project'
 import { saturationThroughput, solveBianchi } from '../../src/course/tier1/bianchiModel'
@@ -25,13 +20,12 @@ import type { Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
   ACK_BYTES, CCA_ED_DBM, CCA_PD_DBM, DIFS_NS, FCS_BYTES, MAC_HDR_BYTES, SIFS_NS, SLOT_NS, ACK_TIMEOUT_NS,
-  ctrlRespRateForMode, mcsForRssi, mcsRateMbps, noiseDbm, reqSinrDb, txTimeModeNs, txTimeNs,
-  EIFS_NS,
+  RX_START_DELAY_NS, ctrlRespRateForMode, mcsRateMbps, noiseDbm, reqSinrDb, txTimeModeNs, txTimeNs, EIFS_NS,
 } from '../../src/engine/phy'
 import { buildLinkTable } from '../../src/engine/propagation'
 import { PREAMBLE_DETECT_SINR_DB } from '../../src/engine/channel'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { lessonShapeSuite } from './kit'
-import { readFileSync } from 'node:fs'
 
 const MS = 1_000_000
 const SECS = 10
@@ -39,10 +33,8 @@ const RUN_NS = SECS * 1e9
 const PAYLOAD_BITS = 12_000
 const MSDU = 1500
 const PARAMS = { W: 16, m: 6, attempts: 7 } as const
-
-// ---------------------------------------------------------------------------
-// the prediction side, as the first half computes it
-// ---------------------------------------------------------------------------
+const STUDY = 'sta-1'
+const LIVING = 'sta-2'
 
 function times(mcs: number): { dataNs: number; tsNs: number; tcNs: number } {
   const dataNs = txTimeModeNs('eht', MSDU + MAC_HDR_BYTES + FCS_BYTES, mcs, { widthMhz: 20 })
@@ -55,10 +47,6 @@ function modelS(n: number, tsNs: number, tcNs: number): number {
   return saturationThroughput({ n, tau, slotNs: SLOT_NS, tsNs, tcNs, payloadBits: PAYLOAD_BITS }).mbps
 }
 
-// ---------------------------------------------------------------------------
-// the measurement side: one 10 s run per scene, memoised
-// ---------------------------------------------------------------------------
-
 interface Stats {
   records: TLRecord[]
   attempts: Map<string, number>
@@ -68,14 +56,10 @@ interface Stats {
   airtimeNs: Map<string, number>
   firstMcs: Map<string, number>
   eifs: number
-  collisions: number
-  /** Per unordered pair of colliding nodes: total, and those where one started late. */
   pairTotal: Map<string, number>
   pairLate: Map<string, number>
 }
-
 const memo = new Map<string, Stats>()
-
 function measure(key: string, scenario: Scenario): Stats {
   const hit = memo.get(key)
   if (hit) return hit
@@ -89,7 +73,6 @@ function measure(key: string, scenario: Scenario): Stats {
   const pairLate = new Map<string, number>()
   const lastStart = new Map<string, number>()
   let eifs = 0
-  let collisions = 0
   const bump = (m: Map<string, number>, k: string): void => { m.set(k, (m.get(k) ?? 0) + 1) }
   for (const r of records) {
     if (r.type === 'TX_START') {
@@ -101,13 +84,12 @@ function measure(key: string, scenario: Scenario): Stats {
     } else if (r.type === 'RETRY') bump(retries, r.node)
     else if (r.type === 'IFS_START' && r.kind === 'EIFS') eifs++
     else if (r.type === 'COLLISION') {
-      collisions++
       for (const n of r.nodes) bump(overlaps, n)
       if (r.nodes.length === 2) {
         const ns = [...r.nodes].sort()
-        const key2 = ns.join('+')
-        bump(pairTotal, key2)
-        if (Math.abs((lastStart.get(ns[0]) ?? 0) - (lastStart.get(ns[1]) ?? 0)) > 1000) bump(pairLate, key2)
+        const k2 = ns.join('+')
+        bump(pairTotal, k2)
+        if (Math.abs((lastStart.get(ns[0]!) ?? 0) - (lastStart.get(ns[1]!) ?? 0)) > 1000) bump(pairLate, k2)
       }
     }
   }
@@ -117,44 +99,73 @@ function measure(key: string, scenario: Scenario): Stats {
     txOk.set(id, n.stats.txOk)
     airtimeNs.set(id, n.stats.airtimeNs)
   }
-  const out: Stats = { records, attempts, retries, overlaps, txOk, airtimeNs, firstMcs, eifs, collisions, pairTotal, pairLate }
+  const out: Stats = { records, attempts, retries, overlaps, txOk, airtimeNs, firstMcs, eifs, pairTotal, pairLate }
   memo.set(key, out)
   return out
 }
-
 const base = (): Stats => measure('base', tier1ProjectReview.scenario())
 const vMoved = (): Stats => measure('moved', tier1ProjectReview.variants![0].scenario())
 const vThird = (): Stats => measure('third', tier1ProjectReview.variants![1].scenario())
 const vAlone = (): Stats => measure('alone', tier1ProjectReview.variants![2].scenario())
-
 const mbps = (s: Stats, id: string): number => ((s.txOk.get(id) ?? 0) * PAYLOAD_BITS) / SECS / 1e6
 const pooled = (s: Stats, ids: string[], m: Map<string, number>): number =>
   ids.reduce((a, id) => a + (m.get(id) ?? 0), 0) / ids.reduce((a, id) => a + (s.attempts.get(id) ?? 0), 0)
+const sum = (m: Map<string, number>, ids: string[]): number => ids.reduce((a, id) => a + (m.get(id) ?? 0), 0)
+const links = () => { const sc = projectFlat(); return buildLinkTable(sc.nodes, sc.walls) }
+const atAp = (id: string): number => links().get(id)!.get('ap')!
+const mutual = (): number => links().get(STUDY)!.get(LIVING)!
+const predicted = (): number => modelS(2, mix([times(13).tsNs, times(2).tsNs]), mix([times(13).tcNs, times(2).tcNs]))
+const pModel = (n: number): number => solveBianchi({ n, ...PARAMS }).p
 
-// ---------------------------------------------------------------------------
+// --- reading the lesson -------------------------------------------------------------------------
+const STD = tier1ProjectReview.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join('\n')
+const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
+const raw = (text: string, re: RegExp, what: string): string[] => {
+  const m = re.exec(text)
+  expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
+  return m!.slice(1)
+}
+const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
+const same = (printed: string, measured: number, what: string): void => {
+  const f = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+  const dp = (f.split('.')[1] ?? '').length
+  expect(Number(f), `${what} (to ${dp} decimals)`).toBe(Number(measured.toFixed(dp)))
+}
+const lab = (heading: string): Lab => {
+  const l = tier1ProjectReview.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableNamed = (heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = tier1ProjectReview.labs!.flatMap((l) => l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const rowOf = (heading: string, starts: string): string[] => {
+  const r = tableNamed(heading).rows.find((x) => x[0]!.startsWith(starts))
+  expect(r, `row 「${starts}」 of 「${heading}」`).toBeDefined()
+  return r!
+}
+const implRow = (topic: string) => {
+  const row = tierRows().find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const tierRows = () => tier1ProjectReview.implementation!
 
-// The `quotes(...)` helper that used to stand here searched the lesson's own strings for
-// each figure the rubric prints. Retired 2026-09-25: every figure it guarded is measured
-// from the run or recomputed from the model below, which is the pin that catches a drift;
-// the quotation only ever asserted how a sentence reads.
-
-// The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// `sameSceneAs` is the split rule: this lesson loads tier1-project's scene and
-// its variants, so its recorded hashes are tier1-project's, value for value.
 lessonShapeSuite(tier1ProjectReview, { runNs: 30 * MS, sameSceneAs: 'tier1-project' })
 
-describe('tier1-project-review · the lesson itself', () => {
-  it('is the second half of the project and owns the three words it marks with', () => {
+describe('tier1-project-review · the lesson', () => {
+  it('is standard-first, the second half of the project, owning one word', () => {
+    expect(isStandardFirst(tier1ProjectReview)).toBe(true)
     expect(MODULES[tier1ProjectReview.module].title).toBe('第一阶段项目')
-    // Re-pacing 2026-09-25 §7: the two clear-channel thresholds moved to `cca`, which
-    // shows them against a run, so this lesson points there and names it as a need.
     expect(tier1ProjectReview.needs).toEqual(['tier1-project', 'cca', 'hidden', 'anomaly'])
     expect(COURSE_ORDER.indexOf('cca')).toBeLessThan(COURSE_ORDER.indexOf('tier1-project-review'))
     expect(COURSE_ORDER.indexOf('tier1-project-review')).toBe(COURSE_ORDER.indexOf('tier1-project') + 1)
-    // Whole-track review M2: `capture` and `residual` are terms of bianchi-vs-sim, two lessons
-    // earlier; a word cannot be new twice, so this lesson owns only `estimator`.
     expect(tier1ProjectReview.terms!.map((t) => t.term)).toEqual(['estimator'])
-    // it is a review, not exposition: a rubric the learner marks their own sheet against
+    expect(tier1ProjectReview.limits).toEqual([])
+    expect(tier1ProjectReview.observe).toEqual([])
+    expect(tier1ProjectReview.tryThis).toEqual([])
   })
 
   it('loads tier1-project’s own scene and its three variants, object for object', () => {
@@ -162,632 +173,246 @@ describe('tier1-project-review · the lesson itself', () => {
     expect(tier1ProjectReview.variants).toBe(projectVariants)
     expect(tier1ProjectReview.jumps).toBe(projectJumps)
   })
-})
 
-/**
- * Amendment of 2026-09-23: the marking guide is now a procedure — what each
- * result should look like, which record proves it, and what a wrong answer
- * usually looks like. Each step is pinned against the same run the rubric
- * marks, so a mark scheme cannot drift from the thing being marked.
- */
-describe('tier1-project-review · how to mark a sheet', () => {
-  it('step (a): the two levels a marker checks against, and the record that carries the rung', () => {
-    const scen = projectFlat()
-    const table = buildLinkTable(scen.nodes, scen.walls)
-    expect(table.get('sta-1')!.get('ap')!.toFixed(2)).toBe('-40.73')
-    expect(table.get('sta-2')!.get('ap')!.toFixed(2)).toBe('-75.15')
-    expect(base().firstMcs.get('sta-1')).toBe(13)
-    expect(base().firstMcs.get('sta-2')).toBe(2)
+  it('cites each clause it teaches in ①', () => {
+    for (const c of ['§17.3.10.6.1', '§36.3.21.6.3', '§10.3.2.3.7', '式 10-7', '§10.3.2.11', '表 17-24', '表 27-61', '§10.3.4.4', '§17.3.10', '§10.6.1']) {
+      expect(STD, c).toContain(c)
+    }
   })
 
-  it('step (b): the two block lengths on screen, and the two ways an answer gets them wrong', () => {
-    expect(times(13).dataNs).toBe(129_600)
-    expect(times(2).dataNs).toBe(524_000)
-    // the header and check bytes the wrong answer drops, and the rounding it gets backwards
-    expect(MSDU + MAC_HDR_BYTES + FCS_BYTES).toBe(1528)
-  })
-
-  it('step (c): the retry rate and the collision chance are not the same quantity', () => {
-    const ids = ['sta-1', 'sta-2']
-    const retryRate = pooled(base(), ids, base().retries)
-    const overlapRate = pooled(base(), ids, base().overlaps)
-    const { p } = solveBianchi({ n: 2, ...PARAMS })
-    expect(Math.abs(retryRate - p)).toBeLessThan(Math.abs(overlapRate - p)) // the trap the step names
-    expect(overlapRate).toBeGreaterThan(2 * p)
-  })
-
-  it('step (d): near enough equal turns, and an air split that is not equal', () => {
-    const s = base()
-    expect(Math.abs(s.txOk.get('sta-1')! - s.txOk.get('sta-2')!) / s.txOk.get('sta-1')!).toBeLessThan(0.07)
-    const air = (id: string): number => s.airtimeNs.get(id)! / (s.airtimeNs.get('sta-1')! + s.airtimeNs.get('sta-2')!)
-    expect((100 * air('sta-1')).toFixed(1)).toBe('21.2')
-    expect((100 * air('sta-2')).toFixed(1)).toBe('78.8')
-  })
-
-  it('steps 5 and 6: both mechanisms point at a record, and the residual is stated not fitted', () => {
-    const s = base()
-    // capture: the overlap count against the retry count, both read off the log
-    expect(s.overlaps.get('sta-1')! + s.overlaps.get('sta-2')!).toBe(4990)
-    expect(s.retries.get('sta-1')! + s.retries.get('sta-2')!).toBe(2713)
-    // the late start into a frame already in the air: collision records whose two starts are far apart
-    expect(s.pairLate.get('sta-1+sta-2')).toBe(1342)
-    expect(s.pairTotal.get('sta-1+sta-2')).toBe(2399)
-    expect(tier1ProjectReview.numbers!.filter((b) => b.kind === 'steps').length).toBe(1)
+  it('① prints the two CCA thresholds, the EIFS sum and the aRxPHYStartDelay the engine uses', () => {
+    const [pd, ed] = figs(STD, /不低于 (−\d+) dBm 的一次 OFDM 传输的开始[\s\S]*?即不低于 (−\d+) dBm 的信号/, '① on CCA')
+    expect([pd, ed]).toEqual([CCA_PD_DBM, CCA_ED_DBM])
+    expect(ed! - pd!).toBe(figs(STD, /任何能量比这高 (\d+) dB/, '① on the 20 dB')[0])
+    const [s, ack, d, e] = figs(STD, /EIFS = (\d+) \+ (\d+) \+ (\d+) = (\d+) µs/, '① on EIFS')
+    expect([s! * 1000, ack! * 1000, d! * 1000, e! * 1000]).toEqual([SIFS_NS, txTimeNs(ACK_BYTES, 6), DIFS_NS, EIFS_NS])
+    const [cl17, he] = figs(STD, /第 17 章为 (\d+) µs（表 17-24），HE 为 (\d+) µs（表 27-61）/, '① on aRxPHYStartDelay')
+    expect(cl17! * 1000).toBe(RX_START_DELAY_NS)
+    expect(he).toBe(24)
   })
 })
 
-describe('tier1-project-review · predicted against measured', () => {
-  it('both rungs hold on the first frame each station sends', () => {
-    expect(base().firstMcs.get('sta-1')).toBe(13)
-    expect(base().firstMcs.get('sta-2')).toBe(2)
+describe('tier1-project-review · ② says what the engine does, and the engine does it', () => {
+  it('has rows of several kinds, one of them `differs`', () => {
+    expect(tierRows().filter((r) => r.kind === 'differs').map((r) => r.topic)).toEqual(['ACK 超时'])
+    expect(new Set(tierRows().map((r) => r.kind)).size).toBeGreaterThan(2)
   })
 
-  it('22.610 Mb/s against the predicted 25.585, 11.6 % short', () => {
-    const s = base()
-    expect(s.txOk.get('sta-1')).toBe(9719)
-    expect(s.txOk.get('sta-2')).toBe(9123)
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('11.663')
-    expect(mbps(s, 'sta-2').toFixed(3)).toBe('10.948')
-    const total = mbps(s, 'sta-1') + mbps(s, 'sta-2')
-    expect(total.toFixed(3)).toBe('22.610')
-    const S = modelS(2, mix([times(13).tsNs, times(2).tsNs]), mix([times(13).tcNs, times(2).tcNs]))
-    expect(S.toFixed(3)).toBe('25.585')
-    expect((100 * (S - total) / S).toFixed(1)).toBe('11.6')
+  it('a frame that began during our own transmission is energy only, and −72.64 dBm is below −62', () => {
+    const [lv] = raw(implRow('没有听到开头的帧').sim, /互相接收到的电平是 (−[\d.]+) dBm，达不到 (−\d+) dBm/, '② on the pair')
+    same(lv!, mutual(), 'the level the laptops hear each other at')
+    expect(mutual()).toBeGreaterThan(CCA_PD_DBM)
+    expect(mutual()).toBeLessThan(CCA_ED_DBM)
+    expect(val(/达不到 (−\d+) dBm/.exec(implRow('没有听到开头的帧').sim)![1]!)).toBe(CCA_ED_DBM)
+    // and the run shows it: the study laptop starts again inside the living-room frame
+    const starts = base().records.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'data')
+    const living = starts.find((r) => r.node === LIVING)!
+    expect(starts.filter((r) => r.node === STUDY)[1]!.t).toBeLessThan(living.t + living.frame.txTimeNs)
   })
 
-  it('the two estimators: 23.15 % of attempts overlap, 12.59 % end in a retry', () => {
-    const s = base()
-    const ids = ['sta-1', 'sta-2']
-    expect((100 * pooled(s, ids, s.retries)).toFixed(2)).toBe('12.59')
-    expect((100 * pooled(s, ids, s.overlaps)).toFixed(2)).toBe('23.15')
-    const overlapped = ids.reduce((a, id) => a + s.overlaps.get(id)!, 0)
-    const retried = ids.reduce((a, id) => a + s.retries.get(id)!, 0)
-    expect(overlapped).toBe(4990)
-    expect(retried).toBe(2713)
-    expect((100 * (overlapped - retried) / overlapped).toFixed(0)).toBe('46')
+  it('EIFS is 94 µs; the ACK timeout is 45 µs, 49 by HE’s figure', () => {
+    expect(figs(implRow('EIFS').sim, /取 (\d+) µs/, '② on EIFS')[0]! * 1000).toBe(EIFS_NS)
+    const [t, he] = figs(implRow('ACK 超时').sim, /ACK 超时为 (\d+) µs；按 HE 的取值应为 (\d+) µs/, '② on the ACK timeout')
+    expect(t! * 1000).toBe(ACK_TIMEOUT_NS)
+    expect(he! * 1000).toBe(SIFS_NS + SLOT_NS + 24_000)
   })
 
-  it('the airtime split measures 21.2 / 78.8 against the predicted 19.8 / 80.2', () => {
-    const fast = times(13).dataNs
-    const slow = times(2).dataNs
-    expect((100 * fast / (fast + slow)).toFixed(1)).toBe('19.8')
-    expect((100 * slow / (fast + slow)).toFixed(1)).toBe('80.2')
-
-    const s = base()
-    const a1 = s.airtimeNs.get('sta-1')!
-    const a2 = s.airtimeNs.get('sta-2')!
-    expect((100 * a1 / (a1 + a2)).toFixed(1)).toBe('21.2')
-    expect((100 * a2 / (a1 + a2)).toFixed(1)).toBe('78.8')
-    // equal turns, about four times the airtime — what the third observation says
-    expect(a2 / a1).toBeGreaterThan(3.5)
-    const ratio = s.txOk.get('sta-1')! / s.txOk.get('sta-2')!
-    expect(ratio).toBeGreaterThan(0.9)
-    expect(ratio).toBeLessThan(1.1)
-  })
-
-  it('alone the study laptop should get 43.621 Mb/s and gets 42.470, retrying 0.28 %', () => {
-    const perExchangeNs = times(13).tsNs + 7.5 * SLOT_NS
-    expect((PAYLOAD_BITS / (perExchangeNs * 1e-9) / 1e6).toFixed(3)).toBe('43.621')
-    const s = vAlone()
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('42.470')
-    expect((100 * pooled(s, ['sta-1'], s.retries)).toFixed(2)).toBe('0.28')
-  })
-})
-
-describe('tier1-project-review · where the gap comes from', () => {
-  it('the late start into a frame in the air: 1,342 of 2,399 laptop-against-laptop collisions begin late', () => {
-    const s = base()
-    expect(s.pairTotal.get('sta-1+sta-2')).toBe(2399)
-    expect(s.pairLate.get('sta-1+sta-2')).toBe(1342)
-    expect(s.collisions).toBe(2733)
-  })
-
-  it('the first millisecond: a second start at 406.6 µs, inside a frame still running', () => {
-    const s = base()
-    const tx1 = s.records.filter((r) => r.type === 'TX_START' && r.node === 'sta-1' && r.frame.kind === 'data')
-    const tx2 = s.records.filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data')
-    expect(tx1[0].t).toBe(0)
-    expect(tx2[0].t).toBe(0)
-    expect(tx1[1].t).toBe(406_600)
-    expect(tx1[1].t).toBeLessThan(tx2[0].t + times(2).dataNs)
-  })
-
-  it('the levels the two laptops hear each other at, and the rung they cannot decode', () => {
-    const scen = projectFlat()
-    const table = buildLinkTable(scen.nodes, scen.walls)
-    const near = table.get('sta-1')!.get('ap')!
-    const far = table.get('sta-2')!.get('ap')!
-    expect(near - far).toBeCloseTo(34.4, 1)
-    const mutual = table.get('sta-1')!.get('sta-2')!
-    expect(mutual.toFixed(2)).toBe('-72.64')
-    expect((mutual - noiseDbm(20)).toFixed(2)).toBe('21.35')
-    expect(reqSinrDb('eht', 13).toFixed(2)).toBe('44.99')
-    // Above preamble detection, far below energy detection. The two constants are the
-    // `cca` lesson's own material now (re-pacing §7), and they stay pinned there and in
-    // tests/course/cca.test.ts against CCA_PD_DBM / CCA_ED_DBM; what this file keeps is
-    // the claim the late start rests on — that THIS pair of laptops falls between
-    // them — which is why the pin stays here with the sentence it guards.
-    expect(mutual).toBeGreaterThan(CCA_PD_DBM)
-    expect(mutual).toBeLessThan(CCA_ED_DBM)
-    expect([CCA_PD_DBM, CCA_ED_DBM]).toEqual([-82, -62])
-  })
-
-  it('the three waits after one frame: 45, 94 and 34 µs, and 9,499 of the middle one', () => {
-    expect(base().eifs).toBe(9499)
-    expect(ACK_TIMEOUT_NS).toBe(45_000)
-    expect(DIFS_NS).toBe(34_000)
-    expect(SIFS_NS + DIFS_NS + txTimeNs(ACK_BYTES, 6)).toBe(94_000)
-  })
-
-  /**
-   * The capture depth that arrived here from `anomaly` in the re-pacing. §2 sent it
-   * to `rate-vs-model`; it could not go there, because every station in that scene
-   * arrives at the same level and no frame is ever captured (see that lesson's test).
-   * This run is where capture is measured — 4,990 overlaps, 2,713 retries, 34.4 dB
-   * between the two laptops — so the mechanism is taught beside its own figures.
-   */
-  it('the capture depth: a preamble needs 4 dB, and this flat gives the near one 34.4', () => {
-    expect(PREAMBLE_DETECT_SINR_DB).toBe(4)
-    const scen = projectFlat()
-    const table = buildLinkTable(scen.nodes, scen.walls)
-    const gap = table.get('sta-1')!.get('ap')! - table.get('sta-2')!.get('ap')!
-    expect(gap.toFixed(1)).toBe('34.4')
-    expect(gap).toBeGreaterThan(PREAMBLE_DETECT_SINR_DB)
-    // and that is what turns 4,990 overlaps into only 2,713 retries
-    const s = base()
-    expect(s.overlaps.get('sta-1')! + s.overlaps.get('sta-2')!).toBe(4990)
-    expect(s.retries.get('sta-1')! + s.retries.get('sta-2')!).toBe(2713)
-    // the access point really does decode a frame it was colliding with: the winner
-    // is read out while the loser leaves no RX_OK of its own
-    expect(s.txOk.get('sta-1')!).toBeGreaterThan(0)
-    expect(s.txOk.get('sta-2')!).toBeGreaterThan(0)
-  })
-
-  it('rate adaptation: the mean frame is 148.1 µs against 129.6, and 600.9 against 524.0', () => {
-    const s = base()
-    const mean = (id: string): number => s.airtimeNs.get(id)! / s.attempts.get(id)! / 1000
-    expect(mean('sta-1').toFixed(1)).toBe('148.1')
-    expect(mean('sta-2').toFixed(1)).toBe('600.9')
-    expect(mean('sta-1')).toBeGreaterThan(times(13).dataNs / 1000)
-    expect(mean('sta-2')).toBeGreaterThan(times(2).dataNs / 1000)
-  })
-})
-
-describe('tier1-project-review · the three variants, run', () => {
-  it('moved to the living room: 16.796 Mb/s measured, and 11.10 % of attempts overlapping', () => {
-    const scen = tier1ProjectReview.variants![0].scenario()
-    const rssi = buildLinkTable(scen.nodes, scen.walls).get('sta-1')!.get('ap')!
-    expect(mcsForRssi('eht', rssi, undefined, 20)).toBe(3)
-    const S = modelS(2, mix([times(3).tsNs, times(2).tsNs]), mix([times(3).tcNs, times(2).tcNs]))
-    expect(S.toFixed(3)).toBe('19.350')
-
-    const s = vMoved()
-    expect(s.firstMcs.get('sta-1')).toBe(3)
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('8.737')
-    expect(mbps(s, 'sta-2').toFixed(3)).toBe('8.059')
-    expect((mbps(s, 'sta-1') + mbps(s, 'sta-2')).toFixed(3)).toBe('16.796')
-    const overlap = pooled(s, ['sta-1', 'sta-2'], s.overlaps)
-    expect((100 * overlap).toFixed(2)).toBe('11.10')
-    // the point of the experiment: with both frames long and alike, the late start nearly vanishes
-    expect(Math.abs(100 * overlap - 100 * solveBianchi({ n: 2, ...PARAMS }).p)).toBeLessThan(1)
-  })
-
-  it('a third contender: 17.13 % measured against 17.81 %, and 21.184 Mb/s, 28 % short', () => {
-    const { p } = solveBianchi({ n: 3, ...PARAMS })
-    expect((100 * p).toFixed(2)).toBe('17.81')
-    const S = modelS(3, mix([times(13).tsNs, times(13).tsNs, times(2).tsNs]),
-      mix([times(13).tcNs, times(13).tcNs, times(2).tcNs]))
-    expect(S.toFixed(3)).toBe('29.574')
-
-    const s = vThird()
-    const ids = ['sta-1', 'sta-2', 'sta-4']
-    expect((100 * pooled(s, ids, s.retries)).toFixed(2)).toBe('17.13')
-    expect(mbps(s, 'sta-1').toFixed(3)).toBe('7.734')
-    expect(mbps(s, 'sta-2').toFixed(3)).toBe('5.852')
-    expect(mbps(s, 'sta-4').toFixed(3)).toBe('7.597')
-    const total = ids.reduce((a, id) => a + mbps(s, id), 0)
-    expect(total.toFixed(3)).toBe('21.184')
-    expect((100 * (S - total) / S).toFixed(0)).toBe('28')
-    // rate adaptation walks the living-room laptop down to the bottom rung
-    const mcs0 = s.records.filter((r) => r.type === 'TX_START' && r.node === 'sta-2' && r.frame.kind === 'data' && r.frame.mcs === 0).length
-    expect(mcs0).toBeGreaterThan(1000)
-  })
-})
-
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * This file has a comment where this describe should always have been. It says, of a helper
- * retired on 2026-09-25 that used to search the lesson's own strings for each figure of the
- * rubric:
- *
- *   > every figure it guarded is measured from the run or recomputed from the model below, which
- *   > is the pin that catches a drift; the quotation only ever asserted how a sentence reads.
- *
- * **That is the claim this programme has since measured, and it is false.** Measuring the engine
- * pins the engine; it says nothing about what the lesson prints. The sampling sweep of
- * 2026-10-12 planted six of this lesson's figures and every one went unnoticed — 6 of 6 — which
- * is what the retired helper would have caught and what nothing else in this file can.
- *
- * So the quotation comes back, in the form this programme settled on: not `toContain`, but the
- * figure parsed **out of the lesson** and compared with the same measurement the assertions
- * above make. Nothing new is measured: the same `base`, `vMoved`, `vThird`, `vAlone`, `mbps`,
- * `pooled`, `times`, `modelS` and the same engine constants.
- */
-describe('tier1-project-review · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
-  }
-  const NUMS = blockText(tier1ProjectReview.numbers)
-  const DEEP = blockText(tier1ProjectReview.deeper)
-  const SRC = blockText(tier1ProjectReview.sources)
-  const LIM = blockText(tier1ProjectReview.limits)
-  const OBS = blockText(tier1ProjectReview.observe)
-  const QUIZ = blockText(tier1ProjectReview.quiz)
-  const ALL = [NUMS, DEEP, SRC, LIM, OBS, QUIZ].join('\n')
-
-  const val = (x: string): number => Number(x.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
-    const ms = [...text.matchAll(re)]
-    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
-    return ms.map((mm) => mm.slice(1))
-  }
-  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  const tableOf = (needle: string): string[][] => {
-    const b = tier1ProjectReview.numbers!.find((x) => x.kind === 'table'
-      && (x as { heading?: string }).heading?.includes(needle))
-    expect(b, `no table whose heading contains 「${needle}」`).toBeDefined()
-    return (b as { rows: string[][] }).rows
-  }
-  const rowOf = (needle: string, label: string): string[] => {
-    const hit = tableOf(needle).find((x) => x[0]!.startsWith(label))
-    expect(hit, `no row 「${label}」 in the 「${needle}」 table`).toBeDefined()
-    return hit!
-  }
-  const occ = (text: string, needle: string): number => text.split(needle).length - 1
-  const STUDY = 'sta-1'
-  const LIVING = 'sta-2'
-
-  it('reads the headline table: the two frames, the two estimators and the throughput', () => {
-    const s = base()
-    // 「数据帧 | 129.6 / 524.0 µs | 全程均值 148.1 / 600.9 µs」
-    const frames = rowOf('预测对实测', '数据帧')
-    const [predShort, predLong] = figs(frames[1]!, /^([\d.]+) \/ ([\d.]+) µs$/, 'the predicted frame lengths')
-    const [gotShort, gotLong] = figs(frames[2]!, /全程均值 ([\d.]+) \/ ([\d.]+) µs/, 'the measured means')
-    const firstRung = (id: string): number => s.firstMcs.get(id)!
-    same(String(predShort), times(firstRung(STUDY)).dataNs / 1000, 'the study laptop’s frame at its rung')
-    same(String(predLong), times(firstRung(LIVING)).dataNs / 1000, 'and the living-room laptop’s')
-    const meanFrameUs = (id: string): number => {
-      const ds = s.records.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
-        r.type === 'TX_START' && r.node === id && r.frame.kind === 'data')
-      return ds.reduce((a, r) => a + r.frame.txTimeNs, 0) / ds.length / 1000
-    }
-    same(String(gotShort), meanFrameUs(STUDY), 'the study laptop’s measured mean frame')
-    same(String(gotLong), meanFrameUs(LIVING), 'and the living-room laptop’s')
-    expect(gotShort, 'which is longer than predicted, because the rung falls').toBeGreaterThan(predShort!)
-    // 「碰撞概率 | 10.46 % | 23.15 % 的尝试重叠；12.59 % 以重传收场」
-    const coll = rowOf('预测对实测', '碰撞概率')
-    const [predPct] = figs(coll[1]!, /^([\d.]+) %$/, 'the predicted collision chance')
-    const [overlapPct, retryPct] = figs(coll[2]!, /([\d.]+) % 的尝试重叠；([\d.]+) % 以重传收场/,
-      'the two measured estimators')
-    const ids = [STUDY, LIVING]
-    same(String(overlapPct), 100 * pooled(s, ids, s.overlaps), 'the attempts that overlap')
-    same(String(retryPct), 100 * pooled(s, ids, s.retries), 'and the attempts that end in a retry')
-    const { tau } = solveBianchi({ n: 2, ...PARAMS })
-    same(String(predPct), 100 * (1 - (1 - tau) ** (2 - 1)), 'the chance the model predicts')
-    expect(overlapPct, 'the overlap rate is the larger of the two measurements').toBeGreaterThan(retryPct!)
-    // 「合计交付 | 25.585 Mb/s | 22.610 Mb/s」
-    const total = rowOf('预测对实测', '合计交付')
-    const [predMbps] = figs(total[1]!, /^([\d.]+) Mb\/s$/, 'the predicted throughput')
-    const [gotMbps] = figs(total[2]!, /^([\d.]+) Mb\/s$/, 'the measured throughput')
-    same(String(gotMbps), ids.reduce((a, id) => a + mbps(s, id), 0), 'what the two laptops deliver')
-    same(String(predMbps), modelS(2, mix(ids.map((id) => times(firstRung(id)).tsNs)),
-      mix(ids.map((id) => times(firstRung(id)).tcNs))), 'what the model says they should')
-    // 「各自帧数 | 相同 | 9,719 / 9,123」
-    const counts = rowOf('预测对实测', '各自帧数')
-    const [cShort, cLong] = figs(counts[2]!, /^([\d,]+) \/ ([\d,]+)$/, 'the two frame counts')
-    expect([cShort, cLong], 'the frames each laptop gets out')
-      .toEqual(ids.map((id) => s.txOk.get(id)!))
-    expect(counts[1], 'which the plan expected to be the same').toBe('相同')
-    // 「空口占比 | 19.8 % / 80.2 % | 21.2 % / 78.8 %」
-    const air = rowOf('预测对实测', '空口占比')
-    const [gotA, gotB] = figs(air[2]!, /^([\d.]+) % \/ ([\d.]+) %$/, 'the measured airtime split')
-    const totalAir = ids.reduce((a, id) => a + s.airtimeNs.get(id)!, 0)
-    same(String(gotA), (100 * s.airtimeNs.get(STUDY)!) / totalAir, 'the study laptop’s share of the air')
-    same(String(gotB), (100 * s.airtimeNs.get(LIVING)!) / totalAir, 'and the living-room laptop’s')
-    expect(gotA! + gotB!, 'which together are the whole air').toBeCloseTo(100, 1)
-    const [predA, predB] = figs(air[1]!, /^([\d.]+) % \/ ([\d.]+) %$/, 'the predicted split')
-    const predFrames = ids.map((id) => times(firstRung(id)).dataNs)
-    same(String(predA), (100 * predFrames[0]!) / (predFrames[0]! + predFrames[1]!),
-      'the share the two frame lengths predict')
-    expect(predA! + predB!, 'and that pair adds up too').toBeCloseTo(100, 1)
-  })
-
-  it('reads the three variants’ rows, including the sums inside them', () => {
-    /*
-     * **The third contender is `sta-4`** — the tablet the variant adds, not a third laptop.
-     * And the percentage column mixes its two estimators row by row: the moved variant prints
-     * the overlap rate, the other two print the retry rate. That is worth knowing rather than
-     * worth hiding, so the read below requires the printed figure to be ONE of the two this
-     * run measures, and the two are far enough apart that a planted digit matches neither.
-     */
-    const cases: [string, () => Stats, string[]][] = [
-      ['书房笔记本搬到客厅', vMoved, [STUDY, LIVING]],
-      ['多一台平板', vThird, [STUDY, LIVING, 'sta-4']],
-      ['客厅笔记本离线', vAlone, [STUDY]],
-    ]
-    for (const [label, get, ids] of cases) {
-      const row = rowOf('三个变体', label)
-      const st = get()
-      // The measured cell: a total, sometimes written as the sum of its parts, and a percentage.
-      const parts = [...row[2]!.matchAll(/([\d.]+)/g)].map((mm) => Number(mm[1]))
-      const [measured] = parts
-      same(String(measured), ids.reduce((a, id) => a + mbps(st, id), 0),
-        `the throughput of 「${label}」`)
-      if (/=/.test(row[2]!)) {
-        const sum = row[2]!.split('=')[1]!.split('Mb/s')[0]!
-        const terms = [...sum.matchAll(/([\d.]+)/g)].map((mm) => Number(mm[1]))
-        expect(terms.length, `the terms of 「${label}」`).toBe(ids.length)
-        terms.forEach((x, i) => same(String(x), mbps(st, ids[i]!), `${ids[i]}’s own share`))
-        expect(terms.reduce((a, b) => a + b, 0), 'and the terms add up to the total it prints')
-          .toBeCloseTo(measured!, 2)
-      }
-      const pct = /· ([\d.]+) %/.exec(row[2]!)
-      if (pct !== null) {
-        const dp = (pct[1]!.split('.')[1] ?? '').length
-        const both = [st.overlaps, st.retries]
-          .map((m) => Number((100 * pooled(st, ids, m)).toFixed(dp)))
-        expect(both, `the percentage of 「${label}」 is one of its two estimators`)
-          .toContain(Number(pct[1]))
-        expect(both[0], 'and the two estimators really are different numbers').not.toBe(both[1])
-      }
-      // The predicted cell: the model at that many contenders, and — where it prints one —
-      // the collision chance the same model gives, which the sweep of 2026-10-13 found unread.
-      const predMbps = /^([\d.]+) Mb\/s/.exec(row[1]!)
-      expect(predMbps, `the predicted cell of 「${label}」`).not.toBeNull()
-      same(predMbps![1]!, modelS(ids.length, mix(ids.map((id) => times(st.firstMcs.get(id)!).tsNs)),
-        mix(ids.map((id) => times(st.firstMcs.get(id)!).tcNs))), `what the model says for 「${label}」`)
-      const predPct = /· ([\d.]+) %/.exec(row[1]!)
-      if (predPct !== null) {
-        const { p } = solveBianchi({ n: ids.length, ...PARAMS })
-        same(predPct[1]!, 100 * p, `the collision chance the model gives 「${label}」`)
-      }
-    }
-    // 「少了 28 %：客厅笔记本降到调制与编码方式（MCS）0」
-    const third = rowOf('三个变体', '多一台平板')
-    const [shortBy, rung] = figs(third[3]!, /少了 (\d+) %：客厅笔记本降到调制与编码方式（MCS）(\d+)/,
-      'the third variant’s own cause')
-    const st = vThird()
-    const ids = [STUDY, LIVING, 'sta-4']
-    const got = ids.reduce((a, id) => a + mbps(st, id), 0)
-    const pred = modelS(3, mix(ids.map((id) => times(st.firstMcs.get(id)!).tsNs)),
-      mix(ids.map((id) => times(st.firstMcs.get(id)!).tcNs)))
-    expect(Math.round(100 * (1 - got / pred)), 'how far short it falls, as the cell rounds it')
-      .toBe(shortBy)
-    const rungs = [...st.records
-      .filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START'
-        && r.node === LIVING && r.frame.kind === 'data')
-      .reduce((s2, r) => s2.add(r.frame.mcs!), new Set<number>())]
-    // 「被压到」 is the bottom it reaches, not one rung among the several it walks through —
-    // which is how the sweep of 2026-10-13 walked through this figure.
-    expect(Math.min(...rungs), 'the rung the living-room laptop is pushed down to').toBe(rung)
-    expect(rungs.length, 'and it really does walk down a ladder to get there').toBeGreaterThan(1)
-  })
-
-  it('reads the gap table: the capture counts, the late starts and the lengthening', () => {
-    const s = base()
-    // 「4,990 次重叠 → 2,713 次重传」 and 「约 46 % 的重叠帧仍被收下；两台相差 34 dB」
-    const cap = rowOf('差距出在哪里', '捕获效应')
-    const [overlaps, retries] = figs(cap[1]!, /^([\d,]+) 次重叠 → ([\d,]+) 次重传$/, 'the capture counts')
-    expect(overlaps, 'the overlapping attempts of the round')
-      .toBe([STUDY, LIVING].reduce((a, id) => a + (s.overlaps.get(id) ?? 0), 0))
-    expect(retries, 'and the ones that became retries')
-      .toBe([STUDY, LIVING].reduce((a, id) => a + (s.retries.get(id) ?? 0), 0))
-    const [kept, apart] = figs(cap[2]!, /约 (\d+) % 的重叠帧仍被收下；两台相差 (\d+) dB/, 'the capture share')
-    expect(Math.round(100 * (1 - retries! / overlaps!)), 'the share capture keeps, as the cell rounds it')
-      .toBe(kept)
-    const sc = tier1ProjectReview.scenario()
-    const links = buildLinkTable(sc.nodes, sc.walls)
-    const gap = Math.abs(links.get(STUDY)!.get('ap')! - links.get(LIVING)!.get('ap')!)
-    expect(Math.round(gap), 'how far apart the two arrive at the router').toBe(apart)
-    // 「2,399 次笔记本之间的碰撞中有 1,342 次」 and 「10.46 % → 23.15 %」
-    const late = rowOf('差距出在哪里', '前导码未检出')
-    const [pairTotal, pairLate] = figs(late[1]!, /^([\d,]+) 次笔记本之间的碰撞中有 ([\d,]+) 次$/, 'the late starts')
-    const key = [STUDY, LIVING].sort().join('+')
-    expect(pairTotal, 'the collisions between the two laptops').toBe(s.pairTotal.get(key))
-    expect(pairLate, 'and the ones that began late').toBe(s.pairLate.get(key))
-    const [from, to] = figs(late[2]!, /^([\d.]+) % → ([\d.]+) %$/, 'the estimator it moves')
-    const { tau } = solveBianchi({ n: 2, ...PARAMS })
-    same(String(from), 100 * (1 - (1 - tau) ** (2 - 1)), 'the model’s own figure')
-    same(String(to), 100 * pooled(s, [STUDY, LIVING], s.overlaps), 'and the measured overlap rate')
-    // 「148.1 vs 129.6 µs · 600.9 vs 524.0 µs」 and 「吞吐少掉的 11.6 % 的大部分」
-    const longer = rowOf('差距出在哪里', '帧在速率控制下变长')
-    const [gotShort, predShort, gotLong, predLong] = figs(longer[1]!,
-      /^([\d.]+) vs ([\d.]+) µs · ([\d.]+) vs ([\d.]+) µs$/, 'the four frame lengths')
-    const frames = rowOf('预测对实测', '数据帧')
-    expect([predShort, predLong], 'the two predicted lengths, as the first table prints them')
-      .toEqual(figs(frames[1]!, /^([\d.]+) \/ ([\d.]+) µs$/, 'the predicted pair'))
-    expect([gotShort, gotLong], 'and the two measured means')
-      .toEqual(figs(frames[2]!, /全程均值 ([\d.]+) \/ ([\d.]+) µs/, 'the measured pair'))
-    const [shortfall] = figs(longer[2]!, /吞吐减少的 ([\d.]+) %/, 'the shortfall it explains')
-    const ids = [STUDY, LIVING]
-    const pred = modelS(2, mix(ids.map((id) => times(s.firstMcs.get(id)!).tsNs)),
-      mix(ids.map((id) => times(s.firstMcs.get(id)!).tcNs)))
-    const got = ids.reduce((a, id) => a + mbps(s, id), 0)
-    same(String(shortfall), 100 * (1 - got / pred), 'the throughput the round falls short by')
-  })
-
-  it('reads the three waits and the level that decides between them', () => {
-    const s = base()
-    // 「碰撞的一方 | 应答没有到达 | 45 µs」
-    const [ackTo] = figs(rowOf('同一帧之后', '碰撞的一方')[2]!, /^(\d+) µs$/, 'the ACK timeout')
-    expect(ackTo! * 1000, 'the timeout a station waits when no answer comes').toBe(ACK_TIMEOUT_NS)
-    // 「客厅笔记本 | 21.35 dB，而这一帧要求 44.99 dB | EIFS，94 µs——共 9,499 次」
-    const eifsRow = rowOf('同一帧之后', '客厅笔记本')
-    const [got, need] = figs(eifsRow[1]!, /^([\d.]+) dB，而这一帧要求 ([\d.]+) dB$/, 'the two SINRs')
-    const sc = tier1ProjectReview.scenario()
-    const links = buildLinkTable(sc.nodes, sc.walls)
-    const level = links.get(STUDY)!.get(LIVING)!
-    same(String(got), level - noiseDbm(20), 'what the living-room laptop can make of it')
-    same(String(need), reqSinrDb('eht', s.firstMcs.get(STUDY)!), 'and what that rung asks for')
-    expect(got, 'which it cannot meet').toBeLessThan(need!)
-    const [eifsUs, eifsCount] = figs(eifsRow[2]!, /EIFS，(\d+) µs——共 ([\d,]+) 次/, 'the EIFS and its count')
-    expect(eifsUs! * 1000, 'the extended interframe space').toBe(EIFS_NS)
-    expect(eifsCount, 'and how many times this round waits one').toBe(s.eifs)
-    // 「什么都没检出的 | 完全没有前导码 | DIFS, 34 µs」
-    const [difsUs] = figs(rowOf('同一帧之后', '什么都没检出的')[2]!, /DIFS, (\d+) µs/, 'the DIFS')
-    expect(difsUs! * 1000, 'the shortest of the three waits').toBe(DIFS_NS)
-    expect(ackTo, 'and the three really are three different lengths').not.toBe(difsUs)
-    /*
-     * **Every 「−N dBm」 the lesson prints is one of two levels**: the one the two laptops hear
-     * each other at (three printings) and the further laptop's arrival at the router, which the
-     * marking rubric names (one). Both are measured, so the read needs no literal — and the
-     * count keeps a new printing from slipping in unread.
-     */
-    const arrivals = [STUDY, LIVING].map((id) => links.get(id)!.get('ap')!)
-    const levels = every(ALL, /−([\d.]+) dBm/g, 'every level the lesson prints', 4)
-      .map(([dbm]) => Number(`-${dbm}`))
-    expect(levels.filter((x) => x === Number(level.toFixed(2))).length,
-      'the level the two laptops hear each other at, printed three times').toBe(3)
-    expect(levels.filter((x) => arrivals.some((a) => x === Number(a.toFixed(2)))).length,
-      'and one arrival level at the router').toBe(1)
-    expect(level, 'above the preamble-detect threshold').toBeGreaterThan(CCA_PD_DBM)
-    expect(level, 'and below the energy-detect one').toBeLessThan(CCA_ED_DBM)
-  })
-
-  it('reads `deeper` and `limits` on capture, and the two decibels behind the share', () => {
-    const s = base()
-    // 「一个前导码只有比空中其他一切高出至少 4 dB 才会被检测到」 — three printings of the same figure.
-    for (const [db] of every(ALL, /高出(?:至少|空中其余一切) (\d+) dB|那 (\d+) dB 也是模型取值/g,
-      'the preamble-detect margin', 3).map((g) => [g.find((x) => x !== undefined)!])) {
-      expect(val(db!), 'the margin a preamble needs').toBe(PREAMBLE_DETECT_SINR_DB)
-    }
-    // 「这户人家的两台笔记本到达路由器的电平相差 34.4 dB」
-    const sc = tier1ProjectReview.scenario()
-    const links = buildLinkTable(sc.nodes, sc.walls)
-    same(raw(DEEP, /到达路由器的电平相差 ([\d.]+) dB/, '`deeper` on the gap at the router')[0]!,
-      Math.abs(links.get(STUDY)!.get('ap')! - links.get(LIVING)!.get('ap')!),
-      'how far apart the two arrive at the router')
-    // 「那 4,990 次重叠里只有 2,713 次变成重传」 — the same pair as the table.
-    const [ov, rt] = figs(DEEP, /那 ([\d,]+) 次重叠里只有 ([\d,]+) 次变成重传/, '`deeper` on the pair')
-    expect([ov, rt], 'the overlaps and the retries, printed again')
-      .toEqual([STUDY, LIVING].map((_id, i) => [s.overlaps, s.retries][i]!)
-        .map((m) => [STUDY, LIVING].reduce((a, id) => a + (m.get(id) ?? 0), 0)))
-    // 「捕获随后又让其中约 46 % 根本没有进入重传计数」 and the same share in `limits` and the quiz.
-    for (const [pct] of every(ALL, /约 (\d+) % (?:根本没有进入重传计数|的重叠帧仍被收下)|其中约 (\d+) % 因捕获/g,
-      'the share capture keeps', 4).map((g) => [g.find((x) => x !== undefined)!])) {
-      expect(Math.round(100 * (1 - rt! / ov!)), 'the share capture keeps').toBe(val(pct!))
-    }
-    // 「捕获要求新前导码比正在接收的那一帧强 5 dB」 and 「换成 3 dB 或 8 dB，这个比例就变了」
-    /*
-     * **The capture margin is a constant of `channel.ts`**, and the entry names that file — so a
-     * reader who goes there has to find the same number. It is read out of the source, which is
-     * the only instrument there is: the margin is not configurable, so no run can measure it.
-     */
-    const [captureDb] = figs(LIM, /捕获要求新前导码比正在接收的那一帧强 (\d+) dB/, '`limits` on the capture margin')
+  it('capture: 5 dB and 4 dB, the constants `channel.ts` really holds', () => {
+    const [cap, det] = figs(implRow('捕获').sim, /强 (\d+) dB 以上[\s\S]*?高 (\d+) dB 才被检测到/, '② on capture')
     const CH = readFileSync(new URL('../../src/engine/channel.ts', import.meta.url), 'utf8')
-    expect(captureDb, 'the margin `channel.ts` really requires')
-      .toBe(figs(CH, /CAPTURE_MARGIN_DB = (\d+)/, 'the margin in `channel.ts`')[0])
-    /*
-     * **Exempt, class (c): the two counterfactual margins.** 「换成 3 dB 或 8 dB，这个比例就变了」
-     * claims only that the share moves with the margin, and any value either side of the
-     * engine's own would say it equally — the sweep of 2026-10-13 walked through both. The
-     * margin is not configurable, so neither can be measured; what IS checkable is the claim's
-     * own shape, that one sits below the engine's margin and the other above it.
-     */
-    const [lo, hi] = figs(LIM, /换成 (\d+) dB 或 (\d+) dB/, '`limits` on the two counterfactuals')
-    expect(lo, 'one below the engine’s own margin').toBeLessThan(captureDb!)
-    expect(hi, 'and one above it').toBeGreaterThan(captureDb!)
-    // 「那 2399 次笔记本之间的碰撞之所以能逐次归因」
-    const key = [STUDY, LIVING].sort().join('+')
-    expect(figs(LIM, /那 (\d+) 次笔记本之间的碰撞/, '`limits` on the pair’s collisions')[0],
-      'the collisions between the two laptops').toBe(s.pairTotal.get(key))
-    /*
-     * **「一台发完 415 µs 的帧」 is the frame at the rung that variant starts on**, not the longest
-     * frame of its round: rate control walks a station down after failures, so the round holds
-     * frames of several lengths and the longest is not what the sentence is about.
-     */
-    const moved = vMoved()
-    same(raw(DEEP, /一台发完 (\d+) µs 的帧/, '`deeper` on the moved variant’s frame')[0]!,
-      times(moved.firstMcs.get(STUDY)!).dataNs / 1000, 'the frame that variant starts on')
-  })
-
-  it('reads both observe lines and the quiz’s own four figures', () => {
+    expect(cap).toBe(figs(CH, /CAPTURE_MARGIN_DB = (\d+)/, 'channel.ts')[0])
+    expect(det).toBe(PREAMBLE_DETECT_SINR_DB)
+    const [pct, lo, hi] = figs(implRow('捕获').sim, /约 (\d+)% 的重叠帧仍被收下”是这两个数的函数，换成 (\d+) dB 或 (\d+) dB/, '② on the share')
     const s = base()
-    // 「书房笔记本 129.6 µs 的色块结束，然后在 406.6 µs 又发送了一次——此时客厅笔记本那个 524.0 µs 的帧仍在传送」
-    const [first, again, long] = figs(OBS,
-      /书房笔记本 ([\d.]+) µs 的色块结束，然后在 ([\d.]+) µs 又发送了一次——此时客厅笔记本那个 ([\d.]+) µs 的帧仍在传送/,
-      'the first observe line')
-    const starts = s.records.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> =>
-      r.type === 'TX_START' && r.frame.kind === 'data')
-    const studyFirst = starts.find((r) => r.node === STUDY)!
-    const livingFirst = starts.find((r) => r.node === LIVING)!
-    same(String(first), studyFirst.frame.txTimeNs / 1000, 'the study laptop’s first frame')
-    same(String(long), livingFirst.frame.txTimeNs / 1000, 'and the living-room laptop’s')
-    const studySecond = starts.filter((r) => r.node === STUDY)[1]!
-    same(String(again), studySecond.t / 1000, 'when the study laptop starts again')
-    expect(studySecond.t, 'which is inside the frame still in the air')
-      .toBeLessThan(livingFirst.t + livingFirst.frame.txTimeNs)
-    // 「上面写的是 94 µs，而不是 34」
-    const [eifsUs, difsUs] = figs(OBS, /上面写的是 (\d+) µs，而不是 (\d+)/, 'the second observe line')
-    expect(eifsUs! * 1000, 'the wait it shows').toBe(EIFS_NS)
-    expect(difsUs! * 1000, 'and the one a reader expects').toBe(DIFS_NS)
-    // 「成功交付 9,719 对 9,123」
-    const [a, b] = figs(OBS, /成功交付 ([\d,]+) 对 ([\d,]+)/, 'the third observe line')
-    expect([a, b], 'the frames each laptop gets out')
-      .toEqual([STUDY, LIVING].map((id) => s.txOk.get(id)!))
-    // The quiz: the predicted chance, the measured retry rate twice, and the overlap rate.
-    const { tau } = solveBianchi({ n: 2, ...PARAMS })
-    const [pred, retryPct] = figs(QUIZ, /你预测的碰撞概率是 ([\d.]+) %，实跑中 ([\d.]+) %/, 'the quiz’s question')
-    same(String(pred), 100 * (1 - (1 - tau) ** (2 - 1)), 'the chance the model predicts')
-    same(String(retryPct), 100 * pooled(s, [STUDY, LIVING], s.retries), 'the retry rate the run shows')
-    expect(occ(QUIZ, `${retryPct} %`), 'the retry rate, printed twice in the quiz').toBe(2)
-    same(raw(QUIZ, /实际有 ([\d.]+) % 的尝试重叠/, 'the quiz on the overlap rate')[0]!,
-      100 * pooled(s, [STUDY, LIVING], s.overlaps), 'the overlap rate the run shows')
-    const [apart] = figs(QUIZ, /两台笔记本之间相差 (\d+) dB/, 'the quiz on the gap between them')
-    const sc = tier1ProjectReview.scenario()
-    const links = buildLinkTable(sc.nodes, sc.walls)
-    expect(Math.round(Math.abs(links.get(STUDY)!.get('ap')! - links.get(LIVING)!.get('ap')!)),
-      'how far apart they arrive').toBe(apart)
+    expect(Math.round(100 * (1 - sum(s.retries, [STUDY, LIVING]) / sum(s.overlaps, [STUDY, LIVING])))).toBe(pct)
+    expect(lo).toBeLessThan(cap!)
+    expect(hi).toBeGreaterThan(cap!)
   })
 
-  it('reads the marking rubric, which prints the figures a marker compares against', () => {
-    const sc = tier1ProjectReview.scenario()
-    const links = buildLinkTable(sc.nodes, sc.walls)
-    // 「两个到达电平都应落在 −40.73 与 −75.15 dBm 的一个分贝之内」
-    const [near, far] = figs(NUMS, /都应落在 −([\d.]+) 与 −([\d.]+) dBm 的一个分贝之内/,
-      'the rubric on the two arrival levels')
-    const arrivals = [STUDY, LIVING].map((id) => links.get(id)!.get('ap')!).sort((a, b) => b - a)
-    same(`-${near}`, arrivals[0]!, 'the nearer laptop’s arrival level')
-    same(`-${far}`, arrivals[1]!, 'and the further one’s')
-    // 「屏幕上是 129.6 与 524.0 µs」
-    const [shortUs, longUs] = figs(NUMS, /屏幕上是 ([\d.]+) 与 ([\d.]+) µs/, 'the rubric on the two frames')
-    const frames = rowOf('预测对实测', '数据帧')
-    expect([shortUs, longUs], 'the two frames the first table predicts')
-      .toEqual(figs(frames[1]!, /^([\d.]+) \/ ([\d.]+) µs$/, 'the predicted pair'))
-    // 「占用的空口却是 21.2% 与 78.8%」
-    const [airA, airB] = figs(NUMS, /占用的空口却是 ([\d.]+)% 与 ([\d.]+)%/, 'the rubric on the airtime split')
-    const air = rowOf('预测对实测', '空口占比')
-    expect([airA, airB], 'the measured split, as the first table prints it')
-      .toEqual(figs(air[2]!, /^([\d.]+) % \/ ([\d.]+) %$/, 'the measured split'))
+  it('the levels are fixed: no fading section in any of this lesson’s scenes', () => {
+    for (const sc of [tier1ProjectReview.scenario(), ...tier1ProjectReview.variants!.map((v) => v.scenario())]) expect(sc.fading).toBeUndefined()
+    same(raw(implRow('电平是定数').sim, /(−[\d.]+) dBm 始终落在/, '② on the level')[0]!, mutual(), 'the level')
+  })
+})
+
+describe('tier1-project-review · ③ every figure the labs print is the run', () => {
+  it('lab 1: the headline table, predicted against measured', () => {
+    const s = base()
+    const ids = [STUDY, LIVING]
+    expect(figs(rowOf('预测对实测：这户人家的十秒钟', '等级')[1]!, /MCS (\d+) \/ MCS (\d+)/, 'predicted rungs')).toEqual([13, 2])
+    expect(figs(rowOf('预测对实测：这户人家的十秒钟', '等级')[2]!, /MCS (\d+) \/ MCS (\d+)/, 'measured rungs')).toEqual(ids.map((id) => s.firstMcs.get(id)))
+    const frames = rowOf('预测对实测：这户人家的十秒钟', '数据帧')
+    const [p1, p2] = raw(frames[1]!, /^([\d.]+) \/ ([\d.]+) µs$/, 'predicted frames')
+    same(p1!, times(13).dataNs / 1000, 'predicted short'); same(p2!, times(2).dataNs / 1000, 'predicted long')
+    const [g1, g2] = raw(frames[2]!, /全程均值 ([\d.]+) \/ ([\d.]+) µs/, 'measured frames')
+    same(g1!, s.airtimeNs.get(STUDY)! / s.attempts.get(STUDY)! / 1000, 'mean short')
+    same(g2!, s.airtimeNs.get(LIVING)! / s.attempts.get(LIVING)! / 1000, 'mean long')
+    const coll = rowOf('预测对实测：这户人家的十秒钟', '碰撞概率')
+    same(coll[1]!.replace(' %', ''), 100 * pModel(2), 'predicted p')
+    const [ov, rt] = raw(coll[2]!, /([\d.]+) % 的尝试重叠；([\d.]+) % 以重传收场/, 'two estimators')
+    same(ov!, 100 * pooled(s, ids, s.overlaps), 'overlap rate'); same(rt!, 100 * pooled(s, ids, s.retries), 'retry rate')
+    const tot = rowOf('预测对实测：这户人家的十秒钟', '合计交付')
+    same(tot[1]!.replace(' Mb/s', ''), predicted(), 'predicted S')
+    same(tot[2]!.replace(' Mb/s', ''), mbps(s, STUDY) + mbps(s, LIVING), 'measured S')
+    expect(figs(rowOf('预测对实测：这户人家的十秒钟', '各自帧数')[2]!, /([\d,]+) \/ ([\d,]+)/, 'frames')).toEqual(ids.map((id) => s.txOk.get(id)))
+    const air = rowOf('预测对实测：这户人家的十秒钟', '空口占比')
+    const [pa, pb] = raw(air[1]!, /([\d.]+) % \/ ([\d.]+) %/, 'predicted share')
+    same(pa!, 100 * times(13).dataNs / (times(13).dataNs + times(2).dataNs), 'pred share a')
+    same(pb!, 100 * times(2).dataNs / (times(13).dataNs + times(2).dataNs), 'pred share b')
+    const a1 = s.airtimeNs.get(STUDY)!; const a2 = s.airtimeNs.get(LIVING)!
+    const [ma, mb] = raw(air[2]!, /([\d.]+) % \/ ([\d.]+) %/, 'measured share')
+    same(ma!, 100 * a1 / (a1 + a2), 'share a'); same(mb!, 100 * a2 / (a1 + a2), 'share b')
+    const solo = rowOf('预测对实测：这户人家的十秒钟', '书房笔记本独占')
+    same(solo[1]!.replace(' Mb/s', ''), PAYLOAD_BITS / ((times(13).tsNs + 7.5 * SLOT_NS) * 1e-9) / 1e6, 'solo predicted')
+    same(solo[2]!.replace(' Mb/s', ''), mbps(vAlone(), STUDY), 'solo measured')
+
+    const [es, ep, short, er, ep2, eo] = raw(lab('四次运行，一张答题纸').expect, /合计交付 ([\d.]+) Mb\/s，比预测的 ([\d.]+) 少 ([\d.]+)%；([\d.]+)% 的尝试以重传收场，看上去接近预测的 ([\d.]+)%，而实际有 ([\d.]+)% 的尝试发生了重叠/, 'lab 1 expect')
+    const got = mbps(s, STUDY) + mbps(s, LIVING)
+    same(es!, got, 'expect: S'); same(ep!, predicted(), 'expect: predicted')
+    same(short!, 100 * (predicted() - got) / predicted(), 'expect: shortfall')
+    same(er!, 100 * pooled(s, ids, s.retries), 'expect: retry'); same(ep2!, 100 * pModel(2), 'expect: p')
+    same(eo!, 100 * pooled(s, ids, s.overlaps), 'expect: overlap')
+    // the `why`'s 「两倍多」 and 「近一半」
+    expect(pooled(s, ids, s.overlaps) / pModel(2)).toBeGreaterThan(2)
+    const kept = 1 - sum(s.retries, ids) / sum(s.overlaps, ids)
+    expect(kept).toBeGreaterThan(0.4); expect(kept).toBeLessThan(0.5)
+  })
+
+  it('lab 1: the three variants’ rows, sums included', () => {
+    const moved = rowOf('三个变体的运行结果', '书房笔记本搬到客厅')
+    const [pS, pP] = raw(moved[1]!, /([\d.]+) Mb\/s · ([\d.]+) %/, 'moved predicted')
+    same(pS!, modelS(2, mix([times(3).tsNs, times(2).tsNs]), mix([times(3).tcNs, times(2).tcNs])), 'moved S'); same(pP!, 100 * pModel(2), 'moved p')
+    const [t, a, b, o] = raw(moved[2]!, /([\d.]+) = ([\d.]+) \+ ([\d.]+) Mb\/s · ([\d.]+) %/, 'moved measured')
+    const m = vMoved()
+    same(a!, mbps(m, STUDY), 'moved a'); same(b!, mbps(m, LIVING), 'moved b'); same(t!, mbps(m, STUDY) + mbps(m, LIVING), 'moved sum')
+    same(o!, 100 * pooled(m, [STUDY, LIVING], m.overlaps), 'moved overlap')
+    expect(Math.abs(pooled(m, [STUDY, LIVING], m.overlaps) - pModel(2))).toBeLessThan(0.01)
+    const third = rowOf('三个变体的运行结果', '多一台平板')
+    const [tS, tP] = raw(third[1]!, /([\d.]+) Mb\/s · ([\d.]+) %/, 'third predicted')
+    const S3 = modelS(3, mix([times(13).tsNs, times(13).tsNs, times(2).tsNs]), mix([times(13).tcNs, times(13).tcNs, times(2).tcNs]))
+    same(tS!, S3, 'third S'); same(tP!, 100 * pModel(3), 'third p')
+    const th = vThird()
+    const ids3 = [STUDY, LIVING, 'sta-4']
+    const [t3, x, y, z, r3] = raw(third[2]!, /([\d.]+) = ([\d.]+) \+ ([\d.]+) \+ ([\d.]+) Mb\/s · ([\d.]+) %/, 'third measured')
+    same(x!, mbps(th, STUDY), 'third a'); same(y!, mbps(th, LIVING), 'third b'); same(z!, mbps(th, 'sta-4'), 'third c')
+    const tot3 = ids3.reduce((acc, id) => acc + mbps(th, id), 0)
+    same(t3!, tot3, 'third sum'); same(r3!, 100 * pooled(th, ids3, th.retries), 'third retry rate')
+    expect(Math.round(100 * (S3 - tot3) / S3)).toBe(figs(third[3]!, /少了 (\d+) %/, 'third shortfall')[0])
+    const mcs0 = th.records.filter((r) => r.type === 'TX_START' && r.node === LIVING && r.frame.kind === 'data' && r.frame.mcs === 0).length
+    expect(figs(third[3]!, /（MCS）(\d+)/, 'third rung')[0]).toBe(0)
+    expect(mcs0).toBeGreaterThan(1000)
+    const alone = rowOf('三个变体的运行结果', '客厅笔记本离线')
+    same(alone[1]!.replace(' Mb/s', ''), PAYLOAD_BITS / ((times(13).tsNs + 7.5 * SLOT_NS) * 1e-9) / 1e6, 'alone predicted')
+    const [aS, aR] = raw(alone[2]!, /([\d.]+) Mb\/s · ([\d.]+) %/, 'alone measured')
+    same(aS!, mbps(vAlone(), STUDY), 'alone S'); same(aR!, 100 * pooled(vAlone(), [STUDY], vAlone().retries), 'alone retries')
+  })
+
+  it('lab 2: the late start in the first millisecond, and 1,342 of 2,399', () => {
+    const l = lab('第一次碰撞之后：没有听到开头的帧')
+    expect(l.jump).toBe(1)
+    const s = base()
+    const starts = s.records.filter((r): r is Extract<TLRecord, { type: 'TX_START' }> => r.type === 'TX_START' && r.frame.kind === 'data')
+    const study = starts.filter((r) => r.node === STUDY)
+    const living = starts.find((r) => r.node === LIVING)!
+    expect([study[0]!.t, living.t]).toEqual([0, 0])
+    const [first, again, long, lv, total, late] = raw(l.expect, /书房笔记本 ([\d.]+) µs 的色块结束，然后在 ([\d.]+) µs 又发送了一次——此时客厅笔记本那个 ([\d.]+) µs 的帧仍在传送。两台互相接收到的电平是 (−[\d.]+) dBm；十秒内 ([\d,]+) 次笔记本之间的碰撞中有 ([\d,]+) 次/, 'lab 2 expect')
+    same(first!, study[0]!.frame.txTimeNs / 1000, 'the first short frame')
+    same(again!, study[1]!.t / 1000, 'the second start')
+    same(long!, living.frame.txTimeNs / 1000, 'the long frame')
+    expect(study[1]!.t).toBeLessThan(living.t + living.frame.txTimeNs)
+    same(lv!, mutual(), 'the mutual level')
+    expect(val(total!)).toBe(s.pairTotal.get(`${STUDY}+${LIVING}`))
+    expect(val(late!)).toBe(s.pairLate.get(`${STUDY}+${LIVING}`))
+    same(raw(l.meaning, /而 (−[\d.]+) dBm 达不到/, 'lab 2 meaning')[0]!, mutual(), 'meaning: level')
+  })
+
+  it('lab 3: the gap table, and the 34.4 dB between the two arrivals', () => {
+    const s = base()
+    const ids = [STUDY, LIVING]
+    const cap = rowOf('差距出在哪里', '捕获效应')
+    const [ov, rt] = figs(cap[1]!, /^([\d,]+) 次重叠 → ([\d,]+) 次重传$/, 'capture counts')
+    expect([ov, rt]).toEqual([sum(s.overlaps, ids), sum(s.retries, ids)])
+    const [kept, apart] = figs(cap[2]!, /约 (\d+) % 的重叠帧仍被收下；两台相差 (\d+) dB/, 'capture share')
+    expect(Math.round(100 * (1 - rt! / ov!))).toBe(kept)
+    expect(Math.round(atAp(STUDY) - atAp(LIVING))).toBe(apart)
+    const late = rowOf('差距出在哪里', '没有听到开头的帧')
+    const [tot, lt] = figs(late[1]!, /^([\d,]+) 次笔记本之间的碰撞中有 ([\d,]+) 次$/, 'late starts')
+    expect([tot, lt]).toEqual([s.pairTotal.get(`${STUDY}+${LIVING}`), s.pairLate.get(`${STUDY}+${LIVING}`)])
+    const [from, to] = raw(late[2]!, /^([\d.]+) % → ([\d.]+) %$/, 'estimator')
+    same(from!, 100 * pModel(2), 'model'); same(to!, 100 * pooled(s, ids, s.overlaps), 'overlap rate')
+    const longer = rowOf('差距出在哪里', '帧在速率控制下变长')
+    const [gs, ps, gl, pl] = raw(longer[1]!, /^([\d.]+) vs ([\d.]+) µs · ([\d.]+) vs ([\d.]+) µs$/, 'four lengths')
+    same(gs!, s.airtimeNs.get(STUDY)! / s.attempts.get(STUDY)! / 1000, 'mean short'); same(ps!, times(13).dataNs / 1000, 'pred short')
+    same(gl!, s.airtimeNs.get(LIVING)! / s.attempts.get(LIVING)! / 1000, 'mean long'); same(pl!, times(2).dataNs / 1000, 'pred long')
+    const got = mbps(s, STUDY) + mbps(s, LIVING)
+    same(raw(longer[2]!, /吞吐减少的 ([\d.]+) %/, 'shortfall')[0]!, 100 * (1 - got / predicted()), 'shortfall')
+    const l = lab('捕获：重叠多，重传少')
+    const [eo, er, ek, ed, det] = raw(l.expect, /([\d,]+) 次重叠只带来 ([\d,]+) 次重传，约 (\d+)% 的重叠帧仍被收下；两台到达路由器的电平相差 ([\d.]+) dB，书房那一路远超 (\d+) dB 的检测门限/, 'lab 3 expect')
+    expect([val(eo!), val(er!)]).toEqual([ov, rt])
+    expect(val(ek!)).toBe(kept)
+    same(ed!, atAp(STUDY) - atAp(LIVING), 'the gap at the router')
+    expect(val(det!)).toBe(PREAMBLE_DETECT_SINR_DB)
+    expect(atAp(STUDY) - atAp(LIVING)).toBeGreaterThan(PREAMBLE_DETECT_SINR_DB)
+  })
+
+  it('lab 4: the three waits after one frame: 45, 94 (9,499 of them) and 34 µs', () => {
+    const s = base()
+    expect(figs(rowOf('同一帧之后，各自要等多久', '碰撞的一方')[2]!, /^(\d+) µs$/, 'ack timeout')[0]! * 1000).toBe(ACK_TIMEOUT_NS)
+    const eifsRow = rowOf('同一帧之后，各自要等多久', '客厅笔记本')
+    const [got, need] = raw(eifsRow[1]!, /^([\d.]+) dB，而这一帧要求 ([\d.]+) dB$/, 'two SINRs')
+    same(got!, mutual() - noiseDbm(20), 'what the living-room laptop gets')
+    same(need!, reqSinrDb('eht', s.firstMcs.get(STUDY)!), 'what MCS 13 asks for')
+    const [eu, ec] = figs(eifsRow[2]!, /EIFS，(\d+) µs——共 ([\d,]+) 次/, 'EIFS')
+    expect(eu! * 1000).toBe(EIFS_NS)
+    expect(ec).toBe(s.eifs)
+    expect(figs(rowOf('同一帧之后，各自要等多久', '什么都没检出的')[2]!, /DIFS, (\d+) µs/, 'DIFS')[0]! * 1000).toBe(DIFS_NS)
+    const l = lab('同一帧之后，各自要等多久')
+    const [e1, d1, count, to] = figs(l.expect, /写的是 (\d+) µs，而不是 (\d+)[\s\S]*?这样的等待有 ([\d,]+) 次。碰撞的一方等的是 (\d+) µs/, 'lab 4 expect')
+    expect([e1! * 1000, d1! * 1000, count, to! * 1000]).toEqual([EIFS_NS, DIFS_NS, s.eifs, ACK_TIMEOUT_NS])
+    const [m45, m49] = figs(l.meaning, /ACK 超时取 (\d+) µs，与按 HE 取值算出的 (\d+) µs 不同/, 'lab 4 meaning')
+    expect([m45! * 1000, m49! * 1000]).toEqual([ACK_TIMEOUT_NS, SIFS_NS + SLOT_NS + 24_000])
+  })
+
+  it('lab 5: the rubric’s figures and the lengthening', () => {
+    const s = base()
+    const l = lab('还差的那一点，以及写报告')
+    const rubric = (l.blocks!.find((b) => b.kind === 'steps') as Extract<Block, { kind: 'steps' }>).items.join('\n')
+    const [near, far] = raw(rubric, /都应落在 (−[\d.]+) 与 (−[\d.]+) dBm 的一个分贝之内/, 'rubric levels')
+    same(near!, atAp(STUDY), 'near arrival'); same(far!, atAp(LIVING), 'far arrival')
+    const [a, b] = raw(rubric, /屏幕上是 ([\d.]+) 与 ([\d.]+) µs/, 'rubric frames')
+    same(a!, times(13).dataNs / 1000, 'short'); same(b!, times(2).dataNs / 1000, 'long')
+    const a1 = s.airtimeNs.get(STUDY)!; const a2 = s.airtimeNs.get(LIVING)!
+    const [x, y] = raw(rubric, /占用的空口却是 ([\d.]+)% 与 ([\d.]+)%/, 'rubric share')
+    same(x!, 100 * a1 / (a1 + a2), 'share a'); same(y!, 100 * a2 / (a1 + a2), 'share b')
+    const [ms, ml, ps, pl, short] = raw(l.expect, /全程均值 ([\d.]+) µs、客厅笔记本 ([\d.]+) µs，都比按第一帧等级算出的 ([\d.]+) 与 ([\d.]+) µs 长；吞吐比预测少 ([\d.]+)%/, 'lab 5 expect')
+    same(ms!, a1 / s.attempts.get(STUDY)! / 1000, 'mean short'); same(ml!, a2 / s.attempts.get(LIVING)! / 1000, 'mean long')
+    same(ps!, times(13).dataNs / 1000, 'pred short'); same(pl!, times(2).dataNs / 1000, 'pred long')
+    const got = mbps(s, STUDY) + mbps(s, LIVING)
+    same(short!, 100 * (1 - got / predicted()), 'shortfall')
+  })
+})
+
+describe('tier1-project-review · the quiz prints the same run', () => {
+  it('the predicted chance, the retry rate, the overlap rate, the capture share, the level', () => {
+    const s = base()
+    const ids = [STUDY, LIVING]
+    const quiz = tier1ProjectReview.quiz.map((q) => [q.q, ...q.options, q.explain].join('\n')).join('\n')
+    const [pred, retry] = raw(quiz, /你预测的碰撞概率是 ([\d.]+) %，实跑中 ([\d.]+) %/, 'quiz question')
+    same(pred!, 100 * pModel(2), 'p'); same(retry!, 100 * pooled(s, ids, s.retries), 'retry rate')
+    same(raw(quiz, /实际有 ([\d.]+) % 的尝试重叠/, 'overlap')[0]!, 100 * pooled(s, ids, s.overlaps), 'overlap rate')
+    expect(Math.round(100 * (1 - sum(s.retries, ids) / sum(s.overlaps, ids)))).toBe(figs(quiz, /其中约 (\d+) % 因捕获/, 'capture share')[0])
+    expect(Math.round(atAp(STUDY) - atAp(LIVING))).toBe(figs(quiz, /两台笔记本之间相差 (\d+) dB/, 'gap')[0])
+    same(raw(quiz, /而 (−[\d.]+) dBm 达不到/, 'quiz level')[0]!, mutual(), 'mutual level')
+    for (const v of [...quiz.matchAll(/(−\d+) dBm 的能量门限|达到 (−\d+) dBm 才能/g)].map((m) => m[1] ?? m[2]!)) expect(val(v)).toBe(CCA_ED_DBM)
+    expect(figs(quiz, /对 (−\d+) dBm 的检测要求/, 'quiz PD')[0]).toBe(CCA_PD_DBM)
+    const [qc, qd] = figs(quiz, /(\d+) dB 捕获门限与 (\d+) dB 前导码检测门限/, 'quiz thresholds')
+    expect([qc, qd]).toEqual([5, PREAMBLE_DETECT_SINR_DB])
+  })
+
+  it('`sources` names the two constants of channel.ts', () => {
+    const src = tier1ProjectReview.sources!.join('\n')
+    const [c, d] = figs(src, /捕获门限 (\d+) dB 与前导码检测门限 (\d+) dB/, '`sources`')
+    expect([c, d]).toEqual([5, PREAMBLE_DETECT_SINR_DB])
+    expect(figs(src, /共用的 (\d+) µs ACK 超时/, '`sources` timeout')[0]! * 1000).toBe(ACK_TIMEOUT_NS)
   })
 })

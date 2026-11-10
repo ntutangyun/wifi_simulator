@@ -1,44 +1,39 @@
 /**
- * Every empirical claim of "A phone to a phone goes twice"
- * (src/course/tier1/relay-hops.ts), measured against the scene it shares with
- * `roles-stack`.
+ * `@relay-hops`, in the standard-first shape (2026-11-10).
  *
- * This is the SECOND half of the old `roles-stack`, so the five-step timeline,
- * the 1430 B frame and its 125.6 µs, the 50 µs of forwarding, the
- * one-hop-against-two averages and both experiments arrive here from
- * tests/course/roles-stack.test.ts with the sentences that carry them: no pin
- * was dropped in the move.
+ * ① says what IEEE Std 802.11-2024 specifies for a payload between two stations of one BSS
+ * (§4.5.2.1, the address table 9-60, TDLS in §11.20); ② says row by row what this simulator does,
+ * and the rows are checked against the engine here; ③ is three runs, and every figure the lesson
+ * prints is read back out of its own text and compared with a run — so editing a number in the
+ * lesson without the engine agreeing turns this red, and so does an engine change that moves a
+ * number the lesson still prints.
  *
- * The lesson is not registered in `src/course/lessons.ts` yet — the controller
- * does that when the batch lands — so the readability contract is applied here
- * by importing the lesson directly: `lessonShapeSuite` for the shape and the
- * minutes, and the terminology rule over `ZH_TERMS` for the English names.
+ * The last block sweeps every figure in every string a reader reads and demands that each one is
+ * a figure this file measured or a constant it checked: a figure added to the prose without a
+ * measurement behind it fails there even when no table read reaches it.
  */
 import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
-  relayHops, relayHopsSequence, RELAY_FRAME_BYTES, RELAY_FRAME_US, RELAY_FWD_US,
-  RELAY_PAYLOAD_BYTES, RELAY_HOP1_AT, RELAY_HOP2_AT, RELAY_DONE_AT,
+  relayHops, relayHopsSequence, RELAY_FWD_US, RELAY_PAYLOAD_BYTES, RELAY_FRAME_BYTES, RELAY_FRAME_US,
+  RELAY_HOP1_AT, RELAY_HOP2_AT, RELAY_DONE_AT,
 } from '../../src/course/tier1/relay-hops'
-import {
-  rolesStackScenario, firstUplinkData, firstRelayHop1, firstRelayHop2,
-} from '../../src/course/tier1/roles-stack'
-import type { SequenceSpec } from '../../src/course/diagram'
-import type { Block, Lesson } from '../../src/course/lessonKit'
+import { rolesStackScenario, firstRelayHop1, firstRelayHop2 } from '../../src/course/tier1/roles-stack'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
+import { readerTexts } from '../../src/course/readability'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import { Simulation } from '../../src/engine/simulation'
 import type { TLRecord } from '../../src/model/records'
 import type { LatencyStats, ViewState } from '../../src/model/view'
 import { ACK_BYTES, FCS_BYTES, QOS_HDR_BYTES, SIFS_NS } from '../../src/engine/phy'
-import { decodeFrame } from '../../src/model/frameFields'
-import {
-  ZH_TERMS, cellTexts, paragraphTexts, zhAkaViolations, zhTermFailure,
-} from '../../src/course/readability'
-import { MODULES, trackOf } from '../../src/course/curriculum'
-import { lessonShapeSuite, runOf } from './kit'
+import { decodeFrame, type Mpdu } from '../../src/model/frameFields'
+import { hasFeature } from '../../src/model/caps'
+import { MODULES } from '../../src/course/curriculum'
+import { lessonShapeSuite } from './kit'
 
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const MS = 1_000_000
+const US = 1_000
 const RUN_NS = 1000 * MS
 const PHONES = ['sta-3', 'sta-4']
 
@@ -56,38 +51,78 @@ function run(sc: Scenario, ms: number) {
 const mean = (l: LatencyStats): number => l.sumNs / l.n
 const ids = (r: Tx): number[] => r.frame.ampdu?.msduIds ?? (r.frame.msduId !== undefined ? [r.frame.msduId] : [])
 const dataTx = (rs: TLRecord[]): Tx[] => rs.filter((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data')
-/** The instant as the lesson prints it: "1.4157 ms". */
+/** An instant as the lesson prints it: "1.4157 ms". */
 const asMs = (ns: number): string => `${(ns / MS).toFixed(4)} ms`
+/** A duration in µs as the lesson prints it: "169.6". */
+const us = (ns: number): string => String(Math.round(ns / 100) / 10)
+const ms2 = (ns: number): string => `${(ns / MS).toFixed(2)} ms`
 
-/** The reader's own order over the main path, as tests/course/readability.test.ts walks it. */
-const zhMain = (l: Lesson): string => [l.why!, ...(l.outcomes ?? [])]
-  .concat(paragraphTexts(l.picture ?? []), cellTexts(l.picture ?? []))
-  .concat(paragraphTexts(l.numbers ?? []), cellTexts(l.numbers ?? []))
-  .concat(l.observe, l.tryThis, l.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
-  .join(' ')
+function decode(f: Tx['frame'], sc: Scenario = rolesStackScenario()): Mpdu {
+  const ap = sc.nodes.find((n) => n.kind === 'ap')!
+  const src = sc.nodes.find((n) => n.id === f.src) ?? ap
+  return decodeFrame(f, { apId: ap.id, isEdca: hasFeature(src, 'edca') && hasFeature(ap, 'edca') }).users[0].subframes[0].mpdu
+}
+const field = (m: Mpdu, key: string) => m.fields.find((x) => x.key === key)!
+const bitOf = (m: Mpdu, key: string) => field(m, 'fc').bits!.find((b) => b.key === key)!.value
 
-/** Every failure of the terminology rule in one lesson, collected rather than asserted one by one. */
-function termFailures(l: Lesson): string[] {
-  const zh = zhMain(l)
-  const out: string[] = []
-  for (const t of ZH_TERMS.filter((x) => !x.track || x.track === trackOf(l))) {
-    const why = zhTermFailure(zh, t)
-    if (why) out.push(`${l.id}: ${why}`)
-    out.push(...zhAkaViolations(zh, t).map((a) => `${l.id}: ${a}`))
-  }
-  return out
+const lab = (heading: string): Lab => {
+  const l = relayHops.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (l: Lab, heading: string): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table' && b.heading === heading)
+  expect(t, `table 「${heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = relayHops.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const stdText = (): string => relayHops.standard!.map((b) => JSON.stringify(b)).join(' ')
+
+/** One payload's own records, from its arrival at Phone B to Phone A's answer. */
+function onePayload(rs: TLRecord[]) {
+  const hop1 = rs.find(firstRelayHop1) as Tx
+  const hop2 = rs.find(firstRelayHop2) as Tx
+  const id = ids(hop1)[0]
+  const arrivalB = rs.find((r) => r.type === 'ARRIVAL' && r.node === 'sta-4' && r.msduId === id)!
+  const rxAp = rs.find((r) => r.type === 'RX_OK' && r.node === 'ap' && r.t >= hop1.t)!
+  const ack1 = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'ack' && r.node === 'ap' && r.t > hop1.t)!
+  const deqB = rs.find((r) => r.type === 'DEQUEUE' && r.node === 'sta-4' && r.msduId === id)!
+  const arrAp = rs.find((r) => r.type === 'ARRIVAL' && r.node === 'ap' && r.msduId === id)!
+  const deqAp = rs.find((r) => r.type === 'DEQUEUE' && r.node === 'ap' && r.msduId === id)!
+  return { hop1, hop2, id, arrivalB, rxAp, ack1, deqB, arrAp, deqAp }
 }
 
-// The contract every migrated lesson owes, written once in tests/course/kit.ts.
-// `sameSceneAs` is the split rule: this lesson loads roles-stack's scene, so its
-// recorded timeline hash is roles-stack's, value for value.
+const base = run(rolesStackScenario(), 1000)
+const p = onePayload(base.records)
+
+/** The two edited scenes lab 3 loads, built exactly as its steps describe them. */
+function idleScene(): Scenario {
+  const sc = rolesStackScenario()
+  sc.nodes.find((n) => n.id === 'sta-1')!.profiles = ['idle']
+  return sc
+}
+function movedScene(): Scenario {
+  const sc = rolesStackScenario()
+  const b = sc.nodes.find((n) => n.id === 'sta-4')!
+  b.pos = { ...b.pos, x: 2.5, y: 6 }
+  return sc
+}
+
 lessonShapeSuite(relayHops, { runNs: RUN_NS, sameSceneAs: 'roles-stack' })
 
-describe('relay-hops · the lesson itself', () => {
-  it('is the second lesson of the module about roles, and needs the first', () => {
+describe('relay-hops · the lesson', () => {
+  it('is in the standard-first shape, second in the module about roles', () => {
+    expect(isStandardFirst(relayHops)).toBe(true)
     expect(MODULES[relayHops.module].title).toBe('一个网络中的角色')
     expect(relayHops.needs).toEqual(['roles-stack'])
-    expect(relayHops.terms!.map((t) => t.term)).toEqual(['DS'])
+    expect(relayHops.terms!.map((t) => t.term)).toEqual(['DS', 'TDLS'])
+    expect(relayHops.limits).toEqual([])
+    expect(relayHops.observe).toEqual([])
+    expect(relayHops.tryThis).toEqual([])
   })
 
   it('loads roles-stack\'s own scene, with no variant of its own', () => {
@@ -97,83 +132,48 @@ describe('relay-hops · the lesson itself', () => {
     for (const q of relayHops.quiz) expect(q.answer).toBeLessThan(q.options.length)
   })
 
-  it('brackets every official term at its first Chinese use', () => {
-    expect(termFailures(relayHops)).toEqual([])
+  it('cites each clause it teaches in ①, and only the standard is there', () => {
+    const std = stdText()
+    for (const c of ['§4.5.2.1', '§4.3.5.1', '§9.2.4.1.4', '表 9-3', '§9.3.2.1', '表 9-60', '§10.3.2.3.3', '表 17-24', '表 27-61', '§11.20', '§10.3.2.14']) {
+      expect(std, c).toContain(c)
+    }
+    expect(std).not.toContain('本仿真器')
+    expect(std).not.toContain('50 µs')
+  })
+
+  it('① prints the standard\'s address table: To DS / From DS and the three addresses per direction', () => {
+    const t = relayHops.standard!.find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
+    expect(t.rows).toEqual([
+      ['站点 → 接入点', '1', '0', 'RA = BSSID', 'TA = SA', 'DA'],
+      ['接入点 → 站点', '0', '1', 'RA = DA', 'TA = BSSID', 'SA'],
+    ])
+    // the SIFS ① prints is the engine's: 16 µs
+    expect(stdText()).toContain(`${SIFS_NS / US} µs`)
   })
 })
 
-describe('relay-hops · one payload, instant by instant', () => {
-  const rs1s = runOf(relayHops, undefined, RUN_NS)
-  const hop1 = rs1s.find(firstRelayHop1) as Tx
-  const hop2 = rs1s.find(firstRelayHop2) as Tx
-
-  it('the two hops happen at the instants the steps and the figure print', () => {
-    expect(hop1.t).toBe(1_415_723)
-    expect(hop1.node).toBe('sta-4')
-    expect(hop2.t).toBe(1_635_323)
-    expect(hop2.frame.dst).toBe('sta-3')
-    expect(ids(hop2)).toEqual(ids(hop1))
-    expect(asMs(hop1.t)).toBe(RELAY_HOP1_AT)
-    expect(asMs(hop2.t)).toBe(RELAY_HOP2_AT)
+describe('relay-hops · ② says what the engine does, and the engine does it', () => {
+  it('two hops: no data frame of the run goes from one station straight to another', () => {
+    expect(implRow('两跳的路径').kind).toBe('faithful')
+    const direct = dataTx(base.records).filter((r) => r.node !== 'ap' && r.frame.dst !== 'ap')
+    expect(direct).toEqual([])
+    // and every relayed payload really crosses twice, with the same id
+    expect(ids(p.hop2)).toEqual(ids(p.hop1))
+    expect(p.hop2.node).toBe('ap')
+    expect(p.hop2.frame.dst).toBe('sta-3')
   })
 
-  it('the steps block: one payload from phone to phone, value by value', () => {
-    // "1.4157 ms，它到达手机 B；屋里正安静，手机 B 立刻把它发了出去。" … "这一帧长 125.6 µs。
-    //  接入点在 1.5413 ms 收齐，隔 16 µs 后作答。" … "这个回复占 28 µs 空口。第一跳在 1.5853 ms
-    //  结束，花掉 169.6 µs。" … "转发花 50 µs，于是 1.6353 ms 时这份载荷进入发往手机 A 的队列，
-    //  并立刻发出。" … "到 1.8049 ms，手机 A 已经作答。第二跳同样花 169.6 µs：全程 389.2 µs。"
-    const id = ids(hop1)[0]
-    const arrivalB = rs1s.find((r) => r.type === 'ARRIVAL' && r.node === 'sta-4' && r.msduId === id)!
-    expect(arrivalB.t).toBe(hop1.t)
-    expect(hop1.frame.txTimeNs).toBe(125_600)
-    expect(RELAY_FRAME_US * 1000).toBe(hop1.frame.txTimeNs)
-    const rxAp = rs1s.find((r) => r.type === 'RX_OK' && r.node === 'ap' && r.t >= hop1.t)!
-    expect(rxAp.t).toBe(1_541_323)
-    const ack1 = rs1s.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'ack' && r.node === 'ap' && r.t > hop1.t)!
-    expect(ack1.t - rxAp.t).toBe(16_000)
-    expect(SIFS_NS).toBe(16_000)
-    expect(ack1.frame.txTimeNs).toBe(28_000)
-    expect(ack1.frame.bytes).toBe(ACK_BYTES)
-    const deqB = rs1s.find((r) => r.type === 'DEQUEUE' && r.node === 'sta-4' && r.msduId === id)!
-    expect(deqB.t).toBe(1_585_323)
-    expect(deqB.t - hop1.t).toBe(169_600)
-    const arrAp = rs1s.find((r) => r.type === 'ARRIVAL' && r.node === 'ap' && r.msduId === id)!
-    expect(arrAp.t - deqB.t).toBe(RELAY_FWD_US * 1000)
-    expect(hop2.t).toBe(arrAp.t) // "并立刻发出"
-    const deqAp = rs1s.find((r) => r.type === 'DEQUEUE' && r.node === 'ap' && r.msduId === id)!
-    expect(deqAp.t).toBe(1_804_923)
-    expect(asMs(deqAp.t)).toBe(RELAY_DONE_AT)
-    expect(deqAp.t - hop2.t).toBe(169_600)
-    expect(deqAp.t - arrivalB.t).toBe(389_200)
-  })
-
-  it('the frame the figure and the caption quote is the frame the engine builds', () => {
-    // the caption's "1430 B" by way of the steps' 125.6 µs, and the payload behind it
-    expect(hop1.frame.bytes).toBe(QOS_HDR_BYTES + RELAY_PAYLOAD_BYTES + FCS_BYTES)
-    expect(hop1.frame.bytes).toBe(RELAY_FRAME_BYTES)
-    expect(RELAY_FRAME_BYTES).toBe(1430)
-    expect(hop1.frame.mode).toBe('he')
-    expect(hop1.frame.widthMhz ?? 20).toBe(20)
-    const arrivals = rs1s.filter((r): r is Extract<TLRecord, { type: 'ARRIVAL' }> =>
-      r.type === 'ARRIVAL' && PHONES.includes(r.node))
-    expect(arrivals.length).toBeGreaterThan(500)
-    expect(arrivals.every((r) => r.bytes === RELAY_PAYLOAD_BYTES)).toBe(true)
-  })
-
-  it('the paragraph under the table: 50 µs of 389.2 µs, and the rest is queueing and waiting', () => {
-    // "389.2 µs 的全程里，转发只占 50 µs"
-    expect(RELAY_FWD_US * 1000).toBe(50_000)
-    expect(50_000 / 389_200).toBeLessThan(0.13)
-    // and the two hops each cost the same 169.6 µs, which is where the time went
-    expect(2 * 169_600 + 50_000).toBe(389_200)
-  })
-
-  it('relay latency = hop 1 + 50 µs of forwarding + hop 2, for every relayed payload', () => {
+  it('the forward is a fixed 50 µs, written in simulation.ts as RELAY_FWD_NS', () => {
+    expect(implRow('转发时延').kind).toBe('value')
+    expect(implRow('转发时延').sim).toContain(`${RELAY_FWD_US} µs`)
+    const src = readFileSync(new URL('../../src/engine/simulation.ts', import.meta.url), 'utf8')
+    expect(src).toMatch(new RegExp(`RELAY_FWD_NS = ${RELAY_FWD_US}_000\\b`))
+    // every relayed payload of the second: hop 1 + 50 µs + hop 2
     const arr = new Map<string, number>()
     const born = new Map<number, number>()
     const hop1Ns = new Map<number, number>()
     let checked = 0
-    for (const r of rs1s) {
+    for (const r of base.records) {
       if (r.type === 'ARRIVAL') {
         arr.set(`${r.node}/${r.msduId}`, r.t)
         if (PHONES.includes(r.node)) born.set(r.msduId, r.t)
@@ -181,7 +181,7 @@ describe('relay-hops · one payload, instant by instant', () => {
         const a = arr.get(`${r.node}/${r.msduId}`)!
         if (PHONES.includes(r.node)) hop1Ns.set(r.msduId, r.t - a)
         else if (r.node === 'ap' && born.has(r.msduId)) {
-          expect(r.t - born.get(r.msduId)!).toBe(hop1Ns.get(r.msduId)! + 50_000 + (r.t - a))
+          expect(r.t - born.get(r.msduId)!).toBe(hop1Ns.get(r.msduId)! + RELAY_FWD_US * US + (r.t - a))
           checked++
         }
       }
@@ -189,430 +189,164 @@ describe('relay-hops · one payload, instant by instant', () => {
     expect(checked).toBeGreaterThan(1000)
   })
 
-  it('the laptop opens with a reservation frame and a burst of fifty', () => {
-    // observation 2: "笔记本先发一个短的预约帧，接着是一个突发：50 份载荷跟在同一个前导码后面"
-    const ul = rs1s.find(firstUplinkData) as Tx
-    expect(ul.frame.ampdu?.mpduCount).toBe(50)
-    const before = rs1s.filter((r): r is Tx => r.type === 'TX_START' && r.node === 'sta-1' && r.t < ul.t)
-    expect(before.at(-1)?.frame.kind).toBe('rts')
+  it('SIFS is 16 µs, as aSIFSTime says', () => {
+    expect(implRow('短帧间间隔').kind).toBe('faithful')
+    expect(implRow('短帧间间隔').standard).toContain(`${SIFS_NS / US} µs`)
+    expect(implRow('短帧间间隔').sim).toContain(`${SIFS_NS / US} µs`)
+    expect(p.ack1.t - p.rxAp.t).toBe(SIFS_NS)
   })
 
-  it('one hop or two: about 0.7 ms against about 1.3 ms, close to double', () => {
-    // the "一跳还是两跳" table and the paragraph under it, and observation 2's two averages
-    for (const { view } of [run(rolesStackScenario(), 1000), run(rolesStackScenario(), 3000)]) {
+  it('Address 3 shows the AP on both hops, where table 9-60 puts DA and SA', () => {
+    expect(implRow('第一跳的地址 3').kind).toBe('differs')
+    expect(implRow('第二跳的地址 3').kind).toBe('differs')
+    const m1 = decode(p.hop1.frame)
+    const m2 = decode(p.hop2.frame)
+    expect([bitOf(m1, 'toDs'), bitOf(m1, 'fromDs')]).toEqual(['1', '0'])
+    expect([bitOf(m2, 'toDs'), bitOf(m2, 'fromDs')]).toEqual(['0', '1'])
+    expect(field(m1, 'addr3').node).toBe('ap')
+    expect(field(m1, 'addr3').roles).toEqual(['DA'])
+    expect(field(m2, 'addr3').node).toBe('ap')
+    expect(field(m2, 'addr3').roles).toEqual(['SA'])
+    // …while the real far ends are Phone A and Phone B
+    expect(p.hop2.frame.dst).toBe('sta-3')
+    expect(p.hop1.node).toBe('sta-4')
+  })
+
+  it('a payload is forwarded only once its uplink was acknowledged, and dropped otherwise', () => {
+    expect(implRow('确认帧丢失之后').kind).toBe('differs')
+    const src = readFileSync(new URL('../../src/engine/simulation.ts', import.meta.url), 'utf8')
+    expect(src).toContain('if (!acked) relayPending.delete(msduId)')
+    // each payload goes out on the second hop at most once as a first transmission
+    const firstHop2 = dataTx(base.records).filter((r) => r.node === 'ap' && PHONES.includes(r.frame.dst) && !r.frame.retryFlag)
+    const seen = firstHop2.flatMap(ids)
+    expect(new Set(seen).size).toBe(seen.length)
+  })
+
+  it('no direct link: TDLS is absent', () => {
+    expect(implRow('直连').kind).toBe('absent')
+    for (const r of dataTx(base.records)) {
+      const m = decode(r.frame)
+      expect(bitOf(m, 'toDs') === '0' && bitOf(m, 'fromDs') === '0', `${r.node} → ${r.frame.dst}`).toBe(false)
+    }
+  })
+})
+
+describe('relay-hops · ③ every figure the labs print is the run', () => {
+  it('lab 1: the five instants of one payload, value by value', () => {
+    const rows = tableOf(lab('一份载荷的全程'), '同一份载荷的五个时刻').rows
+    expect(rows.map((r) => r[0])).toEqual([asMs(p.arrivalB.t), asMs(p.rxAp.t), asMs(p.deqB.t), asMs(p.arrAp.t), asMs(p.deqAp.t)])
+    expect(p.arrivalB.t).toBe(p.hop1.t) // 「立即发出」
+    expect(p.hop2.t).toBe(p.arrAp.t) // 「并立即发出」
+    const figs = (s: string): string[] => s.match(/\d+(?:\.\d+)?(?= µs)/g) ?? []
+    expect(figs(rows[0][1])).toEqual([us(p.hop1.frame.txTimeNs)])
+    expect(figs(rows[1][1])).toEqual([us(p.ack1.t - p.rxAp.t), us(p.ack1.frame.txTimeNs)])
+    expect(figs(rows[2][1])).toEqual([us(p.deqB.t - p.hop1.t)])
+    expect(figs(rows[3][1])).toEqual([us(p.arrAp.t - p.deqB.t)])
+    expect(figs(rows[4][1])).toEqual([us(p.deqAp.t - p.hop2.t)])
+    // the frame behind 125.6 µs: 1400 B of payload in a 1430 B QoS frame, and the answer is an ACK
+    expect(p.hop1.frame.bytes).toBe(QOS_HDR_BYTES + RELAY_PAYLOAD_BYTES + FCS_BYTES)
+    expect(p.hop1.frame.bytes).toBe(RELAY_FRAME_BYTES)
+    expect(p.hop1.frame.txTimeNs).toBe(RELAY_FRAME_US * US)
+    expect(p.ack1.frame.bytes).toBe(ACK_BYTES)
+  })
+
+  it('lab 1: the figure is the run, and the expect line adds up', () => {
+    const d = lab('一份载荷的全程').blocks!.find((b): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram')!
+    expect(d.spec).toEqual(relayHopsSequence())
+    const seq = relayHopsSequence()
+    expect(seq.messages.flatMap((m) => (m.at ? [m.at] : []))).toEqual([asMs(p.hop1.t), asMs(p.hop2.t), asMs(p.deqAp.t)])
+    expect([RELAY_HOP1_AT, RELAY_HOP2_AT, RELAY_DONE_AT]).toEqual([asMs(p.hop1.t), asMs(p.hop2.t), asMs(p.deqAp.t)])
+    expect(d.caption).toContain(`${RELAY_FWD_US} µs`)
+    const ex = lab('一份载荷的全程').expect
+    const [hop, fwd, total] = (ex.match(/\d+(?:\.\d+)?(?= µs)/g) ?? [])
+    expect(hop).toBe(us(p.deqB.t - p.hop1.t))
+    expect(hop).toBe(us(p.deqAp.t - p.hop2.t))
+    expect(fwd).toBe(us(p.arrAp.t - p.deqB.t))
+    expect(total).toBe(us(p.deqAp.t - p.arrivalB.t))
+    expect(lab('一份载荷的全程').meaning).toContain(`${RELAY_FWD_US} µs`)
+  })
+
+  it('lab 2: the header table is what the field view shows on both hops', () => {
+    const rows = tableOf(lab('两跳的方向比特与地址'), '两跳的方向比特与地址：本仿真器显示的内容').rows
+    const name: Record<string, string> = { ap: '接入点', 'sta-3': '手机 A', 'sta-4': '手机 B' }
+    for (const [row, hop] of [[rows[0], p.hop1], [rows[1], p.hop2]] as const) {
+      const m = decode(hop.frame)
+      expect(row[1]).toBe(`${bitOf(m, 'toDs')} / ${bitOf(m, 'fromDs')}`)
+      expect(row[2]).toBe(name[field(m, 'addr1').node!])
+      expect(row[3]).toBe(name[field(m, 'addr2').node!])
+      expect(row[4]).toBe(name[field(m, 'addr3').node!])
+    }
+  })
+
+  it('lab 3: one second in each of the three scenes, to the digits printed', () => {
+    const rows = tableOf(lab('一跳与两跳的平均时延'), '运行一秒的平均时延').rows
+    expect(lab('一跳与两跳的平均时延').steps[0]).toContain('1000 ms')
+    const scenes = [rolesStackScenario(), idleScene(), movedScene()]
+    rows.forEach((row, i) => {
+      const { view } = run(scenes[i], 1000)
       const tv = mean(view.nodes['sta-2'].stats.rxLatency)
-      expect(tv).toBeGreaterThan(0.6 * MS)
-      expect(tv).toBeLessThan(0.8 * MS)
-      for (const p of PHONES) {
-        const p2p = mean(view.nodes[p].stats.relayLatency)
-        expect(p2p).toBeGreaterThan(1.2 * MS)
-        expect(p2p).toBeLessThan(1.4 * MS)
-        expect(p2p / tv).toBeGreaterThan(1.7)
-        expect(p2p / tv).toBeLessThan(2.0)
+      const a = mean(view.nodes['sta-3'].stats.relayLatency)
+      const b = mean(view.nodes['sta-4'].stats.relayLatency)
+      expect(row.slice(1), row[0]).toEqual([ms2(tv), ms2(a), ms2(b)])
+      // 「每一行里手机互传的时延都约为电视的两倍」
+      for (const x of [a, b]) {
+        expect(x / tv, row[0]).toBeGreaterThan(1.7)
+        expect(x / tv, row[0]).toBeLessThan(2.3)
       }
-    }
+    })
+    // the moved phone: the step's coordinates are the edit, and 0.5 m is the distance it leaves
+    const step = lab('一跳与两跳的平均时延').steps[2]
+    const [x, y] = (step.match(/x = ([\d.]+) m，y = ([\d.]+) m/) ?? []).slice(1).map(Number)
+    const sc = movedScene()
+    const pa = sc.nodes.find((n) => n.id === 'sta-3')!.pos
+    const pb = sc.nodes.find((n) => n.id === 'sta-4')!.pos
+    expect([pb.x, pb.y]).toEqual([x, y])
+    const [dist] = (lab('一跳与两跳的平均时延').expect.match(/相距 ([\d.]+) m/) ?? []).slice(1).map(Number)
+    expect(Math.hypot(pa.x - pb.x, pa.y - pb.y, pa.z - pb.z)).toBe(dist)
+    // 「时延没有缩短」: moving them together does not shorten the two-hop latency below one hop's double
+    const moved = run(movedScene(), 1000).view
+    expect(dataTx(run(movedScene(), 1000).records).some((r) => r.node !== 'ap' && r.frame.dst !== 'ap')).toBe(false)
+    expect(mean(moved.nodes['sta-3'].stats.relayLatency)).toBeGreaterThan(1.7 * mean(moved.nodes['sta-2'].stats.rxLatency))
   })
 })
 
-describe('relay-hops · the figure is the run', () => {
-  const rs = runOf(relayHops, undefined, RUN_NS)
-  const isDiagram = (b: Block): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram'
-  const diagrams = [...relayHops.picture!, ...relayHops.numbers!].filter(isDiagram)
+describe('relay-hops · every figure the lesson prints is one this file measured', () => {
+  /** Clause, table and figure numbers, and standard names, are citations, not figures. */
+  const strip = (s: string): string => s
+    .replace(/§[\d.]+/g, '').replace(/[表图] \d+-\d+/g, '')
+    .replace(/IEEE( Std)? 802\.11-\d{4}/g, '').replace(/802\.11[a-z]*(-\d{4})?/g, '')
+    .replace(/RELAY_FWD_NS|src\/engine\/simulation\.ts/g, '')
 
-  it('draws the one figure §4 gives this lesson, and no others', () => {
-    expect(diagrams.map((b) => b.spec.kind)).toEqual(['sequence'])
+  it('why, ②, the quiz and sources print only the measured figures', () => {
+    const fwd = String(RELAY_FWD_US)
+    expect(relayHops.why).toContain(`${fwd} µs`)
+    const quiz = relayHops.quiz.map((q) => [q.q, ...q.options, q.explain].join(' ')).join(' ')
+    expect(quiz).toContain(`${us(p.deqAp.t - p.arrivalB.t)} µs 里的 ${fwd} µs`)
   })
 
-  it('every column is a node of the scene, and every message is a transmission of the run', () => {
-    const seq = diagrams[0].spec as SequenceSpec
-    expect(seq).toEqual(relayHopsSequence())
-    const sc = rolesStackScenario()
-    for (const c of seq.columns) expect(sc.nodes.some((n) => n.id === c.id), c.id).toBe(true)
-    const hop1 = rs.find(firstRelayHop1) as Tx
-    const hop2 = rs.find(firstRelayHop2) as Tx
-    // the two data arrows are the two hops, in that order and between those parties
-    const data = seq.messages.filter((m) => m.label === '数据帧')
-    expect(data.map((m) => [m.from, m.to])).toEqual([[hop1.node, hop1.frame.dst], [hop2.node, hop2.frame.dst]])
-    // the AP's self-message is the forward, and the run really takes that long over it
-    const self = seq.messages.find((m) => m.from === m.to)!
-    expect(self.from).toBe('ap')
-    expect(self.label).toBe(`转发 ${RELAY_FWD_US} µs`)
-    // every instant in the gutter is an instant of the run
-    const id = ids(hop1)[0]
-    const deqAp = rs.find((r) => r.type === 'DEQUEUE' && r.node === 'ap' && r.msduId === id)!
-    expect(seq.messages.flatMap((m) => (m.at ? [m.at] : [])))
-      .toEqual([asMs(hop1.t), asMs(hop2.t), asMs(deqAp.t)])
-  })
-})
-
-describe('relay-hops · the experiments', () => {
-  it('Phone B beside Phone A: still no direct frame, still about 1.3 ms', () => {
-    const sc = rolesStackScenario()
-    const b = sc.nodes.find((n) => n.id === 'sta-4')!
-    b.pos = { ...b.pos, x: 2.5, y: 6 }
-    const { records, view } = run(sc, 1000)
-    expect(dataTx(records).some((r) => r.node !== 'ap' && r.frame.dst !== 'ap')).toBe(false)
-    for (const p of PHONES) {
-      const p2p = mean(view.nodes[p].stats.relayLatency)
-      expect(p2p).toBeGreaterThan(1.2 * MS)
-      expect(p2p).toBeLessThan(1.4 * MS)
+  it('sweeps every string a reader reads: no figure without a measurement behind it', () => {
+    const moved = run(movedScene(), 1000).view
+    const idle = run(idleScene(), 1000).view
+    const lat = [base.view, idle, moved].flatMap((v) => [
+      ms2(mean(v.nodes['sta-2'].stats.rxLatency)), ms2(mean(v.nodes['sta-3'].stats.relayLatency)),
+      ms2(mean(v.nodes['sta-4'].stats.relayLatency)),
+    ]).map((s) => s.replace(' ms', ''))
+    const allowed = new Set<string>([
+      // instants and durations of lab 1
+      ...[p.arrivalB.t, p.rxAp.t, p.deqB.t, p.arrAp.t, p.deqAp.t].map((t) => (t / MS).toFixed(4)),
+      us(p.hop1.frame.txTimeNs), us(SIFS_NS), us(p.ack1.frame.txTimeNs), us(p.deqB.t - p.hop1.t),
+      String(RELAY_FWD_US), us(p.deqAp.t - p.arrivalB.t),
+      // the bits and the address numbers of the tables
+      '0', '1', '2', '3',
+      // lab 3: the run length, the three scenes' averages, the edit's coordinates and the distance
+      '1000', ...lat, '2.5', '6', '0.5',
+      // 20 MHz, 5 GHz and 6 GHz, the bands the SIFS figure is quoted for, and chapter 17
+      '20', '5', '17',
+    ])
+    const stray: string[] = []
+    for (const s of readerTexts(relayHops)) {
+      for (const n of strip(s).match(/\d+(?:\.\d+)?/g) ?? []) if (!allowed.has(n)) stray.push(`${n} in 「${s.slice(0, 40)}」`)
     }
-  })
-
-  it('Laptop idle: phone to phone about 0.7 ms, the TV about 0.3 ms, still close to double', () => {
-    const sc = rolesStackScenario()
-    sc.nodes.find((n) => n.id === 'sta-1')!.profiles = ['idle']
-    const { view } = run(sc, 1000)
-    const tv = mean(view.nodes['sta-2'].stats.rxLatency)
-    expect(tv).toBeGreaterThan(0.25 * MS)
-    expect(tv).toBeLessThan(0.35 * MS)
-    for (const p of PHONES) {
-      const p2p = mean(view.nodes[p].stats.relayLatency)
-      expect(p2p).toBeGreaterThan(0.6 * MS)
-      expect(p2p).toBeLessThan(0.75 * MS)
-      expect(p2p / tv).toBeGreaterThan(1.8)
-      expect(p2p / tv).toBeLessThan(2.4)
-    }
-  })
-})
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * Everything above measures the right thing and compares it with a figure typed on **this** side
- * — `expect(rxAp.t).toBe(1_541_323)` — with the lesson's step quoted in a comment. So the engine
- * is pinned and the prose is not: the sampling sweep of 2026-10-12 planted six of this lesson's
- * figures and **all six went unnoticed**. Here every figure is parsed out of the shipped string
- * and compared with the same measurement.
- *
- * **The reads worth naming:**
- *
- *  - **the five steps are read as one payload's own records.** Every figure in them — the instant
- *    it arrives, the length of the frame, the instant the access point has it, the silence, the
- *    answer's air, the end of the first hop, the forward, the instant the second hop starts, the
- *    instant the far phone has answered, and the two hop costs — comes from the records of the
- *    **same `msduId`**, so no step can be read against a different payload than its neighbour.
- *  - **the table's middle column is read as the air transmissions a payload really takes.** 「1」
- *    and 「2」 are counted by following one payload id through every data frame of the run, which
- *    is what makes that column a measurement rather than a label.
- *  - **「约 0.7 ms」 is read to the digit it is printed to.** A figure with 「约」 in front of it
- *    is not exempt: it is read at the precision it shows, so 0.7 passes and 0.8 does not.
- *  - **the Chinese numerals are read too.** 「走两趟」 and 「两跳比一跳」 are the same count the
- *    table's middle column prints, and the planter cannot reach them — but a reader can.
- */
-describe('relay-hops · every figure the prose prints, read back out of it', () => {
-  const rs = run(rolesStackScenario(), 1000).records
-  const view = run(rolesStackScenario(), 1000).view
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
-  }
-  const WHY = [relayHops.why!, ...relayHops.outcomes!].join('\n')
-  const PIC = blockText(relayHops.picture)
-  const NUMS = blockText(relayHops.numbers)
-  const DEEP = blockText(relayHops.deeper)
-  const SRC = blockText(relayHops.sources)
-  const OBS = blockText(relayHops.observe)
-  const TRY = blockText(relayHops.tryThis)
-  const QUIZ = blockText(relayHops.quiz)
-  const LIM = blockText(relayHops.limits)
-
-  const val = (x: string): number => Number(x.replace(/[\s,]/g, ''))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  /** A printed figure against a measurement, at the precision the lesson prints it to. */
-  const same = (printed: string, measured: number, what: string): void => {
-    const dp = (printed.replace(/[\s,]/g, '').split('.')[1] ?? '').length
-    expect(Number(printed.replace(/[\s,]/g, '')), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s === '两' ? '二' : s)
-  const steps = (): string[] =>
-    (relayHops.numbers!.find((b) => b.kind === 'steps') as unknown as { items: string[] }).items
-  const table = (): { head: string[]; rows: string[][] } =>
-    relayHops.numbers!.find((b) => b.kind === 'table') as unknown as { head: string[]; rows: string[][] }
-  const caption = (): string =>
-    (relayHops.picture!.find((b) => b.kind === 'diagram') as unknown as { caption: string }).caption
-
-  const hop1 = rs.find(firstRelayHop1) as Tx
-  const hop2 = rs.find(firstRelayHop2) as Tx
-  const id = ids(hop1)[0]!
-  const at = (type: string, node: string, from = 0): TLRecord =>
-    rs.find((r) => r.type === type && (r as { node?: string }).node === node
-      && (r as { msduId?: number }).msduId === id && r.t >= from)!
-  /** Every data frame of the run that carries this payload, in order. */
-  const carrying = (msdu: number): Tx[] =>
-    rs.filter((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data' && ids(r).includes(msdu))
-
-  it('reads the five steps as one payload’s own records, figure by figure', () => {
-    const [s0, s1, s2, s3, s4] = steps()
-    // 「1.4157 ms，它到达手机 B；此时信道空闲，手机 B 立即将它发出。」
-    const arrivalB = at('ARRIVAL', 'sta-4')
-    const [arrMs, phoneB] = raw(s0!, /^([\d.]+) ms，它到达手机 (.)；/, 'step 1 on the arrival')
-    expect(arrMs, 'when the payload reaches the phone').toBe(asMs(arrivalB.t).replace(' ms', ''))
-    expect(hop1.node, `手机 ${phoneB} is the phone that sends it`).toBe('sta-4')
-    expect(hop1.t, 'and 「立即」 means it goes out at that same instant').toBe(arrivalB.t)
-    // 「这一帧时长 125.6 µs。接入点在 1.5413 ms 接收完毕，16 µs 后应答。」
-    const [frameUs] = figs(s1!, /这一帧时长 ([\d.]+) µs/, 'step 2 on the frame')
-    expect(frameUs! * 1000, 'the air this frame really takes').toBe(hop1.frame.txTimeNs)
-    const rxAp = rs.find((r) => r.type === 'RX_OK' && r.node === 'ap' && r.t >= hop1.t)!
-    const [gotMs, silenceUs] = raw(s1!, /接入点在 ([\d.]+) ms 接收完毕，(\d+) µs 后应答/,
-      'step 2 on the access point')
-    same(gotMs!, rxAp.t / MS, 'when the access point has it whole')
-    const ack1 = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'ack'
-      && r.node === 'ap' && r.t > hop1.t)!
-    expect(val(silenceUs!) * 1000, 'the silence it keeps before answering').toBe(ack1.t - rxAp.t)
-    expect(val(silenceUs!) * 1000, 'which is the engine’s own short silence').toBe(SIFS_NS)
-    // 「这个应答在空口上占 28 µs。第一跳在 1.5853 ms 结束，共用时 169.6 µs。」
-    const [ackUs] = figs(s2!, /这个应答在空口上占 (\d+) µs/, 'step 3 on the answer')
-    expect(ackUs! * 1000, 'the air the answer really takes').toBe(ack1.frame.txTimeNs)
-    const deqB = at('DEQUEUE', 'sta-4')
-    const [endMs, hopUs] = raw(s2!, /第一跳在 ([\d.]+) ms 结束，共用时 ([\d.]+) µs/, 'step 3 on the first hop')
-    same(endMs!, deqB.t / MS, 'when the first hop is done')
-    expect(val(hopUs!) * 1000, 'and what it cost').toBe(deqB.t - hop1.t)
-    // 「转发用时 50 µs，因此在 1.6353 ms 时这份载荷进入发往手机 A 的队列，并立即发出。」
-    const arrAp = at('ARRIVAL', 'ap')
-    const [fwdUs, queueMs, phoneA] = raw(s3!,
-      /转发用时 (\d+) µs，因此在 ([\d.]+) ms 时这份载荷进入发往手机 (.) 的队列/, 'step 4 on the forward')
-    expect(val(fwdUs!) * 1000, 'how long the forward really takes').toBe(arrAp.t - deqB.t)
-    expect(val(fwdUs!), 'which is the constant the lesson names').toBe(RELAY_FWD_US)
-    same(queueMs!, arrAp.t / MS, 'when it enters the queue for the other phone')
-    expect(hop2.frame.dst, `手机 ${phoneA} is who the second hop goes to`).toBe('sta-3')
-    expect(hop2.t, '「并立即发出」: the second hop starts at that instant').toBe(arrAp.t)
-    // 「到 1.8049 ms，手机 A 已经应答完毕。第二跳同样用时 169.6 µs：全程 389.2 µs。」
-    const deqAp = at('DEQUEUE', 'ap')
-    const [doneMs, hop2Us, allUs] = raw(s4!,
-      /到 ([\d.]+) ms，手机 . 已经应答完毕。第二跳同样用时 ([\d.]+) µs：全程 ([\d.]+) µs/,
-      'step 5 on the end')
-    same(doneMs!, deqAp.t / MS, 'when the far phone has answered')
-    expect(val(hop2Us!) * 1000, 'what the second hop cost').toBe(deqAp.t - hop2.t)
-    expect(val(hop2Us!), '「同样」: the same as the first hop').toBe(val(hopUs!))
-    expect(val(allUs!) * 1000, 'and the whole way').toBe(deqAp.t - arrivalB.t)
-  })
-
-  it('reads the caption, and the payload the figure is drawn from', () => {
-    // 「两次发送各带一个确认帧…中间是接入点固定 50 µs 的转发；…全程 389.2 µs」
-    const cap = caption()
-    const [fwdUs] = figs(cap, /接入点固定 (\d+) µs 的转发/, 'the caption on the forward')
-    const [allUs] = figs(cap, /全程 ([\d.]+) µs/, 'the caption on the whole way')
-    const arrivalB = at('ARRIVAL', 'sta-4')
-    const deqAp = at('DEQUEUE', 'ap')
-    const deqB = at('DEQUEUE', 'sta-4')
-    const arrAp = at('ARRIVAL', 'ap')
-    expect(fwdUs! * 1000, 'the forward this payload really waits out').toBe(arrAp.t - deqB.t)
-    expect(allUs! * 1000, 'and the whole way, on the same payload').toBe(deqAp.t - arrivalB.t)
-    // 「两次发送各带一个确认帧」 — two sends, and an answer to each
-    const [sendsCn, perCn] = raw(cap, /(.)次发送各带(.)个确认帧/, 'the caption on the two sends')
-    expect(cn(sendsCn!), 'the air transmissions this payload really takes').toBe(carrying(id).length)
-    const acks = rs.filter((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'ack'
-      && r.t > hop1.t && r.t <= deqAp.t)
-    expect(acks.length, 'each one answered once').toBe(cn(sendsCn!) * cn(perCn!))
-  })
-
-  it('reads the one-hop-against-two table, middle column and all', () => {
-    const tb = table()
-    expect(tb.head.length, 'a route, a hop count and an average').toBe(3)
-    const [windowCn] = raw(
-      (relayHops.numbers!.find((b) => b.kind === 'table') as unknown as { heading: string }).heading,
-      /整整(.)秒内的平均时延/, 'the table’s own window')
-    expect(cn(windowCn!) * 1000 * MS, 'the window every average is taken over').toBe(RUN_NS)
-    for (const row of tb.rows) {
-      const [label, hops, avg] = row as [string, string, string]
-      const toTv = label.includes('电视')
-      /*
-       * The payload the row is about: a downlink one to the television, or one of the phones'
-       * relayed ones. The hop count is counted by following that payload id through the run.
-       */
-      const first = toTv
-        ? rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'data'
-          && r.node === 'ap' && r.frame.dst === 'sta-2')!
-        : hop1
-      expect(val(hops), `how many air transmissions 「${label}」 really takes`)
-        .toBe(carrying(ids(first)[0]!).length)
-      const [about, ms] = raw(avg, /^(约 )?([\d.]+) ms$/, `the average of 「${label}」`)
-      expect(about, 'the lesson says 「约」, and is read to the digit it prints').toBe('约 ')
-      if (toTv) same(ms!, mean(view.nodes['sta-2']!.stats.rxLatency) / MS, `${label} average`)
-      else for (const p of PHONES) {
-        same(ms!, mean(view.nodes[p]!.stats.relayLatency) / MS, `${label} average, ${p}`)
-      }
-    }
-  })
-
-  it('reads the paragraph under the table, and `deeper`’s arithmetic', () => {
-    // 「389.2 µs 的全程里，转发只占 50 µs」
-    const [allUs, fwdUs] = figs(NUMS, /([\d.]+) µs 的全程里，转发只占 (\d+) µs/,
-      'the paragraph on where the time goes')
-    const arrivalB = at('ARRIVAL', 'sta-4')
-    const deqAp = at('DEQUEUE', 'ap')
-    const deqB = at('DEQUEUE', 'sta-4')
-    const arrAp = at('ARRIVAL', 'ap')
-    expect(allUs! * 1000, 'the whole way').toBe(deqAp.t - arrivalB.t)
-    expect(fwdUs! * 1000, 'of which the forward is this much').toBe(arrAp.t - deqB.t)
-    // 「即使把它计为 0，两跳也仍是 169.6 × 2 = 339.2 µs，而一跳是 169.6 µs」
-    const [zero, hopsCn] = raw(DEEP, /即使把它计为 (\d)，(.)跳也仍是/, '`deeper` on dropping the forward')
-    expect(val(zero), 'the forward, counted as nothing').toBe(0)
-    expect(cn(hopsCn!), 'the hops that remain').toBe(carrying(id).length)
-    const [one, times, sum, against] = figs(DEEP,
-      /([\d.]+) × (\d) = ([\d.]+) µs，而一跳是 ([\d.]+) µs/, '`deeper` on the two hops')
-    expect(one! * 1000, 'what one hop really costs').toBe(deqB.t - hop1.t)
-    expect(against, 'the same hop, printed again as the one-hop case').toBe(one)
-    expect(times, 'how many of them the relay pays').toBe(carrying(id).length)
-    expect(sum, 'and their sum, which is the lesson’s own arithmetic').toBe(one! * times!)
-    expect((sum! + fwdUs!) * 1000, 'and with the forward back in, the whole way')
-      .toBe(deqAp.t - arrivalB.t)
-    // 「每一份载荷…都要在空口上传送两次」 and 「说出两跳比一跳多出的开销是什么」
-    for (const [text, re, what] of [
-      [WHY, /都要在空口上传送(.)次/, '`why` on the two trips'],
-      [WHY, /说出(.)跳比一跳多出的开销是什么/, 'the outcome on the two hops'],
-    ] as [string, RegExp, string][]) {
-      expect(cn(raw(text, re, what)[0]!), what).toBe(carrying(id).length)
-    }
-  })
-
-  it('reads `observe`, both experiments and the quiz against the same runs', () => {
-    // 「50 份载荷共用同一个前导码」
-    const ul = rs.find(firstUplinkData) as Tx
-    const [burst] = figs(OBS, /(\d+) 份载荷共用同一个前导码/, '`observe` on the burst')
-    expect(burst, 'the subframes that one preamble really carries').toBe(ul.frame.ampdu?.mpduCount)
-    // 「运行满一秒，电视接收的平均时延稳定在约 0.7 ms，而手机互传是 1.3 ms」
-    const [secCn] = raw(OBS, /运行满(.)秒/, '`observe` on the window')
-    expect(cn(secCn!) * 1000 * MS, 'the window those averages are taken over').toBe(RUN_NS)
-    const [tvMs, p2pMs] = raw(OBS,
-      /电视接收的平均时延稳定在约 ([\d.]+) ms，而手机互传是 ([\d.]+) ms/, '`observe` on the two averages')
-    same(tvMs!, mean(view.nodes['sta-2']!.stats.rxLatency) / MS, 'the television’s average')
-    for (const p of PHONES) same(p2pMs!, mean(view.nodes[p]!.stats.relayLatency) / MS, `${p} average`)
-    // 「把手机 B 拖到手机 A 旁边…仍约 1.3 ms」
-    const moved = rolesStackScenario()
-    const b = moved.nodes.find((n) => n.id === 'sta-4')!
-    b.pos = { ...b.pos, x: 2.5, y: 6 }
-    const movedView = run(moved, 1000).view
-    const [movedMs] = raw(TRY, /每一份载荷仍要经过接入点，时延仍约 ([\d.]+) ms/, '`tryThis` on the moved phone')
-    for (const p of PHONES) {
-      same(movedMs!, mean(movedView.nodes[p]!.stats.relayLatency) / MS, `${p} with the phone moved`)
-    }
-    // 「把笔记本改成 idle 再运行一遍。手机互传降到约 0.7 ms，电视降到约 0.3 ms」
-    const idle = rolesStackScenario()
-    idle.nodes.find((n) => n.id === 'sta-1')!.profiles = ['idle']
-    const idleView = run(idle, 1000).view
-    const [idleP2p, idleTv] = raw(TRY,
-      /手机互传降到约 ([\d.]+) ms，电视降到约 ([\d.]+) ms/, '`tryThis` on the idle laptop')
-    for (const p of PHONES) {
-      same(idleP2p!, mean(idleView.nodes[p]!.stats.relayLatency) / MS, `${p} with the laptop idle`)
-    }
-    same(idleTv!, mean(idleView.nodes['sta-2']!.stats.rxLatency) / MS, 'the television with it idle')
-    // 「转发只占全程 389.2 µs 里的 50 µs」 — the quiz prints the same pair a third time
-    const [quizAll, quizFwd] = figs(QUIZ, /转发只占全程 ([\d.]+) µs 里的 (\d+) µs/, 'the quiz on the forward')
-    const arrivalB = at('ARRIVAL', 'sta-4')
-    const deqAp = at('DEQUEUE', 'ap')
-    const deqB = at('DEQUEUE', 'sta-4')
-    const arrAp = at('ARRIVAL', 'ap')
-    expect(quizAll! * 1000, 'the whole way, a third time').toBe(deqAp.t - arrivalB.t)
-    expect(quizFwd! * 1000, 'and the forward inside it').toBe(arrAp.t - deqB.t)
-    // 「两次：手机 A 到接入点，接入点再到手机 B」 — the right option, as a count
-    const [optCn] = raw(QUIZ, /(.)次：手机 . 到接入点，接入点再到手机 ./, 'the quiz’s right option')
-    expect(cn(optCn!), 'the air transmissions one relayed payload really takes')
-      .toBe(carrying(id).length)
-  })
-
-  it('reads the forward everywhere it is printed again, and the fields `limits` describes', () => {
-    /*
-     * **Nine figures got past the file above** (sweep of 2026-10-14), and five of them are the
-     * same 50 µs: the paragraph under the table, `deeper`'s heading, `deeper`'s own sentence,
-     * `limits`, and the quiz's wrong option. Each is read against the forward this payload
-     * really waits out — 「同一个数印第二遍就是第二个窝」 once more.
-     */
-    const deqB = at('DEQUEUE', 'sta-4')
-    const arrAp = at('ARRIVAL', 'ap')
-    const fwdNs = arrAp.t - deqB.t
-    for (const [text, re, what] of [
-      [NUMS, /不是因为那 (\d+) µs 的转发/, 'the paragraph under the table'],
-      [DEEP, /那 (\d+) µs 是模型取值，不是标准规定/, '`deeper`’s own heading'],
-      [DEEP, /接入点转发载荷所用的 (\d+) µs/, '`deeper` on the forward'],
-      [LIM, /那 (\d+) µs 是一个常数/, '`limits` on the forward'],
-      [QUIZ, /因为接入点需要 (\d+) µs 来转发它/, 'the quiz’s wrong option'],
-    ] as [string, RegExp, string][]) {
-      expect(figs(text, re, what)[0]! * 1000, what).toBe(fwdNs)
-    }
-    /*
-     * 「src/engine/simulation.ts 的 RELAY_FWD_NS，任何负载下都不变」 — the entry names a constant,
-     * so the constant is read out of the file it names: the name has to be there, and the value
-     * it is given has to be the forward measured above.
-     */
-    const SIM_SRC = readFileSync(new URL('../../src/engine/simulation.ts', import.meta.url), 'utf8')
-    const [name] = raw(LIM, /simulation\.ts 的 (RELAY_FWD_NS)/, '`limits` on the constant it names')
-    const srcNs = Number(raw(SIM_SRC, new RegExp(`const ${name} = ([\\d_]+)`),
-      'the constant itself')[0]!.replace(/_/g, ''))
-    expect(srcNs, 'the value the engine really gives it').toBe(fwdNs)
-    expect(figs(LIM, /那 (\d+) µs 是一个常数/, '`limits` on the forward')[0]! * 1000,
-      'and the figure the entry prints for it').toBe(srcNs)
-    /*
-     * 「解码器按 To DS 规则把 addr3 填成 apId」 and 「真实的上行帧地址 3 就是最终目的地址」 —
-     * both are about the **third** address of the first hop's frame, so both are read off the
-     * decoder: that field carries the access point, and the payload's real destination is
-     * somewhere else entirely. Moving the digit names a field the decoder does not build.
-     */
-    const CTX = { apId: 'ap', isEdca: true }
-    const up = decodeFrame(hop1.frame, CTX).users[0]!.subframes[0]!.mpdu.fields
-    const [limN] = figs(LIM, /把 addr(\d) 填成 apId/, '`limits` on the address it fills')
-    const [proseN] = figs(LIM, /真实的上行帧地址 (\d) 就是最终目的地址/, '`limits` on the real one')
-    expect(proseN, 'the same address, named twice in one entry').toBe(limN)
-    const third = up.find((f) => f.key === `addr${limN}`)
-    expect(third, `addr${limN} is a field this decoder really builds`).toBeDefined()
-    expect(third!.node, 'and this engine fills it with the access point').toBe(CTX.apId)
-    expect(hop2.frame.dst, 'while the payload’s real destination is the other phone')
-      .not.toBe(third!.node)
-    /*
-     * 「一个已关联的站点把数据帧发往 AP（To DS = 1），AP 再以 From DS = 1 发出」 — the two bits,
-     * read off the two hops of the same payload.
-     */
-    const down = decodeFrame(hop2.frame, CTX).users[0]!.subframes[0]!.mpdu.fields
-    const bitOf = (fields: typeof up, key: string): string =>
-      fields.find((f) => f.key === 'fc')!.bits!.find((b) => b.key === key)!.value
-    const [toDs] = raw(SRC, /数据帧发往 AP（To DS = (\d)）/, '`sources` on the uplink bit')
-    const [fromDs] = raw(SRC, /AP 再以 From DS = (\d) 发出/, '`sources` on the downlink bit')
-    expect(bitOf(up, 'toDs'), 'the uplink hop’s own To DS bit').toBe(toDs)
-    expect(bitOf(up, 'fromDs'), 'and its From DS bit, which is the other one').toBe('0')
-    expect(bitOf(down, 'fromDs'), 'the downlink hop’s own From DS bit').toBe(fromDs)
-    expect(bitOf(down, 'toDs'), 'and its To DS bit, which is the other one').toBe('0')
-  })
-
-  it('reads `picture` and `sources` on the figures they print again', () => {
-    // 「16 µs 的静默是 aSIFSTime（§17.4.4）」
-    const [sifsUs] = figs(SRC, /(\d+) µs 的静默是 aSIFSTime/, '`sources` on the silence')
-    expect(sifsUs! * 1000, 'the engine’s own short silence').toBe(SIFS_NS)
-    /*
-     * 「125.6 µs、28 µs 与 169.6 µs 都是本场景实测」 — the entry says so, and these are the three
-     * measurements: the frame, the answer and one hop, each from this run.
-     */
-    const [frameUs, ackUs, hopUs] = figs(SRC, /([\d.]+) µs、(\d+) µs 与 ([\d.]+) µs 都是本场景实测/,
-      '`sources` on the three measured figures')
-    const ack1 = rs.find((r): r is Tx => r.type === 'TX_START' && r.frame.kind === 'ack'
-      && r.node === 'ap' && r.t > hop1.t)!
-    const deqB = at('DEQUEUE', 'sta-4')
-    expect(frameUs! * 1000, 'the frame').toBe(hop1.frame.txTimeNs)
-    expect(ackUs! * 1000, 'the answer').toBe(ack1.frame.txTimeNs)
-    expect(hopUs! * 1000, 'and one hop').toBe(deqB.t - hop1.t)
-    // 「接入点转发的 50 µs 是本仿真器的模型取值」 — and the name it gives the constant
-    const [srcFwd] = figs(SRC, /接入点转发的 (\d+) µs 是本仿真器的模型取值/, '`sources` on the forward')
-    expect(srcFwd, 'the same forward the figure labels').toBe(RELAY_FWD_US)
-    /*
-     * **Exempt, class (a): the clause numbers of `sources`.** §4.3, §5.2, Table 9-30 and §17.4.4
-     * are the standard's own and no corpus ships with this repo; `tests/course/doc-citations`
-     * covers the paths. What is read of them above: the figure one of them is quoted for
-     * (aSIFSTime) is this engine's own silence.
-     */
-    expect(SRC, 'the address table the first entry cites').toContain('9-30')
-    // 「50 份载荷」 in `picture` is the burst `observe` points at
-    const [picBurst] = figs(PIC, /(\d+) µs 的转发/, '`picture`’s caption on the forward')
-    expect(picBurst, 'the same forward again').toBe(RELAY_FWD_US)
+    expect(stray).toEqual([])
   })
 })

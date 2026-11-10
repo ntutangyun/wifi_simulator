@@ -1,65 +1,26 @@
 /**
- * Wi-Fi Tier 2 · M8 · QoS 与效率 · TXOP, the lease on the channel.
+ * Wi-Fi Tier 2 · M8 · QoS 与效率 · TXOP, a bounded time on the medium.
  *
- * Rewritten to the zero-to-hero contract
- * (docs/superpowers/specs/2026-09-21-course-readability-design.md) and grown
- * from the 193-word original: winning once and keeping the floor, the ceiling
- * that bounds it, and why a bounded lease is fair enough.
+ * **Standard-first shape (2026-11-11).** ① states what IEEE Std 802.11-2024 specifies: the TXOP as
+ * the unit of allocation (§10.23.1), multiple frame exchange sequences a SIFS apart and only of the
+ * primary AC (§10.23.2.8), the TXOP limit and what a limit of 0 allows (§10.23.2.9, Table 9-194),
+ * truncation by CF-End (§10.23.2.10) and the backoff the holder invokes when its last PPDU has gone
+ * (§10.23.2.2 item b, CW reset to CWmin). ② says what the engine does with each; ③ is four guided
+ * runs. The audit found the burst rules faithful; the reverse direction protocol (§10.29), TXOP
+ * sharing (§10.23.2.7) and the Beacon that advertises the limits are absent, and what the engine
+ * does after a failure inside a TXOP is one of the options the standard leaves open.
  *
- * **Stays whole** in the 2026-09-25 re-pacing
- * (docs/superpowers/plans/2026-09-25-course-repacing-proposal.md, §2 M8): one
- * mechanism with one measurable payoff. What it loses:
- *  - 「告诉整个房间要躲多久」(§5.1.4) — the Duration that telegraphs a burst is
- *    `txop-protect`'s own procedure, taught there properly with the numbers;
- *    one forward-pointing clause is left in `deeper`;
- *  - 「把发言权借回去」(§5.5, the 2024 corpus's own heading, quoted as history —
- *    the lesson now says 把剩下的占用时间让给对端) — reverse-direction TXOP, which this simulator
- *    never puts on the timeline, cut to one sentence;
- *  - 「这里的每一串突发是被什么结束的」(§5.3) — it restated 「多数时候拦住你的不是
- *    上限」using the table between them. The new figure carries it instead: the
- *    480 µs the longest burst used, drawn against the 4 096 µs it was allowed;
- *  - the 短租 metaphor, which ran four times; the mechanism's own names
- *    (信道占用时间, TXOP 上限) do the work (§5.2).
- *
- * **2026-10-03 — the post-TXOP backoff.** A reader watched the access point
- * finish its first burst with nothing left to send and then count down six
- * slots, and asked why. The lesson's own frame made that look like a bug: it
- * said the holder goes back to 「等待、倒数」 in order to transmit again, which is
- * the PRE-backoff story. The countdown is item b) of §10.23.2.2 — for the
- * EDCAF that is the TXOP holder, the transmission of the final PPDU of the TXOP
- * has completed — and it carries no condition on having anything more to send.
- * So the lesson now says that where the procedure's last step is, and shows the
- * payoff the standard is after: the queue is empty at 1.363 ms and 6 slots are
- * drawn and counted down anyway, and the frame that arrives at 1.652 ms goes
- * out in that same nanosecond, with no silence and no countdown, because the
- * price was already paid. 412 of this run's 463 bursts start that way. The
- * 462 draws `tryThis` already quoted are these post-backoffs, one after each
- * burst — true before, and read the wrong way round. Which took its own
- * explanation down with it: 「462 比它发出的 463 串突发少一次，因为整轮的第一串根本
- * 不需要倒数」 is the pre-backoff arithmetic, and it is wrong. The draws pair with
- * the burst ENDS, of which this window holds 462; run the same scenario to
- * 301 ms and starts, ends and draws are all 464. The missing draw is the one the
- * 463rd burst has not reached yet, not one the first burst was spared — that
- * burst is spared a draw, but being spared it never changed the count.
- *
- * Text, one jump label and one added jump target. The scenario builder is
- * unchanged, so the recorded timeline hash stays identical. Every number quoted
- * below is pinned in tests/course/txop.test.ts.
+ * The scenario builder and the jump predicates are unchanged, so the recorded timeline hash stays
+ * identical. Every figure below is pinned in tests/course/txop.test.ts against a 300 ms run.
  */
 import type { TimingSpec } from '../diagram'
 import { type Lesson, oneRoom, node, sc, firstTxop, J } from '../lessonKit'
 
 /**
- * This run's first burst against the clock it was given, to scale. Every figure
- * is a record of the base run, taken relative to the TXOP_START at 0.883 ms: the
- * two data frames at 0–188 and 248–436 µs, the two answers at 204–232 and
- * 452–480, the TXOP_END at 480, and the lease itself, 4 096 µs from `EDCA_PARAMS`
- * for AC_VI.
- *
- * The slivers are meant to be slivers. The whole finding of the lesson is that
- * the ceiling is not what stops a burst here — 480 µs of 4 096 — and a figure
- * drawn to scale says that in one look, which is why the paragraph that said it
- * in words is gone.
+ * This run's first burst against the time it was allowed, to scale. Every figure is a record of the
+ * base run, relative to the TXOP_START at 0.883 ms: the two data frames at 0–188 and 248–436 µs,
+ * the two answers at 204–232 and 452–480, the TXOP_END at 480, and the limit, 4 096 µs from
+ * `EDCA_PARAMS` for AC_VI.
  */
 export function txopBurstTiming(): TimingSpec {
   return {
@@ -83,86 +44,117 @@ export const txop: Lesson = {
   id: 'txop',
   module: 7,
   title: 'TXOP——一次竞争成功，换来一段信道占用时间',
-  why: '竞争成功才是代价最高的那一步，可到目前为止，竞争成功的站点完成一次交互就交还信道——然后重新排队，再承担一次同样的代价。如果一台站点（STA）还积压着好几帧、都是发往同一个邻居的，这样做就很浪费。于是一次竞争成功不再只换来一次交互，而是换来一段连续占用空口的时间。这段时间叫传输机会（transmit opportunity, TXOP）：持有者每完成一次交互，只间隔交互内部那段短间隔就继续发送下一帧，而这段间隔比任何竞争者必须侦听到的最短静默还短，其他站点无法在其间开始发送。每一次竞争成功都同时确定一个期限，按接入类别（access category, AC）分别规定，承载通话的那一类最短；剩余时间不足以完成下一次交互时，持有者就交还信道。但在本场景里，接入点（AP）几乎不会达到这个期限：最长的一串只用了允许时间的大约十分之一，使它结束的是发往那台电视的队列（queue）已经为空。交还之后它立即再抽取一次倒数值，提前完成下一次竞争所需的倒数，所以下一帧到达时多半可以立即发送。这可以算作公平：所有站点遵守同一条规则，没有谁因此更频繁地竞争成功，改变的只是每次竞争成功能发送多少；代价是晚到的站点要等别人的一整串发完，所以那个期限实际上限定了任何站点的最长等待。',
+  why: 'IEEE 802.11-2024 里，竞争成功换来的不是一次交换，而是一段传输机会（transmit opportunity, TXOP）：它有起始时刻和最大长度，持有者在其中可以连续进行多次帧交换，每两次之间只隔一个短帧间间隔（short interframe space, SIFS）。SIFS 比任何一类的仲裁帧间间隔（arbitration interframe space, AIFS）都短，其他站点（station, STA）无法在其间开始竞争。TXOP 的长度包括对方的应答，不得超过这一接入类别（access category, AC）的 TXOP 上限（TXOP limit），默认值视频 4.096 ms、语音 2.080 ms、尽力而为与后台 2.528 ms；上限为 0 时一次只能发一个数据单元，或者由多个 MPDU（MAC protocol data unit）聚合成的一个聚合 MPDU（aggregate MPDU, A-MPDU）。持有者只能发送取得 TXOP 的那一类的帧。最后一个 PPDU（PHY protocol data unit）发完之后，持有者立即调用一次退避（backoff），与队列（queue）里是否还有帧无关。本课场景里，接入点（access point, AP）的视频突发最长的一串也不到上限的八分之一，每一串都因发往电视的队列已空而结束；交还之后的那次退避提前完成了下一次竞争的倒数，于是 463 串突发里有 412 串在帧到达的同一纳秒发出。这可以算作公平：所有站点遵守同一条规则，竞争过程本身不变，改变的只是每次竞争成功能发多少；代价是晚到的站点要等别人的一整串结束，上限限定了这段等待。',
   outcomes: [
-    '说明竞争成功的站点在第一次交互之后还能如何使用这条信道',
-    '说明是什么限定了一串突发的长度，并从仿真中读出每一串究竟因何结束',
-    '解释为什么“有上限的连续占用”可以算作公平，以及这个上限在保护什么',
+    '说出 TXOP 内连续发送的条件，以及 TXOP 上限包括哪些时间',
+    '从仿真中读出每一串突发因何结束，并与上限比较',
+    '说明持有者交还信道之后为什么立即退避，以及本仿真器在哪些地方没有实现标准的机制',
   ],
   needs: ['edca', 'ampdu'],
   terms: [
-    { term: 'TXOP', plain: '传输机会：竞争成功的站点可以连续占用信道的那一段时间，期间可以一次接一次地交互，中间不必重新竞争' },
-    { term: 'TXOP limit', plain: '这段时间的上限，按接入类别分别规定：发送的每一帧及其每个应答，都必须在这段时间之内完成' },
+    { term: 'TXOP', plain: '传输机会：竞争成功的站点可以连续占用介质的一段时间，期间可以连续进行多次帧交换' },
+    { term: 'TXOP limit', plain: 'TXOP 的最长时长，按接入类别分别规定，包括对方的应答' },
   ],
-  picture: [
-    { heading: '一次竞争成功，换来一段占用时间', text: '在那么多等待和倒数之后，竞争成功的站点得到的其实不止“一次交互”：在一小段时间里，它是信道上唯一可以发送的站点。其他站点在发送前仍然必须先侦听到一段静默，但这段静默根本不会出现——持有者只间隔交互内部那段很短的间隔就再次开始发送，而这段间隔比任何竞争者要等的都短。这段由它独占的时间，就是传输机会（transmit opportunity, TXOP）；一次竞争成功之后连续发出的那几帧，就是它的突发。' },
-    { kind: 'watch', jump: 0, heading: '看一串突发', text: '载入仿真，跳到第一串突发。接入点发送给一台电视，收到它的应答，随即就开始发送给另一台——中间没有必等的静默，也没有任何倒数。' },
-    { heading: '这段占用有个上限', text: '一段没有结束时刻的占用等于完全独占信道，所以每一次竞争成功都同时确定一个期限，这个期限就是 TXOP 上限（TXOP limit）。持有者发送的每一帧、收到的每个应答，都必须在这个期限之内；一旦剩余时间不足以完成下一次交互，持有者就停止发送，交还信道。这个上限是按类别分别设定的，所以承载通话的那些类别有自己的取值。' },
-    { heading: '多数时候起限制作用的不是上限', text: '实际上，持有者很少真正达到自己的上限。它停止发送，是因为发往那个邻居的队列（queue）已经为空——队列中只有两帧时竞争成功的站点，发完两帧就交还空口。只有当发送方积压的数据远远超过这段时间所能容纳的量时，上限才真正起作用，而这正是当初制定它所针对的情形。' },
-    { kind: 'watch', jump: 1, heading: '交还之后，先完成下一次的倒数', text: '一串突发结束后，持有者并不是就此进入空闲：它立即再侦听一段静默、再抽取一次倒数值，与队列中是否还有帧无关。跳到这里：本轮在 1.363 ms 结束、队列已空，34 µs 之后它仍然抽到 6 个时隙（slot time）并完成倒数。提前完成的是下一次竞争的倒数——下一帧在 1.652 ms 才到达，它立即发送，没有静默，也没有倒数。整轮 463 串突发里，有 412 串都是在帧到达的同一纳秒发出的。' },
-    { heading: '为什么这算得上公平', text: '所有站点遵守的是同一条规则：任何站点竞争成功之后，都可以同样连续占用信道。没有站点因此更频繁地竞争成功——竞争过程本身完全没有变化。改变的是每一次竞争成功能发送的数据量，于是整个房间用于竞争开销的时间更少、用于传输数据的时间更多。代价是等待：一台恰好在别人竞争成功之后才有帧待发的站点，必须等整串突发结束，所以那个上限实际上限定了“任何站点最多要等多久”。' },
+  standard: [
+    { heading: 'TXOP（§10.23.1）', text: '混合协调功能下分配发送权的基本单位是 TXOP。每个 TXOP 由一个起始时刻和一个最大长度确定；在增强型分布式信道接入（enhanced distributed channel access, EDCA）下，站点在竞争中取得的 TXOP 称为 EDCA TXOP。' },
+    { heading: '一个 TXOP 里的多次帧交换（§10.23.2.8）', text: '持有者的发送队列里还有同一接入类别（主 AC）的帧交换，而且这次交换的时长短于剩余的 TXOP 时间时，持有者可以在上一次交换完成后隔一个 SIFS 开始这次交换，同时受 TXOP 上限的约束。其他接入类别的帧不得在这个 TXOP 里发送，除非符合 §10.23.2.7 的 TXOP 共享规则。HT 站点还可以把同一类的多个 MPDU 装进一个 A-MPDU，只要它加上预期的块确认（block acknowledgement, BlockAck）短于剩余时间。' },
+    { heading: 'TXOP 上限（§10.23.2.9，表 9-194）', text: 'TXOP 的时长是持有者不间断地控制介质（medium）的时间，包括对方作为即时应答发送的帧；上限非零时，持有者必须保证 TXOP 不超过它（另有少数例外，例如单个 MPDU 的重传（retry））。上限由接入点在信标（Beacon）与 Probe Response 帧的 EDCA 参数集（parameter set）元素里通告。上限为 0 表示一次只能发一个数据单元或一个 A-MPDU，加上所需的应答与保护帧。' },
+    { kind: 'table', heading: 'TXOP 上限的默认值（表 9-194，第 17、18、19、21、27 章的物理层（physical layer, PHY））', head: ['接入类别', 'TXOP 上限'], rows: [
+      ['AC_VO', '2.080 ms'],
+      ['AC_VI', '4.096 ms'],
+      ['AC_BE', '2.528 ms'],
+      ['AC_BK', '2.528 ms'],
+    ] },
+    { heading: '交还与退避（§10.23.2.10，§10.23.2.2）', text: '持有者清空了发送队列时，可以发一个 CF-End（contention-free end）帧提前结束 TXOP，其他站点收到后把网络分配向量（network allocation vector, NAV）清零。持有者在 TXOP 里发出的最后一个 PPDU 发送完毕、TXNAV 定时器到期时，调用一次退避过程（§10.23.2.2 第 b) 项），并把竞争窗口（contention window, CW）复位到最小竞争窗口（minimum contention window, CWmin）、QSRC 清零；这一条不以队列里还有帧为条件。另有反向传输协议（§10.29）：持有者可以把 TXOP 剩余的时间让给对端发送。' },
+    { kind: 'steps', heading: '一个 EDCA TXOP，按标准：逐步说明', items: [
+      'EDCAF 在时隙（slot time）边界上计数为零且有帧，发起 TXOP（§10.23.2.4）；TXOP 从这一刻开始，长度不得超过这一类的 TXOP 上限（§10.23.2.9）。',
+      '完成第一次帧交换：一个 PPDU、一个 SIFS、对方的应答。',
+      '队列里还有同一类的帧，而且下一次交换（SIFS、PPDU、SIFS、应答）能在剩余时间内完成，持有者隔一个 SIFS 继续发送（§10.23.2.8）。',
+      '剩余时间不够、队列已空，或者交换失败，TXOP 结束；持有者可以发 CF-End 提前结束（§10.23.2.10）。',
+      '最后一个 PPDU 发完，持有者调用退避过程，CW 复位到 CWmin（§10.23.2.2 第 b) 项）。',
+    ] },
   ],
-  numbers: [
+  implementation: [
+    { topic: 'TXOP 的起止', standard: '从发起时刻开始，不超过 TXOP 上限，包括应答（§10.23.2.9）', sim: '照此处理：发出第一帧的时刻加上上限就是期限，每次交换连同应答都必须在期限之前结束。', kind: 'faithful' },
+    { topic: '续发的条件', standard: '同一类还有帧，下一次交换短于剩余时间，隔一个 SIFS 发送（§10.23.2.8）', sim: '照此处理：收到应答后看同一类的队头，整次交换能在期限前结束就隔 16 µs 发送，否则交还。', kind: 'faithful' },
+    { topic: '上限的取值', standard: '默认值见表 9-194；由接入点在信标里通告（§10.23.2.9）', sim: '四个上限是引擎里的常量，取表 9-194 的值；没有信标，场景不能通告另一套上限。', kind: 'value' },
+    { topic: '只发主 AC 的帧', standard: '其他类的帧不得在这个 TXOP 里发送，TXOP 共享与多业务标识（traffic identifier, TID）的 A-MPDU 除外（§10.23.2.7，§10.23.2.8）', sim: '只看取得 TXOP 的那一类的队列；TXOP 共享与多 TID 聚合没有实现。', kind: 'absent' },
+    { topic: '交还之后的退避', standard: '最后一个 PPDU 发完即调用退避，CW 复位到 CWmin（§10.23.2.2 第 b) 项）', sim: '照此处理：TXOP 一结束就再等一段 AIFS、抽取一次退避值，与队列是否为空无关。', kind: 'faithful' },
+    { topic: '用 CF-End 提前结束', standard: '队列清空时可以发 CF-End（§10.23.2.10）', sim: '只在第一帧通告了比实际更长的占用时间时才发；本课的突发只保护第一次交换，不发 CF-End。', kind: 'choice' },
+    { topic: 'TXOP 中途失败', standard: '非首个 PPDU 失败时，可以在 PIFS 后恢复、退避，或等 TXNAV 到期（§10.23.2.2，§10.23.2.8）', sim: '任何一次交换失败都结束 TXOP，CW 加倍并重新退避。', kind: 'choice' },
+    { topic: 'SIFS 期间有人发送', standard: '标准未单独规定', sim: 'SIFS 结束时介质已经忙，就不再续发，交还 TXOP。', kind: 'choice' },
+    { topic: '反向传输', standard: '持有者可以把剩余时间让给对端（§10.29）', sim: '没有实现。', kind: 'absent' },
+  ],
+  labs: [
     {
-      kind: 'diagram', heading: '第一串突发与它的上限',
-      spec: txopBurstTiming(),
-      caption: '本轮第一串突发：两帧视频、两个确认帧（ACK），480 µs 就结束了，而它被允许占到 4 096 µs。使它结束的不是这个上限，而是发往那台电视的队列已经为空。',
+      heading: '第一串突发',
+      jump: 0,
+      steps: [
+        '载入本课场景，跳到第一次 TXOP 开始。',
+        '依次查看两帧视频与两个确认帧（acknowledgement, ACK），对照下图与下表。',
+      ],
+      blocks: [
+        { kind: 'diagram', heading: '第一串突发与它的上限', spec: txopBurstTiming(), caption: '两帧视频、两个确认帧（acknowledgement, ACK），480 µs 就结束了，而上限是 4 096 µs。' },
+        { kind: 'table', heading: '第一串突发，按步骤计算', head: ['步骤', '数值'], rows: [
+          ['第一帧发送的时刻', '0.883 ms'],
+          ['期限：再加 VI 的上限 4 096 µs', '4.979 ms'],
+          ['发给电视 2，188 µs，再加 16 + 28 µs：收到应答', '1.115 ms'],
+          ['下一次交换需要 16 + 188 + 16 + 28', '248 µs'],
+          ['它在 1.363 ms 结束，早于期限 4.979 ms', '可以容纳'],
+          ['隔一个 SIFS，发给电视 1 的帧开始', '1.131 ms'],
+          ['应答到达，队列已空，TXOP 结束', '1.363 ms'],
+          ['实际占用，上限为 4 096 µs', '480 µs'],
+        ] },
+      ],
+      expect: '你应该看到：接入点在 0.883 ms 发出第一帧，两次交换之间只隔 16 µs，没有 AIFS，也没有倒数；TXOP 在 1.363 ms 结束，共 480 µs。',
+      meaning: '这说明：续发的条件照标准（①、②）；结束这串突发的是队列已空，不是上限。',
     },
-    { kind: 'table', heading: '各类别的上限', head: [
-      '类别', '上限', '为什么是这个取值', '出处',
-    ], rows: [
-      ['VO（语音）', '2.080 ms', '短：不能让一通电话等太久', 'Table 9-194'],
-      ['VI（视频）', '4.096 ms', '最大：视频帧较大且成组到达', 'Table 9-194'],
-      ['BE（尽力而为）/ BK（后台）', '2.528 ms', '足以让一次竞争成功多发出几帧，分摊竞争的代价', 'Table 9-194'],
-    ] },
-    { kind: 'table', heading: '接入点实际的表现', head: [
-      '300 ms 之内', '数值',
-    ], rows: [
-      ['竞争成功、发出突发的次数', '463'],
-      ['其中只发一帧的', '219'],
-      ['其中发两帧的', '243'],
-      ['最短的突发', '232 µs'],
-      ['最长的突发', '480 µs'],
-      ['平均突发', '362.4 µs'],
-      ['它的上限', '4 096 µs'],
-    ] },
-    { kind: 'formula', heading: '最长那串突发的累加', text: '188 + 16 + 28 + 16 + 188 + 16 + 28 = 480 µs\n188 + 16 + 28                     = 232 µs', note: '一帧、一段短间隔、一个应答——重复两次，或者只有一次。两次交互之间，除了那段间隔没有任何其他内容。' },
-    { kind: 'steps', heading: '一次竞争成功：从第一帧到交还信道', items: [
-      '竞争成功的站点发出第一帧的那一刻，本轮占用的期限就确定了：期限是这一刻加上该类别的上限——在这里，视频那一类是 4 096 µs。',
-      '第一次交互完成：一帧、一段 16 µs 的间隔、一个应答。',
-      '收到应答后，持有者查看同一类队列的队头，计算下一次交互的总时长——间隔、帧、间隔、它的应答——并与期限前的剩余时间比较。',
-      '若整个交互能在期限之内结束，持有者就只等那一段间隔，然后继续发送。而 16 µs 比任何竞争者必须侦听到的最短静默（34 µs）还短，所以其他站点根本无法在这个间隔里开始发送。',
-      '以下四种情况哪一种先发生，本轮就在那里结束：剩余时间已经不足以完成下一次交互、这一类的队列已空、应答没有返回，或者间隔结束时信道上已经有其他站点在发送。',
-      '持有者交还信道，并立即为下一次竞争侦听一段静默、抽取一次倒数值：标准把“本轮最后一帧发完”本身列为退避（backoff）过程的触发条件之一（§10.23.2.2 b）。这部分代价因此在上一串突发结束时就已承担，下一帧到达时它往往不必再等待、也不必再倒数。',
-    ] },
-    { kind: 'table', heading: '第一串突发，按步骤计算一遍', head: [
-      '步骤', '数值',
-    ], rows: [
-      ['第一帧发送的时刻', '0.883 ms'],
-      ['于是占用的期限在 4 096 µs 之后，即', '4.979 ms'],
-      ['发给电视 2，188 µs，再加 16 + 28 µs：收到应答于', '1.115 ms'],
-      ['下一次交互需要 16 + 188 + 16 + 28', '248 µs'],
-      ['它会在 1.363 ms 结束，而期限是 4.979 ms', '可以容纳 ✓'],
-      ['于是间隔一段时间后，发给电视 1 的帧开始发送于', '1.131 ms'],
-      ['应答到达，队列已空，本轮结束于', '1.363 ms'],
-      ['实际占用，而允许的是 4 096 µs', '480 µs'],
-    ] },
-  ],
-  deeper: [
-    { heading: '把剩余的占用时间让给对端', text: '持有者不一定要自己用完这段时间：它可以把剩余时间交给正在通信的那台站点，让对方在应答中携带自己的数据。本仿真器不建模这一机制，时间轴上也就看不到它。' },
-    { heading: '突发越长，风险越大', text: '连续占用好几毫秒，只有在房间对持有者而言确实空闲时才是安全的。一个未能检出这串突发的隐藏邻居会直接开始发送并造成碰撞，从那一刻到本轮结束的所有时间都浪费了。所以长突发通常要先以一次简短的保护性交互开始，并且在第一帧里就预先通告整串要占用多长时间——那两件事都是下一课的主题。' },
-  ],
-  limits: [
-    { kind: 'unmodelled', text: '持有者只能自己把这段时间用完：引擎既不建模反向传输——把剩余时间让给正在通信的那台站点——也不建模 802.11be 的 TXOP 共享，即接入点把自己竞争得到的一段时间划给某台站点上行。两件事真实设备都在做，而时间轴上永远看不到，所以这里一次竞争成功的价值被低估了。' },
-    { kind: 'unmodelled', text: '一串突发里只能装同一个接入类别的帧（续发时只看本类队列的队首），也只有一个业务标识：引擎不建模多 TID 聚合。真实设备可以在同一个 TXOP 里把不同优先级、不同业务标识的帧一起发出去。于是这里那 219 次「队列空了就交还」的单帧突发，在真实设备上常常还能继续发送其他帧。' },
-    { kind: 'model-value', text: '那四个上限（2.080 / 4.096 / 2.528 ms）在引擎里是一张常量表（phy.ts 的 EDCA_PARAMS），取的是 Table 9-194 的默认值；而引擎不发信标、不广播 EDCA 参数集，所以场景里没有办法让接入点宣布另一套。真实接入点广播的这四个数差异很大，不少型号把尽力而为那一类设成 0——这等于每次竞争成功只发一帧，也就是本课「关掉这个功能」那个对照。' },
-    { kind: 'unmodelled', text: '那 16 µs 的间隔在这里是一个精确常数，加上发射的信号到达各处不需要时间、全场共用一个时钟，「其他站点无法在这个间隔里开始发送」就成了一条绝对成立的算术结论。真实设备的接收—发射转换需要时间，晶振彼此相差几十 ppm，这个间隔的实际宽度每一次都略有不同。' },
+    {
+      heading: '每一串突发因何结束',
+      steps: [
+        '运行 300 ms。',
+        '统计接入点每一串突发的帧数与时长。',
+      ],
+      blocks: [
+        { kind: 'table', heading: '300 ms 里接入点的突发', head: ['300 ms 之内', '数值'], rows: [
+          ['发起的 TXOP', '463'],
+          ['已经结束、只发一帧的', '219'],
+          ['已经结束、发两帧的', '243'],
+          ['最短的突发', '232 µs'],
+          ['最长的突发', '480 µs'],
+          ['平均', '362.4 µs'],
+          ['VI 的 TXOP 上限', '4 096 µs'],
+        ] },
+      ],
+      expect: '你应该看到：已经结束的 462 串突发里，219 串只发一帧，243 串发两帧；最长的一串 480 µs，不到上限的八分之一。第 463 串在 300 ms 结束时还没有结束。',
+      meaning: '这说明：上限只有在发送方积压的数据超过它所能容纳的量时才起作用（①）；这里两台电视的视频流量不大，每一串都在队列清空时结束。',
+    },
+    {
+      heading: '交还之后立即退避',
+      jump: 1,
+      steps: [
+        '跳到突发结束后的那次退避抽取。',
+        '看它之前的 AIFS 从何时开始，抽到几，以及倒数结束时队列里有没有帧。',
+        '再跳到下一串突发，看它开始之前有没有 AIFS 与倒数。',
+      ],
+      expect: '你应该看到：第一串突发在 1.363 ms 结束，队列已空；34 µs 之后接入点抽到 6 并倒数完毕。下一帧在 1.652 ms 到达，在同一纳秒发出，前面没有 AIFS，也没有倒数。300 ms 里 463 串突发有 412 串是在帧到达的同一纳秒发出的；抽取一共 462 次，每一次都紧跟在一串突发之后。',
+      meaning: '这说明：最后一个 PPDU 发完就调用退避，不以队列有帧为条件（①）。倒数在空闲时已经完成，下一帧到达时只要介质空闲就可以直接发送。',
+    },
+    {
+      heading: '关掉接入点的 TXOP',
+      steps: [
+        '在功能面板里关掉接入点的 TXOP，再载入并运行 300 ms。',
+        '统计接入点发出的数据帧（data frame）数与退避抽取的次数。',
+      ],
+      expect: '你应该看到：接入点发出的数据帧仍是 707 帧，但退避抽取从 462 次增加到 706 次：每发完一帧就要抽取一次。',
+      meaning: '这说明：关掉 TXOP 相当于上限为 0、一次只发一个数据单元（①），每一帧都要单独承担一次竞争的开销。',
+    },
   ],
   sources: [
-    '传输机会、“一个 PPDU 连同它的响应必须装进上限之内”的规定，以及反向传输与多帧突发的规则，见 IEEE Std 802.11-2024 的 §10.23.2.8；各接入类别的 TXOP 上限见 Table 9-194。',
-    '突发结束之后那一次退避：IEEE Std 802.11-2024 的 §10.23.2.2 列举了启动退避过程的几种情形，其中一种是——对作为 TXOP 持有者的那个 EDCAF 而言——本轮最后一个 PPDU 已经发完、该 PPDU 不征询 HE TB PPDU、且 TXNAV 定时器已到期。这一条不以“队列里还有帧”为前提。',
-    '随机种子、两台电视，以及它们的码流所要求的速率，都是本仿真器的模型取值；本轮最终采用的编码同样如此，而正是它把这里一帧视频的时长定在 188 µs。',
+    'IEEE Std 802.11-2024：§10.23.1（TXOP 的定义）、§10.23.2.8（一个 TXOP 里的多次帧交换、A-MPDU 加块确认短于剩余时间）、§10.23.2.7（TXOP 共享）、§10.23.2.9 与表 9-194（TXOP 上限及其默认值、上限为 0 的含义）、§10.23.2.10（CF-End）、§10.23.2.2 第 b) 项（最后一个 PPDU 发完后的退避，CW 复位）、§10.23.2.4（发起 TXOP）、§10.29（反向传输协议）。',
+    '本仿真器的取值与取法：常量的上限表、失败即结束 TXOP、SIFS 期间介质变忙即交还。两台电视、它们的视频流量、随机种子与本轮采用的编码都是本仿真器的场景，可以复现；一帧视频 188 µs 由这个编码决定。',
   ],
+  limits: [],
   scenario: () => sc(oneRoom(), [
     node('ap', 'AP', 'ap', 5, 4, 'eht', 'idle'),
     node('sta-1', 'TV 1', 'sta', 3.5, 5.5, 'vht', 'video'),
@@ -171,51 +163,43 @@ export const txop: Lesson = {
   jumps: [
     J('第一次 TXOP 开始', firstTxop),
     J('突发结束后的那次退避抽取', (r) => r.type === 'BACKOFF_DRAW' && r.node === 'ap'),
-    // The burst after that one, which starts with no silence and no countdown because the
-    // post-TXOP backoff has already been spent. A record predicate sees one record at a time,
-    // so the second burst is named by a threshold between the two: the first burst starts at
-    // 0.883 ms and this one at 1.652 ms. Both, and the 1.5 ms itself, are pinned in
-    // tests/course/txop.test.ts.
+    // The burst after that one, which starts with no AIFS and no countdown because the post-TXOP
+    // backoff has already been spent. A record predicate sees one record at a time, so the second
+    // burst is named by a threshold between the two: 0.883 ms and 1.652 ms.
     J('下一串突发：无需倒数即开始', (r) => r.type === 'TXOP_START' && r.node === 'ap' && r.t > 1_500_000),
   ],
-  observe: [
-    '突发进行时，检视器会显示它属于哪一类，以及这段占用还剩多少时间。这里显示的是 AC_VI，因为两路流都是视频。',
-    '整轮运行中接入点竞争成功 463 次、发出 463 串突发：其中 219 串只带一帧，243 串带两帧。决定是哪一种的是队列，不是上限。它抽取倒数 462 次，每一次都紧跟在一串突发之后，没有一次在突发之前。',
-  ],
-  tryThis: [
-    '在接入点上关掉这个功能再载入。它发出的帧数完全相同，但抽取倒数的次数从 462 变成了 706。那 462 次与 462 串已经结束的突发一一对应：第 463 串在 300 ms 的窗口里还没结束，它对应的那一次还没有抽取。关掉之后，每发完一帧都要抽取一次，于是同样的帧数要付 706 次代价。',
-    '把其中一台电视的业务从视频流改成饱和下载。现在每当接入点竞争成功，发往这台站点的帧总有积压，于是突发长到 1.9 ms、一次三帧。',
-  ],
+  observe: [],
+  tryThis: [],
   quiz: [
     {
-      q: '同一串突发里，两次交互之间隔着什么',
+      q: '同一个 TXOP 里，两次帧交换之间隔着什么？',
       options: [
-        '必须等待的静默，加上一次新的倒数',
-        '只有交互内部使用的那段短间隔',
-        '没有任何间隔：帧是首尾相接发送的',
+        '一段 AIFS，加上一次新的倒数',
+        '一个 SIFS',
+        '什么也没有：帧首尾相接',
       ],
       answer: 1,
-      explain: '这段间隔比任何竞争者要等的时间都短，所以其他站点根本没有开始发送的机会。竞争的代价只在突发的边界上承担一次。',
+      explain: '§10.23.2.8：下一次交换在上一次完成后隔一个 SIFS 开始。SIFS 比任何 AIFS 都短，其他站点无法在其间开始竞争。',
     },
     {
-      q: '在本轮仿真里，多数突发是被什么结束的？',
+      q: '在本课的仿真里，多数突发是被什么结束的？',
       options: [
-        '占用的期限到了',
-        '持有者没有更多发往那个邻居的帧了',
-        '另一台站点占用了信道',
+        'TXOP 上限到了',
+        '发往那台电视的队列已空',
+        '另一台站点占用了介质',
       ],
       answer: 1,
-      explain: '这里最长的一串突发，只用掉了它被允许的大约十分之一。流量不大时，队列为空的时刻会比这个期限早得多。',
+      explain: '最长的一串不到上限的八分之一；流量不大时，队列清空的时刻远早于期限。',
     },
     {
-      q: '这个上限为什么要存在？',
+      q: '持有者的最后一个 PPDU 发完时，队列已经空了。按标准，它还要做什么？',
       options: [
-        '为了不让某个持有者使其他所有站点等待太久',
-        '为了不让帧变得太大',
-        '为了让接入点比站点多获得几轮',
+        '什么也不做，等下一帧到达再竞争',
+        '调用一次退避过程，CW 复位到 CWmin',
+        '发一个 CF-End，这是必须的',
       ],
-      answer: 0,
-      explain: '任何站点最坏的等待大约就是一整串突发，所以限定突发的长度，就是限定等待的时长——这也正是承载通话的那一类上限最短的原因。',
+      answer: 1,
+      explain: '§10.23.2.2 第 b) 项不以队列有帧为条件；CF-End 是可选的（§10.23.2.10）。',
     },
   ],
 }

@@ -20,6 +20,7 @@ import {
   type DiagramSpec, type FieldsSpec, type SequenceSpec, type Shape, type StackSpec, type TimingSpec, type TopologySpec,
 } from '../../src/course/diagram'
 import { LESSONS } from '../../src/course/lessons'
+import { lessonBlocks } from '../../src/course/curriculum'
 import type { Block, Lesson } from '../../src/course/lessonKit'
 
 const texts = (shapes: Shape[]): Extract<Shape, { s: 'text' }>[] =>
@@ -100,10 +101,16 @@ const ALL: [string, DiagramSpec][] = [
  * The count guard is the anti-vacuity half: if a refactor stops this walk from
  * finding diagrams, the suite says so instead of passing on an empty list.
  */
+// Re-pointed 2026-11-11: this walked `picture` and `numbers`, which no lesson has since the
+// standard-first restructure, so it found zero diagrams and the floor below was the only thing
+// red. A lesson's figures now sit in ① `standard` and in the ③ labs' `blocks` — exactly what
+// `lessonBlocks` returns — and the name carries the block's position because one lesson may hold
+// two figures of the same kind.
 const diagramsOf = (l: Lesson): [string, DiagramSpec][] =>
-  [...(l.picture ?? []), ...(l.numbers ?? [])]
-    .filter((b): b is Extract<Block, { kind: 'diagram' }> => b.kind === 'diagram')
-    .map((b) => [`${l.id} · ${b.spec.kind}`, b.spec])
+  lessonBlocks(l)
+    .map((b, i) => [b, i] as const)
+    .filter((x): x is readonly [Extract<Block, { kind: 'diagram' }>, number] => x[0].kind === 'diagram')
+    .map(([b, i]) => [`${l.id} · ${b.spec.kind} #${i}`, b.spec])
 
 const LESSON: [string, DiagramSpec][] = LESSONS.flatMap(diagramsOf)
 

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStrings } from '../ui/i18n'
 import { player, useUi } from '../ui/store'
-import { LESSONS, isMigrated, lessonIndex, type Block, type Lesson } from './lessons'
-import { isStandardFirst, type ImplItem, type Lab } from './lessonKit'
+import { LESSONS, lessonIndex, type Block, type Lesson } from './lessons'
+import type { ImplItem, Lab } from './lessonKit'
 import { layoutDiagram, type Paint, type Shape } from './diagram'
 import {
-  BASES, CONTRIBUTIONS, MODULES, TIERS, TRACKS, basisOf, citedDocs, isLongLesson, lessonBlocks, lessonMinutes,
+  BASES, CONTRIBUTIONS, MODULES, TIERS, TRACKS, basisOf, citedDocs, isLongLesson, lessonMinutes,
   teachesDraft, trackHeadings, type StandardBasis,
 } from './curriculum'
 import { LinkBudget } from './widgets/LinkBudget'
@@ -74,7 +74,7 @@ const watchStyle: React.CSSProperties = {
   background: 'rgba(59,130,246,0.08)',
   borderRadius: '0 4px 4px 0',
 }
-/** `deeper` and `sources`: present but out of the way until the reader wants them. */
+/** `sources`: present but out of the way until the reader wants it. */
 const summaryStyle: React.CSSProperties = { ...h4, cursor: 'pointer', listStyle: 'revert' }
 
 /**
@@ -343,18 +343,12 @@ export function CoursePanel() {
   }
 
   const idx = lessonIndex(lesson.id)
-  const obs = new Set(progress[lesson.id]?.obs ?? [])
-  const toggleObs = (i: number) => {
-    const next = new Set(obs)
-    if (next.has(i)) next.delete(i)
-    else next.add(i)
-    save({ ...progress, [lesson.id]: { ...progress[lesson.id], obs: [...next] } })
-  }
 
   /**
    * Both jump buttons go through here — the one inside a `watch` call-out and
-   * every entry of the "跳转" list at the foot of the lesson — so the signal
-   * below is sent from one place rather than two.
+   * each ③ lab card's 「⚡ 跳到：…」 (the "跳转" list at the foot of the lesson
+   * went with the old shape on 2026-11-11) — so the signal below is sent from
+   * one place rather than two.
    *
    * `requestView` is what tells a one-column shell to put the 3-D view on
    * screen; `player.seekFirst` moves the playhead and writes no store field, so
@@ -560,10 +554,9 @@ export function CoursePanel() {
         panel and already carries four items, an id would cost all 90 rows the width of
         its longest member (`@uwb-sensing-resolution`, 23 characters) to be useful on
         one, and the reader quotes a lesson from inside it, not from the list. Not
-        beside 「再深一层」 either, for a measured reason: 15 of the 90 lessons have no
-        `deeper` section at all — `@edca-tamper` and `@amp-slots` among them — so the
-        handle would be missing from exactly those fifteen, and it is a `<details>` shut
-        by default, so on the other 75 it would be hidden until opened.
+        beside 「再深一层」 either: when this was decided 15 of the 90 lessons had no
+        `deeper` section and it was a `<details>` shut by default; since 2026-11-11 no
+        lesson has one (the standard-first restructure retired it).
 
         `tests/ui/lessonHandle.test.ts` holds the half of this a unit test can see.
       */}
@@ -574,141 +567,65 @@ export function CoursePanel() {
         </code>
       </div>
 
-      {!isMigrated(lesson) && blocks(lessonBlocks(lesson), 'body')}
+      {/* Every lesson is in the standard-first shape since 2026-11-11 (tests/course/limits.test.ts
+          pins it): the old flat `body`, `picture`, `numbers`, `deeper`, the load/variant/jump
+          buttons, `observe`, `tryThis` and the `limits` box are no longer rendered. */}
+      <p style={whyStyle}>{lesson.why!}</p>
 
-      {isMigrated(lesson) && (
+      {(lesson.outcomes ?? []).length > 0 && (
         <>
-          <p style={whyStyle}>{lesson.why!}</p>
-
-          {(lesson.outcomes ?? []).length > 0 && (
-            <>
-              <h4 style={h4}>{L.outcomes}</h4>
-              <ul style={listStyle}>
-                {lesson.outcomes!.map((o, i) => <li key={i}>{o}</li>)}
-              </ul>
-            </>
-          )}
-
-          {(lesson.needs ?? []).length > 0 && (
-            <>
-              <h4 style={h4}>{L.needs}</h4>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {lesson.needs!.map((id) => (
-                  <button key={id} style={{ fontSize: 11.5 }} onClick={() => selectLesson(id)}>
-                    {LESSONS.find((x) => x.id === id)?.title ?? id}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          {(lesson.terms ?? []).length > 0 && (
-            <>
-              <h4 style={h4}>{L.terms}</h4>
-              <div style={tableWrap}>
-                <table style={tableStyle}>
-                  <tbody>
-                    {lesson.terms!.map((term) => (
-                      <tr key={term.term}>
-                        <td style={{ ...td, whiteSpace: 'nowrap', color: '#e6eaf2' }}>{term.term}</td>
-                        <td style={td}>{term.plain}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-
-          {isStandardFirst(lesson) && (
-            <>
-              <h4 style={{ ...h4, fontSize: 13 }}>{SF.standard}</h4>
-              {blocks(lesson.standard!, 'standard')}
-
-              <h4 style={{ ...h4, fontSize: 13 }}>{SF.implementation}</h4>
-              <div style={{ ...dim, fontSize: 11 }}>{SF.implementationNote}</div>
-              {(lesson.implementation ?? []).map(implRow)}
-
-              <h4 style={{ ...h4, fontSize: 13 }}>{SF.labs}</h4>
-              <div style={{ ...dim, fontSize: 11 }}>{SF.labsNote}</div>
-              {(lesson.labs ?? []).map(labCard)}
-            </>
-          )}
-
-          {blocks(lesson.picture ?? [], 'picture')}
-
-          {(lesson.numbers ?? []).length > 0 && (
-            <>
-              <h4 style={h4}>{L.numbers}</h4>
-              {blocks(lesson.numbers!, 'numbers')}
-            </>
-          )}
-
-          {(lesson.deeper ?? []).length > 0 && (
-            <details style={{ margin: '10px 0 4px' }}>
-              <summary style={summaryStyle}>{L.deeper}</summary>
-              {blocks(lesson.deeper!, 'deeper')}
-            </details>
-          )}
+          <h4 style={h4}>{L.outcomes}</h4>
+          <ul style={listStyle}>
+            {lesson.outcomes!.map((o, i) => <li key={i}>{o}</li>)}
+          </ul>
         </>
       )}
 
-      {!isStandardFirst(lesson) && (<>
-      <div style={{ margin: '10px 0 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <button
-          className="active"
-          style={{ padding: '6px 10px' }}
-          title={L.loadHint}
-          onClick={() => loadCourseScenario(lesson.scenario(), lesson.id)}
-        >
-          {loaded ? L.reload : L.load}
-        </button>
-        {lesson.variants?.map((v, i) => (
-          <button key={i} onClick={() => loadCourseScenario(v.scenario(), lesson.id)}>
-            {L.variants}: {v.label}
-          </button>
-        ))}
-        <button onClick={() => adoptCourseScenario(lesson.scenario())} style={{ fontSize: 11.5 }}>
-          {L.openInEditor}
-        </button>
-      </div>
-
-      {loaded && lesson.jumps.length > 0 && (
-        <div style={{ margin: '8px 0' }}>
-          <div style={{ ...dim, fontSize: 11, marginBottom: 3 }}>{L.jumps}</div>
+      {(lesson.needs ?? []).length > 0 && (
+        <>
+          <h4 style={h4}>{L.needs}</h4>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {lesson.jumps.map((j, i) => (
-              <button key={i} style={{ fontSize: 11.5 }} onClick={() => jump(j.find, j.label)}>
-                ⚡ {j.label}
+            {lesson.needs!.map((id) => (
+              <button key={id} style={{ fontSize: 11.5 }} onClick={() => selectLesson(id)}>
+                {LESSONS.find((x) => x.id === id)?.title ?? id}
               </button>
             ))}
           </div>
-          {jumpMsg && <div style={{ color: '#eab308', fontSize: 11, marginTop: 3 }}>{jumpMsg}</div>}
-        </div>
+        </>
       )}
 
-      <h4 style={h4}>{L.observe}</h4>
-      {lesson.observe.map((o, i) => (
-        <label key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', margin: '3px 0', cursor: 'pointer' }}>
-          <input type="checkbox" checked={obs.has(i)} onChange={() => toggleObs(i)} style={{ marginTop: 3 }} />
-          <span style={{ color: obs.has(i) ? '#8a93a3' : '#c3c9d4', textDecoration: obs.has(i) ? 'line-through' : 'none' }}>
-            {o}
-          </span>
-        </label>
-      ))}
-
-      <h4 style={h4}>{L.tryThis}</h4>
-      <ul style={{ margin: '2px 0', paddingLeft: 18, color: '#c3c9d4' }}>
-        {lesson.tryThis.map((x, i) => (
-          <li key={i} style={{ marginBottom: 3 }}>{x}</li>
-        ))}
-      </ul>
-      </>)}
-      {isStandardFirst(lesson) && (
-        <button onClick={() => adoptCourseScenario(lesson.scenario())} style={{ fontSize: 11.5, margin: '4px 0' }}>
-          {L.openInEditor}
-        </button>
+      {(lesson.terms ?? []).length > 0 && (
+        <>
+          <h4 style={h4}>{L.terms}</h4>
+          <div style={tableWrap}>
+            <table style={tableStyle}>
+              <tbody>
+                {lesson.terms!.map((term) => (
+                  <tr key={term.term}>
+                    <td style={{ ...td, whiteSpace: 'nowrap', color: '#e6eaf2' }}>{term.term}</td>
+                    <td style={td}>{term.plain}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
+
+      <h4 style={{ ...h4, fontSize: 13 }}>{SF.standard}</h4>
+      {blocks(lesson.standard!, 'standard')}
+
+      <h4 style={{ ...h4, fontSize: 13 }}>{SF.implementation}</h4>
+      <div style={{ ...dim, fontSize: 11 }}>{SF.implementationNote}</div>
+      {(lesson.implementation ?? []).map(implRow)}
+
+      <h4 style={{ ...h4, fontSize: 13 }}>{SF.labs}</h4>
+      <div style={{ ...dim, fontSize: 11 }}>{SF.labsNote}</div>
+      {(lesson.labs ?? []).map(labCard)}
+
+      <button onClick={() => adoptCourseScenario(lesson.scenario())} style={{ fontSize: 11.5, margin: '4px 0' }}>
+        {L.openInEditor}
+      </button>
 
       <h4 style={h4}>{L.quiz}</h4>
       {lesson.quiz.map((q, qi) => (
@@ -738,43 +655,6 @@ export function CoursePanel() {
           </div>
         </div>
       ))}
-
-      {/* Where the model is not the radio. Open by default and above `sources`,
-          unlike the provenance: a reader who never opens a collapsed section
-          should still not walk away trusting the simulator further than it
-          deserves. The kind is shown, because "this is simplified" without
-          saying which of the four it is, is the sentence this replaced. */}
-      {lesson.limits.length > 0 && (
-        <div style={{
-          margin: '10px 0 4px', padding: '8px 10px', borderRadius: 4,
-          background: 'var(--panel2)', borderLeft: '3px solid #e0a83a',
-        }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4 }}>{L.limits}</div>
-          <ul style={{ ...listStyle, fontSize: 11.5, marginBottom: 0 }}>
-            {lesson.limits.map((lim, i) => (
-              <li key={i}>
-                <span style={{ color: 'var(--dim)' }}>{L.limitKind[lim.kind]}　</span>
-                {lim.text}
-                {/* Two different promises, and the reader is meant to tell them apart:
-                    `until` says the simplification is GONE in that lesson, `seeAlso` says
-                    that lesson goes deeper into it while the simplification stays. They are
-                    mutually exclusive on one limit, enforced in tests/course/limits.test.ts
-                    rather than by a fallback here. */}
-                {lim.until && (
-                  <span style={{ color: 'var(--dim)' }}>
-                    {' '}{L.limitUntil(LESSONS.find((x) => x.id === lim.until)?.title ?? lim.until)}
-                  </span>
-                )}
-                {lim.seeAlso && (
-                  <span style={{ color: 'var(--dim)' }}>
-                    {' '}{L.limitSeeAlso(LESSONS.find((x) => x.id === lim.seeAlso)?.title ?? lim.seeAlso)}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {lesson.sources && lesson.sources.length > 0 && (
         <details style={{ margin: '10px 0 4px' }}>

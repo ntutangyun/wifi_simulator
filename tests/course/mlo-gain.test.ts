@@ -1,25 +1,22 @@
 /**
- * Every empirical claim of "what the second link buys", the second half of
- * `mlo`, measured against the scene the two share.
+ * `@mlo-gain`, in the standard-first shape (2026-11-11).
  *
- * What arrived here with the prose (2026-09-26): the three tables — where the
- * laptop's work went, the same 300 ms with MLO off, and the run where the
- * neighbour has two radios too — the MCS both links run at, the four-of-every-five
- * split, the neighbour's 69.9% of the band's clock, and the two experiments.
- *
- * The lesson is not registered yet (the controller does that), so the shape and
- * the terminology are graded here by importing it directly.
+ * ① cites IEEE Std 802.11be-2024 for what bears on the second link's worth (independent contention,
+ * any mapped link, link management); ② says what the engine does instead of the AP-side steering
+ * the standard offers; ③'s three labs print three tables and their prose, and every figure is read
+ * back out of the lesson and compared with the run it describes: the base 300 ms, the laptop with
+ * MLO off, and the neighbour with two radios too. The two comparison runs are editor edits, as
+ * the labs' steps say, and are measured here exactly as those steps describe.
  */
 import { describe, it, expect } from 'vitest'
-import { Simulation } from '../../src/engine/simulation'
+import { Simulation, LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 import { mloGain } from '../../src/course/tier2/mlo-gain'
 import { mlo } from '../../src/course/tier2/mlo'
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
-import { ZH_TERMS, cellTexts, paragraphTexts, zhAkaViolations, zhTermFailure } from '../../src/course/readability'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { lessonShapeSuite } from './kit'
 import { MODULES } from '../../src/course/curriculum'
-import { LINK_EXTRA_LOSS_DB } from '../../src/engine/simulation'
 
 const MS = 1_000_000
 /** The 300 ms every number in this lesson is measured over. */
@@ -28,503 +25,184 @@ const RUN_NS = 300 * MS
 type Tx = Extract<TLRecord, { type: 'TX_START' }>
 const data = (rs: TLRecord[], node: string): Tx[] =>
   rs.filter((r): r is Tx => r.type === 'TX_START' && r.node === node && r.frame.kind === 'data')
-const airMs = (xs: Tx[]): number => Math.round(xs.reduce((a, r) => a + r.frame.txTimeNs, 0) / MS * 10) / 10
+const airMs = (xs: Tx[]): number => xs.reduce((a, r) => a + r.frame.txTimeNs, 0) / MS
 
 interface View {
   rs: TLRecord[]
+  /** Share of the clock this lane held, per cent — the inspector's own figure (includes responses). */
   air: (id: string) => number
+  /** Mean wait from enqueue to the start of sending, ms. */
   wait: (id: string) => number
 }
 
-/**
- * One run of a modified copy of the scene, with the per-node counters the panel shows —
- * **memoised by the name of the modification**, because the read-back below asks for the same
- * three scenes this file already runs, and the suite's simulated work is bounded
- * (tests/simCost.ts). The engine is deterministic, so a shared run is the same run.
- */
+/** One run of a modified copy of the scene, memoised by name (the suite's simulated work is bounded). */
 const views = new Map<string, View>()
 function viewOf(key: string, mod: (sc: Scenario) => void = () => {}): View {
   const hit = views.get(key)
   if (hit) return hit
-  const made = view(mod)
-  views.set(key, made)
-  return made
-}
-
-function view(mod: (sc: Scenario) => void = () => {}): View {
   const sc = mloGain.scenario()
   mod(sc)
   const sim = new Simulation(sc)
   const rs = [...sim.runUntil(RUN_NS).records]
   const st = (id: string) => sim.view.nodes[id].stats
-  return {
+  const v: View = {
     rs,
-    air: (id) => Math.round(st(id).airtimeNs / RUN_NS * 1000) / 10,
-    wait: (id) => Math.round(st(id).txLatency.sumNs / st(id).txLatency.n / MS * 100) / 100,
+    air: (id) => (st(id).airtimeNs / RUN_NS) * 100,
+    wait: (id) => st(id).txLatency.sumNs / st(id).txLatency.n / MS,
   }
+  views.set(key, v)
+  return v
 }
+const base = (): View => viewOf('base')
+const off = (): View => viewOf('off', (sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo = false })
+const both = (): View => viewOf('both', (sc) => {
+  const n = sc.nodes.find((x) => x.id === 'sta-2')!
+  n.caps.generation = 'eht'
+  n.caps.features.mlo = true
+})
+
+const lab = (heading: string): Lab => {
+  const l = mloGain.labs!.find((x) => x.heading === heading)
+  expect(l, `lab 「${heading}」`).toBeDefined()
+  return l!
+}
+const tableOf = (l: Lab): Extract<Block, { kind: 'table' }> => {
+  const t = (l.blocks ?? []).find((b) => b.kind === 'table')
+  expect(t, `the table of 「${l.heading}」`).toBeDefined()
+  return t as Extract<Block, { kind: 'table' }>
+}
+const implRow = (topic: string) => {
+  const row = mloGain.implementation!.find((x) => x.topic === topic)
+  expect(row, `implementation row 「${topic}」`).toBeDefined()
+  return row!
+}
+const same = (printed: string, measured: number, what: string): void => {
+  const fig = printed.replace(/[\s,%]/g, '')
+  const dp = (fig.split('.')[1] ?? '').length
+  expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`).toBe(Number(measured.toFixed(dp)))
+}
+const zh = (s: string): number => '零一二三四五六七八九十'.indexOf(s)
 
 lessonShapeSuite(mloGain, { sameSceneAs: 'mlo', runNs: RUN_NS })
 
-describe('mlo-gain · the lesson’s own scene', () => {
-  it('is the second half of mlo: same module, same scene, still no variants', () => {
+describe('mlo-gain · the lesson', () => {
+  it('is the second half of mlo, in the standard-first shape: same module, same scene, no variants', () => {
+    expect(isStandardFirst(mloGain)).toBe(true)
     expect(MODULES[mloGain.module].title).toBe('被调度的 Wi-Fi 6/7')
     expect(mloGain.needs).toEqual(['mlo'])
     expect(mloGain.terms!.map((t) => t.term)).toEqual(['link', 'MLO'])
     expect(mloGain.variants).toBeUndefined()
     expect(mloGain.scenario()).toEqual(mlo.scenario())
     expect(() => ScenarioSchema.parse(mloGain.scenario())).not.toThrow()
+    expect(mloGain.limits).toEqual([])
+    expect(mloGain.observe).toEqual([])
+    expect(mloGain.tryThis).toEqual([])
   })
 
-  it('§4 gives it no diagram: three tables, and the paragraphs that restated them are gone', () => {
-    const blocks = [...mloGain.picture!, ...mloGain.numbers!]
-    expect(blocks.filter((b) => b.kind === 'diagram')).toEqual([])
-    expect(blocks.filter((b) => b.kind === 'table').length).toBe(3)
+  it('cites each clause it teaches in ①', () => {
+    const std = mloGain.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
+    for (const c of ['§35.3.16.1', '§35.3.7.2.1', '§35.3.7.2.2', '§35.3.7.1', '§35.3.7.2.3', '§35.3.7.4']) expect(std, c).toContain(c)
+    expect(std).toContain('标准没有规定在这组链路中选哪一条')
+    expect(std).toContain('平衡负载')
   })
 
-  it('brackets every official term at its first Chinese use', () => {
-    // the contract's own walk (tests/course/readability.test.ts), run here because the
-    // controller has not registered this lesson yet
-    const zh = [mloGain.why!, ...mloGain.outcomes!]
-      .concat(paragraphTexts(mloGain.picture!), cellTexts(mloGain.picture!))
-      .concat(paragraphTexts(mloGain.numbers!), cellTexts(mloGain.numbers!))
-      .concat(mloGain.observe, mloGain.tryThis, mloGain.quiz.flatMap((q) => [q.q, ...q.options, q.explain]))
-      .join(' ')
-    const failures: string[] = []
-    for (const t of ZH_TERMS.filter((x) => !x.track || x.track === 'wifi')) {
-      const why = zhTermFailure(zh, t)
-      if (why) failures.push(why)
-      failures.push(...zhAkaViolations(zh, t))
-    }
-    expect(failures).toEqual([])
+  it('② names the engine’s choice as a choice and the AP-side steering as absent', () => {
+    expect(implRow('选哪一条链路').kind).toBe('choice')
+    expect(implRow('链路推荐').kind).toBe('absent')
+    expect(implRow('TID 到链路的映射').kind).toBe('absent')
+    expect(mloGain.implementation!.some((r) => r.kind !== 'faithful')).toBe(true)
   })
 })
 
-describe('mlo-gain · where the laptop’s work went', () => {
-  const v = viewOf('base')
-  const on5 = data(v.rs, 'sta-1'), on6 = data(v.rs, 'sta-1#6g')
-
-  it('the first table is that run: 67 frames and 53.9 ms on 5 GHz, 240 and 249.6 ms on 6 GHz', () => {
-    expect([on5.length, on6.length]).toEqual([67, 240])
-    expect([airMs(on5), airMs(on6)]).toEqual([53.9, 249.6])
-    // the "Share of that band's clock" column
-    expect([v.air('sta-1'), v.air('sta-1#6g')]).toEqual([18.3, 84.2])
+describe('mlo-gain · ② says what the engine does, and the engine does it', () => {
+  it('6 GHz is charged 1.2 dB more path loss than 5 GHz, whatever the distance', () => {
+    const m = /6 GHz 的路径损耗（path loss）一律比 5 GHz 多计 ([\d.]+) dB/.exec(implRow('两个频段的传播差别').sim)!
+    same(m[1], LINK_EXTRA_LOSS_DB['6g'] - LINK_EXTRA_LOSS_DB['5g'], 'the extra 6 GHz loss')
+    // 「在本课的距离上，两条链路使用同一级 MCS」
+    const mcs = new Set([...data(base().rs, 'sta-1'), ...data(base().rs, 'sta-1#6g')].map((r) => r.frame.mcs))
+    expect(mcs.size).toBe(1)
   })
 
-  it('"not the faster radio": both links run at MCS 13 and 172.1 Mb/s', () => {
-    for (const r of [...on5, ...on6]) {
-      expect(r.frame.mcs).toBe(13)
-      expect(r.frame.mbps).toBe(172.1)
-    }
-  })
-
-  it('"four of every five" frames leave by the empty band, taking "almost five times" the air', () => {
-    expect(Math.round(on6.length / (on5.length + on6.length) * 10) / 10).toBe(0.8)
-    expect(Math.round(airMs(on6) / airMs(on5) * 10) / 10).toBe(4.6)
-  })
-
-  it('the neighbour holds 5 GHz for 69.9% of the clock, at 2.58 ms of mean wait', () => {
-    expect(data(v.rs, 'sta-2').length).toBe(185)
-    expect(v.air('sta-2')).toBe(69.9)
-    expect(v.wait('sta-2')).toBe(2.58)
-  })
-
-  it('the laptop’s own mean waits are the 1.29 and 1.54 ms of the second table', () => {
-    expect([v.wait('sta-1'), v.wait('sta-1#6g')]).toEqual([1.29, 1.54])
+  it('exactly one access point per scene: 6 GHz holds only the laptop and the AP', () => {
+    const sc = mloGain.scenario()
+    expect(ScenarioSchema.safeParse({ ...sc, nodes: [...sc.nodes, { ...sc.nodes[0], id: 'ap-2' }] }).success).toBe(false)
+    const on6 = new Set(base().rs.flatMap((r) => (r.type === 'TX_START' && r.node.includes('#6g') ? [r.node] : [])))
+    expect([...on6].sort()).toEqual(['ap#6g', 'sta-1#6g'])
   })
 })
 
-describe('mlo-gain · the two experiments, which are steps 2 to 4 of the price', () => {
-  const off = viewOf('off', (sc) => { sc.nodes.find((n) => n.id === 'sta-1')!.caps.features.mlo = false })
-  const both = viewOf('both', (sc) => {
-    const n = sc.nodes.find((x) => x.id === 'sta-2')!
-    n.caps.generation = 'eht'
-    n.caps.features.mlo = true
+describe('mlo-gain · ③ every figure the labs print is the run', () => {
+  it('lab 1: the lane table, the MCS and rate, the four-in-five and the neighbour', () => {
+    const l = lab('帧流向空闲的那个频段')
+    const v = base()
+    const lane = (band: string): string => (band.startsWith('6') ? 'sta-1#6g' : 'sta-1')
+    for (const [band, frames, air, share] of tableOf(l).rows) {
+      const xs = data(v.rs, lane(band))
+      expect(Number(frames), band).toBe(xs.length)
+      same(air.replace(' ms', ''), airMs(xs), `${band}: airtime`)
+      same(share, v.air(lane(band)), `${band}: share of the band`)
+    }
+    const all = [...data(v.rs, 'sta-1'), ...data(v.rs, 'sta-1#6g')]
+    const e = /都以 MCS (\d+)、([\d.]+) Mb\/s 发送；6 GHz 上 (\d+) 帧，5 GHz 上 (\d+) 帧，每(.)帧中有(.)帧从 6 GHz 发出。邻居发出 (\d+) 帧，占用 5 GHz ([\d.]+)% 的时间/.exec(l.expect)!
+    expect(e).not.toBeNull()
+    expect(new Set(all.map((r) => r.frame.mcs))).toEqual(new Set([Number(e[1])]))
+    expect(new Set(all.map((r) => r.frame.mbps))).toEqual(new Set([Number(e[2])]))
+    expect([Number(e[3]), Number(e[4])]).toEqual([data(v.rs, 'sta-1#6g').length, data(v.rs, 'sta-1').length])
+    const share = data(v.rs, 'sta-1#6g').length / all.length
+    expect(Math.abs(share / (zh(e[6]) / zh(e[5])) - 1)).toBeLessThan(0.05)
+    expect(Number(e[7])).toBe(data(v.rs, 'sta-2').length)
+    same(e[8], v.air('sta-2'), 'the neighbour’s share of 5 GHz')
   })
 
-  it('MLO off: one lane, 116 frames instead of 307, and the wait more than doubles', () => {
-    expect(new Set(data(off.rs, 'sta-1').map((r) => r.node))).toEqual(new Set(['sta-1']))
-    expect(data(off.rs, 'sta-1#6g')).toHaveLength(0)
-    expect(data(off.rs, 'sta-1').length).toBe(116)
-    expect(off.wait('sta-1')).toBe(3.25)
-    expect(3.25).toBeGreaterThan(2 * 1.54)
-  })
-
-  it('"the neighbour does not gain": it drops from 185 frames to 116, and waits 4.18 ms', () => {
-    expect(data(off.rs, 'sta-2').length).toBe(116)
-    expect(off.wait('sta-2')).toBe(4.18)
-  })
-
-  it('"the two stations end up sending the same amount": 116 each, and nearly half the air each', () => {
-    expect(data(off.rs, 'sta-1').length).toBe(data(off.rs, 'sta-2').length)
-    // the depth's claim that this is contention being fair, not a coincidence
+  it('lab 2: the MLO-off table, row by row, and the two equal counts', () => {
+    const l = lab('关闭第二条链路')
+    const on = base(), o = off()
+    const rows = tableOf(l).rows
+    const row = (label: string) => rows.find((r) => r[0].startsWith(label))!
+    expect(Number(row('笔记本的数据帧')[1])).toBe(data(on.rs, 'sta-1').length + data(on.rs, 'sta-1#6g').length)
+    expect(Number(row('笔记本的数据帧')[2])).toBe(data(o.rs, 'sta-1').length)
+    expect(data(o.rs, 'sta-1#6g')).toHaveLength(0)
+    const [w5, w6] = row('笔记本发送前的平均等待')[1].replace(' ms', '').split(' / ')
+    same(w5, on.wait('sta-1'), 'the 5 GHz wait with MLO on')
+    same(w6, on.wait('sta-1#6g'), 'the 6 GHz wait with MLO on')
+    same(row('笔记本发送前的平均等待')[2].replace(' ms', ''), o.wait('sta-1'), 'the one lane’s wait with MLO off')
+    expect(Number(row('邻居的数据帧')[1])).toBe(data(on.rs, 'sta-2').length)
+    expect(Number(row('邻居的数据帧')[2])).toBe(data(o.rs, 'sta-2').length)
+    same(row('邻居发送前的平均等待')[1].replace(' ms', ''), on.wait('sta-2'), 'the neighbour’s wait, MLO on')
+    same(row('邻居发送前的平均等待')[2].replace(' ms', ''), o.wait('sta-2'), 'and with MLO off')
+    // 「笔记本只剩一条泳道，116 帧，平均等待增加到两倍以上；邻居也降到 116 帧」
+    const e = /笔记本只剩一条泳道，(\d+) 帧，平均等待增加到两倍以上；邻居也降到 (\d+) 帧/.exec(l.expect)!
+    expect([Number(e[1]), Number(e[2])]).toEqual([data(o.rs, 'sta-1').length, data(o.rs, 'sta-2').length])
+    expect(o.wait('sta-1')).toBeGreaterThan(2 * Math.max(on.wait('sta-1'), on.wait('sta-1#6g')))
+    // 「长期平均下来各得一半」
     for (const id of ['sta-1', 'sta-2']) {
-      expect(off.air(id), id).toBeGreaterThan(40)
-      expect(off.air(id), id).toBeLessThan(55)
+      expect(o.air(id), id).toBeGreaterThan(40)
+      expect(o.air(id), id).toBeLessThan(55)
     }
   })
 
-  it('give the neighbour two radios and the lean vanishes: 122 against 136, 258 in all', () => {
-    const l5 = data(both.rs, 'sta-1').length, l6 = data(both.rs, 'sta-1#6g').length
-    expect([l5, l6]).toEqual([122, 136])
-    expect(l5 + l6).toBe(258)
-    // the third table's other column
-    expect([data(both.rs, 'sta-2').length, data(both.rs, 'sta-2#6g').length]).toEqual([132, 106])
-  })
-})
-/**
- * **Every figure the prose prints, read back out of it.**
- *
- * Everything above measures the right thing and compares it with a figure typed on **this** side
- * — `expect([on5.length, on6.length]).toEqual([67, 240])`, with the lesson's sentence in the `it`
- * name. So the engine is pinned and the prose is not: the sampling sweep of 2026-10-12 planted
- * six of this lesson's figures and **all six went unnoticed**. Here each figure is parsed out of
- * the shipped string and compared with the same measurement.
- *
- * **The reads worth naming:**
- *
- *  - **the three tables are read as the three runs they are**, each cell against the run its own
- *    heading names: the base 300 ms, the same window with the laptop's MLO switched off, and the
- *    one where the neighbour has two radios too. The row labels carry the band, so a cell is
- *    addressed by the lane it belongs to rather than by its position.
- *  - **the bands are read as the lanes the engine really builds.** 「5 GHz」 and 「6 GHz」 are not
- *    decoration here: they name the two virtual nodes the run emits frames from, and the read
- *    requires the lane named by each row to be the one the figure was measured on.
- *  - **「每五帧里有四帧」 and 「差不多是…五倍」 are read as the quotients they are**, to the
- *    tenth the sentence implies, so a planted digit in either count moves them.
- *  - **the neighbour's share is read as the panel shows it**, which is what 「占着这个频段 69.9%
- *    的时钟」 means — airtime over the window, answers included, not frames over frames.
- */
-describe('mlo-gain · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
+  it('lab 3: the two-radio table, and the total it ends on', () => {
+    const l = lab('给邻居也配备两条链路')
+    const b = both(), on = base()
+    for (const [band, laptop, neighbour] of tableOf(l).rows) {
+      const suffix = band.startsWith('6') ? '#6g' : ''
+      expect(Number(laptop), band).toBe(data(b.rs, `sta-1${suffix}`).length)
+      expect(Number(neighbour), band).toBe(data(b.rs, `sta-2${suffix}`).length)
     }
-    walk(b)
-    return out.join('\n')
-  }
-  const PIC = blockText(mloGain.picture)
-  const NUMS = blockText(mloGain.numbers)
-  const DEEP = blockText(mloGain.deeper)
-  const LIM = blockText(mloGain.limits)
-  const SRC = blockText(mloGain.sources)
-  const OBS = blockText(mloGain.observe)
-  const TRY = blockText(mloGain.tryThis)
-  const QUIZ = blockText(mloGain.quiz)
-
-  const val = (x: string): number => Number(x.replace(/[\s,%]/g, '').replace(/[−–]/g, '-'))
-  const raw = (text: string, re: RegExp, what: string): string[] => {
-    const mm = re.exec(text)
-    expect(mm, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
-    return mm!.slice(1)
-  }
-  const figs = (text: string, re: RegExp, what: string): number[] => raw(text, re, what).map(val)
-  const every = (text: string, re: RegExp, what: string, want: number): string[][] => {
-    const ms = [...text.matchAll(re)]
-    expect(ms.length, `${what}: the lesson prints this ${ms.length} times, not ${want}`).toBe(want)
-    return ms.map((mm) => mm.slice(1))
-  }
-  const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,%]/g, '').replace(/[−–]/g, '-')
-    const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
-  }
-  const tables = (): { heading?: string; head: string[]; rows: string[][] }[] =>
-    mloGain.numbers!.filter((b) => b.kind === 'table') as unknown as
-      { heading?: string; head: string[]; rows: string[][] }[]
-  /** The node a lane name stands for: the laptop's two links are two nodes in the records. */
-  const laneNode = (who: 'sta-1' | 'sta-2', ghz: number): string => (ghz === 6 ? `${who}#6g` : who)
-
-  it('reads the first table as the run it is, lane by lane', () => {
-    const v = viewOf('base')
-    const t = tables()[0]!
-    const [windowMs] = figs(t.heading!, /最初 (\d+) ms/, 'the first table’s own window')
-    expect(windowMs! * MS, 'the window every figure of this lesson is measured over').toBe(RUN_NS)
-    expect(t.rows, 'one row per link the laptop has').toHaveLength(2)
-    const shares: number[] = []
-    const frames: number[] = []
-    for (const row of t.rows) {
-      const [ghz] = figs(row[0]!, /^(\d) GHz$/, 'the row’s own lane')
-      const node = laneNode('sta-1', ghz!)
-      const sent = data(v.rs, node)
-      expect(sent.length, `the lane ${ghz} GHz really is a lane of this run`).toBeGreaterThan(0)
-      const [count] = figs(row[1]!, /^(\d+)$/, `the frames on ${ghz} GHz`)
-      expect(count, `what the laptop sends on ${ghz} GHz`).toBe(sent.length)
-      same(raw(row[2]!, /^([\d.]+) ms$/, `the air on ${ghz} GHz`)[0]!, airMs(sent),
-        `the air those frames take on ${ghz} GHz`)
-      const [share] = figs(row[3]!, /^([\d.]+)%$/, `the share of ${ghz} GHz`)
-      expect(share, `the share of that band’s clock, as the panel counts it`).toBe(v.air(node))
-      shares.push(share!)
-      frames.push(count!)
-    }
-    // 「每五帧中有四帧从那个频段发出，所占用的空口时间差不多是留在 5 GHz 的那些帧的五倍」
-    const [ofFive, four] = raw(NUMS, /每(.)帧中有(.)帧从那个频段发出/, '`numbers` on the split')
-    const cn = (s: string): number => '零一二三四五六七八九'.indexOf(s)
-    expect(Math.round((frames[1]! / (frames[0]! + frames[1]!)) * cn(ofFive!)) / cn(ofFive!),
-      'the share of frames that leaves by the empty band')
-      .toBe(cn(four!) / cn(ofFive!))
-    const [times] = raw(NUMS, /所占用的空口时间差不多是留在 5 GHz 的那些帧的(.)倍/, '`numbers` on the air')
-    expect(Math.round(airMs(data(v.rs, 'sta-1#6g')) / airMs(data(v.rs, 'sta-1'))),
-      'how many times the air the empty band carries').toBe(cn(times!))
-    // 「两条链路跑的是同一级…MCS 13，172.1 Mb/s」
-    const [mcs, mbps] = figs(NUMS, /MCS (\d+)，([\d.]+) Mb\/s/, '`numbers` on the rung both links run')
-    for (const node of ['sta-1', 'sta-1#6g']) {
-      for (const r of data(v.rs, node)) {
-        expect(r.frame.mcs, `${node} runs that rung`).toBe(mcs)
-        expect(r.frame.mbps, `${node} at that rate`).toBe(mbps)
-      }
-    }
+    const e = /总量从 (\d+) 帧降到 (\d+) 帧/.exec(l.expect)!
+    expect(Number(e[1])).toBe(data(on.rs, 'sta-1').length + data(on.rs, 'sta-1#6g').length)
+    expect(Number(e[2])).toBe(data(b.rs, 'sta-1').length + data(b.rs, 'sta-1#6g').length)
   })
 
-  it('reads the MLO-off table as its own run, row by row', () => {
-    const on = viewOf('base')
-    const off = viewOf('off')
-    const t = tables()[1]!
-    const [windowMs] = figs(t.heading!, /同样的 (\d+) ms/, 'the second table’s own window')
-    expect(windowMs! * MS, 'the same window').toBe(RUN_NS)
-    const row = (needle: string): string[] => t.rows.find((r) => r[0]!.includes(needle))!
-    // 「笔记本的数据帧 | 307 | 116」
-    const [withBoth] = figs(row('笔记本的数据帧')[1]!, /^(\d+)$/, 'the laptop’s frames with MLO')
-    const [withOne] = figs(row('笔记本的数据帧')[2]!, /^(\d+)$/, 'and with it off')
-    expect(withBoth, 'the two lanes together').toBe(data(on.rs, 'sta-1').length + data(on.rs, 'sta-1#6g').length)
-    expect(withOne, 'and the one lane that is left').toBe(data(off.rs, 'sta-1').length)
-    expect(data(off.rs, 'sta-1#6g'), 'the second lane being gone entirely').toHaveLength(0)
-    // 「笔记本发送前的平均等待（5 GHz / 6 GHz） | 1.29 / 1.54 ms | 3.25 ms」
-    const waitRow = row('笔记本发送前的平均等待')
-    const [lane5, lane6] = figs(waitRow[0]!, /（(\d) GHz \/ (\d) GHz）/, 'the row’s own two lanes')
-    const [w5, w6] = figs(waitRow[1]!, /^([\d.]+) \/ ([\d.]+) ms$/, 'the two waits with MLO')
-    expect(w5, `the wait on ${lane5} GHz`).toBe(on.wait(laneNode('sta-1', lane5!)))
-    expect(w6, `and on ${lane6} GHz`).toBe(on.wait(laneNode('sta-1', lane6!)))
-    const [wOff] = figs(waitRow[2]!, /^([\d.]+) ms$/, 'the wait with MLO off')
-    expect(wOff, 'the wait the one lane leaves').toBe(off.wait('sta-1'))
-    expect(wOff, 'which is more than twice the longer of the two').toBeGreaterThan(2 * w6!)
-    // 「邻居的数据帧 | 185 | 116」 and 「邻居发送前的平均等待 | 2.58 ms | 4.18 ms」
-    const [nbOn] = figs(row('邻居的数据帧')[1]!, /^(\d+)$/, 'the neighbour’s frames')
-    const [nbOff] = figs(row('邻居的数据帧')[2]!, /^(\d+)$/, 'and with the laptop on one lane')
-    expect(nbOn, 'what the neighbour sends beside an MLO laptop').toBe(data(on.rs, 'sta-2').length)
-    expect(nbOff, 'and beside a single-lane one').toBe(data(off.rs, 'sta-2').length)
-    expect(nbOff, 'which is fewer, not more').toBeLessThan(nbOn!)
-    const nbWait = row('邻居发送前的平均等待')
-    expect(figs(nbWait[1]!, /^([\d.]+) ms$/, 'the neighbour’s wait')[0], 'as the panel shows it')
-      .toBe(on.wait('sta-2'))
-    expect(figs(nbWait[2]!, /^([\d.]+) ms$/, 'and with MLO off')[0], 'longer, not shorter')
-      .toBe(off.wait('sta-2'))
-    // 「关闭第二条链路后，笔记本和邻居都降到 116 帧」 — `deeper` prints that count again
-    const [deepBoth] = figs(DEEP, /笔记本和邻居都降到 (\d+) 帧/, '`deeper` on the two counts')
-    expect(deepBoth, 'the same count, and the same for both of them').toBe(withOne)
-    expect(data(off.rs, 'sta-2').length, 'which is the neighbour’s too').toBe(deepBoth)
-  })
-
-  it('reads the two-radio table, and the experiment that produced it', () => {
-    const both = viewOf('both')
-    const t = tables()[2]!
-    for (const row of t.rows) {
-      const [ghz] = figs(row[0]!, /^(\d) GHz$/, 'the row’s own lane')
-      const [laptop] = figs(row[1]!, /^(\d+)$/, `the laptop on ${ghz} GHz`)
-      const [neighbour] = figs(row[2]!, /^(\d+)$/, `the neighbour on ${ghz} GHz`)
-      expect(laptop, `what the laptop sends on ${ghz} GHz`)
-        .toBe(data(both.rs, laneNode('sta-1', ghz!)).length)
-      expect(neighbour, `and what the neighbour sends there`)
-        .toBe(data(both.rs, laneNode('sta-2', ghz!)).length)
-    }
-    // 「5 GHz 上 122 帧，6 GHz 上 136 帧，总量降到 258」, in `tryThis` and again in the quiz
-    const [tGhz5, t5, tGhz6, t6, total] = figs(TRY,
-      /(\d) GHz 上 (\d+) 帧，(\d) GHz 上 (\d+) 帧，总量降到 (\d+)/,
-      '`tryThis` on the second experiment')
-    expect(t5, `the laptop on ${tGhz5} GHz`).toBe(data(both.rs, laneNode('sta-1', tGhz5!)).length)
-    expect(t6, `and on ${tGhz6} GHz`).toBe(data(both.rs, laneNode('sta-1', tGhz6!)).length)
-    expect(total, 'the two together').toBe(t5! + t6!)
-    const [qWas, qNow] = figs(QUIZ, /总量从 (\d+) 帧降到 (\d+)/, 'the second question on the same pair')
-    expect(qNow, 'the same total the experiment gives').toBe(total)
-    const on = viewOf('base')
-    expect(qWas, 'against what one MLO device alone had')
-      .toBe(data(on.rs, 'sta-1').length + data(on.rs, 'sta-1#6g').length)
-  })
-
-  it('reads `observe`, the first experiment and the first question', () => {
-    const on = viewOf('base')
-    const off = viewOf('off')
-    // 「最初 300 ms 内，5 GHz 上 67 个数据帧，6 GHz 上 240 个」
-    const [obsMs, g5, c5, g6, c6] = figs(OBS,
-      /最初 (\d+) ms 内，(\d) GHz 上 (\d+) 个数据帧，(\d) GHz 上 (\d+) 个/,
-      '`observe` on the two lanes')
-    expect(obsMs! * MS, 'the window').toBe(RUN_NS)
-    expect(c5, `the frames on ${g5} GHz`).toBe(data(on.rs, laneNode('sta-1', g5!)).length)
-    expect(c6, `and on ${g6} GHz`).toBe(data(on.rs, laneNode('sta-1', g6!)).length)
-    // 「它占用了这个频段 69.9% 的时间」
-    const [nbGhz] = figs(OBS, /邻居只使用 (\d) GHz/, '`observe` on the neighbour’s one band')
-    const [nbShare] = figs(OBS, /而它占用了这个频段 ([\d.]+)% 的时间/, '`observe` on its share')
-    expect(nbShare, 'the share of that band’s clock the neighbour holds').toBe(on.air('sta-2'))
-    expect(nbGhz, 'the band it is on, which is the laptop’s busy lane').toBe(g5)
-    // 「同样的 300 ms 内只有 116 个数据帧，而不是 307，发送前的平均等待增加到两倍以上」
-    const [tryMs, tryOne, tryBoth] = figs(TRY,
-      /同样的 (\d+) ms 内只有 (\d+) 个数据帧，而不是 (\d+)/, '`tryThis` on the first experiment')
-    expect(tryMs! * MS, 'the same window again').toBe(RUN_NS)
-    expect(tryOne, 'the frames one lane sends').toBe(data(off.rs, 'sta-1').length)
-    expect(tryBoth, 'against two lanes')
-      .toBe(data(on.rs, 'sta-1').length + data(on.rs, 'sta-1#6g').length)
-    expect(off.wait('sta-1'), 'and the wait really does more than double')
-      .toBeGreaterThan(2 * Math.max(on.wait('sta-1'), on.wait('sta-1#6g')))
-    // 「它自己也从 185 帧降到 116 帧」, in `tryThis` and again in the first question
-    for (const [was, now] of every([TRY, QUIZ].join('\n'), /从 (\d+) 帧降到 (\d+) 帧/g,
-      'the neighbour’s two counts, printed twice', 2)) {
-      expect(val(was!), 'what the neighbour had').toBe(data(on.rs, 'sta-2').length)
-      expect(val(now!), 'and what it is left with').toBe(data(off.rs, 'sta-2').length)
-    }
-  })
-
-  it('reads the two bands `picture` names as the two lanes the run really has', () => {
-    const on = viewOf('base')
-    /*
-     * **A band name is a figure here.** 「邻居把 5 GHz 占满了，而 6 GHz 上除了笔记本和接入点
-     * 之外一个人也没有」 names the two lanes, and the run says which is which: everything the
-     * neighbour sends is on the one, and the only senders on the other are the laptop and the
-     * access point.
-     */
-    const [busy, empty] = figs(PIC, /邻居把 (\d) GHz 占满了，而 (\d) GHz 上除了笔记本和接入点/,
-      '`picture` on the two bands')
-    const senders = (ghz: number): Set<string> => new Set(on.rs
-      .filter((r): r is Tx => r.type === 'TX_START')
-      .filter((r) => (ghz === 6) === r.node.endsWith('#6g'))
-      .map((r) => r.node))
-    expect([...senders(busy!)].sort(), 'who sends on the band the neighbour fills')
-      .toEqual(['ap', 'sta-1', 'sta-2'])
-    expect([...senders(empty!)].sort(), 'and who sends on the other one')
-      .toEqual(['ap#6g', 'sta-1#6g'])
-    // 「笔记本的方块在 5 GHz 那条泳道上越来越稀疏，在 6 GHz 那条泳道上越来越密集」
-    const [thin, thick] = figs(PIC, /笔记本的方块在 (\d) GHz 那条泳道上越来越稀疏，在 (\d) GHz 那条泳道上越来越密集/,
-      '`picture` on which lane fills up')
-    expect(data(on.rs, laneNode('sta-1', thick!)).length, 'the lane that fills up')
-      .toBeGreaterThan(data(on.rs, laneNode('sta-1', thin!)).length)
-    expect([thin, thick], 'which are the busy and the empty band, in that order')
-      .toEqual([busy, empty])
-  })
-
-  it('reads every other band this lesson names, each against the lane it means', () => {
-    const on = viewOf('base')
-    const off = viewOf('off')
-    const lanes = (ghz: number): Set<string> => new Set(on.rs
-      .filter((r): r is Tx => r.type === 'TX_START')
-      .filter((r) => (ghz === 6) === r.node.endsWith('#6g'))
-      .map((r) => r.node))
-    /*
-     * **The sweep of 2026-10-14 found every one of these eight.** A band name looked like
-     * decoration, so nothing read it; but each one is a claim about which lane the sentence is
-     * about, and the run answers every one.
-     */
-    // `picture`: 「于是笔记本的帧大部分都从 6 GHz 那条链路发出」
-    const [mostly] = figs(PIC, /于是笔记本的帧大部分都从 (\d) GHz 那条链路发出/,
-      '`picture` on where most of the frames go')
-    const mostlyNode = laneNode('sta-1', mostly!)
-    expect(data(on.rs, mostlyNode).length, 'the lane most of the laptop’s frames leave by')
-      .toBeGreaterThan(
-        data(on.rs, mostlyNode === 'sta-1' ? 'sta-1#6g' : 'sta-1').length)
-    // `limits`: 「所以 6 GHz 上除了这台笔记本和它的接入点，不可能有第三个人」
-    const [onlyTwo] = figs(LIM, /所以 (\d) GHz 上除了这台笔记本和它的接入点/,
-      '`limits` on the band with nobody else on it')
-    expect([...lanes(onlyTwo!)].sort(), 'and nobody else ever sends there')
-      .toEqual(['ap#6g', 'sta-1#6g'])
-    // `limits`: 「同一堵砖墙在 6 GHz 上比在 5 GHz 上更难穿透」 — the two bands, and what the
-    // engine does instead: one constant per band, the same at every wall and every distance
-    const [wallHi, wallLo] = figs(LIM, /同一堵砖墙在 (\d) GHz 上比在 (\d) GHz 上更难穿透/,
-      '`limits` on what it does not model')
-    expect([wallHi, wallLo], 'the two bands this room runs')
-      .toEqual([onlyTwo, Number(raw(PIC, /邻居把 (\d) GHz 占满了/, '`picture` on the busy band')[0])])
-    expect(wallHi, 'the upper of the two, which is the band the engine adds its constant to')
-      .toBe(6)
-    expect(LINK_EXTRA_LOSS_DB['6g'], 'and that constant is a number, not a function of the wall')
-      .toBeGreaterThan(0)
-    // the quiz: 「只剩 5 GHz 那条链路」, 「让出了 6 GHz，5 GHz 上就它们两个了」, 「在 5 GHz 上
-    // 一帧一帧地抢」 — every one of them is about the lane the laptop is left with
-    const [qLeft] = figs(QUIZ, /只剩 (\d) GHz 那条链路/, 'the question on the lane it is left with')
-    expect(new Set(data(off.rs, laneNode('sta-1', qLeft!)).map((r) => r.node)).size,
-      'the laptop still sends there with MLO off').toBe(1)
-    expect(data(off.rs, qLeft === 6 ? 'sta-1' : 'sta-1#6g'), 'and nowhere else').toHaveLength(0)
-    const [gaveUp, nowTwo] = figs(QUIZ, /笔记本让出了 (\d) GHz，(\d) GHz 上只有它们两台/,
-      'the wrong answer’s own two bands')
-    expect(gaveUp, 'the band it gives up').not.toBe(qLeft)
-    expect(nowTwo, 'and the one they then share').toBe(qLeft)
-    expect(data(off.rs, laneNode('sta-1', gaveUp!)), 'which it really does leave entirely')
-      .toHaveLength(0)
-    const [fighting] = figs(QUIZ, /笔记本现在每一帧都要在 (\d) GHz 上竞争/,
-      'the right answer’s own band')
-    expect(fighting, 'the band it has to fight for').toBe(qLeft)
-    expect(off.wait('sta-1'), 'and fighting for it really costs it the wait')
-      .toBeGreaterThan(on.wait(laneNode('sta-1', qLeft!)))
-  })
-
-  it('reads the band the watch block jumps to, the jump’s own label, and the band `limits` imagines', () => {
-    /*
-     * **Three more bands, uncovered by the 「第」 rule change of 2026-10-14** — all three stood
-     * next to a 「第」 (「跳到第一个 6 GHz 数据帧」, 「不可能有第三个人。真实的 6 GHz 上…」, and
-     * the jump label 「第一个 5 GHz 数据帧」), so the sweep that read the other eight never
-     * offered them. Each is the same kind of claim as the eight: which lane the sentence is
-     * about, and here also which lane the reader is sent to.
-     */
-    const on = viewOf('base')
-    const lanes = (ghz: number): Set<string> => new Set(on.rs
-      .filter((r): r is Tx => r.type === 'TX_START')
-      .filter((r) => (ghz === 6) === r.node.endsWith('#6g'))
-      .map((r) => r.node))
-    const [watch] = figs(PIC, /跳到第一个 (\d) GHz 数据帧/, 'the watch block on where it jumps')
-    const jump = mloGain.jumps![(mloGain.picture!
-      .find((b) => b.kind === 'watch') as { jump: number }).jump]!
-    const [labelBand] = figs(jump.label, /第一个 (\d) GHz 数据帧/, 'the jump’s own label')
-    expect(labelBand, 'the band the jump the watch block names is about').toBe(watch)
-    const hit = on.rs.find((r) => jump.find(r))
-    expect(hit, `「${jump.label}」 finds no such record in the base run`).toBeDefined()
-    expect((hit as Tx).node, 'and the record it lands on is on that lane')
-      .toBe(laneNode('sta-1', watch!))
-    // every jump of this lesson names a band, and each one lands on the lane it names
-    let labelled = 0
-    for (const j of mloGain.jumps!) {
-      const m = /第一个 (\d) GHz 数据帧/.exec(j.label)
-      if (m === null) continue
-      labelled++
-      const r = on.rs.find((x) => j.find(x))
-      expect(r, `「${j.label}」 finds no such record`).toBeDefined()
-      expect((r as Tx).node, `「${j.label}」 lands on the lane it names`)
-        .toBe(laneNode('sta-1', Number(m[1])))
-    }
-    expect(labelled, 'one jump per lane this device has').toBe(2)
-    // `limits`: 「真实的 6 GHz 上有邻居的网」 — the same clean band the sentence before it names
-    const [real] = figs(LIM, /真实的 (\d) GHz 上有邻近的网络/,
-      '`limits` on what a real one of that band would carry')
-    const [clean] = figs(LIM, /所以 (\d) GHz 上除了这台笔记本和它的接入点/,
-      '`limits` on the band with nobody else on it')
-    expect(real, 'the band it is contrasting with is the one it just called clean').toBe(clean)
-    expect([...lanes(real!)].sort(), 'and in this scene only those two are on it')
-      .toEqual(['ap#6g', 'sta-1#6g'])
-  })
-
-  it('reads `limits` and `sources` on the two bands and the one run behind every figure', () => {
-    // 「LINK_EXTRA_LOSS_DB 给 6 GHz 一律多记 1.2 dB、给 2.4 GHz 一律少记 6.5 dB」
-    const [hiGhz, hiDb, loGhz, loDb] = figs(LIM,
-      /给 (\d) GHz 一律多计 ([\d.]+) dB、给 ([\d.]+) GHz 一律少计 ([\d.]+) dB/,
-      '`limits` on the engine’s own band offsets')
-    expect(LINK_EXTRA_LOSS_DB['6g'], 'what the engine adds on the upper band').toBe(hiDb)
-    expect(LINK_EXTRA_LOSS_DB['2g'], 'and what it takes off the lower one').toBe(-loDb!)
-    expect(hiGhz, 'the band it adds to').toBe(6)
-    expect(loGhz, 'and the band it takes off').toBe(2.4)
-    // 「这几张表里的每一个数都来自同一个种子的一次 300 ms 运行…所以「67 比 240」不带任何误差范围」
-    const [limMs] = figs(LIM, /同一个种子的一次 (\d+) ms 运行/, '`limits` on the one run')
-    expect(limMs! * MS, 'the window behind every table').toBe(RUN_NS)
-    const [a, b] = figs(LIM, /所以「(\d+) 比 (\d+)」不带任何误差范围/, '`limits` on the ratio it quotes')
-    const on = viewOf('base')
-    expect([a, b], 'the two counts of the first table')
-      .toEqual([data(on.rs, 'sta-1').length, data(on.rs, 'sta-1#6g').length])
-    // 「6 GHz 那条泳道的等待略长于 5 GHz」
-    const [srcHi, srcLo] = figs(SRC, /(\d) GHz 那条泳道的等待略长于 (\d) GHz/,
-      '`sources` on the two waits')
-    expect(on.wait(laneNode('sta-1', srcHi!)), 'the busier lane waits longer')
-      .toBeGreaterThan(on.wait(laneNode('sta-1', srcLo!)))
-    // 「这里它因为对方让出了大半个 5 GHz 而得利」 — the band the laptop gives up. Until 2026-11-10
-    // this read 「并没有……得利」, against the table's own 185 vs 116 neighbour frames.
-    const [stepGhz] = figs(NUMS, /因为对方让出了 (\d) GHz 的大部分时间而受益/, 'the steps on the band')
-    expect(stepGhz, 'the shared band, which is the neighbour’s only one').toBe(srcLo)
+  it('the why and the quiz print the same counts the labs do', () => {
+    const on = base(), o = off(), b = both()
+    const total = (v: View) => data(v.rs, 'sta-1').length + data(v.rs, 'sta-1#6g').length
+    const w = /从 (\d+) 个降到 (\d+) 个.*也从 (\d+) 帧降到 (\d+) 帧.*总量降到 (\d+) 帧/.exec(mloGain.why!)!
+    expect(w.slice(1).map(Number)).toEqual([total(on), data(o.rs, 'sta-1').length, data(on.rs, 'sta-2').length, data(o.rs, 'sta-2').length, total(b)])
+    const q = mloGain.quiz.flatMap((x) => [...x.options, x.explain]).join(' ')
+    const q1 = /邻居从 (\d+) 帧降到 (\d+) 帧/.exec(q)!
+    expect([Number(q1[1]), Number(q1[2])]).toEqual([data(on.rs, 'sta-2').length, data(o.rs, 'sta-2').length])
+    const q2 = /总量从 (\d+) 帧降到 (\d+)/.exec(q)!
+    expect([Number(q2[1]), Number(q2[2])]).toEqual([total(on), total(b)])
   })
 })

@@ -1,5 +1,9 @@
 /**
- * `fading` — the lesson's claims, each with the ruler it was measured on.
+ * `fading` — the lesson's claims, each with the ruler it was measured on. Standard-first shape
+ * since 2026-11-11: ① says the standards define no channel model and what they do fix, ② the
+ * engine's two-layer fade and its rate choice on the static mean, ③ four runs. The engine pins
+ * below (the gate, the clump, the `RX_START` fields, the inert configurations and the census)
+ * are unchanged; the prose read-backs at the end now read ② and ③.
  *
  * **The acceptance gate was written down before the drop rates were read**, which is this
  * programme's hard rule (slice 4b §7.6): same geometry, same width, same duration, same
@@ -8,27 +12,19 @@
  *     min over seeds of the Rician K = 6 dB drop rate  >  max over seeds of the Rayleigh one
  *
  * and if it does not hold the lesson does not ship. **Changing a seed, a duration or the
- * station's position to make it hold is picking data, not measuring**, and the whole reason the
- * criterion is a sentence in a test file rather than a judgement at the end is so the next author
- * cannot do that quietly. The claim is fragile in one specific way and it is worth saying which:
- * it is a comparison ACROSS two distributions whose rate control settles on different rungs
- * (Rayleigh at the bottom, Rician near the top), so moving this scene's geometry or width moves
- * the rungs and the comparison really can invert.
+ * station's position to make it hold is picking data, not measuring.**
  *
  * **One instrument, stated once and used by every drop rate below**: `fadingScenario(...)`, a
  * single saturated uplink, 1000 ms, seeds 7 / 11 / 23 / 101 / 999; the denominator is `sta-1`'s
  * `TX_START` records whose frame `kind` is `data`, the numerator is the `RX_FAIL` records at
  * `ap` whose `from` is `sta-1`. Throughput is delivered PSDU octets — `RX_OK.frame.bytes`, which
- * is 1530 to the MSDU's 1500 — over the run length. Where a figure comes from one seed it says
- * seed 7, and where it comes from one configuration it names it.
+ * is 1530 to the MSDU's 1500 — over the run length.
  *
  * **The run length is 1000 ms and not the 150 ms of `lesson-hashes.test.ts`, and that is a
  * measured requirement rather than caution.** The slow layer's coherence time is 100 ms, so a
  * 150 ms window draws at most two shadow values; at sigma 4 dB both of them land above the
- * decode threshold and a shadowed run hashes **identically** to an unshadowed one (`ba2dfb4c`
- * for both). A ruler whose window is the same order as the period it is measuring cannot see
- * that period at all. That is why the shadow layer is a `tryThis` and not a fourth variant, and
- * why its gate lives here at 1000 ms.
+ * decode threshold and a shadowed run hashes **identically** to an unshadowed one. That is why
+ * the shadow layer is a lab with editor steps and not a fourth variant.
  */
 import { describe, expect, it } from 'vitest'
 import { lessonShapeSuite, ofType } from './kit'
@@ -37,16 +33,15 @@ import { LESSONS } from '../../src/course/lessons'
 import { COURSE_ORDER, MODULES } from '../../src/course/curriculum'
 import { fadingScenario, selectivityScenario, widthScenario } from '../../src/course/wifiScenes'
 import {
-  FADING_DEFAULTS, RICIAN_K_DEFAULT_DB, shadowDb, smallScaleDb,
+  FADING_DEFAULTS, RICIAN_K_DEFAULT_DB,
 } from '../../src/engine/fading'
 import { fadingToggle } from '../../src/editor/planOps'
 import { Simulation } from '../../src/engine/simulation'
 import type { FadingCfg } from '../../src/engine/fading'
 import type { Scenario } from '../../src/model/scenario'
-import type { Block } from '../../src/course/lessonKit'
-import { PHY_MODES } from '../../src/engine/phy'
-import { zhNumeral } from './coverage'
+import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import type { TLRecord } from '../../src/model/records'
+import { PHY_MODES, RATE_MARGIN_DB, noiseDbm, reqSinrDb } from '../../src/engine/phy'
 
 const MS = 1_000_000
 const RUN_NS = 1000 * MS
@@ -93,33 +88,26 @@ describe('fading · where it sits and what it assumes', () => {
     expect(MODULES[8].title).toBe('容量参数与速率控制')
     const i = COURSE_ORDER.indexOf('fading')
     expect(COURSE_ORDER[i - 1]).toBe('rate-cost')
-    // The cost of this placement, written down: M8 goes from six lessons to seven, which makes
-    // it the largest Wi-Fi module. M9 already has seven, so seven has a precedent.
     expect(LESSONS.filter((l) => l.module === 8).length).toBe(7)
   })
 
   it('needs both halves of the rate pair, because its conclusion is their product', () => {
-    // `rate-fallback` owns the two-failures rule; `rate-cost` owns what a rung below the ceiling
-    // costs in airtime. This lesson's claim is 「the gentler channel drops more AND goes faster」,
-    // which cannot be read without both.
     expect(fading.needs).toEqual(['rate-fallback', 'rate-cost'])
     for (const id of fading.needs!) expect(COURSE_ORDER.indexOf(id)).toBeLessThan(COURSE_ORDER.indexOf('fading'))
   })
 
-  it('has two things to observe and two experiments', () => {
-    expect([fading.observe.length, fading.tryThis.length]).toEqual([2, 2])
+  it('is in the standard-first shape, with four labs and nothing left in the old sections', () => {
+    expect(isStandardFirst(fading)).toBe(true)
+    expect(fading.labs!.length).toBe(4)
+    expect(fading.limits).toEqual([])
+    expect(fading.observe).toEqual([])
+    expect(fading.tryThis).toEqual([])
   })
 
   it('does not reach for the two-station scene’s figures, which belong to another lesson', () => {
     // 514 collisions and 623 ACK timeouts are what `FADING_DEFAULTS` does to `rateScenario`
-    // (design §5.3). They are the evidence for 《听不见的邻居是时有时无的》, a tier 1 M4 lesson
-    // this one deliberately does not write — and quoting them here would attach a two-station
-    // result to a single-link scene.
-    const text = [
-      fading.why!, ...fading.outcomes!, ...fading.observe, ...fading.tryThis,
-      ...fading.limits.map((l) => l.text), ...fading.sources!,
-      JSON.stringify(fading.picture), JSON.stringify(fading.numbers), JSON.stringify(fading.deeper),
-    ].join(' ')
+    // (design §5.3); quoting them here would attach a two-station result to a single-link scene.
+    const text = JSON.stringify([fading.why, fading.outcomes, fading.standard, fading.implementation, fading.labs, fading.sources, fading.quiz])
     for (const n of ['514', '623', '450']) expect(text, `${n} is the other lesson's figure`).not.toContain(n)
   })
 })
@@ -197,25 +185,6 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
     expect(to2(Math.max(...ric.map((r) => r.dropPct)))).toBe(12.09)
   })
 
-  it('the two figures `observe` puts in front of the reader are the measured ones', () => {
-    // **The lesson's whole counterintuitive claim is carried by this pair**, and until 2026-10-12
-    // nothing in the repository compared them: the ranges above are over five seeds, while
-    // `observe[0]` names the seed-7 pair. 「2.71」 and 「10.31」 appeared nowhere in tests/.
-    // Read out of the lesson rather than retyped, so there is no figure on this side to drift.
-    const text = fading.observe[0]
-    const m = /丢帧率反而从 ([\d.]+)% 升高到 ([\d.]+)%（种子 (\d+)）/.exec(text)
-    expect(m, 'observe[0] no longer names the two drop rates in the shape this reads').not.toBeNull()
-    const seed = Number(m![3])
-    const to2 = (x: number): number => Number(x.toFixed(2))
-    expect(Number(m![1]), `the lesson says Rayleigh drops ${m![1]} % at seed ${seed}`)
-      .toBe(to2(rates(run(scene(RAYLEIGH, seed)).recs).dropPct))
-    expect(Number(m![2]), `the lesson says Rician drops ${m![2]} % at seed ${seed}`)
-      .toBe(to2(rates(run(scene(RICIAN, seed)).recs).dropPct))
-    // and the direction the sentence is built on — gentler channel, more loss — on that one seed
-    expect(Number(m![2]), 'the sentence says 「反而」; if this flips, the lesson is wrong')
-      .toBeGreaterThan(Number(m![1]))
-  })
-
   it('THE GATE: every Rician seed is strictly above every Rayleigh seed', () => {
     // The criterion as stated at the top of this file. 2.5x at the tightest pair
     // (9.98 against 4.73) and 10.9x at the widest (12.09 against 1.11).
@@ -259,7 +228,7 @@ describe('fading · the gate: the gentler channel drops more, on every seed', ()
     // between configurations, only the rates are. Slice 4a's lesson, inherited.
     expect(Math.min(...ray.map((r) => r.sent))).toBe(809)
     expect(Math.max(...ray.map((r) => r.sent))).toBe(1056)
-    const text = [JSON.stringify(fading.numbers), JSON.stringify(fading.picture)].join(' ')
+    const text = JSON.stringify([fading.standard, fading.implementation, fading.labs])
     for (const n of ['845', '848 条', '条失败']) expect(text).not.toContain(n)
   })
 
@@ -460,6 +429,7 @@ describe('fading · legal and provably inert: four configurations that change no
   })
 })
 
+
 /**
  * **The slow layer runs in a shipped scene for the first time since 2026-10-10, and this census
  * is the record of which claim that retired.**
@@ -573,121 +543,128 @@ describe('fading · the census of every shipped scene that turns fading on', () 
   })
 })
 
-describe('fading · the five limits this lesson lifts, and the eleven it does not', () => {
-  const lifted = LESSONS.filter((l) => l.limits.some((x) => x.until === 'fading')).map((l) => l.id)
-
-  it('is exactly the five the design judged, each on an `out-of-scope` limit', () => {
-    expect([...lifted].sort()).toEqual(['bianchi', 'mcs-ladder', 'radio-primer', 'rate-fallback', 'rate-vs-model'])
-    for (const id of lifted) {
-      const lim = LESSONS.find((l) => l.id === id)!.limits.find((x) => x.until === 'fading')!
-      expect(lim.kind, `${id} → fading`).toBe('out-of-scope')
-      expect(COURSE_ORDER.indexOf(id)).toBeLessThan(COURSE_ORDER.indexOf('fading'))
-    }
+/**
+ * **No lesson's limit points at `fading` any more** (2026-11-11). Five lessons once carried an
+ * `out-of-scope` limit promising that this lesson would lift it — `radio-primer`, `mcs-ladder`,
+ * `bianchi`, `rate-vs-model` and `rate-fallback` — because their own scenes write no `fading`
+ * section. All five are standard-first now and have no `limits` section; where a scene's lack of
+ * fading still matters, the lesson says so in a ② row next to the standard rule instead
+ * (`rate-fallback`'s 「链路电平」 is pinned here, since it is this lesson's direct prerequisite).
+ */
+describe('fading · what it used to lift, and where that sentence lives now', () => {
+  it('no limit in the course points at `fading`', () => {
+    const lifted = LESSONS.filter((l) => l.limits.some((x) => x.until === 'fading')).map((l) => l.id)
+    expect(lifted).toEqual([])
   })
 
-  it('and it lifts none of the four that need two stations, nor the five about the engine', () => {
-    // Carrier sense, the hidden relation, RTS/CTS's 1.4 dB and the time-varying hidden relation
-    // all need two stations that cannot hear each other, and this scene has one station. They
-    // are lifted by 《听不见的邻居是时有时无的》 (design §5.3), not by this lesson.
-    for (const id of ['cca', 'hidden', 'rts-cts', 'txop-protect']) {
-      const l = LESSONS.find((x) => x.id === id)!
-      expect(l.limits.filter((x) => x.until === 'fading'), `${id} must not be lifted here`).toEqual([])
-    }
-    // These five each say something this lesson does not change: a ratio's numerator, the same
-    // rung-to-rung wording `mcs-ladder` already owns, a scene checklist, seven exact instants,
-    // and a project's deliverable.
-    for (const id of ['noise-floor', 'decode-thresholds', 'anomaly', 'retries-queues', 'tier1-project']) {
-      const l = LESSONS.find((x) => x.id === id)!
-      expect(l.limits.filter((x) => x.until === 'fading'), `${id} must not be lifted here`).toEqual([])
-    }
+  it('`rate-fallback` says in ② that its scene has no fading, and points here', () => {
+    const rf = LESSONS.find((l) => l.id === 'rate-fallback')!
+    expect(isStandardFirst(rf)).toBe(true)
+    expect(rf.scenario().fading).toBeUndefined()
+    const row = rf.implementation!.find((x) => x.topic === '链路电平')!
+    expect(row.sim).toContain('时变链路（衰落）')
+    expect(row.sim).toContain('「衰落」那一课')
+    expect(COURSE_ORDER.indexOf('fading')).toBeGreaterThan(COURSE_ORDER.indexOf('rate-fallback'))
   })
 
-  it('`capstone`’s coherence-time limit gains the standard’s own scale and no promise', () => {
+  it('`capstone` states the standard’s in-frame scale beside the coherence time, and no promise', () => {
+    // `capstone` went standard-first on 2026-11-11: the sentence that used to be a `limits` entry
+    // is now its ② row 「移动与多普勒」. Read from wherever it lives, and it must never be a promise.
     const l = LESSONS.find((x) => x.id === 'capstone')!
-    const lim = l.limits.find((x) => x.text.includes('相干时间是一个配置值'))!
-    expect(lim.until, 'this lesson strengthens that limit rather than lifting it').toBeUndefined()
+    const where = [...l.limits.map((x) => x.text), ...(l.implementation ?? []).map((x) => x.sim)]
+    const text = where.find((t) => t.includes('相干时间是一个配置值'))!
+    expect(text, 'capstone no longer says the coherence time is a configured value').toBeDefined()
+    expect(l.limits.filter((x) => x.until === 'fading')).toEqual([])
     // 10 or 20 symbols of 13.6 µs, and the simulator's slow layer holds 100 ms: 735 times longer.
-    expect(lim.text).toContain('136')
-    expect(lim.text).toContain('272')
-    expect(lim.text).toContain('735')
+    expect(text).toContain('136')
+    expect(text).toContain('272')
+    expect(text).toContain('735')
     expect((100 * MS) / (13_600 * 10)).toBeCloseTo(735.3, 1)
-  })
-
-  it('its own four limits name one of each kind, and the model values say who chose them', () => {
-    expect(fading.limits.map((x) => x.kind).sort())
-      .toEqual(['model-value', 'out-of-scope', 'threshold', 'unmodelled'])
-    const byKind = new Map(fading.limits.map((x) => [x.kind, x.text]))
-    // the four model values, and that they are this simulator's and not a measurement campaign's
-    for (const needle of ['4 dB', '100 ms', '瑞利', 'K = 6 dB', '不是任何一次测量活动的结果']) {
-      expect(byKind.get('model-value'), needle).toContain(needle)
-    }
-    // the dB-vs-power asymmetry, which is the docblock error this slice corrected
-    expect(byKind.get('threshold')).toContain('−50 dB')
-    expect(byKind.get('unmodelled')).toContain('没有建模多普勒')
-    // and the one the whole conclusion rests on
-    expect(byKind.get('out-of-scope')).toContain('mcsForPeer')
   })
 })
 
 /**
- * **Every figure the prose prints, read back out of it.**
- *
- * One pair above was already a read-back — `observe[0]`'s 2.71 / 10.31, parsed out of the
- * sentence because nothing in the repository had ever compared them. Everything else was pinned
- * against a figure typed on this side, and several of those tolerances were looser than the
- * printed precision: `toBeCloseTo(21.47, 1)` admits anything within 0.05 of a figure the lesson
- * prints to two decimals.
- *
- * Nothing new is measured here. Every assertion calls the same `run`, `scene`, `rates`,
- * `perSeed`, `mean`, `ofType` and the engine's own `shadowDb` / `smallScaleDb` the tests above
- * call — the figure is parsed **out of the lesson** instead of being written down beside it.
+ * **① and ②, checked against the standard's own words and the engine.** ① may name Rayleigh and
+ * Rician only to say the standards do not; ② states the engine's values, read here against
+ * `FADING_DEFAULTS`, the variants and the PHY tables.
  */
-describe('fading · every figure the prose prints, read back out of it', () => {
-  const blockText = (b: unknown): string => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (typeof v === 'string') out.push(v)
-      else if (Array.isArray(v)) for (const x of v) walk(x)
-      else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x)
-    }
-    walk(b)
-    return out.join('\n')
+describe('fading · ① cites what it teaches, ② is what the engine does', () => {
+  const std = fading.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
+  const implRow = (topic: string) => {
+    const row = fading.implementation!.find((x) => x.topic === topic)
+    expect(row, `implementation row 「${topic}」`).toBeDefined()
+    return row!
   }
-  const TERMS = blockText(fading.terms)
-  const PIC = blockText(fading.picture)
-  const NUMS = blockText(fading.numbers)
-  const DEEP = blockText(fading.deeper)
-  const LIMITS = blockText(fading.limits)
-  const SRC = blockText(fading.sources)
-  const OBS = blockText(fading.observe)
-  const TRY = blockText(fading.tryThis)
-  const QUIZ = blockText(fading.quiz)
 
-  const val = (s: string): number => Number(s.replace(/[\s,]/g, '').replace(/[−–]/g, '-'))
-  const raw = (s: string, re: RegExp, what: string): string[] => {
+  it('① cites each clause and says the standards define no channel model', () => {
+    for (const clause of ['§36.3.21.2', '表 36-67', '§10.6.1', '§26.13', '§35.19', '§10.33.3', '§9.3.1.22.1'])
+      expect(std, clause).toContain(clause)
+    expect(std).toContain('标准没有定义信道模型')
+    expect(std).toContain('没有给出这个间隔的数值')
+    // no simulator value is taught as the standard's
+    for (const v of ['100 ms', '4 dB', 'K = 6']) expect(std, v).not.toContain(v)
+  })
+
+  it('② is not all faithful: choices, values and two absences', () => {
+    const kinds = fading.implementation!.map((r) => r.kind)
+    expect(kinds).not.toContain('faithful')
+    expect(kinds.filter((k) => k === 'absent')).toHaveLength(2)
+    expect(implRow('MCS 反馈').kind).toBe('absent')
+    expect(implRow('中间训练符号').kind).toBe('absent')
+  })
+
+  it('四个取值: the editor’s defaults, and the two variants that zero the shadow', () => {
+    const [sigma, coh, k] = /阴影标准差 (\d+) dB、相干时间 (\d+) ms、瑞利、莱斯 K = (\d+) dB/.exec(implRow('四个取值').sim)!.slice(1).map(Number)
+    expect(sigma).toBe(FADING_DEFAULTS.shadowSigmaDb)
+    expect(coh).toBe(FADING_DEFAULTS.coherenceMs)
+    expect(FADING_DEFAULTS.smallScale).toBe('rayleigh')
+    expect(k).toBe(RICIAN_K_DEFAULT_DB)
+    expect(fading.variants![1].scenario().fading!.shadowSigmaDb).toBe(0)
+    expect(fading.variants![2].scenario().fading!.shadowSigmaDb).toBe(0)
+    expect(fading.scenario().fading).toEqual(fading.variants![1].scenario().fading)
+  })
+
+  it('接收判决: the threshold is the sensitivity minus noise at a 10 dB noise figure', () => {
+    expect(implRow('接收判决').sim).toContain('噪声系数取 10 dB')
+    const sens = PHY_MODES.eht.sensDbm
+    for (let m = 0; m < 4; m++) expect(reqSinrDb('eht', m)).toBeCloseTo(sens[m]! - noiseDbm(20, 10), 9)
+  })
+
+  it('选级: the ceiling keeps 3 dB, and the fade never enters it', () => {
+    expect(RATE_MARGIN_DB).toBe(3)
+    expect(implRow('选级').sim).toContain('减去 3 dB')
+    // the unfaded run sits on one rung for the whole round: the static mean decides it
+    const mcs = new Set(ofType(run(scene(undefined)).recs, 'TX_START')
+      .filter((r) => r.node === 'sta-1' && r.frame.kind === 'data').map((r) => r.frame.mcs))
+    expect([...mcs]).toEqual([3])
+  })
+})
+
+/**
+ * **③: every figure the labs print, read back out of the lesson** and compared with the same runs
+ * the gate above uses (same memo), at the precision it was printed to.
+ */
+describe('fading · ③ every figure the labs print is the run', () => {
+  const val = (s: string): number => Number(s.replace(/[\s,%]/g, '').replace(/[−–]/g, '-'))
+  const grab = (s: string, re: RegExp, what: string): string[] => {
     const m = re.exec(s)
-    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`)
-      .not.toBeNull()
+    expect(m, `${what}: the lesson no longer prints this in the shape this test reads`).not.toBeNull()
     return m!.slice(1)
   }
-  const figs = (s: string, re: RegExp, what: string): number[] => raw(s, re, what).map(val)
-  /** A figure READ off the lesson against a measurement, at the precision it was printed to. */
+  /** A printed figure against a measurement, at the precision it was printed to. */
   const same = (printed: string, measured: number, what: string): void => {
-    const fig = printed.replace(/[\s,]/g, '').replace(/[−–]/g, '-')
+    const fig = printed.replace(/[\s,%]/g, '').replace(/[−–]/g, '-')
     const dp = (fig.split('.')[1] ?? '').length
-    expect(Number(fig), `${what} (to ${dp} decimals, read off the lesson)`)
-      .toBe(Number(measured.toFixed(dp)))
+    expect(Number(fig), `${what} (to ${dp} decimals)`).toBe(Number(measured.toFixed(dp)))
   }
-  /** The Euler-Mascheroni constant: the closed form `deeper` prints is -10γ/ln10. physics */
-  const EULER_GAMMA = 0.5772156649015329
-
-  /** The lesson's nth table of `numbers`. */
-  const table = (n: number): Extract<Block, { kind: 'table' }> =>
-    fading.numbers!.filter((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')[n]!
-  const cell = (n: number, row: number, col: number): string => table(n).rows[row]![col]!
+  const lab = (heading: string): Lab => {
+    const l = fading.labs!.find((x) => x.heading === heading)
+    expect(l, `lab 「${heading}」`).toBeDefined()
+    return l!
+  }
+  const tableOf = (l: Lab): Extract<Block, { kind: 'table' }> =>
+    (l.blocks ?? []).find((b): b is Extract<Block, { kind: 'table' }> => b.kind === 'table')!
   const CONFIGS: (FadingCfg | undefined)[] = [undefined, RAYLEIGH, RICIAN]
-
-  /** Rungs the rate control used, seed 7, by MCS. */
   const rungs = (f: FadingCfg | undefined): Record<number, number> => {
     const out: Record<number, number> = {}
     for (const r of ofType(run(scene(f)).recs, 'TX_START')) {
@@ -696,460 +673,164 @@ describe('fading · every figure the prose prints, read back out of it', () => {
     }
     return out
   }
-  /** Mean airtime of a data frame, µs, seed 7. */
   const airtimeUs = (f: FadingCfg | undefined): number => {
-    const tx = ofType(run(scene(f)).recs, 'TX_START')
-      .filter((r) => r.node === 'sta-1' && r.frame.kind === 'data')
+    const tx = ofType(run(scene(f)).recs, 'TX_START').filter((r) => r.node === 'sta-1' && r.frame.kind === 'data')
     return tx.reduce((n, r) => n + r.frame.txTimeNs, 0) / tx.length / 1000
   }
-  /** How many of ten 100 ms windows hold a failure, for one config and one seed. */
-  const failWindows = (f: FadingCfg | undefined, seed: number, widthMs = 100): number => {
+  const failWindows = (f: FadingCfg | undefined, seed: number): number => {
     const w = new Set<number>()
     for (const r of ofType(run(scene(f, seed)).recs, 'RX_FAIL')) {
       if (r.node !== 'ap' || r.from !== 'sta-1') continue
-      w.add(Math.floor(r.t / (widthMs * MS)))
+      w.add(Math.floor(r.t / (100 * MS)))
     }
     return w.size
   }
-  /** The fast layer's own draws, 200 000 of them, memoised: the deeper figures are these. */
-  const DRAWS = new Map<string, number[]>()
-  const draws = (f: FadingCfg): number[] => {
-    const key = `${f.smallScale}|${f.ricianKdB ?? ''}`
-    if (!DRAWS.has(key)) {
-      DRAWS.set(key, Array.from({ length: 200_000 }, (_x, i) =>
-        smallScaleDb(f, SEEDS[0]!, 'ap', 'sta-1', `f${i}`)))
-    }
-    return DRAWS.get(key)!
-  }
-  const shadowDraws = (sigma: number): number[] => {
-    const key = `shadow|${sigma}`
-    if (!DRAWS.has(key)) {
-      DRAWS.set(key, Array.from({ length: 200_000 }, (_x, i) =>
-        shadowDb({ shadowSigmaDb: sigma, coherenceMs: FADING_DEFAULTS.coherenceMs, smallScale: 'none' },
-          SEEDS[0]!, 'ap', 'sta-1', i * FADING_DEFAULTS.coherenceMs * MS)))
-    }
-    return DRAWS.get(key)!
-  }
-  const avg = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
-  const sd = (xs: number[]): number => {
-    const m = avg(xs)
-    return Math.sqrt(avg(xs.map((x) => (x - m) * (x - m))))
+  /** The margin of every reception over its rung's threshold, off a `selectivity` run of the Rayleigh scene. */
+  const margins = (): number[] => {
+    const sc = { ...scene(RAYLEIGH), selectivity: {} } as Scenario
+    return ofType(run(sc).recs, 'WIFI_SEL').filter((r) => r.node === 'ap' && r.from === 'sta-1')
+      .map((r) => r.meanSinrDb - r.threshDb).sort((a, b) => a - b)
   }
 
-  it('the coherence time, and the shadow that never moves while it is switched off', () => {
-    for (const [text, re, what] of [
-      [TERMS, /本仿真器取 (\d+) ms/, '`terms`'],
-      [PIC, /而 (\d+) ms 这个相干时间是本仿真器选定的/, '`picture`'],
-      [LIMITS, /相干时间 (\d+) ms、瑞利/, '`limits`'],
-    ] as const) {
-      expect(val(raw(text, re, what)[0]!), `${what}: the coherence time this simulator picks`)
-        .toBe(FADING_DEFAULTS.coherenceMs)
-    }
-    // 「shadow 始终是 +0.0」 — the base scene runs Rayleigh at sigma 0, so the slow layer is off
-    const rows = ofType(run(scene(RAYLEIGH)).recs, 'RX_START')
-      .filter((r) => r.node === 'ap' && r.from === 'sta-1')
-    expect(rows.length, 'the base run does report receptions').toBeGreaterThan(100)
-    for (const [text, re, what] of [
-      [PIC, /shadow 始终是 \+([\d.]+)/, '`picture`'],
-      [OBS, /所以那个值是 \+([\d.]+)/, '`observe`'],
-    ] as const) {
-      const [flat] = raw(text, re, `${what} on the shadow`)
-      expect(new Set(rows.map((r) => r.shadowDb)), `${what}: the shadow of every reception`)
-        .toEqual(new Set([val(flat!)]))
-    }
-    expect(new Set(rows.map((r) => r.fastDb)).size, 'while the fast one never repeats')
-      .toBe(rows.length)
+  it('lab 1: the shadow is +0.0 on every row, and 731 rows carry 731 different fast values', () => {
+    expect(fading.scenario()).toEqual(scene(RAYLEIGH))
+    const rows = ofType(run(scene(RAYLEIGH)).recs, 'RX_START').filter((r) => r.node === 'ap' && r.from === 'sta-1')
+    const e = lab('两层起伏在日志里').expect
+    const [shadow] = grab(e, /shadow 始终是 \+([\d.]+)/, 'lab 1 on the shadow')
+    for (const r of rows) same(shadow, r.shadowDb!, 'every row’s shadow')
+    const [ms, n, n2] = grab(e, /运行 (\d+) ms，接入点一侧共有 (\d+) 条来自这台站点（station, STA）的接收记录，(\d+) 个 fast 值各不相同/, 'lab 1 on the rows').map(val)
+    expect(ms).toBe(RUN_NS / MS)
+    expect(n).toBe(rows.length)
+    expect(n2).toBe(new Set(rows.map((r) => r.fastDb)).size)
   })
 
-  it('the three-config table: its heading’s seeds and duration, and every cell of every row', () => {
-    const heading = table(0).heading!
-    const seeds = figs(heading, /五个种子（(\d+) \/ (\d+) \/ (\d+) \/ (\d+) \/ (\d+)）/,
-      'the table’s own list of seeds')
-    expect(seeds, 'the seeds this file measures on').toEqual(SEEDS)
-    same(raw(heading, /各运行 (\d+) ms/, 'the table’s own duration')[0]!, RUN_NS / MS,
-      'the window every figure of this table is measured over')
-    // the bucket width is in the table's HEAD, which is its own site
-    same(raw(blockText(table(0).head), /有失败的 (\d+) ms 窗口/,
-      'the table’s last column header')[0]!,
-    FADING_DEFAULTS.coherenceMs, 'the window the failures are bucketed into')
+  it('lab 2: the three-config table, every cell of every row', () => {
+    const t = tableOf(lab('三种配置，五个种子'))
+    const seeds = grab(t.heading!, /五个种子（(\d+) \/ (\d+) \/ (\d+) \/ (\d+) \/ (\d+)）/, 'the table’s seeds').map(val)
+    expect(seeds).toEqual(SEEDS)
+    expect(val(grab(t.heading!, /各运行 (\d+) ms/, 'the table’s duration')[0])).toBe(RUN_NS / MS)
     CONFIGS.forEach((f, i) => {
+      const row = t.rows[i]
       const per = perSeed(f)
-      // the drop-rate cell: either one figure on all five seeds, or a range over them
-      const spread = /([\d.]+)% ～ ([\d.]+)%/.exec(cell(0, i, 1))
+      const spread = /([\d.]+)% ～ ([\d.]+)%/.exec(row[1])
       if (spread !== null) {
-        same(spread[1]!, Math.min(...per.map((r) => r.dropPct)), `row ${i}: the lowest drop rate`)
-        same(spread[2]!, Math.max(...per.map((r) => r.dropPct)), `row ${i}: and the highest`)
+        same(spread[1], Math.min(...per.map((r) => r.dropPct)), `row ${i}: the lowest drop rate`)
+        same(spread[2], Math.max(...per.map((r) => r.dropPct)), `row ${i}: the highest`)
       } else {
-        const [one] = raw(cell(0, i, 1), /([\d.]+)%，五个种子结果相同/, `row ${i}: the drop rate`)
-        for (const r of per) same(one!, r.dropPct, `row ${i}: the drop rate on every seed`)
+        const [one] = grab(row[1], /([\d.]+)%，五个种子结果相同/, `row ${i}: the drop rate`)
+        for (const r of per) same(one, r.dropPct, `row ${i}: every seed`)
       }
-      // the rungs cell: either one rung or a span of them
       const used = Object.keys(rungs(f)).map(Number).sort((a, b) => a - b)
-      const span = /MCS (\d) 到 (\d)/.exec(cell(0, i, 2))
-      if (span !== null) {
-        expect([val(span[1]!), val(span[2]!)], `row ${i}: the rungs this config reaches`)
-          .toEqual([used[0], used[used.length - 1]!])
-      } else {
-        const [only] = raw(cell(0, i, 2), /只有 MCS (\d)/, `row ${i}: the only rung`)
-        expect(used, `row ${i}: the one rung it uses`).toEqual([val(only!)])
-      }
-      same(raw(cell(0, i, 3), /([\d.]+) Mb\/s/, `row ${i}: the throughput`)[0]!,
-        mean(per.map((r) => r.mbps)), `row ${i}: the mean throughput over the five seeds`)
-      // the windows cell: "0 / 10", "4 ～ 9 of 10" or "10 / 10"
+      const span = /MCS (\d) 到 (\d)/.exec(row[2])
+      if (span !== null) expect([val(span[1]), val(span[2])], `row ${i}: rungs`).toEqual([used[0], used[used.length - 1]])
+      else expect(used, `row ${i}: the one rung`).toEqual([val(grab(row[2], /只有 MCS (\d)/, `row ${i}`)[0])])
+      same(grab(row[3], /([\d.]+) Mb\/s/, `row ${i}: throughput`)[0], mean(per.map((r) => r.mbps)), `row ${i}: mean throughput`)
       const windows = SEEDS.map((s) => failWindows(f, s))
-      const wSpan = /(\d+) ～ (\d+) of (\d+)/.exec(cell(0, i, 4))
+      const wSpan = /(\d+) ～ (\d+) of (\d+)/.exec(row[4])
       if (wSpan !== null) {
-        expect(Math.min(...windows), `row ${i}: the fewest windows with a failure`)
-          .toBe(val(wSpan[1]!))
-        expect(Math.max(...windows), `row ${i}: the most`).toBe(val(wSpan[2]!))
-        expect(RUN_NS / MS / FADING_DEFAULTS.coherenceMs, `row ${i}: out of that many windows`)
-          .toBe(val(wSpan[3]!))
+        expect([Math.min(...windows), Math.max(...windows)], `row ${i}: windows`).toEqual([val(wSpan[1]), val(wSpan[2])])
+        expect(val(wSpan[3])).toBe(10)
       } else {
-        const [n, of] = figs(cell(0, i, 4), /(\d+) \/ (\d+)/, `row ${i}: the windows cell`)
-        expect(new Set(windows), `row ${i}: the same count on every seed`).toEqual(new Set([n]))
-        expect(RUN_NS / MS / FADING_DEFAULTS.coherenceMs, `row ${i}: out of that many`).toBe(of)
+        const [n, of] = grab(row[4], /(\d+) \/ (\d+)/, `row ${i}: windows`).map(val)
+        expect(new Set(windows), `row ${i}: same on every seed`).toEqual(new Set([n]))
+        expect(of).toBe(10)
       }
     })
-    // the Rician label carries the engine's own K factor, in the table and in the quiz
-    for (const [text, re, what] of [
-      [NUMS, /莱斯 K = (\d) dB 的信道起伏比瑞利浅得多/, '`numbers`'],
-      [QUIZ, /莱斯 K = (\d) dB 的信道起伏比瑞利浅，为什么/, 'the first question'],
-      [LIMITS, /瑞利、K = (\d) dB。标准里没有信道模型表/, '`limits`'],
-    ] as const) {
-      expect(val(raw(text, re, what)[0]!), `${what}: the K factor fading.ts defaults to`)
-        .toBe(RICIAN_K_DEFAULT_DB)
-    }
+    expect(t.rows[2][0]).toBe(`莱斯 K = ${RICIAN_K_DEFAULT_DB} dB`)
   })
 
-  it('the baseline paragraph, and the ratios the conclusion is stated as', () => {
-    const [about] = figs(NUMS, /这条链路发出约 (\d+) 个数据帧/, '`numbers` on the baseline')
-    const sent = perSeed(undefined).map((r) => r.sent)
-    expect(Math.round(mean(sent) / 50) * 50, 'the frames it sends, to the nearest fifty')
-      .toBe(about)
-    expect(Math.min(...sent), 'and every seed is near it').toBeGreaterThan(about! - 50)
-    expect(Math.max(...sent), 'from both sides').toBeLessThan(about! + 50)
-    // 「丢帧率却是瑞利的 2.5 到 4 倍，而吞吐量高出 78%」
-    /*
-     * **A prose defect, found by writing this read-back on 2026-10-13.** The lesson printed
-     * 「2.5 到 4 倍」, and the five per-seed ratios are 2.539 / 2.553 / 2.934 / 3.802 / **9.488** —
-     * four of the five land in that band and seed 23 is nowhere near it. The sentence puts the
-     * band immediately before 「五个种子逐个成立」, so a reader takes the band as the thing that
-     * holds per seed, and it does not. The band now reads 2.5 to 9.5, which the five seeds do
-     * satisfy, and this assertion is what says so.
-     */
-    const [loTimes, hiTimes, faster] = figs(NUMS,
-      /丢帧率却是瑞利的 ([\d.]+) 到 ([\d.]+) 倍，而吞吐量高出 (\d+)%/, '`numbers` on the conclusion')
-    const ray = perSeed(RAYLEIGH)
-    const ric = perSeed(RICIAN)
-    const ratios = SEEDS.map((_s, i) => ric[i]!.dropPct / ray[i]!.dropPct)
-    expect(Math.min(...ratios), 'the smallest ratio of the five seeds')
-      .toBeGreaterThanOrEqual(loTimes!)
-    expect(Math.max(...ratios), 'and the largest').toBeLessThanOrEqual(hiTimes!)
-    expect(Math.round(100 * (mean(ric.map((r) => r.mbps)) / mean(ray.map((r) => r.mbps)) - 1)),
-      'and how much faster the gentler channel is').toBe(faster)
+  it('lab 2: 「你应该看到」 — the baseline, the seed-7 pair, the gate and the throughput ratio', () => {
+    const e = lab('三种配置，五个种子').expect
+    const [lo, hi, onlyMcs] = grab(e, /每个种子发出 (\d+) 到 (\d+) 帧，一帧未丢，级别始终是 MCS (\d+)/, 'lab 2 on the baseline').map(val)
+    const off = perSeed(undefined)
+    expect([Math.min(...off.map((r) => r.sent)), Math.max(...off.map((r) => r.sent))]).toEqual([lo, hi])
+    expect(off.every((r) => r.failed === 0)).toBe(true)
+    expect(Object.keys(rungs(undefined)).map(Number)).toEqual([onlyMcs])
+    const [seed, rayPct, ricPct] = grab(e, /种子 (\d+) 上瑞利丢帧 ([\d.]+)%，莱斯丢帧 ([\d.]+)%/, 'lab 2 on the seed pair')
+    same(rayPct, rates(run(scene(RAYLEIGH, val(seed))).recs).dropPct, 'Rayleigh at that seed')
+    same(ricPct, rates(run(scene(RICIAN, val(seed))).recs).dropPct, 'Rician at that seed')
+    // 「莱斯的每一个丢帧率都高于瑞利的每一个」 — the gate itself
+    expect(Math.min(...perSeed(RICIAN).map((r) => r.dropPct))).toBeGreaterThan(Math.max(...perSeed(RAYLEIGH).map((r) => r.dropPct)))
+    const [faster] = grab(e, /莱斯的吞吐量高出 (\d+)%/, 'lab 2 on throughput').map(val)
+    expect(Math.round(100 * (mean(perSeed(RICIAN).map((r) => r.mbps)) / mean(perSeed(RAYLEIGH).map((r) => r.mbps)) - 1))).toBe(faster)
+    expect(e).toContain('场景里没有碰撞')
+    for (const f of CONFIGS) expect(ofType(run(scene(f)).recs, 'COLLISION')).toHaveLength(0)
   })
 
-  it('the mechanism table, seed 7, cell by cell', () => {
-    const heading = table(1).heading!
-    expect(val(raw(heading, /均在种子 (\d+) 上测得/, 'the table’s own seed')[0]!),
-      'the seed every cell of it is measured on').toBe(SEEDS[0])
-    const [deepDb] = figs(cell(1, 0, 0), /取值低于 −(\d+) dB 的比例/,
-      'the first row’s own threshold')
-    const share = (f: FadingCfg): number =>
-      (100 * draws(f).filter((v) => v < -deepDb!).length) / draws(f).length
-    same(raw(cell(1, 0, 1), /([\d.]+)%/, 'Rayleigh’s deep-fade share')[0]!, share(RAYLEIGH),
-      'how often Rayleigh draws deeper than that')
-    same(raw(cell(1, 0, 2), /([\d.]+)%/, 'Rician’s deep-fade share')[0]!, share(RICIAN),
-      'and how often Rician does')
-    same(raw(cell(1, 1, 0), /(\d+) ms 内发出的数据帧/, 'the second row’s own window')[0]!,
-      RUN_NS / MS, 'the window the counts are over')
-    expect(val(cell(1, 1, 1)), 'the frames Rayleigh sends')
-      .toBe(rates(run(scene(RAYLEIGH)).recs).sent)
-    expect(val(cell(1, 1, 2)), 'and the frames Rician sends')
-      .toBe(rates(run(scene(RICIAN)).recs).sent)
+  it('lab 3: the mechanism table, seed 7, cell by cell', () => {
+    const t = tableOf(lab('机理：速率控制停在哪一级'))
+    expect(val(grab(t.heading!, /均在种子 (\d+) 上测得/, 'the table’s seed')[0])).toBe(SEEDS[0])
+    const row = (needle: string): string[] => t.rows.find((r) => r[0].includes(needle))!
     const lowest = Math.min(...Object.keys(rungs(RAYLEIGH)).map(Number))
     const highest = Math.max(...Object.keys(rungs(RAYLEIGH)).map(Number))
-    expect(val(cell(1, 2, 1)), 'the Rayleigh frames on the lowest rung')
-      .toBe(rungs(RAYLEIGH)[lowest])
-    expect(val(cell(1, 2, 2)), 'and the Rician ones, of which there are none')
-      .toBe(rungs(RICIAN)[lowest] ?? 0)
-    expect(val(cell(1, 3, 1)), 'the Rayleigh frames on the highest rung')
-      .toBe(rungs(RAYLEIGH)[highest])
-    expect(val(cell(1, 3, 2)), 'and the Rician ones').toBe(rungs(RICIAN)[highest])
-    same(raw(cell(1, 4, 1), /(\d+) µs/, 'Rayleigh’s airtime')[0]!, airtimeUs(RAYLEIGH),
-      'what a Rayleigh frame costs the air')
-    same(raw(cell(1, 4, 2), /(\d+) µs/, 'Rician’s airtime')[0]!, airtimeUs(RICIAN),
-      'and what a Rician one costs')
-    // the margin the top rung has, wherever the lesson names it
-    const topMargin = (): number => {
-      const [p5] = figs(DEEP, /余量的第 5 百分位 ([\d.]+) dB/, '`deeper` on the margin ladder')
-      return p5!
-    }
-    for (const [text, re, what] of [
-      [NUMS, /而那一级只剩 ([\d.]+) dB 的信噪比/, '`numbers`'],
-      [DEEP, /最小的 ([\d.]+) dB 对应最高那一级/, '`deeper`'],
-      [OBS, /始终停留在只剩 ([\d.]+) dB 余量的那一级上/, '`observe`'],
-      [TRY, /但最高一级之上还有 ([\d.]+) dB/, '`tryThis`'],
-      [QUIZ, /停留在只剩 ([\d.]+) dB 余量的那一级上/, 'the first answer'],
-    ] as const) {
-      expect(val(raw(text, re, what)[0]!), `${what}: the margin the top rung has`)
-        .toBe(topMargin())
-    }
+    expect(val(grab(row('发出的数据帧')[0], /(\d+) ms 内/, 'the window')[0])).toBe(RUN_NS / MS)
+    expect(row('发出的数据帧').slice(1).map(val)).toEqual([rates(run(scene(RAYLEIGH)).recs).sent, rates(run(scene(RICIAN)).recs).sent])
+    expect(row('最低一级').slice(1).map(val)).toEqual([rungs(RAYLEIGH)[lowest], rungs(RICIAN)[lowest] ?? 0])
+    expect(row('最高一级').slice(1).map(val)).toEqual([rungs(RAYLEIGH)[highest], rungs(RICIAN)[highest]])
+    same(grab(row('空口时间')[1], /(\d+) µs/, 'Rayleigh airtime')[0], airtimeUs(RAYLEIGH), 'Rayleigh airtime')
+    same(grab(row('空口时间')[2], /(\d+) µs/, 'Rician airtime')[0], airtimeUs(RICIAN), 'Rician airtime')
   })
 
-  it('`deeper`: the margin ladder, the moving denominator and the two layers’ means', () => {
-    const sc = { ...scene(RAYLEIGH), selectivity: {} } as Scenario
-    const sel = ofType(run(sc).recs, 'WIFI_SEL').filter((r) => r.node === 'ap' && r.from === 'sta-1')
-    const [count, p5, mid, p95, values] = raw(DEEP,
-      /测量了 (\d+) 次接收：余量的第 5 百分位 ([\d.]+) dB、中位 ([\d.]+) dB、第 95 百分位 ([\d.]+) dB，而全部取值只有(.)个/,
-      '`deeper` on the margin ladder')
-    expect(sel.length, 'the receptions that run reports').toBe(val(count!))
-    /*
-     * The margin is `meanSinrDb − threshDb`, which is what makes it a LADDER: the mean level is
-     * a constant while the shadow is off, so the difference can only take one value per rung
-     * — four of them. `effSinrDb` is the per-bin effective SINR and takes 808 distinct values
-     * over these 809 rows, which is the opposite of the paragraph's point.
-     */
-    const margins = sel.map((r) => r.meanSinrDb - r.threshDb).sort((a, b) => a - b)
-    const at = (q: number): number => margins[Math.floor(q * (margins.length - 1))]!
-    same(p5!, at(0.05), 'the 5th percentile of the margin')
-    same(mid!, at(0.5), 'the median')
-    same(p95!, at(0.95), 'and the 95th percentile')
-    expect(new Set(margins.map((m) => m.toFixed(4))).size, 'and how many values it can take')
-      .toBe(zhNumeral(values!.replace(/两/g, '二')))
-    const [smallest, largest] = raw(DEEP,
-      /最小的 ([\d.]+) dB 对应最高那一级，最大的 ([\d.]+) dB 对应最低那一级/,
-      '`deeper` on the two ends of the ladder')
-    same(smallest!, margins[0]!, 'the smallest margin')
-    same(largest!, margins[margins.length - 1]!, 'and the largest')
-    // "down-shifting makes frames longer, so fewer go out: 1758 unfaded against 848 Rayleigh"
-    const [unfaded, rayFrames] = figs(DEEP, /不开起伏 (\d+) 帧，瑞利只有 (\d+) 帧/,
-      '`deeper` on the moving denominator')
-    expect(unfaded, 'the frames the unfaded run sends at seed 7')
-      .toBe(rates(run(scene(undefined)).recs).sent)
-    expect(rayFrames, 'and the frames Rayleigh sends')
-      .toBe(rates(run(scene(RAYLEIGH)).recs).sent)
-    expect(rayFrames, 'which is the smaller denominator the paragraph is about')
-      .toBeLessThan(unfaded!)
-    // the two layers' asymmetry, over the engine's own samplers
-    const [draws200k, shadowMean, shadowSd] = raw(DEEP,
-      /（(\d+) 万次取值测得 \+([\d.]+) dB，标准差 ([\d.]+)）/, '`deeper` on the slow layer')
-    // 「20 万」 — the count is in digits and only the unit is a Chinese word
-    const n = val(draws200k!) * 10_000
-    expect(shadowDraws(FADING_DEFAULTS.shadowSigmaDb).length, 'the draws this read is over')
-      .toBe(n)
-    same(shadowMean!, avg(shadowDraws(FADING_DEFAULTS.shadowSigmaDb)),
-      'the slow layer really is zero-mean in dB')
-    same(shadowSd!, sd(shadowDraws(FADING_DEFAULTS.shadowSigmaDb)),
-      'and its standard deviation is the sigma it was given')
-    const [rayMean, ricK, ricMean] = raw(DEEP,
-      /瑞利平均 −([\d.]+) dB，莱斯 K = (\d) dB 平均 −([\d.]+) dB/, '`deeper` on the fast layer')
-    same(rayMean!, -avg(draws(RAYLEIGH)), 'what Rayleigh averages in dB')
-    expect(val(ricK!), 'the K factor beside it').toBe(RICIAN_K_DEFAULT_DB)
-    same(ricMean!, -avg(draws(RICIAN)), 'and what Rician averages')
-    const [mult, base, closed] = raw(DEEP, /正好是 −(\d+)γ\/ln(\d+) = −([\d.]+) dB/,
-      '`deeper` on the closed form')
-    same(closed!, (val(mult!) * EULER_GAMMA) / Math.log(val(base!)),
-      'the closed form those two give')
-    expect(Math.abs(val(closed!) - -avg(draws(RAYLEIGH))),
-      'and the 200 000 draws land near it').toBeLessThan(0.02)
-    same(raw(DEEP, /它还把平均电平降低了 ([\d.]+) dB/, '`deeper` on what Rayleigh costs')[0]!,
-      -avg(draws(RAYLEIGH)), 'the level Rayleigh takes off the link')
+  it('lab 3: 「你应该看到」 and the margin of the top rung', () => {
+    const e = lab('机理：速率控制停在哪一级').expect
+    const [rayN, rayLow, rayAir, ricN, ricHigh, ricAir, margin] = grab(e,
+      /瑞利把 (\d+) 帧中的 (\d+) 帧发在最低一级，每帧平均 (\d+) µs；莱斯从不降到最低一级，(\d+) 帧中 (\d+) 帧发在最高一级，每帧平均 (\d+) µs。最高一级的门限比这条链路的平均信噪比低 ([\d.]+) dB/,
+      'lab 3 「你应该看到」')
+    expect(val(rayN)).toBe(rates(run(scene(RAYLEIGH)).recs).sent)
+    expect(val(rayLow)).toBe(rungs(RAYLEIGH)[0])
+    same(rayAir, airtimeUs(RAYLEIGH), 'Rayleigh airtime')
+    expect(rungs(RICIAN)[0]).toBeUndefined()
+    expect(val(ricN)).toBe(rates(run(scene(RICIAN)).recs).sent)
+    expect(val(ricHigh)).toBe(rungs(RICIAN)[3])
+    same(ricAir, airtimeUs(RICIAN), 'Rician airtime')
+    const m = margins()
+    same(margin, m[0], 'the smallest margin is the top rung’s')
+    // 「最低一级低十余分贝」
+    expect(m[m.length - 1]).toBeGreaterThan(10)
+    expect(m[m.length - 1]).toBeLessThan(20)
+    // the same margin, wherever else it is printed
+    for (const [text, re] of [
+      [lab('机理：速率控制停在哪一级').meaning, /只剩 ([\d.]+) dB 余量/],
+      [fading.quiz[0].options[1], /只剩 ([\d.]+) dB 余量/],
+    ] as const) same(grab(text, re, 'the margin')[0], m[0], 'the top rung’s margin')
   })
 
-  it('the 150 ms ruler, and the coherence table it is the reason for', () => {
-    const [listWindow, coherence] = figs(NUMS,
-      /那份清单的窗口是 (\d+) ms，而阴影的相干时间是 (\d+) ms/, '`numbers` on the broken ruler')
-    expect(coherence, 'the coherence time the shadow holds a value for')
-      .toBe(FADING_DEFAULTS.coherenceMs)
-    expect(listWindow, 'and the window the fixture list runs').toBeLessThan(2 * coherence!)
-    // the claim itself: at that window a shadowed run hashes like an unshadowed one
-    expect(run(scene(SHADOW4), listWindow! * MS).hash,
-      'which is why a shadowed row would record the same hash')
-      .toBe(run(scene(undefined), listWindow! * MS).hash)
-    same(raw(NUMS, /运行满 (\d+) ms 才能测出来/, '`numbers` on what it takes instead')[0]!,
-      RUN_NS / MS, 'the window this file measures over')
-    // the coherence table's heading, and every row of it
-    const heading = table(2).heading!
-    const [sigma, seed, width] = figs(heading,
-      /阴影 σ (\d+) dB、关闭快变层、种子 (\d+)，把失败按 (\d+) ms 分到十个窗口里/,
-      'the coherence table’s own heading')
-    expect(sigma, 'the sigma that table runs').toBe(SHADOW4.shadowSigmaDb)
-    expect(seed, 'the seed it runs').toBe(SEEDS[0])
-    expect(width, 'and the window it buckets into').toBe(FADING_DEFAULTS.coherenceMs)
+  it('lab 4: the coherence table, row by row, and its 「你应该看到」', () => {
+    const t = tableOf(lab('相干时间是失败成簇的宽度'))
+    const [sigma, seed, width] = grab(t.heading!, /阴影 σ (\d+) dB、关闭快变层、种子 (\d+)，把失败按 (\d+) ms 分到十个窗口里/, 'the heading').map(val)
+    expect([sigma, seed, width]).toEqual([SHADOW4.shadowSigmaDb, SEEDS[0], 100])
     const bucketed = (coherenceMs: number): number[] => {
-      const w = new Array<number>(RUN_NS / MS / width!).fill(0)
+      const w = new Array<number>(10).fill(0)
       for (const r of ofType(run(scene({ ...SHADOW4, coherenceMs })).recs, 'RX_FAIL')) {
         if (r.node !== 'ap' || r.from !== 'sta-1') continue
-        w[Math.min(w.length - 1, Math.floor(r.t / (width! * MS)))]++
+        w[Math.min(9, Math.floor(r.t / (100 * MS)))]++
       }
       return w
     }
-    table(2).rows.forEach((row, i) => {
-      const [ms] = figs(row[0]!, /(\d+) ms/, `row ${i}: the coherence time it names`)
-      const got = bucketed(ms!)
-      const listed = /^([\d, ]+) ——/.exec(row[1]!)
-      if (listed !== null) {
-        expect(listed[1]!.split(', ').map(Number), `row ${i}: the ten counts it prints`)
-          .toEqual(got)
-      } else {
-        const [values] = figs(row[1]!, /整轮只取到 (\d+) 个阴影值/, `row ${i}: the last row`)
-        expect(got.reduce((a, b) => a + b, 0), `row ${i}: no failure at all`).toBe(0)
-        expect(Math.ceil(RUN_NS / MS / ms!), `row ${i}: the shadow values a round draws`)
-          .toBe(values)
+    for (const [label, cellText] of t.rows) {
+      const ms = val(grab(label, /(\d+) ms/, 'the row’s coherence time')[0])
+      const listed = /^([\d, ]+) ——/.exec(cellText)
+      if (listed !== null) expect(listed[1].split(', ').map(Number), `${ms} ms`).toEqual(bucketed(ms))
+      else {
+        expect(bucketed(ms).reduce((a, b) => a + b, 0), `${ms} ms: no failure`).toBe(0)
+        expect(Math.ceil(RUN_NS / MS / ms)).toBe(val(grab(cellText, /整轮只取到 (\d+) 个阴影值/, 'the last row')[0]))
       }
-    })
+    }
+    const e = lab('相干时间是失败成簇的宽度').expect
+    const cn = (s: string): number => '零一二三四五六七八九十'.indexOf(s === '两' ? '二' : s)
+    const [w10, w100] = grab(e, /10 ms 时分散在(.)个窗口里，100 ms 时全部落在(.)个窗口里/, 'lab 4 on the windows')
+    expect(bucketed(10).filter((v) => v > 0).length).toBe(cn(w10))
+    expect(bucketed(100).filter((v) => v > 0).length).toBe(cn(w100))
+    expect(e).toContain('只取到两个阴影值')
   })
 
-  it('`sources` and `limits`: the in-frame scale, the reported ranges and the clamp', () => {
-    // the midamble period: a Doppler subfield of 1, then 10 or 20 symbols at 13.6 µs
-    const [dopplerOn] = figs(SRC, /Doppler 子字段为 (\d) 时/, '`sources` on the subfield')
-    expect(dopplerOn, 'the value that turns the midamble on').toBe(1)
-    const [shortSym, longSym] = figs(SRC, /周期只有两档——(\d+) 个符号或 (\d+) 个符号/,
-      '`sources` on the two periods')
-    const [symUs, shortUs, longUs] = figs(SRC,
-      /符号长度 ([\d.]+) µs：(\d+) µs 与 (\d+) µs/, '`sources` on the symbol length')
-    expect(symUs, 'the symbol length the engine already has').toBe(PHY_MODES.he.symNs / 1000)
-    expect(shortUs, 'the shorter period those symbols give').toBe(shortSym! * symUs!)
-    expect(longUs, 'and the longer one').toBe(longSym! * symUs!)
-    const [lShort, lLong] = figs(LIMITS, /中段训练字段 (\d+) 或 (\d+) 个符号/,
-      '`limits` on the same two periods')
-    expect([lShort, lLong], '`limits` names the same two').toEqual([shortSym, longSym])
-    const [lShortUs, lLongUs] = figs(LIMITS, /换算为 (\d+) µs 与 (\d+) µs/,
-      '`limits` on what they come to')
-    expect([lShortUs, lLongUs], 'and the same two durations').toEqual([shortUs, longUs])
-    const [coherence, ratio] = figs(LIMITS, /比这里的 (\d+) ms 小 (\d+) 倍/,
-      '`limits` on the two scales')
-    expect(coherence, 'the coherence time').toBe(FADING_DEFAULTS.coherenceMs)
-    expect(Math.round((coherence! * 1000) / shortUs!), 'and how many times smaller the other is')
-      .toBe(ratio)
-    // the four model values, and the ranges they were picked from the middle of
-    const [sigmaPick] = figs(LIMITS, /阴影标准差 (\d+) dB、相干时间/, '`limits` on the sigma')
-    expect(sigmaPick, 'the sigma fading.ts defaults to').toBe(FADING_DEFAULTS.shadowSigmaDb)
-/*
-     * **Exempt, class (a), three times over — and the fourth is not.** 「阴影标准差常报 3 到
-     * 8 dB、K 常报 3 到 10 dB」 is a fact about the indoor-measurement literature, and this
-     * repository holds no corpus of it: there is no constant, no record and no run behind any
-     * of the four bounds. The lesson says as much in the same breath (「不是任何一次测量
-     * 活动的结果」). What IS checkable is the only thing the sentence uses them for — that
-     * each picked value sits in the INTERIOR of its range — and making that strict rather than
-     * inclusive catches one of the four: the sigma this engine picks is 4, so a planted lower
-     * bound of 4 is no longer strictly below it. The other three the sweep of 2026-10-13
-     * walked through, and they stay, with this argument beside them.
-     */
-    const [sLo, sHi, kLo, kHi] = figs(LIMITS,
-      /阴影标准差常见报告值为 (\d+) 到 (\d+) dB、K 常见报告值为 (\d+) 到 (\d+) dB/,
-      '`limits` on the reported ranges')
-    expect(sigmaPick, 'the sigma sits strictly inside the reported range').toBeGreaterThan(sLo!)
-    expect(sigmaPick, 'from both sides').toBeLessThan(sHi!)
-    expect(RICIAN_K_DEFAULT_DB, 'as does the K factor').toBeGreaterThan(kLo!)
-    expect(RICIAN_K_DEFAULT_DB, 'from both sides').toBeLessThan(kHi!)
-    expect(sLo, 'and each range really is a range').toBeLessThan(sHi!)
-    expect(kLo, 'both of them').toBeLessThan(kHi!)
-    // the clamp: measured as the floor 200 000 draws actually hit
-    const [floor] = raw(LIMITS, /它不允许低于 −(\d+) dB/, '`limits` on the clamp')
-    // `Math.min(...xs)` with 200 000 arguments overflows the call stack
-    expect(draws(RAYLEIGH).reduce((a, b) => Math.min(a, b), Infinity),
-      'the deepest fade the sampler ever returns').toBe(-val(floor!))
-    const [clampN, hits] = raw(LIMITS, /(\d+) 万次取值中约有(.)次触及/, '`limits` on how often')
-    expect(draws(RAYLEIGH).length, 'the draws that count is over')
-      .toBe(val(clampN!) * 10_000)
-    expect(draws(RAYLEIGH).filter((v) => v === -val(floor!)).length,
-      'and how many of them hit the floor')
-      .toBeLessThanOrEqual(2 * zhNumeral(hits!.replace(/两/g, '二'))!)
-    const [powerMean] = figs(LIMITS, /E\[\|h\|²\] = (\d) 指的是功率域平均为一/,
-      '`limits` on the two domains')
-    const power = draws(RAYLEIGH).map((v) => 10 ** (v / 10))
-    expect(avg(power), 'the power-domain mean the sampler is scaled to')
-      .toBeCloseTo(powerMean!, 2)
-    expect(avg(draws(RAYLEIGH)), 'while the dB-domain mean is below it').toBeLessThan(0)
-  })
-
-  it('`observe`, `tryThis` and the quiz: the inert configuration and the two rate stories', () => {
-    // `tryThis` 1: sigma 2 dB with no fast layer hashes like no fading at all
-    const [trySigma, tryCoherence, frames, drops, rung] = figs(TRY,
-      /阴影标准差填 (\d) dB，相干时间保持 (\d+) ms。[\s\S]*?哈希完全相同：(\d+) 帧、(\d) 丢帧、级别恒为 (\d)/,
-      '`tryThis` on the inert configuration')
-    expect(tryCoherence, 'the coherence time it leaves alone').toBe(FADING_DEFAULTS.coherenceMs)
-    const inert: FadingCfg = { shadowSigmaDb: trySigma!, coherenceMs: tryCoherence!, smallScale: 'none' }
-    expect(run(scene(inert)).hash, 'that configuration really does hash like no fading at all')
-      .toBe(run(scene(undefined)).hash)
-    const base = rates(run(scene(undefined)).recs)
-    expect(frames, '`tryThis`: the frames it sends').toBe(base.sent)
-    expect(drops, 'and the frames it drops').toBe(base.failed)
-    expect(Object.keys(rungs(undefined)).map(Number), 'on that one rung').toEqual([rung])
-    const [smallSigma] = figs(TRY, /([\d.]+) dB 的阴影不会使任何一帧失败/, '`tryThis` on why')
-    expect(smallSigma, 'the sigma that cannot move a frame').toBe(trySigma)
-    // `tryThis` 2 and the second question: sigma 4, coherence 500 ms, 1000 ms, no failure
-    const [bigSigma, from, to] = figs(TRY,
-      /把阴影标准差调回 (\d) dB[\s\S]*?再把相干时间从 (\d+) ms 改为 (\d+) ms/,
-      '`tryThis` on the long coherence time')
-    expect(bigSigma, 'the sigma it goes back to').toBe(SHADOW4.shadowSigmaDb)
-    expect(from, 'the coherence time it starts from').toBe(FADING_DEFAULTS.coherenceMs)
-    const long: FadingCfg = { ...SHADOW4, coherenceMs: to! }
-    expect(rates(run(scene(long)).recs).failed, 'and at that one there is no failure at all')
-      .toBe(0)
-    const [qSigma, qCoherence, qRun] = figs(QUIZ,
-      /阴影标准差 (\d) dB、相干时间 (\d+) ms，运行 (\d+) ms 没有一次失败/, 'the second question')
-    expect([qSigma, qCoherence], 'the quiz names the same two').toEqual([bigSigma, to])
-    expect(qRun, 'over the same window').toBe(RUN_NS / MS)
-    const [qLong] = figs(QUIZ, /([\d.]+) ms 时阴影已经接近常数/, 'the second question’s first option')
-    expect(qLong, 'the same coherence time, in the option that is wrong about why').toBe(to)
-    const [qStill] = figs(QUIZ, /相干时间超过 (\d+) ms 之后引擎就不再生成阴影值/,
-      'the second question’s third option')
-    expect(qStill, 'and in the other wrong option').toBe(FADING_DEFAULTS.coherenceMs)
-    const [qList] = figs(QUIZ, /那份哈希清单的 (\d+) ms 窗口/, 'the second explanation')
-    expect(qList, 'the fixture window, again')
-      .toBe(figs(NUMS, /那份清单的窗口是 (\d+) ms/, '`numbers`')[0])
-/*
-     * **Exempt, class (c): the content of this figure is an inequality.** 「把仿真跑到 10 秒，
-     * 失败就回来了」 claims a window long enough, not a particular one — eleven seconds works
-     * too, which is why the sweep of 2026-10-13 walked through it. What is measured instead is
-     * the contrast the sentence is built on, both halves of it: at that length the failures are
-     * back, and at the lesson's own round length there are none. The first failure's own
-     * instant is measured too, so the claim is a fact about where it falls rather than about
-     * the number printed.
-     */
-    const [tenSec] = figs(TRY, /把仿真时长延长到 (\d+) 秒，失败就会重新出现/, '`tryThis` on the longer run')
-    const longRun = run(scene(long), tenSec! * 1000 * MS).recs
-    const firstFail = ofType(longRun, 'RX_FAIL')
-      .filter((r) => r.node === 'ap' && r.from === 'sta-1')[0]
-    expect(firstFail, 'over that window the failures come back').toBeDefined()
-    expect(firstFail!.t, 'and the first of them falls inside it')
-      .toBeLessThanOrEqual(tenSec! * 1000 * MS)
-    expect(firstFail!.t, 'while falling outside the lesson’s own round, which has none')
-      .toBeGreaterThan(RUN_NS)
-    expect(rates(run(scene(long)).recs).failed, 'as that round indeed has none').toBe(0)
-    // the first explanation's own four figures
-    const [eRay, eK, eRic] = raw(QUIZ,
-      /瑞利在分贝域平均 −([\d.]+) dB，莱斯 K = (\d) dB 只有 −([\d.]+) dB/, 'the first explanation')
-    same(eRay!, -avg(draws(RAYLEIGH)), 'the quiz: what Rayleigh averages')
-    expect(val(eK!), 'the quiz: the K factor').toBe(RICIAN_K_DEFAULT_DB)
-    same(eRic!, -avg(draws(RICIAN)), 'the quiz: and what Rician averages')
-    const [collisions] = figs(QUIZ, /而碰撞在这个单链路场景里恒为 (\d)/, 'the first explanation')
-    expect(ofType(run(scene(RAYLEIGH)).recs, 'COLLISION').length,
-      'the quiz: the collisions this single-link scene can have').toBe(collisions)
-    const [rayUs, rayMbps, ricUs, ricMbps] = raw(QUIZ,
-      /瑞利每帧平均 (\d+) µs、吞吐 ([\d.]+) Mb\/s，莱斯每帧 (\d+) µs、吞吐 ([\d.]+) Mb\/s/,
-      'the first explanation on the two rate stories')
-    same(rayUs!, airtimeUs(RAYLEIGH), 'the quiz: Rayleigh’s airtime')
-    same(ricUs!, airtimeUs(RICIAN), 'the quiz: and Rician’s')
-    same(rayMbps!, mean(perSeed(RAYLEIGH).map((r) => r.mbps)), 'the quiz: Rayleigh’s throughput')
-    same(ricMbps!, mean(perSeed(RICIAN).map((r) => r.mbps)), 'the quiz: and Rician’s')
-    // `observe`'s own window width, and the span of windows the three configs fill
-    same(raw(OBS, /数一数失败落在哪些 (\d+) ms 窗口里/, '`observe` on the buckets')[0]!,
-      FADING_DEFAULTS.coherenceMs, 'the window `observe` buckets into')
-    const [offW, rayLo, rayHi] = raw(OBS,
-      /不开起伏时(.)个窗口全空，瑞利时(.)到(.)个窗口有失败，莱斯时十个窗口全都有/,
-      '`observe` on the three spans')
-    const of10 = RUN_NS / MS / FADING_DEFAULTS.coherenceMs
-    expect(zhNumeral(offW!.replace(/两/g, '二')), 'the windows the unfaded run leaves empty')
-      .toBe(of10)
-    expect(Math.min(...SEEDS.map((s) => failWindows(RAYLEIGH, s))), 'Rayleigh’s fewest')
-      .toBe(zhNumeral(rayLo!.replace(/两/g, '二')))
-    expect(Math.max(...SEEDS.map((s) => failWindows(RAYLEIGH, s))), 'and its most')
-      .toBe(zhNumeral(rayHi!.replace(/两/g, '二')))
-    expect(new Set(SEEDS.map((s) => failWindows(RICIAN, s))), 'while Rician fills every one')
-      .toEqual(new Set([of10]))
+  it('the quiz’s figures are lab 2’s and lab 3’s', () => {
+    const ex = fading.quiz[0].explain
+    const [rayAir, rayMbps, ricAir, ricMbps] = grab(ex, /瑞利每帧平均 (\d+) µs、吞吐 ([\d.]+) Mb\/s，莱斯每帧 (\d+) µs、吞吐 ([\d.]+) Mb\/s/, 'quiz 1 explain')
+    same(rayAir, airtimeUs(RAYLEIGH), 'Rayleigh airtime')
+    same(rayMbps, mean(perSeed(RAYLEIGH).map((r) => r.mbps)), 'Rayleigh throughput')
+    same(ricAir, airtimeUs(RICIAN), 'Rician airtime')
+    same(ricMbps, mean(perSeed(RICIAN).map((r) => r.mbps)), 'Rician throughput')
+    expect(fading.quiz[0].q).toContain(`莱斯 K = ${RICIAN_K_DEFAULT_DB} dB`)
   })
 })

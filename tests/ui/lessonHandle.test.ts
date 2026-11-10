@@ -96,19 +96,15 @@ describe('the panel prints it beside the title and nowhere else', () => {
 
   /**
    * And the third site that was considered, refused on a property of the data rather than
-   * on taste: 「再深一层」 is a `<details>` shut by default AND optional. If that count
-   * ever reaches zero the refusal's first half has evaporated and this test is where to
-   * find that out; the second half — that a shut `<details>` hides the handle on the other
-   * 75 — does not depend on the count.
+   * on taste: 「再深一层」 was a `<details>` shut by default AND optional (15 of 90 lessons had
+   * none). **Since 2026-11-11 no lesson has one** — the standard-first restructure retired
+   * `deeper` and the panel no longer renders it — so the refusal is now total: there is no such
+   * section to hang the handle off. Pinned on the whole course, and on the panel source.
    */
-  it('does not hang the handle off an optional section: 15 lessons have no `deeper`', () => {
-    const without = LESSONS.filter((l) => (l.deeper ?? []).length === 0)
-    expect(without.length, `lessons with no deeper section: ${without.map((l) => l.id).join(' ')}`)
-      .toBeGreaterThan(0)
-    for (const id of ['edca-tamper', 'amp-slots']) {
-      expect(without.map((l) => l.id), `${id} is one of the heavily cited ones with no deeper`)
-        .toContain(id)
-    }
+  it('does not hang the handle off a section that no lesson has: `deeper` is retired', () => {
+    const withDeeper = LESSONS.filter((l) => l.deeper !== undefined).map((l) => l.id)
+    expect(withDeeper, 'lessons with a `deeper` section, which the panel no longer renders').toEqual([])
+    expect(src, 'CoursePanel.tsx still renders `deeper`').not.toContain('lesson.deeper')
   })
 
   /**

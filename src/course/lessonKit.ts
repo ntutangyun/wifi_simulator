@@ -193,7 +193,13 @@ export interface Lesson {
   id: string
   module: number
   title: string
-  /** Old shape, being migrated away. A lesson has either `body` or the eight fields below. */
+  /**
+   * RETIRED 2026-11-11 — `body`, `picture`, `numbers`, `deeper`, and the contents of `limits`,
+   * `observe` and `tryThis` below. Every lesson is standard-first (`standard`, `implementation`,
+   * `labs`); `CoursePanel.tsx` no longer renders the retired sections and
+   * tests/course/limits.test.ts refuses a lesson that fills one. The fields stay in the type only
+   * so that the walk in `readability.ts` and the per-lesson tests that pin them empty still compile.
+   */
   body?: Block[]
   /** 2–4 plain sentences: the problem, who has it, what the lesson shows. */
   why?: string
@@ -218,17 +224,17 @@ export interface Lesson {
   /** Where the numbers come from: clauses, contributions, model choices. Collapsed. */
   sources?: string[]
   /**
-   * Where this lesson's model is not the radio. Required, and every graded lesson
-   * carries at least one — a simulator that never says what it left out teaches a
-   * reader to trust it further than it deserves. The paused AMP track is the one
-   * place an empty array is accepted, and tests/course/limits.test.ts names those
-   * four lessons so that resuming AMP trips it. See `Limit`.
+   * RETIRED 2026-11-11: always `[]`. Where a lesson's model is not the radio is now said row by
+   * row in `implementation`, next to the standard rule it departs from; tests/course/limits.test.ts
+   * pins every lesson's `limits` empty. See `Limit` for what the section used to hold.
    */
   limits: Limit[]
   scenario: () => Scenario
   variants?: LessonVariant[]
   jumps: JumpTarget[]
+  /** RETIRED 2026-11-11: always `[]`; what to look at is a ③ lab's `steps` and `expect`. */
   observe: string[]
+  /** RETIRED 2026-11-11: always `[]`; each experiment is a ③ lab. */
   tryThis: string[]
   quiz: Quiz[]
 }

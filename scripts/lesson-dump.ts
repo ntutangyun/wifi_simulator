@@ -16,6 +16,13 @@
  * renders — the main path in order, tables as rows, the collapsed sections
  * last — and nothing else.
  *
+ * Since 2026-11-11 every lesson is standard-first, so the dump follows that
+ * shape: ① what the standard specifies, ② how this simulator implements each
+ * part (one row per item, with its kind), ③ the guided labs (load, jump, steps,
+ * what you should see, what it shows), then the quiz and the sources. The old
+ * `body` / `picture` / `numbers` / `deeper` / `observe` / `tryThis` sections are
+ * gone from every lesson and from this script.
+ *
  * The section budgets are gone (docs/superpowers/specs/2026-09-25-course-pace-and-diagrams.md),
  * so the line at the end reports what is left: the characters on the main path
  * and the minutes `lessonMinutes` estimates from them, against the 30-minute
@@ -26,7 +33,7 @@
  */
 import { LESSONS } from '../src/course/lessons'
 import { lessonChars, lessonMinutes, SITTING_MINUTES, trackOf } from '../src/course/curriculum'
-import type { Block, Lesson } from '../src/course/lessonKit'
+import type { Block, ImplKind, Lesson } from '../src/course/lessonKit'
 import { diagramTexts } from '../src/course/diagram'
 
 /** What a lesson costs a reader, one lesson to a line. */
@@ -127,38 +134,45 @@ const titleOf = (lessonId: string): string => {
 out(`# ${lesson.title}   [${lesson.id}]`)
 out()
 
-if (lesson.body) {
-  out('(unmigrated: this lesson is still one flat body)')
-  out()
-  for (const b of lesson.body) block(b, lesson)
-} else {
-  out(lesson.why!)
-  out()
-  rule('after this lesson you can')
-  for (const o of lesson.outcomes!) out(`- ${o}`)
-  rule('you need')
-  for (const n of lesson.needs!) out(`- ${titleOf(n)}`)
-  rule('new words')
-  for (const term of lesson.terms!) out(`- ${term.term}: ${term.plain}`)
-  rule('the picture')
-  for (const b of lesson.picture!) block(b, lesson)
-  rule('now the numbers')
-  for (const b of lesson.numbers!) block(b, lesson)
-  if (lesson.deeper?.length) {
-    rule('deeper')
-    for (const b of lesson.deeper) block(b, lesson)
-  }
+/** The ② row kinds as the panel labels them (`stdFirst.kinds` in src/ui/i18n.ts), in ASCII. */
+const KIND: Record<ImplKind, string> = {
+  faithful: 'faithful', value: 'sim value', choice: 'sim choice', differs: 'DIFFERS', absent: 'ABSENT',
 }
 
-rule('load and jump')
-for (const v of lesson.variants ?? []) out(`- variant: ${v.label}`)
-for (const j of lesson.jumps) out(`- jump: ${j.label}`)
+out(lesson.why ?? '')
+out()
+rule('after this lesson you can')
+for (const o of lesson.outcomes ?? []) out(`- ${o}`)
+rule('you need')
+for (const n of lesson.needs ?? []) out(`- ${titleOf(n)}`)
+rule('new words')
+for (const term of lesson.terms ?? []) out(`- ${term.term}: ${term.plain}`)
 
-rule('observe')
-for (const o of lesson.observe) out(`- ${o}`)
+rule('① the standard')
+for (const b of lesson.standard ?? []) block(b, lesson)
 
-rule('experiments')
-for (const e of lesson.tryThis) out(`- ${e}`)
+rule('② this simulator')
+for (const it of lesson.implementation ?? []) {
+  out(`[${KIND[it.kind]}] ${it.topic}`)
+  out(`  standard: ${it.standard}`)
+  out(`  sim:      ${it.sim}`)
+  out()
+}
+
+rule('③ labs')
+;(lesson.labs ?? []).forEach((lab, i) => {
+  const scene = lab.variant === undefined ? 'base scene' : `variant: ${lesson.variants?.[lab.variant]?.label ?? lab.variant}`
+  out(`## lab ${i + 1} · ${lab.heading}`)
+  out(`[LOAD ${scene}]`)
+  for (const vi of lab.more ?? []) out(`[LOAD variant: ${lesson.variants?.[vi]?.label ?? vi}]`)
+  if (lab.jump !== undefined) out(`[JUMP → ${lesson.jumps[lab.jump]?.label ?? lab.jump}]`)
+  lab.steps.forEach((s, n) => out(`${n + 1}. ${s}`))
+  out()
+  for (const b of lab.blocks ?? []) block(b, lesson)
+  out(`expect:  ${lab.expect}`)
+  out(`meaning: ${lab.meaning}`)
+  out()
+})
 
 rule('quiz')
 for (const q of lesson.quiz) {
