@@ -1,14 +1,15 @@
 /**
  * `@uwb-dl-tdoa`, in the standard-first shape (2026-11-10).
  *
- * ① teaches IEEE Std 802.15.4-2024 §10.29.1.2.5's second TDOA case only. ② says plainly that the
- * engine runs a FiRa-style round between unsynchronised anchors instead, with TXT, RXT and COFF
- * IEs the standard does not define (docs/uwb-standard-audit.md #15, W4) — and the rows are checked
- * against the frames the engine actually sends.
+ * ① teaches IEEE Std 802.15.4-2024 §10.29.1.2.5's second TDOA case only. ② is checked against the
+ * frames the engine actually sends: since 2026-11-11 (W4, docs/uwb-standard-audit.md #15) that is the
+ * standard's own case — the controller's RCM (ARC Ranging Round Usage = 0, RR, RDM) and one bare
+ * ranging message per synchronized anchor (Figure 10-225 "<OWR>"); until then a FiRa-style round with
+ * TXT, RXT and COFF IEs the standard does not define.
  *
  * Every figure the labs print is read back out of the lesson's own text and compared with a run,
  * so editing a number without the engine agreeing turns this red, and so does an engine change
- * (W4 will make one) that moves a number the lesson still prints.
+ * that moves a number the lesson still prints.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -21,7 +22,7 @@ import type { TLRecord } from '../../src/model/records'
 import { MODULES } from '../../src/course/curriculum'
 import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKit'
 import { fmtRecord } from '../../src/ui/format'
-import { C_M_PER_NS, UWB_PPM_MAX, rstuNs, uwbPpduNs } from '../../src/uwb/phy'
+import { C_M_PER_NS, UWB_FCS_BYTES, UWB_MHR_BYTES, UWB_PPM_MAX, rstuNs, uwbPpduNs } from '../../src/uwb/phy'
 import { lessonShapeSuite, ofType, runOf } from './kit'
 
 const MS = 1_000_000
@@ -79,45 +80,58 @@ describe('uwb-dl-tdoa · the lesson', () => {
 
   it('cites each clause it teaches in ①, and ① names no simulator element', () => {
     const std = uwbDlTdoa.standard!.map((b) => `${b.heading ?? ''} ${'text' in b ? b.text : ''} ${'items' in b ? b.items.join(' ') : ''}`).join(' ')
-    for (const clause of ['§10.29.1.1', '§10.29.1.2.5', '§10.32.2', '表 10-164']) expect(std, clause).toContain(clause)
+    for (const clause of ['§10.29.1.1', '§10.29.1.2.5', '§10.32.2', '表 10-164', '图 10-225', '§10.32.9.8']) expect(std, clause).toContain(clause)
     for (const invented of ['TXT', 'RXT', 'COFF', '参考锚点', '胸牌', 'anchor-']) expect(std, invented).not.toContain(invented)
     expect(std).toContain('已知的发送时刻偏移')
   })
 
-  it('② is not all faithful, and says each invented IE is not in the standard', () => {
+  // 2026-11-11 (W4, audit #15): the engine runs §10.29.1.2.5's second case with the standard's own
+  // frames, so no ② row is "differs" any more and none names an invented IE.
+  it('② has no "differs" row and names no invented IE; the absent row is the measurement report', () => {
     const kinds = uwbDlTdoa.implementation!.map((r) => r.kind)
-    expect(kinds.filter((k) => k !== 'faithful').length).toBeGreaterThan(0)
-    for (const topic of ['TXT 与 RXT 信息单元', 'COFF 信息单元']) {
-      expect(implRow(topic).kind).toBe('differs')
-      expect(implRow(topic).standard).toContain('标准里没有')
-      expect(implRow(topic).sim).toContain('待改正的偏差')
-    }
-    expect(implRow('固定节点是否同步').kind).toBe('differs')
-    expect(implRow('移动设备的时钟').kind).toBe('differs')
+    expect(kinds).not.toContain('differs')
+    const all = uwbDlTdoa.implementation!.map((r) => `${r.topic} ${r.standard} ${r.sim}`).join(' ')
+    for (const invented of ['TXT', 'RXT', 'COFF']) expect(all, invented).not.toContain(invented)
+    expect(implRow('测量报告阶段').kind).toBe('absent')
+    expect(implRow('固定节点是否同步').kind).toBe('faithful')
+    expect(implRow('发送时刻偏移').kind).toBe('faithful')
+    expect(implRow('同步的方式与精度').kind).toBe('choice')
+    expect(implRow('移动设备的时钟').kind).toBe('choice')
   })
 })
 
 describe('uwb-dl-tdoa · ② says what the engine does, and the engine does it', () => {
-  it('the Poll: ARC with Ranging Round Usage 0 and Multi-node Mode 1, and an RDM over slots 1–3', () => {
-    const poll = firstTx('uwbPoll', REF)
-    expect(poll.uwb?.arc?.roundUsage).toBe(0)
-    expect(poll.uwb?.arc?.multiNode).toBe(1)
-    expect(poll.uwb?.ies).toContain('RDM')
-    expect(poll.uwb?.schedule).toEqual(RESPONDERS)
-    expect(implRow('测距轮用途').sim).toContain('Ranging Round Usage 为 0')
-    expect(implRow('测距轮用途').sim).toContain('Multi-node Mode 为 1')
+  it('the RCM: ARC with Ranging Round Usage 0, Multi-node Mode 1, Schedule Mode 1, and an RDM over slots 1–4', () => {
+    const rcm = firstTx('uwbRcm', REF)
+    expect(rcm.uwb?.slot).toBe(0)
+    expect(rcm.uwb?.arc?.roundUsage).toBe(0)
+    expect(rcm.uwb?.arc?.multiNode).toBe(1)
+    expect(rcm.uwb?.arc?.scheduleMode).toBe(1)
+    expect(rcm.uwb?.ies).toEqual(['ARC', 'RR', 'RDM'])
+    expect(rcm.uwb?.rdm).toEqual(DL_ANCHORS.map((a, i) => ({ id: a.id, slot: i + 1, initiator: false })))
+    const row = implRow('测距控制消息').sim
+    for (const s of ['Ranging Round Usage 为 0', 'Multi-node Mode 为 1', 'Schedule Mode 为 1', 'anchor-1 到 anchor-4 依次指定第 1 到 4 号时隙']) {
+      expect(row, s).toContain(s)
+    }
   })
 
-  it('the frames really carry TXT, RXT and COFF — the elements ② calls not in the standard', () => {
-    expect(firstTx('uwbPoll', REF).uwb?.ies).toContain('TXT')
-    expect(firstTx('uwbResp', RESPONDERS[0]).uwb?.ies).toEqual(expect.arrayContaining(['TXT', 'RXT', 'COFF']))
-    expect(firstTx('uwbFinal', REF).uwb?.ies).toEqual(expect.arrayContaining(['TXT', 'RXT']))
+  it('no frame carries a time: the ranging messages are bare 11-octet broadcasts sent on the slot boundary', () => {
+    const tx = ofType(recs('base'), 'TX_START')
+    for (const r of tx.filter((x) => x.frame.kind === 'uwbResp')) {
+      expect(r.frame.uwb?.ies).toEqual([])
+      expect(r.frame.bytes).toBe(UWB_MHR_BYTES + UWB_FCS_BYTES)
+      expect(r.frame.dst).toBe('*')
+      // the known offset: anchor k sends exactly at the start of slot k + 1
+      const k = DL_ANCHORS.findIndex((a) => a.id === r.node)
+      expect(r.t % (200 * MS)).toBe((k + 1) * rstuNs(DEFAULT_UWB_SESSION.slotRstu))
+    }
+    expect(implRow('测距消息的内容').sim).toContain(`${UWB_MHR_BYTES + UWB_FCS_BYTES} 字节`)
+    for (const r of tx) expect(r.frame.uwb).not.toHaveProperty('dl')
   })
 
-  it('the crystals ② quotes are the draw, inside the ±20 ppm of §16.4.9', () => {
+  it('the badge crystals ② quotes are the draw, inside the ±20 ppm of §16.4.9', () => {
     expect(UWB_PPM_MAX).toBe(20)
     const row = implRow('晶振容差').sim
-    expect(row).toContain(`anchor-1 为 ${drawnPpm(REF).toFixed(2).replace('-', '−')} ppm`)
     const badges = ['badge-1', 'badge-2', 'badge-3'].map((id) => drawnPpm(id).toFixed(2))
     expect(row).toContain(`${badges[0]}、${badges[1]} 与 ${badges[2]} ppm`)
   })
@@ -126,35 +140,37 @@ describe('uwb-dl-tdoa · ② says what the engine does, and the engine does it',
     expect(DEFAULT_UWB_SESSION.tsNoisePs).toBe(100)
     expect(implRow('接收时间戳').sim).toContain('100 ps')
     expect(DEFAULT_UWB_SESSION.cfoNoisePpm).toBe(0.2)
-    expect(implRow('COFF 信息单元').sim).toContain('0.2 ppm')
+    expect(implRow('移动设备的时钟').sim).toContain('0.2 ppm')
     expect(rstuNs(DEFAULT_UWB_SESSION.slotRstu)).toBe(2 * MS)
     expect(rstuNs(DEFAULT_UWB_SESSION.blockRstu)).toBe(200 * MS)
     expect(ofType(recs('base'), 'UWB_ROUND')[0].slots).toBe(5)
   })
 
-  it('the solver checks nothing before it fails: no fix comes out of the raw run at all', () => {
+  it('the solver checks nothing before it solves: the raw run still produces fixes, metres off', () => {
     expect(implRow('求交点').sim).toContain('求解前不检查')
-    expect(ofType(recs('raw'), 'UWB_POSITION')).toEqual([])
+    expect(ofType(recs('raw'), 'UWB_POSITION').length).toBeGreaterThan(0)
   })
 })
 
 describe('uwb-dl-tdoa · ③ every figure the labs print is the run', () => {
   it('lab 1: five frames a round, their sizes, airtimes and IEs; 35 sends, none from a badge', () => {
-    const l = lab('锚点自行发起的一轮')
+    const l = lab('锚点自行完成的一轮')
     const rows = tableOf(l, '一轮五帧，每块一次').rows
     const tx = ofType(recs('base'), 'TX_START')
     const round0 = tx.filter((r) => r.t < 200 * MS)
-    expect(round0.map((r) => [r.node, r.frame.uwb?.slot])).toEqual([[REF, 0], ...RESPONDERS.map((id, i) => [id, i + 1]), [REF, 4]])
+    expect(round0.map((r) => [r.node, r.frame.kind, r.frame.uwb?.slot])).toEqual([
+      [REF, 'uwbRcm', 0], ...DL_ANCHORS.map((a, i) => [a.id, 'uwbResp', i + 1]),
+    ])
     const shown: [number, { bytes: number; txTimeNs: number; uwb?: { ies?: string[] } }][] = [
-      [0, round0[0].frame], [1, round0[1].frame], [2, round0[4].frame],
+      [0, round0[0].frame], [1, round0[1].frame],
     ]
     for (const [i, f] of shown) {
       expect(rows[i][3], rows[i][2]).toBe(`${f.bytes} B, ${(uwbPpduNs(f.bytes) / 1000).toFixed(1)} µs`)
       expect(f.txTimeNs).toBe(uwbPpduNs(f.bytes))
-      expect(rows[i][4], rows[i][2]).toBe(f.uwb!.ies!.join('、'))
+      expect(rows[i][4], rows[i][2]).toBe(f.uwb!.ies!.length === 0 ? '无' : f.uwb!.ies!.join('、'))
     }
-    // all three Responses are alike
-    for (const r of round0.slice(1, 4)) expect([r.frame.bytes, r.frame.uwb?.ies]).toEqual([round0[1].frame.bytes, round0[1].frame.uwb?.ies])
+    // all four ranging messages are alike
+    for (const r of round0.slice(1)) expect([r.frame.bytes, r.frame.uwb?.ies]).toEqual([round0[1].frame.bytes, round0[1].frame.uwb?.ies])
     expect(l.expect).toContain(`共 ${tx.length} 次发送`)
     expect(tx).toHaveLength(BLOCKS * 5)
     expect(tx.filter((r) => r.node.startsWith('badge-'))).toEqual([])
@@ -183,7 +199,7 @@ describe('uwb-dl-tdoa · ③ every figure the labs print is the run', () => {
     expect(ofType(rs, 'UWB_RANGE')).toEqual([])
   })
 
-  it('lab 3: the raw run — 63 differences, no fix, and a bias that is the crystal gap times the wait', () => {
+  it('lab 3: the raw run — 63 differences, 14 fixes metres off, none for badge-2; the bias is the badge crystal times the offset', () => {
     const l = lab('关闭时钟修正')
     expect(uwbDlTdoa.variants![l.variant!].label).toBe('关闭时钟修正')
     const rows = tableOf(l, '胸牌的晶振带来的偏差').rows
@@ -196,22 +212,30 @@ describe('uwb-dl-tdoa · ③ every figure the labs print is the run', () => {
       expect(rows[i][3]).toBe(`${Math.max(...diffErrM(base, p)).toFixed(2)} m`)
     })
     expect(ofType(base, 'UWB_TDOA')).toHaveLength(21 * 3)
-    expect(l.steps.join(' ')).toContain(`修正后 ${ofType(base, 'UWB_POSITION').length} 次`)
-    expect(l.expect).toContain(`有 ${ofType(raw, 'UWB_TDOA').length} 个时间差、${ofType(raw, 'UWB_POSITION').length} 次定位`)
-    const gap = drawnPpm('badge-2') - drawnPpm(REF)
-    expect(l.expect).toContain(`${gap.toFixed(2)} ppm`)
-    // "约等于" the gap times the wait: within the 1σ COFF residual (0.2 ppm of the same wait)
+    expect(l.steps.join(' ')).toContain(`修正后 ${ofType(base, 'UWB_POSITION').length} 次定位所用的 ${ofType(base, 'UWB_TDOA').length} 个时间差`)
+    const rawFixes = ofType(raw, 'UWB_POSITION')
+    expect(l.expect).toContain(`仍有 ${ofType(raw, 'UWB_TDOA').length} 个时间差，定位只有 ${rawFixes.length} 次`)
+    expect(new Set(rawFixes.map((f) => f.node))).toEqual(new Set(['badge-1', 'badge-3']))
+    const errs = rawFixes.map((f) => Math.hypot(f.x - f.trueX, f.y - f.trueY))
+    expect(l.expect).toContain(`误差 ${Math.min(...errs).toFixed(2)} 到 ${Math.max(...errs).toFixed(2)} m`)
+    expect(l.expect).toContain('badge-2 一次也定不了位')
+    // the anchors are synchronized (0 ppm), so the gap is the badge's own crystal
+    const ppm = drawnPpm('badge-2')
+    expect(l.expect).toContain(`${ppm.toFixed(2)} ppm`)
+    expect(Math.abs(ppm)).toBeGreaterThan(Math.abs(drawnPpm('badge-1')))
+    expect(Math.abs(ppm)).toBeGreaterThan(Math.abs(drawnPpm('badge-3')))
+    // "约等于" the crystal times the offset: within the timestamp noise of 21 means
     RESPONDERS.forEach((p, i) => {
-      const waitNs = (i + 1) * rstuNs(DEFAULT_UWB_SESSION.slotRstu)
-      const predicted = waitNs * gap * 1e-6 * C_M_PER_NS
-      const sigma = waitNs * DEFAULT_UWB_SESSION.cfoNoisePpm * 1e-6 * C_M_PER_NS
-      expect(Math.abs(mean(diffBiasM(raw, p, 'badge-2')) - predicted), p).toBeLessThan(sigma)
+      const offsetNs = (i + 1) * rstuNs(DEFAULT_UWB_SESSION.slotRstu)
+      const predicted = offsetNs * ppm * 1e-6 * C_M_PER_NS
+      expect(Math.abs(mean(diffBiasM(raw, p, 'badge-2')) - predicted), p).toBeLessThan(0.05)
     })
-    // "最后应答的 anchor-4 误差最大"
+    // "发送偏移最大的 anchor-4 误差最大"
     const maxima = RESPONDERS.map((p) => Math.max(...diffErrM(base, p)))
     expect(Math.max(...maxima)).toBe(maxima[2])
-    // the why's 「七个块里一次定位也解不出来」
-    expect(uwbDlTdoa.why).toContain('七个块里一次定位也解不出来')
+    // the why's figures
+    expect(uwbDlTdoa.why).toContain('badge-2 七个块里一次也定不了位')
+    expect(uwbDlTdoa.why).toContain(`偏离 ${Math.round(Math.min(...errs))} 到 ${Math.round(Math.max(...errs))} m`)
   })
 
   it('lab 4: ten badges cost the anchors nothing — same frames, same air; 21 fixes become 70', () => {

@@ -5,9 +5,10 @@
  * ① is IEEE Std 802.15.4-2024 §10.29.1.2.5's first TDOA case: the mobile device broadcasts a
  * blink, typically the shortest frame possible (a 12-octet multipurpose frame), and fixed nodes
  * synchronised in some way compare the arrivals; §10.29.5 is why an infrastructure RDEV reports a
- * timestamp for every RFRAME it receives. ② says plainly that the engine's blink carries a BLINK
- * IE the standard does not define (scheduled for W4), and which parts — the common time base, the
- * per-badge slot, who solves — are the simulator's own choices. ③ guides four runs.
+ * timestamp for every RFRAME it receives. ② says which parts — the common time base, the per-badge
+ * slot, who solves — are the simulator's own choices. 2026-11-11 (W4): the blink is the standard's
+ * 12-octet multipurpose frame with no IE (until then a 14-octet frame with a "BLINK" IE the standard
+ * does not define). ③ guides four runs.
  *
  * Every figure the lesson prints is read back out of its text in tests/course/uwb-ul-tdoa.test.ts
  * and compared with a run.
@@ -65,10 +66,10 @@ export const uwbUlTdoa: Lesson = {
   id: 'uwb-ul-tdoa',
   module: 25,
   title: '每个标签发送一帧闪发',
-  why: 'IEEE 802.15.4-2024 §10.29.1.2.5 描述的到达时间差（time difference of arrival, TDoA）第一种情形是：移动设备周期性地广播一条消息，通常称为闪发（blink），多个以某种方式彼此同步的固定节点接收它，比较到达时刻；每一对固定节点的到达时间差把移动设备限定在一张双曲面上，几对的交点就是它的位置。标准还说，这类设备通常发送尽可能短的闪发，例如最短 12 字节的多用途帧；固定节点可以通过有线分发时钟同步，也可以用无线方式。业界把这种情形称为上行形态（uplink TDoA, UL-TDoA），这个名称不出自标准。闪发的发送时刻对两个固定节点是同一个，相减即被消去，所以被定位的标签（tag）的晶振（crystal）不影响结果；整个方法取决于固定节点的时钟是否一致。本仿真器把锚点（anchor）放在一条理想的公共时基（common time base）上，每个锚点只留一个在整个会话中固定不变的同步误差（sync error）：按本仿真器的模型，同步误差为 0 时平均定位误差为 3.2 cm，为 1 ns 时增大到 16.7 cm，而且房间里的胸牌一起朝同一方向偏移，是多次测量无法平均消除的偏差。与标准不同的地方：本仿真器的闪发是 14 字节，带一个标准里没有的 BLINK 信息单元，这是待改正的偏差；每个胸牌由会话排定一个时隙，并由参考锚点（reference anchor）直接拿到四个到达时刻、解出位置，这些都是本仿真器的安排。',
+  why: 'IEEE 802.15.4-2024 §10.29.1.2.5 描述的到达时间差（time difference of arrival, TDoA）第一种情形是：移动设备周期性地广播一条消息，通常称为闪发（blink），多个以某种方式彼此同步的固定节点接收它，比较到达时刻；每一对固定节点的到达时间差把移动设备限定在一张双曲面上，几对的交点就是它的位置。标准还说，这类设备通常发送尽可能短的闪发，例如最短 12 字节的多用途帧；固定节点可以通过有线分发时钟同步，也可以用无线方式。业界把这种情形称为上行形态（uplink TDoA, UL-TDoA），这个名称不出自标准。闪发的发送时刻对两个固定节点是同一个，相减即被消去，所以被定位的标签（tag）的晶振（crystal）不影响结果；整个方法取决于固定节点的时钟是否一致。本仿真器把锚点（anchor）放在一条理想的公共时基（common time base）上，每个锚点只留一个在整个会话中固定不变的同步误差（sync error）：按本仿真器的模型，同步误差为 0 时平均定位误差为 3.2 cm，为 1 ns 时增大到 16.7 cm，而且房间里的胸牌一起朝同一方向偏移，是多次测量无法平均消除的偏差。本仿真器的闪发就是标准举例的 12 字节多用途帧，不带信息单元；每个胸牌由会话排定一个时隙，并由参考锚点（reference anchor）直接拿到四个到达时刻、解出位置，这些是本仿真器的安排。',
   outcomes: [
     '说出标准描述的到达时间差第一种情形：谁发送、谁接收、闪发通常是什么帧',
-    '分清本仿真器的哪些做法照标准、哪些是它自己的安排、哪一项是待改正的偏差',
+    '分清本仿真器的哪些做法照标准、哪些是它自己的安排',
     '根据定位偏移的方式，把只取值一次的同步误差与每次重新取值的噪声区分开',
   ],
   needs: ['uwb-dl-tdoa'],
@@ -92,7 +93,7 @@ export const uwbUlTdoa: Lesson = {
     ] },
   ],
   implementation: [
-    { topic: '闪发帧', standard: '通常是尽可能短的帧，例如 12 字节的多用途帧；没有专门的信息单元（§10.29.1.2.5）', sim: '本仿真器的闪发是 14 字节：帧头（MAC header）9 字节、一个 3 字节的 BLINK 信息单元、帧校验 2 字节。本仿真器目前用了标准里没有的 BLINK 信息单元，这是待改正的偏差。闪发里不带任何时间。', kind: 'differs' },
+    { topic: '闪发帧', standard: '通常是尽可能短的帧，例如 12 字节的多用途帧：Short Frame Control、Sequence Number、无目的地址、扩展源地址、帧校验（§10.29.1.2.5，§7.3.5）', sim: '照此：闪发是 12 字节的多用途帧，短帧控制（Short Frame Control）1 字节、序列号 1 字节、扩展源地址 8 字节、帧校验 2 字节，不带信息单元，也不带任何时间。', kind: 'faithful' },
     { topic: '闪发的发送时刻', standard: '周期性地广播；标准没有规定由谁安排', sim: '会话给每个胸牌排定一个只含一个 2 ms 时隙的测距轮（ranging round），每个 200 ms 的块一次；十个胸牌依次占用第 0 到第 9 轮，所以两帧闪发永远不会发生碰撞。一个块最多排 100 个胸牌。', kind: 'choice' },
     { topic: '固定节点的同步', standard: '以某种方式同步：有线分发时钟，或无线方案（§10.29.1.2.5）', sim: '锚点的到达时刻直接取在一条理想的公共时基上：真实的 RMARKER 到达时刻加上时间戳噪声，再加上这个锚点自己的同步误差；锚点自身的晶振不参与。', kind: 'choice' },
     { topic: '同步误差', standard: '标准未给出取值', sim: '每个锚点在会话开始时取一次，此后不变（真实的同步残差还会缓慢漂移）：本课场景为 0 ns，变体为 1 ns 的 1σ。', kind: 'value' },
@@ -111,14 +112,14 @@ export const uwbUlTdoa: Lesson = {
       ],
       blocks: [
         { kind: 'table', heading: 'badge-1 的第一帧闪发', head: ['锚点', '到达时刻'], rows: [
-          ['anchor-1', '183.029 µs'],
-          ['anchor-3', '183.032 µs'],
-          ['anchor-2', '183.035 µs'],
-          ['anchor-4', '183.037 µs'],
+          ['anchor-1', '180.978 µs'],
+          ['anchor-3', '180.981 µs'],
+          ['anchor-2', '180.984 µs'],
+          ['anchor-4', '180.986 µs'],
         ] },
       ],
-      expect: '闪发 14 字节、空口时间（airtime）183.0 µs，只带一个 BLINK 信息单元；七个块共 70 次发送，全部来自胸牌，胸牌没有收到任何帧。四个到达时刻按各锚点到胸牌的距离排序，首尾相差 8 ns。',
-      meaning: '移动设备广播、固定节点接收是标准的第一种情形（①）；BLINK 信息单元是标准里没有的，标准的闪发是一帧普通的短帧（②）。',
+      expect: '闪发 12 字节、空口时间（airtime）181.0 µs，是一帧不带信息单元的多用途帧；七个块共 70 次发送，全部来自胸牌，胸牌没有收到任何帧。四个到达时刻按各锚点到胸牌的距离排序，首尾相差 8 ns。',
+      meaning: '移动设备广播一帧尽可能短的帧、固定节点接收，是标准的第一种情形（①）；本仿真器的闪发就是标准举例的那种多用途帧（②）。',
     },
     {
       heading: '由基础设施解出的位置',
@@ -158,7 +159,7 @@ export const uwbUlTdoa: Lesson = {
   ],
   sources: [
     'IEEE Std 802.15.4-2024：§10.29.1.2.5（到达时间差的第一种情形、闪发通常是最短 12 字节的多用途帧、固定节点的有线与无线同步）、§10.29.5（开启测距后每一帧测距帧都产生时间戳报告，使设备可以在单向测距中担任基础设施一侧的设备）、§10.29.1.1（RMARKER）、§16.4.9（±20 ppm 的发射中心频率容差）。「上行形态」「参考锚点」「同步误差」都不是标准的术语。',
-    '本仿真器的做法与取值：14 字节的闪发与其中标准里没有的 BLINK 信息单元（待改正）；每个胸牌一个 2 ms 时隙、每块一次；理想的公共时基与每个锚点固定不变的同步误差（0 ns 与 1 ns）；100 ps 的时间戳噪声；四个到达时刻直接交给参考锚点、在已知高度上求交点。',
+    'IEEE Std 802.15.4-2024 §7.3.5（多用途帧的格式与短帧控制字段）。本仿真器的做法与取值：每个胸牌一个 2 ms 时隙、每块一次；理想的公共时基与每个锚点固定不变的同步误差（0 ns 与 1 ns）；100 ps 的时间戳噪声；四个到达时刻直接交给参考锚点、在已知高度上求交点。',
   ],
   limits: [],
   scenario: () => uwbUlTdoaScenario('base'),
@@ -177,11 +178,11 @@ export const uwbUlTdoa: Lesson = {
       q: '按标准，到达时间差的第一种情形里，移动设备通常发送什么帧？',
       options: [
         '一帧尽可能短的帧，例如最短 12 字节的多用途帧',
-        '一帧带 BLINK 信息单元的专用闪发帧',
+        '一帧带专用信息单元的闪发帧',
         '一帧带发送时刻的测距控制消息',
       ],
       answer: 0,
-      explain: '§10.29.1.2.5 举的例子是多用途帧：Short Frame Control、Sequence Number、扩展源地址与帧校验，共 12 字节。BLINK 信息单元是本仿真器的，标准里没有。',
+      explain: '§10.29.1.2.5 举的例子是多用途帧：Short Frame Control、Sequence Number、扩展源地址与帧校验，共 12 字节。标准没有为闪发定义专门的信息单元。',
     },
     {
       q: '为什么这里胸牌的晶振完全不影响定位结果？',

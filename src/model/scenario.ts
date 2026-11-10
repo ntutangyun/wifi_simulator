@@ -451,18 +451,29 @@ export interface UwbSessionCfg {
   mmrcr: boolean
   /** What the session measures: two-way ranges, or one-way time differences (§10.32.3). */
   mode: UwbMode
-  /** DL-TDoA only: the tag corrects its own clock rate from the round's poll-to-Final interval
-   * before differencing its arrival times. With it off, the tag's crystal offset (up to ±20 ppm
-   * over a whole round) swamps the differences — the lesson's centrepiece. */
+  /** DL-TDoA only: the listening tag corrects its own clock rate with the clock offset its receiver
+   * measured on the synchronized anchors' frames (standard §10.29.1.1, §10.29.1.6) before it
+   * differences its arrival times against the known transmission offsets (§10.29.1.2.5). With it off,
+   * the tag's crystal offset (up to ±20 ppm over the offsets) swamps the differences. */
   tdoaClockCorrection: boolean
   /** UL-TDoA only (model): 1-σ residual error, in nanoseconds, of each anchor's calibration to
    * anchor 0's timebase — what imperfect "wired sync" costs the fix. */
   syncErrorNs: number
   /** Two-way ranging only: every anchor also measures the phase difference between its two
    * antennas on each frame it receives from the tag, and reports the bearing that phase implies
-   * (src/uwb/aoa.ts). A DS-TWR anchor that has both a range and a bearing fixes the tag on its
-   * own — the one single-anchor position in the simulator. */
+   * (src/uwb/aoa.ts). An anchor that has both a range and a bearing fixes the tag on its own — the
+   * one single-anchor position in the simulator. */
   aoa: boolean
+  /**
+   * SP1 SS-TWR only: every responder sets the TOF Request field of the RRMC IE (1) its Response carries
+   * (standard §10.29.8.3: "In SS-TWR, the initiator typically calculates the TOF … the responder can
+   * request the resultant TOF by including, in its response, an RRMC IE with the TOF Request field
+   * set"), and the initiator answers in one more slot at the end of the round with a broadcast RMI IE
+   * carrying each requesting responder's TOF and address (§10.32.4, Figure 10-235; §10.29.8.4). The
+   * responder then holds its range. Default false, so an existing scenario reads back unchanged.
+   * 2026-11-11 (W4, audit #16).
+   */
+  ssTofRequest: boolean
   /**
    * SP3 grouped ranging (standard §10.32.8): run the exchange over the physically shortest
    * ranging frame the standard has — SYNC + SFD + STS, no PHR, no payload (`uwbSp3Chips`/
@@ -607,7 +618,7 @@ export const DEFAULT_UWB_SESSION: UwbSessionCfg = {
   blockRstu: 240_000, slotRstu: UWB_DEFAULT_SLOT_RSTU, channel: 9, tsNoisePs: 100, cfoNoisePpm: 0.2, nlos: true,
   schedule: 'time', contentionSlots: 8, maxAttempts: 1,
   rcmValidityRounds: 1, initiatorRounds: 1, rmnr: false, mmrcr: false,
-  mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false,
+  mode: 'twr', tdoaClockCorrection: true, syncErrorNs: 0, aoa: false, ssTofRequest: false,
   sp3: false, srrr: { ...DEFAULT_UWB_SRRR },
   ancillary: false, ancillaryFrames: 1,
   ancillaryRequest: false, ancillaryRequestSlots: 1,
@@ -1701,6 +1712,9 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
       tdoaClockCorrection: z.boolean().default(true),
       syncErrorNs: z.number().min(0).max(10).default(0),
       aoa: z.boolean().default(false),
+      // standard §10.29.8.3, §10.32.4 Figure 10-235 (2026-11-11, W4): default false, so an existing
+      // scenario reads back byte for byte.
+      ssTofRequest: z.boolean().default(false),
       // Both default: an existing scenario carries neither key and must read back byte for byte,
       // same discipline as every other switch in this block. standard §10.32.8 (sp3) / §10.32.9.9
       // (srrr) / model (defaulting both request bits off)
@@ -2117,8 +2131,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 收没收到它的 Poll，已经由它自己'
-              + '发没发 Response 直接说明，不必再发一帧去确认同一件事；真正不知道自己有没有被听见的是标签，'
+            message: 'DL-TDoA 里能发出控制消息的只有 anchor 0，其余 anchor 收没收到它的 RCM，已经由它自己'
+              + '发没发测距消息直接说明，不必再发一帧去确认同一件事；真正不知道自己有没有被听见的是标签，'
               + '可标签在 DL-TDoA 里从不发送——它不是双方都认识的一个地址，没法问它，也没法替它确认，'
               + '请把 mmrcr 关掉',
           })
@@ -2211,7 +2225,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'SP3分组测距问答的是标签这一端：DL-TDoA里收发Poll、Response与Final的是锚点之间，'
+            message: 'SP3分组测距问答的是标签这一端：DL-TDoA里发送的只有锚点（RCM 与各自的测距消息），'
               + '标签在这个模式下从不发送，没有一次标签-锚点的往返可以压成SP3标记，请把 sp3 关掉',
           })
         }
@@ -2315,6 +2329,20 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
               + '——请把 method 改成 ss，或者把 srrr 的两个位都关掉',
           })
         }
+        // The TOF request of SP1 SS-TWR (standard §10.29.8.3, §10.32.4 Figure 10-235; 2026-11-11, W4).
+        // Refused where this engine has no frame to answer it: outside a time-scheduled SP1 SS-TWR
+        // round. DS-TWR has its own route (the responder computes the TOF itself); an SP3 round
+        // requests it with the SRRR IE's RTOF bit instead (§10.32.9.9), which this engine sets only
+        // in SP3 DS-TWR; a contention round's report would have no slot the responders could know.
+        if (sc.uwb.ssTofRequest && !(mode === 'twr' && sc.uwb.method === 'ss' && !sp3 && sc.uwb.schedule === 'time')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['uwb'],
+            message: 'ssTofRequest 是单边双向测距里应答方在应答帧的 RRMC 信息单元里置的 TOF Request 位（标准 §10.29.8.3、'
+              + '§10.32.4 图 10-235），由发起方在轮末用 RMI 信息单元回答：只能用于按时间调度、不用 SP3 的 '
+              + 'SS-TWR 会话（mode = twr、method = ss、schedule = time、sp3 关闭）',
+          })
+        }
         if (sp3 && mode === 'twr' && srrr.raoa && !sc.uwb.aoa) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -2339,8 +2367,8 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['uwb'],
-            message: 'DL-TDoA的空口交互只在锚点之间：anchor 0发Poll，其余锚点发Response，anchor 0发'
-              + 'Final，标签全程只听、不发，也从来不是这几帧里任何一帧指明的收件人——辅助信息交换要'
+            message: 'DL-TDoA的空口只有锚点发送：anchor 0发RCM，每个锚点在自己的时隙发一条测距消息，'
+              + '标签全程只听、不发，也从来不是这几帧里任何一帧指明的收件人——辅助信息交换要'
               + '有发、收两端，这里没有一个锚点对标签说话的时隙能让这条消息走，请把 ancillary 关掉',
           })
         }
@@ -2600,6 +2628,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             sc.uwb.method, anchors, sc.uwb.schedule, sc.uwb.contentionSlots, mode, sc.uwb.mms,
             mmsSlotsPerMs(sc.uwb.slotRstu), sc.uwb.replyTime,
             sc.uwb.sp3 && mode === 'twr' ? { rrtt: sc.uwb.srrr.rrtt } : undefined,
+            sc.uwb.ssTofRequest,
           )
           // **The `ancillaryFrames ≤ slots` rule that used to sit here is gone, and the reason is
           // that its own message stated the wrong mechanism** (slice 3d, design §7.4 precondition
@@ -2743,6 +2772,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
             // than 3, which is a slot-fit question as much as a PSDU-cap one.
             const needNs = uwbSlotFitNs(
               anchors, mode, sc.uwb.schedule, undefined, sc.uwb.method, sc.uwb.replyTime, sc.uwb.sp3,
+              sc.uwb.ssTofRequest,
             )
             if (slotNs < needNs) {
               ctx.addIssue({
@@ -2835,7 +2865,7 @@ export const ScenarioSchema: z.ZodType<Scenario, z.ZodTypeDef, unknown> = z
           // Final-bound 9, but a DS-TWR deferred or any SS-TWR session (whose Poll is what grows)
           // gets the higher, Poll-bound cap instead.
           if (mode !== 'mms') {
-            const anchorCap = uwbMaxAnchors(mode, sc.uwb.method, sc.uwb.replyTime, sc.uwb.schedule)
+            const anchorCap = uwbMaxAnchors(mode, sc.uwb.method, sc.uwb.replyTime, sc.uwb.schedule, sc.uwb.ssTofRequest)
             if (anchors > anchorCap) {
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,

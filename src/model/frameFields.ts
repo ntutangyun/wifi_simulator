@@ -40,19 +40,22 @@ export type FieldKey =
   | 'ampId' | 'ampTdc' | 'ampStaList'
   // 802.15.4 ranging frames (uwb/frameFields.ts): MHR fields then one key per payload IE.
   | 'seqNo' | 'dstPan' | 'dstAddr16' | 'srcAddr16'
+  // The blink's multipurpose frame (standard §7.3.5, §10.29.1.2.5) names its sender by its extended address.
+  | 'srcAddr64'
   | 'ieArc' | 'ieRr' | 'ieRdm' | 'ieRrmc' | 'ieRrti' | 'ieRmi' | 'ieRcps' | 'ieRcma'
   // §10.34's ranging message non-receipt exchange: a header-only IE, no Content field at all.
   | 'ieRmnr'
   // §10.36's receipt-confirmation answer: one entry per initiator, each an address plus a bitmap.
   | 'ieRmmrc'
-  // §10.32.9.9's SP3 ranging-request-reports IE, one per responder of an SP3 round, and the bearing
-  // the data report phase carries back when that IE's RAOA bit asked for one.
-  | 'ieSrrr' | 'ieRaoa'
+  // §10.32.9.9's SP3 ranging-request-reports IE, one per responder of an SP3 round. (The bearing its
+  // RAOA bit asks for is the AOA Azimuth field of the report's RMI IE, §10.29.8.4 — `ieRmi`.)
+  | 'ieSrrr'
   // §10.35.2.1's RAICT IE (Request = 0 half, design §4.1): one row, whose byte count depends on
   // which of the two optional fields the content's own presence bits claim.
   | 'ieRaict'
-  // One-way ranging (model IEs): the DL-TDoA times and the UL-TDoA blink.
-  | 'ieTxTime' | 'ieRxTimes' | 'ieCoffs' | 'ieBlink'
+  // Many-to-many's transmit and receive times (being rewritten by another workstream, W3). One-way
+  // ranging carries no such IE since 2026-11-11 (W4).
+  | 'ieTxTime' | 'ieRxTimes'
   // P802.15.4ab. A multi-millisecond fragment is a raw sequence, not a PSDU: its rows carry no
   // octets at all. A narrowband control message is a compressed PSDU of its own shape, with
   // none of the 802.15.4 MAC header the UWB ranging frames carry.

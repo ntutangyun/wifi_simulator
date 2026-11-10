@@ -106,13 +106,15 @@ describe('roundPlan (one-way ranging)', () => {
     expect(p.roundsPerBlock).toBe(100) // 240 000 / 2 400 RSTU
   })
 
-  it('maps the DL-TDoA slots: anchor 0 polls, anchors 1…N−1 answer, anchor 0 finals', () => {
+  // 2026-11-11 (W4): standard Figure 10-225 "<OWR>" — the controller's RCM in slot 0, then one ranging
+  // message per anchor (anchor k in slot k + 1, as the RDM IE assigns it). Until then anchor 0 polled in
+  // slot 0, anchors 1…N−1 answered and anchor 0 sent a Final.
+  it('maps the DL-TDoA slots: anchor 0 sends the RCM, then every anchor its ranging message', () => {
     const p = roundPlan(session({ mode: 'dl-tdoa' }), 4)
-    expect(slotAction(p, 0)).toEqual({ kind: 'uwbPoll', tx: 'anchor', anchor: 0 })
-    for (let i = 1; i <= 3; i++) {
-      expect(slotAction(p, i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i })
+    expect(slotAction(p, 0)).toEqual({ kind: 'uwbRcm', tx: 'anchor', anchor: 0 })
+    for (let i = 1; i <= 4; i++) {
+      expect(slotAction(p, i)).toEqual({ kind: 'uwbResp', tx: 'anchor', anchor: i - 1 })
     }
-    expect(slotAction(p, 4)).toEqual({ kind: 'uwbFinal', tx: 'anchor', anchor: 0 })
     expect(() => slotAction(p, 5)).toThrow(/DL-TDoA round has 5 slots/)
     // No tag transmits in a DL-TDoA round at all.
     expect([0, 1, 2, 3, 4].every((s) => {

@@ -5,10 +5,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { uwbFrameFields } from '../../src/uwb/frameFields'
-import { makeFinal, makeM2m, makePoll, makeResp, type UwbM2mTimes } from '../../src/uwb/frames'
+import { makeM2m, type UwbM2mTimes } from '../../src/uwb/frames'
 import {
-  DL_COFFS_IE_BYTES, TX_TIME_IE_BYTES, UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, rxTimesIeBytes,
-  uwbDlFinalBytes, uwbDlPollBytes, uwbDlRespBytes, uwbM2mBytes, uwbMaxParticipants,
+  TX_TIME_IE_BYTES, UWB_ANCHOR_SEARCH_CEILING, UWB_MAX_PSDU_BYTES, rxTimesIeBytes,
+  uwbM2mBytes, uwbMaxParticipants,
 } from '../../src/uwb/phy'
 
 const fields = (f: ReturnType<typeof makeM2m>) => uwbFrameFields(f).users[0].subframes[0].mpdu.fields
@@ -36,10 +36,10 @@ describe('many-to-many frame content and size (design §4)', () => {
     expect(uwbM2mBytes(0)).toBe(20)
     expect(uwbM2mBytes(1)).toBe(26)
     expect(uwbM2mBytes(1) - uwbM2mBytes(0)).toBe(6)
-    // This now coincides with the DL-TDoA Final's own formula everywhere, not just for k ≥ 1:
-    // both omit the same IE under the same rule, from the same shared `dlExtraBytes`.
-    for (let k = 0; k <= 8; k++) {
-      expect(uwbM2mBytes(k), `k=${k}`).toBe(uwbDlFinalBytes(k))
+    // 2026-11-11 (W4): the DL-TDoA Final this used to be compared with is gone — one-way ranging now
+    // uses the standard's RCM and bare ranging messages (§10.29.1.2.5, Figure 10-225).
+    for (let k = 1; k <= 8; k++) {
+      expect(uwbM2mBytes(k), `k=${k}`).toBe(20 + rxTimesIeBytes(k))
     }
   })
 
@@ -96,41 +96,5 @@ describe('many-to-many frame content and size (design §4)', () => {
     expect(keyed(f, 'ieTxTime')!.bytes).toBe(TX_TIME_IE_BYTES)
     expect(keyed(f, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(2))
     expect(f.bytes).toBe(uwbM2mBytes(2))
-  })
-
-  it('leaves every DL-TDoA frame byte-identical, field by field (the rename touched nothing)', () => {
-    const dlPoll = makePoll('anc-0', ['anc-1', 'anc-2', 'anc-3'], 'ds', 0, 0, {
-      dl: { txCounter: 1_000_000, rxCounters: {} },
-    })
-    const dlResp = makeResp('anc-1', '*', 'ds', 0, 0, 1, undefined, {
-      txCounter: 1_200_000, rxCounters: { 'anc-0': 1_100_000 }, coffs: 1.5e-6,
-    })
-    const dlFinal = makeFinal('anc-0', [], 0, 0, 4, {
-      txCounter: 1_900_000,
-      rxCounters: { 'anc-1': 1_300_000, 'anc-2': 1_500_000, 'anc-3': 1_700_000 },
-    })
-    // Same three numbers as before the rename (tests/model/uwb-frameFields.test.ts).
-    expect(dlPoll.bytes).toBe(uwbDlPollBytes(3))
-    // 42 → 45 on 2026-11-10: the DL-TDoA Poll is an RCM too, and its ARC IE lost the three index
-    // fields the standard's ARC IE does not have while the RR IE that does carry the indices joined it
-    // (audit #9, §10.32.9.1/§10.32.9.3). Every other DL-TDoA frame is untouched.
-    expect(dlPoll.bytes).toBe(45)
-    expect(dlResp.bytes).toBe(uwbDlRespBytes())
-    expect(dlResp.bytes).toBe(30)
-    expect(dlFinal.bytes).toBe(uwbDlFinalBytes(3))
-    expect(dlFinal.bytes).toBe(34)
-
-    for (const f of [dlPoll, dlResp, dlFinal]) {
-      expect(fieldSum(f), `${f.kind} ${f.bytes} B`).toBe(f.bytes)
-    }
-    // Same IE order as before: DL-TDoA still omits RXT when it carries no times (the Poll here
-    // has none) and still carries COFF only on the Response.
-    expect(dlPoll.uwb?.ies).toEqual(['ARC', 'RR', 'RDM', 'RRMC', 'TXT'])
-    expect(dlResp.uwb?.ies).toEqual(['RRMC', 'TXT', 'RXT', 'COFF'])
-    expect(dlFinal.uwb?.ies).toEqual(['RRMC', 'TXT', 'RXT'])
-    expect(keyed(dlPoll, 'ieTxTime')!.bytes).toBe(TX_TIME_IE_BYTES)
-    expect(keyed(dlResp, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(1))
-    expect(keyed(dlResp, 'ieCoffs')!.bytes).toBe(DL_COFFS_IE_BYTES)
-    expect(keyed(dlFinal, 'ieRxTimes')!.bytes).toBe(rxTimesIeBytes(3))
   })
 })

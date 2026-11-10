@@ -439,11 +439,14 @@ describe('what switching the exchange on must not change', () => {
     // standard Table 16-2) and the SS Response / DS Final / reports carry the RRTI and RMI content
     // headers (§10.29.8.1/§10.29.8.4) — every instant of every mode moves.
     // 2026-11-11 (W2b): twr-ss and twr-ds re-captured — the time-scheduled Poll's RDM IE now carries each responder's Ranging Slot Index (§10.32.9.8), rounds are stretched to a whole divisor of the block (§10.32.2), and the DS Response carries Treply1 while the report carries Tround2 alone (§10.32.5, Figure 10-238).
+    // 2026-11-11 (W4): dl-tdoa and ul-tdoa re-captured — the one-way round is standard Figure 10-225's
+    // "<OWR>" (RCM + bare ranging messages from synchronized anchors, §10.29.1.2.5) and the blink the
+    // 12-octet multipurpose frame; until then the FiRa round with TXT/RXT/COFF IEs and a 14-octet blink.
     const BEFORE: Record<string, string> = {
       'twr-ss': '8934f1b0',
       'twr-ds': 'fbf10307',
-      'dl-tdoa': 'a2c21b25',
-      'ul-tdoa': '426206f8',
+      'dl-tdoa': 'df6ae44c',
+      'ul-tdoa': 'ad574e60',
       m2m: 'ba086737',
     }
     const CASES: [string, Partial<UwbSessionCfg>][] = [

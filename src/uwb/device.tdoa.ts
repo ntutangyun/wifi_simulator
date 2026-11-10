@@ -1,68 +1,78 @@
 /**
- * DL-TDoA and UL-TDoA logic for `UwbDevice`: the one-way ranging modes where nothing is a round
- * trip — anchors broadcast their own instants and a tag differences arrival times (DL-TDoA), or
- * every anchor stamps a tag's blink and the infrastructure differences those (UL-TDoA). Split out
- * of device.ts (pure move); every function here takes the device as its first argument.
+ * One-way ranging (OWR) for `UwbDevice` — the two time-difference-of-arrival cases of IEEE Std
+ * 802.15.4-2024 §10.29.1.2.5, which this simulator calls by their industry names:
+ *
+ * - **DL-TDoA** is the standard's second case: "multiple synchronized nodes broadcast messages
+ *   sequentially with known transmission time offsets with respect to each other … the transmission
+ *   offset is taken into account when calculating the difference in arrival time". The round is
+ *   Figure 10-225's "<OWR>": the controller (anchor 0) sends the RCM in slot 0 — ARC IE with Ranging
+ *   Round Usage = 0 (Table 10-164), RR IE, RDM IE assigning every anchor its slot (§10.32.9.8) — and
+ *   each anchor then broadcasts one ranging message, an RFRAME with no payload IE, at the start of its
+ *   slot. The anchors share one timebase, so the slot starts are the known offsets; the listening tag
+ *   takes its own arrival counters, removes its own clock rate with the clock offset its receiver
+ *   measured (§10.29.1.1, §10.29.1.6), subtracts the known offsets and is left with differences of
+ *   distance. Nothing it needs rides in any frame.
+ * - **UL-TDoA** is the first case: the mobile device broadcasts a blink — the shortest frame possible,
+ *   e.g. a 12-octet multipurpose frame — and fixed nodes "synchronized in some way" stamp its arrival on
+ *   their common timebase.
+ *
+ * 2026-11-11 (W4, audit #15): until then the DL-TDoA round was the FiRa one — unsynchronized anchors
+ * whose Poll, Responses and Final carried transmit times, receive times and a clock offset in three
+ * IEs the standard does not define, and a tag that corrected each anchor's clock from them — and the
+ * blink carried a "BLINK" IE the standard does not define either.
+ *
+ * Split out of device.ts; every function here takes the device as its first argument.
  */
 import type { FrameDesc } from '../model/frames'
 import type { UwbFrameKind } from './frames'
-import { makeFinal, makePoll, makeResp } from './frames'
+import { makeOwrMsg, makeOwrRcm } from './frames'
 import { counterDiff } from './clock'
 import { C_M_PER_NS, RCTU_NS } from './phy'
 import { solveTdoa } from './position'
 import type { RoundState, ScheduledAction, UwbDevice } from './device'
 
-/** What one tag heard from one responder inside a DL-TDoA round. */
-export interface DlResponse {
-  /** When the Response arrived, on the tag's own clock. */
+/** What one tag heard from one anchor's ranging message inside a DL-TDoA round. */
+export interface DlArrival {
+  /** When the message arrived, on the tag's own clock (RCTU counter). */
   rxCounter: number
-  /** How long the responder waited between hearing the Poll and answering, on the responder's
-   * clock: both counters rode in the Response, so the tag can subtract them itself. */
-  replyTime: number
-  /** The responder's own rate against anchor 0's (its ppm minus the reference's, as a fraction),
-   * which is what turns `replyTime` into an interval of the reference's timebase. */
+  /** The clock offset the tag's receiver measured on this message (standard §10.29.1.1: "The next
+   * higher layer can estimate the relative clock offset between the remote transmitter and the local
+   * reference clock at the receiver"): how much faster the sender runs than the tag, as a fraction.
+   * The anchors are synchronized to one timebase, so against any of them it is the tag's own rate. */
   coffs: number
 }
 
 /**
- * What a device holds for a DL-TDoA round, where nothing is a round trip and the roles are not
- * the two-way ones: anchor 0 runs the round, anchors 1…N−1 answer it, and every tag only listens.
- * Null in a two-way ranging round, which needs none of it.
+ * What a device holds for a DL-TDoA round. Null in every other mode.
  */
 export interface DlRoundState {
-  /** Tag: its own arrival counters for the Poll and the Final — the ends of the interval it
-   * measures its clock rate over. Null until each lands; a round missing either produces nothing. */
-  rxPoll: number | null
-  rxFinal: number | null
-  /** Tag: the same two instants as anchor 0 stamped them, straight out of those two frames. The
-   * rate ratio is one interval over the other, so it is the tag's clock against anchor 0's — and
-   * anchor 0's own crystal never enters the result. */
-  txPoll: number | null
-  txFinal: number | null
-  /** Tag: one entry per responder it heard. */
-  responses: Map<string, DlResponse>
-  /** Responder: its clock-offset estimate to anchor 0, taken from the Poll's carrier. */
-  coffsToRef: number | null
-  /** Anchor 0: when each Response arrived on its clock, for the Final to carry. */
-  rxResp: Record<string, number>
+  /** The slot the RCM's RDM IE gives each anchor (standard §10.32.9.8), as this device decoded it —
+   * or, at the controller, as it wrote it. Null until the RCM: a device that never heard it does not
+   * know who sends when, so an anchor without it stays silent and a tag without it measures nothing. */
+  slots: Map<string, number> | null
+  /** Tag: one entry per anchor whose ranging message it heard. */
+  arrivals: Map<string, DlArrival>
+}
+
+/** A fresh round's DL state. */
+export function freshDl(): DlRoundState {
+  return { slots: null, arrivals: new Map() }
 }
 
 /**
  * 1-σ of one DL-TDoA time difference, as a distance — the number the fix's error ellipse is drawn
- * from. Two terms: the tag's two independent receive timestamps (√2·c·σ_ts, 4.2 cm at 100 ps),
- * and the responder's clock-offset estimate, whose residual multiplies the reply time it corrects
- * (0.2 ppm of a 2 ms reply is 12 cm, of a 6 ms reply 36 cm). The second dominates from the first
- * slot on, which is why a responder answering late is measured worse than one answering early.
+ * from. Two terms: the tag's two independent receive timestamps (√2·c·σ_ts, 4.2 cm at 100 ps), and
+ * the residual of its clock-offset estimate, which multiplies the known transmission offset it
+ * corrects (0.2 ppm of a 2 ms offset is 12 cm, of a 6 ms offset 36 cm). The second dominates from the
+ * first slot on, which is why an anchor that transmits late in the round is measured worse.
  *
- * It assumes the tag's own rate correction is on. With `tdoaClockCorrection: false` the tag's
- * crystal - up to 20 ppm of the whole poll-to-arrival interval - dominates everything here and is
- * deliberately not in this figure; at the shipped +-20 ppm that variant produces no fix at all, so
- * there is no ellipse for it to be wrong about.
+ * It assumes the tag's own rate correction is on. With `tdoaClockCorrection: false` the tag's crystal —
+ * up to 20 ppm of the whole offset — dominates everything here and is deliberately not in this figure.
  */
-function dlDiffSigmaM(replyNs: number, tsNoisePs: number, cfoNoisePpm: number): number {
+function dlDiffSigmaM(offsetNs: number, tsNoisePs: number, cfoNoisePpm: number): number {
   return Math.hypot(
     Math.SQRT2 * C_M_PER_NS * (tsNoisePs / 1000),
-    C_M_PER_NS * replyNs * cfoNoisePpm * 1e-6,
+    C_M_PER_NS * offsetNs * cfoNoisePpm * 1e-6,
   )
 }
 
@@ -81,38 +91,65 @@ function ulDiffSigmaM(tsNoisePs: number, syncErrorNs: number): number {
 }
 
 /**
- * One slot of a DL-TDoA round. The anchors own every slot of it: anchor 0 polls in slot 0 and
- * closes with the Final in slot N, anchor i answers in slot i. A tag reaches exactly one branch
- * here — `listenFor` — which is what makes "a tag never transmits in DL-TDoA" a property of the
- * code and not of the schedule: there is no path from a tag to `transmitFor` in this mode.
+ * One slot of a DL-TDoA round. The anchors own every slot of it: anchor 0 sends the RCM in slot 0,
+ * anchor k its ranging message in the slot the RCM gave it. A tag reaches only `listenFor` here —
+ * which is what makes "a tag never transmits in DL-TDoA" a property of the code and not of the
+ * schedule — and an anchor listens only for the RCM, the one frame it needs (its slot is in it).
  */
 export function onDlSlot(
   dev: UwbDevice, slot: number, action: ScheduledAction, r: RoundState, peers: { tag: string; anchors: string[] },
 ): void {
-  // Every DL-TDoA slot is an anchor's; `slotAction` never produces a tag transmission in it.
   if (action.tx !== 'anchor') return
-  const txId = peers.anchors[action.anchor]
-  if (dev.cfg.role === 'tag') {
-    // The whole round is the tag's measurement: the Poll starts its rate interval, each
-    // Response is one time difference, the Final ends the rate interval.
-    dev.listenFor(slot, txId, action.kind)
+  const dl = r.dl
+  if (!dl) return
+  const controller = peers.anchors[0]
+  if (action.kind === 'uwbRcm') {
+    if (dev.id === controller) {
+      transmitOwrRcm(dev, r, peers)
+      return
+    }
+    // Every other device, tag or anchor, needs this one frame: it is where the slots are.
+    dev.listenFor(slot, controller, 'uwbRcm')
     return
   }
-  if (txId === dev.id) {
-    dev.transmitFor(action, slot, r, peers)
+  // A ranging-message slot. Who owns it is what the RCM said — not the scene's anchor order — and a
+  // device that did not decode the RCM does not know.
+  if (!dl.slots) return
+  let owner: string | null = null
+  for (const [id, s] of dl.slots) if (s === slot) owner = id
+  if (owner === null) return
+  if (owner === dev.id) {
+    dev.send(makeOwrMsg(dev.id, r.block, r.round, slot), dev.txCounterNow())
     return
   }
-  // An anchor listens only for what its own part of the round needs, and sleeps through the
-  // rest: anchor 0 must stamp every Response for the Final, a responder must hear the Poll it
-  // answers. Neither ranges the other — there is no round trip anywhere in this round.
-  const wanted: UwbFrameKind = dev.id === peers.anchors[0] ? 'uwbResp' : 'uwbPoll'
-  if (action.kind === wanted) dev.listenFor(slot, txId, action.kind)
+  // Only a tag measures anything from the anchors' messages; another anchor has no use for them.
+  if (dev.cfg.role === 'tag') dev.listenFor(slot, owner, 'uwbResp')
+}
+
+/** The controller's RCM: every anchor of the round, anchor k at slot k + 1 (`slotAction`). */
+function transmitOwrRcm(dev: UwbDevice, r: RoundState, peers: { tag: string; anchors: string[] }): void {
+  const nodes = peers.anchors.map((id, k) => ({ id, slot: k + 1 }))
+  r.dl!.slots = new Map(nodes.map((n) => [n.id, n.slot]))
+  dev.send(makeOwrRcm(dev.id, nodes, r.block, r.round, dev.cfg.stsOff === true ? 0 : 1), dev.txCounterNow())
+}
+
+/** Any device, DL-TDoA: the RCM arrived. Keep the slot table its RDM IE carries (§10.32.9.8). */
+export function onDlRcm(r: RoundState, frame: FrameDesc): void {
+  if (!r.dl) return
+  r.dl.slots = new Map((frame.uwb?.rdm ?? []).map((e) => [e.id, e.slot]))
+}
+
+/** Tag, DL-TDoA: an anchor's ranging message arrived — keep its arrival counter and the clock offset
+ * the receiver measured on it. */
+export function onDlRx(dev: UwbDevice, r: RoundState, from: string, kind: UwbFrameKind, counter: number, coffs: number): void {
+  if (dev.cfg.role !== 'tag' || kind !== 'uwbResp' || !r.dl) return
+  r.dl.arrivals.set(from, { rxCounter: counter, coffs })
 }
 
 /**
  * One slot of a UL-TDoA round, and there is only ever one: the tag whose round it is blinks in
  * it, and every anchor listens. Nothing answers the blink, so the tag's radio is off the instant
- * its frame has left — one 181 µs transmission per block is the whole cost of being positioned —
+ * its frame has left — one transmission per block is the whole cost of being positioned —
  * and an anchor that hears nothing simply has no arrival to contribute.
  */
 export function onUlSlot(
@@ -127,60 +164,41 @@ export function onUlSlot(
 }
 
 /**
- * Tag only, DL-TDoA: this round's time differences (UWB_TDOA, one per responder heard) and the
- * hyperbolic fix they solve to.
+ * Tag only, DL-TDoA: this round's time differences (UWB_TDOA, one per anchor heard besides the
+ * reference) and the hyperbolic fix they solve to.
  *
- * Two corrections stand between the raw arrival counters and a difference of distances.
- *
- * 1. The tag's own crystal. A two-way range differences it away inside one exchange; here the
- *    arrivals are up to a whole round apart, and 20 ppm over 20 ms is 0.4 µs — 120 m. So the
- *    tag measures its rate over the one interval both clocks describe: anchor 0 reports when
- *    it sent the Poll and when it sent the Final, the tag holds its own two arrivals, and the
- *    flight from anchor 0 is in both of those and cancels. The ratio is the tag's clock over
- *    anchor 0's — nothing in it is true time, so anchor 0 is free to run at any ppm it likes.
- *    What is left after dividing is the timestamp noise of the two ends of the interval,
- *    scaled by how much of the round a difference spans.
- * 2. The responders' transmit instants. Anchor i does not answer the Poll instantly: it waits
- *    a slot boundary, which on its own clock is `replyTime`. Put on anchor 0's timebase with
- *    the responder's own clock-offset estimate and added to the Poll's flight time across the
- *    known anchor baseline, that is how much later than the Poll anchor i transmitted — which
- *    is exactly what has to come out of the arrival difference to leave geometry behind.
+ * The reference is anchor 0, the controller. Anchor k transmitted (slot_k − slot_0) slots after it on
+ * the anchors' common timebase — the known transmission offset of §10.29.1.2.5, read off the RCM's RDM
+ * IE and the slot duration. The tag's arrival counters run on its own crystal, up to 20 ppm off, which
+ * over a 6 ms offset is 120 ns — 36 m. So the tag first divides by its own rate, `1 − coffs`, from the
+ * clock offset its receiver measured on the reference's message (the anchors are synchronized, so that
+ * offset is the tag's own against the timebase); then it subtracts the offset. What remains is the
+ * difference of the two flights.
  */
 export function solveTdoaFix(dev: UwbDevice, r: RoundState): void {
   const dl = r.dl
-  // All four instants are required even with `tdoaClockCorrection: false`, where `rate = 1`
-  // needs none of anchor 0's: a round the tag heard only half of is incomplete either way, and
-  // dropping the same rounds in both variants is what makes them comparable round for round.
-  if (!dl || dl.rxPoll === null || dl.rxFinal === null || dl.txPoll === null || dl.txFinal === null) return
+  if (!dl || !dl.slots) return
   const refId = r.anchors[0]
-  // The ratio of the two intervals is the tag's clock against anchor 0's, measured over the
-  // one span the round gives it twice: anchor 0 stamped the Poll and the Final on its own
-  // clock and said so in both frames, the tag stamped their arrivals on its own, and the
-  // flight from anchor 0 sits in both arrivals and cancels. Dividing by it puts the tag's
-  // arrival differences into anchor 0's counter units, which is where `txOffset_i` already
-  // is — so anchor 0's own crystal drops out of the result entirely, whatever it runs at.
-  const rate = dev.cfg.tdoaClockCorrection
-    ? counterDiff(dl.rxFinal, dl.rxPoll) / counterDiff(dl.txFinal, dl.txPoll)
-    : 1
+  const ref = dl.arrivals.get(refId)
+  const refSlot = dl.slots.get(refId)
+  // Every difference is taken against the reference: without its message there is nothing to
+  // difference against, and the round produces nothing.
+  if (!ref || refSlot === undefined) return
+  const rate = dev.cfg.tdoaClockCorrection ? 1 - ref.coffs : 1
   if (!(rate > 0) || !Number.isFinite(rate)) return
-  const ref = dev.geometry.anchorPos(refId)
   const deltas: { id: string; dtNs: number }[] = []
-  // Σσ_i² over the responders actually heard: one difference's sigma is not one number here,
-  // because the term that dominates it grows with the slot the responder answered in.
+  // Σσ_i² over the anchors actually heard: one difference's sigma grows with its offset.
   let sumSqM = 0
   for (const id of r.anchors) {
-    const resp = dl.responses.get(id)
-    if (!resp) continue // this responder was not heard this round: it is simply left out
-    const a = dev.geometry.anchorPos(id)
-    // True-time RCTU, the one term of this sum not in anchor 0's counter units: exactly it
-    // would be tof*(1 + e_0), so the residual is tof*e_0 - 0.2 mm at 20 ppm over 30 m, orders
-    // of magnitude under the clock-offset residual the difference already carries.
-    const tofRctu = Math.hypot(a.x - ref.x, a.y - ref.y, a.z - ref.z) / C_M_PER_NS / RCTU_NS
-    const txOffsetRctu = tofRctu + resp.replyTime * (1 - resp.coffs)
-    const dtNs = (counterDiff(resp.rxCounter, dl.rxPoll) / rate - txOffsetRctu) * RCTU_NS
+    if (id === refId) continue
+    const a = dl.arrivals.get(id)
+    const slot = dl.slots.get(id)
+    if (!a || slot === undefined) continue // not heard this round: simply left out
+    const offsetNs = (slot - refSlot) * r.plan.slotNs
+    const dtNs = (counterDiff(a.rxCounter, ref.rxCounter) * RCTU_NS) / rate - offsetNs
     const trueDtNs = (dev.geometry.trueDistM(dev.id, id) - dev.geometry.trueDistM(dev.id, refId)) / C_M_PER_NS
     deltas.push({ id, dtNs })
-    sumSqM += dlDiffSigmaM(resp.replyTime * RCTU_NS, dev.cfg.tsNoisePs, dev.cfg.cfoNoisePpm) ** 2
+    sumSqM += dlDiffSigmaM(offsetNs, dev.cfg.tsNoisePs, dev.cfg.cfoNoisePpm) ** 2
     dev.emit({
       t: dev.now(), type: 'UWB_TDOA', node: dev.id, ref: refId, peer: id,
       dtNs, trueDtNs, block: r.block, round: r.round,
@@ -191,10 +209,9 @@ export function solveTdoaFix(dev: UwbDevice, r: RoundState): void {
     refId,
     deltas,
     dev.cfg.pos.z,
-    // One sigma for a solver that takes only one: the RMS of the per-responder sigmas above.
-    // A first-order model — the responders' reply times differ by a factor of three across a
-    // round, so no single number describes all three differences — but an honest one, in that
-    // the term it is dominated by is the one the measured errors are dominated by too.
+    // One sigma for a solver that takes only one: the RMS of the per-anchor sigmas above. A
+    // first-order model — the offsets differ by a factor of three across a round — but the term it
+    // is dominated by is the one the measured errors are dominated by too.
     Math.sqrt(sumSqM / Math.max(1, deltas.length)),
   )
   if (!fix) return
@@ -222,6 +239,9 @@ export function ulArrivalNs(dev: UwbDevice): number | null {
  * the shared timebase) that lets them be subtracted at all. Two consequences the lesson lives
  * on: the tag spends one frame and learns nothing, and a calibration error between two anchors
  * is indistinguishable from the tag standing somewhere else.
+ *
+ * How the arrivals reach the reference anchor is outside 802.15.4 here (the anchors' wired backhaul;
+ * standard §10.29.1.2.5 only requires the fixed nodes to be synchronized "in some way").
  *
  * `dtNs` is a plain difference — there is no clock-rate correction to make, because no interval
  * is measured on anybody's crystal here, only two instants on one timebase. The residual is the
@@ -270,125 +290,4 @@ export function solveUlFix(dev: UwbDevice, arrivals: { id: string; ns: number }[
     gdop: fix.gdop, ellipse: fix.ellipse, anchors: [refId, ...deltas.map((d) => d.id)],
     block: r.block, method: 'ul-tdoa', of: tagId,
   })
-}
-
-/**
- * DL-TDoA reception. An anchor keeps only what its own message must carry; a tag keeps
- * everything, because the whole round is its measurement.
- *
- * The responder's clock-offset estimate is stored as its own rate *against anchor 0*, i.e. the
- * negative of what its receiver measured on the reference's carrier (`coffs` here is always
- * "how much faster the sender runs than me"). That is the sign a consumer of the reply time
- * wants, exactly as SS-TWR's `(1 − coffs)` turns a responder's interval into the initiator's
- * timebase — only here the timebase everything lands in is anchor 0's, not the listener's.
- */
-export function onDlRx(
-  dev: UwbDevice, r: RoundState, from: string, frame: FrameDesc, kind: UwbFrameKind, counter: number, coffs: number,
-): void {
-  const dl = r.dl
-  const refId = r.anchors[0]
-  if (!dl) return
-  if (dev.cfg.role === 'anchor') {
-    if (kind === 'uwbPoll') {
-      r.rxPollCounter = counter
-      dl.coffsToRef = -coffs
-    } else if (kind === 'uwbResp') {
-      dl.rxResp[from] = counter
-    }
-    return
-  }
-  switch (kind) {
-    case 'uwbPoll':
-      // Both ends of the rate interval come in pairs: when it arrived here, and when anchor 0
-      // says it left there. A frame without the sender's own instant is not one of this round's.
-      if (frame.uwb?.dl === undefined) return
-      dl.rxPoll = counter
-      dl.txPoll = frame.uwb.dl.txCounter
-      break
-    case 'uwbFinal':
-      if (frame.uwb?.dl === undefined) return
-      dl.rxFinal = counter
-      dl.txFinal = frame.uwb.dl.txCounter
-      break
-    case 'uwbResp': {
-      const times = frame.uwb?.dl
-      // A Response that is missing any of the three is not a DL-TDoA Response at all; the
-      // responder is dropped rather than differenced against a time nobody sent.
-      if (!times || times.coffs === undefined) return
-      const rxPollAtPeer: number | undefined = times.rxCounters[refId]
-      if (rxPollAtPeer === undefined) return
-      dl.responses.set(from, {
-        rxCounter: counter,
-        replyTime: counterDiff(times.txCounter, rxPollAtPeer),
-        coffs: times.coffs,
-      })
-      break
-    }
-  }
-}
-
-/**
- * An anchor's transmission in a DL-TDoA round. Each message says what its sender did on its own
- * clock, and nothing about any round trip: the Poll carries anchor 0's transmit instant, a
- * Response carries the responder's transmit instant, its arrival instant for the Poll and its
- * clock offset to anchor 0, and the Final carries anchor 0's transmit instant and its arrival
- * instant for every Response. All of it is broadcast — the audience is every tag in earshot,
- * none of which the anchors know is there.
- *
- * The Final's arrival instants are the one part a tag here never uses: they are carried because
- * the FiRa message does (a receiver could cross-check each responder's offset against anchor 0's
- * round trip with them), while this model's tag takes each responder's reply time and offset
- * from that responder's own Response.
- */
-export function transmitDl(
-  dev: UwbDevice, action: ScheduledAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] },
-  txCounter: number,
-): void {
-  const dl = r.dl
-  if (!dl) return
-  const refId = peers.anchors[0]
-  switch (action.kind) {
-    case 'uwbPoll': {
-      r.txPollCounter = txCounter
-      // The Poll's schedule lists the *responders*: anchor 0 has slot 0 and the Final, and
-      // slot i belongs to the i-th anchor of the scenario, which is how the Final can name
-      // its arrival times in slot order.
-      dev.send(
-        // A one-way round is time-scheduled by construction, so the contention fields the
-        // TWR Poll carries have nothing to say here: the Poll carries anchor 0's times instead.
-        makePoll(dev.id, peers.anchors.slice(1), r.plan.method, r.block, r.round, {
-          dl: { txCounter, rxCounters: {} },
-        }),
-        txCounter,
-      )
-      break
-    }
-    case 'uwbResp': {
-      // An anchor that never heard the Poll has nothing to answer, and no offset to report.
-      if (r.rxPollCounter === null || dl.coffsToRef === null) return
-      r.txRespCounter = txCounter
-      dev.send(
-        makeResp(
-          dev.id, '*', r.plan.method, r.block, r.round, slot, undefined,
-          { txCounter, rxCounters: { [refId]: r.rxPollCounter }, coffs: dl.coffsToRef },
-        ),
-        txCounter,
-      )
-      break
-    }
-    case 'uwbFinal': {
-      // Anchor 0 closes the round whether or not anyone answered it: a tag needs the Final to
-      // measure its own clock rate, and an empty round still tells it that much.
-      // The Final's RX times are carried because a FiRa DL-TDoA Final carries them, but no tag
-      // in this model reads them: `onDlRx` takes only `txCounter` from the Final, and each
-      // responder's reply time and offset come from its own Response (TXT/RXT/COFF). They are
-      // what a receiver would need to check a responder's offset against anchor 0's round trip.
-      r.txFinalCounter = txCounter
-      dev.send(makeFinal(dev.id, [], r.block, r.round, slot, { txCounter, rxCounters: { ...dl.rxResp } }), txCounter)
-      break
-    }
-    default:
-      // No other kind is ever scheduled in this mode (see slotAction).
-      break
-  }
 }

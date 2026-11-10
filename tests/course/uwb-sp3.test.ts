@@ -22,7 +22,7 @@ import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKi
 import { ScenarioSchema, type Scenario } from '../../src/model/scenario'
 import type { TLRecord } from '../../src/model/records'
 import {
-  SRRR_IE_BYTES, UWB_IE_HDR_BYTES, UWB_PHR_CHIPS, UWB_SHR_CHIPS, UWB_SP3_RAOA_ITEM_BYTES,
+  SRRR_IE_BYTES, UWB_IE_HDR_BYTES, UWB_PHR_CHIPS, UWB_SHR_CHIPS, RMI_AOA_AZIMUTH_BYTES,
   UWB_SS_DEFER_BYTES, UWB_STS_CHIPS, rstuNs, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSp3Chips,
   uwbSp3InitReportBytes, uwbSp3Ns, uwbSp3PollBytes, uwbSp3ReportBytes,
 } from '../../src/uwb/phy'
@@ -119,11 +119,14 @@ describe('uwb-sp3 · the lesson', () => {
 })
 
 describe('uwb-sp3 · ② says what the engine does, and the engine does it', () => {
-  it('has rows of every honest kind, and the RAOA row says it is a deviation', () => {
+  // 2026-11-11 (W4): the RAOA row was the lesson's one "differs"; the bearing is now the RMI AOA Azimuth
+  // field (standard §10.29.8.4), so the row is faithful and no row is "differs".
+  it('has rows of the honest kinds, and the RAOA row is faithful', () => {
     const kinds = new Set(uwbSp3.implementation!.map((r) => r.kind))
-    for (const k of ['faithful', 'differs', 'choice', 'absent', 'value'] as const) expect(kinds.has(k), k).toBe(true)
-    expect(implRow('到达角的报告').kind).toBe('differs')
-    expect(implRow('到达角的报告').sim).toContain('标准里没有的 RAOA 信息单元')
+    for (const k of ['faithful', 'choice', 'absent', 'value'] as const) expect(kinds.has(k), k).toBe(true)
+    expect(kinds.has('differs')).toBe(false)
+    expect(implRow('到达角的报告').kind).toBe('faithful')
+    expect(implRow('到达角的报告').sim).not.toContain('RAOA 信息单元')
   })
 
   it('SP3 包的结构: the chips, no PHR, zero octets, no element', () => {
@@ -184,11 +187,17 @@ describe('uwb-sp3 · ② says what the engine does, and the engine does it', () 
     }
   })
 
-  it('到达角的报告: the bearing travels in an extra 4-octet RAOA element', () => {
-    const [b] = fig(implRow('到达角的报告').sim, /另加一个 RAOA 信息单元（(\d+) 字节）/, '② on RAOA')
-    expect(Number(b)).toBe(UWB_SP3_RAOA_ITEM_BYTES)
+  // 2026-11-11 (W4): standard §10.29.8.4, Figure 10-213 — the bearing is the AOA Azimuth field (2 octets)
+  // of the report's RMI List element, not an IE of its own.
+  it('到达角的报告: the bearing travels in the RMI IE\'s 2-octet AOA Azimuth field', () => {
+    expect(implRow('到达角的报告').kind).toBe('faithful')
+    const [b] = fig(implRow('到达角的报告').sim, /AOA Azimuth 字段（(\d+) 字节）/, '② on the azimuth field')
+    expect(Number(b)).toBe(RMI_AOA_AZIMUTH_BYTES)
     const rep = air(both).filter((r) => r.frame.kind === 'uwbSsDefer')
-    for (const r of rep) expect(r.frame.uwb?.ies).toEqual(['RMI', 'RAOA'])
+    for (const r of rep) {
+      expect(r.frame.uwb?.ies).toEqual(['RMI'])
+      expect(r.frame.uwb?.aoaThetaDeg).toBeDefined()
+    }
     expect(uwbSp3ReportBytes(true) - uwbSp3ReportBytes(false)).toBe(Number(b))
   })
 
@@ -317,7 +326,7 @@ const busy = (rs: TLRecord[]): number =>
       expect(ries).toBe(r.frame.uwb!.ies!.join('、'))
     }
     const [s0, s1, r0, r1, total, cross] = fig(l.expect,
-      /时隙从 (\d+) 个变成 (\d+) 个，多出的是发起方的报告；每个响应方的报告从 (\d+) 字节变成 (\d+) 字节，多了一个 RAOA 信息单元；整轮 ([\d.]+) µs。只请求往返时间时，交叉点后移到 A = (\d+)/,
+      /时隙从 (\d+) 个变成 (\d+) 个，多出的是发起方的报告；每个响应方的报告从 (\d+) 字节变成 (\d+) 字节，多了 RMI 信息单元里的方位角字段；整轮 ([\d.]+) µs。只请求往返时间时，交叉点后移到 A = (\d+)/,
       'lab 4 expect')
     expect(Number(s0)).toBe(busy(base))
     expect(Number(s1)).toBe(busy(both))

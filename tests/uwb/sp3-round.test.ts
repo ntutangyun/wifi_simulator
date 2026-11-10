@@ -27,7 +27,7 @@ import { uwbFrameFields } from '../../src/uwb/frameFields'
 import { UwbNetwork } from '../../src/uwb/network'
 import { rangeSigmaM } from '../../src/uwb/position'
 import {
-  UWB_SP3_RAOA_ITEM_BYTES, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
+  RMI_AOA_AZIMUTH_BYTES, RMI_REPORT_IE_BYTES, UWB_SS_DEFER_BYTES, UWB_TX_POWER_DBM,
   srrrIeBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbSp3InitReportBytes, uwbSp3Ns,
   uwbSp3PollBytes, uwbSp3ReportBytes,
 } from '../../src/uwb/phy'
@@ -352,9 +352,10 @@ describe('SP3 grouped ranging: a whole round', () => {
       of(rs, 'TX_START').filter((r) => r.frame.kind === 'uwbSsDefer').map((r) => r.frame.bytes)
     expect(reportBytes(off)).toEqual([UWB_SS_DEFER_BYTES, UWB_SS_DEFER_BYTES])
     expect(reportBytes(on)).toEqual([uwbSp3ReportBytes(true), uwbSp3ReportBytes(true)])
-    // The difference is exactly the bearing item and nothing else.
+    // The difference is exactly the RMI IE's AOA Azimuth field and nothing else (standard §10.29.8.4,
+    // Figure 10-213; 2026-11-11, W4 — until then a 4-octet "RAOA" IE the standard does not define).
     for (let i = 0; i < 2; i++) {
-      expect(reportBytes(on)[i] - reportBytes(off)[i]).toBe(UWB_SP3_RAOA_ITEM_BYTES)
+      expect(reportBytes(on)[i] - reportBytes(off)[i]).toBe(RMI_AOA_AZIMUTH_BYTES)
     }
     // …and the request is not free at the other end of the round either: the RCM carries one SRRR
     // IE per responder (§10.32.9.9), the mirror image of §10.36's MMRCR bit, which rides a control
@@ -398,11 +399,14 @@ describe('SP3 grouped ranging: a whole round', () => {
       .filter((f) => f.key === 'ieSrrr')
     expect(srrrRows.length).toBe(3)
     expect(srrrRows.reduce((n, f) => n + f.bytes, 0)).toBe(srrrIeBytes(3))
-    // …and one bearing row on each report, worth exactly the item the request bought.
-    const raoaRows = rows(shapes.find((r) => r.frame.kind === 'uwbSsDefer')!.frame)
-      .filter((f) => f.key === 'ieRaoa')
-    expect(raoaRows.length).toBe(1)
-    expect(raoaRows[0].bytes).toBe(UWB_SP3_RAOA_ITEM_BYTES)
+    // …and the report's one RMI row, the reply time plus the AOA Azimuth field the request bought
+    // (2026-11-11, W4: no IE of its own any more).
+    const report = shapes.find((r) => r.frame.kind === 'uwbSsDefer')!.frame
+    expect(report.uwb?.ies).toEqual(['RMI'])
+    const rmiRows = rows(report).filter((f) => f.key === 'ieRmi')
+    expect(rmiRows.length).toBe(1)
+    expect(rmiRows[0].bytes).toBe(RMI_REPORT_IE_BYTES + RMI_AOA_AZIMUTH_BYTES)
+    expect(rows(report).some((f) => String(f.key) === 'ieRaoa')).toBe(false)
   })
 
   it('is deterministic, and every other mode byte-identical', () => {

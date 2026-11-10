@@ -1418,7 +1418,8 @@ describe('Guide section 19: SP3 grouped ranging (standard §10.32.8; SRRR IE §1
   })
 
   it('states the RAOA report-size difference exactly, and it is the bearing item alone', () => {
-    expect(REPORT_RAOA_NS - REPORT_NS).toBe(4103)
+    // 2026-11-11 (W4): the RMI IE's 2-octet AOA Azimuth field (standard §10.29.8.4), not the old 4-octet "RAOA" IE.
+    expect(REPORT_RAOA_NS - REPORT_NS).toBe(2051)
     expect(zh).toContain(us3(REPORT_NS))
     expect(zh).toContain(us3(REPORT_RAOA_NS))
   })

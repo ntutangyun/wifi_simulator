@@ -13,10 +13,10 @@ import {
   NB_MSG_ID, NB_POLL_BYTES, NB_REPORT_BYTES, NB_RESP_BYTES, nbCenterMhz, nbOtmPollBytes, nbPpduNs,
 } from './nb'
 import {
-  UWB_BLINK_BYTES, uwbAncillaryBytes, uwbAncillaryRcmBytes, UWB_REPORT_BYTES, UWB_SS_DEFER_BYTES, uwbDlFinalBytes,
-  uwbDlPollBytes, uwbDlRespBytes, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
+  UWB_BLINK_BYTES, uwbAncillaryBytes, uwbAncillaryRcmBytes, UWB_OWR_MSG_BYTES, uwbOwrRcmBytes, UWB_REPORT_BYTES,
+  UWB_SS_DEFER_BYTES, uwbDsDeferredReportBytes, uwbFinalBytes, uwbInitBytes, uwbM2mBytes,
   uwbMmrcmBytes, uwbPollBytes, uwbPpduNs, uwbRespBytes, uwbRmnrBytes, uwbSp3InitReportBytes, uwbSp3Ns,
-  uwbSp3PollBytes, uwbSp3ReportBytes, type UwbReplyTime,
+  uwbSp3PollBytes, uwbSp3ReportBytes, uwbSsTofReportBytes, type UwbReplyTime,
 } from './phy'
 
 export type UwbFrameKind =
@@ -95,33 +95,10 @@ export const isMmsFragment = (k: FrameKind): boolean => k === 'uwbRsf' || k === 
 export const isSp3Frame = (k: FrameKind): boolean => k === 'uwbSp3'
 
 /**
- * DL-TDoA message content (model, the RMI-style times of §10.29.8.4): what the sender did on its
- * own clock, so that a tag which only listens can put every anchor's transmit instant on anchor
- * 0's timebase. Each time is a 4-octet ranging counter in RCTU.
- */
-export interface UwbDlTimes {
-  /** The sender's own TX counter for this very frame (stamped at its RMARKER). */
-  txCounter: number
-  /** RX counters the sender holds, by peer id: the Poll's at a responder, each Response's at
-   * anchor 0. Empty on the Poll, which opens the round. */
-  rxCounters: Record<string, number>
-  /** Response only: the responder's clock offset to anchor 0 as a fraction (ppm x 1e-6) — the
-   * carrier frequency offset its receiver measured on the Poll. A fraction is the form the
-   * consumer wants (`replyTime * (1 - coffs)`); the frame decoder prints it in ppm. */
-  coffs?: number
-}
-
-/**
  * Many-to-many ranging content (standard §10.32.6 SS / §10.32.7 DS): what participant i puts on
  * the air in its own slot — its own transmit time, plus its arrival time for every participant
- * that transmitted before it (design §4). This is the same shape as `UwbDlTimes` above — the
- * repo's DL-TDoA Final already carries "my own transmit time plus every arrival I hold" — but not
- * the same type: `UwbDlTimes.coffs` has no counterpart here. A two-way exchange measures the
- * clock offset on receive, exactly as the existing SS-TWR path does (`onResponse`'s `coffs`
- * argument comes from `UwbRxInfo`, never from a frame), so nothing in a many-to-many round ever
- * has a clock offset to put on the air in the first place. A type whose fields are not all
- * shared is not a shared type, hence its own interface rather than a reuse of `UwbDlTimes` with
- * `coffs` left undefined.
+ * that transmitted before it (design §4). Many-to-many is being rewritten by another workstream
+ * (W3); one-way ranging no longer carries any such times (2026-11-11, W4).
  */
 export interface UwbM2mTimes {
   /** The sender's own TX counter for this very frame (stamped at its RMARKER). */
@@ -161,7 +138,8 @@ export interface UwbSrrrEntry {
   rrt: boolean
   /** RRTT: a report of round-trip time is required. */
   rrtt: boolean
-  /** RTOF: a report of TOF is required. Never set by this engine. */
+  /** RTOF: a report of TOF is required. Set by this engine's initiator in an SP3 DS-TWR round, where
+   * the responder reports the TOF it computed (2026-11-11, W2b); clear in SP3 SS-TWR (未实现 there). */
   rtof: boolean
 }
 
@@ -283,10 +261,17 @@ export interface UwbInfo {
   /** SP3 grouped ranging, RCM: one SRRR IE per responder (standard §10.32.9.9), present exactly when
    * the frame carries those IEs at all. */
   srrr?: UwbSrrrEntry[]
-  /** SP3 grouped ranging, data report phase: the bearing the responder measured, present exactly
-   * when the round's SRRR IE asked for it (RAOA, standard §10.32.9.9). Never on an SP3 marker —
-   * that frame has no payload at all (`makeSp3`) — only on the report frame that follows it. */
+  /** SP3 grouped ranging, data report phase: the bearing the responder measured, carried in the AOA
+   * Azimuth field of the report's RMI IE (standard §10.29.8.4, Figure 10-213) and present exactly when
+   * the round's SRRR IE asked for it (RAOA bit, §10.32.9.9). Never on an SP3 marker — that frame has
+   * no payload at all (`makeSp3`) — only on the report frame that follows it. */
   aoaThetaDeg?: number
+  /** SP1 SS-TWR Response: the RRMC IE (1)'s TOF Request field is set (standard §10.29.8.3, §10.32.4
+   * Figure 10-235). Present only when set. 2026-11-11 (W4). */
+  tofRequest?: true
+  /** SP1 SS-TWR, the initiator's broadcast measurement report: one RMI List element per responder that
+   * requested it — the TOF in RCTU and the responder's address (§10.29.8.4, §10.32.4). */
+  tofList?: { id: string; tof: number }[]
   /** Final (DS, embedded): per anchor { id, tround1, treply2 } (RMI + RRTI IEs). The initiator's
    * deferred report of a deferred DS round (`uwbReport` from the tag, standard §10.29.6.6) carries the
    * same two times per anchor in one RMI IE; an SP3 initiator report carries { id, tround1 }. A
@@ -296,8 +281,6 @@ export interface UwbInfo {
    * 10-238), or the TOF the responder computed in a deferred one (§10.29.6.6, Figure 10-206). Exactly
    * one of the two is present. 2026-11-11 (W2b): both treply1 and tround2 until then. */
   reportTimes?: { tround2?: number; tof?: number }
-  /** DL-TDoA (Poll, Response, Final): the sender's ranging times, for the listening tags. */
-  dl?: UwbDlTimes
   /** Many-to-many (`uwbM2m`, standard §10.32.6/§10.32.7): this participant's own transmit time
    * and the arrival times it holds for everyone who transmitted before it. Never carries a clock
    * offset — see `UwbM2mTimes`. */
@@ -362,8 +345,8 @@ function uwbFrame(kind: UwbFrameKind, src: string, dst: string, bytes: number, u
 
 /** The optional tail of a Poll: what it carries beyond the round it belongs to. Each field is
  * read by exactly one kind of round, so an options object says at the call site which kind is
- * being built - a contention Poll names the window, a DL-TDoA Poll names the times, and neither
- * has to write the other's arguments out as placeholders. */
+ * being built - a contention Poll names the window, an SP3 Poll its SRRR IEs, and neither has to
+ * write the other's arguments out as placeholders. */
 export interface PollOpts {
   /** Time-scheduled (the default) or a shared response phase. */
   schedule?: 'time' | 'contention'
@@ -375,9 +358,6 @@ export interface PollOpts {
    * one-round set and no MMRCR. A two-way round's initiator passes the round's own
    * (`device.ts#arcFieldsFor`). */
   arc?: UwbArcFields
-  /** DL-TDoA: anchor 0's own ranging times. A Poll that carries them is a DL-TDoA Poll, and the
-   * three fields above mean nothing to it - a one-way round is time-scheduled by construction. */
-  dl?: UwbDlTimes
   /**
    * SP3 grouped ranging (standard §10.32.8.1's first phase): this RCM also carries the responders'
    * SRRR IEs — one per responder, §10.32.9.9 — so it is `srrrIeBytes(A)` octets longer than the
@@ -407,25 +387,17 @@ export interface PollOpts {
  */
 export function makePoll(
   tag: string, anchors: string[], method: 'ss' | 'ds', block: number, round: number,
-  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, dl, srrr, arc, rdmSlots }: PollOpts = {},
+  { schedule = 'time', contentionSlots = 8, maxAttempts = 3, srrr, arc, rdmSlots }: PollOpts = {},
 ): FrameDesc {
   const arcBits: UwbArcFields = arc ?? {
     multiNode: 1,
-    roundUsage: dl ? 0 : method === 'ss' ? 1 : 2,
+    roundUsage: method === 'ss' ? 1 : 2,
     stsConfig: srrr ? 3 : 1,
-    scheduleMode: schedule === 'contention' && !dl ? 0 : 1,
+    scheduleMode: schedule === 'contention' ? 0 : 1,
     deferred: 0,
     timeStructure: 1,
     validityRounds: 1,
     mmrcr: 0,
-  }
-  // DL-TDoA: anchor 0 polls, `anchors` are the responders it gives slots to, and the frame adds
-  // anchor 0's own TX time so a listening tag can time the round on the anchors' clock.
-  if (dl) {
-    return uwbFrame('uwbPoll', tag, '*', uwbDlPollBytes(anchors.length, rxCount(dl), dl.coffs !== undefined), {
-      sp: 1, method, block, round, slot: 0, ies: ['ARC', 'RR', 'RDM', 'RRMC', ...dlIes(dl)],
-      arc: { ...arcBits }, schedule: [...anchors], dl: copyDl(dl),
-    })
   }
   if (schedule === 'contention') {
     return uwbFrame('uwbPoll', tag, '*', uwbPollBytes(anchors.length, 'contention'), {
@@ -483,16 +455,11 @@ export function makeInit(tag: string, method: 'ss' | 'ds', block: number, round:
  * reply time and the responder's report carried it instead). */
 export function makeResp(
   anchor: string, tag: string, method: 'ss' | 'ds', block: number, round: number, slot: number, replyRctu?: number,
-  dl?: UwbDlTimes, replyTime: UwbReplyTime = 'embedded',
+  replyTime: UwbReplyTime = 'embedded',
+  /** SP1 SS-TWR: the RRMC IE (1)'s TOF Request field (standard §10.29.8.3, §10.32.4 Figure 10-235).
+   * A bit of the RRMC control octet the Response carries anyway, so the frame is no longer. */
+  tofRequest = false,
 ): FrameDesc {
-  // DL-TDoA: the responder answers anchor 0 but every tag in earshot is the real audience, so
-  // the caller passes a broadcast destination. It carries no reply time — a listening tag wants
-  // the instants themselves — but its own TX time, its RX time of the Poll and its clock offset.
-  if (dl) {
-    return uwbFrame('uwbResp', anchor, tag, uwbDlRespBytes(rxCount(dl), dl.coffs !== undefined), {
-      sp: 1, method, block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
-    })
-  }
   // 2026-11-11 (W2b): DS-TWR embedded carries its first reply time here too (§10.32.5, Figure 10-238).
   const carriesRrti = replyTime === 'embedded'
   return uwbFrame('uwbResp', anchor, tag, uwbRespBytes(method, replyTime), {
@@ -501,6 +468,53 @@ export function makeResp(
     // A Response that does not carry a reply time has the key absent, not undefined, so its
     // FrameDesc compares equal to a hand-built one.
     ...(carriesRrti && replyRctu !== undefined ? { replyRctu } : {}),
+    ...(tofRequest ? { tofRequest: true as const } : {}),
+  })
+}
+
+/**
+ * The initiator's broadcast measurement report of an SP1 one-to-many SS-TWR round (standard §10.32.4,
+ * Figure 10-235: "The final message broadcast by the initiator conveys one or more RMI IE(s) … where the
+ * Address field of the RMI IE distinguishes to which node the reported measurements relate"): one RMI IE,
+ * TOF Present, one element per responder whose Response set the TOF Request field and reached the
+ * initiator — its TOF in RCTU (§10.29.8.4, §10.29.1.4) and its short address. 15 + 6N octets
+ * (`uwbSsTofReportBytes`). 2026-11-11 (W4, audit #16).
+ */
+export function makeSsTofReport(
+  tag: string, tofs: { id: string; tof: number }[], block: number, round: number, slot: number,
+): FrameDesc {
+  return uwbFrame('uwbReport', tag, UWB_BROADCAST, uwbSsTofReportBytes(tofs.length), {
+    sp: 1, method: 'ss', block, round, slot, ies: ['RMI'], tofList: tofs.map((t) => ({ ...t })),
+  })
+}
+
+/**
+ * The RCM of a one-way ranging round (standard §10.32.2, Figure 10-225 "<OWR>"), sent by the controller
+ * (anchor 0) in slot 0: ARC IE with Ranging Round Usage = 0 (OWR, Table 10-164), Multi-node Mode 1,
+ * Schedule Mode 1 (scheduling-based); RR IE; and an RDM IE (SIU = 1, §10.32.9.8) giving every fixed node
+ * — the controller included — its Ranging Slot Index and the responder role (Figure 10-225 draws the
+ * nodes' messages as "Ranging response message from Responder n"). 25 + 3N octets. 2026-11-11 (W4).
+ */
+export function makeOwrRcm(
+  controller: string, nodes: { id: string; slot: number }[], block: number, round: number, stsConfig: 0 | 1 = 1,
+): FrameDesc {
+  const arc: UwbArcFields = {
+    multiNode: 1, roundUsage: 0, stsConfig, scheduleMode: 1, deferred: 0, timeStructure: 1, validityRounds: 1, mmrcr: 0,
+  }
+  return uwbFrame('uwbRcm', controller, UWB_BROADCAST, uwbOwrRcmBytes(nodes.length), {
+    sp: 1, method: 'ss', block, round, slot: 0, ies: ['ARC', 'RR', 'RDM'], arc,
+    rdm: nodes.map((n) => ({ id: n.id, slot: n.slot, initiator: false })),
+  })
+}
+
+/**
+ * One fixed node's ranging message in a one-way ranging round (Figure 10-225's Rn): a broadcast RFRAME
+ * with no payload IE — MHR + FCS, 11 octets. The listening device knows when it was sent (the node's slot,
+ * a "known transmission time offset", §10.29.1.2.5), so nothing about time rides in it. 2026-11-11 (W4).
+ */
+export function makeOwrMsg(node: string, block: number, round: number, slot: number): FrameDesc {
+  return uwbFrame('uwbResp', node, UWB_BROADCAST, UWB_OWR_MSG_BYTES, {
+    sp: 1, method: 'ss', block, round, slot, ies: [],
   })
 }
 
@@ -532,8 +546,10 @@ export function makeSsDefer(
   aoaThetaDeg?: number,
 ): FrameDesc {
   const raoa = aoaThetaDeg !== undefined
+  // 2026-11-11 (W4): the bearing is the AOA Azimuth field of the same RMI List element (standard
+  // §10.29.8.4, Figure 10-213; AOA Azimuth Present = 1), not an IE of its own.
   return uwbFrame('uwbSsDefer', anchor, tag, raoa ? uwbSp3ReportBytes(true) : UWB_SS_DEFER_BYTES, {
-    sp: 1, method: 'ss', block, round, slot, ies: raoa ? ['RMI', 'RAOA'] : ['RMI'], replyRctu,
+    sp: 1, method: 'ss', block, round, slot, ies: ['RMI'], replyRctu,
     ...(raoa ? { aoaThetaDeg } : {}),
   })
 }
@@ -742,21 +758,11 @@ export function makeSp3(
  * RMI IE with the round-trip times, one RRTI IE with the reply times, §10.32.5 Figure 10-236).
  * When deferred it carries no IE at all — `{Ranging}` in §10.32.5 Figure 10-237 — and the two times
  * follow in the initiator's deferred report (`makeDsDeferredReport`, §10.29.6.6). Until 2026-11-10
- * the deferred Final carried an address-only RMI list, which §10.29.8.4 forbids (audit #3).
- * In DL-TDoA the Final is anchor 0's instead, and `times` is empty: it closes the round with
- * anchor 0's own TX time - which is what a listening tag measures its clock rate over - and its
- * RX time of every Response. The RX times are carried because a FiRa DL-TDoA Final carries them
- * (they would let a receiver check each responder's reported offset against anchor 0's round
- * trip); no tag in this model reads them. */
+ * the deferred Final carried an address-only RMI list, which §10.29.8.4 forbids (audit #3). */
 export function makeFinal(
   tag: string, times: { id: string; tround1: number; treply2: number }[], block: number, round: number, slot: number,
-  dl?: UwbDlTimes, replyTime: UwbReplyTime = 'embedded',
+  replyTime: UwbReplyTime = 'embedded',
 ): FrameDesc {
-  if (dl) {
-    return uwbFrame('uwbFinal', tag, '*', uwbDlFinalBytes(rxCount(dl), dl.coffs !== undefined), {
-      sp: 1, method: 'ds', block, round, slot, ies: ['RRMC', ...dlIes(dl)], dl: copyDl(dl),
-    })
-  }
   if (replyTime === 'deferred') {
     return uwbFrame('uwbFinal', tag, '*', uwbFinalBytes(times.length, 'deferred'), {
       sp: 1, method: 'ds', block, round, slot, ies: [],
@@ -804,7 +810,7 @@ export function makeReport(
  * answer a Response would otherwise have to send — one transmission does both jobs, which is why
  * N participants need only N of these frames where taking turns as the tag would cost N² (design
  * §1/§2). Participant 0, which opens the round, has heard no one yet: its frame carries no
- * RX-times IE at all (`m2mIes`), the same way a DL-TDoA Poll carries none — a real frame does not
+ * RX-times IE at all (`m2mIes`) — a real frame does not
  * send an IE header for zero entries, and `uwbM2mBytes` prices it accordingly.
  */
 export function makeM2m(
@@ -817,7 +823,7 @@ export function makeM2m(
 
 /** The many-to-many IEs one participant's frame carries, in order: its own TX time, always, and
  * its RX times only when it has heard someone (empty on participant 0, which opens the round) —
- * mirroring `dlIes`'s same rule for DL-TDoA, minus the clock-offset IE many-to-many never sends. */
+ * (Being rewritten by another workstream, W3.) */
 function m2mIes(times: UwbM2mTimes): string[] {
   return ['TXT', ...(m2mRxCount(times) > 0 ? ['RXT'] : [])]
 }
@@ -829,43 +835,22 @@ function m2mRxCount(m2m: UwbM2mTimes): number {
 }
 
 /** The times ride in the FrameDesc, which outlives the round that built them: copy, so a later
- * slot cannot rewrite what a frame already said (as `copyDl` does for DL-TDoA). */
+ * slot cannot rewrite what a frame already said. */
 function copyM2m(m2m: UwbM2mTimes): UwbM2mTimes {
   return { ...m2m, rxCounters: { ...m2m.rxCounters } }
 }
 
-/** The blink of UL-TDoA: one 14-octet frame from the tag in its slot and nothing else, ever.
- * It carries no times — the anchors take them on arrival, and their shared timebase turns the
- * arrivals into differences — so its whole payload is a 3-octet blink IE. */
+/** The blink of the first TDOA case (standard §10.29.1.2.5): one 12-octet multipurpose frame from the
+ * tag in its slot and nothing else, ever — MP Short Frame Control, Sequence Number, no destination
+ * address, the tag's extended source address, FCS (`UWB_BLINK_BYTES`). It carries no IE and no times:
+ * the anchors take them on arrival, and their shared timebase turns the arrivals into differences.
+ * 2026-11-11 (W4): until then a 14-octet frame with a "BLINK" IE the standard does not define. */
 export function makeBlink(tag: string, block: number, round: number): FrameDesc {
   return uwbFrame('uwbBlink', tag, '*', UWB_BLINK_BYTES, {
     // A blink is one-way: there is no TWR method behind it. `method` is the shape UwbInfo
     // requires of every ranging frame, and the decoder never prints it for a blink.
-    sp: 1, method: 'ss', block, round, slot: 0, ies: ['BLINK'],
+    sp: 1, method: 'ss', block, round, slot: 0, ies: [],
   })
-}
-
-/** The DL-TDoA IEs a message carries, in order: the sender's TX time, the RX times it holds
- * (none on the Poll, which opens the round) and, on a Response, its clock offset. The decoder
- * walks this same list, so the two cannot disagree about what is in the frame. */
-function dlIes(dl: UwbDlTimes): string[] {
-  return [
-    'TXT',
-    ...(rxCount(dl) > 0 ? ['RXT'] : []),
-    ...(dl.coffs !== undefined ? ['COFF'] : []),
-  ]
-}
-
-/** How many RX times this payload actually carries — what the frame is sized at, so a message
- * that grows an RX time grows in uwb/phy.ts's arithmetic and in the schema's slot rule too. */
-function rxCount(dl: UwbDlTimes): number {
-  return Object.keys(dl.rxCounters).length
-}
-
-/** The times ride in the FrameDesc, which outlives the round that built them: copy, so a later
- * slot cannot rewrite what a frame already said. */
-function copyDl(dl: UwbDlTimes): UwbDlTimes {
-  return { ...dl, rxCounters: { ...dl.rxCounters } }
 }
 
 

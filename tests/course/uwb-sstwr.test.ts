@@ -15,7 +15,8 @@ import { isStandardFirst, type Block, type Lab } from '../../src/course/lessonKi
 import type { TimingSpec } from '../../src/course/diagram'
 import { counterDiff } from '../../src/uwb/clock'
 import { metresToNs, rctuToMetres, ssTwrCorrected, ssTwrRaw } from '../../src/uwb/ranging'
-import { C_M_PER_NS, RCTU_NS, rstuNs } from '../../src/uwb/phy'
+import { C_M_PER_NS, RCTU_NS, rstuNs, uwbSsTofReportBytes } from '../../src/uwb/phy'
+import { Simulation } from '../../src/engine/simulation'
 import { COUNTER_BITS } from '../../src/uwb/units'
 import { MODULES } from '../../src/course/curriculum'
 import { lessonShapeSuite, ofType, runOf } from './kit'
@@ -121,6 +122,30 @@ describe('uwb-sstwr · ② says what the engine does, and the engine does it', (
     }
     // no initiator's final frame: nobody asked for a result
     expect(tx.filter((r) => r.node === 'tag-1')).toHaveLength(1)
+  })
+
+  // 2026-11-11 (W4, audit #16): standard §10.29.8.3, §10.32.4 Figure 10-235 — a responder that sets the
+  // RRMC TOF Request field gets its range in the initiator's broadcast RMI report.
+  it('应答方得到距离: with ssTofRequest the tag broadcasts one RMI TOF report and every anchor holds its range', () => {
+    expect(implRow('应答方得到距离').kind).toBe('faithful')
+    expect(implRow('应答方得到距离').sim).toContain('15 + 6N 字节')
+    expect(uwbSstwr.scenario().uwb!.ssTofRequest).toBe(false)
+    const s = uwbSstwr.scenario()
+    const rs = [...new Simulation({ ...s, uwb: { ...s.uwb!, ssTofRequest: true } }).runUntil(RUN_NS).records]
+    const tx = ofType(rs, 'TX_START')
+    const anchors = tx.filter((r) => r.frame.kind === 'uwbResp')
+    expect(anchors.length).toBeGreaterThan(0)
+    expect(anchors.every((r) => r.frame.uwb?.tofRequest === true)).toBe(true)
+    const rep = tx.filter((r) => r.frame.kind === 'uwbReport')
+    expect(rep.length).toBeGreaterThan(0)
+    expect(rep[0].frame.bytes).toBe(uwbSsTofReportBytes(rep[0].frame.uwb!.tofList!.length))
+    const tagR = ofType(rs, 'UWB_RANGE').filter((r) => r.node === 'tag-1')
+    const ancR = ofType(rs, 'UWB_RANGE').filter((r) => r.node !== 'tag-1')
+    expect(ancR).toHaveLength(tagR.length)
+    for (const a of ancR) {
+      const t = tagR.find((x) => x.peer === a.node && x.block === a.block && x.round === a.round)!
+      expect(a.tofRctu).toBe(Math.round(t.tofRctu))
+    }
   })
 
   it('the range is the corrected formula; the raw value is the uncorrected one', () => {

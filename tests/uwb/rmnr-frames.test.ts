@@ -118,8 +118,8 @@ describe('leaves every existing frame byte-identical', () => {
     const f = makeBlink('tag', 0, 0)
     expect(f.kind).toBe('uwbBlink')
     expect(f.bytes).toBe(UWB_BLINK_BYTES)
-    expect(f.bytes).toBe(14)
-    expect(f.uwb!.ies).toEqual(['BLINK'])
+    expect(f.bytes).toBe(12) // 2026-11-11 (W4): the 12-octet multipurpose frame of §10.29.1.2.5, no IE
+    expect(f.uwb!.ies).toEqual([])
     expect(fieldSum(f)).toBe(f.bytes)
   })
 

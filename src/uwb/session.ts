@@ -26,7 +26,8 @@
  *   SS-TWR deferred:   … | slots A+1..2A deferred reply-time message (anchor 0..A-1)
  *   DS-TWR:      … | slot A+1 Final (tag) | slots A+2..2A+1 Report (anchor 0..A-1)
  *   contention:  slot 0 Poll (tag) | slots 1..S Response (whichever anchors drew the slot)
- *   DL-TDoA: slot 0 Poll (anchor 0) | slots 1..A-1 Response (anchor 1..A-1) | slot A Final (anchor 0)
+ *   DL-TDoA: slot 0 RCM (anchor 0, the controller) | slots 1..A ranging message (anchor 0..A-1), standard
+ *            §10.29.1.2.5's second case in Figure 10-225's "<OWR>" round (2026-11-11, W4)
  *   UL-TDoA: slot 0 Blink (tag)
  *   m2m SS:  slots 0..N-1, participant i in slot i — its one transmission asks everyone after it
  *            and answers everyone before it (standard §10.32.6)
@@ -154,6 +155,11 @@ export interface RoundPlan {
    * `model/scenario.ts`. Meaningful only when `sp3` is true; copied rather than referenced, the
    * same reason `mms` below is — a plan outlives the scenario object it was built from. */
   srrr: UwbSrrrCfg
+  /** SP1 SS-TWR: the responders request the TOF (RRMC TOF Request, standard §10.29.8.3) and the round
+   * ends with the initiator's broadcast RMI report of it (§10.32.4, Figure 10-235) — see
+   * `UwbSessionCfg.ssTofRequest`. Always false outside a time-scheduled SP1 SS-TWR round (the schema
+   * refuses it there). 2026-11-11 (W4). */
+  ssTofRequest: boolean
   /**
    * Ranging ancillary information exchange, Request = 0 half (standard §10.35.1; RAICT IE
    * §10.35.2.1; design doc `docs/superpowers/specs/2026-10-02-ancillary-design.md`). Read off the
@@ -267,6 +273,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     // its own measurement report when some responder asked for the round trip (design §4.1). Handed
     // over only when the feature is on, so every other session's slot count is the one it was.
     cfg.sp3 && cfg.mode === 'twr' ? { rrtt: cfg.srrr.rrtt } : undefined,
+    cfg.ssTofRequest,
   )
   // The one round length (standard §10.32.3.3): the ranging round plus its receipt confirmations, or
   // the ancillary round, whichever is longer.
@@ -296,7 +303,7 @@ export function roundPlan(cfg: UwbSessionCfg, anchors: number): RoundPlan {
     replyTime: cfg.replyTime, fixedReplyNs: rstuNs(cfg.fixedReplyRstu),
     rcmValidityRounds: cfg.rcmValidityRounds, mmrcr: cfg.mmrcr,
     initiatorRounds: cfg.mode === 'twr' ? cfg.initiatorRounds : 1,
-    sp3: cfg.sp3, srrr: { ...cfg.srrr },
+    sp3: cfg.sp3, srrr: { ...cfg.srrr }, ssTofRequest: cfg.ssTofRequest,
     ancillary: cfg.ancillary, ancillaryFrames: cfg.ancillaryFrames,
     ancillaryRequest: cfg.ancillaryRequest, ancillaryRequestSlots: cfg.ancillaryRequestSlots,
     // Copied, not referenced: a plan outlives the scenario object it was built from, and a
@@ -348,12 +355,15 @@ export function m2mParticipants(nodes: NodeCfg[]): string[] {
   return nodes.filter((n) => n.kind === 'uwb').map((n) => n.id).sort(byCodeUnit)
 }
 
-/** Who transmits in a slot, and what. In two-way ranging the tag opens and closes the round; in
- * DL-TDoA the anchors own every slot (anchor 0 polls and finals, anchors 1…N−1 respond) and the
- * tags only listen; in UL-TDoA the tag's single slot holds its blink. */
+/** Who transmits in a slot, and what. In two-way ranging the tag opens and closes the round; in a
+ * one-way ranging round (DL-TDoA) the anchors own every slot (anchor 0, the controller, sends the RCM;
+ * every anchor then sends its ranging message in the slot the RCM's RDM IE gave it) and the tags only
+ * listen; in UL-TDoA the tag's single slot holds its blink. */
 export type SlotAction =
   | { kind: 'uwbPoll'; tx: 'tag' }
-  | { kind: 'uwbPoll'; tx: 'anchor'; anchor: number }
+  // One-way ranging (standard §10.32.2, Figure 10-225 "<OWR>"): the controller's RCM on its own in slot
+  // 0 — ARC (Ranging Round Usage = 0) + RR + RDM, no ranging initiation to fuse it with. 2026-11-11 (W4).
+  | { kind: 'uwbRcm'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbResp'; tx: 'anchor'; anchor: number }
   // SS-TWR deferred only (design §4): the follow-up message that carries the reply time the
   // Response could not, in the round's own slots A+1…2A — a kind of its own, not `'uwbResp'`
@@ -368,7 +378,6 @@ export type SlotAction =
   | { kind: 'uwbSp3'; tx: 'tag' }
   | { kind: 'uwbSp3'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbFinal'; tx: 'tag' }
-  | { kind: 'uwbFinal'; tx: 'anchor'; anchor: number }
   | { kind: 'uwbReport'; tx: 'anchor'; anchor: number }
   // …and the measurement report going the other way, which only an SP3 round has (§10.32.8.2's own
   // report phase, design §4.1): the initiator conveying the round-trip time to the responders that
@@ -730,12 +739,13 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
   // length): nobody transmits.
   if (slot >= p.rangingSlots && slot < p.slots) return { kind: 'idle' }
   if (p.mode === 'dl-tdoa') {
-    // N + 1 slots: anchor 0's Poll, one Response per other anchor in its own slot, anchor 0's
-    // Final. The responder in slot i is anchor i, which is what lets the Final list its RX times
-    // in slot order without naming anyone.
-    if (slot === 0) return { kind: 'uwbPoll', tx: 'anchor', anchor: 0 }
-    if (slot < p.anchors) return { kind: 'uwbResp', tx: 'anchor', anchor: slot }
-    if (slot === p.anchors) return { kind: 'uwbFinal', tx: 'anchor', anchor: 0 }
+    // N + 1 slots (standard §10.32.2, Figure 10-225 "<OWR>"): the controller's RCM in slot 0, then one
+    // ranging message per fixed node, anchor k in slot k + 1 — the Ranging Slot Index the RCM's RDM IE
+    // gives it (§10.32.9.8). The nodes are synchronized, so slot k + 1's start is the "known
+    // transmission time offset" of §10.29.1.2.5. 2026-11-11 (W4): until then anchor 0 sent a Poll and a
+    // Final carrying its own transmit times and anchors 1…N−1 answered with theirs.
+    if (slot === 0) return { kind: 'uwbRcm', tx: 'anchor', anchor: 0 }
+    if (slot <= p.anchors) return { kind: 'uwbResp', tx: 'anchor', anchor: slot - 1 }
     throw new Error(`slotAction: DL-TDoA round has ${p.slots} slots, asked for ${slot}`)
   }
   if (p.mode === 'ul-tdoa') {
@@ -785,6 +795,11 @@ export function slotAction(p: RoundPlan, slot: number): SlotAction {
     // anchor order as the Responses that preceded them (design §4).
     if (p.replyTime === 'deferred' && slot <= 2 * p.anchors) {
       return { kind: 'uwbSsDefer', tx: 'anchor', anchor: slot - p.anchors - 1 }
+    }
+    // The responders asked for the TOF (RRMC TOF Request): the initiator's broadcast RMI report is the
+    // round's last frame (standard §10.32.4, Figure 10-235). 2026-11-11 (W4).
+    if (p.ssTofRequest && slot === (p.replyTime === 'deferred' ? 2 * p.anchors + 1 : p.anchors + 1)) {
+      return { kind: 'uwbReport', tx: 'tag' }
     }
     throw new Error(`slotAction: SS round has ${p.slots} slots, asked for ${slot}`)
   }

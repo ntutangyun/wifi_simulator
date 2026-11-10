@@ -36,11 +36,11 @@ import type { Ns, Vec3 } from '../model/types'
 import type { UwbChannel, UwbRadio, UwbRxInfo } from './channel'
 import { counterDiff, gaussian, type UwbClock } from './clock'
 import {
-  makeBlink, makeDsDeferredReport, makeFinal, makeInit, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr, withoutSts,
+  makeBlink, makeDsDeferredReport, makeFinal, makeInit, makeMmrcm, makePoll, makeReport, makeResp, makeRmnr, makeSsTofReport, withoutSts,
   makeSsDefer,
   UWB_BROADCAST, type UwbArcFields, type UwbFrameKind, type UwbMmrcEntry, type UwbSrrrEntry,
 } from './frames'
-import { onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, transmitDl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
+import { freshDl, onDlRcm, onDlRx, onDlSlot, onUlSlot, solveTdoaFix, solveUlFix as solveUlFixImpl, ulArrivalNs as ulArrivalNsImpl, type DlRoundState } from './device.tdoa'
 import { freshMms, onMmsRx, onMmsSlot, solveMmsFix, type MmsRoundState } from './device.mms'
 import { freshM2m, onM2mRx, onM2mSlot, transmitM2m, type M2mRoundState } from './device.m2m'
 import {
@@ -91,9 +91,10 @@ export interface UwbDeviceCfg {
    * as it always was, and not a draw of any device's random stream moves.
    */
   rmnr: boolean
-  /** DL-TDoA only: the listening tag measures its own clock rate against the round's Poll-to-Final
-   * interval before it differences its arrival times. Off, it keeps its raw counter differences —
-   * and up to ±20 ppm of crystal error over a whole round is metres of position error. */
+  /** DL-TDoA only: the listening tag removes its own clock rate — from the clock offset its receiver
+   * measured on the synchronized anchors' frames (standard §10.29.1.1) — before it differences its
+   * arrival times against the known transmission offsets. Off, it keeps its raw counter differences —
+   * and up to ±20 ppm of crystal error over the offsets is metres of position error. */
   tdoaClockCorrection: boolean
   /** UL-TDoA only, anchor: this anchor's own residual calibration error to the infrastructure's
    * common timebase, in nanoseconds — one number, drawn once when the network is built (model:
@@ -217,6 +218,11 @@ interface PeerMeasurement {
   treply1: number | null
   /** Response→Final reply, in the tag's own counter units; known once the Final goes out. */
   treply2: number | null
+  /** SP1 SS-TWR: the Response's RRMC IE (1) set the TOF Request field (standard §10.29.8.3). */
+  tofRequested: boolean
+  /** SP1 SS-TWR: the TOF the tag computed for this responder, in RCTU — what its measurement report
+   * sends back when `tofRequested` (§10.32.4, Figure 10-235). Null until the range is finished. */
+  tofRctu: number | null
 }
 
 /** Everything one device holds for the duration of a single ranging round. */
@@ -254,7 +260,7 @@ export interface RoundState {
   rxFinalCounter: number | null
   /** The Final listed this anchor, i.e. the tag did receive its Response. */
   finalListedMe: boolean
-  /** One-way ranging state; non-null exactly in a DL-TDoA round. */
+  /** One-way ranging state (standard §10.29.1.2.5's second case); non-null exactly in a DL-TDoA round. */
   dl: DlRoundState | null
   /** Narrowband-assisted multi-millisecond state; non-null exactly in an MMS round. */
   mms: MmsRoundState | null
@@ -314,9 +320,7 @@ function freshRound(
     rxPollCounter: null, txRespCounter: null, rxFinalCounter: null, finalListedMe: false, finalFom: null, ownTofRctu: null,
     // Fresh every round: a tag that heard half a round keeps nothing of it, so a missing Poll
     // or Final can never be filled in from the round before.
-    dl: plan.mode === 'dl-tdoa'
-      ? { rxPoll: null, rxFinal: null, txPoll: null, txFinal: null, responses: new Map(), coffsToRef: null, rxResp: {} }
-      : null,
+    dl: plan.mode === 'dl-tdoa' ? freshDl() : null,
     mms,
     m2m,
     // Standard §10.35.1: present exactly on the rounds the exchange runs in, which is the one
@@ -1078,6 +1082,13 @@ export class UwbDevice implements UwbRadio {
     if (kind === 'uwbRcm') {
       this.clearExpectation()
       this.setState('idle')
+      // …and the RCM of a one-way ranging round (ARC Ranging Round Usage = 0, standard Figure 10-225
+      // "<OWR>"), untimed for the same reason: every device keeps the slot table its RDM IE carries.
+      // 2026-11-11 (W4).
+      if (r.plan.mode === 'dl-tdoa') {
+        onDlRcm(r, frame)
+        return
+      }
       if (this.cfg.role !== 'tag') {
         this.noteReceipt(r.tagId, r.block, r.round, r.slot, r.plan)
         this.holdRcm(r, frame)
@@ -1163,7 +1174,7 @@ export class UwbDevice implements UwbRadio {
     }
 
     if (r.plan.mode === 'dl-tdoa') {
-      onDlRx(this, r, from, frame, kind, counter, coffs)
+      onDlRx(this, r, from, kind, counter, coffs)
       return
     }
 
@@ -1225,6 +1236,7 @@ export class UwbDevice implements UwbRadio {
         // each responder to compute its own range.
         if (this.cfg.role === 'tag') this.onReport(r, from, frame, fom)
         else if (sp3Round(r.plan) && r.plan.method === 'ss') onSp3InitReport(this, r, r.slot, frame)
+        else if (r.plan.method === 'ss') this.onSsTofReport(r, frame, fom)
         else this.onDsDeferredReport(r, from, frame)
         break
       case 'uwbM2m':
@@ -1459,7 +1471,7 @@ export class UwbDevice implements UwbRadio {
    * (`transmitFor`) and the responders arm their wait off it (`onSlot`) — because the two deciding
    * separately is the only way they could disagree about which message this round's slot 0 holds.
    *
-   * Only `mode: 'twr'` is asked: DL-TDoA's Poll is an anchor's and no other mode has an ARC IE at
+   * Only `mode: 'twr'` is asked: DL-TDoA's RCM is an anchor's and no other mode has an ARC IE at
    * all, which is why the schema refuses a non-default `rcmValidityRounds` in each of them. With
    * `rcmValidityRounds: 1` — the default — every round is its own set and this is the identity.
    */
@@ -1728,13 +1740,13 @@ export class UwbDevice implements UwbRadio {
     this.expect = { slot, from: null, kind: 'uwbResp', until: slot + 1, open: true, silent: false }
   }
 
+  /** This device's ranging counter for a frame it puts on the air now (stamped at its RMARKER). */
+  txCounterNow(): number {
+    return this.clock.counter(this.now() + UWB_RMARKER_NS)
+  }
+
   transmitFor(action: ScheduledAction, slot: number, r: RoundState, peers: { tag: string; anchors: string[] }): void {
-    const t = this.now()
-    const txCounter = this.clock.counter(t + UWB_RMARKER_NS)
-    if (r.plan.mode === 'dl-tdoa') {
-      transmitDl(this, action, slot, r, peers, txCounter)
-      return
-    }
+    const txCounter = this.txCounterNow()
     if (r.plan.mode === 'm2m') {
       transmitM2m(this, action, slot, r, txCounter)
       return
@@ -1821,9 +1833,12 @@ export class UwbDevice implements UwbRadio {
         // RRTI IE}` when the initiator's RRMC IE (2) asked for it (standard §10.32.5, Figure 10-238).
         const embedded = r.plan.replyTime === 'embedded'
         const replyRctu = embedded ? counterDiff(txCounter, r.rxPollCounter) : undefined
+        // 2026-11-11 (W4, audit #16): in an SP1 SS-TWR session with `ssTofRequest`, the RRMC IE (1) this
+        // Response carries sets the TOF Request field (standard §10.29.8.3, §10.32.4 Figure 10-235).
         this.send(
           makeResp(
-            this.id, r.tagId, r.plan.method, r.block, r.round, slot, replyRctu, undefined, r.plan.replyTime,
+            this.id, r.tagId, r.plan.method, r.block, r.round, slot, replyRctu, r.plan.replyTime,
+            r.plan.ssTofRequest && r.plan.method === 'ss',
           ),
           txCounter,
         )
@@ -1878,7 +1893,7 @@ export class UwbDevice implements UwbRadio {
         // Deferred (standard §10.29.6.6, §10.32.5 Figure 10-237): the Final carries no IE at all — its
         // own transmit time is what `treply2` measures to, so it cannot carry it — and the two times
         // follow in the initiator's deferred report a slot later.
-        this.send(makeFinal(this.id, times, r.block, r.round, slot, undefined, r.plan.replyTime), txCounter)
+        this.send(makeFinal(this.id, times, r.block, r.round, slot, r.plan.replyTime), txCounter)
         break
       }
       case 'uwbReport': {
@@ -1888,6 +1903,7 @@ export class UwbDevice implements UwbRadio {
         // time only the initiator measured.
         if (action.tx === 'tag') {
           if (sp3Round(r.plan) && r.plan.method === 'ss') transmitSp3InitReport(this, r, slot, txCounter)
+          else if (r.plan.method === 'ss') this.transmitSsTofReport(r, slot)
           else this.transmitDsDeferredReport(r, slot)
           break
         }
@@ -2004,6 +2020,7 @@ export class UwbDevice implements UwbRadio {
     r.peers.set(from, {
       id: from, rxRespCounter: counter, coffs, fom, tround1, treply2: null,
       treply1: r.plan.method === 'ds' ? (frame.uwb?.replyRctu ?? null) : null,
+      tofRequested: frame.uwb?.tofRequest === true, tofRctu: null,
     })
     if (r.plan.method !== 'ss') return
     // Deferred: the reply time is not here and could not have been (design §2). The round trip
@@ -2022,7 +2039,38 @@ export class UwbDevice implements UwbRadio {
     if (replyRctu === undefined) return
     const tofRawRctu = ssTwrRaw(tround1, replyRctu)
     const tofRctu = ssTwrCorrected(tround1, replyRctu, coffs)
+    r.peers.get(from)!.tofRctu = tofRctu
     reportRange(this, r, from, 'ss', tofRctu, tofRawRctu, fom)
+  }
+
+  /**
+   * Tag, SP1 SS-TWR with the responders' TOF request: the round's last slot, one broadcast RMI IE with
+   * the TOF of every responder whose Response set the TOF Request field and whose range the tag
+   * finished (standard §10.32.4, Figure 10-235; §10.29.8.4). Nothing to report, nothing sent: an RMI IE
+   * carries at least one measurement (§10.29.8.4). 2026-11-11 (W4, audit #16).
+   */
+  private transmitSsTofReport(r: RoundState, slot: number): void {
+    const tofs: { id: string; tof: number }[] = []
+    for (const id of r.anchors) {
+      const p = r.peers.get(id)
+      if (!p || !p.tofRequested || p.tofRctu === null) continue
+      // The RMI TOF field is an unsigned integer in RCTU (§10.29.8.4, §10.29.1.4).
+      tofs.push({ id, tof: Math.max(0, Math.round(p.tofRctu)) })
+    }
+    if (tofs.length === 0) return
+    this.send(makeSsTofReport(this.id, tofs, r.block, r.round, slot), this.txCounterNow())
+  }
+
+  /**
+   * Responder, SP1 SS-TWR: the initiator's TOF report arrived. Its own element, if any, is its range —
+   * the one way an SS-TWR responder ever learns it (standard §10.29.8.3: "In SS-TWR, the initiator
+   * typically calculates the TOF"). With angle of arrival on, the range meets the bearing this
+   * responder measured on the Poll, and it solves the tag's position alone (`reportRange`).
+   */
+  private onSsTofReport(r: RoundState, frame: FrameDesc, fom: number): void {
+    const mine = frame.uwb?.tofList?.find((e) => e.id === this.id)
+    if (!mine) return
+    reportRange(this, r, r.tagId, 'ss', mine.tof, undefined, fom)
   }
 
   /**

@@ -299,7 +299,7 @@ describe('determinism, and every other mode byte-identical (design §8.7)', () =
     // Re-captured again 2026-11-10 (W2), all four: every PPDU is 896 chips longer (PHR 21 symbols, standard Table 16-2), which moves every instant in every mode; the RRTI and RMI content headers (§10.29.8.1/§10.29.8.4) lengthen the SS Response and the DS Final and reports.
     // 2026-11-11 (W2b): twr/ds re-captured — the DS Response carries Treply1 and the report Tround2 alone
     // (§10.32.5, Figure 10-238), and the round is stretched to a whole divisor of the block (§10.32.2).
-    'twr/ss': '8a632d1c', 'twr/ds': 'e5a12d28', 'dl-tdoa': '3ca6d9d3', 'ul-tdoa': 'f7339e40',
+    'twr/ss': '8a632d1c', 'twr/ds': 'e5a12d28', 'dl-tdoa': '24b7ecf1', 'ul-tdoa': '3291000c',
   }
 
   const streamOf = (sc: Scenario): string => hashStr(JSON.stringify(
@@ -315,6 +315,9 @@ describe('determinism, and every other mode byte-identical (design §8.7)', () =
         expect(streamOf(sc), `m2m ${method} N=${n}`).toBe(streamOf(sc))
       }
     }
+    // 2026-11-11 (W4): dl-tdoa and ul-tdoa re-captured — the one-way round is standard Figure 10-225's
+    // "<OWR>" (RCM + bare ranging messages from synchronized anchors, §10.29.1.2.5) and the blink the
+    // 12-octet multipurpose frame; until then the FiRa round with TXT/RXT/COFF IEs and a 14-octet blink.
     // …and nothing else moved. Four nodes, because one-way ranging needs four anchors.
     const four = (role: (i: number) => 'anchor' | 'tag'): NodeCfg[] =>
       Array.from({ length: 5 }, (_, i) => uwbNode(i, role(i), PPM[i]))

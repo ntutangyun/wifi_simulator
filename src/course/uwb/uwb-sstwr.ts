@@ -122,6 +122,7 @@ export const uwbSstwr: Lesson = {
   implementation: [
     { topic: '一对多的帧', standard: '启动消息带 RRMC，应答带 RRTI 与控制值为 1 的 RRMC，按时隙应答（§10.32.4，图 10-235；一对一的图 10-204 里应答只带 RRTI）', sim: '手机的 Poll 是测距控制消息与启动消息合成的一帧，42 字节，带 ARC、RR、RDM、RRMC 四个信息单元；每个锚点在自己的时隙里发 21 字节的 Response，带 RRMC 与 RRTI。本课的锚点不请求结果，所以没有最后那一帧。', kind: 'faithful' },
     { topic: '计算距离', standard: '修正公式 ½·(Tround − Treply·(1 − Coffs))（§10.29.1.2.2）', sim: '照此计算；日志的测距行同时写出不用 Coffs 的 raw 值，供对照。', kind: 'faithful' },
+    { topic: '应答方得到距离', standard: '应答方可以在应答的 RRMC 信息单元里置 TOF Request，发起方在最后一帧里用 RMI 信息单元报告飞行时间（§10.29.8.3，§10.32.4 图 10-235）', sim: '照此：会话开关 ssTofRequest 打开时，锚点在 Response 的 RRMC 信息单元里置 TOF Request，手机在这一轮末尾多用一个时隙，广播一帧 RMI 信息单元，带每个锚点的飞行时间与地址（15 + 6N 字节），锚点由此得到自己的距离。本课场景没有打开它。', kind: 'faithful' },
     { topic: 'Coffs 的来源', standard: '可选的晶振特性测量，方法不规定（§10.29.1.6）；或由上层用 STS 估计（§10.29.1.1）', sim: '不测量：取两台设备设定的 ppm 之差，再加上一个高斯误差。所以这里不存在失锁，接收信号变弱时估计也不会变差。', kind: 'choice' },
     { topic: 'Coffs 的误差', standard: '只要求上报分辨到 0.1 ppm 或更细（§10.29.1.6.3），不规定估计误差', sim: '标准差取 0.2 ppm，不随接收信号的强弱变化；时间戳噪声随信干噪比（signal-to-interference-plus-noise ratio, SINR）放大，这一项却不变，所以远距离上本仿真器的修正结果偏乐观。', kind: 'value' },
     { topic: '晶振', standard: '每台 ±20 ppm（§16.4.6，§16.4.9）', sim: '每台设备一个固定的 ppm，整场不变，没有温漂、老化与相位噪声。本课的场景取手机 +10 ppm、锚点 −10 ppm，两个变体分别取 0 与 ±1 ppm。', kind: 'value' },

@@ -413,8 +413,8 @@ describe('determinism, and every other mode byte-identical', () => {
   const BEFORE: Record<string, string> = {
     'twr-ss': 'e5e3b991',
     'twr-ds': 'ea68b51b',
-    'dl-tdoa': '5faa07e9',
-    'ul-tdoa': 'fa986dce',
+    'dl-tdoa': '44d6c532',
+    'ul-tdoa': 'cafedca',
     m2m: '624bea16',
   }
 
@@ -432,6 +432,9 @@ describe('determinism, and every other mode byte-identical', () => {
     ['m2m', { mode: 'm2m', method: 'ss' }],
   ]
 
+    // 2026-11-11 (W4): dl-tdoa and ul-tdoa re-captured — the one-way round is standard Figure 10-225's
+    // "<OWR>" (RCM + bare ranging messages from synchronized anchors, §10.29.1.2.5) and the blink the
+    // 12-octet multipurpose frame; until then the FiRa round with TXT/RXT/COFF IEs and a 14-octet blink.
   it('leaves every mode with no control message of its own exactly as it was', () => {
     // All five at once, so a diff names every mode that moved rather than only the first.
     const now: Record<string, string> = {}
