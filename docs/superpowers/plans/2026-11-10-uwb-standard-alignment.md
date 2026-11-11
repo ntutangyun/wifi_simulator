@@ -71,11 +71,12 @@ structure. you're going to change the content anyway」——引擎改了，课�
 ## 进度
 
 - [x] 第一阶段（试点第 70 课，见提交记录；等用户看过新结构再铺开）
-- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [x] W3（见 `docs/superpowers/specs/2026-11-11-w3-design.md`）　- [x] W4（见 `docs/superpowers/specs/2026-11-11-w4-design.md`）　- [x] W5（见 `docs/superpowers/specs/2026-11-11-w5-draft-items-design.md`）　- [ ] W6
+- [x] W1（引擎部分；受影响的课尚未改成新结构）　- [x] W2（引擎部分，见 `docs/superpowers/specs/2026-11-10-uwb-frames-ies-design.md`；课只改到不再说错）　- [x] W3（见 `docs/superpowers/specs/2026-11-11-w3-design.md`）　- [x] W4（见 `docs/superpowers/specs/2026-11-11-w4-design.md`）　- [x] W5（见 `docs/superpowers/specs/2026-11-11-w5-draft-items-design.md`）　- [x] W6（能量检测与前导检测按主 20 MHz，见 `docs/superpowers/specs/2026-11-11-w6-phy-timing-design.md`）
 - [x] 34 门 UWB 课全部改成新结构（① 标准 → ② 本仿真器怎么实现 → ③ 动手仿真）。依赖 W3–W6 的课，② 里把尚未改正的引擎行为标为「与标准不同」
-- [ ] 第三阶段（Wi-Fi 与 AMP 课程）
+- [x] 第三阶段（Wi-Fi 与 AMP 课程，57 门，提交 3af0948）
 - [x] W2b（除一对多窄带 POLL 长度外，见 `docs/superpowers/specs/2026-11-11-w2b-design.md`）
 - [x] W7a Wi-Fi MAC 帧、确认与保护：见姊妹计划 `docs/superpowers/plans/2026-11-11-wifi-standard-alignment.md`
+- [x] W7b EDCA/QoS、去掉自创的游戏模式、AMP 按 P802.11bp 草案：同一份姊妹计划
 
 ## 改课时新发现的引擎偏差（W2b，待改）
 
